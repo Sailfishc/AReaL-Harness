@@ -128,6 +128,7 @@ async fn invalid_model_calls_are_journaled_without_execution_and_can_be_correcte
                 client: fixture.client.clone(),
                 workspace: workspace.clone(),
                 writable: true,
+                command_scope: None,
                 command_scratch: None,
             },
         )
@@ -349,6 +350,7 @@ async fn responses_tools_survive_active_argument_stream_and_retain_provider_cont
             client: fixture.client.clone(),
             workspace: workspace.clone(),
             writable: true,
+            command_scope: None,
             command_scratch: None,
         },
     )
@@ -402,6 +404,7 @@ async fn tool_journal_precedes_submission_and_result_drives_the_next_model_round
             client: fixture.client.clone(),
             workspace: workspace.clone(),
             writable: true,
+            command_scope: None,
             command_scratch: None,
         },
     )
@@ -453,6 +456,7 @@ async fn runtime_disconnect_during_a_tool_fails_with_unknown_and_never_replays()
             client: fixture.client.clone(),
             workspace: workspace.clone(),
             writable: true,
+            command_scope: None,
             command_scratch: None,
         },
     )
@@ -507,6 +511,7 @@ async fn interrupted_inflight_tool_is_unknown_and_turn_waits_for_scope_cleanup()
             client: fixture.client.clone(),
             workspace: workspace.clone(),
             writable: true,
+            command_scope: None,
             command_scratch: None,
         },
     )
@@ -636,6 +641,7 @@ async fn malformed_process_and_cursor_are_recoverable_without_runtime_submission
             client: fixture.client.clone(),
             workspace: workspace.clone(),
             writable: true,
+            command_scope: None,
             command_scratch: None,
         },
     )
@@ -762,6 +768,7 @@ async fn http_tool_loop(done_marker: bool) {
             client: fixture.client.clone(),
             workspace: workspace.clone(),
             writable: true,
+            command_scope: None,
             command_scratch: None,
         },
     )

@@ -107,6 +107,9 @@ pub struct Args {
     /// Use a Runtime created by the trusted launcher over inherited stdin/stdout.
     #[arg(long, requires = "workspace")]
     runtime_stdio: bool,
+    /// 普通命令工具的墙钟上限；桌面进程使用 Runtime 根 Scope 的额度。
+    #[arg(long, requires = "runtime_stdio")]
+    command_timeout_ms: Option<u64>,
     #[arg(long, requires = "execution")]
     workspace: Option<PathBuf>,
     /// Scratch already granted by the trusted Runtime launcher.
@@ -378,6 +381,15 @@ async fn serve(
                     .await?,
             );
         }
+        let command_scope = if let (Some((client, _)), Some(timeout)) = (&runtime, args.command_timeout_ms) {
+            Some(client.create_scope(areal_runtime_protocol::CreateScope {
+                operation_id: client.operation_id(),
+                parent_scope_id: client.info().root_scope_id.clone(),
+                owner: areal_runtime_protocol::Owner { task_id: "core-command-tools".into(), plugin_instance_id: None },
+                permissions: Default::default(),
+                limits: areal_runtime_protocol::LimitRequest { wall_time_ms: Some(timeout), ..Default::default() },
+            }).await?)
+        } else { None };
         let opened = Engine::open_with_plugins(
             &config.data_dir,
             model.clone(),
@@ -388,6 +400,7 @@ async fn serve(
                     client: client.clone(),
                     workspace: workspace.clone(),
                     writable: args.allow_write,
+                    command_scope: command_scope.clone(),
                     command_scratch: args.command_scratch.clone(),
                 }),
             extensions,

@@ -78,6 +78,7 @@ def main():
     parser.add_argument("--allow-network", action="store_true")
     parser.add_argument("--allow-concurrent-writes", action="store_true")
     parser.add_argument("--command-timeout-ms", type=int, default=300000)
+    parser.add_argument("--desktop-process-timeout-ms", type=int)
     parser.add_argument("--command-output-bytes", type=int, default=8 * 1024 * 1024)
     parser.add_argument(
         "--sandbox-profile",
@@ -112,6 +113,10 @@ def main():
     args = parser.parse_args()
     if args.desktop and args.tui:
         parser.error("--desktop and --tui are mutually exclusive")
+    if args.desktop_process_timeout_ms is not None and (
+        not args.desktop or not 1 <= args.desktop_process_timeout_ms <= 86400000
+    ):
+        parser.error("desktop process timeout requires --desktop and must be 1..86400000 ms")
     if not 0 < args.startup_timeout <= 300:
         parser.error("startup timeout must be 0..300 seconds")
     for ready_path in (args.ready_file, args.ready_metadata_file):
@@ -297,7 +302,7 @@ def main():
                     "--file-helper",
                     str(paths[2]),
                     "--wall-time-ms",
-                    str(args.command_timeout_ms),
+                    str(max(args.command_timeout_ms, args.desktop_process_timeout_ms or 0)),
                     "--output-bytes",
                     str(args.command_output_bytes),
                     "--max-scopes",
@@ -347,6 +352,7 @@ def main():
                     str(paths[0]),
                     "app-server",
                     "--runtime-stdio",
+                    *(["--command-timeout-ms", str(args.command_timeout_ms)] if args.desktop_process_timeout_ms is not None else []),
                     "--supervisor-fd",
                     str(lifetime_read),
                     "--workspace",

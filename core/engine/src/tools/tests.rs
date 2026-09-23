@@ -478,6 +478,7 @@ async fn aliases_reject_cross_process_cursor_and_cross_file_version() {
         client: client.clone(),
         workspace: PathBuf::from("/app"),
         writable: true,
+        command_scope: None,
         command_scratch: Some(PathBuf::from("/task-scratch")),
     };
     let mut handles = Handles::default();
@@ -584,6 +585,7 @@ async fn observed_versions_and_cursors_are_bounded_and_expire_with_the_turn() {
         client: client.clone(),
         workspace: PathBuf::from("/app"),
         writable: true,
+        command_scope: None,
         command_scratch: None,
     };
     let mut handles = Handles::default();

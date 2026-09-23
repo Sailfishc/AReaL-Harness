@@ -200,6 +200,8 @@ pub struct RuntimeConfig {
     pub client: Arc<Client>,
     pub workspace: PathBuf,
     pub writable: bool,
+    /// 可信装配的普通命令 Scope；桌面受管进程仍使用 Runtime 根 Scope。
+    pub command_scope: Option<rt::ScopeInfo>,
     /// Trusted temporary directory disjoint from the workspace. When present,
     /// commands receive TMPDIR and disable Python bytecode source pollution.
     pub command_scratch: Option<PathBuf>,
@@ -658,7 +660,10 @@ impl Engine {
                 let scope = client
                     .create_scope(rt::CreateScope {
                         operation_id: client.operation_id(),
-                        parent_scope_id: client.info().root_scope_id.clone(),
+                        parent_scope_id: runtime.command_scope.as_ref().map_or_else(
+                            || client.info().root_scope_id.clone(),
+                            |scope| scope.scope_id.clone(),
+                        ),
                         owner: rt::Owner {
                             task_id: format!("{thread_id}/{turn_id}"),
                             plugin_instance_id: None,

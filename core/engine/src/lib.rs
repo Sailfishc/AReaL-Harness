@@ -429,11 +429,13 @@ impl Engine {
                     && limits.max_agent_depth > 0,
             )?
             .with_workgroups(limits.max_children_per_turn > 0)?;
-        if let Some(limits) = runtime
-            .as_ref()
-            .and_then(|r| r.client.info().capabilities.get("processLimits"))
-        {
-            registry = registry.with_runtime_limits(&serde_json::from_value(limits.clone())?)?;
+        if let Some(runtime) = &runtime {
+            if let Some(scope) = &runtime.command_scope {
+                registry = registry.with_runtime_limits(&scope.limits)?;
+            } else if let Some(limits) = runtime.client.info().capabilities.get("processLimits") {
+                registry =
+                    registry.with_runtime_limits(&serde_json::from_value(limits.clone())?)?;
+            }
         }
         let threads = restore_cells(
             store.load(limits.max_threads, limits.max_history_bytes)?,
