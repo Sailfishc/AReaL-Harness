@@ -520,7 +520,7 @@ async fn retryable_http_failures_are_typed_without_reclassifying_auth_or_bad_req
     use areal_engine::model::{Model, ModelFailure};
     use axum::http::StatusCode;
     for (status, expected) in [
-        (408, Some(ModelFailure::Transport)),
+        (408, Some(ModelFailure::ResponseTimeout)),
         (429, Some(ModelFailure::RateLimited)),
         (501, Some(ModelFailure::Unavailable)),
         (599, Some(ModelFailure::Unavailable)),
@@ -548,6 +548,10 @@ async fn retryable_http_failures_are_typed_without_reclassifying_auth_or_bad_req
         let audit: Value = serde_json::from_str(audit_text.trim()).unwrap();
         assert_eq!(audit["outcome"], "failed");
         assert_eq!(audit["httpStatus"], status);
+        if status == 408 {
+            assert_eq!(audit["terminalOutcome"]["code"], "LLM_RESPONSE_TIMEOUT");
+            assert_eq!(audit["terminalOutcome"]["class"], "timeout");
+        }
         assert_eq!(audit["error"], error.to_string());
         assert_eq!(audit["usageObserved"], false);
         server.abort();
