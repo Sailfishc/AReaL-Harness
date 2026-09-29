@@ -32,21 +32,18 @@ impl Model for FailureModel {
 
 #[tokio::test]
 async fn terminal_codes_survive_events_storage_and_restart_without_completion_retry() {
-    for (fault, idle, deadline, expected) in [
+    for (fault, idle, expected) in [
         (
             Some(ModelFailure::Truncated),
-            5000,
             5000,
             "LLM_OUTPUT_TOKEN_LIMIT_EXCEEDED",
         ),
         (
             Some(ModelFailure::EmptyCompletion),
             5000,
-            5000,
             "LLM_RESPONSE_FAILED",
         ),
-        (None, 25, 5000, "LLM_RESPONSE_TIMEOUT"),
-        (None, 5000, 25, "AGENT_RUN_TIMEOUT"),
+        (None, 25, "LLM_RESPONSE_TIMEOUT"),
     ] {
         let data = tempfile::tempdir().unwrap();
         let model = Arc::new(FailureModel {
@@ -57,7 +54,6 @@ async fn terminal_codes_survive_events_storage_and_restart_without_completion_re
             max_completion_retries: 0,
             watchdog_disable: true,
             stream_idle_timeout: Duration::from_millis(idle),
-            turn_timeout: Duration::from_millis(deadline),
             ..Limits::default()
         };
         let engine = Engine::open(data.path(), model.clone(), limits.clone()).unwrap();

@@ -35019,16 +35019,11 @@
             "historyBytes": {
               "minimum": 0,
               "type": "integer"
-            },
-            "turnTimeoutMs": {
-              "minimum": 0,
-              "type": "integer"
             }
           },
           "required": [
             "contextBytes",
-            "historyBytes",
-            "turnTimeoutMs"
+            "historyBytes"
           ],
           "type": "object"
         },

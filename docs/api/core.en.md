@@ -36,7 +36,7 @@ Events include thread/started, turn/started/completed, item/started/completed an
 | `LLM_OUTPUT_TOKEN_LIMIT_EXCEEDED` | Provider length/max_tokens/max_output_tokens stop; does not prove actual generation reached the requested client cap |
 | `LLM_RESPONSE_TIMEOUT` | Model request or stream timeout, `class=timeout`; existing network retry policy is preserved |
 | `AGENT_MAX_TURNS_EXCEEDED` | Configured `maxModelRounds` exhausted, or tools requested during the final handoff; `class=agent`, `source=core_model_round_budget`, with round count and limit in details. A normal handoff is not a failure. No limit is enabled when unconfigured |
-| `AGENT_RUN_TIMEOUT` | Turn or Goal deadline, `class=agent` |
+| `AGENT_RUN_TIMEOUT` | Explicit Goal or research-worker deadline, `class=agent` |
 | `LLM_RESPONSE_FAILED` | Other recognized model failures, distinguished by details; HTTP 413 is `request_body_too_large`, invalid tool indices retain `invalid_tool_call_index`; neither is context overflow or invalid tool JSON |
 | `HARNESS_INTERNAL_ERROR` | Unclassified Core error, persistence failure or recovered UNKNOWN tool outcome, `class=infrastructure` |
 
@@ -226,3 +226,5 @@ Rust embedders use `Limits.goals: goals::Policy` and `Engine::goal_get/goal_crea
 Goal request ledgers are stored at `goals/<goal-id>.json`, with reservations persisted before sending. Root/child Agents, native Workgroups and active-Turn summaries share accounting. Each ledger permits 4096 requests/4 MiB; clear retains ledgers and history. Snapshot format 10 stores Goals, Turn attribution, reasoning Items and Task interaction policy and cannot be read by older binaries; the API remains areal.core.v1.
 
 Task Mode adds foreground/scheduled/background Tasks, TaskRuns and independent Channels/Inbox above Goals. Goal create also returns taskId/runId. ask_user_question may choose mode=async inside a Goal; headless never waits for users. See the [Task contract](tasks.en.md) for APIs, budgets and recovery. timeUsedSeconds is the union of coordinator Turn and TaskRun worker activity; pure asynchronous user waiting is excluded.
+
+Ordinary Turns have no aggregate deadline. `thread/configuration/read` returns only `historyBytes` and `contextBytes` in `limits`; `turnTimeoutMs` has been removed. Model, tool and explicit task budgets continue to apply independently.

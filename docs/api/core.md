@@ -36,7 +36,7 @@ input 为有序 text/image/audio/file 等内容，UTF-8 文本合计最多 1 MiB
 | `LLM_OUTPUT_TOKEN_LIMIT_EXCEEDED` | Provider 报告 length/max_tokens/max_output_tokens；不证明实际生成量达到客户端请求上限 |
 | `LLM_RESPONSE_TIMEOUT` | 模型请求或响应流超时，`class=timeout`；网络重试策略保持原样 |
 | `AGENT_MAX_TURNS_EXCEEDED` | 配置的 `maxModelRounds` 已耗尽，或收尾轮仍请求工具；`class=agent`、`source=core_model_round_budget`，details 包含轮数和上限；正常收尾不算失败。未配置上限时不启用此限制 |
-| `AGENT_RUN_TIMEOUT` | Turn 或 Goal 时间预算到期，`class=agent` |
+| `AGENT_RUN_TIMEOUT` | 显式 Goal 或研究 worker 时间预算到期，`class=agent` |
 | `LLM_RESPONSE_FAILED` | 其他已识别模型故障，具体原因由 details 表达；413 为 `request_body_too_large`，非法 tool index 保留 `invalid_tool_call_index`，两者不归为 context overflow 或 invalid tool JSON |
 | `HARNESS_INTERNAL_ERROR` | 未分类 Core 错误、持久化失败或恢复到 UNKNOWN 工具结果，`class=infrastructure` |
 
@@ -96,11 +96,11 @@ Responses 摘要通过可选 `reasoning_summary` / `reasoningSummary` 显式开�
 
 `Limits.watchdog_disable` 默认 false，Core 对已分类的网络故障无限次重试当前模型请求，包含传输错误、HTTP 408/429/5xx、提前断流、请求/流空闲超时与明确的 SSE 限流/不可用；不把长度、空回复、鉴权、额度或参数错误当成网络故障。启动配置与关闭方式见[配置指南](../guides/configuration.md)。主 Agent、子 Agent 与独立 Workgroup Engine 继承宿主开关；嵌入式调用方显式传入 Limits，Engine 不读取进程环境。Rust `Limits`、`NativeFactory` 和 `NativeExecutor` 新增 `watchdog_disable` 字段，显式结构体初始化需同步更新；`Limits::default()` 与 `NativeExecutor::new()` 默认启用。
 
-watchdog 保留同一请求的 messages、tools、采样参数与模型轮次，不消耗 `max_completion_retries`；重试不会再次预留 Agent 逻辑请求额度，Workgroup 仍计入每次实际请求及部署预算。250 ms 指数退避封顶 30 秒，释放失败流持有的共享模型许可后等待；取消与总期限仍能结束等待，求解请求还响应 steer。Core 审计并丢弃失败响应的文本、上下文与未执行工具调用，恢复该响应占用的输出字节额度，保留此前已执行工具和已观测 usage。发布 `areal/model/completionDiscarded`（新增 `retryKind=network|completion`）及 `areal/model/watchdogRetry {threadId,turnId,purpose:solve|summary,retry,delayMs}`。这里的丢弃不回滚已执行工具，也不重启整个 Turn。
+watchdog 保留同一请求的 messages、tools、采样参数与模型轮次，不消耗 `max_completion_retries`；重试不会再次预留 Agent 逻辑请求额度，Workgroup 仍计入每次实际请求及部署预算。250 ms 指数退避封顶 30 秒，释放失败流持有的共享模型许可后等待；取消与显式任务预算仍能结束等待，求解请求还响应 steer。Core 审计并丢弃失败响应的文本、上下文与未执行工具调用，恢复该响应占用的输出字节额度，保留此前已执行工具和已观测 usage。发布 `areal/model/completionDiscarded`（新增 `retryKind=network|completion`）及 `areal/model/watchdogRetry {threadId,turnId,purpose:solve|summary,retry,delayMs}`。这里的丢弃不回滚已执行工具，也不重启整个 Turn。
 
 Goal 请求先检查共享预算与用量是否已知，再决定是否重试。请求失败或超时留下未知消费时，保留预留并将 Goal 置为 blocked（usageUnknown）；不进入 watchdog 退避或有限响应重试。Turn 错误同时保留 `GOAL_USAGE_UNKNOWN` 与原始请求失败原因，避免用量检查覆盖接口、鉴权或超时诊断。摘要请求同样受此约束，保留旧 checkpoint，不写入降级摘要。已计量的 HTTP 请求禁用传输层内部重试，避免同一预留隐含多次消费。
 
-`max_completion_retries` 默认 0，可为已分类的长度截断、非法工具 index、空回复等提供有限恢复（仅 reasoning 不算最终回复）；关闭 watchdog 后，已分类网络错误也沿用此有限额度。工具仍只在完整成功流后执行；UNKNOWN、持久化错误、取消与总期限错误不重放。
+`max_completion_retries` 默认 0，可为已分类的长度截断、非法工具 index、空回复等提供有限恢复（仅 reasoning 不算最终回复）；关闭 watchdog 后，已分类网络错误也沿用此有限额度。工具仍只在完整成功流后执行；UNKNOWN、持久化错误、取消与显式任务预算错误不重放。
 
 Chat 工具 index 缺失、null、非整数类型、负数、超出 u64 范围或片段非对象时，使用明确的内部协议错误，只进入上述有限恢复，不进入网络 watchdog，也不作为 Workgroup 推理检查点。Core 不猜测编号或片段归属；数量、参数和缓冲预算错误不自动恢复。失败响应的模型视图被丢弃，已有确认工具、steer 和已观测 usage 保留。解析错误在已排队事件交付后立即传播；同事件或前序事件的已解析 usage 只累计一次，直接 EOF 保留原始错误类型。
 
@@ -240,3 +240,5 @@ Rust 嵌入式调用使用 `Limits.goals: goals::Policy` 及 `Engine::goal_get/g
 Goal 请求账本位于 `goals/<goal-id>.json`，发送前持久预留；主/子 Agent、原生 Workgroup 和活动 Turn 的摘要共享计量，cachedInputTokens 是 inputTokens 的子集、不重复累加。每账本最多 4096 请求/4 MiB；clear 保留账本且不回收历史。快照格式 10 保存 Goal、Turn 归因、思考 Item 与 Task 交互策略，旧二进制不能读取；API 版本仍为 areal.core.v1。
 
 Task Mode 在 Goal 之上提供 foreground/scheduled/background 任务、TaskRun、独立 Channel 与 Inbox。Goal create 同时返回 taskId/runId；Goal 内的 ask_user_question 可选 mode=async，headless 不等待用户。接口、预算与恢复语义见 [Task 契约](tasks.md)。timeUsedSeconds 包含协调 Turn 与 TaskRun worker 活动时间的并集，纯异步用户等待不计入。
+
+普通 Turn 不设组合总时限。`thread/configuration/read` 的 `limits` 仅返回 `historyBytes`、`contextBytes`；已移除 `turnTimeoutMs`。模型、工具及显式任务预算继续独立生效。

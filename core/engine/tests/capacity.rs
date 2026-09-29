@@ -54,7 +54,6 @@ async fn ten_thousand_subagents_have_overlapping_model_calls_and_settle() {
             model_concurrency: count + 1,
             max_active_turns: count + 1,
             max_children_per_turn: count,
-            turn_timeout: Duration::from_secs(600),
             stream_idle_timeout: Duration::from_secs(600),
             ..Limits::default()
         },

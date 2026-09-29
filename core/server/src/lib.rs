@@ -295,7 +295,6 @@ async fn serve(
         max_active_turns: config.max_active_turns,
         max_children_per_turn: config.max_children_per_turn,
         max_agent_depth: config.max_agent_depth,
-        turn_timeout: std::time::Duration::from_secs(config.turn_timeout_seconds),
         stream_idle_timeout: std::time::Duration::from_secs(config.stream_idle_timeout_seconds),
         max_history_bytes: config.max_history_bytes,
         max_output_bytes: config.max_output_bytes,

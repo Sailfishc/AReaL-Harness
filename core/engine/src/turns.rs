@@ -187,7 +187,6 @@ impl Engine {
             tools: TaskTracker::new(),
             process_cursors: BTreeMap::new(),
             handles: tools::Handles::default(),
-            started_at: tokio::time::Instant::now(),
         });
         cell.settled.send_replace(false);
         let thread_id = &state.thread.id;
@@ -416,16 +415,13 @@ impl Engine {
             "event.name" = "areal.user_prompt",
             gen_ai.input.messages = %trajectory::messages(&input)
         });
-        let timeout = self
+        // 普通 Turn 没有组合时限；仅保留显式研究 worker 和 Goal 预算。
+        let worker_deadline = self
             .extensions
             .agents
             .as_ref()
             .filter(|_| cell.research)
-            .map_or(self.limits.turn_timeout, |a| {
-                self.limits
-                    .turn_timeout
-                    .min(Duration::from_secs(a.worker_timeout_seconds))
-            });
+            .map(|a| tokio::time::Instant::now() + Duration::from_secs(a.worker_timeout_seconds));
         let (goal, owner) = {
             let state = cell.state.lock().await;
             (
@@ -461,14 +457,19 @@ impl Engine {
             .map(|g| (g.max_active_seconds as f64 - g.usage.time_used_seconds).max(0.0));
         let goal_deadline =
             goal_seconds.map(|v| tokio::time::Instant::now() + Duration::from_secs_f64(v));
-        let deadline = (tokio::time::Instant::now() + timeout)
-            .min(goal_deadline.unwrap_or(tokio::time::Instant::now() + timeout));
+        let deadline = worker_deadline.into_iter().chain(goal_deadline).min();
+        let budget_expired = async {
+            match deadline {
+                Some(deadline) => tokio::time::sleep_until(deadline).await,
+                None => std::future::pending::<()>().await,
+            }
+        };
         let mut result = tokio::select! {
             biased;
             _ = cancel.cancelled() => Err(anyhow::anyhow!("cancelled")),
-            _ = tokio::time::sleep_until(deadline) => Err(crate::outcome::TerminalFailure::new(
-                if goal_deadline.is_some_and(|g| g <= tokio::time::Instant::now()) {"GOAL_TIME_BUDGET"} else {"turn deadline exceeded"},
-                crate::outcome::outcome("AGENT_RUN_TIMEOUT", "agent", "core_turn_deadline", json!({"goalDeadlineReached":goal_deadline.is_some_and(|g| g <= tokio::time::Instant::now())})),
+            _ = budget_expired => Err(crate::outcome::TerminalFailure::new(
+                if goal_deadline.is_some_and(|g| g <= tokio::time::Instant::now()) {"GOAL_TIME_BUDGET"} else {"research worker deadline exceeded"},
+                crate::outcome::outcome("AGENT_RUN_TIMEOUT", "agent", "core_execution_budget", json!({"goalDeadlineReached":goal_deadline.is_some_and(|g| g <= tokio::time::Instant::now())})),
             ).into()),
             result = std::panic::AssertUnwindSafe(self.generate(&cell, &cancel, &mut steer)).catch_unwind() =>
                 result.unwrap_or_else(|_| Err(anyhow::anyhow!("model task panicked"))),

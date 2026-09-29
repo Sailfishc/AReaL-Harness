@@ -229,7 +229,6 @@ protocol = "chat-completions"
 endpoint = "http://127.0.0.1:{server.server_port}/v1/chat/completions"
 api_key_env = "AREAL_API_KEY"
 [limits]
-turn_timeout_seconds = 60
 max_tool_calls = 32
 """
         # 申请上限高于默认父 Scope，Core 应收窄额度；不能在执行前 PermissionDenied。

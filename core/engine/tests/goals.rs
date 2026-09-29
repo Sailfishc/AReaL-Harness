@@ -596,6 +596,16 @@ async fn active_time_limit_cancels_an_inflight_request_and_never_continues() {
             .contains("GOAL_TIME_BUDGET")
     );
     assert!(pending.reply.is_closed());
+    let thread = e.read(&t.id, true).await.unwrap();
+    let outcome = thread.turns[0]
+        .error
+        .as_ref()
+        .unwrap()
+        .outcome
+        .as_ref()
+        .unwrap();
+    assert_eq!(outcome.code, "AGENT_RUN_TIMEOUT");
+    assert_eq!(outcome.source, "core_execution_budget");
     assert_eq!(done["goal"]["usage"]["turnsStarted"], 1);
     e.shutdown().await;
 }
@@ -703,5 +713,34 @@ async fn drain_wait_stops_continuation_but_allows_current_turn_to_finish() {
         e.read(&t.id, true).await.unwrap().turns[0].status,
         areal_protocol::TurnStatus::Completed
     );
+    e.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn ordinary_turn_model_and_capacity_waits_have_no_aggregate_deadline() {
+    let (_dir, e, mut rx) = controlled(Limits {
+        model_concurrency: 1,
+        stream_idle_timeout: Duration::from_secs(600),
+        ..Limits::default()
+    });
+    let first = e.create("/workspace".into()).await.unwrap();
+    let second = e.create("/workspace".into()).await.unwrap();
+    e.start(&first.id, vec![Input::text("first")])
+        .await
+        .unwrap();
+    let pending = next(&mut rx).await;
+    e.start(&second.id, vec![Input::text("queued")])
+        .await
+        .unwrap();
+    tokio::time::advance(Duration::from_secs(301)).await;
+    assert!(!pending.reply.is_closed());
+    pending.answer("first completed");
+    next(&mut rx).await.answer("second completed");
+    for id in [&first.id, &second.id] {
+        assert_eq!(
+            e.wait(id).await.unwrap().turns[0].status,
+            areal_protocol::TurnStatus::Completed
+        );
+    }
     e.shutdown().await;
 }

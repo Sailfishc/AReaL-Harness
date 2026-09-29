@@ -24,7 +24,6 @@ api_key_env = "COMPANY_MODEL_API_KEY"
 
 [limits]
 watchdog_disable = false
-turn_timeout_seconds = 300
 stream_idle_timeout_seconds = 30
 max_history_bytes = 2097152
 max_output_bytes = 262144

@@ -32,7 +32,7 @@ impl Engine {
             drop(admission);
             let result=async {
                 let _permit=tokio::select!{_=engine.shutdown.cancelled()=>return Err(invalid("compaction cancelled")),p=engine.permits.acquire()=>p.map_err(invalid)?};
-                tokio::time::timeout(engine.limits.turn_timeout,engine.compact_context(&cell,&engine.shutdown,0,None,true)).await.map_err(invalid)?.map_err(invalid)
+                engine.compact_context(&cell,&engine.shutdown,0,None,true).await.map_err(invalid)
             }.await;
             cell.state.lock().await.compacting=false;
             engine.goals.request(&cell.id);
