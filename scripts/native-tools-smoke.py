@@ -229,6 +229,8 @@ protocol = "chat-completions"
 endpoint = "http://127.0.0.1:{server.server_port}/v1/chat/completions"
 api_key_env = "AREAL_API_KEY"
 [limits]
+# 此 fixture 按完整工具历史计步；压缩行为由 Engine context 测试独立覆盖。
+context_window_tokens = 0
 max_tool_calls = 32
 """
         # 申请上限高于默认父 Scope，Core 应收窄额度；不能在执行前 PermissionDenied。
