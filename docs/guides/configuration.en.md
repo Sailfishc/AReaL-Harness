@@ -74,11 +74,11 @@ max_history_bytes = 2097152
 max_output_bytes = 262144
 max_tool_calls = 128
 max_tool_buffer_bytes = 4194304
-context_window_bytes = 196608
+context_window_bytes = 524288
 context_compaction_enabled = true
-context_recent_bytes = 65536
-context_window_tokens = 0
-context_output_reserve_tokens = 0
+context_recent_bytes = 131072
+context_window_tokens = 65536
+context_output_reserve_tokens = 8192
 max_completion_retries = 0
 watchdog_disable = false
 [logging]
@@ -257,3 +257,5 @@ export OTEL_EXPORTER_OTLP_TIMEOUT=10000
 Trajectories cover Turns, individual model requests, tool calls, and context compaction. Model requests use `gen_ai.*` attributes and the `gen_ai.client.inference.operation.details` event; messages use the OpenTelemetry GenAI `role` / `parts` structure, encoded as JSON strings on spans and structured attributes on logs. Model inputs (including system instructions), outputs, reasoning text, tool arguments, and results retain their actual content. There is no redaction logic or redaction switch; media retains the references or inline data received by Engine. Retries are separate requests; cancellation preserves received output and marks the operation incomplete.
 
 Project-specific attributes and events use the `areal.*` namespace. Logs correlate through standard Trace ID and Span ID, and graceful shutdown flushes batch exports. Logs-only configuration still generates local correlation IDs; Trace and Log export switches are independent. Metrics are not exported. GenAI semantic conventions remain in development; see the [official conventions](https://github.com/open-telemetry/semantic-conventions-genai).
+
+Default compaction triggers when either estimated tokens or history bytes reach the limit: a 64k token window reserves 8k for output (57,344 estimated input tokens), or history exceeds 512 KiB; the recent verbatim-history budget is 128 KiB. Tokens are conservative estimates calibrated upward, not exact provider-tokenizer counts or model capacity declarations. Compaction rebuilds the cache prefix, so monitor uncached input and task correctness together. Explicit `context_window_tokens=0` disables the token trigger while retaining the byte threshold.

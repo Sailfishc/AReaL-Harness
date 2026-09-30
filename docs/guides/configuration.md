@@ -74,11 +74,11 @@ max_history_bytes = 2097152
 max_output_bytes = 262144
 max_tool_calls = 128
 max_tool_buffer_bytes = 4194304
-context_window_bytes = 196608
+context_window_bytes = 524288
 context_compaction_enabled = true
-context_recent_bytes = 65536
-context_window_tokens = 0
-context_output_reserve_tokens = 0
+context_recent_bytes = 131072
+context_window_tokens = 65536
+context_output_reserve_tokens = 8192
 max_completion_retries = 0
 watchdog_disable = false
 [logging]
@@ -257,3 +257,5 @@ export OTEL_EXPORTER_OTLP_TIMEOUT=10000
 轨迹记录 Turn、每次模型请求、工具调用和上下文压缩。模型请求使用 `gen_ai.*` 属性与 `gen_ai.client.inference.operation.details` 事件，消息按 OpenTelemetry GenAI 的 `role` / `parts` 结构记录，Span 中为 JSON 字符串，Logs 中为结构化属性。模型输入（含系统指令）、输出、推理文本、工具参数与结果均保留实际内容，没有脱敏逻辑或脱敏开关；媒体保留 Engine 收到的引用或内联数据。重试按独立请求记录，取消时保留已收到的输出并标记未完成。
 
 本项目扩展字段和事件使用 `areal.*` 命名空间。Logs 通过标准 Trace ID 和 Span ID 关联调用，优雅关闭时刷新批量导出。只有 Logs 时也生成本地关联 ID；Traces 和 Logs 的导出开关相互独立。当前不导出 Metrics。GenAI 语义约定仍处于开发状态，参见[官方约定](https://github.com/open-telemetry/semantic-conventions-genai)。
+
+默认按估计 token 或字节任一阈值触发压缩：64k token 窗口预留 8k 输出，即估计输入达到 57,344 token，或历史超过 512 KiB；近期原文预算为 128 KiB。token 是保守估计并向上校准，非供应商 tokenizer 的精确计数；不能把这些数值当作模型最大上下文。压缩会重建缓存前缀，因此同时监控未缓存输入和任务正确性。显式设置 `context_window_tokens=0` 可禁用 token 触发，但仍保留字节阈值。
