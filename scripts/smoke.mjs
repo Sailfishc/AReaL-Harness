@@ -56,7 +56,7 @@ const model = createServer(async (req, res) => {
   assert.equal(req.url, "/v1/chat/completions");
   assert.equal(request.stream, true);
   res.writeHead(200, { "Content-Type": "text/event-stream" });
-  const text = request.messages.at(-1).content;
+  const text = request.messages.findLast((message) => message.role === "user").content;
   res.write(
     `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: "reply:" + text }, finish_reason: null }] })}\n\n`,
   );
@@ -158,7 +158,11 @@ try {
   assert.equal(second.code, 0, second.stderr);
   assert.deepEqual(
     requests[1].messages.map((m) => m.role),
-    ["system", "user", "assistant", "user"],
+    ["system", "user", "system", "assistant", "user", "system"],
+  );
+  assert.deepEqual(
+    requests[1].messages.slice(0, requests[0].messages.length),
+    requests[0].messages,
   );
   assert.match(requests[1].messages[0].content, /Multi-agent delegation is available by default/);
   assert(requests[1].tools.some((tool) => tool.function.name === "agent_spawn"));
@@ -196,11 +200,26 @@ try {
   const [ptyCode] = await once(pty, "close");
   assert.equal(ptyCode, 0, ptyOutput);
   process.stdout.write(ptyOutput);
-  assert.equal(requests.filter((r) => r.messages.at(-1).content === "pty-initial").length, 1);
-  assert(
-    requests.some((r) => r.model === "alternate" && r.messages.at(-1).content === "switched-model"),
+  assert.equal(
+    requests.filter(
+      (r) => r.messages.findLast((message) => message.role === "user").content === "pty-initial",
+    ).length,
+    1,
   );
-  assert(requests.some((r) => r.model === "test" && r.messages.at(-1).content === "reset-model"));
+  assert(
+    requests.some(
+      (r) =>
+        r.model === "alternate" &&
+        r.messages.findLast((message) => message.role === "user").content === "switched-model",
+    ),
+  );
+  assert(
+    requests.some(
+      (r) =>
+        r.model === "test" &&
+        r.messages.findLast((message) => message.role === "user").content === "reset-model",
+    ),
+  );
   const hangStarted = new Promise((resolve) => (hanging = resolve));
   const interrupted = prompt(server.endpoint, "hang", id);
   await hangStarted;

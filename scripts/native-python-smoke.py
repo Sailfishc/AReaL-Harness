@@ -112,7 +112,6 @@ protocol = "chat-completions"
 endpoint = "http://127.0.0.1:{server.server_port}/v1/chat/completions"
 api_key_env = "AREAL_API_KEY"
 [limits]
-turn_timeout_seconds = 45
 max_tool_calls = 20
 """)
         env = {k: v for k, v in os.environ.items() if not k.startswith("AREAL_")}

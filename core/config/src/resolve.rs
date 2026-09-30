@@ -82,11 +82,6 @@ const ENV: &[(&str, &str, &str)] = &[
         "limits.watchdog_disable",
     ),
     (
-        "AREAL_HARNESS_TURN_TIMEOUT_SECONDS",
-        "",
-        "limits.turn_timeout_seconds",
-    ),
-    (
         "AREAL_HARNESS_STREAM_IDLE_TIMEOUT_SECONDS",
         "",
         "limits.stream_idle_timeout_seconds",
@@ -349,7 +344,7 @@ fn valid(field: &str, entry: &Entry) -> Result<()> {
                 return Err(reject("goal limit is out of range"));
             }
         }
-        "turn_timeout_seconds" | "stream_idle_timeout_seconds" => {
+        "stream_idle_timeout_seconds" => {
             if !value.bytes().all(|b| b.is_ascii_digit())
                 || value
                     .parse::<u64>()
@@ -506,17 +501,16 @@ fn load_mode(inputs: &ConfigInputs, management: bool) -> Result<ResolvedCoreConf
         ("limits.max_active_turns", "256"),
         ("limits.max_children_per_turn", "64"),
         ("limits.max_agent_depth", "8"),
-        ("limits.turn_timeout_seconds", "300"),
         ("limits.stream_idle_timeout_seconds", "30"),
         ("limits.max_history_bytes", "2097152"),
         ("limits.max_output_bytes", "262144"),
         ("limits.max_tool_calls", "128"),
         ("limits.max_tool_buffer_bytes", "4194304"),
-        ("limits.context_window_bytes", "196608"),
+        ("limits.context_window_bytes", "524288"),
         ("limits.context_compaction_enabled", "true"),
-        ("limits.context_window_tokens", "0"),
-        ("limits.context_output_reserve_tokens", "0"),
-        ("limits.context_recent_bytes", "65536"),
+        ("limits.context_window_tokens", "65536"),
+        ("limits.context_output_reserve_tokens", "8192"),
+        ("limits.context_recent_bytes", "131072"),
         ("model.max_retries", "2"),
         ("limits.max_completion_retries", "0"),
         ("limits.watchdog_disable", "false"),
@@ -781,7 +775,6 @@ fn load_mode(inputs: &ConfigInputs, management: bool) -> Result<ResolvedCoreConf
             .parse()
             .unwrap(),
         max_agent_depth: values["limits.max_agent_depth"].value.parse().unwrap(),
-        turn_timeout_seconds: values["limits.turn_timeout_seconds"].value.parse().unwrap(),
         stream_idle_timeout_seconds: values["limits.stream_idle_timeout_seconds"]
             .value
             .parse()

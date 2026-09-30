@@ -221,7 +221,6 @@ protocol="chat-completions"
 endpoint={q(endpoint)}
 api_key_env="AREAL_API_KEY"
 [limits]
-turn_timeout_seconds={timeout}
 stream_idle_timeout_seconds={int(settings.get("stream_idle_timeout_seconds", 900))}
 max_completion_retries={int(settings.get("max_completion_retries", 0))}
 max_history_bytes=134217728

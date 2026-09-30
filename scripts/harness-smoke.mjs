@@ -160,7 +160,7 @@ const model = createServer(async (req, res) => {
         name = "agent_spawn";
         args = { prompt: `child-file:${results.length}` };
       } else {
-        const summary = request.messages.find(
+        const summary = request.messages.findLast(
           (message) =>
             typeof message.content === "string" &&
             message.content.startsWith("Settled child Agent results"),

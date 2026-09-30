@@ -176,6 +176,9 @@ async fn invalid_model_calls_are_journaled_without_execution_and_can_be_correcte
     }
 }
 async fn runtime(data: PathBuf, hold: bool) -> RuntimeFixture {
+    runtime_with_delay(data, hold, Duration::ZERO).await
+}
+async fn runtime_with_delay(data: PathBuf, hold: bool, delay: Duration) -> RuntimeFixture {
     let (client_pipe, peer) = tokio::io::duplex(128 * 1024);
     let (read, write) = tokio::io::split(client_pipe);
     let (peer_read, mut peer_write) = tokio::io::split(peer);
@@ -230,6 +233,7 @@ async fn runtime(data: PathBuf, hold: bool) -> RuntimeFixture {
                         pending = Some(request["id"].clone());
                         continue;
                     }
+                    tokio::time::sleep(delay).await;
                     json!({"sha256":"fixture-digest","size":5})
                 }
                 "connection.close" => json!({"closed":true}),
@@ -293,7 +297,7 @@ async fn responses_tools_survive_active_argument_stream_and_retain_provider_cont
                 let context = json!({"type":"reasoning","id":"rs_test","summary":[],"encrypted_content":"opaque-fixture"});
                 events.push(json!({"type":"response.output_item.done","item":context}));
                 for _ in 0..8 { events.push(json!({"type":"response.function_call_arguments.delta","delta":" ","item_id":"fc_test","output_index":1})); }
-                let call = json!({"type":"function_call","id":"fc_test","call_id":"call_test","name":"fs_write","arguments":json!({"path":"workspace://repo/code","text":"hello","expectedSha256":null}).to_string()});
+                let call = json!({"type":"function_call","id":"fc_test","call_id":"call_test","name":"fs_write","arguments":r#"{ "text" : "hello", "path" : "workspace://repo/code", "expectedSha256" : null }"#});
                 events.push(json!({"type":"response.output_item.done","item":call}));
                 events.push(json!({"type":"response.completed","response":{"status":"completed","output":[context,call],"usage":{"input_tokens":5,"output_tokens":2}}}));
             } else {
@@ -302,6 +306,8 @@ async fn responses_tools_survive_active_argument_stream_and_retain_provider_cont
                 assert_eq!(input.iter().filter(|v| v["type"] == "reasoning").count(), 1);
                 assert!(input.iter().any(|v| v["encrypted_content"] == "opaque-fixture"));
                 assert!(input.iter().any(|v| v["type"] == "function_call" && v["call_id"] == "call_test"));
+                assert_eq!(input.iter().find(|v| v["type"] == "function_call").unwrap()["id"], "fc_test");
+                assert_eq!(input.iter().find(|v| v["type"] == "function_call").unwrap()["arguments"], r#"{ "text" : "hello", "path" : "workspace://repo/code", "expectedSha256" : null }"#);
                 assert_eq!(input.last().unwrap()["type"], "function_call_output");
                 assert!(input.last().unwrap()["output"].as_str().unwrap().contains("fixture-digest"));
                 events.push(json!({"type":"response.output_text.delta","delta":"verified Responses result"}));
@@ -802,4 +808,67 @@ async fn http_tool_loop(done_marker: bool) {
     fixture.task.await.unwrap();
     server.abort();
     let _ = server.await;
+}
+
+struct ManyToolsModel;
+#[async_trait]
+impl Model for ManyToolsModel {
+    fn name(&self) -> &str {
+        "many-tools-fixture"
+    }
+    async fn stream(&self, _: Vec<Message>) -> anyhow::Result<ModelStream> {
+        unreachable!()
+    }
+    async fn chat(&self, messages: Vec<Message>, _: Vec<Value>) -> anyhow::Result<ModelStream> {
+        let count = messages.iter().filter(|m| m.role == "tool").count();
+        let event = if count == 16 {
+            ModelEvent::text("all tools completed")
+        } else {
+            ModelEvent::ToolCall(ToolCall {
+                id: format!("write-{count}"),
+                name: "fs_write".into(),
+                arguments:
+                    json!({"path":"workspace://repo/code","text":"hello","expectedSha256":null})
+                        .to_string(),
+            })
+        };
+        Ok(Box::pin(futures_util::stream::iter([Ok(event)])))
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn successful_tools_can_exceed_the_old_turn_deadline_in_aggregate() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    let workspace = dir.path().join("workspace");
+    std::fs::create_dir(&workspace).unwrap();
+    let fixture = runtime_with_delay(data.clone(), false, Duration::from_secs(20)).await;
+    let engine = Engine::open_with_runtime(
+        &data,
+        Arc::new(ManyToolsModel),
+        Limits::default(),
+        RuntimeConfig {
+            client: fixture.client.clone(),
+            workspace: workspace.clone(),
+            writable: true,
+            command_scratch: None,
+        },
+    )
+    .unwrap();
+    let thread = engine
+        .create(workspace.to_string_lossy().into_owned())
+        .await
+        .unwrap();
+    let started = tokio::time::Instant::now();
+    engine
+        .start(&thread.id, vec![Input::text("run sixteen tools")])
+        .await
+        .unwrap();
+    let done = engine.wait(&thread.id).await.unwrap();
+    assert_eq!(done.turns[0].status, TurnStatus::Completed);
+    assert!(started.elapsed() >= Duration::from_secs(320));
+    assert_eq!(done.turns[0].items.iter().filter(|item| matches!(item, Item::DynamicToolCall { execution, .. } if execution.outcome == ToolOutcome::Succeeded)).count(), 16);
+    engine.shutdown().await;
+    fixture.client.shutdown().await.unwrap();
+    fixture.task.await.unwrap();
 }

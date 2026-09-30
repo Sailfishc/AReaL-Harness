@@ -51,7 +51,6 @@ pub struct Limits {
     pub max_output_bytes: usize,
     pub max_media_output_bytes: usize,
     pub mailbox_capacity: usize,
-    pub turn_timeout: Duration,
     pub stream_idle_timeout: Duration,
     pub max_tool_calls: usize,
     pub max_tool_buffer_bytes: usize,
@@ -79,15 +78,14 @@ impl Default for Limits {
             max_output_bytes: 256 * 1024,
             max_media_output_bytes: 16 * 1024 * 1024,
             mailbox_capacity: 32,
-            turn_timeout: Duration::from_secs(300),
             stream_idle_timeout: Duration::from_secs(30),
             max_tool_calls: 128,
             max_tool_buffer_bytes: 4 * 1024 * 1024,
-            context_window_bytes: 192 * 1024,
+            context_window_bytes: 512 * 1024,
             context_compaction_enabled: true,
-            context_window_tokens: 0,
-            context_output_reserve_tokens: 0,
-            context_recent_bytes: 64 * 1024,
+            context_window_tokens: 64 * 1024,
+            context_output_reserve_tokens: 8 * 1024,
+            context_recent_bytes: 128 * 1024,
             max_completion_retries: 0,
             watchdog_disable: false,
         }
@@ -128,9 +126,6 @@ struct Active {
     tools: TaskTracker,
     process_cursors: BTreeMap<String, String>,
     handles: tools::Handles,
-    /// Monotonic start time used only for model guidance; Engine::run remains
-    /// the authoritative deadline and cancellation source.
-    started_at: tokio::time::Instant,
 }
 struct State {
     thread: Thread,
@@ -358,7 +353,6 @@ impl Engine {
                     || limits.context_output_reserve_tokens < limits.context_window_tokens)
                 && limits.max_media_output_bytes > 0
                 && limits.max_output_bytes < limits.max_history_bytes
-                && !limits.turn_timeout.is_zero()
                 && !limits.stream_idle_timeout.is_zero(),
             "invalid Core limits"
         );

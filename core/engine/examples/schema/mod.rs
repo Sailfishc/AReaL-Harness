@@ -152,7 +152,7 @@ pub fn projections() -> (Value, Value) {
     insert(
         &["thread/inspect"],
         object(
-            json!({"threadId":string,"sessionId":string,"parentThreadId":nullable(string.clone()),"activeTurnId":nullable(string.clone()),"configuration":config,"instructionSnapshot":nullable(string.clone()),"instructionSources":array(string.clone()),"tools":array(any_object.clone()),"loadedSkills":nullable(json!({"type":"object","additionalProperties":{"type":"string"}})) ,"contextCheckpoint":nullable(schema::<ContextCheckpoint>()),"usage":nullable(schema::<ModelUsage>()),"usageKnown":boolean,"limits":object(json!({"turnTimeoutMs":number,"historyBytes":number,"contextBytes":number})),"runtime":nullable(any_object.clone())}),
+            json!({"threadId":string,"sessionId":string,"parentThreadId":nullable(string.clone()),"activeTurnId":nullable(string.clone()),"configuration":config,"instructionSnapshot":nullable(string.clone()),"instructionSources":array(string.clone()),"tools":array(any_object.clone()),"loadedSkills":nullable(json!({"type":"object","additionalProperties":{"type":"string"}})) ,"contextCheckpoint":nullable(schema::<ContextCheckpoint>()),"usage":nullable(schema::<ModelUsage>()),"usageKnown":boolean,"limits":object(json!({"historyBytes":number,"contextBytes":number})),"runtime":nullable(any_object.clone())}),
         ),
     );
     insert(

@@ -1630,6 +1630,13 @@
                     "operationId": {
                       "type": "string"
                     },
+                    "originalArguments": {
+                      "description": "模型返回的原始工具参数，仅在语义未被 hook 改写时用于历史回放。",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
                     "outcome": {
                       "enum": [
                         "running",
@@ -3859,6 +3866,13 @@
                     "operationId": {
                       "type": "string"
                     },
+                    "originalArguments": {
+                      "description": "模型返回的原始工具参数，仅在语义未被 hook 改写时用于历史回放。",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
                     "outcome": {
                       "enum": [
                         "running",
@@ -4488,6 +4502,13 @@
                     },
                     "operationId": {
                       "type": "string"
+                    },
+                    "originalArguments": {
+                      "description": "模型返回的原始工具参数，仅在语义未被 hook 改写时用于历史回放。",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
                     },
                     "outcome": {
                       "enum": [
@@ -7416,6 +7437,13 @@
                                 "operationId": {
                                   "type": "string"
                                 },
+                                "originalArguments": {
+                                  "description": "模型返回的原始工具参数，仅在语义未被 hook 改写时用于历史回放。",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
                                 "outcome": {
                                   "enum": [
                                     "running",
@@ -8552,6 +8580,13 @@
                           "operationId": {
                             "type": "string"
                           },
+                          "originalArguments": {
+                            "description": "模型返回的原始工具参数，仅在语义未被 hook 改写时用于历史回放。",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
                           "outcome": {
                             "enum": [
                               "running",
@@ -9665,6 +9700,13 @@
                           },
                           "operationId": {
                             "type": "string"
+                          },
+                          "originalArguments": {
+                            "description": "模型返回的原始工具参数，仅在语义未被 hook 改写时用于历史回放。",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
                           },
                           "outcome": {
                             "enum": [
@@ -18219,6 +18261,13 @@
                                   "operationId": {
                                     "type": "string"
                                   },
+                                  "originalArguments": {
+                                    "description": "模型返回的原始工具参数，仅在语义未被 hook 改写时用于历史回放。",
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
                                   "outcome": {
                                     "enum": [
                                       "running",
@@ -21238,6 +21287,13 @@
                                     "operationId": {
                                       "type": "string"
                                     },
+                                    "originalArguments": {
+                                      "description": "模型返回的原始工具参数，仅在语义未被 hook 改写时用于历史回放。",
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    },
                                     "outcome": {
                                       "enum": [
                                         "running",
@@ -22364,6 +22420,13 @@
                               },
                               "operationId": {
                                 "type": "string"
+                              },
+                              "originalArguments": {
+                                "description": "模型返回的原始工具参数，仅在语义未被 hook 改写时用于历史回放。",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
                               },
                               "outcome": {
                                 "enum": [
@@ -35019,16 +35082,11 @@
             "historyBytes": {
               "minimum": 0,
               "type": "integer"
-            },
-            "turnTimeoutMs": {
-              "minimum": 0,
-              "type": "integer"
             }
           },
           "required": [
             "contextBytes",
-            "historyBytes",
-            "turnTimeoutMs"
+            "historyBytes"
           ],
           "type": "object"
         },
@@ -37816,6 +37874,13 @@
                                 "operationId": {
                                   "type": "string"
                                 },
+                                "originalArguments": {
+                                  "description": "模型返回的原始工具参数，仅在语义未被 hook 改写时用于历史回放。",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
                                 "outcome": {
                                   "enum": [
                                     "running",
@@ -38976,6 +39041,13 @@
                           },
                           "operationId": {
                             "type": "string"
+                          },
+                          "originalArguments": {
+                            "description": "模型返回的原始工具参数，仅在语义未被 hook 改写时用于历史回放。",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
                           },
                           "outcome": {
                             "enum": [
@@ -45931,6 +46003,13 @@
                                   "operationId": {
                                     "type": "string"
                                   },
+                                  "originalArguments": {
+                                    "description": "模型返回的原始工具参数，仅在语义未被 hook 改写时用于历史回放。",
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
                                   "outcome": {
                                     "enum": [
                                       "running",
@@ -48937,6 +49016,13 @@
                                 },
                                 "operationId": {
                                   "type": "string"
+                                },
+                                "originalArguments": {
+                                  "description": "模型返回的原始工具参数，仅在语义未被 hook 改写时用于历史回放。",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
                                 },
                                 "outcome": {
                                   "enum": [
@@ -51965,6 +52051,13 @@
                                 },
                                 "operationId": {
                                   "type": "string"
+                                },
+                                "originalArguments": {
+                                  "description": "模型返回的原始工具参数，仅在语义未被 hook 改写时用于历史回放。",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
                                 },
                                 "outcome": {
                                   "enum": [
@@ -55002,6 +55095,13 @@
                                 "operationId": {
                                   "type": "string"
                                 },
+                                "originalArguments": {
+                                  "description": "模型返回的原始工具参数，仅在语义未被 hook 改写时用于历史回放。",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
                                 "outcome": {
                                   "enum": [
                                     "running",
@@ -56148,6 +56248,13 @@
                           },
                           "operationId": {
                             "type": "string"
+                          },
+                          "originalArguments": {
+                            "description": "模型返回的原始工具参数，仅在语义未被 hook 改写时用于历史回放。",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
                           },
                           "outcome": {
                             "enum": [
@@ -59249,6 +59356,13 @@
                           "operationId": {
                             "type": "string"
                           },
+                          "originalArguments": {
+                            "description": "模型返回的原始工具参数，仅在语义未被 hook 改写时用于历史回放。",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
                           "outcome": {
                             "enum": [
                               "running",
@@ -60372,6 +60486,13 @@
                     },
                     "operationId": {
                       "type": "string"
+                    },
+                    "originalArguments": {
+                      "description": "模型返回的原始工具参数，仅在语义未被 hook 改写时用于历史回放。",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
                     },
                     "outcome": {
                       "enum": [

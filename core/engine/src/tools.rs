@@ -783,6 +783,7 @@ impl Engine {
                 hooks: Vec::new(),
                 effective_arguments: None,
                 model_arguments: None,
+                original_arguments: Some(call.arguments.clone()),
                 plugin: None,
                 runtime_epoch: runtime
                     .map_or_else(String::new, |r| r.client.info().runtime_epoch.clone()),

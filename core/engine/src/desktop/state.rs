@@ -382,7 +382,7 @@ impl Engine {
             "instructionSnapshot":state.thread.turns.last().and_then(|t|t.instruction_snapshot.as_ref()),"instructionSources":["runtime/defaultOrClientSystem","profile","childTask","clientAppend","workspace/AGENTS.md"],"tools":tools,"loadedSkills":state.thread.desktop.as_ref().map(|d| &d.loaded_skills),
             "contextCheckpoint":state.thread.context_checkpoint,"usage":state.thread.turns.last().and_then(|t| t.usage.as_ref()),
             "usageKnown":state.thread.turns.last().is_some_and(|t| t.usage.is_some()),
-            "limits":{"turnTimeoutMs":self.limits.turn_timeout.as_millis(),"historyBytes":self.limits.max_history_bytes,"contextBytes":self.limits.context_window_bytes},
+            "limits":{"historyBytes":self.limits.max_history_bytes,"contextBytes":self.limits.context_window_bytes},
             "runtime":self.runtime_capabilities()}),
         )
     }

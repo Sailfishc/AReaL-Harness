@@ -147,19 +147,20 @@ fn model_and_execution_budgets_are_validated_and_preserve_sources() {
     let mut i = inputs(temp.path());
     write(
         &mut i,
-        "schema_version=1\n[model]\nreasoning_effort='xhigh'\nmax_output_tokens=8192\nmax_retries=0\n[limits]\nturn_timeout_seconds=1800\nstream_idle_timeout_seconds=90\nmax_history_bytes=16777216\nmax_output_bytes=4194304\nmax_tool_calls=512\n",
+        "schema_version=1\n[model]\nreasoning_effort='xhigh'\nmax_output_tokens=8192\nmax_retries=0\n[limits]\nstream_idle_timeout_seconds=90\nmax_history_bytes=16777216\nmax_output_bytes=4194304\nmax_tool_calls=512\n",
     );
     let c = load_config(&i).unwrap();
     assert_eq!(c.model.reasoning_effort.as_deref(), Some("xhigh"));
     assert_eq!(c.model.max_output_tokens, Some(8192));
     assert_eq!(c.model.max_retries, 0);
-    assert_eq!(c.turn_timeout_seconds, 1800);
     assert_eq!(c.stream_idle_timeout_seconds, 90);
     assert_eq!(c.max_history_bytes, 16777216);
     assert_eq!(c.max_output_bytes, 4194304);
     assert_eq!(c.max_tool_calls, 512);
-    assert_eq!(c.context_window_bytes, 196608);
-    assert_eq!(c.context_recent_bytes, 65536);
+    assert_eq!(c.context_window_bytes, 524288);
+    assert_eq!(c.context_recent_bytes, 131072);
+    assert_eq!(c.context_window_tokens, 65536);
+    assert_eq!(c.context_output_reserve_tokens, 8192);
     set(&mut i, "AREAL_HARNESS_REASONING_EFFORT", "high");
     assert_eq!(
         load_config(&i).unwrap().model.reasoning_effort.as_deref(),
@@ -167,10 +168,9 @@ fn model_and_execution_budgets_are_validated_and_preserve_sources() {
     );
     for (name, value) in [
         ("AREAL_HARNESS_MODEL_MAX_RETRIES", "9"),
-        ("AREAL_HARNESS_TURN_TIMEOUT_SECONDS", "0"),
         ("AREAL_HARNESS_STREAM_IDLE_TIMEOUT_SECONDS", "86401"),
         ("AREAL_HARNESS_MAX_TOOL_CALLS", "0"),
-        ("AREAL_HARNESS_CONTEXT_RECENT_BYTES", "196608"),
+        ("AREAL_HARNESS_CONTEXT_RECENT_BYTES", "524288"),
         ("AREAL_HARNESS_CONTEXT_WINDOW_BYTES", "0"),
         ("AREAL_HARNESS_REASONING_EFFORT", "typo"),
     ] {
@@ -746,4 +746,18 @@ fn invalid_permission_rules_and_modes_are_not_silently_ignored() {
         );
         assert_eq!(failure(&i).kind, ConfigErrorKind::InvalidValue);
     }
+}
+
+#[test]
+fn removed_turn_timeout_requires_toml_and_env_migration() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut i = inputs(temp.path());
+    write(
+        &mut i,
+        "schema_version=1\n[limits]\nturn_timeout_seconds=300\n",
+    );
+    assert!(load_config(&i).is_err());
+    write(&mut i, "schema_version=1\n");
+    set(&mut i, "AREAL_HARNESS_TURN_TIMEOUT_SECONDS", "0");
+    assert_eq!(failure(&i).kind, ConfigErrorKind::UnknownField);
 }

@@ -389,6 +389,8 @@ impl ResponsesDecoder {
                         serde_json::from_str::<Value>(arguments)?.is_object(),
                         "invalid function arguments"
                     );
+                    // 保留 Responses 原始 item ID、参数字节与字段，用于后续 wire 回放。
+                    self.contexts.push(item.clone());
                     self.calls.push(ToolCall {
                         id: id.into(),
                         name: name.into(),

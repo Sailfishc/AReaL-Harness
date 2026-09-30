@@ -108,6 +108,7 @@ pub(super) fn history(thread: &Thread, store: &store::Store) -> anyhow::Result<V
     // like the model observed call 1's result before deciding to make call 2.
     let mut assistant_index: Option<usize> = None;
     let mut visuals = Vec::new();
+    let mut response_calls = BTreeMap::<String, Value>::new();
     for item in items.into_iter().skip(start) {
         if matches!(
             item,
@@ -129,6 +130,28 @@ pub(super) fn history(thread: &Thread, store: &store::Store) -> anyhow::Result<V
             },
             Item::Reasoning { .. } => continue,
             Item::ModelContext { value, .. } => {
+                if value["type"] == "areal_request_context" {
+                    messages.append(&mut visuals);
+                    assistant_index = None;
+                    for message in value["messages"]
+                        .as_array()
+                        .context("invalid request context")?
+                    {
+                        let role = message["role"].as_str().context("missing context role")?;
+                        anyhow::ensure!(matches!(role, "system" | "user"), "invalid context role");
+                        messages.push(Message::text(
+                            role,
+                            message["text"].as_str().context("missing context text")?,
+                        ));
+                    }
+                    continue;
+                }
+                if value["type"] == "function_call" {
+                    if let Some(call_id) = value["call_id"].as_str() {
+                        response_calls.insert(call_id.to_owned(), value.clone());
+                    }
+                    continue;
+                }
                 // Chat reasoning is archived for inspection, not replayed to
                 // either HTTP protocol or charged to its input context window.
                 if value["type"] == "chat_reasoning" {
@@ -174,7 +197,23 @@ pub(super) fn history(thread: &Thread, store: &store::Store) -> anyhow::Result<V
                     messages.push(Message::text("assistant", ""));
                     messages.len() - 1
                 });
-                messages[index].tool_calls.push(json!({"id":call_id,"type":"function","function":{"name":tool,"arguments":wire_arguments.to_string()}}));
+                // JSON 解析后的语义没有变化时保留原始参数字节；hook 改写仍按生效参数回放。
+                let arguments_text = execution
+                    .original_arguments
+                    .as_ref()
+                    .filter(|raw| {
+                        serde_json::from_str::<Value>(raw).ok().as_ref() == Some(&wire_arguments)
+                    })
+                    .cloned()
+                    .unwrap_or_else(|| wire_arguments.to_string());
+                let mut projected = json!({"id":call_id,"type":"function","function":{"name":tool,"arguments":arguments_text}});
+                if let Some(original) = response_calls.get(call_id).filter(|v| {
+                    v["name"] == tool.as_str()
+                        && v["arguments"] == projected["function"]["arguments"]
+                }) {
+                    projected["_responsesItem"] = original.clone();
+                }
+                messages[index].tool_calls.push(projected);
                 let mut content = Vec::new();
                 let mut images = Vec::new();
                 if let Some(items) = content_items {

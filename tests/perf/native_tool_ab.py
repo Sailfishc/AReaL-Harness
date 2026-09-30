@@ -183,7 +183,7 @@ def trial(args, label, binary, case, repeat):
     conf += "".join(
         f"{key}={json.dumps(value)}\n" for key, value in selected["providers"][provider].items()
     )
-    conf += f"[limits]\nturn_timeout_seconds={args.timeout}\nstream_idle_timeout_seconds=60\nmax_tool_calls=80\n"
+    conf += "[limits]\nstream_idle_timeout_seconds=60\nmax_tool_calls=80\n"
     extensions = {}
     if label in args.view_modes:
         extensions["policy"] = {"resultViews": {"mode": args.view_modes[label]}}

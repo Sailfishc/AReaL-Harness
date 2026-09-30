@@ -22,7 +22,7 @@ export async function fixture() {
       const result = request.messages.slice(lastUser + 1).filter((m) => m.role === "tool");
       let tool;
       let reply = "完成：" + request.model;
-      const goalText = request.messages.find(
+      const goalText = request.messages.findLast(
         (m) => typeof m.content === "string" && m.content.includes("Current authoritative goal: "),
       )?.content;
       const goalView = goalText && JSON.parse(goalText.split("Current authoritative goal: ")[1]);
@@ -149,7 +149,7 @@ export async function fixture() {
             ];
           else tool = ["task_wait", {}];
         } else if (result.length === 0) {
-          const channelText = request.messages.find(
+          const channelText = request.messages.findLast(
             (m) => typeof m.content === "string" && m.content.includes("Current task channel: "),
           )?.content;
           const channel = JSON.parse(channelText.split("Current task channel: ")[1].split("\n")[0]);

@@ -76,6 +76,7 @@ fn tool_journal_projection_preserves_pinned_upstream_item_schemas() {
                 hooks: Vec::new(),
                 effective_arguments: None,
                 model_arguments: Some(json!({"path":"code"})),
+                original_arguments: None,
                 runtime_epoch: "epoch".into(),
                 scope_id: "scope".into(),
                 operation_id: "operation".into(),

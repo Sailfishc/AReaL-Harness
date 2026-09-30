@@ -254,6 +254,9 @@ pub struct ToolExecution {
     /// Post-hook arguments before resolving model-facing aliases into Runtime IDs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_arguments: Option<Value>,
+    /// 模型返回的原始工具参数，仅在语义未被 hook 改写时用于历史回放。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original_arguments: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plugin: Option<PluginExecution>,
 }

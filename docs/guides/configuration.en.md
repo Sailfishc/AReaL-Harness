@@ -49,6 +49,8 @@ The launcher creates `scratch/` beside dataDir and sets an individual Thread `TM
 
 ## Models and limits
 
+Ordinary Turns have no aggregate wall-clock timeout. Model request/stream idle, tool execution and cleanup timeouts still apply, as do explicit Goal, research-worker and Workgroup budgets. Remove `limits.turn_timeout_seconds` (old TOML fields are rejected) and `AREAL_HARNESS_TURN_TIMEOUT_SECONDS` (old environment variables are also rejected) when migrating. The `limits` object in `thread/configuration/read` no longer includes `turnTimeoutMs`. Manual context compaction also relies on model timeouts and shutdown cancellation.
+
 ```toml
 schema_version = 1
 [server]
@@ -67,17 +69,16 @@ max_threads = 20000
 max_active_turns = 256
 max_children_per_turn = 64
 max_agent_depth = 8
-turn_timeout_seconds = 300
 stream_idle_timeout_seconds = 30
 max_history_bytes = 2097152
 max_output_bytes = 262144
 max_tool_calls = 128
 max_tool_buffer_bytes = 4194304
-context_window_bytes = 196608
+context_window_bytes = 524288
 context_compaction_enabled = true
-context_recent_bytes = 65536
-context_window_tokens = 0
-context_output_reserve_tokens = 0
+context_recent_bytes = 131072
+context_window_tokens = 65536
+context_output_reserve_tokens = 8192
 max_completion_retries = 0
 watchdog_disable = false
 [logging]
@@ -98,7 +99,7 @@ Optional sampling fields are omitted when unset and preserve explicit zero. `tem
 
 `limits.context_compaction_enabled=false` disables automatic and manual compaction (true by default). When `context_window_bytes` is exceeded or an enabled token threshold is reached, the Turn fails with a context limit error without sending another solve or summary request; original history remains intact. These estimates are not the provider's actual context limit. To also disable Agent delegation and Workgroup child tasks, set `max_children_per_turn=0` and `max_agent_depth=0`. An explicitly enabled native research Agent extension requires nonzero child limits and rejects this combination at startup.
 
-The network watchdog is enabled by default with no retry count limit. Set `AREAL_HARNESS_WATCHDOG_DISABLE=1` to disable it; remove the variable or set it to `0` to restore the default. It also accepts `true`/`false`, mapping to TOML `limits.watchdog_disable`; the environment overrides TOML. It covers connection/transport failures, request and stream idle timeouts, premature EOF, HTTP 408/429/5xx and explicit SSE rate-limit/service-availability errors. Solve, child Agent and context-summary requests use the same policy, with exponential backoff from 250 ms capped at 30 seconds. Cancellation, Turn deadlines and explicit Workgroup physical-request budgets remain effective. Authentication, invalid requests, insufficient quota, output length limits and empty answers do not receive unlimited retries.
+The network watchdog is enabled by default with no retry count limit. Set `AREAL_HARNESS_WATCHDOG_DISABLE=1` to disable it; remove the variable or set it to `0` to restore the default. It also accepts `true`/`false`, mapping to TOML `limits.watchdog_disable`; the environment overrides TOML. It covers connection/transport failures, request and stream idle timeouts, premature EOF, HTTP 408/429/5xx and explicit SSE rate-limit/service-availability errors. Solve, child Agent and context-summary requests use the same policy, with exponential backoff from 250 ms capped at 30 seconds. Cancellation, explicit Goal/research-worker time budgets and explicit Workgroup physical-request budgets remain effective. Authentication, invalid requests, insufficient quota, output length limits and empty answers do not receive unlimited retries.
 
 Goal shared-budget and unknown-usage constraints take precedence over retry settings. Goal requests disable internal HTTP retries; failures or timeouts with unknown usage retain their reservation and stop automatic progress. Neither the watchdog nor finite retry allowances bypass this constraint.
 
@@ -116,7 +117,7 @@ Byte and capacity limits are positive integers; fan-out and depth may be 0 to di
 | `CONTEXT_WINDOW_TOKENS`, `CONTEXT_OUTPUT_RESERVE_TOKENS`, `CONTEXT_COMPACTION_ENABLED` | Optional context token budget and compaction switch |
 | `LISTEN`, `DATA_DIR`, `TOOL_EXTENSIONS`, `LOG_FILTER` | Server, extensions file and logging |
 | `MODEL_CONCURRENCY`, `MAX_THREADS`, `MAX_ACTIVE_TURNS`, `MAX_CHILDREN_PER_TURN`, `MAX_AGENT_DEPTH` | Concurrency and task capacity |
-| `TURN_TIMEOUT_SECONDS`, `STREAM_IDLE_TIMEOUT_SECONDS` | Deadlines |
+| `STREAM_IDLE_TIMEOUT_SECONDS` | Deadlines |
 | `WATCHDOG_DISABLE` | `limits.watchdog_disable`; `1` disables, default `0` |
 | `MAX_HISTORY_BYTES`, `MAX_OUTPUT_BYTES`, `MAX_TOOL_CALLS`, `MAX_TOOL_BUFFER_BYTES`, `CONTEXT_WINDOW_BYTES`, `CONTEXT_RECENT_BYTES` | History, tools and context budgets |
 
@@ -215,7 +216,7 @@ turn_model_rounds = 32
 
 The numeric values shown are defaults. The first three numeric fields accept 1–86400; turn_model_rounds accepts 2–1024. Goal maxTurns/maxActiveSeconds can narrow deployment limits; tokenBudget applies only when explicitly set. Root Turns use min(session maxModelRounds, turn_model_rounds), require at least two rounds, and require goal_read/goal_update in any tool allowlist. The final round remains tool-free for handoff. Consecutive root Turns without goal_update pause as progressUnreported at the configured threshold.
 
-Active time includes root-Turn model queuing, execution, tools, interactions and cleanup without adding child durations. Capacity waits between Turns, paused time and offline time are excluded. Existing Turn deadlines and Runtime hard limits still apply. Goal requests disable implicit HTTP retries to preserve per-request accounting; unknown usage stops automatic continuation. See [usage and recovery](clients.en.md#goals).
+Active time includes root-Turn model queuing, execution, tools, interactions and cleanup without adding child durations. Capacity waits between Turns, paused time and offline time are excluded. Existing explicit Goal/research-worker time budgets and Runtime hard limits still apply. Goal requests disable implicit HTTP retries to preserve per-request accounting; unknown usage stops automatic continuation. See [usage and recovery](clients.en.md#goals).
 
 See [Skills](skills.en.md) for discovery, [tools](tools.en.md) for extensions and [Runtime](runtime.en.md) for deployment permissions.
 
@@ -256,3 +257,5 @@ export OTEL_EXPORTER_OTLP_TIMEOUT=10000
 Trajectories cover Turns, individual model requests, tool calls, and context compaction. Model requests use `gen_ai.*` attributes and the `gen_ai.client.inference.operation.details` event; messages use the OpenTelemetry GenAI `role` / `parts` structure, encoded as JSON strings on spans and structured attributes on logs. Model inputs (including system instructions), outputs, reasoning text, tool arguments, and results retain their actual content. There is no redaction logic or redaction switch; media retains the references or inline data received by Engine. Retries are separate requests; cancellation preserves received output and marks the operation incomplete.
 
 Project-specific attributes and events use the `areal.*` namespace. Logs correlate through standard Trace ID and Span ID, and graceful shutdown flushes batch exports. Logs-only configuration still generates local correlation IDs; Trace and Log export switches are independent. Metrics are not exported. GenAI semantic conventions remain in development; see the [official conventions](https://github.com/open-telemetry/semantic-conventions-genai).
+
+Default compaction triggers when either estimated tokens or history bytes reach the limit: a 64k token window reserves 8k for output (57,344 estimated input tokens), or history exceeds 512 KiB; the recent verbatim-history budget is 128 KiB. Tokens are conservative estimates calibrated upward, not exact provider-tokenizer counts or model capacity declarations. Compaction rebuilds the cache prefix, so monitor uncached input and task correctness together. Explicit `context_window_tokens=0` disables the token trigger while retaining the byte threshold.
