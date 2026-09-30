@@ -744,3 +744,78 @@ async fn ordinary_turn_model_and_capacity_waits_have_no_aggregate_deadline() {
     }
     e.shutdown().await;
 }
+
+#[tokio::test]
+async fn live_goal_and_round_context_follow_a_stable_history_prefix() {
+    let (_dir, e, mut rx) = controlled(Limits::default());
+    let t = e.create("/workspace".into()).await.unwrap();
+    e.start(&t.id, vec![Input::text("establish stable history")])
+        .await
+        .unwrap();
+    next(&mut rx).await.answer("verified earlier evidence");
+    e.wait(&t.id).await.unwrap();
+    e.goal_create("test".into(), request(&t.id)).await.unwrap();
+    let first = next(&mut rx).await;
+    let dynamic = |m: &Message| {
+        m.text_content().starts_with("Model round ")
+            || m.text_content().contains("Current authoritative goal: ")
+    };
+    let boundary = first.messages.iter().position(dynamic).unwrap();
+    let prefix: Vec<_> = first.messages[..boundary]
+        .iter()
+        .map(|m| (m.role.clone(), m.text_content()))
+        .collect();
+    assert!(
+        prefix
+            .iter()
+            .any(|(_, text)| text == "verified earlier evidence")
+    );
+    assert!(
+        first.messages[boundary..]
+            .iter()
+            .all(|m| m.role == "system")
+    );
+    assert!(
+        first
+            .messages
+            .iter()
+            .any(|m| m.text_content().starts_with("Model round 1 "))
+    );
+    first.report("complete");
+    let second = next(&mut rx).await;
+    let next_prefix: Vec<_> = second.messages[..boundary]
+        .iter()
+        .map(|m| (m.role.clone(), m.text_content()))
+        .collect();
+    assert_eq!(prefix, next_prefix);
+    let last_tool = second
+        .messages
+        .iter()
+        .rposition(|m| m.role == "tool")
+        .unwrap();
+    assert!(
+        second
+            .messages
+            .iter()
+            .enumerate()
+            .filter(|(_, m)| dynamic(m))
+            .all(|(i, m)| i > last_tool && m.role == "system")
+    );
+    assert!(
+        second
+            .messages
+            .iter()
+            .any(|m| m.text_content().starts_with("Model round 2 "))
+    );
+    assert_eq!(
+        second
+            .messages
+            .iter()
+            .filter(|m| m.text_content().contains("Current authoritative goal: "))
+            .count(),
+        1
+    );
+    second.answer("completed");
+    assert_eq!(stopped(&e, &t.id).await["goal"]["status"], "completed");
+    e.shutdown().await;
+}
