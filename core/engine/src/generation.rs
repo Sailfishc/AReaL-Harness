@@ -111,10 +111,10 @@ impl Engine {
 
             let goal_instructions = self.goal_instructions(cell).await?;
             let (messages, thread_id, session_id, turn_id, turn_number) = {
-                let state = cell.state.lock().await;
+                let mut state = cell.state.lock().await;
                 let mut messages = history(&state.thread, &self.store)?;
-                // 动态提示保持 system 权限，但放在完整历史之后，避免每轮打断稳定前缀。
-                // 不写回历史：当前状态只投影一次，不累计过期预算或重复子任务结果。
+                // 每次请求的动态提示必须与其输出一起保留，后续只追加。
+                // 删除旧提示会破坏 encrypted reasoning 所对应的原始上下文。
                 let mut live_context = Vec::new();
                 if let Some(goal) = &goal_instructions {
                     live_context.insert(0, Message::text("system", goal));
@@ -180,10 +180,28 @@ impl Engine {
                 if let Some(hint) = self.agent_budget_hint(cell) {
                     live_context.insert(0, Message::text("system", hint));
                 }
-                messages.extend(live_context);
                 if let Some(hint) = recovery_hint.take() {
-                    messages.push(Message::text("user", hint));
+                    live_context.push(Message::text("user", hint));
                 }
+                if !live_context.is_empty() {
+                    let mut candidate = state.thread.clone();
+                    let context = Item::ModelContext {
+                        id: id(),
+                        value: json!({"type":"areal_request_context","messages":live_context.iter().map(|m| json!({"role":m.role,"text":m.text_content()})).collect::<Vec<_>>()}),
+                    };
+                    candidate
+                        .turns
+                        .last_mut()
+                        .unwrap()
+                        .items
+                        .push(context.clone());
+                    self.persist(&candidate).await?;
+                    state.thread = candidate;
+                    let turn_id = &state.thread.turns.last().unwrap().id;
+                    emit_item(cell, "item/started", &state.thread.id, turn_id, &context);
+                    emit_item(cell, "item/completed", &state.thread.id, turn_id, &context);
+                }
+                messages.extend(live_context);
                 let thread_id = state.thread.id.clone();
                 let session_id = state.thread.session_id.clone();
                 let turn_id = state.thread.turns.last().unwrap().id.clone();

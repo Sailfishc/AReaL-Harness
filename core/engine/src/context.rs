@@ -278,8 +278,18 @@ impl Engine {
                     Item::AgentMessage { .. } | Item::UserMessage { .. }
                 )
             {
-                cut = Some(index);
-                break;
+                // 请求快照与其模型输出属于同一压缩单元，不能仅保留 reasoning。
+                let boundary = if index > previous
+                    && matches!(items[index - 1], Item::ModelContext { value, .. } if value["type"] == "areal_request_context")
+                {
+                    index - 1
+                } else {
+                    index
+                };
+                if boundary > previous {
+                    cut = Some(boundary);
+                    break;
+                }
             }
         }
         // A single oversized round cannot be split into invalid tool history.

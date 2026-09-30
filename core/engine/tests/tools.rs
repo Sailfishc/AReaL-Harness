@@ -297,7 +297,7 @@ async fn responses_tools_survive_active_argument_stream_and_retain_provider_cont
                 let context = json!({"type":"reasoning","id":"rs_test","summary":[],"encrypted_content":"opaque-fixture"});
                 events.push(json!({"type":"response.output_item.done","item":context}));
                 for _ in 0..8 { events.push(json!({"type":"response.function_call_arguments.delta","delta":" ","item_id":"fc_test","output_index":1})); }
-                let call = json!({"type":"function_call","id":"fc_test","call_id":"call_test","name":"fs_write","arguments":json!({"path":"workspace://repo/code","text":"hello","expectedSha256":null}).to_string()});
+                let call = json!({"type":"function_call","id":"fc_test","call_id":"call_test","name":"fs_write","arguments":r#"{ "text" : "hello", "path" : "workspace://repo/code", "expectedSha256" : null }"#});
                 events.push(json!({"type":"response.output_item.done","item":call}));
                 events.push(json!({"type":"response.completed","response":{"status":"completed","output":[context,call],"usage":{"input_tokens":5,"output_tokens":2}}}));
             } else {
@@ -306,6 +306,8 @@ async fn responses_tools_survive_active_argument_stream_and_retain_provider_cont
                 assert_eq!(input.iter().filter(|v| v["type"] == "reasoning").count(), 1);
                 assert!(input.iter().any(|v| v["encrypted_content"] == "opaque-fixture"));
                 assert!(input.iter().any(|v| v["type"] == "function_call" && v["call_id"] == "call_test"));
+                assert_eq!(input.iter().find(|v| v["type"] == "function_call").unwrap()["id"], "fc_test");
+                assert_eq!(input.iter().find(|v| v["type"] == "function_call").unwrap()["arguments"], r#"{ "text" : "hello", "path" : "workspace://repo/code", "expectedSha256" : null }"#);
                 assert_eq!(input.last().unwrap()["type"], "function_call_output");
                 assert!(input.last().unwrap()["output"].as_str().unwrap().contains("fixture-digest"));
                 events.push(json!({"type":"response.output_text.delta","delta":"verified Responses result"}));

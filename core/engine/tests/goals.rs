@@ -41,6 +41,7 @@ impl Model for Fixture {
         let has = |name: &str| tools.iter().any(|t| t["function"]["name"] == name);
         let view: Option<Value> = messages
             .iter()
+            .rev()
             .filter_map(|m| {
                 m.text_content()
                     .split("Current authoritative goal: ")
@@ -238,6 +239,7 @@ impl Call {
         let view: Value = self
             .messages
             .iter()
+            .rev()
             .find_map(|m| {
                 m.text_content()
                     .split("Current authoritative goal: ")
@@ -643,10 +645,17 @@ async fn compaction_usage_belongs_to_the_goal_and_the_objective_survives() {
             .contains("Finish both stages with evidence")
     }));
     solve.report("complete");
-    next(&mut rx).await.answer("verified");
+    let mut calls = 3;
+    let mut reply = next(&mut rx).await;
+    if reply.messages.last().unwrap().text_content() == "Produce the continuation summary now." {
+        reply.answer("Goal completion was verified and reported; provide the final reply.");
+        calls += 1;
+        reply = next(&mut rx).await;
+    }
+    reply.answer("verified");
     let done = stopped(&e, &t.id).await;
     assert_eq!(done["goal"]["status"], "completed");
-    assert_eq!(done["goal"]["usage"]["tokensUsed"], 54);
+    assert_eq!(done["goal"]["usage"]["tokensUsed"], calls * 18);
     assert!(
         e.read(&t.id, true)
             .await
@@ -781,6 +790,7 @@ async fn live_goal_and_round_context_follow_a_stable_history_prefix() {
             .iter()
             .any(|m| m.text_content().starts_with("Model round 1 "))
     );
+    let first_messages = first.messages.clone();
     first.report("complete");
     let second = next(&mut rx).await;
     let next_prefix: Vec<_> = second.messages[..boundary]
@@ -788,18 +798,10 @@ async fn live_goal_and_round_context_follow_a_stable_history_prefix() {
         .map(|m| (m.role.clone(), m.text_content()))
         .collect();
     assert_eq!(prefix, next_prefix);
-    let last_tool = second
-        .messages
-        .iter()
-        .rposition(|m| m.role == "tool")
-        .unwrap();
-    assert!(
-        second
-            .messages
-            .iter()
-            .enumerate()
-            .filter(|(_, m)| dynamic(m))
-            .all(|(i, m)| i > last_tool && m.role == "system")
+    // 包含 opaque context、工具调用和多模态内容，不仅比较可见文本。
+    assert_eq!(
+        &second.messages[..first_messages.len()],
+        first_messages.as_slice()
     );
     assert!(
         second
@@ -813,9 +815,15 @@ async fn live_goal_and_round_context_follow_a_stable_history_prefix() {
             .iter()
             .filter(|m| m.text_content().contains("Current authoritative goal: "))
             .count(),
-        1
+        2
     );
     second.answer("completed");
     assert_eq!(stopped(&e, &t.id).await["goal"]["status"], "completed");
+    let before = e.context_read(&t.id, 0, 32).await.unwrap();
     e.shutdown().await;
+    drop(e);
+    let restored = Engine::open(_dir.path(), model(true, true), Limits::default()).unwrap();
+    let after = restored.context_read(&t.id, 0, 32).await.unwrap();
+    assert_eq!(before["data"], after["data"]);
+    restored.shutdown().await;
 }

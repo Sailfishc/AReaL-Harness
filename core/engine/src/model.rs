@@ -712,7 +712,18 @@ impl HttpModel {
                     }
                     let mut item = json!({"role": message.role, "content": content});
                     if !message.tool_calls.is_empty() {
-                        item["tool_calls"] = json!(message.tool_calls);
+                        item["tool_calls"] = json!(
+                            message
+                                .tool_calls
+                                .into_iter()
+                                .map(|mut call| {
+                                    if let Some(object) = call.as_object_mut() {
+                                        object.remove("_responsesItem");
+                                    }
+                                    call
+                                })
+                                .collect::<Vec<_>>()
+                        );
                     }
                     if let Some(call_id) = message.tool_call_id {
                         item["tool_call_id"] = json!(call_id);
@@ -1151,6 +1162,10 @@ async fn responses_items(message: Message) -> Result<Vec<Value>> {
     }
     push_response_message(&mut items, &message.role, &mut content);
     for call in message.tool_calls {
+        if let Some(original) = call.get("_responsesItem") {
+            items.push(original.clone());
+            continue;
+        }
         items.push(json!({"type":"function_call", "call_id":call["id"], "name":call["function"]["name"], "arguments":call["function"]["arguments"]}));
     }
     Ok(items)

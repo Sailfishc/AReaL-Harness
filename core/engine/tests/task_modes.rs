@@ -53,6 +53,7 @@ impl Model for Fixture {
             .join("\n");
         let goal: Value = m
             .iter()
+            .rev()
             .find_map(|m| {
                 m.text_content()
                     .split("Current authoritative goal: ")
@@ -133,7 +134,7 @@ fn create(mode: TaskMode, thread_id: Option<String>) -> TaskCreate {
         thread_id,
         interaction_mode: None,
         schedule: None,
-        token_budget: Some(10000),
+        token_budget: Some(100000),
         max_turns: Some(8),
         max_active_seconds: Some(60),
     }
@@ -235,7 +236,7 @@ async fn headless_goal_never_waits_for_a_user() {
                 thread_id: thread.id.clone(),
                 expected_revision: 0,
                 objective: "Finish without interactive input".into(),
-                token_budget: Some(10000),
+                token_budget: Some(100000),
                 max_turns: Some(3),
                 max_active_seconds: Some(30),
                 interaction_mode: Some(InteractionMode::Headless),
@@ -339,6 +340,7 @@ impl Model for Workers {
                     assert!(text.contains("workerReport"));
                     let goal: Value = m
                         .iter()
+                        .rev()
                         .find_map(|m| {
                             m.text_content()
                                 .split("Current authoritative goal: ")
@@ -641,6 +643,7 @@ impl Model for Expiry {
                 }
                 let goal: Value = m
                     .iter()
+                    .rev()
                     .find_map(|m| {
                         m.text_content()
                             .split("Current authoritative goal: ")
