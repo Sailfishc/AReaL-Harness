@@ -15,3 +15,5 @@ Start with the [quickstart](guides/quickstart.en.md). [Capabilities and limitati
 | Benchmarks | [Running and resuming](benchmarks/README.en.md) · [Methodology](benchmarks/methodology.en.md) · [Historical reports](benchmarks/reports/README.en.md) · [Native tool optimization](benchmarks/reports/tool-optimization.en.md) |
 
 Maintained pages pair a Chinese `.md` file with an English `.en.md` file in the same directory, linked at the top. Update both together. Machine schemas, code and shared diagrams have one copy. API contracts and their linked types/schemas define parameters; guides avoid duplicating them.
+
+- [Installation and upgrades](guides/installation.en.md) · [Release workflow](development/releasing.en.md)

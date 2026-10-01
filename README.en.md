@@ -37,7 +37,7 @@ See the [client guide](docs/guides/clients.en.md) for details.
 ## 🚀 Start here
 
 > [!NOTE]
-> The project is under development and currently built from source. The full local toolchain targets trusted macOS hosts; Linux tool execution is limited to a controlled Docker environment. A general-purpose production Linux Runtime and a native Windows Runtime are not available. The TypeScript SDKs are not published on npm.
+> The project is under development. The release workflow builds and validates complete Homebrew (macOS arm64) and Linux x86_64 bundles; public availability depends on GitHub Releases and the tap. Restricted Linux execution requires Bubblewrap and user namespaces. Native Windows Runtime is unsupported. The TypeScript SDKs are not published on npm.
 
 For your first run, follow the [quickstart](docs/guides/quickstart.en.md) to build, verify without an API key, and start a model session. Then choose a guide below.
 
@@ -62,3 +62,5 @@ Try the project, [report issues](https://github.com/areal-project/AReaL-Harness/
 Uses [cordis-rs](https://github.com/dshbox/cordis-rs) components and draws on Codex protocol and DeepSeek Harness plugin interfaces. Sources are recorded in [upstream/pins.json](upstream/pins.json).
 
 **License:** [Apache-2.0](LICENSE). Third-party materials retain their own licenses and copyright notices.
+
+See [installation](docs/guides/installation.en.md) for Homebrew/Linux platform scope, prepublication status and upgrade instructions.
