@@ -997,6 +997,13 @@ impl Model for HttpModel {
             |(mut stream, mut decoder, mut queued, mut failed, mut audit)| async move {
                 loop {
                     if let Some(event) = queued.pop_front() {
+                        if matches!(&event, ModelEvent::TextDelta(text) if !text.is_empty()) {
+                            audit.mark_first("timeToFirstTextDeltaMs");
+                        }
+                        if matches!(&event, ModelEvent::ReasoningDelta { delta, .. } if !delta.is_empty())
+                        {
+                            audit.mark_first("timeToFirstReasoningDeltaMs");
+                        }
                         if let ModelEvent::Usage(usage) = &event {
                             let mut total: ModelUsage =
                                 serde_json::from_value(audit.value["usage"].clone())
@@ -1019,6 +1026,9 @@ impl Model for HttpModel {
                     } else {
                         match stream.next().await {
                             Some(Ok(bytes)) => {
+                                if !bytes.is_empty() {
+                                    audit.mark_first("timeToFirstResponseBytesMs");
+                                }
                                 let parts = decoder.feed(&bytes);
                                 audit.value["usageDetails"] = decoder.usage_details();
                                 if let Decoder::Chat(chat) = &decoder {

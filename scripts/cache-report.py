@@ -44,6 +44,13 @@ def report(directory):
             "outcome": row.get("outcome"),
             "durationMs": row.get("durationMs"),
         }
+        for field in [
+            "timeToFirstResponseBytesMs",
+            "timeToFirstTextDeltaMs",
+            "timeToFirstReasoningDeltaMs",
+        ]:
+            if field in row:
+                item[field] = row[field]
         usage = row.get("usage") or {}
         detail = row.get("usageDetails") or {}
         if row.get("usageObserved") and isinstance(usage.get("inputTokens"), int):

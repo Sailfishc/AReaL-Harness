@@ -81,6 +81,11 @@ impl Audit {
         audit.save();
         audit
     }
+    pub fn mark_first(&mut self, field: &str) {
+        if self.value.get(field).is_none() {
+            self.value[field] = json!(self.started.elapsed().as_millis() as u64);
+        }
+    }
     fn save(&self) {
         if let Some(path) = &self.path {
             let result = (|| -> std::io::Result<()> {

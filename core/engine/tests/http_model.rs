@@ -626,7 +626,15 @@ async fn adjacent_system_hints_and_null_error_preserve_valid_response_and_safe_d
         assert!(!audit.contains("fixture-secret") && !audit.contains("private input"));
         let audit: Value = serde_json::from_str(audit.trim()).unwrap();
         assert_eq!(audit["systemMessageCount"], 1);
+        assert!(
+            audit["timeToFirstResponseBytesMs"].as_u64().unwrap()
+                <= audit["durationMs"].as_u64().unwrap()
+        );
         if name == "valid" {
+            assert!(
+                audit["timeToFirstTextDeltaMs"].as_u64().unwrap()
+                    <= audit["durationMs"].as_u64().unwrap()
+            );
             assert!(failure.is_none());
             assert_eq!(text, "ok");
             assert_eq!(audit["responseShape"]["contentFieldBytes"], 2);

@@ -263,3 +263,5 @@ export OTEL_EXPORTER_OTLP_TIMEOUT=10000
 ## 缓存诊断
 
 使用 `python3 scripts/cache-report.py /absolute/Core-state --output cache-report.json` 汇总 `model-requests` 和 `model-requests-child`。报告按线程、协议、模型参数及请求用途比较 wire 消息块，展示完整前缀保留、工具定义变化、输入/缓存/未缓存 token 和未返回用量的请求。`usageDetails.cachedInputTokens=null` 或旧审计缺少该字段时计为未知，不补零；网络失败的未知用量不计入命中率分母。报告的字节前缀不等于供应商 tokenizer 前缀，不能证明缓存驻留。新审计在供应商返回规范 ID 时记录 `usageDetails.providerResponseId`，并记录显式返回的 `cacheWriteTokens`；它们用于关联上游日志，不推断缺失的后端路由。缓存百分比必须同时结合成功率、总输入与未缓存输入评估，不能通过填充历史或删除必要 reasoning 提升比例。
+
+审计另外记录首次响应字节、首个非空正文 delta、首个非空思考 delta 的毫秒耗时（仅发生时才有字段）。三者口径不同，不以总请求 duration 代替首 token 延迟；加密 reasoning 无可见 delta 时保持未知。
