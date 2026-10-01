@@ -490,11 +490,15 @@ pub trait Model: Send + Sync {
     async fn chat_with_limits(
         &self,
         messages: Vec<Message>,
-        tools: Vec<Value>,
+        mut tools: Vec<Value>,
         purpose: RequestPurpose,
-        _limits: ToolCallLimits,
+        limits: ToolCallLimits,
         cap: Option<u64>,
     ) -> Result<AgentStream> {
+        // 旧自定义适配器没有 tool_choice 能力，继续用空列表表达禁用。
+        if limits.max_calls == 0 {
+            tools.clear();
+        }
         self.chat_limited(messages, tools, purpose, cap).await
     }
 }
@@ -903,7 +907,7 @@ impl Model for HttpModel {
             };
             body["parallel_tool_calls"] = json!(true);
         }
-        if purpose == RequestPurpose::Summary {
+        if purpose == RequestPurpose::Summary || limits.max_calls == 0 {
             body["tool_choice"] = json!("none");
         }
         // Retrying before accepting a stream cannot replay a tool operation.
@@ -960,6 +964,25 @@ impl Model for HttpModel {
                 error
             })?;
         };
+        // 仅收集排障关联 ID，绝不复制认证头、cookie 或路由 token。
+        for (header, field) in [
+            ("x-request-id", "httpRequestId"),
+            ("x-cpa-trace-id", "gatewayTraceId"),
+        ] {
+            if let Some(value) = response
+                .headers()
+                .get(header)
+                .and_then(|v| v.to_str().ok())
+                .filter(|v| {
+                    !v.is_empty()
+                        && v.len() <= 128
+                        && v.bytes()
+                            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+                })
+            {
+                audit.value[field] = json!(value);
+            }
+        }
         if !response.status().is_success() {
             let error = http_failure(response).await;
             audit.value["terminalOutcome"] = json!(terminal_outcome(&error));

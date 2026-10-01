@@ -45,6 +45,8 @@ def report(directory):
             "durationMs": row.get("durationMs"),
         }
         for field in [
+            "gatewayTraceId",
+            "httpRequestId",
             "timeToFirstResponseBytesMs",
             "timeToFirstTextDeltaMs",
             "timeToFirstReasoningDeltaMs",

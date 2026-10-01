@@ -89,12 +89,10 @@ impl Engine {
                     state.thread.desktop.is_some(),
                 )
             };
-            let tool_definitions = if final_round {
-                Vec::new()
-            } else {
-                self.visible_tools(cell, &configuration, desktop_enabled)
-                    .await
-            };
+            // 工具声明参与缓存前缀；收尾轮仅禁用调用，不移除 schema。
+            let tool_definitions = self
+                .visible_tools(cell, &configuration, desktop_enabled)
+                .await;
             let goal_instructions = self.goal_instructions(cell).await?;
             let task_instructions = self.task_context(cell).await;
             let overhead = context::text_tokens(&serde_json::to_string(&tool_definitions)?)
@@ -122,8 +120,7 @@ impl Engine {
                 if let Some(task) = &task_instructions {
                     live_context.insert(0, Message::text("system", task));
                 }
-                if !final_round
-                    && self.extensions.agents.is_none()
+                if self.extensions.agents.is_none()
                     && !cell.research
                     && self.limits.max_children_per_turn > 0
                     && self.limits.max_agent_depth > 0
@@ -241,7 +238,7 @@ impl Engine {
             };
             let request_estimate = context::estimate_tokens(&messages)
                 + context::text_tokens(&serde_json::to_string(&tool_definitions)?);
-            let tools_enabled = !tool_definitions.is_empty();
+            let tools_enabled = !final_round && !tool_definitions.is_empty();
             let tool_limits = model::ToolCallLimits {
                 max_calls: if tools_enabled {
                     self.limits.max_tool_calls.saturating_sub(tool_count)
