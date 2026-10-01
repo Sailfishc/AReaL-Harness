@@ -250,3 +250,5 @@ Task Mode 在 Goal 之上提供 foreground/scheduled/background 任务、TaskRun
 工具执行记录新增可选 `originalArguments`，旧记录可继续读取。参数语义未被 hook 改写时，历史保留原始 JSON 字节。Responses `function_call` 原始 item 作为 `modelContext` 保存，匹配未改写调用时保留其 item ID 与原始字段；Chat 投影不发送 Responses 元数据。上下文压缩将请求快照和关联输出作为同一保留单元，压缩后重新建立缓存前缀。
 
 Chat Completions 的 HTTP 适配会把所有纯文本 system 消息按原有相对顺序合并到请求开头，以兼容只接受首条 system 的聊天模板。非 system 消息的先后顺序保持不变；这不会修改持久历史，也不会改变 Responses 的消息及 encrypted reasoning 回放。动态状态变化因此可能降低 Chat 协议的缓存前缀复用率。
+
+摘要超过 16 KiB 时，Core 在既有空闲期限和取消规则内继续读取流到结束，收集尾部用量后再拒绝摘要并执行原有有限格式重试。不会仅因摘要超长而丢弃已到达的用量；确实缺失的用量仍保留为 UNKNOWN，不自动恢复 Goal。

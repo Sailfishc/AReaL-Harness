@@ -342,6 +342,7 @@ impl Engine {
             let mut request_reserved = false;
             while attempt < 2 {
                 let mut summary = String::new();
+                let mut summary_too_large = false;
                 let mut attempt_usage = areal_protocol::ModelUsage::default();
                 let mut rejected_tools = Vec::new();
                 let mut request = trajectory::Operation::new(
@@ -387,9 +388,9 @@ impl Engine {
                         request.observe(&event);
                         match event {
                             ModelEvent::TextDelta(text) => {
-                                // Archive a bounded response even when rejecting its size.
+                                // 拒绝超长摘要前排空有期限的流，保留尾部用量，避免误报未知消费。
+                                summary_too_large |= text.len() > SUMMARY_LIMIT.saturating_sub(summary.len());
                                 summary.push_str(tools::prefix(&text, SUMMARY_LIMIT + 1 - summary.len()));
-                                anyhow::ensure!(summary.len() <= SUMMARY_LIMIT, "context summary exceeds 16 KiB");
                             }
                             ModelEvent::Usage(value) => {
                                 attempt_usage.add_assign(&value);
@@ -405,6 +406,7 @@ impl Engine {
                             ModelEvent::Binary { .. } => anyhow::bail!("context summary must be text"),
                         }
                     }
+                    anyhow::ensure!(!summary_too_large, "context summary exceeds 16 KiB");
                     anyhow::ensure!(valid_summary(&summary), "model returned an empty or tool-shaped context summary");
                     Ok(())
                 }.instrument(request_span).await;
@@ -447,7 +449,7 @@ impl Engine {
                 attempt += 1;
                 network_retries = 0;
                 request_reserved = false;
-                input.push(Message::text("user", "The summary was rejected. Return plain factual text only, without tool calls or markup. Use fewer than 1800 words and 12000 UTF-8 bytes. Keep unfinished work and verification status explicit."));
+                input.push(Message::text("user", "The summary was rejected. Return plain factual text only, without tool calls or markup. Use fewer than 1000 words and 8000 UTF-8 bytes. Keep unfinished work and verification status explicit."));
             }
             let summary = accepted
                 .unwrap_or_else(|| retained_evidence(&prefix, SUMMARY_LIMIT.min(before_bytes / 3)));

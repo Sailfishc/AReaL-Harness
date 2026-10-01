@@ -118,6 +118,98 @@ fn control(v: &Value, request_id: &str) -> GoalControl {
     }
 }
 
+struct OversizedSummary {
+    summaries: AtomicUsize,
+    always_oversized: bool,
+}
+
+#[async_trait]
+impl Model for OversizedSummary {
+    fn name(&self) -> &str {
+        "oversized-summary"
+    }
+
+    async fn stream(&self, _: Vec<Message>) -> anyhow::Result<ModelStream> {
+        unreachable!()
+    }
+
+    async fn chat(&self, messages: Vec<Message>, tools: Vec<Value>) -> anyhow::Result<ModelStream> {
+        self.chat_for(messages, tools, RequestPurpose::Solve).await
+    }
+
+    async fn chat_for(
+        &self,
+        _: Vec<Message>,
+        _: Vec<Value>,
+        purpose: RequestPurpose,
+    ) -> anyhow::Result<ModelStream> {
+        let mut events = if purpose == RequestPurpose::Summary {
+            let attempt = self.summaries.fetch_add(1, Ordering::SeqCst);
+            if self.always_oversized || attempt == 0 {
+                // 多字节片段跨过上限，末尾用量必须仍被消费。
+                vec![
+                    Ok(ModelEvent::text("x".repeat(16 * 1024 - 1))),
+                    Ok(ModelEvent::text("猫猫")),
+                    Ok(ModelEvent::text("tail")),
+                ]
+            } else {
+                vec![Ok(ModelEvent::text(
+                    "Initial implementation recorded; verification remains unfinished.",
+                ))]
+            }
+        } else {
+            vec![Ok(ModelEvent::text("recorded result ".repeat(200)))]
+        };
+        events.push(Ok(ModelEvent::Usage(ModelUsage {
+            input_tokens: 11,
+            cached_input_tokens: 3,
+            output_tokens: 7,
+        })));
+        Ok(Box::pin(stream::iter(events)))
+    }
+}
+
+#[tokio::test]
+async fn oversized_goal_summary_drains_usage_before_retry_or_fallback() {
+    for always_oversized in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let model = Arc::new(OversizedSummary {
+            summaries: AtomicUsize::new(0),
+            always_oversized,
+        });
+        let limits = Limits {
+            context_window_bytes: 2000,
+            context_recent_bytes: 256,
+            ..Limits::default()
+        };
+        let engine = Engine::open(dir.path(), model.clone(), limits).unwrap();
+        let thread = engine.create("/workspace".into()).await.unwrap();
+        let mut create = request(&thread.id);
+        create.max_turns = Some(2);
+        engine.goal_create("test".into(), create).await.unwrap();
+        let done = stopped(&engine, &thread.id).await;
+        assert_eq!(done["goal"]["status"], "budgetLimited", "{done}");
+        assert_eq!(done["goal"]["usage"]["unknownRequests"], 0);
+        assert_eq!(done["goal"]["usage"]["accountingComplete"], true);
+        assert_eq!(model.summaries.load(Ordering::SeqCst), 2);
+        assert_eq!(done["goal"]["usage"]["tokensUsed"], 72);
+        let history = engine.read(&thread.id, true).await.unwrap();
+        assert!(
+            history
+                .turns
+                .iter()
+                .all(|turn| turn.status == areal_protocol::TurnStatus::Completed)
+        );
+        let checkpoint = history.context_checkpoint.as_ref().unwrap();
+        assert!(checkpoint.summary.len() <= 16 * 1024);
+        assert_eq!(
+            checkpoint.summary.starts_with("DEGRADED CONTEXT:"),
+            always_oversized
+        );
+        engine.shutdown().await;
+    }
+}
+
 #[tokio::test]
 async fn two_turn_goal_completes_once_and_retries_return_original_receipt() {
     let dir = tempfile::tempdir().unwrap();
