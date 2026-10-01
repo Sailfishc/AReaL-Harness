@@ -189,14 +189,25 @@ impl Engine {
                         message.role = "areal_context".into();
                     }
                 }
-                // 仅去重不变的 headless 规则；动态状态即使回到旧值也必须追加。
+                // 比较同类最近状态，而非任意旧值；A→B→A 必须保留三次变化。
                 live_context.retain(|message| {
-                    !(message
-                        .text_content()
-                        .starts_with("This execution is headless.")
-                        && messages
+                    let text = message.text_content();
+                    let kind = if text.contains("Current authoritative goal: ") {
+                        Some("Current authoritative goal: ")
+                    } else if text.starts_with("This execution is headless.") {
+                        Some("This execution is headless.")
+                    } else {
+                        None
+                    };
+                    !kind.is_some_and(|kind| {
+                        messages
                             .iter()
-                            .any(|old| old.role == "areal_context" && old == message))
+                            .rev()
+                            .find(|old| {
+                                old.role == "areal_context" && old.text_content().contains(kind)
+                            })
+                            .is_some_and(|old| old == message)
+                    })
                 });
                 if !live_context.is_empty() {
                     let mut candidate = state.thread.clone();

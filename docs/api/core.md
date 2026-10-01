@@ -254,3 +254,5 @@ Chat Completions 的 HTTP 适配会把所有纯文本 system 消息按原有相�
 摘要超过 16 KiB 时，Core 在既有空闲期限和取消规则内继续读取流到结束，收集尾部用量后再拒绝摘要并执行原有有限格式重试。不会仅因摘要超长而丢弃已到达的用量；确实缺失的用量仍保留为 UNKNOWN，不自动恢复 Goal。
 
 新请求状态使用内部 `areal_context` 角色持久化。Chat 将其按原位置投影为 user 状态数据，并在开头加入固定解释规则；这些状态不构成新增用户授权，权限和预算仍由 Core 强制执行。真正的 system 规则继续合并到开头以兼容仅支持首条 system 的模板。Responses 将内部状态角色映射回 system。旧历史中的 system 快照不自动迁移，因此旧会话可能直到压缩或新建会话后才能完全获得稳定前缀。仅完全相同的 headless 静态提示在可见历史中去重，动态状态回到旧值仍追加事件。
+
+Goal 提示投影不携带 eventSequence 或逐请求累计用量/时钟，只保留 usage.turnsStarted；完整账本仍通过 goal_read 和 Goal API 读取。相同的最近 Goal 快照不重复注入；revision、报告或状态变化会追加新快照，A→B→A 不会误删最后一次变化。该裁剪仅影响模型提示，持久 Goal 账本与预算执行不变。
