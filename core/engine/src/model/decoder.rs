@@ -49,7 +49,15 @@ impl Decoder {
             Self::Chat(d) => &d.usage_details,
             Self::Responses(d) => &d.usage_details,
         };
-        json!({"cachedInputTokens":details.cached,"reasoningTokens":details.reasoning})
+        let mut value =
+            json!({"cachedInputTokens":details.cached,"reasoningTokens":details.reasoning});
+        if let Some(id) = &details.response_id {
+            value["providerResponseId"] = json!(id);
+        }
+        if let Some(tokens) = details.cache_write {
+            value["cacheWriteTokens"] = json!(tokens);
+        }
+        value
     }
     pub(super) fn feed(&mut self, bytes: &[u8]) -> Result<Vec<ModelEvent>> {
         match self {
@@ -178,6 +186,7 @@ impl ChatDecoder {
         if let Some(error) = event.get("error").filter(|v| !v.is_null()) {
             return Err(StreamError::from_value(error, "error").into());
         }
+        self.usage_details.observe_response_id(event.get("id"));
         if let Some(usage) = parse_usage(event.get("usage")) {
             self.usage_details.observe(&event["usage"]);
             output.push(ModelEvent::Usage(usage));
@@ -478,6 +487,8 @@ impl ResponsesDecoder {
             return Ok(());
         }
         let event: Value = serde_json::from_str(data).context("invalid Responses SSE JSON")?;
+        self.usage_details
+            .observe_response_id(event["response"].get("id"));
         match event["type"].as_str().unwrap_or_default() {
             kind @ ("response.reasoning_summary_text.delta"
             | "response.reasoning_summary_text.done"
@@ -556,6 +567,8 @@ impl ResponsesDecoder {
                 }
             }
             "response.completed" => {
+                self.usage_details
+                    .observe_response_id(event["response"].get("id"));
                 if event["response"]["status"] != "completed" {
                     bail!("Responses request did not complete successfully");
                 }
@@ -607,20 +620,43 @@ struct UsageDetails {
     seen: bool,
     cached: Option<u64>,
     reasoning: Option<u64>,
+    response_id: Option<String>,
+    cache_write: Option<u64>,
 }
 
 impl UsageDetails {
+    fn observe_response_id(&mut self, value: Option<&Value>) {
+        // 只记录可用于供应商排障的规范 ID，不复制任意响应文本或认证字段。
+        if let Some(id) = value.and_then(Value::as_str).filter(|id| {
+            id.len() <= 128
+                && (id.starts_with("resp_") || id.starts_with("chatcmpl-"))
+                && id
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+        }) {
+            self.response_id = Some(id.to_owned());
+        }
+    }
     fn observe(&mut self, value: &Value) {
         // 缺失的可选计数保留 unknown；不改变现有预算使用的 ModelUsage。
         let cached = value
             .get("input_tokens_details")
             .or_else(|| value.get("prompt_tokens_details"))
             .and_then(|v| v["cached_tokens"].as_u64());
+        let cache_write = value
+            .get("input_tokens_details")
+            .or_else(|| value.get("prompt_tokens_details"))
+            .and_then(|v| v.get("cache_write_tokens"))
+            .and_then(Value::as_u64);
         let reasoning = value
             .get("output_tokens_details")
             .or_else(|| value.get("completion_tokens_details"))
             .and_then(|v| v["reasoning_tokens"].as_u64());
         if self.seen {
+            self.cache_write = self
+                .cache_write
+                .zip(cache_write)
+                .map(|(a, b)| a.saturating_add(b));
             self.cached = self.cached.zip(cached).map(|(a, b)| a.saturating_add(b));
             self.reasoning = self
                 .reasoning
@@ -628,6 +664,7 @@ impl UsageDetails {
                 .map(|(a, b)| a.saturating_add(b));
         } else {
             self.cached = cached;
+            self.cache_write = cache_write;
             self.reasoning = reasoning;
         }
         self.seen = true;
@@ -1450,5 +1487,24 @@ mod tool_call_tests {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod cache_diagnostic_tests {
+    use super::*;
+    #[test]
+    fn response_ids_are_bounded_and_missing_cache_writes_remain_unknown() {
+        let mut details = UsageDetails::default();
+        details.observe_response_id(Some(&json!("resp_valid-123")));
+        assert_eq!(details.response_id.as_deref(), Some("resp_valid-123"));
+        details.observe_response_id(Some(&json!("Bearer secret")));
+        assert_eq!(details.response_id.as_deref(), Some("resp_valid-123"));
+        details
+            .observe(&json!({"input_tokens_details":{"cached_tokens":32,"cache_write_tokens":64}}));
+        assert_eq!(details.cache_write, Some(64));
+        details.observe(&json!({"input_tokens_details":{"cached_tokens":16}}));
+        assert_eq!(details.cache_write, None);
+        assert_eq!(details.cached, Some(48));
     }
 }

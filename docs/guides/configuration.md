@@ -259,3 +259,7 @@ export OTEL_EXPORTER_OTLP_TIMEOUT=10000
 本项目扩展字段和事件使用 `areal.*` 命名空间。Logs 通过标准 Trace ID 和 Span ID 关联调用，优雅关闭时刷新批量导出。只有 Logs 时也生成本地关联 ID；Traces 和 Logs 的导出开关相互独立。当前不导出 Metrics。GenAI 语义约定仍处于开发状态，参见[官方约定](https://github.com/open-telemetry/semantic-conventions-genai)。
 
 默认按估计 token 或字节任一阈值触发压缩：64k token 窗口预留 8k 输出，即估计输入达到 57,344 token，或历史超过 512 KiB；近期原文预算为 128 KiB。token 是保守估计并向上校准，非供应商 tokenizer 的精确计数；不能把这些数值当作模型最大上下文。压缩会重建缓存前缀，因此同时监控未缓存输入和任务正确性。显式设置 `context_window_tokens=0` 可禁用 token 触发，但仍保留字节阈值。
+
+## 缓存诊断
+
+使用 `python3 scripts/cache-report.py /absolute/Core-state --output cache-report.json` 汇总 `model-requests` 和 `model-requests-child`。报告按线程、协议、模型参数及请求用途比较 wire 消息块，展示完整前缀保留、工具定义变化、输入/缓存/未缓存 token 和未返回用量的请求。`usageDetails.cachedInputTokens=null` 或旧审计缺少该字段时计为未知，不补零；网络失败的未知用量不计入命中率分母。报告的字节前缀不等于供应商 tokenizer 前缀，不能证明缓存驻留。新审计在供应商返回规范 ID 时记录 `usageDetails.providerResponseId`，并记录显式返回的 `cacheWriteTokens`；它们用于关联上游日志，不推断缺失的后端路由。缓存百分比必须同时结合成功率、总输入与未缓存输入评估，不能通过填充历史或删除必要 reasoning 提升比例。
