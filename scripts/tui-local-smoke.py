@@ -27,7 +27,15 @@ class Model(http.server.BaseHTTPRequestHandler):
             requests.append(request)
             tools = {tool["function"]["name"] for tool in request["tools"]}
             assert {"fs_read", "run_command"} <= tools, tools
-            messages = request["messages"]
+            messages = [
+                m
+                for m in request["messages"]
+                if not (
+                    m["role"] == "user"
+                    and isinstance(m["content"], str)
+                    and m["content"].startswith("AReaL runtime context (not a user request):")
+                )
+            ]
             prompt = next(m["content"] for m in reversed(messages) if m["role"] == "user")
             tool_results = [m for m in messages if m["role"] == "tool"]
             if prompt == "error-fixture":
