@@ -874,7 +874,7 @@ async fn live_goal_and_round_context_follow_a_stable_history_prefix() {
     assert!(
         first.messages[boundary..]
             .iter()
-            .all(|m| m.role == "system")
+            .all(|m| m.role == "areal_context")
     );
     assert!(
         first

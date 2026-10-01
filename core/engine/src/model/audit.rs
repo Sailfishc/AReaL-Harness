@@ -44,9 +44,15 @@ impl Audit {
                 .unwrap_or_default()
                 .as_millis() as u64
         );
+        value["protocol"] = json!(if body.get("input").is_some() {
+            "responses"
+        } else {
+            "chat-completions"
+        });
         value["systemMessageCount"] = json!(
-            body["messages"]
-                .as_array()
+            body.get("messages")
+                .or_else(|| body.get("input"))
+                .and_then(Value::as_array)
                 .map(|messages| messages.iter().filter(|m| m["role"] == "system").count())
         );
         // 只保存块摘要，离线比较相邻请求的稳定前缀；不持久化提示词正文。

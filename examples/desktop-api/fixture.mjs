@@ -17,7 +17,14 @@ export async function fixture() {
       }
       const request = JSON.parse(text);
       requests.push(request);
-      const lastUser = request.messages.findLastIndex((m) => m.role === "user");
+      const lastUser = request.messages.findLastIndex(
+        (m) =>
+          m.role === "user" &&
+          !(
+            typeof m.content === "string" &&
+            m.content.startsWith("AReaL runtime context (not a user request):")
+          ),
+      );
       const first = request.messages[lastUser]?.content ?? "";
       const result = request.messages.slice(lastUser + 1).filter((m) => m.role === "tool");
       let tool;

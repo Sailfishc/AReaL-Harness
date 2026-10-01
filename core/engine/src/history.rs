@@ -138,7 +138,10 @@ pub(super) fn history(thread: &Thread, store: &store::Store) -> anyhow::Result<V
                         .context("invalid request context")?
                     {
                         let role = message["role"].as_str().context("missing context role")?;
-                        anyhow::ensure!(matches!(role, "system" | "user"), "invalid context role");
+                        anyhow::ensure!(
+                            matches!(role, "system" | "user" | "areal_context"),
+                            "invalid context role"
+                        );
                         messages.push(Message::text(
                             role,
                             message["text"].as_str().context("missing context text")?,

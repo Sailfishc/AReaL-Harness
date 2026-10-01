@@ -150,7 +150,14 @@ const model = createServer(async (req, res) => {
     assert(request.messages[0].content.includes("Project rule: run check.sh after edits."));
     assert(request.tools.some((tool) => tool.function.name === "read_process"));
     assert.equal(request.parallel_tool_calls, true);
-    const mode = request.messages.findLast((message) => message.role === "user").content;
+    const mode = request.messages.findLast(
+      (message) =>
+        message.role === "user" &&
+        !(
+          typeof message.content === "string" &&
+          message.content.startsWith("AReaL runtime context (not a user request):")
+        ),
+    ).content;
     const results = request.messages.filter((message) => message.role === "tool");
     let name, args;
     if (mode === "delegate-files") {

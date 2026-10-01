@@ -637,3 +637,49 @@ async fn adjacent_system_hints_and_null_error_preserve_valid_response_and_safe_d
     }
     server.abort();
 }
+
+#[tokio::test]
+async fn runtime_context_keeps_chat_prefix_and_never_emits_a_late_system_message() {
+    use areal_engine::model::{Message, Model};
+    use futures_util::StreamExt;
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let app = Router::new().route("/", post(move |Json(request): Json<Value>| {
+        let tx = tx.clone();
+        async move {
+            tx.send(request).unwrap();
+            ([("content-type", "text/event-stream")], "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+        }
+    }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let model = HttpModel::new(format!("http://{addr}/"), "fixture".into(), None).unwrap();
+    let mut history = vec![
+        Message::text("system", "Fixed policy"),
+        Message::text("user", "Actual task"),
+    ];
+    let mut previous: Vec<Value> = Vec::new();
+    for round in 1..=3 {
+        history.push(Message::text(
+            "areal_context",
+            format!("Model round {round}; budget remains limited"),
+        ));
+        let events = model
+            .chat(history.clone(), vec![])
+            .await
+            .unwrap()
+            .collect::<Vec<_>>()
+            .await;
+        assert!(events.iter().all(Result::is_ok));
+        let request = rx.recv().await.unwrap();
+        let messages = request["messages"].as_array().unwrap();
+        assert_eq!(messages[0]["role"], "system");
+        assert!(messages[1..].iter().all(|m| m["role"] != "system"));
+        assert!(messages.iter().all(|m| m["role"] != "areal_context"));
+        assert_eq!(&messages[..previous.len()], previous.as_slice());
+        assert_eq!(messages[1]["content"], "Actual task");
+        previous = messages.clone();
+        history.push(Message::text("assistant", "confirmed step"));
+    }
+    server.abort();
+}

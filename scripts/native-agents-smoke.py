@@ -62,7 +62,17 @@ def exercise(args, mode):
                     requests.append(request)
                     for key, value in PARAMETERS.items():
                         assert request[key] == value, (key, request.get(key))
-                    messages = request["messages"]
+                    messages = [
+                        m
+                        for m in request["messages"]
+                        if not (
+                            m["role"] == "user"
+                            and isinstance(m["content"], str)
+                            and m["content"].startswith(
+                                "AReaL runtime context (not a user request):"
+                            )
+                        )
+                    ]
                     results = [json.loads(m["content"]) for m in messages if m["role"] == "tool"]
                     users = [m["content"] for m in messages if m["role"] == "user"]
                     worker = any(isinstance(m, str) and m.startswith("WORKER:") for m in users)

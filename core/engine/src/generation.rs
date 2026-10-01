@@ -183,6 +183,21 @@ impl Engine {
                 if let Some(hint) = recovery_hint.take() {
                     live_context.push(Message::text("user", hint));
                 }
+                // 仅新记录使用专用角色；旧 system 快照保持原投影，避免改写恢复历史。
+                for message in &mut live_context {
+                    if message.role == "system" {
+                        message.role = "areal_context".into();
+                    }
+                }
+                // 仅去重不变的 headless 规则；动态状态即使回到旧值也必须追加。
+                live_context.retain(|message| {
+                    !(message
+                        .text_content()
+                        .starts_with("This execution is headless.")
+                        && messages
+                            .iter()
+                            .any(|old| old.role == "areal_context" && old == message))
+                });
                 if !live_context.is_empty() {
                     let mut candidate = state.thread.clone();
                     let context = Item::ModelContext {
