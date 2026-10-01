@@ -170,7 +170,9 @@ const model = createServer(async (req, res) => {
         const summary = request.messages.findLast(
           (message) =>
             typeof message.content === "string" &&
-            message.content.startsWith("Settled child Agent results"),
+            message.content
+              .replace(/^AReaL runtime context \(not a user request\):\n/, "")
+              .startsWith("Settled child Agent results"),
         );
         if (summary) {
           const report = JSON.parse(summary.content.slice(summary.content.indexOf("{")));
