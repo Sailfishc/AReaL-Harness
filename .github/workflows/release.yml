@@ -64,26 +64,26 @@ jobs:
           python3 -m unittest discover -s scripts/tests -p test_release.py
       - name: Package the complete release
         run: |
-          python3 scripts/package.py --profile release --output target/release-bundle/areal
-          python3 scripts/release-artifacts.py archive --bundle target/release-bundle/areal --output target/release-assets
-          mkdir -p 'target/relocated bundle'
-          tar -xzf target/release-assets/areal-harness-v${RELEASE_VERSION}-${{ matrix.target }}.tar.gz -C 'target/relocated bundle'
-          python3 scripts/release-smoke.py --bundle 'target/relocated bundle/areal'
+          python3 scripts/package.py --profile release --output ${{ runner.temp }}/areal-release-bundle/areal
+          python3 scripts/release-artifacts.py archive --bundle ${{ runner.temp }}/areal-release-bundle/areal --output ${{ runner.temp }}/areal-release-assets
+          mkdir -p '${{ runner.temp }}/areal relocated bundle'
+          tar -xzf ${{ runner.temp }}/areal-release-assets/areal-harness-v${RELEASE_VERSION}-${{ matrix.target }}.tar.gz -C '${{ runner.temp }}/areal relocated bundle'
+          python3 scripts/release-smoke.py --bundle '${{ runner.temp }}/areal relocated bundle/areal'
       - name: Verify Linux installation and native tools
         if: runner.os == 'Linux'
         run: |
-          cat target/release-assets/*.sha256 > target/release-assets/SHA256SUMS
+          cat ${{ runner.temp }}/areal-release-assets/*.sha256 > ${{ runner.temp }}/areal-release-assets/SHA256SUMS
           prefix="$RUNNER_TEMP/areal installed"
           python3 scripts/install.py --version "$RELEASE_VERSION" --prefix "$prefix" \
-            --archive target/release-assets/areal-harness-v${RELEASE_VERSION}-${{ matrix.target }}.tar.gz \
-            --checksums target/release-assets/SHA256SUMS
+            --archive ${{ runner.temp }}/areal-release-assets/areal-harness-v${RELEASE_VERSION}-${{ matrix.target }}.tar.gz \
+            --checksums ${{ runner.temp }}/areal-release-assets/SHA256SUMS
           python3 scripts/release-smoke.py --bundle "$prefix/lib/areal/${RELEASE_VERSION}-linux-x86_64" --executable "$prefix/bin/areal"
           python3 scripts/native-tools-smoke.py --bin-dir target/release
-          rm target/release-assets/SHA256SUMS
+          rm ${{ runner.temp }}/areal-release-assets/SHA256SUMS
       - name: Verify Homebrew installation and packaged lifecycle
         if: runner.os == 'macOS'
         run: |
-          archive="$PWD/target/release-assets/areal-harness-v${RELEASE_VERSION}-${{ matrix.target }}.tar.gz"
+          archive="${{ runner.temp }}/areal-release-assets/areal-harness-v${RELEASE_VERSION}-${{ matrix.target }}.tar.gz"
           brew tap-new areal-local/release
           formula="$(brew --repository areal-local/release)/Formula/areal.rb"
           python3 scripts/release-artifacts.py formula --archive "$archive" --url "file://$archive" --output "$formula"
@@ -91,11 +91,11 @@ jobs:
           brew test areal-local/release/areal
           python3 scripts/release-smoke.py --bundle "$(brew --prefix areal)" --executable "$(brew --prefix)/bin/areal"
           AREAL_PACKAGE_PROFILE=release node examples/desktop-api/soak.mjs
-          python3 scripts/release-artifacts.py formula --archive "$archive" --output target/release-assets/areal.rb
+          python3 scripts/release-artifacts.py formula --archive "$archive" --output ${{ runner.temp }}/areal-release-assets/areal.rb
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: release-${{ matrix.target }}
-          path: target/release-assets/
+          path: ${{ runner.temp }}/areal-release-assets/
           if-no-files-found: error
           retention-days: 14
 
