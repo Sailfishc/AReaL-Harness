@@ -19,8 +19,10 @@ def main():
     destination = args.output.resolve()
     if destination.exists():
         parser.error("output must not exist")
-    if (platform.system(), platform.machine()) != ("Darwin", "arm64"):
-        parser.error("the verified package target is macOS arm64")
+    targets = {("Darwin", "arm64"): "darwin/arm64", ("Linux", "x86_64"): "linux/x86_64"}
+    target_platform = targets.get((platform.system(), platform.machine()))
+    if target_platform is None:
+        parser.error("package targets are macOS arm64 and Linux x86_64")
     names = ("areal", "areal-runtime", "areal-runtime-fs")
     source = root / "target" / args.profile
     subprocess.run(
@@ -39,16 +41,17 @@ def main():
         target = destination / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source / name, target)
-        subprocess.run(
-            ["/usr/bin/codesign", "--force", "--sign", "-", str(target)],
-            check=True,
-            capture_output=True,
-        )
-        subprocess.run(
-            ["/usr/bin/codesign", "--verify", "--strict", str(target)],
-            check=True,
-            capture_output=True,
-        )
+        if platform.system() == "Darwin":
+            subprocess.run(
+                ["/usr/bin/codesign", "--force", "--sign", "-", str(target)],
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                ["/usr/bin/codesign", "--verify", "--strict", str(target)],
+                check=True,
+                capture_output=True,
+            )
         files[str(relative)] = hashlib.sha256(target.read_bytes()).hexdigest()
     shutil.copytree(source / "tools", destination / "libexec/areal/tools")
     for path in (destination / "libexec/areal/tools").rglob("*"):
@@ -67,14 +70,26 @@ def main():
         "profile": args.profile,
         "apiVersion": "areal.core.v1",
         "stateVersion": 10,
-        "platform": "darwin/arm64",
+        "platform": target_platform,
         "files": files,
         "prerequisites": [
             {"path": "/usr/bin/python3", "verifiedVersion": python},
-            {"path": "/usr/bin/sandbox-exec"},
+            *(
+                [{"path": "/usr/bin/sandbox-exec"}]
+                if platform.system() == "Darwin"
+                else [
+                    {"glibc": ">=2.35", "verifiedVersion": platform.libc_ver()[1]},
+                    {
+                        "path": "/usr/bin/bwrap",
+                        "requiredFor": "restricted scopes; usable user namespaces required",
+                    },
+                ]
+            ),
         ],
         "optionalRuntimes": "Node/Python for configured tool hosts; explicitly supplied by deployment",
-        "signing": "ad-hoc; Developer ID signing and notarization require a separate distribution pipeline",
+        "signing": "ad-hoc; no Developer ID or notarization"
+        if platform.system() == "Darwin"
+        else "unsigned; verify release SHA256SUMS",
     }
     (destination / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     print(json.dumps({"bundle": str(destination), "manifest": "manifest.json"}))

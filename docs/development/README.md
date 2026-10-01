@@ -47,3 +47,5 @@ Rust 使用 `--locked`，升级同时更新清单和锁文件；Cordis 还需同
 Rust 使用 rustfmt/Clippy；TS/JS/CSS/HTML 使用锁定 Prettier；自有 Python 使用 Ruff。遵循 `.editorconfig`。新注释使用中文解释约束与原因；已有准确英文不机械翻译。
 
 文档按[文档目录](../README.md)分类，同次修改更新中英文。README 只保留简介与导航；API 放在 `docs/api/`；历史结果放在 `docs/benchmarks/reports/`。移动页面同步修复引用。图表同步维护 draw.io 和 SVG/已有 PNG，遵循[图表规范](../design/STYLE_GUIDE.md)。
+
+Homebrew/Linux 发行产物、安装验收与 draft 发布流程见[发行流程](releasing.md)。

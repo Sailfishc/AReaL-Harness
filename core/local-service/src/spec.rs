@@ -140,6 +140,7 @@ impl LaunchSpec {
         Self::in_bin(
             args,
             std::env::current_exe()?
+                .canonicalize()?
                 .parent()
                 .context("binary directory")?
                 .to_path_buf(),

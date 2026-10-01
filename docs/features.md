@@ -32,3 +32,5 @@
 - Workgroup 最多 64 个任务、32 个 Worker；CLI 默认 `balanced + fixed`、2 个 Worker。更宽或 adaptive 不保证更快。
 - 真实 GUI 联调、签名/公证安装包、第三方服务及生产容量仍需独立验收。20 道 pro 题提供[公开 Dockerfile](../tests/perf/suites/pro/README.md)，历史来源镜像仅作溯源。
 - Goal 不自动跨重启运行。每目标账本最多 4096 请求/4 MiB，历史与 Thread 容量仍有限；clear 保留账本且无自动账本 GC。tokenBudget 使用保守准入估算，不保证供应商绝不超额计费；未知消费保留预留并停止自动推进。
+
+发行准备支持 macOS arm64 Homebrew formula 与 Linux x86_64 glibc 完整包，含 SHA256 校验、版本化 Linux 安装和搬迁读写验收。发布可用性以 GitHub Release/tap 为准；详见[安装指南](guides/installation.md)。

@@ -163,6 +163,8 @@ def main():
     ):
         parser.error("scratch must be an existing directory disjoint from the workspace")
     binary = (args.bin_dir or Path(__file__).resolve().parents[1] / "target/debug").resolve()
+    # Homebrew 的 bin 入口是文件符号链接，必须先定位实际安装目录。
+    binary = (binary / "areal").resolve().parent
     # 安装包只暴露 areal；Runtime 仍以独立进程执行并沿用私有管道边界。
     runtime_bin = binary.parent / "libexec/areal"
     if not runtime_bin.is_dir():

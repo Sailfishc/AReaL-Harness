@@ -47,3 +47,5 @@ Use Rust `--locked`; intentional upgrades update manifests and locks. Cordis als
 Use rustfmt/Clippy for Rust, locked Prettier for TS/JS/CSS/HTML and Ruff for owned Python code. Follow `.editorconfig`. New comments explain constraints and reasons in Chinese; accurate existing English comments need no mechanical translation.
 
 Organize documentation through the [index](../README.en.md) and update both languages together. Keep README to an introduction and navigation, APIs in `docs/api/`, and historical results in `docs/benchmarks/reports/`. Fix references when moving pages. Maintain draw.io sources together with SVG/existing PNG previews under the [diagram style guide](../design/STYLE_GUIDE.en.md).
+
+See the [release workflow](releasing.en.md) for Homebrew/Linux artifacts, installation verification and draft publication.

@@ -264,7 +264,7 @@ impl Local {
             .args(["-I", "-S", "-c"])
             .arg(include_str!("../../../scripts/launch.py"))
             .arg("--bin-dir")
-            .arg(std::env::current_exe()?.parent().unwrap())
+            .arg(std::env::current_exe()?.canonicalize()?.parent().unwrap())
             .arg("--desktop")
             .arg("--parent-pid")
             .arg(std::process::id().to_string())

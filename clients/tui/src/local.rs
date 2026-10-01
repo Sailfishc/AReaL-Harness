@@ -4,7 +4,10 @@ use std::process::Command;
 pub use areal_local_service::LocalArgs;
 
 pub fn launch(args: &super::Args) -> Result<()> {
-    let binary = std::env::current_exe().context("locate TUI executable")?;
+    let binary = std::env::current_exe()
+        .context("locate TUI executable")?
+        .canonicalize()
+        .context("resolve installed TUI executable")?;
     // Embed the existing trusted launcher so installed binaries need no source checkout.
     // exec keeps one owner for Core/Runtime even if the original TUI process is signalled.
     let mut command = Command::new("/usr/bin/python3");

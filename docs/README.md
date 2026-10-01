@@ -15,3 +15,5 @@
 | 基准测试 | [运行与恢复](benchmarks/README.md) · [统计方法](benchmarks/methodology.md) · [历史报告](benchmarks/reports/README.md) · [原生工具优化实测](benchmarks/reports/tool-optimization.md) |
 
 每篇维护文档使用同目录的 `.md`（中文）和 `.en.md`（英文）配对，顶部可切换。两种语言同时更新；机器 schema、代码及共享图表只保留一份。API 参数以契约和链接的类型/schema 为准，使用指南不重复整套接口。
+
+- [安装与升级](guides/installation.md) · [发行流程](development/releasing.md)

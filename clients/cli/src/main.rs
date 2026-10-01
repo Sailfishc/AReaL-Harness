@@ -183,7 +183,10 @@ async fn main() {
         }
         Some(Command::Serve { args }) => {
             use std::os::unix::process::CommandExt;
-            let executable = std::env::current_exe().expect("executable path");
+            let executable = std::env::current_exe()
+                .expect("executable path")
+                .canonicalize()
+                .expect("resolve executable path");
             let error = std::process::Command::new("/usr/bin/python3")
                 .args(["-I", "-S", "-c"])
                 .arg(include_str!("../../../scripts/launch.py"))
@@ -196,7 +199,10 @@ async fn main() {
         Some(Command::AppServer(args)) => areal_server::run(*args).await,
         Some(Command::Config(args)) => areal_server::diagnose(*args).await,
         Some(Command::Workgroup { command }) => {
-            let executable = std::env::current_exe().expect("executable path");
+            let executable = std::env::current_exe()
+                .expect("executable path")
+                .canonicalize()
+                .expect("resolve executable path");
             let runtime_bin = areal_local_service::runtime_bin_dir(executable.parent().unwrap());
             areal_server::workgroup::run(command, runtime_bin).await
         }
