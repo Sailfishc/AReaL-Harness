@@ -687,27 +687,21 @@ impl HttpModel {
         match self.protocol {
             ModelProtocol::ChatCompletions => {
                 let mut output: Vec<Value> = Vec::with_capacity(messages.len());
+                let mut system_text = Vec::new();
                 for message in messages {
                     if message.provider_context.is_some() {
                         continue;
                     }
                     let content = chat_content(message.content).await?;
-                    // Keep the same role and ordering, but represent adjacent
-                    // text system instructions as one provider message. Budget
-                    // hints must not change the provider's message grammar.
+                    // Chat 模板可能只允许开头的 system 消息。Core 会在历史中
+                    // 追加动态 Goal 提示；在协议投影中合并，保留系统文本顺序，
+                    // 不修改持久历史或 Responses 的 encrypted reasoning 上下文。
                     if message.role == "system"
                         && message.tool_calls.is_empty()
                         && message.tool_call_id.is_none()
                         && let Some(text) = content.as_str()
-                        && let Some(previous) = output
-                            .last_mut()
-                            .filter(|m| m["role"] == "system" && m["content"].is_string())
                     {
-                        previous["content"] = json!(format!(
-                            "{}\n\n{}",
-                            previous["content"].as_str().unwrap(),
-                            text
-                        ));
+                        system_text.push(text.to_owned());
                         continue;
                     }
                     let mut item = json!({"role": message.role, "content": content});
@@ -729,6 +723,12 @@ impl HttpModel {
                         item["tool_call_id"] = json!(call_id);
                     }
                     output.push(item);
+                }
+                if !system_text.is_empty() {
+                    output.insert(
+                        0,
+                        json!({"role":"system", "content":system_text.join("\n\n")}),
+                    );
                 }
                 Ok(json!({
                     "model": self.name,

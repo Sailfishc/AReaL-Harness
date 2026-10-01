@@ -590,6 +590,9 @@ async fn adjacent_system_hints_and_null_error_preserve_valid_response_and_safe_d
                     Message::text("system", "budget: 8 requests remain"),
                     Message::text("system", "task instructions"),
                     Message::text("user", "work"),
+                    Message::text("system", "current goal: continue"),
+                    Message::text("assistant", "working"),
+                    Message::text("system", "budget: 7 requests remain"),
                 ],
                 vec![],
             )
@@ -606,10 +609,18 @@ async fn adjacent_system_hints_and_null_error_preserve_valid_response_and_safe_d
         }
         drop(stream);
         let request = rx.recv().await.unwrap();
-        assert_eq!(request["messages"].as_array().unwrap().len(), 2);
+        assert_eq!(request["messages"].as_array().unwrap().len(), 3);
         assert_eq!(
             request["messages"][0]["content"],
-            "budget: 8 requests remain\n\ntask instructions"
+            "budget: 8 requests remain\n\ntask instructions\n\ncurrent goal: continue\n\nbudget: 7 requests remain"
+        );
+        assert_eq!(
+            request["messages"][1],
+            json!({"role":"user","content":"work"})
+        );
+        assert_eq!(
+            request["messages"][2],
+            json!({"role":"assistant","content":"working"})
         );
         let audit = std::fs::read_to_string(dir.path().join("requests.jsonl")).unwrap();
         assert!(!audit.contains("fixture-secret") && !audit.contains("private input"));
