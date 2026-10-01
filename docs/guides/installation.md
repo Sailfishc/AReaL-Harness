@@ -69,3 +69,5 @@ python3 install.py --version 0.1.0 --prefix "$HOME/.local" \
 升级前用 `areal service list` 检查服务，在各工作区执行 `areal service stop --workspace /absolute/workspace`；忙碌任务默认拒绝停止，应先完成或显式暂停任务。Homebrew 用 `brew upgrade areal-project/tap/areal`；Linux 用新版本的安装命令。不要直接覆盖运行中的二进制。Linux 旧版本目录保留，停止服务后可将入口链接切回旧版本；数据格式升级后不能保证旧版本可读取新状态，升级前备份 `~/.areal`。
 
 卸载先停止服务。Homebrew 用 `brew uninstall areal`；Linux 删除安装器管理的入口链接及选定版本目录。两种方式都不自动删除 `~/.areal` 的配置与历史。
+
+符号链接入口先解析到真实版本目录，再定位 `libexec/areal`，适用于 Homebrew Cellar 和 Linux 版本化安装。

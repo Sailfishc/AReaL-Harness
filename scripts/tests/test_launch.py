@@ -71,7 +71,7 @@ class CoreArgumentsTest(unittest.TestCase):
 
 
 class LauncherProcessTest(unittest.TestCase):
-    def fixture(self, directory, invalid=False):
+    def fixture(self, directory, invalid=False, linked=False):
         root = Path(directory)
         (root / "workspace").mkdir()
         prefix = f"#!{sys.executable}\nimport json, os, sys\nfrom pathlib import Path\nroot=Path({str(root)!r})\n"
@@ -107,6 +107,14 @@ sys.stdin.buffer.read()
             p = root / name
             p.write_text(body)
             p.chmod(0o700)
+        if linked:
+            keg = root / "Cellar/areal/0.1.0"
+            (keg / "bin").mkdir(parents=True)
+            (keg / "libexec/areal").mkdir(parents=True)
+            (root / "areal").rename(keg / "bin/areal")
+            (root / "areal").symlink_to(keg / "bin/areal")
+            for name in ["areal-runtime", "areal-runtime-fs"]:
+                (root / name).rename(keg / "libexec/areal" / name)
         return subprocess.run(
             [
                 sys.executable,
@@ -146,6 +154,13 @@ sys.stdin.buffer.read()
             self.assertNotIn("--listen", core["args"])
             self.assertEqual(core["key"], "fixture-key")
             self.assertFalse(json.loads((root / "runtime.json").read_text())["has_key"])
+
+    def test_symlink_entry_resolves_helpers_inside_the_installed_keg(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result = self.fixture(directory, linked=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue((Path(directory) / "runtime.json").is_file())
+            self.assertTrue((Path(directory) / "core.json").is_file())
 
     def test_failed_config_preflight_starts_no_services(self):
         with tempfile.TemporaryDirectory() as directory:

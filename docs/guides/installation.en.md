@@ -69,3 +69,5 @@ Configure the model in `~/.areal/config.toml` using the [configuration guide](co
 Before upgrading, inspect `areal service list` and stop each workspace service with `areal service stop --workspace /absolute/workspace`. Busy tasks prevent stopping by default; complete or explicitly pause them first. Use `brew upgrade areal-project/tap/areal` on macOS or install the new version on Linux. Never overwrite running binaries. Linux retains old version directories, allowing the entry symlink to be switched back after services stop. Older versions may not understand newer state formats; back up `~/.areal` before upgrading.
 
 Stop services before uninstalling. Use `brew uninstall areal` or remove the installer-managed Linux entry symlink and selected version directories. Neither installation method automatically deletes configuration or history in `~/.areal`.
+
+Symlink entry points are resolved to the real version directory before locating `libexec/areal`, covering Homebrew Cellar and versioned Linux installations.
