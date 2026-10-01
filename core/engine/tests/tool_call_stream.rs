@@ -757,7 +757,12 @@ async fn final_round_only_classifies_http_call_budget_errors_as_round_exhaustion
         {
             let requests = fixture.requests.lock().unwrap();
             assert_eq!(requests.len(), 1);
-            assert!(requests[0]["tools"].as_array().is_none_or(Vec::is_empty));
+            assert!(
+                requests[0]["tools"]
+                    .as_array()
+                    .is_some_and(|tools| !tools.is_empty())
+            );
+            assert_eq!(requests[0]["tool_choice"], "none");
         }
         let records = audits(&audit);
         assert_eq!(records[0]["errorCode"], error_code);
