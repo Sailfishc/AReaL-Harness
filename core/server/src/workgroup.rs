@@ -170,6 +170,7 @@ pub async fn run(command: Command, runtime_bin: PathBuf) -> Result<()> {
             )?
             .with_audit_directory(config.data_dir.join("model-requests"))
             .with_options(ModelOptions {
+                responses_websocket: config.model.responses_websocket,
                 reasoning_effort: config.model.reasoning_effort.clone(),
                 reasoning_summary: config.model.reasoning_summary.clone(),
                 max_output_tokens: config.model.max_output_tokens,

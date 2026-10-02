@@ -3,6 +3,7 @@ use decoder::{ChatDecoder, Decoder, ResponsesDecoder};
 
 mod audit;
 mod tool_calls;
+mod websocket;
 use anyhow::{Context, Result, bail};
 use areal_protocol::{ImageDetail, Modality, ModelUsage};
 use async_trait::async_trait;
@@ -10,7 +11,7 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use futures_util::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::{collections::VecDeque, pin::Pin, time::Duration};
+use std::{collections::VecDeque, pin::Pin, sync::Arc, time::Duration};
 pub(crate) use tool_calls::tool_index;
 pub use tool_calls::{MAX_TOOL_ARGUMENT_BYTES, ToolCallLimits};
 pub(crate) use tool_calls::{
@@ -539,12 +540,14 @@ pub struct HttpModel {
     options: ModelOptions,
     audit_directory: Option<std::path::PathBuf>,
     temperature: Option<f64>,
+    websocket_pool: Arc<tokio::sync::Mutex<websocket::Pool>>,
 }
 
 #[derive(Clone, Debug)]
 pub struct ModelOptions {
     pub reasoning_effort: Option<String>,
     pub reasoning_summary: Option<String>,
+    pub responses_websocket: bool,
     pub temperature: Option<f64>,
     pub top_p: Option<f64>,
     pub top_k: Option<i64>,
@@ -560,6 +563,7 @@ impl Default for ModelOptions {
         Self {
             reasoning_effort: None,
             reasoning_summary: None,
+            responses_websocket: false,
             temperature: None,
             top_p: None,
             top_k: None,
@@ -606,6 +610,7 @@ impl HttpModel {
             options: ModelOptions::default(),
             audit_directory: None,
             temperature: None,
+            websocket_pool: Arc::new(tokio::sync::Mutex::new(websocket::Pool::default())),
         })
     }
 
@@ -617,6 +622,10 @@ impl HttpModel {
     }
 
     pub fn with_options(mut self, options: ModelOptions) -> Result<Self> {
+        anyhow::ensure!(
+            !options.responses_websocket || self.protocol == ModelProtocol::Responses,
+            "responses_websocket requires responses protocol"
+        );
         anyhow::ensure!(options.max_retries <= 8, "model retries must be at most 8");
         anyhow::ensure!(
             options.max_output_tokens != Some(0),
@@ -912,6 +921,9 @@ impl Model for HttpModel {
         }
         // Retrying before accepting a stream cannot replay a tool operation.
         // Never automatically replay a partially consumed model stream here.
+        if self.options.responses_websocket {
+            return self.websocket_stream(body, purpose, limits).await;
+        }
         let mut audit = audit::Audit::new(self.audit_directory.as_deref(), &body, purpose);
         let mut attempt = 0;
         let response = loop {

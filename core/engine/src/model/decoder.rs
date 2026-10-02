@@ -596,6 +596,11 @@ impl ResponsesDecoder {
                 self.done = true;
             }
             "response.failed" | "response.incomplete" | "error" => {
+                // 已返回的消费先结算，再传播终止错误；不得把明确用量变成 unknown。
+                if let Some(usage) = parse_usage(event["response"].get("usage")) {
+                    self.usage_details.observe(&event["response"]["usage"]);
+                    output.push(ModelEvent::Usage(usage));
+                }
                 let value = event
                     .get("error")
                     .filter(|v| !v.is_null())

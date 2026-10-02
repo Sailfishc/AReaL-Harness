@@ -153,6 +153,8 @@ pub struct SelectedModelConfig {
     pub api_key_env: Option<String>,
     pub reasoning_effort: Option<String>,
     pub reasoning_summary: Option<String>,
+    #[serde(default)]
+    pub responses_websocket: bool,
     pub temperature: Option<f64>,
     pub top_p: Option<f64>,
     pub top_k: Option<i64>,
@@ -262,6 +264,7 @@ impl ResolvedCoreConfig {
                 "endpoint": endpoint.as_str(), "protocol": self.model.protocol,
                 "api_key_env": self.model.api_key_env, "reasoning_effort": self.model.reasoning_effort,
                 "reasoning_summary": self.model.reasoning_summary,
+                "responses_websocket": self.model.responses_websocket,
                 "temperature": self.model.temperature,
                 "top_p": self.model.top_p,
                 "top_k": self.model.top_k,

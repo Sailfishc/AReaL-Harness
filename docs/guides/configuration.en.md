@@ -267,3 +267,11 @@ Run `python3 scripts/cache-report.py /absolute/Core-state --output cache-report.
 Audits also record milliseconds to first response bytes, first nonempty text delta and first nonempty reasoning delta, only when observed. These are distinct measurements; total request duration is not TTFT, and opaque reasoning without visible deltas remains unknown.
 
 HTTP audits retain bounded correlation IDs when present: `httpRequestId` from x-request-id and `gatewayTraceId` from x-cpa-trace-id. These correlate upstream logs, not backend identity. Authentication headers, cookies and sticky-routing tokens are not collected.
+
+## Incremental Responses transport (experimental)
+
+Explicitly enable `[model] responses_websocket = true` or `AREAL_HARNESS_RESPONSES_WEBSOCKET=true`; default false, only valid for `protocol="responses"`. Keep the full HTTP(S) Responses endpoint in configuration; it is mapped to WS(S). The endpoint must support the Responses WebSocket beta protocol. This path connects directly, does not use HTTP proxy environment variables, and does not automatically fall back to HTTP.
+
+Connections are isolated by model instance, Thread and Turn. Only complete prior responses, identical non-input parameters and an exact prior-input-plus-output prefix permit previous_response_id with incremental input; otherwise close the old connection and send full input on a fresh connection. New Turns, credentials/model-instance changes, cancellation, errors and disconnects invalidate continuation state. The transport does not replay failed sends; Engine retry and Goal accounting rules remain applicable. Retain at most 16 idle sessions and 32 MiB of request/output references, clearing connections after 120 idle seconds. Long tool operations may need full-context reconnection; executed tools must not be replayed.
+
+Audit body/messageBlocks represent full logical input; transport=responses-websocket, incremental, wireInputItems and wireBodyBytes describe actual transmission. Fewer wire bytes do not imply fewer billed input tokens or guaranteed KV hits. Evaluate cache, latency, failures and task correctness together. Summaries use separate connections and never pollute the solve continuation.

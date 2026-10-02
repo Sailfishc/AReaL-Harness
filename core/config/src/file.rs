@@ -241,6 +241,7 @@ fn walk(
     let boolean = matches!(
         names.as_slice(),
         ["limits", "watchdog_disable" | "context_compaction_enabled"]
+            | ["model", "responses_websocket"]
     );
     if !numeric && !string && !decimal && !boolean {
         return Err(error(

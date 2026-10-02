@@ -49,6 +49,7 @@ pub fn model(
         )?
         .with_audit_directory(data.join("model-requests"))
         .with_options(ModelOptions {
+            responses_websocket: config.responses_websocket,
             reasoning_effort: config.reasoning_effort.clone(),
             reasoning_summary: config.reasoning_summary.clone(),
             max_output_tokens: config.max_output_tokens,

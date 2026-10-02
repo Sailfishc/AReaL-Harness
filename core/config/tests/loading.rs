@@ -761,3 +761,19 @@ fn removed_turn_timeout_requires_toml_and_env_migration() {
     set(&mut i, "AREAL_HARNESS_TURN_TIMEOUT_SECONDS", "0");
     assert_eq!(failure(&i).kind, ConfigErrorKind::UnknownField);
 }
+
+#[test]
+fn responses_websocket_is_opt_in_and_rejects_chat_protocol() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut i = inputs(temp.path());
+    assert!(!load_config(&i).unwrap().model.responses_websocket);
+    write(
+        &mut i,
+        "schema_version=1\n[model]\nresponses_websocket=true\n",
+    );
+    assert_eq!(failure(&i).kind, ConfigErrorKind::InvalidValue);
+    i.overrides.model_protocol = Some("responses".into());
+    assert!(load_config(&i).unwrap().model.responses_websocket);
+    set(&mut i, "AREAL_HARNESS_RESPONSES_WEBSOCKET", "false");
+    assert!(!load_config(&i).unwrap().model.responses_websocket);
+}

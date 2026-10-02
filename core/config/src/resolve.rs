@@ -8,6 +8,11 @@ use std::{
 };
 
 const ENV: &[(&str, &str, &str)] = &[
+    (
+        "AREAL_HARNESS_RESPONSES_WEBSOCKET",
+        "",
+        "model.responses_websocket",
+    ),
     ("AREAL_HARNESS_PERMISSION_MODE", "", "permissions.mode"),
     ("AREAL_HARNESS_LISTEN", "", "server.listen"),
     ("AREAL_HARNESS_DATA_DIR", "", "server.data_dir"),
@@ -317,7 +322,7 @@ fn valid(field: &str, entry: &Entry) -> Result<()> {
                 ));
             }
         }
-        "watchdog_disable" | "context_compaction_enabled" => {
+        "watchdog_disable" | "context_compaction_enabled" | "responses_websocket" => {
             if !matches!(value.as_str(), "0" | "1" | "false" | "true") {
                 return Err(reject("boolean must be 0/1 or false/true"));
             }
@@ -512,6 +517,7 @@ fn load_mode(inputs: &ConfigInputs, management: bool) -> Result<ResolvedCoreConf
         ("limits.context_output_reserve_tokens", "8192"),
         ("limits.context_recent_bytes", "131072"),
         ("model.max_retries", "2"),
+        ("model.responses_websocket", "false"),
         ("limits.max_completion_retries", "0"),
         ("limits.watchdog_disable", "false"),
         ("logging.filter", "info"),
@@ -734,6 +740,10 @@ fn load_mode(inputs: &ConfigInputs, management: bool) -> Result<ResolvedCoreConf
             .get("tools.extensions_file")
             .map(|v| PathBuf::from(&v.value)),
         model: SelectedModelConfig {
+            responses_websocket: matches!(
+                values["model.responses_websocket"].value.as_str(),
+                "true" | "1"
+            ),
             provider,
             name: values["model.name"].value.clone(),
             endpoint: values[&format!("{prefix}.endpoint")].value.clone(),
@@ -821,6 +831,14 @@ fn load_mode(inputs: &ConfigInputs, management: bool) -> Result<ResolvedCoreConf
         ));
     }
     // Validate credentials here so callers cannot accidentally skip the check.
+    if result.model.responses_websocket && result.model.protocol != ModelProtocolConfig::Responses {
+        return Err(error(
+            ConfigErrorKind::InvalidValue,
+            "model.responses_websocket",
+            &result.sources["model.responses_websocket"],
+            "responses_websocket requires responses protocol",
+        ));
+    }
     if result.context_recent_bytes >= result.context_window_bytes {
         return Err(error(
             ConfigErrorKind::InvalidValue,

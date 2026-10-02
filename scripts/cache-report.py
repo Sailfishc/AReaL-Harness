@@ -45,6 +45,10 @@ def report(directory):
             "durationMs": row.get("durationMs"),
         }
         for field in [
+            "transport",
+            "incremental",
+            "wireInputItems",
+            "wireBodyBytes",
             "gatewayTraceId",
             "httpRequestId",
             "timeToFirstResponseBytesMs",
