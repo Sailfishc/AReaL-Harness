@@ -4,7 +4,10 @@ use std::process::Command;
 pub use areal_local_service::LocalArgs;
 
 pub fn launch(args: &super::Args) -> Result<()> {
-    let binary = std::env::current_exe().context("locate TUI executable")?;
+    let binary = std::env::current_exe()
+        .context("locate TUI executable")?
+        .canonicalize()
+        .context("resolve installed TUI executable")?;
     // Embed the existing trusted launcher so installed binaries need no source checkout.
     // exec keeps one owner for Core/Runtime even if the original TUI process is signalled.
     let mut command = Command::new("/usr/bin/python3");
@@ -37,6 +40,9 @@ pub fn launch(args: &super::Args) -> Result<()> {
         }
     }
     command.args(args.local.launcher_args());
+    if let Some(agent) = &args.agent {
+        command.arg(format!("--agent={agent}"));
+    }
     if let Some(value) = &args.input_file {
         command.arg("--input-file").arg(value);
     }
@@ -82,6 +88,30 @@ mod tests {
         .unwrap();
         assert_eq!(args.endpoint.as_deref(), Some("ws://127.0.0.1:4500"));
         assert_eq!(args.resume.as_deref(), Some("thread-id"));
+    }
+
+    #[test]
+    fn agent_profile_is_selected_by_id_and_revision() {
+        let args = Args::try_parse_from(["areal", "--prompt", "hello", "--agent", "code-agent@v2"])
+            .unwrap();
+        assert_eq!(args.agent.as_deref(), Some("code-agent@v2"));
+        assert_eq!(
+            areal_local_service::parse_agent_profile(args.agent.as_deref().unwrap())
+                .unwrap()
+                .id,
+            "code-agent"
+        );
+        let remote = Args::try_parse_from([
+            "areal",
+            "--endpoint",
+            "ws://127.0.0.1:4500",
+            "--prompt",
+            "hello",
+            "--agent",
+            "code-agent@v2",
+        ])
+        .unwrap();
+        assert_eq!(remote.agent.as_deref(), Some("code-agent@v2"));
     }
 
     #[test]

@@ -33,7 +33,7 @@ const model = createServer(async (req, res) => {
   let body = "";
   for await (const part of req) body += part;
   const request = JSON.parse(body);
-  const text = request.messages.at(-1).content;
+  const text = request.messages.findLast((message) => message.role === "user").content;
   requests.push({ model: request.model, text });
   res.writeHead(200, { "Content-Type": "text/event-stream" });
   res.write(

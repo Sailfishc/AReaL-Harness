@@ -5,7 +5,10 @@ let socket,
   connected = false,
   refreshing = false,
   listCursor = null,
-  listing = false;
+  listing = false,
+  archiving = new Set();
+let skills = [],
+  slashIndex = 0;
 const pending = new Map();
 let interactionDisplayed = null;
 let goalsSupported = false,
@@ -25,6 +28,17 @@ const taskRows = new Map(),
   inboxDrafts = new Map();
 let waiting = null,
   stopping = null;
+const slashCommands = [
+  ["/help", "显示可用命令"],
+  ["/new", "新建任务"],
+  ["/refresh", "刷新当前任务"],
+  ["/skills", "选择当前任务的 Skill"],
+  ["/skill", "按名称选择 Skill"],
+  ["/goal", "创建或查看持续目标"],
+  ["/goal-pause", "暂停持续目标"],
+  ["/goal-resume", "恢复持续目标"],
+  ["/goal-clear", "清除持续目标"],
+];
 const labels = {
   inProgress: "执行中",
   completed: "已完成",
@@ -178,8 +192,10 @@ function isStopping() {
   );
 }
 function renderComposer() {
-  const hasText = Boolean($("prompt").value.trim());
-  $("send").disabled = !connected || !thread || !hasText || submitting;
+  const text = $("prompt").value.trim();
+  const hasText = Boolean(text);
+  const slash = text.startsWith("/");
+  $("send").disabled = !connected || (!thread && !slash) || !hasText || submitting;
   const running = active() || thread?.goals?.goal?.status === "active";
   $("send").hidden = running && !hasText;
   const label = active() ? "补充说明" : "发送";
@@ -191,14 +207,173 @@ function renderComposer() {
   $("interrupt").title = stopLabel;
   $("interrupt").hidden = !running;
 }
-$("prompt").oninput = renderComposer;
+function renderSlashMenu() {
+  const menu = $("slash-menu"),
+    text = $("prompt").value;
+  const query = text.startsWith("/") && !/[\s\n]/.test(text) ? text.toLowerCase() : "";
+  const matches = query ? slashCommands.filter(([name]) => name.startsWith(query)) : [];
+  menu.replaceChildren();
+  menu.hidden = !matches.length;
+  if (!matches.length) {
+    slashIndex = 0;
+    return;
+  }
+  slashIndex = Math.min(slashIndex, matches.length - 1);
+  for (const [index, [name, description]] of matches.entries()) {
+    const button = node("button", undefined, "slash-command");
+    button.type = "button";
+    button.role = "option";
+    button.ariaSelected = String(index === slashIndex);
+    button.append(node("strong", name), node("span", description, "slash-command-description"));
+    button.onclick = () => {
+      $("prompt").value = `${name}${name === "/skill" || name === "/goal" ? " " : ""}`;
+      slashIndex = 0;
+      renderComposer();
+      $("prompt").focus();
+    };
+    menu.append(button);
+  }
+}
+$("prompt").oninput = () => {
+  slashIndex = 0;
+  renderComposer();
+  renderSlashMenu();
+};
 $("prompt").onkeydown = (event) => {
+  if (!$("slash-menu").hidden && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+    event.preventDefault();
+    const count = $("slash-menu").children.length;
+    slashIndex = (slashIndex + (event.key === "ArrowDown" ? 1 : count - 1)) % count;
+    renderSlashMenu();
+    return;
+  }
+  if (!$("slash-menu").hidden && event.key === "Tab") {
+    event.preventDefault();
+    $("slash-menu").children[slashIndex]?.click();
+    return;
+  }
   // 输入法确认候选字不提交任务，Shift + Enter 保留多行输入。
   if (event.key === "Enter" && !event.shiftKey && !event.isComposing && event.keyCode !== 229) {
     event.preventDefault();
     if (!$("send").disabled) $("composer").requestSubmit();
   }
 };
+async function loadSkills() {
+  if (!thread) {
+    skills = [];
+    return;
+  }
+  const result = await call("areal/skill/list", { threadId: thread.id });
+  skills = result.data ?? [];
+  renderSkills();
+}
+function renderSkills() {
+  const list = $("skills-list");
+  if (!list) return;
+  list.replaceChildren();
+  if (!thread) {
+    list.append(node("p", "请先新建或选择任务。", "muted"));
+    return;
+  }
+  if (!skills.length) {
+    list.append(node("p", "当前任务没有可用 Skill。", "muted"));
+    return;
+  }
+  const selected = new Set(
+    (thread.desktop?.configuration?.selectedSkills ?? []).map((s) => `${s.id}/${s.revision}`),
+  );
+  for (const skill of skills) {
+    const button = node(
+      "button",
+      undefined,
+      `skill-option${selected.has(`${skill.id}/${skill.revision}`) ? " selected" : ""}`,
+    );
+    button.type = "button";
+    button.disabled = skill.available === false;
+    button.append(
+      node("strong", skill.name || skill.id),
+      node("small", skill.description || skill.id),
+    );
+    button.onclick = () => configureSkill(skill).catch(notice);
+    list.append(button);
+  }
+}
+async function configureSkill(skill) {
+  if (!thread) return;
+  const configuration = thread.desktop?.configuration;
+  if (!configuration) throw Error("任务配置尚未加载，请刷新后重试。");
+  await call("areal/thread/configure", {
+    threadId: thread.id,
+    expectedRevision: configuration.revision,
+    selectedSkills: [{ id: skill.id, revision: skill.revision }],
+  });
+  await reload();
+  $("skills-notice").textContent = `已选择 ${skill.name || skill.id}`;
+  renderSkills();
+}
+async function openSkills() {
+  if (!thread) {
+    notice("请先新建或选择任务。");
+    return;
+  }
+  await loadSkills();
+  $("skills-dialog").showModal();
+}
+$("skills-open").onclick = () => openSkills().catch(notice);
+$("skills-close").onclick = () => $("skills-dialog").close();
+function slashHelp() {
+  notice(slashCommands.map(([name, description]) => `${name}：${description}`).join(" · "));
+}
+async function runSlash(text) {
+  const [command, ...rest] = text.split(/\s+/);
+  const argument = rest.join(" ").trim();
+  switch (command) {
+    case "/help":
+      slashHelp();
+      return true;
+    case "/new":
+      $("new").click();
+      return true;
+    case "/refresh":
+      await reload();
+      await list();
+      return true;
+    case "/skills":
+      await openSkills();
+      return true;
+    case "/skill": {
+      if (!argument) {
+        await openSkills();
+        return true;
+      }
+      await loadSkills();
+      const query = argument.toLowerCase();
+      const skill = skills.find(
+        (s) => s.id.toLowerCase() === query || (s.name ?? "").toLowerCase() === query,
+      );
+      if (!skill) throw Error("Skill 未找到，请使用 /skills 查看可选项。");
+      await configureSkill(skill);
+      return true;
+    }
+    case "/goal-pause":
+    case "/goal-resume":
+    case "/goal-clear":
+      await goalControl(command.slice(6));
+      return true;
+    case "/goal":
+      if (!argument) {
+        renderGoal();
+        return true;
+      }
+      await goalControl(thread.goals?.goal ? "update" : "create", {
+        objective: argument,
+        tokenBudget: null,
+      });
+      return true;
+    default:
+      throw Error("未知命令，请使用 /help。");
+  }
+}
 function render() {
   if (stopping?.threadId === thread?.id && !isStopping()) stopping = null;
   const cwd = thread?.cwd;
@@ -211,12 +386,10 @@ function render() {
     thread?.preview || firstMessage?.content.map((part) => part.text ?? "").join(" ") || "新建任务";
   $("task-title").textContent = title;
   $("task-title").title = title;
-  const selectedThread = [...$("threads").children].find(
-    (button) => button.dataset.id === thread?.id,
-  );
+  const selectedThread = [...$("threads").children].find((row) => row.dataset.id === thread?.id);
   if (selectedThread && firstMessage) {
     selectedThread.querySelector(".thread-title").textContent = title;
-    selectedThread.title = title;
+    selectedThread.querySelector(".thread-select").title = title;
   }
   $("status").textContent = labels[thread?.turns?.at(-1)?.status] ?? "就绪";
   $("status").dataset.status = thread?.turns?.at(-1)?.status ?? "idle";
@@ -406,25 +579,67 @@ async function list(more = false) {
       ...(more ? { cursor: listCursor } : {}),
     });
     if (!more) $("threads").replaceChildren();
-    const existing = new Set([...$("threads").children].map((button) => button.dataset.id));
+    const existing = new Set([...$("threads").children].map((row) => row.dataset.id));
     for (const item of result.data) {
-      if (existing.has(item.id)) continue;
-      const button = node("button", undefined, item.id === thread?.id ? "selected" : "");
+      if (item.desktop?.archived || existing.has(item.id) || archiving.has(item.id)) continue;
+      const row = node("div", undefined, `thread-row${item.id === thread?.id ? " selected" : ""}`);
+      const button = node("button", undefined, "thread-select");
+      button.type = "button";
       button.append(node("span", item.preview || "未命名任务", "thread-title"));
       button.title = item.preview || "未命名任务";
       if (item.id === thread?.id) button.setAttribute("aria-current", "true");
-      button.dataset.id = item.id;
       button.onclick = () => select(item.id).catch(notice);
-      $("threads").append(button);
+      const remove = node("button", undefined, "thread-remove icon-button");
+      remove.type = "button";
+      remove.setAttribute("aria-label", `删除会话：${button.title}`);
+      remove.title = "删除会话";
+      remove.append(icon("close"));
+      remove.onclick = () => archiveSession(item.id, button.title).catch(notice);
+      row.dataset.id = item.id;
+      row.append(button, remove);
+      $("threads").append(row);
     }
     listCursor = result.nextCursor;
     $("more").hidden = !listCursor;
-    $("threads-empty").hidden = $("threads").children.length > 0;
+    $("threads-empty").hidden = $("threads").children.length > 0 || Boolean(listCursor);
     $("threads-empty").textContent = "还没有任务，点击上方新建。";
   } finally {
     listing = false;
     $("more").disabled = false;
   }
+}
+async function archiveSession(id, title) {
+  if (
+    archiving.has(id) ||
+    !confirm(
+      `删除会话“${title}”？\n\n会话将从列表移除，历史仍保留在本地存储中。运行中的任务需先停止。`,
+    )
+  )
+    return;
+  archiving.add(id);
+  const row = [...$("threads").children].find((item) => item.dataset.id === id);
+  const remove = row?.querySelector(".thread-remove");
+  if (remove) remove.disabled = true;
+  try {
+    await call("areal/thread/archive", { threadId: id, requestId: crypto.randomUUID() });
+    await removeArchivedSession(id);
+    notice("");
+  } finally {
+    archiving.delete(id);
+    if (remove) remove.disabled = false;
+  }
+}
+async function removeArchivedSession(id) {
+  [...$("threads").children].find((row) => row.dataset.id === id)?.remove();
+  if (thread?.id === id) {
+    thread = null;
+    skills = [];
+    displayedGoal = null;
+    const next = $("threads").children[0];
+    if (next) await select(next.dataset.id);
+    else render();
+  }
+  $("threads-empty").hidden = $("threads").children.length > 0 || Boolean(listCursor);
 }
 async function select(id) {
   const result = await call("thread/resume", { threadId: id });
@@ -433,9 +648,10 @@ async function select(id) {
   render();
   showView(false);
   if (mobileLayout.matches) mobileSidebar(false, true);
-  for (const button of $("threads").children) {
-    button.classList.toggle("selected", button.dataset.id === id);
-    if (button.dataset.id === id) button.setAttribute("aria-current", "true");
+  for (const row of $("threads").children) {
+    row.classList.toggle("selected", row.dataset.id === id);
+    const button = row.querySelector(".thread-select");
+    if (row.dataset.id === id) button.setAttribute("aria-current", "true");
     else button.removeAttribute("aria-current");
   }
 }
@@ -466,6 +682,10 @@ function scheduleRender() {
 }
 function event(message) {
   const p = message.params ?? {};
+  if (message.method === "areal/thread/archived") {
+    if (!archiving.has(p.threadId)) removeArchivedSession(p.threadId).catch(notice);
+    return;
+  }
   if (message.method === "areal/task/updated") {
     receiveTask(p.task);
     return;
@@ -507,6 +727,9 @@ function event(message) {
     const discarded = new Set(p.itemIds);
     for (const turn of thread.turns)
       turn.items = turn.items.filter((item) => !discarded.has(item.id));
+  } else if (message.method === "areal/thread/configured") {
+    thread.desktop ??= {};
+    thread.desktop.configuration = p.configuration;
   } else if (message.method === "turn/started" || message.method === "turn/completed") {
     const index = thread.turns.findIndex((turn) => turn.id === p.turn.id);
     if (index === -1) thread.turns.push(p.turn);
@@ -541,6 +764,7 @@ function event(message) {
       if (item) item.text += p.delta;
     }
   }
+  if (message.method === "areal/thread/configured") renderSkills();
   scheduleRender();
 }
 $("new").onclick = async () => {
@@ -551,6 +775,7 @@ $("new").onclick = async () => {
     renderPermissions(result);
     notice("");
     render();
+    skills = [];
     showView(false);
     if (mobileLayout.matches) mobileSidebar(false);
     await list();
@@ -571,12 +796,19 @@ $("refresh").onclick = async () => {
 $("more").onclick = () => list(true).catch(notice);
 $("composer").onsubmit = async (e) => {
   e.preventDefault();
-  if (!thread || submitting || !connected) return;
+  if (submitting || !connected) return;
   const text = $("prompt").value.trim();
   if (!text) return;
+  if (!thread && !text.startsWith("/")) return;
   submitting = true;
   renderComposer();
   try {
+    if (text.startsWith("/")) {
+      await runSlash(text);
+      $("prompt").value = "";
+      $("slash-menu").hidden = true;
+      return;
+    }
     const input = [{ type: "text", text }];
     if (active())
       await call("turn/steer", {

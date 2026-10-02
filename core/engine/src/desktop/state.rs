@@ -28,7 +28,9 @@ impl Engine {
                     )?
                     .is_some()
                 {
-                    return Ok(state.thread.clone());
+                    let thread = state.thread.clone();
+                    drop(state);
+                    return engine.ensure_profile_workflow(thread, &hash).await;
                 }
             }
             let mut data = DesktopState {
@@ -54,10 +56,24 @@ impl Engine {
                 &identity,
                 &request.request_id,
                 "areal/thread/start",
-                hash,
+                hash.clone(),
                 Value::Null,
             );
-            engine
+            let workflow = data
+                .configuration
+                .profile
+                .as_ref()
+                .and_then(|profile| profile.workflow.clone());
+            if let Some(reference) = &workflow {
+                let definition = engine.workflow(reference)?;
+                let start = profile_workgroup_start(&hash, definition.plan);
+                engine
+                    .workgroups()
+                    .map_err(invalid)?
+                    .validate_start(&start)
+                    .map_err(invalid)?;
+            }
+            let (thread, _) = engine
                 .create_inner(
                     request.cwd.unwrap_or_else(|| engine.default_cwd()),
                     None,
@@ -66,10 +82,63 @@ impl Engine {
                     Some(host),
                     Some(data),
                 )
-                .await
-                .map(|(thread, _)| thread)
+                .await?;
+            engine.ensure_profile_workflow(thread, &hash).await
         })
         .await
+    }
+
+    async fn ensure_profile_workflow(
+        self: &Arc<Self>,
+        thread: Thread,
+        hash: &str,
+    ) -> Result<Thread> {
+        let Some(reference) = thread
+            .desktop
+            .as_ref()
+            .and_then(|data| data.configuration.profile.as_ref())
+            .and_then(|profile| profile.workflow.clone())
+        else {
+            return Ok(thread);
+        };
+        if thread
+            .desktop
+            .as_ref()
+            .is_some_and(|data| data.workflow_run.is_some())
+        {
+            return Ok(thread);
+        }
+        let definition = self.workflow(&reference)?;
+        let run = self
+            .start_workgroup(
+                format!("thread:{}", thread.id),
+                profile_workgroup_start(hash, definition.plan),
+                self.shutdown.child_token(),
+            )
+            .await
+            .map_err(invalid)?;
+        let workgroup_id = run["id"]
+            .as_str()
+            .context("workflow start missing workgroup ID")
+            .map_err(invalid)?
+            .to_owned();
+        let status = run["record"]["status"]
+            .as_str()
+            .unwrap_or("running")
+            .to_owned();
+        let mut candidate = thread.clone();
+        candidate
+            .desktop
+            .get_or_insert_with(Default::default)
+            .workflow_run = Some(areal_protocol::desktop::WorkflowRun {
+            workflow: reference,
+            workgroup_id,
+            status,
+        });
+        self.persist(&candidate).await?;
+        let cell = self.cell(&thread.id).await?;
+        cell.state.lock().await.thread = candidate.clone();
+        Ok(candidate)
     }
     pub async fn configure_thread(
         self: &Arc<Self>,
@@ -91,9 +160,9 @@ impl Engine {
             }
             let mut configuration = engine.resolve_config(
                 request.agent_profile.or_else(|| {
-                    previous.profile.map(|p| VersionRef {
-                        id: p.id,
-                        revision: p.revision,
+                    previous.profile.as_ref().map(|p| VersionRef {
+                        id: p.id.clone(),
+                        revision: p.revision.clone(),
                     })
                 }),
                 if request.reset_model {
@@ -104,8 +173,51 @@ impl Engine {
                 request.parameters.unwrap_or(previous.parameters),
                 previous.revision + 1,
             )?;
+            if previous.profile.as_ref().map(|p| (&p.id, &p.revision))
+                != configuration.profile.as_ref().map(|p| (&p.id, &p.revision))
+                && (previous
+                    .profile
+                    .as_ref()
+                    .is_some_and(|p| p.workflow.is_some())
+                    || configuration
+                        .profile
+                        .as_ref()
+                        .is_some_and(|p| p.workflow.is_some()))
+            {
+                return Err(invalid(
+                    "workflow-bound profiles can only be selected when creating a new thread",
+                ));
+            }
             configuration.options = request.options.unwrap_or(previous.options);
-            configuration.selected_skills = previous.selected_skills;
+            let selected_skills = match request.selected_skills {
+                Some(skills) if skills.is_empty() => None,
+                Some(skills) => Some(skills),
+                None => previous.selected_skills,
+            };
+            if let Some(skills) = &selected_skills {
+                if skills.len() > 128 {
+                    return Err(invalid("selected skills exceed budget"));
+                }
+                let mut unique = std::collections::BTreeSet::new();
+                let catalog = engine.desktop.catalog.read().unwrap();
+                for skill in skills {
+                    if !unique.insert((skill.id.clone(), skill.revision.clone())) {
+                        return Err(invalid("duplicate selected skill"));
+                    }
+                    if !catalog
+                        .skills
+                        .contains_key(&format!("{}/{}", skill.id, skill.revision))
+                    {
+                        return Err(invalid("selected skill is unavailable"));
+                    }
+                }
+                if let Some(profile) = &configuration.profile
+                    && !skills.iter().all(|skill| profile.skills.contains(skill))
+                {
+                    return Err(invalid("selected skill is outside the effective profile"));
+                }
+            }
+            configuration.selected_skills = selected_skills;
             let o = &configuration.options;
             configuration.read_only |= o.read_only;
             configuration.instructions = previous.instructions;
@@ -218,8 +330,14 @@ impl Engine {
                 && (!matches!(name, "agent_spawn" | "agent_spawn_configured")
                     || (cell.depth < self.limits.max_agent_depth
                         && self.limits.max_children_per_turn > 0))
+                // Explicit research-agent extensions own the child lifecycle;
+                // exposing the desktop facade as well creates two subtly
+                // different spawn/wait contracts for the same Turn.
+                && (self.extensions.agents.is_none()
+                    || !matches!(name, "agent_spawn_configured" | "agent_wait_all"))
                 && (name != "agent_report" || cell.depth > 0)
-                && (desktop_enabled || !core_names.iter().any(|n| n == name))
+                // 原文回取属于所有 Core 会话，不依赖桌面扩展状态。
+                && (desktop_enabled || name == "read_tool_result" || !core_names.iter().any(|n| n == name))
                 && config
                     .tool_allowlist
                     .as_ref()
@@ -264,7 +382,7 @@ impl Engine {
             "instructionSnapshot":state.thread.turns.last().and_then(|t|t.instruction_snapshot.as_ref()),"instructionSources":["runtime/defaultOrClientSystem","profile","childTask","clientAppend","workspace/AGENTS.md"],"tools":tools,"loadedSkills":state.thread.desktop.as_ref().map(|d| &d.loaded_skills),
             "contextCheckpoint":state.thread.context_checkpoint,"usage":state.thread.turns.last().and_then(|t| t.usage.as_ref()),
             "usageKnown":state.thread.turns.last().is_some_and(|t| t.usage.is_some()),
-            "limits":{"turnTimeoutMs":self.limits.turn_timeout.as_millis(),"historyBytes":self.limits.max_history_bytes,"contextBytes":self.limits.context_window_bytes},
+            "limits":{"historyBytes":self.limits.max_history_bytes,"contextBytes":self.limits.context_window_bytes},
             "runtime":self.runtime_capabilities()}),
         )
     }
@@ -352,5 +470,17 @@ impl Engine {
                 areal_runtime_protocol::NetworkRequest::Inherit
             },
         })
+    }
+}
+
+fn profile_workgroup_start(
+    hash: &str,
+    plan: crate::workgroup::Plan,
+) -> crate::workgroup::service::Start {
+    crate::workgroup::service::Start {
+        request_id: format!("profile-workflow-{}", &hash[..32]),
+        plan,
+        workers: None,
+        admission: Default::default(),
     }
 }

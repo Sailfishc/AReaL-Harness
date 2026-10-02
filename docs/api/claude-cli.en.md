@@ -9,7 +9,7 @@ target/debug/areal exec 'Describe this workspace' --output-format stream-json --
 target/debug/areal -p 'Continue' --resume SESSION_ID --output-format json
 ```
 
-Models use configured Chat Completions/Responses APIs. State defaults to `~/.areal-harness/cli` (overridable with AREAL_HARNESS_HOME). session_id is the Core Thread UUID; history is not copied. Concurrent processes use private data/Runtimes and session locks. Missing or UNKNOWN sessions never trigger implicit new sessions.
+Models use configured Chat Completions/Responses APIs. State defaults to `~/.areal/cli` (overridable with AREAL_HARNESS_HOME). session_id is the Core Thread UUID; history is not copied. Concurrent processes use private data/Runtimes and session locks. Missing or UNKNOWN sessions never trigger implicit new sessions.
 
 | Argument | Behavior |
 |---|---|
@@ -27,7 +27,7 @@ Models use configured Chat Completions/Responses APIs. State defaults to `~/.are
 | --allow-write / --allow-network / --allow-concurrent-writes | Trusted deployment grants |
 | --endpoint / --auth-file | Connect externally without shutting down the service on exit |
 
-Tool aliases AskUserQuestion/Bash/Read/Write/Edit/TodoWrite/Task map to ask_user_question/run_command/fs_read/fs_create/fs_apply_patch/plan_update/agent_spawn. Shell pattern rules, arbitrary Claude settings/hooks, plugin marketplaces and interactive Claude TUI are unsupported; unknown options fail.
+Tool aliases AskUserQuestion/Bash/Read/Write/Edit/TodoWrite/Task map to ask_user_question/run_command/fs_read/fs_create/fs_apply_patches/plan_update/agent_spawn. Shell pattern rules, arbitrary Claude settings/hooks, plugin marketplaces and interactive Claude TUI are unsupported; unknown options fail.
 
 `--permissions YOLO|ASK_PERMISSIONS` and `--scratch` configure local deployment; `--permission-mode` defaults to inherit, using global policy. Explicit default/acceptEdits/dontAsk/plan/bypassPermissions retain client restrictions and cannot weaken global ask/deny or Profile rules. Local launch now defaults to full-access without requiring --allow-write/--allow-network. Existing remote endpoints retain their own policy.
 

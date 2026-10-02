@@ -6,7 +6,7 @@
 
 ## 文件与优先级
 
-`显式 CLI > 已登记环境变量 > 选定 TOML > 默认值`。默认配置为 `~/.areal-harness/config.toml`，数据为同目录 `state/`。`AREAL_HARNESS_HOME` 指定非空绝对 home；`--config` 优先于 `AREAL_HARNESS_CONFIG`，替代默认文件，不叠加。不自动读取项目 TOML 或 `.env`。
+`显式 CLI > 已登记环境变量 > 选定 TOML > 默认值`。默认配置为 `~/.areal/config.toml`，数据为同目录 `state/`。`AREAL_HARNESS_HOME` 指定非空绝对 home；`--config` 优先于 `AREAL_HARNESS_CONFIG`，替代默认文件，不叠加。不自动读取项目 TOML 或 `.env`。
 
 共享 TUI/Web 入口使用按工作区隔离的默认数据目录；显式 dataDir 仍遵循上述优先级。历史迁移与配置兼容性见[本地服务契约](../api/local-service.md)。
 
@@ -17,7 +17,7 @@
 
 本地 TUI、Web、CLI 和 `scripts/launch.py` 默认 **YOLO**：普通任务可读写当前用户有权访问的文件（含工作区外和 `/tmp`），命令可联网，不逐次询问。无需再传 `--allow-write` / `--allow-network`。操作系统自身权限仍有效；显式 Profile、只读 Turn、工具拒绝规则和受限 Runtime 不能被 YOLO 覆盖。
 
-全局配置 `~/.areal-harness/config.toml`：
+全局配置 `~/.areal/config.toml`：
 
 ```toml
 schema_version = 1
@@ -49,6 +49,8 @@ launcher 自动创建与 dataDir 同级的 `scratch/`，为每个 Thread 设置�
 
 ## 模型与限额
 
+普通 Turn 没有组合墙钟超时；模型请求/流空闲、工具执行和清理沿用各自的超时，显式 Goal、研究 worker 和 Workgroup 预算仍有效。迁移时删除 `limits.turn_timeout_seconds`（旧 TOML 字段会被拒绝）和 `AREAL_HARNESS_TURN_TIMEOUT_SECONDS`（旧环境变量也会被拒绝）。`thread/configuration/read` 的 `limits` 不再包含 `turnTimeoutMs`。手动上下文压缩也只受模型超时与关闭取消约束。
+
 ```toml
 schema_version = 1
 [server]
@@ -67,16 +69,16 @@ max_threads = 20000
 max_active_turns = 256
 max_children_per_turn = 64
 max_agent_depth = 8
-turn_timeout_seconds = 300
 stream_idle_timeout_seconds = 30
 max_history_bytes = 2097152
 max_output_bytes = 262144
 max_tool_calls = 128
 max_tool_buffer_bytes = 4194304
-context_window_bytes = 196608
-context_recent_bytes = 65536
-context_window_tokens = 0
-context_output_reserve_tokens = 0
+context_window_bytes = 524288
+context_compaction_enabled = true
+context_recent_bytes = 131072
+context_window_tokens = 65536
+context_output_reserve_tokens = 8192
 max_completion_retries = 0
 watchdog_disable = false
 [logging]
@@ -95,7 +97,9 @@ endpoint 是完整 HTTP(S) 请求 URL；Core 只支持 `chat-completions` / `res
 
 `context_window_tokens=0` 禁用 token 估计，最大 2000000；启用时 reserve 必须小于 window。历史、system 与工具定义的估计达到 window 减 reserve，或字节阈值时触发压缩。估计按 ASCII 约 3 字节/token、非 ASCII 约 2 token/字符及媒体代理成本计算，可由上次输入用量向上校准；缓存命中不降低估计，不保证匹配供应商 tokenizer。
 
-网络 watchdog 默认启用，网络错误没有重试次数上限。设置 `AREAL_HARNESS_WATCHDOG_DISABLE=1` 关闭，删除该变量或设为 `0` 恢复默认；也接受 `true`/`false`，对应 TOML `limits.watchdog_disable`。环境变量覆盖 TOML。watchdog 覆盖连接/传输失败、请求与流空闲超时、提前断流、HTTP 408/429/5xx，以及 SSE 明确报告的限流/服务不可用。求解、子 Agent 与上下文摘要采用同一策略，250 ms 指数退避、最长 30 秒；取消、Turn 总期限及显式 Workgroup 实际请求预算仍有效。401/403、无效请求、额度不足、长度上限和空回复不进入无限重试。
+`limits.context_compaction_enabled=false` 关闭自动和手动压缩（默认 true）。超过 `context_window_bytes` 或达到启用的 token 阈值时，Turn 直接失败并报告上下文上限，不再向模型发送求解或摘要请求；原始历史仍保留。这个估计阈值不是提供方的真实上下文上限。需同时关闭 Agent 委派与 Workgroup 子任务时，设置 `max_children_per_turn=0` 和 `max_agent_depth=0`。若显式启用了原生研究 Agent 扩展，子任务限额不能为 0，启动会拒绝该组合。
+
+网络 watchdog 默认启用，网络错误没有重试次数上限。设置 `AREAL_HARNESS_WATCHDOG_DISABLE=1` 关闭，删除该变量或设为 `0` 恢复默认；也接受 `true`/`false`，对应 TOML `limits.watchdog_disable`。环境变量覆盖 TOML。watchdog 覆盖连接/传输失败、请求与流空闲超时、提前断流、HTTP 408/429/5xx，以及 SSE 明确报告的限流/服务不可用。求解、子 Agent 与上下文摘要采用同一策略，250 ms 指数退避、最长 30 秒；取消、显式 Goal/研究 worker 时间预算及显式 Workgroup 实际请求预算仍有效。401/403、无效请求、额度不足、长度上限和空回复不进入无限重试。
 
 Goal 的共享预算与未知用量约束优先于重试配置。Goal 请求禁用 HTTP 内部重试；失败或超时产生未知消费时保留预算预留并停止自动推进，watchdog 与有限重试额度均不能绕过此限制。
 
@@ -110,10 +114,10 @@ Goal 的共享预算与未知用量约束优先于重试配置。Goal 请求禁�
 | `MODEL`, `MODEL_PROVIDER`, `MODEL_ENDPOINT`, `MODEL_PROTOCOL`, `API_KEY_ENV` | 模型名称、provider、完整 URL、协议与凭据引用 |
 | `REASONING_EFFORT`, `REASONING_SUMMARY`, `MAX_OUTPUT_TOKENS`, `MODEL_MAX_RETRIES` | 模型参数 |
 | `TEMPERATURE`, `TOP_P`, `TOP_K`, `MIN_P`, `PRESENCE_PENALTY`, `REPETITION_PENALTY` | 采样参数 |
-| `CONTEXT_WINDOW_TOKENS`, `CONTEXT_OUTPUT_RESERVE_TOKENS` | 可选上下文 token 预算 |
+| `CONTEXT_WINDOW_TOKENS`, `CONTEXT_OUTPUT_RESERVE_TOKENS`, `CONTEXT_COMPACTION_ENABLED` | 可选上下文 token 预算与压缩开关 |
 | `LISTEN`, `DATA_DIR`, `TOOL_EXTENSIONS`, `LOG_FILTER` | server、扩展文件与日志 |
 | `MODEL_CONCURRENCY`, `MAX_THREADS`, `MAX_ACTIVE_TURNS`, `MAX_CHILDREN_PER_TURN`, `MAX_AGENT_DEPTH` | 并发与任务容量 |
-| `TURN_TIMEOUT_SECONDS`, `STREAM_IDLE_TIMEOUT_SECONDS` | 时限 |
+| `STREAM_IDLE_TIMEOUT_SECONDS` | 时限 |
 | `WATCHDOG_DISABLE` | `limits.watchdog_disable`；`1` 关闭，默认 `0` |
 | `MAX_HISTORY_BYTES`, `MAX_OUTPUT_BYTES`, `MAX_TOOL_CALLS`, `MAX_TOOL_BUFFER_BYTES`, `CONTEXT_WINDOW_BYTES`, `CONTEXT_RECENT_BYTES` | 历史、工具与上下文预算 |
 
@@ -158,7 +162,29 @@ target/debug/areal config show --sources --config /absolute/config.toml
 
 诊断不监听、不创建数据、不启动 Runtime/MCP/插件，也不探测模型；输出有效值和来源并脱敏。共享本地服务支持下述模型配置热更新；启动凭据不进入 Runtime 环境。`OTEL_*` 由 server 的 telemetry 装配处理。
 
-桌面运行时 provider 目录使用 `areal/provider/*` 和 `AREAL_CREDENTIAL_<ref>`；只支持 chatCompletions/responses。`--desktop-config` 装配版本化 Profile/Skill/Workflow；会话配置可在空闲边界通过 CAS 更新并冻结到新 Turn/队列，见[桌面契约](../api/desktop.md)。会话显式选择的 Provider 与 TOML 默认模型分别管理。
+桌面运行时 provider 目录使用 `areal/provider/*` 和 `AREAL_CREDENTIAL_<ref>`；只支持 chatCompletions/responses。`--desktop-config` 装配版本化 Profile/Skill/Workflow；使用 `--agent code-agent@v2` 启动 TUI、headless 或 `exec` 时选择 Profile，Profile 绑定的 Workflow 会随 Thread 自动启动，不再额外传 Workflow 参数。会话配置可在空闲边界通过 CAS 更新并冻结到新 Turn/队列，见[桌面契约](../api/desktop.md)。会话显式选择的 Provider 与 TOML 默认模型分别管理。
+
+```sh
+target/debug/areal --desktop-config deployment.json --agent code-agent@v2
+target/debug/areal --desktop-config deployment.json --agent code-agent@v2 --prompt "检查当前改动"
+target/debug/areal exec --desktop-config deployment.json --agent code-agent@v2 "运行测试"
+```
+
+`deployment.json` 中让 Profile 绑定工具与 Workflow；同一文件可保留不带 Workflow 的 Agent：
+
+```json
+{
+  "profiles": [
+    {"id":"tool-agent","revision":"v1","displayName":"Tool agent","instructions":"检查并报告结果。","toolAllowlist":["fs_read","run_command"]},
+    {"id":"code-agent","revision":"v2","displayName":"Code agent","instructions":"按阶段完成并验证任务。","toolAllowlist":["fs_read","run_command","fs_apply_patches"],"workflow":{"id":"code-flow","revision":"v1"}}
+  ],
+  "workflows": [
+    {"id":"code-flow","revision":"v1","displayName":"Code flow","plan":{"objective":"修改并验证代码","tasks":[{"id":"implement","instruction":"修改 src/main.rs 并运行测试","writes":["src/main.rs"],"configuration":{"agentProfile":{"id":"code-agent","revision":"v2"}}}]}}
+  ]
+}
+```
+
+`tool-agent@v1` 可直接使用允许的工具，不需要 Workgroup；`code-agent@v2` 需要可信 `--workgroup-policy` 和 `--allow-write`，策略须授权 `src/main.rs` 并提供最终检查，详见 [Workgroup 指南](workgroups.md)。Workflow 计划由绑定 Profile 自动启动，`--prompt` 或 `exec` 的普通 Turn 是独立的用户交互。
 
 ## 模型配置热更新
 
@@ -192,4 +218,44 @@ turn_model_rounds = 32
 
 示例中的数字为默认值。前三个数字字段的范围为 1–86400；turn_model_rounds 为 2–1024。创建 Goal 的 maxTurns/maxActiveSeconds 可以收窄到部署上限；tokenBudget 只在用户明确设置时启用。根 Turn 使用 min(会话 maxModelRounds, turn_model_rounds)，必须至少两轮，工具 allowlist 必须允许 goal_read 和 goal_update；最后一轮仍禁用工具用于交接。连续指定数量的根 Turn 未提交 goal_update 时暂停为 progressUnreported。
 
-活动时间包括根 Turn 的模型排队、执行、工具、交互等待和清理，子任务时间不叠加，轮次间容量等待、暂停和离线时间不计入。既有单 Turn 期限和 Runtime 硬限额继续生效。Goal 请求禁用 HTTP 层隐式重试，以保留逐次消费的归因；未知消费会停止自动推进。使用与恢复见 [Goal 模式](clients.md#goals)。
+活动时间包括根 Turn 的模型排队、执行、工具、交互等待和清理，子任务时间不叠加，轮次间容量等待、暂停和离线时间不计入。显式研究 worker 预算和 Runtime 硬限额继续生效；普通 Turn 没有总时限。Goal 请求禁用 HTTP 层隐式重试，以保留逐次消费的归因；未知消费会停止自动推进。使用与恢复见 [Goal 模式](clients.md#goals)。
+
+工具结果视图通过 `[tools] extensions_file` 指向的 JSON 配置，在 `policy.resultViews` 下设置 `mode: off|observe|on`（默认 observe）及 `searchGroups`、`repeatLines` 开关。大结果快照与内置 rg 不依赖该开关；额度和回取行为见[工具指南](tools.md)。
+
+## OpenTelemetry 轨迹上报
+
+Core 使用开源 OpenTelemetry SDK，通过标准 OTLP HTTP/protobuf 导出 Traces 和 Events/Logs。未配置 endpoint 时不启用，上报失败不改变 Turn 结果。配置在 Core 启动时读取，修改后需重启服务。
+
+```bash
+export OTEL_SERVICE_NAME=areal-core
+export OTEL_RESOURCE_ATTRIBUTES='service.namespace=research,deployment.environment.name=development'
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318
+export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+```
+
+通用 endpoint 自动追加 `/v1/traces` 和 `/v1/logs`。也可以分别设置完整地址；信号专用配置优先于通用配置：
+
+```bash
+export OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://127.0.0.1:4318/v1/traces
+export OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://127.0.0.1:4318/v1/logs
+export OTEL_EXPORTER_OTLP_HEADERS='authorization=Bearer%20your-token'
+export OTEL_EXPORTER_OTLP_TIMEOUT=10000
+```
+
+| 标准配置 | 行为 |
+|---|---|
+| `OTEL_SERVICE_NAME`、`OTEL_RESOURCE_ATTRIBUTES` | 服务名和自定义 Resource 属性；服务名默认 `areal-core`，显式服务名优先于 Resource 中的 `service.name` |
+| `OTEL_EXPORTER_OTLP_{TRACES,LOGS}_ENDPOINT` | 对应信号的完整接收地址；只设置一个信号的地址时只导出该信号 |
+| `OTEL_EXPORTER_OTLP_{TRACES,LOGS}_PROTOCOL` | 覆盖通用协议；当前仅支持 `http/protobuf` |
+| `OTEL_EXPORTER_OTLP_{TRACES,LOGS}_HEADERS` | 覆盖通用认证头，由 SDK 按标准格式解析 |
+| `OTEL_EXPORTER_OTLP_{TRACES,LOGS}_TIMEOUT` | 覆盖通用超时，单位为毫秒，默认 10000 |
+| `OTEL_TRACES_EXPORTER`、`OTEL_LOGS_EXPORTER` | `otlp` 或 `none`；可分别关闭信号 |
+| `OTEL_TRACES_SAMPLER`、`OTEL_TRACES_SAMPLER_ARG` | 使用 SDK 的标准 Trace 采样配置 |
+| `OTEL_BSP_*`、`OTEL_BLRP_*` | 使用 SDK 的标准 Trace/Log 批量队列和调度配置 |
+| `OTEL_SDK_DISABLED=true` | 关闭全部遥测 |
+
+轨迹记录 Turn、每次模型请求、工具调用和上下文压缩。模型请求使用 `gen_ai.*` 属性与 `gen_ai.client.inference.operation.details` 事件，消息按 OpenTelemetry GenAI 的 `role` / `parts` 结构记录，Span 中为 JSON 字符串，Logs 中为结构化属性。模型输入（含系统指令）、输出、推理文本、工具参数与结果均保留实际内容，没有脱敏逻辑或脱敏开关；媒体保留 Engine 收到的引用或内联数据。重试按独立请求记录，取消时保留已收到的输出并标记未完成。
+
+本项目扩展字段和事件使用 `areal.*` 命名空间。Logs 通过标准 Trace ID 和 Span ID 关联调用，优雅关闭时刷新批量导出。只有 Logs 时也生成本地关联 ID；Traces 和 Logs 的导出开关相互独立。当前不导出 Metrics。GenAI 语义约定仍处于开发状态，参见[官方约定](https://github.com/open-telemetry/semantic-conventions-genai)。
+
+默认按估计 token 或字节任一阈值触发压缩：64k token 窗口预留 8k 输出，即估计输入达到 57,344 token，或历史超过 512 KiB；近期原文预算为 128 KiB。token 是保守估计并向上校准，非供应商 tokenizer 的精确计数；不能把这些数值当作模型最大上下文。压缩会重建缓存前缀，因此同时监控未缓存输入和任务正确性。显式设置 `context_window_tokens=0` 可禁用 token 触发，但仍保留字节阈值。

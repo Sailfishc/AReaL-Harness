@@ -19,7 +19,7 @@ target/debug/areal web --workspace /absolute/workspace
 target/debug/areal web --workspace /absolute/workspace --json
 ```
 
-`ensure`、`restart` 和 `web` 接受同一组本地参数：`--config`、`--workspace`、`--data-dir`、`--allow-write`、`--allow-network`、`--allow-concurrent-writes`、`--workgroup-policy`、`--workgroup-toolchain`、`--command-timeout-ms`、`--command-output-bytes`、`--model-endpoint`、`--model-protocol`、`--model`、`--model-provider`、`--api-key-env`、`--desktop-config`。默认工作区是当前目录；服务监听随机 loopback 端口。未配置模型时可启动管理服务，运行模型任务仍需有效配置。
+`ensure`、`restart` 和 `web` 接受同一组本地参数：`--config`、`--workspace`、`--data-dir`、`--allow-write`、`--allow-network`、`--allow-concurrent-writes`、`--workgroup-policy`、`--workgroup-toolchain`、`--command-timeout-ms`、`--command-output-bytes`、`--model-endpoint`、`--model-protocol`、`--model`、`--model-provider`、`--api-key-env`、`--desktop-config`。`--agent id@revision` 是 TUI/headless/exec 创建 Thread 时的客户端选择项，也可与远程 `--endpoint` 同用，不改变本地服务身份。默认工作区是当前目录；服务监听随机 loopback 端口。未配置模型时可启动管理服务，运行模型任务仍需有效配置。
 
 `status`、`stop` 默认定位当前工作区，可用 `--workspace`、`--data-dir` 或 `--instance` 消歧。`restart` 按当前工作区和与 `ensure` 相同的参数解析目标部署；使用自定义配置/权限时传入对应参数。重启保留历史，有未结算工作时拒绝，只有显式 `--cancel` 才取消任务。
 
@@ -43,7 +43,7 @@ target/debug/areal web --workspace /absolute/workspace --json
 
 同一 dataDir 只允许一个 Core。`ensure` 串行化并发启动，发现运行实例后校验身份和配置；模型文件变更原地热更新；其他 TOML 配置和二进制更新在空闲时自动重启，有后台工作时拒绝自动重启。权限、Runtime、部署文件或模型 CLI/环境覆盖变化需执行 `areal service restart`。不会静默扩大写/网络权限，也不会杀掉未被托管的旧 Core。符号链接按规范路径识别。
 
-未显式配置 dataDir 时，共享入口使用 `$AREAL_HARNESS_HOME/instances/<workspace-hash前24位>/state`；home 默认 `~/.areal-harness`。显式 CLI、环境变量或 TOML 中的 dataDir 保持配置优先级。独占 launcher、非交互 CLI 的默认目录保持原有规则。
+未显式配置 dataDir 时，共享入口使用 `$AREAL_HARNESS_HOME/instances/<workspace-hash前24位>/state`；home 默认 `~/.areal`。显式 CLI、环境变量或 TOML 中的 dataDir 保持配置优先级。独占 launcher、非交互 CLI 的默认目录保持原有规则。
 
 旧 `~/.areal-harness/state` 不自动搬迁或混入新工作区。可显式指定 `--data-dir`，或停止旧 Core 后绑定默认目录：
 

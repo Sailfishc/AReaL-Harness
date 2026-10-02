@@ -3,7 +3,7 @@ SHELL := /bin/sh
 
 # 传给 server 和 tui 子命令的附加参数；模型凭据沿用环境变量。
 ARGS ?=
-PYTHON_SOURCES := scripts tests
+PYTHON_SOURCES := scripts tests integrations/envarena
 WORKGROUP_ENV = AREAL_WORKGROUP_RUNTIME="$(CURDIR)/target/debug/areal-runtime" AREAL_WORKGROUP_HELPER="$(CURDIR)/target/debug/areal-runtime-fs"
 
 # Make 将 -- 后的单词视为目标；附加参数统一通过 ARGS 传递。
@@ -15,7 +15,8 @@ endif
 	test-protocol test-concurrency verify smoke server tui schemas docs clean \
 	capacity capacity-primitives capacity-core perf runtime test-runtime runtime-smoke verify-runtime \
 	cordis-pin update-cordis sdk-test harness harness-smoke verify-harness \
-	setup sdk-build script-test workgroup-smoke capacity-workgroup local-service-smoke
+	setup sdk-build script-test workgroup-smoke capacity-workgroup local-service-smoke \
+	verify-native
 
 help: ## 显示常用操作（默认目标）
 	@printf '%s\n' '用法：make <target> [ARGS="..."]' ''
@@ -30,11 +31,14 @@ setup: fetch ## 安装锁定的格式工具和两套 SDK 开发依赖
 
 fetch: ## 下载 Cargo.lock 中的依赖
 	cargo fetch --locked
+	python3 scripts/builtin-tools.py --fetch-only
 
 build: ## 构建整个 workspace（debug）
+	python3 scripts/builtin-tools.py
 	cargo build --locked --workspace
 
 release: ## 构建整个 workspace（release）
+	python3 scripts/builtin-tools.py --profile release
 	cargo build --locked --workspace --release
 
 check: ## 类型检查整个 workspace 和测试目标
@@ -56,6 +60,7 @@ lint: ## Rust / Python 静态检查和 Web 语法检查
 	node --check clients/web/app.js
 
 test: ## 运行 workspace 测试（不含显式容量测试）
+	python3 scripts/builtin-tools.py
 	cargo test --locked --workspace $(CARGO_TEST_ARGS)
 
 test-core: ## 运行 Core 模型、会话和并发测试
@@ -78,9 +83,11 @@ test-runtime: cordis-pin ## Runtime 组件、权限、去重、撤销竞态与�
 	cargo test --locked -p areal-runtime-protocol -p areal-runtime-client -p areal-runtime-fs -p areal-runtime-supervisor -p areal-runtime-exec-native -p areal-runtime
 
 runtime: ## 启动私有 stdio Runtime；ARGS 指定 --workspace
+	python3 scripts/builtin-tools.py
 	cargo run --locked -p areal-runtime -- $(ARGS)
 
 runtime-smoke: cordis-pin ## 构建 Runtime 并验证原生执行后端
+	python3 scripts/builtin-tools.py
 	cargo build --locked -p areal-runtime -p areal-runtime-fs
 	python3 scripts/runtime-smoke.py $(ARGS)
 	python3 scripts/runtime-fs-smoke.py $(ARGS)
@@ -91,11 +98,9 @@ verify-runtime: ## 顺序运行 Runtime 行为测试和真实 sandbox 验收
 
 verify: ## 常规验收：格式、静态检查、Rust/SDK/Python 测试与 TUI 冒烟
 	$(MAKE) cordis-pin
-	$(MAKE) fmt-check
+	$(MAKE) -j2 fmt-check sdk-test script-test
 	$(MAKE) lint
 	$(MAKE) test
-	$(MAKE) sdk-test
-	$(MAKE) script-test
 	$(MAKE) smoke
 
 sdk-build: ## 编译两套 TypeScript SDK
@@ -107,15 +112,18 @@ sdk-test: ## 编译两套 SDK 并验证 Runtime 与插件行为
 	npm --prefix core/sdk-typescript test
 
 script-test: ## 启动器、Web 投影、perf 与文档的离线回归
+	python3 scripts/builtin-tools.py
 	python3 scripts/check-docs.py
 	node --test scripts/web-progress.test.mjs
 	python3 -m unittest discover -s scripts/tests
+	python3 -m unittest discover -s integrations/envarena
 	python3 tests/perf/perf.py self-test
 
 harness: ## 通过可信独立启动器启动工具 Harness；ARGS 指定工作区与数据目录
 	python3 scripts/launch.py $(ARGS)
 
 harness-smoke: build sdk-build ## 原生 SDK 与完整读改测试/强杀恢复
+	python3 scripts/native-tools-smoke.py --bin-dir target/debug
 	python3 scripts/native-python-smoke.py --bin-dir target/debug
 	python3 scripts/runtime-sdk-smoke.py
 	node scripts/harness-smoke.mjs
@@ -141,6 +149,13 @@ verify-harness: ## 全部常规与原生集成验收（容量测试单独运行�
 	$(MAKE) examples-desktop-api
 	$(MAKE) workgroup-smoke
 
+verify-native: ## macOS 原生后端与 Harness 集成验收（通用回归由 Linux CI 执行）
+	cargo test --locked -p areal-runtime-exec-native
+	$(MAKE) runtime-smoke
+	$(MAKE) harness-smoke
+	$(MAKE) examples-desktop-api
+	$(MAKE) workgroup-smoke
+
 smoke: build ## 构建后验证 TUI、HTTP/SSE、持久化与强杀恢复
 	node scripts/smoke.mjs
 
@@ -148,6 +163,7 @@ server: ## 构建并启动 Core；读取用户 TOML、环境变量和显式 ARGS
 	cargo run --locked -p areal-cli -- app-server $(ARGS)
 
 tui: ## 启动本地 Core + Runtime + TUI；--endpoint/--remote 连接已有服务
+	python3 scripts/builtin-tools.py
 	cargo build --locked -p areal-runtime -p areal-runtime-fs -p areal-cli
 	cargo run --locked -p areal-cli -- $(ARGS)
 
@@ -191,5 +207,5 @@ desktop-schemas: ## 从 Rust 类型导出 AReaL 桌面契约
 	cargo run --locked -q -p areal-engine --example desktop-schema -- --native-host > schemas/native-host-v2.json
 	cargo run --locked -q -p areal-protocol --example service-schema > schemas/local-service-v1.json
 
-package: release ## 生成 macOS arm64 发行产物及完整性清单；ARGS 指定 --output
+package: release ## 生成 macOS arm64 / Linux x86_64 发行产物及完整性清单；ARGS 指定 --output
 	python3 scripts/package.py $(ARGS)

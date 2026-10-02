@@ -22,7 +22,7 @@ export async function fixture() {
       const result = request.messages.slice(lastUser + 1).filter((m) => m.role === "tool");
       let tool;
       let reply = "完成：" + request.model;
-      const goalText = request.messages.find(
+      const goalText = request.messages.findLast(
         (m) => typeof m.content === "string" && m.content.includes("Current authoritative goal: "),
       )?.content;
       const goalView = goalText && JSON.parse(goalText.split("Current authoritative goal: ")[1]);
@@ -149,7 +149,7 @@ export async function fixture() {
             ];
           else tool = ["task_wait", {}];
         } else if (result.length === 0) {
-          const channelText = request.messages.find(
+          const channelText = request.messages.findLast(
             (m) => typeof m.content === "string" && m.content.includes("Current task channel: "),
           )?.content;
           const channel = JSON.parse(channelText.split("Current task channel: ")[1].split("\n")[0]);
@@ -375,6 +375,19 @@ export async function fixture() {
         );
       if (first === "approval" && result.length === 0)
         tool = ["fs_create", { path: "approved.txt", text: "approved once" }];
+      if (first === "edit-fixture") {
+        assert.deepEqual(request.tools.map((t) => t.function.name).sort(), [
+          "fs_apply_patches",
+          "fs_read",
+        ]);
+        if (result.length === 0) tool = ["fs_read", { path: "edit.txt" }];
+        else if (result.length === 1)
+          tool = [
+            "fs_apply_patches",
+            { path: "edit.txt", patches: [{ oldText: "before", newText: "after" }] },
+          ];
+        else assert(JSON.parse(result.at(-1).content).sha256);
+      }
       if (first === "profile") {
         assert.match(
           request.messages

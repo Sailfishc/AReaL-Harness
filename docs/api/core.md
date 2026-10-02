@@ -12,6 +12,7 @@ Core 提供固定 Codex app-server 0.145.0 的子集与 AReaL 扩展，不代表
 |---|---|
 | `model/list` | `{}` |
 | `thread/start` | `{cwd?,model?,dynamicTools?}` |
+| `areal/thread/start` | `{requestId,agentProfile:{id,revision},cwd?,model?,parameters?,dynamicTools?}`；自动启动 Profile 绑定的 Workflow |
 | `thread/list` | `{cursor?,limit?}`; 1–100, default 30 |
 | `thread/read` | `{threadId,includeTurns?}` |
 | `thread/resume` | `{threadId}` |
@@ -24,6 +25,30 @@ Core 拥有 Thread/Turn/Item 的稳定 ID 与历史。read 不订阅，resume �
 input 为有序 text/image/audio/file 等内容，UTF-8 文本合计最多 1 MiB，仍受历史预算约束；认证客户端上传媒体 Blob，不传宿主 localImage/localAudio 路径。模态由 adapter/模型能力校验。原有 thread/start 的 model 需匹配服务默认；产品模型选择使用 areal/thread/start/configure。
 
 事件包括 thread/started、turn/started/completed、item/started/completed、item/agentMessage/delta；AReaL 媒体通知为 areal/item/agentMedia/available。终态 completed/interrupted/failed 在保存后发布。steer 保留已输出文本，取消当前模型请求后在同一 Turn 继续。
+
+### 结构化终止原因
+
+`Turn.error` 保留 `message`，增加可选 `outcome:{code,class,source,details?}`。Core 在错误产生处保留类型，在 Turn 结算时生成 outcome；`turn/completed`、`thread/read`、持久化及重启恢复使用同一对象。旧记录没有 outcome 时按原样读取；消费者不能通过 message 猜测分类。Rust 构造旧 `TurnError` 时需填写 `outcome: None`。
+
+| code | 含义 |
+|---|---|
+| `LLM_CONTEXT_WINDOW_EXCEEDED` | 本地 context 预算超限（`source=core_context_budget`，附字节/估算 token 与限额），或 Provider 明确返回 `context_length_exceeded`（`provider_http` / `provider_stream`） |
+| `LLM_OUTPUT_TOKEN_LIMIT_EXCEEDED` | Provider 报告 length/max_tokens/max_output_tokens；不证明实际生成量达到客户端请求上限 |
+| `LLM_RESPONSE_TIMEOUT` | 模型请求或响应流超时，`class=timeout`；网络重试策略保持原样 |
+| `AGENT_MAX_TURNS_EXCEEDED` | 配置的 `maxModelRounds` 已耗尽，或收尾轮仍请求工具；`class=agent`、`source=core_model_round_budget`，details 包含轮数和上限；正常收尾不算失败。未配置上限时不启用此限制 |
+| `AGENT_RUN_TIMEOUT` | 显式 Goal 或研究 worker 时间预算到期，`class=agent` |
+| `LLM_RESPONSE_FAILED` | 其他已识别模型故障，具体原因由 details 表达；413 为 `request_body_too_large`，非法 tool index 保留 `invalid_tool_call_index`，两者不归为 context overflow 或 invalid tool JSON |
+| `HARNESS_INTERNAL_ERROR` | 未分类 Core 错误、持久化失败或恢复到 UNKNOWN 工具结果，`class=infrastructure` |
+
+Provider HTTP 错误体最多读取 64 KiB、等待 2 秒，仅保留白名单 code/type/reason；原始响应体、Provider message、鉴权信息不写入 outcome。HTTP 状态码保留在 `details.httpStatus`。错误分类不启用重试、不将失败转换为成功、不自动续轮或评分；未识别的 code 应保留为未知原因。
+
+EnvArena [runner](../../integrations/envarena/runner.py) 将 Core outcome 复制到 `harness_result.raw.outcome` 并添加 `schema=areal.envarena-outcome.v1`。runner 自己触发的进程期限使用 `AGENT_RUN_TIMEOUT`，收到外部信号使用 `HARNESS_INTERRUPTED`，适配/收集失败使用 `HARNESS_INTERNAL_ERROR`，正常完成使用 `AGENT_COMPLETED`；失败仍输出 ERROR 并非零退出。主线程原因优先，旧 Core 缺字段时不借子线程错误补猜。
+
+适配或收集失败仍以 `raw.outcome=HARNESS_INTERNAL_ERROR` 作为主要故障，防止基础设施失败被当作模型零分样本；`raw.adapter_error` 保存适配错误。若 Core 已失败，`raw.core_outcome` 和 `raw.core_errors` 同时保留原始分类、消息与 thread/turn ID；若 runner 已超时或收到信号，`raw.runner_outcome` 保留该原因。结果文件、native receipt 和轨迹 result 均保留这些诊断，重复结算不会累加重复记录。
+
+runner 的 summary 和 stdout 同时保留 `GAMEAGENT_OUTCOME_CODE=... GAMEAGENT_OUTCOME_CLASS=...`，兼容 AReaL 已有的 marker fallback；该名称是历史消费协议，不表示底层运行 GameAgent。平台若截断或丢弃失败 summary/log，仍需从结果制品读取 raw.outcome，不能保证仅凭 Task 顶层 raw 即可获取。已识别的模型 code 复用 AReaL 统计白名单，新增基础设施 code 在未更新的消费端归为 OTHER。
+
+`integrations/envarena/runner.py`、`outcomes.py`、`graybox_inputs.py` 和 `graybox_collect.py` 是原生发布包的覆盖文件（runner.py 在包内名为 runner）；其余 launcher、模型设置和资源沿用匹配的发布包。必须用同次源码重新构建目标 Linux 原生二进制，不能只替换 Python 就宣称支持 Core outcome。部署需要新的不可变 Harness 版本；本地测试不表示已经上线。
 
 <a id="agent-message-phase"></a>
 ### Agent 消息阶段
@@ -71,17 +96,18 @@ Responses 摘要通过可选 `reasoning_summary` / `reasoningSummary` 显式开�
 
 `Limits.watchdog_disable` 默认 false，Core 对已分类的网络故障无限次重试当前模型请求，包含传输错误、HTTP 408/429/5xx、提前断流、请求/流空闲超时与明确的 SSE 限流/不可用；不把长度、空回复、鉴权、额度或参数错误当成网络故障。启动配置与关闭方式见[配置指南](../guides/configuration.md)。主 Agent、子 Agent 与独立 Workgroup Engine 继承宿主开关；嵌入式调用方显式传入 Limits，Engine 不读取进程环境。Rust `Limits`、`NativeFactory` 和 `NativeExecutor` 新增 `watchdog_disable` 字段，显式结构体初始化需同步更新；`Limits::default()` 与 `NativeExecutor::new()` 默认启用。
 
-watchdog 保留同一请求的 messages、tools、采样参数与模型轮次，不消耗 `max_completion_retries`；重试不会再次预留 Agent 逻辑请求额度，Workgroup 仍计入每次实际请求及部署预算。250 ms 指数退避封顶 30 秒，释放失败流持有的共享模型许可后等待；取消与总期限仍能结束等待，求解请求还响应 steer。Core 审计并丢弃失败响应的文本、上下文与未执行工具调用，恢复该响应占用的输出字节额度，保留此前已执行工具和已观测 usage。发布 `areal/model/completionDiscarded`（新增 `retryKind=network|completion`）及 `areal/model/watchdogRetry {threadId,turnId,purpose:solve|summary,retry,delayMs}`。这里的丢弃不回滚已执行工具，也不重启整个 Turn。
+watchdog 保留同一请求的 messages、tools、采样参数与模型轮次，不消耗 `max_completion_retries`；重试不会再次预留 Agent 逻辑请求额度，Workgroup 仍计入每次实际请求及部署预算。250 ms 指数退避封顶 30 秒，释放失败流持有的共享模型许可后等待；取消与显式任务预算仍能结束等待，求解请求还响应 steer。Core 审计并丢弃失败响应的文本、上下文与未执行工具调用，恢复该响应占用的输出字节额度，保留此前已执行工具和已观测 usage。发布 `areal/model/completionDiscarded`（新增 `retryKind=network|completion`）及 `areal/model/watchdogRetry {threadId,turnId,purpose:solve|summary,retry,delayMs}`。这里的丢弃不回滚已执行工具，也不重启整个 Turn。
 
 Goal 请求先检查共享预算与用量是否已知，再决定是否重试。请求失败或超时留下未知消费时，保留预留并将 Goal 置为 blocked（usageUnknown）；不进入 watchdog 退避或有限响应重试。Turn 错误同时保留 `GOAL_USAGE_UNKNOWN` 与原始请求失败原因，避免用量检查覆盖接口、鉴权或超时诊断。摘要请求同样受此约束，保留旧 checkpoint，不写入降级摘要。已计量的 HTTP 请求禁用传输层内部重试，避免同一预留隐含多次消费。
 
-`max_completion_retries` 默认 0，可为已分类的长度截断、非法工具 index、空回复等提供有限恢复（仅 reasoning 不算最终回复）；关闭 watchdog 后，已分类网络错误也沿用此有限额度。工具仍只在完整成功流后执行；UNKNOWN、持久化错误、取消与总期限错误不重放。
+`max_completion_retries` 默认 0，可为已分类的长度截断、非法工具 index、空回复等提供有限恢复（仅 reasoning 不算最终回复）；关闭 watchdog 后，已分类网络错误也沿用此有限额度。工具仍只在完整成功流后执行；UNKNOWN、持久化错误、取消与显式任务预算错误不重放。
 
 Chat 工具 index 缺失、null、非整数类型、负数、超出 u64 范围或片段非对象时，使用明确的内部协议错误，只进入上述有限恢复，不进入网络 watchdog，也不作为 Workgroup 推理检查点。Core 不猜测编号或片段归属；数量、参数和缓冲预算错误不自动恢复。失败响应的模型视图被丢弃，已有确认工具、steer 和已观测 usage 保留。解析错误在已排队事件交付后立即传播；同事件或前序事件的已解析 usage 只累计一次，直接 EOF 保留原始错误类型。
 
 Rust `Model::chat_with_limits(messages, tools, purpose, ToolCallLimits, cap)` 显式传递请求预算，内置 HTTP、共享池和 Worker 包装器均转发。可选的输出 token 上限与工具预算一起经过 Goal 计量传递。默认实现委托 `chat_limited`，保持已有自定义 Model 实现可编译，并拒绝不受支持的非空 token 上限；自定义模型自行约束内部缓冲，Engine 仍在工具执行前检查其输出。摘要使用零调用预算。`Limits` 新增 `max_tool_buffer_bytes`，`NativeFactory`/`NativeExecutor` 新增 `tool_call_limits`，显式结构体初始化需补充字段；构造器提供默认值。不增加客户端协议方法或更改快照格式。
 
 上下文压缩保留原目标与近期内容，不拆 completion/工具结果或不透明 reasoning 边界。摘要最多 16 KiB，记录 throughItemId 与 checkpoint；网络故障重试相同摘要输入，不占用摘要格式校验次数；空摘要或伪工具摘要重试一次，仍失败时只有确实缩短输入才使用明确标记的 DEGRADED CONTEXT，否则 Turn 失败。取消不覆盖旧 checkpoint，压缩不删除历史、journal 或 Turn 工具状态。
+`limits.context_compaction_enabled=false` 时自动阈值超限使 Turn 失败，显式 `areal/context/compact` 返回错误，不写入 checkpoint；配置见[上下文限额](../guides/configuration.md#模型与限额)。
 
 模型审计写入 `data_dir/model-requests/*.json` 与 `requests.jsonl`，记录 solve/summary、参数、请求体摘要/大小、attempt、usage、stopReason、耗时与有限响应形状，不记录 header、endpoint 或 prompt。`usageObserved=true` 表示收到可解析的完整用量事件（包括 0）；缺失/false 不能视为已知零。length 终态仍收集同帧/尾帧 usage，等待受期限和取消限制，随后判定截断并禁止执行工具。
 
@@ -90,6 +116,8 @@ Rust `Model::chat_with_limits(messages, tools, purpose, ToolCallLimits, cap)` �
 工具错误审计新增 `errorCode` 与 `toolCallError`：`invalid_tool_call_index` 附固定原因、协议、字段路径、从 1 开始的 SSE 数据事件序号、index JSON 类型及已缓冲调用数量；`tool_call_budget_exceeded` 附预算类别、上限和观测值。字段只含固定标签和有界数值，诊断不复制 SSE、参数、reasoning 或非法字段值，使用同一记录的本地 `requestId` 关联。`responseShape.toolArgumentBytes` 沿用旧名称，实际累计通过校验的 id/name/arguments 字节。
 
 快照写入格式 9，可读取 1–9，旧 Core 不能读取新快照。contextCheckpoint 影响模型视图，不删原始历史；modelContext 保存不透明 Responses 上下文，不投影成用户内容。缺失 usage/duration 为未知，不是 0。
+
+`ToolExecution` 新增可选 `resultSnapshot: MediaRef` 与 `outputProjection` 度量对象，旧记录默认缺省。原文回取是模型 Core 工具 `read_tool_result`，不是新的 Runtime RPC；边界见[工具指南](../guides/tools.md)。模型请求审计另记 messageBlocks 的摘要/字节数、toolSchemaSha256 和 instructionsSha256，用于离线比较稳定前缀；不记录提示词正文，也不将前缀相同直接视为提供方缓存命中。`usageDetails` 记录提供方可选的缓存输入和推理 token；缺失时为 null，预算用量结构不变。
 
 <a id="dynamic-tools"></a>
 ## 动态工具回调
@@ -212,3 +240,15 @@ Rust 嵌入式调用使用 `Limits.goals: goals::Policy` 及 `Engine::goal_get/g
 Goal 请求账本位于 `goals/<goal-id>.json`，发送前持久预留；主/子 Agent、原生 Workgroup 和活动 Turn 的摘要共享计量，cachedInputTokens 是 inputTokens 的子集、不重复累加。每账本最多 4096 请求/4 MiB；clear 保留账本且不回收历史。快照格式 10 保存 Goal、Turn 归因、思考 Item 与 Task 交互策略，旧二进制不能读取；API 版本仍为 areal.core.v1。
 
 Task Mode 在 Goal 之上提供 foreground/scheduled/background 任务、TaskRun、独立 Channel 与 Inbox。Goal create 同时返回 taskId/runId；Goal 内的 ask_user_question 可选 mode=async，headless 不等待用户。接口、预算与恢复语义见 [Task 契约](tasks.md)。timeUsedSeconds 包含协调 Turn 与 TaskRun worker 活动时间的并集，纯异步用户等待不计入。
+
+普通 Turn 不设组合总时限。`thread/configuration/read` 的 `limits` 仅返回 `historyBytes`、`contextBytes`；已移除 `turnTimeoutMs`。模型、工具及显式任务预算继续独立生效。
+
+模型请求将固定指令与历史放在前缀，将轮次、Goal/Task 当前状态、子任务结果和预算提示作为 system 消息放在完整历史之后，保持工具调用与结果相邻。动态提示在请求前以 `modelContext.value.type=areal_request_context` 持久化，按原顺序保留在对应输出之前；最新快照替代旧快照的状态含义，但不删除旧输入。最后一轮禁用工具或上下文压缩仍可能改变缓存前缀。缓存命中还取决于供应商与路由，不能由消息顺序保证。
+
+`thread/read {threadId,includeTurns:true}` 返回持久化 Turn/Item 历史；`areal/thread/inspect` 返回执行配置与工具视图；`areal/context/read {threadId,offset,limit}` 返回分页历史投影（limit 为 1–32）与指令快照，并省略不透明 provider context。该投影包含持久化的请求状态快照；旧版本未保存的提示无法恢复。它仍不是过去某次 HTTP 请求的精确重放。每次模型调用的实际 Engine 消息通过 `areal::trajectory` 的 `gen_ai.input.messages` 记录；查询已导出的轨迹需使用部署的遥测后端。
+
+工具执行记录新增可选 `originalArguments`，旧记录可继续读取。参数语义未被 hook 改写时，历史保留原始 JSON 字节。Responses `function_call` 原始 item 作为 `modelContext` 保存，匹配未改写调用时保留其 item ID 与原始字段；Chat 投影不发送 Responses 元数据。上下文压缩将请求快照和关联输出作为同一保留单元，压缩后重新建立缓存前缀。
+
+Chat Completions 的 HTTP 适配会把所有纯文本 system 消息按原有相对顺序合并到请求开头，以兼容只接受首条 system 的聊天模板。非 system 消息的先后顺序保持不变；这不会修改持久历史，也不会改变 Responses 的消息及 encrypted reasoning 回放。动态状态变化因此可能降低 Chat 协议的缓存前缀复用率。
+
+摘要超过 16 KiB 时，Core 在既有空闲期限和取消规则内继续读取流到结束，收集尾部用量后再拒绝摘要并执行原有有限格式重试。不会仅因摘要超长而丢弃已到达的用量；确实缺失的用量仍保留为 UNKNOWN，不自动恢复 Goal。

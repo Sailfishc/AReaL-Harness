@@ -275,19 +275,14 @@ async fn watchdog_disable_preserves_finite_recovery_and_semantic_errors_still_fa
 }
 
 #[tokio::test]
-async fn cancellation_deadline_and_steer_interrupt_watchdog_backoff() {
-    for action in ["cancel", "deadline", "steer"] {
+async fn cancellation_and_steer_interrupt_watchdog_backoff() {
+    for action in ["cancel", "steer"] {
         let data = tempfile::tempdir().unwrap();
         let model = flaky(vec![Fault::Error(ModelFailure::Transport)], false);
         let engine = Engine::open(
             data.path(),
             model.clone(),
             Limits {
-                turn_timeout: if action == "deadline" {
-                    Duration::from_millis(150)
-                } else {
-                    Duration::from_secs(10)
-                },
                 ..Limits::default()
             },
         )
@@ -325,20 +320,9 @@ async fn cancellation_deadline_and_steer_interrupt_watchdog_backoff() {
             result.turns[0].status,
             match action {
                 "cancel" => TurnStatus::Interrupted,
-                "deadline" => TurnStatus::Failed,
                 _ => TurnStatus::Completed,
             }
         );
-        if action == "deadline" {
-            assert!(
-                result.turns[0]
-                    .error
-                    .as_ref()
-                    .unwrap()
-                    .message
-                    .contains("deadline")
-            );
-        }
         assert_eq!(
             model.requests.load(Ordering::SeqCst),
             if action == "steer" { 2 } else { 1 }

@@ -12,8 +12,8 @@ Read the [architecture](../design/architecture.en.md) and [repository instructio
 | Python / uv | Python 3.11+ for development; uv installs locked tools. The product launcher uses trusted system Python 3.9+ and its standard library |
 | Node.js / npm | Node.js 22.19.0+ for both SDKs and formatting tools |
 | Build tools | Git, Bash, GNU Make 3.81+, C/C++ compiler and CMake; Xcode Command Line Tools on macOS |
-| File search | ripgrep (`rg`) for `search_files` and its regression tests |
-| Native execution | macOS `/usr/bin/sandbox-exec`; the [controlled Docker profile](../benchmarks/README.en.md) on Linux |
+| File search | Bundled ripgrep 15.2.0, built from pinned source and its lockfile by `make build/release`; no host rg dependency |
+| Native execution | macOS `/usr/bin/sandbox-exec`; Linux `/usr/bin/bwrap` plus Runtime seccomp; fixed benchmarks use the [controlled Docker profile](../benchmarks/README.en.md) |
 
 ```sh
 make setup
@@ -32,6 +32,7 @@ make verify
 | Rust / SDK / scripts | `make test` / `make sdk-test` / `make script-test` |
 | Regular regression | `make verify` |
 | Native integration | `make verify-harness`, including regular regression |
+| CI native delta | `make verify-native`, native backend and Harness integration smoke only |
 | Capacity | `make capacity`, run separately |
 | Documentation only | `python3 scripts/check-docs.py`; also compare commands with implementation |
 
@@ -46,3 +47,5 @@ Use Rust `--locked`; intentional upgrades update manifests and locks. Cordis als
 Use rustfmt/Clippy for Rust, locked Prettier for TS/JS/CSS/HTML and Ruff for owned Python code. Follow `.editorconfig`. New comments explain constraints and reasons in Chinese; accurate existing English comments need no mechanical translation.
 
 Organize documentation through the [index](../README.en.md) and update both languages together. Keep README to an introduction and navigation, APIs in `docs/api/`, and historical results in `docs/benchmarks/reports/`. Fix references when moving pages. Maintain draw.io sources together with SVG/existing PNG previews under the [diagram style guide](../design/STYLE_GUIDE.en.md).
+
+See the [release workflow](releasing.en.md) for Homebrew/Linux artifacts, installation verification and draft publication.

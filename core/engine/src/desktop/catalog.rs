@@ -24,7 +24,7 @@ pub(super) struct Catalog {
     #[serde(default, rename = "skillHashes", skip_serializing)]
     _legacy_skill_hashes: serde::de::IgnoredAny,
     #[serde(skip)]
-    skills: BTreeMap<String, Skill>,
+    pub(crate) skills: BTreeMap<String, Skill>,
 }
 impl Catalog {
     pub fn load(root: &Path) -> anyhow::Result<Self> {
@@ -168,6 +168,16 @@ impl Engine {
                 "workflow revision is immutable"
             );
             catalog.workflows.insert(identity, workflow);
+        }
+        for profile in catalog.profiles.values() {
+            if let Some(workflow) = &profile.workflow {
+                anyhow::ensure!(
+                    catalog
+                        .workflows
+                        .contains_key(&key(&workflow.id, &workflow.revision)),
+                    "profile references an unavailable workflow revision"
+                );
+            }
         }
         anyhow::ensure!(
             serde_json::to_vec(&catalog)?.len() <= 2 * 1024 * 1024,

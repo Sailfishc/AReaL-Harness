@@ -41,6 +41,7 @@ impl Model for Fixture {
         let has = |name: &str| tools.iter().any(|t| t["function"]["name"] == name);
         let view: Option<Value> = messages
             .iter()
+            .rev()
             .filter_map(|m| {
                 m.text_content()
                     .split("Current authoritative goal: ")
@@ -114,6 +115,98 @@ fn control(v: &Value, request_id: &str) -> GoalControl {
         thread_id: v["threadId"].as_str().unwrap().into(),
         goal_id: v["goal"]["id"].as_str().unwrap().into(),
         expected_revision: v["revision"].as_u64().unwrap(),
+    }
+}
+
+struct OversizedSummary {
+    summaries: AtomicUsize,
+    always_oversized: bool,
+}
+
+#[async_trait]
+impl Model for OversizedSummary {
+    fn name(&self) -> &str {
+        "oversized-summary"
+    }
+
+    async fn stream(&self, _: Vec<Message>) -> anyhow::Result<ModelStream> {
+        unreachable!()
+    }
+
+    async fn chat(&self, messages: Vec<Message>, tools: Vec<Value>) -> anyhow::Result<ModelStream> {
+        self.chat_for(messages, tools, RequestPurpose::Solve).await
+    }
+
+    async fn chat_for(
+        &self,
+        _: Vec<Message>,
+        _: Vec<Value>,
+        purpose: RequestPurpose,
+    ) -> anyhow::Result<ModelStream> {
+        let mut events = if purpose == RequestPurpose::Summary {
+            let attempt = self.summaries.fetch_add(1, Ordering::SeqCst);
+            if self.always_oversized || attempt == 0 {
+                // 多字节片段跨过上限，末尾用量必须仍被消费。
+                vec![
+                    Ok(ModelEvent::text("x".repeat(16 * 1024 - 1))),
+                    Ok(ModelEvent::text("猫猫")),
+                    Ok(ModelEvent::text("tail")),
+                ]
+            } else {
+                vec![Ok(ModelEvent::text(
+                    "Initial implementation recorded; verification remains unfinished.",
+                ))]
+            }
+        } else {
+            vec![Ok(ModelEvent::text("recorded result ".repeat(200)))]
+        };
+        events.push(Ok(ModelEvent::Usage(ModelUsage {
+            input_tokens: 11,
+            cached_input_tokens: 3,
+            output_tokens: 7,
+        })));
+        Ok(Box::pin(stream::iter(events)))
+    }
+}
+
+#[tokio::test]
+async fn oversized_goal_summary_drains_usage_before_retry_or_fallback() {
+    for always_oversized in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let model = Arc::new(OversizedSummary {
+            summaries: AtomicUsize::new(0),
+            always_oversized,
+        });
+        let limits = Limits {
+            context_window_bytes: 2000,
+            context_recent_bytes: 256,
+            ..Limits::default()
+        };
+        let engine = Engine::open(dir.path(), model.clone(), limits).unwrap();
+        let thread = engine.create("/workspace".into()).await.unwrap();
+        let mut create = request(&thread.id);
+        create.max_turns = Some(2);
+        engine.goal_create("test".into(), create).await.unwrap();
+        let done = stopped(&engine, &thread.id).await;
+        assert_eq!(done["goal"]["status"], "budgetLimited", "{done}");
+        assert_eq!(done["goal"]["usage"]["unknownRequests"], 0);
+        assert_eq!(done["goal"]["usage"]["accountingComplete"], true);
+        assert_eq!(model.summaries.load(Ordering::SeqCst), 2);
+        assert_eq!(done["goal"]["usage"]["tokensUsed"], 72);
+        let history = engine.read(&thread.id, true).await.unwrap();
+        assert!(
+            history
+                .turns
+                .iter()
+                .all(|turn| turn.status == areal_protocol::TurnStatus::Completed)
+        );
+        let checkpoint = history.context_checkpoint.as_ref().unwrap();
+        assert!(checkpoint.summary.len() <= 16 * 1024);
+        assert_eq!(
+            checkpoint.summary.starts_with("DEGRADED CONTEXT:"),
+            always_oversized
+        );
+        engine.shutdown().await;
     }
 }
 
@@ -238,6 +331,7 @@ impl Call {
         let view: Value = self
             .messages
             .iter()
+            .rev()
             .find_map(|m| {
                 m.text_content()
                     .split("Current authoritative goal: ")
@@ -596,6 +690,16 @@ async fn active_time_limit_cancels_an_inflight_request_and_never_continues() {
             .contains("GOAL_TIME_BUDGET")
     );
     assert!(pending.reply.is_closed());
+    let thread = e.read(&t.id, true).await.unwrap();
+    let outcome = thread.turns[0]
+        .error
+        .as_ref()
+        .unwrap()
+        .outcome
+        .as_ref()
+        .unwrap();
+    assert_eq!(outcome.code, "AGENT_RUN_TIMEOUT");
+    assert_eq!(outcome.source, "core_execution_budget");
     assert_eq!(done["goal"]["usage"]["turnsStarted"], 1);
     e.shutdown().await;
 }
@@ -633,10 +737,17 @@ async fn compaction_usage_belongs_to_the_goal_and_the_objective_survives() {
             .contains("Finish both stages with evidence")
     }));
     solve.report("complete");
-    next(&mut rx).await.answer("verified");
+    let mut calls = 3;
+    let mut reply = next(&mut rx).await;
+    if reply.messages.last().unwrap().text_content() == "Produce the continuation summary now." {
+        reply.answer("Goal completion was verified and reported; provide the final reply.");
+        calls += 1;
+        reply = next(&mut rx).await;
+    }
+    reply.answer("verified");
     let done = stopped(&e, &t.id).await;
     assert_eq!(done["goal"]["status"], "completed");
-    assert_eq!(done["goal"]["usage"]["tokensUsed"], 54);
+    assert_eq!(done["goal"]["usage"]["tokensUsed"], calls * 18);
     assert!(
         e.read(&t.id, true)
             .await
@@ -704,4 +815,107 @@ async fn drain_wait_stops_continuation_but_allows_current_turn_to_finish() {
         areal_protocol::TurnStatus::Completed
     );
     e.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn ordinary_turn_model_and_capacity_waits_have_no_aggregate_deadline() {
+    let (_dir, e, mut rx) = controlled(Limits {
+        model_concurrency: 1,
+        stream_idle_timeout: Duration::from_secs(600),
+        ..Limits::default()
+    });
+    let first = e.create("/workspace".into()).await.unwrap();
+    let second = e.create("/workspace".into()).await.unwrap();
+    e.start(&first.id, vec![Input::text("first")])
+        .await
+        .unwrap();
+    let pending = next(&mut rx).await;
+    e.start(&second.id, vec![Input::text("queued")])
+        .await
+        .unwrap();
+    tokio::time::advance(Duration::from_secs(301)).await;
+    assert!(!pending.reply.is_closed());
+    pending.answer("first completed");
+    next(&mut rx).await.answer("second completed");
+    for id in [&first.id, &second.id] {
+        assert_eq!(
+            e.wait(id).await.unwrap().turns[0].status,
+            areal_protocol::TurnStatus::Completed
+        );
+    }
+    e.shutdown().await;
+}
+
+#[tokio::test]
+async fn live_goal_and_round_context_follow_a_stable_history_prefix() {
+    let (_dir, e, mut rx) = controlled(Limits::default());
+    let t = e.create("/workspace".into()).await.unwrap();
+    e.start(&t.id, vec![Input::text("establish stable history")])
+        .await
+        .unwrap();
+    next(&mut rx).await.answer("verified earlier evidence");
+    e.wait(&t.id).await.unwrap();
+    e.goal_create("test".into(), request(&t.id)).await.unwrap();
+    let first = next(&mut rx).await;
+    let dynamic = |m: &Message| {
+        m.text_content().starts_with("Model round ")
+            || m.text_content().contains("Current authoritative goal: ")
+    };
+    let boundary = first.messages.iter().position(dynamic).unwrap();
+    let prefix: Vec<_> = first.messages[..boundary]
+        .iter()
+        .map(|m| (m.role.clone(), m.text_content()))
+        .collect();
+    assert!(
+        prefix
+            .iter()
+            .any(|(_, text)| text == "verified earlier evidence")
+    );
+    assert!(
+        first.messages[boundary..]
+            .iter()
+            .all(|m| m.role == "system")
+    );
+    assert!(
+        first
+            .messages
+            .iter()
+            .any(|m| m.text_content().starts_with("Model round 1 "))
+    );
+    let first_messages = first.messages.clone();
+    first.report("complete");
+    let second = next(&mut rx).await;
+    let next_prefix: Vec<_> = second.messages[..boundary]
+        .iter()
+        .map(|m| (m.role.clone(), m.text_content()))
+        .collect();
+    assert_eq!(prefix, next_prefix);
+    // 包含 opaque context、工具调用和多模态内容，不仅比较可见文本。
+    assert_eq!(
+        &second.messages[..first_messages.len()],
+        first_messages.as_slice()
+    );
+    assert!(
+        second
+            .messages
+            .iter()
+            .any(|m| m.text_content().starts_with("Model round 2 "))
+    );
+    assert_eq!(
+        second
+            .messages
+            .iter()
+            .filter(|m| m.text_content().contains("Current authoritative goal: "))
+            .count(),
+        2
+    );
+    second.answer("completed");
+    assert_eq!(stopped(&e, &t.id).await["goal"]["status"], "completed");
+    let before = e.context_read(&t.id, 0, 32).await.unwrap();
+    e.shutdown().await;
+    drop(e);
+    let restored = Engine::open(_dir.path(), model(true, true), Limits::default()).unwrap();
+    let after = restored.context_read(&t.id, 0, 32).await.unwrap();
+    assert_eq!(before["data"], after["data"]);
+    restored.shutdown().await;
 }

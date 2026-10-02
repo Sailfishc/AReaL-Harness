@@ -6,7 +6,7 @@
 
 ## Files and precedence
 
-`Explicit CLI > registered environment > selected TOML > defaults`. Default configuration is `~/.areal-harness/config.toml`, with data in its sibling `state/`. `AREAL_HARNESS_HOME` selects a nonempty absolute home. `--config` takes precedence over `AREAL_HARNESS_CONFIG` and replaces, rather than overlays, the default file. Project TOML and `.env` are not discovered automatically.
+`Explicit CLI > registered environment > selected TOML > defaults`. Default configuration is `~/.areal/config.toml`, with data in its sibling `state/`. `AREAL_HARNESS_HOME` selects a nonempty absolute home. `--config` takes precedence over `AREAL_HARNESS_CONFIG` and replaces, rather than overlays, the default file. Project TOML and `.env` are not discovered automatically.
 
 Shared TUI/Web entry points use a workspace-specific default data directory; explicit dataDir configuration retains the precedence above. See [local services](../api/local-service.en.md) for migration and compatibility.
 
@@ -17,7 +17,7 @@ A missing default file is allowed. A missing explicit file, unknown field, type/
 
 Local TUI, Web, CLI and `scripts/launch.py` default to **YOLO**: ordinary tasks may read/write files accessible to the current OS user, including outside the workspace and `/tmp`, and commands may use networking without per-call approval. `--allow-write` / `--allow-network` are no longer required. OS permissions, explicit Profiles, read-only Turns, deny rules and restricted Runtime deployments still apply.
 
-Global `~/.areal-harness/config.toml`:
+Global `~/.areal/config.toml`:
 
 ```toml
 schema_version = 1
@@ -49,6 +49,8 @@ The launcher creates `scratch/` beside dataDir and sets an individual Thread `TM
 
 ## Models and limits
 
+Ordinary Turns have no aggregate wall-clock timeout. Model request/stream idle, tool execution and cleanup timeouts still apply, as do explicit Goal, research-worker and Workgroup budgets. Remove `limits.turn_timeout_seconds` (old TOML fields are rejected) and `AREAL_HARNESS_TURN_TIMEOUT_SECONDS` (old environment variables are also rejected) when migrating. The `limits` object in `thread/configuration/read` no longer includes `turnTimeoutMs`. Manual context compaction also relies on model timeouts and shutdown cancellation.
+
 ```toml
 schema_version = 1
 [server]
@@ -67,16 +69,16 @@ max_threads = 20000
 max_active_turns = 256
 max_children_per_turn = 64
 max_agent_depth = 8
-turn_timeout_seconds = 300
 stream_idle_timeout_seconds = 30
 max_history_bytes = 2097152
 max_output_bytes = 262144
 max_tool_calls = 128
 max_tool_buffer_bytes = 4194304
-context_window_bytes = 196608
-context_recent_bytes = 65536
-context_window_tokens = 0
-context_output_reserve_tokens = 0
+context_window_bytes = 524288
+context_compaction_enabled = true
+context_recent_bytes = 131072
+context_window_tokens = 65536
+context_output_reserve_tokens = 8192
 max_completion_retries = 0
 watchdog_disable = false
 [logging]
@@ -95,7 +97,9 @@ Optional sampling fields are omitted when unset and preserve explicit zero. `tem
 
 `context_window_tokens=0` disables token estimation; its maximum is 2000000. When enabled, reserve must be below window. Estimated history, system and tool definitions trigger compaction at window minus reserve, or at the byte threshold. Estimates use roughly 3 ASCII bytes/token, 2 tokens/non-ASCII character and media proxies, and may be calibrated upward from prior input usage. Cache hits do not reduce estimates; these are not exact provider tokenizer counts.
 
-The network watchdog is enabled by default with no retry count limit. Set `AREAL_HARNESS_WATCHDOG_DISABLE=1` to disable it; remove the variable or set it to `0` to restore the default. It also accepts `true`/`false`, mapping to TOML `limits.watchdog_disable`; the environment overrides TOML. It covers connection/transport failures, request and stream idle timeouts, premature EOF, HTTP 408/429/5xx and explicit SSE rate-limit/service-availability errors. Solve, child Agent and context-summary requests use the same policy, with exponential backoff from 250 ms capped at 30 seconds. Cancellation, Turn deadlines and explicit Workgroup physical-request budgets remain effective. Authentication, invalid requests, insufficient quota, output length limits and empty answers do not receive unlimited retries.
+`limits.context_compaction_enabled=false` disables automatic and manual compaction (true by default). When `context_window_bytes` is exceeded or an enabled token threshold is reached, the Turn fails with a context limit error without sending another solve or summary request; original history remains intact. These estimates are not the provider's actual context limit. To also disable Agent delegation and Workgroup child tasks, set `max_children_per_turn=0` and `max_agent_depth=0`. An explicitly enabled native research Agent extension requires nonzero child limits and rejects this combination at startup.
+
+The network watchdog is enabled by default with no retry count limit. Set `AREAL_HARNESS_WATCHDOG_DISABLE=1` to disable it; remove the variable or set it to `0` to restore the default. It also accepts `true`/`false`, mapping to TOML `limits.watchdog_disable`; the environment overrides TOML. It covers connection/transport failures, request and stream idle timeouts, premature EOF, HTTP 408/429/5xx and explicit SSE rate-limit/service-availability errors. Solve, child Agent and context-summary requests use the same policy, with exponential backoff from 250 ms capped at 30 seconds. Cancellation, explicit Goal/research-worker time budgets and explicit Workgroup physical-request budgets remain effective. Authentication, invalid requests, insufficient quota, output length limits and empty answers do not receive unlimited retries.
 
 Goal shared-budget and unknown-usage constraints take precedence over retry settings. Goal requests disable internal HTTP retries; failures or timeouts with unknown usage retain their reservation and stop automatic progress. Neither the watchdog nor finite retry allowances bypass this constraint.
 
@@ -110,10 +114,10 @@ Byte and capacity limits are positive integers; fan-out and depth may be 0 to di
 | `MODEL`, `MODEL_PROVIDER`, `MODEL_ENDPOINT`, `MODEL_PROTOCOL`, `API_KEY_ENV` | Model name, provider, complete URL, protocol and credential reference |
 | `REASONING_EFFORT`, `REASONING_SUMMARY`, `MAX_OUTPUT_TOKENS`, `MODEL_MAX_RETRIES` | Model parameters |
 | `TEMPERATURE`, `TOP_P`, `TOP_K`, `MIN_P`, `PRESENCE_PENALTY`, `REPETITION_PENALTY` | Sampling parameters |
-| `CONTEXT_WINDOW_TOKENS`, `CONTEXT_OUTPUT_RESERVE_TOKENS` | Optional context token budget |
+| `CONTEXT_WINDOW_TOKENS`, `CONTEXT_OUTPUT_RESERVE_TOKENS`, `CONTEXT_COMPACTION_ENABLED` | Optional context token budget and compaction switch |
 | `LISTEN`, `DATA_DIR`, `TOOL_EXTENSIONS`, `LOG_FILTER` | Server, extensions file and logging |
 | `MODEL_CONCURRENCY`, `MAX_THREADS`, `MAX_ACTIVE_TURNS`, `MAX_CHILDREN_PER_TURN`, `MAX_AGENT_DEPTH` | Concurrency and task capacity |
-| `TURN_TIMEOUT_SECONDS`, `STREAM_IDLE_TIMEOUT_SECONDS` | Deadlines |
+| `STREAM_IDLE_TIMEOUT_SECONDS` | Deadlines |
 | `WATCHDOG_DISABLE` | `limits.watchdog_disable`; `1` disables, default `0` |
 | `MAX_HISTORY_BYTES`, `MAX_OUTPUT_BYTES`, `MAX_TOOL_CALLS`, `MAX_TOOL_BUFFER_BYTES`, `CONTEXT_WINDOW_BYTES`, `CONTEXT_RECENT_BYTES` | History, tools and context budgets |
 
@@ -158,7 +162,29 @@ target/debug/areal config show --sources --config /absolute/config.toml
 
 Diagnostics do not listen, create data, start Runtime/MCP/plugins or probe models. They report redacted values and sources. Shared local services reload model configuration as described below; startup credentials are not forwarded to Runtime. Server telemetry handles `OTEL_*` separately.
 
-The desktop runtime provider catalog uses `areal/provider/*` and `AREAL_CREDENTIAL_<ref>`, supporting chatCompletions/responses only. `--desktop-config` installs versioned Profiles/Skills/Workflows. Session settings can change through CAS at idle boundaries and are frozen into new Turns/queue items; see the [desktop contract](../api/desktop.en.md). Explicit session Providers are managed separately from the TOML default model.
+The desktop runtime provider catalog uses `areal/provider/*` and `AREAL_CREDENTIAL_<ref>`, supporting chatCompletions/responses only. `--desktop-config` installs versioned Profiles/Skills/Workflows. Pass `--agent code-agent@v2` to TUI, headless or `exec` to select a Profile; a Profile-bound Workflow starts with the Thread, so no separate Workflow argument is needed. Session settings can change through CAS at idle boundaries and are frozen into new Turns/queue items; see the [desktop contract](../api/desktop.en.md). Explicit session Providers are managed separately from the TOML default model.
+
+```sh
+target/debug/areal --desktop-config deployment.json --agent code-agent@v2
+target/debug/areal --desktop-config deployment.json --agent code-agent@v2 --prompt "检查当前改动"
+target/debug/areal exec --desktop-config deployment.json --agent code-agent@v2 "运行测试"
+```
+
+In `deployment.json`, bind tools and a Workflow to a Profile. The same file can also keep an Agent without a Workflow:
+
+```json
+{
+  "profiles": [
+    {"id":"tool-agent","revision":"v1","displayName":"Tool agent","instructions":"Inspect and report results.","toolAllowlist":["fs_read","run_command"]},
+    {"id":"code-agent","revision":"v2","displayName":"Code agent","instructions":"Complete and verify the staged task.","toolAllowlist":["fs_read","run_command","fs_apply_patches"],"workflow":{"id":"code-flow","revision":"v1"}}
+  ],
+  "workflows": [
+    {"id":"code-flow","revision":"v1","displayName":"Code flow","plan":{"objective":"Change and verify code","tasks":[{"id":"implement","instruction":"Modify src/main.rs and run tests","writes":["src/main.rs"],"configuration":{"agentProfile":{"id":"code-agent","revision":"v2"}}}]}}
+  ]
+}
+```
+
+`tool-agent@v1` can use its permitted tools without a Workgroup. `code-agent@v2` needs a trusted `--workgroup-policy` and `--allow-write`; the policy must authorize `src/main.rs` and provide final checks (see the [Workgroup guide](workgroups.en.md)). The bound Profile starts the Workflow plan automatically. A regular Turn from `--prompt` or `exec` is a separate user interaction.
 
 ## Model configuration reload
 
@@ -190,6 +216,46 @@ turn_model_rounds = 32
 
 The numeric values shown are defaults. The first three numeric fields accept 1–86400; turn_model_rounds accepts 2–1024. Goal maxTurns/maxActiveSeconds can narrow deployment limits; tokenBudget applies only when explicitly set. Root Turns use min(session maxModelRounds, turn_model_rounds), require at least two rounds, and require goal_read/goal_update in any tool allowlist. The final round remains tool-free for handoff. Consecutive root Turns without goal_update pause as progressUnreported at the configured threshold.
 
-Active time includes root-Turn model queuing, execution, tools, interactions and cleanup without adding child durations. Capacity waits between Turns, paused time and offline time are excluded. Existing Turn deadlines and Runtime hard limits still apply. Goal requests disable implicit HTTP retries to preserve per-request accounting; unknown usage stops automatic continuation. See [usage and recovery](clients.en.md#goals).
+Active time includes root-Turn model queuing, execution, tools, interactions and cleanup without adding child durations. Capacity waits between Turns, paused time and offline time are excluded. Existing explicit Goal/research-worker time budgets and Runtime hard limits still apply. Goal requests disable implicit HTTP retries to preserve per-request accounting; unknown usage stops automatic continuation. See [usage and recovery](clients.en.md#goals).
 
 See [Skills](skills.en.md) for discovery, [tools](tools.en.md) for extensions and [Runtime](runtime.en.md) for deployment permissions.
+
+Tool result views are configured in the JSON file named by `[tools] extensions_file`, under `policy.resultViews`: `mode` is `off`, `observe` (default) or `on`, with `searchGroups` and `repeatLines` switches. Large-result snapshots and bundled rg work independently of this switch. See [tools](tools.en.md) for quotas and retrieval.
+
+## OpenTelemetry trajectory reporting
+
+Core uses the open-source OpenTelemetry SDK to export Traces and Events/Logs over standard OTLP HTTP/protobuf. Reporting is disabled without an endpoint, and export failures do not change Turn outcomes. Core reads configuration at startup; restart the service after changes.
+
+```bash
+export OTEL_SERVICE_NAME=areal-core
+export OTEL_RESOURCE_ATTRIBUTES='service.namespace=research,deployment.environment.name=development'
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318
+export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+```
+
+The common endpoint gets `/v1/traces` and `/v1/logs` appended automatically. Alternatively, configure full signal endpoints; signal-specific settings take precedence:
+
+```bash
+export OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://127.0.0.1:4318/v1/traces
+export OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://127.0.0.1:4318/v1/logs
+export OTEL_EXPORTER_OTLP_HEADERS='authorization=Bearer%20your-token'
+export OTEL_EXPORTER_OTLP_TIMEOUT=10000
+```
+
+| Standard configuration | Behavior |
+|---|---|
+| `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES` | Service name and custom Resource attributes; the default name is `areal-core`, and the explicit service name overrides Resource `service.name` |
+| `OTEL_EXPORTER_OTLP_{TRACES,LOGS}_ENDPOINT` | Full endpoint for each signal; configuring just one signal endpoint exports only that signal |
+| `OTEL_EXPORTER_OTLP_{TRACES,LOGS}_PROTOCOL` | Overrides the common protocol; currently only `http/protobuf` is supported |
+| `OTEL_EXPORTER_OTLP_{TRACES,LOGS}_HEADERS` | Overrides common authentication headers, parsed by the SDK in standard format |
+| `OTEL_EXPORTER_OTLP_{TRACES,LOGS}_TIMEOUT` | Overrides the common timeout in milliseconds; defaults to 10000 |
+| `OTEL_TRACES_EXPORTER`, `OTEL_LOGS_EXPORTER` | `otlp` or `none`; disable each signal independently |
+| `OTEL_TRACES_SAMPLER`, `OTEL_TRACES_SAMPLER_ARG` | Standard SDK Trace sampling configuration |
+| `OTEL_BSP_*`, `OTEL_BLRP_*` | Standard SDK Trace/Log batch queue and scheduling configuration |
+| `OTEL_SDK_DISABLED=true` | Disables all telemetry |
+
+Trajectories cover Turns, individual model requests, tool calls, and context compaction. Model requests use `gen_ai.*` attributes and the `gen_ai.client.inference.operation.details` event; messages use the OpenTelemetry GenAI `role` / `parts` structure, encoded as JSON strings on spans and structured attributes on logs. Model inputs (including system instructions), outputs, reasoning text, tool arguments, and results retain their actual content. There is no redaction logic or redaction switch; media retains the references or inline data received by Engine. Retries are separate requests; cancellation preserves received output and marks the operation incomplete.
+
+Project-specific attributes and events use the `areal.*` namespace. Logs correlate through standard Trace ID and Span ID, and graceful shutdown flushes batch exports. Logs-only configuration still generates local correlation IDs; Trace and Log export switches are independent. Metrics are not exported. GenAI semantic conventions remain in development; see the [official conventions](https://github.com/open-telemetry/semantic-conventions-genai).
+
+Default compaction triggers when either estimated tokens or history bytes reach the limit: a 64k token window reserves 8k for output (57,344 estimated input tokens), or history exceeds 512 KiB; the recent verbatim-history budget is 128 KiB. Tokens are conservative estimates calibrated upward, not exact provider-tokenizer counts or model capacity declarations. Compaction rebuilds the cache prefix, so monitor uncached input and task correctness together. Explicit `context_window_tokens=0` disables the token trigger while retaining the byte threshold.

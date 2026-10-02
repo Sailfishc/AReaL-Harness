@@ -12,8 +12,8 @@
 | Python / uv | 开发使用 Python 3.11+；uv 安装锁定工具。产品 launcher 使用可信系统 Python 3.9+ 和标准库 |
 | Node.js / npm | Node.js 22.19.0+；两套 SDK 与格式工具 |
 | 编译工具 | Git、Bash、GNU Make 3.81+、C/C++ 编译器、CMake；macOS 需 Xcode Command Line Tools |
-| 文件搜索 | ripgrep（`rg`），供 `search_files` 和对应回归使用 |
-| 原生执行 | macOS `/usr/bin/sandbox-exec`；Linux 使用[受控 Docker profile](../benchmarks/README.md) |
+| 文件搜索 | 内置 ripgrep 15.2.0；`make build/release` 按固定源码和锁文件构建，不依赖宿主 rg |
+| 原生执行 | macOS `/usr/bin/sandbox-exec`；Linux `/usr/bin/bwrap` + Runtime seccomp；固定评测另用[受控 Docker profile](../benchmarks/README.md) |
 
 ```sh
 make setup
@@ -32,6 +32,7 @@ make verify
 | Rust / SDK / 脚本 | `make test` / `make sdk-test` / `make script-test` |
 | 常规回归 | `make verify` |
 | 原生集成 | `make verify-harness`，包含常规回归 |
+| CI 原生增量 | `make verify-native`，仅运行原生后端与 Harness 集成 smoke |
 | 容量 | `make capacity`，独立运行 |
 | 仅文档 | `python3 scripts/check-docs.py`，同时核对命令与实现 |
 
@@ -46,3 +47,5 @@ Rust 使用 `--locked`，升级同时更新清单和锁文件；Cordis 还需同
 Rust 使用 rustfmt/Clippy；TS/JS/CSS/HTML 使用锁定 Prettier；自有 Python 使用 Ruff。遵循 `.editorconfig`。新注释使用中文解释约束与原因；已有准确英文不机械翻译。
 
 文档按[文档目录](../README.md)分类，同次修改更新中英文。README 只保留简介与导航；API 放在 `docs/api/`；历史结果放在 `docs/benchmarks/reports/`。移动页面同步修复引用。图表同步维护 draw.io 和 SVG/已有 PNG，遵循[图表规范](../design/STYLE_GUIDE.md)。
+
+Homebrew/Linux 发行产物、安装验收与 draft 发布流程见[发行流程](releasing.md)。

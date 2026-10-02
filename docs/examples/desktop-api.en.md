@@ -23,6 +23,8 @@ make desktop-schemas
 | [soak.mjs](../../examples/desktop-api/soak.mjs) | Relocated packages, minimal PATH, system Python, budget exhaustion, archive and epoch rotation |
 | [native-host.mjs](../../examples/desktop-api/native-host.mjs) | Real file/process brokers and foreign-handle rejection |
 
+`run.mjs game-lite-profile` verifies actual Profile tool calls without a Workflow; `run.mjs profile-workflow` verifies automatic startup, completion, and no duplicate launch after resume. `cli.mjs` verifies that `exec --agent` exposes only the selected Profile's tools.
+
 `AREAL_SOAK_ROUNDS` sets rounds (default 12), `AREAL_SOAK_REPORT` selects a JSON report, and `AREAL_PACKAGE_PROFILE=release` tests prebuilt release artifacts. Reports record actual source, platform, resource curves and cleanup.
 
 ## Explicit deployment Profile
@@ -52,6 +54,7 @@ After `make build`, run `node examples/desktop-api/run.mjs --serve` and keep it 
 |---|---|
 | Create a conversation; send `hello`, then `native` | Completed text and native tool execution; native.txt appears in the workspace |
 | Create Goal `goal-native-fixture` | Automatic continuation completes in two Turns and produces goal.txt |
+| Delete the completed Goal session in the sidebar and refresh | The session remains absent from the list; the file remains and Core archives rather than permanently erasing history |
 | Create Goal `task-channel-fixture` in a new conversation | Independent plan work follows the asynchronous question; answering B in the sidebar Inbox resumes the same Run |
 | Create headless background task `task-workers-fixture` | An independent worker creates task-worker.txt; the coordinator verifies it across Turns and publishes completion |
 | Create background task `task-channel-fixture` | Pause, reload the page and answer B from the independent Inbox; it stays paused until explicitly resumed |

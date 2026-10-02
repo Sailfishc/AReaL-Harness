@@ -12,14 +12,15 @@ Install dependencies using the [development guide](README.en.md). Regular tests 
 | `make test-concurrency` | Concurrency primitives |
 | `make verify-runtime` | Runtime unit tests and real file, process, permission and shutdown smoke |
 | `make verify-harness` | verify followed by Runtime, complete Harness, desktop API and Workgroup smoke |
+| `make verify-native` | macOS native backend tests and Harness integration smoke; common checks are covered by `make verify` |
 | `make examples-desktop-api` | [Direct API, CLI, Skills and relocated packaged binaries](../examples/desktop-api.en.md) |
 | `make workgroup-smoke` | Private Runtime writes, combined verification, command deadlines and failure settlement |
 
 Snapshot format changes require `make verify-harness`: Harness and plugin smoke check the written version, and desktop relocation tests compare the release manifest, `areal/server/status.stateVersion`, and actual snapshot versions.
 
-Native smoke tests require macOS Seatbelt; never substitute unsandboxed execution for a failure. Linux CI uses controlled containers. Default `cargo test` excludes explicitly ignored native Workgroup and capacity cases.
+macOS native smoke tests require Seatbelt; Linux native smoke tests require `/usr/bin/bwrap` and user namespaces. Neither platform may substitute unsandboxed execution when the capability is missing. `outer-container-perf` remains validated in controlled containers. Default `cargo test` excludes explicitly ignored native Workgroup and capacity cases.
 
-Linux host checks use `make verify CARGO_TEST_ARGS='--exclude areal-runtime-exec-native'`. Native backend tests require a container boundary; a separate CI job builds the Dockerfile's `runtime-tests` target and runs every backend test inside the controlled Bubblewrap container. Excluding the backend alone does not complete validation.
+Linux host checks use `make verify CARGO_TEST_ARGS='--exclude areal-runtime-exec-native'`. Native backend tests require `/usr/bin/bwrap` and user namespaces; a separate CI job builds the Dockerfile's `runtime-tests` target and runs every backend test, including `outer-container-perf`, inside the controlled Bubblewrap container. Excluding the backend alone does not complete validation.
 
 ## Python and scratch
 
@@ -29,7 +30,7 @@ Independent macOS Python/scratch regression (local model, no provider credential
 python3 scripts/native-python-smoke.py --bin-dir target/debug
 ```
 
-`make harness-smoke` (called by `make verify-harness` in macOS CI) includes this regression. It checks automatic scratch and a custom `--scratch` under both default YOLO and the explicit native sandbox: both expose `verify_command` and save verification receipts with exit codes 0 and 7 in a private per-thread directory. Shared resolver tests cover installed CLT without a `developer_dir` link and reject interpreters outside supported frameworks.
+`make harness-smoke` (called by `make verify-native` in macOS CI) includes this regression. It checks automatic scratch and a custom `--scratch` under both default YOLO and the explicit native sandbox: both expose `verify_command` and save verification receipts with exit codes 0 and 7 in a private per-thread directory. Shared resolver tests cover installed CLT without a `developer_dir` link and reject interpreters outside supported frameworks.
 
 `make workgroup-smoke` also verifies that Worker commands receive a writable `TMPDIR` at `.scratch/agent-<threadId>` inside their private workspace, with Python bytecode writes disabled.
 
@@ -46,7 +47,7 @@ Native tools/agent smoke tests use a local fixed-response HTTP model, the standa
 
 Request-budget tests cover `MAX_MODEL_ROUNDS` classification when Chat Completions or Responses returns tools in the final round, with no tool execution or retries and the original budget audit preserved. Ordinary tool-call budget exhaustion and invalid indices must retain their own classifications. Desktop CLI acceptance also checks the corresponding `error_max_turns` result. Goal HTTP regressions verify that output-token caps and tool count/buffer budgets survive shared pools, while unknown usage from failed requests prevents retries and tool execution.
 
-Linux requires Bubblewrap user/PID namespaces, seccomp, Python, Bash and rg. The public Dockerfile provides the toolchain:
+Linux requires Bubblewrap user/PID namespaces, seccomp, Python and Bash. The public Dockerfile builds the pinned bundled rg and provides the remaining toolchain; no host rg installation is required:
 
 ```sh
 docker build -f tests/e2e/docker/Dockerfile \
@@ -77,9 +78,9 @@ Outer-container relaxations apply only to the explicitly selected controlled pro
 
 [CI](../../.github/workflows/ci.yml) runs native Harness checks on macOS, portable regression and Docker sandbox/file-ownership checks on Linux, and separate Rust/npm advisory checks. Actions are pinned by commit, repository permissions are read-only, and failures retain logs. Consult the run for the relevant commit for actual results.
 
-Pull requests, pushes to `main`, and manual dispatch run the full checks, avoiding duplicate push and PR runs for feature branches. Linux portable and container checks run in parallel. The existing `Linux checks and container Runtime` check remains as an aggregate gate that requires both jobs to succeed. macOS still runs all of `make verify-harness`.
+Pull requests, pushes to `main`, and manual dispatch run the full checks, avoiding duplicate push and PR runs for feature branches. Linux portable and container checks run in parallel, and formatting, static analysis, Rust/SDK/script checks inside the portable regression run in parallel as well. The existing `Linux checks and container Runtime` check remains as an aggregate gate that requires both jobs to succeed. macOS runs `make verify-native` for native backend and Harness integration coverage that Linux does not provide.
 
-Host jobs cache Cargo dependency artifacts and npm downloads; Docker uses BuildKit's GitHub Actions layer cache. Cache hits still execute tests. Rust caches are separated by platform, toolchain and dependency manifests. CI disables debug symbols and incremental compilation to reduce artifact size. Only the pinned `cargo-audit` binary is cached; every run still reads advisories and audits the lockfile.
+Host jobs cache Cargo dependency artifacts, npm downloads and uv packages; container tests also reuse the Runtime image build layers through BuildKit's GitHub Actions cache. Cache hits still execute tests. Rust caches are separated by platform, toolchain and dependency manifests. CI disables debug symbols and incremental compilation to reduce artifact size. Only the pinned `cargo-audit` binary is cached; every run still reads advisories and audits the lockfile.
 
 Container behavior checks pass `--build-arg BUILD_PROFILE=ci`, selecting the Cargo `ci` profile inherited from `dev`: debug assertions remain enabled, with debug symbols and incremental compilation disabled. `runtime-tests` uses the same profile to reuse dependency artifacts. The Dockerfile still defaults to `release` with thin LTO; use that default for performance tests. The image label `io.areal.perf.build-profile` records the selected profile. CI images must not be used as release performance measurements.
 

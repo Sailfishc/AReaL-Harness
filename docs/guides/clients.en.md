@@ -30,7 +30,7 @@ target/debug/areal --endpoint ws://127.0.0.1:4500 --auth-file /absolute/core-dat
 
 Without an endpoint, interactive TUI attaches to a shared Core/Runtime on a random loopback port. Multiple windows in the same workspace reuse it; closing a window leaves service and tasks running. `--prompt`, `--goal` and `--input-file` default to owned mode and clean up on exit. `--local-mode shared|owned` overrides this choice. Explicit endpoint (alias `--remote`) only connects and cannot be combined with local deployment arguments.
 
-Shared mode defaults to a workspace-specific data directory under `~/.areal-harness/instances/`; explicit data configuration keeps its precedence. To open old `~/.areal-harness/state` history, specify `--data-dir` or bind it after stopping the old Core. Model TOML changes reload automatically; other TOML changes restart after background work settles, while permission/deployment argument changes require explicit restart. Discovery, migration, logs and Desktop integration are specified in [local services](../api/local-service.en.md).
+Shared mode defaults to a workspace-specific data directory under `~/.areal/instances/`; explicit data configuration keeps its precedence. To open old `~/.areal-harness/state` history, specify `--data-dir` or bind it after stopping the old Core. Model TOML changes reload automatically; other TOML changes restart after background work settles, while permission/deployment argument changes require explicit restart. Discovery, migration, logs and Desktop integration are specified in [local services](../api/local-service.en.md).
 
 ```sh
 target/debug/areal web --workspace /absolute/task
@@ -51,6 +51,8 @@ Web uses a neutral workbench layout: a collapsible 240px sidebar, a task heading
 - Create, select, refresh, or paginate tasks from the sidebar. New tasks center the composer; once history exists, the composer stays at the bottom.
 - `areal web` signs in automatically. One-time links last 60 seconds and sessions last one hour. After expiry or service restart, run the command again or enter a token in “Settings → Local connection”; errors appear in settings. With a valid session, reload to reconnect and restore the task snapshot.
 - Enter sends; Shift + Enter inserts a newline. Confirming an input-method candidate does not send. While a task runs, send additional instructions or stop execution.
+- Web input starting with `/` opens command suggestions and supports `/help`, `/new`, `/refresh`, `/goal`, `/skills` and `/skill NAME`. Use `Skills` below the composer or `/skills` to select a Skill for the current task.
+- The Web sidebar's delete-session button archives through Core. Stop an active Goal and settle queues/resources first. Confirmation removes the session from the list; disk history and deduplication receipts remain, so this is not permanent erasure.
 - Expand “Persistent goal” above the composer to inspect budget and progress, create or edit a goal, pause, resume, or clear it. The stop button pauses an active Goal; automatic continuation Turns retain their source label.
 - “Task history” displays messages and expandable tool results; UNKNOWN tool results still require an inspection record. “Collaborative tasks and acceptance” retains plan submission, progress queries, cancellation, and revision controls.
 
@@ -70,6 +72,7 @@ TUI headers and Web show YOLO/ASK_PERMISSIONS and Core remains authoritative. TU
 | Ctrl-R | Reconnect and restore a snapshot without replay |
 | F5, `/sessions`, `/new`, `/open ID` | Select, create or open sessions |
 | F6, `/model` | Select a model or reset to default while idle |
+| `/skills`, `/skill NAME` | Choose or apply a Skill for the current session |
 | F2, `/theme` | Preview; Enter saves and Esc reverts |
 | `/agents`, F3, `/topology` | Child-task tree and root topology |
 | `/spawn prompt` | Manually spawn a child of the active Turn |
@@ -105,7 +108,7 @@ export OTEL_EXPORTER_OTLP_PROTOCOL='http/protobuf'
 make server
 ```
 
-OTLP supports HTTP/protobuf only. It is disabled without an endpoint and can be disabled with `OTEL_SDK_DISABLED=true`. Default spans contain IDs, usage, status and timing rather than prompt bodies or credentials. Export failure does not change Turn outcomes.
+OTLP supports HTTP/protobuf only. It is disabled without an endpoint and can be disabled with `OTEL_SDK_DISABLED=true`. Trajectories contain actual model inputs/outputs and tool arguments/results, together with IDs, usage, status and timing, without redaction. Export failure does not change Turn outcomes; see [reporting configuration](configuration.en.md#opentelemetry-trajectory-reporting).
 
 <a id="goals"></a>
 ## Goal mode

@@ -97,6 +97,32 @@ impl LocalArgs {
     }
 }
 
+pub fn parse_agent_profile(value: &str) -> Result<areal_protocol::desktop::VersionRef> {
+    let (id, revision) = value
+        .rsplit_once('@')
+        .context("--agent must use id@revision")?;
+    ensure!(
+        !id.is_empty() && !revision.is_empty(),
+        "--agent must use id@revision"
+    );
+    ensure!(
+        id.len() <= 128 && revision.len() <= 128,
+        "--agent reference is too long"
+    );
+    ensure!(
+        id.bytes()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_' | b'.' | b':'))
+            && revision
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_' | b'.' | b':')),
+        "--agent reference contains invalid characters"
+    );
+    Ok(areal_protocol::desktop::VersionRef {
+        id: id.into(),
+        revision: revision.into(),
+    })
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LaunchSpec {
@@ -114,6 +140,7 @@ impl LaunchSpec {
         Self::in_bin(
             args,
             std::env::current_exe()?
+                .canonicalize()?
                 .parent()
                 .context("binary directory")?
                 .to_path_buf(),
@@ -184,6 +211,9 @@ impl LaunchSpec {
         );
         let bin_dir = bin_dir.canonicalize()?;
         let mut binaries = BTreeMap::new();
+        let rg = areal_runtime_host_tools::bundled_rg(&crate::runtime_bin_dir(&bin_dir))
+            .context("builtin rg deployment check failed")?;
+        binaries.insert("builtin-rg", storage::file_digest(&rg)?);
         for name in ["areal", "areal-runtime", "areal-runtime-fs"] {
             let directory = if name == "areal" {
                 bin_dir.clone()

@@ -1630,6 +1630,13 @@
                     "operationId": {
                       "type": "string"
                     },
+                    "originalArguments": {
+                      "description": "模型返回的原始工具参数，仅在语义未被 hook 改写时用于历史回放。",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
                     "outcome": {
                       "enum": [
                         "running",
@@ -1639,6 +1646,9 @@
                         "unknown"
                       ],
                       "type": "string"
+                    },
+                    "outputProjection": {
+                      "description": "只记录转换度量，不持有另一份权威历史。"
                     },
                     "plugin": {
                       "anyOf": [
@@ -1704,6 +1714,36 @@
                           "type": "null"
                         }
                       ]
+                    },
+                    "resultSnapshot": {
+                      "anyOf": [
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "mimeType": {
+                              "type": "string"
+                            },
+                            "sizeBytes": {
+                              "format": "uint64",
+                              "minimum": 0,
+                              "type": "integer"
+                            },
+                            "uri": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "uri",
+                            "mimeType",
+                            "sizeBytes"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "当前调用准许暴露的原始结果，引用保留在权威历史中以支持恢复与 GC。"
                     },
                     "runtimeEpoch": {
                       "type": "string"
@@ -3826,6 +3866,13 @@
                     "operationId": {
                       "type": "string"
                     },
+                    "originalArguments": {
+                      "description": "模型返回的原始工具参数，仅在语义未被 hook 改写时用于历史回放。",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
                     "outcome": {
                       "enum": [
                         "running",
@@ -3835,6 +3882,9 @@
                         "unknown"
                       ],
                       "type": "string"
+                    },
+                    "outputProjection": {
+                      "description": "只记录转换度量，不持有另一份权威历史。"
                     },
                     "plugin": {
                       "anyOf": [
@@ -3900,6 +3950,36 @@
                           "type": "null"
                         }
                       ]
+                    },
+                    "resultSnapshot": {
+                      "anyOf": [
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "mimeType": {
+                              "type": "string"
+                            },
+                            "sizeBytes": {
+                              "format": "uint64",
+                              "minimum": 0,
+                              "type": "integer"
+                            },
+                            "uri": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "uri",
+                            "mimeType",
+                            "sizeBytes"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "当前调用准许暴露的原始结果，引用保留在权威历史中以支持恢复与 GC。"
                     },
                     "runtimeEpoch": {
                       "type": "string"
@@ -4423,6 +4503,13 @@
                     "operationId": {
                       "type": "string"
                     },
+                    "originalArguments": {
+                      "description": "模型返回的原始工具参数，仅在语义未被 hook 改写时用于历史回放。",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
                     "outcome": {
                       "enum": [
                         "running",
@@ -4432,6 +4519,9 @@
                         "unknown"
                       ],
                       "type": "string"
+                    },
+                    "outputProjection": {
+                      "description": "只记录转换度量，不持有另一份权威历史。"
                     },
                     "plugin": {
                       "anyOf": [
@@ -4497,6 +4587,36 @@
                           "type": "null"
                         }
                       ]
+                    },
+                    "resultSnapshot": {
+                      "anyOf": [
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "mimeType": {
+                              "type": "string"
+                            },
+                            "sizeBytes": {
+                              "format": "uint64",
+                              "minimum": 0,
+                              "type": "integer"
+                            },
+                            "uri": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "uri",
+                            "mimeType",
+                            "sizeBytes"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "当前调用准许暴露的原始结果，引用保留在权威历史中以支持恢复与 GC。"
                     },
                     "runtimeEpoch": {
                       "type": "string"
@@ -6079,6 +6199,48 @@
                         "type": "object"
                       },
                       "type": "array"
+                    },
+                    "workflowRun": {
+                      "anyOf": [
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "status": {
+                              "type": "string"
+                            },
+                            "workflow": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "id": {
+                                  "type": "string"
+                                },
+                                "revision": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "revision"
+                              ],
+                              "type": "object"
+                            },
+                            "workgroupId": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "workflow",
+                            "workgroupId",
+                            "status"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "description": "自动绑定的 Profile Workflow；线程恢复时不会再次启动。"
                     }
                   },
                   "required": [
@@ -6865,6 +7027,34 @@
                         "properties": {
                           "message": {
                             "type": "string"
+                          },
+                          "outcome": {
+                            "anyOf": [
+                              {
+                                "description": "终止原因由错误产生方提供；客户端不得从 message 反推分类。",
+                                "properties": {
+                                  "class": {
+                                    "type": "string"
+                                  },
+                                  "code": {
+                                    "type": "string"
+                                  },
+                                  "details": true,
+                                  "source": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "code",
+                                  "class",
+                                  "source"
+                                ],
+                                "type": "object"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
                           }
                         },
                         "required": [
@@ -7247,6 +7437,13 @@
                                 "operationId": {
                                   "type": "string"
                                 },
+                                "originalArguments": {
+                                  "description": "模型返回的原始工具参数，仅在语义未被 hook 改写时用于历史回放。",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
                                 "outcome": {
                                   "enum": [
                                     "running",
@@ -7256,6 +7453,9 @@
                                     "unknown"
                                   ],
                                   "type": "string"
+                                },
+                                "outputProjection": {
+                                  "description": "只记录转换度量，不持有另一份权威历史。"
                                 },
                                 "plugin": {
                                   "anyOf": [
@@ -7321,6 +7521,36 @@
                                       "type": "null"
                                     }
                                   ]
+                                },
+                                "resultSnapshot": {
+                                  "anyOf": [
+                                    {
+                                      "additionalProperties": false,
+                                      "properties": {
+                                        "mimeType": {
+                                          "type": "string"
+                                        },
+                                        "sizeBytes": {
+                                          "format": "uint64",
+                                          "minimum": 0,
+                                          "type": "integer"
+                                        },
+                                        "uri": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "required": [
+                                        "uri",
+                                        "mimeType",
+                                        "sizeBytes"
+                                      ],
+                                      "type": "object"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ],
+                                  "description": "当前调用准许暴露的原始结果，引用保留在权威历史中以支持恢复与 GC。"
                                 },
                                 "runtimeEpoch": {
                                   "type": "string"
@@ -7940,6 +8170,34 @@
                   "properties": {
                     "message": {
                       "type": "string"
+                    },
+                    "outcome": {
+                      "anyOf": [
+                        {
+                          "description": "终止原因由错误产生方提供；客户端不得从 message 反推分类。",
+                          "properties": {
+                            "class": {
+                              "type": "string"
+                            },
+                            "code": {
+                              "type": "string"
+                            },
+                            "details": true,
+                            "source": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "code",
+                            "class",
+                            "source"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -8322,6 +8580,13 @@
                           "operationId": {
                             "type": "string"
                           },
+                          "originalArguments": {
+                            "description": "模型返回的原始工具参数，仅在语义未被 hook 改写时用于历史回放。",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
                           "outcome": {
                             "enum": [
                               "running",
@@ -8331,6 +8596,9 @@
                               "unknown"
                             ],
                             "type": "string"
+                          },
+                          "outputProjection": {
+                            "description": "只记录转换度量，不持有另一份权威历史。"
                           },
                           "plugin": {
                             "anyOf": [
@@ -8396,6 +8664,36 @@
                                 "type": "null"
                               }
                             ]
+                          },
+                          "resultSnapshot": {
+                            "anyOf": [
+                              {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "mimeType": {
+                                    "type": "string"
+                                  },
+                                  "sizeBytes": {
+                                    "format": "uint64",
+                                    "minimum": 0,
+                                    "type": "integer"
+                                  },
+                                  "uri": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "uri",
+                                  "mimeType",
+                                  "sizeBytes"
+                                ],
+                                "type": "object"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "当前调用准许暴露的原始结果，引用保留在权威历史中以支持恢复与 GC。"
                           },
                           "runtimeEpoch": {
                             "type": "string"
@@ -8993,6 +9291,34 @@
                   "properties": {
                     "message": {
                       "type": "string"
+                    },
+                    "outcome": {
+                      "anyOf": [
+                        {
+                          "description": "终止原因由错误产生方提供；客户端不得从 message 反推分类。",
+                          "properties": {
+                            "class": {
+                              "type": "string"
+                            },
+                            "code": {
+                              "type": "string"
+                            },
+                            "details": true,
+                            "source": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "code",
+                            "class",
+                            "source"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -9375,6 +9701,13 @@
                           "operationId": {
                             "type": "string"
                           },
+                          "originalArguments": {
+                            "description": "模型返回的原始工具参数，仅在语义未被 hook 改写时用于历史回放。",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
                           "outcome": {
                             "enum": [
                               "running",
@@ -9384,6 +9717,9 @@
                               "unknown"
                             ],
                             "type": "string"
+                          },
+                          "outputProjection": {
+                            "description": "只记录转换度量，不持有另一份权威历史。"
                           },
                           "plugin": {
                             "anyOf": [
@@ -9449,6 +9785,36 @@
                                 "type": "null"
                               }
                             ]
+                          },
+                          "resultSnapshot": {
+                            "anyOf": [
+                              {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "mimeType": {
+                                    "type": "string"
+                                  },
+                                  "sizeBytes": {
+                                    "format": "uint64",
+                                    "minimum": 0,
+                                    "type": "integer"
+                                  },
+                                  "uri": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "uri",
+                                  "mimeType",
+                                  "sizeBytes"
+                                ],
+                                "type": "object"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "当前调用准许暴露的原始结果，引用保留在权威历史中以支持恢复与 GC。"
                           },
                           "runtimeEpoch": {
                             "type": "string"
@@ -13570,6 +13936,30 @@
           "description": "清除会话模型覆盖，重新采用 Profile 或服务端默认模型。",
           "type": "boolean"
         },
+        "selectedSkills": {
+          "default": null,
+          "description": "会话允许使用的 Skill；省略时沿用当前选择，空数组表示清空覆盖。",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "revision": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "revision"
+            ],
+            "type": "object"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
         "threadId": {
           "type": "string"
         }
@@ -16633,6 +17023,48 @@
                           "type": "object"
                         },
                         "type": "array"
+                      },
+                      "workflowRun": {
+                        "anyOf": [
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "status": {
+                                "type": "string"
+                              },
+                              "workflow": {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "id": {
+                                    "type": "string"
+                                  },
+                                  "revision": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "revision"
+                                ],
+                                "type": "object"
+                              },
+                              "workgroupId": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "workflow",
+                              "workgroupId",
+                              "status"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "description": "自动绑定的 Profile Workflow；线程恢复时不会再次启动。"
                       }
                     },
                     "required": [
@@ -17419,6 +17851,34 @@
                           "properties": {
                             "message": {
                               "type": "string"
+                            },
+                            "outcome": {
+                              "anyOf": [
+                                {
+                                  "description": "终止原因由错误产生方提供；客户端不得从 message 反推分类。",
+                                  "properties": {
+                                    "class": {
+                                      "type": "string"
+                                    },
+                                    "code": {
+                                      "type": "string"
+                                    },
+                                    "details": true,
+                                    "source": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "code",
+                                    "class",
+                                    "source"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
                             }
                           },
                           "required": [
@@ -17801,6 +18261,13 @@
                                   "operationId": {
                                     "type": "string"
                                   },
+                                  "originalArguments": {
+                                    "description": "模型返回的原始工具参数，仅在语义未被 hook 改写时用于历史回放。",
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
                                   "outcome": {
                                     "enum": [
                                       "running",
@@ -17810,6 +18277,9 @@
                                       "unknown"
                                     ],
                                     "type": "string"
+                                  },
+                                  "outputProjection": {
+                                    "description": "只记录转换度量，不持有另一份权威历史。"
                                   },
                                   "plugin": {
                                     "anyOf": [
@@ -17875,6 +18345,36 @@
                                         "type": "null"
                                       }
                                     ]
+                                  },
+                                  "resultSnapshot": {
+                                    "anyOf": [
+                                      {
+                                        "additionalProperties": false,
+                                        "properties": {
+                                          "mimeType": {
+                                            "type": "string"
+                                          },
+                                          "sizeBytes": {
+                                            "format": "uint64",
+                                            "minimum": 0,
+                                            "type": "integer"
+                                          },
+                                          "uri": {
+                                            "type": "string"
+                                          }
+                                        },
+                                        "required": [
+                                          "uri",
+                                          "mimeType",
+                                          "sizeBytes"
+                                        ],
+                                        "type": "object"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ],
+                                    "description": "当前调用准许暴露的原始结果，引用保留在权威历史中以支持恢复与 GC。"
                                   },
                                   "runtimeEpoch": {
                                     "type": "string"
@@ -19549,6 +20049,48 @@
                             "type": "object"
                           },
                           "type": "array"
+                        },
+                        "workflowRun": {
+                          "anyOf": [
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "status": {
+                                  "type": "string"
+                                },
+                                "workflow": {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "id": {
+                                      "type": "string"
+                                    },
+                                    "revision": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "id",
+                                    "revision"
+                                  ],
+                                  "type": "object"
+                                },
+                                "workgroupId": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "workflow",
+                                "workgroupId",
+                                "status"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "description": "自动绑定的 Profile Workflow；线程恢复时不会再次启动。"
                         }
                       },
                       "required": [
@@ -20335,6 +20877,34 @@
                             "properties": {
                               "message": {
                                 "type": "string"
+                              },
+                              "outcome": {
+                                "anyOf": [
+                                  {
+                                    "description": "终止原因由错误产生方提供；客户端不得从 message 反推分类。",
+                                    "properties": {
+                                      "class": {
+                                        "type": "string"
+                                      },
+                                      "code": {
+                                        "type": "string"
+                                      },
+                                      "details": true,
+                                      "source": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "code",
+                                      "class",
+                                      "source"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
                               }
                             },
                             "required": [
@@ -20717,6 +21287,13 @@
                                     "operationId": {
                                       "type": "string"
                                     },
+                                    "originalArguments": {
+                                      "description": "模型返回的原始工具参数，仅在语义未被 hook 改写时用于历史回放。",
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    },
                                     "outcome": {
                                       "enum": [
                                         "running",
@@ -20726,6 +21303,9 @@
                                         "unknown"
                                       ],
                                       "type": "string"
+                                    },
+                                    "outputProjection": {
+                                      "description": "只记录转换度量，不持有另一份权威历史。"
                                     },
                                     "plugin": {
                                       "anyOf": [
@@ -20791,6 +21371,36 @@
                                           "type": "null"
                                         }
                                       ]
+                                    },
+                                    "resultSnapshot": {
+                                      "anyOf": [
+                                        {
+                                          "additionalProperties": false,
+                                          "properties": {
+                                            "mimeType": {
+                                              "type": "string"
+                                            },
+                                            "sizeBytes": {
+                                              "format": "uint64",
+                                              "minimum": 0,
+                                              "type": "integer"
+                                            },
+                                            "uri": {
+                                              "type": "string"
+                                            }
+                                          },
+                                          "required": [
+                                            "uri",
+                                            "mimeType",
+                                            "sizeBytes"
+                                          ],
+                                          "type": "object"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ],
+                                      "description": "当前调用准许暴露的原始结果，引用保留在权威历史中以支持恢复与 GC。"
                                     },
                                     "runtimeEpoch": {
                                       "type": "string"
@@ -21401,6 +22011,34 @@
                       "properties": {
                         "message": {
                           "type": "string"
+                        },
+                        "outcome": {
+                          "anyOf": [
+                            {
+                              "description": "终止原因由错误产生方提供；客户端不得从 message 反推分类。",
+                              "properties": {
+                                "class": {
+                                  "type": "string"
+                                },
+                                "code": {
+                                  "type": "string"
+                                },
+                                "details": true,
+                                "source": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "code",
+                                "class",
+                                "source"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
                         }
                       },
                       "required": [
@@ -21783,6 +22421,13 @@
                               "operationId": {
                                 "type": "string"
                               },
+                              "originalArguments": {
+                                "description": "模型返回的原始工具参数，仅在语义未被 hook 改写时用于历史回放。",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
                               "outcome": {
                                 "enum": [
                                   "running",
@@ -21792,6 +22437,9 @@
                                   "unknown"
                                 ],
                                 "type": "string"
+                              },
+                              "outputProjection": {
+                                "description": "只记录转换度量，不持有另一份权威历史。"
                               },
                               "plugin": {
                                 "anyOf": [
@@ -21857,6 +22505,36 @@
                                     "type": "null"
                                   }
                                 ]
+                              },
+                              "resultSnapshot": {
+                                "anyOf": [
+                                  {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                      "mimeType": {
+                                        "type": "string"
+                                      },
+                                      "sizeBytes": {
+                                        "format": "uint64",
+                                        "minimum": 0,
+                                        "type": "integer"
+                                      },
+                                      "uri": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "uri",
+                                      "mimeType",
+                                      "sizeBytes"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "当前调用准许暴露的原始结果，引用保留在权威历史中以支持恢复与 GC。"
                               },
                               "runtimeEpoch": {
                                 "type": "string"
@@ -22092,6 +22770,34 @@
                         "properties": {
                           "message": {
                             "type": "string"
+                          },
+                          "outcome": {
+                            "anyOf": [
+                              {
+                                "description": "终止原因由错误产生方提供；客户端不得从 message 反推分类。",
+                                "properties": {
+                                  "class": {
+                                    "type": "string"
+                                  },
+                                  "code": {
+                                    "type": "string"
+                                  },
+                                  "details": true,
+                                  "source": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "code",
+                                  "class",
+                                  "source"
+                                ],
+                                "type": "object"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
                           }
                         },
                         "required": [
@@ -34376,16 +35082,11 @@
             "historyBytes": {
               "minimum": 0,
               "type": "integer"
-            },
-            "turnTimeoutMs": {
-              "minimum": 0,
-              "type": "integer"
             }
           },
           "required": [
             "contextBytes",
-            "historyBytes",
-            "turnTimeoutMs"
+            "historyBytes"
           ],
           "type": "object"
         },
@@ -35935,6 +36636,48 @@
                         "type": "object"
                       },
                       "type": "array"
+                    },
+                    "workflowRun": {
+                      "anyOf": [
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "status": {
+                              "type": "string"
+                            },
+                            "workflow": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "id": {
+                                  "type": "string"
+                                },
+                                "revision": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "revision"
+                              ],
+                              "type": "object"
+                            },
+                            "workgroupId": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "workflow",
+                            "workgroupId",
+                            "status"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "description": "自动绑定的 Profile Workflow；线程恢复时不会再次启动。"
                     }
                   },
                   "required": [
@@ -36721,6 +37464,34 @@
                         "properties": {
                           "message": {
                             "type": "string"
+                          },
+                          "outcome": {
+                            "anyOf": [
+                              {
+                                "description": "终止原因由错误产生方提供；客户端不得从 message 反推分类。",
+                                "properties": {
+                                  "class": {
+                                    "type": "string"
+                                  },
+                                  "code": {
+                                    "type": "string"
+                                  },
+                                  "details": true,
+                                  "source": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "code",
+                                  "class",
+                                  "source"
+                                ],
+                                "type": "object"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
                           }
                         },
                         "required": [
@@ -37103,6 +37874,13 @@
                                 "operationId": {
                                   "type": "string"
                                 },
+                                "originalArguments": {
+                                  "description": "模型返回的原始工具参数，仅在语义未被 hook 改写时用于历史回放。",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
                                 "outcome": {
                                   "enum": [
                                     "running",
@@ -37112,6 +37890,9 @@
                                     "unknown"
                                   ],
                                   "type": "string"
+                                },
+                                "outputProjection": {
+                                  "description": "只记录转换度量，不持有另一份权威历史。"
                                 },
                                 "plugin": {
                                   "anyOf": [
@@ -37177,6 +37958,36 @@
                                       "type": "null"
                                     }
                                   ]
+                                },
+                                "resultSnapshot": {
+                                  "anyOf": [
+                                    {
+                                      "additionalProperties": false,
+                                      "properties": {
+                                        "mimeType": {
+                                          "type": "string"
+                                        },
+                                        "sizeBytes": {
+                                          "format": "uint64",
+                                          "minimum": 0,
+                                          "type": "integer"
+                                        },
+                                        "uri": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "required": [
+                                        "uri",
+                                        "mimeType",
+                                        "sizeBytes"
+                                      ],
+                                      "type": "object"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ],
+                                  "description": "当前调用准许暴露的原始结果，引用保留在权威历史中以支持恢复与 GC。"
                                 },
                                 "runtimeEpoch": {
                                   "type": "string"
@@ -37821,6 +38632,34 @@
                   "properties": {
                     "message": {
                       "type": "string"
+                    },
+                    "outcome": {
+                      "anyOf": [
+                        {
+                          "description": "终止原因由错误产生方提供；客户端不得从 message 反推分类。",
+                          "properties": {
+                            "class": {
+                              "type": "string"
+                            },
+                            "code": {
+                              "type": "string"
+                            },
+                            "details": true,
+                            "source": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "code",
+                            "class",
+                            "source"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -38203,6 +39042,13 @@
                           "operationId": {
                             "type": "string"
                           },
+                          "originalArguments": {
+                            "description": "模型返回的原始工具参数，仅在语义未被 hook 改写时用于历史回放。",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
                           "outcome": {
                             "enum": [
                               "running",
@@ -38212,6 +39058,9 @@
                               "unknown"
                             ],
                             "type": "string"
+                          },
+                          "outputProjection": {
+                            "description": "只记录转换度量，不持有另一份权威历史。"
                           },
                           "plugin": {
                             "anyOf": [
@@ -38277,6 +39126,36 @@
                                 "type": "null"
                               }
                             ]
+                          },
+                          "resultSnapshot": {
+                            "anyOf": [
+                              {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "mimeType": {
+                                    "type": "string"
+                                  },
+                                  "sizeBytes": {
+                                    "format": "uint64",
+                                    "minimum": 0,
+                                    "type": "integer"
+                                  },
+                                  "uri": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "uri",
+                                  "mimeType",
+                                  "sizeBytes"
+                                ],
+                                "type": "object"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "当前调用准许暴露的原始结果，引用保留在权威历史中以支持恢复与 GC。"
                           },
                           "runtimeEpoch": {
                             "type": "string"
@@ -43886,6 +44765,48 @@
                           "type": "object"
                         },
                         "type": "array"
+                      },
+                      "workflowRun": {
+                        "anyOf": [
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "status": {
+                                "type": "string"
+                              },
+                              "workflow": {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "id": {
+                                    "type": "string"
+                                  },
+                                  "revision": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "revision"
+                                ],
+                                "type": "object"
+                              },
+                              "workgroupId": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "workflow",
+                              "workgroupId",
+                              "status"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": null,
+                        "description": "自动绑定的 Profile Workflow；线程恢复时不会再次启动。"
                       }
                     },
                     "required": [
@@ -44672,6 +45593,34 @@
                           "properties": {
                             "message": {
                               "type": "string"
+                            },
+                            "outcome": {
+                              "anyOf": [
+                                {
+                                  "description": "终止原因由错误产生方提供；客户端不得从 message 反推分类。",
+                                  "properties": {
+                                    "class": {
+                                      "type": "string"
+                                    },
+                                    "code": {
+                                      "type": "string"
+                                    },
+                                    "details": true,
+                                    "source": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "code",
+                                    "class",
+                                    "source"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
                             }
                           },
                           "required": [
@@ -45054,6 +46003,13 @@
                                   "operationId": {
                                     "type": "string"
                                   },
+                                  "originalArguments": {
+                                    "description": "模型返回的原始工具参数，仅在语义未被 hook 改写时用于历史回放。",
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
                                   "outcome": {
                                     "enum": [
                                       "running",
@@ -45063,6 +46019,9 @@
                                       "unknown"
                                     ],
                                     "type": "string"
+                                  },
+                                  "outputProjection": {
+                                    "description": "只记录转换度量，不持有另一份权威历史。"
                                   },
                                   "plugin": {
                                     "anyOf": [
@@ -45128,6 +46087,36 @@
                                         "type": "null"
                                       }
                                     ]
+                                  },
+                                  "resultSnapshot": {
+                                    "anyOf": [
+                                      {
+                                        "additionalProperties": false,
+                                        "properties": {
+                                          "mimeType": {
+                                            "type": "string"
+                                          },
+                                          "sizeBytes": {
+                                            "format": "uint64",
+                                            "minimum": 0,
+                                            "type": "integer"
+                                          },
+                                          "uri": {
+                                            "type": "string"
+                                          }
+                                        },
+                                        "required": [
+                                          "uri",
+                                          "mimeType",
+                                          "sizeBytes"
+                                        ],
+                                        "type": "object"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ],
+                                    "description": "当前调用准许暴露的原始结果，引用保留在权威历史中以支持恢复与 GC。"
                                   },
                                   "runtimeEpoch": {
                                     "type": "string"
@@ -46790,6 +47779,48 @@
                         "type": "object"
                       },
                       "type": "array"
+                    },
+                    "workflowRun": {
+                      "anyOf": [
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "status": {
+                              "type": "string"
+                            },
+                            "workflow": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "id": {
+                                  "type": "string"
+                                },
+                                "revision": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "revision"
+                              ],
+                              "type": "object"
+                            },
+                            "workgroupId": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "workflow",
+                            "workgroupId",
+                            "status"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "description": "自动绑定的 Profile Workflow；线程恢复时不会再次启动。"
                     }
                   },
                   "required": [
@@ -47576,6 +48607,34 @@
                         "properties": {
                           "message": {
                             "type": "string"
+                          },
+                          "outcome": {
+                            "anyOf": [
+                              {
+                                "description": "终止原因由错误产生方提供；客户端不得从 message 反推分类。",
+                                "properties": {
+                                  "class": {
+                                    "type": "string"
+                                  },
+                                  "code": {
+                                    "type": "string"
+                                  },
+                                  "details": true,
+                                  "source": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "code",
+                                  "class",
+                                  "source"
+                                ],
+                                "type": "object"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
                           }
                         },
                         "required": [
@@ -47958,6 +49017,13 @@
                                 "operationId": {
                                   "type": "string"
                                 },
+                                "originalArguments": {
+                                  "description": "模型返回的原始工具参数，仅在语义未被 hook 改写时用于历史回放。",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
                                 "outcome": {
                                   "enum": [
                                     "running",
@@ -47967,6 +49033,9 @@
                                     "unknown"
                                   ],
                                   "type": "string"
+                                },
+                                "outputProjection": {
+                                  "description": "只记录转换度量，不持有另一份权威历史。"
                                 },
                                 "plugin": {
                                   "anyOf": [
@@ -48032,6 +49101,36 @@
                                       "type": "null"
                                     }
                                   ]
+                                },
+                                "resultSnapshot": {
+                                  "anyOf": [
+                                    {
+                                      "additionalProperties": false,
+                                      "properties": {
+                                        "mimeType": {
+                                          "type": "string"
+                                        },
+                                        "sizeBytes": {
+                                          "format": "uint64",
+                                          "minimum": 0,
+                                          "type": "integer"
+                                        },
+                                        "uri": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "required": [
+                                        "uri",
+                                        "mimeType",
+                                        "sizeBytes"
+                                      ],
+                                      "type": "object"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ],
+                                  "description": "当前调用准许暴露的原始结果，引用保留在权威历史中以支持恢复与 GC。"
                                 },
                                 "runtimeEpoch": {
                                   "type": "string"
@@ -49715,6 +50814,48 @@
                         "type": "object"
                       },
                       "type": "array"
+                    },
+                    "workflowRun": {
+                      "anyOf": [
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "status": {
+                              "type": "string"
+                            },
+                            "workflow": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "id": {
+                                  "type": "string"
+                                },
+                                "revision": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "revision"
+                              ],
+                              "type": "object"
+                            },
+                            "workgroupId": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "workflow",
+                            "workgroupId",
+                            "status"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "description": "自动绑定的 Profile Workflow；线程恢复时不会再次启动。"
                     }
                   },
                   "required": [
@@ -50501,6 +51642,34 @@
                         "properties": {
                           "message": {
                             "type": "string"
+                          },
+                          "outcome": {
+                            "anyOf": [
+                              {
+                                "description": "终止原因由错误产生方提供；客户端不得从 message 反推分类。",
+                                "properties": {
+                                  "class": {
+                                    "type": "string"
+                                  },
+                                  "code": {
+                                    "type": "string"
+                                  },
+                                  "details": true,
+                                  "source": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "code",
+                                  "class",
+                                  "source"
+                                ],
+                                "type": "object"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
                           }
                         },
                         "required": [
@@ -50883,6 +52052,13 @@
                                 "operationId": {
                                   "type": "string"
                                 },
+                                "originalArguments": {
+                                  "description": "模型返回的原始工具参数，仅在语义未被 hook 改写时用于历史回放。",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
                                 "outcome": {
                                   "enum": [
                                     "running",
@@ -50892,6 +52068,9 @@
                                     "unknown"
                                   ],
                                   "type": "string"
+                                },
+                                "outputProjection": {
+                                  "description": "只记录转换度量，不持有另一份权威历史。"
                                 },
                                 "plugin": {
                                   "anyOf": [
@@ -50957,6 +52136,36 @@
                                       "type": "null"
                                     }
                                   ]
+                                },
+                                "resultSnapshot": {
+                                  "anyOf": [
+                                    {
+                                      "additionalProperties": false,
+                                      "properties": {
+                                        "mimeType": {
+                                          "type": "string"
+                                        },
+                                        "sizeBytes": {
+                                          "format": "uint64",
+                                          "minimum": 0,
+                                          "type": "integer"
+                                        },
+                                        "uri": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "required": [
+                                        "uri",
+                                        "mimeType",
+                                        "sizeBytes"
+                                      ],
+                                      "type": "object"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ],
+                                  "description": "当前调用准许暴露的原始结果，引用保留在权威历史中以支持恢复与 GC。"
                                 },
                                 "runtimeEpoch": {
                                   "type": "string"
@@ -52648,6 +53857,48 @@
                         "type": "object"
                       },
                       "type": "array"
+                    },
+                    "workflowRun": {
+                      "anyOf": [
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "status": {
+                              "type": "string"
+                            },
+                            "workflow": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "id": {
+                                  "type": "string"
+                                },
+                                "revision": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "revision"
+                              ],
+                              "type": "object"
+                            },
+                            "workgroupId": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "workflow",
+                            "workgroupId",
+                            "status"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "description": "自动绑定的 Profile Workflow；线程恢复时不会再次启动。"
                     }
                   },
                   "required": [
@@ -53434,6 +54685,34 @@
                         "properties": {
                           "message": {
                             "type": "string"
+                          },
+                          "outcome": {
+                            "anyOf": [
+                              {
+                                "description": "终止原因由错误产生方提供；客户端不得从 message 反推分类。",
+                                "properties": {
+                                  "class": {
+                                    "type": "string"
+                                  },
+                                  "code": {
+                                    "type": "string"
+                                  },
+                                  "details": true,
+                                  "source": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "code",
+                                  "class",
+                                  "source"
+                                ],
+                                "type": "object"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
                           }
                         },
                         "required": [
@@ -53816,6 +55095,13 @@
                                 "operationId": {
                                   "type": "string"
                                 },
+                                "originalArguments": {
+                                  "description": "模型返回的原始工具参数，仅在语义未被 hook 改写时用于历史回放。",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
                                 "outcome": {
                                   "enum": [
                                     "running",
@@ -53825,6 +55111,9 @@
                                     "unknown"
                                   ],
                                   "type": "string"
+                                },
+                                "outputProjection": {
+                                  "description": "只记录转换度量，不持有另一份权威历史。"
                                 },
                                 "plugin": {
                                   "anyOf": [
@@ -53890,6 +55179,36 @@
                                       "type": "null"
                                     }
                                   ]
+                                },
+                                "resultSnapshot": {
+                                  "anyOf": [
+                                    {
+                                      "additionalProperties": false,
+                                      "properties": {
+                                        "mimeType": {
+                                          "type": "string"
+                                        },
+                                        "sizeBytes": {
+                                          "format": "uint64",
+                                          "minimum": 0,
+                                          "type": "integer"
+                                        },
+                                        "uri": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "required": [
+                                        "uri",
+                                        "mimeType",
+                                        "sizeBytes"
+                                      ],
+                                      "type": "object"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ],
+                                  "description": "当前调用准许暴露的原始结果，引用保留在权威历史中以支持恢复与 GC。"
                                 },
                                 "runtimeEpoch": {
                                   "type": "string"
@@ -54520,6 +55839,34 @@
                   "properties": {
                     "message": {
                       "type": "string"
+                    },
+                    "outcome": {
+                      "anyOf": [
+                        {
+                          "description": "终止原因由错误产生方提供；客户端不得从 message 反推分类。",
+                          "properties": {
+                            "class": {
+                              "type": "string"
+                            },
+                            "code": {
+                              "type": "string"
+                            },
+                            "details": true,
+                            "source": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "code",
+                            "class",
+                            "source"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -54902,6 +56249,13 @@
                           "operationId": {
                             "type": "string"
                           },
+                          "originalArguments": {
+                            "description": "模型返回的原始工具参数，仅在语义未被 hook 改写时用于历史回放。",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
                           "outcome": {
                             "enum": [
                               "running",
@@ -54911,6 +56265,9 @@
                               "unknown"
                             ],
                             "type": "string"
+                          },
+                          "outputProjection": {
+                            "description": "只记录转换度量，不持有另一份权威历史。"
                           },
                           "plugin": {
                             "anyOf": [
@@ -54976,6 +56333,36 @@
                                 "type": "null"
                               }
                             ]
+                          },
+                          "resultSnapshot": {
+                            "anyOf": [
+                              {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "mimeType": {
+                                    "type": "string"
+                                  },
+                                  "sizeBytes": {
+                                    "format": "uint64",
+                                    "minimum": 0,
+                                    "type": "integer"
+                                  },
+                                  "uri": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "uri",
+                                  "mimeType",
+                                  "sizeBytes"
+                                ],
+                                "type": "object"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "当前调用准许暴露的原始结果，引用保留在权威历史中以支持恢复与 GC。"
                           },
                           "runtimeEpoch": {
                             "type": "string"
@@ -56731,6 +58118,48 @@
                   "type": "object"
                 },
                 "type": "array"
+              },
+              "workflowRun": {
+                "anyOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "status": {
+                        "type": "string"
+                      },
+                      "workflow": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "revision": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "revision"
+                        ],
+                        "type": "object"
+                      },
+                      "workgroupId": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "workflow",
+                      "workgroupId",
+                      "status"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "自动绑定的 Profile Workflow；线程恢复时不会再次启动。"
               }
             },
             "required": [
@@ -57517,6 +58946,34 @@
                   "properties": {
                     "message": {
                       "type": "string"
+                    },
+                    "outcome": {
+                      "anyOf": [
+                        {
+                          "description": "终止原因由错误产生方提供；客户端不得从 message 反推分类。",
+                          "properties": {
+                            "class": {
+                              "type": "string"
+                            },
+                            "code": {
+                              "type": "string"
+                            },
+                            "details": true,
+                            "source": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "code",
+                            "class",
+                            "source"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -57899,6 +59356,13 @@
                           "operationId": {
                             "type": "string"
                           },
+                          "originalArguments": {
+                            "description": "模型返回的原始工具参数，仅在语义未被 hook 改写时用于历史回放。",
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
                           "outcome": {
                             "enum": [
                               "running",
@@ -57908,6 +59372,9 @@
                               "unknown"
                             ],
                             "type": "string"
+                          },
+                          "outputProjection": {
+                            "description": "只记录转换度量，不持有另一份权威历史。"
                           },
                           "plugin": {
                             "anyOf": [
@@ -57973,6 +59440,36 @@
                                 "type": "null"
                               }
                             ]
+                          },
+                          "resultSnapshot": {
+                            "anyOf": [
+                              {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "mimeType": {
+                                    "type": "string"
+                                  },
+                                  "sizeBytes": {
+                                    "format": "uint64",
+                                    "minimum": 0,
+                                    "type": "integer"
+                                  },
+                                  "uri": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "uri",
+                                  "mimeType",
+                                  "sizeBytes"
+                                ],
+                                "type": "object"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "当前调用准许暴露的原始结果，引用保留在权威历史中以支持恢复与 GC。"
                           },
                           "runtimeEpoch": {
                             "type": "string"
@@ -58580,6 +60077,34 @@
             "properties": {
               "message": {
                 "type": "string"
+              },
+              "outcome": {
+                "anyOf": [
+                  {
+                    "description": "终止原因由错误产生方提供；客户端不得从 message 反推分类。",
+                    "properties": {
+                      "class": {
+                        "type": "string"
+                      },
+                      "code": {
+                        "type": "string"
+                      },
+                      "details": true,
+                      "source": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "code",
+                      "class",
+                      "source"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             },
             "required": [
@@ -58962,6 +60487,13 @@
                     "operationId": {
                       "type": "string"
                     },
+                    "originalArguments": {
+                      "description": "模型返回的原始工具参数，仅在语义未被 hook 改写时用于历史回放。",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
                     "outcome": {
                       "enum": [
                         "running",
@@ -58971,6 +60503,9 @@
                         "unknown"
                       ],
                       "type": "string"
+                    },
+                    "outputProjection": {
+                      "description": "只记录转换度量，不持有另一份权威历史。"
                     },
                     "plugin": {
                       "anyOf": [
@@ -59036,6 +60571,36 @@
                           "type": "null"
                         }
                       ]
+                    },
+                    "resultSnapshot": {
+                      "anyOf": [
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "mimeType": {
+                              "type": "string"
+                            },
+                            "sizeBytes": {
+                              "format": "uint64",
+                              "minimum": 0,
+                              "type": "integer"
+                            },
+                            "uri": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "uri",
+                            "mimeType",
+                            "sizeBytes"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "当前调用准许暴露的原始结果，引用保留在权威历史中以支持恢复与 GC。"
                     },
                     "runtimeEpoch": {
                       "type": "string"

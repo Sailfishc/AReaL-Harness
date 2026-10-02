@@ -44,7 +44,11 @@ async function run(
   const child = spawnNative(
     binary,
     [
-      ...(entry === "exec" ? ["exec", ...consumer.fixedArgs] : [...consumer.fixedArgs, "-p"]),
+      ...(entry === "exec"
+        ? ["exec", ...consumer.fixedArgs]
+        : entry === "headless"
+          ? []
+          : [...consumer.fixedArgs, "-p"]),
       "--config",
       config,
       "--workspace",
@@ -190,6 +194,36 @@ try {
   const session = r.frames.find((f) => f.type === "result").session_id;
   assert(r.frames.some((f) => f.type === "stream_event"));
   assert.equal(r.frames.filter((f) => f.type === "result").length, 1);
+  const deployment = join(root, "deployment.json");
+  await writeFile(
+    deployment,
+    JSON.stringify({
+      profiles: [
+        {
+          id: "tool-agent",
+          revision: "v1",
+          displayName: "Tool agent",
+          instructions: "Use only the deployed tools.",
+          toolAllowlist: ["plan_read"],
+        },
+      ],
+    }),
+  );
+  const selected = await run(
+    ["--output-format", "stream-json", "--desktop-config", deployment, "--agent", "tool-agent@v1"],
+    "hello",
+    { entry: "exec" },
+  );
+  assert.equal(selected.code, 0, selected.stderr + selected.stdout);
+  assert.deepEqual(selected.frames.find((f) => f.type === "system").tools, ["plan_read"]);
+  assert.equal(selected.frames.at(-1).subtype, "success");
+  const headless = await run(
+    ["--desktop-config", deployment, "--agent", "tool-agent@v1", "--prompt", "hello"],
+    "",
+    { entry: "headless" },
+  );
+  assert.equal(headless.code, 0, headless.stderr + headless.stdout);
+  assert.match(headless.stdout, /完成：fixture/);
   const stream = r.frames.filter((f) => f.type === "stream_event").map((f) => f.event);
   assert.equal(stream[0].type, "message_start");
   assert.equal(stream[1].type, "content_block_start");
@@ -208,6 +242,28 @@ try {
     );
     await writeFile(process.env.AREAL_CLI_TRANSCRIPT, transcript.join("\n") + "\n");
   }
+  // Edit 别名和 acceptEdits 必须指向同一工具，避免编辑被过滤或重复审批。
+  await writeFile(join(workspace, "edit.txt"), "before\n");
+  r = await run(
+    [
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      "--permissions",
+      "YOLO",
+      "--allow-write",
+      "--permission-mode",
+      "acceptEdits",
+      "--allowedTools",
+      "Read",
+      "--tools",
+      "Read,Edit",
+    ],
+    "edit-fixture",
+  );
+  assert.equal(r.code, 0, r.stderr + r.stdout + JSON.stringify(model.failures));
+  assert.equal(await readFile(join(workspace, "edit.txt"), "utf8"), "after\n");
+  assert(!r.frames.some((frame) => frame.type === "control_request"));
   r = await run(
     ["--output-format", "json", "-r", session, "--permission-mode", "bypassPermissions"],
     "resume",

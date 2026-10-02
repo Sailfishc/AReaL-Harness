@@ -37,7 +37,7 @@
 ## 🚀 从这里开始
 
 > [!NOTE]
-> 项目处于开发阶段，目前从源码构建使用。完整本地工具链面向 macOS 可信宿主；Linux 工具执行限受控 Docker 环境，尚未提供通用生产 Linux 或 Windows 原生 Runtime。TypeScript SDK 尚未发布到 npm。
+> 项目处于开发阶段。Homebrew（macOS arm64）和 Linux x86_64 完整安装包由发行流水线构建验收，公开安装源以 GitHub Release/tap 为准。Linux 受限执行需要 Bubblewrap 和 user namespace；Windows 原生 Runtime 未支持。TypeScript SDK 尚未发布到 npm。
 
 第一次使用，跟随[快速开始](docs/guides/quickstart.md)完成构建、无 API 密钥验证和第一次模型会话；随后按需选择下面的指南。
 
@@ -62,3 +62,5 @@
 使用 [cordis-rs](https://github.com/dshbox/cordis-rs) 组件，参考 Codex 协议和 DeepSeek Harness 插件接口；来源见 [upstream/pins.json](upstream/pins.json)。
 
 **许可证：** [Apache-2.0](LICENSE)。第三方材料保留各自的许可证与版权声明。
+
+Homebrew 与 Linux 安装包的适用平台、发布前状态和升级说明见[安装指南](docs/guides/installation.md)。

@@ -24,14 +24,17 @@ api_key_env = "COMPANY_MODEL_API_KEY"
 
 [limits]
 watchdog_disable = false
-turn_timeout_seconds = 300
 stream_idle_timeout_seconds = 30
 max_history_bytes = 2097152
 max_output_bytes = 262144
 max_tool_calls = 128
 max_tool_buffer_bytes = 4194304
-context_window_bytes = 196608
-context_recent_bytes = 65536
+context_window_bytes = 524288
+# 关闭时达到上下文阈值直接失败，手动压缩也不可用。
+# context_compaction_enabled = false
+context_recent_bytes = 131072
+context_window_tokens = 65536
+context_output_reserve_tokens = 8192
 model_concurrency = 32
 max_threads = 20000
 

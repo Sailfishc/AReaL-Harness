@@ -6,14 +6,14 @@ pub mod storage;
 pub use client::{
     bind, browser_login_url, ensure, list, probe, reconnect, restart, rpc, select, status, stop,
 };
-pub use spec::{LaunchSpec, LocalArgs};
+pub use spec::{LaunchSpec, LocalArgs, parse_agent_profile};
 
 pub fn home() -> anyhow::Result<std::path::PathBuf> {
     let path = match std::env::var_os("AREAL_HARNESS_HOME") {
         Some(path) => path.into(),
         None => std::env::home_dir()
             .ok_or_else(|| anyhow::anyhow!("home unavailable"))?
-            .join(".areal-harness"),
+            .join(".areal"),
     };
     storage::canonical_pending(&path)
 }

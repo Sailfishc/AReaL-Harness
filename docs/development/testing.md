@@ -12,14 +12,15 @@
 | `make test-concurrency` | 并发原语 |
 | `make verify-runtime` | Runtime 单元测试与真实文件、进程、权限和关闭 smoke |
 | `make verify-harness` | verify 后顺序运行 Runtime、完整 Harness、桌面 API 和 Workgroup smoke |
+| `make verify-native` | macOS 原生后端测试与 Harness 集成 smoke；通用回归由 `make verify` 覆盖 |
 | `make examples-desktop-api` | [直接 API、CLI、Skill 与搬迁打包产物](../examples/desktop-api.md) |
 | `make workgroup-smoke` | 独立 Runtime 写入、组合验收、命令期限与失败后结算 |
 
 快照格式变更须运行 `make verify-harness`：Harness 与插件 smoke 核对写入版本，桌面搬迁测试同时核对发行 manifest、`areal/server/status.stateVersion` 与实际快照版本一致。
 
-原生 smoke 需要 macOS Seatbelt，不能用无沙箱执行代替失败。Linux CI 使用受控容器。默认 `cargo test` 不运行显式忽略的原生 Workgroup 和容量用例。
+macOS 原生 smoke 需要 Seatbelt，Linux 原生 smoke 需要 `/usr/bin/bwrap` 和 user namespace；两者都不能在能力缺失时回退到无沙箱执行。`outer-container-perf` 仍在受控容器中验证。默认 `cargo test` 不运行显式忽略的原生 Workgroup 和容量用例。
 
-Linux 宿主常规检查使用 `make verify CARGO_TEST_ARGS='--exclude areal-runtime-exec-native'`。原生后端测试要求容器边界；CI 的独立任务构建 Dockerfile 的 `runtime-tests` 目标，在带 Bubblewrap 的受控容器中实际运行全部后端测试，不能仅排除后就视为完成验收。
+Linux 宿主常规检查使用 `make verify CARGO_TEST_ARGS='--exclude areal-runtime-exec-native'`。原生后端测试要求 `/usr/bin/bwrap` 和 user namespace；CI 的独立任务构建 Dockerfile 的 `runtime-tests` 目标，在带 Bubblewrap 的受控容器中实际运行包含 `outer-container-perf` 的全部后端测试，不能仅排除后就视为完成验收。
 
 ## Python 与 scratch
 
@@ -29,7 +30,7 @@ macOS Python/scratch 的独立回归（本地模型，不需要供应商密钥�
 python3 scripts/native-python-smoke.py --bin-dir target/debug
 ```
 
-`make harness-smoke`（由 macOS CI 的 `make verify-harness` 调用）包含此回归。它在默认 YOLO 和显式 native 沙箱下分别验证自动 scratch 与自定义 `--scratch`：两者均暴露 `verify_command`，并在 Thread 私有子目录保存退出码为 0 和 7 的验证回执。共享解析器测试覆盖已安装 CLT 但无 `developer_dir` 链接的发现路径，并验证 framework 外的解释器被拒绝。
+`make harness-smoke`（由 macOS CI 的 `make verify-native` 调用）包含此回归。它在默认 YOLO 和显式 native 沙箱下分别验证自动 scratch 与自定义 `--scratch`：两者均暴露 `verify_command`，并在 Thread 私有子目录保存退出码为 0 和 7 的验证回执。共享解析器测试覆盖已安装 CLT 但无 `developer_dir` 链接的发现路径，并验证 framework 外的解释器被拒绝。
 
 `make workgroup-smoke` 同时验证 Worker 命令的 `TMPDIR` 位于私有工作区下的 `.scratch/agent-<threadId>`，该目录可写且 Python 字节码写入被禁用。
 
@@ -46,7 +47,7 @@ python3 scripts/native-agents-smoke.py --bin-dir target/debug --sandbox-profile 
 
 请求预算测试覆盖 Chat Completions 与 Responses 在最后一轮返回工具时的 `MAX_MODEL_ROUNDS` 分类，并检查零工具执行、无重试和原始预算审计；普通工具调用预算耗尽及非法 `index` 不应被误分类。桌面 CLI 验收同时检查对应的 `error_max_turns` 结果。Goal HTTP 回归同时验证输出 token 上限与工具数量/缓冲预算经过共享池后仍生效，失败请求的未知消费阻止后续重试和工具执行。
 
-Linux 需要 Bubblewrap user/PID namespace、seccomp，以及 Python、Bash、rg。也可用公开 Dockerfile：
+Linux 需要 Bubblewrap user/PID namespace、seccomp，以及 Python 和 Bash；rg 随构建产物交付。`make harness-smoke` 包含受限原生工具 smoke，验证内置搜索及宿主假 rg 不影响命令解析。也可用公开 Dockerfile：
 
 ```sh
 docker build -f tests/e2e/docker/Dockerfile \
@@ -77,9 +78,9 @@ done
 
 [CI](../../.github/workflows/ci.yml) 在 macOS 执行原生 Harness，在 Linux 执行常规回归和 Docker sandbox/文件所有权检查，独立检查 Rust/npm 依赖公告。工作流固定 action commit、使用只读权限并保留失败日志；是否通过以对应提交的运行结果为准。
 
-PR、`main` 推送和手动触发运行完整检查，避免同一功能分支的 push 与 PR 重复运行。Linux 常规回归与容器检查并行；原 `Linux checks and container Runtime` 检查名保留为汇总门禁，两项均成功才通过。macOS 仍完整运行 `make verify-harness`。
+PR、`main` 推送和手动触发运行完整检查，避免同一功能分支的 push 与 PR 重复运行。Linux 常规回归与容器检查并行，常规回归内部的格式、静态检查、Rust/SDK/脚本检查也并行；原 `Linux checks and container Runtime` 检查名保留为汇总门禁，两项均成功才通过。macOS 运行 `make verify-native`，只补充 Linux 不覆盖的原生后端和 Harness 集成 smoke。
 
-宿主缓存 Cargo 依赖产物和 npm 下载，Docker 使用 BuildKit 的 GitHub Actions 层缓存；缓存命中仍执行测试。Rust 缓存按平台、工具链与依赖清单区分，CI 关闭调试符号和增量编译以缩小构建产物。`cargo-audit` 只缓存固定版本工具，每次仍读取公告并审计锁文件。
+宿主缓存 Cargo 依赖产物、npm 下载和 uv 包；容器测试同时复用 Runtime 镜像构建层，Docker 使用 BuildKit 的 GitHub Actions 层缓存。缓存命中仍执行测试。Rust 缓存按平台、工具链与依赖清单区分，CI 关闭调试符号和增量编译以缩小构建产物。`cargo-audit` 只缓存固定版本工具，每次仍读取公告并审计锁文件。
 
 容器行为检查传入 `--build-arg BUILD_PROFILE=ci`，使用继承 `dev` 的 Cargo `ci` profile，保留调试断言，关闭调试符号和增量编译。`runtime-tests` 同样使用该 profile，复用依赖产物。Dockerfile 默认仍为 `release`（含 thin LTO），性能测试应使用默认构建；镜像标签 `io.areal.perf.build-profile` 标明实际 profile。CI 镜像不能用作 release 性能数据。
 

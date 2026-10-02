@@ -198,7 +198,12 @@ impl Engine {
         let session_id = state.thread.session_id.clone();
         let parent_thread_id = state.thread.parent_thread_id.clone().unwrap_or_default();
         let span = info_span!(
+            target: trajectory::TARGET,
             "invoke_agent",
+            otel.kind = "internal",
+            otel.status_code = tracing::field::Empty,
+            error.type = tracing::field::Empty,
+            areal.turn.number = state.thread.turns.len() as u64,
             otel.name = "invoke_agent",
             gen_ai.operation.name = "invoke_agent",
             gen_ai.conversation.id = %session_id,
@@ -383,16 +388,40 @@ impl Engine {
         cancel: CancellationToken,
         mut steer: mpsc::Receiver<()>,
     ) {
-        let timeout = self
+        let input = {
+            let state = cell.state.lock().await;
+            state
+                .thread
+                .turns
+                .last()
+                .map(|turn| {
+                    turn.items
+                        .iter()
+                        .filter_map(|item| {
+                            if let Item::UserMessage { content, .. } = item {
+                                let mut message = model::Message::text("user", "");
+                                message.content =
+                                    content.iter().map(model::content_from_input).collect();
+                                Some(message)
+                            } else {
+                                None
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default()
+        };
+        tracing::event!(target: trajectory::TARGET, tracing::Level::INFO, {
+            "event.name" = "areal.user_prompt",
+            gen_ai.input.messages = %trajectory::messages(&input)
+        });
+        // 普通 Turn 没有组合时限；仅保留显式研究 worker 和 Goal 预算。
+        let worker_deadline = self
             .extensions
             .agents
             .as_ref()
             .filter(|_| cell.research)
-            .map_or(self.limits.turn_timeout, |a| {
-                self.limits
-                    .turn_timeout
-                    .min(Duration::from_secs(a.worker_timeout_seconds))
-            });
+            .map(|a| tokio::time::Instant::now() + Duration::from_secs(a.worker_timeout_seconds));
         let (goal, owner) = {
             let state = cell.state.lock().await;
             (
@@ -428,12 +457,20 @@ impl Engine {
             .map(|g| (g.max_active_seconds as f64 - g.usage.time_used_seconds).max(0.0));
         let goal_deadline =
             goal_seconds.map(|v| tokio::time::Instant::now() + Duration::from_secs_f64(v));
-        let deadline = (tokio::time::Instant::now() + timeout)
-            .min(goal_deadline.unwrap_or(tokio::time::Instant::now() + timeout));
+        let deadline = worker_deadline.into_iter().chain(goal_deadline).min();
+        let budget_expired = async {
+            match deadline {
+                Some(deadline) => tokio::time::sleep_until(deadline).await,
+                None => std::future::pending::<()>().await,
+            }
+        };
         let mut result = tokio::select! {
             biased;
             _ = cancel.cancelled() => Err(anyhow::anyhow!("cancelled")),
-            _ = tokio::time::sleep_until(deadline) => Err(anyhow::anyhow!(if goal_deadline.is_some_and(|g| g <= tokio::time::Instant::now()) {"GOAL_TIME_BUDGET"} else {"turn deadline exceeded"})),
+            _ = budget_expired => Err(crate::outcome::TerminalFailure::new(
+                if goal_deadline.is_some_and(|g| g <= tokio::time::Instant::now()) {"GOAL_TIME_BUDGET"} else {"research worker deadline exceeded"},
+                crate::outcome::outcome("AGENT_RUN_TIMEOUT", "agent", "core_execution_budget", json!({"goalDeadlineReached":goal_deadline.is_some_and(|g| g <= tokio::time::Instant::now())})),
+            ).into()),
             result = std::panic::AssertUnwindSafe(self.generate(&cell, &cancel, &mut steer)).catch_unwind() =>
                 result.unwrap_or_else(|_| Err(anyhow::anyhow!("model task panicked"))),
         };
@@ -582,9 +619,7 @@ impl Engine {
             Err(error) if error.to_string() == "cancelled" => turn.status = TurnStatus::Interrupted,
             Err(error) => {
                 turn.status = TurnStatus::Failed;
-                turn.error = Some(TurnError {
-                    message: error.to_string(),
-                });
+                turn.error = Some(crate::outcome::turn_error(&error));
             }
         }
         let status = match turn.status {
@@ -594,6 +629,10 @@ impl Engine {
             TurnStatus::InProgress => "in_progress",
         };
         tracing::Span::current().record("areal.turn.status", status);
+        if turn.status != TurnStatus::Completed {
+            tracing::Span::current().record("otel.status_code", "ERROR");
+            tracing::Span::current().record("error.type", status);
+        }
         tracing::info!(areal.turn.status = status, "agent turn settled");
         // 中断时仍提交已送达的文本前缀，不重放模型请求。
         for item in turn.items.iter().filter(|i| open_items.contains(i.id())) {
@@ -645,9 +684,11 @@ impl Engine {
             }
             let turn = state.thread.turns.last_mut().unwrap();
             turn.status = TurnStatus::Failed;
-            turn.error = Some(TurnError {
-                message: error.to_string(),
-            });
+            turn.error = Some(crate::outcome::infrastructure(
+                error.to_string(),
+                "core_store",
+                "persist_failed",
+            ));
         }
         let active = state.active.take().unwrap();
         if state.poisoned {

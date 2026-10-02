@@ -102,7 +102,7 @@ def main():
             + '[model.providers.perf]\nprotocol="responses"\nendpoint='
             + quote(endpoint)
             + '\napi_key_env="AREAL_API_KEY"\n[limits]\n'
-            + f"turn_timeout_seconds={timeout}\nstream_idle_timeout_seconds=180\n"
+            + "stream_idle_timeout_seconds=180\n"
             + "max_history_bytes=67108864\nmax_output_bytes=8388608\nmax_tool_calls=512\n"
         )
         command = [
@@ -139,7 +139,6 @@ def main():
                 "unapplied_parameters": sorted(set(parameters) - set(applied)),
                 "parameter_policy": "explicit Core configuration; upstream acceptance is checked separately",
                 "model_protocol": "responses",
-                "turn_timeout_seconds": timeout,
                 "stream_idle_timeout_seconds": 180,
                 "tool_network": "inherit-container",
                 "concurrent_commands": True,

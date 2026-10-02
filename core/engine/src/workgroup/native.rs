@@ -381,7 +381,7 @@ fn successful_tool(messages: &[Message], result: &Message) -> Option<Value> {
         // each conditional write succeeds. Treat only confirmed writes with
         // identical arguments, receipts and observed source as a checkpoint.
         // Read-only tools are excluded: repeated inspection is not a write loop.
-        "fs_create" | "fs_write" | "fs_apply_patch" => {
+        "fs_create" | "fs_write" | "fs_apply_patch" | "fs_apply_patches" => {
             let hash = output.get("sha256")?.as_str()?;
             if hash.len() != 64
                 || !hash
@@ -807,7 +807,7 @@ impl Executor for NativeExecutor {
             let engine = Engine::open_with_runtime(&root.join("history"), worker_model.clone(),
                 Limits { max_active_turns: 1, max_children_per_turn: 0, max_agent_depth: 0,
                     max_history_bytes: 8 * 1024 * 1024, max_output_bytes: 512 * 1024,
-                    turn_timeout: Duration::from_secs(900), watchdog_disable: self.watchdog_disable,
+                    watchdog_disable: self.watchdog_disable,
                     max_tool_calls: self.tool_call_limits.max_calls, max_tool_buffer_bytes: self.tool_call_limits.max_buffer_bytes, ..Limits::default() },
                 RuntimeConfig { client: runtime.clone(), workspace: workspace.clone(), writable: true, command_scope: None, command_scratch: Some(workspace.join(".scratch")) })?;
             let execution: Result<()> = async {

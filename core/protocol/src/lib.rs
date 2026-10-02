@@ -8,6 +8,8 @@ pub mod desktop;
 
 pub const CODEX_PROTOCOL_VERSION: &str = "0.145.0";
 pub const MAX_FRAME_BYTES: usize = 4 * 1024 * 1024;
+/// 工具的文本/结构化原文接收上限；模型可见页仍单独限制为 16 KiB。
+pub const MAX_TOOL_RESULT_BYTES: usize = 8 * 1024 * 1024;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -22,6 +24,19 @@ pub enum TurnStatus {
 #[serde(rename_all = "camelCase")]
 pub struct TurnError {
     pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<TurnOutcome>,
+}
+
+/// 终止原因由错误产生方提供；客户端不得从 message 反推分类。
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TurnOutcome {
+    pub code: String,
+    pub class: String,
+    pub source: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub details: Option<Value>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
@@ -215,6 +230,12 @@ pub enum ToolOutcome {
 #[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ToolExecution {
+    /// 当前调用准许暴露的原始结果，引用保留在权威历史中以支持恢复与 GC。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result_snapshot: Option<MediaRef>,
+    /// 只记录转换度量，不持有另一份权威历史。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_projection: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub backend: Option<String>,
     pub runtime_epoch: String,
@@ -233,6 +254,9 @@ pub struct ToolExecution {
     /// Post-hook arguments before resolving model-facing aliases into Runtime IDs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_arguments: Option<Value>,
+    /// 模型返回的原始工具参数，仅在语义未被 hook 改写时用于历史回放。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original_arguments: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plugin: Option<PluginExecution>,
 }
@@ -403,5 +427,25 @@ pub fn response(id: Value, result: Result<Value, RpcError>) -> Value {
     match result {
         Ok(result) => json!({"id": id, "result": result}),
         Err(error) => json!({"id": id, "error": error}),
+    }
+}
+
+#[cfg(test)]
+mod turn_outcome_tests {
+    use super::*;
+    #[test]
+    fn legacy_errors_remain_readable_and_structured_outcomes_roundtrip() {
+        let legacy: TurnError = serde_json::from_value(json!({"message":"old error"})).unwrap();
+        assert!(legacy.outcome.is_none());
+        assert_eq!(
+            serde_json::to_value(legacy).unwrap(),
+            json!({"message":"old error"})
+        );
+        let value = json!({"message":"failed", "outcome":{
+            "code":"LLM_CONTEXT_WINDOW_EXCEEDED", "class":"agent", "source":"core_context_budget",
+            "details":{"estimatedTokens":188817,"tokenLimit":188416}
+        }});
+        let decoded: TurnError = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(serde_json::to_value(decoded).unwrap(), value);
     }
 }

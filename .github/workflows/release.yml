@@ -1,0 +1,130 @@
+name: Release bundles
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/release.yml'
+      - 'scripts/package.py'
+      - 'scripts/install.py'
+      - 'scripts/release-*.py'
+      - 'scripts/tests/test_release.py'
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  bundle:
+    name: Bundle and install (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            target: aarch64-apple-darwin
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+      - name: Build prerequisites
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            sudo apt-get update
+            sudo apt-get install -y cmake bubblewrap
+          elif ! command -v cmake; then
+            brew install cmake
+          fi
+          rustup show
+          npm ci --ignore-scripts
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+        with:
+          key: release-${{ matrix.target }}
+          cache-on-failure: true
+      - name: Build release and validate version
+        run: |
+          make release
+          version=$(target/release/areal --version | cut -d ' ' -f 2)
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            test "$GITHUB_REF_NAME" = "v$version"
+          fi
+          echo "RELEASE_VERSION=$version" >> "$GITHUB_ENV"
+          python3 -m unittest discover -s scripts/tests -p test_release.py
+      - name: Package the complete release
+        run: |
+          python3 scripts/package.py --profile release --output ${{ runner.temp }}/areal-release-bundle/areal
+          python3 scripts/release-artifacts.py archive --bundle ${{ runner.temp }}/areal-release-bundle/areal --output ${{ runner.temp }}/areal-release-assets
+          mkdir -p '${{ runner.temp }}/areal relocated bundle'
+          tar -xzf ${{ runner.temp }}/areal-release-assets/areal-harness-v${RELEASE_VERSION}-${{ matrix.target }}.tar.gz -C '${{ runner.temp }}/areal relocated bundle'
+          python3 scripts/release-smoke.py --bundle '${{ runner.temp }}/areal relocated bundle/areal'
+      - name: Verify Linux installation and native tools
+        if: runner.os == 'Linux'
+        run: |
+          cat ${{ runner.temp }}/areal-release-assets/*.sha256 > ${{ runner.temp }}/areal-release-assets/SHA256SUMS
+          prefix="$RUNNER_TEMP/areal installed"
+          python3 scripts/install.py --version "$RELEASE_VERSION" --prefix "$prefix" \
+            --archive ${{ runner.temp }}/areal-release-assets/areal-harness-v${RELEASE_VERSION}-${{ matrix.target }}.tar.gz \
+            --checksums ${{ runner.temp }}/areal-release-assets/SHA256SUMS
+          python3 scripts/release-smoke.py --bundle "$prefix/lib/areal/${RELEASE_VERSION}-linux-x86_64" --executable "$prefix/bin/areal"
+          python3 scripts/native-tools-smoke.py --bin-dir target/release
+          rm ${{ runner.temp }}/areal-release-assets/SHA256SUMS
+      - name: Verify Homebrew installation and packaged lifecycle
+        if: runner.os == 'macOS'
+        run: |
+          archive="${{ runner.temp }}/areal-release-assets/areal-harness-v${RELEASE_VERSION}-${{ matrix.target }}.tar.gz"
+          brew tap-new areal-local/release
+          formula="$(brew --repository areal-local/release)/Formula/areal.rb"
+          python3 scripts/release-artifacts.py formula --archive "$archive" --url "file://$archive" --output "$formula"
+          brew install --formula areal-local/release/areal
+          brew test areal-local/release/areal
+          python3 scripts/release-smoke.py --bundle "$(brew --prefix areal)" --executable "$(brew --prefix)/bin/areal"
+          AREAL_PACKAGE_PROFILE=release node examples/desktop-api/soak.mjs
+          python3 scripts/release-artifacts.py formula --archive "$archive" --output ${{ runner.temp }}/areal-release-assets/areal.rb
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: release-${{ matrix.target }}
+          path: ${{ runner.temp }}/areal-release-assets/
+          if-no-files-found: error
+          retention-days: 14
+
+  draft:
+    name: Assemble draft release
+    needs: bundle
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: release-*
+          path: target/release-assets
+          merge-multiple: true
+      - name: Assemble checksums and draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp scripts/install.py target/release-assets/install.py
+          cd target/release-assets
+          cat *.tar.gz.sha256 > SHA256SUMS
+          sha256sum --check SHA256SUMS
+          sha256sum install.py areal.rb manifest-*.json >> SHA256SUMS
+          rm *.tar.gz.sha256
+          gh release create "$GITHUB_REF_NAME" --verify-tag --draft \
+            --title "AReaL-Harness $GITHUB_REF_NAME" --generate-notes \
+            ./*.tar.gz ./SHA256SUMS ./install.py ./areal.rb ./manifest-*.json

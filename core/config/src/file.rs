@@ -201,7 +201,6 @@ fn walk(
                     | "max_active_turns"
                     | "max_children_per_turn"
                     | "max_agent_depth"
-                    | "turn_timeout_seconds"
                     | "stream_idle_timeout_seconds"
                     | "max_history_bytes"
                     | "max_output_bytes"
@@ -239,7 +238,10 @@ fn walk(
             "temperature" | "top_p" | "min_p" | "presence_penalty" | "repetition_penalty"
         ]
     );
-    let boolean = matches!(names.as_slice(), ["limits", "watchdog_disable"]);
+    let boolean = matches!(
+        names.as_slice(),
+        ["limits", "watchdog_disable" | "context_compaction_enabled"]
+    );
     if !numeric && !string && !decimal && !boolean {
         return Err(error(
             Kind::UnknownField,

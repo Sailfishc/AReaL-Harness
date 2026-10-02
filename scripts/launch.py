@@ -2,6 +2,7 @@
 """Trusted local launcher: owns Core/Runtime and optionally their terminal client."""
 
 import argparse
+import contextlib
 import json
 import os
 import signal
@@ -61,6 +62,13 @@ def finish(child, timeout=10):
         return child.wait()
 
 
+def reap_children(children):
+    for child in reversed(children):
+        if child.poll() is None:
+            child.terminate()
+            finish(child)
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="areal" if "--tui" in sys.argv[1:] else "areal serve", description=__doc__
@@ -95,6 +103,7 @@ def main():
     parser.add_argument("--ready-metadata-file", type=Path)
     parser.add_argument("--auth-file", type=Path)
     parser.add_argument("--desktop-config", type=Path)
+    parser.add_argument("--agent")
     parser.add_argument("--service-info", type=Path)
     parser.add_argument("--startup-timeout", type=float, default=30)
     parser.add_argument("--resume")
@@ -159,6 +168,8 @@ def main():
     ):
         parser.error("scratch must be an existing directory disjoint from the workspace")
     binary = (args.bin_dir or Path(__file__).resolve().parents[1] / "target/debug").resolve()
+    # Homebrew 的 bin 入口是文件符号链接，必须先定位实际安装目录。
+    binary = (binary / "areal").resolve().parent
     # 安装包只暴露 areal；Runtime 仍以独立进程执行并沿用私有管道边界。
     runtime_bin = binary.parent / "libexec/areal"
     if not runtime_bin.is_dir():
@@ -290,7 +301,12 @@ def main():
             log_reader = threading.Thread(target=capture, daemon=True)
             log_reader.start()
             diagnostics = log_write
-        with tempfile.TemporaryDirectory(prefix="areal-launch-") as temporary:
+        with (
+            tempfile.TemporaryDirectory(prefix="areal-launch-") as temporary,
+            contextlib.ExitStack() as processes,
+        ):
+            # 启动中断时子进程仍可能写就绪文件；必须先回收进程，再删除临时目录。
+            processes.callback(reap_children, children)
             ready = args.ready_file or Path(temporary) / "ready"
             metadata = args.ready_metadata_file or Path(temporary) / "ready.json"
             runtime = subprocess.Popen(
@@ -416,6 +432,7 @@ def main():
                         "--auth-file",
                         json.loads(metadata.read_text())["authFile"],
                         *([f"--resume={args.resume}"] if args.resume is not None else []),
+                        *([f"--agent={args.agent}"] if args.agent is not None else []),
                         *([f"--prompt={args.prompt}"] if args.prompt is not None else []),
                         *([f"--goal={args.goal}"] if args.goal is not None else []),
                         *(
@@ -473,10 +490,7 @@ def main():
                 ready_path.unlink(missing_ok=True)
         for fd in descriptors:
             os.close(fd)
-        for child in reversed(children):
-            if child.poll() is None:
-                child.terminate()
-                finish(child)
+        reap_children(children)
         restore_terminal()
         if log_pipe is not None:
             os.close(log_pipe)
