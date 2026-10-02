@@ -375,8 +375,14 @@ impl HttpModel {
                                         })
                                 })
                                 .map(str::to_owned);
-                            if let Some(output) = event["response"]["output"].as_array() {
+                            if let Some(output) = event["response"]["output"]
+                                .as_array()
+                                .filter(|items| !items.is_empty())
+                            {
                                 state.output = output.clone();
+                            } else {
+                                // 没有完整输出基线时不能发送 delta，否则会重复回放已生成文本。
+                                state.response_id = None;
                             }
                             state.complete = true;
                         }
@@ -451,7 +457,7 @@ mod tests {
                         socket.send(axum::extract::ws::Message::Text(json!({"type":"response.incomplete","response":{"id":"resp_partial","status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"usage":{"input_tokens":9,"output_tokens":2}}}).to_string().into())).await.unwrap();continue;
                     }
                     let output=json!({"type":"message","id":"msg_fixture","status":"completed","role":"assistant","content":[{"type":"output_text","text":"ok","annotations":[]}]});
-                    for event in [json!({"type":"response.output_text.delta","delta":"ok"}),json!({"type":"response.completed","response":{"id":"resp_fixture","status":"completed","output":[output],"usage":{"input_tokens":10,"input_tokens_details":{"cached_tokens":8},"output_tokens":1}}})] {
+                    for event in [json!({"type":"response.output_text.delta","delta":"ok"}),json!({"type":"response.completed","response":{"id":"resp_fixture","status":"completed","output":if request["model"]=="missing-output" {json!(null)} else {json!([output])},"usage":{"input_tokens":10,"input_tokens_details":{"cached_tokens":8},"output_tokens":1}}})] {
                         socket.send(axum::extract::ws::Message::Text(event.to_string().into())).await.unwrap();
                     }
                 }
@@ -565,6 +571,19 @@ mod tests {
             rx.recv().await.unwrap();
             assert!(rx.try_recv().is_err());
         }
+        let missing = model(endpoint.clone(), "missing-output");
+        assert!(
+            run(
+                &missing,
+                ("missing", "turn"),
+                vec![Message::text("user", "first")]
+            )
+            .await
+            .iter()
+            .all(Result::is_ok)
+        );
+        rx.recv().await.unwrap();
+        assert!(missing.websocket_pool.lock().await.entries.is_empty());
         let hanging = model(endpoint.clone(), "hang");
         let stream = REQUEST_OWNER
             .scope(
@@ -594,7 +613,7 @@ mod tests {
                 .get("previous_response_id")
                 .is_none()
         );
-        assert_eq!(connections.load(Ordering::SeqCst), 4);
+        assert_eq!(connections.load(Ordering::SeqCst), 5);
         server.abort();
     }
 }
