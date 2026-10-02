@@ -365,7 +365,16 @@ impl HttpModel {
                         state.audit.value["usageDetails"] = state.decoder.usage_details();
                         if is_complete {
                             events.extend(state.decoder.finish()?);
-                            state.response_id = event["response"]["id"].as_str().map(str::to_owned);
+                            state.response_id = event["response"]["id"]
+                                .as_str()
+                                .filter(|id| {
+                                    !id.is_empty()
+                                        && id.len() <= 256
+                                        && id.bytes().all(|b| {
+                                            b.is_ascii_alphanumeric() || b == b'_' || b == b'-'
+                                        })
+                                })
+                                .map(str::to_owned);
                             if let Some(output) = event["response"]["output"].as_array() {
                                 state.output = output.clone();
                             }
