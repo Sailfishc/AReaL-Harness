@@ -151,6 +151,19 @@ impl HttpModel {
                 "OpenAI-Beta",
                 "responses_websockets=2026-02-06".parse().unwrap(),
             );
+            // 与 Codex 的 Responses 会话标识一致；只发送 Core 生成的身份，不推断后端路由。
+            if let Some((thread, _)) = &reuse_owner {
+                let value = thread
+                    .parse()
+                    .map_err(|_| anyhow::anyhow!("invalid thread identity header"))?;
+                request.headers_mut().insert("session-id", value);
+                request.headers_mut().insert(
+                    "thread-id",
+                    thread
+                        .parse()
+                        .map_err(|_| anyhow::anyhow!("invalid thread identity header"))?,
+                );
+            }
             if let Some(key) = &self.key {
                 request.headers_mut().insert(
                     "Authorization",
@@ -445,12 +458,12 @@ mod tests {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let connections = Arc::new(AtomicUsize::new(0));
         let counter = connections.clone();
-        let app=Router::new().route("/responses",get(move |ws:WebSocketUpgrade| {
+        let app=Router::new().route("/responses",get(move |headers: axum::http::HeaderMap, ws:WebSocketUpgrade| {
             let tx=tx.clone();let counter=counter.clone();
             async move { ws.on_upgrade(move |mut socket| async move {
                 let connection=counter.fetch_add(1,Ordering::SeqCst);
                 while let Some(Ok(axum::extract::ws::Message::Text(text)))=socket.recv().await {
-                    let mut request:Value=serde_json::from_str(&text).unwrap();request["connection"]=json!(connection);tx.send(request.clone()).unwrap();
+                    let mut request:Value=serde_json::from_str(&text).unwrap();request["connection"]=json!(connection);request["sessionHeader"]=json!(headers.get("session-id").and_then(|h|h.to_str().ok()));tx.send(request.clone()).unwrap();
                     if request["model"]=="hang" { while socket.recv().await.is_some() {} return; }
                     if request["model"]=="disconnect" { return; }
                     if request["model"]=="incomplete" {
@@ -508,6 +521,7 @@ mod tests {
         );
         let first = rx.recv().await.unwrap();
         assert!(first.get("previous_response_id").is_none());
+        assert_eq!(first["sessionHeader"], "thread");
         history.extend([
             Message::text("assistant", "ok"),
             Message::text("user", "next"),

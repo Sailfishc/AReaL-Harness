@@ -275,3 +275,5 @@ HTTP 审计在响应返回规范、长度受限的关联 ID 时保留 `httpReque
 连接按模型实例、Thread 和 Turn 隔离。只有前一响应完整结束并返回完整 output 数组、非 input 参数完全一致、当前输入严格扩展前次输入与输出时，才携带 previous_response_id 发送增量；否则关闭旧连接，在新连接发送完整输入。新 Turn、凭据/模型实例变更、取消、失败、连接断开不会沿用旧续接状态。发送后失败不在传输层自动重放；Goal 用量与 Engine 重试规则继续有效。最多保留 16 个空闲会话、32 MiB 请求/输出引用，120 秒空闲后清理；长工具任务可能需要重新建立完整上下文。连接中断后已执行的工具不能自动重跑。
 
 审计中的 body/messageBlocks 表示完整逻辑输入，transport=responses-websocket、incremental、wireInputItems 和 wireBodyBytes 表示实际传输。减少传输字节不等于减少供应商计费输入或保证 KV 命中；请同时观察缓存、延迟、失败与任务结果。摘要使用独立连接，不污染同 Turn 的求解连接。
+
+WebSocket 求解连接携带 Core 线程 ID 作为 session-id/thread-id，以便兼容网关维持会话亲和；这不表示供应商一定采用该路由提示，也不保证跨连接缓存保留。摘要与未绑定线程的直接调用不携带求解身份。
