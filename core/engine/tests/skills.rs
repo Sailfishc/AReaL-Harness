@@ -544,3 +544,95 @@ async fn explicit_deployments_accept_large_assets_and_legacy_catalogs_without_co
     );
     engine.shutdown().await;
 }
+
+struct ReadSkillPages;
+#[async_trait]
+impl areal_engine::model::Model for ReadSkillPages {
+    fn name(&self) -> &str {
+        "skill-pages-fixture"
+    }
+    async fn stream(
+        &self,
+        _: Vec<areal_engine::model::Message>,
+    ) -> anyhow::Result<areal_engine::model::ModelStream> {
+        unreachable!()
+    }
+    async fn chat(
+        &self,
+        messages: Vec<areal_engine::model::Message>,
+        _: Vec<serde_json::Value>,
+    ) -> anyhow::Result<areal_engine::model::ModelStream> {
+        use areal_engine::model::{ModelEvent, ToolCall};
+        let results: Vec<_> = messages.iter().filter(|m| m.role == "tool").collect();
+        let events = if results.is_empty() {
+            ["SKILL.md","binary.bin"].into_iter().map(|resource|ModelEvent::ToolCall(ToolCall {
+                id:resource.into(),name:"skill_read".into(),arguments:json!({"skill":{"id":"fireworks-tech-graph","revision":"local-v1"},"resource":resource}).to_string()
+            })).collect::<Vec<_>>()
+        } else {
+            assert_eq!(results.len(), 2);
+            let pages: Vec<serde_json::Value> = results
+                .iter()
+                .map(|m| serde_json::from_str(&m.text_content()).unwrap())
+                .collect();
+            assert_eq!(pages[0]["text"], "完整技能页");
+            assert!(pages[0].get("dataBase64").is_none());
+            assert_eq!(pages[0]["nextOffset"], "完整技能页".len());
+            assert_eq!(pages[0]["eof"], true);
+            assert_eq!(pages[1]["text"], serde_json::Value::Null);
+            assert_eq!(pages[1]["dataBase64"], "/wA=");
+            assert_eq!(pages[1]["nextOffset"], 2);
+            vec![ModelEvent::text("verified exact text and binary pages")]
+        };
+        Ok(Box::pin(futures_util::stream::iter(
+            events.into_iter().map(Ok),
+        )))
+    }
+}
+#[tokio::test]
+async fn model_skill_reads_avoid_duplicate_text_bytes_while_public_api_retains_binary_contract() {
+    let state = tempfile::tempdir().unwrap();
+    let root = tempfile::tempdir().unwrap();
+    fs::write(root.path().join("SKILL.md"), "完整技能页").unwrap();
+    fs::write(root.path().join("binary.bin"), [0xff, 0]).unwrap();
+    let engine = Engine::open(state.path(), Arc::new(ReadSkillPages), Limits::default()).unwrap();
+    engine
+        .install_default_skills(vec![local_skill(root.path())])
+        .unwrap();
+    let thread = engine.create("/workspace".into()).await.unwrap();
+    let reference = VersionRef {
+        id: "fireworks-tech-graph".into(),
+        revision: "local-v1".into(),
+    };
+    let page = engine
+        .read_skill(&thread.id, reference.clone(), "SKILL.md", 0, 8192)
+        .await
+        .unwrap();
+    assert!(page["dataBase64"].is_string());
+    let partial = engine
+        .read_skill(&thread.id, reference, "SKILL.md", 1, 1)
+        .await
+        .unwrap();
+    assert!(partial["text"].is_null());
+    assert!(partial["dataBase64"].is_string());
+    assert_eq!(partial["nextOffset"], 2);
+    engine
+        .start(
+            &thread.id,
+            vec![areal_protocol::Input::text(
+                "Read the fixture skill and its binary reference",
+            )],
+        )
+        .await
+        .unwrap();
+    let result = tokio::time::timeout(std::time::Duration::from_secs(5), engine.wait(&thread.id))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        result.turns.last().unwrap().status,
+        areal_protocol::TurnStatus::Completed,
+        "{:?}",
+        result.turns.last().unwrap().error
+    );
+    engine.shutdown().await;
+}
