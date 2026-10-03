@@ -165,8 +165,30 @@ sys.stdin.buffer.read()
                 runtime = json.loads((root / "runtime.json").read_text())["args"]
                 core = json.loads((root / "core.json").read_text())["args"]
                 self.assertEqual(runtime[runtime.index("--max-processes") + 1], expected)
+                self.assertNotIn("--cumulative-output-bytes", runtime)
                 self.assertNotIn("--runtime-max-processes", core)
                 self.assertNotIn("--max-processes", core)
+
+    def test_cumulative_output_and_operations_are_independent(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result = self.fixture(
+                directory,
+                extra=("--runtime-output-bytes", "1073741824", "--runtime-max-operations", "65536"),
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            runtime = json.loads((Path(directory) / "runtime.json").read_text())["args"]
+            self.assertEqual(runtime[runtime.index("--output-bytes") + 1], "8388608")
+            self.assertEqual(runtime[runtime.index("--cumulative-output-bytes") + 1], "1073741824")
+            self.assertEqual(runtime[runtime.index("--max-operations") + 1], "65536")
+        for extra in (
+            ("--runtime-output-bytes", "1"),
+            ("--runtime-output-bytes", "17179869185"),
+            ("--runtime-max-operations", "0"),
+        ):
+            with self.subTest(extra=extra), tempfile.TemporaryDirectory() as directory:
+                result = self.fixture(directory, extra=extra)
+                self.assertEqual(result.returncode, 2)
+                self.assertFalse((Path(directory) / "runtime.json").exists())
 
     def test_invalid_process_capacity_starts_no_services(self):
         for value in ("0", "-1", "4294967296"):

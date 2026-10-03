@@ -57,6 +57,9 @@ struct Args {
     wall_time_ms: u64,
     #[arg(long, default_value_t = 8 * 1024 * 1024)]
     output_bytes: u64,
+    /// 独立的部署累计输出预算；省略时保持原来的单命令/累计共用上限。
+    #[arg(long)]
+    cumulative_output_bytes: Option<u64>,
     #[arg(long, default_value_t = 64 * 1024)]
     output_window_bytes: usize,
     /// Docker perf only: use Bubblewrap inside the runner container.
@@ -145,6 +148,7 @@ async fn main() -> Result<()> {
     config.limits.max_processes = args.max_processes;
     config.limits.wall_time_ms = args.wall_time_ms;
     config.limits.output_bytes = args.output_bytes;
+    config.cumulative_output_bytes = args.cumulative_output_bytes;
     #[cfg(unix)]
     let (read, write) = {
         use std::os::fd::AsFd;

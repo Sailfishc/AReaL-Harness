@@ -88,6 +88,7 @@ def main():
     parser.add_argument("--allow-concurrent-writes", action="store_true")
     parser.add_argument("--command-timeout-ms", type=int, default=300000)
     parser.add_argument("--command-output-bytes", type=int, default=8 * 1024 * 1024)
+    parser.add_argument("--runtime-output-bytes", type=int)
     parser.add_argument(
         "--sandbox-profile",
         choices=("native", "outer-container-perf", "full-access"),
@@ -122,6 +123,12 @@ def main():
     args = parser.parse_args()
     if not 1 <= args.runtime_max_processes <= 4294967295:
         parser.error("runtime max processes must be 1..4294967295")
+    if not 1 <= args.runtime_max_operations <= 4294967295:
+        parser.error("runtime max operations must be 1..4294967295")
+    if args.runtime_output_bytes is not None and not (
+        args.command_output_bytes <= args.runtime_output_bytes <= 16 * 1024**3
+    ):
+        parser.error("runtime output budget must cover one command and be at most 16 GiB")
     if args.desktop and args.tui:
         parser.error("--desktop and --tui are mutually exclusive")
     if not 0 < args.startup_timeout <= 300:
@@ -319,6 +326,11 @@ def main():
                     str(args.command_timeout_ms),
                     "--output-bytes",
                     str(args.command_output_bytes),
+                    *(
+                        ["--cumulative-output-bytes", str(args.runtime_output_bytes)]
+                        if args.runtime_output_bytes is not None
+                        else []
+                    ),
                     "--max-processes",
                     str(args.runtime_max_processes),
                     "--max-scopes",

@@ -25,6 +25,10 @@ target/debug/areal web --workspace /absolute/workspace --json
 
 无模型费用的进程容量回归可运行 `python3 scripts/runtime-capacity-smoke.py --bin-dir target/debug`：验证默认容量拒绝第 5 个并发进程，显式容量 32 允许 6 个子 Scope 同时执行并清理。测试默认原生沙箱；`--sandbox-profile` 可显式选择与待验证部署一致的 profile，不自动降级。
 
+`--runtime-output-bytes` 独立设置部署及后代 Scope 的累计输出预算（须覆盖 `--command-output-bytes`，最多 16 GiB）；省略时保持与单命令额度相同的旧行为。它不扩大单个命令输出上限或保留输出窗口。`--runtime-max-operations` 设置 Runtime 生命周期保留操作数，默认 4096，接受正整数至 4294967295；已完成操作仍保留以支持去重/查询，不因子任务结束而回收。这两个值也纳入服务身份。例如长任务可显式设置 `--command-output-bytes 67108864 --runtime-output-bytes 1073741824 --runtime-max-operations 65536`，并监控累计用量。图片工具在 Core 缩放前读取完整原图，文件助手的 JSON/base64 stdout 计入累计输出；缩小模型所见图像不会消除这部分读取开销。
+
+可用 `python3 scripts/runtime-output-smoke.py --bin-dir target/debug` 验证单进程限额保持、跨命令累计计量和重复读取不收费；沙箱参数与进程容量回归一致。
+
 `status`、`stop` 默认定位当前工作区，可用 `--workspace`、`--data-dir` 或 `--instance` 消歧。`restart` 按当前工作区和与 `ensure` 相同的参数解析目标部署；使用自定义配置/权限时传入对应参数。重启保留历史，有未结算工作时拒绝，只有显式 `--cancel` 才取消任务。
 
 服务命令 stdout 始终是 JSON，`--json` 显式声明机器调用；`web` 默认另打开浏览器，`--json` 只发现。ensure/restart/status/stop 返回一个描述，list 返回数组，bind 返回 `{dataDir}`。操作失败退出 1，stderr 为 `{error:{code:"localServiceError",message}}`；参数解析错误遵循 CLI 行为。启动诊断写 stderr 或私有日志，不把长期 token 放入命令、URL 或描述；自动登录的一次性 URL 仅交给浏览器打开程序，不打印。
