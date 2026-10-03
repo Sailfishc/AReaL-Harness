@@ -777,3 +777,42 @@ fn responses_websocket_is_opt_in_and_rejects_chat_protocol() {
     set(&mut i, "AREAL_HARNESS_RESPONSES_WEBSOCKET", "false");
     assert!(!load_config(&i).unwrap().model.responses_websocket);
 }
+
+#[test]
+fn compaction_target_is_explicit_bounded_and_overridable() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut i = inputs(temp.path());
+    assert_eq!(load_config(&i).unwrap().context_target_tokens, 0);
+    write(
+        &mut i,
+        "schema_version=1\n[limits]\ncontext_window_tokens=88000\ncontext_output_reserve_tokens=8192\ncontext_target_tokens=55000\n",
+    );
+    assert_eq!(load_config(&i).unwrap().context_target_tokens, 55000);
+    set(&mut i, "AREAL_HARNESS_CONTEXT_TARGET_TOKENS", "79808");
+    assert_eq!(failure(&i).kind, ConfigErrorKind::InvalidValue);
+    set(&mut i, "AREAL_HARNESS_CONTEXT_TARGET_TOKENS", "0");
+    assert_eq!(load_config(&i).unwrap().context_target_tokens, 0);
+    write(
+        &mut i,
+        "schema_version=1\n[limits]\ncontext_window_tokens=0\ncontext_target_tokens=1000\n",
+    );
+    i.env
+        .remove(std::ffi::OsStr::new("AREAL_HARNESS_CONTEXT_TARGET_TOKENS"));
+    assert_eq!(failure(&i).kind, ConfigErrorKind::InvalidValue);
+}
+
+#[test]
+fn summary_options_do_not_change_solve_configuration() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut i = inputs(temp.path());
+    write(
+        &mut i,
+        "schema_version=1\n[model]\nreasoning_effort='high'\nsummary_reasoning_effort='low'\nsummary_max_output_tokens=4096\n",
+    );
+    let c = load_config(&i).unwrap();
+    assert_eq!(c.model.reasoning_effort.as_deref(), Some("high"));
+    assert_eq!(c.model.summary_reasoning_effort.as_deref(), Some("low"));
+    assert_eq!(c.model.summary_max_output_tokens, Some(4096));
+    set(&mut i, "AREAL_HARNESS_SUMMARY_MAX_OUTPUT_TOKENS", "0");
+    assert_eq!(failure(&i).kind, ConfigErrorKind::InvalidValue);
+}

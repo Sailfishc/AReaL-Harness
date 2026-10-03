@@ -236,13 +236,16 @@ if keep.contains(&name){retained+=e.metadata()?.len();}else{reclaimed+=e.metadat
         )
     }
 
-    pub async fn save(&self, thread: &Thread) -> Result<()> {
+    pub(crate) async fn save_encoded(&self, id: &str, bytes: Vec<u8>) -> Result<()> {
+        let queued = std::time::Instant::now();
         let permit = self.io.clone().acquire_owned().await?;
         let root = self.root.clone();
-        let thread = thread.clone();
+        let id = id.to_owned();
         tokio::task::spawn_blocking(move || {
             let _permit = permit;
-            atomic_write(&root, &thread)
+            tracing::debug!(target: "areal::persistence", thread_id = %id,
+                queue_ms = queued.elapsed().as_secs_f64() * 1000.0, "thread write admitted");
+            atomic_write_encoded(&root, &id, &bytes)
         })
         .await??;
         Ok(())
@@ -291,9 +294,26 @@ if keep.contains(&name){retained+=e.metadata()?.len();}else{reclaimed+=e.metadat
     }
 }
 
+pub(crate) fn encode(thread: &Thread) -> Result<Vec<u8>> {
+    #[derive(Serialize)]
+    struct BorrowedRecord<'a> {
+        version: u32,
+        thread: &'a Thread,
+    }
+    Ok(serde_json::to_vec(&BorrowedRecord {
+        version: STATE_VERSION,
+        thread,
+    })?)
+}
+
 fn atomic_write(root: &Path, thread: &Thread) -> Result<()> {
+    atomic_write_encoded(root, &thread.id, &encode(thread)?)
+}
+
+fn atomic_write_encoded(root: &Path, id: &str, bytes: &[u8]) -> Result<()> {
     use std::io::Write;
-    let path = root.join(format!("{}.json", thread.id));
+    let started = std::time::Instant::now();
+    let path = root.join(format!("{id}.json"));
     let mut file = tempfile::NamedTempFile::new_in(root)?;
     #[cfg(unix)]
     {
@@ -301,18 +321,16 @@ fn atomic_write(root: &Path, thread: &Thread) -> Result<()> {
         file.as_file()
             .set_permissions(std::fs::Permissions::from_mode(0o600))?;
     }
-    serde_json::to_writer(
-        &mut file,
-        &Record {
-            version: STATE_VERSION,
-            thread: thread.clone(),
-        },
-    )?;
+    file.write_all(bytes)?;
     file.flush()?;
+    let write_ms = started.elapsed().as_secs_f64() * 1000.0;
+    let syncing = std::time::Instant::now();
     file.as_file().sync_all()?;
     file.persist(path)?;
     #[cfg(unix)]
     File::open(root)?.sync_all()?;
+    tracing::debug!(target: "areal::persistence", thread_id = %id, bytes = bytes.len(),
+        write_ms, sync_ms = syncing.elapsed().as_secs_f64() * 1000.0, "thread durably committed");
     Ok(())
 }
 

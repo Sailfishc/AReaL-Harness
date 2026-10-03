@@ -51,6 +51,8 @@ pub fn model(
         .with_options(ModelOptions {
             responses_websocket: config.responses_websocket,
             reasoning_effort: config.reasoning_effort.clone(),
+            summary_reasoning_effort: config.summary_reasoning_effort.clone(),
+            summary_max_output_tokens: config.summary_max_output_tokens,
             reasoning_summary: config.reasoning_summary.clone(),
             max_output_tokens: config.max_output_tokens,
             max_retries: config.max_retries,

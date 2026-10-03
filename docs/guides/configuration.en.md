@@ -78,6 +78,7 @@ context_window_bytes = 524288
 context_compaction_enabled = true
 context_recent_bytes = 131072
 context_window_tokens = 65536
+context_target_tokens = 0
 context_output_reserve_tokens = 8192
 max_completion_retries = 0
 watchdog_disable = false
@@ -93,9 +94,11 @@ Typical endpoints are `https://model.example.com/v1/chat/completions` for Chat C
 
 Optional `model.reasoning_summary = "auto"` (also `concise` / `detailed`) is Responses-only and maps to `reasoning.summary`. Its environment variable is `AREAL_HARNESS_REASONING_SUMMARY`. It is omitted by default; no summary parameter is added to Chat Completions or models that have not opted in. The endpoint/model must support the selected summary mode; providers determine whether a summary is returned, so reasoning text is not guaranteed.
 
-Optional sampling fields are omitted when unset and preserve explicit zero. `temperature` is finite [0,2], `top_p` / `min_p` are [0,1], `top_k` is a positive integer or -1, `presence_penalty` is [-2,2], and `repetition_penalty` is positive. Both protocols accept temperature/top_p; the other four are Chat-only and rejected for Responses. Sending a parameter does not prove provider support. Solve and summary requests share sampling/reasoning settings; summaries disable tools and cap output at `min(max_output_tokens,16384)`, or 16384 when unset.
+Optional sampling fields are omitted when unset and preserve explicit zero. `temperature` is finite [0,2], `top_p` / `min_p` are [0,1], `top_k` is a positive integer or -1, `presence_penalty` is [-2,2], and `repetition_penalty` is positive. Both protocols accept temperature/top_p; the other four are Chat-only and rejected for Responses. Sending a parameter does not prove provider support. Summary requests inherit solve sampling/reasoning by default. Optional `model.summary_reasoning_effort` and `model.summary_max_output_tokens` (`AREAL_HARNESS_SUMMARY_REASONING_EFFORT` / `AREAL_HARNESS_SUMMARY_MAX_OUTPUT_TOKENS`) affect only summaries. The output cap is the minimum of the global cap, summary cap, remaining Goal allowance and 16384. A configured summary cap must be positive. For example, explicitly select low/4096 summaries with high-effort solving after validating provider support and retention quality.
 
 `context_window_tokens=0` disables token estimation; its maximum is 2000000. When enabled, reserve must be below window. Estimated history, system and tool definitions trigger compaction at window minus reserve, or at the byte threshold. Estimates use roughly 3 ASCII bytes/token, 2 tokens/non-ASCII character and media proxies, and may be calibrated upward from prior input usage. Cache hits do not reduce estimates; these are not exact provider tokenizer counts.
+
+`limits.context_target_tokens` defaults to 0, preserving recent-history selection. A positive value (or `AREAL_HARNESS_CONTEXT_TARGET_TOKENS`) must be below window minus reserve. Core first tests the recent-history boundary, then the deepest complete-round boundary if necessary, targeting retained input plus instruction/tool overhead and summary headroom. The target is best effort: exact user inputs and indivisible tool/reasoning rounds are never silently discarded to reach it. Valid summaries up to 16 KiB are retained when they fit the actual net saving; 8,000 bytes is generation guidance, not another rejection threshold. Avoid increasing the window to mask missing task context.
 
 `limits.context_compaction_enabled=false` disables automatic and manual compaction (true by default). When `context_window_bytes` is exceeded or an enabled token threshold is reached, the Turn fails with a context limit error without sending another solve or summary request; original history remains intact. These estimates are not the provider's actual context limit. To also disable Agent delegation and Workgroup child tasks, set `max_children_per_turn=0` and `max_agent_depth=0`. An explicitly enabled native research Agent extension requires nonzero child limits and rejects this combination at startup.
 

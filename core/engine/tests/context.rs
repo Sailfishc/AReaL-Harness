@@ -372,3 +372,334 @@ async fn disabled_compaction_fails_at_token_limit_and_rejects_manual_compaction(
     assert!(model.requests.lock().unwrap().is_empty());
     engine.shutdown().await;
 }
+
+struct ContinuityModel {
+    requests: Mutex<Vec<(RequestPurpose, Vec<Message>)>>,
+    summary: String,
+    gate: Mutex<Option<Arc<Notify>>>,
+}
+#[async_trait]
+impl Model for ContinuityModel {
+    fn name(&self) -> &str {
+        "continuity"
+    }
+    async fn stream(&self, _: Vec<Message>) -> anyhow::Result<ModelStream> {
+        unreachable!()
+    }
+    async fn chat(&self, messages: Vec<Message>, tools: Vec<Value>) -> anyhow::Result<AgentStream> {
+        self.chat_for(messages, tools, RequestPurpose::Solve).await
+    }
+    async fn chat_for(
+        &self,
+        messages: Vec<Message>,
+        _: Vec<Value>,
+        purpose: RequestPurpose,
+    ) -> anyhow::Result<AgentStream> {
+        self.requests.lock().unwrap().push((purpose, messages));
+        let gate = if purpose == RequestPurpose::Summary {
+            self.gate.lock().unwrap().take()
+        } else {
+            None
+        };
+        if let Some(gate) = gate {
+            gate.notified().await;
+        }
+        Ok(Box::pin(stream::iter([
+            Ok(ModelEvent::text(if purpose == RequestPurpose::Summary {
+                self.summary.clone()
+            } else {
+                "observed implementation evidence ".repeat(180)
+            })),
+            Ok(ModelEvent::Usage(ModelUsage {
+                input_tokens: 100,
+                output_tokens: 20,
+                cached_input_tokens: 0,
+            })),
+        ])))
+    }
+}
+fn continuity_model(summary: &str) -> Arc<ContinuityModel> {
+    Arc::new(ContinuityModel {
+        requests: Mutex::new(Vec::new()),
+        summary: summary.into(),
+        gate: Mutex::new(None),
+    })
+}
+
+#[tokio::test]
+async fn user_revisions_survive_repeated_lossy_and_degraded_summaries_and_restart() {
+    // 摘要既可能遗漏修订，也可能完全无效；两种情况下修订必须独立保留。
+    for summary in ["Old task is complete. No scope correction.", ""] {
+        let data = tempfile::tempdir().unwrap();
+        let model = continuity_model(summary);
+        let limits = Limits {
+            context_window_bytes: 9000,
+            context_recent_bytes: 256,
+            ..Limits::default()
+        };
+        let engine = Engine::open(data.path(), model.clone(), limits.clone()).unwrap();
+        let thread = engine.create("/workspace".into()).await.unwrap();
+        let inputs = [
+            "Build game revision 1; initial scope included music.",
+            "Revision 2: only fix pc-ads-fire-button-chord, pc-button-chord-release-stuck-fire, ads-optical-center, retry-hud-feedback-reset, low-quality-render-draw-budget. Do not redo music.",
+            "Revision 3: ads-optical-center is accepted; only four checks remain. Never undo the accepted fix.",
+            "Continue from verified evidence.",
+            "Check actual files and deliver only the remaining four fixes.",
+            "Preserve revision 3 while checking results.",
+        ];
+        for input in inputs {
+            let t = turn(&engine, &thread.id, input).await;
+            assert_eq!(t.turns.last().unwrap().status, TurnStatus::Completed);
+        }
+        let state = engine.read(&thread.id, true).await.unwrap();
+        assert!(state.context_checkpoint.as_ref().unwrap().compactions >= 2);
+        if summary.is_empty() {
+            assert_eq!(
+                state
+                    .context_checkpoint
+                    .as_ref()
+                    .unwrap()
+                    .summary
+                    .matches("DEGRADED CONTEXT:")
+                    .count(),
+                1
+            );
+        }
+        engine.shutdown().await;
+        drop(engine);
+        let engine = Engine::open(data.path(), model.clone(), limits).unwrap();
+        let state = turn(
+            &engine,
+            &thread.id,
+            "Resume and finish the current revision.",
+        )
+        .await;
+        assert_eq!(state.turns.last().unwrap().status, TurnStatus::Completed);
+        {
+            let calls = model.requests.lock().unwrap();
+            let (_, request) = calls
+                .iter()
+                .rev()
+                .find(|(p, _)| *p == RequestPurpose::Solve)
+                .unwrap();
+            let users: Vec<_> = request
+                .iter()
+                .filter(|m| m.role == "user")
+                .map(Message::text_content)
+                .collect();
+            assert_eq!(&users[..inputs.len()], &inputs);
+            for (_, messages) in calls.iter().filter(|(p, _)| *p == RequestPurpose::Summary) {
+                assert!(
+                    !messages
+                        .iter()
+                        .filter(|m| m.role == "user")
+                        .any(|m| m.text_content().contains("summary was rejected")
+                            || m.text_content().contains("Core compaction control"))
+                );
+            }
+        }
+        engine.shutdown().await;
+    }
+}
+
+#[tokio::test]
+async fn valid_8027_byte_summary_is_not_discarded_at_an_arbitrary_8000_byte_limit() {
+    let data = tempfile::tempdir().unwrap();
+    let summary = format!("Latest repair: five checks. {}", "x".repeat(7999));
+    assert_eq!(summary.len(), 8027);
+    let model = continuity_model(&summary);
+    let engine = Engine::open(
+        data.path(),
+        model.clone(),
+        Limits {
+            context_window_bytes: 1024 * 1024,
+            context_recent_bytes: 256,
+            context_target_tokens: 1000,
+            ..Limits::default()
+        },
+    )
+    .unwrap();
+    let thread = engine.create("/workspace".into()).await.unwrap();
+    for n in 0..10 {
+        turn(&engine, &thread.id, &format!("Retain repair revision {n}")).await;
+    }
+    engine.context_compact(thread.id.clone()).await.unwrap();
+    let state = engine.read(&thread.id, true).await.unwrap();
+    assert_eq!(state.context_checkpoint.unwrap().summary, summary);
+    engine.shutdown().await;
+}
+
+#[tokio::test]
+async fn expanding_summary_falls_back_without_losing_user_input_or_failing_the_turn() {
+    let data = tempfile::tempdir().unwrap();
+    let model = continuity_model(&"summary ".repeat(1500));
+    let engine = Engine::open(
+        data.path(),
+        model.clone(),
+        Limits {
+            context_window_bytes: 9000,
+            context_recent_bytes: 8500,
+            ..Limits::default()
+        },
+    )
+    .unwrap();
+    let thread = engine.create("/workspace".into()).await.unwrap();
+    for input in [
+        "Original goal",
+        "修订：只修瞄准组合键，不重做已验收功能",
+        "Verify current revision",
+    ] {
+        let state = turn(&engine, &thread.id, input).await;
+        assert_eq!(state.turns.last().unwrap().status, TurnStatus::Completed);
+    }
+    let state = engine.read(&thread.id, true).await.unwrap();
+    assert!(
+        state
+            .context_checkpoint
+            .unwrap()
+            .summary
+            .starts_with("DEGRADED CONTEXT:")
+    );
+    assert!(
+        model
+            .requests
+            .lock()
+            .unwrap()
+            .last()
+            .unwrap()
+            .1
+            .iter()
+            .any(|m| m.role == "user"
+                && m.text_content() == "修订：只修瞄准组合键，不重做已验收功能")
+    );
+    engine.shutdown().await;
+}
+
+#[tokio::test]
+async fn user_only_prefix_is_not_sent_to_a_paid_summarizer_when_it_cannot_shrink() {
+    let data = tempfile::tempdir().unwrap();
+    let model = continuity_model("summary");
+    let engine = Engine::open(data.path(), model.clone(), limits()).unwrap();
+    let thread = engine.create("/workspace".into()).await.unwrap();
+    let result = turn(
+        &engine,
+        &thread.id,
+        &"large exact user specification ".repeat(400),
+    )
+    .await;
+    assert_eq!(result.turns.last().unwrap().status, TurnStatus::Completed);
+    assert!(result.context_checkpoint.is_none());
+    assert_eq!(model.requests.lock().unwrap().len(), 1);
+    engine.shutdown().await;
+}
+
+#[tokio::test]
+async fn explicit_compaction_target_leaves_headroom_across_long_conversations() {
+    let mut compactions = Vec::new();
+    for target in [0, 700] {
+        let data = tempfile::tempdir().unwrap();
+        let model = model(false);
+        let engine = Engine::open(
+            data.path(),
+            model,
+            Limits {
+                context_window_bytes: 7000,
+                context_recent_bytes: 5000,
+                context_target_tokens: target,
+                ..Limits::default()
+            },
+        )
+        .unwrap();
+        let thread = engine.create("/workspace".into()).await.unwrap();
+        let mut result = thread.clone();
+        for n in 0..16 {
+            result = turn(
+                &engine,
+                &thread.id,
+                &format!("Continue implementation checkpoint {n}; preserve original constraint"),
+            )
+            .await;
+            assert_eq!(result.turns.last().unwrap().status, TurnStatus::Completed);
+        }
+        compactions.push(result.context_checkpoint.unwrap().compactions);
+        engine.shutdown().await;
+    }
+    assert!(
+        compactions[1] < compactions[0],
+        "target should reduce repeated summaries: {compactions:?}"
+    );
+}
+
+#[tokio::test]
+async fn steering_during_summary_is_preserved_and_not_misclassified_as_failed_reduction() {
+    let data = tempfile::tempdir().unwrap();
+    let model = continuity_model("Old prefix summarized; retain user corrections.");
+    let engine = Engine::open(
+        data.path(),
+        model.clone(),
+        Limits {
+            context_window_bytes: 9000,
+            context_recent_bytes: 256,
+            ..Limits::default()
+        },
+    )
+    .unwrap();
+    let thread = engine.create("/workspace".into()).await.unwrap();
+    turn(&engine, &thread.id, "Original task").await;
+    turn(&engine, &thread.id, "Continue").await;
+    let gate = Arc::new(Notify::new());
+    *model.gate.lock().unwrap() = Some(gate.clone());
+    let active = engine
+        .start(&thread.id, vec![Input::text("Verify")])
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if model
+                .requests
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|(p, _)| *p == RequestPurpose::Summary)
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    let revision = format!(
+        "LATEST STEER: only repair chord. {}",
+        "exact scope condition ".repeat(900)
+    );
+    engine
+        .steer(&thread.id, &active.id, vec![Input::text(&revision)])
+        .await
+        .unwrap();
+    gate.notify_one();
+    let result = tokio::time::timeout(Duration::from_secs(5), engine.wait(&thread.id))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        result.turns.last().unwrap().status,
+        TurnStatus::Completed,
+        "{:?}",
+        result.turns.last().unwrap().error
+    );
+    {
+        let calls = model.requests.lock().unwrap();
+        assert!(
+            calls
+                .iter()
+                .rev()
+                .find(|(p, _)| *p == RequestPurpose::Solve)
+                .unwrap()
+                .1
+                .iter()
+                .any(|m| m.role == "user" && m.text_content() == revision)
+        );
+    }
+    engine.shutdown().await;
+}

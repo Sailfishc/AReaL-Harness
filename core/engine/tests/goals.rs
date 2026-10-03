@@ -725,9 +725,14 @@ async fn compaction_usage_belongs_to_the_goal_and_the_objective_survives() {
     e.wait(&t.id).await.unwrap();
     e.goal_create("test".into(), request(&t.id)).await.unwrap();
     let summary = next(&mut rx).await;
-    assert_eq!(
-        summary.messages.last().unwrap().text_content(),
-        "Produce the continuation summary now."
+    assert_eq!(summary.messages.last().unwrap().role, "system");
+    assert!(
+        summary
+            .messages
+            .last()
+            .unwrap()
+            .text_content()
+            .starts_with("Core compaction control")
     );
     assert!(summary.tools.is_empty());
     summary.answer("Earlier investigation is complete; now verify the new objective.");
@@ -739,7 +744,13 @@ async fn compaction_usage_belongs_to_the_goal_and_the_objective_survives() {
     solve.report("complete");
     let mut calls = 3;
     let mut reply = next(&mut rx).await;
-    if reply.messages.last().unwrap().text_content() == "Produce the continuation summary now." {
+    if reply
+        .messages
+        .last()
+        .unwrap()
+        .text_content()
+        .starts_with("Core compaction control")
+    {
         reply.answer("Goal completion was verified and reported; provide the final reply.");
         calls += 1;
         reply = next(&mut rx).await;

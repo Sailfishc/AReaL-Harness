@@ -513,4 +513,38 @@ mod tests {
         );
         assert_eq!(budget.usage().reserved_tokens, 0);
     }
+    #[tokio::test]
+    async fn bounded_cancel_drain_settles_known_tail_but_keeps_missing_usage_unknown() {
+        let dir = tempfile::tempdir().unwrap();
+        let budget = fixture(dir.path(), 100000);
+        let mut known = budget
+            .wrap(Arc::new(Known))
+            .chat_for(
+                vec![Message::text("user", "work")],
+                vec![],
+                RequestPurpose::Solve,
+            )
+            .await
+            .unwrap();
+        crate::generation::settle_cancelled_stream(&mut known).await;
+        drop(known);
+        assert_eq!(budget.usage().tokens_used, 30);
+        assert_eq!(budget.usage().reserved_tokens, 0);
+        assert!(!budget.unknown_pending());
+        let (guard, _) = budget.reserve(100, RequestPurpose::Summary).await.unwrap();
+        let mut missing: ModelStream = Box::pin(MeteredStream {
+            inner: Box::pin(futures_util::stream::pending()),
+            guard: Some(guard),
+        });
+        tokio::time::timeout(
+            Duration::from_secs(3),
+            crate::generation::settle_cancelled_stream(&mut missing),
+        )
+        .await
+        .unwrap();
+        drop(missing);
+        assert!(budget.unknown_pending());
+        assert_eq!(budget.usage().tokens_used, 30);
+        assert!(budget.usage().reserved_tokens > 0);
+    }
 }

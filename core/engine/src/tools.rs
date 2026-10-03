@@ -808,6 +808,8 @@ impl Engine {
                 .insert(item_id.clone());
             emit_item(cell, "item/started", &thread_id, &turn_id, &item);
         }
+        let intent_ms = started.elapsed().as_secs_f64() * 1000.0;
+        let invocation_started = std::time::Instant::now();
         let submitted = !cancel.is_cancelled();
         let mut post_hook_failed = false;
         let result = if let Err(error) = entry {
@@ -837,6 +839,8 @@ impl Engine {
                 "cancelled before submission",
             ))
         };
+        let invocation_ms = invocation_started.elapsed().as_secs_f64() * 1000.0;
+        let projection_started = std::time::Instant::now();
         let (outcome, success, mut result) = match result {
             Ok((success, value)) => (
                 if success {
@@ -944,6 +948,8 @@ impl Engine {
             custom_content = None;
         }
         let result = bounded_result(serde_json::to_string(&prepared.value)?);
+        let projection_ms = projection_started.elapsed().as_secs_f64() * 1000.0;
+        let commit_started = std::time::Instant::now();
         let mut state = cell.state.lock().await;
         let mut candidate = state.thread.clone();
         let item = candidate
@@ -982,6 +988,10 @@ impl Engine {
             state.poisoned = true;
             return Err(error.into());
         }
+        tracing::debug!(target: "areal::tool_timing", thread_id = %thread_id, turn_id = %turn_id,
+            tool = %call.name, item_id = %item_id, intent_ms, invocation_ms, projection_ms,
+            commit_ms = commit_started.elapsed().as_secs_f64() * 1000.0,
+            total_ms = started.elapsed().as_secs_f64() * 1000.0, "tool stages settled");
         state.thread = candidate;
         if let Some((process, cursor)) = cursor {
             state

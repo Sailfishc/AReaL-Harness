@@ -546,6 +546,8 @@ pub struct HttpModel {
 #[derive(Clone, Debug)]
 pub struct ModelOptions {
     pub reasoning_effort: Option<String>,
+    pub summary_reasoning_effort: Option<String>,
+    pub summary_max_output_tokens: Option<u64>,
     pub reasoning_summary: Option<String>,
     pub responses_websocket: bool,
     pub temperature: Option<f64>,
@@ -562,6 +564,8 @@ impl Default for ModelOptions {
     fn default() -> Self {
         Self {
             reasoning_effort: None,
+            summary_reasoning_effort: None,
+            summary_max_output_tokens: None,
             reasoning_summary: None,
             responses_websocket: false,
             temperature: None,
@@ -628,14 +632,21 @@ impl HttpModel {
         );
         anyhow::ensure!(options.max_retries <= 8, "model retries must be at most 8");
         anyhow::ensure!(
-            options.max_output_tokens != Some(0),
+            options.max_output_tokens != Some(0) && options.summary_max_output_tokens != Some(0),
             "output token limit must be positive"
         );
         anyhow::ensure!(
-            options.reasoning_effort.as_deref().is_none_or(|v| matches!(
-                v,
-                "none" | "minimal" | "low" | "medium" | "high" | "xhigh"
-            )),
+            options
+                .summary_reasoning_effort
+                .as_deref()
+                .is_none_or(|v| matches!(
+                    v,
+                    "none" | "minimal" | "low" | "medium" | "high" | "xhigh"
+                ))
+                && options.reasoning_effort.as_deref().is_none_or(|v| matches!(
+                    v,
+                    "none" | "minimal" | "low" | "medium" | "high" | "xhigh"
+                )),
             "invalid reasoning effort"
         );
         anyhow::ensure!(
@@ -878,7 +889,14 @@ impl Model for HttpModel {
         if let Some(summary) = &self.options.reasoning_summary {
             body["reasoning"] = json!({"summary":summary});
         }
-        if let Some(effort) = &self.options.reasoning_effort {
+        if let Some(effort) = if purpose == RequestPurpose::Summary {
+            self.options
+                .summary_reasoning_effort
+                .as_ref()
+                .or(self.options.reasoning_effort.as_ref())
+        } else {
+            self.options.reasoning_effort.as_ref()
+        } {
             match self.protocol {
                 ModelProtocol::ChatCompletions => body["reasoning_effort"] = json!(effort),
                 ModelProtocol::Responses => body["reasoning"]["effort"] = json!(effort),
@@ -889,7 +907,12 @@ impl Model for HttpModel {
             (configured, cap) => configured.or(cap),
         };
         let output_tokens = if purpose == RequestPurpose::Summary {
-            Some(output_tokens.unwrap_or(16384).min(16384))
+            Some(
+                output_tokens
+                    .unwrap_or(16384)
+                    .min(16384)
+                    .min(self.options.summary_max_output_tokens.unwrap_or(16384)),
+            )
         } else {
             output_tokens
         };

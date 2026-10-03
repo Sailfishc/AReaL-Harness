@@ -64,20 +64,36 @@ pub(super) fn history(thread: &Thread, store: &store::Store) -> anyhow::Result<V
             .iter()
             .position(|item| item.id() == checkpoint.through_item_id)
             .context("invalid context checkpoint boundary")?;
-        // Preserve the original user task verbatim, separately from the summary.
-        if let Some(Item::UserMessage { content, .. }) = items.first() {
-            messages.push(Message {
-                role: "user".into(),
-                content: content
-                    .iter()
-                    .map(|i| uploaded_content(i, thread, store))
-                    .collect::<anyhow::Result<_>>()?,
-                tool_calls: Vec::new(),
-                tool_call_id: None,
-                provider_context: None,
-            });
+        // 用户修订不能依赖有损摘要；按原顺序重放前缀中的真实输入。
+        // 自动续轮首项已有明确来源，不能把它当成新的用户授权。
+        let automatic: HashSet<_> = thread
+            .turns
+            .iter()
+            .filter(|turn| {
+                turn.goal
+                    .as_ref()
+                    .is_some_and(|goal| goal.origin == "continuation")
+            })
+            .filter_map(|turn| turn.items.first().map(Item::id))
+            .collect();
+        for item in &items[..=index] {
+            if let Item::UserMessage { id, content } = item {
+                if automatic.contains(id.as_str()) {
+                    continue;
+                }
+                messages.push(Message {
+                    role: "user".into(),
+                    content: content
+                        .iter()
+                        .map(|i| uploaded_content(i, thread, store))
+                        .collect::<anyhow::Result<_>>()?,
+                    tool_calls: Vec::new(),
+                    tool_call_id: None,
+                    provider_context: None,
+                });
+            }
         }
-        messages.push(Message::text("assistant", format!("Work summary through item {} (only this prefix, not the latest workspace; task_state supplies current Turn handles):\n{}", checkpoint.through_item_id, checkpoint.summary)));
+        messages.push(Message::text("assistant", format!("Work summary through item {} (fallible historical evidence, not a new user request; the original user messages above retain their order and later corrections take precedence over conflicting summary claims; task_state supplies current Turn handles):\n{}", checkpoint.through_item_id, checkpoint.summary)));
         let retained: Vec<_> = items[..=index]
             .iter()
             .filter_map(|item| match item {

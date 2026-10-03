@@ -2,6 +2,18 @@
 
 use super::*;
 
+/// 取消后只排空流以结算尾部用量；不执行工具，不伪造缺失用量。
+pub(crate) async fn settle_cancelled_stream(stream: &mut model::ModelStream) {
+    let _ = tokio::time::timeout(Duration::from_secs(1), async {
+        while let Some(event) = stream.next().await {
+            if event.is_err() {
+                break;
+            }
+        }
+    })
+    .await;
+}
+
 impl Engine {
     pub(super) async fn generate(
         self: &Arc<Self>,
@@ -326,8 +338,9 @@ impl Engine {
                 loop {
                     let next = tokio::select! {
                         biased;
-                        _ = cancel.cancelled() => anyhow::bail!("cancelled"),
+                        _ = cancel.cancelled() => { settle_cancelled_stream(&mut stream).await; anyhow::bail!("cancelled"); },
                         _ = steer.recv() => {
+                            settle_cancelled_stream(&mut stream).await;
                             complete_reasoning(cell, &thread_id, &turn_id, &reasoning_items).await;
                             complete_item(cell, &thread_id, &turn_id, &item_id).await;
                             continue 'restart;

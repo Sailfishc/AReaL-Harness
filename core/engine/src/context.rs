@@ -261,7 +261,7 @@ impl Engine {
             })
             .map_or(0, |index| index + 1);
         let mut recent_bytes = 0;
-        let mut cut = None;
+        let mut boundaries = Vec::new();
         // Cut only before a model round or a new user message. A round's opaque
         // reasoning, function calls and results always remain in the same group.
         for index in (previous..items.len()).rev() {
@@ -271,8 +271,7 @@ impl Engine {
                 continue;
             }
             recent_bytes += serde_json::to_vec(items[index])?.len();
-            if recent_bytes >= self.limits.context_recent_bytes
-                && index > previous
+            if index > previous
                 && matches!(
                     items[index],
                     Item::AgentMessage { .. } | Item::UserMessage { .. }
@@ -287,13 +286,58 @@ impl Engine {
                     index
                 };
                 if boundary > previous {
-                    cut = Some(boundary);
-                    break;
+                    boundaries.push((boundary, recent_bytes));
                 }
             }
         }
-        // A single oversized round cannot be split into invalid tool history.
-        let Some(cut) = cut else {
+        // 先模拟实际历史投影，避免只压缩原始任务（该任务本来就会保留）。
+        // 保留区过大时在同一组合法边界内缩短保留；不拆分工具调用与结果。
+        let mut selected = None;
+        let mut best_saving = 0;
+        let mut probe = snapshot.clone();
+        // 先检查近期保留边界，再检查最大可压缩前缀；不逐项重建长历史，
+        // 避免大量工具轮次下 O(rounds × history) 的投影成本。
+        let preferred = boundaries
+            .iter()
+            .find(|(_, bytes)| *bytes >= self.limits.context_recent_bytes);
+        let deepest = boundaries.first();
+        for (cut, _) in preferred
+            .into_iter()
+            .chain(deepest.filter(|value| Some(*value) != preferred))
+        {
+            probe.context_checkpoint = Some(areal_protocol::ContextCheckpoint {
+                through_item_id: items[*cut - 1].id().to_owned(),
+                summary: String::new(),
+                usage: Default::default(),
+                total_duration_ms: 0,
+                compactions: 0,
+            });
+            let projected = history(&probe, &self.store)?;
+            let saving = before_bytes.saturating_sub(message_bytes(&projected));
+            if saving < 1024 {
+                continue;
+            }
+            if self.limits.context_target_tokens == 0 {
+                selected = Some((*cut, saving - 64));
+                break;
+            }
+            // 预留摘要空间，并要求释放足够余量；达不到目标时选择最大净缩减。
+            // 8000 字节是生成建议；空间允许时保留有效长摘要，避免丢失整合接口。
+            if saving > best_saving {
+                selected = Some((*cut, saving.saturating_sub(64).min(SUMMARY_LIMIT)));
+                best_saving = saving;
+            }
+            let projected_tokens = calibrated(
+                estimate_tokens(&projected) + overhead_tokens,
+                previous_usage,
+            );
+            if projected_tokens.saturating_add(4096) <= self.limits.context_target_tokens {
+                selected = Some((*cut, saving.saturating_sub(64).min(SUMMARY_LIMIT)));
+                break;
+            }
+        }
+        // 单个不可拆分的超大 round 留给现有上下文上限处理，不生成无效摘要。
+        let Some((cut, summary_budget)) = selected else {
             return Ok(());
         };
         let mut operation = trajectory::Operation::new(
@@ -329,9 +373,10 @@ impl Engine {
                 0,
                 Message::text("system", include_str!("summary-instructions.md")),
             );
+            // 压缩控制不能伪装成最新用户需求，尤其不能覆盖正在整合的任务。
             input.push(Message::text(
-                "user",
-                "Produce the continuation summary now.",
+                "system",
+                "Core compaction control, not a user message: summarize the preceding session prefix for continuation under the summary instructions. Do not list this control message or a previous internal summary request as the latest user task. Preserve the actual user task, corrections, implementation interfaces and concrete next step.",
             ));
             tracing::Span::current().record("gen_ai.input.messages", trajectory::messages(&input));
             let started = tokio::time::Instant::now();
@@ -380,7 +425,10 @@ impl Engine {
                     };
                     loop {
                         let event = tokio::select! {
-                            _ = cancel.cancelled() => anyhow::bail!("cancelled"),
+                            _ = cancel.cancelled() => {
+                                crate::generation::settle_cancelled_stream(&mut stream).await;
+                                anyhow::bail!("cancelled");
+                            },
                             result = tokio::time::timeout(self.limits.stream_idle_timeout, stream.next()) => result.map_err(|_| watchdog::idle_error("compaction stream"))?,
                         };
                         let Some(event) = event else { break; };
@@ -449,12 +497,22 @@ impl Engine {
                 attempt += 1;
                 network_retries = 0;
                 request_reserved = false;
-                input.push(Message::text("user", "The summary was rejected. Return plain factual text only, without tool calls or markup. Use fewer than 1000 words and 8000 UTF-8 bytes. Keep unfinished work and verification status explicit."));
+                input.push(Message::text("system", "Internal compaction retry, not a user task. The summary was rejected. Return plain factual text only, without tool calls or markup. Use fewer than 1000 words and 8000 UTF-8 bytes. Keep unfinished work and verification status explicit."));
             }
-            let summary = accepted
-                .unwrap_or_else(|| retained_evidence(&prefix, SUMMARY_LIMIT.min(before_bytes / 3)));
+            let generated_summary_bytes = accepted.as_ref().map(String::len);
+            let mut degradation_reason = accepted.is_none().then_some("summary_unavailable");
+            let mut summary = accepted
+                .unwrap_or_else(|| retained_evidence(&prefix, SUMMARY_LIMIT.min(summary_budget)));
+            if summary.len() > summary_budget {
+                // 一次本地证据回退，避免重新付费摘要或持久化膨胀后的历史。
+                degradation_reason = Some("insufficient_net_saving");
+                summary = retained_evidence(&prefix, summary_budget.min(SUMMARY_LIMIT));
+                summary = tools::prefix(&summary, summary_budget).to_owned();
+            }
             tracing::Span::current().record("gen_ai.output.messages", trajectory::messages(&[Message::text("assistant", &summary)]));
             let mut state = cell.state.lock().await;
+            // 摘要等待期间允许 steer；净缩减必须与同一时刻的历史比较。
+            let commit_before_bytes = message_bytes(&history(&state.thread, &self.store)?);
             let mut candidate = state.thread.clone();
             let mut cumulative_usage = snapshot
                 .context_checkpoint
@@ -483,14 +541,16 @@ impl Engine {
                 .usage
                 .get_or_insert_with(Default::default)
                 .add_assign(&usage);
-            let after_bytes = message_bytes(&history(&candidate, &self.store)?);
+            let after_history = history(&candidate, &self.store)?;
+            let after_bytes = message_bytes(&after_history);
+            let after_tokens = calibrated(estimate_tokens(&after_history) + overhead_tokens, previous_usage);
             anyhow::ensure!(
-                after_bytes < before_bytes,
+                after_bytes < commit_before_bytes,
                 "context compaction did not reduce input size"
             );
             self.persist(&candidate).await?;
             state.thread = candidate;
-            cell.emit("areal/context/compacted", json!({"threadId":state.thread.id,"beforeBytes":before_bytes,"afterBytes":after_bytes,"durationMs":started.elapsed().as_millis() as u64,"usage":usage}));
+            cell.emit("areal/context/compacted", json!({"threadId":state.thread.id,"beforeBytes":commit_before_bytes,"summaryInputBytes":before_bytes,"afterBytes":after_bytes,"beforeEstimatedTokens":estimated_tokens,"afterEstimatedTokens":after_tokens,"targetTokens":self.limits.context_target_tokens,"summaryBytes":state.thread.context_checkpoint.as_ref().map(|c|c.summary.len()),"generatedSummaryBytes":generated_summary_bytes,"summaryBudgetBytes":summary_budget,"degradationReason":degradation_reason,"retainedUserMessages":after_history.iter().filter(|m|m.role == "user").count(),"durationMs":started.elapsed().as_millis() as u64,"usage":usage}));
             tracing::info!(
                 before_bytes,
                 after_bytes,
@@ -508,9 +568,11 @@ impl Engine {
 // evidence, with the original user task still replayed verbatim by history().
 fn retained_evidence(thread: &Thread, budget: usize) -> String {
     let mut result = String::from(
-        "DEGRADED CONTEXT: summary generation failed. Older details were omitted; the full event archive is retained. Reinspect files and rerun necessary checks before claiming completion. Do not replay unconfirmed operations. Recent evidence follows (excerpts, not a completeness claim).\n",
+        "DEGRADED CONTEXT: no usable summary fits the compaction budget. Older details were omitted; the full event archive is retained. Reinspect files and rerun necessary checks before claiming completion. Do not replay unconfirmed operations. Recent evidence follows (excerpts, not a completeness claim).\n",
     );
-    if let Some(checkpoint) = &thread.context_checkpoint {
+    if let Some(checkpoint) = &thread.context_checkpoint
+        && !checkpoint.summary.starts_with("DEGRADED CONTEXT:")
+    {
         result.push_str("Previous checkpoint excerpt: ");
         result.push_str(tools::prefix(&checkpoint.summary, budget / 4));
         result.push('\n');
@@ -533,24 +595,14 @@ fn retained_evidence(thread: &Thread, budget: usize) -> String {
                     768
                 )
             ),
-            Item::UserMessage { content, .. } => format!(
-                "User: {}\n",
-                tools::prefix(
-                    &content
-                        .iter()
-                        .map(Input::as_text)
-                        .collect::<Vec<_>>()
-                        .join("\n"),
-                    1024
-                )
-            ),
+            Item::UserMessage { .. } => continue, // 原文由 history 独立保留。
             Item::AgentMessage { text, .. } => {
                 format!("Assistant claim (verify): {}\n", tools::prefix(text, 512))
             }
             _ => continue,
         };
         if used + evidence.len() > budget {
-            break;
+            continue;
         }
         used += evidence.len();
         excerpts.push(evidence);
@@ -558,7 +610,7 @@ fn retained_evidence(thread: &Thread, budget: usize) -> String {
     for excerpt in excerpts.into_iter().rev() {
         result.push_str(&excerpt);
     }
-    result
+    tools::prefix(&result, budget).to_owned()
 }
 
 #[cfg(test)]
