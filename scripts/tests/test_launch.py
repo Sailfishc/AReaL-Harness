@@ -71,7 +71,7 @@ class CoreArgumentsTest(unittest.TestCase):
 
 
 class LauncherProcessTest(unittest.TestCase):
-    def fixture(self, directory, invalid=False, linked=False):
+    def fixture(self, directory, invalid=False, linked=False, extra=()):
         root = Path(directory)
         (root / "workspace").mkdir()
         prefix = f"#!{sys.executable}\nimport json, os, sys\nfrom pathlib import Path\nroot=Path({str(root)!r})\n"
@@ -95,7 +95,7 @@ else:
         runtime = (
             prefix
             + """
-(root/'runtime.json').write_text(json.dumps({'has_key': 'MODEL_KEY' in os.environ}))
+(root/'runtime.json').write_text(json.dumps({'has_key': 'MODEL_KEY' in os.environ, 'args': sys.argv[1:]}))
 sys.stdin.buffer.read()
 """
         )
@@ -127,6 +127,7 @@ sys.stdin.buffer.read()
                 "selected.toml",
                 "--model",
                 "explicit",
+                *extra,
             ],
             env={
                 "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
@@ -154,6 +155,27 @@ sys.stdin.buffer.read()
             self.assertNotIn("--listen", core["args"])
             self.assertEqual(core["key"], "fixture-key")
             self.assertFalse(json.loads((root / "runtime.json").read_text())["has_key"])
+
+    def test_process_capacity_default_and_override_reach_runtime_only(self):
+        for extra, expected in [((), "4"), (("--runtime-max-processes", "32"), "32")]:
+            with self.subTest(expected=expected), tempfile.TemporaryDirectory() as directory:
+                result = self.fixture(directory, extra=extra)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                root = Path(directory)
+                runtime = json.loads((root / "runtime.json").read_text())["args"]
+                core = json.loads((root / "core.json").read_text())["args"]
+                self.assertEqual(runtime[runtime.index("--max-processes") + 1], expected)
+                self.assertNotIn("--runtime-max-processes", core)
+                self.assertNotIn("--max-processes", core)
+
+    def test_invalid_process_capacity_starts_no_services(self):
+        for value in ("0", "-1", "4294967296"):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as directory:
+                result = self.fixture(directory, extra=("--runtime-max-processes", value))
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("runtime max processes", result.stderr)
+                for name in ("preflight.json", "core.json", "runtime.json"):
+                    self.assertFalse((Path(directory) / name).exists())
 
     def test_symlink_entry_resolves_helpers_inside_the_installed_keg(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -79,6 +79,7 @@ def main():
     parser.add_argument("--scratch", type=Path)
     parser.add_argument("--allow-write", action="store_true")
     parser.add_argument("--task-credential-command", action="append", default=[])
+    parser.add_argument("--runtime-max-processes", type=int, default=4)
     parser.add_argument("--runtime-max-scopes", type=int, default=256)
     parser.add_argument("--runtime-max-operations", type=int, default=4096)
     parser.add_argument("--workgroup-policy", type=Path)
@@ -119,6 +120,8 @@ def main():
     parser.add_argument("--ascii", choices=("true", "false"), nargs="?", const="true")
     parser.add_argument("--mouse", choices=("true", "false"), nargs="?", const="true")
     args = parser.parse_args()
+    if not 1 <= args.runtime_max_processes <= 4294967295:
+        parser.error("runtime max processes must be 1..4294967295")
     if args.desktop and args.tui:
         parser.error("--desktop and --tui are mutually exclusive")
     if not 0 < args.startup_timeout <= 300:
@@ -316,6 +319,8 @@ def main():
                     str(args.command_timeout_ms),
                     "--output-bytes",
                     str(args.command_output_bytes),
+                    "--max-processes",
+                    str(args.runtime_max_processes),
                     "--max-scopes",
                     str(args.runtime_max_scopes),
                     "--max-operations",
