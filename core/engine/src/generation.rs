@@ -15,11 +15,49 @@ pub(crate) async fn settle_cancelled_stream(stream: &mut model::ModelStream) {
 }
 
 impl Engine {
+    // 子作者协作不是紧急取消：保留当前请求直到计量结算，丢弃过时输出但不执行工具。
+    // 显式取消仍可打断等待；超时/缺失用量继续保留 UNKNOWN，不伪造结算。
+    async fn settle_child_steering(
+        &self,
+        cell: &Cell,
+        cancel: &CancellationToken,
+        stream: &mut model::ModelStream,
+    ) {
+        let deadline = tokio::time::sleep(
+            self.limits
+                .stream_idle_timeout
+                .min(Duration::from_secs(180)),
+        );
+        tokio::pin!(deadline);
+        let mut usage = areal_protocol::ModelUsage::default();
+        loop {
+            tokio::select! {
+                biased;
+                _ = cancel.cancelled() => { settle_cancelled_stream(stream).await; break; },
+                _ = &mut deadline => break,
+                event = stream.next() => match event {
+                    Some(Ok(model::ModelEvent::Usage(value))) => usage.add_assign(&value),
+                    Some(Ok(_)) => {},
+                    _ => break,
+                }
+            }
+        }
+        let mut state = cell.state.lock().await;
+        state
+            .thread
+            .turns
+            .last_mut()
+            .unwrap()
+            .usage
+            .get_or_insert_with(Default::default)
+            .add_assign(&usage);
+    }
+
     pub(super) async fn generate(
         self: &Arc<Self>,
         cell: &Arc<Cell>,
         cancel: &CancellationToken,
-        steer: &mut mpsc::Receiver<()>,
+        steer: &mut mpsc::Receiver<bool>,
     ) -> anyhow::Result<()> {
         self.refresh_managed_tools(cell).await?;
         let model = cell
@@ -315,18 +353,43 @@ impl Engine {
                     emit_item(cell, "item/started", &thread_id, &turn_id, &item);
                 }
                 let mut completion_items = HashSet::from([item_id.clone()]);
-                let response = tokio::select! {
-                    biased;
-                    _ = cancel.cancelled() => anyhow::bail!("cancelled"),
-                    _ = steer.recv() => {
-                        complete_reasoning(cell, &thread_id, &turn_id, &reasoning_items).await;
-                        complete_item(cell, &thread_id, &turn_id, &item_id).await;
-                        continue 'restart;
-                    },
-                    result = tokio::time::timeout(
+                let response = {
+                    let pending_response = tokio::time::timeout(
                         self.limits.stream_idle_timeout,
-                        model::REQUEST_OWNER.scope((thread_id.clone(), turn_id.clone()), model.chat_with_limits(messages.clone(), tool_definitions.clone(), model::RequestPurpose::Solve, tool_limits, None)).instrument(model_span.clone()),
-                    ) => result.map_err(|_| watchdog::idle_error("model request")).and_then(|v| v),
+                        model::REQUEST_OWNER
+                            .scope(
+                                (thread_id.clone(), turn_id.clone()),
+                                model.chat_with_limits(
+                                    messages.clone(),
+                                    tool_definitions.clone(),
+                                    model::RequestPurpose::Solve,
+                                    tool_limits,
+                                    None,
+                                ),
+                            )
+                            .instrument(model_span.clone()),
+                    );
+                    tokio::pin!(pending_response);
+                    tokio::select! {
+                        biased;
+                        _ = cancel.cancelled() => anyhow::bail!("cancelled"),
+                        settle = steer.recv() => {
+                            if settle == Some(true) {
+                                // HTTP 首包之前也不能丢弃已经发出的请求。
+                                let result = tokio::select! {
+                                    _ = cancel.cancelled() => anyhow::bail!("cancelled"),
+                                    result = tokio::time::timeout(Duration::from_secs(180), &mut pending_response) => result,
+                                };
+                                if let Ok(Ok(Ok(mut stream))) = result {
+                                    self.settle_child_steering(cell, cancel, &mut stream).await;
+                                }
+                            }
+                            complete_reasoning(cell, &thread_id, &turn_id, &reasoning_items).await;
+                            complete_item(cell, &thread_id, &turn_id, &item_id).await;
+                            continue 'restart;
+                        },
+                        result = &mut pending_response => result.map_err(|_| watchdog::idle_error("model request")).and_then(|v| v),
+                    }
                 };
                 let mut stream: model::ModelStream = match response {
                     Ok(stream) => stream,
@@ -339,8 +402,12 @@ impl Engine {
                     let next = tokio::select! {
                         biased;
                         _ = cancel.cancelled() => { settle_cancelled_stream(&mut stream).await; anyhow::bail!("cancelled"); },
-                        _ = steer.recv() => {
-                            settle_cancelled_stream(&mut stream).await;
+                        settle = steer.recv() => {
+                            if settle == Some(true) {
+                                self.settle_child_steering(cell, cancel, &mut stream).await;
+                            } else {
+                                settle_cancelled_stream(&mut stream).await;
+                            }
                             complete_reasoning(cell, &thread_id, &turn_id, &reasoning_items).await;
                             complete_item(cell, &thread_id, &turn_id, &item_id).await;
                             continue 'restart;

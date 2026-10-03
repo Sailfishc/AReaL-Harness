@@ -58,7 +58,7 @@ impl tools::Registry {
             ),
             (
                 "agent_send_input",
-                "Send additional context or a correction to a running direct child. Completed children cannot be resumed: spawn a new task with the needed context.",
+                "Send additional context or a correction to a running direct child. Core settles the current model request before applying the correction, without executing its stale tool calls; the child may take time to respond. Completed children cannot be resumed: spawn a new task with the needed context.",
                 json!({"threadId":target,"prompt":prompt}),
                 vec!["threadId", "prompt"],
             ),
@@ -329,7 +329,7 @@ impl Engine {
                 if name == "agent_cancel" {
                     self.interrupt(&p.thread_id, &child_turn).await?;
                 } else {
-                    self.steer(
+                    self.steer_child_input(
                         &p.thread_id,
                         &child_turn,
                         vec![Input::text(p.prompt.context("prompt is required")?)],

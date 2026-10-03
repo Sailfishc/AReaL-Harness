@@ -27,3 +27,5 @@ Model-spawned children progress asynchronously. The parent receives results in c
 Child Thread and first Turn admission/persistence are atomic; rejection leaves no empty session. Capacity exhaustion rejects immediately rather than blocking a parent for space. Cleanup or final persistence failure retains active quota until Engine teardown and recovery. Restart validates ancestry without resuming execution automatically.
 
 Tool availability does not guarantee delegation. Shared workspaces need nonoverlapping write responsibilities. Width, actual model-request overlap and task benefit are measured separately. Parameters, pagination and errors are in [Core API](../api/core.en.md#agent-tools).
+
+`agent_send_input` is cooperative feedback rather than urgent cancellation. Core drains the child model request to settle usage before applying new input; stale response tools are not executed. Both the pre-header and streaming phases have bounded settlement waits of at most 180 seconds each, also subject to the stream idle deadline. Explicit cancellation can interrupt settlement; missing usage or timeouts remain UNKNOWN rather than being fabricated as settled.

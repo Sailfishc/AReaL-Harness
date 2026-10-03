@@ -118,7 +118,7 @@ struct Active {
     _admission: OwnedSemaphorePermit,
     id: String,
     cancel: CancellationToken,
-    steer: mpsc::Sender<()>,
+    steer: mpsc::Sender<bool>,
     children: Vec<String>,
     model_children: Vec<String>,
     open_items: HashSet<String>,

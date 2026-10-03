@@ -703,3 +703,167 @@ async fn steering_during_summary_is_preserved_and_not_misclassified_as_failed_re
     }
     engine.shutdown().await;
 }
+
+struct LargeReadModel {
+    requests: Mutex<Vec<(RequestPurpose, Vec<Message>)>>,
+}
+#[async_trait]
+impl Model for LargeReadModel {
+    fn name(&self) -> &str {
+        "large-read-fixture"
+    }
+    async fn stream(&self, _: Vec<Message>) -> anyhow::Result<ModelStream> {
+        unreachable!()
+    }
+    async fn chat(&self, messages: Vec<Message>, tools: Vec<Value>) -> anyhow::Result<AgentStream> {
+        self.chat_for(messages, tools, RequestPurpose::Solve).await
+    }
+    async fn chat_for(
+        &self,
+        messages: Vec<Message>,
+        _: Vec<Value>,
+        purpose: RequestPurpose,
+    ) -> anyhow::Result<AgentStream> {
+        let n = {
+            let mut requests = self.requests.lock().unwrap();
+            let n = requests
+                .iter()
+                .filter(|(p, _)| *p == RequestPurpose::Solve)
+                .count();
+            requests.push((purpose, messages));
+            n
+        };
+        let event = if purpose == RequestPurpose::Summary {
+            ModelEvent::text(
+                "Read design chapter; preserve exact task. Asset interfaces are recorded and tools have completed.",
+            )
+        } else if n < 3 {
+            ModelEvent::ToolCall(areal_engine::model::ToolCall {
+                id: format!("read-{n}"),
+                name: "read_design".into(),
+                arguments: serde_json::json!({"large":n==1}).to_string(),
+            })
+        } else {
+            ModelEvent::text("verified")
+        };
+        Ok(Box::pin(stream::iter([Ok(event)])))
+    }
+}
+struct DesignHost;
+#[async_trait]
+impl areal_engine::tools::DynamicToolHost for DesignHost {
+    fn id(&self) -> &str {
+        "design-fixture"
+    }
+    fn is_closed(&self) -> bool {
+        false
+    }
+    async fn call(
+        &self,
+        request: Value,
+        _: tokio_util::sync::CancellationToken,
+    ) -> anyhow::Result<areal_protocol::DynamicToolResponse> {
+        Ok(areal_protocol::DynamicToolResponse {
+            success: true,
+            structured_content: None,
+            content_items: vec![areal_protocol::ToolContent::InputText {
+                text: if request["arguments"]["large"] == true {
+                    (0..5000)
+                        .map(|n| format!("完整设计章节 {n}: 关卡尺寸与道具点位必须准确。\n"))
+                        .collect::<String>()
+                } else {
+                    "small checkpoint".into()
+                },
+            }],
+        })
+    }
+}
+#[tokio::test]
+async fn completed_large_tool_round_is_summarized_once_without_losing_task_or_archive() {
+    let data = tempfile::tempdir().unwrap();
+    let model = Arc::new(LargeReadModel {
+        requests: Mutex::new(vec![]),
+    });
+    let engine = Engine::open(
+        data.path(),
+        model.clone(),
+        Limits {
+            context_window_tokens: 16000,
+            context_output_reserve_tokens: 2000,
+            context_target_tokens: 8000,
+            context_recent_bytes: 6000,
+            context_window_bytes: 12000,
+            max_children_per_turn: 0,
+            max_agent_depth: 0,
+            ..Limits::default()
+        },
+    )
+    .unwrap();
+    let thread=engine.create_with_tools("/workspace".into(),vec![areal_protocol::ToolDefinition {
+        name:"read_design".into(),description:"read fixture chapter".into(),
+        input_schema:serde_json::json!({"type":"object","properties":{"large":{"type":"boolean"}},"required":["large"]}),output_schema:None,
+    }],Arc::new(DesignHost)).await.unwrap();
+    let result = turn(
+        &engine,
+        &thread.id,
+        "Original exact design contract: all three levels, no audio.",
+    )
+    .await;
+    assert_eq!(
+        result.turns.last().unwrap().status,
+        TurnStatus::Completed,
+        "{:?}",
+        result.turns.last().unwrap().error
+    );
+    {
+        let requests = model.requests.lock().unwrap();
+        let solves: Vec<_> = requests
+            .iter()
+            .filter(|(p, _)| *p == RequestPurpose::Solve)
+            .collect();
+        assert_eq!(solves.len(), 4);
+        assert_eq!(
+            requests
+                .iter()
+                .filter(|(p, _)| *p == RequestPurpose::Summary)
+                .count(),
+            1
+        );
+        assert!(
+            solves[2]
+                .1
+                .iter()
+                .all(|m| !m.text_content().contains("完整设计章节 0:"))
+        );
+        assert!(solves[2].1.iter().any(
+            |m| m.role == "user" && m.text_content().contains("Original exact design contract")
+        ));
+        assert!(
+            solves[2]
+                .1
+                .iter()
+                .any(|m| m.text_content().contains("Read design chapter"))
+        );
+        assert_eq!(result.context_checkpoint.as_ref().unwrap().compactions, 1);
+        assert_eq!(
+            result.turns[0]
+                .items
+                .iter()
+                .filter(|i| matches!(
+                    i,
+                    areal_protocol::Item::DynamicToolCall {
+                        success: Some(true),
+                        ..
+                    }
+                ))
+                .count(),
+            3
+        );
+        assert!(
+            serde_json::to_string(&result.turns)
+                .unwrap()
+                .contains("完整设计章节 0:")
+        );
+    }
+    engine.shutdown().await;
+}

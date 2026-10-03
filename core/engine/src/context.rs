@@ -2,6 +2,11 @@ use super::*;
 
 const SUMMARY_LIMIT: usize = 16 * 1024;
 
+// Responses 适配器只发送原生调用，不能把兼容 Chat 的包装再计一次。
+fn wire_call(call: &Value) -> &Value {
+    call.get("_responsesItem").unwrap_or(call)
+}
+
 pub(crate) fn message_bytes(messages: &[Message]) -> usize {
     messages
         .iter()
@@ -19,7 +24,7 @@ pub(crate) fn message_bytes(messages: &[Message]) -> usize {
                 + message
                     .tool_calls
                     .iter()
-                    .map(|call| call.to_string().len())
+                    .map(|call| wire_call(call).to_string().len())
                     .sum::<usize>()
                 + message
                     .provider_context
@@ -30,8 +35,7 @@ pub(crate) fn message_bytes(messages: &[Message]) -> usize {
         .sum()
 }
 
-// Conservative estimate, not a tokenizer. Calibrate upward against actual input
-// usage; never assume one byte equals one token or lower the estimate on cache hits.
+// 保守增量估算，不把 UTF-8 字节或缓存折扣当作模型实际输入 token。
 pub(crate) fn text_tokens(text: &str) -> usize {
     let ascii = text.bytes().filter(u8::is_ascii).count();
     ascii.div_ceil(3) + text.chars().filter(|c| !c.is_ascii()).count() * 2
@@ -44,7 +48,7 @@ pub(crate) fn estimate_tokens(messages: &[Message]) -> usize {
                 + 16
                 + m.tool_calls
                     .iter()
-                    .map(|v| text_tokens(&v.to_string()))
+                    .map(|v| text_tokens(&wire_call(v).to_string()))
                     .sum::<usize>()
                 + m.provider_context
                     .as_ref()
@@ -63,15 +67,17 @@ pub(crate) fn estimate_tokens(messages: &[Message]) -> usize {
         .sum()
 }
 fn calibrated(estimate: usize, previous: Option<(usize, u64)>) -> usize {
-    previous
-        .filter(|(n, _)| *n > 0)
-        .map_or(estimate, |(n, actual)| {
-            estimate.max(
-                (estimate as u128 * actual as u128)
-                    .div_ceil(n as u128)
-                    .min(usize::MAX as u128) as usize,
-            )
-        })
+    match previous.filter(|(n, _)| *n > 0) {
+        // 仅对追加历史使用已结算的完整 input usage（包含缓存）校准基线。
+        // 新内容仍按保守估算计费，另保留 10% 余量；压缩后组成变化不能沿用比例。
+        Some((n, actual)) if estimate >= n => {
+            let actual = usize::try_from(actual).unwrap_or(usize::MAX);
+            actual
+                .saturating_add(actual.div_ceil(10))
+                .saturating_add(estimate - n)
+        }
+        _ => estimate,
+    }
 }
 fn valid_summary(summary: &str) -> bool {
     let text = summary.trim();
@@ -301,10 +307,29 @@ impl Engine {
             .iter()
             .find(|(_, bytes)| *bytes >= self.limits.context_recent_bytes);
         let deepest = boundaries.first();
-        for (cut, _) in preferred
+        let mut candidates: Vec<usize> = preferred
             .into_iter()
             .chain(deepest.filter(|value| Some(*value) != preferred))
+            .map(|(cut, _)| *cut)
+            .collect();
+        // 已结算工具轮次可以整体纳入摘要，不留下一个永远大于目标的尾轮。
+        // 不拆开调用/结果，也不吸收尚未确认的工具；原始用户输入由 history 保留。
+        if self.limits.context_target_tokens > 0
+            && items.len() > previous
+            && matches!(items.last(), Some(Item::DynamicToolCall { status, .. }) if *status != areal_protocol::ToolStatus::InProgress)
+            && !items[previous..].iter().any(|item| {
+                matches!(
+                    item,
+                    Item::DynamicToolCall {
+                        status: areal_protocol::ToolStatus::InProgress,
+                        ..
+                    }
+                )
+            })
         {
+            candidates.push(items.len());
+        }
+        for cut in &candidates {
             probe.context_checkpoint = Some(areal_protocol::ContextCheckpoint {
                 through_item_id: items[*cut - 1].id().to_owned(),
                 summary: String::new(),
@@ -327,16 +352,13 @@ impl Engine {
                 selected = Some((*cut, saving.saturating_sub(64).min(SUMMARY_LIMIT)));
                 best_saving = saving;
             }
-            let projected_tokens = calibrated(
-                estimate_tokens(&projected) + overhead_tokens,
-                previous_usage,
-            );
+            let projected_tokens = estimate_tokens(&projected) + overhead_tokens;
             if projected_tokens.saturating_add(4096) <= self.limits.context_target_tokens {
                 selected = Some((*cut, saving.saturating_sub(64).min(SUMMARY_LIMIT)));
                 break;
             }
         }
-        // 单个不可拆分的超大 round 留给现有上下文上限处理，不生成无效摘要。
+        // 没有可安全压缩且能缩小历史的前缀时，不生成无效摘要。
         let Some((cut, summary_budget)) = selected else {
             return Ok(());
         };
@@ -543,14 +565,15 @@ impl Engine {
                 .add_assign(&usage);
             let after_history = history(&candidate, &self.store)?;
             let after_bytes = message_bytes(&after_history);
-            let after_tokens = calibrated(estimate_tokens(&after_history) + overhead_tokens, previous_usage);
+            let after_tokens = estimate_tokens(&after_history) + overhead_tokens;
             anyhow::ensure!(
                 after_bytes < commit_before_bytes,
                 "context compaction did not reduce input size"
             );
             self.persist(&candidate).await?;
             state.thread = candidate;
-            cell.emit("areal/context/compacted", json!({"threadId":state.thread.id,"beforeBytes":commit_before_bytes,"summaryInputBytes":before_bytes,"afterBytes":after_bytes,"beforeEstimatedTokens":estimated_tokens,"afterEstimatedTokens":after_tokens,"targetTokens":self.limits.context_target_tokens,"summaryBytes":state.thread.context_checkpoint.as_ref().map(|c|c.summary.len()),"generatedSummaryBytes":generated_summary_bytes,"summaryBudgetBytes":summary_budget,"degradationReason":degradation_reason,"retainedUserMessages":after_history.iter().filter(|m|m.role == "user").count(),"durationMs":started.elapsed().as_millis() as u64,"usage":usage}));
+            let metrics = json!({"threadId":state.thread.id,"beforeBytes":commit_before_bytes,"summaryInputBytes":before_bytes,"afterBytes":after_bytes,"beforeEstimatedTokens":estimated_tokens,"afterEstimatedTokens":after_tokens,"targetTokens":self.limits.context_target_tokens,"targetMet":self.limits.context_target_tokens == 0 || after_tokens <= self.limits.context_target_tokens,"trigger":if force {"manual"} else if token_trigger {"tokens"} else {"bytes"},"wholeLatestRound":cut == items.len(),"summaryBytes":state.thread.context_checkpoint.as_ref().map(|c|c.summary.len()),"generatedSummaryBytes":generated_summary_bytes,"summaryBudgetBytes":summary_budget,"degradationReason":degradation_reason,"retainedUserMessages":after_history.iter().filter(|m|m.role == "user").count(),"durationMs":started.elapsed().as_millis() as u64,"usage":usage});
+            cell.emit("areal/context/compacted", metrics);
             tracing::info!(
                 before_bytes,
                 after_bytes,
@@ -617,10 +640,38 @@ fn retained_evidence(thread: &Thread, budget: usize) -> String {
 mod budget_tests {
     use super::*;
     #[test]
-    fn usage_only_calibrates_upward_and_tool_shaped_summaries_are_rejected() {
-        assert_eq!(calibrated(1000, Some((500, 1000))), 2000);
-        assert_eq!(calibrated(1000, Some((500, 100))), 1000);
+    fn settled_usage_calibrates_baseline_but_new_content_remains_conservative() {
+        assert_eq!(calibrated(1000, Some((500, 1000))), 1600);
+        assert_eq!(calibrated(1000, Some((500, 100))), 610);
         assert_eq!(calibrated(1000, Some((0, 100))), 1000);
+        assert_eq!(calibrated(200, Some((500, 100))), 200);
+        assert_eq!(calibrated(60000, Some((60000, 32000))), 35200);
+        assert_eq!(calibrated(85000, Some((60000, 32000))), 60200);
+    }
+    #[test]
+    fn responses_call_is_counted_once_and_chat_calls_remain_counted() {
+        let original = json!({"type":"function_call","call_id":"c","name":"write","arguments":"中文内容".repeat(1000)});
+        let mut message = Message::text("assistant", "");
+        message.tool_calls.push(json!({"id":"c","type":"function","function":{"name":"write","arguments":"中文内容".repeat(1000)},"_responsesItem":original}));
+        assert_eq!(
+            estimate_tokens(&[message.clone()]),
+            16 + text_tokens(&original.to_string())
+        );
+        assert_eq!(
+            message_bytes(&[message.clone()]),
+            64 + original.to_string().len()
+        );
+        message.tool_calls[0]
+            .as_object_mut()
+            .unwrap()
+            .remove("_responsesItem");
+        assert_eq!(
+            estimate_tokens(&[message.clone()]),
+            16 + text_tokens(&message.tool_calls[0].to_string())
+        );
+    }
+    #[test]
+    fn tool_shaped_summaries_are_rejected() {
         for bad in [
             "",
             "<tool_call id='x'>read</tool_call>",

@@ -830,3 +830,139 @@ async fn read_only_coordination_exception_does_not_authorize_same_named_external
         engine.shutdown().await;
     }
 }
+
+struct MeteredSteering {
+    child_started: Arc<Semaphore>,
+    sent: AtomicBool,
+    before_headers: bool,
+}
+#[async_trait]
+impl Model for MeteredSteering {
+    fn name(&self) -> &str {
+        "metered-steering"
+    }
+    async fn stream(&self, _: Vec<Message>) -> anyhow::Result<ModelStream> {
+        unreachable!()
+    }
+    async fn chat(&self, messages: Vec<Message>, _: Vec<Value>) -> anyhow::Result<ModelStream> {
+        use futures_util::StreamExt;
+        let prompt = messages
+            .iter()
+            .find(|m| m.role == "user")
+            .unwrap()
+            .text_content();
+        let usage = |input_tokens| {
+            ModelEvent::Usage(areal_protocol::ModelUsage {
+                input_tokens,
+                output_tokens: 1,
+                cached_input_tokens: 0,
+            })
+        };
+        if prompt == "metered-child" {
+            if messages
+                .iter()
+                .any(|m| m.role == "user" && m.text_content() == "corrected scope")
+            {
+                return Ok(stream(vec![ModelEvent::text("corrected-child"), usage(7)]));
+            }
+            self.child_started.add_permits(1);
+            let tail = vec![
+                call(
+                    "agent_report",
+                    json!({"status":"working","summary":"stale-report-must-not-execute"}),
+                ),
+                usage(37),
+            ];
+            if self.before_headers {
+                tokio::time::sleep(Duration::from_millis(1300)).await;
+                return Ok(stream(tail));
+            }
+            return Ok(Box::pin(
+                stream(vec![ModelEvent::text("unfinished response")]).chain(
+                    futures_util::stream::once(async move {
+                        tokio::time::sleep(Duration::from_millis(1300)).await;
+                        stream(tail)
+                    })
+                    .flatten(),
+                ),
+            ));
+        }
+        let results: Vec<_> = messages.iter().filter(|m| m.role == "tool").collect();
+        if results.is_empty() {
+            return Ok(stream(vec![
+                call("agent_spawn", json!({"prompt":"metered-child"})),
+                usage(5),
+            ]));
+        }
+        if !self.sent.swap(true, Ordering::SeqCst) {
+            self.child_started.acquire().await.unwrap().forget();
+            let child: Value = serde_json::from_str(&results[0].text_content())?;
+            return Ok(stream(vec![
+                call(
+                    "agent_send_input",
+                    json!({"threadId":child["threadId"],"prompt":"corrected scope"}),
+                ),
+                usage(5),
+            ]));
+        }
+        Ok(stream(vec![ModelEvent::text("integrated"), usage(5)]))
+    }
+}
+#[tokio::test]
+async fn child_feedback_settles_delayed_usage_before_and_after_headers_without_stale_tools() {
+    for before_headers in [false, true] {
+        let data = tempfile::tempdir().unwrap();
+        let model = Arc::new(MeteredSteering {
+            child_started: Arc::new(Semaphore::new(0)),
+            sent: AtomicBool::new(false),
+            before_headers,
+        });
+        let engine = Engine::open(
+            data.path(),
+            areal_engine::workgroup::native::SharedModel::pool(model, 4).unwrap(),
+            Limits {
+                model_concurrency: 4,
+                ..Limits::default()
+            },
+        )
+        .unwrap();
+        let parent = engine.create("/workspace".into()).await.unwrap();
+        engine
+            .goal_create("fixture".into(), serde_json::from_value(json!({"requestId":"metered-feedback", "threadId":parent.id, "expectedRevision":0, "objective":"parent"})).unwrap())
+            .await
+            .unwrap();
+        let parent = bounded(engine.wait(&parent.id)).await.unwrap();
+        assert_eq!(
+            parent.turns[0].status,
+            TurnStatus::Completed,
+            "{:?}",
+            parent.turns[0].error
+        );
+        let children = engine.list(None, 10, Some(&parent.id)).await.unwrap().0;
+        assert_eq!(children.len(), 1);
+        let child = engine.read(&children[0].id, true).await.unwrap();
+        assert_eq!(
+            child.turns[0].status,
+            TurnStatus::Completed,
+            "{:?}",
+            child.turns[0].error
+        );
+        assert_eq!(child.turns[0].usage.as_ref().unwrap().input_tokens, 44);
+        assert!(
+            child.turns[0]
+                .items
+                .iter()
+                .any(|i| matches!(i,Item::AgentMessage{text,..} if text=="corrected-child"))
+        );
+        assert!(
+            !child.turns[0]
+                .items
+                .iter()
+                .any(|i| matches!(i,Item::DynamicToolCall{tool,..} if tool=="agent_report"))
+        );
+        let goal = engine.goal_get(&parent.id).await.unwrap();
+        assert_eq!(goal["goal"]["usage"]["unknownRequests"], 0, "{goal}");
+        assert_eq!(goal["goal"]["usage"]["accountingComplete"], true, "{goal}");
+        engine.shutdown().await;
+    }
+}

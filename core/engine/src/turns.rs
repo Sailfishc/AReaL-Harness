@@ -224,13 +224,33 @@ impl Engine {
     ) -> Result<()> {
         let thread_id = thread_id.to_owned();
         let turn_id = turn_id.to_owned();
-        self.mutate(
-            move |engine| async move { engine.steer_inner(&thread_id, &turn_id, input).await },
-        )
+        self.mutate(move |engine| async move {
+            engine.steer_inner(&thread_id, &turn_id, input, false).await
+        })
         .await
     }
 
-    async fn steer_inner(&self, thread_id: &str, turn_id: &str, input: Vec<Input>) -> Result<()> {
+    pub(crate) async fn steer_child_input(
+        self: &Arc<Self>,
+        thread_id: &str,
+        turn_id: &str,
+        input: Vec<Input>,
+    ) -> Result<()> {
+        let thread_id = thread_id.to_owned();
+        let turn_id = turn_id.to_owned();
+        self.mutate(move |engine| async move {
+            engine.steer_inner(&thread_id, &turn_id, input, true).await
+        })
+        .await
+    }
+
+    async fn steer_inner(
+        &self,
+        thread_id: &str,
+        turn_id: &str,
+        input: Vec<Input>,
+        settle_request: bool,
+    ) -> Result<()> {
         let cell = self.cell(thread_id).await?;
         let mut state = cell.state.lock().await;
         let active = state
@@ -266,7 +286,7 @@ impl Engine {
         emit_item(&cell, "item/started", thread_id, turn_id, &item);
         emit_item(&cell, "item/completed", thread_id, turn_id, &item);
         self.goal_emit(&cell, &state.thread);
-        permit.send(());
+        permit.send(settle_request);
         Ok(())
     }
 
@@ -386,7 +406,7 @@ impl Engine {
         self: Arc<Self>,
         cell: Arc<Cell>,
         cancel: CancellationToken,
-        mut steer: mpsc::Receiver<()>,
+        mut steer: mpsc::Receiver<bool>,
     ) {
         let input = {
             let state = cell.state.lock().await;
