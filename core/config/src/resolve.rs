@@ -8,6 +8,26 @@ use std::{
 };
 
 const ENV: &[(&str, &str, &str)] = &[
+    (
+        "AREAL_HARNESS_SUMMARY_REASONING_EFFORT",
+        "",
+        "model.summary_reasoning_effort",
+    ),
+    (
+        "AREAL_HARNESS_SUMMARY_MAX_OUTPUT_TOKENS",
+        "",
+        "model.summary_max_output_tokens",
+    ),
+    (
+        "AREAL_HARNESS_CONTEXT_TARGET_TOKENS",
+        "",
+        "limits.context_target_tokens",
+    ),
+    (
+        "AREAL_HARNESS_RESPONSES_WEBSOCKET",
+        "",
+        "model.responses_websocket",
+    ),
     ("AREAL_HARNESS_PERMISSION_MODE", "", "permissions.mode"),
     ("AREAL_HARNESS_LISTEN", "", "server.listen"),
     ("AREAL_HARNESS_DATA_DIR", "", "server.data_dir"),
@@ -273,7 +293,7 @@ fn valid(field: &str, entry: &Entry) -> Result<()> {
                 return Err(reject("unsupported reasoning summary"));
             }
         }
-        "reasoning_effort" => {
+        "reasoning_effort" | "summary_reasoning_effort" => {
             if !matches!(
                 value.as_str(),
                 "none" | "minimal" | "low" | "medium" | "high" | "xhigh"
@@ -310,14 +330,14 @@ fn valid(field: &str, entry: &Entry) -> Result<()> {
                 return Err(reject("top_k must be -1 (disabled) or a positive integer"));
             }
         }
-        "context_window_tokens" | "context_output_reserve_tokens" => {
+        "context_window_tokens" | "context_output_reserve_tokens" | "context_target_tokens" => {
             if value.parse::<usize>().ok().is_none_or(|v| v > 2_000_000) {
                 return Err(reject(
                     "token budget must be an integer between 0 and 2000000",
                 ));
             }
         }
-        "watchdog_disable" | "context_compaction_enabled" => {
+        "watchdog_disable" | "context_compaction_enabled" | "responses_websocket" => {
             if !matches!(value.as_str(), "0" | "1" | "false" | "true") {
                 return Err(reject("boolean must be 0/1 or false/true"));
             }
@@ -360,6 +380,7 @@ fn valid(field: &str, entry: &Entry) -> Result<()> {
         | "max_children_per_turn"
         | "max_agent_depth"
         | "max_output_tokens"
+        | "summary_max_output_tokens"
         | "max_history_bytes"
         | "max_output_bytes"
         | "max_tool_calls"
@@ -509,9 +530,11 @@ fn load_mode(inputs: &ConfigInputs, management: bool) -> Result<ResolvedCoreConf
         ("limits.context_window_bytes", "524288"),
         ("limits.context_compaction_enabled", "true"),
         ("limits.context_window_tokens", "65536"),
+        ("limits.context_target_tokens", "0"),
         ("limits.context_output_reserve_tokens", "8192"),
         ("limits.context_recent_bytes", "131072"),
         ("model.max_retries", "2"),
+        ("model.responses_websocket", "false"),
         ("limits.max_completion_retries", "0"),
         ("limits.watchdog_disable", "false"),
         ("logging.filter", "info"),
@@ -734,6 +757,16 @@ fn load_mode(inputs: &ConfigInputs, management: bool) -> Result<ResolvedCoreConf
             .get("tools.extensions_file")
             .map(|v| PathBuf::from(&v.value)),
         model: SelectedModelConfig {
+            summary_reasoning_effort: values
+                .get("model.summary_reasoning_effort")
+                .map(|e| e.value.clone()),
+            summary_max_output_tokens: values
+                .get("model.summary_max_output_tokens")
+                .map(|e| e.value.parse().unwrap()),
+            responses_websocket: matches!(
+                values["model.responses_websocket"].value.as_str(),
+                "true" | "1"
+            ),
             provider,
             name: values["model.name"].value.clone(),
             endpoint: values[&format!("{prefix}.endpoint")].value.clone(),
@@ -791,6 +824,10 @@ fn load_mode(inputs: &ConfigInputs, management: bool) -> Result<ResolvedCoreConf
             values["limits.context_compaction_enabled"].value.as_str(),
             "1" | "true"
         ),
+        context_target_tokens: values["limits.context_target_tokens"]
+            .value
+            .parse()
+            .unwrap(),
         context_window_tokens: values["limits.context_window_tokens"]
             .value
             .parse()
@@ -821,6 +858,14 @@ fn load_mode(inputs: &ConfigInputs, management: bool) -> Result<ResolvedCoreConf
         ));
     }
     // Validate credentials here so callers cannot accidentally skip the check.
+    if result.model.responses_websocket && result.model.protocol != ModelProtocolConfig::Responses {
+        return Err(error(
+            ConfigErrorKind::InvalidValue,
+            "model.responses_websocket",
+            &result.sources["model.responses_websocket"],
+            "responses_websocket requires responses protocol",
+        ));
+    }
     if result.context_recent_bytes >= result.context_window_bytes {
         return Err(error(
             ConfigErrorKind::InvalidValue,
@@ -851,6 +896,20 @@ fn load_mode(inputs: &ConfigInputs, management: bool) -> Result<ResolvedCoreConf
                 ));
             }
         }
+    }
+    if result.context_target_tokens > 0
+        && (result.context_window_tokens == 0
+            || result.context_target_tokens
+                >= result
+                    .context_window_tokens
+                    .saturating_sub(result.context_output_reserve_tokens))
+    {
+        return Err(error(
+            ConfigErrorKind::InvalidValue,
+            "limits.context_target_tokens",
+            &result.sources["limits.context_target_tokens"],
+            "compaction target must be below the input trigger",
+        ));
     }
     if result.context_window_tokens > 0
         && result.context_output_reserve_tokens >= result.context_window_tokens

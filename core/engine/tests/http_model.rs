@@ -573,7 +573,7 @@ async fn adjacent_system_hints_and_null_error_preserve_valid_response_and_safe_d
             } else {
                 "data: {\"error\":{\"code\":\"invalid_messages\",\"type\":\"validation_error\",\"message\":\"fixture-secret and private input\"}}\n\n"
             };
-            ([("content-type","text/event-stream")], body)
+            ([("content-type","text/event-stream"), ("x-cpa-trace-id","trace-fixture-123"), ("x-request-id","request-fixture-456")], body)
         }
     }));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -626,13 +626,229 @@ async fn adjacent_system_hints_and_null_error_preserve_valid_response_and_safe_d
         assert!(!audit.contains("fixture-secret") && !audit.contains("private input"));
         let audit: Value = serde_json::from_str(audit.trim()).unwrap();
         assert_eq!(audit["systemMessageCount"], 1);
+        assert_eq!(audit["gatewayTraceId"], "trace-fixture-123");
+        assert_eq!(audit["httpRequestId"], "request-fixture-456");
+        assert!(
+            audit["timeToFirstResponseBytesMs"].as_u64().unwrap()
+                <= audit["durationMs"].as_u64().unwrap()
+        );
         if name == "valid" {
+            assert!(
+                audit["timeToFirstTextDeltaMs"].as_u64().unwrap()
+                    <= audit["durationMs"].as_u64().unwrap()
+            );
             assert!(failure.is_none());
             assert_eq!(text, "ok");
             assert_eq!(audit["responseShape"]["contentFieldBytes"], 2);
         } else {
             assert!(failure.unwrap().contains("invalid_messages"));
             assert_eq!(audit["streamError"]["errorType"], "validation_error");
+        }
+    }
+    server.abort();
+}
+
+#[tokio::test]
+async fn runtime_context_keeps_chat_prefix_and_never_emits_a_late_system_message() {
+    use areal_engine::model::{Message, Model};
+    use futures_util::StreamExt;
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let app = Router::new().route("/", post(move |Json(request): Json<Value>| {
+        let tx = tx.clone();
+        async move {
+            tx.send(request).unwrap();
+            ([("content-type", "text/event-stream")], "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+        }
+    }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let model = HttpModel::new(format!("http://{addr}/"), "fixture".into(), None).unwrap();
+    let mut history = vec![
+        Message::text("system", "Fixed policy"),
+        Message::text("user", "Actual task"),
+    ];
+    let mut previous: Vec<Value> = Vec::new();
+    for round in 1..=3 {
+        history.push(Message::text(
+            "areal_context",
+            format!("Model round {round}; budget remains limited"),
+        ));
+        let events = model
+            .chat(history.clone(), vec![])
+            .await
+            .unwrap()
+            .collect::<Vec<_>>()
+            .await;
+        assert!(events.iter().all(Result::is_ok));
+        let request = rx.recv().await.unwrap();
+        let messages = request["messages"].as_array().unwrap();
+        assert_eq!(messages[0]["role"], "system");
+        assert!(messages[1..].iter().all(|m| m["role"] != "system"));
+        assert!(messages.iter().all(|m| m["role"] != "areal_context"));
+        assert_eq!(&messages[..previous.len()], previous.as_slice());
+        assert_eq!(messages[1]["content"], "Actual task");
+        previous = messages.clone();
+        history.push(Message::text("assistant", "confirmed step"));
+    }
+    server.abort();
+}
+
+#[tokio::test]
+async fn tool_schema_is_stable_when_http_calls_are_disabled() {
+    use areal_engine::model::{Message, Model, RequestPurpose, ToolCallLimits};
+    use futures_util::StreamExt;
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let app = Router::new().route("/", post(move |Json(request): Json<Value>| {
+        let tx = tx.clone();
+        async move {
+            tx.send(request.clone()).unwrap();
+            let response = if request.get("input").is_some() {
+                if request["model"] == "violates-choice" {
+                    "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"id\":\"fc_test\",\"call_id\":\"forbidden\",\"name\":\"fixture\",\"arguments\":\"{}\"}}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\"}}\n\n"
+                } else {
+                    "data: {\"type\":\"response.output_text.delta\",\"delta\":\"done\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\"}}\n\n"
+                }
+            } else if request["model"] == "violates-choice" {
+                "data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"forbidden\",\"type\":\"function\",\"function\":{\"name\":\"fixture\",\"arguments\":\"{}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n"
+            } else {
+                "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"done\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
+            };
+            ([("content-type", "text/event-stream")], response)
+        }
+    }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let tools = vec![
+        json!({"type":"function","function":{"name":"fixture","description":"fixture","parameters":{"type":"object","properties":{}}}}),
+    ];
+    for protocol in [ModelProtocol::ChatCompletions, ModelProtocol::Responses] {
+        let model = HttpModel::with_protocol(
+            format!("http://{address}/"),
+            "fixture".into(),
+            None,
+            protocol,
+        )
+        .unwrap();
+        let mut seen = Vec::new();
+        for count in [1, 0] {
+            let events = model
+                .chat_with_limits(
+                    vec![Message::text("user", "finish")],
+                    tools.clone(),
+                    RequestPurpose::Solve,
+                    ToolCallLimits {
+                        max_calls: count,
+                        ..Default::default()
+                    },
+                    None,
+                )
+                .await
+                .unwrap()
+                .collect::<Vec<_>>()
+                .await;
+            assert!(events.iter().all(Result::is_ok));
+            seen.push(rx.recv().await.unwrap());
+        }
+        assert_eq!(seen[0]["tools"], seen[1]["tools"]);
+        assert_eq!(seen[0]["messages"], seen[1]["messages"]);
+        assert_eq!(seen[0]["input"], seen[1]["input"]);
+        assert_eq!(seen[1]["tool_choice"], "none");
+        let model = HttpModel::with_protocol(
+            format!("http://{address}/"),
+            "violates-choice".into(),
+            None,
+            protocol,
+        )
+        .unwrap();
+        let events = model
+            .chat_with_limits(
+                vec![Message::text("user", "finish")],
+                tools.clone(),
+                RequestPurpose::Solve,
+                ToolCallLimits {
+                    max_calls: 0,
+                    ..Default::default()
+                },
+                None,
+            )
+            .await
+            .unwrap()
+            .collect::<Vec<_>>()
+            .await;
+        assert!(events.iter().any(Result::is_err));
+        assert!(
+            !events
+                .iter()
+                .any(|event| matches!(event, Ok(areal_engine::model::ModelEvent::ToolCall(_))))
+        );
+        // 消费违规请求，避免下一协议读取上一轮的观测。
+        rx.recv().await.unwrap();
+    }
+    server.abort();
+}
+
+#[tokio::test]
+async fn summary_overrides_are_isolated_and_never_raise_the_goal_output_cap() {
+    use areal_engine::model::{Message, Model, ModelOptions, RequestPurpose};
+    use futures_util::StreamExt;
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let app = Router::new().route("/", post(move |Json(request): Json<Value>| {
+        let tx = tx.clone();
+        async move {
+            tx.send(request.clone()).unwrap();
+            let response = if request.get("input").is_some() {
+                "data: {\"type\":\"response.output_text.delta\",\"delta\":\"done\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\"}}\n\n"
+            } else { "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"done\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n" };
+            ([("content-type", "text/event-stream")], response)
+        }
+    }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    for protocol in [ModelProtocol::ChatCompletions, ModelProtocol::Responses] {
+        let model = HttpModel::with_protocol(
+            format!("http://{address}/"),
+            "fixture".into(),
+            None,
+            protocol,
+        )
+        .unwrap()
+        .with_options(ModelOptions {
+            reasoning_effort: Some("high".into()),
+            summary_reasoning_effort: Some("low".into()),
+            summary_max_output_tokens: Some(4096),
+            max_output_tokens: Some(32000),
+            ..Default::default()
+        })
+        .unwrap();
+        for (purpose, cap, effort, output) in [
+            (RequestPurpose::Solve, None, "high", 32000),
+            (RequestPurpose::Summary, None, "low", 4096),
+            (RequestPurpose::Summary, Some(512), "low", 512),
+            (RequestPurpose::Solve, None, "high", 32000),
+        ] {
+            let events = model
+                .chat_limited(vec![Message::text("user", "work")], vec![], purpose, cap)
+                .await
+                .unwrap()
+                .collect::<Vec<_>>()
+                .await;
+            assert!(events.iter().all(Result::is_ok));
+            let request = rx.recv().await.unwrap();
+            let (actual_effort, actual_output) = match protocol {
+                ModelProtocol::ChatCompletions => (
+                    &request["reasoning_effort"],
+                    &request["max_completion_tokens"],
+                ),
+                ModelProtocol::Responses => (
+                    &request["reasoning"]["effort"],
+                    &request["max_output_tokens"],
+                ),
+            };
+            assert_eq!(actual_effort, effort);
+            assert_eq!(actual_output, output);
         }
     }
     server.abort();

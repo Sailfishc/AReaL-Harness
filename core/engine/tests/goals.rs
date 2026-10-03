@@ -725,9 +725,14 @@ async fn compaction_usage_belongs_to_the_goal_and_the_objective_survives() {
     e.wait(&t.id).await.unwrap();
     e.goal_create("test".into(), request(&t.id)).await.unwrap();
     let summary = next(&mut rx).await;
-    assert_eq!(
-        summary.messages.last().unwrap().text_content(),
-        "Produce the continuation summary now."
+    assert_eq!(summary.messages.last().unwrap().role, "system");
+    assert!(
+        summary
+            .messages
+            .last()
+            .unwrap()
+            .text_content()
+            .starts_with("Core compaction control")
     );
     assert!(summary.tools.is_empty());
     summary.answer("Earlier investigation is complete; now verify the new objective.");
@@ -739,7 +744,13 @@ async fn compaction_usage_belongs_to_the_goal_and_the_objective_survives() {
     solve.report("complete");
     let mut calls = 3;
     let mut reply = next(&mut rx).await;
-    if reply.messages.last().unwrap().text_content() == "Produce the continuation summary now." {
+    if reply
+        .messages
+        .last()
+        .unwrap()
+        .text_content()
+        .starts_with("Core compaction control")
+    {
         reply.answer("Goal completion was verified and reported; provide the final reply.");
         calls += 1;
         reply = next(&mut rx).await;
@@ -874,7 +885,7 @@ async fn live_goal_and_round_context_follow_a_stable_history_prefix() {
     assert!(
         first.messages[boundary..]
             .iter()
-            .all(|m| m.role == "system")
+            .all(|m| m.role == "areal_context")
     );
     assert!(
         first
@@ -918,4 +929,51 @@ async fn live_goal_and_round_context_follow_a_stable_history_prefix() {
     let after = restored.context_read(&t.id, 0, 32).await.unwrap();
     assert_eq!(before["data"], after["data"]);
     restored.shutdown().await;
+}
+
+#[tokio::test]
+async fn unchanged_goal_state_is_not_repeated_but_goal_read_keeps_full_usage() {
+    let (_dir, e, mut rx) = controlled(Limits::default());
+    let t = e.create("/workspace".into()).await.unwrap();
+    e.goal_create("test".into(), request(&t.id)).await.unwrap();
+    let first = next(&mut rx).await;
+    first.send(vec![ModelEvent::ToolCall(ToolCall {
+        id: "read-goal".into(),
+        name: "goal_read".into(),
+        arguments: "{}".into(),
+    })]);
+    let second = next(&mut rx).await;
+    let snapshots: Vec<_> = second
+        .messages
+        .iter()
+        .filter(|m| {
+            m.role == "areal_context" && m.text_content().contains("Current authoritative goal: ")
+        })
+        .collect();
+    assert_eq!(snapshots.len(), 1);
+    let text = snapshots[0].text_content();
+    let view: Value =
+        serde_json::from_str(text.split("Current authoritative goal: ").nth(1).unwrap()).unwrap();
+    assert!(view["goal"]["usage"].get("tokensUsed").is_none());
+    assert_eq!(view["goal"]["usage"]["turnsStarted"], 1);
+    assert!(
+        second
+            .messages
+            .iter()
+            .any(|m| m.role == "tool" && m.text_content().contains("tokensUsed"))
+    );
+    second.report("complete");
+    let final_reply = next(&mut rx).await;
+    assert_eq!(
+        final_reply
+            .messages
+            .iter()
+            .filter(|m| m.role == "areal_context"
+                && m.text_content().contains("Current authoritative goal: "))
+            .count(),
+        2
+    );
+    final_reply.answer("verified");
+    assert_eq!(stopped(&e, &t.id).await["goal"]["status"], "completed");
+    e.shutdown().await;
 }

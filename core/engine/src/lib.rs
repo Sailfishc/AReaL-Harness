@@ -57,6 +57,7 @@ pub struct Limits {
     pub context_window_bytes: usize,
     pub context_compaction_enabled: bool,
     pub context_window_tokens: usize,
+    pub context_target_tokens: usize,
     pub context_output_reserve_tokens: usize,
     pub context_recent_bytes: usize,
     /// Total discarded completions that may be retried within one Turn.
@@ -84,6 +85,7 @@ impl Default for Limits {
             context_window_bytes: 512 * 1024,
             context_compaction_enabled: true,
             context_window_tokens: 64 * 1024,
+            context_target_tokens: 0,
             context_output_reserve_tokens: 8 * 1024,
             context_recent_bytes: 128 * 1024,
             max_completion_retries: 0,
@@ -351,6 +353,12 @@ impl Engine {
                 && limits.max_completion_retries <= 8
                 && (limits.context_window_tokens == 0
                     || limits.context_output_reserve_tokens < limits.context_window_tokens)
+                && (limits.context_target_tokens == 0
+                    || (limits.context_window_tokens > 0
+                        && limits.context_target_tokens
+                            < limits
+                                .context_window_tokens
+                                .saturating_sub(limits.context_output_reserve_tokens)))
                 && limits.max_media_output_bytes > 0
                 && limits.max_output_bytes < limits.max_history_bytes
                 && !limits.stream_idle_timeout.is_zero(),
@@ -556,18 +564,18 @@ impl Engine {
         Ok(cell)
     }
     async fn persist(&self, thread: &Thread) -> Result<()> {
-        if serde_json::to_vec(thread)
-            .map_err(|e| Error::Storage(e.to_string()))?
-            .len()
-            + 32
-            > self.limits.max_history_bytes
-        {
+        // 同一份编码同时用于容量检查与原子落盘，避免重复序列化及深拷贝。
+        let started = std::time::Instant::now();
+        let bytes = store::encode(thread).map_err(|e| Error::Storage(e.to_string()))?;
+        tracing::debug!(target: "areal::persistence", thread_id = %thread.id, bytes = bytes.len(),
+            serialize_ms = started.elapsed().as_secs_f64() * 1000.0, "thread encoded");
+        if bytes.len() > self.limits.max_history_bytes {
             return Err(Error::Exhausted(
                 "session history limit reached; start a new thread".into(),
             ));
         }
         self.store
-            .save(thread)
+            .save_encoded(&thread.id, bytes)
             .instrument(info_span!("persist_thread", areal.thread.id = %thread.id))
             .await
             .map_err(|e| Error::Storage(e.to_string()))

@@ -106,7 +106,7 @@ Chat 工具 index 缺失、null、非整数类型、负数、超出 u64 范围�
 
 Rust `Model::chat_with_limits(messages, tools, purpose, ToolCallLimits, cap)` 显式传递请求预算，内置 HTTP、共享池和 Worker 包装器均转发。可选的输出 token 上限与工具预算一起经过 Goal 计量传递。默认实现委托 `chat_limited`，保持已有自定义 Model 实现可编译，并拒绝不受支持的非空 token 上限；自定义模型自行约束内部缓冲，Engine 仍在工具执行前检查其输出。摘要使用零调用预算。`Limits` 新增 `max_tool_buffer_bytes`，`NativeFactory`/`NativeExecutor` 新增 `tool_call_limits`，显式结构体初始化需补充字段；构造器提供默认值。不增加客户端协议方法或更改快照格式。
 
-上下文压缩保留原目标与近期内容，不拆 completion/工具结果或不透明 reasoning 边界。摘要最多 16 KiB，记录 throughItemId 与 checkpoint；网络故障重试相同摘要输入，不占用摘要格式校验次数；空摘要或伪工具摘要重试一次，仍失败时只有确实缩短输入才使用明确标记的 DEGRADED CONTEXT，否则 Turn 失败。取消不覆盖旧 checkpoint，压缩不删除历史、journal 或 Turn 工具状态。
+压缩从权威历史独立重放 checkpoint 覆盖的所有真实用户消息，保留原文和时间顺序，不依赖摘要维持修订。自动 Goal 续轮的首项按持久化 Turn origin 排除，同一 Turn 中后续 steer 仍保留；用户后续修订优先于相冲突的摘要叙述。多次压缩和重启沿用现有历史，无新快照格式。子任务保留自身输入与修订，父任务需显式把相关修订发给已有子任务。用户原文不提升为 system 指令，也不静默截断；因此用户输入本身很大时仍可能无法压缩。工具调用/结果和不透明 reasoning 保持完整分组。内部摘要控制和校验重试使用 system 消息。摘要需满足 16 KiB 上限及实际可释放空间；无效摘要仅校验重试一次，随后有界原始证据回退不再嵌套旧 DEGRADED checkpoint。不可净缩减时在调用摘要模型前跳过；不删除归档或执行日志。取消保留原 checkpoint，已打开的流最多收尾一秒以结算尾部 usage，不执行输出工具；缺失用量仍是 UNKNOWN。`areal/context/compacted` 另含 `summaryInputBytes`（摘要开始时的快照大小）、`beforeEstimatedTokens`、`afterEstimatedTokens`、`targetTokens`、`summaryBytes`、`generatedSummaryBytes`、`summaryBudgetBytes`、`degradationReason`（null、`summary_unavailable` 或 `insufficient_net_saving`）及 `retainedUserMessages`。计数为投影中的 user 角色消息；媒体保留原引用。
 `limits.context_compaction_enabled=false` 时自动阈值超限使 Turn 失败，显式 `areal/context/compact` 返回错误，不写入 checkpoint；配置见[上下文限额](../guides/configuration.md#模型与限额)。
 
 模型审计写入 `data_dir/model-requests/*.json` 与 `requests.jsonl`，记录 solve/summary、参数、请求体摘要/大小、attempt、usage、stopReason、耗时与有限响应形状，不记录 header、endpoint 或 prompt。`usageObserved=true` 表示收到可解析的完整用量事件（包括 0）；缺失/false 不能视为已知零。length 终态仍收集同帧/尾帧 usage，等待受期限和取消限制，随后判定截断并禁止执行工具。
@@ -252,3 +252,9 @@ Task Mode 在 Goal 之上提供 foreground/scheduled/background 任务、TaskRun
 Chat Completions 的 HTTP 适配会把所有纯文本 system 消息按原有相对顺序合并到请求开头，以兼容只接受首条 system 的聊天模板。非 system 消息的先后顺序保持不变；这不会修改持久历史，也不会改变 Responses 的消息及 encrypted reasoning 回放。动态状态变化因此可能降低 Chat 协议的缓存前缀复用率。
 
 摘要超过 16 KiB 时，Core 在既有空闲期限和取消规则内继续读取流到结束，收集尾部用量后再拒绝摘要并执行原有有限格式重试。不会仅因摘要超长而丢弃已到达的用量；确实缺失的用量仍保留为 UNKNOWN，不自动恢复 Goal。
+
+新请求状态使用内部 `areal_context` 角色持久化。Chat 将其按原位置投影为 user 状态数据，并在开头加入固定解释规则；这些状态不构成新增用户授权，权限和预算仍由 Core 强制执行。真正的 system 规则继续合并到开头以兼容仅支持首条 system 的模板。Responses 将内部状态角色映射回 system。旧历史中的 system 快照不自动迁移，因此旧会话可能直到压缩或新建会话后才能完全获得稳定前缀。仅完全相同的 headless 静态提示在可见历史中去重，动态状态回到旧值仍追加事件。
+
+Goal 提示投影不携带 eventSequence 或逐请求累计用量/时钟，只保留 usage.turnsStarted；完整账本仍通过 goal_read 和 Goal API 读取。相同的最近 Goal 快照不重复注入；revision、报告或状态变化会追加新快照，A→B→A 不会误删最后一次变化。该裁剪仅影响模型提示，持久 Goal 账本与预算执行不变。
+
+HTTP 模型收尾轮保留当前可见工具 schema，通过 `tool_choice=none` 禁用调用，同时将解码和执行额度设为零；供应商若仍返回调用会被拒绝。工具定义和固定委派指令不因正常收尾而删除，从而保留可复用前缀。无 `tool_choice` 能力的自定义 Model 适配器继续接收空工具列表。权限变化仍即时调整工具可见性，缓存不覆盖授权。

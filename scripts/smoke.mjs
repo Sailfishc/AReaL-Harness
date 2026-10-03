@@ -56,7 +56,14 @@ const model = createServer(async (req, res) => {
   assert.equal(req.url, "/v1/chat/completions");
   assert.equal(request.stream, true);
   res.writeHead(200, { "Content-Type": "text/event-stream" });
-  const text = request.messages.findLast((message) => message.role === "user").content;
+  const text = request.messages.findLast(
+    (message) =>
+      message.role === "user" &&
+      !(
+        typeof message.content === "string" &&
+        message.content.startsWith("AReaL runtime context (not a user request):")
+      ),
+  ).content;
   res.write(
     `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: "reply:" + text }, finish_reason: null }] })}\n\n`,
   );
@@ -158,7 +165,7 @@ try {
   assert.equal(second.code, 0, second.stderr);
   assert.deepEqual(
     requests[1].messages.map((m) => m.role),
-    ["system", "user", "system", "assistant", "user", "system"],
+    ["system", "user", "user", "assistant", "user"],
   );
   assert.deepEqual(
     requests[1].messages.slice(0, requests[0].messages.length),
@@ -202,7 +209,15 @@ try {
   process.stdout.write(ptyOutput);
   assert.equal(
     requests.filter(
-      (r) => r.messages.findLast((message) => message.role === "user").content === "pty-initial",
+      (r) =>
+        r.messages.findLast(
+          (message) =>
+            message.role === "user" &&
+            !(
+              typeof message.content === "string" &&
+              message.content.startsWith("AReaL runtime context (not a user request):")
+            ),
+        ).content === "pty-initial",
     ).length,
     1,
   );
@@ -210,14 +225,28 @@ try {
     requests.some(
       (r) =>
         r.model === "alternate" &&
-        r.messages.findLast((message) => message.role === "user").content === "switched-model",
+        r.messages.findLast(
+          (message) =>
+            message.role === "user" &&
+            !(
+              typeof message.content === "string" &&
+              message.content.startsWith("AReaL runtime context (not a user request):")
+            ),
+        ).content === "switched-model",
     ),
   );
   assert(
     requests.some(
       (r) =>
         r.model === "test" &&
-        r.messages.findLast((message) => message.role === "user").content === "reset-model",
+        r.messages.findLast(
+          (message) =>
+            message.role === "user" &&
+            !(
+              typeof message.content === "string" &&
+              message.content.startsWith("AReaL runtime context (not a user request):")
+            ),
+        ).content === "reset-model",
     ),
   );
   const hangStarted = new Promise((resolve) => (hanging = resolve));

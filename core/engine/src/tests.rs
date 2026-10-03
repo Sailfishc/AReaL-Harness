@@ -224,3 +224,134 @@ async fn dropping_a_steer_waiter_keeps_durable_input_and_memory_consistent() {
     }
     restored.shutdown().await;
 }
+
+#[tokio::test]
+async fn compacted_history_preserves_steer_inside_an_automatic_goal_turn() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = Engine::open(dir.path(), Arc::new(PendingModel), Limits::default()).unwrap();
+    let mut thread = engine.create("/fixture".into()).await.unwrap();
+    thread.turns.push(Turn {
+        goal: Some(areal_protocol::goals::GoalTurn {
+            goal_id: id(),
+            sequence: 2,
+            origin: "continuation".into(),
+            predecessor_turn_id: None,
+        }),
+        configuration: None,
+        instruction_snapshot: None,
+        id: id(),
+        status: TurnStatus::Completed,
+        error: None,
+        usage: None,
+        items: vec![
+            Item::UserMessage {
+                id: "automatic".into(),
+                content: vec![Input::text("Automatic continuation adds no authorization")],
+            },
+            Item::UserMessage {
+                id: "repair".into(),
+                content: vec![
+                    Input::text("修订：只修组合键；取消旧音乐任务。"),
+                    Input::text("保留已验收光学中心。"),
+                ],
+            },
+            Item::AgentMessage {
+                id: "boundary".into(),
+                phase: None,
+                text: "verified".into(),
+            },
+        ],
+    });
+    thread.context_checkpoint = Some(areal_protocol::ContextCheckpoint {
+        through_item_id: "boundary".into(),
+        summary: "Old music task is pending".into(),
+        usage: Default::default(),
+        total_duration_ms: 0,
+        compactions: 2,
+    });
+    let projected = history(&thread, &engine.store).unwrap();
+    let users: Vec<_> = projected.iter().filter(|m| m.role == "user").collect();
+    assert_eq!(users.len(), 1);
+    assert_eq!(users[0].content.len(), 2);
+    assert!(users[0].text_content().contains("取消旧音乐任务"));
+    engine.persist(&thread).await.unwrap();
+    let raw = std::fs::read(dir.path().join(format!("{}.json", thread.id))).unwrap();
+    let restored: store::Record = serde_json::from_slice(&raw).unwrap();
+    assert_eq!(
+        serde_json::to_vec(&restored.thread).unwrap(),
+        serde_json::to_vec(&thread).unwrap()
+    );
+    assert_eq!(
+        history(&restored.thread, &engine.store)
+            .unwrap()
+            .iter()
+            .map(Message::text_content)
+            .collect::<Vec<_>>(),
+        projected
+            .iter()
+            .map(Message::text_content)
+            .collect::<Vec<_>>()
+    );
+    engine.shutdown().await;
+}
+
+#[tokio::test]
+#[ignore = "local disk benchmark; not a timing assertion"]
+async fn persistence_encoding_benchmark() {
+    use std::io::Write;
+    let dir = tempfile::tempdir().unwrap();
+    let engine = Engine::open(dir.path(), Arc::new(PendingModel), Limits::default()).unwrap();
+    let mut thread = engine.create("/fixture".into()).await.unwrap();
+    thread.turns.push(Turn {
+        goal: None,
+        configuration: None,
+        instruction_snapshot: None,
+        id: id(),
+        status: TurnStatus::Completed,
+        error: None,
+        usage: None,
+        items: (0..4000)
+            .map(|n| Item::AgentMessage {
+                id: n.to_string(),
+                phase: None,
+                text: "Observed tool JSON: {\"file\":\"src/main.rs\",\"result\":\"verified\"}\n"
+                    .repeat(32),
+            })
+            .collect(),
+    });
+    let mut old_ms = Vec::new();
+    let mut new_ms = Vec::new();
+    for _ in 0..3 {
+        let started = std::time::Instant::now();
+        let _size = serde_json::to_vec(&thread).unwrap().len();
+        let clone = thread.clone();
+        let mut file = tempfile::NamedTempFile::new_in(dir.path()).unwrap();
+        serde_json::to_writer(
+            &mut file,
+            &store::Record {
+                version: store::STATE_VERSION,
+                thread: clone.clone(),
+            },
+        )
+        .unwrap();
+        file.flush().unwrap();
+        file.as_file().sync_all().unwrap();
+        old_ms.push(started.elapsed().as_secs_f64() * 1000.0);
+        let started = std::time::Instant::now();
+        let bytes = store::encode(&thread).unwrap();
+        let mut optimized = tempfile::NamedTempFile::new_in(dir.path()).unwrap();
+        optimized.write_all(&bytes).unwrap();
+        optimized.flush().unwrap();
+        optimized.as_file().sync_all().unwrap();
+        new_ms.push(started.elapsed().as_secs_f64() * 1000.0);
+        assert_eq!(
+            std::fs::read(file.path()).unwrap(),
+            std::fs::read(optimized.path()).unwrap()
+        );
+    }
+    println!(
+        "{}",
+        json!({"bytes":store::encode(&thread).unwrap().len(),"oldMs":old_ms,"newMs":new_ms,"scope":"encoding, clone and file write/fsync; excludes queue and directory rename/sync"})
+    );
+    engine.shutdown().await;
+}

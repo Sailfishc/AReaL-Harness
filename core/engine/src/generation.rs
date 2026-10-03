@@ -2,6 +2,18 @@
 
 use super::*;
 
+/// 取消后只排空流以结算尾部用量；不执行工具，不伪造缺失用量。
+pub(crate) async fn settle_cancelled_stream(stream: &mut model::ModelStream) {
+    let _ = tokio::time::timeout(Duration::from_secs(1), async {
+        while let Some(event) = stream.next().await {
+            if event.is_err() {
+                break;
+            }
+        }
+    })
+    .await;
+}
+
 impl Engine {
     pub(super) async fn generate(
         self: &Arc<Self>,
@@ -89,12 +101,10 @@ impl Engine {
                     state.thread.desktop.is_some(),
                 )
             };
-            let tool_definitions = if final_round {
-                Vec::new()
-            } else {
-                self.visible_tools(cell, &configuration, desktop_enabled)
-                    .await
-            };
+            // 工具声明参与缓存前缀；收尾轮仅禁用调用，不移除 schema。
+            let tool_definitions = self
+                .visible_tools(cell, &configuration, desktop_enabled)
+                .await;
             let goal_instructions = self.goal_instructions(cell).await?;
             let task_instructions = self.task_context(cell).await;
             let overhead = context::text_tokens(&serde_json::to_string(&tool_definitions)?)
@@ -122,8 +132,7 @@ impl Engine {
                 if let Some(task) = &task_instructions {
                     live_context.insert(0, Message::text("system", task));
                 }
-                if !final_round
-                    && self.extensions.agents.is_none()
+                if self.extensions.agents.is_none()
                     && !cell.research
                     && self.limits.max_children_per_turn > 0
                     && self.limits.max_agent_depth > 0
@@ -183,6 +192,32 @@ impl Engine {
                 if let Some(hint) = recovery_hint.take() {
                     live_context.push(Message::text("user", hint));
                 }
+                // 仅新记录使用专用角色；旧 system 快照保持原投影，避免改写恢复历史。
+                for message in &mut live_context {
+                    if message.role == "system" {
+                        message.role = "areal_context".into();
+                    }
+                }
+                // 比较同类最近状态，而非任意旧值；A→B→A 必须保留三次变化。
+                live_context.retain(|message| {
+                    let text = message.text_content();
+                    let kind = if text.contains("Current authoritative goal: ") {
+                        Some("Current authoritative goal: ")
+                    } else if text.starts_with("This execution is headless.") {
+                        Some("This execution is headless.")
+                    } else {
+                        None
+                    };
+                    !kind.is_some_and(|kind| {
+                        messages
+                            .iter()
+                            .rev()
+                            .find(|old| {
+                                old.role == "areal_context" && old.text_content().contains(kind)
+                            })
+                            .is_some_and(|old| old == message)
+                    })
+                });
                 if !live_context.is_empty() {
                     let mut candidate = state.thread.clone();
                     let context = Item::ModelContext {
@@ -215,7 +250,7 @@ impl Engine {
             };
             let request_estimate = context::estimate_tokens(&messages)
                 + context::text_tokens(&serde_json::to_string(&tool_definitions)?);
-            let tools_enabled = !tool_definitions.is_empty();
+            let tools_enabled = !final_round && !tool_definitions.is_empty();
             let tool_limits = model::ToolCallLimits {
                 max_calls: if tools_enabled {
                     self.limits.max_tool_calls.saturating_sub(tool_count)
@@ -303,8 +338,9 @@ impl Engine {
                 loop {
                     let next = tokio::select! {
                         biased;
-                        _ = cancel.cancelled() => anyhow::bail!("cancelled"),
+                        _ = cancel.cancelled() => { settle_cancelled_stream(&mut stream).await; anyhow::bail!("cancelled"); },
                         _ = steer.recv() => {
+                            settle_cancelled_stream(&mut stream).await;
                             complete_reasoning(cell, &thread_id, &turn_id, &reasoning_items).await;
                             complete_item(cell, &thread_id, &turn_id, &item_id).await;
                             continue 'restart;

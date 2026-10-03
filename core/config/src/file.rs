@@ -208,18 +208,26 @@ fn walk(
                     | "max_tool_buffer_bytes"
                     | "context_window_bytes"
                     | "context_window_tokens"
+                    | "context_target_tokens"
                     | "context_output_reserve_tokens"
                     | "context_recent_bytes"
                     | "max_completion_retries"
             ]
-            | ["model", "max_output_tokens" | "max_retries" | "top_k"]
+            | [
+                "model",
+                "max_output_tokens" | "summary_max_output_tokens" | "max_retries" | "top_k"
+            ]
     );
     let string = matches!(
         names.as_slice(),
         ["server", "listen" | "data_dir"]
             | [
                 "model",
-                "provider" | "name" | "reasoning_effort" | "reasoning_summary"
+                "provider"
+                    | "name"
+                    | "reasoning_effort"
+                    | "reasoning_summary"
+                    | "summary_reasoning_effort"
             ]
             | [
                 "model",
@@ -241,6 +249,7 @@ fn walk(
     let boolean = matches!(
         names.as_slice(),
         ["limits", "watchdog_disable" | "context_compaction_enabled"]
+            | ["model", "responses_websocket"]
     );
     if !numeric && !string && !decimal && !boolean {
         return Err(error(
