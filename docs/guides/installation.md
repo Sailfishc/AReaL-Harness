@@ -34,7 +34,7 @@ tap 由维护者发布，首版发布前该安装源可能尚不存在。Formula
 从同一 Release 下载安装器和清单，校验后执行。固定版本避免在未知版本之间静默升级：
 
 ```sh
-version=0.1.0
+version=0.1.1
 base="https://github.com/areal-project/AReaL-Harness/releases/download/v${version}"
 curl -fL "$base/install.py" -o install.py
 curl -fL "$base/SHA256SUMS" -o SHA256SUMS
@@ -55,8 +55,8 @@ areal --version
 离线安装先下载平台 tar.gz 与同一 Release 的 SHA256SUMS：
 
 ```sh
-python3 install.py --version 0.1.0 --prefix "$HOME/.local" \
-  --archive areal-harness-v0.1.0-x86_64-unknown-linux-gnu.tar.gz \
+python3 install.py --version 0.1.1 --prefix "$HOME/.local" \
+  --archive areal-harness-v0.1.1-x86_64-unknown-linux-gnu.tar.gz \
   --checksums SHA256SUMS
 ```
 

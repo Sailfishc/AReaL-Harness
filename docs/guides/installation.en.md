@@ -34,7 +34,7 @@ The tap may not exist before the first release. The formula uses the final archi
 Download the installer and checksums from the same Release and verify before execution. Pin the version to avoid silent upgrades:
 
 ```sh
-version=0.1.0
+version=0.1.1
 base="https://github.com/areal-project/AReaL-Harness/releases/download/v${version}"
 curl -fL "$base/install.py" -o install.py
 curl -fL "$base/SHA256SUMS" -o SHA256SUMS
@@ -55,8 +55,8 @@ The default destination is `~/.local/lib/areal/<version>-linux-x86_64`, with a s
 For offline installation, download the platform archive and matching SHA256SUMS:
 
 ```sh
-python3 install.py --version 0.1.0 --prefix "$HOME/.local" \
-  --archive areal-harness-v0.1.0-x86_64-unknown-linux-gnu.tar.gz \
+python3 install.py --version 0.1.1 --prefix "$HOME/.local" \
+  --archive areal-harness-v0.1.1-x86_64-unknown-linux-gnu.tar.gz \
   --checksums SHA256SUMS
 ```
 
