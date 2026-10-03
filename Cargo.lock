@@ -376,6 +376,7 @@ dependencies = [
  "opentelemetry-otlp",
  "opentelemetry_sdk",
  "serde_json",
+ "sha2",
  "tempfile",
  "tokio",
  "tokio-util",

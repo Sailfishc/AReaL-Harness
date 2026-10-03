@@ -8,7 +8,8 @@ use areal_engine::{
         UnconfiguredModel,
     },
 };
-use serde_json::{Value, json};
+use serde_json::{Value, json, value::RawValue};
+use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, path::Path, sync::Arc, time::Duration};
 
 pub fn model(
@@ -75,7 +76,7 @@ fn deployment(config: &ResolvedCoreConfig) -> Value {
 pub struct Reload {
     inputs: ConfigInputs,
     deployment: Value,
-    models: BTreeMap<String, SelectedModelConfig>,
+    models: BTreeMap<String, Box<RawValue>>,
     current: String,
     data: std::path::PathBuf,
 }
@@ -88,7 +89,7 @@ impl Reload {
     ) -> Result<Self> {
         let path = config.data_dir.join("desktop/default-models.json");
         std::fs::create_dir_all(path.parent().unwrap())?;
-        let models: BTreeMap<String, SelectedModelConfig> = if path.exists() {
+        let models: BTreeMap<String, Box<RawValue>> = if path.exists() {
             ensure!(
                 path.metadata()?.len() <= 1024 * 1024,
                 "model configuration archive exceeds 1 MiB"
@@ -101,13 +102,16 @@ impl Reload {
             models.len() <= 128,
             "model configuration archive exceeds 128 revisions"
         );
-        for (revision, previous) in &models {
+        for (revision, encoded) in &models {
+            // 校验原始登记字节，不能用新增默认字段后的重编码推断旧版本损坏。
+            // 后续保存保留原字节，已有 Turn 引用的 revision 不被重写。
             ensure!(
-                *revision == previous.fingerprint(),
+                *revision == format!("{:x}", Sha256::digest(encoded.get().as_bytes())),
                 "model configuration archive digest mismatch"
             );
+            let previous: SelectedModelConfig = serde_json::from_str(encoded.get())?;
             // 退役凭据缺失不阻止服务启动；使用该版本的队列恢复会明确拒绝。
-            if let Ok(model) = model(previous, &inputs, &config.data_dir, false) {
+            if let Ok(model) = model(&previous, &inputs, &config.data_dir, false) {
                 engine.register_default_model(revision.clone(), model, false);
             }
         }
@@ -134,7 +138,7 @@ impl Reload {
         }
         let model = model(config, &self.inputs, &self.data, startup)?;
         let mut candidate = self.models.clone();
-        candidate.insert(revision.clone(), config.clone());
+        candidate.insert(revision.clone(), serde_json::value::to_raw_value(config)?);
         ensure!(
             candidate.len() <= 128,
             "model configuration archive is full (128 revisions); retain queued history and use another data directory"
@@ -248,5 +252,61 @@ mod tests {
         assert!(reload.apply(&unavailable.model, &engine, false).is_err());
         assert_eq!(reload.current, revision);
         assert_eq!(reload.models.len(), 1);
+    }
+    #[test]
+    fn model_archive_keeps_original_revision_bytes_across_optional_field_additions() {
+        for variant in 0..4 {
+            let temp = tempfile::tempdir().unwrap();
+            let mut inputs = ConfigInputs {
+                cwd: temp.path().into(),
+                homedir: Some(temp.path().into()),
+                ..Default::default()
+            };
+            inputs.overrides.model = Some("valid".into());
+            inputs.overrides.model_endpoint = Some("http://127.0.0.1:1/v1/chat/completions".into());
+            inputs.overrides.data_dir = Some(temp.path().to_path_buf());
+            let config = areal_config::load_config(&inputs).unwrap();
+            let mut encoded = serde_json::to_string(&config.model).unwrap();
+            assert!(!encoded.contains("summary_reasoning_effort"));
+            assert!(!encoded.contains("responses_websocket"));
+            if variant == 1 || variant == 2 {
+                encoded = encoded.replace(
+                    ",\"temperature\":",
+                    ",\"responses_websocket\":false,\"temperature\":",
+                );
+            }
+            if variant == 2 {
+                encoded = encoded.replace(",\"reasoning_summary\":", ",\"summary_reasoning_effort\":null,\"summary_max_output_tokens\":null,\"reasoning_summary\":");
+            }
+            if variant == 3 {
+                encoded = encoded.replace(",\"temperature\":", ",\"summary_reasoning_effort\":\"low\",\"summary_max_output_tokens\":4096,\"temperature\":");
+            }
+            let revision = format!("{:x}", Sha256::digest(encoded.as_bytes()));
+            let path = config.data_dir.join("desktop/default-models.json");
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, format!("{{\"{revision}\":{encoded}}}")).unwrap();
+            let engine =
+                Engine::open(temp.path(), Arc::new(UnconfiguredModel), Default::default()).unwrap();
+            let reload = Reload::open(inputs.clone(), &config, &engine).unwrap();
+            assert_eq!(reload.models[&revision].get(), encoded);
+            let stored: BTreeMap<String, Box<RawValue>> =
+                serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+            assert_eq!(stored[&revision].get(), encoded);
+            drop(reload);
+            let again = Reload::open(inputs.clone(), &config, &engine).unwrap();
+            assert_eq!(again.models[&revision].get(), encoded);
+            // 兼容只保留原字节，不豁免完整性校验。
+            let corrupted = std::fs::read_to_string(&path)
+                .unwrap()
+                .replace("valid", "tampered");
+            std::fs::write(&path, corrupted).unwrap();
+            assert!(
+                Reload::open(inputs, &config, &engine)
+                    .err()
+                    .unwrap()
+                    .to_string()
+                    .contains("digest mismatch")
+            );
+        }
     }
 }

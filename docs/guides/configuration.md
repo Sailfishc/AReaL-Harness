@@ -280,3 +280,5 @@ HTTP 审计在响应返回规范、长度受限的关联 ID 时保留 `httpReque
 审计中的 body/messageBlocks 表示完整逻辑输入，transport=responses-websocket、incremental、wireInputItems 和 wireBodyBytes 表示实际传输。减少传输字节不等于减少供应商计费输入或保证 KV 命中；请同时观察缓存、延迟、失败与任务结果。摘要使用独立连接，不污染同 Turn 的求解连接。
 
 WebSocket 求解连接携带 Core 线程 ID 作为 session-id/thread-id，以便兼容网关维持会话亲和；这不表示供应商一定采用该路由提示，也不保证跨连接缓存保留。摘要与未绑定线程的直接调用不携带求解身份。
+
+模型配置登记表保留与 revision 绑定的原始编码；新增可选默认值不会使历史 revision 失效，也不重写排队 Turn 的引用，摘要不匹配仍拒绝篡改。不要手动格式化或编辑 Core 所有的 `desktop/default-models.json`。

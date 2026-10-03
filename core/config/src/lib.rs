@@ -152,10 +152,12 @@ pub struct SelectedModelConfig {
     pub protocol: ModelProtocolConfig,
     pub api_key_env: Option<String>,
     pub reasoning_effort: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub summary_reasoning_effort: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub summary_max_output_tokens: Option<u64>,
     pub reasoning_summary: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_false")]
     pub responses_websocket: bool,
     pub temperature: Option<f64>,
     pub top_p: Option<f64>,
@@ -165,6 +167,10 @@ pub struct SelectedModelConfig {
     pub repetition_penalty: Option<f64>,
     pub max_output_tokens: Option<u64>,
     pub max_retries: usize,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 impl SelectedModelConfig {

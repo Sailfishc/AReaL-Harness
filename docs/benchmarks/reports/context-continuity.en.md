@@ -20,6 +20,8 @@ Optional target tokens and summary-only reasoning/output settings are documented
 
 Persistence keeps the existing atomic snapshot protocol rather than migrating to an incremental journal. Encode once for capacity checking and writing, removing redundant deep copies and unbuffered incremental JSON writes. Durable intent before execution, file fsync, rename, directory fsync and UNKNOWN recovery remain intact. Timing separates intent, invocation, projection and commit; persistence logs encoding, IO admission, write and sync.
 
+Model configuration archives also retain their original JSON bytes and verify the digest of those bytes. Adding optional fields must not invalidate historical revision IDs when defaults are filled during decoding. Unset summary fields and disabled WebSockets are omitted from new fingerprints. Four archive layouts are tested across two reloads (legacy, explicit false, explicit null summary options, and configured summary options), including rejection of tampering.
+
 ## Validation
 
 Run `node scripts/context-live-smoke.mjs /absolute/model.toml`. The script uses an isolated workspace and real reads, writes and commands. It submits five repair checks, changes one in a separate user message, forces three manual compactions alongside automatic ones, restarts Core, and completes a Goal. Independent assertions check every JSON field, a random nonce, an input sum, byte preservation of an accepted artifact and a successful real command. The repair contract is not written to a workspace sidecar to bypass conversation history.

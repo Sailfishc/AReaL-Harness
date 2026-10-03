@@ -280,3 +280,5 @@ Connections are isolated by model instance, Thread and Turn. Only complete prior
 Audit body/messageBlocks represent full logical input; transport=responses-websocket, incremental, wireInputItems and wireBodyBytes describe actual transmission. Fewer wire bytes do not imply fewer billed input tokens or guaranteed KV hits. Evaluate cache, latency, failures and task correctness together. Summaries use separate connections and never pollute the solve continuation.
 
 WebSocket solve connections send the Core thread ID as session-id/thread-id for compatible gateway affinity. Providers may ignore these hints; they do not guarantee cache retention across connections. Summaries and unowned direct model calls do not carry the solve identity.
+
+Model configuration archives preserve the encoded bytes bound to each revision. New optional defaults do not invalidate historical revisions or rewrite queued Turn references; digest mismatches still reject modified archives. Do not manually reformat or edit the Core-owned `desktop/default-models.json`.
