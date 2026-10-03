@@ -153,6 +153,8 @@ success/contentItems 必填；结构化成功结果按 outputSchema 校验，产
 
 prompt 非空，最多 32000 字符且受输入字节预算约束。maxModelRounds 为 1–1024，不能扩大父上限；最后一轮仅交接。wait 超时 0–60000 ms 不取消子任务；wait_any 接受 1–16 个不同直接子任务。report 仅限子 Agent：summary 最多 4096 字符，两个数组各 16 项/项 512 字符，总参数最多 16 KiB。
 
+`agent_send_input` 持久化补充说明，并在同一子 Turn 重启生成。已发出的旧请求先只排空计量，过时工具不执行；因此它适合纠偏，可能废弃数分钟已生成工作，普通非紧急提醒宜在阶段交接时处理。等待响应头沿用该请求原有空闲期限，排空流按每次活动刷新 `stream_idle_timeout_seconds`，没有额外的 180 秒总截止。显式取消、原 Goal 剩余时间和研究 worker 期限仍可结束等待；真正空闲、断流或缺失用量仍保留 UNKNOWN，不自动清账或重试。
+
 快照含 status、settled、text、offset/nextOffset、source/sourceItemId、partial 和错误；text 每页最多 2048 UTF-8 字节，内容来源变化从 0 重读。settled 才表示任务和清理结算，失败状态不会被阶段报告改成成功。目标绑定父 Turn，禁止跨根/兄弟/祖先控制。
 
 模型派发正常结束前自动 join；`areal/agent/spawn {parentThreadId,input}` 的手工路径在父 Turn 结束时取消后代。`areal/agent/list` 分页观察。默认深度/扇出为 8/64；任一设 0 禁用工具。完整准入见[设计](../design/multi-agent.md)。

@@ -23,21 +23,15 @@ impl Engine {
         cancel: &CancellationToken,
         stream: &mut model::ModelStream,
     ) {
-        let deadline = tokio::time::sleep(
-            self.limits
-                .stream_idle_timeout
-                .min(Duration::from_secs(180)),
-        );
-        tokio::pin!(deadline);
         let mut usage = areal_protocol::ModelUsage::default();
         loop {
             tokio::select! {
                 biased;
                 _ = cancel.cancelled() => { settle_cancelled_stream(stream).await; break; },
-                _ = &mut deadline => break,
-                event = stream.next() => match event {
-                    Some(Ok(model::ModelEvent::Usage(value))) => usage.add_assign(&value),
-                    Some(Ok(_)) => {},
+                // 协作纠偏沿用请求的空闲期限；有活动就刷新，原 Goal/worker 总期限由外层执行器控制。
+                event = tokio::time::timeout(self.limits.stream_idle_timeout, stream.next()) => match event {
+                    Ok(Some(Ok(model::ModelEvent::Usage(value)))) => usage.add_assign(&value),
+                    Ok(Some(Ok(_))) => {},
                     _ => break,
                 }
             }
@@ -378,9 +372,9 @@ impl Engine {
                                 // HTTP 首包之前也不能丢弃已经发出的请求。
                                 let result = tokio::select! {
                                     _ = cancel.cancelled() => anyhow::bail!("cancelled"),
-                                    result = tokio::time::timeout(Duration::from_secs(180), &mut pending_response) => result,
+                                    result = &mut pending_response => result,
                                 };
-                                if let Ok(Ok(Ok(mut stream))) = result {
+                                if let Ok(Ok(mut stream)) = result {
                                     self.settle_child_steering(cell, cancel, &mut stream).await;
                                 }
                             }
