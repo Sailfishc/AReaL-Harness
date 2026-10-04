@@ -305,6 +305,94 @@ async fn finite_recovery_keeps_confirmed_operations_and_usage_without_network_re
 }
 
 #[tokio::test]
+async fn output_budget_handoff_preserves_confirmed_tools_and_skips_unexecuted_calls() {
+    let fixture = Fixture::start(
+        vec![
+            calls_body(1, 2, false),
+            calls_body(1, 20 * 1024, false),
+            finished(),
+        ],
+        None,
+    )
+    .await;
+    let data = tempfile::tempdir().unwrap();
+    let engine = Engine::open(
+        &data.path().join("core"),
+        Arc::new(fixture.model(&data.path().join("requests"), false)),
+        Limits {
+            max_output_bytes: 52 * 1024,
+            ..Limits::default()
+        },
+    )
+    .unwrap();
+    let writes = Arc::new(Writes::default());
+    let thread = thread(&engine, writes.clone()).await;
+    engine
+        .start(&thread.id, vec![Input::text("fixture")])
+        .await
+        .unwrap();
+    let result = settled(&engine, &thread.id).await;
+    assert_eq!(
+        result.turns[0].status,
+        TurnStatus::Completed,
+        "{:?}",
+        result.turns[0].error
+    );
+    assert_eq!(*writes.ids.lock().unwrap(), ["call0"]);
+    assert_eq!(
+        result.turns[0]
+            .items
+            .iter()
+            .filter(|item| matches!(item, Item::DynamicToolCall { .. }))
+            .count(),
+        1
+    );
+    {
+        let requests = fixture.requests.lock().unwrap();
+        assert_eq!(requests.len(), 3);
+        assert_eq!(requests[2]["tool_choice"], "none");
+        assert!(
+            requests[2]
+                .to_string()
+                .contains("This call and any later calls in the response were NOT executed")
+        );
+        assert!(requests[2].to_string().contains("task is unfinished"));
+    }
+    engine.shutdown().await;
+}
+
+#[tokio::test]
+async fn output_budget_too_small_to_start_tools_requests_handoff_immediately() {
+    let fixture = Fixture::start(vec![finished()], None).await;
+    let data = tempfile::tempdir().unwrap();
+    let engine = Engine::open(
+        &data.path().join("core"),
+        Arc::new(fixture.model(&data.path().join("requests"), false)),
+        Limits {
+            max_output_bytes: 40 * 1024,
+            ..Limits::default()
+        },
+    )
+    .unwrap();
+    let thread = thread(&engine, Arc::new(Writes::default())).await;
+    engine
+        .start(&thread.id, vec![Input::text("fixture")])
+        .await
+        .unwrap();
+    assert_eq!(
+        settled(&engine, &thread.id).await.turns[0].status,
+        TurnStatus::Completed
+    );
+    {
+        let requests = fixture.requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0]["tool_choice"], "none");
+        assert!(requests[0].to_string().contains("task is unfinished"));
+    }
+    engine.shutdown().await;
+}
+
+#[tokio::test]
 async fn both_protocols_honor_request_budgets_through_the_shared_pool_before_execution() {
     for responses in [false, true] {
         for (count, size, max_calls, buffer, expected) in [
