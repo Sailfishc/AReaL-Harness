@@ -37,6 +37,8 @@ fn help_and_version_do_not_require_model_or_valid_telemetry() {
     for args in [
         vec!["--help"],
         vec!["--version"],
+        vec!["version"],
+        vec!["upgrade", "--help"],
         vec!["config", "--help"],
         vec!["config", "show", "--help"],
     ] {
@@ -50,7 +52,22 @@ fn help_and_version_do_not_require_model_or_valid_telemetry() {
             "{}",
             String::from_utf8_lossy(&out.stderr)
         );
+        if args == ["version"] {
+            assert_eq!(
+                String::from_utf8_lossy(&out.stdout).trim(),
+                format!("areal {}", env!("CARGO_PKG_VERSION"))
+            );
+        }
     }
+    assert!(!temp.path().join("home").exists());
+}
+
+#[test]
+fn source_build_does_not_self_upgrade() {
+    let temp = tempfile::tempdir().unwrap();
+    let out = invoke(temp.path(), &["upgrade", "--check"], &[]);
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("installer-managed"));
     assert!(!temp.path().join("home").exists());
 }
 

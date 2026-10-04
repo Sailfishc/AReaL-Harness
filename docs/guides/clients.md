@@ -11,6 +11,8 @@
 | 命令 | 行为 |
 |---|---|
 | `areal [PROMPT]` | 打开 TUI；可选首条消息在会话就绪后提交一次 |
+| `areal version` / `areal --version` | 显示当前产品版本，不启动服务 |
+| `areal upgrade [--check]` | 检查或升级已安装的完整发行包；详见[安装指南](installation.md) |
 | `areal exec [PROMPT]` | 非交互执行，支持文本、JSON 和 stream-json |
 | `areal serve` | 前台启动 Core + Runtime，由同一 launcher 负责清理 |
 | `areal app-server` | 直接启动 Core 服务，Runtime 连接需显式部署 |

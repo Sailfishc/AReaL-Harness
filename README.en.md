@@ -8,7 +8,7 @@
   <p>
     <a href="docs/design/architecture.en.md"><img src="https://img.shields.io/badge/Rust-Tokio-000000?logo=rust&amp;logoColor=white" alt="Built with Rust and Tokio"></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache--2.0-blue" alt="Apache-2.0 license"></a>
-    <a href="docs/guides/quickstart.en.md"><img src="https://img.shields.io/badge/Status-Source%20preview-orange" alt="Development preview: build from source"></a>
+    <a href="docs/guides/installation.en.md"><img src="https://img.shields.io/badge/Status-Developer%20preview-orange" alt="Development preview: view installation methods"></a>
   </p>
   <p><a href="docs/guides/quickstart.en.md">Quickstart</a> · <a href="docs/features.en.md">Capabilities &amp; limitations</a> · <a href="docs/README.en.md">Documentation</a> · <a href="CONTRIBUTING.en.md">Contributing</a></p>
 </div>
@@ -32,12 +32,12 @@ See the [client guide](docs/guides/clients.en.md) for details.
 
 ## 🌐 WebUI
 
-**Coming Soon**
+Local Web is available through `areal web`; see the [client guide](docs/guides/clients.en.md).
 
 ## 🚀 Start here
 
 > [!NOTE]
-> The project is under development. The release workflow builds and validates complete Homebrew (macOS arm64) and Linux x86_64 bundles; public availability depends on GitHub Releases and the tap. Restricted Linux execution requires Bubblewrap and user namespaces. Native Windows Runtime is unsupported. The TypeScript SDKs are not published on npm.
+> The project is under development. Availability of complete macOS arm64 / Linux x86_64 standalone bundles and the macOS Homebrew formula depends on GitHub Releases and the tap. Restricted Linux execution requires Bubblewrap and user namespaces. Native Windows Runtime and npm CLI/SDK packages are not published.
 
 For your first run, follow the [quickstart](docs/guides/quickstart.en.md) to build, verify without an API key, and start a model session. Then choose a guide below.
 
@@ -63,4 +63,4 @@ Uses [cordis-rs](https://github.com/dshbox/cordis-rs) components and draws on Co
 
 **License:** [Apache-2.0](LICENSE). Third-party materials retain their own licenses and copyright notices.
 
-See [installation](docs/guides/installation.en.md) for Homebrew/Linux platform scope, prepublication status and upgrade instructions.
+See [installation](docs/guides/installation.en.md) for supported platforms, channels and upgrades.
