@@ -119,3 +119,7 @@ Goal/Task 中 ask_user_question 支持 mode=async；提问持久写入独立频�
 异步 `verify_command` 必须通过原进程的 `read_process` 观察终态，或显式 `terminate_process` 并报告取消。文件收据读取及重跑命令不清除原进程的待观察记录；失败/取消的终态可结束等待，但不代表测试通过。完成门禁返回 `GOAL_COMPLETION_PENDING`，工具错误 details 包含 `pendingInputCount` 与首个 `pendingVerifications` 页面。
 
 接受 complete/blocked 报告后，应输出无工具最终说明。Core 仍允许明确列出的观察和清理工具（含 `task_state`、`task_channel_read`）；其他调用在提交前返回带 `reason=goalReportPending`、工具名及允许清单的 `PERMISSION_DENIED`，写入正常工具轨迹，不升级为未分类 Turn 内部错误。blocked 可保留未回收验证作为未完成工作，不能据此声称 complete。预算耗尽、取消和其他基础设施错误保持原有终止语义。
+
+### 无损文件行视图
+
+`policy.resultViews.fileLines` 默认 true，独立于控制搜索/命令候选的 `mode`。read_file 的连续 `{number,text}` 行数组可表示为 `firstLine`、`lineCount`、`source`，保留全部源码和其余元数据；使用 `fileLines:false` 关闭。只接受可还原的连续行、原有行尾和已知行字段，至少节省 128 bytes。完整原文先写入受限快照；快照不可用或不能回取时透传原有有界表示。`read_tool_result` 读取原始 JSON；该视图不把历史 fileVersion 变成跨 Turn 的编辑权限。`execution.outputProjection.transform=file-lines-v1` 与 `reason=lossless` 记录实际应用，搜索/命令 observe 仍只观察对应候选。

@@ -3,18 +3,39 @@
 use super::*;
 
 /// 取消后只排空流以结算尾部用量；不执行工具，不伪造缺失用量。
-pub(crate) async fn settle_cancelled_stream(stream: &mut model::ModelStream) {
-    let _ = tokio::time::timeout(Duration::from_secs(1), async {
+pub(crate) async fn settle_cancelled_stream(
+    stream: &mut model::ModelStream,
+    grace: Duration,
+) -> areal_protocol::ModelUsage {
+    let mut usage = areal_protocol::ModelUsage::default();
+    let _ = tokio::time::timeout(grace, async {
         while let Some(event) = stream.next().await {
-            if event.is_err() {
-                break;
+            match event {
+                Ok(model::ModelEvent::Usage(value)) => usage.add_assign(&value),
+                Err(_) => break,
+                _ => {}
             }
         }
     })
     .await;
+    usage
 }
 
 impl Engine {
+    pub(crate) async fn settle_cancelled_model(
+        &self,
+        cell: &Cell,
+        stream: &mut model::ModelStream,
+    ) {
+        let grace = Duration::from_millis(cell.cancel_grace_ms.load(Ordering::Acquire) as u64);
+        let usage = settle_cancelled_stream(stream, grace).await;
+        if let Some(turn) = cell.state.lock().await.thread.turns.last_mut() {
+            turn.usage
+                .get_or_insert_with(Default::default)
+                .add_assign(&usage);
+        }
+    }
+
     // 子作者协作不是紧急取消：保留当前请求直到计量结算，丢弃过时输出但不执行工具。
     // 显式取消仍可打断等待；超时/缺失用量继续保留 UNKNOWN，不伪造结算。
     async fn settle_child_steering(
@@ -27,7 +48,7 @@ impl Engine {
         loop {
             tokio::select! {
                 biased;
-                _ = cancel.cancelled() => { settle_cancelled_stream(stream).await; break; },
+                _ = cancel.cancelled() => { self.settle_cancelled_model(cell, stream).await; break; },
                 // 协作纠偏沿用请求的空闲期限；有活动就刷新，原 Goal/worker 总期限由外层执行器控制。
                 event = tokio::time::timeout(self.limits.stream_idle_timeout, stream.next()) => match event {
                     Ok(Some(Ok(model::ModelEvent::Usage(value)))) => usage.add_assign(&value),
@@ -384,12 +405,22 @@ impl Engine {
                     tokio::pin!(pending_response);
                     tokio::select! {
                         biased;
-                        _ = cancel.cancelled() => anyhow::bail!("cancelled"),
+                        _ = cancel.cancelled() => {
+                            if let Ok(Ok(mut stream)) = (&mut pending_response).await {
+                                self.settle_cancelled_model(cell, &mut stream).await;
+                            }
+                            anyhow::bail!("cancelled");
+                        },
                         settle = steer.recv() => {
                             if settle == Some(true) {
                                 // HTTP 首包之前也不能丢弃已经发出的请求。
                                 let result = tokio::select! {
-                                    _ = cancel.cancelled() => anyhow::bail!("cancelled"),
+                                    _ = cancel.cancelled() => {
+                                        if let Ok(Ok(mut stream)) = (&mut pending_response).await {
+                                            self.settle_cancelled_model(cell, &mut stream).await;
+                                        }
+                                        anyhow::bail!("cancelled");
+                                    },
                                     result = &mut pending_response => result,
                                 };
                                 if let Ok(Ok(mut stream)) = result {
@@ -413,12 +444,12 @@ impl Engine {
                 loop {
                     let next = tokio::select! {
                         biased;
-                        _ = cancel.cancelled() => { settle_cancelled_stream(&mut stream).await; anyhow::bail!("cancelled"); },
+                        _ = cancel.cancelled() => { self.settle_cancelled_model(cell, &mut stream).await; anyhow::bail!("cancelled"); },
                         settle = steer.recv() => {
                             if settle == Some(true) {
                                 self.settle_child_steering(cell, cancel, &mut stream).await;
                             } else {
-                                settle_cancelled_stream(&mut stream).await;
+                                self.settle_cancelled_model(cell, &mut stream).await;
                             }
                             complete_reasoning(cell, &thread_id, &turn_id, &reasoning_items).await;
                             complete_item(cell, &thread_id, &turn_id, &item_id).await;

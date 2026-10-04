@@ -995,3 +995,106 @@ async fn unchanged_goal_state_is_not_repeated_but_goal_read_keeps_full_usage() {
     assert_eq!(stopped(&e, &t.id).await["goal"]["status"], "completed");
     e.shutdown().await;
 }
+
+struct CancelTail {
+    entered: tokio::sync::Notify,
+    before_headers: bool,
+    missing: bool,
+}
+#[async_trait]
+impl Model for CancelTail {
+    fn name(&self) -> &str {
+        "cancel-tail"
+    }
+    async fn stream(&self, _: Vec<Message>) -> anyhow::Result<ModelStream> {
+        self.entered.notify_one();
+        if self.before_headers {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+        if self.missing {
+            return Ok(Box::pin(stream::pending()));
+        }
+        let tail = stream::once(async {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            Ok(ModelEvent::ToolCall(ToolCall {
+                id: "stale-call".into(),
+                name: "fs_create".into(),
+                arguments: r#"{"path":"must-not-exist","text":"stale"}"#.into(),
+            }))
+        });
+        use futures_util::StreamExt;
+        Ok(Box::pin(tail.chain(stream::iter(vec![Ok(
+            ModelEvent::Usage(ModelUsage {
+                input_tokens: 20,
+                output_tokens: 10,
+                cached_input_tokens: 0,
+            }),
+        )]))))
+    }
+}
+
+#[tokio::test]
+async fn real_goal_pause_drains_stream_and_preheader_request_without_running_stale_tools() {
+    for before_headers in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let model = Arc::new(CancelTail {
+            entered: tokio::sync::Notify::new(),
+            before_headers,
+            missing: false,
+        });
+        let e = Engine::open(dir.path(), model.clone(), Limits::default()).unwrap();
+        let t = e.create("/workspace".into()).await.unwrap();
+        e.goal_create("test".into(), request(&t.id)).await.unwrap();
+        model.entered.notified().await;
+        let g = e.goal_get(&t.id).await.unwrap();
+        e.goal_control(
+            "test".into(),
+            "pause".into(),
+            control(&g, "pause-drain"),
+            None,
+        )
+        .await
+        .unwrap();
+        let end = stopped(&e, &t.id).await;
+        assert_eq!(end["goal"]["status"], "paused");
+        assert_eq!(end["goal"]["usage"]["unknownRequests"], 0);
+        assert_eq!(end["goal"]["usage"]["tokensUsed"], 30);
+        let state = e.read(&t.id, true).await.unwrap();
+        assert!(
+            !state
+                .turns
+                .iter()
+                .flat_map(|t| &t.items)
+                .any(|i| matches!(i, areal_protocol::Item::DynamicToolCall { .. }))
+        );
+        e.shutdown().await;
+    }
+}
+
+#[tokio::test]
+async fn real_goal_pause_preserves_unknown_when_tail_never_arrives() {
+    let dir = tempfile::tempdir().unwrap();
+    let model = Arc::new(CancelTail {
+        entered: tokio::sync::Notify::new(),
+        before_headers: false,
+        missing: true,
+    });
+    let e = Engine::open(dir.path(), model.clone(), Limits::default()).unwrap();
+    let t = e.create("/workspace".into()).await.unwrap();
+    e.goal_create("test".into(), request(&t.id)).await.unwrap();
+    model.entered.notified().await;
+    let g = e.goal_get(&t.id).await.unwrap();
+    e.goal_control(
+        "test".into(),
+        "pause".into(),
+        control(&g, "pause-missing"),
+        None,
+    )
+    .await
+    .unwrap();
+    let end = stopped(&e, &t.id).await;
+    assert_eq!(end["goal"]["usage"]["unknownRequests"], 1);
+    assert_eq!(end["goal"]["usage"]["accountingComplete"], false);
+    assert!(end["goal"]["usage"]["reservedTokens"].as_u64().unwrap() > 0);
+    e.shutdown().await;
+}

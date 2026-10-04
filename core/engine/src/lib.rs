@@ -146,6 +146,8 @@ struct Cell {
     id: String,
     agent_requests: AtomicUsize,
     agent_tools: AtomicUsize,
+    // 普通接管允许当前请求有界结算；强制取消仍使用短期限。
+    cancel_grace_ms: AtomicUsize,
     bindings: RwLock<tools::Bindings>,
     state: Mutex<State>,
     events: broadcast::Sender<Value>,
@@ -162,6 +164,7 @@ impl Cell {
             id: thread.id.clone(),
             agent_requests: AtomicUsize::new(0),
             agent_tools: AtomicUsize::new(0),
+            cancel_grace_ms: AtomicUsize::new(1000),
             bindings: RwLock::new(bindings),
             state: Mutex::new(State {
                 thread,

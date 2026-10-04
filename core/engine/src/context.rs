@@ -481,14 +481,21 @@ impl Engine {
                         self.reserve_agent_model_request(cell)?;
                         request_reserved = true;
                     }
+                    let pending = tokio::time::timeout(self.limits.stream_idle_timeout, model::REQUEST_OWNER.scope((snapshot.id.clone(), snapshot.turns.last().map_or_else(String::new, |t| t.id.clone())), model.chat_with_limits(input.clone(), Vec::new(), model::RequestPurpose::Summary, model::ToolCallLimits { max_calls: 0, max_buffer_bytes: self.limits.max_tool_buffer_bytes }, None)));
+                    tokio::pin!(pending);
                     let mut stream = tokio::select! {
-                        _ = cancel.cancelled() => anyhow::bail!("cancelled"),
-                        result = tokio::time::timeout(self.limits.stream_idle_timeout, model::REQUEST_OWNER.scope((snapshot.id.clone(), snapshot.turns.last().map_or_else(String::new, |t| t.id.clone())), model.chat_with_limits(input.clone(), Vec::new(), model::RequestPurpose::Summary, model::ToolCallLimits { max_calls: 0, max_buffer_bytes: self.limits.max_tool_buffer_bytes }, None))) => result.map_err(|_| watchdog::idle_error("compaction request"))??,
+                        _ = cancel.cancelled() => {
+                            if let Ok(Ok(Ok(mut stream))) = tokio::time::timeout(Duration::from_millis(cell.cancel_grace_ms.load(Ordering::Acquire) as u64), &mut pending).await {
+                                self.settle_cancelled_model(cell, &mut stream).await;
+                            }
+                            anyhow::bail!("cancelled");
+                        },
+                        result = &mut pending => result.map_err(|_| watchdog::idle_error("compaction request"))??,
                     };
                     loop {
                         let event = tokio::select! {
                             _ = cancel.cancelled() => {
-                                crate::generation::settle_cancelled_stream(&mut stream).await;
+                                self.settle_cancelled_model(cell, &mut stream).await;
                                 anyhow::bail!("cancelled");
                             },
                             result = tokio::time::timeout(self.limits.stream_idle_timeout, stream.next()) => result.map_err(|_| watchdog::idle_error("compaction stream"))?,
@@ -610,9 +617,16 @@ impl Engine {
                 after_bytes < commit_before_bytes,
                 "context compaction did not reduce input size"
             );
+            let metrics = json!({"threadId":state.thread.id,"beforeBytes":commit_before_bytes,"summaryInputBytes":before_bytes,"afterBytes":after_bytes,"beforeEstimatedTokens":estimated_tokens,"afterEstimatedTokens":after_tokens,"targetTokens":self.limits.context_target_tokens,"targetMet":self.limits.context_target_tokens == 0 || after_tokens <= self.limits.context_target_tokens,"trigger":if force {"manual"} else if token_trigger {"tokens"} else {"bytes"},"wholeLatestRound":cut == items.len(),"summaryBytes":candidate.context_checkpoint.as_ref().map(|c|c.summary.len()),"generatedSummaryBytes":generated_summary_bytes,"summaryBudgetBytes":summary_budget,"degradationReason":degradation_reason,"retainedUserMessages":after_history.iter().filter(|m|m.role == "user").count(),"durationMs":started.elapsed().as_millis() as u64,"usage":usage});
+            let mut audit = metrics.clone();
+            audit["kind"] = json!("contextCompactionCandidate");
+            audit["throughItemId"] = json!(candidate.context_checkpoint.as_ref().map(|c| &c.through_item_id));
+            audit["overheadEstimatedTokens"] = json!(overhead_tokens);
+            audit["retainedItems"] = json!(items.len() - cut);
+            audit["previousUsageCalibration"] = json!(previous_usage);
+            self.store.save_audit(audit).await?;
             self.persist(&candidate).await?;
             state.thread = candidate;
-            let metrics = json!({"threadId":state.thread.id,"beforeBytes":commit_before_bytes,"summaryInputBytes":before_bytes,"afterBytes":after_bytes,"beforeEstimatedTokens":estimated_tokens,"afterEstimatedTokens":after_tokens,"targetTokens":self.limits.context_target_tokens,"targetMet":self.limits.context_target_tokens == 0 || after_tokens <= self.limits.context_target_tokens,"trigger":if force {"manual"} else if token_trigger {"tokens"} else {"bytes"},"wholeLatestRound":cut == items.len(),"summaryBytes":state.thread.context_checkpoint.as_ref().map(|c|c.summary.len()),"generatedSummaryBytes":generated_summary_bytes,"summaryBudgetBytes":summary_budget,"degradationReason":degradation_reason,"retainedUserMessages":after_history.iter().filter(|m|m.role == "user").count(),"durationMs":started.elapsed().as_millis() as u64,"usage":usage});
             cell.emit("areal/context/compacted", metrics);
             tracing::info!(
                 before_bytes,

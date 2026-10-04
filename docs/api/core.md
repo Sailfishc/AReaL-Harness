@@ -157,7 +157,7 @@ success/contentItems 必填；结构化成功结果按 outputSchema 校验，产
 | `agent_wait_any` | `{threadIds,timeoutMs?:10000}` |
 | `agent_report` | `{summary,evidence,remaining}` |
 | `agent_send_input` | `{threadId,prompt}` |
-| `agent_cancel` | `{threadId}` |
+| `agent_cancel` | `{threadId,mode?:"graceful"}` |
 
 prompt 非空，最多 32000 字符且受输入字节预算约束。maxModelRounds 为 1–1024，不能扩大父上限；最后一轮仅交接。wait 超时 0–60000 ms 不取消子任务；wait_any 接受 1–16 个不同直接子任务。report 仅限子 Agent：summary 最多 4096 字符，两个数组各 16 项/项 512 字符，总参数最多 16 KiB。
 
@@ -270,3 +270,15 @@ Chat Completions 的 HTTP 适配会把所有纯文本 system 消息按原有相�
 Goal 提示投影不携带 eventSequence 或逐请求累计用量/时钟，只保留 usage.turnsStarted；完整账本仍通过 goal_read 和 Goal API 读取。相同的最近 Goal 快照不重复注入；revision、报告或状态变化会追加新快照，A→B→A 不会误删最后一次变化。该裁剪仅影响模型提示，持久 Goal 账本与预算执行不变。
 
 HTTP 模型收尾轮保留当前可见工具 schema，通过 `tool_choice=none` 禁用调用，同时将解码和执行额度设为零；供应商若仍返回调用会被拒绝。工具定义和固定委派指令不因正常收尾而删除，从而保留可复用前缀。无 `tool_choice` 能力的自定义 Model 适配器继续接收空工具列表。权限变化仍即时调整工具可见性，缓存不覆盖授权。
+
+### 子任务停止与计量收尾
+
+`agent_cancel` 接受 `{threadId,mode?:"graceful"|"force"}`，默认 graceful。两种模式立即停止继续执行当前响应的工具和启动下一请求；graceful 为已发请求保留最多 60 秒结算，force 为 1 秒，均受原 Goal/研究 worker 剩余期限约束。重复取消不延长期限；收尾中改为 force 会缩短期限。它不保证生成交接报告，也不保证 provider 返回 usage。`agent_send_input` 可先要求作者提交交接。外层 Turn 在期限内继续驱动取消中的生成循环，不能先丢弃响应 future；首包前的已发请求也遵守此规则。截止仍缺最终用量时，原账本保留 UNKNOWN 和预留，不补零、不追加预算。崩溃后的未结算请求仍按原恢复契约保留未知，不声明支持 provider 用量补查。
+
+`agent_read/wait/cancel` 返回 `stopRequested`、`resourcesReleased`，并在 Goal 子线程上附 `accounting.{usageSettled,pendingRequests,unknownRequests,scope}`。这是当前 child turn 的计量状态，不能代替整棵 Goal 的账本。快照 `activity` 提供已记录 item/tool 数及最后工具身份/状态；它不是心跳时间。取消请求返回成功不等于 settled；只有清理完成后才能接管文件。短 wait 超时、源码 SHA 不变或旧交接文字都不能单独证明线程卡死。
+
+### 压缩后的精确工作片段
+
+checkpoint 恢复最多保留 8 组接口导向文件片段，序列化内容总计不超过 4096 本地估算 tokens；每组最多 40 行，超长行不保留。保留已观察的路径、SHA、行号和事件引用，不保留编辑句柄。当前实现优先接口文档及源码声明附近的精确文本，不声称完整覆盖或经过语义验证。后续回执中的新 SHA 使旧版本片段失效；没有新回执不代表磁盘未被外部改动。原需求仍权威，摘要与片段只作为历史证据。
+
+`contextCompactionCandidate` 持久记录压缩切点、保留 item 数、前后估算、固定开销、usage 校准、targetMet 及 wholeLatestRound。它在 checkpoint 提交前保存，不能单凭该 audit 声称安装成功；须核对实际 checkpoint 的 throughItemId。文件视图在首次工具结果记录时生成，历史回放不追溯重写旧 provider 上下文。

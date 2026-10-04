@@ -5,7 +5,7 @@ use areal_protocol::ToolDefinition;
 use serde::Deserialize;
 use std::borrow::Cow;
 
-pub(crate) const INSTRUCTIONS: &str = "Multi-agent delegation is available by default. Delegate concrete, independently actionable tasks early with agent_spawn, and make progress on another part while children run. Prefer a small team with nonoverlapping work; complete trivial or tightly coupled tasks yourself. Each prompt must include necessary context, exact file ownership, expected evidence or artifacts, and a stopping condition. Children have separate histories and share this workspace and its deployment permissions. Do not edit a child's files concurrently. Set maxModelRounds for bounded investigations; it limits that child's model loop, not the whole team's cost. Use agent_wait_any to consume whichever child finishes first, agent_read/agent_wait for a specific child, agent_send_input to correct a running child, and agent_cancel to stop unnecessary work. Children should save verified findings, evidence and remaining work with agent_report before extending an investigation, and finish with a concise handoff. Core returns settled child results incrementally and joins all children before completing this Turn. Failed or partial reports are evidence to inspect, not proof of completion. Verify and integrate results before reporting success. Capacity limits are ceilings, not targets.";
+pub(crate) const INSTRUCTIONS: &str = "Multi-agent delegation is available by default. Delegate concrete, independently actionable tasks early with agent_spawn, and make progress on another part while children run. Prefer a small team with nonoverlapping work; complete trivial or tightly coupled tasks yourself. Each prompt must include necessary context, exact file ownership, expected evidence or artifacts, and a stopping condition. Children have separate histories and share this workspace and its deployment permissions. Do not edit a child's files concurrently. Set maxModelRounds for bounded investigations; it limits that child's model loop, not the whole team's cost. Use agent_wait_any to consume whichever child finishes first, agent_read/agent_wait for a specific child, agent_send_input to correct a running child, and agent_cancel to stop unnecessary work. Children should save verified findings, evidence and remaining work with agent_report before extending an investigation, and finish with a concise handoff. Core returns settled child results incrementally and joins all children before completing this Turn. Failed or partial reports are evidence to inspect, not proof of completion. Verify and integrate results before reporting success. Capacity limits are ceilings, not targets. Use full returned threadId values and the exact agreed handoff path. A short wait timeout or unchanged source hash does not prove a stalled child: inspect tool activity, verification and durable reports. Request a concise handoff before taking over a diagnostic task; agent_cancel defaults to graceful settlement. Wait for settled/resourcesReleased before editing that child's files.";
 
 pub(crate) const CHILD_INSTRUCTIONS: &str = "Complete the assigned task within its scope and stopping condition. Save useful findings with agent_report: summarize conclusions, cite evidence or artifact paths, and list remaining work. Checkpoint before further exploration so a failure does not discard the handoff. Finish with verified results and explicitly identify incomplete work.";
 
@@ -64,8 +64,8 @@ impl tools::Registry {
             ),
             (
                 "agent_cancel",
-                "Request cancellation of a direct child and its descendants. Use agent_wait to confirm the task and resource cleanup have settled.",
-                json!({"threadId":target}),
+                "Stop a direct child and descendants. Default graceful mode stops execution and allows up to 60 seconds for the current model request to settle usage, within the original Goal deadline; no further tools from that response execute. force mode uses a short deadline and may leave usage UNKNOWN. Cancellation acceptance is not settlement: use agent_wait before taking ownership of files.",
+                json!({"threadId":target,"mode":{"type":"string","enum":["graceful","force"]}}),
                 vec!["threadId"],
             ),
         ] {
@@ -111,6 +111,16 @@ struct Target {
     #[serde(default = "wait_timeout")]
     timeout_ms: u64,
     prompt: Option<String>,
+    #[serde(default)]
+    mode: CancelMode,
+}
+
+#[derive(Clone, Copy, Default, Deserialize, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+enum CancelMode {
+    #[default]
+    Graceful,
+    Force,
 }
 
 fn wait_timeout() -> u64 {
@@ -123,6 +133,14 @@ fn prefix(text: &str, limit: usize) -> &str {
         end -= 1;
     }
     &text[..end]
+}
+
+fn child_turn_id(state: &State) -> String {
+    state
+        .thread
+        .turns
+        .last()
+        .map_or_else(String::new, |t| t.id.clone())
 }
 
 fn snapshot(state: &State, offset: usize, bytes: usize) -> anyhow::Result<Value> {
@@ -188,6 +206,9 @@ fn snapshot(state: &State, offset: usize, bytes: usize) -> anyhow::Result<Value>
     Ok(
         json!({"threadId":state.thread.id,"turnId":turn.id,"status":turn.status,
         "settled":state.active.is_none(),"threadStatus":state.thread.status,
+        "stopRequested":state.active.as_ref().is_some_and(|a|a.cancel.is_cancelled()) || turn.status == TurnStatus::Interrupted,
+        "resourcesReleased":state.active.is_none() && state.quarantined_admission.is_none(),
+        "activity":{"recordedItems":turn.items.len(),"toolCalls":turn.items.iter().filter(|i|matches!(i,Item::DynamicToolCall{..})).count(),"lastTool":turn.items.iter().rev().find_map(|i|if let Item::DynamicToolCall{id,tool,status,..}=i{Some(json!({"id":id,"tool":tool,"status":status}))}else{None})},
         "error":turn.error.as_ref().map(|e|prefix(&e.message,256)),
         "source":source,"sourceItemId":source_item_id,
         "partial":turn.status != TurnStatus::Completed || source != "message",
@@ -327,6 +348,29 @@ impl Engine {
                     .id
                     .clone();
                 if name == "agent_cancel" {
+                    // 先封闭子树准入并设置收尾期限，再传播取消；避免后代绕过策略。
+                    let grace = if matches!(p.mode, CancelMode::Graceful) {
+                        60_000
+                    } else {
+                        1000
+                    };
+                    self.store.save_audit(json!({"kind":"agentStopRequested","parentThreadId":parent.id,"threadId":p.thread_id,"turnId":child_turn,"mode":p.mode,"graceMs":grace})).await?;
+                    let mut pending = vec![child.clone()];
+                    while let Some(node) = pending.pop() {
+                        let descendants = {
+                            let mut state = node.state.lock().await;
+                            node.cancel_grace_ms.store(grace, Ordering::Release);
+                            if let Some(active) = state.active.as_mut() {
+                                active.sealed = true;
+                                active.children.clone()
+                            } else {
+                                Vec::new()
+                            }
+                        };
+                        for id in descendants {
+                            pending.push(self.cell(&id).await?);
+                        }
+                    }
                     self.interrupt(&p.thread_id, &child_turn).await?;
                 } else {
                     self.steer_child_input(
@@ -340,6 +384,11 @@ impl Engine {
             _ => anyhow::bail!("unknown agent coordination tool"),
         }
         let mut result = snapshot(&*child.state.lock().await, p.offset, 2048)?;
+        let state = child.state.lock().await;
+        if let Some(budget) = self.goals.budget(&state.thread) {
+            result["accounting"] = budget.owner_status(&state.thread.id, &child_turn_id(&state));
+        }
+        drop(state);
         if name == "agent_wait" {
             result["timedOut"] = json!(timed_out);
         }
@@ -572,7 +621,7 @@ mod tests {
                 &cell,
                 &turn.id,
                 "agent_cancel",
-                &json!({"threadId":child.id}),
+                &json!({"threadId":child.id,"mode":"force"}),
                 &cancel,
             )
             .await
@@ -582,7 +631,7 @@ mod tests {
                 &cell,
                 &turn.id,
                 "agent_wait",
-                &json!({"threadId":child.id,"timeoutMs":1000}),
+                &json!({"threadId":child.id,"timeoutMs":3000}),
                 &cancel,
             )
             .await
@@ -873,5 +922,163 @@ mod tests {
             assert_eq!(snapshot(&state, 0, 2048).unwrap()["source"], "none");
         }
         engine.shutdown().await;
+    }
+}
+
+#[cfg(test)]
+mod graceful_stop_tests {
+    use super::*;
+    use futures_util::stream;
+    struct SlowChild {
+        entered: tokio::sync::Notify,
+    }
+    #[async_trait::async_trait]
+    impl Model for SlowChild {
+        fn name(&self) -> &str {
+            "slow-child"
+        }
+        async fn stream(&self, m: Vec<Message>) -> anyhow::Result<model::ModelStream> {
+            if !m.iter().any(|m| m.text_content().contains("child-tail")) {
+                return Ok(Box::pin(stream::pending()));
+            }
+            self.entered.notify_one();
+            Ok(Box::pin(stream::once(async {
+                tokio::time::sleep(Duration::from_millis(1300)).await;
+                Ok(model::ModelEvent::Usage(areal_protocol::ModelUsage {
+                    input_tokens: 11,
+                    output_tokens: 7,
+                    cached_input_tokens: 0,
+                }))
+            })))
+        }
+    }
+    #[tokio::test]
+    async fn graceful_child_stop_waits_past_force_deadline_and_settles_shared_goal_usage() {
+        let dir = tempfile::tempdir().unwrap();
+        let model = Arc::new(SlowChild {
+            entered: tokio::sync::Notify::new(),
+        });
+        let e = Engine::open(dir.path(), model.clone(), Limits::default()).unwrap();
+        let parent = e.create("/workspace".into()).await.unwrap();
+        let goal = e
+            .goal_create(
+                "test".into(),
+                areal_protocol::goals::GoalCreate {
+                    interaction_mode: None,
+                    request_id: "goal".into(),
+                    thread_id: parent.id.clone(),
+                    expected_revision: 0,
+                    objective: "parent".into(),
+                    token_budget: None,
+                    max_turns: Some(2),
+                    max_active_seconds: Some(30),
+                },
+            )
+            .await
+            .unwrap();
+        while e
+            .cell(&parent.id)
+            .await
+            .unwrap()
+            .state
+            .lock()
+            .await
+            .active
+            .is_none()
+        {
+            tokio::task::yield_now().await;
+        }
+        let (child, _) = e
+            .spawn_child(&parent.id, vec![Input::text("child-tail")])
+            .await
+            .unwrap();
+        model.entered.notified().await;
+        let cell = e.cell(&parent.id).await.unwrap();
+        let turn = cell.state.lock().await.active.as_ref().unwrap().id.clone();
+        let stop = CancellationToken::new();
+        let accepted = e
+            .coordinate_agent(
+                &cell,
+                &turn,
+                "agent_cancel",
+                &json!({"threadId":child.id}),
+                &stop,
+            )
+            .await
+            .unwrap();
+        assert_eq!(accepted["stopRequested"], true);
+        let done = e
+            .coordinate_agent(
+                &cell,
+                &turn,
+                "agent_wait",
+                &json!({"threadId":child.id,"timeoutMs":5000}),
+                &stop,
+            )
+            .await
+            .unwrap();
+        assert_eq!(done["settled"], true);
+        assert_eq!(done["resourcesReleased"], true);
+        assert_eq!(done["accounting"]["usageSettled"], true);
+        let state = e.goal_get(&parent.id).await.unwrap();
+        assert_eq!(state["goal"]["id"], goal["goal"]["id"]);
+        assert_eq!(state["goal"]["usage"]["unknownRequests"], 0);
+        assert_eq!(state["goal"]["usage"]["tokensUsed"], 18);
+        // 重复取消已结算子任务不会再次入账。
+        e.coordinate_agent(
+            &cell,
+            &turn,
+            "agent_cancel",
+            &json!({"threadId":child.id}),
+            &stop,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            e.goal_get(&parent.id).await.unwrap()["goal"]["usage"]["tokensUsed"],
+            18
+        );
+        // 平滑收尾中升级 force 必须缩短期限；缺失 usage 仍计为 UNKNOWN。
+        let (second, _) = e
+            .spawn_child(&parent.id, vec![Input::text("child-tail")])
+            .await
+            .unwrap();
+        model.entered.notified().await;
+        e.coordinate_agent(
+            &cell,
+            &turn,
+            "agent_cancel",
+            &json!({"threadId":second.id}),
+            &stop,
+        )
+        .await
+        .unwrap();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        e.coordinate_agent(
+            &cell,
+            &turn,
+            "agent_cancel",
+            &json!({"threadId":second.id,"mode":"force"}),
+            &stop,
+        )
+        .await
+        .unwrap();
+        let forced = e
+            .coordinate_agent(
+                &cell,
+                &turn,
+                "agent_wait",
+                &json!({"threadId":second.id,"timeoutMs":3000}),
+                &stop,
+            )
+            .await
+            .unwrap();
+        assert_eq!(forced["settled"], true);
+        assert_eq!(forced["accounting"]["unknownRequests"], 1);
+        assert_eq!(
+            e.goal_get(&parent.id).await.unwrap()["goal"]["usage"]["tokensUsed"],
+            18
+        );
+        e.shutdown().await;
     }
 }

@@ -157,7 +157,7 @@ Restored definitions have no host binding. A callback-capable client may take ov
 | `agent_wait_any` | `{threadIds,timeoutMs?:10000}` |
 | `agent_report` | `{summary,evidence,remaining}` |
 | `agent_send_input` | `{threadId,prompt}` |
-| `agent_cancel` | `{threadId}` |
+| `agent_cancel` | `{threadId,mode?:"graceful"}` |
 
 prompt is nonempty, at most 32000 characters and subject to the input-byte budget. maxModelRounds is 1–1024 and cannot expand the parent limit; the final round is handoff-only. wait timeout is 0–60000 ms without cancellation. wait_any accepts 1–16 distinct direct children. report is child-only: summary up to 4096 characters, two arrays of up to 16 entries/512 characters each, at most 16 KiB serialized arguments.
 
@@ -256,3 +256,15 @@ New request-state snapshots persist the internal `areal_context` role. Chat proj
 Goal prompt projections omit eventSequence and per-request usage/clock counters, retaining only usage.turnsStarted. Full accounting remains available through goal_read and Goal APIs. Identical latest snapshots are not repeated; revision, report or state changes append a new snapshot, including A-to-B-to-A transitions. Only the prompt projection is reduced; durable accounting and budget enforcement are unchanged.
 
 HTTP final handoff rounds retain currently visible tool schemas with `tool_choice=none` and a zero decoder/execution call budget; returned calls are rejected. Normal handoff no longer removes tool definitions or fixed delegation instructions, preserving reusable prefixes. Legacy custom Model adapters without tool-choice support still receive an empty tool list. Permission changes still alter tool visibility immediately; caching never overrides authorization.
+
+### Child stopping and usage settlement
+
+`agent_cancel` accepts `{threadId,mode?:"graceful"|"force"}`, defaulting to graceful. Both stop execution of further response tools and admission of the next model request. Graceful allows an issued request up to 60 seconds to settle usage; force allows one second, bounded by the original Goal/research deadline. Repeated cancellation never extends settlement; switching to force shortens it. Neither guarantees a handoff or provider usage. Use `agent_send_input` to request a handoff first. The outer Turn continues polling the cancelling generation future within that deadline, including requests waiting for headers. Missing final usage retains UNKNOWN and its reservation, never zeroes accounting or expands budgets. Crash recovery remains conservative; provider usage lookup is not implemented.
+
+`agent_read/wait/cancel` expose `stopRequested`, `resourcesReleased`, and Goal child `accounting.{usageSettled,pendingRequests,unknownRequests,scope}`. Accounting covers that child turn, not the entire Goal. Snapshot `activity` contains recorded item/tool counts and the last tool identity/status, not heartbeat timestamps. Cancellation acceptance is not settlement; await cleanup before taking file ownership. Short waits, unchanged hashes, and old handoff text alone do not establish a stalled worker.
+
+### Exact working excerpts after compaction
+
+Restoration retains at most eight interface-oriented file excerpt groups, at most 4096 locally estimated tokens in their serialized content and 40 lines per group, excluding oversized lines. Entries retain observed path, SHA, line numbers and event references, never edit handles. The current heuristic favors interface documents and source declarations; it does not claim semantic completeness. Later receipts with a changed SHA invalidate older excerpts; absence of a receipt cannot establish unchanged disk state. Original requests remain authoritative.
+
+Persistent `contextCompactionCandidate` audits record the boundary, retained items, before/after estimates, overhead, usage calibration, targetMet and wholeLatestRound. Written before checkpoint commit, they do not alone prove installation: verify the actual checkpoint throughItemId. File views are recorded once with new tool results; replay never rewrites old provider context.

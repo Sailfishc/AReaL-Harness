@@ -172,6 +172,7 @@ impl Engine {
         } else {
             cell.goal_role.store(0, Ordering::Release);
         }
+        cell.cancel_grace_ms.store(1000, Ordering::Release);
         state.active = Some(Active {
             isolated_children: 0,
             _admission: admission,
@@ -484,15 +485,39 @@ impl Engine {
                 None => std::future::pending::<()>().await,
             }
         };
-        let mut result = tokio::select! {
-            biased;
-            _ = cancel.cancelled() => Err(anyhow::anyhow!("cancelled")),
-            _ = budget_expired => Err(crate::outcome::TerminalFailure::new(
-                if goal_deadline.is_some_and(|g| g <= tokio::time::Instant::now()) {"GOAL_TIME_BUDGET"} else {"research worker deadline exceeded"},
-                crate::outcome::outcome("AGENT_RUN_TIMEOUT", "agent", "core_execution_budget", json!({"goalDeadlineReached":goal_deadline.is_some_and(|g| g <= tokio::time::Instant::now())})),
-            ).into()),
-            result = std::panic::AssertUnwindSafe(self.generate(&cell, &cancel, &mut steer)).catch_unwind() =>
-                result.unwrap_or_else(|_| Err(anyhow::anyhow!("model task panicked"))),
+        let mut result = {
+            let generation =
+                std::panic::AssertUnwindSafe(self.generate(&cell, &cancel, &mut steer))
+                    .catch_unwind();
+            tokio::pin!(generation);
+            let result = tokio::select! {
+                biased;
+                _ = cancel.cancelled() => {
+                    // 不能先丢弃 generate，否则内部流收尾永远无法执行。
+                    // 收尾仍受原 Goal/worker 截止时间约束，过时工具不会执行。
+                    let started = tokio::time::Instant::now();
+                    let mut end = deadline.unwrap_or(started + Duration::from_secs(60));
+                    loop {
+                        // 重复取消不得延长期限；force 升级最多在 50ms 后缩短收尾。
+                        let grace = Duration::from_millis(cell.cancel_grace_ms.load(Ordering::Acquire) as u64);
+                        end = end.min(started + grace);
+                        if tokio::time::Instant::now() >= end { break; }
+                        tokio::select! {
+                            _ = &mut generation => break,
+                            _ = tokio::time::sleep_until(end.min(tokio::time::Instant::now() + Duration::from_millis(50))) => {}
+                        }
+                    }
+                    Err(anyhow::anyhow!("cancelled"))
+                },
+                _ = budget_expired => Err(crate::outcome::TerminalFailure::new(
+                    if goal_deadline.is_some_and(|g| g <= tokio::time::Instant::now()) {"GOAL_TIME_BUDGET"} else {"research worker deadline exceeded"},
+                    crate::outcome::outcome("AGENT_RUN_TIMEOUT", "agent", "core_execution_budget", json!({"goalDeadlineReached":goal_deadline.is_some_and(|g| g <= tokio::time::Instant::now())})),
+                ).into()),
+                result = &mut generation =>
+                    result.unwrap_or_else(|_| Err(anyhow::anyhow!("model task panicked"))),
+            };
+            // 在清理及账本刷新之前释放生成 future，包括内部计量 guard。
+            result
         };
         // 关闭子任务准入并传播取消，再等待子树；整个过程不持有父会话锁。
         let (children, tools) = {

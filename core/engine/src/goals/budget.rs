@@ -122,6 +122,22 @@ impl Budget {
         let d = self.data.lock().unwrap();
         usage(&d)
     }
+    pub(crate) fn owner_status(&self, thread: &str, turn: &str) -> Value {
+        let d = self.data.lock().unwrap();
+        let requests: Vec<_> = d
+            .journal
+            .requests
+            .values()
+            .filter(|r| {
+                r.owner
+                    .as_ref()
+                    .is_some_and(|(t, v)| t == thread && v == turn)
+            })
+            .collect();
+        let pending = requests.iter().filter(|r| !r.settled).count();
+        let unknown = requests.iter().filter(|r| r.unknown).count();
+        json!({"usageSettled":pending==0 && unknown==0,"pendingRequests":pending,"unknownRequests":unknown,"scope":"this child turn, not the whole Goal"})
+    }
     pub(crate) fn unknown_pending(&self) -> bool {
         self.data
             .lock()
@@ -562,7 +578,7 @@ mod tests {
             )
             .await
             .unwrap();
-        crate::generation::settle_cancelled_stream(&mut known).await;
+        crate::generation::settle_cancelled_stream(&mut known, Duration::from_secs(1)).await;
         drop(known);
         assert_eq!(budget.usage().tokens_used, 30);
         assert_eq!(budget.usage().reserved_tokens, 0);
@@ -574,7 +590,7 @@ mod tests {
         });
         tokio::time::timeout(
             Duration::from_secs(3),
-            crate::generation::settle_cancelled_stream(&mut missing),
+            crate::generation::settle_cancelled_stream(&mut missing, Duration::from_secs(1)),
         )
         .await
         .unwrap();
