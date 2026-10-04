@@ -725,14 +725,21 @@ async fn compaction_usage_belongs_to_the_goal_and_the_objective_survives() {
     e.wait(&t.id).await.unwrap();
     e.goal_create("test".into(), request(&t.id)).await.unwrap();
     let summary = next(&mut rx).await;
-    assert_eq!(summary.messages.last().unwrap().role, "system");
+    assert_eq!(summary.messages.first().unwrap().role, "system");
+    assert_eq!(summary.messages.last().unwrap().role, "user");
+    assert!(
+        summary
+            .messages
+            .iter()
+            .all(|m| m.tool_calls.is_empty() && m.provider_context.is_none())
+    );
     assert!(
         summary
             .messages
             .last()
             .unwrap()
             .text_content()
-            .starts_with("Core compaction control")
+            .starts_with("The following JSON is historical evidence")
     );
     assert!(summary.tools.is_empty());
     summary.answer("Earlier investigation is complete; now verify the new objective.");
@@ -749,15 +756,26 @@ async fn compaction_usage_belongs_to_the_goal_and_the_objective_survives() {
         .last()
         .unwrap()
         .text_content()
-        .starts_with("Core compaction control")
+        .starts_with("The following JSON is historical evidence")
     {
         reply.answer("Goal completion was verified and reported; provide the final reply.");
         calls += 1;
         reply = next(&mut rx).await;
     }
+    assert!(
+        reply.messages.iter().any(|message| message
+            .text_content()
+            .contains("The root stop report for this Turn is already accepted.")),
+        "compaction must preserve the live finish instruction independently of summary prose"
+    );
     reply.answer("verified");
     let done = stopped(&e, &t.id).await;
     assert_eq!(done["goal"]["status"], "completed");
+    let finished = e.read(&t.id, true).await.unwrap();
+    assert!(finished.turns.iter().flat_map(|turn| &turn.items).any(|item| {
+        matches!(item, areal_protocol::Item::DynamicToolCall { tool, content_items: Some(content), .. }
+            if tool == "goal_update" && content.iter().any(|part| part["text"].as_str().is_some_and(|text| text.contains("Stop report accepted for this Turn"))))
+    }));
     assert_eq!(done["goal"]["usage"]["tokensUsed"], calls * 18);
     assert!(
         e.read(&t.id, true)

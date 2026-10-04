@@ -158,6 +158,24 @@ impl Engine {
                 // 每次请求的动态提示必须与其输出一起保留，后续只追加。
                 // 删除旧提示会破坏 encrypted reasoning 所对应的原始上下文。
                 let mut live_context = Vec::new();
+                // 整个已结算尾轮被摘要吸收时，补充恢复边界，避免 Chat 模型把摘要当作本轮最终答复。
+                let checkpoint_covers_tail =
+                    state
+                        .thread
+                        .context_checkpoint
+                        .as_ref()
+                        .is_some_and(|checkpoint| {
+                            state
+                                .thread
+                                .turns
+                                .iter()
+                                .flat_map(|turn| &turn.items)
+                                .last()
+                                .is_some_and(|item| item.id() == checkpoint.through_item_id)
+                        });
+                if checkpoint_covers_tail {
+                    live_context.push(Message::text("system", "Internal checkpoint restoration, not a new user task: the preceding work summary is historical context, not the final response for this turn. Continue the outstanding user task from its recorded state. Do not repeat completed operations; preserve later user corrections and verification uncertainty. Compaction itself does not invalidate observed checks or require rereading unchanged files. If the requested work and relevant checks are already complete, report their evidence and finish (for an active Goal, use goal_update); do not restart the implementation or validation cycle."));
+                }
                 if let Some(goal) = &goal_instructions {
                     live_context.insert(0, Message::text("system", goal));
                 }

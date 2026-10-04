@@ -304,7 +304,10 @@ impl Stream for MeteredStream {
                 .get_or_insert_with(Default::default)
                 .add_assign(value);
         }
-        if matches!(next, Poll::Ready(None))
+        // 摘要/推理失败不等于消费未知；仅信任适配器确认的最终用量证据。
+        let final_usage_error =
+            matches!(&next, Poll::Ready(Some(Err(error))) if error.is::<model::FinalUsageError>());
+        if (matches!(next, Poll::Ready(None)) || final_usage_error)
             && let Some(mut guard) = self.guard.take()
         {
             guard.complete = true;
@@ -449,6 +452,39 @@ mod tests {
             self.stream(m).await
         }
     }
+    #[tokio::test]
+    async fn terminal_usage_failure_settles_but_partial_usage_stays_unknown() {
+        for finalized in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let budget = fixture(dir.path(), 100000);
+            let (guard, _) = budget.reserve(100, RequestPurpose::Summary).await.unwrap();
+            let error = anyhow::Error::new(model::ModelFailure::Truncated);
+            let error = if finalized {
+                error.context(model::FinalUsageError)
+            } else {
+                error
+            };
+            let mut stream = MeteredStream {
+                inner: Box::pin(futures_util::stream::iter([
+                    Ok(ModelEvent::Usage(areal_protocol::ModelUsage {
+                        input_tokens: 20,
+                        cached_input_tokens: 5,
+                        output_tokens: 10,
+                    })),
+                    Err(error),
+                ])),
+                guard: Some(guard),
+            };
+            assert!(stream.next().await.unwrap().is_ok());
+            assert!(stream.next().await.unwrap().is_err());
+            // 调用者遇到错误立即退出，不要求再 poll 一次 EOF 才结算。
+            drop(stream);
+            assert_eq!(budget.usage().tokens_used, 30);
+            assert_eq!(budget.unknown_pending(), !finalized);
+            assert_eq!(budget.usage().reserved_tokens == 0, finalized);
+        }
+    }
+
     #[tokio::test]
     async fn parallel_reservations_cannot_spend_the_same_remaining_budget() {
         let dir = tempfile::tempdir().unwrap();

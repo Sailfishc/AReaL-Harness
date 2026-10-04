@@ -73,14 +73,16 @@ impl Decoder {
             return Ok(Vec::new());
         }
         if let Self::Chat(decoder) = self {
-            if decoder.truncated {
-                return Err(ModelFailure::Truncated.into());
-            }
             // Called only on clean HTTP EOF, never on a transport error. A
             // finish reason is sufficient without [DONE], but a partial SSE
             // event (including a trailing usage/error event) is not success.
             if !decoder.frames.bytes.is_empty() || !decoder.frames.data.is_empty() {
-                return Err(ModelFailure::Incomplete.into());
+                return Err(if decoder.truncated {
+                    ModelFailure::Truncated
+                } else {
+                    ModelFailure::Incomplete
+                }
+                .into());
             }
             return decoder.complete();
         }
@@ -105,6 +107,7 @@ pub(super) struct ChatDecoder {
     usage_details: UsageDetails,
     pub(super) stop_reason: Option<String>,
     pub(super) truncated: bool,
+    final_usage_observed: bool,
     pub(super) content_bytes: usize,
     frames: SseFrames,
     finished: bool,
@@ -129,7 +132,12 @@ impl ChatDecoder {
         // A length finish is a failed inference even after clean HTTP EOF.
         // Hold partial calls while accepting the provider's trailing usage.
         if self.truncated {
-            return Err(ModelFailure::Truncated.into());
+            let error = anyhow::Error::new(ModelFailure::Truncated);
+            return Err(if self.final_usage_observed {
+                error.context(FinalUsageError)
+            } else {
+                error
+            });
         }
         if !self.finished {
             return Err(ModelFailure::Incomplete.into());
@@ -159,7 +167,7 @@ impl ChatDecoder {
         for data in frames {
             self.event_number = self.event_number.saturating_add(1);
             let result = self.decode_event(&data, &mut output).map_err(|error| {
-                if self.truncated {
+                if self.truncated && !error.is::<FinalUsageError>() {
                     anyhow::Error::new(ModelFailure::Truncated)
                 } else {
                     error
@@ -188,6 +196,17 @@ impl ChatDecoder {
         }
         self.usage_details.observe_response_id(event.get("id"));
         if let Some(usage) = parse_usage(event.get("usage")) {
+            // Chat 的最终消费必须位于 finish 同帧或其后；中途统计不能解除 UNKNOWN。
+            self.final_usage_observed |= self.finished
+                || event["choices"].as_array().is_some_and(|choices| {
+                    choices.iter().any(|choice| {
+                        choice["index"] == 0
+                            && matches!(
+                                choice["finish_reason"].as_str(),
+                                Some("length" | "stop" | "tool_calls")
+                            )
+                    })
+                });
             self.usage_details.observe(&event["usage"]);
             output.push(ModelEvent::Usage(usage));
         }
@@ -612,7 +631,14 @@ impl ResponsesDecoder {
                     Some("response.incomplete") => "response.incomplete",
                     _ => "error",
                 };
-                return Err(StreamError::from_value(value, kind).into());
+                let error = anyhow::Error::new(StreamError::from_value(value, kind));
+                return Err(
+                    if kind != "error" && parse_usage(event["response"].get("usage")).is_some() {
+                        error.context(FinalUsageError)
+                    } else {
+                        error
+                    },
+                );
             }
             _ => {}
         }
@@ -699,6 +725,60 @@ fn parse_usage(value: Option<&Value>) -> Option<ModelUsage> {
 #[cfg(test)]
 mod truncated_usage_tests {
     use super::*;
+
+    #[test]
+    fn final_usage_marker_requires_terminal_framing() {
+        for (tail, known) in [("data: [DONE]\n\n", true), ("", true), ("data: {", false)] {
+            let mut decoder = Decoder::Chat(ChatDecoder::default());
+            let wire = concat!(
+                "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"length\"}]}\n\n",
+                "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":20}}\n\n"
+            ).to_owned() + tail;
+            let events = decoder.feed(wire.as_bytes()).unwrap();
+            assert!(events.iter().any(|e| matches!(e, ModelEvent::Usage(_))));
+            let error = decoder.finish().unwrap_err();
+            assert_eq!(error.is::<FinalUsageError>(), known);
+        }
+    }
+
+    #[test]
+    fn responses_final_usage_marker_excludes_generic_errors_and_missing_usage() {
+        for kind in ["response.failed", "response.incomplete", "error"] {
+            for with_usage in [false, true] {
+                let mut decoder = Decoder::Responses(ResponsesDecoder::default());
+                let mut event = json!({"type":kind, "response":{"error":{"code":"server_error"}}});
+                if with_usage {
+                    event["response"]["usage"] = json!({"input_tokens":10,"output_tokens":20});
+                }
+                let result = decoder.feed(format!("data: {event}\n\n").as_bytes());
+                let error = if with_usage {
+                    assert!(
+                        result
+                            .unwrap()
+                            .iter()
+                            .any(|event| matches!(event, ModelEvent::Usage(_)))
+                    );
+                    decoder.finish().unwrap_err()
+                } else {
+                    result.unwrap_err()
+                };
+                assert_eq!(error.is::<FinalUsageError>(), with_usage && kind != "error");
+                assert!(error.downcast_ref::<StreamError>().is_some());
+            }
+        }
+    }
+
+    #[test]
+    fn intermediate_usage_before_length_is_not_final_consumption() {
+        let mut decoder = Decoder::Chat(ChatDecoder::default());
+        decoder.feed(b"data: {\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":1}}\n\n").unwrap();
+        let error = decoder.feed(b"data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"length\"}]}\n\ndata: [DONE]\n\n").unwrap_err();
+        assert!(!error.is::<FinalUsageError>());
+        assert_eq!(
+            error.downcast_ref::<ModelFailure>(),
+            Some(&ModelFailure::Truncated)
+        );
+    }
 
     #[test]
     fn optional_counters_preserve_unknown_and_both_wire_formats() {

@@ -65,6 +65,11 @@ pub enum ModelFailure {
     PendingVerification,
 }
 
+// 只有协议适配器确认终态和最终用量后才能添加；普通 Usage 增量不具备此保证。
+#[derive(Debug, thiserror::Error)]
+#[error("provider terminal response includes final usage")]
+pub(crate) struct FinalUsageError;
+
 /// Bounded protocol metadata only. Provider messages and response bodies may
 /// contain prompts or credentials and are never copied into this diagnostic.
 #[derive(Debug, Serialize, thiserror::Error)]
@@ -1117,6 +1122,8 @@ impl Model for HttpModel {
                             failed = true;
                             audit.value["terminalOutcome"] = json!(terminal_outcome(&error));
                             audit.value["outcome"] = json!("failed");
+                            audit.value["finalUsageConfirmed"] =
+                                json!(error.is::<FinalUsageError>());
                             if let Some(detail) = error.downcast_ref::<StreamError>() {
                                 audit.value["streamError"] = json!(detail);
                             }

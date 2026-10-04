@@ -107,6 +107,14 @@ Chat 工具 index 缺失、null、非整数类型、负数、超出 u64 范围�
 Rust `Model::chat_with_limits(messages, tools, purpose, ToolCallLimits, cap)` 显式传递请求预算，内置 HTTP、共享池和 Worker 包装器均转发。可选的输出 token 上限与工具预算一起经过 Goal 计量传递。默认实现委托 `chat_limited`，保持已有自定义 Model 实现可编译，并拒绝不受支持的非空 token 上限；自定义模型自行约束内部缓冲，Engine 仍在工具执行前检查其输出。摘要使用零调用预算。`Limits` 新增 `max_tool_buffer_bytes`，`NativeFactory`/`NativeExecutor` 新增 `tool_call_limits`，显式结构体初始化需补充字段；构造器提供默认值。不增加客户端协议方法或更改快照格式。
 
 压缩从权威历史独立重放 checkpoint 覆盖的所有真实用户消息，保留原文和时间顺序，不依赖摘要维持修订。自动 Goal 续轮的首项按持久化 Turn origin 排除，同一 Turn 中后续 steer 仍保留；用户后续修订优先于相冲突的摘要叙述。多次压缩和重启沿用现有历史，无新快照格式。子任务保留自身输入与修订，父任务需显式把相关修订发给已有子任务。用户原文不提升为 system 指令，也不静默截断；因此用户输入本身很大时仍可能无法压缩。工具调用/结果和不透明 reasoning 保持完整分组。内部摘要控制和校验重试使用 system 消息。摘要需满足 16 KiB 上限及实际可释放空间；无效摘要仅校验重试一次，随后有界原始证据回退不再嵌套旧 DEGRADED checkpoint。不可净缩减时在调用摘要模型前跳过；不删除归档或执行日志。取消保留原 checkpoint，已打开的流最多收尾一秒以结算尾部 usage，不执行输出工具；缺失用量仍是 UNKNOWN。`areal/context/compacted` 另含 `summaryInputBytes`（摘要开始时的快照大小）、`beforeEstimatedTokens`、`afterEstimatedTokens`、`targetTokens`、`summaryBytes`、`generatedSummaryBytes`、`summaryBudgetBytes`、`degradationReason`（null、`summary_unavailable` 或 `insufficient_net_saving`）及 `retainedUserMessages`。计数为投影中的 user 角色消息；媒体保留原引用。 另提供 `targetMet`（估计是否达到目标）、`trigger`（manual/tokens/bytes）和 `wholeLatestRound`（最新已完成工具轮次是否整体进入摘要）；通知字段不改变原有摘要审计格式。
+摘要请求使用独立 system 角色，将原消息角色、工具调用及工具结果序列化为引用历史数据；不回放作者的可执行角色、媒体负载或不透明 provider 上下文。摘要输入中的大工具结果保留首尾片段，原始事件和求解历史仍完整保留。交接内容要求记录已读覆盖、文件版本、接口、子任务与下一步；这些是历史观察，不替代文件变化后的重新读取。一次内容重试使用更短的检查点要求。协议适配器确认终态与最终用量后，即使发生 length 或 Responses 终止错误，Goal 也可结算已知消费；普通 Usage 后断流、缺失用量及不完整尾帧仍保留 UNKNOWN。HTTP 失败审计的 `finalUsageConfirmed` 区分这种终态证据与仅收到 Usage。Workgroup 共享池同样结算这些已知失败消费，但不把失败计为成功请求。
+
+压缩后的求解上下文还包含 Core 从成功文件操作回执提取的历史路径、完整 SHA-256 与读取范围（最多 24 项、8 KiB）；不复制失效的 fileVersion 句柄，也不把分页读取推断为全文覆盖。摘要模型不再负责复述哈希。
+
+若 checkpoint 覆盖整个已结算尾轮，下一次求解追加明确标记的内部恢复控制，避免把历史摘要误作当前 Turn 的最终答复；该控制不构成新的用户任务，也不要求重读未变化文件或重复已完成验证；证据已满足任务时应报告并收尾。
+
+字节阈值触发且配置 token 压缩目标时，边界选择也考虑字节窗口的 75% 目标；按保留上下文所剩空间建议 1–8 KiB 摘要，减少紧邻的重复压缩。建议长度不硬截断有效摘要，原有净缩减检查仍生效。
+
 `limits.context_compaction_enabled=false` 时自动阈值超限使 Turn 失败，显式 `areal/context/compact` 返回错误，不写入 checkpoint；配置见[上下文限额](../guides/configuration.md#模型与限额)。
 
 模型审计写入 `data_dir/model-requests/*.json` 与 `requests.jsonl`，记录 solve/summary、参数、请求体摘要/大小、attempt、usage、stopReason、耗时与有限响应形状，不记录 header、endpoint 或 prompt。`usageObserved=true` 表示收到可解析的完整用量事件（包括 0）；缺失/false 不能视为已知零。length 终态仍收集同帧/尾帧 usage，等待受期限和取消限制，随后判定截断并禁止执行工具。
@@ -232,6 +240,8 @@ Goal 事件纳入现有 snapshot-and-subscribe 边界、权限过滤和背压规
 |---|---|---|
 | `goal_read` | `{}` | 从调用上下文读取当前目标、状态、预算和剩余工作；子 Agent 仅获得只读投影 |
 | `goal_update` | `{expectedRevision, status, summary, evidence, remaining, blocker?}` | 仅当前 Goal 的根 Turn；status 为 continue/complete/blocked；仅报告进展或提交结算申请 |
+
+`goal_update` 接受 complete/blocked 报告后返回 `nextAction`，明确要求输出不带工具的最终答复；当前 Turn 结算前保持 active 属于预期状态，无需轮询或重复提交。压缩后的动态 Goal 指令同样保留这条待收尾状态，后续用户修订仍须处理。
 
 goalId 和根线程身份由 Core 绑定，模型不能自报其他目标。summary 非空、最多 4096 字符；evidence 和 remaining 各最多 16 条、每条最多 1024 字符，总参数最多 32 KiB。complete 要求 remaining 为空且 evidence 非空；blocked 要求非空 blocker 描述具体障碍及解除条件。evidence 是模型提交的文字报告，可引用工具 Item、检查回执或产物；它不是独立的语义验收器。Core 校验报告结构、未消费的验证句柄、待处理输入、子任务和 Workgroup 结算状态；业务正确性仍依赖实际检查和模型报告。
 

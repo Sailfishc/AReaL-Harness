@@ -844,6 +844,11 @@ async fn completed_large_tool_round_is_summarized_once_without_losing_task_or_ar
                 .iter()
                 .any(|m| m.text_content().contains("Read design chapter"))
         );
+        assert!(solves[2].1.iter().any(|m| {
+            m.role == "areal_context"
+                && m.text_content()
+                    .starts_with("Internal checkpoint restoration")
+        }));
         assert_eq!(result.context_checkpoint.as_ref().unwrap().compactions, 1);
         assert_eq!(
             result.turns[0]
@@ -865,5 +870,43 @@ async fn completed_large_tool_round_is_summarized_once_without_losing_task_or_ar
                 .contains("完整设计章节 0:")
         );
     }
+    engine.shutdown().await;
+}
+
+#[tokio::test]
+async fn byte_pressure_requests_shorter_checkpoint_even_with_large_token_target() {
+    let data = tempfile::tempdir().unwrap();
+    let model = continuity_model("Prior checks completed. Continue the current task.");
+    let engine = Engine::open(
+        data.path(),
+        model.clone(),
+        Limits {
+            context_window_bytes: 9000,
+            context_recent_bytes: 4096,
+            context_target_tokens: 16000,
+            ..Limits::default()
+        },
+    )
+    .unwrap();
+    let thread = engine.create("/workspace".into()).await.unwrap();
+    for n in 0..8 {
+        let result = turn(
+            &engine,
+            &thread.id,
+            &format!("Continue checkpoint {n}; preserve the original constraint"),
+        )
+        .await;
+        assert_eq!(result.turns.last().unwrap().status, TurnStatus::Completed);
+    }
+    let requests = model.requests.lock().unwrap().clone();
+    assert!(
+        requests
+            .iter()
+            .any(|(purpose, messages)| *purpose == RequestPurpose::Summary
+                && messages[0]
+                    .text_content()
+                    .contains("Summary writing target:")),
+        "byte pressure must guide summary size even when the token target is already satisfied"
+    );
     engine.shutdown().await;
 }

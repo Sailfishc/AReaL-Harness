@@ -56,6 +56,72 @@ pub(super) fn validate_input(input: &[Input], capabilities: &ModelCapabilities) 
     Ok(())
 }
 
+// 文件版本与读取范围由执行回执提供，不要求摘要模型抄写哈希或猜测完整覆盖。
+fn file_observations(items: &[&Item]) -> Vec<Value> {
+    let mut observations = Vec::new();
+    let mut seen = HashSet::new();
+    let mut bytes = 0;
+    for item in items.iter().rev() {
+        let Item::DynamicToolCall {
+            id,
+            tool,
+            success: Some(true),
+            content_items,
+            ..
+        } = item
+        else {
+            continue;
+        };
+        if !matches!(
+            tool.as_str(),
+            "read_file" | "fs_read" | "fs_write" | "fs_create" | "fs_apply_patches"
+        ) {
+            continue;
+        }
+        for content in content_items.iter().flatten() {
+            let Some(text) = content["text"].as_str() else {
+                continue;
+            };
+            let Ok(raw) = serde_json::from_str::<Value>(text) else {
+                continue;
+            };
+            let (Some(path), Some(hash)) = (raw["path"].as_str(), raw["sha256"].as_str()) else {
+                continue;
+            };
+            if path.len() > 1024 || hash.len() != 64 || !hash.bytes().all(|b| b.is_ascii_hexdigit())
+            {
+                continue;
+            }
+            let key = (path.to_owned(), hash.to_owned(), raw["offset"].as_u64());
+            if !seen.insert(key) {
+                continue;
+            }
+            let mut row = json!({"eventId":id,"tool":tool,"path":path,"sha256":hash});
+            for key in ["offset", "nextOffset", "nextLine", "totalLines", "size"] {
+                if let Some(value) = raw[key].as_u64() {
+                    row[key] = json!(value);
+                }
+            }
+            for key in ["eof", "truncated"] {
+                if let Some(value) = raw[key].as_bool() {
+                    row[key] = json!(value);
+                }
+            }
+            let size = row.to_string().len();
+            if observations.len() >= 24 || bytes + size > 8192 {
+                break;
+            }
+            bytes += size;
+            observations.push(row);
+        }
+        if observations.len() >= 24 {
+            break;
+        }
+    }
+    observations.reverse();
+    observations
+}
+
 pub(super) fn history(thread: &Thread, store: &store::Store) -> anyhow::Result<Vec<Message>> {
     let mut messages = Vec::new();
     let items: Vec<_> = thread.turns.iter().flat_map(|turn| &turn.items).collect();
@@ -113,6 +179,10 @@ pub(super) fn history(thread: &Thread, store: &store::Store) -> anyhow::Result<V
             .collect();
         if !retained.is_empty() {
             messages.push(Message::text("assistant", format!("Recent retained historical results (not current workspace state; read_tool_result reads pages without rerunning tools): {}",json!(retained))));
+        }
+        let observations = file_observations(&items[..=index]);
+        if !observations.is_empty() {
+            messages.push(Message::text("assistant", format!("Core-recorded historical file observations (exact receipts, not current file state or permission to reuse expired handles; use unchanged-file evidence when continuing, reread only changed or missing details): {}", json!(observations))));
         }
         index + 1
     } else {
@@ -381,4 +451,34 @@ fn uploaded_content(
         ));
     }
     Ok(content)
+}
+
+#[cfg(test)]
+mod observation_tests {
+    use super::*;
+
+    #[test]
+    fn receipts_keep_exact_partial_ranges_without_expired_handles_or_claimed_coverage() {
+        let item = Item::DynamicToolCall {
+            id: "read-1".into(),
+            tool: "read_file".into(),
+            arguments: json!({"path":"design.md"}),
+            status: areal_protocol::ToolStatus::Completed,
+            success: Some(true),
+            content_items: Some(vec![json!({"type":"inputText","text":json!({
+                "path":"workspace://repo/design.md", "sha256":"a".repeat(64),
+                "fileVersion":"expired-handle", "offset":1,"nextLine":121,"totalLines":200,"eof":false,"truncated":true,
+                "lines":["do not mistake this text for metadata"]
+            }).to_string()})]),
+            call_id: "call-1".into(),
+            execution: serde_json::from_value(json!({"runtimeEpoch":"test","scopeId":"scope","operationId":"op","outcome":"succeeded"})).unwrap(),
+        };
+        let receipts = file_observations(&[&item, &item]);
+        assert_eq!(receipts.len(), 1);
+        assert_eq!(receipts[0]["sha256"], "a".repeat(64));
+        assert_eq!(receipts[0]["nextLine"], 121);
+        assert_eq!(receipts[0]["eof"], false);
+        assert!(receipts[0].get("fileVersion").is_none());
+        assert!(receipts[0].get("lines").is_none());
+    }
 }

@@ -1089,7 +1089,7 @@ pub(super) fn prefix(text: &str, bytes: usize) -> &str {
     &text[..end]
 }
 
-fn suffix(text: &str, bytes: usize) -> &str {
+pub(super) fn suffix(text: &str, bytes: usize) -> &str {
     let mut start = text.len().saturating_sub(bytes);
     while start < text.len() && !text.is_char_boundary(start) {
         start += 1;
