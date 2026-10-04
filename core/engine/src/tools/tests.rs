@@ -859,3 +859,45 @@ async fn compressed_pages_can_be_replayed_raw_without_rerunning_command() {
     assert!(compact.to_string().len() < replay.to_string().len());
     client.shutdown().await.unwrap();
 }
+
+#[test]
+fn pending_verification_pages_recover_handles_hidden_by_ordinary_snapshot() {
+    let mut handles = Handles::default();
+    for i in 0..87 {
+        let alias = format!("p{i:016}");
+        let process = format!("runtime-{i}");
+        handles.processes.insert(alias.clone(), process.clone());
+        handles.process_snapshots.insert(
+            alias.clone(),
+            json!({"processId":alias,"state":"running","padding":"x".repeat(300)}),
+        );
+        handles.verification.insert(
+            process.clone(),
+            format!("workspace://scratch/verification/{i}.json"),
+        );
+        handles.pending_verifications.insert(process);
+    }
+    let ordinary = handles.snapshot();
+    assert!(ordinary["processes"].as_array().unwrap().len() < 87);
+    let mut after = None;
+    let mut seen = std::collections::BTreeSet::new();
+    loop {
+        let page = handles.pending_verification_page(after.as_deref());
+        assert_eq!(page["count"], 87);
+        assert!(page.to_string().len() < 5000);
+        for row in page["items"].as_array().unwrap() {
+            assert!(seen.insert(row["processId"].as_str().unwrap().to_owned()));
+            assert!(!row["processId"].as_str().unwrap().contains("runtime"));
+        }
+        after = page["nextAfter"].as_str().map(str::to_owned);
+        if after.is_none() {
+            break;
+        }
+    }
+    assert_eq!(seen.len(), 87);
+    // 终态已观察的失败/取消也应结束等待；分页不承诺验证通过。
+    handles.pending_verifications.remove("runtime-86");
+    let page = handles.pending_verification_page(Some("p0000000000000085"));
+    assert_eq!(page["count"], 86);
+    assert!(page["items"].as_array().unwrap().is_empty());
+}

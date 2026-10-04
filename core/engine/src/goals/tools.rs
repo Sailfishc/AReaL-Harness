@@ -62,9 +62,19 @@ impl Engine {
                     .as_ref()
                     .is_some_and(|d| d.queue.items.iter().any(|i| i.status == "pending")))
         {
-            return Err(invalid(
-                "process pending input and verification results before completing the goal",
-            ));
+            let pending_input = state.thread.desktop.as_ref().map_or(0, |d| {
+                d.queue
+                    .items
+                    .iter()
+                    .filter(|i| i.status == "pending")
+                    .count()
+            });
+            return Err(invalid(format!(
+                "GOAL_COMPLETION_PENDING: {}",
+                json!({"pendingInputCount":pending_input,
+                    "pendingVerifications":active.handles.pending_verification_page(None),
+                    "guidance":"Process queued input and observe original verification processes before retrying complete. Use task_state for further pending pages; do not rerun checks merely to clear this gate."})
+            )));
         }
         let turn_id = active.id.clone();
         let mut candidate = state.thread.clone();
@@ -163,7 +173,11 @@ impl Engine {
             serde_json::to_string(&view).map_err(invalid)?
         )))
     }
-    pub(crate) async fn goal_tool_guard(&self, cell: &Cell, name: &str) -> anyhow::Result<()> {
+    pub(crate) async fn goal_tool_guard(
+        &self,
+        cell: &Cell,
+        name: &str,
+    ) -> anyhow::Result<Option<areal_runtime_protocol::Error>> {
         if matches!(
             name,
             "goal_read"
@@ -179,8 +193,10 @@ impl Engine {
                 | "read_process"
                 | "read_tool_result"
                 | "terminate_process"
+                | "task_state"
+                | "task_channel_read"
         ) {
-            return Ok(());
+            return Ok(None);
         }
         let state = cell.state.lock().await;
         if let Some(active) = &state.active {
@@ -195,15 +211,174 @@ impl Engine {
                         && goal.reason.as_deref() == Some("serverDraining")),
                 "GOAL_STOPPED"
             );
-            anyhow::ensure!(
-                !(goal.report_turn_id.as_deref() == state.active.as_ref().map(|a| a.id.as_str())
-                    && goal
-                        .report
-                        .as_ref()
-                        .is_some_and(|r| r.status != GoalReportStatus::Continue)),
-                "GOAL_REPORT_PENDING: only observation and cleanup are allowed after a stop report"
-            );
+            if goal.report_turn_id.as_deref() == state.active.as_ref().map(|a| a.id.as_str())
+                && goal
+                    .report
+                    .as_ref()
+                    .is_some_and(|r| r.status != GoalReportStatus::Continue)
+            {
+                let mut error = areal_runtime_protocol::Error::new(
+                    areal_runtime_protocol::ErrorCode::PermissionDenied,
+                    "GOAL_REPORT_PENDING: stop report accepted; finish with a tool-free final response, or use the allowed observation/cleanup tools",
+                );
+                error.details = Some(json!({"reason":"goalReportPending", "tool":name,
+                    "allowedTools":["goal_read","goal_update","agent_read","agent_wait","agent_wait_any","agent_wait_all","agent_report","workgroup_read","workgroup_wait","workgroup_cancel","read_process","read_tool_result","terminate_process","task_state","task_channel_read"]}));
+                return Ok(Some(error));
+            }
         }
-        Ok(())
+        Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod completion_tests {
+    use super::*;
+    use crate::model::{Message, ModelEvent, ModelStream, ToolCall};
+    use async_trait::async_trait;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct ClosingModel {
+        ready: tokio::sync::Notify,
+        calls: AtomicUsize,
+    }
+    #[async_trait]
+    impl Model for ClosingModel {
+        fn name(&self) -> &str {
+            "completion-regression"
+        }
+        async fn stream(&self, m: Vec<Message>) -> anyhow::Result<ModelStream> {
+            self.chat(m, vec![]).await
+        }
+        async fn chat(&self, messages: Vec<Message>, _: Vec<Value>) -> anyhow::Result<ModelStream> {
+            let n = self.calls.fetch_add(1, Ordering::SeqCst);
+            if n == 0 {
+                self.ready.notified().await;
+            }
+            let view: Value = messages
+                .iter()
+                .rev()
+                .find_map(|m| {
+                    m.text_content()
+                        .split("Current authoritative goal: ")
+                        .nth(1)
+                        .and_then(|s| serde_json::from_str(s).ok())
+                })
+                .unwrap();
+            let call = match n {
+                0 => Some((
+                    "goal_update",
+                    json!({"expectedRevision":view["revision"],
+                    "status":"blocked", "summary":"verification unavailable", "evidence":[],
+                    "remaining":["unobserved check"], "blocker":"original process cannot be observed"}),
+                )),
+                1 => Some((
+                    "fs_create",
+                    json!({"path":"must-not-exist", "text":"forbidden"}),
+                )),
+                2 => Some(("goal_read", json!({}))),
+                _ => None,
+            };
+            let event = match call {
+                Some((name, args)) => ModelEvent::ToolCall(ToolCall {
+                    id: format!("close-{n}"),
+                    name: name.into(),
+                    arguments: args.to_string(),
+                }),
+                None => ModelEvent::text(
+                    "Blocked; original verification remains unresolved, not passed.",
+                ),
+            };
+            Ok(Box::pin(futures_util::stream::iter([
+                Ok(event),
+                Ok(ModelEvent::Usage(areal_protocol::ModelUsage {
+                    input_tokens: 10,
+                    cached_input_tokens: 0,
+                    output_tokens: 10,
+                })),
+            ])))
+        }
+    }
+
+    #[tokio::test]
+    async fn blocked_with_pending_verification_and_rejected_write_finishes_normally() {
+        let dir = tempfile::tempdir().unwrap();
+        let model = Arc::new(ClosingModel {
+            ready: tokio::sync::Notify::new(),
+            calls: AtomicUsize::new(0),
+        });
+        let engine = Engine::open(dir.path(), model.clone(), Limits::default()).unwrap();
+        let thread = engine
+            .create(dir.path().to_string_lossy().into())
+            .await
+            .unwrap();
+        engine
+            .goal_create(
+                "fixture".into(),
+                GoalCreate {
+                    request_id: "completion-fixture".into(),
+                    thread_id: thread.id.clone(),
+                    expected_revision: 0,
+                    objective: "finish verification".into(),
+                    token_budget: None,
+                    max_turns: Some(2),
+                    max_active_seconds: Some(60),
+                    interaction_mode: None,
+                },
+            )
+            .await
+            .unwrap();
+        let cell = engine.cell(&thread.id).await.unwrap();
+        {
+            let mut state = cell.state.lock().await;
+            state
+                .active
+                .as_mut()
+                .unwrap()
+                .handles
+                .pending_verifications
+                .insert("unobserved-runtime-process".into());
+        }
+        let goal = engine.goal_get(&thread.id).await.unwrap();
+        let error = engine.goal_tool(&cell, "goal_update", &json!({
+            "expectedRevision":goal["revision"], "status":"complete", "summary":"file says pass",
+            "evidence":["receipt file"], "remaining":[]
+        })).await.unwrap_err();
+        assert!(error.to_string().contains("GOAL_COMPLETION_PENDING"));
+        assert!(error.to_string().contains("pendingVerifications"));
+        assert!(
+            engine
+                .goal_tool_guard(&cell, "task_state")
+                .await
+                .unwrap()
+                .is_none()
+        );
+        model.ready.notify_one();
+        let done = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            loop {
+                let g = engine.goal_get(&thread.id).await.unwrap();
+                if g["goal"]["activeTurnId"].is_null() && g["goal"]["status"] != "active" {
+                    break g;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(done["goal"]["status"], "blocked", "{done}");
+        assert_eq!(done["goal"]["usage"]["unknownRequests"], 0);
+        let recorded = engine.read(&thread.id, true).await.unwrap();
+        let turn = recorded.turns.last().unwrap();
+        assert_eq!(turn.status, areal_protocol::TurnStatus::Completed);
+        assert!(turn.error.is_none());
+        let rejected = turn
+            .items
+            .iter()
+            .find(|i| matches!(i, Item::DynamicToolCall { tool, .. } if tool == "fs_create"))
+            .unwrap();
+        let rejected = serde_json::to_value(rejected).unwrap();
+        assert_eq!(rejected["success"], false);
+        assert!(rejected.to_string().contains("goalReportPending"));
+        assert!(!dir.path().join("must-not-exist").exists());
+        engine.shutdown().await;
     }
 }

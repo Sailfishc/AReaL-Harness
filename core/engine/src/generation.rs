@@ -446,7 +446,15 @@ impl Engine {
                             }
                             return Err(error);
                         }
+                        // blocked 是明确保留未完成工作的终态；不得再要求作者完成所有验证才能报告阻塞。
+                        let blocked_report = state.thread.goals.goal.as_ref().is_some_and(|g| {
+                            g.report_turn_id.as_deref() == Some(turn_id.as_str())
+                                && g.report.as_ref().is_some_and(|r| {
+                                    r.status == areal_protocol::goals::GoalReportStatus::Blocked
+                                })
+                        });
                         if calls.is_empty()
+                            && !blocked_report
                             && !state
                                 .active
                                 .as_ref()
@@ -460,8 +468,7 @@ impl Engine {
                                 .as_ref()
                                 .unwrap()
                                 .handles
-                                .pending_verifications
-                                .clone();
+                                .pending_verification_page(None);
                             drop(state);
                             let error =
                                 anyhow::Error::new(model::ModelFailure::PendingVerification);

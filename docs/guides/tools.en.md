@@ -21,7 +21,7 @@ The Local launch defaults to YOLO. File tools and command cwd accept outside-wor
 | `verify_command` | `argv,cwd?,timeoutMs?,yieldMs?`; direct execution, rejects shell entry points and requires separate scratch |
 | `read_process/write_process/terminate_process` | Current-Turn process handles for continued reads, input and termination |
 | `read_tool_result` | `resultId,after?=null,maxBytes?=8192`; page through original JSON from a historical call in this Thread using nextCursor, without rerunning the tool |
-| `task_state` | `{}`; bounded observations of files/processes/children/scratch and summaryThroughItemId, without live probes |
+| `task_state` | `{pendingAfter?}`; bounded observations of files/processes/children/scratch and summaryThroughItemId, without live probes |
 
 Files are limited to 8 MiB and individual writes/patches to 64 KiB, also constrained by the 64 KiB argument budget per call. Explicit fileVersion and expectedSha256 are mutually exclusive; null SHA means create-only. Successful edits return a new version and normalized path. Shell/external edits do not refresh observations; reread after CAS conflicts. Use fs_read for long lines. read/search execute Python/rg in the same Scope with a 15-second deadline, requiring trusted system Python. Bundled rg 15.2.0 uses a Runtime-verified absolute path, ignores host rg configuration and ignore files above the workspace, and does not widen the sandbox.
 
@@ -111,3 +111,11 @@ The model chooses delegation timing, count and content without fixed phases or c
 ## Task communication and background workers
 
 Inside Goals/Tasks, ask_user_question supports mode=async: it persists a question in the independent Channel and returns immediately so the model can continue other work. task_channel_read reads messages; task_wait releases the coordinator Turn when no independent work remains; task_spawn creates a worker that survives coordinator Turns and shares the Goal budget. Ordinary agent_spawn remains parent-Turn-owned. Headless never awaits users or human approval, but may wait for workers. See the [Task contract](../api/tasks.en.md) for parameters, permissions and lifecycle.
+
+### Verification observation and Goal finalization
+
+`task_state` accepts optional `pendingAfter` and independently returns `pendingVerifications: {count, items, nextAfter, guidance}`. Each page holds at most 16 entries and normally at most 4096 bytes; a single entry remains intact so opaque handles are never truncated. Entries contain a usable current-Turn `processId`, last observed `state`, `receiptPath`, and `nextAction`. Pages are sorted by alias independently of ordinary process-list truncation. Pass `nextAfter` for the next page; after draining, reread the first page to check count. This projection does not probe live processes.
+
+Observe each asynchronous `verify_command` through `read_process` on its original process, or explicitly `terminate_process` and report cancellation. Reading receipt files and rerunning commands do not clear the original pending observation. An observed failed/cancelled exit settles observation, not test correctness. Completion rejection returns `GOAL_COMPLETION_PENDING`; tool error details contain `pendingInputCount` and the first `pendingVerifications` page.
+
+After an accepted complete/blocked report, provide a tool-free final response. Core permits the explicit observation/cleanup list, including `task_state` and `task_channel_read`. Other calls receive a pre-submission `PERMISSION_DENIED` with reason `goalReportPending`, tool name and allowed tools, recorded as an ordinary tool failure rather than an unclassified Turn error. A blocked report may retain unobserved verification as unfinished work; it does not certify completion. Budget exhaustion, cancellation and unrelated infrastructure errors keep their terminal semantics.

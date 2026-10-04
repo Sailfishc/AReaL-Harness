@@ -21,7 +21,7 @@ Core 注册表将名称、JSON Schema 与内置/命令/客户端/MCP/插件后�
 | `verify_command` | `argv,cwd?,timeoutMs?,yieldMs?`；直接执行、拒绝 shell 入口，必须配置独立 scratch |
 | `read_process/write_process/terminate_process` | 本 Turn 进程句柄；续读、输入与终止 |
 | `read_tool_result` | `resultId,after?=null,maxBytes?=8192`；读取本 Thread 历史调用的原始 JSON，按 nextCursor 续页，不执行原工具 |
-| `task_state` | `{}`；返回有界的已观察文件/进程/子任务/scratch 与 summaryThroughItemId，不进行实时探测 |
+| `task_state` | `{pendingAfter?}`；返回有界的已观察文件/进程/子任务/scratch 与 summaryThroughItemId，不进行实时探测 |
 
 文件最大 8 MiB，单次写/patch 64 KiB，另受每个调用参数 64 KiB 预算限制。显式 fileVersion 和 expectedSha256 互斥；SHA 为 null 表示仅新建。成功编辑返回新版本与规范路径，shell/外部编辑不自动刷新观察，CAS 冲突后需重新读取。行过长时使用 fs_read。read/search 通过同一 Scope 中的 Python/rg 执行、最长 15 秒；需要可信系统 Python；rg 15.2.0 随包交付，使用 Runtime 验证后的绝对路径，不读取宿主 rg 配置或工作区外 ignore，不自动扩大沙箱权限。
 
@@ -111,3 +111,11 @@ read_process 省略 after 接续本 Turn 最近返回的游标，显式 null 从
 ## Task 通信与后台 worker
 
 Goal/Task 中 ask_user_question 支持 mode=async；提问持久写入独立频道并立即返回，模型可继续其他工作。task_channel_read 查看消息，task_wait 在无其他工作时释放协调 Turn，task_spawn 创建跨协调 Turn 存活、共享 Goal 预算的 worker。普通 agent_spawn 仍属于父 Turn。headless 不等待用户或人工审批，但可等待 worker。参数、权限和生命周期见 [Task 契约](../api/tasks.md)。
+
+### 验证回收与 Goal 收尾
+
+`task_state` 接受可选 `pendingAfter`，并独立返回 `pendingVerifications: {count, items, nextAfter, guidance}`。每页最多 16 项、通常不超过 4096 字节；单项完整保留，避免截断不透明句柄。条目包含本 Turn 的可用 `processId`、最后观察的 `state`、`receiptPath` 和 `nextAction`。分页按别名排序，不受普通进程列表截断影响；传回 `nextAfter` 继续下一页，回收后重新读取第一页核对 count。该投影不实时探测进程。
+
+异步 `verify_command` 必须通过原进程的 `read_process` 观察终态，或显式 `terminate_process` 并报告取消。文件收据读取及重跑命令不清除原进程的待观察记录；失败/取消的终态可结束等待，但不代表测试通过。完成门禁返回 `GOAL_COMPLETION_PENDING`，工具错误 details 包含 `pendingInputCount` 与首个 `pendingVerifications` 页面。
+
+接受 complete/blocked 报告后，应输出无工具最终说明。Core 仍允许明确列出的观察和清理工具（含 `task_state`、`task_channel_read`）；其他调用在提交前返回带 `reason=goalReportPending`、工具名及允许清单的 `PERMISSION_DENIED`，写入正常工具轨迹，不升级为未分类 Turn 内部错误。blocked 可保留未回收验证作为未完成工作，不能据此声称 complete。预算耗尽、取消和其他基础设施错误保持原有终止语义。

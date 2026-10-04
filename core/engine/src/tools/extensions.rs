@@ -246,7 +246,15 @@ impl Invocation<'_> {
                     .core_tool(self.cell, &self.call.id, &self.call.name, args, self.cancel)
                     .await
                     .map(|value| (true, value))
-                    .map_err(invalid);
+                    .map_err(|error| {
+                        let mut result = invalid(&error);
+                        if let Error::Invalid(message) = &error
+                            && let Some(details) = message.strip_prefix("GOAL_COMPLETION_PENDING: ")
+                        {
+                            result.details = serde_json::from_str(details).ok();
+                        }
+                        result
+                    });
             }
             Backend::Coordination => {
                 if self.call.name.starts_with("agent_") {
@@ -285,7 +293,7 @@ impl Invocation<'_> {
                 if self.call.name == "task_state" {
                     return self
                         .engine
-                        .task_state(self.cell)
+                        .task_state(self.cell, args["pendingAfter"].as_str())
                         .await
                         .map(|value| (true, value))
                         .map_err(invalid);
