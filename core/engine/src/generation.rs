@@ -39,6 +39,7 @@ impl Engine {
         let mut tool_count = 0;
         let mut completion_retries = 0;
         let mut recovery_hint = None;
+        let mut output_handoff = false;
         let mut previous_usage = None;
         let mut group_results = Vec::<Value>::new();
         let mut child_results = Value::Null;
@@ -69,6 +70,11 @@ impl Engine {
                 return Err(crate::outcome::model_round_limit(model_rounds, max, false).into());
             }
             let final_round = max_rounds.is_some_and(|max| model_rounds + 1 == max);
+            output_handoff |= self
+                .limits
+                .max_output_bytes
+                .saturating_sub(text_output_bytes)
+                < tools::MIN_TOOL_OUTPUT_BUDGET + tools::HANDOFF_OUTPUT_RESERVE;
             if final_round {
                 // 最后一轮留给交接：先回收子结果，再请求模型，不能占用子任务需要的许可。
                 child_results = tokio::select! { biased;
@@ -170,6 +176,9 @@ impl Engine {
                         }
                     )));
                 }
+                if output_handoff {
+                    live_context.insert(0, Message::text("system", "The Turn output budget cannot safely execute more tools. Tools are disabled for this handoff. Report only verified results and explicitly state that the task is unfinished, which requested operations were not executed, and what remains to be done. Do not claim success from an incomplete check."));
+                }
                 if !child_results.is_null() {
                     let guidance = if final_round {
                         "Tools are unavailable in this final handoff. Summarize the supplied evidence and explicitly identify truncated results or unresolved verification. Settled status alone does not prove task success."
@@ -253,7 +262,7 @@ impl Engine {
             };
             let request_estimate = context::estimate_tokens(&messages)
                 + context::text_tokens(&serde_json::to_string(&tool_definitions)?);
-            let tools_enabled = !final_round && !tool_definitions.is_empty();
+            let tools_enabled = !final_round && !output_handoff && !tool_definitions.is_empty();
             let tool_limits = model::ToolCallLimits {
                 max_calls: if tools_enabled {
                     self.limits.max_tool_calls.saturating_sub(tool_count)
@@ -389,6 +398,7 @@ impl Engine {
                             return Err(error);
                         }
                         if calls.is_empty()
+                            && !output_handoff
                             && !state
                                 .active
                                 .as_ref()
@@ -486,22 +496,29 @@ impl Engine {
                             if !steer.is_empty() {
                                 continue 'restart;
                             }
+                            let remaining = self
+                                .limits
+                                .max_output_bytes
+                                .saturating_sub(text_output_bytes);
+                            if remaining
+                                < self.tool_output_budget(cell, &call).await
+                                    + tools::HANDOFF_OUTPUT_RESERVE
+                            {
+                                // 已执行工具的结果保留；未派发的调用不得再占配额或重放。
+                                output_handoff = true;
+                                recovery_hint = Some(format!(
+                                    "Output budget reached before executing {}. This call and any later calls in the response were NOT executed. Give an explicit incomplete handoff based only on confirmed results; do not retry tools.",
+                                    call.name
+                                ));
+                                break;
+                            }
                             self.reserve_agent_tool_call(cell)?;
                             tool_count += 1;
                             anyhow::ensure!(
                                 tool_count <= self.limits.max_tool_calls,
                                 "turn tool-call limit exceeded"
                             );
-                            text_output_bytes += self
-                                .tool(
-                                    cell,
-                                    cancel,
-                                    call,
-                                    self.limits
-                                        .max_output_bytes
-                                        .saturating_sub(text_output_bytes),
-                                )
-                                .await?;
+                            text_output_bytes += self.tool(cell, cancel, call, remaining).await?;
                         }
                         continue 'restart;
                     };

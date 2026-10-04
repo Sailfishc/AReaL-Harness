@@ -3,6 +3,7 @@ mod local;
 mod rpc;
 mod run;
 mod service;
+mod upgrade;
 use anyhow::{Result, ensure};
 use clap::{CommandFactory, Parser, Subcommand};
 use std::path::PathBuf;
@@ -25,6 +26,13 @@ struct MultitoolCli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// 显示当前版本；等价于 --version。
+    Version,
+    /// 检查或安装最新已发布版本；按 Homebrew/独立安装来源升级。
+    Upgrade {
+        #[arg(long)]
+        check: bool,
+    },
     /// 非交互执行任务；支持 text、json 与 Claude stream-json 协议。
     Exec(Box<Cli>),
     /// 管理可被 TUI、Web 与 Desktop 复用的本地服务。
@@ -168,6 +176,11 @@ async fn main() {
     }
     let args = MultitoolCli::parse_from(raw);
     let result = match args.command {
+        Some(Command::Version) => {
+            println!("areal {}", env!("CARGO_PKG_VERSION"));
+            return;
+        }
+        Some(Command::Upgrade { check }) => upgrade::run(check).await,
         None => areal_tui::run(args.interactive).await,
         Some(Command::Exec(cli)) => {
             execute(*cli).await;
@@ -258,6 +271,8 @@ mod tests {
         for command in [
             vec![],
             vec!["exec"],
+            vec!["version"],
+            vec!["upgrade"],
             vec!["config"],
             vec!["config", "show"],
             vec!["app-server"],
@@ -320,6 +335,8 @@ mod tests {
     #[test]
     fn legacy_print_requires_an_actual_flag_and_preserves_options() {
         for command in [
+            "version",
+            "upgrade",
             "exec",
             "serve",
             "app-server",

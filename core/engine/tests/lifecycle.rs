@@ -571,8 +571,8 @@ async fn idle_timeout_and_capacity_are_explicit_errors() {
 async fn rejected_child_input_does_not_consume_a_thread_slot_or_leave_history() {
     let (dir, engine, _model, mut entered) = setup(Limits {
         max_threads: 2,
-        max_history_bytes: 4096,
-        max_output_bytes: 128,
+        max_history_bytes: 512 * 1024,
+        max_output_bytes: 64 * 1024,
         ..Limits::default()
     });
     let parent = engine.create("/workspace".into()).await.unwrap();
@@ -583,7 +583,7 @@ async fn rejected_child_input_does_not_consume_a_thread_slot_or_leave_history() 
     entered.recv().await.unwrap();
     assert!(
         engine
-            .spawn_child(&parent.id, vec![Input::text("x".repeat(4000))])
+            .spawn_child(&parent.id, vec![Input::text("x".repeat(512 * 1024))])
             .await
             .is_err()
     );

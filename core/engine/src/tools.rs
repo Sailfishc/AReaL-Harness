@@ -8,6 +8,8 @@ use serde::Deserialize;
 use std::path::PathBuf;
 
 const MAX_RESULT: usize = 16 * 1024;
+pub(super) const MIN_TOOL_OUTPUT_BUDGET: usize = MAX_RESULT * 2 + 4096;
+pub(super) const HANDOFF_OUTPUT_RESERVE: usize = 8 * 1024;
 // Leave room for process metadata and JSON framing after stdout/stderr are
 // escaped. Control-heavy output can expand several times in the model payload.
 const MODEL_OUTPUT_HEADROOM: usize = 4096;
@@ -579,13 +581,7 @@ fn request_with_policy(
 }
 
 impl Engine {
-    pub(crate) async fn tool(
-        self: &Arc<Self>,
-        cell: &Arc<Cell>,
-        cancel: &CancellationToken,
-        call: ToolCall,
-        remaining: usize,
-    ) -> anyhow::Result<usize> {
+    pub(super) async fn tool_output_budget(&self, cell: &Cell, call: &ToolCall) -> usize {
         let plugin_budget = if cell
             .bindings
             .read()
@@ -598,8 +594,22 @@ impl Engine {
         } else {
             0
         };
+        call.arguments
+            .len()
+            .saturating_mul(2)
+            .saturating_add(MIN_TOOL_OUTPUT_BUDGET)
+            .saturating_add(plugin_budget)
+    }
+
+    pub(crate) async fn tool(
+        self: &Arc<Self>,
+        cell: &Arc<Cell>,
+        cancel: &CancellationToken,
+        call: ToolCall,
+        remaining: usize,
+    ) -> anyhow::Result<usize> {
         anyhow::ensure!(
-            remaining >= call.arguments.len() * 2 + MAX_RESULT * 2 + 4096 + plugin_budget,
+            remaining >= self.tool_output_budget(cell, &call).await,
             "turn tool/output budget exhausted before execution"
         );
         let (sent, received) = tokio::sync::oneshot::channel();
