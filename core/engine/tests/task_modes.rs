@@ -1,5 +1,5 @@
 use areal_engine::{
-    Engine, Limits,
+    Engine, Error, Limits,
     model::{Message, Model, ModelEvent, ModelStream, RequestPurpose, ToolCall},
 };
 use areal_protocol::{ModelUsage, goals::*, tasks::*};
@@ -424,14 +424,24 @@ async fn task_worker_survives_coordinator_turn_and_shares_budget() {
 async fn cancelling_task_cleans_detached_workers_and_prevents_goal_resume() {
     let (_dir, e, _m, id) = worker_fixture().await;
     let waiting = until(&e, &id, RunStatus::WaitingForAgents).await;
-    let req = TaskControl {
-        request_id: "cancel".into(),
-        task_id: id.clone(),
-        expected_revision: waiting.revision,
-    };
-    e.task_control("owner".into(), "cancel".into(), req)
-        .await
-        .unwrap();
+    let mut revision = waiting.revision;
+    for attempt in 0..20 {
+        let req = TaskControl {
+            request_id: "cancel".into(),
+            task_id: id.clone(),
+            expected_revision: revision,
+        };
+        match e.task_control("owner".into(), "cancel".into(), req).await {
+            Ok(_) => break,
+            // worker 结算可能推进 Task revision；客户端也须读取新版本后重试。
+            Err(Error::Conflict) => {
+                assert!(attempt < 19, "cancellation remained conflicted");
+                revision = e.task_read(&id).await.unwrap().revision;
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            Err(error) => panic!("unexpected task cancellation error: {error}"),
+        }
+    }
     let done = until(&e, &id, RunStatus::Cancelled).await;
     assert!(done.runs[0].workers[0].settled);
     assert_eq!(e.server_status().await["activeTurns"], json!([]));
@@ -621,7 +631,8 @@ impl Model for Expiry {
         let event = match n {
             0 => tool(
                 "ask_user_question",
-                json!({"questions":[{"id":"choice","title":"Choose a target","options":["A","B"],"allowFreeText":false}],"mode":"async","required":true,"timeoutSeconds":1}),
+                // 避免重负载下 1 秒边界先于 task_wait 提交，令用例只验证到期唤醒。
+                json!({"questions":[{"id":"choice","title":"Choose a target","options":["A","B"],"allowFreeText":false}],"mode":"async","required":true,"timeoutSeconds":3}),
                 n,
             ),
             1 if self.1 => tool(

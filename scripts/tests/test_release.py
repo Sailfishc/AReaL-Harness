@@ -11,6 +11,7 @@ import tarfile
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -125,17 +126,44 @@ class ReleaseTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 release.archive(bundle, self.root / "assets")
 
+    def test_latest_release_tag_is_validated(self):
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                pass
+
+            def read(self, *_):
+                return b'{"tag_name":"v0.1.2"}'
+
+        with patch.object(installer.urllib.request, "urlopen", return_value=Response()):
+            self.assertEqual(installer.latest_version(), "0.1.2")
+
+        class Invalid(Response):
+            def read(self, *_):
+                return b'{"tag_name":"../0.1.2"}'
+
+        with patch.object(installer.urllib.request, "urlopen", return_value=Invalid()):
+            with self.assertRaises(ValueError):
+                installer.latest_version()
+
     @unittest.skipUnless(
-        platform.system() == "Linux"
-        and platform.machine() == "x86_64"
-        and platform.libc_ver()[0] == "glibc"
-        and tuple(map(int, platform.libc_ver()[1].split(".")[:2])) >= (2, 35),
-        "Linux glibc >=2.35 installer",
+        (platform.system() == "Darwin" and platform.machine() == "arm64")
+        or (
+            platform.system() == "Linux"
+            and platform.machine() == "x86_64"
+            and platform.libc_ver()[0] == "glibc"
+            and tuple(map(int, platform.libc_ver()[1].split(".")[:2])) >= (2, 35)
+        ),
+        "supported installer platform",
     )
     def test_install_upgrade_keeps_old_version_and_refuses_unmanaged_binary(self):
         prefix = self.root / "prefix with spaces"
+        target = "darwin/arm64" if platform.system() == "Darwin" else "linux/x86_64"
+        directory = "macos-arm64" if platform.system() == "Darwin" else "linux-x86_64"
         for version in ["0.1.0", "0.1.1"]:
-            archive = release.archive(self.bundle(version), self.root / "assets")
+            archive = release.archive(self.bundle(version, target), self.root / "assets")
             command = [
                 sys.executable,
                 str(ROOT / "scripts/install.py"),
@@ -151,10 +179,10 @@ class ReleaseTests(unittest.TestCase):
             subprocess.run(command, check=True, capture_output=True)
             self.assertEqual(
                 (prefix / "bin/areal").resolve(),
-                prefix / f"lib/areal/{version}-linux-x86_64/bin/areal",
+                (prefix / f"lib/areal/{version}-{directory}/bin/areal").resolve(),
             )
             self.assertNotEqual(subprocess.run(command, capture_output=True).returncode, 0)
-        self.assertTrue((prefix / "lib/areal/0.1.0-linux-x86_64/bin/areal").exists())
+        self.assertTrue((prefix / f"lib/areal/0.1.0-{directory}/bin/areal").exists())
         (prefix / "bin/areal").unlink()
         (prefix / "bin/areal").write_text("user-owned executable")
         command[command.index("--version") + 1] = "0.1.2"

@@ -16,6 +16,11 @@ import urllib.request
 from pathlib import Path, PurePosixPath
 
 RELEASES = "https://github.com/areal-project/AReaL-Harness/releases/download"
+LATEST = "https://api.github.com/repos/areal-project/AReaL-Harness/releases/latest"
+TARGETS = {
+    ("Darwin", "arm64"): ("darwin/arm64", "aarch64-apple-darwin", "macos-arm64"),
+    ("Linux", "x86_64"): ("linux/x86_64", "x86_64-unknown-linux-gnu", "linux-x86_64"),
+}
 
 
 def checksum(path):
@@ -100,21 +105,45 @@ def download(url, path):
         shutil.copyfileobj(source, output)
 
 
+def latest_version():
+    request = urllib.request.Request(
+        LATEST, headers={"Accept": "application/vnd.github+json", "User-Agent": "areal-installer"}
+    )
+    with urllib.request.urlopen(request, timeout=15) as response:
+        tag = json.load(response)["tag_name"]
+    if not re.fullmatch(r"v\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?", tag):
+        raise ValueError("latest release has an invalid tag")
+    return tag[1:]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--version", required=True, help="exact release version, e.g. 0.1.0")
+    parser.add_argument("--version", required=True, help="release version or latest")
     parser.add_argument("--prefix", type=Path, default=Path.home() / ".local")
     parser.add_argument("--archive", type=Path, help="offline release archive")
     parser.add_argument("--checksums", type=Path, help="matching release SHA256SUMS")
+    parser.add_argument("--check", action="store_true", help="print the latest published version")
     args = parser.parse_args()
-    version = args.version.removeprefix("v")
+    if args.check and args.version != "latest":
+        parser.error("--check requires --version latest")
+    if args.version == "latest" and args.archive:
+        parser.error("offline installation requires an exact version")
+    version = latest_version() if args.version == "latest" else args.version.removeprefix("v")
     if not re.fullmatch(r"\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?", version):
         parser.error("invalid version")
-    if platform.system() != "Linux" or platform.machine() != "x86_64":
-        parser.error("this installer supports Linux x86_64; use Homebrew on macOS arm64")
-    libc, libc_version = platform.libc_ver()
-    if libc != "glibc" or tuple(map(int, libc_version.split(".")[:2])) < (2, 35):
-        parser.error("glibc >=2.35 required (Ubuntu 22.04 or newer); musl is not supported")
+    if args.check:
+        print(version)
+        return
+    target = TARGETS.get((platform.system(), platform.machine()))
+    if target is None:
+        parser.error("supported platforms: macOS arm64 and Linux x86_64 glibc")
+    target_platform, archive_target, install_target = target
+    if platform.system() == "Linux":
+        libc, libc_version = platform.libc_ver()
+        if libc != "glibc" or tuple(map(int, libc_version.split(".")[:2])) < (2, 35):
+            parser.error("glibc >=2.35 required (Ubuntu 22.04 or newer); musl is not supported")
+    elif tuple(map(int, platform.mac_ver()[0].split(".")[:1])) < (15,):
+        parser.error("macOS 15 or newer required")
     if not Path("/usr/bin/python3").is_file():
         parser.error("install system Python 3.9+ at /usr/bin/python3 first")
     if bool(args.archive) != bool(args.checksums):
@@ -126,7 +155,7 @@ def main():
         parser.error("system Python 3.9+ required")
     prefix = args.prefix.expanduser().resolve()
     versions = prefix / "lib/areal"
-    final = versions / (version + "-linux-x86_64")
+    final = versions / (version + "-" + install_target)
     link = prefix / "bin/areal"
     if final.exists() or final.is_symlink():
         parser.error(
@@ -136,7 +165,7 @@ def main():
         if not link.is_symlink() or versions not in link.resolve().parents:
             parser.error("refusing to replace an unmanaged bin/areal")
     versions.mkdir(parents=True, exist_ok=True)
-    filename = "areal-harness-v" + version + "-x86_64-unknown-linux-gnu.tar.gz"
+    filename = "areal-harness-v" + version + "-" + archive_target + ".tar.gz"
     with tempfile.TemporaryDirectory(prefix=".install-", dir=versions) as temporary:
         staging = Path(temporary)
         archive = args.archive
@@ -148,7 +177,7 @@ def main():
             download(base + "SHA256SUMS", checksums)
         verify_archive(archive, checksums, filename)
         bundle = extract_bundle(archive, staging / "unpack")
-        verify_bundle(bundle, version, "linux/x86_64")
+        verify_bundle(bundle, version, target_platform)
         bundle.rename(final)
         link.parent.mkdir(parents=True, exist_ok=True)
         temporary_link = staging / "areal-link"
@@ -156,7 +185,8 @@ def main():
         os.replace(temporary_link, link)
     print("Installed " + str(link))
     print("Add " + str(link.parent) + " to PATH. User configuration/state remains in ~/.areal.")
-    print("Restricted scopes require /usr/bin/bwrap and usable user namespaces.")
+    if platform.system() == "Linux":
+        print("Restricted scopes require /usr/bin/bwrap and usable user namespaces.")
 
 
 if __name__ == "__main__":

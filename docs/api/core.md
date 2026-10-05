@@ -271,6 +271,8 @@ Goal 提示投影不携带 eventSequence 或逐请求累计用量/时钟，只�
 
 HTTP 模型收尾轮保留当前可见工具 schema，通过 `tool_choice=none` 禁用调用，同时将解码和执行额度设为零；供应商若仍返回调用会被拒绝。工具定义和固定委派指令不因正常收尾而删除，从而保留可复用前缀。无 `tool_choice` 能力的自定义 Model 适配器继续接收空工具列表。权限变化仍即时调整工具可见性，缓存不覆盖授权。
 
+Goal 的 steer（包括向计量子任务发送 `agent_send_input`）立即持久化，但不丢弃在途模型请求。Core 等待该响应结算，再于工具派发前处理待接收修订；旧响应的工具调用被丢弃，已知消费仍准确计入一次。既有 idle、显式 Goal 期限及取消保持有效，真正缺失的用量仍为 UNKNOWN。普通无 Goal 计量的 Turn 保持即时 steer 行为。
+
 ### 子任务停止与计量收尾
 
 `agent_cancel` 接受 `{threadId,mode?:"graceful"|"force"}`，默认 graceful。两种模式立即停止继续执行当前响应的工具和启动下一请求；graceful 为已发请求保留最多 60 秒结算，force 为 1 秒，均受原 Goal/研究 worker 剩余期限约束。重复取消不延长期限；收尾中改为 force 会缩短期限。它不保证生成交接报告，也不保证 provider 返回 usage。`agent_send_input` 可先要求作者提交交接。外层 Turn 在期限内继续驱动取消中的生成循环，不能先丢弃响应 future；首包前的已发请求也遵守此规则。截止仍缺最终用量时，原账本保留 UNKNOWN 和预留，不补零、不追加预算。崩溃后的未结算请求仍按原恢复契约保留未知，不声明支持 provider 用量补查。

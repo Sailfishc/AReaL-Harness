@@ -3,6 +3,34 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::time::Instant;
 
 #[test]
+fn read_file_on_binary_content_explains_supported_alternatives() {
+    let workspace = tempfile::tempdir().unwrap();
+    std::fs::write(workspace.path().join("binary.dat"), [0xff, 0x00]).unwrap();
+    let request = json!({
+        "operation": "read_file",
+        "path": "workspace://repo/binary.dat",
+        "roots": {"repo": workspace.path()}
+    });
+    let output = std::process::Command::new(navigation::python_executable().unwrap())
+        .args([
+            "-I",
+            "-B",
+            "-c",
+            include_str!("navigation.py"),
+            &request.to_string(),
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let response: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let error = response["error"].as_str().unwrap();
+    assert!(error.contains("UTF-8 text only"));
+    assert!(error.contains("fs_read"));
+    assert!(error.contains("image_read"));
+    assert!(!error.contains("codec can't decode"));
+}
+
+#[test]
 fn removed_single_patch_tool_is_not_registered_or_dispatched() {
     let registry = Registry::new(true, &ToolExtensions::default()).unwrap();
     assert!(registry.get("fs_apply_patch").is_err());

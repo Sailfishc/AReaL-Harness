@@ -42,7 +42,13 @@ def read_file(request):
         data = stream.read(8 * 1024 * 1024 + 1)
     if len(data) > 8 * 1024 * 1024:
         raise ValueError("file grew beyond 8 MiB")
-    lines = data.decode("utf-8").splitlines(keepends=True)
+    try:
+        lines = data.decode("utf-8").splitlines(keepends=True)
+    except UnicodeDecodeError as error:
+        raise ValueError(
+            "read_file accepts UTF-8 text only; use fs_read for binary bytes or "
+            "image_read for PNG/JPEG/WebP images"
+        ) from error
     offset, limit = request.get("offset", 1), request.get("limit", 120)
     result = {
         "path": request["path"],

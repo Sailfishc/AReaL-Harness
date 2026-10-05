@@ -538,9 +538,13 @@ async fn parent_join(steering: bool) {
             }
         })
         .await;
-        // The workers stay blocked: a steer must wake the joining parent without
-        // waiting for their completion or cancelling their owned work.
-        tokio::time::sleep(Duration::from_millis(20)).await;
+        // 等到执行器确实持有两个 worker，再验证 steering 不会等待其完成。
+        bounded(async {
+            while fixture.active.load(Ordering::SeqCst) != 2 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await;
         engine
             .steer(&thread.id, &turn.id, vec![Input::text("adjust the plan")])
             .await

@@ -16,6 +16,7 @@ COPY core ./core
 COPY clients ./clients
 COPY runtime ./runtime
 COPY scripts/launch.py ./scripts/launch.py
+COPY scripts/install.py ./scripts/install.py
 RUN cargo build --locked --profile "${BUILD_PROFILE}" -p areal-runtime -p areal-runtime-fs -p areal-cli
 
 FROM runtime-builder AS runtime-tests
