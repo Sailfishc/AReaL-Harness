@@ -910,3 +910,93 @@ async fn byte_pressure_requests_shorter_checkpoint_even_with_large_token_target(
     );
     engine.shutdown().await;
 }
+
+struct CancelledSummaryUsage {
+    usage_polled: Arc<Notify>,
+}
+#[async_trait]
+impl Model for CancelledSummaryUsage {
+    fn name(&self) -> &str {
+        "cancelled-summary-usage"
+    }
+    async fn stream(&self, _: Vec<Message>) -> anyhow::Result<ModelStream> {
+        unreachable!()
+    }
+    async fn chat(&self, m: Vec<Message>, t: Vec<Value>) -> anyhow::Result<ModelStream> {
+        self.chat_for(m, t, RequestPurpose::Solve).await
+    }
+    async fn chat_for(
+        &self,
+        _: Vec<Message>,
+        _: Vec<Value>,
+        purpose: RequestPurpose,
+    ) -> anyhow::Result<ModelStream> {
+        use futures_util::StreamExt;
+        let usage = ModelUsage {
+            input_tokens: 11,
+            output_tokens: 7,
+            cached_input_tokens: 3,
+        };
+        if purpose == RequestPurpose::Summary {
+            // 后续轮询已发生，证明消费者已经处理前一条用量，而不是仅打开了请求。
+            let notify = self.usage_polled.clone();
+            Ok(Box::pin(
+                stream::iter([Ok(ModelEvent::Usage(usage))]).chain(stream::once(async move {
+                    notify.notify_one();
+                    std::future::pending::<anyhow::Result<ModelEvent>>().await
+                })),
+            ))
+        } else {
+            Ok(Box::pin(stream::iter([
+                Ok(ModelEvent::text("recorded result ".repeat(90))),
+                Ok(ModelEvent::Usage(usage)),
+            ])))
+        }
+    }
+}
+#[tokio::test]
+async fn cancelled_compaction_preserves_already_observed_turn_usage_across_restart() {
+    let data = tempfile::tempdir().unwrap();
+    let model = Arc::new(CancelledSummaryUsage {
+        usage_polled: Arc::new(Notify::new()),
+    });
+    let engine = Engine::open(data.path(), model.clone(), limits()).unwrap();
+    let thread = engine.create("/workspace".into()).await.unwrap();
+    turn(&engine, &thread.id, "Original task").await;
+    turn(&engine, &thread.id, "Continue").await;
+    let active = engine
+        .start(&thread.id, vec![Input::text("Verify")])
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(5), model.usage_polled.notified())
+        .await
+        .unwrap();
+    engine.interrupt(&thread.id, &active.id).await.unwrap();
+    let after = engine.wait(&thread.id).await.unwrap();
+    assert_eq!(after.turns.last().unwrap().status, TurnStatus::Interrupted);
+    assert!(after.context_checkpoint.is_none());
+    let usage = after
+        .turns
+        .last()
+        .unwrap()
+        .usage
+        .as_ref()
+        .expect("observed summary usage must survive cancellation");
+    assert_eq!(
+        (
+            usage.input_tokens,
+            usage.output_tokens,
+            usage.cached_input_tokens
+        ),
+        (11, 7, 3)
+    );
+    engine.shutdown().await;
+    drop(engine);
+    let restored = Engine::open(data.path(), model, limits()).unwrap();
+    let saved = restored.read(&thread.id, true).await.unwrap();
+    assert_eq!(
+        saved.turns.last().unwrap().usage,
+        after.turns.last().unwrap().usage
+    );
+    restored.shutdown().await;
+}

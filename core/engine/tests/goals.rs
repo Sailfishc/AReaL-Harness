@@ -1099,7 +1099,6 @@ async fn real_goal_pause_preserves_unknown_when_tail_never_arrives() {
     e.shutdown().await;
 }
 
-
 struct StreamingControlled(tokio::sync::mpsc::UnboundedSender<Call>);
 #[async_trait]
 impl Model for StreamingControlled {

@@ -511,6 +511,9 @@ impl Engine {
                             }
                             ModelEvent::Usage(value) => {
                                 attempt_usage.add_assign(&value);
+                                // 已观察消费属于 Turn，不依赖摘要或 checkpoint 是否最终提交。
+                                cell.state.lock().await.thread.turns.last_mut().unwrap()
+                                    .usage.get_or_insert_with(Default::default).add_assign(&value);
                                 request.span.record("gen_ai.usage.input_tokens", attempt_usage.input_tokens);
                                 request.span.record("gen_ai.usage.cache_read.input_tokens", attempt_usage.cached_input_tokens);
                                 request.span.record("gen_ai.usage.output_tokens", attempt_usage.output_tokens);
@@ -603,13 +606,6 @@ impl Engine {
                     .as_ref()
                     .map_or(1, |checkpoint| checkpoint.compactions + 1),
             });
-            candidate
-                .turns
-                .last_mut()
-                .unwrap()
-                .usage
-                .get_or_insert_with(Default::default)
-                .add_assign(&usage);
             let after_history = history(&candidate, &self.store)?;
             let after_bytes = message_bytes(&after_history);
             let after_tokens = estimate_tokens(&after_history) + overhead_tokens;
