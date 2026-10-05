@@ -501,5 +501,6 @@ try {
 } finally {
   model.server.closeAllConnections();
   await new Promise((r) => model.server.close(r));
-  await rm(root, { recursive: true, force: true });
+  // 取消后的宿主可能刚结束最后一次状态落盘；短重试避免清理异常遮蔽原始断言。
+  await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 }
