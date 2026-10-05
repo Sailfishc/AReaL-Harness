@@ -1096,6 +1096,11 @@ async fn real_goal_pause_preserves_unknown_when_tail_never_arrives() {
     assert_eq!(end["goal"]["usage"]["unknownRequests"], 1);
     assert_eq!(end["goal"]["usage"]["accountingComplete"], false);
     assert!(end["goal"]["usage"]["reservedTokens"].as_u64().unwrap() > 0);
+    let thread = e.read(&t.id, true).await.unwrap();
+    assert!(
+        thread.turns.last().unwrap().usage.is_none(),
+        "missing provider usage must not become a zero usage record"
+    );
     e.shutdown().await;
 }
 

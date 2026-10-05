@@ -6,12 +6,14 @@ use super::*;
 pub(crate) async fn settle_cancelled_stream(
     stream: &mut model::ModelStream,
     grace: Duration,
-) -> areal_protocol::ModelUsage {
-    let mut usage = areal_protocol::ModelUsage::default();
+) -> Option<areal_protocol::ModelUsage> {
+    let mut usage: Option<areal_protocol::ModelUsage> = None;
     let _ = tokio::time::timeout(grace, async {
         while let Some(event) = stream.next().await {
             match event {
-                Ok(model::ModelEvent::Usage(value)) => usage.add_assign(&value),
+                Ok(model::ModelEvent::Usage(value)) => usage
+                    .get_or_insert_with(Default::default)
+                    .add_assign(&value),
                 Err(_) => break,
                 _ => {}
             }
@@ -29,7 +31,10 @@ impl Engine {
     ) {
         let grace = Duration::from_millis(cell.cancel_grace_ms.load(Ordering::Acquire) as u64);
         let usage = settle_cancelled_stream(stream, grace).await;
-        if let Some(turn) = cell.state.lock().await.thread.turns.last_mut() {
+        // 没有用量事件不等于提供方明确报告零消费。
+        if let Some(usage) = usage
+            && let Some(turn) = cell.state.lock().await.thread.turns.last_mut()
+        {
             turn.usage
                 .get_or_insert_with(Default::default)
                 .add_assign(&usage);
@@ -44,28 +49,22 @@ impl Engine {
         cancel: &CancellationToken,
         stream: &mut model::ModelStream,
     ) {
-        let mut usage = areal_protocol::ModelUsage::default();
         loop {
             tokio::select! {
                 biased;
                 _ = cancel.cancelled() => { self.settle_cancelled_model(cell, stream).await; break; },
                 // 协作纠偏沿用请求的空闲期限；有活动就刷新，原 Goal/worker 总期限由外层执行器控制。
                 event = tokio::time::timeout(self.limits.stream_idle_timeout, stream.next()) => match event {
-                    Ok(Some(Ok(model::ModelEvent::Usage(value)))) => usage.add_assign(&value),
+                    Ok(Some(Ok(model::ModelEvent::Usage(value)))) => {
+                        // 纠偏收尾也只记录真实事件；提前取消不能丢失已观察消费。
+                        cell.state.lock().await.thread.turns.last_mut().unwrap()
+                            .usage.get_or_insert_with(Default::default).add_assign(&value);
+                    },
                     Ok(Some(Ok(_))) => {},
                     _ => break,
                 }
             }
         }
-        let mut state = cell.state.lock().await;
-        state
-            .thread
-            .turns
-            .last_mut()
-            .unwrap()
-            .usage
-            .get_or_insert_with(Default::default)
-            .add_assign(&usage);
     }
 
     pub(super) async fn generate(
@@ -988,5 +987,24 @@ async fn complete_reasoning(
 ) {
     for item_id in items.values() {
         complete_item(cell, thread_id, turn_id, item_id).await;
+    }
+}
+
+#[cfg(test)]
+mod cancellation_usage_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn cancellation_distinguishes_absent_usage_from_explicit_zero() {
+        for observed in [false, true] {
+            let mut stream: model::ModelStream =
+                Box::pin(futures_util::stream::iter(observed.then(|| {
+                    Ok(model::ModelEvent::Usage(
+                        areal_protocol::ModelUsage::default(),
+                    ))
+                })));
+            let usage = settle_cancelled_stream(&mut stream, Duration::from_secs(1)).await;
+            assert_eq!(usage.is_some(), observed);
+        }
     }
 }

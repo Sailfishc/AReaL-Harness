@@ -286,3 +286,5 @@ checkpoint 恢复最多保留 8 组接口导向文件片段，序列化内容总
 `contextCompactionCandidate` 持久记录压缩切点、保留 item 数、前后估算、固定开销、usage 校准、targetMet 及 wholeLatestRound。它在 checkpoint 提交前保存，不能单凭该 audit 声称安装成功；须核对实际 checkpoint 的 throughItemId。文件视图在首次工具结果记录时生成，历史回放不追溯重写旧 provider 上下文。
 
 摘要请求已观察的 usage 立即累计到 Turn；即使取消或拒绝摘要而不提交 checkpoint，也保留已知消费。取消收尾的新 usage 仅追加一次；缺少最终用量仍保留 UNKNOWN。
+
+未收到 usage 事件时 Turn usage 保持缺省，CLI 不输出伪造的零消费；提供方明确返回全零 usage 时仍保留该记录。

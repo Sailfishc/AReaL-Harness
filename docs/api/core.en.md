@@ -272,3 +272,5 @@ Restoration retains at most eight interface-oriented file excerpt groups, at mos
 Persistent `contextCompactionCandidate` audits record the boundary, retained items, before/after estimates, overhead, usage calibration, targetMet and wholeLatestRound. Written before checkpoint commit, they do not alone prove installation: verify the actual checkpoint throughItemId. File views are recorded once with new tool results; replay never rewrites old provider context.
 
 Observed summary usage is charged to the Turn as it arrives, even if cancellation or rejection prevents checkpoint installation. Cancellation settlement adds only newly received usage once; missing final usage still remains UNKNOWN.
+
+Without an observed usage event, Turn usage remains absent and the CLI does not emit fabricated zero consumption; an explicitly reported all-zero usage event is still retained.
