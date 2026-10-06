@@ -706,6 +706,7 @@ async fn goal_requests_keep_output_caps_and_tool_budgets_through_shared_pools() 
                 .goal_create(
                     "fixture".into(),
                     areal_protocol::goals::GoalCreate {
+                        infer_limits: false,
                         interaction_mode: None,
                         request_id: "goal-budget".into(),
                         thread_id: thread.id.clone(),

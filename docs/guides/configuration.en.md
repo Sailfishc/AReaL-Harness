@@ -217,7 +217,7 @@ max_unreported_turns = 3
 turn_model_rounds = 32
 ```
 
-The numeric values shown are defaults. The first three numeric fields accept 1–86400; turn_model_rounds accepts 2–1024. Goal maxTurns/maxActiveSeconds can narrow deployment limits; tokenBudget applies only when explicitly set. Root Turns use min(session maxModelRounds, turn_model_rounds), require at least two rounds, and require goal_read/goal_update in any tool allowlist. The final round remains tool-free for handoff. Consecutive root Turns without goal_update pause as progressUnreported at the configured threshold.
+The numeric values shown are defaults. The first three numeric fields accept 1–86400; turn_model_rounds accepts 2–1024. Deployment limits only validate explicitly supplied maxTurns/maxActiveSeconds; omitted turn/time/token limits remain unlimited. The GUI requests root Agent prompt confirmation through inferLimits, requiring goal_set_limits and at least three model rounds. Root Turns use min(session maxModelRounds, turn_model_rounds), require at least two rounds, and require goal_read/goal_update in any tool allowlist. The final round remains tool-free for handoff. Consecutive root Turns without goal_update pause as progressUnreported at the configured threshold.
 
 Active time includes root-Turn model queuing, execution, tools, interactions and cleanup without adding child durations. Capacity waits between Turns, paused time and offline time are excluded. Existing explicit Goal/research-worker time budgets and Runtime hard limits still apply. Goal requests disable implicit HTTP retries to preserve per-request accounting; unknown usage stops automatic continuation. See [usage and recovery](clients.en.md#goals).
 

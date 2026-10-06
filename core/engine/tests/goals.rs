@@ -86,6 +86,7 @@ fn model(report: bool, usage: bool) -> Arc<Fixture> {
 }
 fn request(thread_id: &str) -> GoalCreate {
     GoalCreate {
+        infer_limits: false,
         interaction_mode: None,
         request_id: "create-1".into(),
         thread_id: thread_id.into(),
@@ -271,6 +272,7 @@ async fn budget_stops_before_request_and_can_be_increased_without_reset() {
             "update".into(),
             c.clone(),
             Some(GoalUpdate {
+                infer_limits: false,
                 control: c,
                 objective: None,
                 token_budget: Some(Some(100000)),

@@ -623,15 +623,25 @@
                   ],
                   "type": "string"
                 },
+                "limitsPending": {
+                  "default": false,
+                  "type": "boolean"
+                },
                 "maxActiveSeconds": {
                   "format": "uint64",
                   "minimum": 0,
-                  "type": "integer"
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
                 },
                 "maxTurns": {
                   "format": "uint64",
                   "minimum": 0,
-                  "type": "integer"
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
                 },
                 "objective": {
                   "type": "string"
@@ -807,8 +817,6 @@
                 "threadId",
                 "objective",
                 "status",
-                "maxTurns",
-                "maxActiveSeconds",
                 "usage",
                 "settling",
                 "waitingForInput",
@@ -872,15 +880,25 @@
                   ],
                   "type": "string"
                 },
+                "limitsPending": {
+                  "default": false,
+                  "type": "boolean"
+                },
                 "maxActiveSeconds": {
                   "format": "uint64",
                   "minimum": 0,
-                  "type": "integer"
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
                 },
                 "maxTurns": {
                   "format": "uint64",
                   "minimum": 0,
-                  "type": "integer"
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
                 },
                 "objective": {
                   "type": "string"
@@ -1056,8 +1074,6 @@
                 "threadId",
                 "objective",
                 "status",
-                "maxTurns",
-                "maxActiveSeconds",
                 "usage",
                 "settling",
                 "waitingForInput",
@@ -6338,15 +6354,25 @@
                           ],
                           "type": "string"
                         },
+                        "limitsPending": {
+                          "default": false,
+                          "type": "boolean"
+                        },
                         "maxActiveSeconds": {
                           "format": "uint64",
                           "minimum": 0,
-                          "type": "integer"
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
                         },
                         "maxTurns": {
                           "format": "uint64",
                           "minimum": 0,
-                          "type": "integer"
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
                         },
                         "objective": {
                           "type": "string"
@@ -6522,8 +6548,6 @@
                         "threadId",
                         "objective",
                         "status",
-                        "maxTurns",
-                        "maxActiveSeconds",
                         "usage",
                         "settling",
                         "waitingForInput",
@@ -11438,6 +11462,10 @@
           "minimum": 0,
           "type": "integer"
         },
+        "inferLimits": {
+          "default": false,
+          "type": "boolean"
+        },
         "interactionMode": {
           "anyOf": [
             {
@@ -11573,6 +11601,10 @@
         },
         "goalId": {
           "type": "string"
+        },
+        "inferLimits": {
+          "default": false,
+          "type": "boolean"
         },
         "maxActiveSeconds": {
           "format": "uint64",
@@ -17162,15 +17194,25 @@
                             ],
                             "type": "string"
                           },
+                          "limitsPending": {
+                            "default": false,
+                            "type": "boolean"
+                          },
                           "maxActiveSeconds": {
                             "format": "uint64",
                             "minimum": 0,
-                            "type": "integer"
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
                           },
                           "maxTurns": {
                             "format": "uint64",
                             "minimum": 0,
-                            "type": "integer"
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
                           },
                           "objective": {
                             "type": "string"
@@ -17346,8 +17388,6 @@
                           "threadId",
                           "objective",
                           "status",
-                          "maxTurns",
-                          "maxActiveSeconds",
                           "usage",
                           "settling",
                           "waitingForInput",
@@ -20188,15 +20228,25 @@
                               ],
                               "type": "string"
                             },
+                            "limitsPending": {
+                              "default": false,
+                              "type": "boolean"
+                            },
                             "maxActiveSeconds": {
                               "format": "uint64",
                               "minimum": 0,
-                              "type": "integer"
+                              "type": [
+                                "integer",
+                                "null"
+                              ]
                             },
                             "maxTurns": {
                               "format": "uint64",
                               "minimum": 0,
-                              "type": "integer"
+                              "type": [
+                                "integer",
+                                "null"
+                              ]
                             },
                             "objective": {
                               "type": "string"
@@ -20372,8 +20422,6 @@
                             "threadId",
                             "objective",
                             "status",
-                            "maxTurns",
-                            "maxActiveSeconds",
                             "usage",
                             "settling",
                             "waitingForInput",
@@ -23474,15 +23522,25 @@
                   ],
                   "type": "string"
                 },
+                "limitsPending": {
+                  "default": false,
+                  "type": "boolean"
+                },
                 "maxActiveSeconds": {
                   "format": "uint64",
                   "minimum": 0,
-                  "type": "integer"
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
                 },
                 "maxTurns": {
                   "format": "uint64",
                   "minimum": 0,
-                  "type": "integer"
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
                 },
                 "objective": {
                   "type": "string"
@@ -23658,8 +23716,6 @@
                 "threadId",
                 "objective",
                 "status",
-                "maxTurns",
-                "maxActiveSeconds",
                 "usage",
                 "settling",
                 "waitingForInput",
@@ -23717,15 +23773,25 @@
               ],
               "type": "string"
             },
+            "limitsPending": {
+              "default": false,
+              "type": "boolean"
+            },
             "maxActiveSeconds": {
               "format": "uint64",
               "minimum": 0,
-              "type": "integer"
+              "type": [
+                "integer",
+                "null"
+              ]
             },
             "maxTurns": {
               "format": "uint64",
               "minimum": 0,
-              "type": "integer"
+              "type": [
+                "integer",
+                "null"
+              ]
             },
             "objective": {
               "type": "string"
@@ -23901,8 +23967,6 @@
             "threadId",
             "objective",
             "status",
-            "maxTurns",
-            "maxActiveSeconds",
             "usage",
             "settling",
             "waitingForInput",
@@ -23969,15 +24033,25 @@
                   ],
                   "type": "string"
                 },
+                "limitsPending": {
+                  "default": false,
+                  "type": "boolean"
+                },
                 "maxActiveSeconds": {
                   "format": "uint64",
                   "minimum": 0,
-                  "type": "integer"
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
                 },
                 "maxTurns": {
                   "format": "uint64",
                   "minimum": 0,
-                  "type": "integer"
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
                 },
                 "objective": {
                   "type": "string"
@@ -24153,8 +24227,6 @@
                 "threadId",
                 "objective",
                 "status",
-                "maxTurns",
-                "maxActiveSeconds",
                 "usage",
                 "settling",
                 "waitingForInput",
@@ -24214,15 +24286,25 @@
                   ],
                   "type": "string"
                 },
+                "limitsPending": {
+                  "default": false,
+                  "type": "boolean"
+                },
                 "maxActiveSeconds": {
                   "format": "uint64",
                   "minimum": 0,
-                  "type": "integer"
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
                 },
                 "maxTurns": {
                   "format": "uint64",
                   "minimum": 0,
-                  "type": "integer"
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
                 },
                 "objective": {
                   "type": "string"
@@ -24398,8 +24480,6 @@
                 "threadId",
                 "objective",
                 "status",
-                "maxTurns",
-                "maxActiveSeconds",
                 "usage",
                 "settling",
                 "waitingForInput",
@@ -24459,15 +24539,25 @@
                   ],
                   "type": "string"
                 },
+                "limitsPending": {
+                  "default": false,
+                  "type": "boolean"
+                },
                 "maxActiveSeconds": {
                   "format": "uint64",
                   "minimum": 0,
-                  "type": "integer"
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
                 },
                 "maxTurns": {
                   "format": "uint64",
                   "minimum": 0,
-                  "type": "integer"
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
                 },
                 "objective": {
                   "type": "string"
@@ -24643,8 +24733,6 @@
                 "threadId",
                 "objective",
                 "status",
-                "maxTurns",
-                "maxActiveSeconds",
                 "usage",
                 "settling",
                 "waitingForInput",
@@ -24704,15 +24792,25 @@
                   ],
                   "type": "string"
                 },
+                "limitsPending": {
+                  "default": false,
+                  "type": "boolean"
+                },
                 "maxActiveSeconds": {
                   "format": "uint64",
                   "minimum": 0,
-                  "type": "integer"
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
                 },
                 "maxTurns": {
                   "format": "uint64",
                   "minimum": 0,
-                  "type": "integer"
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
                 },
                 "objective": {
                   "type": "string"
@@ -24888,8 +24986,6 @@
                 "threadId",
                 "objective",
                 "status",
-                "maxTurns",
-                "maxActiveSeconds",
                 "usage",
                 "settling",
                 "waitingForInput",
@@ -36775,15 +36871,25 @@
                           ],
                           "type": "string"
                         },
+                        "limitsPending": {
+                          "default": false,
+                          "type": "boolean"
+                        },
                         "maxActiveSeconds": {
                           "format": "uint64",
                           "minimum": 0,
-                          "type": "integer"
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
                         },
                         "maxTurns": {
                           "format": "uint64",
                           "minimum": 0,
-                          "type": "integer"
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
                         },
                         "objective": {
                           "type": "string"
@@ -36959,8 +37065,6 @@
                         "threadId",
                         "objective",
                         "status",
-                        "maxTurns",
-                        "maxActiveSeconds",
                         "usage",
                         "settling",
                         "waitingForInput",
@@ -44904,15 +45008,25 @@
                             ],
                             "type": "string"
                           },
+                          "limitsPending": {
+                            "default": false,
+                            "type": "boolean"
+                          },
                           "maxActiveSeconds": {
                             "format": "uint64",
                             "minimum": 0,
-                            "type": "integer"
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
                           },
                           "maxTurns": {
                             "format": "uint64",
                             "minimum": 0,
-                            "type": "integer"
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
                           },
                           "objective": {
                             "type": "string"
@@ -45088,8 +45202,6 @@
                           "threadId",
                           "objective",
                           "status",
-                          "maxTurns",
-                          "maxActiveSeconds",
                           "usage",
                           "settling",
                           "waitingForInput",
@@ -47918,15 +48030,25 @@
                           ],
                           "type": "string"
                         },
+                        "limitsPending": {
+                          "default": false,
+                          "type": "boolean"
+                        },
                         "maxActiveSeconds": {
                           "format": "uint64",
                           "minimum": 0,
-                          "type": "integer"
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
                         },
                         "maxTurns": {
                           "format": "uint64",
                           "minimum": 0,
-                          "type": "integer"
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
                         },
                         "objective": {
                           "type": "string"
@@ -48102,8 +48224,6 @@
                         "threadId",
                         "objective",
                         "status",
-                        "maxTurns",
-                        "maxActiveSeconds",
                         "usage",
                         "settling",
                         "waitingForInput",
@@ -50953,15 +51073,25 @@
                           ],
                           "type": "string"
                         },
+                        "limitsPending": {
+                          "default": false,
+                          "type": "boolean"
+                        },
                         "maxActiveSeconds": {
                           "format": "uint64",
                           "minimum": 0,
-                          "type": "integer"
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
                         },
                         "maxTurns": {
                           "format": "uint64",
                           "minimum": 0,
-                          "type": "integer"
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
                         },
                         "objective": {
                           "type": "string"
@@ -51137,8 +51267,6 @@
                         "threadId",
                         "objective",
                         "status",
-                        "maxTurns",
-                        "maxActiveSeconds",
                         "usage",
                         "settling",
                         "waitingForInput",
@@ -53996,15 +54124,25 @@
                           ],
                           "type": "string"
                         },
+                        "limitsPending": {
+                          "default": false,
+                          "type": "boolean"
+                        },
                         "maxActiveSeconds": {
                           "format": "uint64",
                           "minimum": 0,
-                          "type": "integer"
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
                         },
                         "maxTurns": {
                           "format": "uint64",
                           "minimum": 0,
-                          "type": "integer"
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
                         },
                         "objective": {
                           "type": "string"
@@ -54180,8 +54318,6 @@
                         "threadId",
                         "objective",
                         "status",
-                        "maxTurns",
-                        "maxActiveSeconds",
                         "usage",
                         "settling",
                         "waitingForInput",
@@ -58257,15 +58393,25 @@
                     ],
                     "type": "string"
                   },
+                  "limitsPending": {
+                    "default": false,
+                    "type": "boolean"
+                  },
                   "maxActiveSeconds": {
                     "format": "uint64",
                     "minimum": 0,
-                    "type": "integer"
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
                   },
                   "maxTurns": {
                     "format": "uint64",
                     "minimum": 0,
-                    "type": "integer"
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
                   },
                   "objective": {
                     "type": "string"
@@ -58441,8 +58587,6 @@
                   "threadId",
                   "objective",
                   "status",
-                  "maxTurns",
-                  "maxActiveSeconds",
                   "usage",
                   "settling",
                   "waitingForInput",

@@ -68,8 +68,10 @@ pub struct Goal {
     pub status: GoalStatus,
     pub reason: Option<String>,
     pub token_budget: Option<u64>,
-    pub max_turns: u64,
-    pub max_active_seconds: u64,
+    pub max_turns: Option<u64>,
+    pub max_active_seconds: Option<u64>,
+    #[serde(default)]
+    pub limits_pending: bool,
     pub usage: GoalUsage,
     pub active_turn_id: Option<String>,
     pub settling: bool,
@@ -100,6 +102,8 @@ pub struct GoalTurn {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct GoalCreate {
     #[serde(default)]
+    pub infer_limits: bool,
+    #[serde(default)]
     pub interaction_mode: Option<crate::tasks::InteractionMode>,
     pub request_id: String,
     pub thread_id: String,
@@ -120,6 +124,8 @@ pub struct GoalControl {
 #[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct GoalUpdate {
+    #[serde(default)]
+    pub infer_limits: bool,
     #[serde(flatten)]
     pub control: GoalControl,
     pub objective: Option<String>,
@@ -130,8 +136,20 @@ pub struct GoalUpdate {
     )]
     #[schemars(with = "Option<u64>")]
     pub token_budget: Option<Option<u64>>,
-    pub max_turns: Option<u64>,
-    pub max_active_seconds: Option<u64>,
+    #[serde(
+        default,
+        deserialize_with = "nullable_budget",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(with = "Option<u64>")]
+    pub max_turns: Option<Option<u64>>,
+    #[serde(
+        default,
+        deserialize_with = "nullable_budget",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(with = "Option<u64>")]
+    pub max_active_seconds: Option<Option<u64>>,
 }
 fn nullable_budget<'de, D: serde::Deserializer<'de>>(
     d: D,

@@ -29,7 +29,9 @@ impl Engine {
         let thread_id = cell.state.lock().await.thread.id.clone();
         match tool {
             "read_tool_result" => self.read_tool_result(cell, args).await.map_err(invalid),
-            "goal_read" | "goal_update" => self.goal_tool(cell, tool, args).await,
+            "goal_read" | "goal_update" | "goal_set_limits" => {
+                self.goal_tool(cell, tool, args).await
+            }
             "agent_spawn_configured" => {
                 let mut request = args.clone();
                 request["parentThreadId"] = json!(thread_id);

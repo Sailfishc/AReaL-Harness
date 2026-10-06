@@ -350,6 +350,7 @@ impl Engine {
             .goal_create(
                 task.owner.clone(),
                 GoalCreate {
+                    infer_limits: false,
                     request_id: format!("task-run-{}", run.id),
                     thread_id: thread,
                     expected_revision: view["revision"].as_u64().unwrap(),

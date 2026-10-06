@@ -387,8 +387,8 @@ impl Engine {
                     paused: false,
                     cancelled: false,
                     token_budget: goal.token_budget,
-                    max_turns: Some(goal.max_turns),
-                    max_active_seconds: Some(goal.max_active_seconds),
+                    max_turns: goal.max_turns,
+                    max_active_seconds: goal.max_active_seconds,
                     runs: vec![run],
                     messages: vec![],
                 },
@@ -487,6 +487,23 @@ impl Engine {
             .any(|t| t.cancelled && t.runs.iter().any(|r| r.goal_id.as_deref() == Some(goal_id)))
     }
 
+    pub(crate) async fn validate_prompt_limit_owner(&self, goal_id: &str) -> Result<()> {
+        // 周期任务的总预算属于 Task，目标文本不能解除其跨 Run 额度。
+        let tasks = self.task_modes.state.lock().await;
+        if tasks.tasks.values().any(|task| {
+            task.mode == areal_protocol::tasks::TaskMode::Scheduled
+                && task.token_budget.is_some()
+                && task
+                    .runs
+                    .iter()
+                    .any(|run| run.goal_id.as_deref() == Some(goal_id))
+        }) {
+            return Err(invalid(
+                "prompt limits cannot replace a recurring Task budget",
+            ));
+        }
+        Ok(())
+    }
     pub(crate) async fn sync_goal_task_control(
         &self,
         thread: &Thread,
@@ -541,8 +558,8 @@ impl Engine {
         }
         if let Some(goal) = thread.goals.goal.as_ref() {
             task.objective = goal.objective.clone();
-            task.max_turns = Some(goal.max_turns);
-            task.max_active_seconds = Some(goal.max_active_seconds);
+            task.max_turns = goal.max_turns;
+            task.max_active_seconds = goal.max_active_seconds;
             if task.mode != TaskMode::Scheduled {
                 task.token_budget = goal.token_budget;
             }

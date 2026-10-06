@@ -325,7 +325,7 @@ impl Engine {
                 && (!matches!(name, "task_spawn" | "task_wait")
                     || cell.goal_role.load(Ordering::Acquire) == 1)
                 && (!name.starts_with("goal_")
-                    || (goal_enabled && (name != "goal_update" || cell.depth == 0)))
+                    || (goal_enabled && (!matches!(name, "goal_update" | "goal_set_limits") || cell.depth == 0)))
                 && (!name.starts_with("workgroup_") || self.workgroups.get().is_some())
                 && (!matches!(name, "agent_spawn" | "agent_spawn_configured")
                     || (cell.depth < self.limits.max_agent_depth

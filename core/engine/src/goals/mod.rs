@@ -130,12 +130,15 @@ impl Engine {
             }
         });
     }
-    fn validate_goal_limits(&self, token: Option<u64>, turns: u64, seconds: u64) -> Result<()> {
+    fn validate_goal_limits(
+        &self,
+        token: Option<u64>,
+        turns: Option<u64>,
+        seconds: Option<u64>,
+    ) -> Result<()> {
         if token == Some(0)
-            || turns == 0
-            || turns > self.limits.goals.max_turns
-            || seconds == 0
-            || seconds > self.limits.goals.max_active_seconds
+            || turns.is_some_and(|n| n == 0 || n > self.limits.goals.max_turns)
+            || seconds.is_some_and(|n| n == 0 || n > self.limits.goals.max_active_seconds)
         {
             return Err(invalid("goal limits exceed deployment policy or are zero"));
         }
@@ -197,11 +200,35 @@ impl Engine {
             }
             engine.check_turn_available(&cell, &state).await?;
             engine.validate_goal_config(&data.configuration)?;
+            if request.infer_limits
+                && (data
+                    .configuration
+                    .options
+                    .max_model_rounds
+                    .is_some_and(|n| n < 3)
+                    || engine.limits.goals.turn_model_rounds < 3
+                    || data
+                        .configuration
+                        .tool_allowlist
+                        .as_ref()
+                        .is_some_and(|tools| !tools.iter().any(|t| t == "goal_set_limits")))
+            {
+                return Err(invalid(
+                    "prompt limits require goal_set_limits and at least three model rounds",
+                ));
+            }
             objective(&request.objective)?;
-            let max_turns = request.max_turns.unwrap_or(engine.limits.goals.max_turns);
-            let max_active_seconds = request
-                .max_active_seconds
-                .unwrap_or(engine.limits.goals.max_active_seconds);
+            if request.infer_limits
+                && (request.token_budget.is_some()
+                    || request.max_turns.is_some()
+                    || request.max_active_seconds.is_some())
+            {
+                return Err(invalid(
+                    "prompt inference cannot be combined with explicit limits",
+                ));
+            }
+            let max_turns = request.max_turns;
+            let max_active_seconds = request.max_active_seconds;
             engine.validate_goal_limits(request.token_budget, max_turns, max_active_seconds)?;
             let goal = Goal {
                 interaction_mode: request
@@ -215,6 +242,7 @@ impl Engine {
                 token_budget: request.token_budget,
                 max_turns,
                 max_active_seconds,
+                limits_pending: request.infer_limits,
                 usage: GoalUsage {
                     accounting_complete: true,
                     ..Default::default()
@@ -347,6 +375,22 @@ impl Engine {
                     {
                         return Err(invalid("empty goal update"));
                     }
+                    if patch.infer_limits {
+                        engine.validate_prompt_limit_owner(&goal.id).await?;
+                        if patch.objective.is_none()
+                            || patch.token_budget.is_some()
+                            || patch.max_turns.is_some()
+                            || patch.max_active_seconds.is_some()
+                        {
+                            return Err(invalid(
+                                "prompt inference requires objective without explicit limits",
+                            ));
+                        }
+                        goal.token_budget = None;
+                        goal.max_turns = None;
+                        goal.max_active_seconds = None;
+                        goal.limits_pending = true;
+                    }
                     if let Some(text) = &patch.objective {
                         objective(text)?;
                         goal.objective = text.clone();
@@ -372,8 +416,12 @@ impl Engine {
                         return Err(Error::Closed);
                     }
                     engine.check_turn_available(&cell, &state).await?;
-                    if goal.usage.turns_started >= goal.max_turns
-                        || goal.usage.time_used_seconds >= goal.max_active_seconds as f64
+                    if goal
+                        .max_turns
+                        .is_some_and(|limit| goal.usage.turns_started >= limit)
+                        || goal
+                            .max_active_seconds
+                            .is_some_and(|limit| goal.usage.time_used_seconds >= limit as f64)
                         || goal.token_budget.is_some_and(|n| {
                             goal.usage
                                 .tokens_used
@@ -432,6 +480,14 @@ impl Engine {
             );
             engine.persist(&candidate).await?;
             state.thread = candidate;
+            budget.set_time_limit(
+                state
+                    .thread
+                    .goals
+                    .goal
+                    .as_ref()
+                    .and_then(|g| g.max_active_seconds),
+            );
             budget.configure(
                 state
                     .thread
@@ -489,14 +545,30 @@ impl Engine {
         else {
             return Ok(());
         };
-        if goal.usage.turns_started >= goal.max_turns
-            || goal.usage.time_used_seconds >= goal.max_active_seconds as f64
+        if goal
+            .max_turns
+            .is_some_and(|limit| goal.usage.turns_started >= limit)
+            || goal
+                .max_active_seconds
+                .is_some_and(|limit| goal.usage.time_used_seconds >= limit as f64)
         {
             return Err(Error::Exhausted("goal execution limit reached".into()));
         }
         let config = turn.configuration.get_or_insert_with(Default::default);
         config.options.interaction_mode = goal.interaction_mode;
         self.validate_goal_config(config)?;
+        if goal.limits_pending
+            && (config.options.max_model_rounds.is_some_and(|n| n < 3)
+                || self.limits.goals.turn_model_rounds < 3
+                || config
+                    .tool_allowlist
+                    .as_ref()
+                    .is_some_and(|tools| !tools.iter().any(|t| t == "goal_set_limits")))
+        {
+            return Err(invalid(
+                "prompt limits require goal_set_limits and at least three model rounds",
+            ));
+        }
         config.options.max_model_rounds = Some(
             config
                 .options
@@ -616,8 +688,12 @@ impl Engine {
                 }
             }
             if goal.status == GoalStatus::Active
-                && (goal.usage.turns_started >= goal.max_turns
-                    || goal.usage.time_used_seconds >= goal.max_active_seconds as f64
+                && (goal
+                    .max_turns
+                    .is_some_and(|limit| goal.usage.turns_started >= limit)
+                    || goal
+                        .max_active_seconds
+                        .is_some_and(|limit| goal.usage.time_used_seconds >= limit as f64)
                     || goal
                         .token_budget
                         .is_some_and(|n| goal.usage.tokens_used >= n))

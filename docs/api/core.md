@@ -198,17 +198,23 @@ Goal 无需部署开关；`areal/capabilities.features.goals` 固定为 true，�
 | 方法 | 专有参数 | 语义 |
 |---|---|---|
 | `areal/goal/get` | `threadId` | 返回目标投影；没有目标时 goal=null，仍返回控制 revision |
-| `areal/goal/create` | `objective, tokenBudget?, maxTurns?, maxActiveSeconds?, interactionMode?` | 根 Thread 空闲且无待处理用户队列时创建目标并原子受理首轮；已有未清除目标时冲突 |
-| `areal/goal/update` | `goalId, objective?, tokenBudget?, maxTurns?, maxActiveSeconds?` | 在目标停止且清理完毕后编辑；保留目标 ID 和全部用量，不隐式启动 |
+| `areal/goal/create` | `objective, tokenBudget?, maxTurns?, maxActiveSeconds?, interactionMode?, inferLimits?` | 根 Thread 空闲且无待处理用户队列时创建目标并原子受理首轮；已有未清除目标时冲突 |
+| `areal/goal/update` | `goalId, objective?, tokenBudget?, maxTurns?, maxActiveSeconds?, inferLimits?` | 在目标停止且清理完毕后编辑；保留目标 ID 和全部用量，不隐式启动 |
 | `areal/goal/pause` | `goalId` | 持久化 paused、暂停用户队列并请求活动 Turn 取消；响应不保证清理已经完成 |
 | `areal/goal/resume` | `goalId` | 校验预算、UNKNOWN 和宿主后恢复；活动容量不足时等待；队列因 Goal pause/Stop 暂停时一并恢复，其他原因的队列暂停需单独处理 |
 | `areal/goal/clear` | `goalId` | 仅目标停止、无活动 Turn、无待处理用户队列或未清理资源时清除；控制 revision 递增，既有 Turn 归因、证据和计量记录保留 |
 
-objective 为 1–4000 个 Unicode 字符且不能全空白。预算为正整数，maxTurns 包含首次根 Turn，maxActiveSeconds 统计根 Turn 的模型排队、执行、工具、交互等待和清理时间，不叠加子任务时间，不计入轮次间容量等待、暂停和离线时间。创建省略 tokenBudget 表示不设置目标 token 限额；更新省略字段表示保留原值，显式 null 可移除目标 token 限额，仍受部署上限限制。提高限额需要用户控制接口，模型不能执行。update 必须至少修改一个字段，completed 目标只读；执行新目标先 clear/create。
+objective 为 1–4000 个 Unicode 字符且不能全空白。显式预算为正整数，maxTurns 包含首次根 Turn，maxActiveSeconds 统计活动时间。创建省略任一限制表示该项不限，不自动采用部署默认值；投影中未设限制为 null。更新省略字段保留原值，显式 null 移除相应限制。部署 max_turns/max_active_seconds 只校验显式提交的限制。update 必须至少修改一个字段，completed 目标只读。
+
+已设置跨 Run Token 总预算的周期 Task 不允许通过目标文本重新推断预算，继续由 Task 控制接口维护。
+
+GUI 仅提交目标文本及 inferLimits=true，不展示预算输入。create 的 inferLimits 不可和显式限制同时提交；update 的 inferLimits 要求 objective，清除旧限制并重新等待确认，保留 ID 和全部用量、不隐式启动。根 Agent 在执行工作前调用 goal_set_limits，解释用户明确指定的 token、轮次与活动时间（换算为秒）；没有指定的项不设限，任务正文中的数字不作为预算。推断请求及耗时也计入实际用量。模型至少需要三轮、allowlist 必须允许 goal_set_limits。旧数据中的数字限制保持原值；读取格式 1–11，旧 Core 不能读取格式 11。
 
 resume 保留计量，不能使已经达到的限额失效；completed 不可恢复。resume 同时确认此前未知模型消费的保守预留，但不删除该预留，不将 accountingComplete 改回 true；工具 UNKNOWN 仍需独立检查与 acknowledge。普通 `thread/resume` 仍只恢复订阅和快照，不恢复 Goal 执行。暂停时保存原因，只有属于该次 Goal 暂停的队列暂停才可被 Goal resume 自动撤销。
 
 投影包含 `threadId`、`revision`、`eventSequence` 和 `goal`。goal 包括 `id`、`threadId`、`objective`、`status`、`reason`、预算及计量、`activeTurnId`、`settling`、`waitingForInput`、`waitingForAgents`、`waitingForCapacity` 和最近报告 `report`、`reportTurnId` 和连续未报告计数 `unreportedTurns`。status 使用 `active / paused / blocked / completed / budgetLimited / failed`。`revision` 只随控制状态变化，eventSequence 随持久投影变化；get 和原子 resume 返回当前计量，流式用量不逐 token 发布 Goal 事件。持久状态和受理结果保存后发布；保存失败时仅发布内存中的 failed/SystemError，重启以保守恢复为准。
+
+Token 准入不足的 Turn 终态为 `GOAL_TOKEN_BUDGET`，source 为 `core_goal_token_budget`；活动时间截止使用 `AGENT_RUN_TIMEOUT` 和 `details.goalDeadlineReached=true`。客户端以此显示目标停止原因，不将预算停止展示为内部错误。
 
 goal.usage 包含 `inputTokens`、`cachedInputTokens`、`outputTokens`、`tokensUsed`、`reservedTokens`、`unknownRequests`、`timeUsedSeconds`、`turnsStarted` 和 `accountingComplete`。tokensUsed 仅包含已确认输入与输出，reservedTokens 单独展示且参与准入；未知统计不补零。timeUsedSeconds 包含根 Turn 内的执行和等待，不叠加子任务时长；崩溃窗口或缺失 usage 时 accountingComplete=false。该口径不保证 provider 计费绝对不超过 tokenBudget。
 
@@ -239,17 +245,18 @@ Goal 事件纳入现有 snapshot-and-subscribe 边界、权限过滤和背压规
 | 工具 | 参数 | 权限和行为 |
 |---|---|---|
 | `goal_read` | `{}` | 从调用上下文读取当前目标、状态、预算和剩余工作；子 Agent 仅获得只读投影 |
+| `goal_set_limits` | `{expectedRevision, sources, tokenBudget?, maxTurns?, maxActiveSeconds?}` | 仅根 Agent 在 limitsPending=true 时确认一次；每个显式值的 sources 必须逐字引用 objective，没有限制时传空 sources |
 | `goal_update` | `{expectedRevision, status, summary, evidence, remaining, blocker?}` | 仅当前 Goal 的根 Turn；status 为 continue/complete/blocked；仅报告进展或提交结算申请 |
 
 `goal_update` 接受 complete/blocked 报告后返回 `nextAction`，明确要求输出不带工具的最终答复；当前 Turn 结算前保持 active 属于预期状态，无需轮询或重复提交。压缩后的动态 Goal 指令同样保留这条待收尾状态，后续用户修订仍须处理。
 
 goalId 和根线程身份由 Core 绑定，模型不能自报其他目标。summary 非空、最多 4096 字符；evidence 和 remaining 各最多 16 条、每条最多 1024 字符，总参数最多 32 KiB。complete 要求 remaining 为空且 evidence 非空；blocked 要求非空 blocker 描述具体障碍及解除条件。evidence 是模型提交的文字报告，可引用工具 Item、检查回执或产物；它不是独立的语义验收器。Core 校验报告结构、未消费的验证句柄、待处理输入、子任务和 Workgroup 结算状态；业务正确性仍依赖实际检查和模型报告。
 
-`goal_update` 返回受理后的控制 revision，complete 在当前 Turn 正常结算前只是待处理申请。用户修改状态、steer 或排队追加输入会使旧申请失效；资源清理、持久化或子任务失败不得发布 completed。模型不能通过工具创建目标、解除暂停、提高预算、清除目标或绕过审批；自然语言“完成”及普通 Turn completed 也不能直接改变 Goal 状态。
+`goal_update` 返回受理后的控制 revision，complete 在当前 Turn 正常结算前只是待处理申请。用户修改状态、steer 或排队追加输入会使旧申请失效；资源清理、持久化或子任务失败不得发布 completed。限制待确认时 Core 拒绝工作工具与完成报告；暂停、过期 revision、子 Agent、重复限制确认均被拒绝。引文只证明来源，预算数值的自然语言含义仍由模型判断，Core 不使用正则解释。模型不能通过工具创建目标、解除暂停、在确认后提高预算、清除目标或绕过审批；自然语言“完成”及普通 Turn completed 也不能直接改变 Goal 状态。
 
 Rust 嵌入式调用使用 `Limits.goals: goals::Policy` 及 `Engine::goal_get/goal_create/goal_control`。自定义 Model 的 `chat_limited` 必须显式接受逐请求输出上限，`share_context` 保留预算归因；内置 HTTP adapter 已支持。自定义 Workgroup Factory 需实现 `executor_for_goal` 并保留传入 Budget；默认实现对有 Goal 的调用明确报错。普通 Turn 和独立 Workgroup 沿用原行为。
 
-Goal 请求账本位于 `goals/<goal-id>.json`，发送前持久预留；主/子 Agent、原生 Workgroup 和活动 Turn 的摘要共享计量，cachedInputTokens 是 inputTokens 的子集、不重复累加。每账本最多 4096 请求/4 MiB；clear 保留账本且不回收历史。快照格式 10 保存 Goal、Turn 归因、思考 Item 与 Task 交互策略，旧二进制不能读取；API 版本仍为 areal.core.v1。
+Goal 请求账本位于 `goals/<goal-id>.json`，发送前持久预留；主/子 Agent、原生 Workgroup 和活动 Turn 的摘要共享计量，cachedInputTokens 是 inputTokens 的子集、不重复累加。每账本最多 4096 请求/4 MiB；clear 保留账本且不回收历史。快照格式 11 保存可空的轮次/时间限制与限制确认状态，以及 Goal、Turn 归因、思考 Item 与 Task 交互策略，旧二进制不能读取；API 版本仍为 areal.core.v1。
 
 Task Mode 在 Goal 之上提供 foreground/scheduled/background 任务、TaskRun、独立 Channel 与 Inbox。Goal create 同时返回 taskId/runId；Goal 内的 ask_user_question 可选 mode=async，headless 不等待用户。接口、预算与恢复语义见 [Task 契约](tasks.md)。timeUsedSeconds 包含协调 Turn 与 TaskRun worker 活动时间的并集，纯异步用户等待不计入。
 
