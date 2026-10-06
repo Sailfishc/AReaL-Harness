@@ -81,14 +81,21 @@ impl Engine {
             }
             "skill_list" => self.skills(&thread_id).await,
             "skill_read" => {
-                self.read_skill(
-                    &thread_id,
-                    serde_json::from_value(args["skill"].clone()).map_err(invalid)?,
-                    args["resource"].as_str().unwrap_or("SKILL.md"),
-                    args["offset"].as_u64().unwrap_or(0) as usize,
-                    args["maxBytes"].as_u64().unwrap_or(8192) as usize,
-                )
-                .await
+                let mut page = self
+                    .read_skill(
+                        &thread_id,
+                        serde_json::from_value(args["skill"].clone()).map_err(invalid)?,
+                        args["resource"].as_str().unwrap_or("SKILL.md"),
+                        args["offset"].as_u64().unwrap_or(0) as usize,
+                        args["maxBytes"].as_u64().unwrap_or(8192) as usize,
+                    )
+                    .await?;
+                // UTF-8 明文已经保留完整页，模型无需再次接收同一内容的 Base64。
+                // 公共读取 API 和无法解码的二进制/跨字符分页仍保留原始字节。
+                if page.get("text").is_some_and(Value::is_string) {
+                    page.as_object_mut().unwrap().remove("dataBase64");
+                }
+                Ok(page)
             }
             _ => Err(invalid("unknown Core tool")),
         }

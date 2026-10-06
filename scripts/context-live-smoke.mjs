@@ -10,7 +10,11 @@ import WebSocket from "ws";
 
 const config = process.argv[2];
 assert(config, "usage: node scripts/context-live-smoke.mjs /absolute/config.toml");
-const root = await mkdtemp(join(tmpdir(), "areal-context-live-"));
+const root = process.argv[3]
+  ? resolve(process.argv[3])
+  : await mkdtemp(join(tmpdir(), "areal-context-live-"));
+await mkdir(root, { recursive: true });
+console.log(JSON.stringify({ root, phase: "starting" }));
 const workspace = join(root, "workspace"),
   data = join(root, "state");
 await mkdir(workspace);
@@ -37,6 +41,9 @@ async function start() {
     "python3",
     [
       "scripts/launch.py",
+      ...(process.env.AREAL_CONTEXT_LIVE_BIN_DIR
+        ? ["--bin-dir", resolve(process.env.AREAL_CONTEXT_LIVE_BIN_DIR)]
+        : []),
       "--config",
       resolve(config),
       "--listen",
@@ -237,8 +244,20 @@ try {
   const known = rows.filter((r) => r.usageObserved);
   const input = known.reduce((n, r) => n + r.usage.inputTokens, 0),
     cached = known.reduce((n, r) => n + r.usage.cachedInputTokens, 0);
+  const summaryAudits = await Promise.all(
+    (await readdir(join(data, "audit")))
+      .filter((f) => f.endsWith(".json"))
+      .map(async (f) => JSON.parse(await readFile(join(data, "audit", f), "utf8"))),
+  );
+  const summaries = summaryAudits.filter((a) => a.kind === "contextSummary");
+  const validSummaries = summaries.filter((a) => !a.error);
+  const summaryFailures = summaries.filter((a) => a.error).map((a) => a.error);
   const report = {
-    verified: true,
+    verified: summaryFailures.length === 0 && validSummaries.length >= 3,
+    functionalVerified: true,
+    validSummaries: validSummaries.length,
+    summaryAttempts: summaries.length,
+    summaryFailures,
     root,
     threadId: id,
     seconds: (Date.now() - started) / 1000,
@@ -256,6 +275,12 @@ try {
   };
   await writeFile(join(root, "result.json"), JSON.stringify(report, null, 2));
   console.log(JSON.stringify(report));
+  assert.equal(
+    summaryFailures.length,
+    0,
+    "summary generation failed; fallback is not successful summarization",
+  );
+  assert(validSummaries.length >= 3, "expected at least three valid summaries");
 } catch (error) {
   await writeFile(
     join(root, "failure.json"),

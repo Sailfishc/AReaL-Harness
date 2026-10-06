@@ -150,11 +150,16 @@ pub(super) fn invoke<'a>(
 }
 
 impl Engine {
-    pub(super) async fn task_state(&self, cell: &Cell) -> anyhow::Result<Value> {
+    pub(super) async fn task_state(
+        &self,
+        cell: &Cell,
+        pending_after: Option<&str>,
+    ) -> anyhow::Result<Value> {
         let (mut value, children) = {
             let state = cell.state.lock().await;
             let active = state.active.as_ref().context("Turn inactive")?;
             let mut value = active.handles.snapshot();
+            value["pendingVerifications"] = active.handles.pending_verification_page(pending_after);
             value["turnId"] = json!(active.id);
             value["scratchPath"] = json!(self.command_scratch(cell));
             value["scratchUri"] = json!(self.scratch_uri(cell));
@@ -376,12 +381,12 @@ mod tests {
                     });
             }
         }
-        let before = engine.task_state(&cell).await.unwrap();
+        let before = engine.task_state(&cell, None).await.unwrap();
         engine
             .compact_context(&cell, &CancellationToken::new(), 0, None, false)
             .await
             .unwrap();
-        let after = engine.task_state(&cell).await.unwrap();
+        let after = engine.task_state(&cell, None).await.unwrap();
         assert_eq!(after["processes"], before["processes"]);
         assert_eq!(after["agentCount"], 1);
         assert!(after["summaryThroughItemId"].is_string());
@@ -402,7 +407,10 @@ mod tests {
             .await
             .unwrap();
         assert!(owned_child(&engine, &cell, &child.id).await.is_err());
-        assert_eq!(engine.task_state(&cell).await.unwrap()["processCount"], 0);
+        assert_eq!(
+            engine.task_state(&cell, None).await.unwrap()["processCount"],
+            0
+        );
         engine.shutdown().await;
         drop(engine);
         let engine = Engine::open(data.path(), Arc::new(SummaryModel), Limits::default()).unwrap();
@@ -411,7 +419,7 @@ mod tests {
             .await
             .unwrap();
         let cell = engine.cell(&parent.id).await.unwrap();
-        let state = engine.task_state(&cell).await.unwrap();
+        let state = engine.task_state(&cell, None).await.unwrap();
         assert_eq!(state["agentCount"], 0);
         assert_eq!(state["processCount"], 0);
         engine.shutdown().await;

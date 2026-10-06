@@ -13,7 +13,7 @@ const root = await realpath(await mkdtemp("/tmp/as-"));
 const workspace = join(root, "workspace"),
   home = join(root, "home"),
   config = join(root, "config.toml");
-const bin = resolve("target/debug/areal");
+const bin = resolve(process.env.AREAL_TEST_BIN_DIR ?? "target/debug", "areal");
 const env = {
   ...Object.fromEntries(
     Object.entries(process.env).filter(
@@ -143,6 +143,11 @@ try {
     ),
   );
   assert.equal((await cli(["web", "--json", ...local])).generation, current.generation);
+  assert.equal((await ensure(["--runtime-max-processes", "4"])).generation, current.generation);
+  await rejected(
+    () => ensure(["--runtime-max-processes", "32"]),
+    /configuration conflict.*runtime/s,
+  );
   await symlink(workspace, join(root, "alias"));
   assert.equal((await ensure(["--workspace", join(root, "alias")])).generation, current.generation);
   await rejected(
@@ -191,7 +196,7 @@ try {
   assert.equal(completed.turn.status, "completed");
   await exec(
     "/usr/bin/python3",
-    ["-I", "-S", resolve("scripts/local-service-pty.py"), resolve("target/debug/areal"), ...local],
+    ["-I", "-S", resolve("scripts/local-service-pty.py"), bin, ...local],
     { env, timeout: 45000 },
   );
   assert.equal(
@@ -262,7 +267,7 @@ try {
   }
   await exec(
     "/usr/bin/python3",
-    ["-I", "-S", resolve("scripts/local-service-pty.py"), resolve("target/debug/areal"), ...local],
+    ["-I", "-S", resolve("scripts/local-service-pty.py"), bin, ...local],
     { env: { ...env, TEST_EXPLICIT_STOP: "1" }, timeout: 45000 },
   );
   assert.equal(
@@ -366,7 +371,7 @@ try {
   );
   await exec(
     "/usr/bin/python3",
-    ["-I", "-S", resolve("scripts/local-service-pty.py"), resolve("target/debug/areal"), ...local],
+    ["-I", "-S", resolve("scripts/local-service-pty.py"), bin, ...local],
     { env: { ...env, TEST_RELOAD_CONFIG: config }, timeout: 60000 },
   );
   await cli(["service", "stop", "--workspace", workspace]);

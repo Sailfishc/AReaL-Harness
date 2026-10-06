@@ -24,7 +24,15 @@ impl Engine {
         let started = std::time::Instant::now();
         let bytes = serde_json::to_vec(raw)?;
         let policy = &self.extensions.policy.result_views;
-        let mut baseline = raw.clone();
+        // 无损行格式在首次记录时确定，历史回放不重写旧 provider 上下文。
+        let mut baseline = if name == "read_file" && policy.file_lines {
+            crate::history::compact_file_text(&raw.to_string())
+                .and_then(|v| serde_json::from_str(&v).ok())
+                .unwrap_or_else(|| raw.clone())
+        } else {
+            raw.clone()
+        };
+        let file_compacted = baseline != *raw;
         if let Some(argv) = argv {
             apply_output_view(&mut baseline, argv);
         }
@@ -111,7 +119,14 @@ impl Engine {
             }
         }
         let mut candidate_bytes = None;
-        let mut kind = "none";
+        let mut kind = if file_compacted {
+            "file-lines-v1"
+        } else {
+            "none"
+        };
+        if file_compacted && snapshot.is_some() {
+            reason = "lossless";
+        }
         if let Some((format, mut proposed)) = candidate {
             kind = format;
             proposed["rawResult"] = reference.clone().unwrap_or(Value::Null);
@@ -497,6 +512,62 @@ mod tests {
             assert!(fallback.value.to_string().len() <= MAX_RESULT);
             engine.shutdown().await;
         }
+    }
+
+    #[tokio::test]
+    async fn file_projection_preserves_original_and_can_be_disabled() {
+        let directory = tempfile::tempdir().unwrap();
+        let engine = Engine::open(directory.path(), Arc::new(NoModel), Limits::default()).unwrap();
+        let thread = engine.create("/fixture".into()).await.unwrap();
+        let cell = engine.cell(&thread.id).await.unwrap();
+        let raw = json!({"path":"src/a.js","sha256":"observed","fileVersion":"edit-handle","lines":(1..=80).map(|n|json!({"number":n,"text":format!("const x{n} = '中文';\n")})).collect::<Vec<_>>()});
+        let prepared = engine
+            .prepare_tool_result(&cell, "file-call", "read_file", &raw, None)
+            .await
+            .unwrap();
+        assert_eq!(prepared.metrics["reason"], "lossless");
+        assert_eq!(prepared.value["fileVersion"], "edit-handle");
+        assert!(prepared.value.to_string().len() < raw.to_string().len());
+        let turn: Turn = serde_json::from_value(json!({"id":"turn","status":"completed","items":[{
+            "type":"dynamicToolCall","id":"file-call","tool":"read_file","callId":"call","arguments":{},"status":"completed","success":true,
+            "contentItems":[{"type":"inputText","text":prepared.value.to_string()}],
+            "execution":{"runtimeEpoch":"epoch","scopeId":"scope","operationId":"op","outcome":"succeeded","resultSnapshot":prepared.snapshot}
+        }]})).unwrap();
+        cell.state.lock().await.thread.turns.push(turn);
+        let page = engine
+            .read_tool_result(&cell, &json!({"resultId":"file-call"}))
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(page["text"].as_str().unwrap()).unwrap(),
+            raw
+        );
+        engine.shutdown().await;
+        let mut extensions = ToolExtensions::default();
+        extensions.policy.result_views.file_lines = false;
+        let other = tempfile::tempdir().unwrap();
+        let engine = Engine::open_with_extensions(
+            other.path(),
+            Arc::new(NoModel),
+            Limits::default(),
+            None,
+            extensions,
+        )
+        .unwrap();
+        let thread = engine.create("/fixture".into()).await.unwrap();
+        let prepared = engine
+            .prepare_tool_result(
+                &engine.cell(&thread.id).await.unwrap(),
+                "file",
+                "read_file",
+                &raw,
+                None,
+            )
+            .await
+            .unwrap();
+        assert_eq!(prepared.value, raw);
+        assert!(prepared.snapshot.is_none());
+        engine.shutdown().await;
     }
 
     #[tokio::test]

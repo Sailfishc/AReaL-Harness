@@ -47,6 +47,8 @@ pub struct ResultViewPolicy {
     pub mode: ResultViewMode,
     pub search_groups: bool,
     pub repeat_lines: bool,
+    /// 无损文件行包装独立于搜索/命令视图实验开关。
+    pub file_lines: bool,
 }
 
 impl Default for ResultViewPolicy {
@@ -55,6 +57,7 @@ impl Default for ResultViewPolicy {
             mode: ResultViewMode::Observe,
             search_groups: true,
             repeat_lines: true,
+            file_lines: true,
         }
     }
 }

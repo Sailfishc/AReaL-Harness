@@ -725,14 +725,21 @@ async fn compaction_usage_belongs_to_the_goal_and_the_objective_survives() {
     e.wait(&t.id).await.unwrap();
     e.goal_create("test".into(), request(&t.id)).await.unwrap();
     let summary = next(&mut rx).await;
-    assert_eq!(summary.messages.last().unwrap().role, "system");
+    assert_eq!(summary.messages.first().unwrap().role, "system");
+    assert_eq!(summary.messages.last().unwrap().role, "user");
+    assert!(
+        summary
+            .messages
+            .iter()
+            .all(|m| m.tool_calls.is_empty() && m.provider_context.is_none())
+    );
     assert!(
         summary
             .messages
             .last()
             .unwrap()
             .text_content()
-            .starts_with("Core compaction control")
+            .starts_with("The following JSON is historical evidence")
     );
     assert!(summary.tools.is_empty());
     summary.answer("Earlier investigation is complete; now verify the new objective.");
@@ -749,15 +756,26 @@ async fn compaction_usage_belongs_to_the_goal_and_the_objective_survives() {
         .last()
         .unwrap()
         .text_content()
-        .starts_with("Core compaction control")
+        .starts_with("The following JSON is historical evidence")
     {
         reply.answer("Goal completion was verified and reported; provide the final reply.");
         calls += 1;
         reply = next(&mut rx).await;
     }
+    assert!(
+        reply.messages.iter().any(|message| message
+            .text_content()
+            .contains("The root stop report for this Turn is already accepted.")),
+        "compaction must preserve the live finish instruction independently of summary prose"
+    );
     reply.answer("verified");
     let done = stopped(&e, &t.id).await;
     assert_eq!(done["goal"]["status"], "completed");
+    let finished = e.read(&t.id, true).await.unwrap();
+    assert!(finished.turns.iter().flat_map(|turn| &turn.items).any(|item| {
+        matches!(item, areal_protocol::Item::DynamicToolCall { tool, content_items: Some(content), .. }
+            if tool == "goal_update" && content.iter().any(|part| part["text"].as_str().is_some_and(|text| text.contains("Stop report accepted for this Turn"))))
+    }));
     assert_eq!(done["goal"]["usage"]["tokensUsed"], calls * 18);
     assert!(
         e.read(&t.id, true)
@@ -975,6 +993,114 @@ async fn unchanged_goal_state_is_not_repeated_but_goal_read_keeps_full_usage() {
     );
     final_reply.answer("verified");
     assert_eq!(stopped(&e, &t.id).await["goal"]["status"], "completed");
+    e.shutdown().await;
+}
+
+struct CancelTail {
+    entered: tokio::sync::Notify,
+    before_headers: bool,
+    missing: bool,
+}
+#[async_trait]
+impl Model for CancelTail {
+    fn name(&self) -> &str {
+        "cancel-tail"
+    }
+    async fn stream(&self, _: Vec<Message>) -> anyhow::Result<ModelStream> {
+        self.entered.notify_one();
+        if self.before_headers {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+        if self.missing {
+            return Ok(Box::pin(stream::pending()));
+        }
+        let tail = stream::once(async {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            Ok(ModelEvent::ToolCall(ToolCall {
+                id: "stale-call".into(),
+                name: "fs_create".into(),
+                arguments: r#"{"path":"must-not-exist","text":"stale"}"#.into(),
+            }))
+        });
+        use futures_util::StreamExt;
+        Ok(Box::pin(tail.chain(stream::iter(vec![Ok(
+            ModelEvent::Usage(ModelUsage {
+                input_tokens: 20,
+                output_tokens: 10,
+                cached_input_tokens: 0,
+            }),
+        )]))))
+    }
+}
+
+#[tokio::test]
+async fn real_goal_pause_drains_stream_and_preheader_request_without_running_stale_tools() {
+    for before_headers in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let model = Arc::new(CancelTail {
+            entered: tokio::sync::Notify::new(),
+            before_headers,
+            missing: false,
+        });
+        let e = Engine::open(dir.path(), model.clone(), Limits::default()).unwrap();
+        let t = e.create("/workspace".into()).await.unwrap();
+        e.goal_create("test".into(), request(&t.id)).await.unwrap();
+        model.entered.notified().await;
+        let g = e.goal_get(&t.id).await.unwrap();
+        e.goal_control(
+            "test".into(),
+            "pause".into(),
+            control(&g, "pause-drain"),
+            None,
+        )
+        .await
+        .unwrap();
+        let end = stopped(&e, &t.id).await;
+        assert_eq!(end["goal"]["status"], "paused");
+        assert_eq!(end["goal"]["usage"]["unknownRequests"], 0);
+        assert_eq!(end["goal"]["usage"]["tokensUsed"], 30);
+        let state = e.read(&t.id, true).await.unwrap();
+        assert!(
+            !state
+                .turns
+                .iter()
+                .flat_map(|t| &t.items)
+                .any(|i| matches!(i, areal_protocol::Item::DynamicToolCall { .. }))
+        );
+        e.shutdown().await;
+    }
+}
+
+#[tokio::test]
+async fn real_goal_pause_preserves_unknown_when_tail_never_arrives() {
+    let dir = tempfile::tempdir().unwrap();
+    let model = Arc::new(CancelTail {
+        entered: tokio::sync::Notify::new(),
+        before_headers: false,
+        missing: true,
+    });
+    let e = Engine::open(dir.path(), model.clone(), Limits::default()).unwrap();
+    let t = e.create("/workspace".into()).await.unwrap();
+    e.goal_create("test".into(), request(&t.id)).await.unwrap();
+    model.entered.notified().await;
+    let g = e.goal_get(&t.id).await.unwrap();
+    e.goal_control(
+        "test".into(),
+        "pause".into(),
+        control(&g, "pause-missing"),
+        None,
+    )
+    .await
+    .unwrap();
+    let end = stopped(&e, &t.id).await;
+    assert_eq!(end["goal"]["usage"]["unknownRequests"], 1);
+    assert_eq!(end["goal"]["usage"]["accountingComplete"], false);
+    assert!(end["goal"]["usage"]["reservedTokens"].as_u64().unwrap() > 0);
+    let thread = e.read(&t.id, true).await.unwrap();
+    assert!(
+        thread.turns.last().unwrap().usage.is_none(),
+        "missing provider usage must not become a zero usage record"
+    );
     e.shutdown().await;
 }
 

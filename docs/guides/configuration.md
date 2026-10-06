@@ -96,9 +96,9 @@ endpoint 是完整 HTTP(S) 请求 URL；Core 只支持 `chat-completions` / `res
 
 可选采样参数不配置时省略，显式 0 保留。`temperature` 为有限数 [0,2]，`top_p` / `min_p` 为 [0,1]，`top_k` 为正整数或 -1，`presence_penalty` 为 [-2,2]，`repetition_penalty` 大于 0。Chat 与 Responses 均接受 temperature/top_p；其余四项只支持 Chat，Responses 配置时拒绝。参数发送不证明供应商实际采纳。摘要默认继承求解采样/推理配置并禁用工具。可单独设置 `model.summary_reasoning_effort` 和 `model.summary_max_output_tokens`（环境变量 `AREAL_HARNESS_SUMMARY_REASONING_EFFORT` / `AREAL_HARNESS_SUMMARY_MAX_OUTPUT_TOKENS`），不会修改后续求解参数。摘要输出上限为全局输出上限、摘要专用上限、Goal 剩余额度与 16384 中的最小值；专用上限需大于零。未配置时兼容原行为；例如可在求解 high 时显式选择摘要 low/4096，需验证供应商支持和任务保留效果。
 
-`context_window_tokens=0` 禁用 token 估计，最大 2000000；启用时 reserve 必须小于 window。历史、system 与工具定义的估计达到 window 减 reserve，或字节阈值时触发压缩。估计按 ASCII 约 3 字节/token、非 ASCII 约 2 token/字符及媒体代理成本计算，可由上次输入用量向上校准；缓存命中不降低估计，不保证匹配供应商 tokenizer。
+`context_window_tokens=0` 禁用 token 估计，最大 2000000；启用时 reserve 必须小于 window。历史、system 与工具定义的估计达到 window 减 reserve，或字节阈值时触发压缩。估计按 ASCII 约 3 字节/token、非 ASCII 约 2 token/字符及媒体代理成本计算，对追加历史用上次已结算的完整输入用量（含缓存）加 10% 余量校准基线，新内容仍按保守估计累加；压缩后的组成变化使用原始估计。Responses 原生工具调用只计一次，不重复计算 Chat 兼容包装。缓存折扣不是输入 token 减少，不保证匹配供应商 tokenizer。
 
-`limits.context_target_tokens` 默认 0，保持近期历史选择策略；正数（或环境变量 `AREAL_HARNESS_CONTEXT_TARGET_TOKENS`）必须小于 window 减 reserve。Core 先检查近期保留边界，必要时检查最大完整轮次前缀，目标包括保留输入、指令/工具开销和摘要余量。目标为尽力达成：不会为满足目标静默删除用户原文或拆开工具/reasoning 轮次。有效摘要在净缩减空间允许时可保留到 16 KiB；8,000 字节只是生成建议，不是第二个拒绝阈值。不要用加大窗口掩盖任务上下文丢失。
+`limits.context_target_tokens` 默认 0，保持近期历史选择策略；正数（或环境变量 `AREAL_HARNESS_CONTEXT_TARGET_TOKENS`）必须小于 window 减 reserve。Core 先检查近期保留边界，必要时检查最大完整轮次前缀；若保留的最新已完成工具轮次本身太大，可以将该轮整体纳入摘要，但不跨越正在执行的工具。目标包括保留输入、指令/工具开销和摘要余量。目标为尽力达成：不会为满足目标静默删除用户原文或拆开工具/reasoning 轮次。有效摘要在净缩减空间允许时可保留到 16 KiB；8,000 字节只是生成建议，不是第二个拒绝阈值。不要用加大窗口掩盖任务上下文丢失。
 
 `limits.context_compaction_enabled=false` 关闭自动和手动压缩（默认 true）。超过 `context_window_bytes` 或达到启用的 token 阈值时，Turn 直接失败并报告上下文上限，不再向模型发送求解或摘要请求；原始历史仍保留。这个估计阈值不是提供方的真实上下文上限。需同时关闭 Agent 委派与 Workgroup 子任务时，设置 `max_children_per_turn=0` 和 `max_agent_depth=0`。若显式启用了原生研究 Agent 扩展，子任务限额不能为 0，启动会拒绝该组合。
 
@@ -261,7 +261,7 @@ export OTEL_EXPORTER_OTLP_TIMEOUT=10000
 
 本项目扩展字段和事件使用 `areal.*` 命名空间。Logs 通过标准 Trace ID 和 Span ID 关联调用，优雅关闭时刷新批量导出。只有 Logs 时也生成本地关联 ID；Traces 和 Logs 的导出开关相互独立。当前不导出 Metrics。GenAI 语义约定仍处于开发状态，参见[官方约定](https://github.com/open-telemetry/semantic-conventions-genai)。
 
-默认按估计 token 或字节任一阈值触发压缩：64k token 窗口预留 8k 输出，即估计输入达到 57,344 token，或历史超过 512 KiB；近期原文预算为 128 KiB。token 是保守估计并向上校准，非供应商 tokenizer 的精确计数；不能把这些数值当作模型最大上下文。压缩会重建缓存前缀，因此同时监控未缓存输入和任务正确性。显式设置 `context_window_tokens=0` 可禁用 token 触发，但仍保留字节阈值。
+默认按估计 token 或字节任一阈值触发压缩：64k token 窗口预留 8k 输出，即估计输入达到 57,344 token，或历史超过 512 KiB；近期原文预算为 128 KiB。token 使用保守增量估计及已结算完整输入用量校准，非供应商 tokenizer 的精确计数；不能把这些数值当作模型最大上下文。压缩会重建缓存前缀，因此同时监控未缓存输入和任务正确性。显式设置 `context_window_tokens=0` 可禁用 token 触发，但仍保留字节阈值。
 
 ## 缓存诊断
 

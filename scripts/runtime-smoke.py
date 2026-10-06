@@ -25,9 +25,9 @@ class RpcError(Exception):
 
 
 class Runtime:
-    def __init__(self, binary, workspace):
+    def __init__(self, binary, workspace, extra=()):
         self.process = subprocess.Popen(
-            [str(binary), "--workspace", str(workspace), "--allow-write"],
+            [str(binary), "--workspace", str(workspace), "--allow-write", *extra],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

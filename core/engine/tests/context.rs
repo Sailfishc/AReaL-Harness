@@ -703,3 +703,300 @@ async fn steering_during_summary_is_preserved_and_not_misclassified_as_failed_re
     }
     engine.shutdown().await;
 }
+
+struct LargeReadModel {
+    requests: Mutex<Vec<(RequestPurpose, Vec<Message>)>>,
+}
+#[async_trait]
+impl Model for LargeReadModel {
+    fn name(&self) -> &str {
+        "large-read-fixture"
+    }
+    async fn stream(&self, _: Vec<Message>) -> anyhow::Result<ModelStream> {
+        unreachable!()
+    }
+    async fn chat(&self, messages: Vec<Message>, tools: Vec<Value>) -> anyhow::Result<AgentStream> {
+        self.chat_for(messages, tools, RequestPurpose::Solve).await
+    }
+    async fn chat_for(
+        &self,
+        messages: Vec<Message>,
+        _: Vec<Value>,
+        purpose: RequestPurpose,
+    ) -> anyhow::Result<AgentStream> {
+        let n = {
+            let mut requests = self.requests.lock().unwrap();
+            let n = requests
+                .iter()
+                .filter(|(p, _)| *p == RequestPurpose::Solve)
+                .count();
+            requests.push((purpose, messages));
+            n
+        };
+        let event = if purpose == RequestPurpose::Summary {
+            ModelEvent::text(
+                "Read design chapter; preserve exact task. Asset interfaces are recorded and tools have completed.",
+            )
+        } else if n < 3 {
+            ModelEvent::ToolCall(areal_engine::model::ToolCall {
+                id: format!("read-{n}"),
+                name: "read_design".into(),
+                arguments: serde_json::json!({"large":n==1}).to_string(),
+            })
+        } else {
+            ModelEvent::text("verified")
+        };
+        Ok(Box::pin(stream::iter([Ok(event)])))
+    }
+}
+struct DesignHost;
+#[async_trait]
+impl areal_engine::tools::DynamicToolHost for DesignHost {
+    fn id(&self) -> &str {
+        "design-fixture"
+    }
+    fn is_closed(&self) -> bool {
+        false
+    }
+    async fn call(
+        &self,
+        request: Value,
+        _: tokio_util::sync::CancellationToken,
+    ) -> anyhow::Result<areal_protocol::DynamicToolResponse> {
+        Ok(areal_protocol::DynamicToolResponse {
+            success: true,
+            structured_content: None,
+            content_items: vec![areal_protocol::ToolContent::InputText {
+                text: if request["arguments"]["large"] == true {
+                    (0..5000)
+                        .map(|n| format!("完整设计章节 {n}: 关卡尺寸与道具点位必须准确。\n"))
+                        .collect::<String>()
+                } else {
+                    "small checkpoint".into()
+                },
+            }],
+        })
+    }
+}
+#[tokio::test]
+async fn completed_large_tool_round_is_summarized_once_without_losing_task_or_archive() {
+    let data = tempfile::tempdir().unwrap();
+    let model = Arc::new(LargeReadModel {
+        requests: Mutex::new(vec![]),
+    });
+    let engine = Engine::open(
+        data.path(),
+        model.clone(),
+        Limits {
+            context_window_tokens: 16000,
+            context_output_reserve_tokens: 2000,
+            context_target_tokens: 8000,
+            context_recent_bytes: 6000,
+            context_window_bytes: 12000,
+            max_children_per_turn: 0,
+            max_agent_depth: 0,
+            ..Limits::default()
+        },
+    )
+    .unwrap();
+    let thread=engine.create_with_tools("/workspace".into(),vec![areal_protocol::ToolDefinition {
+        name:"read_design".into(),description:"read fixture chapter".into(),
+        input_schema:serde_json::json!({"type":"object","properties":{"large":{"type":"boolean"}},"required":["large"]}),output_schema:None,
+    }],Arc::new(DesignHost)).await.unwrap();
+    let result = turn(
+        &engine,
+        &thread.id,
+        "Original exact design contract: all three levels, no audio.",
+    )
+    .await;
+    assert_eq!(
+        result.turns.last().unwrap().status,
+        TurnStatus::Completed,
+        "{:?}",
+        result.turns.last().unwrap().error
+    );
+    {
+        let requests = model.requests.lock().unwrap();
+        let solves: Vec<_> = requests
+            .iter()
+            .filter(|(p, _)| *p == RequestPurpose::Solve)
+            .collect();
+        assert_eq!(solves.len(), 4);
+        assert_eq!(
+            requests
+                .iter()
+                .filter(|(p, _)| *p == RequestPurpose::Summary)
+                .count(),
+            1
+        );
+        assert!(
+            solves[2]
+                .1
+                .iter()
+                .all(|m| !m.text_content().contains("完整设计章节 0:"))
+        );
+        assert!(solves[2].1.iter().any(
+            |m| m.role == "user" && m.text_content().contains("Original exact design contract")
+        ));
+        assert!(
+            solves[2]
+                .1
+                .iter()
+                .any(|m| m.text_content().contains("Read design chapter"))
+        );
+        assert!(solves[2].1.iter().any(|m| {
+            m.role == "areal_context"
+                && m.text_content()
+                    .starts_with("Internal checkpoint restoration")
+        }));
+        assert_eq!(result.context_checkpoint.as_ref().unwrap().compactions, 1);
+        assert_eq!(
+            result.turns[0]
+                .items
+                .iter()
+                .filter(|i| matches!(
+                    i,
+                    areal_protocol::Item::DynamicToolCall {
+                        success: Some(true),
+                        ..
+                    }
+                ))
+                .count(),
+            3
+        );
+        assert!(
+            serde_json::to_string(&result.turns)
+                .unwrap()
+                .contains("完整设计章节 0:")
+        );
+    }
+    engine.shutdown().await;
+}
+
+#[tokio::test]
+async fn byte_pressure_requests_shorter_checkpoint_even_with_large_token_target() {
+    let data = tempfile::tempdir().unwrap();
+    let model = continuity_model("Prior checks completed. Continue the current task.");
+    let engine = Engine::open(
+        data.path(),
+        model.clone(),
+        Limits {
+            context_window_bytes: 9000,
+            context_recent_bytes: 4096,
+            context_target_tokens: 16000,
+            ..Limits::default()
+        },
+    )
+    .unwrap();
+    let thread = engine.create("/workspace".into()).await.unwrap();
+    for n in 0..8 {
+        let result = turn(
+            &engine,
+            &thread.id,
+            &format!("Continue checkpoint {n}; preserve the original constraint"),
+        )
+        .await;
+        assert_eq!(result.turns.last().unwrap().status, TurnStatus::Completed);
+    }
+    let requests = model.requests.lock().unwrap().clone();
+    assert!(
+        requests
+            .iter()
+            .any(|(purpose, messages)| *purpose == RequestPurpose::Summary
+                && messages[0]
+                    .text_content()
+                    .contains("Summary writing target:")),
+        "byte pressure must guide summary size even when the token target is already satisfied"
+    );
+    engine.shutdown().await;
+}
+
+struct CancelledSummaryUsage {
+    usage_polled: Arc<Notify>,
+}
+#[async_trait]
+impl Model for CancelledSummaryUsage {
+    fn name(&self) -> &str {
+        "cancelled-summary-usage"
+    }
+    async fn stream(&self, _: Vec<Message>) -> anyhow::Result<ModelStream> {
+        unreachable!()
+    }
+    async fn chat(&self, m: Vec<Message>, t: Vec<Value>) -> anyhow::Result<ModelStream> {
+        self.chat_for(m, t, RequestPurpose::Solve).await
+    }
+    async fn chat_for(
+        &self,
+        _: Vec<Message>,
+        _: Vec<Value>,
+        purpose: RequestPurpose,
+    ) -> anyhow::Result<ModelStream> {
+        use futures_util::StreamExt;
+        let usage = ModelUsage {
+            input_tokens: 11,
+            output_tokens: 7,
+            cached_input_tokens: 3,
+        };
+        if purpose == RequestPurpose::Summary {
+            // 后续轮询已发生，证明消费者已经处理前一条用量，而不是仅打开了请求。
+            let notify = self.usage_polled.clone();
+            Ok(Box::pin(
+                stream::iter([Ok(ModelEvent::Usage(usage))]).chain(stream::once(async move {
+                    notify.notify_one();
+                    std::future::pending::<anyhow::Result<ModelEvent>>().await
+                })),
+            ))
+        } else {
+            Ok(Box::pin(stream::iter([
+                Ok(ModelEvent::text("recorded result ".repeat(90))),
+                Ok(ModelEvent::Usage(usage)),
+            ])))
+        }
+    }
+}
+#[tokio::test]
+async fn cancelled_compaction_preserves_already_observed_turn_usage_across_restart() {
+    let data = tempfile::tempdir().unwrap();
+    let model = Arc::new(CancelledSummaryUsage {
+        usage_polled: Arc::new(Notify::new()),
+    });
+    let engine = Engine::open(data.path(), model.clone(), limits()).unwrap();
+    let thread = engine.create("/workspace".into()).await.unwrap();
+    turn(&engine, &thread.id, "Original task").await;
+    turn(&engine, &thread.id, "Continue").await;
+    let active = engine
+        .start(&thread.id, vec![Input::text("Verify")])
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(5), model.usage_polled.notified())
+        .await
+        .unwrap();
+    engine.interrupt(&thread.id, &active.id).await.unwrap();
+    let after = engine.wait(&thread.id).await.unwrap();
+    assert_eq!(after.turns.last().unwrap().status, TurnStatus::Interrupted);
+    assert!(after.context_checkpoint.is_none());
+    let usage = after
+        .turns
+        .last()
+        .unwrap()
+        .usage
+        .as_ref()
+        .expect("observed summary usage must survive cancellation");
+    assert_eq!(
+        (
+            usage.input_tokens,
+            usage.output_tokens,
+            usage.cached_input_tokens
+        ),
+        (11, 7, 3)
+    );
+    engine.shutdown().await;
+    drop(engine);
+    let restored = Engine::open(data.path(), model, limits()).unwrap();
+    let saved = restored.read(&thread.id, true).await.unwrap();
+    assert_eq!(
+        saved.turns.last().unwrap().usage,
+        after.turns.last().unwrap().usage
+    );
+    restored.shutdown().await;
+}

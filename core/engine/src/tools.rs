@@ -158,6 +158,36 @@ impl Handles {
         }
     }
 
+    // 待验证句柄单独分页，不随普通观察列表截断；游标按别名排序，回收后仍可续页。
+    pub(crate) fn pending_verification_page(&self, after: Option<&str>) -> Value {
+        let mut rows = Vec::new();
+        let mut next = None;
+        let mut bytes = 0;
+        for (alias, process) in &self.processes {
+            if !self.pending_verifications.contains(process)
+                || after.is_some_and(|a| alias.as_str() <= a)
+            {
+                continue;
+            }
+            let row = json!({"processId":alias,
+                "state":self.process_snapshots.get(alias).and_then(|v| v.get("state")),
+                "receiptPath":self.verification.get(process),
+                "nextAction":"read_process"});
+            let size = row.to_string().len();
+            if !rows.is_empty() && (bytes + size > 4096 || rows.len() >= 16) {
+                next = rows
+                    .last()
+                    .and_then(|v: &Value| v["processId"].as_str())
+                    .map(str::to_owned);
+                break;
+            }
+            bytes += size;
+            rows.push(row);
+        }
+        json!({"count":self.pending_verifications.len(), "items":rows, "nextAfter":next,
+            "guidance":"Use read_process for each original processId to observe its terminal state. File receipts and replacement commands do not clear pending observations. Exit/termination is not proof of a passed check. Follow nextAfter with task_state({pendingAfter: nextAfter})."})
+    }
+
     fn snapshot(&self) -> Value {
         fn bounded(values: impl Iterator<Item = Value>) -> Value {
             let mut bytes = 0;
@@ -227,7 +257,7 @@ fn definitions_with_policy(policy: &ToolPolicy) -> Vec<Value> {
         tool(
             "task_state",
             "Inspect this Turn's authoritative process/file handles and owned agents after compaction or a stale-handle error. Reports bounded observations, not model-written notes; no workflow decisions or file mutations.",
-            json!({}),
+            json!({"pendingAfter":{"type":"string","maxLength":128,"description":"Continue the independent pendingVerifications page after its nextAfter alias; omit for the first page."}}),
             &[],
         ),
         tool(
@@ -702,7 +732,7 @@ impl Engine {
         cancel: &CancellationToken,
         call: ToolCall,
     ) -> anyhow::Result<usize> {
-        self.goal_tool_guard(cell, &call.name).await?;
+        let goal_rejection = self.goal_tool_guard(cell, &call.name).await?;
         let bindings = cell.bindings.read().await.clone();
         let entry = bindings.registry.get(&call.name);
         let coordination = entry
@@ -717,7 +747,7 @@ impl Engine {
                 permit = self.tool_permits.acquire() => permit?,
             })
         };
-        let runtime = if coordination {
+        let runtime = if coordination || goal_rejection.is_some() {
             None
         } else {
             self.runtime.as_ref()
@@ -777,19 +807,23 @@ impl Engine {
             execution: Box::new(ToolExecution {
                 result_snapshot: None,
                 output_projection: None,
-                backend: entry.as_ref().ok().map(|tool| {
-                    match tool.backend {
-                        Backend::Builtin => "runtime",
-                        Backend::Agent => "agent",
-                        Backend::Coordination => "coordination",
-                        Backend::Core => "core",
-                        Backend::Command(_) => "command",
-                        Backend::Client => "client",
-                        Backend::Mcp(_) => "mcp",
-                        Backend::Plugin(_) => "plugin",
-                    }
-                    .into()
-                }),
+                backend: if goal_rejection.is_some() {
+                    Some("core".into())
+                } else {
+                    entry.as_ref().ok().map(|tool| {
+                        match tool.backend {
+                            Backend::Builtin => "runtime",
+                            Backend::Agent => "agent",
+                            Backend::Coordination => "coordination",
+                            Backend::Core => "core",
+                            Backend::Command(_) => "command",
+                            Backend::Client => "client",
+                            Backend::Mcp(_) => "mcp",
+                            Backend::Plugin(_) => "plugin",
+                        }
+                        .into()
+                    })
+                },
                 hooks: Vec::new(),
                 effective_arguments: None,
                 model_arguments: None,
@@ -820,9 +854,11 @@ impl Engine {
         }
         let intent_ms = started.elapsed().as_secs_f64() * 1000.0;
         let invocation_started = std::time::Instant::now();
-        let submitted = !cancel.is_cancelled();
+        let submitted = !cancel.is_cancelled() && goal_rejection.is_none();
         let mut post_hook_failed = false;
-        let result = if let Err(error) = entry {
+        let result = if let Some(error) = goal_rejection {
+            Err(error)
+        } else if let Err(error) = entry {
             Err(rt::Error::new(
                 rt::ErrorCode::InvalidArgument,
                 error.to_string(),
@@ -1063,7 +1099,7 @@ pub(super) fn prefix(text: &str, bytes: usize) -> &str {
     &text[..end]
 }
 
-fn suffix(text: &str, bytes: usize) -> &str {
+pub(super) fn suffix(text: &str, bytes: usize) -> &str {
     let mut start = text.len().saturating_sub(bytes);
     while start < text.len() && !text.is_char_boundary(start) {
         start += 1;

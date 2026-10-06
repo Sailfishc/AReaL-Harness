@@ -216,6 +216,12 @@ async fn malformed_summary_retries_then_uses_labeled_evidence_without_executing_
     assert_eq!(
         std::fs::read_dir(data.path().join("audit"))
             .unwrap()
+            .filter(|entry| {
+                let audit: Value =
+                    serde_json::from_slice(&std::fs::read(entry.as_ref().unwrap().path()).unwrap())
+                        .unwrap();
+                audit["kind"] == "contextSummary"
+            })
             .count(),
         2
     );

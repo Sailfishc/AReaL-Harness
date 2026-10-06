@@ -25,7 +25,7 @@ Skill-root symlinks may resolve into authorized project/global Skill roots; SKIL
 
 ## Read current files on demand
 
-`skill_list` returns names, descriptions and references without enumerating attachments; `resources` is null. Agents use `skill_read` to read SKILL.md when needed, then follow its relative resource paths. Each asynchronous read returns at most 8192 bytes with offset/nextOffset pagination; this page limit does not cap file size. Binary data is returned as base64, not automatically supplied as model image input. Bundled scripts do not run automatically.
+`skill_list` returns names, descriptions and references without enumerating attachments; `resources` is null. Agents use `skill_read` to read SKILL.md when needed, then follow its relative resource paths. Each asynchronous read returns at most 8192 bytes with offset/nextOffset pagination; this page limit does not cap file size. The model tool returns only text for valid UTF-8 pages, avoiding duplicate plaintext/base64 context. The public read API still returns dataBase64 and decoded text when available. Binary data or pages split inside a UTF-8 character are returned as base64, not automatically supplied as model image input. Bundled scripts do not run automatically.
 
 Reads resolve each path component from the registered root directory descriptor, rejecting absolute paths, parent traversal, internal file/directory symlinks and special files. Invalid attachments fail that read without affecting other Skills. Body and attachment edits, additions and deletions affect subsequent reads; metadata indexes update on registration or restart. Pages are not guaranteed to share unchanged content; deployments needing consistency must provide read-only version directories.
 

@@ -3,23 +3,75 @@
 use super::*;
 
 /// 取消后只排空流以结算尾部用量；不执行工具，不伪造缺失用量。
-pub(crate) async fn settle_cancelled_stream(stream: &mut model::ModelStream) {
-    let _ = tokio::time::timeout(Duration::from_secs(1), async {
+pub(crate) async fn settle_cancelled_stream(
+    stream: &mut model::ModelStream,
+    grace: Duration,
+) -> Option<areal_protocol::ModelUsage> {
+    let mut usage: Option<areal_protocol::ModelUsage> = None;
+    let _ = tokio::time::timeout(grace, async {
         while let Some(event) = stream.next().await {
-            if event.is_err() {
-                break;
+            match event {
+                Ok(model::ModelEvent::Usage(value)) => usage
+                    .get_or_insert_with(Default::default)
+                    .add_assign(&value),
+                Err(_) => break,
+                _ => {}
             }
         }
     })
     .await;
+    usage
 }
 
 impl Engine {
+    pub(crate) async fn settle_cancelled_model(
+        &self,
+        cell: &Cell,
+        stream: &mut model::ModelStream,
+    ) {
+        let grace = Duration::from_millis(cell.cancel_grace_ms.load(Ordering::Acquire) as u64);
+        let usage = settle_cancelled_stream(stream, grace).await;
+        // 没有用量事件不等于提供方明确报告零消费。
+        if let Some(usage) = usage
+            && let Some(turn) = cell.state.lock().await.thread.turns.last_mut()
+        {
+            turn.usage
+                .get_or_insert_with(Default::default)
+                .add_assign(&usage);
+        }
+    }
+
+    // 子作者协作不是紧急取消：保留当前请求直到计量结算，丢弃过时输出但不执行工具。
+    // 显式取消仍可打断等待；超时/缺失用量继续保留 UNKNOWN，不伪造结算。
+    async fn settle_child_steering(
+        &self,
+        cell: &Cell,
+        cancel: &CancellationToken,
+        stream: &mut model::ModelStream,
+    ) {
+        loop {
+            tokio::select! {
+                biased;
+                _ = cancel.cancelled() => { self.settle_cancelled_model(cell, stream).await; break; },
+                // 协作纠偏沿用请求的空闲期限；有活动就刷新，原 Goal/worker 总期限由外层执行器控制。
+                event = tokio::time::timeout(self.limits.stream_idle_timeout, stream.next()) => match event {
+                    Ok(Some(Ok(model::ModelEvent::Usage(value)))) => {
+                        // 纠偏收尾也只记录真实事件；提前取消不能丢失已观察消费。
+                        cell.state.lock().await.thread.turns.last_mut().unwrap()
+                            .usage.get_or_insert_with(Default::default).add_assign(&value);
+                    },
+                    Ok(Some(Ok(_))) => {},
+                    _ => break,
+                }
+            }
+        }
+    }
+
     pub(super) async fn generate(
         self: &Arc<Self>,
         cell: &Arc<Cell>,
         cancel: &CancellationToken,
-        steer: &mut mpsc::Receiver<()>,
+        steer: &mut mpsc::Receiver<bool>,
     ) -> anyhow::Result<()> {
         self.refresh_managed_tools(cell).await?;
         let model = cell
@@ -135,6 +187,24 @@ impl Engine {
                 // 每次请求的动态提示必须与其输出一起保留，后续只追加。
                 // 删除旧提示会破坏 encrypted reasoning 所对应的原始上下文。
                 let mut live_context = Vec::new();
+                // 整个已结算尾轮被摘要吸收时，补充恢复边界，避免 Chat 模型把摘要当作本轮最终答复。
+                let checkpoint_covers_tail =
+                    state
+                        .thread
+                        .context_checkpoint
+                        .as_ref()
+                        .is_some_and(|checkpoint| {
+                            state
+                                .thread
+                                .turns
+                                .iter()
+                                .flat_map(|turn| &turn.items)
+                                .last()
+                                .is_some_and(|item| item.id() == checkpoint.through_item_id)
+                        });
+                if checkpoint_covers_tail {
+                    live_context.push(Message::text("system", "Internal checkpoint restoration, not a new user task: the preceding work summary is historical context, not the final response for this turn. Continue the outstanding user task from its recorded state. Do not repeat completed operations; preserve later user corrections and verification uncertainty. Compaction itself does not invalidate observed checks or require rereading unchanged files. If the requested work and relevant checks are already complete, report their evidence and finish (for an active Goal, use goal_update); do not restart the implementation or validation cycle."));
+                }
                 if let Some(goal) = &goal_instructions {
                     live_context.insert(0, Message::text("system", goal));
                 }
@@ -327,18 +397,53 @@ impl Engine {
                     emit_item(cell, "item/started", &thread_id, &turn_id, &item);
                 }
                 let mut completion_items = HashSet::from([item_id.clone()]);
-                let response = tokio::select! {
-                    biased;
-                    _ = cancel.cancelled() => anyhow::bail!("cancelled"),
-                    _ = steer.recv(), if interrupt_for_steer => {
-                        complete_reasoning(cell, &thread_id, &turn_id, &reasoning_items).await;
-                        complete_item(cell, &thread_id, &turn_id, &item_id).await;
-                        continue 'restart;
-                    },
-                    result = tokio::time::timeout(
+                let response = {
+                    let pending_response = tokio::time::timeout(
                         self.limits.stream_idle_timeout,
-                        model::REQUEST_OWNER.scope((thread_id.clone(), turn_id.clone()), model.chat_with_limits(messages.clone(), tool_definitions.clone(), model::RequestPurpose::Solve, tool_limits, None)).instrument(model_span.clone()),
-                    ) => result.map_err(|_| watchdog::idle_error("model request")).and_then(|v| v),
+                        model::REQUEST_OWNER
+                            .scope(
+                                (thread_id.clone(), turn_id.clone()),
+                                model.chat_with_limits(
+                                    messages.clone(),
+                                    tool_definitions.clone(),
+                                    model::RequestPurpose::Solve,
+                                    tool_limits,
+                                    None,
+                                ),
+                            )
+                            .instrument(model_span.clone()),
+                    );
+                    tokio::pin!(pending_response);
+                    tokio::select! {
+                        biased;
+                        _ = cancel.cancelled() => {
+                            if let Ok(Ok(mut stream)) = (&mut pending_response).await {
+                                self.settle_cancelled_model(cell, &mut stream).await;
+                            }
+                            anyhow::bail!("cancelled");
+                        },
+                        settle = steer.recv(), if interrupt_for_steer => {
+                            if settle == Some(true) {
+                                // HTTP 首包之前也不能丢弃已经发出的请求。
+                                let result = tokio::select! {
+                                    _ = cancel.cancelled() => {
+                                        if let Ok(Ok(mut stream)) = (&mut pending_response).await {
+                                            self.settle_cancelled_model(cell, &mut stream).await;
+                                        }
+                                        anyhow::bail!("cancelled");
+                                    },
+                                    result = &mut pending_response => result,
+                                };
+                                if let Ok(Ok(mut stream)) = result {
+                                    self.settle_child_steering(cell, cancel, &mut stream).await;
+                                }
+                            }
+                            complete_reasoning(cell, &thread_id, &turn_id, &reasoning_items).await;
+                            complete_item(cell, &thread_id, &turn_id, &item_id).await;
+                            continue 'restart;
+                        },
+                        result = &mut pending_response => result.map_err(|_| watchdog::idle_error("model request")).and_then(|v| v),
+                    }
                 };
                 let mut stream: model::ModelStream = match response {
                     Ok(stream) => stream,
@@ -350,9 +455,13 @@ impl Engine {
                 loop {
                     let next = tokio::select! {
                         biased;
-                        _ = cancel.cancelled() => { settle_cancelled_stream(&mut stream).await; anyhow::bail!("cancelled"); },
-                        _ = steer.recv(), if interrupt_for_steer => {
-                            settle_cancelled_stream(&mut stream).await;
+                        _ = cancel.cancelled() => { self.settle_cancelled_model(cell, &mut stream).await; anyhow::bail!("cancelled"); },
+                        settle = steer.recv(), if interrupt_for_steer => {
+                            if settle == Some(true) {
+                                self.settle_child_steering(cell, cancel, &mut stream).await;
+                            } else {
+                                self.settle_cancelled_model(cell, &mut stream).await;
+                            }
                             complete_reasoning(cell, &thread_id, &turn_id, &reasoning_items).await;
                             complete_item(cell, &thread_id, &turn_id, &item_id).await;
                             continue 'restart;
@@ -397,7 +506,15 @@ impl Engine {
                             }
                             return Err(error);
                         }
+                        // blocked 是明确保留未完成工作的终态；不得再要求作者完成所有验证才能报告阻塞。
+                        let blocked_report = state.thread.goals.goal.as_ref().is_some_and(|g| {
+                            g.report_turn_id.as_deref() == Some(turn_id.as_str())
+                                && g.report.as_ref().is_some_and(|r| {
+                                    r.status == areal_protocol::goals::GoalReportStatus::Blocked
+                                })
+                        });
                         if calls.is_empty()
+                            && !blocked_report
                             && !output_handoff
                             && !state
                                 .active
@@ -412,8 +529,7 @@ impl Engine {
                                 .as_ref()
                                 .unwrap()
                                 .handles
-                                .pending_verifications
-                                .clone();
+                                .pending_verification_page(None);
                             drop(state);
                             let error =
                                 anyhow::Error::new(model::ModelFailure::PendingVerification);
@@ -871,5 +987,24 @@ async fn complete_reasoning(
 ) {
     for item_id in items.values() {
         complete_item(cell, thread_id, turn_id, item_id).await;
+    }
+}
+
+#[cfg(test)]
+mod cancellation_usage_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn cancellation_distinguishes_absent_usage_from_explicit_zero() {
+        for observed in [false, true] {
+            let mut stream: model::ModelStream =
+                Box::pin(futures_util::stream::iter(observed.then(|| {
+                    Ok(model::ModelEvent::Usage(
+                        areal_protocol::ModelUsage::default(),
+                    ))
+                })));
+            let usage = settle_cancelled_stream(&mut stream, Duration::from_secs(1)).await;
+            assert_eq!(usage.is_some(), observed);
+        }
     }
 }
