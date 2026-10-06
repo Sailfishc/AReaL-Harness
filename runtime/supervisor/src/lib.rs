@@ -34,6 +34,8 @@ pub struct Config {
     /// Allow commands to overlap; overlapping file-helper writes still coordinate by path.
     pub concurrent_writes: bool,
     pub limits: Limits,
+    /// 整个部署的累计输出上限，与单个进程输出限制独立；省略保留原合同。
+    pub cumulative_output_bytes: Option<u64>,
     pub max_scopes: usize,
     pub max_operations: usize,
     pub output_window_bytes: usize,
@@ -55,6 +57,7 @@ impl Config {
             allow_network: false,
             concurrent_writes: false,
             limits: Limits::default(),
+            cumulative_output_bytes: None,
             max_scopes: 256,
             max_operations: 4096,
             output_window_bytes: MAX_READ_BYTES,
@@ -110,7 +113,10 @@ pub struct Supervisor {
 }
 impl Supervisor {
     pub fn new(config: Config, backend: Arc<dyn Backend>) -> Result<Arc<Self>> {
-        if config.limits.wall_time_ms == 0
+        if config
+            .cumulative_output_bytes
+            .is_some_and(|n| n == 0 || n < config.limits.output_bytes)
+            || config.limits.wall_time_ms == 0
             || config.max_scopes == 0
             || config.max_operations == 0
             || config.output_window_bytes == 0
@@ -159,7 +165,12 @@ impl Supervisor {
                     } else {
                         NetworkRequest::Deny
                     },
-                    limits: config.limits.clone(),
+                    limits: Limits {
+                        output_bytes: config
+                            .cumulative_output_bytes
+                            .unwrap_or(config.limits.output_bytes),
+                        ..config.limits.clone()
+                    },
                     active_processes: 0,
                     output_bytes: 0,
                     cleanup_error: None,
@@ -232,7 +243,7 @@ impl Supervisor {
         json!({"rotationRecommended":state.scopes.len()*5>=self.config.max_scopes*4||state.operations.len()*5>=self.config.max_operations*4,"runtimeEpoch":self.epoch,"scopes":{"used":state.scopes.len(),"limit":self.config.max_scopes},
             "operations":{"used":state.operations.len(),"limit":self.config.max_operations},
             "activeProcesses":state.processes.values().filter(|p|p.info.state==ProcessState::Running || p.info.state==ProcessState::Starting).count(),
-            "outputBytes":{"used":state.scopes[&self.root].info.output_bytes,"limit":self.config.limits.output_bytes}})
+            "outputBytes":{"used":state.scopes[&self.root].info.output_bytes,"limit":state.scopes[&self.root].info.limits.output_bytes}})
     }
     fn check_handle(&self, value: &str, kind: &str) -> Result<()> {
         let prefix = format!("{}:{kind}:", self.epoch);
@@ -444,7 +455,10 @@ impl Supervisor {
                 if !within(&cwd, &scope.reads) {
                     return Err(denied("cwd is outside scope read roots"));
                 }
-                let limits = narrow(&scope.info.limits, &request.limits)?;
+                // Scope累计额度可高于单个命令，但不能顺带放大一次进程输出上限。
+                let mut ceiling = scope.info.limits.clone();
+                ceiling.output_bytes = ceiling.output_bytes.min(self.config.limits.output_bytes);
+                let limits = narrow(&ceiling, &request.limits)?;
                 let task_program = (helper.is_none()
                     && !self.config.task_credential_commands.is_empty()
                     && PathBuf::from(&request.argv[0]).is_absolute())

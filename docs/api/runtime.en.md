@@ -49,6 +49,8 @@ Side-effecting methods use `${runtimeEpoch}:op:${UUID}` operationId. Identical k
 
 Defaults are 30 seconds per process, 8 MiB cumulative descendant output and 4 concurrent processes per Scope, with 256 Scopes/4096 operations retained per connection. Deadlines include write-path queuing and startup. Process quota remains until cleanup. Deployment may configure limits; children can only narrow them.
 
+The Runtime daemon accepts `--cumulative-output-bytes` to set cumulative deployment/descendant-Scope output independently. Omitted values equal `--output-bytes` and explicit values cannot be smaller than the per-process cap. Each process remains bounded by `--output-bytes`; retained windows are separately bounded by `--output-window-bytes`. Accepted stdout/stderr bytes are charged once to each ancestor; rereading retained output does not charge again. File-helper JSON/base64 responses are process output too.
+
 ## Output and cleanup
 
 output.read accepts maxBytes 1–65536 and waitMs 0–1000, up to 128 chunks/page. Response is `{chunks,nextCursor,gap,truncated,closed}`; each chunk carries cursor/stream/dataBase64, with stdout/stderr/pty stream. UTF-8 may span pages and needs incremental decoding.

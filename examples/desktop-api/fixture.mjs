@@ -17,7 +17,14 @@ export async function fixture() {
       }
       const request = JSON.parse(text);
       requests.push(request);
-      const lastUser = request.messages.findLastIndex((m) => m.role === "user");
+      const lastUser = request.messages.findLastIndex(
+        (m) =>
+          m.role === "user" &&
+          !(
+            typeof m.content === "string" &&
+            m.content.startsWith("AReaL runtime context (not a user request):")
+          ),
+      );
       const first = request.messages[lastUser]?.content ?? "";
       const result = request.messages.slice(lastUser + 1).filter((m) => m.role === "tool");
       let tool;
@@ -371,7 +378,7 @@ export async function fixture() {
       if (first === "readonly" && result.length)
         assert.match(
           JSON.stringify(result),
-          /Operation not permitted|Permission denied|permission denied/,
+          /Operation not permitted|Permission denied|permission denied|Read-only file system/,
         );
       if (first === "approval" && result.length === 0)
         tool = ["fs_create", { path: "approved.txt", text: "approved once" }];
@@ -444,7 +451,7 @@ export async function fixture() {
       if (stage === "verify" && result.length) {
         assert.match(
           JSON.stringify(result),
-          /Operation not permitted|Permission denied|permission denied/,
+          /Operation not permitted|Permission denied|permission denied|Read-only file system/,
         );
       }
       res.writeHead(200, { "Content-Type": "text/event-stream" });

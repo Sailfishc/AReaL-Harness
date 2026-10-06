@@ -78,6 +78,7 @@ context_window_bytes = 524288
 context_compaction_enabled = true
 context_recent_bytes = 131072
 context_window_tokens = 65536
+context_target_tokens = 0
 context_output_reserve_tokens = 8192
 max_completion_retries = 0
 watchdog_disable = false
@@ -93,9 +94,11 @@ endpoint 是完整 HTTP(S) 请求 URL；Core 只支持 `chat-completions` / `res
 
 可选 `model.reasoning_summary = "auto"`（也可为 `concise` / `detailed`）仅适用于 `responses`，映射到请求的 `reasoning.summary`；环境变量为 `AREAL_HARNESS_REASONING_SUMMARY`。默认省略，不向 Chat Completions 或未选择此功能的模型附加摘要参数。端点/模型必须支持所选摘要模式；是否返回摘要取决于供应商，不保证始终有思考文本。
 
-可选采样参数不配置时省略，显式 0 保留。`temperature` 为有限数 [0,2]，`top_p` / `min_p` 为 [0,1]，`top_k` 为正整数或 -1，`presence_penalty` 为 [-2,2]，`repetition_penalty` 大于 0。Chat 与 Responses 均接受 temperature/top_p；其余四项只支持 Chat，Responses 配置时拒绝。参数发送不证明供应商实际采纳。求解与摘要使用同一采样/推理配置；摘要禁用工具，输出上限为 `min(max_output_tokens,16384)`，未配置时为 16384。
+可选采样参数不配置时省略，显式 0 保留。`temperature` 为有限数 [0,2]，`top_p` / `min_p` 为 [0,1]，`top_k` 为正整数或 -1，`presence_penalty` 为 [-2,2]，`repetition_penalty` 大于 0。Chat 与 Responses 均接受 temperature/top_p；其余四项只支持 Chat，Responses 配置时拒绝。参数发送不证明供应商实际采纳。摘要默认继承求解采样/推理配置并禁用工具。可单独设置 `model.summary_reasoning_effort` 和 `model.summary_max_output_tokens`（环境变量 `AREAL_HARNESS_SUMMARY_REASONING_EFFORT` / `AREAL_HARNESS_SUMMARY_MAX_OUTPUT_TOKENS`），不会修改后续求解参数。摘要输出上限为全局输出上限、摘要专用上限、Goal 剩余额度与 16384 中的最小值；专用上限需大于零。未配置时兼容原行为；例如可在求解 high 时显式选择摘要 low/4096，需验证供应商支持和任务保留效果。
 
-`context_window_tokens=0` 禁用 token 估计，最大 2000000；启用时 reserve 必须小于 window。历史、system 与工具定义的估计达到 window 减 reserve，或字节阈值时触发压缩。估计按 ASCII 约 3 字节/token、非 ASCII 约 2 token/字符及媒体代理成本计算，可由上次输入用量向上校准；缓存命中不降低估计，不保证匹配供应商 tokenizer。
+`context_window_tokens=0` 禁用 token 估计，最大 2000000；启用时 reserve 必须小于 window。历史、system 与工具定义的估计达到 window 减 reserve，或字节阈值时触发压缩。估计按 ASCII 约 3 字节/token、非 ASCII 约 2 token/字符及媒体代理成本计算，对追加历史用上次已结算的完整输入用量（含缓存）加 10% 余量校准基线，新内容仍按保守估计累加；压缩后的组成变化使用原始估计。Responses 原生工具调用只计一次，不重复计算 Chat 兼容包装。缓存折扣不是输入 token 减少，不保证匹配供应商 tokenizer。
+
+`limits.context_target_tokens` 默认 0，保持近期历史选择策略；正数（或环境变量 `AREAL_HARNESS_CONTEXT_TARGET_TOKENS`）必须小于 window 减 reserve。Core 先检查近期保留边界，必要时检查最大完整轮次前缀；若保留的最新已完成工具轮次本身太大，可以将该轮整体纳入摘要，但不跨越正在执行的工具。目标包括保留输入、指令/工具开销和摘要余量。目标为尽力达成：不会为满足目标静默删除用户原文或拆开工具/reasoning 轮次。有效摘要在净缩减空间允许时可保留到 16 KiB；8,000 字节只是生成建议，不是第二个拒绝阈值。不要用加大窗口掩盖任务上下文丢失。
 
 `limits.context_compaction_enabled=false` 关闭自动和手动压缩（默认 true）。超过 `context_window_bytes` 或达到启用的 token 阈值时，Turn 直接失败并报告上下文上限，不再向模型发送求解或摘要请求；原始历史仍保留。这个估计阈值不是提供方的真实上下文上限。需同时关闭 Agent 委派与 Workgroup 子任务时，设置 `max_children_per_turn=0` 和 `max_agent_depth=0`。若显式启用了原生研究 Agent 扩展，子任务限额不能为 0，启动会拒绝该组合。
 
@@ -258,4 +261,24 @@ export OTEL_EXPORTER_OTLP_TIMEOUT=10000
 
 本项目扩展字段和事件使用 `areal.*` 命名空间。Logs 通过标准 Trace ID 和 Span ID 关联调用，优雅关闭时刷新批量导出。只有 Logs 时也生成本地关联 ID；Traces 和 Logs 的导出开关相互独立。当前不导出 Metrics。GenAI 语义约定仍处于开发状态，参见[官方约定](https://github.com/open-telemetry/semantic-conventions-genai)。
 
-默认按估计 token 或字节任一阈值触发压缩：64k token 窗口预留 8k 输出，即估计输入达到 57,344 token，或历史超过 512 KiB；近期原文预算为 128 KiB。token 是保守估计并向上校准，非供应商 tokenizer 的精确计数；不能把这些数值当作模型最大上下文。压缩会重建缓存前缀，因此同时监控未缓存输入和任务正确性。显式设置 `context_window_tokens=0` 可禁用 token 触发，但仍保留字节阈值。
+默认按估计 token 或字节任一阈值触发压缩：64k token 窗口预留 8k 输出，即估计输入达到 57,344 token，或历史超过 512 KiB；近期原文预算为 128 KiB。token 使用保守增量估计及已结算完整输入用量校准，非供应商 tokenizer 的精确计数；不能把这些数值当作模型最大上下文。压缩会重建缓存前缀，因此同时监控未缓存输入和任务正确性。显式设置 `context_window_tokens=0` 可禁用 token 触发，但仍保留字节阈值。
+
+## 缓存诊断
+
+使用 `python3 scripts/cache-report.py /absolute/Core-state --output cache-report.json` 汇总 `model-requests` 和 `model-requests-child`。报告按线程、协议、模型参数及请求用途比较 wire 消息块，展示完整前缀保留、工具定义变化、输入/缓存/未缓存 token 和未返回用量的请求。`usageDetails.cachedInputTokens=null` 或旧审计缺少该字段时计为未知，不补零；网络失败的未知用量不计入命中率分母。报告的字节前缀不等于供应商 tokenizer 前缀，不能证明缓存驻留。新审计在供应商返回规范 ID 时记录 `usageDetails.providerResponseId`，并记录显式返回的 `cacheWriteTokens`；它们用于关联上游日志，不推断缺失的后端路由。缓存百分比必须同时结合成功率、总输入与未缓存输入评估，不能通过填充历史或删除必要 reasoning 提升比例。
+
+审计另外记录首次响应字节、首个非空正文 delta、首个非空思考 delta 的毫秒耗时（仅发生时才有字段）。三者口径不同，不以总请求 duration 代替首 token 延迟；加密 reasoning 无可见 delta 时保持未知。
+
+HTTP 审计在响应返回规范、长度受限的关联 ID 时保留 `httpRequestId`（x-request-id）和 `gatewayTraceId`（x-cpa-trace-id），用于关联供应商/网关日志。不收集认证头、cookie 或粘性路由 token，也不将 trace ID 推断为后端实例。
+
+## Responses 增量传输（实验）
+
+`[model] responses_websocket = true` 或 `AREAL_HARNESS_RESPONSES_WEBSOCKET=true` 显式启用；默认 false，仅适用于 `protocol="responses"`。endpoint 仍填写完整 HTTP(S) Responses 地址，连接时映射到 WS(S)。服务需支持 Responses WebSocket beta 协议；此路径直接连接，不使用 HTTP 代理环境变量，也不自动降级 HTTP。
+
+连接按模型实例、Thread 和 Turn 隔离。只有前一响应完整结束并返回完整 output 数组、非 input 参数完全一致、当前输入严格扩展前次输入与输出时，才携带 previous_response_id 发送增量；否则关闭旧连接，在新连接发送完整输入。新 Turn、凭据/模型实例变更、取消、失败、连接断开不会沿用旧续接状态。发送后失败不在传输层自动重放；Goal 用量与 Engine 重试规则继续有效。最多保留 16 个空闲会话、32 MiB 请求/输出引用，120 秒空闲后清理；长工具任务可能需要重新建立完整上下文。连接中断后已执行的工具不能自动重跑。
+
+审计中的 body/messageBlocks 表示完整逻辑输入，transport=responses-websocket、incremental、wireInputItems 和 wireBodyBytes 表示实际传输。减少传输字节不等于减少供应商计费输入或保证 KV 命中；请同时观察缓存、延迟、失败与任务结果。摘要使用独立连接，不污染同 Turn 的求解连接。
+
+WebSocket 求解连接携带 Core 线程 ID 作为 session-id/thread-id，以便兼容网关维持会话亲和；这不表示供应商一定采用该路由提示，也不保证跨连接缓存保留。摘要与未绑定线程的直接调用不携带求解身份。
+
+模型配置登记表保留与 revision 绑定的原始编码；新增可选默认值不会使历史 revision 失效，也不重写排队 Turn 的引用，摘要不匹配仍拒绝篡改。不要手动格式化或编辑 Core 所有的 `desktop/default-models.json`。

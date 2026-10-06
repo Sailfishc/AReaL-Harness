@@ -49,6 +49,8 @@ capabilities 描述实际 sandbox、fullAccess、rootNetwork、方法和 process
 
 默认每进程期限 30 秒，整个 Scope 后代累计 8 MiB 输出、4 个并发进程；连接保留 256 Scope/4096 操作。期限含写路径排队和启动，清理前不释放进程额度。部署可以配置，子 Scope 只能收窄。
 
+Runtime daemon 可用 `--cumulative-output-bytes` 独立设置部署及 Scope 后代累计输出上限；省略时等于 `--output-bytes`，且不得小于单进程上限。进程仍受 `--output-bytes` 限制，输出窗口另由 `--output-window-bytes` 约束。stdout/stderr 的真实接受字节对每个祖先累计一次；重复读取保留输出不再收费。文件助手的 JSON/base64 响应也是进程输出。
+
 ## 输出与清理
 
 output.read 的 maxBytes 为 1–65536，waitMs 为 0–1000，每页最多 128 chunks。响应 `{chunks,nextCursor,gap,truncated,closed}`；chunk 含 cursor/stream/dataBase64，stream 为 stdout/stderr/pty。UTF-8 可跨页切开，需持续解码。

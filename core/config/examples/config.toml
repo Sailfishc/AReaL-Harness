@@ -9,6 +9,8 @@ listen = "127.0.0.1:4500"
 # data_dir defaults to <AREAL_HARNESS_HOME>/state.
 
 [model]
+# 仅 Responses 且服务支持 WebSocket 时显式开启；默认 false。
+# responses_websocket = true
 # reasoning_effort = "xhigh"
 # 仅选择 responses 且模型支持摘要时启用。
 # reasoning_summary = "auto"

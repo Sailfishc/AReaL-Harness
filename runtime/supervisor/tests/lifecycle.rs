@@ -1298,3 +1298,80 @@ async fn task_credentials_are_scoped_to_canonical_deployment_executable() {
     );
     bounded(runtime.shutdown()).await.unwrap();
 }
+
+#[tokio::test]
+async fn deployment_output_budget_preserves_single_process_cap_and_counts_reads_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let executor = Executor::new(false);
+    let mut config = Config::read_only(dir.path().into());
+    config.limits.output_bytes = 10;
+    config.cumulative_output_bytes = Some(32);
+    let runtime = Supervisor::new(config, executor.clone()).unwrap();
+    let root = runtime.connection_info().root_scope_id;
+    let scope = runtime.create_scope(child(&runtime, &root)).unwrap();
+    assert_eq!(runtime.scope(&root).unwrap().limits.output_bytes, 32);
+    for bytes in [b"12345678".as_slice(), b"abcdefgh"] {
+        let started = runtime
+            .start(process(&runtime, &scope.scope_id))
+            .await
+            .unwrap();
+        executor.finish(&started.process_id, bytes).await;
+        let done = bounded(runtime.wait_process(&started.process_id))
+            .await
+            .unwrap();
+        assert!(done.stop_reason.is_none());
+        for _ in 0..2 {
+            let page = runtime
+                .output(ReadOutput {
+                    process_id: started.process_id.clone(),
+                    after: None,
+                    max_bytes: 100,
+                    wait_ms: 0,
+                })
+                .await
+                .unwrap();
+            assert!(!page.truncated);
+        }
+    }
+    assert_eq!(runtime.scope(&root).unwrap().output_bytes, 16);
+    assert_eq!(runtime.status()["outputBytes"]["limit"], 32);
+    // 单命令仍只能输出10字节，不能因部署额度增加到32而扩大。
+    let large = runtime
+        .start(process(&runtime, &scope.scope_id))
+        .await
+        .unwrap();
+    executor
+        .finish(&large.process_id, b"0123456789EXCESS")
+        .await;
+    let done = bounded(runtime.wait_process(&large.process_id))
+        .await
+        .unwrap();
+    assert_eq!(done.stop_reason.as_deref(), Some("outputBytes exceeded"));
+    assert_eq!(runtime.scope(&root).unwrap().output_bytes, 26);
+    let last = runtime
+        .start(process(&runtime, &scope.scope_id))
+        .await
+        .unwrap();
+    executor.finish(&last.process_id, b"0123456789").await;
+    bounded(runtime.wait_process(&last.process_id))
+        .await
+        .unwrap();
+    assert_eq!(runtime.scope(&root).unwrap().output_bytes, 32);
+    assert_eq!(
+        runtime
+            .start(process(&runtime, &scope.scope_id))
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::ResourceExhausted
+    );
+    bounded(runtime.shutdown()).await.unwrap();
+}
+
+#[test]
+fn cumulative_output_cannot_be_less_than_a_single_process() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut config = Config::read_only(dir.path().into());
+    config.cumulative_output_bytes = Some(config.limits.output_bytes - 1);
+    assert!(Supervisor::new(config, Executor::new(false)).is_err());
+}

@@ -175,9 +175,15 @@ impl Stream for MeteredStream {
         if let Poll::Ready(Some(Ok(ModelEvent::Usage(usage)))) = &next {
             this.last_usage = Some(usage.clone());
         }
-        if matches!(&next, Poll::Ready(None)) && !this.settled && !this.failed {
+        let final_usage_error = matches!(&next, Poll::Ready(Some(Err(error))) if error.is::<crate::model::FinalUsageError>());
+        if ((matches!(&next, Poll::Ready(None)) && !this.failed) || final_usage_error)
+            && !this.settled
+        {
             this.settled = true;
-            this.request.load.completed();
+            // 请求失败仍是失败；池的消费统计不能把已确认的终态消费再次标为未知。
+            if !this.failed {
+                this.request.load.completed();
+            }
             if let Some(last) = &this.last_usage {
                 let mut total = this.usage.lock().unwrap();
                 total.finished_requests += 1;
@@ -1257,6 +1263,51 @@ mod progress_tests {
 mod request_budget_tests {
     use super::*;
     use crate::model::RequestPurpose;
+
+    struct FailedUsage(bool);
+    #[async_trait]
+    impl Model for FailedUsage {
+        fn name(&self) -> &str {
+            "failed-usage-fixture"
+        }
+        async fn stream(&self, _: Vec<Message>) -> Result<ModelStream> {
+            let error = anyhow::Error::new(ModelFailure::Truncated);
+            let error = if self.0 {
+                error.context(crate::model::FinalUsageError)
+            } else {
+                error
+            };
+            Ok(Box::pin(futures_util::stream::iter([
+                Ok(ModelEvent::Usage(ModelUsage {
+                    input_tokens: 20,
+                    cached_input_tokens: 5,
+                    output_tokens: 10,
+                })),
+                Err(error),
+            ])))
+        }
+    }
+    #[tokio::test]
+    async fn pool_accounts_terminal_failure_without_counting_it_as_success() {
+        for finalized in [false, true] {
+            let pool = SharedModel::new(Arc::new(FailedUsage(finalized)), 1, 4).unwrap();
+            let mut stream = pool
+                .chat_for(
+                    vec![Message::text("user", "summarize")],
+                    vec![],
+                    RequestPurpose::Summary,
+                )
+                .await
+                .unwrap();
+            assert!(stream.next().await.unwrap().is_ok());
+            assert!(stream.next().await.unwrap().is_err());
+            drop(stream);
+            let usage = pool.usage();
+            assert_eq!(usage.unknown_requests, usize::from(!finalized));
+            assert_eq!(usage.input_tokens, if finalized { 20 } else { 0 });
+            assert_eq!(pool.load().unwrap().completed_requests, 0);
+        }
+    }
 
     type ObservedBudget = (RequestPurpose, usize, usize, Option<u64>);
     struct BudgetModel(Mutex<Vec<ObservedBudget>>);

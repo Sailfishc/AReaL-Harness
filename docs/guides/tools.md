@@ -21,11 +21,11 @@ Core 注册表将名称、JSON Schema 与内置/命令/客户端/MCP/插件后�
 | `verify_command` | `argv,cwd?,timeoutMs?,yieldMs?`；直接执行、拒绝 shell 入口，必须配置独立 scratch |
 | `read_process/write_process/terminate_process` | 本 Turn 进程句柄；续读、输入与终止 |
 | `read_tool_result` | `resultId,after?=null,maxBytes?=8192`；读取本 Thread 历史调用的原始 JSON，按 nextCursor 续页，不执行原工具 |
-| `task_state` | `{}`；返回有界的已观察文件/进程/子任务/scratch 与 summaryThroughItemId，不进行实时探测 |
+| `task_state` | `{pendingAfter?}`；返回有界的已观察文件/进程/子任务/scratch 与 summaryThroughItemId，不进行实时探测 |
 
-文件最大 8 MiB，单次写/patch 64 KiB，另受每个调用参数 64 KiB 预算限制。显式 fileVersion 和 expectedSha256 互斥；SHA 为 null 表示仅新建。成功编辑返回新版本与规范路径，shell/外部编辑不自动刷新观察，CAS 冲突后需重新读取。行过长时使用 fs_read。read/search 通过同一 Scope 中的 Python/rg 执行、最长 15 秒；需要可信系统 Python；rg 15.2.0 随包交付，使用 Runtime 验证后的绝对路径，不读取宿主 rg 配置或工作区外 ignore，不自动扩大沙箱权限。
+文件最大 8 MiB，单次写/patch 64 KiB，另受每个调用参数 64 KiB 预算限制。显式 fileVersion 和 expectedSha256 互斥；SHA 为 null 表示仅新建。成功编辑返回新版本与规范路径，shell/外部编辑不自动刷新观察，CAS 冲突后需重新读取。行过长或遇到非 UTF-8 二进制内容时使用 fs_read；PNG/JPEG/WebP 图像使用 image_read。read/search 通过同一 Scope 中的 Python/rg 执行、最长 15 秒；需要可信系统 Python；rg 15.2.0 随包交付，使用 Runtime 验证后的绝对路径，不读取宿主 rg 配置或工作区外 ignore，不自动扩大沙箱权限。
 
-每个完整模型响应的调用数量受当前 Turn 剩余 `max_tool_calls` 限制，依次执行；Chat 的 index 用于关联片段，允许稀疏非负整数编号，没有小于 16 的要求。两种协议均使用可配置的 `max_tool_buffer_bytes` 缓冲预算（默认 4 MiB），累计工具 id、name 和 arguments；编号非法或预算超限时，当前响应的所有调用均不执行。模型可见的文本结果页最多 16 KiB，参数错误和已知命令失败返回模型处理，UNKNOWN 停止。结果报告 remainingToolCalls，剩余 ≤32 时提示收尾，并附带当前 Turn 基础墙钟预算的近似剩余值。
+每个完整模型响应的调用数量受当前 Turn 剩余 `max_tool_calls` 限制，依次执行；Chat 的 index 用于关联片段，允许稀疏非负整数编号，没有小于 16 的要求。两种协议均使用可配置的 `max_tool_buffer_bytes` 缓冲预算（默认 4 MiB），累计工具 id、name 和 arguments；编号非法或预算超限时，当前响应的所有调用均不执行。模型可见的文本结果页最多 16 KiB，参数错误和已知命令失败返回模型处理，UNKNOWN 停止。结果报告 remainingToolCalls，剩余 ≤32 时提示收尾，并附带当前 Turn 基础墙钟预算的近似剩余值。`max_output_bytes` 与工具调用次数独立：当剩余输出不足以执行下一工具并预留交接额度时，不执行该调用及后续调用，保留已确认结果，禁用工具并请求模型明确说明未完成事项；若验证进程没有已观察的终态，也只能报告未验证，不能声称通过。模型输出继续受原有字节上限约束。
 
 `verify_command` 将完整输出（最多 64 MiB）及 receipt 写入 scratch/verification，记录退出状态、日志与执行前后源码指纹。指纹覆盖 Git 跟踪和未忽略文件，非 Git 目录使用排除依赖/构建/缓存的扫描；源码变化使验证过期。receipt 位于任务可写目录，不是对恶意任务的认证。收尾时未结束的验证进程需要续读终态或显式终止；普通后台 run_command 不受此约束，也不会唤醒已结束 Turn。
 
@@ -111,3 +111,15 @@ read_process 省略 after 接续本 Turn 最近返回的游标，显式 null 从
 ## Task 通信与后台 worker
 
 Goal/Task 中 ask_user_question 支持 mode=async；提问持久写入独立频道并立即返回，模型可继续其他工作。task_channel_read 查看消息，task_wait 在无其他工作时释放协调 Turn，task_spawn 创建跨协调 Turn 存活、共享 Goal 预算的 worker。普通 agent_spawn 仍属于父 Turn。headless 不等待用户或人工审批，但可等待 worker。参数、权限和生命周期见 [Task 契约](../api/tasks.md)。
+
+### 验证回收与 Goal 收尾
+
+`task_state` 接受可选 `pendingAfter`，并独立返回 `pendingVerifications: {count, items, nextAfter, guidance}`。每页最多 16 项、通常不超过 4096 字节；单项完整保留，避免截断不透明句柄。条目包含本 Turn 的可用 `processId`、最后观察的 `state`、`receiptPath` 和 `nextAction`。分页按别名排序，不受普通进程列表截断影响；传回 `nextAfter` 继续下一页，回收后重新读取第一页核对 count。该投影不实时探测进程。
+
+异步 `verify_command` 必须通过原进程的 `read_process` 观察终态，或显式 `terminate_process` 并报告取消。文件收据读取及重跑命令不清除原进程的待观察记录；失败/取消的终态可结束等待，但不代表测试通过。完成门禁返回 `GOAL_COMPLETION_PENDING`，工具错误 details 包含 `pendingInputCount` 与首个 `pendingVerifications` 页面。
+
+接受 complete/blocked 报告后，应输出无工具最终说明。Core 仍允许明确列出的观察和清理工具（含 `task_state`、`task_channel_read`）；其他调用在提交前返回带 `reason=goalReportPending`、工具名及允许清单的 `PERMISSION_DENIED`，写入正常工具轨迹，不升级为未分类 Turn 内部错误。blocked 可保留未回收验证作为未完成工作，不能据此声称 complete。预算耗尽、取消和其他基础设施错误保持原有终止语义。
+
+### 无损文件行视图
+
+`policy.resultViews.fileLines` 默认 true，独立于控制搜索/命令候选的 `mode`。read_file 的连续 `{number,text}` 行数组可表示为 `firstLine`、`lineCount`、`source`，保留全部源码和其余元数据；使用 `fileLines:false` 关闭。只接受可还原的连续行、原有行尾和已知行字段，至少节省 128 bytes。完整原文先写入受限快照；快照不可用或不能回取时透传原有有界表示。`read_tool_result` 读取原始 JSON；该视图不把历史 fileVersion 变成跨 Turn 的编辑权限。`execution.outputProjection.transform=file-lines-v1` 与 `reason=lossless` 记录实际应用，搜索/命令 observe 仍只观察对应候选。

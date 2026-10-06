@@ -858,6 +858,7 @@ async fn successful_tools_can_exceed_the_old_turn_deadline_in_aggregate() {
             client: fixture.client.clone(),
             workspace: workspace.clone(),
             writable: true,
+            command_scope: None,
             command_scratch: None,
         },
     )

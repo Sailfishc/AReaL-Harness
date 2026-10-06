@@ -34,6 +34,12 @@ pub struct LocalArgs {
     pub command_timeout_ms: Option<u64>,
     #[arg(long)]
     pub command_output_bytes: Option<u64>,
+    #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
+    pub runtime_max_processes: Option<u32>,
+    #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
+    pub runtime_max_operations: Option<u32>,
+    #[arg(long, value_parser = clap::value_parser!(u64).range(1..=17_179_869_184))]
+    pub runtime_output_bytes: Option<u64>,
     #[arg(long)]
     pub model_endpoint: Option<String>,
     #[arg(long)]
@@ -88,6 +94,15 @@ impl LocalArgs {
         for (name, value) in [
             ("command-timeout-ms", self.command_timeout_ms),
             ("command-output-bytes", self.command_output_bytes),
+            ("runtime-output-bytes", self.runtime_output_bytes),
+            (
+                "runtime-max-operations",
+                self.runtime_max_operations.map(u64::from),
+            ),
+            (
+                "runtime-max-processes",
+                self.runtime_max_processes.map(u64::from),
+            ),
         ] {
             if let Some(value) = value {
                 out.push(format!("--{name}={value}").into());
@@ -148,6 +163,20 @@ impl LaunchSpec {
     }
 
     pub fn in_bin(args: &LocalArgs, bin_dir: PathBuf) -> Result<Self> {
+        ensure!(
+            args.runtime_max_processes.is_none_or(|value| value > 0),
+            "runtime max processes must be positive"
+        );
+        ensure!(
+            args.runtime_max_operations.is_none_or(|value| value > 0),
+            "runtime max operations must be positive"
+        );
+        ensure!(
+            args.runtime_output_bytes.is_none_or(|value| value
+                >= args.command_output_bytes.unwrap_or(8 * 1024 * 1024)
+                && value <= 16 * 1024 * 1024 * 1024),
+            "runtime output budget must cover one command and be at most 16 GiB"
+        );
         let launch_cwd = std::env::current_dir()?.canonicalize()?;
         let workspace = args
             .workspace
@@ -291,7 +320,10 @@ impl LaunchSpec {
             (
                 "runtime",
                 json!({"timeout":args.command_timeout_ms.unwrap_or(300000),
-                "output":args.command_output_bytes.unwrap_or(8*1024*1024),"toolchain":resolved.workgroup_toolchain}),
+                "output":args.command_output_bytes.unwrap_or(8*1024*1024),
+                "maxProcesses":args.runtime_max_processes.unwrap_or(4),
+                "maxOperations":args.runtime_max_operations.unwrap_or(4096),
+                "cumulativeOutput":args.runtime_output_bytes.unwrap_or(args.command_output_bytes.unwrap_or(8*1024*1024)),"toolchain":resolved.workgroup_toolchain}),
             ),
             ("deployment", json!(files)),
             ("binaries", json!(binaries)),
@@ -315,5 +347,87 @@ impl LaunchSpec {
 
     pub fn directory(&self) -> Result<PathBuf> {
         storage::registry(&self.home, &self.service_id)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    #[derive(Parser)]
+    struct Cli {
+        #[command(flatten)]
+        local: LocalArgs,
+    }
+
+    #[test]
+    fn process_capacity_is_optional_positive_and_forwarded() {
+        let default = Cli::try_parse_from(["areal"]).unwrap();
+        assert_eq!(default.local.runtime_max_processes, None);
+        assert!(default.local.launcher_args().is_empty());
+        let configured = Cli::try_parse_from(["areal", "--runtime-max-processes", "32"]).unwrap();
+        assert_eq!(configured.local.runtime_max_processes, Some(32));
+        assert_eq!(
+            configured.local.launcher_args(),
+            [OsString::from("--runtime-max-processes=32")]
+        );
+        for invalid in ["0", "-1", "4294967296"] {
+            assert!(Cli::try_parse_from(["areal", "--runtime-max-processes", invalid]).is_err());
+        }
+    }
+
+    #[test]
+    fn cumulative_output_and_operations_are_validated_and_forwarded() {
+        let args = Cli::try_parse_from([
+            "areal",
+            "--runtime-output-bytes",
+            "1073741824",
+            "--runtime-max-operations",
+            "65536",
+        ])
+        .unwrap()
+        .local;
+        assert!(
+            args.launcher_args()
+                .contains(&OsString::from("--runtime-output-bytes=1073741824"))
+        );
+        assert!(
+            args.launcher_args()
+                .contains(&OsString::from("--runtime-max-operations=65536"))
+        );
+        for (flag, value) in [
+            ("--runtime-output-bytes", "0"),
+            ("--runtime-output-bytes", "17179869185"),
+            ("--runtime-max-operations", "0"),
+            ("--runtime-max-operations", "4294967296"),
+        ] {
+            assert!(Cli::try_parse_from(["areal", flag, value]).is_err());
+        }
+        let smaller = LocalArgs {
+            runtime_output_bytes: Some(1),
+            ..Default::default()
+        };
+        assert!(
+            LaunchSpec::in_bin(&smaller, PathBuf::new())
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("runtime output budget must cover one command")
+        );
+    }
+
+    #[test]
+    fn deserialized_zero_is_rejected_before_service_resolution() {
+        let args = LocalArgs {
+            runtime_max_processes: Some(0),
+            ..Default::default()
+        };
+        let error = LaunchSpec::in_bin(&args, PathBuf::new()).err().unwrap();
+        assert!(
+            error
+                .to_string()
+                .contains("runtime max processes must be positive")
+        );
     }
 }

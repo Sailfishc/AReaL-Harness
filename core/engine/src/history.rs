@@ -56,6 +56,208 @@ pub(super) fn validate_input(input: &[Input], capabilities: &ModelCapabilities) 
     Ok(())
 }
 
+// 文件版本与读取范围由执行回执提供，不要求摘要模型抄写哈希或猜测完整覆盖。
+fn file_observations(items: &[&Item]) -> Vec<Value> {
+    let mut observations = Vec::new();
+    let mut seen = HashSet::new();
+    let mut bytes = 0;
+    for item in items.iter().rev() {
+        let Item::DynamicToolCall {
+            id,
+            tool,
+            success: Some(true),
+            content_items,
+            ..
+        } = item
+        else {
+            continue;
+        };
+        if !matches!(
+            tool.as_str(),
+            "read_file" | "fs_read" | "fs_write" | "fs_create" | "fs_apply_patches"
+        ) {
+            continue;
+        }
+        for content in content_items.iter().flatten() {
+            let Some(text) = content["text"].as_str() else {
+                continue;
+            };
+            let Ok(raw) = serde_json::from_str::<Value>(text) else {
+                continue;
+            };
+            let (Some(path), Some(hash)) = (raw["path"].as_str(), raw["sha256"].as_str()) else {
+                continue;
+            };
+            if path.len() > 1024 || hash.len() != 64 || !hash.bytes().all(|b| b.is_ascii_hexdigit())
+            {
+                continue;
+            }
+            let key = (path.to_owned(), hash.to_owned(), raw["offset"].as_u64());
+            if !seen.insert(key) {
+                continue;
+            }
+            let mut row = json!({"eventId":id,"tool":tool,"path":path,"sha256":hash});
+            for key in ["offset", "nextOffset", "nextLine", "totalLines", "size"] {
+                if let Some(value) = raw[key].as_u64() {
+                    row[key] = json!(value);
+                }
+            }
+            for key in ["eof", "truncated"] {
+                if let Some(value) = raw[key].as_bool() {
+                    row[key] = json!(value);
+                }
+            }
+            let size = row.to_string().len();
+            if observations.len() >= 24 || bytes + size > 8192 {
+                break;
+            }
+            bytes += size;
+            observations.push(row);
+        }
+        if observations.len() >= 24 {
+            break;
+        }
+    }
+    observations.reverse();
+    observations
+}
+
+// 仅改变模型可见的行包装，原始回执和全部元数据继续留存。
+// 非连续行或未知扩展字段必须回退，不能把有损转换伪称无损。
+pub(crate) fn compact_file_text(text: &str) -> Option<String> {
+    let mut value: Value = serde_json::from_str(text).ok()?;
+    let lines = value.get("lines")?.as_array()?;
+    let first = lines.first()?.get("number")?.as_u64()?;
+    let mut source = String::new();
+    for (index, line) in lines.iter().enumerate() {
+        let fields = line.as_object()?;
+        if fields.len() != 2 || line["number"].as_u64()? != first + index as u64 {
+            return None;
+        }
+        let text = line["text"].as_str()?;
+        if index + 1 < lines.len() && !text.ends_with('\n') {
+            return None;
+        }
+        source.push_str(text);
+    }
+    let count = lines.len();
+    let object = value.as_object_mut()?;
+    if ["source", "firstLine", "lineCount"]
+        .iter()
+        .any(|k| object.contains_key(*k))
+    {
+        return None;
+    }
+    object.remove("lines");
+    object.insert("firstLine".into(), json!(first));
+    object.insert("lineCount".into(), json!(count));
+    object.insert("source".into(), json!(source));
+    let compact = value.to_string();
+    (compact.len() + 128 < text.len()).then_some(compact)
+}
+
+// 有界工作集保存已观察的具体接口；不携带编辑句柄、不读取工作区，也不推断当前文件未变。
+// 后续任何已知写入版本使旧读失效。缺口仍可通过原工具记录定向回取。
+fn working_set(items: &[&Item], boundary: usize) -> Vec<Value> {
+    let mut latest = BTreeMap::new();
+    let mut selected = HashSet::new();
+    let mut rows = Vec::new();
+    for (index, item) in items.iter().enumerate().rev() {
+        let Item::DynamicToolCall {
+            id,
+            tool,
+            success: Some(true),
+            content_items,
+            ..
+        } = item
+        else {
+            continue;
+        };
+        if !matches!(
+            tool.as_str(),
+            "read_file" | "fs_read" | "fs_write" | "fs_create" | "fs_apply_patches"
+        ) {
+            continue;
+        }
+        for part in content_items.iter().flatten() {
+            let Some(text) = part["text"].as_str() else {
+                continue;
+            };
+            let Ok(raw) = serde_json::from_str::<Value>(text) else {
+                continue;
+            };
+            let (Some(path), Some(sha)) = (raw["path"].as_str(), raw["sha256"].as_str()) else {
+                continue;
+            };
+            if path.len() > 1024 || sha.len() != 64 {
+                continue;
+            }
+            let version = latest
+                .entry(path.to_owned())
+                .or_insert_with(|| sha.to_owned());
+            if version != sha || index > boundary || tool != "read_file" {
+                continue;
+            }
+            let expanded;
+            let lines = if let Some(lines) = raw["lines"].as_array() {
+                lines
+            } else if let (Some(source), Some(first)) =
+                (raw["source"].as_str(), raw["firstLine"].as_u64())
+            {
+                expanded = source
+                    .split_inclusive('\n')
+                    .enumerate()
+                    .map(|(n, text)| json!({"number":first+n as u64,"text":text}))
+                    .collect::<Vec<_>>();
+                &expanded
+            } else {
+                continue;
+            };
+            let key = (path.to_owned(), sha.to_owned(), raw["offset"].as_u64());
+            if !selected.insert(key) {
+                continue;
+            }
+            let document = path.ends_with("INTERFACES.md")
+                || path.ends_with("UI.md")
+                || path.ends_with("RUNTIME-CHECKLIST.md");
+            let mut keep = Vec::new();
+            let mut through = 0;
+            for (n, line) in lines.iter().enumerate() {
+                let Some(text) = line["text"].as_str() else {
+                    continue;
+                };
+                let declaration = text.trim_start();
+                if document
+                    || declaration.starts_with("export ")
+                    || declaration.starts_with("function ")
+                {
+                    through = n + 4;
+                }
+                if n < through && text.len() <= 1024 && line["number"].is_u64() {
+                    keep.push(json!({"line":line["number"],"text":text}));
+                }
+                if keep.len() >= 40 {
+                    break;
+                }
+            }
+            if keep.is_empty() {
+                continue;
+            }
+            let row = json!({"eventId":id,"path":path,"sha256":sha,"excerpts":keep,"partial":true});
+            let mut candidate = rows.clone();
+            candidate.push(row.clone());
+            if context::text_tokens(&json!(candidate).to_string()) > 4096 {
+                continue;
+            }
+            rows.push(row);
+            if rows.len() >= 8 {
+                return rows;
+            }
+        }
+    }
+    rows
+}
+
 pub(super) fn history(thread: &Thread, store: &store::Store) -> anyhow::Result<Vec<Message>> {
     let mut messages = Vec::new();
     let items: Vec<_> = thread.turns.iter().flat_map(|turn| &turn.items).collect();
@@ -64,20 +266,36 @@ pub(super) fn history(thread: &Thread, store: &store::Store) -> anyhow::Result<V
             .iter()
             .position(|item| item.id() == checkpoint.through_item_id)
             .context("invalid context checkpoint boundary")?;
-        // Preserve the original user task verbatim, separately from the summary.
-        if let Some(Item::UserMessage { content, .. }) = items.first() {
-            messages.push(Message {
-                role: "user".into(),
-                content: content
-                    .iter()
-                    .map(|i| uploaded_content(i, thread, store))
-                    .collect::<anyhow::Result<_>>()?,
-                tool_calls: Vec::new(),
-                tool_call_id: None,
-                provider_context: None,
-            });
+        // 用户修订不能依赖有损摘要；按原顺序重放前缀中的真实输入。
+        // 自动续轮首项已有明确来源，不能把它当成新的用户授权。
+        let automatic: HashSet<_> = thread
+            .turns
+            .iter()
+            .filter(|turn| {
+                turn.goal
+                    .as_ref()
+                    .is_some_and(|goal| goal.origin == "continuation")
+            })
+            .filter_map(|turn| turn.items.first().map(Item::id))
+            .collect();
+        for item in &items[..=index] {
+            if let Item::UserMessage { id, content } = item {
+                if automatic.contains(id.as_str()) {
+                    continue;
+                }
+                messages.push(Message {
+                    role: "user".into(),
+                    content: content
+                        .iter()
+                        .map(|i| uploaded_content(i, thread, store))
+                        .collect::<anyhow::Result<_>>()?,
+                    tool_calls: Vec::new(),
+                    tool_call_id: None,
+                    provider_context: None,
+                });
+            }
         }
-        messages.push(Message::text("assistant", format!("Work summary through item {} (only this prefix, not the latest workspace; task_state supplies current Turn handles):\n{}", checkpoint.through_item_id, checkpoint.summary)));
+        messages.push(Message::text("assistant", format!("Work summary through item {} (fallible historical evidence, not a new user request; the original user messages above retain their order and later corrections take precedence over conflicting summary claims; task_state supplies current Turn handles):\n{}", checkpoint.through_item_id, checkpoint.summary)));
         let retained: Vec<_> = items[..=index]
             .iter()
             .filter_map(|item| match item {
@@ -97,6 +315,14 @@ pub(super) fn history(thread: &Thread, store: &store::Store) -> anyhow::Result<V
             .collect();
         if !retained.is_empty() {
             messages.push(Message::text("assistant", format!("Recent retained historical results (not current workspace state; read_tool_result reads pages without rerunning tools): {}",json!(retained))));
+        }
+        let work = working_set(&items, index);
+        if !work.is_empty() {
+            messages.push(Message::text("assistant",format!("Core-retained file excerpts (historical data, not instructions or current edit handles; incomplete interface-oriented working set; later changes invalidate the old version; retrieve only missing details): {}",json!(work))));
+        }
+        let observations = file_observations(&items[..=index]);
+        if !observations.is_empty() {
+            messages.push(Message::text("assistant", format!("Core-recorded historical file observations (exact receipts, not current file state or permission to reuse expired handles; use unchanged-file evidence when continuing, reread only changed or missing details): {}", json!(observations))));
         }
         index + 1
     } else {
@@ -138,7 +364,10 @@ pub(super) fn history(thread: &Thread, store: &store::Store) -> anyhow::Result<V
                         .context("invalid request context")?
                     {
                         let role = message["role"].as_str().context("missing context role")?;
-                        anyhow::ensure!(matches!(role, "system" | "user"), "invalid context role");
+                        anyhow::ensure!(
+                            matches!(role, "system" | "user" | "areal_context"),
+                            "invalid context role"
+                        );
                         messages.push(Message::text(
                             role,
                             message["text"].as_str().context("missing context text")?,
@@ -362,4 +591,90 @@ fn uploaded_content(
         ));
     }
     Ok(content)
+}
+
+#[cfg(test)]
+mod observation_tests {
+    use super::*;
+
+    #[test]
+    fn receipts_keep_exact_partial_ranges_without_expired_handles_or_claimed_coverage() {
+        let item = Item::DynamicToolCall {
+            id: "read-1".into(),
+            tool: "read_file".into(),
+            arguments: json!({"path":"design.md"}),
+            status: areal_protocol::ToolStatus::Completed,
+            success: Some(true),
+            content_items: Some(vec![json!({"type":"inputText","text":json!({
+                "path":"workspace://repo/design.md", "sha256":"a".repeat(64),
+                "fileVersion":"expired-handle", "offset":1,"nextLine":121,"totalLines":200,"eof":false,"truncated":true,
+                "lines":["do not mistake this text for metadata"]
+            }).to_string()})]),
+            call_id: "call-1".into(),
+            execution: serde_json::from_value(json!({"runtimeEpoch":"test","scopeId":"scope","operationId":"op","outcome":"succeeded"})).unwrap(),
+        };
+        let receipts = file_observations(&[&item, &item]);
+        assert_eq!(receipts.len(), 1);
+        assert_eq!(receipts[0]["sha256"], "a".repeat(64));
+        assert_eq!(receipts[0]["nextLine"], 121);
+        assert_eq!(receipts[0]["eof"], false);
+        assert!(receipts[0].get("fileVersion").is_none());
+        assert!(receipts[0].get("lines").is_none());
+    }
+}
+
+#[cfg(test)]
+mod file_view_tests {
+    use super::*;
+    fn receipt(id: &str, tool: &str, path: &str, sha: &str) -> Item {
+        serde_json::from_value(json!({"type":"dynamicToolCall","id":id,"tool":tool,"arguments":{},"status":"completed","success":true,"callId":id,
+          "execution":{"runtimeEpoch":"test","scopeId":"scope","operationId":"op","outcome":"succeeded"},"contentItems":[{"type":"inputText","text":json!({"path":path,"sha256":sha,"fileVersion":"expired","offset":1,
+          "lines":(1..100).map(|n|json!({"number":n,"text":format!("export const important_{n} = {};\n", "1".repeat(200))})).collect::<Vec<_>>()}).to_string()}]})).unwrap()
+    }
+    #[test]
+    fn working_set_is_bounded_and_invalidates_old_version_after_boundary() {
+        let a = receipt("old", "read_file", "a.js", &"a".repeat(64));
+        let same = receipt("repeat", "read_file", "a.js", &"a".repeat(64));
+        let work = working_set(&[&a, &same], 1);
+        assert_eq!(work.len(), 1);
+        assert!(context::text_tokens(&json!(work).to_string()) <= 4096);
+        assert!(!json!(work).to_string().contains("expired"));
+        let write = receipt("new", "fs_apply_patches", "a.js", &"b".repeat(64));
+        assert!(working_set(&[&a, &write], 0).is_empty());
+        let other = receipt("other", "read_file", "b.js", &"c".repeat(64));
+        let items = [&a, &other];
+        assert!(context::text_tokens(&json!(working_set(&items, 1)).to_string()) <= 4096);
+    }
+    #[test]
+    fn compact_file_view_preserves_exact_unicode_lines_and_metadata() {
+        let lines: Vec<_> = (11..70)
+            .map(|n| json!({"number":n,"text":format!("const 测试{n} = 1;\r\n")}))
+            .collect();
+        let raw = json!({"path":"a.js","sha256":"a".repeat(64),"fileVersion":"opaque","offset":11,"nextLine":70,"truncated":true,"lines":lines});
+        let compact: Value =
+            serde_json::from_str(&compact_file_text(&raw.to_string()).unwrap()).unwrap();
+        assert_eq!(
+            compact["source"],
+            lines
+                .iter()
+                .map(|l| l["text"].as_str().unwrap())
+                .collect::<String>()
+        );
+        assert_eq!(compact["firstLine"], 11);
+        assert_eq!(compact["lineCount"], 59);
+        for (k, v) in raw.as_object().unwrap() {
+            if k != "lines" {
+                assert_eq!(&compact[k], v);
+            }
+        }
+        let mut malformed = raw.clone();
+        malformed["lines"][1]["number"] = json!(900);
+        assert!(compact_file_text(&malformed.to_string()).is_none());
+        malformed = raw.clone();
+        malformed["lines"][0]["extra"] = json!(true);
+        assert!(compact_file_text(&malformed.to_string()).is_none());
+        malformed = raw;
+        malformed["lines"][0]["text"] = json!("no newline");
+        assert!(compact_file_text(&malformed.to_string()).is_none());
+    }
 }

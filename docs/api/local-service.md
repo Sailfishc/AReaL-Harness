@@ -19,7 +19,15 @@ target/debug/areal web --workspace /absolute/workspace
 target/debug/areal web --workspace /absolute/workspace --json
 ```
 
-`ensure`、`restart` 和 `web` 接受同一组本地参数：`--config`、`--workspace`、`--data-dir`、`--allow-write`、`--allow-network`、`--allow-concurrent-writes`、`--workgroup-policy`、`--workgroup-toolchain`、`--command-timeout-ms`、`--command-output-bytes`、`--model-endpoint`、`--model-protocol`、`--model`、`--model-provider`、`--api-key-env`、`--desktop-config`。`--agent id@revision` 是 TUI/headless/exec 创建 Thread 时的客户端选择项，也可与远程 `--endpoint` 同用，不改变本地服务身份。默认工作区是当前目录；服务监听随机 loopback 端口。未配置模型时可启动管理服务，运行模型任务仍需有效配置。
+`ensure`、`restart` 和 `web` 接受同一组本地参数：`--config`、`--workspace`、`--data-dir`、`--allow-write`、`--allow-network`、`--allow-concurrent-writes`、`--workgroup-policy`、`--workgroup-toolchain`、`--command-timeout-ms`、`--command-output-bytes`、`--runtime-max-processes`、`--model-endpoint`、`--model-protocol`、`--model`、`--model-provider`、`--api-key-env`、`--desktop-config`。`--agent id@revision` 是 TUI/headless/exec 创建 Thread 时的客户端选择项，也可与远程 `--endpoint` 同用，不改变本地服务身份。默认工作区是当前目录；服务监听随机 loopback 端口。未配置模型时可启动管理服务，运行模型任务仍需有效配置。
+
+`--runtime-max-processes` 设置此服务所有祖先/子 Scope 共享的 Runtime 活跃进程上限，默认 `4`，接受 `1..4294967295` 的整数。该值纳入服务配置身份；修改后 `ensure` 不会静默复用旧容量的服务，应在任务停稳后安全重启。它独立于 Core 的 `max_active_turns`，不增加 Goal 时间或用量预算。
+
+无模型费用的进程容量回归可运行 `python3 scripts/runtime-capacity-smoke.py --bin-dir target/debug`：验证默认容量拒绝第 5 个并发进程，显式容量 32 允许 6 个子 Scope 同时执行并清理。测试默认原生沙箱；`--sandbox-profile` 可显式选择与待验证部署一致的 profile，不自动降级。
+
+`--runtime-output-bytes` 独立设置部署及后代 Scope 的累计输出预算（须覆盖 `--command-output-bytes`，最多 16 GiB）；省略时保持与单命令额度相同的旧行为。它不扩大单个命令输出上限或保留输出窗口。`--runtime-max-operations` 设置 Runtime 生命周期保留操作数，默认 4096，接受正整数至 4294967295；已完成操作仍保留以支持去重/查询，不因子任务结束而回收。这两个值也纳入服务身份。例如长任务可显式设置 `--command-output-bytes 67108864 --runtime-output-bytes 1073741824 --runtime-max-operations 65536`，并监控累计用量。图片工具在 Core 缩放前读取完整原图，文件助手的 JSON/base64 stdout 计入累计输出；缩小模型所见图像不会消除这部分读取开销。
+
+可用 `python3 scripts/runtime-output-smoke.py --bin-dir target/debug` 验证单进程限额保持、跨命令累计计量和重复读取不收费；沙箱参数与进程容量回归一致。
 
 `status`、`stop` 默认定位当前工作区，可用 `--workspace`、`--data-dir` 或 `--instance` 消歧。`restart` 按当前工作区和与 `ensure` 相同的参数解析目标部署；使用自定义配置/权限时传入对应参数。重启保留历史，有未结算工作时拒绝，只有显式 `--cancel` 才取消任务。
 

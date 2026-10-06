@@ -152,7 +152,13 @@ pub struct SelectedModelConfig {
     pub protocol: ModelProtocolConfig,
     pub api_key_env: Option<String>,
     pub reasoning_effort: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary_reasoning_effort: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary_max_output_tokens: Option<u64>,
     pub reasoning_summary: Option<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub responses_websocket: bool,
     pub temperature: Option<f64>,
     pub top_p: Option<f64>,
     pub top_k: Option<i64>,
@@ -161,6 +167,10 @@ pub struct SelectedModelConfig {
     pub repetition_penalty: Option<f64>,
     pub max_output_tokens: Option<u64>,
     pub max_retries: usize,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 impl SelectedModelConfig {
@@ -226,6 +236,7 @@ pub struct ResolvedCoreConfig {
     pub context_window_bytes: usize,
     pub context_compaction_enabled: bool,
     pub context_window_tokens: usize,
+    pub context_target_tokens: usize,
     pub context_output_reserve_tokens: usize,
     pub context_recent_bytes: usize,
     pub max_completion_retries: usize,
@@ -260,8 +271,9 @@ impl ResolvedCoreConfig {
             "tools": { "extensions_file": self.tool_extensions_file },
             "model": { "provider": self.model.provider, "name": self.model.name,
                 "endpoint": endpoint.as_str(), "protocol": self.model.protocol,
-                "api_key_env": self.model.api_key_env, "reasoning_effort": self.model.reasoning_effort,
+                "api_key_env": self.model.api_key_env, "reasoning_effort": self.model.reasoning_effort, "summary_reasoning_effort":self.model.summary_reasoning_effort,"summary_max_output_tokens":self.model.summary_max_output_tokens,
                 "reasoning_summary": self.model.reasoning_summary,
+                "responses_websocket": self.model.responses_websocket,
                 "temperature": self.model.temperature,
                 "top_p": self.model.top_p,
                 "top_k": self.model.top_k,
@@ -272,7 +284,7 @@ impl ResolvedCoreConfig {
             "limits": { "max_active_turns": self.max_active_turns, "max_children_per_turn": self.max_children_per_turn, "max_agent_depth": self.max_agent_depth, "model_concurrency": self.model_concurrency, "max_threads": self.max_threads,
                 "stream_idle_timeout_seconds": self.stream_idle_timeout_seconds,
                 "max_history_bytes": self.max_history_bytes, "max_output_bytes": self.max_output_bytes, "max_tool_calls": self.max_tool_calls, "max_tool_buffer_bytes": self.max_tool_buffer_bytes,
-                "context_window_bytes": self.context_window_bytes, "context_compaction_enabled": self.context_compaction_enabled, "context_window_tokens":self.context_window_tokens, "context_output_reserve_tokens":self.context_output_reserve_tokens, "context_recent_bytes": self.context_recent_bytes,
+                "context_window_bytes": self.context_window_bytes, "context_compaction_enabled": self.context_compaction_enabled, "context_window_tokens":self.context_window_tokens,"context_target_tokens":self.context_target_tokens, "context_output_reserve_tokens":self.context_output_reserve_tokens, "context_recent_bytes": self.context_recent_bytes,
                 "max_completion_retries": self.max_completion_retries, "watchdog_disable": self.watchdog_disable },
             "logging": { "filter": self.log_filter },
         });

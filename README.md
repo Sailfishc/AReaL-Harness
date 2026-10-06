@@ -8,7 +8,7 @@
   <p>
     <a href="docs/design/architecture.md"><img src="https://img.shields.io/badge/Rust-Tokio-000000?logo=rust&amp;logoColor=white" alt="基于 Rust 与 Tokio"></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache--2.0-blue" alt="Apache-2.0 许可证"></a>
-    <a href="docs/guides/quickstart.md"><img src="https://img.shields.io/badge/Status-Source%20preview-orange" alt="开发预览：从源码构建"></a>
+    <a href="docs/guides/installation.md"><img src="https://img.shields.io/badge/Status-Developer%20preview-orange" alt="开发预览：查看安装方式"></a>
   </p>
   <p><a href="docs/guides/quickstart.md">快速开始</a> · <a href="docs/features.md">能力与边界</a> · <a href="docs/README.md">文档</a> · <a href="CONTRIBUTING.md">参与贡献</a></p>
 </div>
@@ -32,12 +32,12 @@
 
 ## 🌐 WebUI
 
-**Coming Soon**
+本地 Web 已可通过 `areal web` 打开，详见[客户端指南](docs/guides/clients.md)。
 
 ## 🚀 从这里开始
 
 > [!NOTE]
-> 项目处于开发阶段。Homebrew（macOS arm64）和 Linux x86_64 完整安装包由发行流水线构建验收，公开安装源以 GitHub Release/tap 为准。Linux 受限执行需要 Bubblewrap 和 user namespace；Windows 原生 Runtime 未支持。TypeScript SDK 尚未发布到 npm。
+> 项目处于开发阶段。macOS arm64 / Linux x86_64 独立完整包及 macOS Homebrew formula 的实际可用性以 GitHub Release/tap 为准。Linux 受限执行需要 Bubblewrap 和 user namespace；Windows 原生 Runtime、npm CLI/SDK 包尚未发布。
 
 第一次使用，跟随[快速开始](docs/guides/quickstart.md)完成构建、无 API 密钥验证和第一次模型会话；随后按需选择下面的指南。
 
@@ -63,4 +63,4 @@
 
 **许可证：** [Apache-2.0](LICENSE)。第三方材料保留各自的许可证与版权声明。
 
-Homebrew 与 Linux 安装包的适用平台、发布前状态和升级说明见[安装指南](docs/guides/installation.md)。
+发行包的适用平台、渠道和升级说明见[安装指南](docs/guides/installation.md)。

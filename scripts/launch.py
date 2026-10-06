@@ -79,6 +79,7 @@ def main():
     parser.add_argument("--scratch", type=Path)
     parser.add_argument("--allow-write", action="store_true")
     parser.add_argument("--task-credential-command", action="append", default=[])
+    parser.add_argument("--runtime-max-processes", type=int, default=4)
     parser.add_argument("--runtime-max-scopes", type=int, default=256)
     parser.add_argument("--runtime-max-operations", type=int, default=4096)
     parser.add_argument("--workgroup-policy", type=Path)
@@ -88,6 +89,7 @@ def main():
     parser.add_argument("--command-timeout-ms", type=int, default=300000)
     parser.add_argument("--desktop-process-timeout-ms", type=int)
     parser.add_argument("--command-output-bytes", type=int, default=8 * 1024 * 1024)
+    parser.add_argument("--runtime-output-bytes", type=int)
     parser.add_argument(
         "--sandbox-profile",
         choices=("native", "outer-container-perf", "full-access"),
@@ -120,6 +122,14 @@ def main():
     parser.add_argument("--ascii", choices=("true", "false"), nargs="?", const="true")
     parser.add_argument("--mouse", choices=("true", "false"), nargs="?", const="true")
     args = parser.parse_args()
+    if not 1 <= args.runtime_max_processes <= 4294967295:
+        parser.error("runtime max processes must be 1..4294967295")
+    if not 1 <= args.runtime_max_operations <= 4294967295:
+        parser.error("runtime max operations must be 1..4294967295")
+    if args.runtime_output_bytes is not None and not (
+        args.command_output_bytes <= args.runtime_output_bytes <= 16 * 1024**3
+    ):
+        parser.error("runtime output budget must cover one command and be at most 16 GiB")
     if args.desktop and args.tui:
         parser.error("--desktop and --tui are mutually exclusive")
     if args.desktop_process_timeout_ms is not None and (
@@ -321,6 +331,13 @@ def main():
                     str(max(args.command_timeout_ms, args.desktop_process_timeout_ms or 0)),
                     "--output-bytes",
                     str(args.command_output_bytes),
+                    *(
+                        ["--cumulative-output-bytes", str(args.runtime_output_bytes)]
+                        if args.runtime_output_bytes is not None
+                        else []
+                    ),
+                    "--max-processes",
+                    str(args.runtime_max_processes),
                     "--max-scopes",
                     str(args.runtime_max_scopes),
                     "--max-operations",

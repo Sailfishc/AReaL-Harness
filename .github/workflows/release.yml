@@ -9,6 +9,9 @@ on:
       - 'scripts/install.py'
       - 'scripts/release-*.py'
       - 'scripts/tests/test_release.py'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'clients/cli/**'
   push:
     tags: ['v*']
 
@@ -84,6 +87,12 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           archive="${{ runner.temp }}/areal-release-assets/areal-harness-v${RELEASE_VERSION}-${{ matrix.target }}.tar.gz"
+          cat ${{ runner.temp }}/areal-release-assets/*.sha256 > ${{ runner.temp }}/areal-release-assets/SHA256SUMS
+          prefix="$RUNNER_TEMP/areal standalone"
+          python3 scripts/install.py --version "$RELEASE_VERSION" --prefix "$prefix" \
+            --archive "$archive" --checksums ${{ runner.temp }}/areal-release-assets/SHA256SUMS
+          python3 scripts/release-smoke.py --bundle "$prefix/lib/areal/${RELEASE_VERSION}-macos-arm64" --executable "$prefix/bin/areal"
+          rm ${{ runner.temp }}/areal-release-assets/SHA256SUMS
           brew tap-new areal-local/release
           formula="$(brew --repository areal-local/release)/Formula/areal.rb"
           python3 scripts/release-artifacts.py formula --archive "$archive" --url "file://$archive" --output "$formula"

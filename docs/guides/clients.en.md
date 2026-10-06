@@ -11,6 +11,8 @@ The product command is `areal`. Use `target/debug/areal` after a source build; a
 | Command | Behavior |
 |---|---|
 | `areal [PROMPT]` | Open the TUI; submit an optional initial message once the session is ready |
+| `areal version` / `areal --version` | Show the product version without starting services |
+| `areal upgrade [--check]` | Check or upgrade a complete installed bundle; see [installation](installation.en.md) |
 | `areal exec [PROMPT]` | Run noninteractively with text, JSON or stream-json output |
 | `areal serve` | Start foreground Core + Runtime with cleanup owned by the launcher |
 | `areal app-server` | Start Core directly; Runtime connections require explicit deployment |
