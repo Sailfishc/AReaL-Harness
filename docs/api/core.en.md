@@ -4,6 +4,8 @@
 
 Core implements a subset of pinned Codex app-server 0.145.0 plus AReaL extensions, not full official-client compatibility. See the [baseline schema](../../schemas/app-server/codex-0.145.0.json) and [desktop API](desktop.en.md) for authentication and product extensions.
 
+`Turn` optionally includes `startedAt`, `completedAt` (Unix seconds), and `durationMs` (milliseconds). Admission persists the start; settlement persists and publishes the end and final duration. A monotonic clock measures `durationMs` from activation through model/tool/approval waits and cleanup, excluding the queue before admission. Clients refresh only the running display; they must not sum tool durations or restart timing when a view opens. Old records and unconfirmed end/duration after crash recovery remain absent, not zero or the restart time. Normal cancellation and failure settlement also persist final timing.
+
 ## Transport and sessions
 
 Each WebSocket text frame carries one request, response or notification, up to 4 MiB. Requests are `{id,method,params}` with string/integer id and object params. jsonrpc is optional; responses contain either result or error; batches are unsupported. Request initialize, then send initialized.

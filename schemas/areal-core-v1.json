@@ -6644,6 +6644,14 @@
             "turns": {
               "items": {
                 "properties": {
+                  "completedAt": {
+                    "description": "终态结算时的 Unix 秒；重启修复的未知结束时刻保持缺省。",
+                    "format": "int64",
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
                   "configuration": {
                     "anyOf": [
                       {
@@ -7043,6 +7051,15 @@
                       {
                         "type": "null"
                       }
+                    ]
+                  },
+                  "durationMs": {
+                    "description": "单调时钟测得的执行经过毫秒，包含模型、工具、审批与清理等待。",
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
                     ]
                   },
                   "error": {
@@ -7699,6 +7716,14 @@
                     },
                     "type": "array"
                   },
+                  "startedAt": {
+                    "description": "Core 准入时的 Unix 秒；旧历史缺省，不从打开界面的时刻补造。",
+                    "format": "int64",
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
                   "status": {
                     "enum": [
                       "inProgress",
@@ -7787,6 +7812,14 @@
         },
         "turn": {
           "properties": {
+            "completedAt": {
+              "description": "终态结算时的 Unix 秒；重启修复的未知结束时刻保持缺省。",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
             "configuration": {
               "anyOf": [
                 {
@@ -8186,6 +8219,15 @@
                 {
                   "type": "null"
                 }
+              ]
+            },
+            "durationMs": {
+              "description": "单调时钟测得的执行经过毫秒，包含模型、工具、审批与清理等待。",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
               ]
             },
             "error": {
@@ -8841,6 +8883,14 @@
                 ]
               },
               "type": "array"
+            },
+            "startedAt": {
+              "description": "Core 准入时的 Unix 秒；旧历史缺省，不从打开界面的时刻补造。",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
             },
             "status": {
               "enum": [
@@ -8908,6 +8958,14 @@
         },
         "turn": {
           "properties": {
+            "completedAt": {
+              "description": "终态结算时的 Unix 秒；重启修复的未知结束时刻保持缺省。",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
             "configuration": {
               "anyOf": [
                 {
@@ -9307,6 +9365,15 @@
                 {
                   "type": "null"
                 }
+              ]
+            },
+            "durationMs": {
+              "description": "单调时钟测得的执行经过毫秒，包含模型、工具、审批与清理等待。",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
               ]
             },
             "error": {
@@ -9962,6 +10029,14 @@
                 ]
               },
               "type": "array"
+            },
+            "startedAt": {
+              "description": "Core 准入时的 Unix 秒；旧历史缺省，不从打开界面的时刻补造。",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
             },
             "status": {
               "enum": [
@@ -17484,6 +17559,14 @@
               "turns": {
                 "items": {
                   "properties": {
+                    "completedAt": {
+                      "description": "终态结算时的 Unix 秒；重启修复的未知结束时刻保持缺省。",
+                      "format": "int64",
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "configuration": {
                       "anyOf": [
                         {
@@ -17883,6 +17966,15 @@
                         {
                           "type": "null"
                         }
+                      ]
+                    },
+                    "durationMs": {
+                      "description": "单调时钟测得的执行经过毫秒，包含模型、工具、审批与清理等待。",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
                       ]
                     },
                     "error": {
@@ -18538,6 +18630,14 @@
                         ]
                       },
                       "type": "array"
+                    },
+                    "startedAt": {
+                      "description": "Core 准入时的 Unix 秒；旧历史缺省，不从打开界面的时刻补造。",
+                      "format": "int64",
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "status": {
                       "enum": [
@@ -20518,6 +20618,14 @@
                 "turns": {
                   "items": {
                     "properties": {
+                      "completedAt": {
+                        "description": "终态结算时的 Unix 秒；重启修复的未知结束时刻保持缺省。",
+                        "format": "int64",
+                        "type": [
+                          "integer",
+                          "null"
+                        ]
+                      },
                       "configuration": {
                         "anyOf": [
                           {
@@ -20917,6 +21025,15 @@
                           {
                             "type": "null"
                           }
+                        ]
+                      },
+                      "durationMs": {
+                        "description": "单调时钟测得的执行经过毫秒，包含模型、工具、审批与清理等待。",
+                        "format": "uint64",
+                        "minimum": 0,
+                        "type": [
+                          "integer",
+                          "null"
                         ]
                       },
                       "error": {
@@ -21573,6 +21690,14 @@
                         },
                         "type": "array"
                       },
+                      "startedAt": {
+                        "description": "Core 准入时的 Unix 秒；旧历史缺省，不从打开界面的时刻补造。",
+                        "format": "int64",
+                        "type": [
+                          "integer",
+                          "null"
+                        ]
+                      },
                       "status": {
                         "enum": [
                           "inProgress",
@@ -21652,6 +21777,14 @@
             },
             "turn": {
               "properties": {
+                "completedAt": {
+                  "description": "终态结算时的 Unix 秒；重启修复的未知结束时刻保持缺省。",
+                  "format": "int64",
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
                 "configuration": {
                   "anyOf": [
                     {
@@ -22051,6 +22184,15 @@
                     {
                       "type": "null"
                     }
+                  ]
+                },
+                "durationMs": {
+                  "description": "单调时钟测得的执行经过毫秒，包含模型、工具、审批与清理等待。",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": [
+                    "integer",
+                    "null"
                   ]
                 },
                 "error": {
@@ -22706,6 +22848,14 @@
                     ]
                   },
                   "type": "array"
+                },
+                "startedAt": {
+                  "description": "Core 准入时的 Unix 秒；旧历史缺省，不从打开界面的时刻补造。",
+                  "format": "int64",
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
                 },
                 "status": {
                   "enum": [
@@ -37161,6 +37311,14 @@
             "turns": {
               "items": {
                 "properties": {
+                  "completedAt": {
+                    "description": "终态结算时的 Unix 秒；重启修复的未知结束时刻保持缺省。",
+                    "format": "int64",
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
                   "configuration": {
                     "anyOf": [
                       {
@@ -37560,6 +37718,15 @@
                       {
                         "type": "null"
                       }
+                    ]
+                  },
+                  "durationMs": {
+                    "description": "单调时钟测得的执行经过毫秒，包含模型、工具、审批与清理等待。",
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
                     ]
                   },
                   "error": {
@@ -38216,6 +38383,14 @@
                     },
                     "type": "array"
                   },
+                  "startedAt": {
+                    "description": "Core 准入时的 Unix 秒；旧历史缺省，不从打开界面的时刻补造。",
+                    "format": "int64",
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
                   "status": {
                     "enum": [
                       "inProgress",
@@ -38329,6 +38504,14 @@
       "properties": {
         "turn": {
           "properties": {
+            "completedAt": {
+              "description": "终态结算时的 Unix 秒；重启修复的未知结束时刻保持缺省。",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
             "configuration": {
               "anyOf": [
                 {
@@ -38728,6 +38911,15 @@
                 {
                   "type": "null"
                 }
+              ]
+            },
+            "durationMs": {
+              "description": "单调时钟测得的执行经过毫秒，包含模型、工具、审批与清理等待。",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
               ]
             },
             "error": {
@@ -39383,6 +39575,14 @@
                 ]
               },
               "type": "array"
+            },
+            "startedAt": {
+              "description": "Core 准入时的 Unix 秒；旧历史缺省，不从打开界面的时刻补造。",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
             },
             "status": {
               "enum": [
@@ -45298,6 +45498,14 @@
               "turns": {
                 "items": {
                   "properties": {
+                    "completedAt": {
+                      "description": "终态结算时的 Unix 秒；重启修复的未知结束时刻保持缺省。",
+                      "format": "int64",
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "configuration": {
                       "anyOf": [
                         {
@@ -45697,6 +45905,15 @@
                         {
                           "type": "null"
                         }
+                      ]
+                    },
+                    "durationMs": {
+                      "description": "单调时钟测得的执行经过毫秒，包含模型、工具、审批与清理等待。",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
                       ]
                     },
                     "error": {
@@ -46352,6 +46569,14 @@
                         ]
                       },
                       "type": "array"
+                    },
+                    "startedAt": {
+                      "description": "Core 准入时的 Unix 秒；旧历史缺省，不从打开界面的时刻补造。",
+                      "format": "int64",
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
                     },
                     "status": {
                       "enum": [
@@ -48320,6 +48545,14 @@
             "turns": {
               "items": {
                 "properties": {
+                  "completedAt": {
+                    "description": "终态结算时的 Unix 秒；重启修复的未知结束时刻保持缺省。",
+                    "format": "int64",
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
                   "configuration": {
                     "anyOf": [
                       {
@@ -48719,6 +48952,15 @@
                       {
                         "type": "null"
                       }
+                    ]
+                  },
+                  "durationMs": {
+                    "description": "单调时钟测得的执行经过毫秒，包含模型、工具、审批与清理等待。",
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
                     ]
                   },
                   "error": {
@@ -49374,6 +49616,14 @@
                       ]
                     },
                     "type": "array"
+                  },
+                  "startedAt": {
+                    "description": "Core 准入时的 Unix 秒；旧历史缺省，不从打开界面的时刻补造。",
+                    "format": "int64",
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
                   },
                   "status": {
                     "enum": [
@@ -51363,6 +51613,14 @@
             "turns": {
               "items": {
                 "properties": {
+                  "completedAt": {
+                    "description": "终态结算时的 Unix 秒；重启修复的未知结束时刻保持缺省。",
+                    "format": "int64",
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
                   "configuration": {
                     "anyOf": [
                       {
@@ -51762,6 +52020,15 @@
                       {
                         "type": "null"
                       }
+                    ]
+                  },
+                  "durationMs": {
+                    "description": "单调时钟测得的执行经过毫秒，包含模型、工具、审批与清理等待。",
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
                     ]
                   },
                   "error": {
@@ -52417,6 +52684,14 @@
                       ]
                     },
                     "type": "array"
+                  },
+                  "startedAt": {
+                    "description": "Core 准入时的 Unix 秒；旧历史缺省，不从打开界面的时刻补造。",
+                    "format": "int64",
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
                   },
                   "status": {
                     "enum": [
@@ -54414,6 +54689,14 @@
             "turns": {
               "items": {
                 "properties": {
+                  "completedAt": {
+                    "description": "终态结算时的 Unix 秒；重启修复的未知结束时刻保持缺省。",
+                    "format": "int64",
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
                   "configuration": {
                     "anyOf": [
                       {
@@ -54813,6 +55096,15 @@
                       {
                         "type": "null"
                       }
+                    ]
+                  },
+                  "durationMs": {
+                    "description": "单调时钟测得的执行经过毫秒，包含模型、工具、审批与清理等待。",
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
                     ]
                   },
                   "error": {
@@ -55469,6 +55761,14 @@
                     },
                     "type": "array"
                   },
+                  "startedAt": {
+                    "description": "Core 准入时的 Unix 秒；旧历史缺省，不从打开界面的时刻补造。",
+                    "format": "int64",
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
                   "status": {
                     "enum": [
                       "inProgress",
@@ -55568,6 +55868,14 @@
       "properties": {
         "turn": {
           "properties": {
+            "completedAt": {
+              "description": "终态结算时的 Unix 秒；重启修复的未知结束时刻保持缺省。",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
             "configuration": {
               "anyOf": [
                 {
@@ -55967,6 +56275,15 @@
                 {
                   "type": "null"
                 }
+              ]
+            },
+            "durationMs": {
+              "description": "单调时钟测得的执行经过毫秒，包含模型、工具、审批与清理等待。",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
               ]
             },
             "error": {
@@ -56622,6 +56939,14 @@
                 ]
               },
               "type": "array"
+            },
+            "startedAt": {
+              "description": "Core 准入时的 Unix 秒；旧历史缺省，不从打开界面的时刻补造。",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
             },
             "status": {
               "enum": [
@@ -58683,6 +59008,14 @@
       "turns": {
         "items": {
           "properties": {
+            "completedAt": {
+              "description": "终态结算时的 Unix 秒；重启修复的未知结束时刻保持缺省。",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
             "configuration": {
               "anyOf": [
                 {
@@ -59082,6 +59415,15 @@
                 {
                   "type": "null"
                 }
+              ]
+            },
+            "durationMs": {
+              "description": "单调时钟测得的执行经过毫秒，包含模型、工具、审批与清理等待。",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
               ]
             },
             "error": {
@@ -59738,6 +60080,14 @@
               },
               "type": "array"
             },
+            "startedAt": {
+              "description": "Core 准入时的 Unix 秒；旧历史缺省，不从打开界面的时刻补造。",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
             "status": {
               "enum": [
                 "inProgress",
@@ -59814,6 +60164,14 @@
   },
   "turn": {
     "properties": {
+      "completedAt": {
+        "description": "终态结算时的 Unix 秒；重启修复的未知结束时刻保持缺省。",
+        "format": "int64",
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
       "configuration": {
         "anyOf": [
           {
@@ -60213,6 +60571,15 @@
           {
             "type": "null"
           }
+        ]
+      },
+      "durationMs": {
+        "description": "单调时钟测得的执行经过毫秒，包含模型、工具、审批与清理等待。",
+        "format": "uint64",
+        "minimum": 0,
+        "type": [
+          "integer",
+          "null"
         ]
       },
       "error": {
@@ -60868,6 +61235,14 @@
           ]
         },
         "type": "array"
+      },
+      "startedAt": {
+        "description": "Core 准入时的 Unix 秒；旧历史缺省，不从打开界面的时刻补造。",
+        "format": "int64",
+        "type": [
+          "integer",
+          "null"
+        ]
       },
       "status": {
         "enum": [

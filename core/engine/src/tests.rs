@@ -25,6 +25,9 @@ async fn model_history_preserves_completion_batches_and_defers_tool_images() {
         .unwrap()
     };
     thread.turns.push(Turn {
+        started_at: None,
+        completed_at: None,
+        duration_ms: None,
         goal: None,
         configuration: None,
         instruction_snapshot: None,
@@ -97,6 +100,9 @@ async fn model_history_keeps_short_references_and_preserves_runtime_audit() {
         );
     }
     thread.turns.push(Turn {
+        started_at: None,
+        completed_at: None,
+        duration_ms: None,
         goal: None,
         configuration: None,
         instruction_snapshot: None,
@@ -231,6 +237,9 @@ async fn compacted_history_preserves_steer_inside_an_automatic_goal_turn() {
     let engine = Engine::open(dir.path(), Arc::new(PendingModel), Limits::default()).unwrap();
     let mut thread = engine.create("/fixture".into()).await.unwrap();
     thread.turns.push(Turn {
+        started_at: None,
+        completed_at: None,
+        duration_ms: None,
         goal: Some(areal_protocol::goals::GoalTurn {
             goal_id: id(),
             sequence: 2,
@@ -303,6 +312,9 @@ async fn persistence_encoding_benchmark() {
     let engine = Engine::open(dir.path(), Arc::new(PendingModel), Limits::default()).unwrap();
     let mut thread = engine.create("/fixture".into()).await.unwrap();
     thread.turns.push(Turn {
+        started_at: None,
+        completed_at: None,
+        duration_ms: None,
         goal: None,
         configuration: None,
         instruction_snapshot: None,

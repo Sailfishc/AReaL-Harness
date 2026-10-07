@@ -102,6 +102,9 @@ impl Engine {
             candidate.preview = text.chars().take(120).collect();
         }
         let mut turn = Turn {
+            started_at: Some(now()),
+            completed_at: None,
+            duration_ms: None,
             goal: None,
             instruction_snapshot: None,
             configuration: (thread.desktop.is_some()
@@ -174,6 +177,7 @@ impl Engine {
         }
         cell.cancel_grace_ms.store(1000, Ordering::Release);
         state.active = Some(Active {
+            started: std::time::Instant::now(),
             isolated_children: 0,
             _admission: admission,
             id: turn.id.clone(),
@@ -608,7 +612,17 @@ impl Engine {
         state.poisoned |= cleanup_failed;
         let thread_id = state.thread.id.clone();
         let open_items = std::mem::take(&mut state.active.as_mut().unwrap().open_items);
+        let elapsed_ms = state
+            .active
+            .as_ref()
+            .unwrap()
+            .started
+            .elapsed()
+            .as_millis()
+            .min(u64::MAX as u128) as u64;
         let turn = state.thread.turns.last_mut().unwrap();
+        turn.completed_at = Some(now());
+        turn.duration_ms = Some(elapsed_ms);
         for item in &mut turn.items {
             if let Item::DynamicToolCall {
                 execution,

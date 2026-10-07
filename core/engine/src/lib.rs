@@ -112,6 +112,7 @@ pub enum Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 struct Active {
+    started: std::time::Instant,
     isolated_children: usize,
     // Includes queued model work, tool waits and cleanup. Never wait for this
     // permit during admission: waiting parents must not deadlock their children.

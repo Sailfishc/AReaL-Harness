@@ -4,6 +4,8 @@
 
 Core 提供固定 Codex app-server 0.145.0 的子集与 AReaL 扩展，不代表官方客户端全兼容。原始基线见 [schema](../../schemas/app-server/codex-0.145.0.json)，认证与产品新增接口见[桌面 API](desktop.md)。
 
+`Turn` 包含可缺省的 `startedAt`、`completedAt`（Unix 秒）和 `durationMs`（毫秒）。开始时间在准入时保存，结束时间与最终时长随终态保存并发布；`durationMs` 使用单调时钟，覆盖激活后的模型、工具、审批等待和清理，不包含尚未准入的排队时间。客户端只刷新运行显示，不把工具时长相加或从打开窗口时重新计时。旧记录与异常重启后无法确认的结束时间/时长保持缺省，不能当作零或用重启时间填补。正常停止和失败结算也保存最终时间。
+
 ## 传输与会话
 
 每个 WebSocket 文本帧是一条请求/响应/通知，上限 4 MiB。请求 `{id,method,params}`，id 为字符串或整数，params 为对象；可省略 jsonrpc，响应 result/error 二选一，不支持批处理。先请求 initialize，再发送 initialized 通知。
