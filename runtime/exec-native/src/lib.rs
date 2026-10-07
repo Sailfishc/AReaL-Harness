@@ -1,4 +1,6 @@
 //! Runtime-owned Unix process execution. No external agent or RPC executor.
+#[cfg(target_os = "linux")]
+mod linux_reaper;
 mod pty;
 mod sandbox;
 pub use sandbox::Profile as SandboxProfile;
@@ -10,13 +12,15 @@ use std::{
     collections::HashMap,
     io,
     os::unix::process::ExitStatusExt,
-    process::Stdio,
+    process::{ExitStatus, Stdio},
     sync::{Arc, Mutex},
     time::Duration,
 };
+#[cfg(not(target_os = "linux"))]
+use tokio::process::Command;
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
-    process::{Child, Command},
+    process::Child,
     sync::{mpsc, watch},
     task::JoinSet,
 };
@@ -118,7 +122,8 @@ impl Backend for NativeBackend {
     }
     async fn start(&self, mut execution: Execution) -> Result<mpsc::Receiver<Event>> {
         prepare_system_python(&mut execution);
-        let argv = sandbox::command(&execution, self.profile)?;
+        let mut argv = sandbox::command(&execution, self.profile)?;
+        let filter = sandbox::seccomp(&mut argv, self.profile, execution.network)?;
         // Locally linked Mach-O helpers can be killed by AMFI when their
         // spawning parent is a Rust development binary. A signed system parent
         // launches the unchanged sandbox command. It shares our process group
@@ -133,94 +138,108 @@ impl Backend for NativeBackend {
         } else {
             Command::new(&argv[0])
         };
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(all(not(target_os = "macos"), not(target_os = "linux")))]
         let mut command = Command::new(&argv[0]);
-        let _filter = sandbox::seccomp(&mut command, self.profile, execution.network)?;
+        #[cfg(target_os = "linux")]
+        let (mut command, mut reaper) =
+            linux_reaper::prepare(&argv, execution.tty, filter.as_ref()).map_err(spawn_error)?;
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = filter;
+            command.args(&argv[1..]);
+        }
         command
-            .args(&argv[1..])
             .current_dir(&execution.cwd)
             .env_clear()
             .envs(&execution.env)
-            .kill_on_drop(true);
+            // Linux 关闭生命周期管道会触发回收；不能先杀掉负责 wait 的 helper。
+            .kill_on_drop(!cfg!(target_os = "linux"));
         // No await between admission, spawn and ownership handoff. Shutdown
         // cannot miss a child even if the caller drops its start future.
-        let mut state = self.state.lock().unwrap();
-        if state.closed || self.stop.is_cancelled() {
-            return Err(Error::new(ErrorCode::ScopeClosed, "backend is closed"));
-        }
-        if state.processes.contains_key(&execution.process_id) {
-            return Err(Error::new(ErrorCode::Conflict, "process already exists"));
-        }
-        let mut input: Option<Input> = None;
-        let mut terminal = None;
-        let mut outputs: Vec<(OutputStream, Box<dyn AsyncRead + Unpin + Send>)> = Vec::new();
-        if execution.tty {
-            let (master, slave) = pty::open().map_err(spawn_error)?;
-            command
-                .stdin(slave.try_clone().map_err(spawn_error)?)
-                .stdout(slave.try_clone().map_err(spawn_error)?)
-                .stderr(slave);
-            // SAFETY: only async-signal-safe syscalls run between fork and exec.
-            unsafe {
-                command.pre_exec(|| {
-                    if libc::setsid() < 0 || libc::ioctl(0, libc::TIOCSCTTY as _, 0) < 0 {
-                        return Err(io::Error::last_os_error());
-                    }
-                    Ok(())
-                });
+        let (child, process, outputs) = {
+            let mut state = self.state.lock().unwrap();
+            if state.closed || self.stop.is_cancelled() {
+                return Err(Error::new(ErrorCode::ScopeClosed, "backend is closed"));
             }
-            terminal = Some(master.clone());
-            input = Some(Box::new(master.clone()));
-            outputs.push((OutputStream::Pty, Box::new(master)));
-        } else {
-            if cfg!(target_os = "linux") {
-                // Own the session at the bwrap launcher, before it forks its
-                // namespace init. Both stay in our group, so cancellation also
-                // covers the interval before init installs its PDEATHSIG.
-                // A new session prevents access to the caller's controlling tty.
-                // SAFETY: setsid is async-signal-safe between fork and exec.
+            if state.processes.contains_key(&execution.process_id) {
+                return Err(Error::new(ErrorCode::Conflict, "process already exists"));
+            }
+            let mut input: Option<Input> = None;
+            let mut terminal = None;
+            let mut outputs: Vec<(OutputStream, Box<dyn AsyncRead + Unpin + Send>)> = Vec::new();
+            if execution.tty {
+                let (master, slave) = pty::open().map_err(spawn_error)?;
+                command
+                    .stdin(slave.try_clone().map_err(spawn_error)?)
+                    .stdout(slave.try_clone().map_err(spawn_error)?)
+                    .stderr(slave);
+                // Linux 的控制终端归实际命令所有，不让回收器接收终端组信号。
+                #[cfg(not(target_os = "linux"))]
                 unsafe {
                     command.pre_exec(|| {
-                        if libc::setsid() < 0 {
+                        if libc::setsid() < 0 || libc::ioctl(0, libc::TIOCSCTTY as _, 0) < 0 {
                             return Err(io::Error::last_os_error());
                         }
                         Ok(())
                     });
                 }
+                terminal = Some(master.clone());
+                input = Some(Box::new(master.clone()));
+                outputs.push((OutputStream::Pty, Box::new(master)));
             } else {
+                #[cfg(not(target_os = "linux"))]
                 command.process_group(0);
+                command
+                    .stdin(if execution.pipe_stdin {
+                        Stdio::piped()
+                    } else {
+                        Stdio::null()
+                    })
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped());
             }
-            command
-                .stdin(if execution.pipe_stdin {
-                    Stdio::piped()
-                } else {
-                    Stdio::null()
-                })
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped());
-        }
-        let mut child = command.spawn().map_err(spawn_error)?;
-        // Command retains configured PTY slave descriptors until dropped.
-        drop(command);
-        if !execution.tty {
-            input = child.stdin.take().map(|stdin| Box::new(stdin) as Input);
-            outputs.push((OutputStream::Stdout, Box::new(child.stdout.take().unwrap())));
-            outputs.push((OutputStream::Stderr, Box::new(child.stderr.take().unwrap())));
-        }
-        let process = Arc::new(Process {
-            stop: self.stop.child_token(),
-            input: tokio::sync::Mutex::new(input),
-            terminal,
-            done: watch::channel(None).0,
-        });
-        state
-            .processes
-            .insert(execution.process_id.clone(), process.clone());
+            let mut child = command.spawn().map_err(spawn_error)?;
+            #[cfg(target_os = "linux")]
+            reaper.spawned();
+            // Command retains configured PTY slave descriptors until dropped.
+            drop(command);
+            #[cfg(target_os = "linux")]
+            drop(filter);
+            if !execution.tty {
+                input = child.stdin.take().map(|stdin| Box::new(stdin) as Input);
+                outputs.push((OutputStream::Stdout, Box::new(child.stdout.take().unwrap())));
+                outputs.push((OutputStream::Stderr, Box::new(child.stderr.take().unwrap())));
+            }
+            let process = Arc::new(Process {
+                stop: self.stop.child_token(),
+                input: tokio::sync::Mutex::new(input),
+                terminal,
+                done: watch::channel(None).0,
+            });
+            state
+                .processes
+                .insert(execution.process_id.clone(), process.clone());
+            (child, process, outputs)
+        };
         let state = self.state.clone();
         let stop = self.stop.clone();
         let (tx, rx) = mpsc::channel(128);
+        #[cfg(target_os = "linux")]
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        #[cfg(target_os = "linux")]
+        let mut startup_done = process.done.subscribe();
         tokio::spawn(async move {
-            let result = monitor(child, &process, outputs, tx).await;
+            let result = monitor(
+                child,
+                &process,
+                outputs,
+                tx,
+                #[cfg(target_os = "linux")]
+                reaper,
+                #[cfg(target_os = "linux")]
+                started_tx,
+            )
+            .await;
             let mut state = state.lock().unwrap();
             if let Err(error) = &result {
                 state.closed = true;
@@ -230,6 +249,22 @@ impl Backend for NativeBackend {
             process.done.send_replace(Some(result));
             state.processes.remove(&execution.process_id);
         });
+        // 先登记并移交 monitor 所有权，再等待真实命令的启动回执。
+        // 调用方丢弃 start future 时，rx 关闭仍会触发已登记执行的回收。
+        #[cfg(target_os = "linux")]
+        if let Err(error) = started_rx
+            .await
+            .map_err(|_| cleanup_error("execution startup monitor was lost"))?
+        {
+            // 拒绝回执必须晚于登记清除，避免多线程调用方立即重试同一 ID 时撞上旧项。
+            while startup_done.borrow_and_update().is_none() {
+                startup_done
+                    .changed()
+                    .await
+                    .map_err(|_| cleanup_error("execution startup cleanup was lost"))?;
+            }
+            return Err(error);
+        }
         Ok(rx)
     }
     async fn write(&self, process_id: &str, _write_id: &str, bytes: &[u8]) -> Result<()> {
@@ -343,10 +378,12 @@ impl Backend for NativeBackend {
 
 // Killing a process group covers ordinary descendants. Detached sessions are
 // not claimed as verified process-tree cleanup by the public capabilities.
+#[cfg(not(target_os = "linux"))]
 struct Group {
     pid: i32,
     signalled: bool,
 }
+#[cfg(not(target_os = "linux"))]
 impl Group {
     fn kill(&mut self) -> io::Result<()> {
         if self.signalled {
@@ -362,6 +399,7 @@ impl Group {
         Ok(())
     }
 }
+#[cfg(not(target_os = "linux"))]
 impl Drop for Group {
     fn drop(&mut self) {
         let _ = self.kill();
@@ -373,7 +411,37 @@ async fn monitor(
     process: &Process,
     outputs: Vec<(OutputStream, Box<dyn AsyncRead + Unpin + Send>)>,
     tx: mpsc::Sender<Event>,
+    #[cfg(target_os = "linux")] mut reaper: linux_reaper::Reaper,
+    #[cfg(target_os = "linux")] started: tokio::sync::oneshot::Sender<Result<()>>,
 ) -> Result<()> {
+    #[cfg(target_os = "linux")]
+    {
+        let result = tokio::select! {
+            result = reaper.started(&mut child) => Some(result),
+            _ = process.stop.cancelled() => None,
+            _ = tx.closed() => None,
+        };
+        let result = match result {
+            Some(result) => result,
+            None => {
+                reaper.terminate();
+                reaper.started(&mut child).await
+            }
+        };
+        let failure = result.as_ref().err().cloned();
+        let _ = started.send(result);
+        if let Some(error) = failure {
+            if error.code == ErrorCode::InvalidArgument {
+                // START_FAILED 已确认没有工作负载，并 wait helper；只拒绝这次执行。
+                return Ok(());
+            }
+            reaper.terminate();
+            // 异常 helper 可能继续收养 D 态后代；保留明确 waiter，不先杀回收者。
+            tokio::spawn(async move { child.wait().await });
+            return Err(error);
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
     let mut group = Group {
         pid: child.id().expect("spawned child has pid") as i32,
         signalled: false,
@@ -403,41 +471,72 @@ async fn monitor(
             result
         });
     }
-    let status = tokio::select! {
-        status = child.wait() => Some(status),
-        _ = process.stop.cancelled() => None,
-        _ = tx.closed() => None,
-    };
-    let status = match status {
-        Some(status) => status,
-        None => match group.kill() {
-            Ok(()) => child.wait().await,
-            // macOS can reject a signal to an already-exiting group. Accept
-            // this only if wait confirms that our leader has actually exited;
-            // output EOF is still required below before reporting Closed.
-            Err(error) if exited_group_error(&error) => {
-                // Signal permission and waitability can change in separate
-                // kernel steps. Wait for actual exit, with a bounded deadline.
-                let status = tokio::time::timeout(IO_TIMEOUT, child.wait())
-                    .await
-                    .map_err(|_| cleanup_error(&format!("group termination failed: {error}")))?;
-                group.signalled = true;
-                status
+    #[cfg(target_os = "linux")]
+    let status: ExitStatus = {
+        let result = tokio::select! {
+            result = reaper.finish(&mut child) => Some(result),
+            _ = process.stop.cancelled() => None,
+            _ = tx.closed() => None,
+        };
+        let result = match result {
+            Some(result) => result,
+            None => {
+                reaper.terminate();
+                reaper.finish(&mut child).await
             }
-            Err(error) => return Err(cleanup_error(&format!("group termination failed: {error}"))),
-        },
-    }
-    .map_err(|e| cleanup_error(&format!("wait failed: {e}")))?;
-    // Close descendants' inherited pipes before reporting completion. A reaped
-    // leader plus stream EOF is the managed-process guarantee, not a claim of
-    // complete descendant-tree cleanup.
-    if let Err(error) = group.kill() {
-        if exited_group_error(&error) {
-            group.signalled = true;
-        } else {
-            return Err(cleanup_error(&format!("group cleanup failed: {error}")));
+        };
+        match result {
+            Ok(status) => status,
+            Err(message) => {
+                reaper.terminate();
+                tokio::spawn(async move { child.wait().await });
+                return Err(cleanup_error(&message));
+            }
         }
-    }
+    };
+    #[cfg(not(target_os = "linux"))]
+    let status: ExitStatus = {
+        let status = tokio::select! {
+            status = child.wait() => Some(status),
+            _ = process.stop.cancelled() => None,
+            _ = tx.closed() => None,
+        };
+        let status = match status {
+            Some(status) => status,
+            None => match group.kill() {
+                Ok(()) => child.wait().await,
+                // macOS can reject a signal to an already-exiting group. Accept
+                // this only if wait confirms that our leader has actually exited;
+                // output EOF is still required below before reporting Closed.
+                Err(error) if exited_group_error(&error) => {
+                    // Signal permission and waitability can change in separate
+                    // kernel steps. Wait for actual exit, with a bounded deadline.
+                    let status = tokio::time::timeout(IO_TIMEOUT, child.wait())
+                        .await
+                        .map_err(|_| {
+                            cleanup_error(&format!("group termination failed: {error}"))
+                        })?;
+                    group.signalled = true;
+                    status
+                }
+                Err(error) => {
+                    return Err(cleanup_error(&format!("group termination failed: {error}")));
+                }
+            },
+        }
+        .map_err(|e| cleanup_error(&format!("wait failed: {e}")))?;
+        // Close descendants' inherited pipes before reporting completion. A reaped
+        // leader plus stream EOF is the managed-process guarantee, not a claim of
+        // complete descendant-tree cleanup.
+        if let Err(error) = group.kill() {
+            if exited_group_error(&error) {
+                group.signalled = true;
+            } else {
+                return Err(cleanup_error(&format!("group cleanup failed: {error}")));
+            }
+        }
+        status
+    };
     process.stop.cancel();
     process.input.lock().await.take();
     tokio::time::timeout(IO_TIMEOUT, async {
@@ -459,6 +558,7 @@ async fn monitor(
     .await?;
     send(&tx, Event::Closed).await
 }
+#[cfg(not(target_os = "linux"))]
 fn exited_group_error(error: &io::Error) -> bool {
     cfg!(target_os = "macos") && error.raw_os_error() == Some(libc::EPERM)
 }

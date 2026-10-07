@@ -31,6 +31,8 @@ AReaL-Harness follows **Clients → Core → Runtime**. Core exclusively owns se
 
 `supervisor` depends on `protocol`; `exec-native` implements its backend interface; the daemon assembles them. Engine does not depend on app-server or clients. Server resolves and injects configuration; SDKs do not discover user configuration themselves.
 
+Linux `exec-native` assigns each execution a dedicated trusted subreaper helper that owns waiting for and reaping the actual command and adopted descendants. Runtime waits for the helper and validates its private exit/cleanup receipt. This responsibility does not belong in the Core model loop and does not replace an outer service manager or container init. macOS retains its existing execution path; see the [Runtime cleanup contract](../api/runtime.en.md#output-and-cleanup) for prerequisites and limits.
+
 Engine’s `trajectory` module records model and tool execution content through `tracing`; server’s `telemetry` module assembles the standard OpenTelemetry Traces/Logs SDK and OTLP exporters. Engine does not read telemetry environment variables or depend on an export backend; see [reporting configuration](../guides/configuration.en.md#opentelemetry-trajectory-reporting).
 
 Skill discovery in `core/config` uses trusted launch parameters and returns metadata with individual warnings. Engine also reuses its stateless header parser for explicit deployment registration, without locating user configuration itself. `core/engine/src/desktop/skills.rs` retains registered directory descriptors and asynchronously reads bounded pages of current resources without Skill content snapshots. See the [Skill guide](../guides/skills.en.md) for configuration and read contracts.

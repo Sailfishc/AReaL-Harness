@@ -59,6 +59,14 @@ gap means an older prefix was evicted; truncated means budget/fault loss; closed
 
 revoke closes descendant admission before cancellation. waitClosed requires prior revoke. terminate accepted is not cleanup; process.wait confirms exit and output closure. Lost facts/cleanup failure close admission and return CLEANUP_FAILED while UNKNOWN retains quota.
 
+Each Linux native execution has a dedicated trusted reaper helper running embedded code through `/usr/bin/python3 -I -S`; deployment requires Python 3.9+ and readable `/proc`. Before launching the command, the helper becomes a subreaper and exclusively waits for its children, continuously reaping adopted orphans. On normal command exit, cancellation or EOF on the private lifetime pipe, it terminates and reaps remaining descendants of that execution, including descendants that change process groups with `setsid`. Runtime waits only for its helper and receives the actual command exit status and cleanup result through a private receipt; helper exit alone does not replace that receipt or output-closure confirmation. macOS retains its existing process-group and output-drain path.
+
+The startup handshake waits at most 3 seconds. When it confirms that no command was created and the helper has been reaped, startup failure rejects only that execution and releases its registration. Cleanup timeouts after startup are reported as failures; the helper continues adopting and waiting for descendants that have not exited, while Runtime retains its waiter instead of killing the reaper and treating that as completed cleanup.
+
+Zombies still owned by a live intermediate parent must be waited for by that parent. The helper can reap them only after the parent exits and they are adopted.
+
+This boundary covers one Runtime execution. It is not cgroup resource isolation and does not cover Core, MCP, plugin Hosts, processes launched independently by Studio, or zombies already present on the host. It depends on the trusted helper staying alive and retaining child ownership. Malicious same-UID full-access code or an external `SIGKILL` that terminates the helper can still leave descendants to the outer init, whose deployment must reap them. Therefore `processTreeCleanupVerified` remains false; a successful individual cleanup is not a guarantee of complete tree cleanup under arbitrary escapes or host failures.
+
 stdin accepts 1–65536 raw bytes per write. resize dimensions are 1–65535. closeStdin closes pipe FDs or sends canonical PTY VEOF; raw PTYs reject it. Empty writes are not EOF. owner.revoke permanently closes the current generation and revokes descendants; each Scope still needs waitClosed.
 
 ## Files

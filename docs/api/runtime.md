@@ -59,6 +59,14 @@ gap 表示旧前缀淘汰；truncated 表示预算/故障丢失；closed 表示�
 
 revoke 先关闭后代准入再请求取消；waitClosed 只能在 revoke 后调用。terminate 的 accepted 不等于清理；process.wait 确认退出和输出关闭。事实丢失/清理失败封闭连接并返回 CLEANUP_FAILED，UNKNOWN 保留占额。
 
+Linux native 每次执行由独立的可信回收 helper 托管，使用 `/usr/bin/python3 -I -S` 运行内嵌代码；部署须提供 Python 3.9+ 及可读的 `/proc`。helper 在启动命令前成为 subreaper，独占其子进程的 wait，持续回收被收养的孤儿。命令正常退出、取消或私有生命周期管道 EOF 时，它清退并回收该执行的残留后代，包括调用 `setsid` 改变进程组的后代。Runtime 只等待自己的 helper，实际命令退出状态与清理结果由私有回执传回；helper 退出本身不能替代该回执和输出关闭确认。macOS 继续使用现有进程组与输出收尾路径。
+
+启动握手最多等待 3 秒；确认未创建命令且 helper 已回收的启动失败，只拒绝本次执行并释放登记。已启动执行的清理超时会报告失败；helper 继续收养并等待尚未退出的后代，Runtime 保留其 waiter，不以强杀回收器替代回收完成。
+
+仍归属活着的中间父进程的 zombie，必须由该父进程 wait；helper 在父进程退出、后代被收养后才能代为回收。
+
+此回收边界属于单次 Runtime 执行，不是 cgroup 资源隔离，不覆盖 Core、MCP、插件 Host、Studio 自行启动的进程或主机上已有的 zombie。它依赖可信 helper 存活并持有子进程归属；恶意同 UID 的 full-access 代码或外部 `SIGKILL` 终止 helper 时，后代仍可能交给外层 init，外层部署必须自行回收。因此 `processTreeCleanupVerified` 保持 false，不能据单次清理成功宣称任意逃逸或宿主故障下的全树回收保证。
+
 stdin 单次 1–65536 原始字节；resize 尺寸 1–65535。closeStdin 对 pipe 关闭 FD，对 canonical PTY 发送 VEOF，raw PTY 拒绝。空写不等于 EOF。owner.revoke 永久封闭当前 generation 并撤销后代，各 Scope 仍需 waitClosed。
 
 ## 文件
