@@ -1,5 +1,6 @@
 use super::skills::Skill;
 use super::*;
+use std::collections::BTreeSet;
 
 #[derive(Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -18,6 +19,8 @@ pub(super) struct Catalog {
     pub(super) workflows: BTreeMap<String, Workflow>,
     #[serde(default)]
     pub(super) providers: BTreeMap<String, Provider>,
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    configured_provider_ids: BTreeSet<String>,
     #[serde(default)]
     profiles: BTreeMap<String, AgentProfile>,
     // 接受旧目录格式并丢弃内容哈希；资源不再由启动快照固定。
@@ -43,7 +46,51 @@ fn key(id: &str, revision: &str) -> String {
     format!("{id}/{revision}")
 }
 
+/// 可信启动配置的执行投影；文件路径、解析和写入不进入 Engine。
+#[derive(Clone, Default)]
+pub struct ConfiguredModels {
+    pub providers: Vec<Provider>,
+    pub provider_ids: BTreeSet<String>,
+    pub parameters: BTreeMap<(String, String), ModelParameters>,
+    pub default_model: Option<ModelRef>,
+}
+
 impl Engine {
+    /// 只在启动装配期间调用。旧投影在落盘后替换，已持久化的任务配置保持原样。
+    pub fn install_configured_models(&self, configured: ConfiguredModels) -> anyhow::Result<()> {
+        let mut catalog = self.desktop.catalog.write().unwrap();
+        let mut candidate = catalog.clone();
+        for id in &catalog.configured_provider_ids {
+            candidate.providers.remove(id);
+        }
+        for id in &configured.provider_ids {
+            candidate.providers.remove(id);
+        }
+        for provider in &configured.providers {
+            anyhow::ensure!(
+                valid_id(&provider.id) && configured.provider_ids.contains(&provider.id),
+                "invalid configured provider identity"
+            );
+            let mut provider = provider.clone();
+            let previous = catalog.providers.get(&provider.id);
+            provider.revision = previous.map_or(1, |old| old.revision);
+            if previous.is_some_and(|old| old != &provider) {
+                provider.revision += 1;
+            }
+            candidate.providers.insert(provider.id.clone(), provider);
+        }
+        candidate.configured_provider_ids = configured.provider_ids.clone();
+        anyhow::ensure!(
+            candidate.providers.len() <= 32
+                && serde_json::to_vec(&candidate)?.len() <= 2 * 1024 * 1024,
+            "desktop provider catalog exceeds capacity"
+        );
+        self.store.save_metadata_sync("catalog", &candidate)?;
+        *catalog = candidate;
+        *self.desktop.configured_models.write().unwrap() = configured;
+        Ok(())
+    }
+
     /// 仅可信装配入口可注册资源路径；RPC 和模型只接收版本引用。
     pub fn install_deployment(&self, path: &Path) -> anyhow::Result<()> {
         anyhow::ensure!(
@@ -250,6 +297,18 @@ impl Engine {
     ) -> Result<Provider> {
         self.mutate(move |engine| async move {
             let _lock = engine.desktop.catalog_write.lock().await;
+            if engine
+                .desktop
+                .configured_models
+                .read()
+                .unwrap()
+                .provider_ids
+                .contains(&provider.id)
+            {
+                return Err(invalid(
+                    "CONFIGURATION_MANAGED: edit the shared model configuration",
+                ));
+            }
             if !valid_id(&provider.id)
                 || provider.models.is_empty()
                 || provider.models.len() > 64
@@ -292,6 +351,18 @@ impl Engine {
     pub async fn remove_provider(self: &Arc<Self>, id: String, expected: u64) -> Result<()> {
         self.mutate(move |engine| async move {
             let _lock = engine.desktop.catalog_write.lock().await;
+            if engine
+                .desktop
+                .configured_models
+                .read()
+                .unwrap()
+                .provider_ids
+                .contains(&id)
+            {
+                return Err(invalid(
+                    "CONFIGURATION_MANAGED: edit the shared model configuration",
+                ));
+            }
             let mut candidate = engine.desktop.catalog.read().unwrap().clone();
             if candidate
                 .providers
@@ -411,7 +482,10 @@ impl Engine {
         revision: u64,
     ) -> Result<EffectiveConfig> {
         let profile = profile.as_ref().map(|p| self.profile(p)).transpose()?;
-        let model = model.or_else(|| profile.as_ref().and_then(|p| p.model.clone()));
+        let configured = self.desktop.configured_models.read().unwrap();
+        let model = model
+            .or_else(|| profile.as_ref().and_then(|p| p.model.clone()))
+            .or_else(|| configured.default_model.clone());
         let provider = model
             .as_ref()
             .map(|m| self.provider(&m.provider_id))
@@ -420,12 +494,34 @@ impl Engine {
             .as_ref()
             .map(|p| p.parameters.clone())
             .unwrap_or_default();
+        let model_defaults = model
+            .as_ref()
+            .and_then(|m| {
+                configured
+                    .parameters
+                    .get(&(m.provider_id.clone(), m.model_id.clone()))
+            })
+            .cloned()
+            .unwrap_or_default();
         let parameters = ModelParameters {
-            temperature: parameters.temperature.or(defaults.temperature),
-            max_output_tokens: parameters.max_output_tokens.or(defaults.max_output_tokens),
-            reasoning_effort: parameters.reasoning_effort.or(defaults.reasoning_effort),
-            reasoning_summary: parameters.reasoning_summary.or(defaults.reasoning_summary),
+            temperature: parameters
+                .temperature
+                .or(model_defaults.temperature)
+                .or(defaults.temperature),
+            max_output_tokens: parameters
+                .max_output_tokens
+                .or(model_defaults.max_output_tokens)
+                .or(defaults.max_output_tokens),
+            reasoning_effort: parameters
+                .reasoning_effort
+                .or(model_defaults.reasoning_effort)
+                .or(defaults.reasoning_effort),
+            reasoning_summary: parameters
+                .reasoning_summary
+                .or(model_defaults.reasoning_summary)
+                .or(defaults.reasoning_summary),
         };
+        drop(configured);
         let configuration = EffectiveConfig {
             default_model_revision: None,
             options: ClientOptions::default(),

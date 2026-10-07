@@ -88,3 +88,5 @@ Core server 负责配置监听与模型装配，Engine 在提交时固定模型�
 Core `permissions` 负责审批模式、规则优先级与精确请求记忆；Clients 展示并回答请求。Runtime 独立执行部署上限及 Scope 收窄，本地 full-access 由可信 launcher 选择。见[权限配置](../guides/configuration.md#permissions)。
 
 `integrations/envarena` 提供原生发布包的 runner 适配源码，只投影 Core 终止原因和收集制品，不维护模型循环。返回值契约见 [Core API](../api/core.md#结构化终止原因)。
+
+模型目录的解析、校验和受控文件写入归 `core/config`，`core/server` 在启动时装配为 Engine 的执行投影。Clients 使用公开配置命令，不复制 TOML 解析或凭据存储。共享目录保存与安全重启分开，任务持有原模型快照；契约见[配置指南](../guides/configuration.md#gui-与-cli-共享模型目录)。

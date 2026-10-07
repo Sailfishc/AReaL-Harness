@@ -165,7 +165,7 @@ target/debug/areal config show --sources --config /absolute/config.toml
 
 诊断不监听、不创建数据、不启动 Runtime/MCP/插件，也不探测模型；输出有效值和来源并脱敏。共享本地服务支持下述模型配置热更新；启动凭据不进入 Runtime 环境。`OTEL_*` 由 server 的 telemetry 装配处理。
 
-桌面运行时 provider 目录使用 `areal/provider/*` 和 `AREAL_CREDENTIAL_<ref>`；只支持 chatCompletions/responses。`--desktop-config` 装配版本化 Profile/Skill/Workflow；使用 `--agent code-agent@v2` 启动 TUI、headless 或 `exec` 时选择 Profile，Profile 绑定的 Workflow 会随 Thread 自动启动，不再额外传 Workflow 参数。会话配置可在空闲边界通过 CAS 更新并冻结到新 Turn/队列，见[桌面契约](../api/desktop.md)。会话显式选择的 Provider 与 TOML 默认模型分别管理。
+桌面运行时 provider 目录使用 `areal/provider/*` 和 `AREAL_CREDENTIAL_<ref>`；只支持 chatCompletions/responses。TOML 中的供应商在启动时装配，运行时目录是执行投影；配置管理的 ID 拒绝 upsert/remove。`--desktop-config` 装配版本化 Profile/Skill/Workflow；使用 `--agent code-agent@v2` 启动 TUI、headless 或 `exec` 时选择 Profile，Profile 绑定的 Workflow 会随 Thread 自动启动，不再额外传 Workflow 参数。会话显式配置按 revision 更新，见[桌面契约](../api/desktop.md)。
 
 ```sh
 target/debug/areal --desktop-config deployment.json --agent code-agent@v2
@@ -188,6 +188,37 @@ target/debug/areal exec --desktop-config deployment.json --agent code-agent@v2 "
 ```
 
 `tool-agent@v1` 可直接使用允许的工具，不需要 Workgroup；`code-agent@v2` 需要可信 `--workgroup-policy` 和 `--allow-write`，策略须授权 `src/main.rs` 并提供最终检查，详见 [Workgroup 指南](workgroups.md)。Workflow 计划由绑定 Profile 自动启动，`--prompt` 或 `exec` 的普通 Turn 是独立的用户交互。
+
+### GUI 与 CLI 共享模型目录
+
+`areal config models read [--config /absolute/config.toml]` 输出 JSON：`path`、文件内容 revision、`data`（供应商目录）、`defaultModel`（文件值）和 `effective`（经过 CLI／环境覆盖的诊断，含 sources）。读取不创建文件、不需要密钥值。`areal config models write` 从 stdin 接收 `{ "expectedRevision": "...", "data": [...], "defaultModel": { "providerId": "local", "modelId": "one" } }`；传 `null` 清除默认值。接口完整替换模型目录，保留其他配置和注释，输出新快照。两个入口必须使用同一文件才共享；环境覆盖不会写回文件。
+
+```toml
+schema_version = 1
+[model]
+catalog_version = 1
+provider = "local"
+name = "one"
+[model.providers.local]
+name = "Local model service"
+endpoint = "http://127.0.0.1:8000/v1/chat/completions"
+protocol = "chat-completions"
+enabled = true
+api_key_env = "LOCAL_MODEL_KEY"
+parameters = { temperature = 0.2 }
+models = [
+  { id = "one", display_name = "Primary", enabled = true, parameters = { reasoning_effort = "low" } },
+  { id = "two", enabled = false, parameters = {} },
+]
+```
+
+JSON 使用 camelCase（`apiKeyEnv`、`displayName`、`maxOutputTokens`、`reasoningEffort`），协议仍为 `chat-completions` / `responses`。最多 32 个供应商，每个最多 64 个模型。供应商与模型都支持启停、名称和参数；参数按显式会话、模型、供应商默认值叠加。全局 TOML／环境／CLI 参数仍遵循原优先级。文件默认引用必须指向启用的供应商与模型。旧单模型 TOML 无需立即改写，选中的名称作为目录项；首次共享保存会添加 `catalog_version = 1`。
+
+普通配置只保存密钥环境变量名。共享接口拒绝带查询参数的 endpoint，避免把 URL 中的认证信息送入 GUI；旧配置诊断仍脱敏查询参数。桌面安全存储不向独立 CLI 暴露，CLI 自行提供引用变量。`areal_openai` 为桌面动态账号目录保留，允许作为默认引用，禁止写为静态供应商；独立 CLI 缺少账号传输端点时明确失败。
+
+写入先校验、检查整个文件 revision，再使用同目录临时文件、fsync 和原子替换；合作写入者通过锁串行，过期请求失败。默认缺失文件可以首次创建，显式缺失文件和写入符号链接拒绝。非合作编辑器不参与锁，多次摘要校验不等于文件系统原子 CAS。
+
+共享目录采用保存／应用分离：`catalog_version = 1` 的模型变更显示 restartRequired，由客户端在安全空闲时重启；未启动实例下次加载。运行中的模型及已有任务不被保存动作修改，新默认值仅用于应用后创建的任务。历史任务保留原配置和凭据引用，轮换时需继续提供旧引用所需的环境凭据。
 
 ## 模型配置热更新
 

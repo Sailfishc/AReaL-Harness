@@ -37,7 +37,7 @@ Compatibility: Bearer clients and the authentication file format are unchanged. 
 | plan/read/update | observe / interact | Up to 64 steps, conditional expectedRevision update |
 | permissions/read/forget | manage (unrestricted threadIds) | Read mode, sources, remembered grants; revoke memory |
 | interaction/list/respond | observe / interact (allowProject also needs unrestricted manage) | Questions/approvals bound to Thread/Turn/requestId |
-| provider/list/read/upsert/remove/probe | manage | Credential references, CAS writes and explicit probes |
+| provider/list/read/upsert/remove/probe | manage | Credential references, CAS writes and explicit probes; upsert/remove of TOML-managed IDs return `CONFIGURATION_MANAGED`; use shared configuration commands |
 | model/list | observe | providerId/modelId, capabilities and availability |
 | turn/start/enqueue, queue/list/update/remove/reorder/pause/resume | observe / interact | Durable submissions, frozen configuration and queue management |
 | goal/get, goal/create/update/pause/resume/clear | observe / interact | Persistent Goals, CAS control and shared budgets; execution begins when a Goal is explicitly created; see the [Goal contract](core.en.md#goals) |

@@ -37,7 +37,7 @@ Cookie 名为 `areal_session_<origin摘要>`，不指定 Domain，使用 `HttpOn
 | plan/read/update | observe / interact | 最多 64 步，expectedRevision 条件更新 |
 | permissions/read/forget | manage（不允许 threadIds 限定身份） | 模式、来源、授权记忆查询与撤销 |
 | interaction/list/respond | observe / interact（allowProject 另需不限定 Thread 的 manage） | 追问/审批，绑定 Thread/Turn/requestId |
-| provider/list/read/upsert/remove/probe | manage | 凭据引用、CAS 写入与显式连通性探测 |
+| provider/list/read/upsert/remove/probe | manage | 凭据引用、CAS 写入与显式连通性探测；TOML 托管 ID 的 upsert/remove 返回 `CONFIGURATION_MANAGED`，改用共享配置命令 |
 | model/list | observe | providerId/modelId、能力和可用状态 |
 | turn/start/enqueue, queue/list/update/remove/reorder/pause/resume | observe / interact | 持久提交、冻结配置与队列管理 |
 | goal/get, goal/create/update/pause/resume/clear | observe / interact | 持久目标、CAS 控制与共享预算；显式创建目标后运行，见 [Goal 契约](core.md#goals) |
