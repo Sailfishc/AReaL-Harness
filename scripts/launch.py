@@ -179,7 +179,13 @@ def main():
     runtime_bin = binary.parent / "libexec/areal"
     if not runtime_bin.is_dir():
         runtime_bin = binary
-    paths = [binary / "areal", runtime_bin / "areal-runtime", runtime_bin / "areal-runtime-fs"]
+    paths = [
+        binary / "areal",
+        runtime_bin / "areal-runtime",
+        runtime_bin / "areal-runtime-fs",
+    ]
+    if sys.platform == "linux":
+        paths.append(runtime_bin / "areal-runtime-reaper")
     for path in paths:
         if not path.is_file() or not os.access(path, os.X_OK):
             parser.error(

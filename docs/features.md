@@ -25,7 +25,7 @@
 
 ## 支持边界
 
-- macOS 的收窄工具执行使用 Seatbelt；Linux native 使用 Bubblewrap namespace 与 Runtime seccomp，要求部署提供 `/usr/bin/bwrap` 和 user namespace；Linux launcher 的 full-access 支持宿主执行。Linux Runtime 的单次执行回收还要求 `/usr/bin/python3` 为 Python 3.9+ 及可读的 `/proc`，由独立 subreaper helper 在受管退出路径清退并回收后代，详见 [Runtime 清理边界](api/runtime.md#输出与清理)。受控 Docker `outer-container-perf` 仍用于固定评测流程。Windows native Runtime 未提供。
+- macOS 的收窄工具执行使用 Seatbelt，并跟踪清退已观察到的后代；快速孤儿化仍可能漏检。Linux native 使用 Bubblewrap namespace 与 Runtime seccomp，要求部署提供 `/usr/bin/bwrap` 和 user namespace；Linux launcher 的 full-access 支持宿主执行。Linux Runtime 的单次执行回收使用随包发布的 Rust 二进制 `areal-runtime-reaper` 和可读的 `/proc`，不依赖 Python；项目 launcher 的 Python 要求不变。详见 [Runtime 清理边界](api/runtime.md#输出与清理)。受控 Docker `outer-container-perf` 仍用于固定评测流程。Windows native Runtime 未提供。
 - Core、stdio MCP 和插件 Host 是可信宿主，未受 Runtime OS 沙箱隔离；远程工具权限由服务负责。审批不能扩大部署授权。
 - `UNKNOWN` 需要人工检查，不自动重放。没有跨 Runtime epoch 恢复、外部写入者 CAS、跨文件事务或完整逃逸后代树清理保证。
 - Codex app-server 固定子集和 Claude CLI 消息适配不代表官方完整客户端兼容。DSH 仅适配选定工具/文件服务；不支持替换 Core loop。

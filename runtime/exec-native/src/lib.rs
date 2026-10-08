@@ -1,6 +1,8 @@
 //! Runtime-owned Unix process execution. No external agent or RPC executor.
 #[cfg(target_os = "linux")]
 mod linux_reaper;
+#[cfg(target_os = "macos")]
+mod macos_children;
 mod pty;
 mod sandbox;
 pub use sandbox::Profile as SandboxProfile;
@@ -77,6 +79,13 @@ pub struct NativeBackend {
 }
 impl NativeBackend {
     pub async fn launch_with_profile(profile: SandboxProfile) -> Result<Self> {
+        #[cfg(target_os = "linux")]
+        if !linux_reaper::helper_path().map_err(spawn_error)?.is_file() {
+            return Err(Error::new(
+                ErrorCode::Unsupported,
+                "areal-runtime-reaper missing beside host executable; build/install the complete Runtime bundle",
+            ));
+        }
         sandbox::supported(profile)?;
         sandbox::preflight(profile)?;
         let program = match profile {
@@ -446,6 +455,9 @@ async fn monitor(
         pid: child.id().expect("spawned child has pid") as i32,
         signalled: false,
     };
+    #[cfg(target_os = "macos")]
+    let mut descendants = macos_children::Descendants::new(group.pid)
+        .map_err(|error| cleanup_error(&error.to_string()))?;
     let mut readers = JoinSet::new();
     for (stream, mut reader) in outputs {
         let tx = tx.clone();
@@ -496,10 +508,17 @@ async fn monitor(
     };
     #[cfg(not(target_os = "linux"))]
     let status: ExitStatus = {
-        let status = tokio::select! {
-            status = child.wait() => Some(status),
-            _ = process.stop.cancelled() => None,
-            _ = tx.closed() => None,
+        let status = loop {
+            #[cfg(target_os = "macos")]
+            descendants
+                .observe()
+                .map_err(|error| cleanup_error(&error.to_string()))?;
+            tokio::select! {
+                status = child.wait() => break Some(status),
+                _ = process.stop.cancelled() => break None,
+                _ = tx.closed() => break None,
+                _ = tokio::time::sleep(Duration::from_millis(10)), if cfg!(target_os = "macos") => {},
+            }
         };
         let status = match status {
             Some(status) => status,
@@ -537,6 +556,11 @@ async fn monitor(
         }
         status
     };
+    #[cfg(target_os = "macos")]
+    descendants
+        .finish()
+        .await
+        .map_err(|error| cleanup_error(&error.to_string()))?;
     process.stop.cancel();
     process.input.lock().await.take();
     tokio::time::timeout(IO_TIMEOUT, async {

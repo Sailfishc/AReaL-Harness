@@ -38,6 +38,7 @@ class LauncherTests(unittest.TestCase):
         self.addCleanup(self.cleanup_children)
         self.fixture("areal-runtime", "sys.stdin.read()")
         self.fixture("areal-runtime-fs", "pass")
+        self.fixture("areal-runtime-reaper", "pass")
         self.fixture(
             "app-server",
             """

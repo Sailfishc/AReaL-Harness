@@ -243,7 +243,10 @@ impl LaunchSpec {
         let rg = areal_runtime_host_tools::bundled_rg(&crate::runtime_bin_dir(&bin_dir))
             .context("builtin rg deployment check failed")?;
         binaries.insert("builtin-rg", storage::file_digest(&rg)?);
-        for name in ["areal", "areal-runtime", "areal-runtime-fs"] {
+        for name in ["areal", "areal-runtime", "areal-runtime-fs"]
+            .into_iter()
+            .chain(cfg!(target_os = "linux").then_some("areal-runtime-reaper"))
+        {
             let directory = if name == "areal" {
                 bin_dir.clone()
             } else {

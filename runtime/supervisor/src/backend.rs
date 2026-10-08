@@ -40,7 +40,7 @@ pub enum Event {
     Closed,
 }
 
-/// start 的明确拒绝返回普通错误；传输错误使用 UNAVAILABLE，表示执行事实未知。
+/// start 的明确拒绝返回普通错误；UNAVAILABLE / CLEANUP_FAILED 表示执行事实未知。
 #[async_trait]
 pub trait Backend: Send + Sync {
     /// 标识实际执行端的 OS 策略；测试/嵌入后端默认不宣称隔离能力。

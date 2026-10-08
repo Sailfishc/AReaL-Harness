@@ -1,6 +1,36 @@
 use super::*;
 use std::path::PathBuf;
 
+#[tokio::test]
+async fn reaper_does_not_pass_unrelated_inherited_descriptors_to_payload() {
+    use std::os::fd::AsRawFd;
+    let unrelated = tempfile::tempfile().unwrap();
+    let descriptor = unrelated.as_raw_fd();
+    let argv = vec![
+        "/bin/sh".into(),
+        "-c".into(),
+        format!("test ! -e /proc/self/fd/{descriptor}"),
+    ];
+    let (mut command, mut reaper) = crate::linux_reaper::prepare(&argv, false, None).unwrap();
+    unsafe {
+        command.pre_exec(move || {
+            if libc::fcntl(descriptor, libc::F_SETFD, 0) < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    let mut child = command.spawn().unwrap();
+    reaper.spawned();
+    drop(command);
+    tokio::time::timeout(Duration::from_secs(3), async {
+        reaper.started(&mut child).await.unwrap();
+        assert!(reaper.finish(&mut child).await.unwrap().success());
+    })
+    .await
+    .unwrap();
+}
+
 const DETACHED_TREE: &str = r#"
 import os, pathlib, sys, time
 

@@ -392,6 +392,7 @@ def main():
                     "areal-tui",
                     "areal-runtime",
                     "areal-runtime-fs",
+                    "areal-runtime-reaper",
                     "launch.py",
                     "tools/rg",
                     "tools/rg.json",

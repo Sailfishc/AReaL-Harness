@@ -681,7 +681,12 @@ impl Supervisor {
         .await;
         let mut events = match started {
             Ok(Ok(events)) => events,
-            Ok(Err(error)) if error.code != ErrorCode::Unavailable => {
+            Ok(Err(error))
+                if !matches!(
+                    error.code,
+                    ErrorCode::Unavailable | ErrorCode::CleanupFailed
+                ) =>
+            {
                 self.start_failed(&process_id, operation_id, error, OperationState::Failed);
                 return;
             }

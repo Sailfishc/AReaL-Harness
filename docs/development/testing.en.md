@@ -24,6 +24,8 @@ Linux host checks use `make verify CARGO_TEST_ARGS='--exclude areal-runtime-exec
 
 ## Python and scratch
 
+Linux reaping tests use `areal-runtime-reaper`, built by `cargo test -p areal-runtime-exec-native`. For a standalone `--lib` run, first run `cargo build --locked -p areal-runtime-exec-native --bin areal-runtime-reaper` with the same profile as the tests. macOS descendant tests keep ancestors alive through the tracking window before exit to verify cleanup of observed descendants; they do not establish a complete guarantee against rapid orphaning.
+
 Independent macOS Python/scratch regression (local model, no provider credentials):
 
 ```sh

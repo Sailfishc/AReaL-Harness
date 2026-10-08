@@ -41,6 +41,24 @@ fn pipe() -> io::Result<(File, File)> {
     Ok(unsafe { (File::from_raw_fd(fds[0]), File::from_raw_fd(fds[1])) })
 }
 
+pub fn helper_path() -> io::Result<std::path::PathBuf> {
+    let mut helper = std::env::current_exe()?;
+    helper.set_file_name("areal-runtime-reaper");
+    if cfg!(test)
+        && helper
+            .parent()
+            .is_some_and(|parent| parent.ends_with("deps"))
+    {
+        helper = helper
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("areal-runtime-reaper");
+    }
+    Ok(helper)
+}
+
 pub fn prepare(argv: &[String], tty: bool, filter: Option<&File>) -> io::Result<(Command, Reaper)> {
     if argv.is_empty() {
         return Err(io::Error::new(
@@ -59,9 +77,8 @@ pub fn prepare(argv: &[String], tty: bool, filter: Option<&File>) -> io::Result<
         child_receipt.as_raw_fd(),
         filter.map_or(-1, AsRawFd::as_raw_fd),
     ];
-    let mut command = Command::new("/usr/bin/python3");
+    let mut command = Command::new(helper_path()?);
     command
-        .args(["-I", "-S", "-c", include_str!("linux_reaper.py")])
         .arg(child_fds[0].to_string())
         .arg(child_fds[1].to_string())
         .arg(if tty { "1" } else { "0" })
@@ -69,7 +86,7 @@ pub fn prepare(argv: &[String], tty: bool, filter: Option<&File>) -> io::Result<
         .arg("--")
         .args(argv)
         .kill_on_drop(false);
-    // 这里只执行 async-signal-safe fcntl；fork 后不运行 Rust/Python 回收循环。
+    // 这里只执行 async-signal-safe fcntl；复杂回收逻辑在 exec 后的独立进程中运行。
     unsafe {
         command.pre_exec(move || {
             for fd in child_fds.into_iter().filter(|fd| *fd >= 0) {
