@@ -18,6 +18,9 @@ impl Model for TextModel {
     }
     fn capabilities(&self) -> ModelCapabilities {
         ModelCapabilities {
+            context_window_tokens: None,
+            max_output_tokens: None,
+            summary_output_tokens: None,
             input: vec![Modality::Text, Modality::File],
             output: vec![Modality::Text, Modality::Image],
         }

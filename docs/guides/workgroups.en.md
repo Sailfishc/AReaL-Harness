@@ -48,9 +48,9 @@ Model planning replaces `--plan` with `--prompt-file` and requires `--write-scop
 | initial-workers | 0 selects automatically; explicit 1–32 affects adaptive only |
 | verification-batch | 4 (1–32), combines available candidates without waiting to fill |
 | repairs / integration-repair | 1 (0–3) / true, within original grants and budgets |
-| seconds / command-timeout-ms | 600 (1–86400) / 300000 (1–86400000) |
-| max-model-requests | 128 shared by planning, Workers and repairs |
-| worker-context-bytes | 65536; 0 disables; trims model view, not history |
+| seconds / command-timeout-ms | 0 (unlimited; positive 1–86400) / 300000 (1–86400000) |
+| max-model-requests | 0 (unlimited); positive limits are shared by planning, Workers and repairs |
+| worker-context-bytes | 0; 0 disables; trims model view, not history |
 | worker-stall-rounds | 0 disables; 8–128 enables experimental unchanged-source checkpoints |
 | worker-tools | all or command; does not change Runtime grants |
 
@@ -67,3 +67,5 @@ The service exposes workgroup_start/read/wait/revise/cancel/artifact. TUI uses `
 Desktop Workflows are versioned plans with per-stage Profile, model, Skill, tool and readOnly settings. A Workflow can also be the `workflow` property of an Agent Profile; `areal/thread/start` starts it once and records the run on the Thread. isolatedWrite child agents reuse this service. See [Core API](../api/core.en.md#workgroups) and [scheduling design](../design/workgroups.en.md).
 
 Four consecutive successful tool boundaries with identical input, results and source enter a verification checkpoint. Dynamic process/cursor identifiers and remainingToolCalls admission capacity are excluded from repeated-result comparison. Native Workgroups within a Goal share the parent Turn’s token budget while retaining existing Workgroup limits.
+
+Workers inherit the configured cumulative budgets, response guards and Core context policy. `worker-context-bytes` defaults to 0, disabling the separate legacy byte projection; explicit positive values retain the legacy behavior. This setting does not disable Core token preflight/compaction.

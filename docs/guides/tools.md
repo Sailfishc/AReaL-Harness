@@ -20,12 +20,13 @@ Core 注册表将名称、JSON Schema 与内置/命令/客户端/MCP/插件后�
 | `run_command` | `command` 或 `argv` 二选一；前者经 `/bin/bash -o pipefail -c`，后者直接执行；cwd 默认 `.` |
 | `verify_command` | `argv,cwd?,timeoutMs?,yieldMs?`；直接执行、拒绝 shell 入口，必须配置独立 scratch |
 | `read_process/write_process/terminate_process` | 本 Turn 进程句柄；续读、输入与终止 |
+| `read_history` | `itemId?,before?,limit?=8,after?,maxBytes?=8192`；按新到旧分页（1–16），nextBefore 续页；指定 itemId 后以 nextCursor 回取原始 JSON |
 | `read_tool_result` | `resultId,after?=null,maxBytes?=8192`；读取本 Thread 历史调用的原始 JSON，按 nextCursor 续页，不执行原工具 |
 | `task_state` | `{pendingAfter?}`；返回有界的已观察文件/进程/子任务/scratch 与 summaryThroughItemId，不进行实时探测 |
 
 文件最大 8 MiB，单次写/patch 64 KiB，另受每个调用参数 64 KiB 预算限制。显式 fileVersion 和 expectedSha256 互斥；SHA 为 null 表示仅新建。成功编辑返回新版本与规范路径，shell/外部编辑不自动刷新观察，CAS 冲突后需重新读取。行过长或遇到非 UTF-8 二进制内容时使用 fs_read；PNG/JPEG/WebP 图像使用 image_read。read/search 通过同一 Scope 中的 Python/rg 执行、最长 15 秒；Linux 从可信宿主 PATH 查找并解析可执行 Python 3，macOS 使用受支持的系统 Python；没有解释器时仅这些工具不可用，启动服务不受影响。受限 Scope 仍要求解释器位于 Runtime 允许的系统路径中，不自动扩大沙箱权限。rg 15.2.0 随包交付，使用 Runtime 验证后的绝对路径，不读取宿主 rg 配置或工作区外 ignore。
 
-每个完整模型响应的调用数量受当前 Turn 剩余 `max_tool_calls` 限制，依次执行；Chat 的 index 用于关联片段，允许稀疏非负整数编号，没有小于 16 的要求。两种协议均使用可配置的 `max_tool_buffer_bytes` 缓冲预算（默认 4 MiB），累计工具 id、name 和 arguments；编号非法或预算超限时，当前响应的所有调用均不执行。模型可见的文本结果页最多 16 KiB，参数错误和已知命令失败返回模型处理，UNKNOWN 停止。结果报告 remainingToolCalls，剩余 ≤32 时提示收尾，并附带当前 Turn 基础墙钟预算的近似剩余值。`max_output_bytes` 与工具调用次数独立：当剩余输出不足以执行下一工具并预留交接额度时，不执行该调用及后续调用，保留已确认结果，禁用工具并请求模型明确说明未完成事项；若验证进程没有已观察的终态，也只能报告未验证，不能声称通过。模型输出继续受原有字节上限约束。
+完整响应中的调用依次执行；每响应默认 128 次资源保护与显式 Turn 剩余预算取较小值。两种协议均有 4 MiB 工具缓冲；编号非法或超限时，该响应的所有调用都不执行。文本结果页仍最多 16 KiB。`remainingToolCalls` 在无累计预算时为 null，否则为整数，压缩不重置计数；有限剩余额度 ≤32 时提示收尾。`max_output_bytes` 默认无限，显式有限预算不足以执行下一工具时保留已确认结果并要求未完成交接。独立的 `max_response_bytes` 默认限制单响应 4 MiB，包含推理/provider context/媒体。已知参数与工具失败返回模型处理，UNKNOWN 停止执行。
 
 `verify_command` 将完整输出（最多 64 MiB）及 receipt 写入 scratch/verification，记录退出状态、日志与执行前后源码指纹。指纹覆盖 Git 跟踪和未忽略文件，非 Git 目录使用排除依赖/构建/缓存的扫描；源码变化使验证过期。receipt 位于任务可写目录，不是对恶意任务的认证。收尾时未结束的验证进程需要续读终态或显式终止；普通后台 run_command 不受此约束，也不会唤醒已结束 Turn。
 
@@ -47,7 +48,7 @@ read_process 省略 after 接续本 Turn 最近返回的游标，显式 null 从
 
 大文本/结构化结果和需要折叠的结果在模型投影前保存为 Blob。`rawResult.resultId` 对应本 Thread 的真实调用 item，`read_tool_result` 校验归属和摘要后分页返回原始 JSON；直接传 Blob hash 或其他 Thread 的 item 无效。跨任务共享应显式导出制品。若 Turn 使用工具 allowlist，需包含 read_tool_result；缺少时禁用依赖回取的投影，并明确原文不可用。回取不刷新当前文件版本、不重跑原工具及其 hooks；回取调用自身仍经过审批和匹配的 hooks，并消耗正常工具预算。
 
-单次快照最多 8 MiB，每 Thread 最多 32 MiB，并共享 Store 的全局配额。活跃/可恢复历史引用跨重启保留，GC 按引用回收；旧记录无原文时返回 unavailable。存储失败或超限回退为有界结果，明确 `rawAvailable=false`，不会建议自动重跑有副作用的工具。进程快照只包含 Core 实际收到的页，不能恢复未读或已丢失字节；原来的 gap/truncated 状态仍有效。多模态沿用媒体引用及 16 KiB 混合结果封套上限。纯文本/结构化 MCP、命令结果最多接收 8 MiB；插件 SDK 结果限 96 KiB，仍受 128 KiB 传输帧约束。
+单次快照最多 8 MiB；不设隐式 Thread/Store 累计字节配额，仍受可用磁盘约束。活跃/可恢复历史引用跨重启保留，GC 按引用回收；旧记录无原文时返回 unavailable。存储失败或超限回退为有界结果，明确 `rawAvailable=false`，不会建议自动重跑有副作用的工具。进程快照只包含 Core 实际收到的页，不能恢复未读或已丢失字节；原来的 gap/truncated 状态仍有效。多模态沿用媒体引用及 16 KiB 混合结果封套上限。纯文本/结构化 MCP、命令结果最多接收 8 MiB；插件 SDK 结果限 96 KiB，仍受 128 KiB 传输帧约束。
 
 回取 `maxBytes` 为 4–8192，默认 8192 原始 UTF-8 字节；转义和元数据可能使实际页更小。使用返回的 nextCursor 续页直到 eof。它读取历史快照；`read_process` 继续观察进程，受 Runtime 缓冲保留期约束。
 
@@ -123,3 +124,5 @@ Goal/Task 中 ask_user_question 支持 mode=async；提问持久写入独立频�
 ### 无损文件行视图
 
 `policy.resultViews.fileLines` 默认 true，独立于控制搜索/命令候选的 `mode`。read_file 的连续 `{number,text}` 行数组可表示为 `firstLine`、`lineCount`、`source`，保留全部源码和其余元数据；使用 `fileLines:false` 关闭。只接受可还原的连续行、原有行尾和已知行字段，至少节省 128 bytes。完整原文先写入受限快照；快照不可用或不能回取时透传原有有界表示。`read_tool_result` 读取原始 JSON；该视图不把历史 fileVersion 变成跨 Turn 的编辑权限。`execution.outputProjection.transform=file-lines-v1` 与 `reason=lossless` 记录实际应用，搜索/命令 observe 仍只观察对应候选。
+
+`read_history` 只读取当前 Thread，压缩和重启后仍可使用。列表页返回 `{items:[{itemId,turnId,type,preview}],nextBefore,order:"newestFirst"}`；指定 itemId 后使用 read_tool_result 同样的字节分页封套（resultId 标识历史条目）。跨条目/Thread 游标会拒绝。返回的是已记录证据，不执行原工具、不授予权限。显式工具 allowlist 需要包含 read_history，才可访问归档用户输入和回执。

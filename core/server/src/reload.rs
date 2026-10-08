@@ -50,6 +50,7 @@ pub fn model(
         )?
         .with_audit_directory(data.join("model-requests"))
         .with_options(ModelOptions {
+            context_window_tokens: config.context_window_tokens,
             responses_websocket: config.responses_websocket,
             reasoning_effort: config.reasoning_effort.clone(),
             summary_reasoning_effort: config.summary_reasoning_effort.clone(),

@@ -132,7 +132,7 @@ impl Default for Options {
             admission: Admission::Fixed,
             initial_workers: 2,
             repairs: 1,
-            timeout: Duration::from_secs(600),
+            timeout: Duration::ZERO,
             strategy: Strategy::Balanced,
             integration_repair: true,
             verification_batch: 4,
@@ -868,7 +868,6 @@ impl Workgroup {
                 && options.initial_workers <= 32
                 && options.repairs <= 3
                 && (1..=32).contains(&options.verification_batch)
-                && !options.timeout.is_zero()
                 && options.timeout <= Duration::from_secs(86400),
             "invalid workgroup limits"
         );
@@ -877,7 +876,8 @@ impl Workgroup {
             "workgroup inputs changed"
         );
         let started = Instant::now();
-        let deadline = tokio::time::Instant::now() + options.timeout;
+        let deadline =
+            (!options.timeout.is_zero()).then(|| tokio::time::Instant::now() + options.timeout);
         let cancel = stop.child_token();
         let mut jobs = JoinSet::new();
         let mut submitted = BTreeMap::<usize, (u32, Tree, Tree)>::new();
@@ -926,7 +926,7 @@ impl Workgroup {
             loop {
             loop {
                 ensure!(!cancel.is_cancelled(), "workgroup cancelled");
-                ensure!(tokio::time::Instant::now() < deadline, "workgroup deadline exceeded");
+                ensure!(deadline.is_none_or(|d| tokio::time::Instant::now() < d), "workgroup deadline exceeded");
                 // Propagate a settled failure through dependency edges. Independent
                 // branches keep running and retain their accepted artifacts.
                 loop {
@@ -1049,7 +1049,7 @@ impl Workgroup {
                 }
                 let event = tokio::select! {
                     _ = cancel.cancelled() => anyhow::bail!("workgroup cancelled"),
-                    _ = tokio::time::sleep_until(deadline) => anyhow::bail!("workgroup deadline exceeded"),
+                    _ = wait_deadline(deadline) => anyhow::bail!("workgroup deadline exceeded"),
                     command = self.commands.recv() => {
                         if let Some(command) = command {
                             self.revise(command).await?;
@@ -1143,7 +1143,7 @@ impl Workgroup {
             jobs.spawn(async move { Event::FinalVerification(final_executor.verify(final_tree, commands, token).await) });
             let event = tokio::select! {
                 _ = cancel.cancelled() => anyhow::bail!("workgroup cancelled"),
-                _ = tokio::time::sleep_until(deadline) => anyhow::bail!("workgroup deadline exceeded"),
+                _ = wait_deadline(deadline) => anyhow::bail!("workgroup deadline exceeded"),
                 event = jobs.join_next() => event.context("missing final verification")??,
             };
             let Event::FinalVerification(check) = event else { anyhow::bail!("unexpected pending worker"); };
@@ -1152,7 +1152,7 @@ impl Workgroup {
             let passed = check.passed;
             self.record.final_checks.push(check.clone());
             self.record.final_check = Some(check.clone());
-            ensure!(tokio::time::Instant::now() <= deadline, "final verification exceeded deadline");
+            ensure!(deadline.is_none_or(|d| tokio::time::Instant::now() <= d), "final verification exceeded deadline");
             if passed { return Ok(()); }
             ensure!(options.integration_repair && !integration_repaired, "final combined verification failed");
             // Only a concrete, settled test failure permits this fallback. All
@@ -1241,6 +1241,14 @@ impl Workgroup {
         }
         self.save_async().await?;
         Ok(self.record.clone())
+    }
+}
+
+// 未配置累计运行时长时，只等待显式取消与工作完成。
+async fn wait_deadline(deadline: Option<tokio::time::Instant>) {
+    match deadline {
+        Some(deadline) => tokio::time::sleep_until(deadline).await,
+        None => std::future::pending::<()>().await,
     }
 }
 

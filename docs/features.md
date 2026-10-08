@@ -31,6 +31,6 @@
 - Codex app-server 固定子集和 Claude CLI 消息适配不代表官方完整客户端兼容。DSH 仅适配选定工具/文件服务；不支持替换 Core loop。
 - Workgroup 最多 64 个任务、32 个 Worker；CLI 默认 `balanced + fixed`、2 个 Worker。更宽或 adaptive 不保证更快。
 - 真实 GUI 联调、签名/公证安装包、第三方服务及生产容量仍需独立验收。20 道 pro 题提供[公开 Dockerfile](../tests/perf/suites/pro/README.md)，历史来源镜像仅作溯源。
-- Goal 不自动跨重启运行。每目标账本最多 4096 请求/4 MiB，历史与 Thread 容量仍有限；clear 保留账本且无自动账本 GC。tokenBudget 使用保守准入估算，不保证供应商绝不超额计费；未知消费保留预留并停止自动推进。
+- Goal 不自动跨重启运行。累计执行预算仅在显式配置时生效。历史与已结算 Goal 请求使用不可变分段；未结算热账本仍有 4 MiB 资源保护，会话/资源容量与可用磁盘仍有效；clear 保留账本且无自动账本 GC。tokenBudget 使用保守准入估算，不保证供应商绝不超额计费；未知消费保留预留并停止自动推进。
 
 发行准备支持 macOS arm64 / Linux x86_64 glibc 独立完整包、macOS Homebrew formula，含 SHA256 校验、版本化安装和搬迁读写验收。npm 与 Windows 暂不支持；发布可用性以 GitHub Release/tap 为准，详见[安装指南](guides/installation.md)。

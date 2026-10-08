@@ -9,14 +9,30 @@ impl Engine {
         if limit == 0 || limit > 32 {
             return Err(invalid("context page limit must be 1..32"));
         }
-        let thread = self.read(thread_id, true).await?;
+        let cell = self.raw_cell(thread_id).await?;
+        let thread = cell.state.lock().await.thread.clone();
+        // 查看已有上下文不要求模型凭据当前可用；无法解析时只省略预算诊断。
+        let model = self
+            .configured_model(
+                &thread
+                    .turns
+                    .last()
+                    .and_then(|t| t.configuration.clone())
+                    .unwrap_or_default(),
+            )
+            .ok();
+        let budget = model.as_ref().and_then(|model| {
+            crate::context::ContextBudget::resolve(&self.limits, model.as_ref()).ok().map(|budget| {
+                json!({"windowTokens":budget.window,"outputReserveTokens":budget.reserve,"inputLimitTokens":budget.input_limit,"targetTokens":budget.target,"windowSource":if model.capabilities().context_window_tokens.is_some(){"model"}else{"fallback"}})
+            })
+        });
         let messages = history(&thread, &self.store).map_err(invalid)?;
         if offset > messages.len() {
             return Err(invalid("context offset exceeds message count"));
         }
         let data:Vec<_>=messages.iter().skip(offset).take(limit).map(|m|json!({"role":m.role,"text":m.text_content(),"toolCalls":m.tool_calls,"toolCallId":m.tool_call_id,"opaqueProviderContextOmitted":m.provider_context.is_some(),"media":m.content.iter().filter_map(|p|match p{model::ContentPart::Image{..}=>Some("image"),model::ContentPart::Audio{..}=>Some("audio"),model::ContentPart::File{..}=>Some("file"),_=>None}).collect::<Vec<_>>()})).collect();
         Ok(
-            json!({"threadId":thread_id,"view":"historyProjectionForNextRequest","systemInstructionsIncluded":thread.turns.last().is_some_and(|t|t.instruction_snapshot.is_some()),"instructionSnapshot":thread.turns.last().and_then(|t|t.instruction_snapshot.as_ref()),"checkpoint":thread.context_checkpoint,"offset":offset,"nextOffset":(offset+data.len()<messages.len()).then_some(offset+data.len()),"data":data}),
+            json!({"threadId":thread_id,"view":"historyProjectionForNextRequest","budget":budget,"systemInstructionsIncluded":thread.turns.last().is_some_and(|t|t.instruction_snapshot.is_some()),"instructionSnapshot":thread.turns.last().and_then(|t|t.instruction_snapshot.as_ref()),"checkpoint":thread.context_checkpoint,"offset":offset,"nextOffset":(offset+data.len()<messages.len()).then_some(offset+data.len()),"data":data}),
         )
     }
     pub async fn context_compact(self: &Arc<Self>, thread_id: String) -> Result<Value> {

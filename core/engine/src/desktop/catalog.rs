@@ -434,6 +434,7 @@ impl Engine {
         )
         .map_err(invalid)?
         .with_options(model::ModelOptions {
+            context_window_tokens: parameters.context_window_tokens,
             reasoning_effort: parameters.reasoning_effort.clone(),
             reasoning_summary: parameters.reasoning_summary.clone(),
             max_output_tokens: parameters.max_output_tokens,
@@ -504,6 +505,10 @@ impl Engine {
             .cloned()
             .unwrap_or_default();
         let parameters = ModelParameters {
+            context_window_tokens: parameters
+                .context_window_tokens
+                .or(model_defaults.context_window_tokens)
+                .or(defaults.context_window_tokens),
             temperature: parameters
                 .temperature
                 .or(model_defaults.temperature)

@@ -99,6 +99,14 @@
       "parameters": {
         "additionalProperties": false,
         "properties": {
+          "contextWindowTokens": {
+            "format": "uint",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "maxOutputTokens": {
             "format": "uint64",
             "minimum": 0,
@@ -293,6 +301,14 @@
               "parameters": {
                 "additionalProperties": false,
                 "properties": {
+                  "contextWindowTokens": {
+                    "format": "uint",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
                   "maxOutputTokens": {
                     "format": "uint64",
                     "minimum": 0,
@@ -2204,6 +2220,14 @@
                       "parameters": {
                         "additionalProperties": false,
                         "properties": {
+                          "contextWindowTokens": {
+                            "format": "uint",
+                            "minimum": 0,
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
                           "maxOutputTokens": {
                             "format": "uint64",
                             "minimum": 0,
@@ -2398,6 +2422,14 @@
                               "parameters": {
                                 "additionalProperties": false,
                                 "properties": {
+                                  "contextWindowTokens": {
+                                    "format": "uint",
+                                    "minimum": 0,
+                                    "type": [
+                                      "integer",
+                                      "null"
+                                    ]
+                                  },
                                   "maxOutputTokens": {
                                     "format": "uint64",
                                     "minimum": 0,
@@ -3209,6 +3241,14 @@
             "parameters": {
               "additionalProperties": false,
               "properties": {
+                "contextWindowTokens": {
+                  "format": "uint",
+                  "minimum": 0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
                 "maxOutputTokens": {
                   "format": "uint64",
                   "minimum": 0,
@@ -3403,6 +3443,14 @@
                     "parameters": {
                       "additionalProperties": false,
                       "properties": {
+                        "contextWindowTokens": {
+                          "format": "uint",
+                          "minimum": 0,
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
                         "maxOutputTokens": {
                           "format": "uint64",
                           "minimum": 0,
@@ -4787,6 +4835,194 @@
                       "minimum": 0,
                       "type": "integer"
                     },
+                    "evidence": {
+                      "description": "有界的原始工具回执提示，不授予权限或恢复过期句柄。",
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "retainedInputs": {
+                      "description": "保留的真实用户输入；缺省表示旧 checkpoint 的全量重放契约。",
+                      "items": {
+                        "properties": {
+                          "content": {
+                            "items": {
+                              "oneOf": [
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "text": {
+                                      "type": "string"
+                                    },
+                                    "text_elements": {
+                                      "default": [],
+                                      "items": true,
+                                      "type": "array"
+                                    },
+                                    "type": {
+                                      "const": "text",
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "text"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "detail": {
+                                      "anyOf": [
+                                        {
+                                          "enum": [
+                                            "auto",
+                                            "low",
+                                            "high",
+                                            "original"
+                                          ],
+                                          "type": "string"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ],
+                                      "default": null
+                                    },
+                                    "type": {
+                                      "const": "image",
+                                      "type": "string"
+                                    },
+                                    "url": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "url"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "detail": {
+                                      "anyOf": [
+                                        {
+                                          "enum": [
+                                            "auto",
+                                            "low",
+                                            "high",
+                                            "original"
+                                          ],
+                                          "type": "string"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ],
+                                      "default": null
+                                    },
+                                    "path": {
+                                      "type": "string"
+                                    },
+                                    "type": {
+                                      "const": "localImage",
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "path"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "type": {
+                                      "const": "audio",
+                                      "type": "string"
+                                    },
+                                    "url": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "url"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "path": {
+                                      "type": "string"
+                                    },
+                                    "type": {
+                                      "const": "localAudio",
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "path"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "mime_type": {
+                                      "default": null,
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    },
+                                    "name": {
+                                      "default": null,
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    },
+                                    "type": {
+                                      "const": "file",
+                                      "type": "string"
+                                    },
+                                    "url": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "url"
+                                  ],
+                                  "type": "object"
+                                }
+                              ]
+                            },
+                            "type": "array"
+                          },
+                          "itemId": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "itemId",
+                          "content"
+                        ],
+                        "type": "object"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    },
                     "summary": {
                       "type": "string"
                     },
@@ -4953,6 +5189,14 @@
                         "parameters": {
                           "additionalProperties": false,
                           "properties": {
+                            "contextWindowTokens": {
+                              "format": "uint",
+                              "minimum": 0,
+                              "type": [
+                                "integer",
+                                "null"
+                              ]
+                            },
                             "maxOutputTokens": {
                               "format": "uint64",
                               "minimum": 0,
@@ -5147,6 +5391,14 @@
                                 "parameters": {
                                   "additionalProperties": false,
                                   "properties": {
+                                    "contextWindowTokens": {
+                                      "format": "uint",
+                                      "minimum": 0,
+                                      "type": [
+                                        "integer",
+                                        "null"
+                                      ]
+                                    },
                                     "maxOutputTokens": {
                                       "format": "uint64",
                                       "minimum": 0,
@@ -5656,6 +5908,14 @@
                                   "parameters": {
                                     "additionalProperties": false,
                                     "properties": {
+                                      "contextWindowTokens": {
+                                        "format": "uint",
+                                        "minimum": 0,
+                                        "type": [
+                                          "integer",
+                                          "null"
+                                        ]
+                                      },
                                       "maxOutputTokens": {
                                         "format": "uint64",
                                         "minimum": 0,
@@ -5850,6 +6110,14 @@
                                           "parameters": {
                                             "additionalProperties": false,
                                             "properties": {
+                                              "contextWindowTokens": {
+                                                "format": "uint",
+                                                "minimum": 0,
+                                                "type": [
+                                                  "integer",
+                                                  "null"
+                                                ]
+                                              },
                                               "maxOutputTokens": {
                                                 "format": "uint64",
                                                 "minimum": 0,
@@ -6573,6 +6841,47 @@
               ],
               "type": "object"
             },
+            "historyArchive": {
+              "anyOf": [
+                {
+                  "description": "不可变历史分段的链头；读取完整 Thread 时由 Core 展开，不要求客户端管理文件。",
+                  "properties": {
+                    "bytes": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "completedTurns": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "head": {
+                      "type": "string"
+                    },
+                    "items": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "throughItemId": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "head",
+                    "throughItemId",
+                    "completedTurns",
+                    "items",
+                    "bytes"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "id": {
               "type": "string"
             },
@@ -6753,6 +7062,14 @@
                           "parameters": {
                             "additionalProperties": false,
                             "properties": {
+                              "contextWindowTokens": {
+                                "format": "uint",
+                                "minimum": 0,
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ]
+                              },
                               "maxOutputTokens": {
                                 "format": "uint64",
                                 "minimum": 0,
@@ -6947,6 +7264,14 @@
                                   "parameters": {
                                     "additionalProperties": false,
                                     "properties": {
+                                      "contextWindowTokens": {
+                                        "format": "uint",
+                                        "minimum": 0,
+                                        "type": [
+                                          "integer",
+                                          "null"
+                                        ]
+                                      },
                                       "maxOutputTokens": {
                                         "format": "uint64",
                                         "minimum": 0,
@@ -7921,6 +8246,14 @@
                     "parameters": {
                       "additionalProperties": false,
                       "properties": {
+                        "contextWindowTokens": {
+                          "format": "uint",
+                          "minimum": 0,
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
                         "maxOutputTokens": {
                           "format": "uint64",
                           "minimum": 0,
@@ -8115,6 +8448,14 @@
                             "parameters": {
                               "additionalProperties": false,
                               "properties": {
+                                "contextWindowTokens": {
+                                  "format": "uint",
+                                  "minimum": 0,
+                                  "type": [
+                                    "integer",
+                                    "null"
+                                  ]
+                                },
                                 "maxOutputTokens": {
                                   "format": "uint64",
                                   "minimum": 0,
@@ -9067,6 +9408,14 @@
                     "parameters": {
                       "additionalProperties": false,
                       "properties": {
+                        "contextWindowTokens": {
+                          "format": "uint",
+                          "minimum": 0,
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
                         "maxOutputTokens": {
                           "format": "uint64",
                           "minimum": 0,
@@ -9261,6 +9610,14 @@
                             "parameters": {
                               "additionalProperties": false,
                               "properties": {
+                                "contextWindowTokens": {
+                                  "format": "uint",
+                                  "minimum": 0,
+                                  "type": [
+                                    "integer",
+                                    "null"
+                                  ]
+                                },
                                 "maxOutputTokens": {
                                   "format": "uint64",
                                   "minimum": 0,
@@ -10386,6 +10743,14 @@
       "parameters": {
         "additionalProperties": false,
         "properties": {
+          "contextWindowTokens": {
+            "format": "uint",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "maxOutputTokens": {
             "format": "uint64",
             "minimum": 0,
@@ -10541,6 +10906,14 @@
                 "parameters": {
                   "additionalProperties": false,
                   "properties": {
+                    "contextWindowTokens": {
+                      "format": "uint",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "maxOutputTokens": {
                       "format": "uint64",
                       "minimum": 0,
@@ -10735,6 +11108,14 @@
                         "parameters": {
                           "additionalProperties": false,
                           "properties": {
+                            "contextWindowTokens": {
+                              "format": "uint",
+                              "minimum": 0,
+                              "type": [
+                                "integer",
+                                "null"
+                              ]
+                            },
                             "maxOutputTokens": {
                               "format": "uint64",
                               "minimum": 0,
@@ -12451,6 +12832,14 @@
             "parameters": {
               "additionalProperties": false,
               "properties": {
+                "contextWindowTokens": {
+                  "format": "uint",
+                  "minimum": 0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
                 "maxOutputTokens": {
                   "format": "uint64",
                   "minimum": 0,
@@ -14057,6 +14446,14 @@
             {
               "additionalProperties": false,
               "properties": {
+                "contextWindowTokens": {
+                  "format": "uint",
+                  "minimum": 0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
                 "maxOutputTokens": {
                   "format": "uint64",
                   "minimum": 0,
@@ -14230,6 +14627,14 @@
         "parameters": {
           "additionalProperties": false,
           "properties": {
+            "contextWindowTokens": {
+              "format": "uint",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
             "maxOutputTokens": {
               "format": "uint64",
               "minimum": 0,
@@ -15761,6 +16166,194 @@
                         "minimum": 0,
                         "type": "integer"
                       },
+                      "evidence": {
+                        "description": "有界的原始工具回执提示，不授予权限或恢复过期句柄。",
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "retainedInputs": {
+                        "description": "保留的真实用户输入；缺省表示旧 checkpoint 的全量重放契约。",
+                        "items": {
+                          "properties": {
+                            "content": {
+                              "items": {
+                                "oneOf": [
+                                  {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                      "text": {
+                                        "type": "string"
+                                      },
+                                      "text_elements": {
+                                        "default": [],
+                                        "items": true,
+                                        "type": "array"
+                                      },
+                                      "type": {
+                                        "const": "text",
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "type",
+                                      "text"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                      "detail": {
+                                        "anyOf": [
+                                          {
+                                            "enum": [
+                                              "auto",
+                                              "low",
+                                              "high",
+                                              "original"
+                                            ],
+                                            "type": "string"
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ],
+                                        "default": null
+                                      },
+                                      "type": {
+                                        "const": "image",
+                                        "type": "string"
+                                      },
+                                      "url": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "type",
+                                      "url"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                      "detail": {
+                                        "anyOf": [
+                                          {
+                                            "enum": [
+                                              "auto",
+                                              "low",
+                                              "high",
+                                              "original"
+                                            ],
+                                            "type": "string"
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ],
+                                        "default": null
+                                      },
+                                      "path": {
+                                        "type": "string"
+                                      },
+                                      "type": {
+                                        "const": "localImage",
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "type",
+                                      "path"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                      "type": {
+                                        "const": "audio",
+                                        "type": "string"
+                                      },
+                                      "url": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "type",
+                                      "url"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                      "path": {
+                                        "type": "string"
+                                      },
+                                      "type": {
+                                        "const": "localAudio",
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "type",
+                                      "path"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                      "mime_type": {
+                                        "default": null,
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ]
+                                      },
+                                      "name": {
+                                        "default": null,
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ]
+                                      },
+                                      "type": {
+                                        "const": "file",
+                                        "type": "string"
+                                      },
+                                      "url": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "type",
+                                      "url"
+                                    ],
+                                    "type": "object"
+                                  }
+                                ]
+                              },
+                              "type": "array"
+                            },
+                            "itemId": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "itemId",
+                            "content"
+                          ],
+                          "type": "object"
+                        },
+                        "type": [
+                          "array",
+                          "null"
+                        ]
+                      },
                       "summary": {
                         "type": "string"
                       },
@@ -15927,6 +16520,14 @@
                           "parameters": {
                             "additionalProperties": false,
                             "properties": {
+                              "contextWindowTokens": {
+                                "format": "uint",
+                                "minimum": 0,
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ]
+                              },
                               "maxOutputTokens": {
                                 "format": "uint64",
                                 "minimum": 0,
@@ -16121,6 +16722,14 @@
                                   "parameters": {
                                     "additionalProperties": false,
                                     "properties": {
+                                      "contextWindowTokens": {
+                                        "format": "uint",
+                                        "minimum": 0,
+                                        "type": [
+                                          "integer",
+                                          "null"
+                                        ]
+                                      },
                                       "maxOutputTokens": {
                                         "format": "uint64",
                                         "minimum": 0,
@@ -16630,6 +17239,14 @@
                                     "parameters": {
                                       "additionalProperties": false,
                                       "properties": {
+                                        "contextWindowTokens": {
+                                          "format": "uint",
+                                          "minimum": 0,
+                                          "type": [
+                                            "integer",
+                                            "null"
+                                          ]
+                                        },
                                         "maxOutputTokens": {
                                           "format": "uint64",
                                           "minimum": 0,
@@ -16824,6 +17441,14 @@
                                             "parameters": {
                                               "additionalProperties": false,
                                               "properties": {
+                                                "contextWindowTokens": {
+                                                  "format": "uint",
+                                                  "minimum": 0,
+                                                  "type": [
+                                                    "integer",
+                                                    "null"
+                                                  ]
+                                                },
                                                 "maxOutputTokens": {
                                                   "format": "uint64",
                                                   "minimum": 0,
@@ -17547,6 +18172,47 @@
                 ],
                 "type": "object"
               },
+              "historyArchive": {
+                "anyOf": [
+                  {
+                    "description": "不可变历史分段的链头；读取完整 Thread 时由 Core 展开，不要求客户端管理文件。",
+                    "properties": {
+                      "bytes": {
+                        "format": "uint64",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "completedTurns": {
+                        "format": "uint64",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "head": {
+                        "type": "string"
+                      },
+                      "items": {
+                        "format": "uint64",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "throughItemId": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "head",
+                      "throughItemId",
+                      "completedTurns",
+                      "items",
+                      "bytes"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "id": {
                 "type": "string"
               },
@@ -17727,6 +18393,14 @@
                             "parameters": {
                               "additionalProperties": false,
                               "properties": {
+                                "contextWindowTokens": {
+                                  "format": "uint",
+                                  "minimum": 0,
+                                  "type": [
+                                    "integer",
+                                    "null"
+                                  ]
+                                },
                                 "maxOutputTokens": {
                                   "format": "uint64",
                                   "minimum": 0,
@@ -17921,6 +18595,14 @@
                                     "parameters": {
                                       "additionalProperties": false,
                                       "properties": {
+                                        "contextWindowTokens": {
+                                          "format": "uint",
+                                          "minimum": 0,
+                                          "type": [
+                                            "integer",
+                                            "null"
+                                          ]
+                                        },
                                         "maxOutputTokens": {
                                           "format": "uint64",
                                           "minimum": 0,
@@ -18820,6 +19502,194 @@
                           "minimum": 0,
                           "type": "integer"
                         },
+                        "evidence": {
+                          "description": "有界的原始工具回执提示，不授予权限或恢复过期句柄。",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "retainedInputs": {
+                          "description": "保留的真实用户输入；缺省表示旧 checkpoint 的全量重放契约。",
+                          "items": {
+                            "properties": {
+                              "content": {
+                                "items": {
+                                  "oneOf": [
+                                    {
+                                      "additionalProperties": false,
+                                      "properties": {
+                                        "text": {
+                                          "type": "string"
+                                        },
+                                        "text_elements": {
+                                          "default": [],
+                                          "items": true,
+                                          "type": "array"
+                                        },
+                                        "type": {
+                                          "const": "text",
+                                          "type": "string"
+                                        }
+                                      },
+                                      "required": [
+                                        "type",
+                                        "text"
+                                      ],
+                                      "type": "object"
+                                    },
+                                    {
+                                      "additionalProperties": false,
+                                      "properties": {
+                                        "detail": {
+                                          "anyOf": [
+                                            {
+                                              "enum": [
+                                                "auto",
+                                                "low",
+                                                "high",
+                                                "original"
+                                              ],
+                                              "type": "string"
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ],
+                                          "default": null
+                                        },
+                                        "type": {
+                                          "const": "image",
+                                          "type": "string"
+                                        },
+                                        "url": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "required": [
+                                        "type",
+                                        "url"
+                                      ],
+                                      "type": "object"
+                                    },
+                                    {
+                                      "additionalProperties": false,
+                                      "properties": {
+                                        "detail": {
+                                          "anyOf": [
+                                            {
+                                              "enum": [
+                                                "auto",
+                                                "low",
+                                                "high",
+                                                "original"
+                                              ],
+                                              "type": "string"
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ],
+                                          "default": null
+                                        },
+                                        "path": {
+                                          "type": "string"
+                                        },
+                                        "type": {
+                                          "const": "localImage",
+                                          "type": "string"
+                                        }
+                                      },
+                                      "required": [
+                                        "type",
+                                        "path"
+                                      ],
+                                      "type": "object"
+                                    },
+                                    {
+                                      "additionalProperties": false,
+                                      "properties": {
+                                        "type": {
+                                          "const": "audio",
+                                          "type": "string"
+                                        },
+                                        "url": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "required": [
+                                        "type",
+                                        "url"
+                                      ],
+                                      "type": "object"
+                                    },
+                                    {
+                                      "additionalProperties": false,
+                                      "properties": {
+                                        "path": {
+                                          "type": "string"
+                                        },
+                                        "type": {
+                                          "const": "localAudio",
+                                          "type": "string"
+                                        }
+                                      },
+                                      "required": [
+                                        "type",
+                                        "path"
+                                      ],
+                                      "type": "object"
+                                    },
+                                    {
+                                      "additionalProperties": false,
+                                      "properties": {
+                                        "mime_type": {
+                                          "default": null,
+                                          "type": [
+                                            "string",
+                                            "null"
+                                          ]
+                                        },
+                                        "name": {
+                                          "default": null,
+                                          "type": [
+                                            "string",
+                                            "null"
+                                          ]
+                                        },
+                                        "type": {
+                                          "const": "file",
+                                          "type": "string"
+                                        },
+                                        "url": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "required": [
+                                        "type",
+                                        "url"
+                                      ],
+                                      "type": "object"
+                                    }
+                                  ]
+                                },
+                                "type": "array"
+                              },
+                              "itemId": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "itemId",
+                              "content"
+                            ],
+                            "type": "object"
+                          },
+                          "type": [
+                            "array",
+                            "null"
+                          ]
+                        },
                         "summary": {
                           "type": "string"
                         },
@@ -18986,6 +19856,14 @@
                             "parameters": {
                               "additionalProperties": false,
                               "properties": {
+                                "contextWindowTokens": {
+                                  "format": "uint",
+                                  "minimum": 0,
+                                  "type": [
+                                    "integer",
+                                    "null"
+                                  ]
+                                },
                                 "maxOutputTokens": {
                                   "format": "uint64",
                                   "minimum": 0,
@@ -19180,6 +20058,14 @@
                                     "parameters": {
                                       "additionalProperties": false,
                                       "properties": {
+                                        "contextWindowTokens": {
+                                          "format": "uint",
+                                          "minimum": 0,
+                                          "type": [
+                                            "integer",
+                                            "null"
+                                          ]
+                                        },
                                         "maxOutputTokens": {
                                           "format": "uint64",
                                           "minimum": 0,
@@ -19689,6 +20575,14 @@
                                       "parameters": {
                                         "additionalProperties": false,
                                         "properties": {
+                                          "contextWindowTokens": {
+                                            "format": "uint",
+                                            "minimum": 0,
+                                            "type": [
+                                              "integer",
+                                              "null"
+                                            ]
+                                          },
                                           "maxOutputTokens": {
                                             "format": "uint64",
                                             "minimum": 0,
@@ -19883,6 +20777,14 @@
                                               "parameters": {
                                                 "additionalProperties": false,
                                                 "properties": {
+                                                  "contextWindowTokens": {
+                                                    "format": "uint",
+                                                    "minimum": 0,
+                                                    "type": [
+                                                      "integer",
+                                                      "null"
+                                                    ]
+                                                  },
                                                   "maxOutputTokens": {
                                                     "format": "uint64",
                                                     "minimum": 0,
@@ -20606,6 +21508,47 @@
                   ],
                   "type": "object"
                 },
+                "historyArchive": {
+                  "anyOf": [
+                    {
+                      "description": "不可变历史分段的链头；读取完整 Thread 时由 Core 展开，不要求客户端管理文件。",
+                      "properties": {
+                        "bytes": {
+                          "format": "uint64",
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "completedTurns": {
+                          "format": "uint64",
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "head": {
+                          "type": "string"
+                        },
+                        "items": {
+                          "format": "uint64",
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "throughItemId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "head",
+                        "throughItemId",
+                        "completedTurns",
+                        "items",
+                        "bytes"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "id": {
                   "type": "string"
                 },
@@ -20786,6 +21729,14 @@
                               "parameters": {
                                 "additionalProperties": false,
                                 "properties": {
+                                  "contextWindowTokens": {
+                                    "format": "uint",
+                                    "minimum": 0,
+                                    "type": [
+                                      "integer",
+                                      "null"
+                                    ]
+                                  },
                                   "maxOutputTokens": {
                                     "format": "uint64",
                                     "minimum": 0,
@@ -20980,6 +21931,14 @@
                                       "parameters": {
                                         "additionalProperties": false,
                                         "properties": {
+                                          "contextWindowTokens": {
+                                            "format": "uint",
+                                            "minimum": 0,
+                                            "type": [
+                                              "integer",
+                                              "null"
+                                            ]
+                                          },
                                           "maxOutputTokens": {
                                             "format": "uint64",
                                             "minimum": 0,
@@ -21945,6 +22904,14 @@
                         "parameters": {
                           "additionalProperties": false,
                           "properties": {
+                            "contextWindowTokens": {
+                              "format": "uint",
+                              "minimum": 0,
+                              "type": [
+                                "integer",
+                                "null"
+                              ]
+                            },
                             "maxOutputTokens": {
                               "format": "uint64",
                               "minimum": 0,
@@ -22139,6 +23106,14 @@
                                 "parameters": {
                                   "additionalProperties": false,
                                   "properties": {
+                                    "contextWindowTokens": {
+                                      "format": "uint",
+                                      "minimum": 0,
+                                      "type": [
+                                        "integer",
+                                        "null"
+                                      ]
+                                    },
                                     "maxOutputTokens": {
                                       "format": "uint64",
                                       "minimum": 0,
@@ -23396,6 +24371,194 @@
                   "minimum": 0,
                   "type": "integer"
                 },
+                "evidence": {
+                  "description": "有界的原始工具回执提示，不授予权限或恢复过期句柄。",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "retainedInputs": {
+                  "description": "保留的真实用户输入；缺省表示旧 checkpoint 的全量重放契约。",
+                  "items": {
+                    "properties": {
+                      "content": {
+                        "items": {
+                          "oneOf": [
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "text": {
+                                  "type": "string"
+                                },
+                                "text_elements": {
+                                  "default": [],
+                                  "items": true,
+                                  "type": "array"
+                                },
+                                "type": {
+                                  "const": "text",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "text"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "detail": {
+                                  "anyOf": [
+                                    {
+                                      "enum": [
+                                        "auto",
+                                        "low",
+                                        "high",
+                                        "original"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ],
+                                  "default": null
+                                },
+                                "type": {
+                                  "const": "image",
+                                  "type": "string"
+                                },
+                                "url": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "url"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "detail": {
+                                  "anyOf": [
+                                    {
+                                      "enum": [
+                                        "auto",
+                                        "low",
+                                        "high",
+                                        "original"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ],
+                                  "default": null
+                                },
+                                "path": {
+                                  "type": "string"
+                                },
+                                "type": {
+                                  "const": "localImage",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "path"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "type": {
+                                  "const": "audio",
+                                  "type": "string"
+                                },
+                                "url": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "url"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "path": {
+                                  "type": "string"
+                                },
+                                "type": {
+                                  "const": "localAudio",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "path"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "mime_type": {
+                                  "default": null,
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "name": {
+                                  "default": null,
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "type": {
+                                  "const": "file",
+                                  "type": "string"
+                                },
+                                "url": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "url"
+                              ],
+                              "type": "object"
+                            }
+                          ]
+                        },
+                        "type": "array"
+                      },
+                      "itemId": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "itemId",
+                      "content"
+                    ],
+                    "type": "object"
+                  },
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                },
                 "summary": {
                   "type": "string"
                 },
@@ -23554,6 +24717,194 @@
                   "format": "uint64",
                   "minimum": 0,
                   "type": "integer"
+                },
+                "evidence": {
+                  "description": "有界的原始工具回执提示，不授予权限或恢复过期句柄。",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "retainedInputs": {
+                  "description": "保留的真实用户输入；缺省表示旧 checkpoint 的全量重放契约。",
+                  "items": {
+                    "properties": {
+                      "content": {
+                        "items": {
+                          "oneOf": [
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "text": {
+                                  "type": "string"
+                                },
+                                "text_elements": {
+                                  "default": [],
+                                  "items": true,
+                                  "type": "array"
+                                },
+                                "type": {
+                                  "const": "text",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "text"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "detail": {
+                                  "anyOf": [
+                                    {
+                                      "enum": [
+                                        "auto",
+                                        "low",
+                                        "high",
+                                        "original"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ],
+                                  "default": null
+                                },
+                                "type": {
+                                  "const": "image",
+                                  "type": "string"
+                                },
+                                "url": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "url"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "detail": {
+                                  "anyOf": [
+                                    {
+                                      "enum": [
+                                        "auto",
+                                        "low",
+                                        "high",
+                                        "original"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ],
+                                  "default": null
+                                },
+                                "path": {
+                                  "type": "string"
+                                },
+                                "type": {
+                                  "const": "localImage",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "path"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "type": {
+                                  "const": "audio",
+                                  "type": "string"
+                                },
+                                "url": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "url"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "path": {
+                                  "type": "string"
+                                },
+                                "type": {
+                                  "const": "localAudio",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "path"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "mime_type": {
+                                  "default": null,
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "name": {
+                                  "default": null,
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "type": {
+                                  "const": "file",
+                                  "type": "string"
+                                },
+                                "url": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "url"
+                              ],
+                              "type": "object"
+                            }
+                          ]
+                        },
+                        "type": "array"
+                      },
+                      "itemId": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "itemId",
+                      "content"
+                    ],
+                    "type": "object"
+                  },
+                  "type": [
+                    "array",
+                    "null"
+                  ]
                 },
                 "summary": {
                   "type": "string"
@@ -27648,6 +28999,14 @@
               "parameters": {
                 "additionalProperties": false,
                 "properties": {
+                  "contextWindowTokens": {
+                    "format": "uint",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
                   "maxOutputTokens": {
                     "format": "uint64",
                     "minimum": 0,
@@ -27860,6 +29219,14 @@
         "parameters": {
           "additionalProperties": false,
           "properties": {
+            "contextWindowTokens": {
+              "format": "uint",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
             "maxOutputTokens": {
               "format": "uint64",
               "minimum": 0,
@@ -27940,6 +29307,14 @@
         "parameters": {
           "additionalProperties": false,
           "properties": {
+            "contextWindowTokens": {
+              "format": "uint",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
             "maxOutputTokens": {
               "format": "uint64",
               "minimum": 0,
@@ -28095,6 +29470,14 @@
                   "parameters": {
                     "additionalProperties": false,
                     "properties": {
+                      "contextWindowTokens": {
+                        "format": "uint",
+                        "minimum": 0,
+                        "type": [
+                          "integer",
+                          "null"
+                        ]
+                      },
                       "maxOutputTokens": {
                         "format": "uint64",
                         "minimum": 0,
@@ -28289,6 +29672,14 @@
                           "parameters": {
                             "additionalProperties": false,
                             "properties": {
+                              "contextWindowTokens": {
+                                "format": "uint",
+                                "minimum": 0,
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ]
+                              },
                               "maxOutputTokens": {
                                 "format": "uint64",
                                 "minimum": 0,
@@ -28708,6 +30099,14 @@
                   "parameters": {
                     "additionalProperties": false,
                     "properties": {
+                      "contextWindowTokens": {
+                        "format": "uint",
+                        "minimum": 0,
+                        "type": [
+                          "integer",
+                          "null"
+                        ]
+                      },
                       "maxOutputTokens": {
                         "format": "uint64",
                         "minimum": 0,
@@ -28902,6 +30301,14 @@
                           "parameters": {
                             "additionalProperties": false,
                             "properties": {
+                              "contextWindowTokens": {
+                                "format": "uint",
+                                "minimum": 0,
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ]
+                              },
                               "maxOutputTokens": {
                                 "format": "uint64",
                                 "minimum": 0,
@@ -29321,6 +30728,14 @@
                   "parameters": {
                     "additionalProperties": false,
                     "properties": {
+                      "contextWindowTokens": {
+                        "format": "uint",
+                        "minimum": 0,
+                        "type": [
+                          "integer",
+                          "null"
+                        ]
+                      },
                       "maxOutputTokens": {
                         "format": "uint64",
                         "minimum": 0,
@@ -29515,6 +30930,14 @@
                           "parameters": {
                             "additionalProperties": false,
                             "properties": {
+                              "contextWindowTokens": {
+                                "format": "uint",
+                                "minimum": 0,
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ]
+                              },
                               "maxOutputTokens": {
                                 "format": "uint64",
                                 "minimum": 0,
@@ -29934,6 +31357,14 @@
                   "parameters": {
                     "additionalProperties": false,
                     "properties": {
+                      "contextWindowTokens": {
+                        "format": "uint",
+                        "minimum": 0,
+                        "type": [
+                          "integer",
+                          "null"
+                        ]
+                      },
                       "maxOutputTokens": {
                         "format": "uint64",
                         "minimum": 0,
@@ -30128,6 +31559,14 @@
                           "parameters": {
                             "additionalProperties": false,
                             "properties": {
+                              "contextWindowTokens": {
+                                "format": "uint",
+                                "minimum": 0,
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ]
+                              },
                               "maxOutputTokens": {
                                 "format": "uint64",
                                 "minimum": 0,
@@ -30547,6 +31986,14 @@
                   "parameters": {
                     "additionalProperties": false,
                     "properties": {
+                      "contextWindowTokens": {
+                        "format": "uint",
+                        "minimum": 0,
+                        "type": [
+                          "integer",
+                          "null"
+                        ]
+                      },
                       "maxOutputTokens": {
                         "format": "uint64",
                         "minimum": 0,
@@ -30741,6 +32188,14 @@
                           "parameters": {
                             "additionalProperties": false,
                             "properties": {
+                              "contextWindowTokens": {
+                                "format": "uint",
+                                "minimum": 0,
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ]
+                              },
                               "maxOutputTokens": {
                                 "format": "uint64",
                                 "minimum": 0,
@@ -31160,6 +32615,14 @@
                   "parameters": {
                     "additionalProperties": false,
                     "properties": {
+                      "contextWindowTokens": {
+                        "format": "uint",
+                        "minimum": 0,
+                        "type": [
+                          "integer",
+                          "null"
+                        ]
+                      },
                       "maxOutputTokens": {
                         "format": "uint64",
                         "minimum": 0,
@@ -31354,6 +32817,14 @@
                           "parameters": {
                             "additionalProperties": false,
                             "properties": {
+                              "contextWindowTokens": {
+                                "format": "uint",
+                                "minimum": 0,
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ]
+                              },
                               "maxOutputTokens": {
                                 "format": "uint64",
                                 "minimum": 0,
@@ -34876,6 +36347,14 @@
         "parameters": {
           "additionalProperties": false,
           "properties": {
+            "contextWindowTokens": {
+              "format": "uint",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
             "maxOutputTokens": {
               "format": "uint64",
               "minimum": 0,
@@ -35070,6 +36549,14 @@
                 "parameters": {
                   "additionalProperties": false,
                   "properties": {
+                    "contextWindowTokens": {
+                      "format": "uint",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "maxOutputTokens": {
                       "format": "uint64",
                       "minimum": 0,
@@ -35284,6 +36771,14 @@
             "parameters": {
               "additionalProperties": false,
               "properties": {
+                "contextWindowTokens": {
+                  "format": "uint",
+                  "minimum": 0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
                 "maxOutputTokens": {
                   "format": "uint64",
                   "minimum": 0,
@@ -35478,6 +36973,14 @@
                     "parameters": {
                       "additionalProperties": false,
                       "properties": {
+                        "contextWindowTokens": {
+                          "format": "uint",
+                          "minimum": 0,
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
                         "maxOutputTokens": {
                           "format": "uint64",
                           "minimum": 0,
@@ -35588,6 +37091,194 @@
                   "format": "uint64",
                   "minimum": 0,
                   "type": "integer"
+                },
+                "evidence": {
+                  "description": "有界的原始工具回执提示，不授予权限或恢复过期句柄。",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "retainedInputs": {
+                  "description": "保留的真实用户输入；缺省表示旧 checkpoint 的全量重放契约。",
+                  "items": {
+                    "properties": {
+                      "content": {
+                        "items": {
+                          "oneOf": [
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "text": {
+                                  "type": "string"
+                                },
+                                "text_elements": {
+                                  "default": [],
+                                  "items": true,
+                                  "type": "array"
+                                },
+                                "type": {
+                                  "const": "text",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "text"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "detail": {
+                                  "anyOf": [
+                                    {
+                                      "enum": [
+                                        "auto",
+                                        "low",
+                                        "high",
+                                        "original"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ],
+                                  "default": null
+                                },
+                                "type": {
+                                  "const": "image",
+                                  "type": "string"
+                                },
+                                "url": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "url"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "detail": {
+                                  "anyOf": [
+                                    {
+                                      "enum": [
+                                        "auto",
+                                        "low",
+                                        "high",
+                                        "original"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ],
+                                  "default": null
+                                },
+                                "path": {
+                                  "type": "string"
+                                },
+                                "type": {
+                                  "const": "localImage",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "path"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "type": {
+                                  "const": "audio",
+                                  "type": "string"
+                                },
+                                "url": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "url"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "path": {
+                                  "type": "string"
+                                },
+                                "type": {
+                                  "const": "localAudio",
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "path"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "mime_type": {
+                                  "default": null,
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "name": {
+                                  "default": null,
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "type": {
+                                  "const": "file",
+                                  "type": "string"
+                                },
+                                "url": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "url"
+                              ],
+                              "type": "object"
+                            }
+                          ]
+                        },
+                        "type": "array"
+                      },
+                      "itemId": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "itemId",
+                      "content"
+                    ],
+                    "type": "object"
+                  },
+                  "type": [
+                    "array",
+                    "null"
+                  ]
                 },
                 "summary": {
                   "type": "string"
@@ -35793,6 +37484,194 @@
                       "minimum": 0,
                       "type": "integer"
                     },
+                    "evidence": {
+                      "description": "有界的原始工具回执提示，不授予权限或恢复过期句柄。",
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "retainedInputs": {
+                      "description": "保留的真实用户输入；缺省表示旧 checkpoint 的全量重放契约。",
+                      "items": {
+                        "properties": {
+                          "content": {
+                            "items": {
+                              "oneOf": [
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "text": {
+                                      "type": "string"
+                                    },
+                                    "text_elements": {
+                                      "default": [],
+                                      "items": true,
+                                      "type": "array"
+                                    },
+                                    "type": {
+                                      "const": "text",
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "text"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "detail": {
+                                      "anyOf": [
+                                        {
+                                          "enum": [
+                                            "auto",
+                                            "low",
+                                            "high",
+                                            "original"
+                                          ],
+                                          "type": "string"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ],
+                                      "default": null
+                                    },
+                                    "type": {
+                                      "const": "image",
+                                      "type": "string"
+                                    },
+                                    "url": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "url"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "detail": {
+                                      "anyOf": [
+                                        {
+                                          "enum": [
+                                            "auto",
+                                            "low",
+                                            "high",
+                                            "original"
+                                          ],
+                                          "type": "string"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ],
+                                      "default": null
+                                    },
+                                    "path": {
+                                      "type": "string"
+                                    },
+                                    "type": {
+                                      "const": "localImage",
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "path"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "type": {
+                                      "const": "audio",
+                                      "type": "string"
+                                    },
+                                    "url": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "url"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "path": {
+                                      "type": "string"
+                                    },
+                                    "type": {
+                                      "const": "localAudio",
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "path"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "mime_type": {
+                                      "default": null,
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    },
+                                    "name": {
+                                      "default": null,
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    },
+                                    "type": {
+                                      "const": "file",
+                                      "type": "string"
+                                    },
+                                    "url": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "url"
+                                  ],
+                                  "type": "object"
+                                }
+                              ]
+                            },
+                            "type": "array"
+                          },
+                          "itemId": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "itemId",
+                          "content"
+                        ],
+                        "type": "object"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    },
                     "summary": {
                       "type": "string"
                     },
@@ -35959,6 +37838,14 @@
                         "parameters": {
                           "additionalProperties": false,
                           "properties": {
+                            "contextWindowTokens": {
+                              "format": "uint",
+                              "minimum": 0,
+                              "type": [
+                                "integer",
+                                "null"
+                              ]
+                            },
                             "maxOutputTokens": {
                               "format": "uint64",
                               "minimum": 0,
@@ -36153,6 +38040,14 @@
                                 "parameters": {
                                   "additionalProperties": false,
                                   "properties": {
+                                    "contextWindowTokens": {
+                                      "format": "uint",
+                                      "minimum": 0,
+                                      "type": [
+                                        "integer",
+                                        "null"
+                                      ]
+                                    },
                                     "maxOutputTokens": {
                                       "format": "uint64",
                                       "minimum": 0,
@@ -36662,6 +38557,14 @@
                                   "parameters": {
                                     "additionalProperties": false,
                                     "properties": {
+                                      "contextWindowTokens": {
+                                        "format": "uint",
+                                        "minimum": 0,
+                                        "type": [
+                                          "integer",
+                                          "null"
+                                        ]
+                                      },
                                       "maxOutputTokens": {
                                         "format": "uint64",
                                         "minimum": 0,
@@ -36856,6 +38759,14 @@
                                           "parameters": {
                                             "additionalProperties": false,
                                             "properties": {
+                                              "contextWindowTokens": {
+                                                "format": "uint",
+                                                "minimum": 0,
+                                                "type": [
+                                                  "integer",
+                                                  "null"
+                                                ]
+                                              },
                                               "maxOutputTokens": {
                                                 "format": "uint64",
                                                 "minimum": 0,
@@ -37579,6 +39490,47 @@
               ],
               "type": "object"
             },
+            "historyArchive": {
+              "anyOf": [
+                {
+                  "description": "不可变历史分段的链头；读取完整 Thread 时由 Core 展开，不要求客户端管理文件。",
+                  "properties": {
+                    "bytes": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "completedTurns": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "head": {
+                      "type": "string"
+                    },
+                    "items": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "throughItemId": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "head",
+                    "throughItemId",
+                    "completedTurns",
+                    "items",
+                    "bytes"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "id": {
               "type": "string"
             },
@@ -37759,6 +39711,14 @@
                           "parameters": {
                             "additionalProperties": false,
                             "properties": {
+                              "contextWindowTokens": {
+                                "format": "uint",
+                                "minimum": 0,
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ]
+                              },
                               "maxOutputTokens": {
                                 "format": "uint64",
                                 "minimum": 0,
@@ -37953,6 +39913,14 @@
                                   "parameters": {
                                     "additionalProperties": false,
                                     "properties": {
+                                      "contextWindowTokens": {
+                                        "format": "uint",
+                                        "minimum": 0,
+                                        "type": [
+                                          "integer",
+                                          "null"
+                                        ]
+                                      },
                                       "maxOutputTokens": {
                                         "format": "uint64",
                                         "minimum": 0,
@@ -38952,6 +40920,14 @@
                     "parameters": {
                       "additionalProperties": false,
                       "properties": {
+                        "contextWindowTokens": {
+                          "format": "uint",
+                          "minimum": 0,
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
                         "maxOutputTokens": {
                           "format": "uint64",
                           "minimum": 0,
@@ -39146,6 +41122,14 @@
                             "parameters": {
                               "additionalProperties": false,
                               "properties": {
+                                "contextWindowTokens": {
+                                  "format": "uint",
+                                  "minimum": 0,
+                                  "type": [
+                                    "integer",
+                                    "null"
+                                  ]
+                                },
                                 "maxOutputTokens": {
                                   "format": "uint64",
                                   "minimum": 0,
@@ -41668,13 +43652,13 @@
           "type": "integer"
         },
         "maxModelRequests": {
-          "default": 128,
+          "default": 0,
           "format": "uint",
           "minimum": 0,
           "type": "integer"
         },
         "timeoutSeconds": {
-          "default": 600,
+          "default": 0,
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
@@ -43980,6 +45964,194 @@
                         "minimum": 0,
                         "type": "integer"
                       },
+                      "evidence": {
+                        "description": "有界的原始工具回执提示，不授予权限或恢复过期句柄。",
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "retainedInputs": {
+                        "description": "保留的真实用户输入；缺省表示旧 checkpoint 的全量重放契约。",
+                        "items": {
+                          "properties": {
+                            "content": {
+                              "items": {
+                                "oneOf": [
+                                  {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                      "text": {
+                                        "type": "string"
+                                      },
+                                      "text_elements": {
+                                        "default": [],
+                                        "items": true,
+                                        "type": "array"
+                                      },
+                                      "type": {
+                                        "const": "text",
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "type",
+                                      "text"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                      "detail": {
+                                        "anyOf": [
+                                          {
+                                            "enum": [
+                                              "auto",
+                                              "low",
+                                              "high",
+                                              "original"
+                                            ],
+                                            "type": "string"
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ],
+                                        "default": null
+                                      },
+                                      "type": {
+                                        "const": "image",
+                                        "type": "string"
+                                      },
+                                      "url": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "type",
+                                      "url"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                      "detail": {
+                                        "anyOf": [
+                                          {
+                                            "enum": [
+                                              "auto",
+                                              "low",
+                                              "high",
+                                              "original"
+                                            ],
+                                            "type": "string"
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ],
+                                        "default": null
+                                      },
+                                      "path": {
+                                        "type": "string"
+                                      },
+                                      "type": {
+                                        "const": "localImage",
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "type",
+                                      "path"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                      "type": {
+                                        "const": "audio",
+                                        "type": "string"
+                                      },
+                                      "url": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "type",
+                                      "url"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                      "path": {
+                                        "type": "string"
+                                      },
+                                      "type": {
+                                        "const": "localAudio",
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "type",
+                                      "path"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                      "mime_type": {
+                                        "default": null,
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ]
+                                      },
+                                      "name": {
+                                        "default": null,
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ]
+                                      },
+                                      "type": {
+                                        "const": "file",
+                                        "type": "string"
+                                      },
+                                      "url": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "type",
+                                      "url"
+                                    ],
+                                    "type": "object"
+                                  }
+                                ]
+                              },
+                              "type": "array"
+                            },
+                            "itemId": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "itemId",
+                            "content"
+                          ],
+                          "type": "object"
+                        },
+                        "type": [
+                          "array",
+                          "null"
+                        ]
+                      },
                       "summary": {
                         "type": "string"
                       },
@@ -44146,6 +46318,14 @@
                           "parameters": {
                             "additionalProperties": false,
                             "properties": {
+                              "contextWindowTokens": {
+                                "format": "uint",
+                                "minimum": 0,
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ]
+                              },
                               "maxOutputTokens": {
                                 "format": "uint64",
                                 "minimum": 0,
@@ -44340,6 +46520,14 @@
                                   "parameters": {
                                     "additionalProperties": false,
                                     "properties": {
+                                      "contextWindowTokens": {
+                                        "format": "uint",
+                                        "minimum": 0,
+                                        "type": [
+                                          "integer",
+                                          "null"
+                                        ]
+                                      },
                                       "maxOutputTokens": {
                                         "format": "uint64",
                                         "minimum": 0,
@@ -44849,6 +47037,14 @@
                                     "parameters": {
                                       "additionalProperties": false,
                                       "properties": {
+                                        "contextWindowTokens": {
+                                          "format": "uint",
+                                          "minimum": 0,
+                                          "type": [
+                                            "integer",
+                                            "null"
+                                          ]
+                                        },
                                         "maxOutputTokens": {
                                           "format": "uint64",
                                           "minimum": 0,
@@ -45043,6 +47239,14 @@
                                             "parameters": {
                                               "additionalProperties": false,
                                               "properties": {
+                                                "contextWindowTokens": {
+                                                  "format": "uint",
+                                                  "minimum": 0,
+                                                  "type": [
+                                                    "integer",
+                                                    "null"
+                                                  ]
+                                                },
                                                 "maxOutputTokens": {
                                                   "format": "uint64",
                                                   "minimum": 0,
@@ -45766,6 +47970,47 @@
                 ],
                 "type": "object"
               },
+              "historyArchive": {
+                "anyOf": [
+                  {
+                    "description": "不可变历史分段的链头；读取完整 Thread 时由 Core 展开，不要求客户端管理文件。",
+                    "properties": {
+                      "bytes": {
+                        "format": "uint64",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "completedTurns": {
+                        "format": "uint64",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "head": {
+                        "type": "string"
+                      },
+                      "items": {
+                        "format": "uint64",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "throughItemId": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "head",
+                      "throughItemId",
+                      "completedTurns",
+                      "items",
+                      "bytes"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "id": {
                 "type": "string"
               },
@@ -45946,6 +48191,14 @@
                             "parameters": {
                               "additionalProperties": false,
                               "properties": {
+                                "contextWindowTokens": {
+                                  "format": "uint",
+                                  "minimum": 0,
+                                  "type": [
+                                    "integer",
+                                    "null"
+                                  ]
+                                },
                                 "maxOutputTokens": {
                                   "format": "uint64",
                                   "minimum": 0,
@@ -46140,6 +48393,14 @@
                                     "parameters": {
                                       "additionalProperties": false,
                                       "properties": {
+                                        "contextWindowTokens": {
+                                          "format": "uint",
+                                          "minimum": 0,
+                                          "type": [
+                                            "integer",
+                                            "null"
+                                          ]
+                                        },
                                         "maxOutputTokens": {
                                           "format": "uint64",
                                           "minimum": 0,
@@ -47027,6 +49288,194 @@
                       "minimum": 0,
                       "type": "integer"
                     },
+                    "evidence": {
+                      "description": "有界的原始工具回执提示，不授予权限或恢复过期句柄。",
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "retainedInputs": {
+                      "description": "保留的真实用户输入；缺省表示旧 checkpoint 的全量重放契约。",
+                      "items": {
+                        "properties": {
+                          "content": {
+                            "items": {
+                              "oneOf": [
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "text": {
+                                      "type": "string"
+                                    },
+                                    "text_elements": {
+                                      "default": [],
+                                      "items": true,
+                                      "type": "array"
+                                    },
+                                    "type": {
+                                      "const": "text",
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "text"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "detail": {
+                                      "anyOf": [
+                                        {
+                                          "enum": [
+                                            "auto",
+                                            "low",
+                                            "high",
+                                            "original"
+                                          ],
+                                          "type": "string"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ],
+                                      "default": null
+                                    },
+                                    "type": {
+                                      "const": "image",
+                                      "type": "string"
+                                    },
+                                    "url": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "url"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "detail": {
+                                      "anyOf": [
+                                        {
+                                          "enum": [
+                                            "auto",
+                                            "low",
+                                            "high",
+                                            "original"
+                                          ],
+                                          "type": "string"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ],
+                                      "default": null
+                                    },
+                                    "path": {
+                                      "type": "string"
+                                    },
+                                    "type": {
+                                      "const": "localImage",
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "path"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "type": {
+                                      "const": "audio",
+                                      "type": "string"
+                                    },
+                                    "url": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "url"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "path": {
+                                      "type": "string"
+                                    },
+                                    "type": {
+                                      "const": "localAudio",
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "path"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "mime_type": {
+                                      "default": null,
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    },
+                                    "name": {
+                                      "default": null,
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    },
+                                    "type": {
+                                      "const": "file",
+                                      "type": "string"
+                                    },
+                                    "url": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "url"
+                                  ],
+                                  "type": "object"
+                                }
+                              ]
+                            },
+                            "type": "array"
+                          },
+                          "itemId": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "itemId",
+                          "content"
+                        ],
+                        "type": "object"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    },
                     "summary": {
                       "type": "string"
                     },
@@ -47193,6 +49642,14 @@
                         "parameters": {
                           "additionalProperties": false,
                           "properties": {
+                            "contextWindowTokens": {
+                              "format": "uint",
+                              "minimum": 0,
+                              "type": [
+                                "integer",
+                                "null"
+                              ]
+                            },
                             "maxOutputTokens": {
                               "format": "uint64",
                               "minimum": 0,
@@ -47387,6 +49844,14 @@
                                 "parameters": {
                                   "additionalProperties": false,
                                   "properties": {
+                                    "contextWindowTokens": {
+                                      "format": "uint",
+                                      "minimum": 0,
+                                      "type": [
+                                        "integer",
+                                        "null"
+                                      ]
+                                    },
                                     "maxOutputTokens": {
                                       "format": "uint64",
                                       "minimum": 0,
@@ -47896,6 +50361,14 @@
                                   "parameters": {
                                     "additionalProperties": false,
                                     "properties": {
+                                      "contextWindowTokens": {
+                                        "format": "uint",
+                                        "minimum": 0,
+                                        "type": [
+                                          "integer",
+                                          "null"
+                                        ]
+                                      },
                                       "maxOutputTokens": {
                                         "format": "uint64",
                                         "minimum": 0,
@@ -48090,6 +50563,14 @@
                                           "parameters": {
                                             "additionalProperties": false,
                                             "properties": {
+                                              "contextWindowTokens": {
+                                                "format": "uint",
+                                                "minimum": 0,
+                                                "type": [
+                                                  "integer",
+                                                  "null"
+                                                ]
+                                              },
                                               "maxOutputTokens": {
                                                 "format": "uint64",
                                                 "minimum": 0,
@@ -48813,6 +51294,47 @@
               ],
               "type": "object"
             },
+            "historyArchive": {
+              "anyOf": [
+                {
+                  "description": "不可变历史分段的链头；读取完整 Thread 时由 Core 展开，不要求客户端管理文件。",
+                  "properties": {
+                    "bytes": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "completedTurns": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "head": {
+                      "type": "string"
+                    },
+                    "items": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "throughItemId": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "head",
+                    "throughItemId",
+                    "completedTurns",
+                    "items",
+                    "bytes"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "id": {
               "type": "string"
             },
@@ -48993,6 +51515,14 @@
                           "parameters": {
                             "additionalProperties": false,
                             "properties": {
+                              "contextWindowTokens": {
+                                "format": "uint",
+                                "minimum": 0,
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ]
+                              },
                               "maxOutputTokens": {
                                 "format": "uint64",
                                 "minimum": 0,
@@ -49187,6 +51717,14 @@
                                   "parameters": {
                                     "additionalProperties": false,
                                     "properties": {
+                                      "contextWindowTokens": {
+                                        "format": "uint",
+                                        "minimum": 0,
+                                        "type": [
+                                          "integer",
+                                          "null"
+                                        ]
+                                      },
                                       "maxOutputTokens": {
                                         "format": "uint64",
                                         "minimum": 0,
@@ -50095,6 +52633,194 @@
                       "minimum": 0,
                       "type": "integer"
                     },
+                    "evidence": {
+                      "description": "有界的原始工具回执提示，不授予权限或恢复过期句柄。",
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "retainedInputs": {
+                      "description": "保留的真实用户输入；缺省表示旧 checkpoint 的全量重放契约。",
+                      "items": {
+                        "properties": {
+                          "content": {
+                            "items": {
+                              "oneOf": [
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "text": {
+                                      "type": "string"
+                                    },
+                                    "text_elements": {
+                                      "default": [],
+                                      "items": true,
+                                      "type": "array"
+                                    },
+                                    "type": {
+                                      "const": "text",
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "text"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "detail": {
+                                      "anyOf": [
+                                        {
+                                          "enum": [
+                                            "auto",
+                                            "low",
+                                            "high",
+                                            "original"
+                                          ],
+                                          "type": "string"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ],
+                                      "default": null
+                                    },
+                                    "type": {
+                                      "const": "image",
+                                      "type": "string"
+                                    },
+                                    "url": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "url"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "detail": {
+                                      "anyOf": [
+                                        {
+                                          "enum": [
+                                            "auto",
+                                            "low",
+                                            "high",
+                                            "original"
+                                          ],
+                                          "type": "string"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ],
+                                      "default": null
+                                    },
+                                    "path": {
+                                      "type": "string"
+                                    },
+                                    "type": {
+                                      "const": "localImage",
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "path"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "type": {
+                                      "const": "audio",
+                                      "type": "string"
+                                    },
+                                    "url": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "url"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "path": {
+                                      "type": "string"
+                                    },
+                                    "type": {
+                                      "const": "localAudio",
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "path"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "mime_type": {
+                                      "default": null,
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    },
+                                    "name": {
+                                      "default": null,
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    },
+                                    "type": {
+                                      "const": "file",
+                                      "type": "string"
+                                    },
+                                    "url": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "url"
+                                  ],
+                                  "type": "object"
+                                }
+                              ]
+                            },
+                            "type": "array"
+                          },
+                          "itemId": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "itemId",
+                          "content"
+                        ],
+                        "type": "object"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    },
                     "summary": {
                       "type": "string"
                     },
@@ -50261,6 +52987,14 @@
                         "parameters": {
                           "additionalProperties": false,
                           "properties": {
+                            "contextWindowTokens": {
+                              "format": "uint",
+                              "minimum": 0,
+                              "type": [
+                                "integer",
+                                "null"
+                              ]
+                            },
                             "maxOutputTokens": {
                               "format": "uint64",
                               "minimum": 0,
@@ -50455,6 +53189,14 @@
                                 "parameters": {
                                   "additionalProperties": false,
                                   "properties": {
+                                    "contextWindowTokens": {
+                                      "format": "uint",
+                                      "minimum": 0,
+                                      "type": [
+                                        "integer",
+                                        "null"
+                                      ]
+                                    },
                                     "maxOutputTokens": {
                                       "format": "uint64",
                                       "minimum": 0,
@@ -50964,6 +53706,14 @@
                                   "parameters": {
                                     "additionalProperties": false,
                                     "properties": {
+                                      "contextWindowTokens": {
+                                        "format": "uint",
+                                        "minimum": 0,
+                                        "type": [
+                                          "integer",
+                                          "null"
+                                        ]
+                                      },
                                       "maxOutputTokens": {
                                         "format": "uint64",
                                         "minimum": 0,
@@ -51158,6 +53908,14 @@
                                           "parameters": {
                                             "additionalProperties": false,
                                             "properties": {
+                                              "contextWindowTokens": {
+                                                "format": "uint",
+                                                "minimum": 0,
+                                                "type": [
+                                                  "integer",
+                                                  "null"
+                                                ]
+                                              },
                                               "maxOutputTokens": {
                                                 "format": "uint64",
                                                 "minimum": 0,
@@ -51881,6 +54639,47 @@
               ],
               "type": "object"
             },
+            "historyArchive": {
+              "anyOf": [
+                {
+                  "description": "不可变历史分段的链头；读取完整 Thread 时由 Core 展开，不要求客户端管理文件。",
+                  "properties": {
+                    "bytes": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "completedTurns": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "head": {
+                      "type": "string"
+                    },
+                    "items": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "throughItemId": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "head",
+                    "throughItemId",
+                    "completedTurns",
+                    "items",
+                    "bytes"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "id": {
               "type": "string"
             },
@@ -52061,6 +54860,14 @@
                           "parameters": {
                             "additionalProperties": false,
                             "properties": {
+                              "contextWindowTokens": {
+                                "format": "uint",
+                                "minimum": 0,
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ]
+                              },
                               "maxOutputTokens": {
                                 "format": "uint64",
                                 "minimum": 0,
@@ -52255,6 +55062,14 @@
                                   "parameters": {
                                     "additionalProperties": false,
                                     "properties": {
+                                      "contextWindowTokens": {
+                                        "format": "uint",
+                                        "minimum": 0,
+                                        "type": [
+                                          "integer",
+                                          "null"
+                                        ]
+                                      },
                                       "maxOutputTokens": {
                                         "format": "uint64",
                                         "minimum": 0,
@@ -53171,6 +55986,194 @@
                       "minimum": 0,
                       "type": "integer"
                     },
+                    "evidence": {
+                      "description": "有界的原始工具回执提示，不授予权限或恢复过期句柄。",
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "retainedInputs": {
+                      "description": "保留的真实用户输入；缺省表示旧 checkpoint 的全量重放契约。",
+                      "items": {
+                        "properties": {
+                          "content": {
+                            "items": {
+                              "oneOf": [
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "text": {
+                                      "type": "string"
+                                    },
+                                    "text_elements": {
+                                      "default": [],
+                                      "items": true,
+                                      "type": "array"
+                                    },
+                                    "type": {
+                                      "const": "text",
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "text"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "detail": {
+                                      "anyOf": [
+                                        {
+                                          "enum": [
+                                            "auto",
+                                            "low",
+                                            "high",
+                                            "original"
+                                          ],
+                                          "type": "string"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ],
+                                      "default": null
+                                    },
+                                    "type": {
+                                      "const": "image",
+                                      "type": "string"
+                                    },
+                                    "url": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "url"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "detail": {
+                                      "anyOf": [
+                                        {
+                                          "enum": [
+                                            "auto",
+                                            "low",
+                                            "high",
+                                            "original"
+                                          ],
+                                          "type": "string"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ],
+                                      "default": null
+                                    },
+                                    "path": {
+                                      "type": "string"
+                                    },
+                                    "type": {
+                                      "const": "localImage",
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "path"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "type": {
+                                      "const": "audio",
+                                      "type": "string"
+                                    },
+                                    "url": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "url"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "path": {
+                                      "type": "string"
+                                    },
+                                    "type": {
+                                      "const": "localAudio",
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "path"
+                                  ],
+                                  "type": "object"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "mime_type": {
+                                      "default": null,
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    },
+                                    "name": {
+                                      "default": null,
+                                      "type": [
+                                        "string",
+                                        "null"
+                                      ]
+                                    },
+                                    "type": {
+                                      "const": "file",
+                                      "type": "string"
+                                    },
+                                    "url": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "type",
+                                    "url"
+                                  ],
+                                  "type": "object"
+                                }
+                              ]
+                            },
+                            "type": "array"
+                          },
+                          "itemId": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "itemId",
+                          "content"
+                        ],
+                        "type": "object"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    },
                     "summary": {
                       "type": "string"
                     },
@@ -53337,6 +56340,14 @@
                         "parameters": {
                           "additionalProperties": false,
                           "properties": {
+                            "contextWindowTokens": {
+                              "format": "uint",
+                              "minimum": 0,
+                              "type": [
+                                "integer",
+                                "null"
+                              ]
+                            },
                             "maxOutputTokens": {
                               "format": "uint64",
                               "minimum": 0,
@@ -53531,6 +56542,14 @@
                                 "parameters": {
                                   "additionalProperties": false,
                                   "properties": {
+                                    "contextWindowTokens": {
+                                      "format": "uint",
+                                      "minimum": 0,
+                                      "type": [
+                                        "integer",
+                                        "null"
+                                      ]
+                                    },
                                     "maxOutputTokens": {
                                       "format": "uint64",
                                       "minimum": 0,
@@ -54040,6 +57059,14 @@
                                   "parameters": {
                                     "additionalProperties": false,
                                     "properties": {
+                                      "contextWindowTokens": {
+                                        "format": "uint",
+                                        "minimum": 0,
+                                        "type": [
+                                          "integer",
+                                          "null"
+                                        ]
+                                      },
                                       "maxOutputTokens": {
                                         "format": "uint64",
                                         "minimum": 0,
@@ -54234,6 +57261,14 @@
                                           "parameters": {
                                             "additionalProperties": false,
                                             "properties": {
+                                              "contextWindowTokens": {
+                                                "format": "uint",
+                                                "minimum": 0,
+                                                "type": [
+                                                  "integer",
+                                                  "null"
+                                                ]
+                                              },
                                               "maxOutputTokens": {
                                                 "format": "uint64",
                                                 "minimum": 0,
@@ -54957,6 +57992,47 @@
               ],
               "type": "object"
             },
+            "historyArchive": {
+              "anyOf": [
+                {
+                  "description": "不可变历史分段的链头；读取完整 Thread 时由 Core 展开，不要求客户端管理文件。",
+                  "properties": {
+                    "bytes": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "completedTurns": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "head": {
+                      "type": "string"
+                    },
+                    "items": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "throughItemId": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "head",
+                    "throughItemId",
+                    "completedTurns",
+                    "items",
+                    "bytes"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "id": {
               "type": "string"
             },
@@ -55137,6 +58213,14 @@
                           "parameters": {
                             "additionalProperties": false,
                             "properties": {
+                              "contextWindowTokens": {
+                                "format": "uint",
+                                "minimum": 0,
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ]
+                              },
                               "maxOutputTokens": {
                                 "format": "uint64",
                                 "minimum": 0,
@@ -55331,6 +58415,14 @@
                                   "parameters": {
                                     "additionalProperties": false,
                                     "properties": {
+                                      "contextWindowTokens": {
+                                        "format": "uint",
+                                        "minimum": 0,
+                                        "type": [
+                                          "integer",
+                                          "null"
+                                        ]
+                                      },
                                       "maxOutputTokens": {
                                         "format": "uint64",
                                         "minimum": 0,
@@ -56316,6 +59408,14 @@
                     "parameters": {
                       "additionalProperties": false,
                       "properties": {
+                        "contextWindowTokens": {
+                          "format": "uint",
+                          "minimum": 0,
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
                         "maxOutputTokens": {
                           "format": "uint64",
                           "minimum": 0,
@@ -56510,6 +59610,14 @@
                             "parameters": {
                               "additionalProperties": false,
                               "properties": {
+                                "contextWindowTokens": {
+                                  "format": "uint",
+                                  "minimum": 0,
+                                  "type": [
+                                    "integer",
+                                    "null"
+                                  ]
+                                },
                                 "maxOutputTokens": {
                                   "format": "uint64",
                                   "minimum": 0,
@@ -57490,6 +60598,194 @@
                 "minimum": 0,
                 "type": "integer"
               },
+              "evidence": {
+                "description": "有界的原始工具回执提示，不授予权限或恢复过期句柄。",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "retainedInputs": {
+                "description": "保留的真实用户输入；缺省表示旧 checkpoint 的全量重放契约。",
+                "items": {
+                  "properties": {
+                    "content": {
+                      "items": {
+                        "oneOf": [
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "text": {
+                                "type": "string"
+                              },
+                              "text_elements": {
+                                "default": [],
+                                "items": true,
+                                "type": "array"
+                              },
+                              "type": {
+                                "const": "text",
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "type",
+                              "text"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "detail": {
+                                "anyOf": [
+                                  {
+                                    "enum": [
+                                      "auto",
+                                      "low",
+                                      "high",
+                                      "original"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "default": null
+                              },
+                              "type": {
+                                "const": "image",
+                                "type": "string"
+                              },
+                              "url": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "type",
+                              "url"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "detail": {
+                                "anyOf": [
+                                  {
+                                    "enum": [
+                                      "auto",
+                                      "low",
+                                      "high",
+                                      "original"
+                                    ],
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "default": null
+                              },
+                              "path": {
+                                "type": "string"
+                              },
+                              "type": {
+                                "const": "localImage",
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "type",
+                              "path"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "type": {
+                                "const": "audio",
+                                "type": "string"
+                              },
+                              "url": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "type",
+                              "url"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "path": {
+                                "type": "string"
+                              },
+                              "type": {
+                                "const": "localAudio",
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "type",
+                              "path"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "mime_type": {
+                                "default": null,
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "name": {
+                                "default": null,
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "type": {
+                                "const": "file",
+                                "type": "string"
+                              },
+                              "url": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "type",
+                              "url"
+                            ],
+                            "type": "object"
+                          }
+                        ]
+                      },
+                      "type": "array"
+                    },
+                    "itemId": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "itemId",
+                    "content"
+                  ],
+                  "type": "object"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
               "summary": {
                 "type": "string"
               },
@@ -57656,6 +60952,14 @@
                   "parameters": {
                     "additionalProperties": false,
                     "properties": {
+                      "contextWindowTokens": {
+                        "format": "uint",
+                        "minimum": 0,
+                        "type": [
+                          "integer",
+                          "null"
+                        ]
+                      },
                       "maxOutputTokens": {
                         "format": "uint64",
                         "minimum": 0,
@@ -57850,6 +61154,14 @@
                           "parameters": {
                             "additionalProperties": false,
                             "properties": {
+                              "contextWindowTokens": {
+                                "format": "uint",
+                                "minimum": 0,
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ]
+                              },
                               "maxOutputTokens": {
                                 "format": "uint64",
                                 "minimum": 0,
@@ -58359,6 +61671,14 @@
                             "parameters": {
                               "additionalProperties": false,
                               "properties": {
+                                "contextWindowTokens": {
+                                  "format": "uint",
+                                  "minimum": 0,
+                                  "type": [
+                                    "integer",
+                                    "null"
+                                  ]
+                                },
                                 "maxOutputTokens": {
                                   "format": "uint64",
                                   "minimum": 0,
@@ -58553,6 +61873,14 @@
                                     "parameters": {
                                       "additionalProperties": false,
                                       "properties": {
+                                        "contextWindowTokens": {
+                                          "format": "uint",
+                                          "minimum": 0,
+                                          "type": [
+                                            "integer",
+                                            "null"
+                                          ]
+                                        },
                                         "maxOutputTokens": {
                                           "format": "uint64",
                                           "minimum": 0,
@@ -59276,6 +62604,47 @@
         ],
         "type": "object"
       },
+      "historyArchive": {
+        "anyOf": [
+          {
+            "description": "不可变历史分段的链头；读取完整 Thread 时由 Core 展开，不要求客户端管理文件。",
+            "properties": {
+              "bytes": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "completedTurns": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "head": {
+                "type": "string"
+              },
+              "items": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "throughItemId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "head",
+              "throughItemId",
+              "completedTurns",
+              "items",
+              "bytes"
+            ],
+            "type": "object"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
       "id": {
         "type": "string"
       },
@@ -59456,6 +62825,14 @@
                     "parameters": {
                       "additionalProperties": false,
                       "properties": {
+                        "contextWindowTokens": {
+                          "format": "uint",
+                          "minimum": 0,
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
                         "maxOutputTokens": {
                           "format": "uint64",
                           "minimum": 0,
@@ -59650,6 +63027,14 @@
                             "parameters": {
                               "additionalProperties": false,
                               "properties": {
+                                "contextWindowTokens": {
+                                  "format": "uint",
+                                  "minimum": 0,
+                                  "type": [
+                                    "integer",
+                                    "null"
+                                  ]
+                                },
                                 "maxOutputTokens": {
                                   "format": "uint64",
                                   "minimum": 0,
@@ -60612,6 +63997,14 @@
               "parameters": {
                 "additionalProperties": false,
                 "properties": {
+                  "contextWindowTokens": {
+                    "format": "uint",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
                   "maxOutputTokens": {
                     "format": "uint64",
                     "minimum": 0,
@@ -60806,6 +64199,14 @@
                       "parameters": {
                         "additionalProperties": false,
                         "properties": {
+                          "contextWindowTokens": {
+                            "format": "uint",
+                            "minimum": 0,
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
                           "maxOutputTokens": {
                             "format": "uint64",
                             "minimum": 0,

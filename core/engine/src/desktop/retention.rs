@@ -22,9 +22,16 @@ impl Engine {
             if state.active.is_some() || state.compacting {
                 return Err(Error::Conflict);
             }
-            if serde_json::to_string(&state.thread.turns)
-                .map_err(invalid)?
-                .contains(&uri)
+            if serde_json::to_string(
+                &engine
+                    .store
+                    .hydrate(state.thread.clone())
+                    .await
+                    .map_err(invalid)?
+                    .turns,
+            )
+            .map_err(invalid)?
+            .contains(&uri)
                 || state.thread.desktop.as_ref().is_some_and(|d| {
                     serde_json::to_string(&d.queue).is_ok_and(|s| s.contains(&uri))
                 })

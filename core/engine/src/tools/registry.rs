@@ -393,7 +393,8 @@ impl Registry {
     pub fn research_only(mut self) -> Self {
         self.tools.retain(|name, tool| {
             matches!(tool.backend, Backend::Builtin)
-                || (name == "read_tool_result" && matches!(tool.backend, Backend::Core))
+                || (matches!(name.as_str(), "read_tool_result" | "read_history")
+                    && matches!(tool.backend, Backend::Core))
         });
         self.order.retain(|name| self.tools.contains_key(name));
         self

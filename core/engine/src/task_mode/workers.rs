@@ -25,8 +25,8 @@ impl Engine {
             }
             let goal=state.thread.goals.goal.as_ref().filter(|g|g.status==GoalStatus::Active).ok_or(Error::Conflict)?;
             let mut configuration=engine.child_configuration(&state.thread,None)?.unwrap_or_default();
-            let rounds=requested_rounds.map(|n|n as usize).unwrap_or(configuration.options.max_model_rounds.unwrap_or(16).min(16));
-            if rounds==0 || rounds>1024 || configuration.options.max_model_rounds.is_some_and(|n|rounds>n) {
+            let rounds=requested_rounds.map(|n|n as usize).or(configuration.options.max_model_rounds);
+            if rounds.is_some_and(|rounds| rounds==0 || rounds>1024 || configuration.options.max_model_rounds.is_some_and(|n|rounds>n)) {
                 return Err(invalid("worker model rounds exceed parent limit"));
             }
             if !state.thread.dynamic_tools.is_empty() {return Err(invalid("task workers require server-owned tools; client callbacks cannot be detached"));}
@@ -37,7 +37,7 @@ impl Engine {
                 if run.workers.len()>=engine.limits.max_children_per_turn {return Err(Error::Exhausted("TaskRun worker capacity reached".into()));}
                 (task.id.clone(),run.id.clone())
             };
-            configuration.options.max_model_rounds=Some(rounds);
+            configuration.options.max_model_rounds=rounds;
             if configuration.options.interaction_mode == InteractionMode::Interactive { configuration.options.interaction_mode=InteractionMode::Asynchronous; }
             let definitions=engine.visible_tools(&parent,&configuration,true).await;
             configuration.tool_allowlist=Some(definitions.iter().filter_map(|d|d["function"]["name"].as_str())

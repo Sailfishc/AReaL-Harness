@@ -48,9 +48,9 @@ writes 为精确相对文件名，不接受目录/glob/逃逸。depends 要求�
 | initial-workers | 0 自动选择；显式 1–32 只影响 adaptive |
 | verification-batch | 4（1–32），合并已有就绪候选，不等待凑满 |
 | repairs / integration-repair | 1（0–3）/ true，原授权与预算内修复 |
-| seconds / command-timeout-ms | 600（1–86400）/ 300000（1–86400000） |
-| max-model-requests | 128，规划/Worker/修复共享 |
-| worker-context-bytes | 65536，0 关闭；裁剪模型视图，不删除历史 |
+| seconds / command-timeout-ms | 0（无限；正数 1–86400）/ 300000（1–86400000） |
+| max-model-requests | 0（无限）；正数限制由规划/Worker/修复共享 |
+| worker-context-bytes | 0，0 关闭；裁剪模型视图，不删除历史 |
 | worker-stall-rounds | 0 关闭；8–128 为实验性源码无变化检查点 |
 | worker-tools | all 或 command；不改变 Runtime 权限 |
 
@@ -67,3 +67,5 @@ TUI/server/launcher 可配置 `--workgroup-policy /absolute/policy.json --workgr
 桌面 Workflow 是版本化计划，可按阶段配置 Profile、模型、Skill、工具和 readOnly；也可以作为 Agent Profile 的 `workflow` 属性，在 `areal/thread/start` 时自动启动一次并记录到 Thread；isolatedWrite 子 Agent 复用此服务。契约见 [Core API](../api/core.md#workgroups)，机制见[调度设计](../design/workgroups.md)。
 
 连续四个成功且输入、结果和源码均相同的工具边界会进入验证检查点；动态进程/游标标识与 remainingToolCalls 准入余量不参与重复结果比较。Goal 内的原生 Workgroup 与父 Turn 共享目标 token 预算，原有 Workgroup 限额继续生效。
+
+Worker 继承配置中的累计预算、响应保护和 Core 上下文策略。`worker-context-bytes` 默认 0，关闭独立的旧字节投影；显式正数保留旧行为。该字段不关闭 Core 的 token 预检/压缩。

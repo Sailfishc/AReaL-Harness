@@ -414,6 +414,9 @@ impl From<&str> for ModelEvent {
 pub struct ModelCapabilities {
     pub input: Vec<Modality>,
     pub output: Vec<Modality>,
+    pub context_window_tokens: Option<usize>,
+    pub max_output_tokens: Option<usize>,
+    pub summary_output_tokens: Option<usize>,
 }
 
 impl ModelCapabilities {
@@ -421,6 +424,9 @@ impl ModelCapabilities {
         Self {
             input: vec![Modality::Text],
             output: vec![Modality::Text],
+            context_window_tokens: None,
+            max_output_tokens: None,
+            summary_output_tokens: None,
         }
     }
 
@@ -521,6 +527,9 @@ impl ModelProtocol {
             ModelProtocol::ChatCompletions => ModelCapabilities {
                 input: vec![Modality::Text, Modality::Image, Modality::Audio],
                 output: vec![Modality::Text],
+                context_window_tokens: None,
+                max_output_tokens: None,
+                summary_output_tokens: None,
             },
             ModelProtocol::Responses => ModelCapabilities {
                 input: vec![
@@ -530,6 +539,9 @@ impl ModelProtocol {
                     Modality::File,
                 ],
                 output: vec![Modality::Text, Modality::Image, Modality::Audio],
+                context_window_tokens: None,
+                max_output_tokens: None,
+                summary_output_tokens: None,
             },
         }
     }
@@ -562,6 +574,7 @@ pub struct ModelOptions {
     pub presence_penalty: Option<f64>,
     pub repetition_penalty: Option<f64>,
     pub max_output_tokens: Option<u64>,
+    pub context_window_tokens: Option<usize>,
     pub max_retries: usize,
 }
 
@@ -580,6 +593,7 @@ impl Default for ModelOptions {
             presence_penalty: None,
             repetition_penalty: None,
             max_output_tokens: None,
+            context_window_tokens: None,
             max_retries: 2,
         }
     }
@@ -634,6 +648,12 @@ impl HttpModel {
         anyhow::ensure!(
             !options.responses_websocket || self.protocol == ModelProtocol::Responses,
             "responses_websocket requires responses protocol"
+        );
+        anyhow::ensure!(
+            options
+                .context_window_tokens
+                .is_none_or(|n| n > 0 && n <= 2_000_000),
+            "context window must be between 1 and 2000000 tokens"
         );
         anyhow::ensure!(options.max_retries <= 8, "model retries must be at most 8");
         anyhow::ensure!(
@@ -812,6 +832,9 @@ impl Model for HttpModel {
         Ok(std::sync::Arc::new(
             self.clone()
                 .with_options(ModelOptions {
+                    context_window_tokens: p
+                        .context_window_tokens
+                        .or(self.options.context_window_tokens),
                     reasoning_effort: p
                         .reasoning_effort
                         .clone()
@@ -838,7 +861,17 @@ impl Model for HttpModel {
     }
 
     fn capabilities(&self) -> ModelCapabilities {
-        self.protocol.capabilities()
+        let mut capabilities = self.protocol.capabilities();
+        capabilities.context_window_tokens = self.options.context_window_tokens;
+        capabilities.max_output_tokens = self.options.max_output_tokens.map(|n| n as usize);
+        capabilities.summary_output_tokens = Some(
+            self.options
+                .summary_max_output_tokens
+                .unwrap_or(16384)
+                .min(self.options.max_output_tokens.unwrap_or(16384))
+                .min(16384) as usize,
+        );
+        capabilities
     }
 
     async fn stream(&self, messages: Vec<Message>) -> Result<ModelStream> {

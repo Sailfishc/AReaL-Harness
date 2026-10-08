@@ -13,6 +13,37 @@ fn inputs(root: &Path) -> ConfigInputs {
         ..Default::default()
     }
 }
+
+#[test]
+fn grouped_configuration_keeps_explicit_budgets_and_model_window() {
+    let root = tempfile::tempdir().unwrap();
+    let mut i = inputs(root.path());
+    write(
+        &mut i,
+        "schema_version=2\n[model]\ncontext_window_tokens=131072\nmax_output_tokens=16384\n[budget]\nmax_tool_calls=900\n[context]\nmode='manual'\nrecent_tokens=4096\ntarget_tokens=90000\n[resources]\nmax_response_tool_calls=64\n[network]\nretry_mode='bounded'\n",
+    );
+    let c = load_config(&i).unwrap();
+    assert_eq!(c.model.context_window_tokens, Some(131072));
+    assert_eq!(c.max_tool_calls, 900);
+    assert_eq!(c.max_history_bytes, 0);
+    assert_eq!(c.max_output_bytes, 0);
+    assert_eq!(c.max_response_tool_calls, 64);
+    assert!(c.context_compaction_enabled && !c.context_auto_compaction);
+    assert!(c.watchdog_disable);
+    assert_eq!(c.context_target_tokens, 90000);
+    assert_eq!(c.goals.max_turns, 0);
+    assert_eq!(c.goals.turn_model_rounds, 0);
+    set(&mut i, "AREAL_HARNESS_CONTEXT_MODE", "disabled");
+    assert!(!load_config(&i).unwrap().context_compaction_enabled);
+    for text in [
+        "schema_version=2\n[budget]\nmax_tool_calls=2\n[limits]\nmax_tool_calls=3\n",
+        "schema_version=2\n[context]\nmode='manual'\n[limits]\ncontext_compaction_enabled=false\n",
+        "schema_version=2\n[network]\nretry_mode='persistent'\n[limits]\nwatchdog_disable=false\n",
+    ] {
+        write(&mut i, text);
+        assert_eq!(failure(&i).kind, ConfigErrorKind::Conflict);
+    }
+}
 fn set(i: &mut ConfigInputs, name: &str, value: &str) {
     i.env.insert(name.into(), value.into());
 }
@@ -29,15 +60,15 @@ fn failure(i: &ConfigInputs) -> ConfigError {
 }
 
 #[test]
-fn goals_have_default_limits_and_validate_overrides() {
+fn goals_have_unlimited_default_budgets_and_validate_overrides() {
     let temp = tempfile::tempdir().unwrap();
     let mut i = inputs(temp.path());
     let defaults = load_config(&i).unwrap();
     assert_eq!(defaults.home, temp.path().join(".areal"));
-    assert_eq!(defaults.goals.max_turns, 100);
-    assert_eq!(defaults.goals.max_active_seconds, 3600);
+    assert_eq!(defaults.goals.max_turns, 0);
+    assert_eq!(defaults.goals.max_active_seconds, 0);
     assert_eq!(defaults.goals.max_unreported_turns, 3);
-    assert_eq!(defaults.goals.turn_model_rounds, 32);
+    assert_eq!(defaults.goals.turn_model_rounds, 0);
     write(
         &mut i,
         "schema_version=1\n[goals]\nmax_turns=12\nmax_active_seconds=90\nmax_unreported_turns=2\nturn_model_rounds=8\n",
@@ -48,7 +79,7 @@ fn goals_have_default_limits_and_validate_overrides() {
     assert_eq!(config.goals.max_unreported_turns, 2);
     assert_eq!(config.goals.turn_model_rounds, 8);
     for text in [
-        "max_turns=0",
+        "max_turns=-1",
         "max_active_seconds=86401",
         "max_unreported_turns=0",
         "turn_model_rounds=1",
@@ -157,8 +188,8 @@ fn model_and_execution_budgets_are_validated_and_preserve_sources() {
     assert_eq!(c.max_history_bytes, 16777216);
     assert_eq!(c.max_output_bytes, 4194304);
     assert_eq!(c.max_tool_calls, 512);
-    assert_eq!(c.context_window_bytes, 524288);
-    assert_eq!(c.context_recent_bytes, 131072);
+    assert_eq!(c.context_window_bytes, 0);
+    assert_eq!(c.context_recent_bytes, 0);
     assert_eq!(c.context_window_tokens, 65536);
     assert_eq!(c.context_output_reserve_tokens, 8192);
     set(&mut i, "AREAL_HARNESS_REASONING_EFFORT", "high");
@@ -169,9 +200,9 @@ fn model_and_execution_budgets_are_validated_and_preserve_sources() {
     for (name, value) in [
         ("AREAL_HARNESS_MODEL_MAX_RETRIES", "9"),
         ("AREAL_HARNESS_STREAM_IDLE_TIMEOUT_SECONDS", "86401"),
-        ("AREAL_HARNESS_MAX_TOOL_CALLS", "0"),
-        ("AREAL_HARNESS_CONTEXT_RECENT_BYTES", "524288"),
-        ("AREAL_HARNESS_CONTEXT_WINDOW_BYTES", "0"),
+        ("AREAL_HARNESS_MAX_TOOL_CALLS", "-1"),
+        ("AREAL_HARNESS_CONTEXT_RECENT_BYTES", "-1"),
+        ("AREAL_HARNESS_CONTEXT_WINDOW_BYTES", "-1"),
         ("AREAL_HARNESS_REASONING_EFFORT", "typo"),
     ] {
         let previous = i.env.insert(name.into(), value.into());
@@ -306,7 +337,7 @@ fn malformed_layers_fail_even_when_overridden_without_echoing_values() {
     for (text, kind) in [
         ("schema_version=1\nschema_version=1", ConfigErrorKind::Parse),
         ("[model]\nname='x'", ConfigErrorKind::MissingValue),
-        ("schema_version=2", ConfigErrorKind::UnsupportedVersion),
+        ("schema_version=3", ConfigErrorKind::UnsupportedVersion),
         ("schema_version='1'", ConfigErrorKind::InvalidValue),
         (
             "schema_version=1\n[model]\nendpoint='secret'",

@@ -19,10 +19,10 @@ pub struct Policy {
 impl Default for Policy {
     fn default() -> Self {
         Self {
-            max_turns: 100,
-            max_active_seconds: 3600,
+            max_turns: 0,
+            max_active_seconds: 0,
             max_unreported_turns: 3,
-            turn_model_rounds: 32,
+            turn_model_rounds: 0,
         }
     }
 }
@@ -137,10 +137,21 @@ impl Engine {
         seconds: Option<u64>,
     ) -> Result<()> {
         if token == Some(0)
-            || turns.is_some_and(|n| n == 0 || n > self.limits.goals.max_turns)
-            || seconds.is_some_and(|n| n == 0 || n > self.limits.goals.max_active_seconds)
+            || turns.is_some_and(|n| {
+                n == 0 || (self.limits.goals.max_turns > 0 && n > self.limits.goals.max_turns)
+            })
+            || seconds.is_some_and(|n| {
+                n == 0
+                    || tokio::time::Instant::now()
+                        .checked_add(Duration::from_secs(n))
+                        .is_none()
+                    || (self.limits.goals.max_active_seconds > 0
+                        && n > self.limits.goals.max_active_seconds)
+            })
         {
-            return Err(invalid("goal limits exceed deployment policy or are zero"));
+            return Err(invalid(
+                "goal limits exceed deployment policy, clock capacity, or are zero",
+            ));
         }
         Ok(())
     }
@@ -206,7 +217,8 @@ impl Engine {
                     .options
                     .max_model_rounds
                     .is_some_and(|n| n < 3)
-                    || engine.limits.goals.turn_model_rounds < 3
+                    || (engine.limits.goals.turn_model_rounds > 0
+                        && engine.limits.goals.turn_model_rounds < 3)
                     || data
                         .configuration
                         .tool_allowlist
@@ -565,7 +577,8 @@ impl Engine {
         self.validate_goal_config(config)?;
         if goal.limits_pending
             && (config.options.max_model_rounds.is_some_and(|n| n < 3)
-                || self.limits.goals.turn_model_rounds < 3
+                || (self.limits.goals.turn_model_rounds > 0
+                    && self.limits.goals.turn_model_rounds < 3)
                 || config
                     .tool_allowlist
                     .as_ref()
@@ -575,13 +588,15 @@ impl Engine {
                 "prompt limits require goal_set_limits and at least three model rounds",
             ));
         }
-        config.options.max_model_rounds = Some(
-            config
-                .options
-                .max_model_rounds
-                .unwrap_or(self.limits.goals.turn_model_rounds)
-                .min(self.limits.goals.turn_model_rounds),
-        );
+        if self.limits.goals.turn_model_rounds > 0 {
+            config.options.max_model_rounds = Some(
+                config
+                    .options
+                    .max_model_rounds
+                    .unwrap_or(self.limits.goals.turn_model_rounds)
+                    .min(self.limits.goals.turn_model_rounds),
+            );
+        }
         goal.usage.turns_started += 1;
         turn.goal = Some(GoalTurn {
             goal_id: goal.id.clone(),

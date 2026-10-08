@@ -213,8 +213,8 @@ impl Engine {
                 return Err(invalid("objective must contain 1..4000 characters"));
             }
             if request.token_budget == Some(0)
-                || request.max_turns.is_some_and(|n| n == 0 || n > engine.limits.goals.max_turns)
-                || request.max_active_seconds.is_some_and(|n| n == 0 || n > engine.limits.goals.max_active_seconds) {
+                || request.max_turns.is_some_and(|n| n == 0 || (engine.limits.goals.max_turns > 0 && n > engine.limits.goals.max_turns))
+                || request.max_active_seconds.is_some_and(|n| n == 0 || tokio::time::Instant::now().checked_add(Duration::from_secs(n)).is_none() || (engine.limits.goals.max_active_seconds > 0 && n > engine.limits.goals.max_active_seconds)) {
                 return Err(invalid("task budgets exceed deployment limits"));
             }
             if request.mode != TaskMode::Background && request.thread_id.is_none() {

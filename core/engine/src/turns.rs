@@ -126,8 +126,19 @@ impl Engine {
             active_flags: Vec::new(),
         };
         // 给最终输出预留空间；接受成功的输入和开始状态先落盘。
-        if serde_json::to_vec(&candidate).unwrap().len() + self.limits.max_output_bytes * 6 + 1024
-            > self.limits.max_history_bytes
+        if self.limits.max_history_bytes > 0
+            && serde_json::to_vec(&candidate)
+                .unwrap()
+                .len()
+                .saturating_add(
+                    candidate
+                        .history_archive
+                        .as_ref()
+                        .map_or(0, |a| usize::try_from(a.bytes).unwrap_or(usize::MAX)),
+                )
+                .saturating_add(self.limits.max_output_bytes.saturating_mul(6))
+                .saturating_add(1024)
+                > self.limits.max_history_bytes
         {
             return Err(Error::Exhausted(
                 "insufficient session history space for another turn".into(),
@@ -177,6 +188,7 @@ impl Engine {
         }
         cell.cancel_grace_ms.store(1000, Ordering::Release);
         state.active = Some(Active {
+            tool_calls: 0,
             started: std::time::Instant::now(),
             isolated_children: 0,
             _admission: admission,
@@ -208,7 +220,7 @@ impl Engine {
             otel.kind = "internal",
             otel.status_code = tracing::field::Empty,
             error.type = tracing::field::Empty,
-            areal.turn.number = state.thread.turns.len() as u64,
+            areal.turn.number = state.thread.turns.len() as u64 + state.thread.history_archive.as_ref().map_or(0, |a| a.completed_turns),
             otel.name = "invoke_agent",
             gen_ai.operation.name = "invoke_agent",
             gen_ai.conversation.id = %session_id,
@@ -281,8 +293,19 @@ impl Engine {
             candidate.goals.revision += 1;
             candidate.goals.event_sequence += 1;
         }
-        if serde_json::to_vec(&candidate).unwrap().len() + self.limits.max_output_bytes * 6 + 1024
-            > self.limits.max_history_bytes
+        if self.limits.max_history_bytes > 0
+            && serde_json::to_vec(&candidate)
+                .unwrap()
+                .len()
+                .saturating_add(
+                    candidate
+                        .history_archive
+                        .as_ref()
+                        .map_or(0, |a| usize::try_from(a.bytes).unwrap_or(usize::MAX)),
+                )
+                .saturating_add(self.limits.max_output_bytes.saturating_mul(6))
+                .saturating_add(1024)
+                > self.limits.max_history_bytes
         {
             return Err(Error::Exhausted("session history limit reached".into()));
         }

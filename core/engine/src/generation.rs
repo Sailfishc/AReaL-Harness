@@ -93,6 +93,8 @@ impl Engine {
         let mut recovery_hint = None;
         let mut output_handoff = false;
         let mut previous_usage = None;
+        let mut preflight_compactions = 0;
+        let mut overflow_recovered = false;
         let mut group_results = Vec::<Value>::new();
         let mut child_results = Value::Null;
         let mut observed_children = HashSet::new();
@@ -122,10 +124,7 @@ impl Engine {
                 return Err(crate::outcome::model_round_limit(model_rounds, max, false).into());
             }
             let final_round = max_rounds.is_some_and(|max| model_rounds + 1 == max);
-            output_handoff |= self
-                .limits
-                .max_output_bytes
-                .saturating_sub(text_output_bytes)
+            output_handoff |= self.limits.remaining_output_bytes(text_output_bytes)
                 < tools::MIN_TOOL_OUTPUT_BUDGET + tools::HANDOFF_OUTPUT_RESERVE;
             if final_round {
                 // 最后一轮留给交接：先回收子结果，再请求模型，不能占用子任务需要的许可。
@@ -200,7 +199,14 @@ impl Engine {
                                 .iter()
                                 .flat_map(|turn| &turn.items)
                                 .last()
-                                .is_some_and(|item| item.id() == checkpoint.through_item_id)
+                                .map_or_else(
+                                    || {
+                                        state.thread.history_archive.as_ref().is_some_and(|a| {
+                                            a.through_item_id == checkpoint.through_item_id
+                                        })
+                                    },
+                                    |item| item.id() == checkpoint.through_item_id,
+                                )
                         });
                 if checkpoint_covers_tail {
                     live_context.push(Message::text("system", "Internal checkpoint restoration, not a new user task: the preceding work summary is historical context, not the final response for this turn. Continue the outstanding user task from its recorded state. Do not repeat completed operations; preserve later user corrections and verification uncertainty. Compaction itself does not invalidate observed checks or require rereading unchanged files. If the requested work and relevant checks are already complete, report their evidence and finish (for an active Goal, use goal_update); do not restart the implementation or validation cycle."));
@@ -264,7 +270,10 @@ impl Engine {
                     messages.insert(0, Message::text("system", instructions));
                 }
                 if !tool_definitions.is_empty()
-                    && tool_count >= self.limits.max_tool_calls.saturating_sub(32)
+                    && self
+                        .limits
+                        .remaining_tool_calls(tool_count)
+                        .is_some_and(|remaining| remaining <= 32)
                 {
                     live_context.insert(0, Message::text("system", format!("Tool budget: {} of {} calls remain in this Turn. Prioritize the original failing assertion and final relevant check; preserve the last verified candidate. Do not start unrelated exploration or repeat unchanged successful checks without a concrete unresolved concern. Budget exhaustion does not mean success.", self.limits.max_tool_calls.saturating_sub(tool_count), self.limits.max_tool_calls)));
                 }
@@ -327,15 +336,44 @@ impl Engine {
                     thread_id,
                     session_id,
                     turn_id,
-                    state.thread.turns.len() as u64,
+                    state.thread.turns.len() as u64
+                        + state
+                            .thread
+                            .history_archive
+                            .as_ref()
+                            .map_or(0, |a| a.completed_turns),
                 )
             };
             let request_estimate = context::estimate_tokens(&messages)
                 + context::text_tokens(&serde_json::to_string(&tool_definitions)?);
+            let context_budget = context::ContextBudget::resolve(&self.limits, model.as_ref())?;
+            if context_budget.window > 0 && request_estimate > context_budget.input_limit {
+                if self.limits.context_compaction_enabled
+                    && self.limits.context_auto_compaction
+                    && preflight_compactions < 2
+                {
+                    preflight_compactions += 1;
+                    self.compact_context(cell, cancel, overhead, None, true)
+                        .await?;
+                    previous_usage = None;
+                    // 此轮尚未请求模型，不能消耗调用方显式设置的轮数。
+                    model_rounds -= 1;
+                    continue 'restart;
+                }
+                return Err(context::context_overflow(
+                    "full request does not fit after compaction; inspect fixed instructions, tools and retained inputs",
+                    request_estimate,
+                    context_budget.input_limit,
+                ));
+            }
+            preflight_compactions = 0;
             let tools_enabled = !final_round && !output_handoff && !tool_definitions.is_empty();
             let tool_limits = model::ToolCallLimits {
                 max_calls: if tools_enabled {
-                    self.limits.max_tool_calls.saturating_sub(tool_count)
+                    self.limits
+                        .remaining_tool_calls(tool_count)
+                        .unwrap_or(usize::MAX)
+                        .min(self.limits.max_response_tool_calls)
                 } else {
                     0
                 },
@@ -372,6 +410,7 @@ impl Engine {
                 let mut request_usage = areal_protocol::ModelUsage::default();
                 let model_span = operation.span.clone();
                 let output_before = (text_output_bytes, media_output_bytes);
+                let mut response_bytes = 0usize;
                 let item_id = id();
                 let mut reasoning_items = BTreeMap::new();
                 {
@@ -606,16 +645,14 @@ impl Engine {
                         }
                         drop(state);
                         drop(permit);
+                        overflow_recovered = false;
                         complete_reasoning(cell, &thread_id, &turn_id, &reasoning_items).await;
                         complete_item(cell, &thread_id, &turn_id, &item_id).await;
                         for call in calls {
                             if !steer.is_empty() {
                                 continue 'restart;
                             }
-                            let remaining = self
-                                .limits
-                                .max_output_bytes
-                                .saturating_sub(text_output_bytes);
+                            let remaining = self.limits.remaining_output_bytes(text_output_bytes);
                             if remaining
                                 < self.tool_output_budget(cell, &call).await
                                     + tools::HANDOFF_OUTPUT_RESERVE
@@ -630,8 +667,11 @@ impl Engine {
                             }
                             self.reserve_agent_tool_call(cell)?;
                             tool_count += 1;
+                            cell.state.lock().await.active.as_mut().unwrap().tool_calls =
+                                tool_count;
                             anyhow::ensure!(
-                                tool_count <= self.limits.max_tool_calls,
+                                self.limits.max_tool_calls == 0
+                                    || tool_count <= self.limits.max_tool_calls,
                                 "turn tool-call limit exceeded"
                             );
                             text_output_bytes += self.tool(cell, cancel, call, remaining).await?;
@@ -651,6 +691,33 @@ impl Engine {
                             if let Err(blocker) = model.check_work() {
                                 let diagnostic = format!("{blocker}: {error}");
                                 return Err(error.context(diagnostic));
+                            }
+                            if !overflow_recovered
+                                && response_bytes == 0
+                                && calls.is_empty()
+                                && self.limits.context_compaction_enabled
+                                && self.limits.context_auto_compaction
+                                && model::terminal_outcome(&error).is_some_and(|outcome| {
+                                    outcome.code == "LLM_CONTEXT_WINDOW_EXCEEDED"
+                                })
+                            {
+                                if !self
+                                    .discard_completion(
+                                        cell,
+                                        &completion_items,
+                                        &calls,
+                                        &error,
+                                        (0, "contextOverflow"),
+                                    )
+                                    .await?
+                                {
+                                    return Err(error);
+                                }
+                                overflow_recovered = true;
+                                previous_usage = None;
+                                self.compact_context(cell, cancel, overhead, None, true)
+                                    .await?;
+                                continue 'restart;
                             }
                             // HTTP 解码器会先拒绝收尾轮的零调用额度；保留轮次错误分类和原始预算原因。
                             if final_round
@@ -714,6 +781,19 @@ impl Engine {
                             return Err(error);
                         }
                     };
+                    // 单次响应异常膨胀必须在追加到历史之前拒绝，不限制正常长任务的累计产出。
+                    let added = match &delta {
+                        ModelEvent::TextDelta(text)
+                        | ModelEvent::ReasoningDelta { delta: text, .. } => text.len(),
+                        ModelEvent::ProviderContext(value) => serde_json::to_vec(value)?.len(),
+                        ModelEvent::Binary { data, .. } => data.len(),
+                        _ => 0,
+                    };
+                    response_bytes = response_bytes.saturating_add(added);
+                    anyhow::ensure!(
+                        response_bytes <= self.limits.max_response_bytes,
+                        "model response byte limit exceeded"
+                    );
                     operation.observe(&delta);
                     match delta {
                         ModelEvent::Activity => continue,
@@ -721,7 +801,8 @@ impl Engine {
                             let bytes = serde_json::to_vec(&value)?.len();
                             text_output_bytes += bytes;
                             anyhow::ensure!(
-                                text_output_bytes <= self.limits.max_output_bytes,
+                                self.limits.max_output_bytes == 0
+                                    || text_output_bytes <= self.limits.max_output_bytes,
                                 "turn provider context limit exceeded"
                             );
                             let mut state = cell.state.lock().await;
@@ -762,7 +843,8 @@ impl Engine {
                             }
                             text_output_bytes += delta.len();
                             anyhow::ensure!(
-                                text_output_bytes <= self.limits.max_output_bytes,
+                                self.limits.max_output_bytes == 0
+                                    || text_output_bytes <= self.limits.max_output_bytes,
                                 "turn reasoning output limit exceeded"
                             );
                             let mut state = cell.state.lock().await;
@@ -819,7 +901,8 @@ impl Engine {
                             visible_output |= !delta.trim().is_empty();
                             text_output_bytes += delta.len();
                             anyhow::ensure!(
-                                text_output_bytes <= self.limits.max_output_bytes,
+                                self.limits.max_output_bytes == 0
+                                    || text_output_bytes <= self.limits.max_output_bytes,
                                 "turn text output limit exceeded"
                             );
                             let mut state = cell.state.lock().await;
@@ -838,7 +921,8 @@ impl Engine {
                             visible_output |= !data.is_empty();
                             media_output_bytes += data.len();
                             anyhow::ensure!(
-                                media_output_bytes <= self.limits.max_media_output_bytes,
+                                self.limits.max_media_output_bytes == 0
+                                    || media_output_bytes <= self.limits.max_media_output_bytes,
                                 "turn media output limit exceeded"
                             );
                             let media = self

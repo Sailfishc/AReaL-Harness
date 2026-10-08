@@ -111,15 +111,27 @@ pub(crate) fn parse(path: &Path, text: &str) -> Result<FileLayer> {
             Kind::MissingValue,
             "schema_version",
             &at,
-            "configuration requires schema_version = 1",
+            "configuration requires schema_version = 1 or 2",
         )
     })?;
-    if version.value != "1" {
+    if !matches!(version.value.as_str(), "1" | "2") {
         return Err(error(
             Kind::UnsupportedVersion,
             "schema_version",
             &version.source,
-            "only schema_version = 1 is supported",
+            "supported schema versions are 1 and 2",
+        ));
+    }
+    if layer.values.contains_key("limits.context_mode")
+        && layer
+            .values
+            .contains_key("limits.context_compaction_enabled")
+    {
+        return Err(error(
+            Kind::Conflict,
+            "context.mode",
+            &layer.values["limits.context_mode"].source,
+            "context.mode and legacy context_compaction_enabled cannot both be specified",
         ));
     }
     layer.catalog = crate::models::parse_catalog(&doc, path, text)?;
@@ -136,6 +148,72 @@ fn walk(
     let names: Vec<&str> = parts.iter().map(String::as_str).collect();
     let key = parts.join(".");
     let at = source(path, text, item.span().map_or(0, |v| v.start));
+    // 新配置按职责分组；旧键保留原来显式设置的语义，不允许别名相互覆盖。
+    let alias = match names.as_slice() {
+        [
+            "budget",
+            "max_tool_calls" | "max_output_bytes" | "max_history_bytes",
+        ]
+        | [
+            "resources",
+            "model_concurrency"
+            | "max_threads"
+            | "max_active_turns"
+            | "max_children_per_turn"
+            | "max_agent_depth"
+            | "max_response_tool_calls"
+            | "max_response_bytes"
+            | "max_tool_buffer_bytes",
+        ]
+        | ["network", "stream_idle_timeout_seconds"] => Some(format!("limits.{}", names[1])),
+        ["context", "mode"] => Some("limits.context_mode".into()),
+        ["context", "recent_tokens"] => Some("limits.context_recent_tokens".into()),
+        ["context", "target_tokens"] => Some("limits.context_target_tokens".into()),
+        ["context", "output_reserve_tokens"] => Some("limits.context_output_reserve_tokens".into()),
+        _ => None,
+    };
+    if let Some(alias) = alias {
+        return walk(
+            item,
+            &mut alias.split('.').map(str::to_owned).collect(),
+            path,
+            text,
+            layer,
+        );
+    }
+    if names.as_slice() == ["network", "retry_mode"] {
+        let value = match item.as_str() {
+            Some("persistent") => "false",
+            Some("bounded") => "true",
+            _ => {
+                return Err(error(
+                    Kind::InvalidValue,
+                    &key,
+                    &at,
+                    "retry mode must be persistent or bounded",
+                ));
+            }
+        };
+        if layer
+            .values
+            .insert(
+                "limits.watchdog_disable".into(),
+                Entry {
+                    value: value.into(),
+                    source: at.clone(),
+                },
+            )
+            .is_some()
+        {
+            return Err(error(
+                Kind::Conflict,
+                &key,
+                &at,
+                "duplicate configuration alias",
+            ));
+        }
+        return Ok(());
+    }
     // 扩展目录字段由共享模型配置所有者做结构和语义校验。
     if matches!(
         names.as_slice(),
@@ -155,6 +233,10 @@ fn walk(
             | ["model", "providers"]
             | ["model", "providers", _]
             | ["limits"]
+            | ["budget"]
+            | ["resources"]
+            | ["network"]
+            | ["context"]
             | ["logging"]
             | ["tools"]
             | ["goals"]
@@ -227,17 +309,21 @@ fn walk(
                     | "max_history_bytes"
                     | "max_output_bytes"
                     | "max_tool_calls"
+                    | "max_response_tool_calls"
+                    | "max_response_bytes"
                     | "max_tool_buffer_bytes"
                     | "context_window_bytes"
                     | "context_window_tokens"
                     | "context_target_tokens"
+                    | "context_recent_tokens"
                     | "context_output_reserve_tokens"
                     | "context_recent_bytes"
                     | "max_completion_retries"
             ]
             | [
                 "model",
-                "max_output_tokens"
+                "context_window_tokens"
+                    | "max_output_tokens"
                     | "summary_max_output_tokens"
                     | "max_retries"
                     | "top_k"
@@ -272,6 +358,7 @@ fn walk(
             "temperature" | "top_p" | "min_p" | "presence_penalty" | "repetition_penalty"
         ]
     );
+    let string = string || names.as_slice() == ["limits", "context_mode"];
     let boolean = matches!(
         names.as_slice(),
         ["limits", "watchdog_disable" | "context_compaction_enabled"]
@@ -312,6 +399,23 @@ fn walk(
             },
         )
     })?;
-    layer.values.insert(key, Entry { value, source: at });
+    if layer
+        .values
+        .insert(
+            key.clone(),
+            Entry {
+                value,
+                source: at.clone(),
+            },
+        )
+        .is_some()
+    {
+        return Err(error(
+            Kind::Conflict,
+            &key,
+            &at,
+            "duplicate configuration alias",
+        ));
+    }
     Ok(())
 }

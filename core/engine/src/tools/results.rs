@@ -4,7 +4,6 @@ use registry::ResultViewMode;
 use sha2::{Digest, Sha256};
 
 const MAX_SNAPSHOT: usize = areal_protocol::MAX_TOOL_RESULT_BYTES;
-const MAX_THREAD_SNAPSHOTS: u64 = 32 * 1024 * 1024;
 
 pub(super) struct Prepared {
     pub value: Value,
@@ -13,6 +12,36 @@ pub(super) struct Prepared {
 }
 
 impl Engine {
+    pub(crate) async fn read_history(&self, cell: &Cell, args: &Value) -> anyhow::Result<Value> {
+        let thread = cell.state.lock().await.thread.clone();
+        let Some(item_id) = args["itemId"].as_str() else {
+            return self
+                .store
+                .history_page(
+                    &thread,
+                    args["before"].as_str().map(str::to_owned),
+                    args["limit"].as_u64().unwrap_or(8) as usize,
+                )
+                .await;
+        };
+        let item = self
+            .store
+            .history_item(&thread, item_id)
+            .await?
+            .context("history item is not in this thread")?;
+        let text = serde_json::to_string(&item)?;
+        let offset = match args["after"].as_str() {
+            Some(cursor) => cursor
+                .strip_prefix(&format!("{item_id}:"))
+                .context("cursor belongs to a different item")?
+                .parse()?,
+            None => 0,
+        };
+        let max_bytes = args["maxBytes"].as_u64().unwrap_or(8192) as usize;
+        anyhow::ensure!((4..=8192).contains(&max_bytes), "maxBytes must be 4..8192");
+        result_page(item_id, &text, offset, max_bytes)
+    }
+
     pub(super) async fn prepare_tool_result(
         &self,
         cell: &Cell,
@@ -46,37 +75,22 @@ impl Engine {
             None
         };
         let needs_snapshot = bytes.len() > MAX_RESULT || baseline != *raw || candidate.is_some();
-        let (used, readback_allowed): (u64, bool) = {
+        let readback_allowed = {
             let state = cell.state.lock().await;
-            let used = state
-                .thread
-                .turns
-                .iter()
-                .flat_map(|turn| &turn.items)
-                .filter_map(|item| match item {
-                    Item::DynamicToolCall { id, execution, .. } if id != item_id => {
-                        execution.result_snapshot.as_ref().map(|s| s.size_bytes)
-                    }
-                    _ => None,
-                })
-                .sum();
-            let allowed = state
+            state
                 .thread
                 .turns
                 .last()
                 .and_then(|t| t.configuration.as_ref())
                 .and_then(|c| c.tool_allowlist.as_ref())
-                .is_none_or(|names| names.iter().any(|n| n == "read_tool_result"));
-            (used, allowed)
+                .is_none_or(|names| names.iter().any(|n| n == "read_tool_result"))
         };
         let mut reason = "passthrough";
         let snapshot = if needs_snapshot && name != "read_tool_result" {
             if !readback_allowed {
                 reason = "retrievalDisabled";
                 None
-            } else if bytes.len() > MAX_SNAPSHOT
-                || used.saturating_add(bytes.len() as u64) > MAX_THREAD_SNAPSHOTS
-            {
+            } else if bytes.len() > MAX_SNAPSHOT {
                 reason = "snapshotQuota";
                 None
             } else {
@@ -172,13 +186,11 @@ impl Engine {
         args: &Value,
     ) -> anyhow::Result<Value> {
         let result_id = args["resultId"].as_str().context("resultId required")?;
-        let snapshot = {
-            let state = cell.state.lock().await;
-            state.thread.turns.iter().flat_map(|turn| &turn.items).find_map(|item| match item {
-                Item::DynamicToolCall { id, execution, .. } if id == result_id => execution.result_snapshot.clone(),
-                _ => None,
-            }).context("original result unavailable in this thread; do not rerun an effectful tool to recover it")?
-        };
+        let thread = cell.state.lock().await.thread.clone();
+        let snapshot = match self.store.history_item(&thread, result_id).await? {
+            Some(Item::DynamicToolCall { execution, .. }) => execution.result_snapshot,
+            _ => None,
+        }.context("original result unavailable in this thread; do not rerun an effectful tool to recover it")?;
         let digest = snapshot
             .uri
             .strip_prefix("areal://blob/")
@@ -586,7 +598,7 @@ mod tests {
         assert!(prepared.snapshot.is_none());
         let turn:Turn=serde_json::from_value(json!({"id":"turn","status":"completed","items":[{
             "type":"dynamicToolCall","id":"old","tool":"fixture","callId":"call","arguments":{},"status":"completed","success":true,
-            "execution":{"runtimeEpoch":"epoch","scopeId":"scope","operationId":"op","outcome":"succeeded","resultSnapshot":{"uri":"areal://blob/old","mimeType":"application/json","sizeBytes":MAX_THREAD_SNAPSHOTS}}
+            "execution":{"runtimeEpoch":"epoch","scopeId":"scope","operationId":"op","outcome":"succeeded","resultSnapshot":{"uri":"areal://blob/old","mimeType":"application/json","sizeBytes":32 * 1024 * 1024}}
         }]})).unwrap();
         cell.state.lock().await.thread.turns.push(turn);
         let scalar = json!("large scalar ".repeat(2000));
@@ -594,9 +606,8 @@ mod tests {
             .prepare_tool_result(&cell, "new", "fixture", &scalar, None)
             .await
             .unwrap();
-        assert_eq!(prepared.metrics["reason"], "snapshotQuota");
-        assert!(prepared.snapshot.is_none());
-        // 同一调用在 post-hook 前后各持久化一次，不重复占用 Thread 配额。
+        assert!(prepared.snapshot.is_some());
+        // 历史快照总量不构成隐式累计预算。
         let replaced = engine
             .prepare_tool_result(&cell, "old", "fixture", &scalar, None)
             .await

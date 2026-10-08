@@ -147,6 +147,7 @@ impl Engine {
                     tool,
                     "ask_user_question"
                         | "read_tool_result"
+                        | "read_history"
                         | "plan_update"
                         | "plan_read"
                         | "task_state"
