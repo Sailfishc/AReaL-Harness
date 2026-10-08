@@ -212,7 +212,7 @@ models = [
 ]
 ```
 
-JSON 使用 camelCase（`apiKeyEnv`、`displayName`、`maxOutputTokens`、`reasoningEffort`），协议仍为 `chat-completions` / `responses`。最多 32 个供应商，每个最多 64 个模型。供应商与模型都支持启停、名称和参数；参数按显式会话、模型、供应商默认值叠加。全局 TOML／环境／CLI 参数仍遵循原优先级。文件默认引用必须指向启用的供应商与模型。旧单模型 TOML 无需立即改写，选中的名称作为目录项；首次共享保存会添加 `catalog_version = 1`。
+JSON 使用 camelCase（`apiKeyEnv`、`displayName`、`maxOutputTokens`、`reasoningEffort`），协议仍为 `chat-completions` / `responses`。最多 32 个供应商，每个最多 64 个模型。供应商与模型都支持启停、名称和参数；参数按显式会话、模型、供应商默认值叠加。全局 TOML／环境／CLI 参数仍遵循原优先级。文件默认引用必须指向启用的供应商与模型。旧单模型 TOML 无需立即改写，选中的名称作为目录项；首次共享保存会添加 `catalog_version = 1`。仅含原有字段的旧供应商表可以省略 endpoint，由环境变量或 CLI 补齐，仍遵循 CLI > 环境变量 > 文件的优先级。共享目录读写要求供应商在文件中提供完整 endpoint；未补齐时读取明确失败，不丢弃供应商，也不将临时覆盖写回文件。
 
 普通配置只保存密钥环境变量名。共享接口拒绝带查询参数的 endpoint，避免把 URL 中的认证信息送入 GUI；旧配置诊断仍脱敏查询参数。桌面安全存储不向独立 CLI 暴露，CLI 自行提供引用变量。`areal_openai` 为桌面动态账号目录保留，允许作为默认引用，禁止写为静态供应商；独立 CLI 缺少账号传输端点时明确失败。
 

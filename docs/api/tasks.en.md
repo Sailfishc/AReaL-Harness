@@ -87,7 +87,7 @@ pause durably stops dispatch and cancels current coordinator/workers. cancel als
 
 `desktop/task-mode.json` stores Tasks, Channels and idempotency receipts. Limits are 1024 Tasks, 8192 receipts and 32 MiB per deployment, plus 128 Runs and 1024 messages per Task. Capacity exhaustion rejects or pauses work without deleting history. Running or suspended Runs pause after a Core restart and require explicit resume; schedules that have not fired remain registered. Unknown tool effects are not replayed. server/drain pauses Tasks and time triggers. server/status.activeTasks includes pending timestamps, so ifIdle does not treat them as idle.
 
-Thread snapshot version is 10; the API remains areal.core.v1. Old Threads/Goals remain readable; legacy Goals register a Task on their first resume. Older binaries cannot read new snapshots. Embedded hosts call `Engine::start_task_scheduler()` after model/tool assembly; app-server calls it automatically.
+Thread snapshot version is 11; the API remains areal.core.v1. Old Threads/Goals remain readable; legacy Goals register a Task on their first resume. Older binaries cannot read new snapshots. Embedded hosts call `Engine::start_task_scheduler()` after model/tool assembly; app-server calls it automatically.
 
 ## Request examples
 

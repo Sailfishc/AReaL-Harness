@@ -203,3 +203,91 @@ fn shared_metadata_rejects_inline_url_credentials_without_echoing_them() {
     assert!(!String::from_utf8_lossy(&output.stdout).contains("private-query-key"));
     assert!(!String::from_utf8_lossy(&output.stderr).contains("private-query-key"));
 }
+
+// 回归边界：旧配置在覆盖前缺少 endpoint；CLI 覆盖环境；缺失或非法值仍报错；
+// 不完整目录不能被共享读取悄悄丢弃，也不能将临时 endpoint 写回文件。
+#[test]
+fn legacy_provider_endpoint_resolves_after_environment_and_cli_overrides() {
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir(root.path().join("home")).unwrap();
+    let path = root.path().join("home/config.toml");
+    let text = "schema_version=1\n[model]\nprovider='local'\nname='one'\n[model.providers.local]\nprotocol='responses'\n";
+    fs::write(&path, text).unwrap();
+    let env = [("AREAL_HARNESS_MODEL_ENDPOINT", "http://127.0.0.1:9/env")];
+    let resolved = success(invoke(
+        root.path(),
+        &["config", "show", "--sources"],
+        None,
+        &env,
+    ));
+    assert_eq!(resolved["model"]["endpoint"], env[0].1);
+    assert_eq!(resolved["model"]["protocol"], "responses");
+    assert_eq!(
+        resolved["sources"]["model.providers.local.endpoint"]["kind"],
+        "env"
+    );
+    for overrides in [&env[..], &[][..]] {
+        let resolved = success(invoke(
+            root.path(),
+            &[
+                "config",
+                "show",
+                "--sources",
+                "--model-endpoint",
+                "http://127.0.0.1:9/cli",
+            ],
+            None,
+            overrides,
+        ));
+        assert_eq!(resolved["model"]["endpoint"], "http://127.0.0.1:9/cli");
+        assert_eq!(
+            resolved["sources"]["model.providers.local.endpoint"]["kind"],
+            "cli"
+        );
+    }
+    assert!(
+        !invoke(root.path(), &["config", "show"], None, &[])
+            .status
+            .success()
+    );
+    assert!(
+        !invoke(
+            root.path(),
+            &["config", "show"],
+            None,
+            &[("AREAL_HARNESS_MODEL_ENDPOINT", "invalid")]
+        )
+        .status
+        .success()
+    );
+    let shared = invoke(root.path(), &["config", "models", "read"], None, &env);
+    assert!(!shared.status.success());
+    assert!(
+        String::from_utf8_lossy(&shared.stderr)
+            .contains("shared model providers require endpoint in the configuration file")
+    );
+    assert_eq!(fs::read_to_string(&path).unwrap(), text);
+}
+
+#[test]
+fn incomplete_legacy_providers_do_not_bypass_validation_or_managed_catalog_requirements() {
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir(root.path().join("home")).unwrap();
+    let path = root.path().join("home/config.toml");
+    let env = [("AREAL_HARNESS_MODEL_ENDPOINT", "http://127.0.0.1:9/env")];
+    for text in [
+        "schema_version=1\n[model]\nprovider='local'\nname='one'\n[model.providers.local]\nprotocol='invalid'\n",
+        "schema_version=1\n[model]\nprovider='local'\nname='one'\n[model.providers.local]\napi_key_env='invalid name'\n",
+        "schema_version=1\n[model]\ncatalog_version=1\nprovider='local'\nname='one'\n[model.providers.local]\nprotocol='responses'\n",
+        "schema_version=1\n[model]\nprovider='local'\nname='one'\n[model.providers.local]\nendpoint=7\n",
+    ] {
+        fs::write(&path, text).unwrap();
+        assert!(
+            !invoke(root.path(), &["config", "show"], None, &env)
+                .status
+                .success(),
+            "invalid configuration accepted: {text}"
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), text);
+    }
+}

@@ -265,6 +265,15 @@ pub(crate) fn parse_catalog(
         let object = raw
             .as_object_mut()
             .ok_or_else(|| invalid(&at, "expected provider table"))?;
+        // 旧供应商表可由环境或 CLI 补齐端点；只交给既有解析链，不投影为完整目录。
+        if model.get("catalog_version").is_none()
+            && !object.contains_key("endpoint")
+            && object
+                .keys()
+                .all(|key| matches!(key.as_str(), "protocol" | "apiKeyEnv"))
+        {
+            continue;
+        }
         object.insert("id".into(), json!(id));
         object.entry("name").or_insert(json!(id));
         object
@@ -320,6 +329,13 @@ fn snapshot(
     path: PathBuf,
     layer: file::FileLayer,
 ) -> Result<ModelConfiguration> {
+    // 共享编辑不能静默丢掉尚未补齐的旧供应商，也不能把临时覆盖当作文件值。
+    if layer.catalog.len() != layer.providers.len() {
+        return Err(invalid(
+            &file::source(&path, &layer.text, 0),
+            "shared model providers require endpoint in the configuration file",
+        ));
+    }
     for provider in &layer.catalog {
         if url::Url::parse(&provider.endpoint).is_ok_and(|url| url.query().is_some()) {
             return Err(invalid(

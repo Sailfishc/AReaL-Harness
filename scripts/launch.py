@@ -385,7 +385,11 @@ def main():
                     str(paths[0]),
                     "app-server",
                     "--runtime-stdio",
-                    *(["--command-timeout-ms", str(args.command_timeout_ms)] if args.desktop_process_timeout_ms is not None else []),
+                    *(
+                        ["--command-timeout-ms", str(args.command_timeout_ms)]
+                        if args.desktop_process_timeout_ms is not None
+                        else []
+                    ),
                     "--supervisor-fd",
                     str(lifetime_read),
                     "--workspace",

@@ -87,7 +87,7 @@ pause 持久暂停调度并取消当前协调者和 worker；cancel 还撤销后
 
 状态保存在 `desktop/task-mode.json`，含 Task、Channel 和幂等收据。每部署最多 1024 Task、8192 收据、32 MiB；每 Task 最多 128 Run、1024 消息，满后拒绝或暂停，不自动删除历史。活动或挂起等待的 Run 在 Core 重启后暂停，显式 resume 后才继续；尚未触发的 schedule 保留。恢复不自动重放未知工具副作用。`server/drain` 暂停任务与时间触发；`server/status.activeTasks` 计入待执行时间点，ifIdle 不把它们视为空闲。
 
-Thread 快照版本为 10，API 保持 areal.core.v1；旧 Thread/Goal 可读取，旧 Goal 在首次 resume 时补登记 Task。旧二进制不能读取新版本快照。嵌入式宿主在完成模型、工具装配后调用 `Engine::start_task_scheduler()`；app-server 自动调用。
+Thread 快照版本为 11，API 保持 areal.core.v1；旧 Thread/Goal 可读取，旧 Goal 在首次 resume 时补登记 Task。旧二进制不能读取新版本快照。嵌入式宿主在完成模型、工具装配后调用 `Engine::start_task_scheduler()`；app-server 自动调用。
 
 ## 请求示例
 
