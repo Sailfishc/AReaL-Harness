@@ -9,7 +9,6 @@ import platform
 import re
 import shutil
 import sys
-import subprocess
 import tarfile
 import tempfile
 import urllib.request
@@ -118,6 +117,8 @@ def latest_version():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    if sys.version_info < (3, 9):
+        parser.error("Python 3.9+ required for the installer")
     parser.add_argument("--version", required=True, help="release version or latest")
     parser.add_argument("--prefix", type=Path, default=Path.home() / ".local")
     parser.add_argument("--archive", type=Path, help="offline release archive")
@@ -144,15 +145,8 @@ def main():
             parser.error("glibc >=2.35 required (Ubuntu 22.04 or newer); musl is not supported")
     elif tuple(map(int, platform.mac_ver()[0].split(".")[:1])) < (15,):
         parser.error("macOS 15 or newer required")
-    if not Path("/usr/bin/python3").is_file():
-        parser.error("install system Python 3.9+ at /usr/bin/python3 first")
     if bool(args.archive) != bool(args.checksums):
         parser.error("--archive and --checksums must be provided together")
-    python_version = subprocess.check_output(["/usr/bin/python3", "--version"], text=True).split()[
-        -1
-    ]
-    if tuple(map(int, python_version.split(".")[:2])) < (3, 9):
-        parser.error("system Python 3.9+ required")
     prefix = args.prefix.expanduser().resolve()
     versions = prefix / "lib/areal"
     final = versions / (version + "-" + install_target)

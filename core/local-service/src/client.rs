@@ -106,17 +106,8 @@ async fn ensure_inner(
     }
     let log = storage::open_private(&directory.join("host.log"), true)?;
     log.set_len(0)?;
-    // 与现有 launcher 一样由系统 Python 持有原生进程，兼容 macOS 开发二进制的 AMFI 检查。
-    let mut command = tokio::process::Command::new("/usr/bin/python3");
-    command
-        .args([
-            "-I",
-            "-S",
-            "-c",
-            "import subprocess,sys; sys.exit(subprocess.call(sys.argv[1:]))",
-        ])
-        .arg(spec.bin_dir.join("areal"))
-        .arg("service-host");
+    let mut command = tokio::process::Command::new(spec.bin_dir.join("areal"));
+    command.arg("service-host");
     command
         .current_dir(&spec.launch_cwd)
         .stdin(Stdio::piped())

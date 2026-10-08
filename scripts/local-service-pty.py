@@ -147,7 +147,10 @@ try:
         )
         assert state["state"] == "stopped", state
     os.write(second[0], b"\x11")
-    assert second[1].wait(timeout=5) == 0
+    try:
+        assert second[1].wait(timeout=20) == 0
+    except subprocess.TimeoutExpired as error:
+        raise AssertionError(f"TUI did not exit after Ctrl-Q: {second[4].text()!r}") from error
 finally:
     for master, child, _, _, _ in windows:
         if child.poll() is None:

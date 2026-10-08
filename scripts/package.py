@@ -33,7 +33,6 @@ def main():
     for name in names:
         if not (source / name).is_file():
             parser.error(f"missing {name}; build the selected Cargo profile first")
-    python = subprocess.check_output(["/usr/bin/python3", "--version"], text=True).strip()
     files = {}
     (destination / "bin").mkdir(parents=True)
     shutil.copy2(root / "LICENSE", destination / "LICENSE")
@@ -75,7 +74,6 @@ def main():
         "platform": target_platform,
         "files": files,
         "prerequisites": [
-            {"path": "/usr/bin/python3", "verifiedVersion": python},
             *(
                 [{"path": "/usr/bin/sandbox-exec"}]
                 if platform.system() == "Darwin"

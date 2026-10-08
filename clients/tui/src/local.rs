@@ -8,13 +8,10 @@ pub fn launch(args: &super::Args) -> Result<()> {
         .context("locate TUI executable")?
         .canonicalize()
         .context("resolve installed TUI executable")?;
-    // Embed the existing trusted launcher so installed binaries need no source checkout.
-    // exec keeps one owner for Core/Runtime even if the original TUI process is signalled.
-    let mut command = Command::new("/usr/bin/python3");
+    // exec 后由独立进程持有 Core/Runtime，终端退出仍能可靠清理。
+    let mut command = Command::new(&binary);
     command
-        // The task's cwd, PATH and PYTHONPATH must not supply launcher code.
-        .args(["-I", "-S", "-c"])
-        .arg(include_str!("../../../scripts/launch.py"))
+        .arg("launcher")
         .arg("--bin-dir")
         .arg(binary.parent().context("locate sibling Harness binaries")?)
         .arg("--tui");
@@ -64,7 +61,7 @@ pub fn launch(args: &super::Args) -> Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
-        Err(command.exec()).context("start local Harness (Python 3.10+ is required)")
+        Err(command.exec()).context("start local Harness")
     }
     #[cfg(not(unix))]
     anyhow::bail!("local Harness requires Unix; use --endpoint to connect to an existing Core")

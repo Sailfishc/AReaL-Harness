@@ -83,8 +83,31 @@ pub fn system_python() -> io::Result<PathBuf> {
     }
     #[cfg(not(target_os = "macos"))]
     {
-        Ok(PathBuf::from("/usr/bin/python3"))
+        let path = std::env::var_os("PATH").unwrap_or_default();
+        discover_linux_python(&path)
     }
+}
+
+#[cfg(target_os = "linux")]
+fn discover_linux_python(path: &std::ffi::OsStr) -> io::Result<PathBuf> {
+    use std::os::unix::fs::PermissionsExt;
+    for directory in std::env::split_paths(path) {
+        if !directory.is_absolute() {
+            continue;
+        }
+        let Ok(python) = directory.join("python3").canonicalize() else {
+            continue;
+        };
+        if std::fs::metadata(&python)
+            .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+        {
+            return Ok(python);
+        }
+    }
+    Err(io::Error::new(
+        io::ErrorKind::NotFound,
+        "Python 3 is not available on the trusted host PATH",
+    ))
 }
 
 #[cfg(any(target_os = "macos", test))]
@@ -143,6 +166,25 @@ pub fn is_macos_system_python(python: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_python_uses_executable_from_absolute_host_path() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+        let root = tempfile::tempdir().unwrap();
+        let invalid = root.path().join("invalid");
+        let valid = root.path().join("valid");
+        std::fs::create_dir_all(&invalid).unwrap();
+        std::fs::create_dir_all(&valid).unwrap();
+        std::fs::write(invalid.join("python3"), "not executable").unwrap();
+        let interpreter = root.path().join("interpreter");
+        std::fs::write(&interpreter, "#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::set_permissions(&interpreter, std::fs::Permissions::from_mode(0o755)).unwrap();
+        symlink(&interpreter, valid.join("python3")).unwrap();
+        let path = std::env::join_paths([Path::new("relative"), &invalid, &valid]).unwrap();
+        assert_eq!(discover_linux_python(&path).unwrap(), interpreter);
+        assert!(discover_linux_python(invalid.as_os_str()).is_err());
+    }
 
     #[test]
     fn bundled_rg_rejects_missing_tampered_and_foreign_deployments() {

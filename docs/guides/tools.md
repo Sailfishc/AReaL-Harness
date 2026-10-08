@@ -23,7 +23,7 @@ Core 注册表将名称、JSON Schema 与内置/命令/客户端/MCP/插件后�
 | `read_tool_result` | `resultId,after?=null,maxBytes?=8192`；读取本 Thread 历史调用的原始 JSON，按 nextCursor 续页，不执行原工具 |
 | `task_state` | `{pendingAfter?}`；返回有界的已观察文件/进程/子任务/scratch 与 summaryThroughItemId，不进行实时探测 |
 
-文件最大 8 MiB，单次写/patch 64 KiB，另受每个调用参数 64 KiB 预算限制。显式 fileVersion 和 expectedSha256 互斥；SHA 为 null 表示仅新建。成功编辑返回新版本与规范路径，shell/外部编辑不自动刷新观察，CAS 冲突后需重新读取。行过长或遇到非 UTF-8 二进制内容时使用 fs_read；PNG/JPEG/WebP 图像使用 image_read。read/search 通过同一 Scope 中的 Python/rg 执行、最长 15 秒；需要可信系统 Python；rg 15.2.0 随包交付，使用 Runtime 验证后的绝对路径，不读取宿主 rg 配置或工作区外 ignore，不自动扩大沙箱权限。
+文件最大 8 MiB，单次写/patch 64 KiB，另受每个调用参数 64 KiB 预算限制。显式 fileVersion 和 expectedSha256 互斥；SHA 为 null 表示仅新建。成功编辑返回新版本与规范路径，shell/外部编辑不自动刷新观察，CAS 冲突后需重新读取。行过长或遇到非 UTF-8 二进制内容时使用 fs_read；PNG/JPEG/WebP 图像使用 image_read。read/search 通过同一 Scope 中的 Python/rg 执行、最长 15 秒；Linux 从可信宿主 PATH 查找并解析可执行 Python 3，macOS 使用受支持的系统 Python；没有解释器时仅这些工具不可用，启动服务不受影响。受限 Scope 仍要求解释器位于 Runtime 允许的系统路径中，不自动扩大沙箱权限。rg 15.2.0 随包交付，使用 Runtime 验证后的绝对路径，不读取宿主 rg 配置或工作区外 ignore。
 
 每个完整模型响应的调用数量受当前 Turn 剩余 `max_tool_calls` 限制，依次执行；Chat 的 index 用于关联片段，允许稀疏非负整数编号，没有小于 16 的要求。两种协议均使用可配置的 `max_tool_buffer_bytes` 缓冲预算（默认 4 MiB），累计工具 id、name 和 arguments；编号非法或预算超限时，当前响应的所有调用均不执行。模型可见的文本结果页最多 16 KiB，参数错误和已知命令失败返回模型处理，UNKNOWN 停止。结果报告 remainingToolCalls，剩余 ≤32 时提示收尾，并附带当前 Turn 基础墙钟预算的近似剩余值。`max_output_bytes` 与工具调用次数独立：当剩余输出不足以执行下一工具并预留交接额度时，不执行该调用及后续调用，保留已确认结果，禁用工具并请求模型明确说明未完成事项；若验证进程没有已观察的终态，也只能报告未验证，不能声称通过。模型输出继续受原有字节上限约束。
 

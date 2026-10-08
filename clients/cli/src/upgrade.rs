@@ -52,7 +52,7 @@ fn installation(executable: &std::path::Path) -> Result<Installation> {
 }
 
 fn python(args: &[&str]) -> Result<String> {
-    let output = Command::new("/usr/bin/python3")
+    let output = Command::new("python3")
         .args([
             "-I",
             "-S",
@@ -61,7 +61,7 @@ fn python(args: &[&str]) -> Result<String> {
         ])
         .args(args)
         .output()
-        .context("system Python 3.9+ is required")?;
+        .context("upgrade requires Python 3.9+ on PATH")?;
     ensure!(
         output.status.success(),
         "installer failed: {}",
