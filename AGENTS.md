@@ -9,7 +9,8 @@
 - 修改 API、SDK、协议或配置时，同步维护类型、调用方、示例及对应文档；明确兼容性变化。
 - 根据变更运行必要的格式、静态检查和行为测试。仅修改文档时，检查链接、示例与格式，无需新增运行时测试。
 - 提交或 PR 中说明变更目的、文档更新位置和验证结果；未执行的检查如实说明。
-- 创建或更新 PR 使用 GitHub CLI（`gh`），目标仓库为 `Sailfishc/AReaL-Harness`。创建时使用 `gh pr create --repo Sailfishc/AReaL-Harness --base main --head <source> --title "<title>" --body-file <正文文件>`；创建或推送更新后使用 `gh pr checks <id> --repo Sailfishc/AReaL-Harness` 检查并报告 CI 状态。
+- 创建或更新 PR 使用 GitHub CLI（`gh`）。`origin` 为个人 fork `Sailfishc/AReaL-Harness`；获得推送授权后，将工作分支推送到该 fork，PR 默认提交到上游 `areal-project/AReaL-Harness` 的 `main`。
+  创建时使用 `gh pr create --repo areal-project/AReaL-Harness --base main --head Sailfishc:<source> --title "<title>" --body-file <正文文件>`。后续向 fork 的同一分支推送会更新已有 PR；修改 PR 信息使用 `gh pr edit <id> --repo areal-project/AReaL-Harness`，检查 CI 使用 `gh pr checks <id> --repo areal-project/AReaL-Harness`。
 - 格式、静态检查、测试分层和依赖安装统一遵循[开发指南](docs/development/README.md)。新注释使用中文，优先解释约束与原因；已有准确英文注释无需机械翻译。
 
 ## 文档规范
