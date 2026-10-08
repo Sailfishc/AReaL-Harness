@@ -22,6 +22,7 @@ make desktop-schemas
 | [skills.mjs](../../examples/desktop-api/skills.mjs) | Directory precedence, invalid global Skill warning isolation, large-image reads, explicit Profile current-file reads and resume |
 | [soak.mjs](../../examples/desktop-api/soak.mjs) | Relocated packages, minimal PATH, system Python, budget exhaustion, archive and epoch rotation |
 | [task-controls.mjs](../../examples/desktop-api/task-controls.mjs) | Recurring total budgets and reservations, Goal update/resume, cancelled terminal history and restart; run `node examples/desktop-api/task-controls.mjs` |
+| [packaged-workgroup.mjs](../../examples/desktop-api/packaged-workgroup.mjs) | Workgroups from source and relocated packages, explicit helper overrides, native execution and artifact checks; run `node examples/desktop-api/packaged-workgroup.mjs` |
 | [native-host.mjs](../../examples/desktop-api/native-host.mjs) | Real file/process brokers and foreign-handle rejection |
 
 `run.mjs game-lite-profile` verifies actual Profile tool calls without a Workflow; `run.mjs profile-workflow` verifies automatic startup, completion, and no duplicate launch after resume. `cli.mjs` verifies that `exec --agent` exposes only the selected Profile's tools.

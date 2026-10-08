@@ -17,7 +17,7 @@ target/debug/areal workgroup run \
   --strategy balanced --workers 2 --seconds 600
 ```
 
-Runtime 和文件助手默认从当前构建或发行包内部目录发现；可信部署仍可用 `--runtime` / `--file-helper` 显式覆盖。
+命令行工作组和启用策略的 app-server 均从当前构建或发行包的 `libexec/areal` 目录发现 Runtime 和文件助手；通过 launcher 私有管道启动的主 Runtime 不改变工作组的独立辅助程序定位。可信部署仍可用 `--runtime` / `--file-helper` 显式覆盖。
 
 state-dir 必须是不存在的新目录，位于源码外；toolchain 与 attempt 存储不得相同或互为祖先。输入是快照来源，产物在 `<state-dir>/candidate/`，不会覆盖原 checkout。运行期间避免外部编辑初始源码。
 

@@ -17,7 +17,7 @@ target/debug/areal workgroup run \
   --strategy balanced --workers 2 --seconds 600
 ```
 
-Runtime and file helpers default to the current build or bundle internal directory; trusted deployments may still override them with `--runtime` / `--file-helper`.
+Both CLI workgroups and a policy-enabled app-server discover Runtime and file helpers in the current build or the bundle’s `libexec/areal` directory. A launcher-owned main Runtime connected through private pipes does not change this independent workgroup helper lookup. Trusted deployments may still override helpers with `--runtime` / `--file-helper`.
 
 state-dir must be a new, nonexistent directory outside the source tree. Toolchain and attempt storage cannot overlap as equal or ancestor paths. Input is a snapshot source; output goes to `<state-dir>/candidate/` without overwriting the original checkout. Avoid external edits while snapshotting.
 

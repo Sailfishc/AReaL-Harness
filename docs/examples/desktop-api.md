@@ -22,6 +22,7 @@ make desktop-schemas
 | [skills.mjs](../../examples/desktop-api/skills.mjs) | 目录覆盖、无效全局 Skill 告警隔离、大图片按需读取、显式 Profile 当前文件读取与恢复 |
 | [soak.mjs](../../examples/desktop-api/soak.mjs) | 搬迁打包产物、精简 PATH、系统 Python、预算耗尽、归档和 epoch 轮换 |
 | [task-controls.mjs](../../examples/desktop-api/task-controls.mjs) | 周期总预算与预留消费、Goal 更新/恢复、取消后的终态历史和重启；通过 `node examples/desktop-api/task-controls.mjs` 运行 |
+| [packaged-workgroup.mjs](../../examples/desktop-api/packaged-workgroup.mjs) | 源码与搬迁发行包的 Workgroup、显式辅助程序覆盖、原生执行及制品校验；通过 `node examples/desktop-api/packaged-workgroup.mjs` 运行 |
 | [native-host.mjs](../../examples/desktop-api/native-host.mjs) | 真实文件/进程 broker 与外国句柄拒绝 |
 
 `run.mjs game-lite-profile` 验证无 Workflow Agent 的 Profile 工具实际调用；`run.mjs profile-workflow` 验证绑定 Workflow 自动启动、完成和恢复不重复启动。`cli.mjs` 验证 `exec --agent` 只暴露所选 Profile 允许的工具。

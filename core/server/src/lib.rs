@@ -465,10 +465,20 @@ async fn serve(
         if let Some(policy_path) = &args.workgroup_policy {
             use areal_engine::workgroup::service::{NativeFactory, Policy, Service};
             let policy: Policy = serde_json::from_slice(&std::fs::read(policy_path)?)?;
+            // launcher 的主 Runtime 使用私有管道；工作组还需自行启动隔离
+            // Runtime。沿用发行目录布局，源码构建才使用同目录辅助程序。
+            let executable = std::env::current_exe()?;
+            let bin_dir = executable.parent().context("executable directory missing")?;
+            let packaged_runtime = bin_dir.join("../libexec/areal");
+            let runtime_dir = if packaged_runtime.is_dir() {
+                packaged_runtime
+            } else {
+                bin_dir.to_owned()
+            };
             let binary = args
                 .runtime
                 .clone()
-                .unwrap_or(std::env::current_exe()?.with_file_name("areal-runtime"))
+                .unwrap_or_else(|| runtime_dir.join("areal-runtime"))
                 .canonicalize()?;
             let helper = args
                 .file_helper
