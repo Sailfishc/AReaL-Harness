@@ -45,13 +45,14 @@ async 默认期限 86400 秒，允许 1–604800 秒；同步问题允许 1–36
 
 ## 客户端 API
 
-以下方法均省略 `areal/` 前缀。create/control/reply 需要 interact；其余需要 observe。修改的 requestId 是业务幂等键，与 RPC id 分开。同身份、方法、requestId 和相同参数的重试返回原始受理结果；不同参数冲突。去重先于 revision 检查，原始响应可能早于当前状态，随后读取最新投影。
+以下方法均省略 `areal/` 前缀。create/update/control/reply 需要 interact；其余需要 observe。修改的 requestId 是业务幂等键，与 RPC id 分开。同身份、方法、requestId 和相同参数的重试返回原始受理结果；不同参数冲突。去重先于 revision 检查，原始响应可能早于当前状态，随后读取最新投影。
 
 | 方法 | 参数 | 响应 |
 |---|---|---|
 | task/create | `requestId, mode, objective, threadId?, interactionMode?, schedule?, tokenBudget?, maxTurns?, maxActiveSeconds?` | Task 投影 |
 | task/list | `after?, limit?` | `{data: Task[], nextCursor}` |
 | task/read | `taskId` | Task 投影 |
+| task/update | `requestId, taskId, expectedRevision, objective?, schedule?` | 更新后的 Task 投影 |
 | task/pause, task/resume, task/cancel | `requestId, taskId, expectedRevision` | 已持久受理控制意图的 Task 投影 |
 | task/subscribe | `taskId` | 原子快照及后续 task/updated 通知 |
 | task/unsubscribe | `taskId` | `{removed:true}`；不取消任务 |
@@ -78,6 +79,12 @@ ChannelMessage 包含 `id, sequence, runId, author, kind, status, createdAt, exp
 客户端以 task/subscribe 快照替换任务状态，以通知中的 task 替换投影。channelSequence 增长时分页 channel/read，按 message.id **替换**记录；问题状态变化会获得新 sequence，同一问题可再次出现在增量页。只有处理完该页后才保存 nextSequence。游标不是 Turn ID、Task revision 或已读标记。频道分页是最新消息状态的增量视图，不是完整不可变事件日志；当前没有服务端已读回执。
 
 limit 为 1–100，Task/Inbox 默认 30，Channel 默认 50；Task/Inbox 使用返回的 nextCursor，频道使用 nextSequence/hasMore。页面还有约 128 KiB 的字节上限，Task 单条投影可超过此值；不要假设一页必然达到 limit。Inbox 按需刷新 inbox/list；目前没有全局 Inbox 订阅。
+
+## 修改定时任务
+
+`areal/task/update` 接收 `{requestId, taskId, expectedRevision, objective?, schedule?}`，至少提供一个修改字段。仅可修改未取消的 scheduled Task；schedule 必须为未来 UTC 时间，间隔范围同创建。省略字段保持原值。接口沿用任务授权、持久幂等收据和版本冲突语义，返回完整任务投影并发出 `areal/task/updated`。
+
+修改保留 Task、Thread、Run 历史、暂停状态与预算；新的时间替换后续 `nextRunAt`。已受理 Goal 继续使用原目标，其控制不会覆盖 Task 的新目标。Run 已排队但尚未受理 Goal 的短暂窗口拒绝修改，待其启动后可重试。已结束的一次性任务可通过新的未来 schedule 再次安排。修改不立即执行任务，也不迁移工作区。客户端先检查 methods 是否包含 `areal/task/update`。
 
 ## 定时、预算与恢复
 

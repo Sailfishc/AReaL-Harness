@@ -71,6 +71,17 @@ pub struct TaskControl {
     pub expected_revision: u64,
 }
 
+/// 修改后续计划；不重新绑定执行会话、不重写已受理 Run 的 Goal。
+#[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TaskUpdate {
+    pub request_id: String,
+    pub task_id: String,
+    pub expected_revision: u64,
+    pub objective: Option<String>,
+    pub schedule: Option<Schedule>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ChannelReply {

@@ -20,6 +20,7 @@ fn main() {
     add!("areal/capabilities", CapabilitiesRequest);
     add!("areal/goal/create", areal_protocol::goals::GoalCreate);
     add!("areal/task/create", areal_protocol::tasks::TaskCreate);
+    add!("areal/task/update", areal_protocol::tasks::TaskUpdate);
     for action in ["areal/task/pause", "areal/task/resume", "areal/task/cancel"] {
         add!(action, areal_protocol::tasks::TaskControl);
     }
