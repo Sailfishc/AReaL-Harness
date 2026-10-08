@@ -26,6 +26,8 @@ pub struct Parameters {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_output_tokens: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_window_tokens: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning_effort: Option<String>,
 }
 impl Parameters {
@@ -33,6 +35,7 @@ impl Parameters {
         Self {
             temperature: self.temperature.or(base.temperature),
             max_output_tokens: self.max_output_tokens.or(base.max_output_tokens),
+            context_window_tokens: self.context_window_tokens.or(base.context_window_tokens),
             reasoning_effort: self
                 .reasoning_effort
                 .clone()
@@ -43,6 +46,9 @@ impl Parameters {
         let mut values = Vec::new();
         if let Some(value) = self.temperature {
             values.push(("temperature", value.to_string()));
+        }
+        if let Some(value) = self.context_window_tokens {
+            values.push(("context_window_tokens", value.to_string()));
         }
         if let Some(value) = self.max_output_tokens {
             values.push(("max_output_tokens", value.to_string()));
@@ -206,6 +212,7 @@ fn json_value(item: &Item, at: &ConfigSource) -> Result<Value> {
                 "display_name" => "displayName",
                 "api_key_env" => "apiKeyEnv",
                 "max_output_tokens" => "maxOutputTokens",
+                "context_window_tokens" => "contextWindowTokens",
                 "reasoning_effort" => "reasoningEffort",
                 value => value,
             };
@@ -383,6 +390,7 @@ fn toml_value(value: Value) -> toml_edit::Value {
                 let key = match key.as_str() {
                     "displayName" => "display_name",
                     "maxOutputTokens" => "max_output_tokens",
+                    "contextWindowTokens" => "context_window_tokens",
                     "reasoningEffort" => "reasoning_effort",
                     key => key,
                 };

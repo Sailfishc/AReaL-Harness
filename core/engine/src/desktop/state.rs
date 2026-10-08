@@ -337,7 +337,7 @@ impl Engine {
                     || !matches!(name, "agent_spawn_configured" | "agent_wait_all"))
                 && (name != "agent_report" || cell.depth > 0)
                 // 原文回取属于所有 Core 会话，不依赖桌面扩展状态。
-                && (desktop_enabled || name == "read_tool_result" || !core_names.iter().any(|n| n == name))
+                && (desktop_enabled || matches!(name, "read_tool_result" | "read_history") || !core_names.iter().any(|n| n == name))
                 && config
                     .tool_allowlist
                     .as_ref()

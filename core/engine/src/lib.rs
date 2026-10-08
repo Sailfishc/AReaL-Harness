@@ -53,9 +53,14 @@ pub struct Limits {
     pub mailbox_capacity: usize,
     pub stream_idle_timeout: Duration,
     pub max_tool_calls: usize,
+    /// 单次响应的保护与整轮累计预算独立；累计预算为零表示不限制。
+    pub max_response_tool_calls: usize,
+    pub max_response_bytes: usize,
     pub max_tool_buffer_bytes: usize,
     pub context_window_bytes: usize,
     pub context_compaction_enabled: bool,
+    pub context_auto_compaction: bool,
+    pub context_recent_tokens: usize,
     pub context_window_tokens: usize,
     pub context_target_tokens: usize,
     pub context_output_reserve_tokens: usize,
@@ -75,21 +80,39 @@ impl Default for Limits {
             max_active_turns: 256,
             max_children_per_turn: 64,
             max_agent_depth: 8,
-            max_history_bytes: 2 * 1024 * 1024,
-            max_output_bytes: 256 * 1024,
-            max_media_output_bytes: 16 * 1024 * 1024,
+            max_history_bytes: 0,
+            max_output_bytes: 0,
+            max_media_output_bytes: 0,
             mailbox_capacity: 32,
             stream_idle_timeout: Duration::from_secs(30),
-            max_tool_calls: 128,
+            max_tool_calls: 0,
+            max_response_tool_calls: 128,
+            max_response_bytes: 4 * 1024 * 1024,
             max_tool_buffer_bytes: 4 * 1024 * 1024,
-            context_window_bytes: 512 * 1024,
+            context_window_bytes: 0,
             context_compaction_enabled: true,
+            context_auto_compaction: true,
+            context_recent_tokens: 8192,
             context_window_tokens: 64 * 1024,
             context_target_tokens: 0,
             context_output_reserve_tokens: 8 * 1024,
-            context_recent_bytes: 128 * 1024,
+            context_recent_bytes: 0,
             max_completion_retries: 0,
             watchdog_disable: false,
+        }
+    }
+}
+
+impl Limits {
+    pub(crate) fn remaining_tool_calls(&self, used: usize) -> Option<usize> {
+        (self.max_tool_calls > 0).then(|| self.max_tool_calls.saturating_sub(used))
+    }
+
+    pub(crate) fn remaining_output_bytes(&self, used: usize) -> usize {
+        if self.max_output_bytes == 0 {
+            usize::MAX
+        } else {
+            self.max_output_bytes.saturating_sub(used)
         }
     }
 }
@@ -112,6 +135,7 @@ pub enum Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 struct Active {
+    tool_calls: usize,
     started: std::time::Instant,
     isolated_children: usize,
     // Includes queued model work, tool waits and cleanup. Never wait for this
@@ -349,32 +373,26 @@ impl Engine {
                 && limits.max_active_turns > 0
                 && limits.max_active_turns <= Semaphore::MAX_PERMITS
                 && limits.mailbox_capacity > 0
-                && limits.max_output_bytes > 0
-                && limits.max_tool_calls > 0
+                && limits.max_response_bytes > 0
+                && limits.max_response_tool_calls > 0
                 && limits.max_tool_buffer_bytes > 0
-                && limits.context_recent_bytes > 0
-                && limits.context_recent_bytes < limits.context_window_bytes
+                && (limits.context_window_bytes == 0
+                    || limits.context_recent_bytes < limits.context_window_bytes)
                 && limits.max_completion_retries <= 8
-                && (limits.context_window_tokens == 0
-                    || limits.context_output_reserve_tokens < limits.context_window_tokens)
-                && (limits.context_target_tokens == 0
-                    || (limits.context_window_tokens > 0
-                        && limits.context_target_tokens
-                            < limits
-                                .context_window_tokens
-                                .saturating_sub(limits.context_output_reserve_tokens)))
-                && limits.max_media_output_bytes > 0
-                && limits.max_output_bytes < limits.max_history_bytes
+                && (limits.max_history_bytes == 0
+                    || limits.max_output_bytes < limits.max_history_bytes)
                 && !limits.stream_idle_timeout.is_zero(),
             "invalid Core limits"
         );
         anyhow::ensure!(
-            (1..=86400).contains(&limits.goals.max_turns)
-                && (1..=86400).contains(&limits.goals.max_active_seconds)
+            (0..=86400).contains(&limits.goals.max_turns)
+                && (0..=86400).contains(&limits.goals.max_active_seconds)
                 && (1..=86400).contains(&limits.goals.max_unreported_turns)
-                && (2..=1024).contains(&limits.goals.turn_model_rounds),
+                && (limits.goals.turn_model_rounds == 0
+                    || (2..=1024).contains(&limits.goals.turn_model_rounds)),
             "invalid goal policy"
         );
+        context::ContextBudget::resolve(&limits, model.as_ref())?;
         let store = store::Store::open(root)?;
         if let Some(runtime) = runtime.as_mut() {
             runtime.workspace = runtime.workspace.canonicalize()?;
@@ -575,7 +593,11 @@ impl Engine {
         let bytes = store::encode(thread).map_err(|e| Error::Storage(e.to_string()))?;
         tracing::debug!(target: "areal::persistence", thread_id = %thread.id, bytes = bytes.len(),
             serialize_ms = started.elapsed().as_secs_f64() * 1000.0, "thread encoded");
-        if bytes.len() > self.limits.max_history_bytes {
+        if self.limits.max_history_bytes > 0
+            && (bytes.len() as u64)
+                .saturating_add(thread.history_archive.as_ref().map_or(0, |a| a.bytes))
+                > self.limits.max_history_bytes as u64
+        {
             return Err(Error::Exhausted(
                 "session history limit reached; start a new thread".into(),
             ));

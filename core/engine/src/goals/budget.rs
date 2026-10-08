@@ -28,6 +28,10 @@ struct Journal {
     requests: BTreeMap<String, Request>,
     seconds: f64,
     timing_complete: bool,
+    #[serde(default)]
+    settled_usage: areal_protocol::ModelUsage,
+    #[serde(default)]
+    archive_head: Option<String>,
 }
 fn token_budget_exhausted() -> anyhow::Error {
     crate::outcome::TerminalFailure::new(
@@ -79,6 +83,8 @@ impl Budget {
                 requests: BTreeMap::new(),
                 seconds: 0.0,
                 timing_complete: true,
+                settled_usage: Default::default(),
+                archive_head: None,
             }
         };
         if goal.reason.as_deref() == Some("serverRestarted") {
@@ -126,12 +132,12 @@ impl Budget {
     pub(crate) fn deadline(&self) -> Option<tokio::time::Instant> {
         let d = self.data.lock().unwrap();
         let seconds = d.max_active_seconds?;
-        Some(
-            tokio::time::Instant::now()
-                + std::time::Duration::from_secs_f64(
-                    (seconds as f64 - usage(&d).time_used_seconds).max(0.0),
-                ),
-        )
+        let remaining = Duration::from_secs(seconds).saturating_sub(Duration::from_secs_f64(
+            usage(&d).time_used_seconds.max(0.0),
+        ));
+        let now = tokio::time::Instant::now();
+        // 无法表示的旧截止时间保守停止，不能把显式限制误变为无限。
+        Some(now.checked_add(remaining).unwrap_or(now))
     }
     // 限制解释发生在首个模型请求后；根与子任务等待同一个可更新截止时间。
     pub(crate) async fn wait_deadline(&self) {
@@ -229,14 +235,53 @@ impl Budget {
         self.save(gate).await
     }
     async fn save(&self, gate: tokio::sync::OwnedMutexGuard<()>) -> anyhow::Result<()> {
-        let journal = {
+        let (journal, archive) = {
             let mut d = self.data.lock().unwrap();
             checkpoint(&mut d);
-            d.journal.clone()
+            // 仅滚动已确认结算的记录；未知消费与在途预留始终留在热账本。
+            let archive = if d.journal.requests.len() >= 128 {
+                let settled: BTreeMap<_, _> = d
+                    .journal
+                    .requests
+                    .iter()
+                    .filter(|(_, r)| r.settled && !r.unknown)
+                    .map(|(id, r)| (id.clone(), r.clone()))
+                    .collect();
+                if settled.is_empty() {
+                    None
+                } else {
+                    let bytes = serde_json::to_vec(
+                        &json!({"previous":d.journal.archive_head,"requests":settled}),
+                    )?;
+                    use sha2::{Digest, Sha256};
+                    let digest = format!("{:x}", Sha256::digest(&bytes));
+                    for (id, request) in settled {
+                        if let Some(usage) = request.usage {
+                            d.journal.settled_usage.add_assign(&usage);
+                        }
+                        d.journal.requests.remove(&id);
+                    }
+                    d.journal.archive_head = Some(digest.clone());
+                    Some((digest, bytes))
+                }
+            } else {
+                None
+            };
+            (d.journal.clone(), archive)
         };
         let path = self.path.clone();
         let result = tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
             let _gate = gate;
+            let dir = path.parent().unwrap();
+            if let Some((digest, bytes)) = archive {
+                let archive_dir = dir.join("requests");
+                std::fs::create_dir_all(&archive_dir)?;
+                let mut file = tempfile::NamedTempFile::new_in(&archive_dir)?;
+                std::io::Write::write_all(&mut file, &bytes)?;
+                file.as_file().sync_all()?;
+                file.persist(archive_dir.join(digest))?;
+                std::fs::File::open(&archive_dir)?.sync_all()?;
+            }
             let bytes = serde_json::to_vec(&journal)?;
             anyhow::ensure!(
                 bytes.len() <= 4 * 1024 * 1024,
@@ -266,7 +311,6 @@ impl Budget {
         let key = id();
         let cap = {
             let mut d = self.data.lock().unwrap();
-            anyhow::ensure!(d.journal.requests.len() < 4096, "GOAL_REQUEST_CAPACITY");
             let u = usage(&d);
             let cap = if let Some(limit) = d.token_budget {
                 let available = limit
@@ -313,6 +357,9 @@ fn usage(d: &Data) -> GoalUsage {
     let mut u = GoalUsage {
         time_used_seconds: d.journal.seconds + d.running.map_or(0.0, |v| v.elapsed().as_secs_f64()),
         accounting_complete: d.journal.timing_complete,
+        input_tokens: d.journal.settled_usage.input_tokens,
+        output_tokens: d.journal.settled_usage.output_tokens,
+        cached_input_tokens: d.journal.settled_usage.cached_input_tokens,
         ..Default::default()
     };
     for request in d.journal.requests.values() {
@@ -484,6 +531,53 @@ mod tests {
         budget
     }
     struct Known;
+    #[tokio::test]
+    async fn unlimited_request_journal_rolls_without_resetting_usage() {
+        let dir = tempfile::tempdir().unwrap();
+        let budget = fixture(dir.path(), 1);
+        budget.configure(None, true);
+        for _ in 0..4100 {
+            let (mut guard, cap) = budget.reserve(100, RequestPurpose::Solve).await.unwrap();
+            assert_eq!(cap, None);
+            budget
+                .data
+                .lock()
+                .unwrap()
+                .journal
+                .requests
+                .get_mut(&guard.key)
+                .unwrap()
+                .usage = Some(areal_protocol::ModelUsage {
+                input_tokens: 20,
+                output_tokens: 10,
+                cached_input_tokens: 5,
+            });
+            guard.complete = true;
+            drop(guard);
+        }
+        budget.flush().await.unwrap();
+        let usage = budget.usage();
+        assert_eq!(usage.tokens_used, 123000);
+        assert_eq!(usage.cached_input_tokens, 20500);
+        assert_eq!(usage.reserved_tokens, 0);
+        let journal: Journal =
+            serde_json::from_slice(&std::fs::read(&budget.path).unwrap()).unwrap();
+        assert!(journal.requests.len() < 128);
+        assert!(journal.archive_head.is_some());
+        let goal: Goal = serde_json::from_value(json!({
+            "id":budget.goal_id,"threadId":id(),"objective":"test","status":"paused",
+            "usage":usage,"settling":false,"waitingForInput":false,"waitingForCapacity":false,"unreportedTurns":0
+        })).unwrap();
+        let restored = Budget::open(dir.path(), &goal).unwrap();
+        assert_eq!(restored.usage().tokens_used, 123000);
+        restored.configure(Some(123000), true);
+        assert!(restored.reserve(1, RequestPurpose::Solve).await.is_err());
+        restored.configure(None, true);
+        let (unknown, _) = restored.reserve(1, RequestPurpose::Solve).await.unwrap();
+        drop(unknown);
+        assert!(restored.unknown_pending());
+        assert!(restored.reserve(1, RequestPurpose::Solve).await.is_err());
+    }
     #[async_trait::async_trait]
     impl Model for Known {
         fn name(&self) -> &str {

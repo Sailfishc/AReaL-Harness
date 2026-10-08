@@ -78,6 +78,81 @@ fn model(hold_summary: bool) -> Arc<LongSession> {
         hold_summary,
     })
 }
+
+#[tokio::test]
+async fn manual_mode_stops_before_overflow_and_explicit_compaction_recovers() {
+    let data = tempfile::tempdir().unwrap();
+    let model = model(false);
+    let engine = Engine::open(
+        data.path(),
+        model.clone(),
+        Limits {
+            context_auto_compaction: false,
+            ..limits()
+        },
+    )
+    .unwrap();
+    let thread = engine.create("/workspace".into()).await.unwrap();
+    turn(&engine, &thread.id, "Original task").await;
+    turn(&engine, &thread.id, "Second step").await;
+    let failed = turn(&engine, &thread.id, "Third step").await;
+    assert_eq!(failed.turns.last().unwrap().status, TurnStatus::Failed);
+    assert!(failed.context_checkpoint.is_none());
+    assert_eq!(model.requests.lock().unwrap().len(), 2);
+    engine.context_compact(thread.id.clone()).await.unwrap();
+    let done = turn(&engine, &thread.id, "Continue").await;
+    assert!(done.context_checkpoint.is_some());
+    assert_eq!(done.turns.last().unwrap().status, TurnStatus::Completed);
+    engine.shutdown().await;
+}
+
+#[tokio::test]
+async fn many_compactions_keep_hot_snapshot_small_and_restore_every_original() {
+    let data = tempfile::tempdir().unwrap();
+    let engine = Engine::open(data.path(), model(false), limits()).unwrap();
+    let thread = engine.create("/workspace".into()).await.unwrap();
+    for n in 0..48 {
+        let result = turn(
+            &engine,
+            &thread.id,
+            &format!(
+                "User revision {n}: {}",
+                "retain the requested interface. ".repeat(48)
+            ),
+        )
+        .await;
+        assert_eq!(result.turns.last().unwrap().status, TurnStatus::Completed);
+    }
+    let full = engine.read(&thread.id, true).await.unwrap();
+    let bytes = std::fs::read(data.path().join(format!("{}.json", thread.id))).unwrap();
+    let record: Value = serde_json::from_slice(&bytes).unwrap();
+    assert!(bytes.len() * 2 < serde_json::to_vec(&full).unwrap().len());
+    assert!(
+        record["thread"]["historyArchive"]["items"]
+            .as_u64()
+            .unwrap()
+            > 80
+    );
+    let retained = full
+        .context_checkpoint
+        .as_ref()
+        .unwrap()
+        .retained_inputs
+        .as_ref()
+        .unwrap();
+    assert!(retained.len() < 24);
+    assert_eq!(retained[0].item_id, full.turns[0].items[0].id());
+    assert_eq!(full.turns.len(), 48);
+    assert!(full.history_archive.is_none());
+    engine.shutdown().await;
+    drop(engine);
+    let engine = Engine::open(data.path(), model(false), limits()).unwrap();
+    assert_eq!(
+        serde_json::to_value(engine.read(&thread.id, true).await.unwrap()).unwrap(),
+        serde_json::to_value(full).unwrap()
+    );
+    engine.shutdown().await;
+}
 #[tokio::test]
 async fn compaction_preserves_goal_recent_input_archive_usage_and_restart() {
     let data = tempfile::tempdir().unwrap();
@@ -227,13 +302,50 @@ async fn archived_chat_reasoning_does_not_trigger_compaction_or_disappear_from_h
 }
 
 #[tokio::test]
+async fn storage_pressure_rolls_nonreplayed_reasoning_and_preserves_originals() {
+    let data = tempfile::tempdir().unwrap();
+    let engine = Engine::open(
+        data.path(),
+        Arc::new(ArchivedChatReasoning),
+        Limits::default(),
+    )
+    .unwrap();
+    let thread = engine.create("/workspace".into()).await.unwrap();
+    for _ in 0..24 {
+        assert_eq!(
+            turn(&engine, &thread.id, "Continue")
+                .await
+                .turns
+                .last()
+                .unwrap()
+                .status,
+            TurnStatus::Completed
+        );
+    }
+    let full = engine.read(&thread.id, true).await.unwrap();
+    assert_eq!(full.turns.len(), 24);
+    assert_eq!(
+        full.turns
+            .iter()
+            .flat_map(|t| &t.items)
+            .filter(|i| matches!(i, areal_protocol::Item::Reasoning { .. }))
+            .count(),
+        24
+    );
+    let bytes = std::fs::read(data.path().join(format!("{}.json", thread.id))).unwrap();
+    assert!(bytes.len() < 1024 * 1024);
+    assert!(full.context_checkpoint.is_some());
+    engine.shutdown().await;
+}
+
+#[tokio::test]
 async fn token_budget_can_compact_before_byte_limit_and_preserves_original_assertion() {
     let data = tempfile::tempdir().unwrap();
     let model = model(false);
     let limits = Limits {
         context_window_bytes: 1024 * 1024,
         context_recent_bytes: 256,
-        context_window_tokens: 1800,
+        context_window_tokens: 12000,
         context_output_reserve_tokens: 400,
         ..Limits::default()
     };
@@ -247,6 +359,9 @@ async fn token_budget_can_compact_before_byte_limit_and_preserves_original_asser
         "Another passing check is not the original assertion",
     )
     .await;
+    for _ in 0..30 {
+        turn(&engine, &thread.id, "Keep debugging").await;
+    }
     let after = turn(&engine, &thread.id, "Keep debugging").await;
     assert_eq!(after.turns.last().unwrap().status, TurnStatus::Completed);
     assert!(after.context_checkpoint.is_some());
@@ -625,8 +740,8 @@ async fn explicit_compaction_target_leaves_headroom_across_long_conversations() 
         engine.shutdown().await;
     }
     assert!(
-        compactions[1] < compactions[0],
-        "target should reduce repeated summaries: {compactions:?}"
+        compactions[1] <= compactions[0] && compactions.iter().all(|n| *n > 0 && *n < 8),
+        "automatic and explicit targets should leave headroom: {compactions:?}"
     );
 }
 

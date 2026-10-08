@@ -31,6 +31,85 @@ fn finished() -> String {
         json!({"choices":[{"index":0,"delta":{"content":"verified"},"finish_reason":"stop"}],"usage":usage()}),
     )
 }
+
+#[tokio::test]
+async fn context_overflow_compacts_once_before_retrying_without_tool_effects() {
+    fn text_body(text: &str, responses: bool) -> String {
+        if responses {
+            frame(json!({"type":"response.output_text.delta","delta":text}))
+                + &frame(
+                    json!({"type":"response.completed","response":{"status":"completed","output":[],"usage":{"input_tokens":7,"output_tokens":3}}}),
+                )
+        } else {
+            frame(
+                json!({"choices":[{"index":0,"delta":{"content":text},"finish_reason":"stop"}],"usage":usage()}),
+            )
+        }
+    }
+    for responses in [false, true] {
+        for recover in [false, true] {
+            let overflow = frame(
+                json!({"type":"error","error":{"code":"context_length_exceeded","type":"invalid_request_error"}}),
+            );
+            let fixture = Fixture::start(
+                vec![
+                    text_body(&"Original implementation evidence. ".repeat(300), responses),
+                    overflow.clone(),
+                    text_body(
+                        "Implementation evidence retained; continue verification.",
+                        responses,
+                    ),
+                    if recover {
+                        text_body("verified", responses)
+                    } else {
+                        overflow
+                    },
+                ],
+                None,
+            )
+            .await;
+            let data = tempfile::tempdir().unwrap();
+            let engine = Engine::open(
+                &data.path().join("core"),
+                Arc::new(fixture.model(&data.path().join("audit"), responses)),
+                Limits::default(),
+            )
+            .unwrap();
+            let writes = Arc::new(Writes::default());
+            let thread = thread(&engine, writes.clone()).await;
+            engine
+                .start(&thread.id, vec![Input::text("Original task")])
+                .await
+                .unwrap();
+            assert_eq!(
+                settled(&engine, &thread.id)
+                    .await
+                    .turns
+                    .last()
+                    .unwrap()
+                    .status,
+                TurnStatus::Completed
+            );
+            engine
+                .start(&thread.id, vec![Input::text("Continue verification")])
+                .await
+                .unwrap();
+            let result = settled(&engine, &thread.id).await;
+            assert_eq!(
+                result.turns.last().unwrap().status,
+                if recover {
+                    TurnStatus::Completed
+                } else {
+                    TurnStatus::Failed
+                }
+            );
+            assert!(result.context_checkpoint.is_some());
+            assert_eq!(fixture.requests.lock().unwrap().len(), 4);
+            assert!(writes.ids.lock().unwrap().is_empty());
+            engine.shutdown().await;
+        }
+    }
+}
 fn calls_body(count: usize, size: usize, responses: bool) -> String {
     let arguments = if size <= 2 {
         "{}".into()
@@ -712,7 +791,7 @@ async fn goal_requests_keep_output_caps_and_tool_budgets_through_shared_pools() 
                         thread_id: thread.id.clone(),
                         expected_revision: 0,
                         objective: "Run the fixture with both request budgets".into(),
-                        token_budget: Some(8000),
+                        token_budget: Some(16000),
                         max_turns: Some(1),
                         max_active_seconds: None,
                     },
@@ -747,7 +826,7 @@ async fn goal_requests_keep_output_caps_and_tool_budgets_through_shared_pools() 
                 assert!(
                     requests[0][field]
                         .as_u64()
-                        .is_some_and(|cap| cap > 0 && cap < 8000)
+                        .is_some_and(|cap| cap > 0 && cap < 16000)
                 );
             }
             let records = audits(&audit);
@@ -928,4 +1007,103 @@ async fn protocol_error_distinguishes_unobserved_usage_from_observed_zero() {
         assert_eq!(audit["usageObserved"], observed);
         assert_eq!(audit["usage"]["inputTokens"], 0);
     }
+}
+
+#[tokio::test]
+async fn unspecified_budgets_allow_long_tool_runs_and_large_durable_history() {
+    let calls = 140;
+    let bodies = (0..calls)
+        .map(|n| {
+            frame(json!({"choices":[{"index":0,"delta":{"reasoning_content":"r".repeat(16 * 1024)}}]}))
+                + &calls_body(1, 2, false).replace("call0", &format!("call{n}"))
+        })
+        .chain([finished()])
+        .collect();
+    let fixture = Fixture::start(bodies, None).await;
+    let data = tempfile::tempdir().unwrap();
+    let limits = Limits {
+        // 本用例单独检查累计预算；压缩和溢出恢复由上下文用例覆盖。
+        context_window_bytes: 8 * 1024 * 1024,
+        context_window_tokens: 2_000_000,
+        ..Limits::default()
+    };
+    let engine = Engine::open(
+        data.path(),
+        Arc::new(fixture.model(&data.path().join("audit"), false)),
+        limits.clone(),
+    )
+    .unwrap();
+    let writes = Arc::new(Writes::default());
+    let thread = thread(&engine, writes.clone()).await;
+    engine
+        .start(
+            &thread.id,
+            vec![Input::text("Finish all requested operations")],
+        )
+        .await
+        .unwrap();
+    let result = tokio::time::timeout(Duration::from_secs(60), engine.wait(&thread.id))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        result.turns.last().unwrap().status,
+        TurnStatus::Completed,
+        "{:?}",
+        result.turns.last().unwrap().error
+    );
+    assert_eq!(writes.ids.lock().unwrap().len(), calls);
+    assert!(serde_json::to_vec(&result).unwrap().len() > 2 * 1024 * 1024);
+    engine.shutdown().await;
+    drop(engine);
+    let restored = Engine::open(
+        data.path(),
+        Arc::new(fixture.model(&data.path().join("audit"), false)),
+        limits,
+    )
+    .unwrap();
+    restored
+        .bind_tool_host(&thread.id, writes.clone())
+        .await
+        .unwrap();
+    // 大历史恢复后仍能接纳新一轮，不受旧的 511 KiB 准入余量限制。
+    restored
+        .start(&thread.id, vec![Input::text("Report the verified result")])
+        .await
+        .unwrap();
+    let result = settled(&restored, &thread.id).await;
+    assert_eq!(result.turns.last().unwrap().status, TurnStatus::Completed);
+    assert_eq!(writes.ids.lock().unwrap().len(), calls);
+    restored.shutdown().await;
+}
+
+#[tokio::test]
+async fn unlimited_run_still_rejects_an_oversized_single_response() {
+    let fixture = Fixture::start(vec![finished()], None).await;
+    let data = tempfile::tempdir().unwrap();
+    let engine = Engine::open(
+        data.path(),
+        Arc::new(fixture.model(&data.path().join("audit"), false)),
+        Limits {
+            max_response_bytes: 4,
+            ..Limits::default()
+        },
+    )
+    .unwrap();
+    let thread = engine.create("/workspace".into()).await.unwrap();
+    engine
+        .start(&thread.id, vec![Input::text("Respond")])
+        .await
+        .unwrap();
+    let result = settled(&engine, &thread.id).await;
+    let turn = result.turns.last().unwrap();
+    assert_eq!(turn.status, TurnStatus::Failed);
+    assert!(
+        turn.error
+            .as_ref()
+            .unwrap()
+            .message
+            .contains("response byte limit")
+    );
+    engine.shutdown().await;
 }

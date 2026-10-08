@@ -21,11 +21,11 @@ pub struct Policy {
     pub verifiers: usize,
     #[serde(default = "eight")]
     pub active_groups: usize,
-    #[serde(default = "seconds")]
+    #[serde(default)]
     pub timeout_seconds: u64,
     #[serde(default = "command_timeout")]
     pub command_timeout_ms: u64,
-    #[serde(default = "requests")]
+    #[serde(default)]
     pub max_model_requests: usize,
 }
 fn eight() -> usize {
@@ -34,14 +34,8 @@ fn eight() -> usize {
 fn two() -> usize {
     2
 }
-fn seconds() -> u64 {
-    600
-}
 fn command_timeout() -> u64 {
     300_000
-}
-fn requests() -> usize {
-    128
 }
 
 impl Policy {
@@ -63,9 +57,9 @@ impl Policy {
             (1..=32).contains(&self.workers)
                 && (1..=8).contains(&self.verifiers)
                 && (1..=64).contains(&self.active_groups)
-                && (1..=86400).contains(&self.timeout_seconds)
+                && self.timeout_seconds <= 86400
                 && (1..=86_400_000).contains(&self.command_timeout_ms)
-                && (1..=10000).contains(&self.max_model_requests),
+                && self.max_model_requests <= 10000,
             "invalid workgroup policy limits"
         );
         Ok(())
@@ -102,6 +96,7 @@ pub trait Factory: Send + Sync + 'static {
 }
 
 pub struct NativeFactory {
+    pub worker_limits: crate::Limits,
     pub catalog: Option<std::sync::Weak<crate::Engine>>,
     pub model: Arc<dyn crate::model::Model>,
     pub watchdog_disable: bool,
@@ -142,6 +137,7 @@ impl Factory for NativeFactory {
             self.file_helper.clone(),
             self.toolchain.clone(),
         )?;
+        executor.worker_limits = self.worker_limits.clone();
         executor.catalog = self.catalog.clone();
         executor.watchdog_disable = self.watchdog_disable;
         executor.tool_call_limits = self.tool_call_limits;

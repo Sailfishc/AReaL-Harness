@@ -8,9 +8,10 @@ use std::{
     sync::Arc,
 };
 use tokio::sync::Semaphore;
+mod archive;
 
 // 持久化版本与服务状态必须一致，避免客户端误判可恢复的数据格式。
-pub(crate) const STATE_VERSION: u32 = 11;
+pub(crate) const STATE_VERSION: u32 = 12;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Record {
@@ -63,7 +64,7 @@ impl Store {
             if threads.len() >= max_threads {
                 bail!("stored thread count exceeds configured limit");
             }
-            if std::fs::metadata(&path)?.len() > max_bytes as u64 {
+            if max_bytes > 0 && std::fs::metadata(&path)?.len() > max_bytes as u64 {
                 bail!(
                     "stored thread exceeds configured history limit: {}",
                     path.display()
@@ -71,11 +72,25 @@ impl Store {
             }
             let mut record: Record = serde_json::from_slice(&std::fs::read(&path)?)
                 .with_context(|| format!("invalid session: {}", path.display()))?;
+            anyhow::ensure!(
+                max_bytes == 0
+                    || record
+                        .thread
+                        .history_archive
+                        .as_ref()
+                        .map_or(0, |a| a.bytes)
+                        .saturating_add(std::fs::metadata(&path)?.len())
+                        <= max_bytes as u64,
+                "stored thread exceeds configured history limit"
+            );
             if !matches!(record.version, 1..=STATE_VERSION)
                 || path.file_stem().and_then(|s| s.to_str()) != Some(&record.thread.id)
                 || uuid::Uuid::parse_str(&record.thread.id).is_err()
             {
                 bail!("unsupported or inconsistent session: {}", path.display());
+            }
+            if let Some(reference) = &record.thread.history_archive {
+                archive::read_segment(&self.root, &reference.head)?;
             }
             let mut repaired = false;
             if let Some(goal) = &mut record.thread.goals.goal {
@@ -205,18 +220,31 @@ impl Store {
     pub(crate) async fn read_thread(&self, id: &str) -> Result<Thread> {
         anyhow::ensure!(uuid::Uuid::parse_str(id).is_ok(), "invalid thread ID");
         let bytes = tokio::fs::read(self.root.join(format!("{id}.json"))).await?;
-        Ok(serde_json::from_slice::<Record>(&bytes)?.thread)
+        self.hydrate(serde_json::from_slice::<Record>(&bytes)?.thread)
+            .await
     }
     pub(crate) async fn collect_blobs(&self) -> Result<serde_json::Value> {
         let serial = self.blob_write.clone().lock_owned().await;
         let root = self.root.clone();
         tokio::task::spawn_blocking(move||->Result<_>{
             let _serial=serial;let mut keep=std::collections::BTreeSet::<String>::new();
+            let mut history = std::collections::BTreeSet::new();
             fn visit(v:&serde_json::Value,keep:&mut std::collections::BTreeSet<String>){match v{serde_json::Value::String(s)=>{if let Some(id)=s.strip_prefix("areal://blob/"){keep.insert(id.into());}},serde_json::Value::Array(v)=>{for x in v{visit(x,keep);}},serde_json::Value::Object(v)=>{for x in v.values(){visit(x,keep);}},_=>{}}}
-            for e in std::fs::read_dir(&root)?{let p=e?.path();if p.extension().and_then(|s|s.to_str())==Some("json"){let record:Record=serde_json::from_slice(&std::fs::read(p)?)?;visit(&serde_json::to_value(record.thread)?,&mut keep);}}
+            for e in std::fs::read_dir(&root)?{let p=e?.path();if p.extension().and_then(|s|s.to_str())==Some("json"){let record:Record=serde_json::from_slice(&std::fs::read(p)?)?;visit(&serde_json::to_value(&record.thread)?,&mut keep);
+                archive::visit_segments(&root, record.thread.history_archive, &mut history, |turns| { visit(&serde_json::to_value(turns)?, &mut keep); Ok(()) })?;}}
             let mut deleted=0;let mut reclaimed=0;let mut retained=0;
             for e in std::fs::read_dir(root.join("blobs"))?{let e=e?;let name=e.file_name().to_string_lossy().into_owned();if name.len()!=64||!name.bytes().all(|c|c.is_ascii_hexdigit())||!e.file_type()?.is_file(){continue;}
 if keep.contains(&name){retained+=e.metadata()?.len();}else{reclaimed+=e.metadata()?.len();std::fs::remove_file(e.path())?;deleted+=1;}}
+            if root.join("history").exists() {
+                for entry in std::fs::read_dir(root.join("history"))? {
+                    let entry = entry?;
+                    let name = entry.file_name().to_string_lossy().into_owned();
+                    if name.len() == 64 && name.bytes().all(|b| b.is_ascii_hexdigit()) && entry.file_type()?.is_file() && !history.contains(&name) {
+                        std::fs::remove_file(entry.path())?;
+                    }
+                }
+                File::open(root.join("history"))?.sync_all()?;
+            }
             File::open(root.join("blobs"))?.sync_all()?;
             Ok(serde_json::json!({"deletedBlobs":deleted,"reclaimedBytes":reclaimed,"retainedBytes":retained}))
         }).await?
@@ -340,17 +368,6 @@ fn atomic_write_blob(root: &Path, mime_type: String, bytes: Vec<u8>) -> Result<M
     let directory = root.join("blobs");
     let path = directory.join(&id);
     if !path.exists() {
-        let mut total = bytes.len() as u64;
-        let mut count = 0;
-        for entry in std::fs::read_dir(&directory)? {
-            let metadata = entry?.metadata()?;
-            total = total.saturating_add(metadata.len());
-            count += 1;
-            anyhow::ensure!(
-                total <= 512 * 1024 * 1024 && count < 16384,
-                "Blob storage budget exhausted (512 MiB / 16384 files); drain before garbage collection"
-            );
-        }
         let temporary = directory.join(format!("{id}.{}.tmp", uuid::Uuid::new_v4()));
         let mut file = OpenOptions::new()
             .create_new(true)

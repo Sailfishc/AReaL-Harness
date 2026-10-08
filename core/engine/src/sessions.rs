@@ -121,6 +121,7 @@ impl Engine {
         }
         let thread_id = id();
         let mut thread = Thread {
+            history_archive: None,
             goals: Default::default(),
             goal_owner: parent.and_then(|p| {
                 p.goals
@@ -230,10 +231,18 @@ impl Engine {
                 .await
                 .map_err(|e| Error::Storage(e.to_string()))?;
         }
+        if include_turns {
+            thread = self
+                .store
+                .hydrate(thread)
+                .await
+                .map_err(|e| Error::Storage(e.to_string()))?;
+        }
         self.refresh_goal_usage(&mut thread);
         if !include_turns {
             thread.turns.clear();
             thread.context_checkpoint = None;
+            thread.history_archive = None;
         }
         Ok(thread)
     }
@@ -268,6 +277,7 @@ impl Engine {
             self.refresh_goal_usage(&mut thread);
             thread.turns.clear();
             thread.context_checkpoint = None;
+            thread.history_archive = None;
             data.push(thread);
         }
         Ok((data, None))
@@ -289,7 +299,10 @@ impl Engine {
                 .await
                 .map_err(|e| Error::Storage(e.to_string()))?
         } else {
-            state.thread.clone()
+            self.store
+                .hydrate(state.thread.clone())
+                .await
+                .map_err(|e| Error::Storage(e.to_string()))?
         };
         self.refresh_goal_usage(&mut thread);
         Ok((thread, cell.events.subscribe()))

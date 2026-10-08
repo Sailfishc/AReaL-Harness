@@ -66,6 +66,8 @@ use std::collections::BTreeMap;
 pub struct ModelParameters {
     pub temperature: Option<f64>,
     pub max_output_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_window_tokens: Option<usize>,
     pub reasoning_effort: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning_summary: Option<String>,

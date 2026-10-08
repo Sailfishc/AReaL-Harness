@@ -131,7 +131,7 @@ impl SharedModel {
         max_requests: usize,
     ) -> Result<Arc<Self>> {
         ensure!(
-            (1..=32).contains(&concurrency) && (1..=10000).contains(&max_requests),
+            (1..=32).contains(&concurrency) && max_requests <= 10000,
             "invalid root model limits"
         );
         Ok(Arc::new(Self {
@@ -273,7 +273,7 @@ impl Model for SharedModel {
         {
             let mut usage = self.usage.lock().unwrap();
             ensure!(
-                usage.requests < self.max_requests,
+                self.max_requests == 0 || usage.requests < self.max_requests,
                 "root model request budget exhausted"
             );
             usage.requests += 1;
@@ -637,6 +637,7 @@ impl ProgressModel {
 }
 
 pub struct NativeExecutor {
+    pub worker_limits: Limits,
     pub catalog: Option<std::sync::Weak<Engine>>,
     pub model: Arc<dyn Model>,
     pub runtime: PathBuf,
@@ -686,6 +687,7 @@ impl NativeExecutor {
             })
             .transpose()?;
         Ok(Self {
+            worker_limits: Limits::default(),
             catalog: None,
             model,
             runtime,
@@ -696,7 +698,7 @@ impl NativeExecutor {
                 wall_time_ms: 300_000,
                 ..Default::default()
             },
-            context_bytes: 65536,
+            context_bytes: 0,
             watchdog_disable: false,
             tool_call_limits: ToolCallLimits::default(),
             max_unchanged_rounds: 0,
@@ -812,9 +814,8 @@ impl Executor for NativeExecutor {
         let result: Result<()> = async {
             let engine = Engine::open_with_runtime(&root.join("history"), worker_model.clone(),
                 Limits { max_active_turns: 1, max_children_per_turn: 0, max_agent_depth: 0,
-                    max_history_bytes: 8 * 1024 * 1024, max_output_bytes: 512 * 1024,
                     watchdog_disable: self.watchdog_disable,
-                    max_tool_calls: self.tool_call_limits.max_calls, max_tool_buffer_bytes: self.tool_call_limits.max_buffer_bytes, ..Limits::default() },
+                    max_response_tool_calls: self.tool_call_limits.max_calls, max_tool_buffer_bytes: self.tool_call_limits.max_buffer_bytes, ..self.worker_limits.clone() },
                 RuntimeConfig { client: runtime.clone(), workspace: workspace.clone(), writable: true, command_scope: None, command_scratch: Some(workspace.join(".scratch")) })?;
             let execution: Result<()> = async {
                 let thread = if let Some(configuration)=&task.configuration {

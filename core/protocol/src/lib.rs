@@ -377,6 +377,30 @@ pub struct ContextCheckpoint {
     pub total_duration_ms: u64,
     #[serde(default)]
     pub usage: ModelUsage,
+    /// 保留的真实用户输入；缺省表示旧 checkpoint 的全量重放契约。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retained_inputs: Option<Vec<ContextInput>>,
+    /// 有界的原始工具回执提示，不授予权限或恢复过期句柄。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub evidence: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextInput {
+    pub item_id: String,
+    pub content: Vec<Input>,
+}
+
+/// 不可变历史分段的链头；读取完整 Thread 时由 Core 展开，不要求客户端管理文件。
+#[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryArchive {
+    pub head: String,
+    pub through_item_id: String,
+    pub completed_turns: u64,
+    pub items: u64,
+    pub bytes: u64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
@@ -401,6 +425,8 @@ pub struct Thread {
     pub source: String,
     pub ephemeral: bool,
     pub turns: Vec<Turn>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub history_archive: Option<HistoryArchive>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_checkpoint: Option<ContextCheckpoint>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

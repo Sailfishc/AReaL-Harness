@@ -620,6 +620,7 @@ async fn legacy_text_sessions_load_and_upgrade_on_next_write() {
         let dir = tempfile::tempdir().unwrap();
         let thread_id = uuid::Uuid::new_v4().to_string();
         let thread = Thread {
+            history_archive: None,
             goals: Default::default(),
             goal_owner: None,
             desktop: None,
@@ -684,6 +685,6 @@ async fn legacy_text_sessions_load_and_upgrade_on_next_write() {
             &std::fs::read(dir.path().join(format!("{thread_id}.json"))).unwrap(),
         )
         .unwrap();
-        assert_eq!(record["version"], 11);
+        assert_eq!(record["version"], 12);
     }
 }

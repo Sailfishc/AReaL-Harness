@@ -106,10 +106,9 @@ Goal 请求先检查共享预算与用量是否已知，再决定是否重试。
 
 Chat 工具 index 缺失、null、非整数类型、负数、超出 u64 范围或片段非对象时，使用明确的内部协议错误，只进入上述有限恢复，不进入网络 watchdog，也不作为 Workgroup 推理检查点。Core 不猜测编号或片段归属；数量、参数和缓冲预算错误不自动恢复。失败响应的模型视图被丢弃，已有确认工具、steer 和已观测 usage 保留。解析错误在已排队事件交付后立即传播；同事件或前序事件的已解析 usage 只累计一次，直接 EOF 保留原始错误类型。
 
-Rust `Model::chat_with_limits(messages, tools, purpose, ToolCallLimits, cap)` 显式传递请求预算，内置 HTTP、共享池和 Worker 包装器均转发。可选的输出 token 上限与工具预算一起经过 Goal 计量传递。默认实现委托 `chat_limited`，保持已有自定义 Model 实现可编译，并拒绝不受支持的非空 token 上限；自定义模型自行约束内部缓冲，Engine 仍在工具执行前检查其输出。摘要使用零调用预算。`Limits` 新增 `max_tool_buffer_bytes`，`NativeFactory`/`NativeExecutor` 新增 `tool_call_limits`，显式结构体初始化需补充字段；构造器提供默认值。不增加客户端协议方法或更改快照格式。
+Rust `Model::chat_with_limits(messages, tools, purpose, ToolCallLimits, cap)` 显式传递请求预算，内置 HTTP、共享池和 Worker 包装器均转发。可选的输出 token 上限与工具预算一起经过 Goal 计量传递。默认实现委托 `chat_limited`，保持已有自定义 Model 实现可编译，并拒绝不受支持的非空 token 上限；自定义模型自行约束内部缓冲，Engine 仍在工具执行前检查其输出。摘要使用零调用预算。`Limits` 新增 `max_tool_buffer_bytes`，`NativeFactory`/`NativeExecutor` 新增 `tool_call_limits`，显式结构体初始化需补充字段；构造器提供默认值。Rust Limits 同时区分可选累计预算与单响应资源保护。
 
-压缩从权威历史独立重放 checkpoint 覆盖的所有真实用户消息，保留原文和时间顺序，不依赖摘要维持修订。自动 Goal 续轮的首项按持久化 Turn origin 排除，同一 Turn 中后续 steer 仍保留；用户后续修订优先于相冲突的摘要叙述。多次压缩和重启沿用现有历史，无新快照格式。子任务保留自身输入与修订，父任务需显式把相关修订发给已有子任务。用户原文不提升为 system 指令，也不静默截断；因此用户输入本身很大时仍可能无法压缩。工具调用/结果和不透明 reasoning 保持完整分组。内部摘要控制和校验重试使用 system 消息。摘要需满足 16 KiB 上限及实际可释放空间；无效摘要仅校验重试一次，随后有界原始证据回退不再嵌套旧 DEGRADED checkpoint。不可净缩减时在调用摘要模型前跳过；不删除归档或执行日志。取消保留原 checkpoint，已打开的流最多收尾一秒以结算尾部 usage，不执行输出工具；缺失用量仍是 UNKNOWN。`areal/context/compacted` 另含 `summaryInputBytes`（摘要开始时的快照大小）、`beforeEstimatedTokens`、`afterEstimatedTokens`、`targetTokens`、`summaryBytes`、`generatedSummaryBytes`、`summaryBudgetBytes`、`degradationReason`（null、`summary_unavailable` 或 `insufficient_net_saving`）及 `retainedUserMessages`。计数为投影中的 user 角色消息；媒体保留原引用。 另提供 `targetMet`（估计是否达到目标）、`trigger`（manual/tokens/bytes）和 `wholeLatestRound`（最新已完成工具轮次是否整体进入摘要）；通知字段不改变原有摘要审计格式。
-摘要请求使用独立 system 角色，将原消息角色、工具调用及工具结果序列化为引用历史数据；不回放作者的可执行角色、媒体负载或不透明 provider 上下文。摘要输入中的大工具结果保留首尾片段，原始事件和求解历史仍完整保留。交接内容要求记录已读覆盖、文件版本、接口、子任务与下一步；这些是历史观察，不替代文件变化后的重新读取。一次内容重试使用更短的检查点要求。协议适配器确认终态与最终用量后，即使发生 length 或 Responses 终止错误，Goal 也可结算已知消费；普通 Usage 后断流、缺失用量及不完整尾帧仍保留 UNKNOWN。HTTP 失败审计的 `finalUsageConfirmed` 区分这种终态证据与仅收到 Usage。Workgroup 共享池同样结算这些已知失败消费，但不把失败计为成功请求。
+Checkpoint 的 `retainedInputs: [{itemId, content}]` 保存有界的真实用户原文，`evidence: string[]` 保存有界回执。优先首个任务与最近修订，排除自动 Goal 续轮输入；后续用户指令优先于冲突摘要。旧原文可通过 `read_history` 回取，不删除、不提升为 system 指令。旧 checkpoint 未含 retainedInputs 时保留原重放语义，直到下一次压缩。子任务保留自己的输入，父任务需显式传递有关修订。工具/结果保持完整配对，未确认副作用不能移入冷历史。摘要输入按模型窗口减摘要输出预留预检，过大证据会明确标记省略；无效摘要最多一次验证重试，再退回有界的已记录证据。没有合法前缀时不付费摘要。取消保留旧 checkpoint，并保守结算已观察用量。压缩事件包含前后字节与估算 token、targetTokens/targetMet、摘要预算、degradationReason、retainedUserMessages，以及 trigger（manual/tokens/bytes/storage）。压缩后完整求解请求再次预检，无法容纳时返回结构化上下文错误；自动模式下在任何输出/工具调用之前遇到明确的提供方上下文溢出，可恢复一次，仍受 Goal 计量约束。
 
 压缩后的求解上下文还包含 Core 从成功文件操作回执提取的历史路径、完整 SHA-256 与读取范围（最多 24 项、8 KiB）；不复制失效的 fileVersion 句柄，也不把分页读取推断为全文覆盖。摘要模型不再负责复述哈希。
 
@@ -125,7 +124,7 @@ Rust `Model::chat_with_limits(messages, tools, purpose, ToolCallLimits, cap)` �
 
 工具错误审计新增 `errorCode` 与 `toolCallError`：`invalid_tool_call_index` 附固定原因、协议、字段路径、从 1 开始的 SSE 数据事件序号、index JSON 类型及已缓冲调用数量；`tool_call_budget_exceeded` 附预算类别、上限和观测值。字段只含固定标签和有界数值，诊断不复制 SSE、参数、reasoning 或非法字段值，使用同一记录的本地 `requestId` 关联。`responseShape.toolArgumentBytes` 沿用旧名称，实际累计通过校验的 id/name/arguments 字节。
 
-快照写入格式 9，可读取 1–9，旧 Core 不能读取新快照。contextCheckpoint 影响模型视图，不删原始历史；modelContext 保存不透明 Responses 上下文，不投影成用户内容。缺失 usage/duration 为未知，不是 0。
+快照写入格式 12，可读取 1–12；旧二进制不能读取新快照。可选 `historyArchive` 引用 `history/` 中的不可变 SHA-256 分段，包含 head、throughItemId、completedTurns、items、bytes；单分段最多 32 MiB。先同步分段，再提交引用它的快照。热快照保留近期条目和 checkpoint；完整 thread 读取还原原始 Turn/Item，并省略存储清单。`read_history` 按 item ID 分页，无需加载全部归档。GC 同时追踪热快照与冷分段引用。工具意图持久化与 UNKNOWN 恢复不变，不重放归档副作用。usage/duration 缺失表示未知，不是 0。
 
 `ToolExecution` 新增可选 `resultSnapshot: MediaRef` 与 `outputProjection` 度量对象，旧记录默认缺省。原文回取是模型 Core 工具 `read_tool_result`，不是新的 Runtime RPC；边界见[工具指南](../guides/tools.md)。模型请求审计另记 messageBlocks 的摘要/字节数、toolSchemaSha256 和 instructionsSha256，用于离线比较稳定前缀；不记录提示词正文，也不将前缀相同直接视为提供方缓存命中。`usageDetails` 记录提供方可选的缓存输入和推理 token；缺失时为 null，预算用量结构不变。
 
@@ -210,7 +209,7 @@ objective 为 1–4000 个 Unicode 字符且不能全空白。显式预算为正
 
 已设置跨 Run Token 总预算的周期 Task 不允许通过目标文本重新推断预算，继续由 Task 控制接口维护。
 
-GUI 仅提交目标文本及 inferLimits=true，不展示预算输入。create 的 inferLimits 不可和显式限制同时提交；update 的 inferLimits 要求 objective，清除旧限制并重新等待确认，保留 ID 和全部用量、不隐式启动。根 Agent 在执行工作前调用 goal_set_limits，解释用户明确指定的 token、轮次与活动时间（换算为秒）；没有指定的项不设限，任务正文中的数字不作为预算。推断请求及耗时也计入实际用量。模型至少需要三轮、allowlist 必须允许 goal_set_limits。旧数据中的数字限制保持原值；读取格式 1–11，旧 Core 不能读取格式 11。
+GUI 仅提交目标文本及 inferLimits=true，不展示预算输入。create 的 inferLimits 不可和显式限制同时提交；update 的 inferLimits 要求 objective，清除旧限制并重新等待确认，保留 ID 和全部用量、不隐式启动。根 Agent 在执行工作前调用 goal_set_limits，解释用户明确指定的 token、轮次与活动时间（换算为秒）；没有指定的项不设限，任务正文中的数字不作为预算。推断请求及耗时也计入实际用量。模型至少需要三轮、allowlist 必须允许 goal_set_limits。旧数据中的数字限制保持原值；读取格式 1–12，旧 Core 不能读取格式 12。
 
 resume 保留计量，不能使已经达到的限额失效；completed 不可恢复。resume 同时确认此前未知模型消费的保守预留，但不删除该预留，不将 accountingComplete 改回 true；工具 UNKNOWN 仍需独立检查与 acknowledge。普通 `thread/resume` 仍只恢复订阅和快照，不恢复 Goal 执行。暂停时保存原因，只有属于该次 Goal 暂停的队列暂停才可被 Goal resume 自动撤销。
 
@@ -258,7 +257,7 @@ goalId 和根线程身份由 Core 绑定，模型不能自报其他目标。summ
 
 Rust 嵌入式调用使用 `Limits.goals: goals::Policy` 及 `Engine::goal_get/goal_create/goal_control`。自定义 Model 的 `chat_limited` 必须显式接受逐请求输出上限，`share_context` 保留预算归因；内置 HTTP adapter 已支持。自定义 Workgroup Factory 需实现 `executor_for_goal` 并保留传入 Budget；默认实现对有 Goal 的调用明确报错。普通 Turn 和独立 Workgroup 沿用原行为。
 
-Goal 请求账本位于 `goals/<goal-id>.json`，发送前持久预留；主/子 Agent、原生 Workgroup 和活动 Turn 的摘要共享计量，cachedInputTokens 是 inputTokens 的子集、不重复累加。每账本最多 4096 请求/4 MiB；clear 保留账本且不回收历史。快照格式 11 保存可空的轮次/时间限制与限制确认状态，以及 Goal、Turn 归因、思考 Item 与 Task 交互策略，旧二进制不能读取；API 版本仍为 areal.core.v1。
+Goal 请求账本位于 `goals/<goal-id>.json`，发送前持久预留；主/子 Agent、原生 Workgroup、活动 Turn 摘要共享计量。确认结算的请求滚入不可变 `goals/requests/` 分段并汇总累计用量；热账本保留在途与未知请求，仍有 4 MiB 资源保护。默认没有累计请求次数预算。滚动不重置用量、不释放未知消费预留。clear 保留账本及归档，不提供自动账本 GC。API 仍为 areal.core.v1；快照格式 12 保存冷历史引用与有界 checkpoint 原文。
 
 Task Mode 在 Goal 之上提供 foreground/scheduled/background 任务、TaskRun、独立 Channel 与 Inbox。Goal create 同时返回 taskId/runId；Goal 内的 ask_user_question 可选 mode=async，headless 不等待用户。接口、预算与恢复语义见 [Task 契约](tasks.md)。timeUsedSeconds 包含协调 Turn 与 TaskRun worker 活动时间的并集，纯异步用户等待不计入。
 
@@ -297,3 +296,7 @@ checkpoint 恢复最多保留 8 组接口导向文件片段，序列化内容总
 摘要请求已观察的 usage 立即累计到 Turn；即使取消或拒绝摘要而不提交 checkpoint，也保留已知消费。取消收尾的新 usage 仅追加一次；缺少最终用量仍保留 UNKNOWN。
 
 未收到 usage 事件时 Turn usage 保持缺省，CLI 不输出伪造的零消费；提供方明确返回全零 usage 时仍保留该记录。
+
+嵌入式 Rust 宿主显式构造 NativeFactory/NativeExecutor 时需提供 `worker_limits: Limits`，把累计预算和上下文策略传给 worker Engine。NativeExecutor::new 提供预算无限的默认值；单请求工具保护仍由 tool_call_limits 指定。
+
+`ModelCapabilities` 和 `ModelOptions` 增加可选窗口/输出元数据；自定义 Rust 结构体字面量需补齐新字段或使用默认值。客户端协议中的 `ModelParameters.contextWindowTokens` 为新增可选字段。

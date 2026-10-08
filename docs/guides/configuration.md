@@ -10,7 +10,7 @@
 
 共享 TUI/Web 入口使用按工作区隔离的默认数据目录；显式 dataDir 仍遵循上述优先级。历史迁移与配置兼容性见[本地服务契约](../api/local-service.md)。
 
-默认文件不存在可继续；显式文件不存在、未知字段、类型/版本错误或已设置为空的值均拒绝。文件限普通 UTF-8、1 MiB，必须声明 `schema_version=1`。TOML 相对路径以配置文件目录为基准，CLI/env 相对路径以启动 cwd 为基准，不展开 `~`、变量或 glob。即使字段被高层覆盖，低层格式错误仍拒绝。
+默认文件不存在可继续；显式文件不存在、未知字段、类型/版本错误或已设置为空的值均拒绝。文件限普通 UTF-8、1 MiB，接受 `schema_version=1` 或 `2`。TOML 相对路径以配置文件目录为基准，CLI/env 相对路径以启动 cwd 为基准，不展开 `~`、变量或 glob。即使字段被高层覆盖，低层格式错误仍拒绝。
 
 <a id="permissions"></a>
 ## 权限模式
@@ -58,30 +58,37 @@ listen = "127.0.0.1:4500"
 [model]
 provider = "example"
 name = "your-model-id"
+# context_window_tokens = 131072
 max_retries = 2
 [model.providers.example]
 protocol = "responses"
 endpoint = "https://model.example.com/v1/responses"
 api_key_env = "AREAL_API_KEY"
-[limits]
+[context]
+mode = "auto"
+recent_tokens = 8192
+# target_tokens = 0                 # 0: automatic target
+# output_reserve_tokens = 8192
+
+[budget]
+# Omitted or 0: unlimited cumulative budget.
+# max_tool_calls = 0
+# max_output_bytes = 0
+# max_history_bytes = 0
+
+[resources]
 model_concurrency = 32
 max_threads = 20000
 max_active_turns = 256
 max_children_per_turn = 64
 max_agent_depth = 8
-stream_idle_timeout_seconds = 30
-max_history_bytes = 2097152
-max_output_bytes = 262144
-max_tool_calls = 128
+max_response_tool_calls = 128
+max_response_bytes = 4194304
 max_tool_buffer_bytes = 4194304
-context_window_bytes = 524288
-context_compaction_enabled = true
-context_recent_bytes = 131072
-context_window_tokens = 65536
-context_target_tokens = 0
-context_output_reserve_tokens = 8192
-max_completion_retries = 0
-watchdog_disable = false
+
+[network]
+retry_mode = "persistent"
+stream_idle_timeout_seconds = 30
 [logging]
 filter = "info"
 ```
@@ -96,11 +103,11 @@ endpoint 是完整 HTTP(S) 请求 URL；Core 只支持 `chat-completions` / `res
 
 可选采样参数不配置时省略，显式 0 保留。`temperature` 为有限数 [0,2]，`top_p` / `min_p` 为 [0,1]，`top_k` 为正整数或 -1，`presence_penalty` 为 [-2,2]，`repetition_penalty` 大于 0。Chat 与 Responses 均接受 temperature/top_p；其余四项只支持 Chat，Responses 配置时拒绝。参数发送不证明供应商实际采纳。摘要默认继承求解采样/推理配置并禁用工具。可单独设置 `model.summary_reasoning_effort` 和 `model.summary_max_output_tokens`（环境变量 `AREAL_HARNESS_SUMMARY_REASONING_EFFORT` / `AREAL_HARNESS_SUMMARY_MAX_OUTPUT_TOKENS`），不会修改后续求解参数。摘要输出上限为全局输出上限、摘要专用上限、Goal 剩余额度与 16384 中的最小值；专用上限需大于零。未配置时兼容原行为；例如可在求解 high 时显式选择摘要 low/4096，需验证供应商支持和任务保留效果。
 
-`context_window_tokens=0` 禁用 token 估计，最大 2000000；启用时 reserve 必须小于 window。历史、system 与工具定义的估计达到 window 减 reserve，或字节阈值时触发压缩。估计按 ASCII 约 3 字节/token、非 ASCII 约 2 token/字符及媒体代理成本计算，对追加历史用上次已结算的完整输入用量（含缓存）加 10% 余量校准基线，新内容仍按保守估计累加；压缩后的组成变化使用原始估计。Responses 原生工具调用只计一次，不重复计算 Chat 兼容包装。缓存折扣不是输入 token 减少，不保证匹配供应商 tokenizer。
+`model.context_window_tokens` 声明当前模型的窗口（1–2000000），Provider/模型默认参数及 `parameters.contextWindowTokens` 同样支持。Core 不按模型名称猜测；未配置时使用旧全局字段的 65536 token 兜底，诊断区分模型元数据与兜底。输出预留取 `context.output_reserve_tokens`（默认 8192）与当前模型输出上限的较大值。每次求解请求在发送前检查完整消息、动态指令和工具 schema 是否落在窗口减预留以内。估算按 ASCII 约 3 字节/token、非 ASCII 约 2 token/字符及媒体代理成本计算；已结算完整输入用量（含缓存）加 10% 余量校准追加历史，压缩后重置。估计不等于供应商 tokenizer 精确计数。
 
-`limits.context_target_tokens` 默认 0，保持近期历史选择策略；正数（或环境变量 `AREAL_HARNESS_CONTEXT_TARGET_TOKENS`）必须小于 window 减 reserve。Core 先检查近期保留边界，必要时检查最大完整轮次前缀；若保留的最新已完成工具轮次本身太大，可以将该轮整体纳入摘要，但不跨越正在执行的工具。目标包括保留输入、指令/工具开销和摘要余量。目标为尽力达成：不会为满足目标静默删除用户原文或拆开工具/reasoning 轮次。有效摘要在净缩减空间允许时可保留到 16 KiB；8,000 字节只是生成建议，不是第二个拒绝阈值。不要用加大窗口掩盖任务上下文丢失。
+`context.target_tokens=0` 自动选择可用输入窗口的 60%；正数必须小于输入上限。`context.recent_tokens` 默认 8192。Core 按完整组压缩，保留工具/结果配对及未确认副作用。原文保留优先首个任务与最近修订，预算为 min(8192, 输入窗口 / 4) 个估算 token；证据另有同等预算。旧原文仍在磁盘，可通过 `read_history` 查回。摘要只是可出错的历史证据。摘要请求也先预检；过大证据会显式标记省略并缩短。不可缩减的求解请求报 `LLM_CONTEXT_WINDOW_EXCEEDED`。自动模式下，提供方在任何输出/工具调用之前返回明确的上下文溢出错误时，最多压缩恢复一次，仍受 Goal 计量约束；不重放工具副作用。
 
-`limits.context_compaction_enabled=false` 关闭自动和手动压缩（默认 true）。超过 `context_window_bytes` 或达到启用的 token 阈值时，Turn 直接失败并报告上下文上限，不再向模型发送求解或摘要请求；原始历史仍保留。这个估计阈值不是提供方的真实上下文上限。需同时关闭 Agent 委派与 Workgroup 子任务时，设置 `max_children_per_turn=0` 和 `max_agent_depth=0`。若显式启用了原生研究 Agent 扩展，子任务限额不能为 0，启动会拒绝该组合。
+`context.mode` 可为 `auto`（默认）、`manual`（仅显式压缩）或 `disabled`（自动/手动均关闭）。后两者在请求超限时停止。Schema 1 与旧 `[limits]` 显式值仍可使用：`context_compaction_enabled=false` 对应 disabled；`context_window_bytes` 与 `context_recent_bytes` 作为旧字节保护选项保留，默认均为 0。旧 `context_window_tokens=0` 只关闭全局 token 兜底，模型窗口优先。不要同时配置新旧别名，或同时配置旧压缩开关与 `context.mode`，冲突会拒绝。关闭委派可设置资源中的子任务数/深度为 0；显式开启研究扩展时需要非零子任务限额。
 
 网络 watchdog 默认启用，网络错误没有重试次数上限。设置 `AREAL_HARNESS_WATCHDOG_DISABLE=1` 关闭，删除该变量或设为 `0` 恢复默认；也接受 `true`/`false`，对应 TOML `limits.watchdog_disable`。环境变量覆盖 TOML。watchdog 覆盖连接/传输失败、请求与流空闲超时、提前断流、HTTP 408/429/5xx，以及 SSE 明确报告的限流/服务不可用。求解、子 Agent 与上下文摘要采用同一策略，250 ms 指数退避、最长 30 秒；取消、显式 Goal/研究 worker 时间预算及显式 Workgroup 实际请求预算仍有效。401/403、无效请求、额度不足、长度上限和空回复不进入无限重试。
 
@@ -108,9 +115,9 @@ Goal 的共享预算与未知用量约束优先于重试配置。Goal 请求禁�
 
 `limits.max_completion_retries` 默认为 0、范围 0–8，是每 Turn 的有限未完成响应恢复额度，与 HTTP `max_retries` 和网络 watchdog 分开；关闭 watchdog 不关闭已有的有限重试。恢复条件与审计见 [Core API](../api/core.md#recovery)。HTTPS 使用公开根证书和宿主系统信任库；私有 CA 应安装到信任库。工具调用仅来自协议结构化字段，正文中的 XML/JSON 不作为调用执行。
 
-`limits.max_tool_buffer_bytes` 默认为 4194304（4 MiB），必须为正整数，限制每次响应缓冲的所有工具 id、name、arguments 的 UTF-8 字节总量；不包含 reasoning 或独立音视频/图像 Blob；嵌入参数的媒体字符串仍按 UTF-8 字节计数。这不是进程内存总上限。它与 Turn 的 `max_output_bytes` 和历史预算独立，调高缓冲不扩大执行或持久化额度。Chat Completions 与 Responses 共用该预算，重复的 Responses 终态条目不重复计数。单调用 arguments 仍最多 64 KiB；调用数量使用当前 Turn 剩余的 `max_tool_calls`，不再限制为每响应 16 个。环境变量为 `AREAL_HARNESS_MAX_TOOL_BUFFER_BYTES`。
+`resources.max_tool_buffer_bytes` 默认 4 MiB，约束每个响应缓冲的工具 id、name、arguments；单调用参数仍最多 64 KiB。`resources.max_response_tool_calls` 默认 128，有效值取该保护与显式 Turn 剩余调用预算的较小者。`resources.max_response_bytes` 默认 4 MiB，约束单响应的文本、推理、provider context 和模型二进制输出。这些保护独立于累计执行预算。Chat/Responses 共用工具缓冲检查，重复的 Responses 终态条目不重复计数。新增环境变量后缀为 `MAX_RESPONSE_TOOL_CALLS`、`MAX_RESPONSE_BYTES`、`CONTEXT_MODE`、`CONTEXT_RECENT_TOKENS`、`CONTEXT_TARGET_TOKENS`、`MODEL_CONTEXT_WINDOW_TOKENS`；旧环境变量保留。
 
-字节与容量限额为正整数；扇出和深度可为 0 以禁用委派。output 小于 history，recent 小于 context window，时限为 1–86400 秒。上下文字节是估计值，不是 tokenizer 窗口。活动任务、模型请求和 Runtime 资源分别计数。
+`[budget]` 中 `max_tool_calls`、`max_output_bytes`、`max_history_bytes` 默认 0（无限）；正数分别显式限制每 Turn 调用数/累计输出和每 Thread 存储历史，压缩不会重置这些预算。历史计入热快照和引用的冷分段。旧配置中的显式有限值保持原意，两个 schema 版本中省略字段均采用新的无限默认。资源容量仍需正数，子任务数/深度可为 0。`max_threads=20000` 是部署会话容量，不是单会话长度预算。空闲超时用于检测停滞请求，不是整个任务的运行时长。`[network] retry_mode` 默认 persistent，也可为 bounded（对应关闭旧 watchdog）。`config show` 展示新分组并保留旧 `limits` 诊断对象；来源键仍使用归一化的旧名称。
 
 | 环境变量（前缀 `AREAL_HARNESS_`） | 对应配置 |
 |---|---|
@@ -244,13 +251,13 @@ Goal 通过 `/goal <目标>`、Web 面板、`--goal` 或 API 显式创建，无�
 
 ```toml
 [goals]
-max_turns = 100
-max_active_seconds = 3600
+max_turns = 0
+max_active_seconds = 0
 max_unreported_turns = 3
-turn_model_rounds = 32
+turn_model_rounds = 0
 ```
 
-示例中的数字为默认值。前三个数字字段的范围为 1–86400；turn_model_rounds 为 2–1024。部署上限只校验显式提交的 maxTurns/maxActiveSeconds；省略时不设轮次或时间限制，tokenBudget 也仅在明确设置时启用。GUI 通过 inferLimits 请求根 Agent 从目标文本确认限制，需允许 goal_set_limits 且至少三轮模型请求。根 Turn 使用 min(会话 maxModelRounds, turn_model_rounds)，必须至少两轮，工具 allowlist 必须允许 goal_read 和 goal_update；最后一轮仍禁用工具用于交接。连续指定数量的根 Turn 未提交 goal_update 时暂停为 progressUnreported。
+示例数字为默认值。`max_turns`、`max_active_seconds`、`turn_model_rounds` 的 0 表示无部署上限；正数分别接受 1–86400、1–86400、2–1024。显式请求/会话限制仍生效，并与正数部署上限取交集。未设置的 Goal token/轮次/时间预算保持无限。GUI 用 inferLimits 请求模型解释目标中的显式限制；需允许 goal_set_limits，有轮次限制时至少三轮。有上限的根 Turn 至少两轮，最后一轮禁用工具以交接。`max_unreported_turns` 仍默认 3（1–86400），属于进度完整性保护：连续根 Turn 未提交 goal_update 时暂停为 progressUnreported。
 
 活动时间包括根 Turn 的模型排队、执行、工具、交互等待和清理，子任务时间不叠加，轮次间容量等待、暂停和离线时间不计入。显式研究 worker 预算和 Runtime 硬限额继续生效；普通 Turn 没有总时限。Goal 请求禁用 HTTP 层隐式重试，以保留逐次消费的归因；未知消费会停止自动推进。使用与恢复见 [Goal 模式](clients.md#goals)。
 
@@ -292,7 +299,7 @@ export OTEL_EXPORTER_OTLP_TIMEOUT=10000
 
 本项目扩展字段和事件使用 `areal.*` 命名空间。Logs 通过标准 Trace ID 和 Span ID 关联调用，优雅关闭时刷新批量导出。只有 Logs 时也生成本地关联 ID；Traces 和 Logs 的导出开关相互独立。当前不导出 Metrics。GenAI 语义约定仍处于开发状态，参见[官方约定](https://github.com/open-telemetry/semantic-conventions-genai)。
 
-默认按估计 token 或字节任一阈值触发压缩：64k token 窗口预留 8k 输出，即估计输入达到 57,344 token，或历史超过 512 KiB；近期原文预算为 128 KiB。token 使用保守增量估计及已结算完整输入用量校准，非供应商 tokenizer 的精确计数；不能把这些数值当作模型最大上下文。压缩会重建缓存前缀，因此同时监控未缓存输入和任务正确性。显式设置 `context_window_tokens=0` 可禁用 token 触发，但仍保留字节阈值。
+自动压缩使用上述有效模型 token 窗口与输出预留。已完成的历史前缀保存为不可变 SHA-256 分段，当前快照保留近期条目与 checkpoint。自动模式下，热历史原始数据超过 max(1 MiB, 8 × 窗口 token 数) 也触发滚动；只有存储压力时使用有界的已记录证据。原文保留使磁盘用量持续增长，仍受可用磁盘和单记录保护约束。兼容的完整历史读取会物化全部请求历史；有界回取使用分页 `read_history`。压缩会重建缓存前缀，应同时观察未缓存输入与任务正确性。
 
 ## 缓存诊断
 

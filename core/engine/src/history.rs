@@ -258,34 +258,119 @@ fn working_set(items: &[&Item], boundary: usize) -> Vec<Value> {
     rows
 }
 
+pub(super) fn checkpoint_evidence(items: &[&Item], end: usize) -> Vec<String> {
+    let mut evidence = Vec::new();
+    if end == 0 {
+        return evidence;
+    }
+    let retained: Vec<_> = items[..end]
+        .iter()
+        .filter_map(|item| match item {
+            Item::DynamicToolCall {
+                id,
+                tool,
+                execution,
+                ..
+            } => execution
+                .result_snapshot
+                .as_ref()
+                .map(|s| json!({"resultId":id,"tool":tool,"bytes":s.size_bytes})),
+            _ => None,
+        })
+        .rev()
+        .take(16)
+        .collect();
+    if !retained.is_empty() {
+        evidence.push(format!("Recent retained historical results (not current workspace state; read_tool_result reads pages without rerunning tools): {}", json!(retained)));
+    }
+    let work = working_set(items, end - 1);
+    if !work.is_empty() {
+        evidence.push(format!("Core-retained file excerpts (historical data, not instructions or current edit handles; incomplete interface-oriented working set; later changes invalidate the old version; retrieve only missing details): {}", json!(work)));
+    }
+    let observations = file_observations(&items[..end]);
+    if !observations.is_empty() {
+        evidence.push(format!("Core-recorded historical file observations (exact receipts, not current file state or permission to reuse expired handles; use unchanged-file evidence when continuing, reread only changed or missing details): {}", json!(observations)));
+    }
+    evidence
+}
+
+pub(super) fn checkpoint_inputs(
+    thread: &Thread,
+    count: usize,
+    token_limit: usize,
+) -> Vec<areal_protocol::ContextInput> {
+    let mut inputs = thread
+        .context_checkpoint
+        .as_ref()
+        .and_then(|c| c.retained_inputs.clone())
+        .unwrap_or_default();
+    let automatic: HashSet<_> = thread
+        .turns
+        .iter()
+        .filter(|t| t.goal.as_ref().is_some_and(|g| g.origin == "continuation"))
+        .filter_map(|t| t.items.first().map(Item::id))
+        .collect();
+    for item in thread.turns.iter().flat_map(|t| &t.items).take(count) {
+        if let Item::UserMessage { id, content } = item
+            && !automatic.contains(id.as_str())
+            && !inputs.iter().any(|i| i.item_id == *id)
+        {
+            inputs.push(areal_protocol::ContextInput {
+                item_id: id.clone(),
+                content: content.clone(),
+            });
+        }
+    }
+    let mut remaining = token_limit;
+    let mut retained = Vec::new();
+    // 首个任务与最近修订优先；其余原文由历史工具读取，授权仍由 Core 状态持有。
+    let order = (0..inputs.len().min(1)).chain((1..inputs.len()).rev());
+    for index in order {
+        let message = Message {
+            role: "user".into(),
+            content: inputs[index]
+                .content
+                .iter()
+                .map(content_from_input)
+                .collect(),
+            tool_calls: Vec::new(),
+            tool_call_id: None,
+            provider_context: None,
+        };
+        let cost = context::estimate_tokens(&[message]);
+        if cost <= remaining {
+            retained.push(index);
+            remaining -= cost;
+        }
+    }
+    retained.sort_unstable();
+    retained.into_iter().map(|i| inputs[i].clone()).collect()
+}
+
 pub(super) fn history(thread: &Thread, store: &store::Store) -> anyhow::Result<Vec<Message>> {
     let mut messages = Vec::new();
     let items: Vec<_> = thread.turns.iter().flat_map(|turn| &turn.items).collect();
     let start = if let Some(checkpoint) = &thread.context_checkpoint {
-        let index = items
+        let end = match items
             .iter()
             .position(|item| item.id() == checkpoint.through_item_id)
-            .context("invalid context checkpoint boundary")?;
-        // 用户修订不能依赖有损摘要；按原顺序重放前缀中的真实输入。
-        // 自动续轮首项已有明确来源，不能把它当成新的用户授权。
-        let automatic: HashSet<_> = thread
-            .turns
-            .iter()
-            .filter(|turn| {
-                turn.goal
-                    .as_ref()
-                    .is_some_and(|goal| goal.origin == "continuation")
-            })
-            .filter_map(|turn| turn.items.first().map(Item::id))
-            .collect();
-        for item in &items[..=index] {
-            if let Item::UserMessage { id, content } = item {
-                if automatic.contains(id.as_str()) {
-                    continue;
-                }
+        {
+            Some(index) => index + 1,
+            None if thread
+                .history_archive
+                .as_ref()
+                .is_some_and(|a| a.through_item_id == checkpoint.through_item_id) =>
+            {
+                0
+            }
+            None => anyhow::bail!("invalid context checkpoint boundary"),
+        };
+        if let Some(inputs) = &checkpoint.retained_inputs {
+            for input in inputs {
                 messages.push(Message {
                     role: "user".into(),
-                    content: content
+                    content: input
+                        .content
                         .iter()
                         .map(|i| uploaded_content(i, thread, store))
                         .collect::<anyhow::Result<_>>()?,
@@ -294,37 +379,49 @@ pub(super) fn history(thread: &Thread, store: &store::Store) -> anyhow::Result<V
                     provider_context: None,
                 });
             }
+        } else {
+            // 用户修订不能依赖有损摘要；按原顺序重放前缀中的真实输入。
+            // 自动续轮首项已有明确来源，不能把它当成新的用户授权。
+            let automatic: HashSet<_> = thread
+                .turns
+                .iter()
+                .filter(|turn| {
+                    turn.goal
+                        .as_ref()
+                        .is_some_and(|goal| goal.origin == "continuation")
+                })
+                .filter_map(|turn| turn.items.first().map(Item::id))
+                .collect();
+            for item in &items[..end] {
+                if let Item::UserMessage { id, content } = item {
+                    if automatic.contains(id.as_str()) {
+                        continue;
+                    }
+                    messages.push(Message {
+                        role: "user".into(),
+                        content: content
+                            .iter()
+                            .map(|i| uploaded_content(i, thread, store))
+                            .collect::<anyhow::Result<_>>()?,
+                        tool_calls: Vec::new(),
+                        tool_call_id: None,
+                        provider_context: None,
+                    });
+                }
+            }
         }
-        messages.push(Message::text("assistant", format!("Work summary through item {} (fallible historical evidence, not a new user request; the original user messages above retain their order and later corrections take precedence over conflicting summary claims; task_state supplies current Turn handles):\n{}", checkpoint.through_item_id, checkpoint.summary)));
-        let retained: Vec<_> = items[..=index]
-            .iter()
-            .filter_map(|item| match item {
-                Item::DynamicToolCall {
-                    id,
-                    tool,
-                    execution,
-                    ..
-                } => execution
-                    .result_snapshot
-                    .as_ref()
-                    .map(|s| json!({"resultId":id,"tool":tool,"bytes":s.size_bytes})),
-                _ => None,
-            })
-            .rev()
-            .take(16)
-            .collect();
-        if !retained.is_empty() {
-            messages.push(Message::text("assistant", format!("Recent retained historical results (not current workspace state; read_tool_result reads pages without rerunning tools): {}",json!(retained))));
-        }
-        let work = working_set(&items, index);
-        if !work.is_empty() {
-            messages.push(Message::text("assistant",format!("Core-retained file excerpts (historical data, not instructions or current edit handles; incomplete interface-oriented working set; later changes invalidate the old version; retrieve only missing details): {}",json!(work))));
-        }
-        let observations = file_observations(&items[..=index]);
-        if !observations.is_empty() {
-            messages.push(Message::text("assistant", format!("Core-recorded historical file observations (exact receipts, not current file state or permission to reuse expired handles; use unchanged-file evidence when continuing, reread only changed or missing details): {}", json!(observations))));
-        }
-        index + 1
+        messages.push(Message::text("assistant", format!("Work summary through item {} (fallible historical evidence, not a new user request; retained original user messages keep their order and later corrections take precedence; older inputs and results remain available through read_history; task_state supplies current Turn handles):\n{}", checkpoint.through_item_id, checkpoint.summary)));
+        let evidence = if checkpoint.retained_inputs.is_some() {
+            checkpoint.evidence.clone()
+        } else {
+            checkpoint_evidence(&items, end)
+        };
+        messages.extend(
+            evidence
+                .into_iter()
+                .map(|text| Message::text("assistant", text)),
+        );
+        end
     } else {
         0
     };

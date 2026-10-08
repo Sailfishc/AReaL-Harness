@@ -182,16 +182,26 @@ impl Engine {
         let mut data = Vec::new();
         let model = self.default_model();
         if !model.name().is_empty() {
-            data.push(json!({"providerId":null,"providerRevision":null,"modelId":model.name(),"transport":model.provider(),"input":model.capabilities().input,"output":model.capabilities().output}));
+            data.push(json!({"providerId":null,"providerRevision":null,"modelId":model.name(),"transport":model.provider(),"input":model.capabilities().input,"output":model.capabilities().output,"contextWindowTokens":model.capabilities().context_window_tokens,"effectiveContextWindowTokens":model.capabilities().context_window_tokens.unwrap_or(self.limits.context_window_tokens)}));
         }
         for p in self.desktop.catalog.read().unwrap().providers.values() {
             for name in &p.models {
-                let result = self.provider_model(p, name, &p.parameters);
+                let mut parameters = p.parameters.clone();
+                parameters.context_window_tokens = self
+                    .desktop
+                    .configured_models
+                    .read()
+                    .unwrap()
+                    .parameters
+                    .get(&(p.id.clone(), name.clone()))
+                    .and_then(|p| p.context_window_tokens)
+                    .or(parameters.context_window_tokens);
+                let result = self.provider_model(p, name, &parameters);
                 let capabilities = match p.protocol.as_str() {
                     "responses" => model::ModelProtocol::Responses.capabilities(),
                     _ => model::ModelProtocol::ChatCompletions.capabilities(),
                 };
-                data.push(json!({"providerId":p.id,"providerRevision":p.revision,"modelId":name,"transport":p.protocol,"input":capabilities.input,"output":capabilities.output,"available":result.is_ok(),"credentialState":self.provider_view(p)["credentialState"],"contextWindowTokens":null,"parameterCapabilities":if p.protocol == "responses" {vec!["temperature","maxOutputTokens","reasoningEffort","reasoningSummary"]} else {vec!["temperature","maxOutputTokens","reasoningEffort"]},"connectionState":"unchecked"}));
+                data.push(json!({"providerId":p.id,"providerRevision":p.revision,"modelId":name,"transport":p.protocol,"input":capabilities.input,"output":capabilities.output,"available":result.is_ok(),"credentialState":self.provider_view(p)["credentialState"],"contextWindowTokens":parameters.context_window_tokens,"effectiveContextWindowTokens":parameters.context_window_tokens.unwrap_or(self.limits.context_window_tokens),"parameterCapabilities":if p.protocol == "responses" {vec!["temperature","maxOutputTokens","contextWindowTokens","reasoningEffort","reasoningSummary"]} else {vec!["temperature","maxOutputTokens","contextWindowTokens","reasoningEffort"]},"connectionState":"unchecked"}));
             }
         }
         json!({"data":data})

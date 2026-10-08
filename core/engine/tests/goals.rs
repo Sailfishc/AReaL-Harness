@@ -97,6 +97,16 @@ fn request(thread_id: &str) -> GoalCreate {
         max_active_seconds: None,
     }
 }
+
+#[tokio::test]
+async fn unlimited_policy_rejects_an_unrepresentable_explicit_deadline() {
+    let (_dir, engine, _rx) = controlled(Limits::default());
+    let thread = engine.create("/workspace".into()).await.unwrap();
+    let mut request = request(&thread.id);
+    request.max_active_seconds = Some(u64::MAX);
+    assert!(engine.goal_create("fixture".into(), request).await.is_err());
+    engine.shutdown().await;
+}
 async fn stopped(e: &Engine, id: &str) -> Value {
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
@@ -879,7 +889,13 @@ async fn ordinary_turn_model_and_capacity_waits_have_no_aggregate_deadline() {
 
 #[tokio::test]
 async fn live_goal_and_round_context_follow_a_stable_history_prefix() {
-    let (_dir, e, mut rx) = controlled(Limits::default());
+    let (_dir, e, mut rx) = controlled(Limits {
+        goals: areal_engine::goals::Policy {
+            turn_model_rounds: 32,
+            ..Default::default()
+        },
+        ..Limits::default()
+    });
     let t = e.create("/workspace".into()).await.unwrap();
     e.start(&t.id, vec![Input::text("establish stable history")])
         .await

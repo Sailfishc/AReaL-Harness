@@ -147,6 +147,32 @@ const ENV: &[(&str, &str, &str)] = &[
         "",
         "limits.context_output_reserve_tokens",
     ),
+    (
+        "AREAL_HARNESS_MODEL_CONTEXT_WINDOW_TOKENS",
+        "",
+        "model.context_window_tokens",
+    ),
+    ("AREAL_HARNESS_CONTEXT_MODE", "", "limits.context_mode"),
+    (
+        "AREAL_HARNESS_CONTEXT_RECENT_TOKENS",
+        "",
+        "limits.context_recent_tokens",
+    ),
+    (
+        "AREAL_HARNESS_CONTEXT_TARGET_TOKENS",
+        "",
+        "limits.context_target_tokens",
+    ),
+    (
+        "AREAL_HARNESS_MAX_RESPONSE_TOOL_CALLS",
+        "",
+        "limits.max_response_tool_calls",
+    ),
+    (
+        "AREAL_HARNESS_MAX_RESPONSE_BYTES",
+        "",
+        "limits.max_response_bytes",
+    ),
     ("AREAL_HARNESS_LOG_FILTER", "RUST_LOG", "logging.filter"),
 ];
 
@@ -333,11 +359,23 @@ pub(crate) fn valid(field: &str, entry: &Entry) -> Result<()> {
                 return Err(reject("top_k must be -1 (disabled) or a positive integer"));
             }
         }
-        "context_window_tokens" | "context_output_reserve_tokens" | "context_target_tokens" => {
-            if value.parse::<usize>().ok().is_none_or(|v| v > 2_000_000) {
+        "context_window_tokens"
+        | "context_output_reserve_tokens"
+        | "context_target_tokens"
+        | "context_recent_tokens" => {
+            if value
+                .parse::<usize>()
+                .ok()
+                .is_none_or(|v| v > 2_000_000 || (field == "model.context_window_tokens" && v == 0))
+            {
                 return Err(reject(
                     "token budget must be an integer between 0 and 2000000",
                 ));
+            }
+        }
+        "context_mode" => {
+            if !matches!(value.as_str(), "auto" | "manual" | "disabled") {
+                return Err(reject("context mode must be auto, manual or disabled"));
             }
         }
         "watchdog_disable" | "context_compaction_enabled" | "responses_websocket" => {
@@ -363,7 +401,9 @@ pub(crate) fn valid(field: &str, entry: &Entry) -> Result<()> {
             } else {
                 1
             };
-            if value.parse::<u64>().ok().is_none_or(|n| n < min || n > max) {
+            if value.parse::<u64>().ok().is_none_or(|n| {
+                (n != 0 || field.ends_with("max_unreported_turns")) && (n < min || n > max)
+            }) {
                 return Err(reject("goal limit is out of range"));
             }
         }
@@ -387,6 +427,8 @@ pub(crate) fn valid(field: &str, entry: &Entry) -> Result<()> {
         | "max_history_bytes"
         | "max_output_bytes"
         | "max_tool_calls"
+        | "max_response_tool_calls"
+        | "max_response_bytes"
         | "max_tool_buffer_bytes"
         | "context_window_bytes"
         | "context_recent_bytes" => {
@@ -395,13 +437,21 @@ pub(crate) fn valid(field: &str, entry: &Entry) -> Result<()> {
                 (*n > 0
                     || matches!(
                         field.rsplit('.').next(),
-                        Some("max_children_per_turn" | "max_agent_depth")
+                        Some(
+                            "max_children_per_turn"
+                                | "max_agent_depth"
+                                | "max_history_bytes"
+                                | "max_output_bytes"
+                                | "max_tool_calls"
+                                | "context_window_bytes"
+                                | "context_recent_bytes"
+                        )
                     ))
                     && *n <= usize::MAX >> 3
             });
             if !value.bytes().all(|b| b.is_ascii_digit()) || number.is_none() {
                 return Err(reject(
-                    "expected a decimal integer within capacity range; zero is allowed only for child count or depth",
+                    "expected a decimal integer within capacity range; zero is allowed for optional budgets, byte guards and delegation limits",
                 ));
             }
         }
@@ -495,25 +545,29 @@ pub(crate) fn load_mode(
         ("server.listen", "127.0.0.1:4500"),
         ("model.provider", "default"),
         ("limits.model_concurrency", "32"),
-        ("goals.max_turns", "100"),
-        ("goals.max_active_seconds", "3600"),
+        ("goals.max_turns", "0"),
+        ("goals.max_active_seconds", "0"),
         ("goals.max_unreported_turns", "3"),
-        ("goals.turn_model_rounds", "32"),
+        ("goals.turn_model_rounds", "0"),
         ("limits.max_threads", "20000"),
         ("limits.max_active_turns", "256"),
         ("limits.max_children_per_turn", "64"),
         ("limits.max_agent_depth", "8"),
         ("limits.stream_idle_timeout_seconds", "30"),
-        ("limits.max_history_bytes", "2097152"),
-        ("limits.max_output_bytes", "262144"),
-        ("limits.max_tool_calls", "128"),
+        ("limits.max_history_bytes", "0"),
+        ("limits.max_output_bytes", "0"),
+        ("limits.max_tool_calls", "0"),
+        ("limits.max_response_tool_calls", "128"),
+        ("limits.max_response_bytes", "4194304"),
         ("limits.max_tool_buffer_bytes", "4194304"),
-        ("limits.context_window_bytes", "524288"),
+        ("limits.context_window_bytes", "0"),
         ("limits.context_compaction_enabled", "true"),
         ("limits.context_window_tokens", "65536"),
         ("limits.context_target_tokens", "0"),
         ("limits.context_output_reserve_tokens", "8192"),
-        ("limits.context_recent_bytes", "131072"),
+        ("limits.context_recent_bytes", "0"),
+        ("limits.context_recent_tokens", "8192"),
+        ("limits.context_mode", "auto"),
         ("model.max_retries", "2"),
         ("model.responses_websocket", "false"),
         ("limits.max_completion_retries", "0"),
@@ -773,6 +827,9 @@ pub(crate) fn load_mode(
             .get("tools.extensions_file")
             .map(|v| PathBuf::from(&v.value)),
         model: SelectedModelConfig {
+            context_window_tokens: values
+                .get("model.context_window_tokens")
+                .map(|v| v.value.parse().unwrap()),
             summary_reasoning_effort: values
                 .get("model.summary_reasoning_effort")
                 .map(|e| e.value.clone()),
@@ -831,15 +888,30 @@ pub(crate) fn load_mode(
         max_history_bytes: values["limits.max_history_bytes"].value.parse().unwrap(),
         max_output_bytes: values["limits.max_output_bytes"].value.parse().unwrap(),
         max_tool_calls: values["limits.max_tool_calls"].value.parse().unwrap(),
+        max_response_tool_calls: values["limits.max_response_tool_calls"]
+            .value
+            .parse()
+            .unwrap(),
+        max_response_bytes: values["limits.max_response_bytes"].value.parse().unwrap(),
         max_tool_buffer_bytes: values["limits.max_tool_buffer_bytes"]
             .value
             .parse()
             .unwrap(),
         context_window_bytes: values["limits.context_window_bytes"].value.parse().unwrap(),
-        context_compaction_enabled: matches!(
-            values["limits.context_compaction_enabled"].value.as_str(),
-            "1" | "true"
-        ),
+        context_auto_compaction: values["limits.context_mode"].value == "auto"
+            && matches!(
+                values["limits.context_compaction_enabled"].value.as_str(),
+                "1" | "true"
+            ),
+        context_recent_tokens: values["limits.context_recent_tokens"]
+            .value
+            .parse()
+            .unwrap(),
+        context_compaction_enabled: values["limits.context_mode"].value != "disabled"
+            && matches!(
+                values["limits.context_compaction_enabled"].value.as_str(),
+                "1" | "true"
+            ),
         context_target_tokens: values["limits.context_target_tokens"]
             .value
             .parse()
@@ -865,7 +937,7 @@ pub(crate) fn load_mode(
         sources,
         warnings,
     };
-    if result.max_output_bytes >= result.max_history_bytes {
+    if result.max_history_bytes > 0 && result.max_output_bytes >= result.max_history_bytes {
         return Err(error(
             ConfigErrorKind::InvalidValue,
             "limits.max_output_bytes",
@@ -882,7 +954,8 @@ pub(crate) fn load_mode(
             "responses_websocket requires responses protocol",
         ));
     }
-    if result.context_recent_bytes >= result.context_window_bytes {
+    if result.context_window_bytes > 0 && result.context_recent_bytes >= result.context_window_bytes
+    {
         return Err(error(
             ConfigErrorKind::InvalidValue,
             "limits.context_recent_bytes",
@@ -913,28 +986,42 @@ pub(crate) fn load_mode(
             }
         }
     }
+    let window = result
+        .model
+        .context_window_tokens
+        .unwrap_or(result.context_window_tokens);
+    let reserve = result
+        .context_output_reserve_tokens
+        .max(result.model.max_output_tokens.unwrap_or(0) as usize);
     if result.context_target_tokens > 0
-        && (result.context_window_tokens == 0
-            || result.context_target_tokens
-                >= result
-                    .context_window_tokens
-                    .saturating_sub(result.context_output_reserve_tokens))
+        && (window == 0 || result.context_target_tokens >= window.saturating_sub(reserve))
     {
         return Err(error(
             ConfigErrorKind::InvalidValue,
             "limits.context_target_tokens",
             &result.sources["limits.context_target_tokens"],
-            "compaction target must be below the input trigger",
+            "compaction target must be below the selected model input trigger",
         ));
     }
-    if result.context_window_tokens > 0
-        && result.context_output_reserve_tokens >= result.context_window_tokens
-    {
+    if window > 0 && reserve >= window {
         return Err(error(
             ConfigErrorKind::InvalidValue,
             "limits.context_output_reserve_tokens",
             &result.sources["limits.context_output_reserve_tokens"],
-            "output reserve must be smaller than context token window",
+            "output reserve must be smaller than the selected model context window",
+        ));
+    }
+    if !matches!(result.sources["limits.context_mode"], ConfigSource::Default)
+        && !matches!(
+            result.sources["limits.context_compaction_enabled"],
+            ConfigSource::Default
+        )
+    {
+        return Err(error(
+            ConfigErrorKind::Conflict,
+            "limits.context_mode",
+            &result.sources["limits.context_mode"],
+            "context.mode and legacy context_compaction_enabled cannot both be specified",
         ));
     }
     if !management {

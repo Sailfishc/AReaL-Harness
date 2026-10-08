@@ -681,7 +681,12 @@ impl Engine {
             (
                 state.thread.session_id.clone(),
                 state.active.as_ref().unwrap().id.clone(),
-                state.thread.turns.len() as u64,
+                state.thread.turns.len() as u64
+                    + state
+                        .thread
+                        .history_archive
+                        .as_ref()
+                        .map_or(0, |a| a.completed_turns),
             )
         };
         let backend = {
@@ -961,17 +966,16 @@ impl Engine {
         if let Some(object) = result.as_object_mut() {
             let state = cell.state.lock().await;
             let items = &state.thread.turns.last().unwrap().items;
-            let used = items
-                .iter()
-                .filter(|i| matches!(i, Item::DynamicToolCall { .. }))
-                .count();
+            let used = state.active.as_ref().map_or(0, |a| a.tool_calls);
             object.insert(
                 "remainingToolCalls".into(),
                 json!(self.extensions.agents.as_ref().map_or_else(
-                    || self.limits.max_tool_calls.saturating_sub(used),
+                    || self.limits.remaining_tool_calls(used),
                     |a| {
-                        a.max_tool_calls
-                            .saturating_sub(self.agent_tool_calls.load(Ordering::Relaxed))
+                        Some(
+                            a.max_tool_calls
+                                .saturating_sub(self.agent_tool_calls.load(Ordering::Relaxed)),
+                        )
                     }
                 )),
             );

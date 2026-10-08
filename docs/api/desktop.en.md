@@ -86,7 +86,7 @@ Approvals bind Thread/Turn/callId, Host generation, effective argument digest an
 
 `permissions/read {threadId}` returns configuration (mode/allow/ask/deny), source, sandbox, workspace, session/project grants and projectFile. `permissions/forget {threadId,project}` clears session or project memory and requires an idle target Thread. Project approval requires manage without a threadIds restriction. See [permission configuration](../guides/configuration.en.md#permissions) for memory and rule precedence. Old snapshots without permissionGrants read as empty. thread/start/resume add permissionMode; full-access Runtime projects as dangerFullAccess.
 
-POST `/areal/blobs?threadId=...` uploads raw bytes with Content-Type matching signatures. Tool uploads also supply callId/hostGeneration and require tools permission. Limits are 16 MiB/file, 128 uploads/64 MiB per Thread, and 16384 Blobs/512 MiB globally. Supported types are PNG/JPEG/GIF/WebP, WAV/MP3, PDF and UTF-8 text. GET requires authentication, threadId and reference ownership; a digest is not an access token.
+POST `/areal/blobs?threadId=...` uploads raw bytes with Content-Type matching signatures. Tool uploads also supply callId/hostGeneration and require tools permission. Limits are 16 MiB/file, 128 registered uploads/64 MiB per Thread; no global cumulative Blob quota. Supported types are PNG/JPEG/GIF/WebP, WAV/MP3, PDF and UTF-8 text. GET requires authentication, threadId and reference ownership; a digest is not an access token.
 
 contentItems preserve inputText/arealMedia order and deliver actual bytes to models. Authenticated RPC rejects host localImage/localAudio paths; use uploaded areal://blob URIs. Unsupported modalities fail explicitly.
 
@@ -107,3 +107,5 @@ Shared services expose `server/status.configuration` as `{modelRevision,restartR
 ## Task Mode integration
 
 `task/create/list/read/pause/resume/cancel/subscribe/unsubscribe`, `channel/read/reply` and `inbox/list` form task control and communication APIs independent of Threads; see the [Task contract](tasks.en.md). task/updated carries a Task projection and channelSequence; clients retrieve Channel messages through pagination. server/status and drain add activeTasks, including future schedules. GUI/TUI/WebUI can share this Inbox; existing conversation interaction panels still handle synchronous questions and approvals.
+
+Optional `parameters.contextWindowTokens` (1–2000000) declares model capacity and is retained in model defaults and Thread overrides. `areal/model/list.contextWindowTokens` remains null when undeclared; `effectiveContextWindowTokens` includes the global fallback. Context inspection adds budget fields windowTokens, outputReserveTokens, inputLimitTokens, targetTokens and windowSource (model/fallback). If model configuration or credentials are unavailable, context inspection still works and returns budget=null. This metadata controls local preflight; it does not change the provider model capacity.

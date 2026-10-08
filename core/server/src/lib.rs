@@ -11,6 +11,40 @@ mod telemetry;
 mod tool_extensions;
 pub mod workgroup;
 
+fn engine_limits(config: &ResolvedCoreConfig) -> Limits {
+    Limits {
+        goals: areal_engine::goals::Policy {
+            max_turns: config.goals.max_turns,
+            max_active_seconds: config.goals.max_active_seconds,
+            max_unreported_turns: config.goals.max_unreported_turns,
+            turn_model_rounds: config.goals.turn_model_rounds,
+        },
+        model_concurrency: config.model_concurrency,
+        max_threads: config.max_threads,
+        max_active_turns: config.max_active_turns,
+        max_children_per_turn: config.max_children_per_turn,
+        max_agent_depth: config.max_agent_depth,
+        stream_idle_timeout: std::time::Duration::from_secs(config.stream_idle_timeout_seconds),
+        max_history_bytes: config.max_history_bytes,
+        max_output_bytes: config.max_output_bytes,
+        max_tool_calls: config.max_tool_calls,
+        max_response_tool_calls: config.max_response_tool_calls,
+        max_response_bytes: config.max_response_bytes,
+        max_tool_buffer_bytes: config.max_tool_buffer_bytes,
+        context_window_bytes: config.context_window_bytes,
+        context_compaction_enabled: config.context_compaction_enabled,
+        context_auto_compaction: config.context_auto_compaction,
+        context_recent_tokens: config.context_recent_tokens,
+        context_window_tokens: config.context_window_tokens,
+        context_target_tokens: config.context_target_tokens,
+        context_output_reserve_tokens: config.context_output_reserve_tokens,
+        context_recent_bytes: config.context_recent_bytes,
+        max_completion_retries: config.max_completion_retries,
+        watchdog_disable: config.watchdog_disable,
+        ..Limits::default()
+    }
+}
+
 #[derive(clap::Args, Default)]
 struct ConfigArgs {
     #[arg(long, global = true)]
@@ -323,33 +357,7 @@ async fn serve(
     let homedir = inputs.homedir.clone();
     let model: Arc<dyn areal_engine::model::Model> =
         areal_engine::workgroup::native::SharedModel::pool(model, config.model_concurrency)?;
-    let limits = Limits {
-        goals: areal_engine::goals::Policy {
-            max_turns: config.goals.max_turns,
-            max_active_seconds: config.goals.max_active_seconds,
-            max_unreported_turns: config.goals.max_unreported_turns,
-            turn_model_rounds: config.goals.turn_model_rounds,
-        },
-        model_concurrency: config.model_concurrency,
-        max_threads: config.max_threads,
-        max_active_turns: config.max_active_turns,
-        max_children_per_turn: config.max_children_per_turn,
-        max_agent_depth: config.max_agent_depth,
-        stream_idle_timeout: std::time::Duration::from_secs(config.stream_idle_timeout_seconds),
-        max_history_bytes: config.max_history_bytes,
-        max_output_bytes: config.max_output_bytes,
-        max_tool_calls: config.max_tool_calls,
-        max_tool_buffer_bytes: config.max_tool_buffer_bytes,
-        context_window_bytes: config.context_window_bytes,
-        context_compaction_enabled: config.context_compaction_enabled,
-        context_window_tokens: config.context_window_tokens,
-        context_target_tokens: config.context_target_tokens,
-        context_output_reserve_tokens: config.context_output_reserve_tokens,
-        context_recent_bytes: config.context_recent_bytes,
-        max_completion_retries: config.max_completion_retries,
-        watchdog_disable: config.watchdog_disable,
-        ..Limits::default()
-    };
+    let limits = engine_limits(&config);
     let runtime = if let Some(binary) = &args.runtime {
         let binary = binary.canonicalize()?;
         let helper = args
@@ -431,7 +439,7 @@ async fn serve(
         let opened = Engine::open_with_plugins(
             &config.data_dir,
             model.clone(),
-            limits,
+            limits.clone(),
             runtime
                 .as_ref()
                 .map(|(client, workspace)| areal_engine::tools::RuntimeConfig {
@@ -491,8 +499,9 @@ async fn serve(
                 "trusted workgroup binaries must be outside source workspace"
             );
             let factory = Arc::new(NativeFactory {
+                worker_limits: limits.clone(),
                 watchdog_disable: config.watchdog_disable,
-                tool_call_limits: areal_engine::model::ToolCallLimits { max_calls: config.max_tool_calls, max_buffer_bytes: config.max_tool_buffer_bytes },
+                tool_call_limits: areal_engine::model::ToolCallLimits { max_calls: config.max_response_tool_calls, max_buffer_bytes: config.max_tool_buffer_bytes },
                 catalog:Some(Arc::downgrade(&engine)),
                 model: model.clone(),
                 runtime: binary,
@@ -612,6 +621,7 @@ fn configured_models(
 ) -> Result<areal_engine::desktop::ConfiguredModels> {
     use areal_protocol::desktop::{ModelParameters, ModelRef, Provider};
     let parameters = |value: &areal_config::models::Parameters| ModelParameters {
+        context_window_tokens: value.context_window_tokens,
         temperature: value.temperature,
         max_output_tokens: value.max_output_tokens,
         reasoning_effort: value.reasoning_effort.clone(),
@@ -691,6 +701,7 @@ fn configured_models(
             result.parameters.insert(
                 (item.id.clone(), config.model.name.clone()),
                 ModelParameters {
+                    context_window_tokens: config.model.context_window_tokens,
                     temperature: config.model.temperature,
                     max_output_tokens: config.model.max_output_tokens,
                     reasoning_effort: config.model.reasoning_effort.clone(),

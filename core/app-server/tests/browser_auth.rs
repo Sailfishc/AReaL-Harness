@@ -20,6 +20,9 @@ impl Model for NoModel {
     }
     fn capabilities(&self) -> ModelCapabilities {
         ModelCapabilities {
+            context_window_tokens: None,
+            max_output_tokens: None,
+            summary_output_tokens: None,
             input: vec![],
             output: vec![],
         }

@@ -73,17 +73,17 @@ pub struct Args {
     integration_repair: bool,
     #[arg(long, default_value_t = 4)]
     verification_batch: usize,
-    #[arg(long, default_value_t = 600)]
+    #[arg(long, default_value_t = 0)]
     seconds: u64,
     /// Per-command ceiling; the root deadline still cancels the whole group.
     #[arg(long, default_value_t = 300_000)]
     command_timeout_ms: u64,
-    #[arg(long, default_value_t = 128)]
+    #[arg(long, default_value_t = 0)]
     max_model_requests: usize,
     #[arg(long, default_value = "balanced", value_parser = ["single", "contract", "cohesion", "balanced"])]
     strategy: String,
     /// Soft worker model-view byte target. Durable history stays complete; 0 disables.
-    #[arg(long, default_value_t = 65536)]
+    #[arg(long, default_value_t = 0)]
     worker_context_bytes: usize,
     /// After an edit, checkpoint an unchanged source after this many model rounds; 0 disables.
     #[arg(long, default_value_t = 0)]
@@ -118,7 +118,7 @@ pub async fn run(command: Command, runtime_bin: PathBuf) -> Result<()> {
             && args.initial_workers <= 32
             && args.repairs <= 3
             && (1..=32).contains(&args.verification_batch)
-            && (1..=86400).contains(&args.seconds)
+            && args.seconds <= 86400
             && (1..=86_400_000).contains(&args.command_timeout_ms),
         "invalid workgroup limits"
     );
@@ -170,6 +170,7 @@ pub async fn run(command: Command, runtime_bin: PathBuf) -> Result<()> {
             )?
             .with_audit_directory(config.data_dir.join("model-requests"))
             .with_options(ModelOptions {
+                context_window_tokens: config.model.context_window_tokens,
                 responses_websocket: config.model.responses_websocket,
                 reasoning_effort: config.model.reasoning_effort.clone(),
                 summary_reasoning_effort: config.model.summary_reasoning_effort.clone(),
@@ -242,8 +243,9 @@ pub async fn run(command: Command, runtime_bin: PathBuf) -> Result<()> {
         }))?)?;
         let mut executor = NativeExecutor::new(model.clone(), args.state_dir.join("bindings"), args.runtime.unwrap_or_else(|| runtime_bin.join("areal-runtime")).canonicalize()?,
             args.file_helper.unwrap_or_else(|| runtime_bin.join("areal-runtime-fs")).canonicalize()?, args.toolchain.map(|p| p.canonicalize()).transpose()?)?;
+        executor.worker_limits = super::engine_limits(&config);
         executor.watchdog_disable = config.watchdog_disable;
-        executor.tool_call_limits = areal_engine::model::ToolCallLimits { max_calls: config.max_tool_calls, max_buffer_bytes: config.max_tool_buffer_bytes };
+        executor.tool_call_limits = areal_engine::model::ToolCallLimits { max_calls: config.max_response_tool_calls, max_buffer_bytes: config.max_tool_buffer_bytes };
         executor.context_bytes = args.worker_context_bytes;
         executor.max_unchanged_rounds = args.worker_stall_rounds;
         executor.command_tools_only = args.worker_tools == "command";

@@ -58,30 +58,37 @@ listen = "127.0.0.1:4500"
 [model]
 provider = "example"
 name = "your-model-id"
+# context_window_tokens = 131072
 max_retries = 2
 [model.providers.example]
 protocol = "responses"
 endpoint = "https://model.example.com/v1/responses"
 api_key_env = "AREAL_API_KEY"
-[limits]
+[context]
+mode = "auto"
+recent_tokens = 8192
+# target_tokens = 0                 # 0: automatic target
+# output_reserve_tokens = 8192
+
+[budget]
+# Omitted or 0: unlimited cumulative budget.
+# max_tool_calls = 0
+# max_output_bytes = 0
+# max_history_bytes = 0
+
+[resources]
 model_concurrency = 32
 max_threads = 20000
 max_active_turns = 256
 max_children_per_turn = 64
 max_agent_depth = 8
-stream_idle_timeout_seconds = 30
-max_history_bytes = 2097152
-max_output_bytes = 262144
-max_tool_calls = 128
+max_response_tool_calls = 128
+max_response_bytes = 4194304
 max_tool_buffer_bytes = 4194304
-context_window_bytes = 524288
-context_compaction_enabled = true
-context_recent_bytes = 131072
-context_window_tokens = 65536
-context_target_tokens = 0
-context_output_reserve_tokens = 8192
-max_completion_retries = 0
-watchdog_disable = false
+
+[network]
+retry_mode = "persistent"
+stream_idle_timeout_seconds = 30
 [logging]
 filter = "info"
 ```
@@ -96,11 +103,11 @@ Optional `model.reasoning_summary = "auto"` (also `concise` / `detailed`) is Res
 
 Optional sampling fields are omitted when unset and preserve explicit zero. `temperature` is finite [0,2], `top_p` / `min_p` are [0,1], `top_k` is a positive integer or -1, `presence_penalty` is [-2,2], and `repetition_penalty` is positive. Both protocols accept temperature/top_p; the other four are Chat-only and rejected for Responses. Sending a parameter does not prove provider support. Summary requests inherit solve sampling/reasoning by default. Optional `model.summary_reasoning_effort` and `model.summary_max_output_tokens` (`AREAL_HARNESS_SUMMARY_REASONING_EFFORT` / `AREAL_HARNESS_SUMMARY_MAX_OUTPUT_TOKENS`) affect only summaries. The output cap is the minimum of the global cap, summary cap, remaining Goal allowance and 16384. A configured summary cap must be positive. For example, explicitly select low/4096 summaries with high-effort solving after validating provider support and retention quality.
 
-`context_window_tokens=0` disables token estimation; its maximum is 2000000. When enabled, reserve must be below window. Estimated history, system and tool definitions trigger compaction at window minus reserve, or at the byte threshold. Estimates use roughly 3 ASCII bytes/token, 2 tokens/non-ASCII character and media proxies, For append-only history, settled full input usage (including cached input) plus 10% headroom calibrates the baseline, while additions retain conservative estimates. Reduced history uses a fresh estimate. Responses tool calls are counted once, without their Chat compatibility wrapper. Cache discounts do not reduce actual input tokens; these are not exact provider tokenizer counts.
+`model.context_window_tokens` declares the selected model window (1–2000000), also supported in provider/model defaults and `parameters.contextWindowTokens`. Core does not infer it from a model name. Unspecified models use the legacy global fallback of 65536 tokens; diagnostics distinguish model metadata from fallback. Output reserve is the larger of `context.output_reserve_tokens` (default 8192) and the selected model output cap. All messages, live instructions and tool schemas are checked against window minus reserve before every solve request. Estimates use roughly 3 ASCII bytes/token, 2 tokens/non-ASCII character and media proxies. Settled full input usage, including cached tokens, calibrates append-only history with 10% headroom; compaction resets calibration. These are conservative estimates, not exact provider tokenizer counts.
 
-`limits.context_target_tokens` defaults to 0, preserving recent-history selection. A positive value (or `AREAL_HARNESS_CONTEXT_TARGET_TOKENS`) must be below window minus reserve. Core first tests the recent-history boundary, then the deepest complete-round boundary if necessary. If the latest completed tool round is itself too large to retain, Core may summarize that entire round, without crossing an in-progress tool. The target includes retained input plus instruction/tool overhead and summary headroom. The target is best effort: exact user inputs and indivisible tool/reasoning rounds are never silently discarded to reach it. Valid summaries up to 16 KiB are retained when they fit the actual net saving; 8,000 bytes is generation guidance, not another rejection threshold. Avoid increasing the window to mask missing task context.
+`context.target_tokens=0` chooses 60% of the available input window; a positive target must be below the input limit. `context.recent_tokens` defaults to 8192. Core summarizes complete groups, preserving tool/result pairing and unresolved effects. Retained exact user inputs prioritize the initial task and newest corrections, within min(8192, input window / 4) estimated tokens; evidence has a separate equal allowance. Older originals remain on disk and can be retrieved with `read_history`. Summaries are fallible historical evidence. Summary requests have their own preflight; oversized evidence is shortened with an explicit omission marker. An irreducible solve request fails with `LLM_CONTEXT_WINDOW_EXCEEDED`. A typed provider context-overflow error before output/tool calls allows one compaction recovery in auto mode, subject to Goal accounting; it never replays tool effects.
 
-`limits.context_compaction_enabled=false` disables automatic and manual compaction (true by default). When `context_window_bytes` is exceeded or an enabled token threshold is reached, the Turn fails with a context limit error without sending another solve or summary request; original history remains intact. These estimates are not the provider's actual context limit. To also disable Agent delegation and Workgroup child tasks, set `max_children_per_turn=0` and `max_agent_depth=0`. An explicitly enabled native research Agent extension requires nonzero child limits and rejects this combination at startup.
+`context.mode` accepts `auto` (default), `manual` (only explicit compaction), or `disabled` (neither automatic nor manual compaction). Manual/disabled modes stop before sending an oversized request. Schema 1 and explicit legacy `[limits]` values remain supported: `context_compaction_enabled=false` maps to disabled; `context_window_bytes` and `context_recent_bytes` are optional legacy byte guards, both default 0. Legacy `context_window_tokens=0` disables the fallback token guard, but a model window still takes precedence. Do not combine aliases or the old compaction flag with `context.mode`; conflicting settings are rejected. To disable delegation, set resource child/depth limits to 0; explicitly enabled research extensions require nonzero child limits.
 
 The network watchdog is enabled by default with no retry count limit. Set `AREAL_HARNESS_WATCHDOG_DISABLE=1` to disable it; remove the variable or set it to `0` to restore the default. It also accepts `true`/`false`, mapping to TOML `limits.watchdog_disable`; the environment overrides TOML. It covers connection/transport failures, request and stream idle timeouts, premature EOF, HTTP 408/429/5xx and explicit SSE rate-limit/service-availability errors. Solve, child Agent and context-summary requests use the same policy, with exponential backoff from 250 ms capped at 30 seconds. Cancellation, explicit Goal/research-worker time budgets and explicit Workgroup physical-request budgets remain effective. Authentication, invalid requests, insufficient quota, output length limits and empty answers do not receive unlimited retries.
 
@@ -108,9 +115,9 @@ Goal shared-budget and unknown-usage constraints take precedence over retry sett
 
 `limits.max_completion_retries` defaults to 0, accepts 0–8, and budgets bounded incomplete-response recovery per Turn separately from HTTP `max_retries` and the network watchdog. Disabling the watchdog preserves existing finite retry allowances. See [Core recovery](../api/core.en.md#recovery). HTTPS uses public roots and the host trust store; install private CAs there. Tools execute only from structured protocol fields, never from XML/JSON in response text.
 
-`limits.max_tool_buffer_bytes` defaults to 4194304 (4 MiB) and must be positive. It bounds the UTF-8 bytes of all buffered tool IDs, names and arguments per response; it excludes reasoning and separate audio/video/image blobs, while media strings embedded in arguments still count as UTF-8 bytes. This is not a process memory limit. It is independent of Turn `max_output_bytes` and history budgets: raising it does not increase execution or persistence allowances. Chat Completions and Responses share this budget; repeated Responses terminal items are not charged twice. Each call still permits at most 64 KiB of arguments. Call count uses the remaining Turn `max_tool_calls` allowance, replacing the fixed 16-call response cap. The environment variable is `AREAL_HARNESS_MAX_TOOL_BUFFER_BYTES`.
+`resources.max_tool_buffer_bytes` defaults to 4 MiB and bounds buffered tool IDs, names and arguments per response. Each call permits at most 64 KiB arguments. `resources.max_response_tool_calls` defaults to 128; the effective cap is the minimum of this guard and an explicitly configured remaining Turn budget. `resources.max_response_bytes` defaults to 4 MiB and bounds text, reasoning, provider context and binary model output per response. These guards are independent of cumulative execution budgets. Chat and Responses share tool-buffer enforcement; repeated Responses terminal items are not charged twice. New environment suffixes include `MAX_RESPONSE_TOOL_CALLS`, `MAX_RESPONSE_BYTES`, `CONTEXT_MODE`, `CONTEXT_RECENT_TOKENS`, `CONTEXT_TARGET_TOKENS` and `MODEL_CONTEXT_WINDOW_TOKENS`. Existing environment names remain supported.
 
-Byte and capacity limits are positive integers; fan-out and depth may be 0 to disable delegation. Output must be smaller than history, recent context smaller than the context window, and deadlines 1–86400 seconds. Context bytes are estimates rather than tokenizer windows. Active tasks, model requests and Runtime resources are counted separately.
+`[budget]` fields `max_tool_calls`, `max_output_bytes` and `max_history_bytes` default to 0 (unlimited). Positive values explicitly limit calls/output per Turn and stored history per Thread; compaction does not reset them. History includes the hot snapshot and referenced cold segments. Existing explicit finite values keep their meaning, while omitted values use the new unlimited defaults in both schema versions. Resource capacities remain positive; child/depth limits may be 0. `max_threads=20000` is deployment session capacity, not a conversation length budget. Idle timeout detects stalled requests, not total task duration. `[network] retry_mode` is persistent by default, or bounded (legacy watchdog disabled). `config show` includes the new groups and retains the legacy `limits` diagnostic object; source keys remain normalized legacy names.
 
 | Environment suffix (prefix `AREAL_HARNESS_`) | Configuration |
 |---|---|
@@ -242,13 +249,13 @@ Create a Goal explicitly through `/goal <objective>`, the Web panel, `--goal` or
 
 ```toml
 [goals]
-max_turns = 100
-max_active_seconds = 3600
+max_turns = 0
+max_active_seconds = 0
 max_unreported_turns = 3
-turn_model_rounds = 32
+turn_model_rounds = 0
 ```
 
-The numeric values shown are defaults. The first three numeric fields accept 1–86400; turn_model_rounds accepts 2–1024. Deployment limits only validate explicitly supplied maxTurns/maxActiveSeconds; omitted turn/time/token limits remain unlimited. The GUI requests root Agent prompt confirmation through inferLimits, requiring goal_set_limits and at least three model rounds. Root Turns use min(session maxModelRounds, turn_model_rounds), require at least two rounds, and require goal_read/goal_update in any tool allowlist. The final round remains tool-free for handoff. Consecutive root Turns without goal_update pause as progressUnreported at the configured threshold.
+The values shown are defaults. `max_turns`, `max_active_seconds` and `turn_model_rounds` use 0 for no deployment ceiling; positive values accept 1–86400, 1–86400 and 2–1024 respectively. Explicit request/session limits still apply and are intersected with any positive deployment limits. Omitted Goal token/turn/time limits stay unlimited. The GUI requests prompt confirmation through inferLimits, requiring goal_set_limits and at least three model rounds when a limit exists. A bounded root Turn requires at least two rounds and keeps its final round tool-free for handoff. The progress integrity guard `max_unreported_turns` remains 3 (range 1–86400): repeated root Turns without goal_update pause as progressUnreported.
 
 Active time includes root-Turn model queuing, execution, tools, interactions and cleanup without adding child durations. Capacity waits between Turns, paused time and offline time are excluded. Existing explicit Goal/research-worker time budgets and Runtime hard limits still apply. Goal requests disable implicit HTTP retries to preserve per-request accounting; unknown usage stops automatic continuation. See [usage and recovery](clients.en.md#goals).
 
@@ -292,7 +299,7 @@ Trajectories cover Turns, individual model requests, tool calls, and context com
 
 Project-specific attributes and events use the `areal.*` namespace. Logs correlate through standard Trace ID and Span ID, and graceful shutdown flushes batch exports. Logs-only configuration still generates local correlation IDs; Trace and Log export switches are independent. Metrics are not exported. GenAI semantic conventions remain in development; see the [official conventions](https://github.com/open-telemetry/semantic-conventions-genai).
 
-Default compaction triggers when either estimated tokens or history bytes reach the limit: a 64k token window reserves 8k for output (57,344 estimated input tokens), or history exceeds 512 KiB; the recent verbatim-history budget is 128 KiB. Tokens use conservative incremental estimates calibrated against settled full input usage, not exact provider-tokenizer counts or model capacity declarations. Compaction rebuilds the cache prefix, so monitor uncached input and task correctness together. Explicit `context_window_tokens=0` disables the token trigger while retaining the byte threshold.
+Automatic compaction uses the effective model token window and output reserve described above. Completed history prefixes are stored as immutable SHA-256 segments; current snapshots retain recent items and checkpoints. Raw hot history above max(1 MiB, 8 × window tokens) also requests rolling storage in auto mode, using bounded recorded evidence when only storage is under pressure. Disk use continues to grow with retained originals; available disk and per-record protections still apply. Full compatibility history reads materialize all requested history; use paged `read_history` for bounded retrieval. Monitor task correctness together with uncached input, since compaction rebuilds cache prefixes.
 
 ## Cache diagnostics
 
