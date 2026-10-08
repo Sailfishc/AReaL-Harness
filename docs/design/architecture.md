@@ -18,7 +18,7 @@ AReaL-Harness 采用 **Clients → Core → Runtime** 分层。Core 是会话、
 | `core/engine` | 模型、工具、历史、持久化、父子任务和 Workgroup |
 | `core/app-server` | WebSocket、认证、订阅、回调关联；不拥有另一份历史 |
 | `core/local-service` | 共享服务发现、配置兼容性和控制客户端，只依赖 config/protocol |
-| `core/service-host` | 独立托管本地 Core/Runtime 生命周期，调用可信 launcher |
+| `core/service-host` | Rust 可信 launcher 和独立本地服务宿主，管理 Core/Runtime 生命周期与私有管道 |
 | `core/server` | 装配配置、模型、MCP、Host、Runtime 和关闭流程 |
 | `core/mcp` | 官方 rmcp 客户端与结果适配，不拥有 Turn |
 | `core/sdk-typescript` | 选定 DSH 工具/文件服务适配和独立 Node Host |
@@ -47,7 +47,7 @@ Task Mode 由 `core/engine/src/task_mode` 管理 Task/TaskRun、定时触发、�
 
 [draw.io 源文件](diagrams/task-mode-mailbox-architecture.drawio) · [异步交互流程](diagrams/task-mode-mailbox-flow.svg) · [流程源文件](diagrams/task-mode-mailbox-flow.drawio)
 
-`clients/cli` 是唯一产品可执行入口 `areal`，分派到 TUI、非交互客户端、Core server 和服务宿主的库入口；Core 不依赖客户端。`scripts/launch.py` 仍拥有独立 Core/Runtime 进程与私有生命周期管道。发行目录 `bin` 只含 `areal`，Runtime daemon/file helper 放在 `libexec/areal`，不并入客户端进程。命令契约见[客户端指南](../guides/clients.md)。
+`clients/cli` 是唯一产品可执行入口 `areal`，分派到 TUI、非交互客户端、Core server 和服务宿主的库入口；Core 不依赖客户端。`core/service-host` 的 Rust launcher 持有独立 Core/Runtime 进程与私有生命周期管道，不依赖系统 Python。`scripts/launch.py` 保留用于开发脚本与独立评测入口。发行目录 `bin` 只含 `areal`，Runtime daemon/file helper 放在 `libexec/areal`，不并入客户端进程。命令契约见[客户端指南](../guides/clients.md)。
 
 ## 状态与执行
 

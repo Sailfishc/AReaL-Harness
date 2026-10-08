@@ -56,18 +56,7 @@ const model = createServer(async (req, res) => {
 model.listen(0, "127.0.0.1");
 await once(model, "listening");
 async function cli(args) {
-  const { stdout } = await exec(
-    "/usr/bin/python3",
-    [
-      "-I",
-      "-S",
-      "-c",
-      "import subprocess,sys; sys.exit(subprocess.call(sys.argv[1:]))",
-      bin,
-      ...args,
-    ],
-    { env, timeout: 80000, maxBuffer: 1024 * 1024 },
-  );
+  const { stdout } = await exec(bin, args, { env, timeout: 80000, maxBuffer: 1024 * 1024 });
   return JSON.parse(stdout);
 }
 const local = ["--workspace", workspace, "--config", config];
@@ -194,11 +183,10 @@ try {
   held.shift()();
   const completed = await second.waitEvent("turn/completed", (p) => p.threadId === thread.id);
   assert.equal(completed.turn.status, "completed");
-  await exec(
-    "/usr/bin/python3",
-    ["-I", "-S", resolve("scripts/local-service-pty.py"), bin, ...local],
-    { env, timeout: 45000 },
-  );
+  await exec("python3", ["-I", "-S", resolve("scripts/local-service-pty.py"), bin, ...local], {
+    env,
+    timeout: 45000,
+  });
   assert.equal(
     (await cli(["service", "status", "--instance", current.serviceId])).generation,
     current.generation,
@@ -265,11 +253,10 @@ try {
     current = await ensure();
     assert.notEqual(current.generation, previous.generation);
   }
-  await exec(
-    "/usr/bin/python3",
-    ["-I", "-S", resolve("scripts/local-service-pty.py"), bin, ...local],
-    { env: { ...env, TEST_EXPLICIT_STOP: "1" }, timeout: 45000 },
-  );
+  await exec("python3", ["-I", "-S", resolve("scripts/local-service-pty.py"), bin, ...local], {
+    env: { ...env, TEST_EXPLICIT_STOP: "1" },
+    timeout: 45000,
+  });
   assert.equal(
     (await cli(["service", "status", "--instance", current.serviceId])).state,
     "stopped",
@@ -369,11 +356,10 @@ try {
   assert(
     (await finalClient.call("thread/resume", { threadId: hotThread.id })).thread.turns.length >= 4,
   );
-  await exec(
-    "/usr/bin/python3",
-    ["-I", "-S", resolve("scripts/local-service-pty.py"), bin, ...local],
-    { env: { ...env, TEST_RELOAD_CONFIG: config }, timeout: 60000 },
-  );
+  await exec("python3", ["-I", "-S", resolve("scripts/local-service-pty.py"), bin, ...local], {
+    env: { ...env, TEST_RELOAD_CONFIG: config },
+    timeout: 60000,
+  });
   await cli(["service", "stop", "--workspace", workspace]);
   console.log(
     "PASS shared local service: concurrent ensure, TUI windows, Web discovery, auth, busy/cancel stop, workspace isolation, history and crash recovery",

@@ -65,6 +65,12 @@ enum Command {
     /// 本地服务内部宿主，由服务发现模块启动。
     #[command(hide = true)]
     ServiceHost,
+    /// 仅供可信本地入口使用的 Core/Runtime 进程宿主。
+    #[command(hide = true, trailing_var_arg = true, disable_help_flag = true)]
+    Launcher {
+        #[arg(allow_hyphen_values = true)]
+        args: Vec<std::ffi::OsString>,
+    },
 }
 
 #[derive(Parser)]
@@ -194,21 +200,7 @@ async fn main() {
             service_result(service::web(*local, json).await);
             return;
         }
-        Some(Command::Serve { args }) => {
-            use std::os::unix::process::CommandExt;
-            let executable = std::env::current_exe()
-                .expect("executable path")
-                .canonicalize()
-                .expect("resolve executable path");
-            let error = std::process::Command::new("/usr/bin/python3")
-                .args(["-I", "-S", "-c"])
-                .arg(include_str!("../../../scripts/launch.py"))
-                .arg("--bin-dir")
-                .arg(executable.parent().unwrap())
-                .args(args)
-                .exec();
-            Err(error.into())
-        }
+        Some(Command::Serve { args }) => areal_service_host::launcher::run(args).await,
         Some(Command::AppServer(args)) => areal_server::run(*args).await,
         Some(Command::Config(args)) => areal_server::diagnose(*args).await,
         Some(Command::Workgroup { command }) => {
@@ -220,6 +212,7 @@ async fn main() {
             areal_server::workgroup::run(command, runtime_bin).await
         }
         Some(Command::ServiceHost) => areal_service_host::run().await,
+        Some(Command::Launcher { args }) => areal_service_host::launcher::run(args).await,
     };
     if let Err(error) = result {
         eprintln!("AReaL: {error:#}");

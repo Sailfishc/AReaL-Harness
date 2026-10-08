@@ -259,10 +259,9 @@ impl Local {
                 mcp.push((id.clone(), json!({"transport":transport})));
             }
         }
-        let mut command = tokio::process::Command::new("/usr/bin/python3");
+        let mut command = tokio::process::Command::new(std::env::current_exe()?.canonicalize()?);
         command
-            .args(["-I", "-S", "-c"])
-            .arg(include_str!("../../../scripts/launch.py"))
+            .arg("launcher")
             .arg("--bin-dir")
             .arg(std::env::current_exe()?.canonicalize()?.parent().unwrap())
             .arg("--desktop")
@@ -311,9 +310,7 @@ impl Local {
                 command.arg(flag);
             }
         }
-        let child = command
-            .spawn()
-            .context("launch Harness; Python 3.9+ required")?;
+        let child = command.spawn().context("launch Harness")?;
         let mut result = Self {
             endpoint: String::new(),
             token: String::new(),

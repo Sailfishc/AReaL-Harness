@@ -48,10 +48,11 @@ pub async fn run() -> Result<()> {
     storage::write(&info, &identity)?;
     let ready = run.join("ready.json");
     let log_file = directory.join("host.log");
-    let mut command = tokio::process::Command::new("/usr/bin/python3");
+    let mut command = tokio::process::Command::new(spec.bin_dir.join("areal"));
     command
-        .args(["-I", "-S", "-c"])
-        .arg(include_str!("../../../scripts/launch.py"))
+        .arg("launcher")
+        .arg("--lease-fd")
+        .arg(ownership.as_raw_fd().to_string())
         .arg("--bin-dir")
         .arg(&spec.bin_dir)
         .args(spec.args.launcher_args())
@@ -68,7 +69,7 @@ pub async fn run() -> Result<()> {
         .stderr(Stdio::inherit())
         .kill_on_drop(false);
     // launcher 共同持有实例锁：宿主被强杀后，在旧 Core/Runtime 清理完之前仍禁止替代启动。
-    // Python 启动 Core/Runtime 时关闭其它描述符，不把此锁交给工具进程。
+    // Rust launcher 保留此锁并在启动 Core/Runtime 前恢复 close-on-exec。
     let lease_fd = ownership.as_raw_fd();
     unsafe {
         command.pre_exec(move || {
@@ -115,6 +116,8 @@ pub async fn run() -> Result<()> {
     cleanup?;
     result
 }
+
+pub mod launcher;
 
 fn tempfile_dir(parent: &std::path::Path, generation: &str) -> Result<PathBuf> {
     let path = parent.join(generation);

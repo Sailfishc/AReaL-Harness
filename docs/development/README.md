@@ -9,7 +9,7 @@
 | 依赖 | 要求 |
 |---|---|
 | Rust | `rust-toolchain.toml` 固定 1.94.0，含 rustfmt / Clippy |
-| Python / uv | 开发使用 Python 3.11+；uv 安装锁定工具。产品 launcher 使用可信系统 Python 3.9+ 和标准库 |
+| Python / uv | 开发使用 Python 3.11+；uv 安装锁定工具。已安装产品启动无需 Python；独立安装与升级脚本需要 PATH 中的 Python 3.9+ |
 | Node.js / npm | Node.js 22.19.0+；两套 SDK 与格式工具 |
 | 编译工具 | Git、Bash、GNU Make 3.81+、C/C++ 编译器、CMake；macOS 需 Xcode Command Line Tools |
 | 文件搜索 | 内置 ripgrep 15.2.0；`make build/release` 按固定源码和锁文件构建，不依赖宿主 rg |

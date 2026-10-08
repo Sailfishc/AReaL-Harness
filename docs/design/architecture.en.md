@@ -18,7 +18,7 @@ AReaL-Harness follows **Clients → Core → Runtime**. Core exclusively owns se
 | `core/engine` | Models, tools, history, persistence, child tasks and Workgroups |
 | `core/app-server` | WebSocket, authentication, subscriptions and callback correlation; no separate history |
 | `core/local-service` | Shared discovery, configuration compatibility and control client; depends on config/protocol |
-| `core/service-host` | Independent local Core/Runtime lifecycle owner; invokes the trusted launcher |
+| `core/service-host` | Rust trusted launcher and independent local service host; manages Core/Runtime lifecycles and private pipes |
 | `core/server` | Configuration, models, MCP, Hosts, Runtime and shutdown assembly |
 | `core/mcp` | Official rmcp client and result adaptation; no Turn ownership |
 | `core/sdk-typescript` | Selected DSH tools/filesystem adaptation and independent Node Host |
@@ -47,7 +47,7 @@ Interactive TUI and Web launchers attach to one service per deployment. The host
 
 [draw.io source](diagrams/task-mode-mailbox-architecture.drawio) · [Asynchronous interaction flow](diagrams/task-mode-mailbox-flow.svg) · [Flow source](diagrams/task-mode-mailbox-flow.drawio)
 
-`clients/cli` provides the sole product executable, `areal`, dispatching to library entry points for TUI, noninteractive execution, Core server and the service host. Core never depends on clients. `scripts/launch.py` still owns separate Core/Runtime processes and private lifetime pipes. The bundle exposes only `areal` in `bin`; Runtime daemon/file helpers live in `libexec/areal` and are not linked into the client process. See the [client guide](../guides/clients.en.md) for commands.
+`clients/cli` provides the sole product executable, `areal`, dispatching to library entry points for TUI, noninteractive execution, Core server and the service host. Core never depends on clients. The Rust launcher in `core/service-host` owns separate Core/Runtime processes and private lifetime pipes without requiring system Python. `scripts/launch.py` remains available for development scripts and independent benchmark entry points. The bundle exposes only `areal` in `bin`; Runtime daemon/file helpers live in `libexec/areal` and are not linked into the client process. See the [client guide](../guides/clients.en.md) for commands.
 
 ## State and execution
 
