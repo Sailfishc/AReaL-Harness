@@ -18,7 +18,7 @@ pub fn model(
     data: &Path,
     allow_missing_credential: bool,
 ) -> Result<Arc<dyn Model>> {
-    if config.name.is_empty() {
+    if config.name.is_empty() || config.endpoint.is_empty() {
         return Ok(Arc::new(UnconfiguredModel));
     }
     let credential = match config.credential(inputs) {
@@ -69,7 +69,12 @@ pub fn model(
 
 fn deployment(config: &ResolvedCoreConfig) -> Value {
     let mut value = config.diagnostic(false);
-    value.as_object_mut().unwrap().remove("model");
+    if config.model_catalog_managed {
+        // 共享目录采用显式安全应用；普通 CLI 文件保留已有默认模型重载语义。
+        value["modelCatalog"] = json!(config.model_catalog);
+    } else {
+        value.as_object_mut().unwrap().remove("model");
+    }
     value
 }
 

@@ -7,19 +7,22 @@ use std::{
 };
 use toml_edit::{Document, Item};
 
+#[derive(Clone)]
 pub(crate) struct Entry {
     pub value: String,
     pub source: ConfigSource,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(crate) struct FileLayer {
     pub values: BTreeMap<String, Entry>,
     pub providers: BTreeSet<String>,
     pub loaded: bool,
+    pub text: String,
+    pub catalog: Vec<crate::models::ProviderConfig>,
 }
 
-fn source(path: &Path, text: &str, offset: usize) -> ConfigSource {
+pub(crate) fn source(path: &Path, text: &str, offset: usize) -> ConfigSource {
     let prefix = &text[..offset.min(text.len())];
     ConfigSource::File {
         path: path.into(),
@@ -84,19 +87,25 @@ pub(crate) fn read(path: &Path, explicit: bool) -> Result<FileLayer> {
             "configuration must be UTF-8",
         )
     })?;
-    let doc = Document::parse(text.as_str()).map_err(|e| {
+    parse(path, &text)
+}
+
+pub(crate) fn parse(path: &Path, text: &str) -> Result<FileLayer> {
+    let at = source(path, text, 0);
+    let doc = Document::parse(text).map_err(|e| {
         error(
             Kind::Parse,
             "config_file",
-            &source(path, &text, e.span().map_or(0, |v| v.start)),
+            &source(path, text, e.span().map_or(0, |v| v.start)),
             "invalid TOML (including duplicate keys)",
         )
     })?;
     let mut layer = FileLayer {
         loaded: true,
+        text: text.to_owned(),
         ..FileLayer::default()
     };
-    walk(doc.as_item(), &mut Vec::new(), path, &text, &mut layer)?;
+    walk(doc.as_item(), &mut Vec::new(), path, text, &mut layer)?;
     let version = layer.values.get("schema_version").ok_or_else(|| {
         error(
             Kind::MissingValue,
@@ -113,6 +122,7 @@ pub(crate) fn read(path: &Path, explicit: bool) -> Result<FileLayer> {
             "only schema_version = 1 is supported",
         ));
     }
+    layer.catalog = crate::models::parse_catalog(&doc, path, text)?;
     Ok(layer)
 }
 
@@ -126,6 +136,18 @@ fn walk(
     let names: Vec<&str> = parts.iter().map(String::as_str).collect();
     let key = parts.join(".");
     let at = source(path, text, item.span().map_or(0, |v| v.start));
+    // 扩展目录字段由共享模型配置所有者做结构和语义校验。
+    if matches!(
+        names.as_slice(),
+        [
+            "model",
+            "providers",
+            _,
+            "name" | "enabled" | "models" | "parameters"
+        ]
+    ) {
+        return Ok(());
+    }
     let table = matches!(
         names.as_slice(),
         [] | ["server"]
@@ -215,7 +237,11 @@ fn walk(
             ]
             | [
                 "model",
-                "max_output_tokens" | "summary_max_output_tokens" | "max_retries" | "top_k"
+                "max_output_tokens"
+                    | "summary_max_output_tokens"
+                    | "max_retries"
+                    | "top_k"
+                    | "catalog_version"
             ]
     );
     let string = matches!(

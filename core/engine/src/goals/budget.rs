@@ -29,9 +29,22 @@ struct Journal {
     seconds: f64,
     timing_complete: bool,
 }
+fn token_budget_exhausted() -> anyhow::Error {
+    crate::outcome::TerminalFailure::new(
+        "GOAL_TOKEN_BUDGET",
+        crate::outcome::outcome(
+            "GOAL_TOKEN_BUDGET",
+            "agent",
+            "core_goal_token_budget",
+            json!({}),
+        ),
+    )
+    .into()
+}
 struct Data {
     journal: Journal,
     token_budget: Option<u64>,
+    max_active_seconds: Option<u64>,
     running: Option<tokio::time::Instant>,
     running_scopes: usize,
     enabled: bool,
@@ -43,6 +56,7 @@ pub struct Budget {
     path: PathBuf,
     data: StdMutex<Data>,
     io: Arc<Mutex<()>>,
+    deadline_changed: tokio::sync::Notify,
 }
 impl Budget {
     pub(crate) fn open(root: &Path, goal: &Goal) -> anyhow::Result<Arc<Self>> {
@@ -79,9 +93,11 @@ impl Budget {
             goal_id: goal.id.clone(),
             path,
             io: Arc::new(Mutex::new(())),
+            deadline_changed: tokio::sync::Notify::new(),
             data: StdMutex::new(Data {
                 journal,
                 token_budget: goal.token_budget,
+                max_active_seconds: goal.max_active_seconds,
                 running: None,
                 running_scopes: 0,
                 enabled: false,
@@ -102,6 +118,35 @@ impl Budget {
         let mut d = self.data.lock().unwrap();
         d.token_budget = tokens;
         d.enabled = enabled;
+    }
+    pub(crate) fn set_time_limit(&self, seconds: Option<u64>) {
+        self.data.lock().unwrap().max_active_seconds = seconds;
+        self.deadline_changed.notify_waiters();
+    }
+    pub(crate) fn deadline(&self) -> Option<tokio::time::Instant> {
+        let d = self.data.lock().unwrap();
+        let seconds = d.max_active_seconds?;
+        Some(
+            tokio::time::Instant::now()
+                + std::time::Duration::from_secs_f64(
+                    (seconds as f64 - usage(&d).time_used_seconds).max(0.0),
+                ),
+        )
+    }
+    // 限制解释发生在首个模型请求后；根与子任务等待同一个可更新截止时间。
+    pub(crate) async fn wait_deadline(&self) {
+        loop {
+            let changed = self.deadline_changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            let expires = async {
+                match self.deadline() {
+                    Some(deadline) => tokio::time::sleep_until(deadline).await,
+                    None => std::future::pending::<()>().await,
+                }
+            };
+            tokio::select! { _ = &mut changed => {}, _ = expires => return }
+        }
     }
     pub(crate) fn begin(&self) {
         let mut d = self.data.lock().unwrap();
@@ -172,11 +217,11 @@ impl Budget {
                 .any(|r| r.unknown && !r.acknowledged),
             "GOAL_USAGE_UNKNOWN"
         );
-        anyhow::ensure!(
-            d.token_budget
-                .is_none_or(|limit| u.tokens_used.saturating_add(u.reserved_tokens) < limit),
-            "GOAL_TOKEN_BUDGET"
-        );
+        if d.token_budget
+            .is_some_and(|limit| u.tokens_used.saturating_add(u.reserved_tokens) >= limit)
+        {
+            return Err(token_budget_exhausted());
+        }
         Ok(())
     }
     pub(crate) async fn flush(&self) -> anyhow::Result<()> {
@@ -227,7 +272,9 @@ impl Budget {
                 let available = limit
                     .saturating_sub(u.tokens_used)
                     .saturating_sub(u.reserved_tokens);
-                anyhow::ensure!(available > estimate, "GOAL_TOKEN_BUDGET");
+                if available <= estimate {
+                    return Err(token_budget_exhausted());
+                }
                 Some((available - estimate).min(16384))
             } else {
                 None

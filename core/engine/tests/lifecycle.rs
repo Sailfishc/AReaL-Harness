@@ -638,6 +638,9 @@ async fn legacy_text_sessions_load_and_upgrade_on_next_write() {
             context_checkpoint: None,
             dynamic_tools: Vec::new(),
             turns: vec![Turn {
+                started_at: None,
+                completed_at: None,
+                duration_ms: None,
                 goal: None,
                 instruction_snapshot: None,
                 configuration: None,
@@ -681,6 +684,6 @@ async fn legacy_text_sessions_load_and_upgrade_on_next_write() {
             &std::fs::read(dir.path().join(format!("{thread_id}.json"))).unwrap(),
         )
         .unwrap();
-        assert_eq!(record["version"], 10);
+        assert_eq!(record["version"], 11);
     }
 }

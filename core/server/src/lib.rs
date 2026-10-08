@@ -1,5 +1,7 @@
 use anyhow::{Context, Result};
-use areal_config::{ConfigInputs, ConfigOverrides, ResolvedCoreConfig, load_config};
+use areal_config::{
+    ConfigInputs, ConfigOverrides, ModelProtocolConfig, ResolvedCoreConfig, load_config,
+};
 use areal_engine::{Engine, Limits};
 use clap::{Parser, Subcommand};
 use std::{path::PathBuf, sync::Arc};
@@ -50,11 +52,21 @@ struct ConfigArgs {
 
 #[derive(Subcommand)]
 enum ConfigCommand {
+    Models {
+        #[command(subcommand)]
+        command: ModelConfigCommand,
+    },
     Validate,
     Show {
         #[arg(long)]
         sources: bool,
     },
+}
+
+#[derive(Subcommand)]
+enum ModelConfigCommand {
+    Read,
+    Write,
 }
 
 /// 复用 Core 的诊断路径，避免 CLI 复制配置优先级和脱敏规则。
@@ -107,6 +119,9 @@ pub struct Args {
     /// Use a Runtime created by the trusted launcher over inherited stdin/stdout.
     #[arg(long, requires = "workspace")]
     runtime_stdio: bool,
+    /// 普通命令工具的墙钟上限；桌面进程使用 Runtime 根 Scope 的额度。
+    #[arg(long, requires = "runtime_stdio")]
+    command_timeout_ms: Option<u64>,
     #[arg(long, requires = "execution")]
     workspace: Option<PathBuf>,
     /// Scratch already granted by the trusted Runtime launcher.
@@ -155,6 +170,30 @@ async fn run_configured(mut args: Args, diagnostic: Option<ConfigCommand>) -> Re
             log_filter: cli.log_filter,
         },
     };
+    let diagnostic = match diagnostic {
+        Some(ConfigCommand::Models { command }) => {
+            let result = match command {
+                ModelConfigCommand::Read => areal_config::models::read(&inputs)?,
+                ModelConfigCommand::Write => {
+                    use std::io::Read;
+                    let mut bytes = Vec::new();
+                    std::io::stdin()
+                        .take(1024 * 1024 + 1)
+                        .read_to_end(&mut bytes)?;
+                    anyhow::ensure!(
+                        bytes.len() <= 1024 * 1024,
+                        "model configuration request exceeds 1 MiB"
+                    );
+                    let update = serde_json::from_slice(&bytes)
+                        .map_err(|_| anyhow::anyhow!("invalid model configuration request"))?;
+                    areal_config::models::write(&inputs, update)?
+                }
+            };
+            println!("{}", serde_json::to_string(&result)?);
+            return Ok(());
+        }
+        other => other,
+    };
     let config = Arc::new(if management {
         areal_config::load_management_config(&inputs)?
     } else {
@@ -180,6 +219,7 @@ async fn run_configured(mut args: Args, diagnostic: Option<ConfigCommand>) -> Re
             "config diagnostics do not accept Runtime deployment flags"
         );
         match command {
+            ConfigCommand::Models { .. } => unreachable!(),
             ConfigCommand::Validate => println!("Configuration is valid"),
             ConfigCommand::Show { sources } => println!(
                 "{}",
@@ -379,6 +419,15 @@ async fn serve(
                     .await?,
             );
         }
+        let command_scope = if let (Some((client, _)), Some(timeout)) = (&runtime, args.command_timeout_ms) {
+            Some(client.create_scope(areal_runtime_protocol::CreateScope {
+                operation_id: client.operation_id(),
+                parent_scope_id: client.info().root_scope_id.clone(),
+                owner: areal_runtime_protocol::Owner { task_id: "core-command-tools".into(), plugin_instance_id: None },
+                permissions: Default::default(),
+                limits: areal_runtime_protocol::LimitRequest { wall_time_ms: Some(timeout), ..Default::default() },
+            }).await?)
+        } else { None };
         let opened = Engine::open_with_plugins(
             &config.data_dir,
             model.clone(),
@@ -389,6 +438,7 @@ async fn serve(
                     client: client.clone(),
                     workspace: workspace.clone(),
                     writable: args.allow_write,
+                    command_scope: command_scope.clone(),
                     command_scratch: args.command_scratch.clone(),
                 }),
             extensions,
@@ -411,13 +461,24 @@ async fn serve(
                 engine.register_credential(reference.into(), value.to_str().context("credential must be UTF-8")?.into())?;
             }
         }
+        engine.install_configured_models(configured_models(&config, &mcp_env, &engine)?)?;
         if let Some(policy_path) = &args.workgroup_policy {
             use areal_engine::workgroup::service::{NativeFactory, Policy, Service};
             let policy: Policy = serde_json::from_slice(&std::fs::read(policy_path)?)?;
+            // launcher 的主 Runtime 使用私有管道；工作组还需自行启动隔离
+            // Runtime。沿用发行目录布局，源码构建才使用同目录辅助程序。
+            let executable = std::env::current_exe()?;
+            let bin_dir = executable.parent().context("executable directory missing")?;
+            let packaged_runtime = bin_dir.join("../libexec/areal");
+            let runtime_dir = if packaged_runtime.is_dir() {
+                packaged_runtime
+            } else {
+                bin_dir.to_owned()
+            };
             let binary = args
                 .runtime
                 .clone()
-                .unwrap_or(std::env::current_exe()?.with_file_name("areal-runtime"))
+                .unwrap_or_else(|| runtime_dir.join("areal-runtime"))
                 .canonicalize()?;
             let helper = args
                 .file_helper
@@ -542,4 +603,110 @@ async fn serve(
         return Err(anyhow::anyhow!("{cleanup}; Core result: {result:?}"));
     }
     result
+}
+
+fn configured_models(
+    config: &ResolvedCoreConfig,
+    env: &std::collections::BTreeMap<std::ffi::OsString, std::ffi::OsString>,
+    engine: &Engine,
+) -> Result<areal_engine::desktop::ConfiguredModels> {
+    use areal_protocol::desktop::{ModelParameters, ModelRef, Provider};
+    let parameters = |value: &areal_config::models::Parameters| ModelParameters {
+        temperature: value.temperature,
+        max_output_tokens: value.max_output_tokens,
+        reasoning_effort: value.reasoning_effort.clone(),
+        reasoning_summary: None,
+    };
+    let mut result = areal_engine::desktop::ConfiguredModels::default();
+    for item in &config.model_catalog {
+        result.provider_ids.insert(item.id.clone());
+        if !item.enabled {
+            continue;
+        }
+        let selected = config.model.provider == item.id && !config.model.name.is_empty();
+        let mut models: Vec<_> = item
+            .models
+            .iter()
+            .filter(|m| m.enabled)
+            .map(|m| m.id.clone())
+            .collect();
+        if selected && !models.contains(&config.model.name) {
+            models.push(config.model.name.clone());
+        }
+        if models.is_empty() {
+            continue;
+        }
+        let key_env = if selected {
+            config.model.api_key_env.clone()
+        } else {
+            item.api_key_env.clone()
+        };
+        // 沿用桌面既有引用规则，轮换后旧任务仍能从启动环境解析冻结凭据。
+        let reference = key_env.as_ref().map(|name| {
+            name.strip_prefix("AREAL_CREDENTIAL_")
+                .unwrap_or(name)
+                .to_owned()
+        });
+        if let (Some(name), Some(reference)) = (&key_env, &reference)
+            && let Some(value) = env
+                .get(std::ffi::OsStr::new(name))
+                .and_then(|v| v.to_str())
+                .filter(|v| !v.is_empty())
+        {
+            engine.register_credential(reference.clone(), value.into())?;
+        }
+        let protocol = if selected {
+            config.model.protocol
+        } else {
+            item.protocol
+        };
+        result.providers.push(Provider {
+            id: item.id.clone(),
+            revision: 0,
+            endpoint: if selected {
+                config.model.endpoint.clone()
+            } else {
+                item.endpoint.clone()
+            },
+            protocol: match protocol {
+                ModelProtocolConfig::ChatCompletions => "chatCompletions",
+                ModelProtocolConfig::Responses => "responses",
+            }
+            .into(),
+            credential_ref: reference,
+            models,
+            parameters: parameters(&item.parameters),
+        });
+        for model in &item.models {
+            result.parameters.insert(
+                (item.id.clone(), model.id.clone()),
+                parameters(&model.parameters),
+            );
+        }
+        if selected {
+            result.default_model = Some(ModelRef {
+                provider_id: item.id.clone(),
+                model_id: config.model.name.clone(),
+            });
+            result.parameters.insert(
+                (item.id.clone(), config.model.name.clone()),
+                ModelParameters {
+                    temperature: config.model.temperature,
+                    max_output_tokens: config.model.max_output_tokens,
+                    reasoning_effort: config.model.reasoning_effort.clone(),
+                    reasoning_summary: config.model.reasoning_summary.clone(),
+                },
+            );
+        }
+    }
+    if config.model.provider == "areal_openai" && !config.model.name.is_empty() {
+        result.default_model = Some(ModelRef {
+            provider_id: "areal_openai".into(),
+            model_id: config.model.name.clone(),
+        });
+    }
+    if !config.model_catalog_managed {
+        result.default_model = None;
+    }
+    Ok(result)
 }

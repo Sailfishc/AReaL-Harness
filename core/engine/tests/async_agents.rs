@@ -221,6 +221,7 @@ async fn parent_progresses_during_child_inference_and_can_read_or_cancel_owned_w
                 client: client.clone(),
                 workspace: workspace.clone(),
                 writable: true,
+                command_scope: None,
                 command_scratch: Some(temp.path().join("scratch")),
             }),
             extensions,

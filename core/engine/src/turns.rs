@@ -102,6 +102,9 @@ impl Engine {
             candidate.preview = text.chars().take(120).collect();
         }
         let mut turn = Turn {
+            started_at: Some(now()),
+            completed_at: None,
+            duration_ms: None,
             goal: None,
             instruction_snapshot: None,
             configuration: (thread.desktop.is_some()
@@ -174,6 +177,7 @@ impl Engine {
         }
         cell.cancel_grace_ms.store(1000, Ordering::Release);
         state.active = Some(Active {
+            started: std::time::Instant::now(),
             isolated_children: 0,
             _admission: admission,
             id: turn.id.clone(),
@@ -443,44 +447,24 @@ impl Engine {
             .as_ref()
             .filter(|_| cell.research)
             .map(|a| tokio::time::Instant::now() + Duration::from_secs(a.worker_timeout_seconds));
-        let (goal, owner) = {
+        let goal_budget = {
             let state = cell.state.lock().await;
-            (
-                state.thread.goals.goal.clone().filter(|g| {
-                    state
-                        .thread
-                        .turns
-                        .last()
-                        .and_then(|t| t.goal.as_ref())
-                        .is_some_and(|t| t.goal_id == g.id)
-                }),
-                state.thread.goal_owner.clone(),
-            )
-        };
-        let goal = if goal.is_none() {
-            if let Some(owner) = owner {
-                self.goal_get(&owner.thread_id)
-                    .await
-                    .ok()
-                    .and_then(|v| {
-                        serde_json::from_value::<areal_protocol::goals::Goal>(v["goal"].clone())
-                            .ok()
-                    })
-                    .filter(|g| g.id == owner.goal_id)
+            if state.thread.goal_owner.is_some()
+                || state.thread.turns.last().is_some_and(|t| t.goal.is_some())
+            {
+                self.goals.budget(&state.thread)
             } else {
                 None
             }
-        } else {
-            goal
         };
-        let goal_seconds = goal
-            .as_ref()
-            .map(|g| (g.max_active_seconds as f64 - g.usage.time_used_seconds).max(0.0));
-        let goal_deadline =
-            goal_seconds.map(|v| tokio::time::Instant::now() + Duration::from_secs_f64(v));
-        let deadline = worker_deadline.into_iter().chain(goal_deadline).min();
-        let budget_expired = async {
-            match deadline {
+        let goal_expired = async {
+            match &goal_budget {
+                Some(budget) => budget.wait_deadline().await,
+                None => std::future::pending::<()>().await,
+            }
+        };
+        let worker_expired = async {
+            match worker_deadline {
                 Some(deadline) => tokio::time::sleep_until(deadline).await,
                 None => std::future::pending::<()>().await,
             }
@@ -496,6 +480,7 @@ impl Engine {
                     // 不能先丢弃 generate，否则内部流收尾永远无法执行。
                     // 收尾仍受原 Goal/worker 截止时间约束，过时工具不会执行。
                     let started = tokio::time::Instant::now();
+                    let deadline = worker_deadline.into_iter().chain(goal_budget.as_ref().and_then(|b| b.deadline())).min();
                     let mut end = deadline.unwrap_or(started + Duration::from_secs(60));
                     loop {
                         // 重复取消不得延长期限；force 升级最多在 50ms 后缩短收尾。
@@ -509,9 +494,13 @@ impl Engine {
                     }
                     Err(anyhow::anyhow!("cancelled"))
                 },
-                _ = budget_expired => Err(crate::outcome::TerminalFailure::new(
-                    if goal_deadline.is_some_and(|g| g <= tokio::time::Instant::now()) {"GOAL_TIME_BUDGET"} else {"research worker deadline exceeded"},
-                    crate::outcome::outcome("AGENT_RUN_TIMEOUT", "agent", "core_execution_budget", json!({"goalDeadlineReached":goal_deadline.is_some_and(|g| g <= tokio::time::Instant::now())})),
+                _ = goal_expired => Err(crate::outcome::TerminalFailure::new(
+                    "GOAL_TIME_BUDGET",
+                    crate::outcome::outcome("AGENT_RUN_TIMEOUT", "agent", "core_execution_budget", json!({"goalDeadlineReached":true})),
+                ).into()),
+                _ = worker_expired => Err(crate::outcome::TerminalFailure::new(
+                    "research worker deadline exceeded",
+                    crate::outcome::outcome("AGENT_RUN_TIMEOUT", "agent", "core_execution_budget", json!({"goalDeadlineReached":false})),
                 ).into()),
                 result = &mut generation =>
                     result.unwrap_or_else(|_| Err(anyhow::anyhow!("model task panicked"))),
@@ -623,7 +612,17 @@ impl Engine {
         state.poisoned |= cleanup_failed;
         let thread_id = state.thread.id.clone();
         let open_items = std::mem::take(&mut state.active.as_mut().unwrap().open_items);
+        let elapsed_ms = state
+            .active
+            .as_ref()
+            .unwrap()
+            .started
+            .elapsed()
+            .as_millis()
+            .min(u64::MAX as u128) as u64;
         let turn = state.thread.turns.last_mut().unwrap();
+        turn.completed_at = Some(now());
+        turn.duration_ms = Some(elapsed_ms);
         for item in &mut turn.items {
             if let Item::DynamicToolCall {
                 execution,

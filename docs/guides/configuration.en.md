@@ -165,7 +165,7 @@ target/debug/areal config show --sources --config /absolute/config.toml
 
 Diagnostics do not listen, create data, start Runtime/MCP/plugins or probe models. They report redacted values and sources. Shared local services reload model configuration as described below; startup credentials are not forwarded to Runtime. Server telemetry handles `OTEL_*` separately.
 
-The desktop runtime provider catalog uses `areal/provider/*` and `AREAL_CREDENTIAL_<ref>`, supporting chatCompletions/responses only. `--desktop-config` installs versioned Profiles/Skills/Workflows. Pass `--agent code-agent@v2` to TUI, headless or `exec` to select a Profile; a Profile-bound Workflow starts with the Thread, so no separate Workflow argument is needed. Session settings can change through CAS at idle boundaries and are frozen into new Turns/queue items; see the [desktop contract](../api/desktop.en.md). Explicit session Providers are managed separately from the TOML default model.
+The desktop runtime provider catalog uses `areal/provider/*` and `AREAL_CREDENTIAL_<ref>` with chatCompletions/responses. TOML providers are installed at startup as an execution projection; their IDs reject runtime upsert/remove. `--desktop-config` installs versioned Profiles/Skills/Workflows. `--agent code-agent@v2` selects a Profile for TUI, headless or `exec`; its Workflow starts with the Thread. Explicit thread settings remain revision controlled; see the [desktop contract](../api/desktop.en.md).
 
 ```sh
 target/debug/areal --desktop-config deployment.json --agent code-agent@v2
@@ -188,6 +188,37 @@ In `deployment.json`, bind tools and a Workflow to a Profile. The same file can 
 ```
 
 `tool-agent@v1` can use its permitted tools without a Workgroup. `code-agent@v2` needs a trusted `--workgroup-policy` and `--allow-write`; the policy must authorize `src/main.rs` and provide final checks (see the [Workgroup guide](workgroups.en.md)). The bound Profile starts the Workflow plan automatically. A regular Turn from `--prompt` or `exec` is a separate user interaction.
+
+### Shared GUI and CLI model catalog
+
+`areal config models read [--config /absolute/config.toml]` returns JSON with `path`, a whole-file `revision`, provider `data`, the file's `defaultModel`, and `effective` diagnostics including CLI/environment sources. Reads create no files and require no credential value. `areal config models write` accepts `{ "expectedRevision": "...", "data": [...], "defaultModel": { "providerId": "local", "modelId": "one" } }` on stdin; `null` clears the default. It replaces the model catalog, preserves other settings and comments, and returns a new snapshot. Sharing requires both clients to select the same file. Temporary overrides are never written back.
+
+```toml
+schema_version = 1
+[model]
+catalog_version = 1
+provider = "local"
+name = "one"
+[model.providers.local]
+name = "Local model service"
+endpoint = "http://127.0.0.1:8000/v1/chat/completions"
+protocol = "chat-completions"
+enabled = true
+api_key_env = "LOCAL_MODEL_KEY"
+parameters = { temperature = 0.2 }
+models = [
+  { id = "one", display_name = "Primary", enabled = true, parameters = { reasoning_effort = "low" } },
+  { id = "two", enabled = false, parameters = {} },
+]
+```
+
+JSON uses camelCase (`apiKeyEnv`, `displayName`, `maxOutputTokens`, `reasoningEffort`); protocols remain `chat-completions` / `responses`. Up to 32 providers and 64 models per provider are supported. Providers and models have names, enablement and generation defaults. Explicit thread parameters override model defaults, then provider defaults. Global TOML/environment/CLI parameters retain existing precedence. The file default must reference an enabled provider and model. Legacy single-model TOML remains readable; its selected name becomes a catalog entry and the first shared save adds `catalog_version = 1`. Legacy provider tables containing only original fields may omit endpoint and supply it through environment variables or CLI, preserving CLI > environment > file precedence. Shared catalog reads and writes require complete provider endpoints in the file; incomplete reads fail explicitly without dropping providers or persisting temporary overrides.
+
+Only credential environment names belong in ordinary configuration. Shared metadata rejects endpoint query parameters to avoid exposing URL credentials to a GUI; legacy diagnostics still redact them. Independent CLI clients supply their own environment values and cannot read desktop secure storage. `areal_openai` is reserved for the desktop account's dynamic catalog: it may be a default reference but not a static provider. An independent CLI without its account transport endpoint fails explicitly.
+
+Writes validate first, compare the whole-file revision, then fsync and atomically replace a temporary file in the same directory. A cooperative writer lock serializes updates; stale requests fail. A missing default file can be created, while missing explicit files and symlink writes fail. Repeated hash checks do not provide atomic CAS against editors that do not participate in the lock.
+
+Saving and applying are separate. Changes to a `catalog_version = 1` catalog report restartRequired; clients restart safely when idle, while unopened instances load it on their next start. Saving does not change running models or existing tasks. New defaults apply to tasks created after application. Historical tasks retain their configuration and credential references; supply credentials for their retired references after key rotation.
 
 ## Model configuration reload
 
@@ -217,7 +248,7 @@ max_unreported_turns = 3
 turn_model_rounds = 32
 ```
 
-The numeric values shown are defaults. The first three numeric fields accept 1–86400; turn_model_rounds accepts 2–1024. Goal maxTurns/maxActiveSeconds can narrow deployment limits; tokenBudget applies only when explicitly set. Root Turns use min(session maxModelRounds, turn_model_rounds), require at least two rounds, and require goal_read/goal_update in any tool allowlist. The final round remains tool-free for handoff. Consecutive root Turns without goal_update pause as progressUnreported at the configured threshold.
+The numeric values shown are defaults. The first three numeric fields accept 1–86400; turn_model_rounds accepts 2–1024. Deployment limits only validate explicitly supplied maxTurns/maxActiveSeconds; omitted turn/time/token limits remain unlimited. The GUI requests root Agent prompt confirmation through inferLimits, requiring goal_set_limits and at least three model rounds. Root Turns use min(session maxModelRounds, turn_model_rounds), require at least two rounds, and require goal_read/goal_update in any tool allowlist. The final round remains tool-free for handoff. Consecutive root Turns without goal_update pause as progressUnreported at the configured threshold.
 
 Active time includes root-Turn model queuing, execution, tools, interactions and cleanup without adding child durations. Capacity waits between Turns, paused time and offline time are excluded. Existing explicit Goal/research-worker time budgets and Runtime hard limits still apply. Goal requests disable implicit HTTP retries to preserve per-request accounting; unknown usage stops automatic continuation. See [usage and recovery](clients.en.md#goals).
 

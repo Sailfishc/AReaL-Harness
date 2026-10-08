@@ -1,5 +1,6 @@
 //! User configuration. All process context is supplied by the caller.
 mod file;
+pub mod models;
 mod resolve;
 pub mod skills;
 
@@ -215,6 +216,8 @@ pub struct GoalConfig {
 }
 
 pub struct ResolvedCoreConfig {
+    pub model_catalog: Vec<models::ProviderConfig>,
+    pub model_catalog_managed: bool,
     pub permissions: PermissionConfig,
     pub goals: GoalConfig,
     pub home: PathBuf,

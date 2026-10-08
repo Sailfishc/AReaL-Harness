@@ -16,7 +16,7 @@ mod tools;
 mod workflows;
 use super::*;
 use areal_protocol::desktop::*;
-pub use catalog::Deployment;
+pub use catalog::{ConfiguredModels, Deployment};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 pub use skills::{SkillLocation, SkillMetadata};
@@ -24,6 +24,7 @@ pub(crate) use tools::definitions;
 pub use workflows::Workflow;
 
 pub(crate) struct Desktop {
+    configured_models: std::sync::RwLock<ConfiguredModels>,
     pub(crate) default_profile: std::sync::RwLock<Option<VersionRef>>,
     worker_model: std::sync::atomic::AtomicBool,
     submissions: submissions::Submissions,
@@ -37,6 +38,7 @@ pub(crate) struct Desktop {
 impl Desktop {
     pub fn open(root: &Path) -> anyhow::Result<Self> {
         Ok(Self {
+            configured_models: Default::default(),
             default_profile: Default::default(),
             worker_model: std::sync::atomic::AtomicBool::new(false),
             submissions: submissions::Submissions::open(root)?,

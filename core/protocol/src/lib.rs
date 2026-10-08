@@ -333,6 +333,15 @@ pub struct HookExecution {
 #[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Turn {
+    /// Core 准入时的 Unix 秒；旧历史缺省，不从打开界面的时刻补造。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<i64>,
+    /// 终态结算时的 Unix 秒；重启修复的未知结束时刻保持缺省。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<i64>,
+    /// 单调时钟测得的执行经过毫秒，包含模型、工具、审批与清理等待。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub goal: Option<goals::GoalTurn>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

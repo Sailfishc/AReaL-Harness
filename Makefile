@@ -198,9 +198,11 @@ perf: ## 交互式运行 Docker E2E/perf 工作流
 .PHONY: examples-desktop-api desktop-schemas package
 examples-desktop-api: build ## 真实 Core/Runtime 的桌面 API 与 CLI 确定性验收
 	node examples/desktop-api/run.mjs --all
+	node examples/desktop-api/task-controls.mjs
 	node examples/desktop-api/cli.mjs
 	node examples/desktop-api/skills.mjs
 	node examples/desktop-api/soak.mjs
+	node examples/desktop-api/packaged-workgroup.mjs
 
 desktop-schemas: ## 从 Rust 类型导出 AReaL 桌面契约
 	cargo run --locked -q -p areal-engine --example desktop-schema > schemas/areal-core-v1.json

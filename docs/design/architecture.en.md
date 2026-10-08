@@ -88,3 +88,5 @@ Core server owns configuration polling and model assembly; Engine pins model rev
 Core `permissions` owns approval modes, precedence and persisted exact-request memory; Clients display requests and submit answers. Runtime independently enforces the deployment ceiling and narrowed Scopes. Local full-access is selected by the trusted launcher. See [permissions](../guides/configuration.en.md#permissions).
 
 `integrations/envarena` contains runner adapter sources for native release packages. It projects Core terminal outcomes and collects artifacts without owning the model loop. See [Core API](../api/core.en.md#structured-terminal-outcomes).
+
+`core/config` owns model catalog parsing, validation and controlled file writes. `core/server` installs its execution projection into Engine at startup. Clients use public configuration commands without duplicating TOML parsing or credential storage. Shared saves and safe restarts are separate; tasks retain their model snapshots. See the [configuration guide](../guides/configuration.en.md#shared-gui-and-cli-model-catalog).

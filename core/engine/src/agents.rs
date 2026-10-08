@@ -964,6 +964,7 @@ mod graceful_stop_tests {
             .goal_create(
                 "test".into(),
                 areal_protocol::goals::GoalCreate {
+                    infer_limits: false,
                     interaction_mode: None,
                     request_id: "goal".into(),
                     thread_id: parent.id.clone(),

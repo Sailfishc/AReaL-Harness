@@ -368,6 +368,8 @@ fn plan_lines(app: &App, p: Palette) -> Vec<Line<'static>> {
             goal.usage.time_used_seconds,
             goal.usage.turns_started,
             goal.max_turns
+                .map(|n| n.to_string())
+                .unwrap_or_else(|| "unlimited".into())
         )));
         if goal.reason.is_some() {
             lines.push(Line::raw(crate::history::goal_reason(goal)));

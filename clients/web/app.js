@@ -869,7 +869,7 @@ function renderGoal() {
     ? `持续目标 · ${goal.status === "active" && goal.waitingForInput ? "等待收件箱回复" : goal.status === "active" && goal.waitingForAgents ? "等待协作任务" : (status[goal.status] ?? goal.status)}`
     : "持续目标";
   $("goal-progress").textContent = goal
-    ? `${goal.objective} · ${goal.usage.tokensUsed} tokens${goal.tokenBudget ? ` / ${goal.tokenBudget}` : ""} · ${Math.round(goal.usage.timeUsedSeconds)} 秒 · ${goal.usage.turnsStarted}/${goal.maxTurns} 轮${goal.reason ? ` · ${goal.reason}` : ""}${goal.usage.accountingComplete ? "" : " · 用量不完整，预留额度保留"}`
+    ? `${goal.objective} · ${goal.usage.tokensUsed} tokens${goal.tokenBudget ? ` / ${goal.tokenBudget}` : ""} · ${Math.round(goal.usage.timeUsedSeconds)} 秒 · ${goal.usage.turnsStarted}${goal.maxTurns == null ? "" : `/${goal.maxTurns}`} 轮${goal.reason ? ` · ${goal.reason}` : ""}${goal.usage.accountingComplete ? "" : " · 用量不完整，预留额度保留"}`
     : "设置目标后，Agent 会在轮次结束后继续推进。";
   const key = `${thread?.id}:${goal?.id ?? ""}`;
   if (displayedGoal !== key) {

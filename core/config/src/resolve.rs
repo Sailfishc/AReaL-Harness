@@ -206,7 +206,7 @@ fn path_text(value: &Path, field: &str, source: &ConfigSource) -> Result<String>
         })
 }
 
-fn valid(field: &str, entry: &Entry) -> Result<()> {
+pub(crate) fn valid(field: &str, entry: &Entry) -> Result<()> {
     let value = &entry.value;
     let reject = |message| error(ConfigErrorKind::InvalidValue, field, &entry.source, message);
     if value.trim().is_empty() || value.chars().any(char::is_control) {
@@ -244,6 +244,9 @@ fn valid(field: &str, entry: &Entry) -> Result<()> {
     }
     let leaf = field.rsplit('.').next().unwrap_or(field);
     match leaf {
+        "catalog_version" if value != "1" => {
+            return Err(reject("only model catalog_version = 1 is supported"));
+        }
         "listen" => {
             let address: SocketAddr = value
                 .parse()
@@ -434,15 +437,19 @@ fn insert(
 }
 
 pub fn load_config(inputs: &ConfigInputs) -> Result<ResolvedCoreConfig> {
-    load_mode(inputs, false)
+    load_mode(inputs, false, None)
 }
 
 /// 管理启动允许缺失模型或选中模型的凭据；配置结构仍必须有效。
 pub fn load_management_config(inputs: &ConfigInputs) -> Result<ResolvedCoreConfig> {
-    load_mode(inputs, true)
+    load_mode(inputs, true, None)
 }
 
-fn load_mode(inputs: &ConfigInputs, management: bool) -> Result<ResolvedCoreConfig> {
+pub(crate) fn load_mode(
+    inputs: &ConfigInputs,
+    management: bool,
+    supplied_file: Option<file::FileLayer>,
+) -> Result<ResolvedCoreConfig> {
     let default = ConfigSource::Default;
     if !inputs.cwd.is_absolute() {
         return Err(error(
@@ -466,45 +473,19 @@ fn load_mode(inputs: &ConfigInputs, management: bool) -> Result<ResolvedCoreConf
             ));
         }
     }
-    let (home, home_source) = if let Some(entry) = env(inputs, "AREAL_HARNESS_HOME")? {
-        if !Path::new(&entry.value).is_absolute() {
-            return Err(error(
-                ConfigErrorKind::InvalidValue,
-                "home",
-                &entry.source,
-                "AREAL_HARNESS_HOME must be absolute",
-            ));
-        }
-        (absolute(Path::new(&entry.value), &inputs.cwd), entry.source)
-    } else {
-        let home = inputs
-            .homedir
-            .as_ref()
-            .filter(|p| p.is_absolute())
-            .ok_or_else(|| {
-                error(
-                    ConfigErrorKind::MissingValue,
-                    "home",
-                    &default,
-                    "cannot locate user directory; set AREAL_HARNESS_HOME",
-                )
-            })?;
-        (home.join(".areal"), default.clone())
+    let Location {
+        home,
+        home_source,
+        selected,
+        selected_source,
+        explicit,
+    } = location(inputs)?;
+    let file = match supplied_file {
+        Some(file) => file,
+        None => file::read(&selected, explicit)?,
     };
-    let env_file = env(inputs, "AREAL_HARNESS_CONFIG")?;
-    let explicit = inputs.config_file.is_some() || env_file.is_some();
-    let (selected, selected_source) = if let Some(path) = &inputs.config_file {
-        let source = ConfigSource::Cli {
-            flag: "--config".into(),
-        };
-        path_text(path, "config_file", &source)?;
-        (absolute(path, &inputs.cwd), source)
-    } else if let Some(entry) = env_file {
-        (absolute(Path::new(&entry.value), &inputs.cwd), entry.source)
-    } else {
-        (home.join("config.toml"), default.clone())
-    };
-    let file = file::read(&selected, explicit)?;
+    let catalog = file.catalog.clone();
+    let catalog_managed = file.values.contains_key("model.catalog_version");
     let mut values = BTreeMap::new();
     for (field, value) in [
         ("permissions.mode", "YOLO"),
@@ -661,6 +642,22 @@ fn load_mode(inputs: &ConfigInputs, management: bool) -> Result<ResolvedCoreConf
         }
     }
     let provider = values["model.provider"].value.clone();
+    // 参数按全局显式值、模型默认值、供应商默认值逐层补齐；环境和 CLI 已在上方覆盖。
+    if let Some(entry) = catalog.iter().find(|p| p.id == provider) {
+        let model = values
+            .get("model.name")
+            .and_then(|name| entry.models.iter().find(|m| m.id == name.value));
+        let parameters = model.map_or_else(
+            || entry.parameters.clone(),
+            |m| m.parameters.overlay(&entry.parameters),
+        );
+        for (field, value) in parameters.values() {
+            let source = file::source(&selected, &file.text, 0);
+            values
+                .entry(format!("model.{field}"))
+                .or_insert(Entry { value, source });
+        }
+    }
     let prefix = format!("model.providers.{provider}");
     values.entry(format!("{prefix}.protocol")).or_insert(Entry {
         value: "chat-completions".into(),
@@ -695,7 +692,11 @@ fn load_mode(inputs: &ConfigInputs, management: bool) -> Result<ResolvedCoreConf
     }
     if management
         && !values.contains_key("model.name")
-        && !values.contains_key(&format!("{prefix}.endpoint"))
+        && (!values.contains_key(&format!("{prefix}.endpoint"))
+            || (matches!(values["model.provider"].source, ConfigSource::Default)
+                && values
+                    .get(&format!("{prefix}.endpoint"))
+                    .is_some_and(|e| matches!(e.source, ConfigSource::File { .. }))))
     {
         values.insert(
             "model.name".into(),
@@ -712,6 +713,19 @@ fn load_mode(inputs: &ConfigInputs, management: bool) -> Result<ResolvedCoreConf
             },
         );
         values.remove(&format!("{prefix}.api_key_env"));
+    }
+    // 账号模型由可信桌面传输装配；独立命令行仍拒绝没有 endpoint 的账号引用。
+    if management
+        && provider == "areal_openai"
+        && !values.contains_key(&format!("{prefix}.endpoint"))
+    {
+        values.insert(
+            format!("{prefix}.endpoint"),
+            Entry {
+                value: String::new(),
+                source: default.clone(),
+            },
+        );
     }
     for field in ["model.name".to_owned(), format!("{prefix}.endpoint")] {
         if !values.contains_key(&field) {
@@ -730,6 +744,8 @@ fn load_mode(inputs: &ConfigInputs, management: bool) -> Result<ResolvedCoreConf
     sources.insert("home".into(), home_source);
     sources.insert("config_file".into(), selected_source);
     let result = ResolvedCoreConfig {
+        model_catalog: catalog,
+        model_catalog_managed: catalog_managed,
         permissions: PermissionConfig {
             mode: if values["permissions.mode"]
                 .value
@@ -925,4 +941,61 @@ fn load_mode(inputs: &ConfigInputs, management: bool) -> Result<ResolvedCoreConf
         result.credential(inputs)?;
     }
     Ok(result)
+}
+
+pub(crate) struct Location {
+    pub home: PathBuf,
+    pub home_source: ConfigSource,
+    pub selected: PathBuf,
+    pub selected_source: ConfigSource,
+    pub explicit: bool,
+}
+
+pub(crate) fn location(inputs: &ConfigInputs) -> Result<Location> {
+    let default = ConfigSource::Default;
+    let (home, home_source) = if let Some(entry) = env(inputs, "AREAL_HARNESS_HOME")? {
+        if !Path::new(&entry.value).is_absolute() {
+            return Err(error(
+                ConfigErrorKind::InvalidValue,
+                "home",
+                &entry.source,
+                "AREAL_HARNESS_HOME must be absolute",
+            ));
+        }
+        (absolute(Path::new(&entry.value), &inputs.cwd), entry.source)
+    } else {
+        let home = inputs
+            .homedir
+            .as_ref()
+            .filter(|p| p.is_absolute())
+            .ok_or_else(|| {
+                error(
+                    ConfigErrorKind::MissingValue,
+                    "home",
+                    &default,
+                    "cannot locate user directory; set AREAL_HARNESS_HOME",
+                )
+            })?;
+        (home.join(".areal"), default.clone())
+    };
+    let env_file = env(inputs, "AREAL_HARNESS_CONFIG")?;
+    let explicit = inputs.config_file.is_some() || env_file.is_some();
+    let (selected, selected_source) = if let Some(path) = &inputs.config_file {
+        let source = ConfigSource::Cli {
+            flag: "--config".into(),
+        };
+        path_text(path, "config_file", &source)?;
+        (absolute(path, &inputs.cwd), source)
+    } else if let Some(entry) = env_file {
+        (absolute(Path::new(&entry.value), &inputs.cwd), entry.source)
+    } else {
+        (home.join("config.toml"), default.clone())
+    };
+    Ok(Location {
+        home,
+        home_source,
+        selected,
+        selected_source,
+        explicit,
+    })
 }

@@ -232,6 +232,7 @@ async fn headless_goal_never_waits_for_a_user() {
         .goal_create(
             "owner".into(),
             GoalCreate {
+                infer_limits: false,
                 request_id: "headless".into(),
                 thread_id: thread.id.clone(),
                 expected_revision: 0,

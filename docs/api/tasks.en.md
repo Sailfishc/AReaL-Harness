@@ -63,6 +63,8 @@ Task projections contain `id, revision, channelSequence, owner, mode, interactio
 
 Run status is `queued/running/waitingForInput/waitingForAgents/paused/blocked/completed/failed/cancelled`; the last three are terminal. Task paused/cancelled fields express control intent; the Run can remain running during cleanup. Determine settlement from Run termination and worker.settled, not a control response or coordinator Turn completion.
 
+Cancelling a Task removes future dispatches and terminates unfinished Runs. Runs that have already ended retain their status, completion time and usage ledger as history, including after restart.
+
 ChannelMessage contains `id, sequence, runId, author, kind, status, createdAt, expiresAt, questions, required, inReplyTo, answers, text`. kind is question/reply/workerReport/report. Question status is pending/answered/expired/cancelled; other messages are published. questionId references the question message id. answers maps each question ID to one nonempty string of at most 4096 bytes, covering exactly all questions; closed-choice answers must match an offered option.
 
 A question must belong to the specified Task/Run, remain pending and not have expired. New replies are rejected for cancelled Tasks, completed/failed/budget-limited Goals or replaced Goals. Valid replies may be accepted during pause without resuming execution. Successful retries with the same requestId still return their receipt. Errors use Core codes: `-32602` invalid arguments, `-32009` state/revision conflict, `-32003` permission denied, `-32004` not found, `-32001` capacity exhausted; storage failures use the actual returned Core error.
@@ -87,7 +89,9 @@ pause durably stops dispatch and cancels current coordinator/workers. cancel als
 
 `desktop/task-mode.json` stores Tasks, Channels and idempotency receipts. Limits are 1024 Tasks, 8192 receipts and 32 MiB per deployment, plus 128 Runs and 1024 messages per Task. Capacity exhaustion rejects or pauses work without deleting history. Running or suspended Runs pause after a Core restart and require explicit resume; schedules that have not fired remain registered. Unknown tool effects are not replayed. server/drain pauses Tasks and time triggers. server/status.activeTasks includes pending timestamps, so ifIdle does not treat them as idle.
 
-Thread snapshot version is 10; the API remains areal.core.v1. Old Threads/Goals remain readable; legacy Goals register a Task on their first resume. Older binaries cannot read new snapshots. Embedded hosts call `Engine::start_task_scheduler()` after model/tool assembly; app-server calls it automatically.
+Thread snapshot version is 11; the API remains areal.core.v1. Old Threads/Goals remain readable; legacy Goals register a Task on their first resume. Older binaries cannot read new snapshots. Embedded hosts call `Engine::start_task_scheduler()` after model/tool assembly; app-server calls it automatically.
+
+For a scheduled Task with a total Token cap, updating or resuming its Goal checks the per-Run limit against the total minus confirmed and reserved usage of other Runs. The per-Run limit cannot be removed. Exceeding it returns `TASK_TOKEN_BUDGET` as an invalid-arguments error without saving the update or resuming execution. There is currently no public operation to change a scheduled Task total cap; additional total allowance requires explicitly creating a new Task.
 
 ## Request examples
 
