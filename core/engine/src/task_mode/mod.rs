@@ -504,6 +504,40 @@ impl Engine {
         }
         Ok(())
     }
+    pub(crate) async fn validate_task_goal_budget(
+        &self,
+        goal_id: &str,
+        requested: Option<u64>,
+    ) -> Result<()> {
+        let state = self.task_modes.state.lock().await;
+        let task = state.tasks.values().find(|task| {
+            task.mode == TaskMode::Scheduled
+                && task
+                    .runs
+                    .iter()
+                    .any(|run| run.goal_id.as_deref() == Some(goal_id))
+        });
+        if let Some(task) = task
+            && let Some(total) = task.token_budget
+        {
+            // 单轮额度包含本轮已用量；其他 Run 的已确认和预留消费先扣除。
+            let other_usage = task
+                .runs
+                .iter()
+                .filter(|run| run.goal_id.as_deref() != Some(goal_id))
+                .map(|run| {
+                    run.usage
+                        .tokens_used
+                        .saturating_add(run.usage.reserved_tokens)
+                })
+                .fold(0u64, u64::saturating_add);
+            if requested.is_none_or(|limit| limit > total.saturating_sub(other_usage)) {
+                return Err(invalid("TASK_TOKEN_BUDGET"));
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) async fn sync_goal_task_control(
         &self,
         thread: &Thread,

@@ -63,6 +63,8 @@ Task 投影包括 `id, revision, channelSequence, owner, mode, interactionMode, 
 
 Run status 为 `queued/running/waitingForInput/waitingForAgents/paused/blocked/completed/failed/cancelled`；后三项是终态。paused/cancelled 为 Task 控制意图，清理期间 Run 可能仍为 running。以 Run 终态及 worker.settled 判断执行结算，不以控制请求返回或协调 Turn completed 代替。
 
+取消 Task 撤销后续调度并终止尚未结束的 Run；已经结束的 Run 保留原状态、完成时间和用量账本，重启后仍作为历史展示。
+
 ChannelMessage 包含 `id, sequence, runId, author, kind, status, createdAt, expiresAt, questions, required, inReplyTo, answers, text`。kind 为 question/reply/workerReport/report；问题 status 为 pending/answered/expired/cancelled，其他消息为 published。`questionId` 引用 question 消息的 id；answers 是题 ID 到答案字符串的映射，必须恰好覆盖全部问题，非自由文本题须选择给定选项，每个答案非空且最多 4096 字节。
 
 问题必须属于指定 Task/Run，处于 pending 且未过期；已取消 Task、已完成/失败/预算停止 Goal 或已替换 Goal 拒绝新回复。暂停期间可接受有效回复，但不因此解除暂停。相同 requestId 的成功重试仍返回原收据。错误沿用 Core：`-32602` 参数非法、`-32009` 状态或 revision 冲突、`-32003` 权限不足、`-32004` 未找到、`-32001` 容量不足；存储错误以返回的实际 Core 错误为准。
@@ -84,6 +86,8 @@ schedule 为 `{at: UTC Unix秒, intervalSeconds?: 1..31536000}`；仅 scheduled 
 Task tokenBudget 覆盖所有 Run 的已确认和预留消费；maxTurns/maxActiveSeconds 分别限制每个 Run。沿用 Goal 的保守准入与未知消费处理。协调 Turn 和 detached worker 的活动时间取并集，重叠不重复计时；释放所有执行后等待用户的时间不计入。每个 worker 继承冻结配置、权限和同一 Goal 预算；最多使用部署 maxChildrenPerTurn 个 worker（按 Run 累计），maxModelRounds 默认取 16 与父上限的较小值，显式值不能超过父配置。交互式协调者的 worker 使用 asynchronous；headless 保持 headless。worker 不再递归创建 Task worker，也不能修改根 Goal；共享工作区写入仍须明确文件归属。
 
 pause 持久暂停调度并取消当前协调者和 worker；cancel 还撤销后续时间点且不可恢复。resume 不重置预算，不重放已结束 worker；失败/取消的 worker 不能被算作成功依赖。Goal pause/resume/update/clear 同步对应 Task；已取消 Task 的 Goal 不可再 resume。周期 Run 之间会清除同一 Task 的旧 Goal，保留历史和计量。
+
+周期Task有Token总上限时，更新或恢复关联Goal还会扣除其他Run的已确认及预留消费，校验本轮额度不超过余额；不能将本轮额度改为无限。超限返回`TASK_TOKEN_BUDGET`（参数错误），不保存修改或恢复执行。当前没有修改周期Task总上限的公开接口；需要更多总额度时应明确创建新任务。
 
 状态保存在 `desktop/task-mode.json`，含 Task、Channel 和幂等收据。每部署最多 1024 Task、8192 收据、32 MiB；每 Task 最多 128 Run、1024 消息，满后拒绝或暂停，不自动删除历史。活动或挂起等待的 Run 在 Core 重启后暂停，显式 resume 后才继续；尚未触发的 schedule 保留。恢复不自动重放未知工具副作用。`server/drain` 暂停任务与时间触发；`server/status.activeTasks` 计入待执行时间点，ifIdle 不把它们视为空闲。
 

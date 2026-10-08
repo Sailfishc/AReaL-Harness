@@ -8,6 +8,7 @@ export const png = Buffer.from(
 export async function fixture() {
   const requests = [];
   const failures = [];
+  const controlGoals = new Map();
   const server = createServer(async (req, res) => {
     try {
       let text = "";
@@ -33,6 +34,22 @@ export async function fixture() {
         (m) => typeof m.content === "string" && m.content.includes("Current authoritative goal: "),
       )?.content;
       const goalView = goalText && JSON.parse(goalText.split("Current authoritative goal: ")[1]);
+      if (goalView?.goal.objective === "task-controls-fixture" && result.length === 0) {
+        const firstGoal = controlGoals.get(goalView.threadId) ?? goalView.goal.id;
+        controlGoals.set(goalView.threadId, firstGoal);
+        const complete = firstGoal === goalView.goal.id;
+        tool = [
+          "goal_update",
+          {
+            expectedRevision: goalView.revision,
+            status: complete ? "complete" : "blocked",
+            summary: "Task control fixture settled",
+            evidence: ["deterministic fixture"],
+            remaining: complete ? [] : ["explicit user control"],
+            blocker: complete ? null : "Waiting for an explicit budget decision",
+          },
+        ];
+      }
       const goalWorker = typeof first === "string" && first.includes("GOAL_WORKER_FIXTURE");
       if (
         first === "headless-policy-fixture" ||

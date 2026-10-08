@@ -409,9 +409,15 @@ impl Engine {
                         goal.max_turns,
                         goal.max_active_seconds,
                     )?;
+                    engine
+                        .validate_task_goal_budget(&goal.id, goal.token_budget)
+                        .await?;
                     goal.report_turn_id = None;
                 }
                 "resume" => {
+                    engine
+                        .validate_task_goal_budget(&goal.id, goal.token_budget)
+                        .await?;
                     if !engine.accepting_work() {
                         return Err(Error::Closed);
                     }

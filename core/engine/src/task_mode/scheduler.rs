@@ -150,6 +150,10 @@ impl Engine {
                     self.edit_task(task_id, |task| {
                         let cancelled = task.cancelled;
                         let run = task.runs.last_mut().unwrap();
+                        // 计划控制只影响未结束的执行，不能改写已结算 Run 的历史。
+                        if run.status.terminal() {
+                            return;
+                        }
                         run.usage = goal.usage.clone();
                         if goal.active_turn_id.is_some()
                             || goal.settling
@@ -238,7 +242,7 @@ impl Engine {
                     })
                     .await?;
                 }
-            } else if task.cancelled {
+            } else if task.cancelled && !run.status.terminal() {
                 self.edit_task(task_id, |task| {
                     let run = task.runs.last_mut().unwrap();
                     run.status = RunStatus::Cancelled;
