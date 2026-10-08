@@ -16,7 +16,7 @@ The workflow runs `make release`, creates complete bundles with file manifests, 
 
 1. Merge preparation changes. Confirm Verify and Release bundles pass for the selected commit; inspect version, licenses and migration notes.
 2. Review both platform candidates, Homebrew checks and Linux installation logs; confirm scope and version.
-3. Create tag `v0.1.2` on the selected commit. It must match `areal --version`. Tag builds reconstruct and verify both packages, then create a **draft** Release only after all checks pass; they do not publish it.
+3. Create tag `v0.1.3` on the selected commit. It must match `areal --version`. Tag builds reconstruct and verify both packages, then create a **draft** Release only after all checks pass; they do not publish it.
 4. Download draft assets and verify SHA256SUMS and manifest sourceRevision, profile and platform. Complete release notes covering default permissions, dependencies, retired timeout settings, compaction defaults and known caching limitations. macOS has no Developer ID signing/notarization and must not be labeled notarized.
 5. Publish the draft after explicit approval. Create/update `Formula/areal.rb` in `areal-project/homebrew-tap` from that Release asset. Confirm public download availability before testing `brew install areal-project/tap/areal`.
 6. Install through the public URL on clean Linux and run read/write validation. Record artifact digests and results. Repeat for future versions without replacing published archives.

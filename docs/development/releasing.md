@@ -16,7 +16,7 @@
 
 1. 合并发布准备变更；确认选定提交的 Verify 与 Release bundles 验收通过，并检查当前版本、许可证和迁移说明。
 2. 审阅两平台候选、Homebrew 测试和 Linux 安装日志，确认版本及支持范围。
-3. 在固定提交创建 `v0.1.2` tag；tag 必须与 `areal --version` 一致。tag workflow 重建并验收两平台产物，全部通过后才创建 **draft** Release，不自动公开。
+3. 在固定提交创建 `v0.1.3` tag；tag 必须与 `areal --version` 一致。tag workflow 重建并验收两平台产物，全部通过后才创建 **draft** Release，不自动公开。
 4. 下载 draft assets，核对 SHA256SUMS、manifest 中的 sourceRevision、profile 和平台；补齐 release notes（默认权限、依赖、旧超时配置移除、压缩默认值及缓存已知限制）。macOS 尚无 Developer ID/公证，不应标为已公证。
 5. 明确批准后公开 draft。创建/更新 `areal-project/homebrew-tap` 的 `Formula/areal.rb`，内容来自该 Release 资产；先确认公开下载 URL 可用，再测试 `brew install areal-project/tap/areal`。
 6. 在干净 Linux 上用公开地址安装并跑读写验收；记录发行 digest 与最终结果。后续版本重复本流程，不替换已公开版本的归档。
