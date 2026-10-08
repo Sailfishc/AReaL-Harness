@@ -45,13 +45,14 @@ Async questions default to 86400 seconds and accept 1–604800; synchronous ques
 
 ## Client API
 
-The table omits the `areal/` prefix. create/control/reply require interact; all other methods require observe. Mutation requestId is a business idempotency key separate from RPC id. Retries with the same identity, method, requestId and arguments return the original acceptance response; different arguments conflict. Deduplication precedes revision checks. The original response may be stale; read the current projection afterward.
+The table omits the `areal/` prefix. create/update/control/reply require interact; all other methods require observe. Mutation requestId is a business idempotency key separate from RPC id. Retries with the same identity, method, requestId and arguments return the original acceptance response; different arguments conflict. Deduplication precedes revision checks. The original response may be stale; read the current projection afterward.
 
 | Method | Parameters | Response |
 |---|---|---|
 | task/create | `requestId, mode, objective, threadId?, interactionMode?, schedule?, tokenBudget?, maxTurns?, maxActiveSeconds?` | Task projection |
 | task/list | `after?, limit?` | `{data: Task[], nextCursor}` |
 | task/read | `taskId` | Task projection |
+| task/update | `requestId, taskId, expectedRevision, objective?, schedule?` | Updated Task projection |
 | task/pause, task/resume, task/cancel | `requestId, taskId, expectedRevision` | Task projection after persisting control intent |
 | task/subscribe | `taskId` | Atomic snapshot and subsequent task/updated notifications |
 | task/unsubscribe | `taskId` | `{removed:true}`; does not cancel execution |
@@ -78,6 +79,12 @@ Clients can answer the same question from a global Inbox or Task detail without 
 Replace task state with the task/subscribe snapshot and subsequent event task projections. When channelSequence advances, page channel/read and **replace** messages by id. State changes give a question a new sequence, so it can reappear in incremental pages. Save nextSequence only after processing the page. Cursors are neither Turn IDs, Task revisions nor read markers. Channel pagination provides changes to latest message state, not a complete immutable event log. Server-side read receipts are not implemented.
 
 limit is 1–100, defaulting to 30 for Task/Inbox and 50 for Channel. Use nextCursor for Task/Inbox and nextSequence/hasMore for Channel. Pages also have an approximate 128 KiB budget; a single Task projection may exceed it. Do not assume pages reach limit. Refresh Inbox through inbox/list; no global Inbox subscription exists yet.
+
+## Updating a scheduled Task
+
+`areal/task/update` accepts `{requestId, taskId, expectedRevision, objective?, schedule?}`, with at least one changed field. Only non-cancelled scheduled Tasks can be updated. A schedule must use a future UTC timestamp and the same interval bounds as creation. Omitted fields retain their values. Authorization, durable idempotency receipts and revision conflicts follow the existing mutation contract. The response and `areal/task/updated` notification contain the full Task projection.
+
+Updates preserve Task, Thread and Run identity, history, pause state and budgets. A new schedule replaces `nextRunAt`. An accepted Goal retains its original objective, and its controls do not overwrite the updated Task objective. Updates are rejected during the short window where a Run is queued but its Goal has not yet been accepted; retry after it starts. An ended one-shot Task can be scheduled again at a future time. Updating neither immediately executes the Task nor changes its workspace. Clients first check that methods includes `areal/task/update`.
 
 ## Scheduling, budgets and recovery
 

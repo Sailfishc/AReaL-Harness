@@ -87,6 +87,7 @@ pub fn projections() -> (Value, Value) {
     insert(
         &[
             "task/create",
+            "task/update",
             "task/read",
             "task/subscribe",
             "task/pause",

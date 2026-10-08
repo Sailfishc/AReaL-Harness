@@ -4,6 +4,7 @@ use areal_protocol::tasks::*;
 
 pub(crate) const METHODS: &[&str] = &[
     "areal/task/create",
+    "areal/task/update",
     "areal/task/list",
     "areal/task/read",
     "areal/task/pause",
@@ -75,6 +76,10 @@ pub(crate) async fn dispatch(
                 .await
                 .map_err(map_error)
         }
+        "areal/task/update" => engine
+            .task_update(principal.id.clone(), parse(params)?)
+            .await
+            .map_err(map_error),
         "areal/task/read" => {
             let p: TaskTarget = parse(params)?;
             Ok(projection(
@@ -156,6 +161,107 @@ pub(crate) async fn dispatch(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // 先固定保存契约：修改必须有授权、版本与幂等键，且不得改变暂停状态或已有身份。
+    #[tokio::test]
+    async fn scheduled_update_is_authorized_versioned_and_durable() {
+        let dir = tempfile::tempdir().unwrap();
+        let model = Arc::new(
+            areal_engine::model::ChatModel::new("http://127.0.0.1:9".into(), "unused".into(), None)
+                .unwrap(),
+        );
+        let engine = Engine::open(dir.path(), model, areal_engine::Limits::default()).unwrap();
+        let thread = engine.create(engine.default_cwd()).await.unwrap();
+        let owner = auth::Principal::embedded();
+        let at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            + 86400;
+        let created = dispatch(
+            &engine,
+            &owner,
+            "areal/task/create",
+            json!({
+                "requestId":"create-edit-test", "mode":"scheduled", "objective":"original",
+                "threadId":thread.id, "schedule":{"at":at,"intervalSeconds":86400}
+            }),
+        )
+        .await
+        .unwrap();
+        let paused = dispatch(&engine, &owner, "areal/task/pause", json!({
+            "requestId":"pause-edit-test", "taskId":created["id"], "expectedRevision":created["revision"]
+        })).await.unwrap();
+        let request = json!({"requestId":"edit-test", "taskId":created["id"],
+            "expectedRevision":paused["revision"], "objective":"updated", "schedule":{"at":at+3600,"intervalSeconds":86400}});
+        let denied = auth::Principal {
+            thread_ids: Some(Default::default()),
+            ..(*owner).clone()
+        };
+        assert_eq!(
+            dispatch(&engine, &denied, "areal/task/update", request.clone())
+                .await
+                .unwrap_err()
+                .code,
+            -32003
+        );
+        validate("requests", "areal/task/update", &request);
+        let updated = dispatch(&engine, &owner, "areal/task/update", request.clone())
+            .await
+            .unwrap();
+        validate("responses", "areal/task/update", &updated);
+        assert_eq!(updated["id"], created["id"]);
+        assert_eq!(updated["threadId"], created["threadId"]);
+        assert_eq!(updated["objective"], "updated");
+        assert_eq!(updated["nextRunAt"], at + 3600);
+        assert_eq!(updated["paused"], true);
+        assert_eq!(updated["runs"], json!([]));
+        assert_eq!(
+            dispatch(&engine, &owner, "areal/task/update", request.clone())
+                .await
+                .unwrap(),
+            updated
+        );
+        let mut stale = request.clone();
+        stale["requestId"] = json!("stale-edit");
+        assert!(
+            dispatch(&engine, &owner, "areal/task/update", stale)
+                .await
+                .is_err()
+        );
+        let mut invalid = request.clone();
+        invalid["requestId"] = json!("invalid-edit");
+        invalid["expectedRevision"] = updated["revision"].clone();
+        invalid["schedule"]["intervalSeconds"] = json!(0);
+        assert!(
+            dispatch(&engine, &owner, "areal/task/update", invalid)
+                .await
+                .is_err()
+        );
+        engine.shutdown().await;
+        drop(engine);
+        let model = Arc::new(
+            areal_engine::model::ChatModel::new("http://127.0.0.1:9".into(), "unused".into(), None)
+                .unwrap(),
+        );
+        let reopened = Engine::open(dir.path(), model, areal_engine::Limits::default()).unwrap();
+        let restored = dispatch(
+            &reopened,
+            &owner,
+            "areal/task/read",
+            json!({"taskId":created["id"]}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(restored, updated);
+        assert_eq!(
+            dispatch(&reopened, &owner, "areal/task/update", request)
+                .await
+                .unwrap(),
+            updated
+        );
+        reopened.shutdown().await;
+    }
 
     fn validate(group: &str, method: &str, value: &Value) {
         let schemas: Value =

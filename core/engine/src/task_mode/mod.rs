@@ -261,6 +261,54 @@ impl Engine {
         }).await
     }
 
+    pub async fn task_update(
+        self: &Arc<Self>,
+        owner: String,
+        request: TaskUpdate,
+    ) -> Result<Value> {
+        self.mutate(move |engine| async move {
+            let _gate = engine.desktop.lifecycle.gate.lock().await;
+            let hash = desktop::digest(&request)?;
+            let mut state = engine.task_modes.state.lock().await;
+            if let Some(value) = receipt(&state, &owner, "update", &request.request_id, &hash)? {
+                return Ok(value);
+            }
+            if !engine.accepting_work() { return Err(Error::Closed); }
+            if request.objective.is_none() && request.schedule.is_none() {
+                return Err(invalid("provide an objective or schedule to update"));
+            }
+            if request.objective.as_ref().is_some_and(|s| s.trim().is_empty() || s.chars().count() > 4000) {
+                return Err(invalid("objective must contain 1..4000 characters"));
+            }
+            if request.schedule.as_ref().is_some_and(|s| s.at <= now() || s.interval_seconds.is_some_and(|n| !(1..=31_536_000).contains(&n))) {
+                return Err(invalid("schedule requires a future UTC timestamp and optional intervalSeconds in 1..31536000"));
+            }
+            let mut candidate = state.clone();
+            let task = candidate.tasks.get_mut(&request.task_id).ok_or(Error::NotFound)?;
+            if task.revision != request.expected_revision || task.cancelled || task.mode != TaskMode::Scheduled {
+                return Err(Error::Conflict);
+            }
+            // 排队到 Goal 受理之间仍使用 Task 配置，拒绝在这段窗口修改。
+            // Goal 已受理后持有自己的目标快照，修改只作用于下一次触发。
+            if task.runs.last().is_some_and(|r| !r.status.terminal() && r.goal_id.is_none()) {
+                return Err(invalid("task run is being dispatched; retry after it starts"));
+            }
+            if let Some(objective) = request.objective { task.objective = objective; }
+            if let Some(schedule) = request.schedule {
+                task.next_run_at = Some(schedule.at);
+                task.schedule = Some(schedule);
+            }
+            task.revision += 1;
+            let result = summary(task);
+            remember(&mut candidate, owner, "update", request.request_id, hash, result.clone());
+            engine.save_tasks(&mut state, candidate, &request.task_id).await?;
+            drop(state);
+            engine.start_task_scheduler();
+            engine.wake_tasks();
+            Ok(result)
+        }).await
+    }
+
     pub async fn task_control(
         self: &Arc<Self>,
         owner: String,
@@ -591,7 +639,10 @@ impl Engine {
             _ => {}
         }
         if let Some(goal) = thread.goals.goal.as_ref() {
-            task.objective = goal.objective.clone();
+            // 周期任务的下一次目标由 Task 管理；旧 Run 的 Goal 控制不能覆盖新计划。
+            if task.mode != TaskMode::Scheduled {
+                task.objective = goal.objective.clone();
+            }
             task.max_turns = goal.max_turns;
             task.max_active_seconds = goal.max_active_seconds;
             if task.mode != TaskMode::Scheduled {

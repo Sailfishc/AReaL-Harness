@@ -13844,6 +13844,65 @@
       "title": "TaskTarget",
       "type": "object"
     },
+    "areal/task/update": {
+      "additionalProperties": false,
+      "description": "修改后续计划；不重新绑定执行会话、不重写已受理 Run 的 Goal。",
+      "properties": {
+        "expectedRevision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "objective": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "schedule": {
+          "anyOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "at": {
+                  "description": "UTC Unix 秒；间隔以该时间为锚点，避免执行耗时导致漂移。",
+                  "format": "int64",
+                  "type": "integer"
+                },
+                "intervalSeconds": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "at"
+              ],
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "taskId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "taskId",
+        "expectedRevision"
+      ],
+      "title": "TaskUpdate",
+      "type": "object"
+    },
     "areal/thread/archive": {
       "additionalProperties": false,
       "properties": {
@@ -34400,6 +34459,286 @@
       "required": [
         "removed"
       ],
+      "type": "object"
+    },
+    "areal/task/update": {
+      "properties": {
+        "cancelled": {
+          "type": "boolean"
+        },
+        "channelSequence": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "id": {
+          "type": "string"
+        },
+        "interactionMode": {
+          "enum": [
+            "interactive",
+            "asynchronous",
+            "headless"
+          ],
+          "type": "string"
+        },
+        "maxActiveSeconds": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "maxTurns": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "mode": {
+          "enum": [
+            "foreground",
+            "scheduled",
+            "background"
+          ],
+          "type": "string"
+        },
+        "nextRunAt": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "objective": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string"
+        },
+        "paused": {
+          "type": "boolean"
+        },
+        "pendingQuestions": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "runs": {
+          "items": {
+            "properties": {
+              "completedAt": {
+                "format": "int64",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "goalId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "id": {
+                "type": "string"
+              },
+              "reason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "scheduledAt": {
+                "format": "int64",
+                "type": "integer"
+              },
+              "status": {
+                "enum": [
+                  "queued",
+                  "running",
+                  "waitingForInput",
+                  "waitingForAgents",
+                  "paused",
+                  "blocked",
+                  "completed",
+                  "failed",
+                  "cancelled"
+                ],
+                "type": "string"
+              },
+              "threadId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "usage": {
+                "additionalProperties": false,
+                "properties": {
+                  "accountingComplete": {
+                    "type": "boolean"
+                  },
+                  "cachedInputTokens": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "inputTokens": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "outputTokens": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "reservedTokens": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "timeUsedSeconds": {
+                    "format": "double",
+                    "type": "number"
+                  },
+                  "tokensUsed": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "turnsStarted": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "unknownRequests": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "inputTokens",
+                  "cachedInputTokens",
+                  "outputTokens",
+                  "tokensUsed",
+                  "reservedTokens",
+                  "unknownRequests",
+                  "timeUsedSeconds",
+                  "turnsStarted",
+                  "accountingComplete"
+                ],
+                "type": "object"
+              },
+              "waitRequested": {
+                "type": "boolean"
+              },
+              "workers": {
+                "default": [],
+                "items": {
+                  "properties": {
+                    "settled": {
+                      "type": "boolean"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "threadId": {
+                      "type": "string"
+                    },
+                    "turnId": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "threadId",
+                    "turnId",
+                    "status",
+                    "settled"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "id",
+              "status",
+              "scheduledAt",
+              "usage",
+              "waitRequested"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "schedule": {
+          "anyOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "at": {
+                  "description": "UTC Unix 秒；间隔以该时间为锚点，避免执行耗时导致漂移。",
+                  "format": "int64",
+                  "type": "integer"
+                },
+                "intervalSeconds": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "at"
+              ],
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "threadId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tokenBudget": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "revision",
+        "channelSequence",
+        "owner",
+        "mode",
+        "interactionMode",
+        "objective",
+        "paused",
+        "cancelled",
+        "runs",
+        "pendingQuestions"
+      ],
+      "title": "Task",
       "type": "object"
     },
     "areal/thread/archive": {

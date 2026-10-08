@@ -257,7 +257,13 @@ impl Engine {
         }
         if task.next_run_at.is_some_and(|at| at <= now()) {
             self.edit_task(task_id, |task| {
-                let at = task.next_run_at.unwrap();
+                // 修改计划或暂停可能发生在上次读取之后，必须在同一状态锁下重新判断。
+                if task.paused || task.cancelled {
+                    return;
+                }
+                let Some(at) = task.next_run_at.filter(|at| *at <= now()) else {
+                    return;
+                };
                 let busy = task.runs.last().is_some_and(|r| !r.status.terminal());
                 task.next_run_at =
                     task.schedule
