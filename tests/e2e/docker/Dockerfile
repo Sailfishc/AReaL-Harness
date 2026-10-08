@@ -17,13 +17,13 @@ COPY clients ./clients
 COPY runtime ./runtime
 COPY scripts/launch.py ./scripts/launch.py
 COPY scripts/install.py ./scripts/install.py
-RUN cargo build --locked --profile "${BUILD_PROFILE}" -p areal-runtime -p areal-runtime-fs -p areal-cli
+RUN cargo build --locked --profile "${BUILD_PROFILE}" -p areal-runtime -p areal-runtime-fs -p areal-runtime-exec-native -p areal-cli
 
 FROM runtime-builder AS runtime-tests
 
 RUN apk add --no-cache bubblewrap python3 coreutils
-RUN cargo test --locked --profile ci -p areal-runtime-exec-native --lib --no-run
-CMD ["cargo", "test", "--offline", "--locked", "--profile", "ci", "-p", "areal-runtime-exec-native", "--lib"]
+RUN cargo test --locked --profile ci -p areal-runtime-exec-native --no-run
+CMD ["cargo", "test", "--offline", "--locked", "--profile", "ci", "-p", "areal-runtime-exec-native"]
 
 FROM ${BASE_IMAGE}
 
@@ -72,6 +72,7 @@ RUN if [ "${INSTALL_CLAUDE_CODE}" = "1" ]; then \
 COPY --from=runtime-builder /src/target/${BUILD_PROFILE}/areal-runtime /usr/local/libexec/areal/areal-runtime
 COPY --from=runtime-builder /src/target/${BUILD_PROFILE}/tools /usr/local/libexec/areal/tools
 COPY --from=runtime-builder /src/target/${BUILD_PROFILE}/areal-runtime-fs /usr/local/libexec/areal/areal-runtime-fs
+COPY --from=runtime-builder /src/target/${BUILD_PROFILE}/areal-runtime-reaper /usr/local/libexec/areal/areal-runtime-reaper
 COPY --from=runtime-builder /src/target/${BUILD_PROFILE}/areal /usr/local/bin/areal
 COPY tests/perf/runner /opt/areal-perf
 COPY tests/perf/trace_metrics.py /opt/areal-perf/trace_metrics.py

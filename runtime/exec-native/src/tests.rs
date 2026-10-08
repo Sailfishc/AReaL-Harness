@@ -381,3 +381,9 @@ async fn system_python_direct_and_shell_commands_preserve_sandbox() {
     }
     backend.shutdown().await.unwrap();
 }
+
+#[cfg(target_os = "linux")]
+mod linux_reaping;
+
+#[cfg(target_os = "macos")]
+mod macos_reaping;

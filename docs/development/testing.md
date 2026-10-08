@@ -24,6 +24,8 @@ Linux 宿主常规检查使用 `make verify CARGO_TEST_ARGS='--exclude areal-run
 
 ## Python 与 scratch
 
+Linux 回收测试使用随 `cargo test -p areal-runtime-exec-native` 构建的 `areal-runtime-reaper`。若单独运行 `--lib`，先执行 `cargo build --locked -p areal-runtime-exec-native --bin areal-runtime-reaper`，且构建和测试须使用相同 profile。macOS 后代测试让祖先存活至跟踪窗口内再退出，验证已观察后代清理；不把该测试解释为快速孤儿化的完整保证。
+
 macOS Python/scratch 的独立回归（本地模型，不需要供应商密钥）：
 
 ```sh

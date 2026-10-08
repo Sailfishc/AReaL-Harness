@@ -103,6 +103,7 @@ sys.stdin.buffer.read()
             ("areal", server),
             ("areal-runtime", runtime),
             ("areal-runtime-fs", prefix),
+            ("areal-runtime-reaper", prefix),
         ]:
             p = root / name
             p.write_text(body)
@@ -113,7 +114,7 @@ sys.stdin.buffer.read()
             (keg / "libexec/areal").mkdir(parents=True)
             (root / "areal").rename(keg / "bin/areal")
             (root / "areal").symlink_to(keg / "bin/areal")
-            for name in ["areal-runtime", "areal-runtime-fs"]:
+            for name in ["areal-runtime", "areal-runtime-fs", "areal-runtime-reaper"]:
                 (root / name).rename(keg / "libexec/areal" / name)
         return subprocess.run(
             [

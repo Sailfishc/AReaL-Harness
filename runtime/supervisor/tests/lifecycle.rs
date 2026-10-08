@@ -22,6 +22,7 @@ struct Executor {
     entered: Semaphore,
     reject: AtomicBool,
     lose_start_reply: AtomicBool,
+    cleanup_start_failure: AtomicBool,
     fail_cleanup: AtomicBool,
     routes: Mutex<HashMap<String, mpsc::Sender<Event>>>,
     executions: Mutex<Vec<Execution>>,
@@ -35,6 +36,7 @@ impl Executor {
             entered: Semaphore::new(0),
             reject: AtomicBool::new(false),
             lose_start_reply: AtomicBool::new(false),
+            cleanup_start_failure: AtomicBool::new(false),
             fail_cleanup: AtomicBool::new(false),
             routes: Mutex::new(HashMap::new()),
             executions: Mutex::new(Vec::new()),
@@ -80,7 +82,11 @@ impl Backend for Executor {
         self.gate.acquire().await.unwrap().forget();
         if self.lose_start_reply.load(Ordering::SeqCst) {
             return Err(Error::new(
-                ErrorCode::Unavailable,
+                if self.cleanup_start_failure.load(Ordering::SeqCst) {
+                    ErrorCode::CleanupFailed
+                } else {
+                    ErrorCode::Unavailable
+                },
                 "fixture lost start reply",
             ));
         }
@@ -1029,9 +1035,21 @@ async fn explicit_rejection_releases_reservation_but_lost_cleanup_remains_unknow
 
 #[tokio::test]
 async fn lost_start_reply_is_not_replayed_and_fences_the_connection() {
+    assert_unknown_start(false).await;
+}
+
+#[tokio::test]
+async fn startup_cleanup_failure_preserves_unknown_and_reservation() {
+    assert_unknown_start(true).await;
+}
+
+async fn assert_unknown_start(cleanup_failed: bool) {
     let dir = tempfile::tempdir().unwrap();
     let executor = Executor::new(false);
     executor.lose_start_reply.store(true, Ordering::SeqCst);
+    executor
+        .cleanup_start_failure
+        .store(cleanup_failed, Ordering::SeqCst);
     let runtime = Supervisor::new(Config::read_only(dir.path().into()), executor.clone()).unwrap();
     let root = runtime.connection_info().root_scope_id;
     let request = process(&runtime, &root);

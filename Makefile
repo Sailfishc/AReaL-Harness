@@ -84,11 +84,12 @@ test-runtime: cordis-pin ## Runtime 组件、权限、去重、撤销竞态与�
 
 runtime: ## 启动私有 stdio Runtime；ARGS 指定 --workspace
 	python3 scripts/builtin-tools.py
+	cargo build --locked -p areal-runtime-exec-native --bin areal-runtime-reaper
 	cargo run --locked -p areal-runtime -- $(ARGS)
 
 runtime-smoke: cordis-pin ## 构建 Runtime 并验证原生执行后端
 	python3 scripts/builtin-tools.py
-	cargo build --locked -p areal-runtime -p areal-runtime-fs
+	cargo build --locked -p areal-runtime -p areal-runtime-fs -p areal-runtime-exec-native
 	python3 scripts/runtime-smoke.py $(ARGS)
 	python3 scripts/runtime-fs-smoke.py $(ARGS)
 
@@ -164,7 +165,7 @@ server: ## 构建并启动 Core；读取用户 TOML、环境变量和显式 ARGS
 
 tui: ## 启动本地 Core + Runtime + TUI；--endpoint/--remote 连接已有服务
 	python3 scripts/builtin-tools.py
-	cargo build --locked -p areal-runtime -p areal-runtime-fs -p areal-cli
+	cargo build --locked -p areal-runtime -p areal-runtime-fs -p areal-runtime-exec-native -p areal-cli
 	cargo run --locked -p areal-cli -- $(ARGS)
 
 schemas: ## 使用 codex-cli 0.145.0 重新生成协议 schema

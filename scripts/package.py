@@ -23,7 +23,9 @@ def main():
     target_platform = targets.get((platform.system(), platform.machine()))
     if target_platform is None:
         parser.error("package targets are macOS arm64 and Linux x86_64")
-    names = ("areal", "areal-runtime", "areal-runtime-fs")
+    names = ["areal", "areal-runtime", "areal-runtime-fs"]
+    if platform.system() == "Linux":
+        names.append("areal-runtime-reaper")
     source = root / "target" / args.profile
     subprocess.run(
         ["python3", str(root / "scripts/builtin-tools.py"), "--profile", args.profile], check=True

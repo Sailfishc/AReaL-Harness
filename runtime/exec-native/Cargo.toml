@@ -6,6 +6,12 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[[bin]]
+name = "areal-runtime-reaper"
+path = "src/bin/reaper.rs"
+test = false
+bench = false
+
 [dependencies]
 areal-runtime-host-tools.workspace = true
 areal-runtime-protocol.workspace = true

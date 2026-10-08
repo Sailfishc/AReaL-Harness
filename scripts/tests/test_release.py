@@ -41,6 +41,7 @@ class ReleaseTests(unittest.TestCase):
             "bin/areal",
             "libexec/areal/areal-runtime",
             "libexec/areal/areal-runtime-fs",
+            *(["libexec/areal/areal-runtime-reaper"] if target.startswith("linux/") else []),
             "libexec/areal/tools/rg",
             "LICENSE",
         ]:

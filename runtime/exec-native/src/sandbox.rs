@@ -382,7 +382,7 @@ mod tests;
 /// descriptor is inherited only by this child, then consumed by Bubblewrap.
 #[cfg(target_os = "linux")]
 pub fn seccomp(
-    command: &mut tokio::process::Command,
+    argv: &mut Vec<String>,
     profile: Profile,
     network: areal_runtime_protocol::NetworkRequest,
 ) -> Result<Option<std::fs::File>> {
@@ -450,22 +450,14 @@ pub fn seccomp(
     file.seek(SeekFrom::Start(0))
         .map_err(|_| invalid("cannot rewind seccomp filter"))?;
     let fd = file.as_raw_fd();
-    command.args(["--seccomp", &fd.to_string()]);
-    // SAFETY: fcntl is async-signal-safe and touches only this child's fd table.
-    unsafe {
-        command.pre_exec(move || {
-            if libc::fcntl(fd, libc::F_SETFD, 0) < 0 {
-                return Err(std::io::Error::last_os_error());
-            }
-            Ok(())
-        });
-    }
+    // 过滤器只交给实际的 bwrap；外层回收器负责显式传递这个描述符。
+    argv.splice(1..1, ["--seccomp".to_owned(), fd.to_string()]);
     Ok(Some(file))
 }
 
 #[cfg(not(target_os = "linux"))]
 pub fn seccomp(
-    _: &mut tokio::process::Command,
+    _: &mut Vec<String>,
     _: Profile,
     _: areal_runtime_protocol::NetworkRequest,
 ) -> Result<Option<std::fs::File>> {
