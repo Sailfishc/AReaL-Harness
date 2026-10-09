@@ -573,6 +573,7 @@ button.composer-project:hover > svg,
   max-height: none;
   overflow-y: visible;
   padding-bottom: 8px;
+  caret-color: var(--color-foreground);
   font-size: var(--text-ui-lg);
   line-height: max(24px, calc(var(--ui-font-size) + 10px));
 }
