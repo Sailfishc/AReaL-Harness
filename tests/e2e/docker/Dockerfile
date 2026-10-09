@@ -8,9 +8,7 @@ ARG BUILD_PROFILE
 
 RUN apk add --no-cache git build-base cmake python3 curl
 WORKDIR /src
-COPY scripts/builtin-tools.py ./scripts/builtin-tools.py
 COPY upstream/pins.json ./upstream/pins.json
-RUN python3 scripts/builtin-tools.py --profile "${BUILD_PROFILE}"
 COPY Cargo.toml Cargo.lock ./
 COPY core ./core
 COPY clients ./clients
@@ -70,7 +68,6 @@ RUN if [ "${INSTALL_CLAUDE_CODE}" = "1" ]; then \
     fi
 
 COPY --from=runtime-builder /src/target/${BUILD_PROFILE}/areal-runtime /usr/local/libexec/areal/areal-runtime
-COPY --from=runtime-builder /src/target/${BUILD_PROFILE}/tools /usr/local/libexec/areal/tools
 COPY --from=runtime-builder /src/target/${BUILD_PROFILE}/areal-runtime-fs /usr/local/libexec/areal/areal-runtime-fs
 COPY --from=runtime-builder /src/target/${BUILD_PROFILE}/areal-runtime-reaper /usr/local/libexec/areal/areal-runtime-reaper
 COPY --from=runtime-builder /src/target/${BUILD_PROFILE}/areal /usr/local/bin/areal

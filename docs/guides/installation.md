@@ -11,7 +11,7 @@
 | macOS arm64 | GitHub Release 完整包 + Python 安装器；Homebrew tap 发布后可选 formula | macOS 15+、Xcode Command Line Tools；独立安装/升级需 PATH 中的 Python 3.9+ |
 | Linux x86_64 | GitHub Release 完整包 + Python 安装器 | Ubuntu 22.04 或更新的兼容 glibc 2.35+ 系统；独立安装/升级需 PATH 中的 Python 3.9+；不支持 musl |
 
-只验证上述架构，不提供 Windows、macOS Intel 或 Linux arm64 包。**npm 与 `cargo install` 尚未提供完整发行包**，不能作为安装渠道。Homebrew 和独立安装器二选一，不应同时管理同一个 PATH 入口。每个包包含 `bin/areal`、`libexec/areal/{areal-runtime,areal-runtime-fs,tools/rg}`、工具许可证、LICENSE 和文件 SHA256 manifest；Linux 包另外包含同目录的 `areal-runtime-reaper`，不要只复制 `areal`。安装后启动无需 Rust/Cargo/Python，运行自定义 Node/Python 工具仍需对应解释器。
+只验证上述架构，不提供 Windows、macOS Intel 或 Linux arm64 包。**npm 与 `cargo install` 尚未提供完整发行包**，不能作为安装渠道。Homebrew 和独立安装器二选一，不应同时管理同一个 PATH 入口。每个包包含 `bin/areal`、`libexec/areal/{areal-runtime,areal-runtime-fs}`、LICENSE 和文件 SHA256 manifest；Linux 包另外包含同目录的 `areal-runtime-reaper`，不要只复制 `areal`。安装后启动无需 Rust/Cargo/Python，运行自定义 Node/Python 工具仍需对应解释器。
 
 macOS 包采用 ad-hoc 签名，尚无 Developer ID 签名和公证。Linux 默认 YOLO/full-access 以当前用户权限运行；受限/只读 Scope 需要 `/usr/bin/bwrap` 及可用 user namespace。Ubuntu 可安装 `bubblewrap`；系统禁用 user namespace 或 AppArmor 拒绝时，受限操作会失败，不自动放宽权限。完整边界见 [Runtime 部署](runtime.md)。
 
@@ -73,3 +73,7 @@ macOS 离线安装将归档名改为 `areal-harness-v0.1.3-aarch64-apple-darwin.
 卸载先停止服务。Homebrew 用 `brew uninstall areal`；Linux 删除安装器管理的入口链接及选定版本目录。两种方式都不自动删除 `~/.areal` 的配置与历史。
 
 符号链接入口先解析到真实版本目录，再定位 `libexec/areal`，适用于 Homebrew Cellar 和 Linux 版本化安装。
+
+## 源码安装
+
+运行 `make install` 构建 release 并安装完整 Runtime，默认前缀为 `/usr/local`。可用 `make install PREFIX="$HOME/.local"` 安装到用户目录，或用 `DESTDIR=/tmp/package` 暂存打包。搜索通过文件助手内置的 ripgrep Rust 库执行，无需单独安装 rg；命令行任务需要 rg 时仍须自行安装。

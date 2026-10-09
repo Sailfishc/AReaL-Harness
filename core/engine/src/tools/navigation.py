@@ -5,9 +5,7 @@ import json
 import os
 from pathlib import Path
 import stat
-import subprocess
 import sys
-import tempfile
 
 LIMIT = 14000
 
@@ -75,99 +73,10 @@ def read_file(request):
     return result
 
 
-def search_files(request):
-    path = project_path(request)
-    root_name = request["path"].removeprefix("workspace://").split("/", 1)[0]
-    root = Path(request["roots"][root_name])
-    command = [
-        request["rg"],
-        "--no-config",
-        "--no-ignore-global",
-        "--no-ignore-parent",
-        "--json",
-        "--no-follow",
-        "--line-number",
-        "--context",
-        str(request.get("context", 2)),
-    ]
-    if request.get("glob"):
-        command.extend(["--glob", request["glob"]])
-    # 从工作区根遍历，保留内部祖先 ignore，排除根以外的宿主规则。
-    # 只增加负 glob，避免正 glob 强行包含原本被 .gitignore 排除的文件。
-    current = root
-    for part in path.relative_to(root).parts:
-        with os.scandir(current) as children:
-            for child in children:
-                if child.name == part:
-                    continue
-                relative = str(Path(child.path).relative_to(root))
-                escaped = "".join("\\" + c if c in "\\*?[]{}!" else c for c in relative)
-                command.extend(["--glob", "!/" + escaped])
-                if sum(len(arg) for arg in command) > 60000:
-                    raise ValueError("search path selection exceeds argument budget")
-        current = current / part
-    command.extend(["--", request["pattern"], "."])
-    rows, matches, scanned = [], 0, 0
-    limited = False
-    # An unread stderr pipe can deadlock when rg visits many unreadable paths.
-    with (
-        tempfile.TemporaryFile() as errors,
-        subprocess.Popen(command, cwd=root, stdout=subprocess.PIPE, stderr=errors) as process,
-    ):
-        try:
-            while True:
-                raw = process.stdout.readline(65537)
-                if not raw:
-                    break
-                scanned += len(raw)
-                if len(raw) > 65536 or scanned > 8 * 1024 * 1024:
-                    limited = True
-                    break
-                event = json.loads(raw)
-                if event.get("type") not in ("match", "context"):
-                    continue
-                data = event["data"]
-                if event["type"] == "match":
-                    matches += 1
-                row = {
-                    "path": str(root / data["path"]["text"]) if "text" in data["path"] else None,
-                    "line": data.get("line_number"),
-                    "text": data["lines"].get("text"),
-                    "kind": event["type"],
-                }
-                rows.append(row)
-                if (
-                    matches > request.get("limit", 50)
-                    or len(json.dumps(rows, ensure_ascii=False).encode()) > LIMIT - 1000
-                ):
-                    rows.pop()
-                    limited = True
-                    break
-        finally:
-            if limited:
-                process.terminate()
-            try:
-                process.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait()
-        errors.seek(0)
-        error = errors.read(2048).decode("utf-8", errors="replace")
-        if process.returncode not in (0, 1) and not limited:
-            raise ValueError("search failed: " + error)
-    return {
-        "matches": rows,
-        "limited": limited,
-        "guidance": "Narrow path/pattern when limited; no matches is meaningful only when limited=false.",
-    }
-
-
 if __name__ == "__main__":
     request = json.loads(sys.argv[1])
     try:
-        result = (
-            read_file(request) if request["operation"] == "read_file" else search_files(request)
-        )
+        result = read_file(request)
         print(json.dumps({"result": result}, ensure_ascii=False))
     except (OSError, ValueError) as error:
         print(json.dumps({"error": str(error)}, ensure_ascii=False))

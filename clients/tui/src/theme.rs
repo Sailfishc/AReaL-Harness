@@ -58,6 +58,7 @@ pub struct UiArgs {
     pub no_logo: Option<bool>,
     #[arg(long, env = "AREAL_TUI_ASCII", num_args = 0..=1, default_missing_value = "true", require_equals = true)]
     pub ascii: Option<bool>,
+    /// 默认捕获鼠标以点击和滚动；设为 false 可使用终端原生拖选复制。
     #[arg(long, env = "AREAL_TUI_MOUSE", num_args = 0..=1, default_missing_value = "true", require_equals = true)]
     pub mouse: Option<bool>,
 }

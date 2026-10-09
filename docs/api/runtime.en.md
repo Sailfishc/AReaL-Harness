@@ -16,7 +16,7 @@ Handshake returns protocolVersion, connectionId, runtimeEpoch, rootScopeId and c
 
 capabilities reports actual sandbox, fullAccess, rootNetwork, methods and processLimits, without granting permissions. coreHostIsolated/processTreeCleanupVerified/directoryObjectIsolation/sandboxDenialAttribution are false. Core treats missing legacy rootNetwork as network-denied.
 
-Standard deployments expose capabilities.builtinTools.rg with a trusted absolute path and pinned version 15.2.0. At startup the daemon checks platform, version and content digest from tools/rg.json; missing/corrupt tools reject startup without host rg discovery. Supervisor prepends the builtin tool directory to task PATH and exposes exact executable files to child processes without expanding Scope file access. Core search_files uses this capability path; older external Runtimes without it receive UNSUPPORTED with upgrade guidance.
+Standard deployments expose capabilities.builtinTools.searchFiles with a trusted file-helper path. The Runtime file helper links ripgrep search libraries directly and does not consult host rg configuration. Core search_files invokes it inside the existing Runtime Scope; older external Runtimes without this capability receive UNSUPPORTED with upgrade guidance.
 
 ## Methods
 

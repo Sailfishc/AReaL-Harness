@@ -9,29 +9,36 @@ pub(super) async fn invoke(
 ) -> rt::Result<(bool, Value)> {
     let mut request = args.clone();
     request["operation"] = json!(name);
-    if name == "search_files" {
-        request["rg"] = runtime.client.info().capabilities["builtinTools"]["rg"]["path"].clone();
-        if !request["rg"].as_str().is_some_and(|p| p.starts_with('/')) {
-            return Err(rt::Error::new(
-                rt::ErrorCode::Unsupported,
-                "Runtime has no builtin rg; upgrade the complete Harness deployment",
-            ));
-        }
-    }
     request["roots"] = json!({"repo":runtime.workspace,"scratch":runtime.command_scratch,"host":if runtime.client.info().capabilities["fullAccess"] == true { Some("/") } else { None }});
+    let argv = if name == "search_files" {
+        let capability = &runtime.client.info().capabilities["builtinTools"]["searchFiles"];
+        let helper = capability["path"]
+            .as_str()
+            .filter(|p| p.starts_with('/'))
+            .filter(|_| capability["version"] == 1)
+            .ok_or_else(|| {
+                rt::Error::new(
+                    rt::ErrorCode::Unsupported,
+                    "Runtime has no embedded search; upgrade the complete Harness deployment",
+                )
+            })?;
+        vec![helper.to_owned(), "--search".into(), request.to_string()]
+    } else {
+        vec![
+            python_executable()?,
+            "-I".into(),
+            "-B".into(),
+            "-c".into(),
+            include_str!("navigation.py").into(),
+            request.to_string(),
+        ]
+    };
     let started = runtime
         .client
         .start(rt::StartProcess {
             operation_id: operation.into(),
             scope_id: scope.into(),
-            argv: vec![
-                python_executable()?,
-                "-I".into(),
-                "-B".into(),
-                "-c".into(),
-                include_str!("navigation.py").into(),
-                request.to_string(),
-            ],
+            argv,
             cwd: "workspace://repo".into(),
             env: BTreeMap::new(),
             tty: false,

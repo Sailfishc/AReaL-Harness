@@ -69,10 +69,12 @@ try {
   assert.deepEqual((await readdir(join(bundle, "libexec/areal"))).sort(), [
     "areal-runtime",
     "areal-runtime-fs",
-    "tools",
+    ...(process.platform === "linux" ? ["areal-runtime-reaper"] : []),
   ]);
-  for (const file of ["rg", "rg.json", "licenses/COPYING", "licenses/dependencies.json"])
-    assert.equal(typeof manifest.files[`libexec/areal/tools/${file}`], "string");
+  assert.equal(
+    Object.keys(manifest.files).some((path) => path.startsWith("libexec/areal/tools/")),
+    false,
+  );
   for (const [file, sha] of Object.entries(manifest.files))
     assert.equal(
       createHash("sha256")
