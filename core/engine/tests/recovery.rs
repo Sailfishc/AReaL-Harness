@@ -154,7 +154,11 @@ async fn retry_discards_only_failed_completion_and_never_executes_its_calls() {
     assert_eq!(turn.usage.as_ref().unwrap().input_tokens, 8);
     let audit = std::fs::read_dir(data.path().join("audit"))
         .unwrap()
-        .next()
+        .find(|entry| {
+            entry
+                .as_ref()
+                .is_ok_and(|e| e.path().extension().is_some_and(|x| x == "json"))
+        })
         .unwrap()
         .unwrap()
         .path();
@@ -217,6 +221,15 @@ async fn malformed_summary_retries_then_uses_labeled_evidence_without_executing_
         std::fs::read_dir(data.path().join("audit"))
             .unwrap()
             .filter(|entry| {
+                if entry
+                    .as_ref()
+                    .unwrap()
+                    .path()
+                    .extension()
+                    .is_none_or(|x| x != "json")
+                {
+                    return false;
+                }
                 let audit: Value =
                     serde_json::from_slice(&std::fs::read(entry.as_ref().unwrap().path()).unwrap())
                         .unwrap();

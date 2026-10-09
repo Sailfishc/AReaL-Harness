@@ -38,6 +38,8 @@ impl Store {
             .write(true)
             .open(root.join("owner.lock"))?;
         fs2::FileExt::try_lock_exclusive(&lock).context("another Core owns the data directory")?;
+        // 独占 Store 后才移除崩溃遗留的原子写临时文件，不能与旧 Core 的写入竞争。
+        cleanup_temps(&root)?;
         Ok(Self {
             root,
             _lock: lock,
@@ -300,14 +302,20 @@ if keep.contains(&name){retained+=e.metadata()?.len();}else{reclaimed+=e.metadat
         let permit = self.io.clone().acquire_owned().await?;
         let directory = self.root.join("audit");
         tokio::task::spawn_blocking(move || -> Result<()> {
-            use std::io::Write;
             let _permit = permit;
-            std::fs::create_dir_all(&directory)?;
-            let mut file = tempfile::NamedTempFile::new_in(&directory)?;
-            serde_json::to_writer(&mut file, &value)?;
-            file.flush()?;
-            file.as_file().sync_all()?;
-            file.persist(directory.join(format!("{}.json", uuid::Uuid::new_v4())))?;
+            let _gate = crate::diagnostics::lock(&directory)?;
+            crate::diagnostics::atomic_write(
+                &directory,
+                &directory.join(format!("{}.json", uuid::Uuid::new_v4())),
+                &crate::diagnostics::encode(&value),
+            )?;
+            // 非权威审计按容量回收；锁内完成发布和清理，不能与并发写入竞争。
+            crate::diagnostics::prune(
+                &directory,
+                crate::diagnostics::CORE_AUDIT,
+                std::time::SystemTime::now(),
+                |_| Ok(false),
+            )?;
             Ok(())
         })
         .await??;
@@ -368,23 +376,23 @@ fn atomic_write_blob(root: &Path, mime_type: String, bytes: Vec<u8>) -> Result<M
     let directory = root.join("blobs");
     let path = directory.join(&id);
     if !path.exists() {
-        let temporary = directory.join(format!("{id}.{}.tmp", uuid::Uuid::new_v4()));
-        let mut file = OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .open(&temporary)?;
+        let mut file = tempfile::Builder::new()
+            .prefix(&format!("{id}."))
+            .suffix(".tmp")
+            .tempfile_in(&directory)?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+            file.as_file()
+                .set_permissions(std::fs::Permissions::from_mode(0o600))?;
         }
         file.write_all(&bytes)?;
         file.flush()?;
-        file.sync_all()?;
+        file.as_file().sync_all()?;
         if path.exists() {
-            std::fs::remove_file(temporary)?;
+            drop(file);
         } else {
-            std::fs::rename(temporary, &path)?;
+            file.persist(&path)?;
         }
         #[cfg(unix)]
         File::open(&directory)?.sync_all()?;
@@ -394,6 +402,58 @@ fn atomic_write_blob(root: &Path, mime_type: String, bytes: Vec<u8>) -> Result<M
         mime_type,
         size_bytes: bytes.len() as u64,
     })
+}
+
+fn cleanup_temps(root: &Path) -> Result<()> {
+    for relative in [
+        "",
+        "blobs",
+        "history",
+        "goals",
+        "goals/requests",
+        "desktop",
+        "security",
+    ] {
+        // 逐级检查，避免 goals 是符号链接时经由 goals/requests 清理外部目录。
+        let mut current = root.to_path_buf();
+        let mut safe = true;
+        for component in Path::new(relative).components() {
+            current.push(component);
+            if !std::fs::symlink_metadata(&current)
+                .is_ok_and(|meta| meta.is_dir() && !meta.file_type().is_symlink())
+            {
+                safe = false;
+                break;
+            }
+        }
+        if !safe {
+            continue;
+        }
+        let directory = root.join(relative);
+        let metadata = match std::fs::symlink_metadata(&directory) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error.into()),
+        };
+        if !metadata.is_dir() || metadata.file_type().is_symlink() {
+            continue;
+        }
+        for entry in std::fs::read_dir(directory)? {
+            let entry = entry?;
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            let blob_temp = relative == "blobs"
+                && name.ends_with(".tmp")
+                && name
+                    .split('.')
+                    .next()
+                    .is_some_and(|id| id.len() == 64 && id.bytes().all(|b| b.is_ascii_hexdigit()));
+            if entry.file_type()?.is_file() && (name.starts_with(".tmp") || blob_temp) {
+                std::fs::remove_file(entry.path())?;
+            }
+        }
+    }
+    Ok(())
 }
 
 fn atomic_metadata(root: &Path, name: &str, bytes: &[u8]) -> Result<()> {
@@ -467,5 +527,34 @@ mod tests {
                 .unwrap()
                 .all(|entry| !entry.unwrap().path().to_string_lossy().ends_with(".tmp"))
         );
+    }
+    #[test]
+    fn crash_temps_require_store_ownership_and_preserve_authority() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        let store = Store::open(root).unwrap();
+        let staging = root.join(".tmpcrashed");
+        std::fs::write(&staging, b"partial").unwrap();
+        assert!(Store::open(root).is_err());
+        assert!(staging.exists());
+        drop(store);
+        std::fs::write(root.join("goal.json"), b"keep").unwrap();
+        std::fs::create_dir_all(root.join("goals/requests")).unwrap();
+        std::fs::write(root.join("goals/requests/.tmpcrashed"), b"partial").unwrap();
+        let _store = Store::open(root).unwrap();
+        assert!(!staging.exists() && !root.join("goals/requests/.tmpcrashed").exists());
+        assert!(root.join("goal.json").exists());
+    }
+
+    #[test]
+    fn crash_cleanup_does_not_follow_parent_symlinks() {
+        let directory = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::create_dir(outside.path().join("requests")).unwrap();
+        let sentinel = outside.path().join("requests/.tmpkeep");
+        std::fs::write(&sentinel, b"keep").unwrap();
+        std::os::unix::fs::symlink(outside.path(), directory.path().join("goals")).unwrap();
+        cleanup_temps(directory.path()).unwrap();
+        assert!(sentinel.exists());
     }
 }

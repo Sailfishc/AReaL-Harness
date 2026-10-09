@@ -3,6 +3,7 @@ pub mod concurrency;
 mod context;
 mod default_model;
 pub mod desktop;
+pub mod diagnostics;
 mod generation;
 pub mod goals;
 mod history;

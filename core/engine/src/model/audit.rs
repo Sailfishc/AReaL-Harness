@@ -1,13 +1,13 @@
 use super::*;
 use sha2::{Digest, Sha256};
 use std::{
-    io::Write,
     path::{Path, PathBuf},
     time::Instant,
 };
 
 pub(super) struct Audit {
     path: Option<PathBuf>,
+    lease: Option<std::fs::File>,
     pub value: Value,
     started: Instant,
 }
@@ -73,8 +73,25 @@ impl Audit {
             value["threadId"] = json!(thread);
             value["turnId"] = json!(turn);
         }
+        let lease = directory.and_then(|directory| {
+            let result = (|| {
+                let gate = crate::diagnostics::lock(directory)?;
+                crate::diagnostics::sweep_model(directory, &gate, false)?;
+                crate::diagnostics::lease(directory, &request_id)
+            })();
+            match result {
+                Ok(lease) => Some(lease),
+                Err(_) => {
+                    tracing::warn!("could not initialize model request audit");
+                    None
+                }
+            }
+        });
         let audit = Self {
-            path: directory.map(|d| d.join(format!("{request_id}.json"))),
+            path: directory
+                .filter(|_| lease.is_some())
+                .map(|d| d.join(format!("{request_id}.json"))),
+            lease,
             value,
             started: Instant::now(),
         };
@@ -86,13 +103,36 @@ impl Audit {
             self.value[field] = json!(self.started.elapsed().as_millis() as u64);
         }
     }
+    pub fn save_error_detail(&mut self, detail: &Value) {
+        let Some(path) = &self.path else { return };
+        let path = path
+            .parent()
+            .unwrap()
+            .join("errors")
+            .join(path.file_name().unwrap());
+        // tempfile 默认 0600；原文不进入 JSONL、TurnOutcome 或遥测，只写独立私有制品。
+        let result = (|| -> std::io::Result<()> {
+            let _gate = crate::diagnostics::lock(path.parent().unwrap().parent().unwrap())?;
+            let directory = path.parent().unwrap();
+            crate::diagnostics::private_dir(directory)?;
+            crate::diagnostics::atomic_write(directory, &path, detail.to_string().as_bytes())
+        })();
+        if result.is_ok() {
+            self.value["errorDetailFile"] = json!(path);
+        } else {
+            tracing::warn!("could not save private model error detail");
+        }
+    }
     fn save(&self) {
         if let Some(path) = &self.path {
             let result = (|| -> std::io::Result<()> {
-                std::fs::create_dir_all(path.parent().unwrap())?;
-                let temporary = path.with_extension("tmp");
-                std::fs::write(&temporary, self.value.to_string())?;
-                std::fs::rename(temporary, path)
+                let directory = path.parent().unwrap();
+                let _gate = crate::diagnostics::lock(directory)?;
+                crate::diagnostics::atomic_write(
+                    directory,
+                    path,
+                    &crate::diagnostics::encode(&self.value),
+                )
             })();
             if result.is_err() {
                 tracing::warn!("could not save model request audit");
@@ -100,6 +140,7 @@ impl Audit {
         }
     }
 }
+
 impl Drop for Audit {
     fn drop(&mut self) {
         if self.value["outcome"] == "pending" {
@@ -111,15 +152,64 @@ impl Drop for Audit {
         // snapshots. Artifact catalogs can otherwise fill before late requests.
         if let Some(path) = &self.path {
             let append = (|| -> std::io::Result<()> {
-                let mut file = std::fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(path.parent().unwrap().join("requests.jsonl"))?;
-                file.write_all(format!("{}\n", self.value).as_bytes())
+                let directory = path.parent().unwrap();
+                let gate = crate::diagnostics::lock(directory)?;
+                crate::diagnostics::append_jsonl(directory, &self.value)?;
+                // 最终记录发布后才释放租约，清理不能删除在途请求或中断其原文写入。
+                self.lease.take();
+                std::fs::remove_file(
+                    directory
+                        .join(".leases")
+                        .join(path.file_name().unwrap())
+                        .with_extension("lock"),
+                )?;
+                crate::diagnostics::sweep_model(directory, &gate, false)
             })();
             if append.is_err() {
                 tracing::warn!("could not append model request audit");
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn provider_error_is_private_and_not_copied_into_audit() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut audit = Audit::new(Some(directory.path()), &json!({}), RequestPurpose::Solve);
+        let error = StreamError::from_value(&json!({"message":"private prompt and key"}), "error");
+        assert!(!format!("{error:?}").contains("private prompt and key"));
+        assert!(
+            !serde_json::to_string(&error)
+                .unwrap()
+                .contains("private prompt and key")
+        );
+        audit.save_error_detail(&error.private_detail.0);
+        let path = PathBuf::from(audit.value["errorDetailFile"].as_str().unwrap());
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        let detail: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        assert_eq!(detail["error"]["message"], "private prompt and key");
+        drop(audit);
+        assert!(
+            !std::fs::read_to_string(directory.path().join("requests.jsonl"))
+                .unwrap()
+                .contains("private prompt and key")
+        );
+        let large = StreamError::from_value(&json!({"message":"中".repeat(20000)}), "error");
+        assert_eq!(large.private_detail.0["truncated"], true);
+        assert!(
+            large.private_detail.0["rawJsonPrefix"]
+                .as_str()
+                .unwrap()
+                .len()
+                <= 16 * 1024
+        );
     }
 }
