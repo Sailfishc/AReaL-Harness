@@ -106,7 +106,7 @@ features.goals=true advertises Goal support without a separate configuration tog
 
 Local service discovery, window-independent lifecycle and Desktop Main integration use the [local service contract](local-service.en.md). `server/status` and `server/drain` additionally return `activeGoals` (Thread IDs) and `pendingQueueItems` (pending/running queue count). These are additive response fields; restartSafe still describes execution cleanup rather than absence of scheduled work.
 
-Shared services expose `server/status.configuration` as `{modelRevision,restartRequired,error}`; other deployments return null. `areal/server/configurationChanged` publishes `{threadId,configuration}` to subscribed threads. `server/drain` also accepts `strategy="ifIdle"`: check idle state and close admission under one gate; busy rejection keeps work running. See [configuration reload](../guides/configuration.en.md).
+Shared services expose `server/status.configuration` as `{modelRevision,restartRequired,error}`; other deployments return null. Missing environment credentials during model reload may report both `restartRequired=true` and `error`, indicating that a local client with valid credentials must perform a safe restart; other reload errors do not trigger automatic restart. `areal/server/configurationChanged` publishes `{threadId,configuration}` to subscribed threads. `server/drain` also accepts `strategy="ifIdle"`: check idle state and close admission under one gate; busy rejection keeps work running. See [configuration reload](../guides/configuration.en.md).
 
 ## Task Mode integration
 

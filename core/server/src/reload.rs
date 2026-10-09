@@ -198,7 +198,7 @@ impl Reload {
             };
             let (restart, error) = match result {
                 Ok(restart) => (restart, None),
-                Err(error) => (false, Some(error.to_string())),
+                Err(error) => (requires_fresh_credentials(&error), Some(error.to_string())),
             };
             engine
                 .set_configuration_status(
@@ -207,6 +207,18 @@ impl Reload {
                 .await;
         }
     }
+}
+
+fn requires_fresh_credentials(error: &anyhow::Error) -> bool {
+    // 新终端可提供旧服务环境中不存在的凭据；客户端仍须先校验自身配置再安全重启。
+    error
+        .downcast_ref::<areal_config::ConfigError>()
+        .is_some_and(|error| {
+            error.kind == areal_config::ConfigErrorKind::MissingValue
+                && error.field.starts_with("model.providers.")
+                && error.field.ends_with(".api_key_env")
+                && matches!(error.source, areal_config::ConfigSource::Env { .. })
+        })
 }
 
 #[cfg(test)]
@@ -255,7 +267,13 @@ mod tests {
         let revision = reload.current.clone();
         inputs.overrides.api_key_env = Some("MISSING_KEY".into());
         let unavailable = areal_config::load_management_config(&inputs).unwrap();
-        assert!(reload.apply(&unavailable.model, &engine, false).is_err());
+        let error = reload
+            .apply(&unavailable.model, &engine, false)
+            .unwrap_err();
+        assert!(requires_fresh_credentials(&error));
+        assert!(!requires_fresh_credentials(&anyhow::anyhow!(
+            "archive full"
+        )));
         assert_eq!(reload.current, revision);
         assert_eq!(reload.models.len(), 1);
     }
