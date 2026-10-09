@@ -325,6 +325,47 @@ try {
   await call("stop", { projectId: pid, threadId: tid });
   await until((s) => current(s).turns.at(-1)?.status !== "inProgress", "stopped");
   checks.push("explicit turn cancellation");
+  // 未完成的目标必须先暂停并结算，清除后同一聊天仍能接受普通消息。
+  const beforeGoal = await call("manage", { projectId: pid, threadId: tid, operation: "goal" });
+  await call("manage", {
+    projectId: pid,
+    threadId: tid,
+    operation: "goalCreate",
+    objective: "后台持续执行",
+    expectedRevision: beforeGoal.revision,
+    maxTurns: 3,
+  });
+  await until(
+    (s) => current(s).goals?.goal?.status === "active" && !!finishBackground,
+    "goal running",
+  );
+  assert.equal(await button("清除目标").isDisabled(), true);
+  await button("暂停目标").click();
+  await until((s) => current(s).goals?.goal?.settling === true, "goal cancellation settling");
+  assert.equal(await button("清除目标").isDisabled(), true);
+  finishBackground();
+  await until(
+    (s) =>
+      current(s).goals?.goal?.status === "paused" &&
+      !current(s).goals.goal.settling &&
+      current(s).turns.at(-1)?.status !== "inProgress",
+    "goal paused and settled",
+  );
+  await button("清除目标").click();
+  await until(
+    (s) => current(s).goals?.goal === null && !s.projects[0].pending.length,
+    "unfinished goal cleared",
+  );
+  await send("目标清除后发送普通消息");
+  await until(
+    (s) => current(s).turns.at(-1)?.status === "completed",
+    "message after clearing goal",
+  );
+  assert.equal(await page.locator(".error-banner").count(), 0);
+  assert.equal(current(await state()).goals.goal, null);
+  checks.push(
+    "unfinished Goal pause settles before clear; same chat accepts a normal message after clear",
+  );
   await openPanel("文件");
   await page.getByRole("treeitem", { name: "hello.ts", exact: true }).click();
   await button("文件更多").click();
