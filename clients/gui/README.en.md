@@ -16,6 +16,8 @@ make gui
 
 `make gui-build` builds only the renderer. `pnpm --dir clients/gui typecheck` checks renderer and shared desktop contract JSDoc types (not all Electron CJS implementations); `pnpm --dir clients/gui run verify` checks the public source boundary. This module has its own pnpm lockfile; existing SDKs retain npm. Dependencies use the public npm registry; initial Electron/Core tool installation needs network access.
 
+After installing locked dependencies, `make gui-install` explicitly runs the official Electron installer to download the pinned native runtime.
+
 `AREAL_CORE_BIN` selects an absolute trusted Core path; development defaults to `target/debug/areal`. Development data is isolated under `AReaL Harness GUI Dev/<checkout digest>`; installed builds use `AReaL Harness GUI`. Existing desktop installations and data are not imported or replaced. `AREAL_GUI_USER_DATA`, `AREAL_CORE_HOME`, `AREAL_HARNESS_HOME`, and `AREAL_CORE_CONFIG` explicitly select isolated directories/configuration.
 
 Both development and installed macOS builds require a working `/usr/bin/python3` to launch Runtime and trusted tool helpers; install Xcode Command Line Tools with `xcode-select --install`. The interpreter is not bundled. Shared-service startup checks availability and returns an actionable error.
