@@ -133,3 +133,5 @@ TUI 与共享服务 PTY 检查共用终端画面解析器，处理增量重绘�
 工具慢时在日志过滤器启用 `areal::tool_timing=debug,areal::persistence=debug`。工具阶段区分意图持久化（含锁/clone）、执行、结果投影和最终提交；持久化区分编码、IO 准入、文件写入和 sync/rename。计时事件不增加参数、文件内容或凭据。一次编码仍保持执行前持久化和文件/目录同步顺序。
 
 搜索回归直接运行 Runtime 文件助手，覆盖无宿主 rg/Python 的搜索、工作区 ignore、glob、上下文、截断与符号链接拒绝。原生和发行 smoke 通过 Core 的 `search_files` 验证完整调用链，不依赖 shell 中存在 rg。
+
+桌面 soak 与 GUI 包校验接受不含独立 tools/rg 的内置搜索布局；soak 同时核对平台所需的 Runtime 组件及 manifest 文件摘要。

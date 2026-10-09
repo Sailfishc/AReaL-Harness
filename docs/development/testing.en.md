@@ -133,3 +133,5 @@ After building, run `node scripts/context-live-smoke.mjs /absolute/model.toml` w
 For slow tools, enable `areal::tool_timing=debug,areal::persistence=debug` in the logging filter. Tool stages distinguish intent persistence (including lock/clone), invocation, projection and final commit. Persistence distinguishes encoding, IO admission, file write and sync/rename. No arguments, file contents or credentials are added to these timing events. Single encoding retains the same durable-before-execution ordering and file/directory sync.
 
 Search regressions run the Runtime file helper directly, covering search without host rg/Python, workspace ignore rules, globs, context, truncation and symlink rejection. Native and release smoke tests exercise the complete Core `search_files` path without requiring rg in the shell.
+
+Desktop soak and GUI bundle validation accept the embedded-search layout without standalone tools/rg. Soak also verifies the platform-specific Runtime components and manifest file hashes.
