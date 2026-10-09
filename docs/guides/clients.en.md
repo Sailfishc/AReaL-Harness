@@ -67,7 +67,7 @@ TUI headers and Web show YOLO/ASK_PERMISSIONS and Core remains authoritative. TU
 | Control | Behavior |
 |---|---|
 | Enter | Start a Turn when idle; steer while running |
-| ←/→, Ctrl-A / Ctrl-E | In the editor, move by grapheme or jump to the current line start / end |
+| ←/→, Option+←/→, Ctrl-A / Ctrl-E | In the editor, move by grapheme; Option+←/→ (Alt+b / Alt+f) jump to the previous word start / next word end using Codex word boundaries; Ctrl-A / Ctrl-E jump to the current line start / end |
 | Ctrl-D / Delete, Backspace | Delete the grapheme at / before the cursor; empty input or the corresponding boundary is a no-op, without exiting |
 | `/`, Tab, Esc | Slash candidates, completion and dismissal |
 | Ctrl-C / Ctrl-Q | Pause the current Goal and cancel its Turn (interrupt the Turn without a Goal) / exit |
