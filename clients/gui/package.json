@@ -13,6 +13,7 @@
     "start": "node scripts/start.mjs",
     "package": "node scripts/package.mjs",
     "verify": "node scripts/verify-public.mjs",
+    "test:queue": "node scripts/queue-smoke.mjs",
     "test:composer": "node scripts/composer-smoke.mjs",
     "test:connection": "node scripts/connection-smoke.mjs",
     "test:architecture": "node scripts/architecture-smoke.mjs",

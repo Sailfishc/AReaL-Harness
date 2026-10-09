@@ -2,6 +2,7 @@
 
 const { connectService, stopService } = require('./local-service.cjs');
 const { randomUUID, createHash } = require('node:crypto');
+const { isDeepStrictEqual } = require('node:util');
 const { mkdir, readFile, writeFile, rename, realpath, rm } = require('node:fs/promises');
 const { join, isAbsolute } = require('node:path');
 const WebSocket = require('ws');
@@ -393,14 +394,26 @@ class CoreBackend {
 
   async editQueue(project, request) {
     const { threadId, operation, expectedRevision } = request;
-    if (!['update', 'remove', 'reorder', 'pause', 'resume'].includes(operation)
+    if (!['update', 'remove', 'reorder', 'pause', 'resume', 'steer'].includes(operation)
       || !Number.isSafeInteger(expectedRevision) || expectedRevision < 0) throw new Error('无效队列操作');
     const params = { threadId, expectedRevision };
-    if (operation === 'update' || operation === 'remove') {
+    if (operation === 'update' || operation === 'remove' || operation === 'steer') {
       if (typeof request.queueItemId !== 'string' || !request.queueItemId) throw new Error('缺少排队消息');
       params.queueItemId = request.queueItemId;
     }
-    if (operation === 'update') params.input = this.textInput(request.text);
+    if (operation === 'update') {
+      const retained = request.retainedInput ?? [];
+      const original = project.model.state.queues[threadId]?.items.find(item => item.id === request.queueItemId);
+      if (!Array.isArray(retained) || retained.length > 16 || retained.some(part => part.type === 'text'
+        || !original?.input.some(input => isDeepStrictEqual(input, part)))) throw new Error('排队附件引用已变化，请核对原消息');
+      const changed = request.text?.trim() || request.attachments?.length ? messageInput(this, request) : [];
+      params.input = [...changed.filter(part => part.type === 'text'), ...retained, ...changed.filter(part => part.type !== 'text')];
+      if (!params.input.length || params.input.filter(part => part.type !== 'text').length > 16) throw new Error('排队消息不能为空，且最多 16 个附件');
+    }
+    if (operation === 'steer') {
+      if (typeof request.expectedTurnId !== 'string' || !request.expectedTurnId) throw new Error('缺少目标活动轮次');
+      params.expectedTurnId = request.expectedTurnId;
+    }
     if (operation === 'reorder') {
       if (!Array.isArray(request.queueItemIds) || request.queueItemIds.length > 128
         || request.queueItemIds.some(id => typeof id !== 'string')
@@ -408,8 +421,13 @@ class CoreBackend {
       params.queueItemIds = request.queueItemIds;
     }
     try {
-      const queue = await this.submit(project, `areal/queue/${operation}`, params);
-      project.model.setQueue(threadId, queue);
+      const result = await this.submit(project, `areal/queue/${operation}`, params, { requestId: request.requestId });
+      if (operation === 'steer') {
+        // 转移收据只保存绑定 ID 和版本，不把完整队列复制到每张收据。
+        await this.refreshQueue(project, threadId).catch(() => {});
+      } else project.model.setQueue(threadId, result);
+      this.onChange();
+      return result;
     } catch (error) {
       // 冲突只刷新展示，不用新 revision 重放用户的旧操作。
       await this.refreshQueue(project, threadId).catch(() => {});
@@ -578,7 +596,7 @@ class CoreBackend {
   }
 
   async submit(project, method, parameters, { requestId } = {}) {
-    if (requestId !== undefined && (!(workgroupMutationMethods.has(method) || taskMutationMethods.has(method) || ['areal/agent/spawn', 'areal/process/start', 'areal/thread/start'].includes(method)) || typeof requestId !== 'string' || !/^[0-9a-f-]{36}$/.test(requestId))) throw new Error('无效请求标识');
+    if (requestId !== undefined && (!(workgroupMutationMethods.has(method) || taskMutationMethods.has(method) || ['areal/agent/spawn', 'areal/process/start', 'areal/thread/start', ...['update','remove','reorder','pause','resume','steer'].map(name => `areal/queue/${name}`)].includes(method)) || typeof requestId !== 'string' || !/^[0-9a-f-]{36}$/.test(requestId))) throw new Error('无效请求标识');
     const params = { ...parameters, requestId: requestId ?? randomUUID() };
     const entry = { method, params };
     // 活跃请求仅保存在内存；重启后仍在恢复日志中的请求应显示为结果未知。
@@ -736,6 +754,13 @@ class CoreBackend {
       if (['areal/thread/start', 'areal/turn/start', 'turn/start', 'areal/turn/enqueue'].includes(entry.method)) {
         await this.changeOutcomes(project, outcomes => ({ ...outcomes, [entry.params.requestId]: { accepted: true, threadId: entry.params.threadId ?? receipt.threadId ?? receipt.result?.thread?.id } }));
       }
+      if (entry.method.startsWith('areal/queue/')) {
+        await this.changeOutcomes(project, outcomes => ({ ...outcomes, [entry.params.requestId]: {
+          accepted: !receipt.response?.error, threadId: entry.params.threadId, method: entry.method,
+          result: management ? receipt.response.result : receipt.result,
+          message: receipt.response?.error?.message,
+        } }));
+      }
       const threadId = entry.params.threadId ?? receipt.threadId ?? receipt.result?.thread?.id;
       if (entry.method === 'areal/thread/archive') await this.listThreads(project);
       if (threadId) await this.openThread(project, threadId);
@@ -830,8 +855,18 @@ class CoreBackend {
       case 'list': await this.listThreads(project); break;
       case 'open': await this.openThread(project, threadId); break;
       case 'configure': await this.configureThread(project, threadId, request); break;
-      case 'queue': await this.refreshQueue(project, threadId); break;
-      case 'queueEdit': await this.editQueue(project, request); break;
+      case 'queue': {
+        if (!request.requestId) return this.refreshQueue(project, threadId);
+        if (typeof request.requestId !== 'string' || !/^[0-9a-f-]{36}$/.test(request.requestId)
+          || !['update','remove','reorder','pause','resume','steer'].includes(request.operation)) throw new Error('无效队列收据查询');
+        const method = `areal/queue/${request.operation}`;
+        const records = await project.client.request('areal/request/read', { requestId: request.requestId, ...(request.operation === 'steer' ? { threadId } : {}) });
+        const receipt = records.data.find(record => record.method === method);
+        if (receipt?.result) return { confirmed: true, accepted: true, result: receipt.result };
+        if (receipt?.state === 'completed' && receipt.response) return { confirmed: true, accepted: !receipt.response.error, result: receipt.response.result, message: receipt.response.error?.message };
+        return { confirmed: false };
+      }
+      case 'queueEdit': return this.editQueue(project, request);
       case 'create': {
         await this.resources.beforeCreate(project);
         const { thread } = await this.submit(project, 'areal/thread/start', { cwd: project.root,
@@ -877,7 +912,7 @@ class CoreBackend {
         }
         break;
       }
-      case 'reconcile': await this.reconcile(project); break;
+      case 'reconcile': await this.reconcile(project); return { outcomes: project.outcomes };
       default: throw new Error('不支持的操作');
     }
     return this.snapshot();
