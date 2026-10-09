@@ -24,8 +24,8 @@ const fields = {
 };
 const reads = {
   providers: ['areal/provider/list', []], mcp: ['areal/mcp/list', []],
-  profile: ['areal/profile/read', ['id', 'revision']], skills: ['areal/skill/list', ['threadId']],
-  skill: ['areal/skill/read', ['threadId', 'skill', 'resource', 'offset', 'maxBytes']],
+  profile: ['areal/profile/read', ['id', 'revision']], skills: ['areal/skill/list', ['threadId', 'agentProfile']],
+  skill: ['areal/skill/read', ['threadId', 'agentProfile', 'skill', 'resource', 'offset', 'maxBytes']],
   inspect: ['areal/thread/inspect', ['threadId']], context: ['areal/context/read', ['threadId', 'offset', 'limit']],
   plan: ['areal/plan/read', ['threadId']], processes: ['areal/process/list', ['threadId']],
   process: ['areal/process/get', ['threadId', 'id']],

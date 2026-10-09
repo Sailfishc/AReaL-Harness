@@ -1321,7 +1321,7 @@ function AppContent({ services }: { services: PlatformServices }) {
               onFile={path => {void open(owner.id,executionThread.id).then(() => openFile(path));}}
               onReview={turnId => {void open(owner.id,executionThread.id).then(() => {setReviewRequest({owner:`${owner.id}:${executionThread.id}`,turnId});setPanel("改动");});}}
               readTurnReview={(turnId,itemId) => resourceAction("workspace",{projectId:owner.id,threadId:executionThread.id,turnId,itemId,operation:"turnReview"})}/>
-              <Composer key={executionThread.id} project={owner} thread={executionThread} action={action} onPanel={name => {void open(owner.id,executionThread.id).then(() => showPanel(name));}} onNew={() => void newTask()}/></>}
+              <Composer key={executionThread.id} project={owner} thread={executionThread} action={action} readAction={resourceAction} onPanel={name => {void open(owner.id,executionThread.id).then(() => showPanel(name));}} onNew={() => void newTask()}/></>}
             navigation={<>
               {!sidebar && <button className="icon-button" aria-label="展开侧栏" onClick={() => setSidebar(true)}><SidebarToggleIcon /></button>}
               <button className="icon-button" aria-label="返回对话" onClick={() => { setTaskCenterOpen(false); setTaskNotification(undefined); }}><ArrowLeft /></button>
@@ -1368,6 +1368,7 @@ function AppContent({ services }: { services: PlatformServices }) {
                           project={project}
                           thread={thread}
                           action={action}
+                          readAction={resourceAction}
                           onPanel={showPanel}
                           onNew={() => void newTask()}
                           onOpenTask={target => { updateSettingsOpen(false); setTaskScope(undefined); setTaskNotification(target); setTaskCenterOpen(true); }}
@@ -1426,11 +1427,12 @@ function AppContent({ services }: { services: PlatformServices }) {
                             key={project.id}
                             project={project}
                             action={action}
+                            readAction={resourceAction}
                             onOpen={(pid, id) => open(pid, id, "replace")}
                             onPanel={showPanel}
                           />
                         ) : (
-                          <ProjectlessDraft snapshot={snapshot} services={services} action={action} onPanel={showPanel} onOpen={(pid, id) => open(pid, id, "replace")} />
+                          <ProjectlessDraft snapshot={snapshot} services={services} action={action} readAction={resourceAction} onPanel={showPanel} onOpen={(pid, id) => open(pid, id, "replace")} />
                         )}
                       </div>
                     </>

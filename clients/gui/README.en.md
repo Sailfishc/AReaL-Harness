@@ -20,6 +20,12 @@ make gui
 
 Both development and installed macOS builds require a working `/usr/bin/python3` to launch Runtime and trusted tool helpers; install Xcode Command Line Tools with `xcode-select --install`. The interpreter is not bundled. Shared-service startup checks availability and returns an actionable error.
 
+## Composer
+
+New drafts and existing chats share the grouped action/Skills catalog and search through `+` and `/`. Arrow keys select, Enter confirms, and Esc closes it. Skills attach to the current message; Core reads their content before sending, and failures preserve the draft and tags. The model control opens effort first, then the actual model catalog. Effort values come from Core adapter capabilities; remote provider support needs separate verification.
+
+Images show thumbnails. “Show in text box” appends UTF-8 text attachments to the body. Pasting more than 200 characters or at least five lines creates a text card; expansion is limited to 1 MiB. Removing files or skills preserves the body. Goal mode uses the same editor; goal creation consumes only the objective and leaves other attachments unsent. `pnpm --dir clients/gui run test:composer` verifies these paths with isolated Electron/Core/Runtime instances.
+
 ## Lifecycle
 
 The renderer accesses the desktop adapter through narrow preload IPC. The independent adapter connects through `areal service ensure/restart/stop --json`, without managing Core PIDs. GUI exit disconnects the interface and settles GUI-owned terminals; Core Turn/Goal and configured scheduled tasks continue. Reopening restores authoritative snapshots without replaying submissions. Stopping the background service is explicit; safe stop rejects busy instances.

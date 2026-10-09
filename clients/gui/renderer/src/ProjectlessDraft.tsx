@@ -4,8 +4,8 @@ import type { Action, Data, PlatformServices, Snapshot } from "./services.js";
 import { call } from "./services.js";
 
 const key = "areal-gui:draft:projectless:new";
-export function ProjectlessDraft({ snapshot, services, action, onOpen, onPanel }: {
-  snapshot: Snapshot; services: PlatformServices; action: Action; onOpen: (pid: string, tid: string) => Promise<void>;
+export function ProjectlessDraft({ snapshot, services, action, readAction, onOpen, onPanel }: {
+  snapshot: Snapshot; services: PlatformServices; action: Action; readAction?: Action; onOpen: (pid: string, tid: string) => Promise<void>;
   onPanel: (panel: string) => void;
 }) {
   const [prepared, setPrepared] = useState<Data>();
@@ -28,7 +28,7 @@ export function ProjectlessDraft({ snapshot, services, action, onOpen, onPanel }
   const draftOwner = owner ?? { id: "projectless", root: "", profiles: [], models: [{ modelId: "default" }], pending: [], state: { connected: ready }, outcomes: {} };
   return <>
     {error && <p role="alert">{error}</p>}
-    <DraftComposer project={draftOwner} draftKey={key} prepareProject={prepare} action={action} onPanel={onPanel} onOpen={async (pid, tid) => {
+    <DraftComposer project={draftOwner} draftKey={key} prepareProject={prepare} action={action} readAction={readAction} onPanel={onPanel} onOpen={async (pid, tid) => {
       localStorage.removeItem(`${key}:project`); localStorage.removeItem(`${key}:workspace-request`);
       await onOpen(pid, tid);
     }} />
