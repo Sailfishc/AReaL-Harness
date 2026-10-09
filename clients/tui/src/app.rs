@@ -2323,6 +2323,99 @@ pub fn thread_status(thread: &Thread) -> &'static str {
     }
 }
 
+/// Codex 词分隔符。空白已由外层跳过，这里只拆标点与普通字符。
+const WORD_SEPARATORS: &str = "`~!@#$%^&*()-=+[{]}\\|;:'\",.<>/?";
+fn is_word_separator(ch: char) -> bool {
+    WORD_SEPARATORS.contains(ch)
+}
+/// 先按 Unicode 词边界切段，再在段内按分隔符性质切开。连续同类字符保持一段。
+fn split_word_pieces(run: &str) -> Vec<(usize, &str)> {
+    let mut pieces = Vec::new();
+    for (segment_start, segment) in run.split_word_bound_indices() {
+        let mut piece_start = 0;
+        let mut chars = segment.char_indices();
+        let Some((_, first_char)) = chars.next() else {
+            continue;
+        };
+        let mut in_separator = is_word_separator(first_char);
+        for (idx, ch) in chars {
+            let is_separator = is_word_separator(ch);
+            if is_separator == in_separator {
+                continue;
+            }
+            pieces.push((segment_start + piece_start, &segment[piece_start..idx]));
+            piece_start = idx;
+            in_separator = is_separator;
+        }
+        pieces.push((segment_start + piece_start, &segment[piece_start..]));
+    }
+    pieces
+}
+/// `forward` 为下一词结尾（insert-mode Alt+f），否则为上一词开头（Alt+b）。
+fn word_boundary(text: &str, cursor: usize, forward: bool) -> usize {
+    if forward {
+        end_of_next_word(text, cursor)
+    } else {
+        beginning_of_previous_word(text, cursor)
+    }
+}
+fn beginning_of_previous_word(text: &str, cursor: usize) -> usize {
+    let prefix = &text[..cursor];
+    let Some((first_non_ws_idx, ch)) = prefix
+        .char_indices()
+        .rev()
+        .find(|&(_, ch)| !ch.is_whitespace())
+    else {
+        return 0;
+    };
+    let run_start = prefix[..first_non_ws_idx]
+        .char_indices()
+        .rev()
+        .find(|&(_, ch)| ch.is_whitespace())
+        .map_or(0, |(idx, ch)| idx + ch.len_utf8());
+    let run_end = first_non_ws_idx + ch.len_utf8();
+    let pieces = split_word_pieces(&prefix[run_start..run_end]);
+    let mut pieces = pieces.into_iter().rev().peekable();
+    let Some((piece_start, piece)) = pieces.next() else {
+        return run_start;
+    };
+    let mut start = run_start + piece_start;
+    if piece.chars().all(is_word_separator) {
+        while let Some((idx, piece)) = pieces.peek() {
+            if !piece.chars().all(is_word_separator) {
+                break;
+            }
+            start = run_start + *idx;
+            pieces.next();
+        }
+    }
+    start
+}
+fn end_of_next_word(text: &str, cursor: usize) -> usize {
+    let suffix = &text[cursor..];
+    let Some(first_non_ws) = suffix.find(|ch: char| !ch.is_whitespace()) else {
+        return text.len();
+    };
+    let run = &suffix[first_non_ws..];
+    let run = &run[..run.find(char::is_whitespace).unwrap_or(run.len())];
+    let mut pieces = split_word_pieces(run).into_iter().peekable();
+    let Some((start, piece)) = pieces.next() else {
+        return cursor + first_non_ws;
+    };
+    let word_start = cursor + first_non_ws + start;
+    let mut end = word_start + piece.len();
+    if piece.chars().all(is_word_separator) {
+        while let Some((idx, piece)) = pieces.peek() {
+            if !piece.chars().all(is_word_separator) {
+                break;
+            }
+            end = cursor + first_non_ws + *idx + piece.len();
+            pieces.next();
+        }
+    }
+    end
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -3101,96 +3194,4 @@ pub(crate) mod tests {
                 .any(|r| r.method == "areal/workgroup/wait")
         );
     }
-}
-/// Codex 词分隔符。空白已由外层跳过，这里只拆标点与普通字符。
-const WORD_SEPARATORS: &str = "`~!@#$%^&*()-=+[{]}\\|;:'\",.<>/?";
-fn is_word_separator(ch: char) -> bool {
-    WORD_SEPARATORS.contains(ch)
-}
-/// 先按 Unicode 词边界切段，再在段内按分隔符性质切开。连续同类字符保持一段。
-fn split_word_pieces(run: &str) -> Vec<(usize, &str)> {
-    let mut pieces = Vec::new();
-    for (segment_start, segment) in run.split_word_bound_indices() {
-        let mut piece_start = 0;
-        let mut chars = segment.char_indices();
-        let Some((_, first_char)) = chars.next() else {
-            continue;
-        };
-        let mut in_separator = is_word_separator(first_char);
-        for (idx, ch) in chars {
-            let is_separator = is_word_separator(ch);
-            if is_separator == in_separator {
-                continue;
-            }
-            pieces.push((segment_start + piece_start, &segment[piece_start..idx]));
-            piece_start = idx;
-            in_separator = is_separator;
-        }
-        pieces.push((segment_start + piece_start, &segment[piece_start..]));
-    }
-    pieces
-}
-/// `forward` 为下一词结尾（insert-mode Alt+f），否则为上一词开头（Alt+b）。
-fn word_boundary(text: &str, cursor: usize, forward: bool) -> usize {
-    if forward {
-        end_of_next_word(text, cursor)
-    } else {
-        beginning_of_previous_word(text, cursor)
-    }
-}
-fn beginning_of_previous_word(text: &str, cursor: usize) -> usize {
-    let prefix = &text[..cursor];
-    let Some((first_non_ws_idx, ch)) = prefix
-        .char_indices()
-        .rev()
-        .find(|&(_, ch)| !ch.is_whitespace())
-    else {
-        return 0;
-    };
-    let run_start = prefix[..first_non_ws_idx]
-        .char_indices()
-        .rev()
-        .find(|&(_, ch)| ch.is_whitespace())
-        .map_or(0, |(idx, ch)| idx + ch.len_utf8());
-    let run_end = first_non_ws_idx + ch.len_utf8();
-    let pieces = split_word_pieces(&prefix[run_start..run_end]);
-    let mut pieces = pieces.into_iter().rev().peekable();
-    let Some((piece_start, piece)) = pieces.next() else {
-        return run_start;
-    };
-    let mut start = run_start + piece_start;
-    if piece.chars().all(is_word_separator) {
-        while let Some((idx, piece)) = pieces.peek() {
-            if !piece.chars().all(is_word_separator) {
-                break;
-            }
-            start = run_start + *idx;
-            pieces.next();
-        }
-    }
-    start
-}
-fn end_of_next_word(text: &str, cursor: usize) -> usize {
-    let suffix = &text[cursor..];
-    let Some(first_non_ws) = suffix.find(|ch: char| !ch.is_whitespace()) else {
-        return text.len();
-    };
-    let run = &suffix[first_non_ws..];
-    let run = &run[..run.find(char::is_whitespace).unwrap_or(run.len())];
-    let mut pieces = split_word_pieces(run).into_iter().peekable();
-    let Some((start, piece)) = pieces.next() else {
-        return cursor + first_non_ws;
-    };
-    let word_start = cursor + first_non_ws + start;
-    let mut end = word_start + piece.len();
-    if piece.chars().all(is_word_separator) {
-        while let Some((idx, piece)) = pieces.peek() {
-            if !piece.chars().all(is_word_separator) {
-                break;
-            }
-            end = cursor + first_non_ws + *idx + piece.len();
-            pieces.next();
-        }
-    }
-    end
 }
