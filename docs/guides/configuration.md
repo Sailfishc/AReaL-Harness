@@ -233,7 +233,7 @@ JSON 使用 camelCase（`apiKeyEnv`、`displayName`、`maxOutputTokens`、`reaso
 
 活动 Turn、其子任务、摘要和已入队请求保持原模型版本；会话显式选择的模型保持不变。Goal 自动续轮在下次提交边界使用当时的默认值。默认模型版本保存在私有 `dataDir/desktop/default-models.json` 中，供队列跨重启恢复，最多 128 个版本、1 MiB；不保存环境凭据值。退役凭据缺失时拒绝对应队列项执行，不替换成其他模型。迁移历史时需同时保留此文件。
 
-其他配置需要重启。TUI 等待 Turn、Goal、队列和资源结算后重启；`areal service ensure` 也会为空闲服务应用 TOML 或二进制更新。权限/部署变化和模型 CLI/环境覆盖变化需带目标参数执行 `areal service restart`。新终端环境变量不能更新现有进程，改变凭据值后应显式重启。默认重启拒绝忙碌服务；`--cancel` 才显式取消并结算工作。
+其他配置需要重启。TUI 等待 Turn、Goal、队列和资源结算后重启；`areal service ensure` 也会为空闲服务应用 TOML 或二进制更新。权限/部署变化和模型 CLI/环境覆盖变化需带目标参数执行 `areal service restart`。模型文件变更在 3 秒内未完成热更新时，共享入口会尝试空闲安全重启；解析、归档或持久化错误保留旧服务并报告具体原因。若新凭据引用不在旧服务环境中，服务同时报告错误和 `restartRequired=true`；在持有新凭据的终端重新打开 TUI/Web 或执行 `areal service ensure`，客户端先校验配置和凭据，再自动安全重启。忙碌时拒绝本次应用，工作结算后重试。新终端环境变量不能直接更新现有进程；仅修改同名凭据的值或代理环境、不改变模型配置时仍需显式重启。默认重启拒绝忙碌服务；`--cancel` 才显式取消并结算工作。
 
 <a id="tui"></a>
 ## TUI 偏好
