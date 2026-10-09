@@ -1,5 +1,5 @@
 //! 可信本地启动器；只管理独立 Core/Runtime 进程，不拥有其业务状态。
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result, bail, ensure};
 use clap::Parser;
 use std::{
     ffi::OsString,
@@ -318,6 +318,7 @@ async fn finish(
     child: &mut Child,
     seconds: u64,
     terminate: bool,
+    process_group: bool,
 ) -> Result<std::process::ExitStatus> {
     if terminate && child.try_wait()?.is_none() {
         unsafe {
@@ -330,7 +331,19 @@ async fn finish(
     match tokio::time::timeout(Duration::from_secs(seconds), child.wait()).await {
         Ok(result) => Ok(result?),
         Err(_) => {
-            child.start_kill()?;
+            if process_group {
+                // 仅信号当前尚未回收的中转进程组；不能留下 Runtime 后释放实例锁。
+                if let Some(pid) = child.id()
+                    && unsafe { libc::kill(-(pid as i32), libc::SIGKILL) } != 0
+                {
+                    let error = std::io::Error::last_os_error();
+                    if error.raw_os_error() != Some(libc::ESRCH) {
+                        return Err(error).context("kill Runtime process group");
+                    }
+                }
+            } else {
+                child.start_kill()?;
+            }
             Ok(child.wait().await?)
         }
     }
@@ -467,6 +480,8 @@ async fn launch(
     data: &Path,
     log: Option<&Path>,
 ) -> Result<()> {
+    #[cfg(target_os = "macos")]
+    check_system_python().await?;
     let bin_dir = binary.parent().context("missing executable directory")?;
     let runtime_bin = areal_local_service::runtime_bin_dir(bin_dir);
     let runtime = runtime_bin.join("areal-runtime");
@@ -535,6 +550,16 @@ async fn launch(
             None => Ok(Stdio::inherit()),
         }
     };
+    // 沿用现有 macOS Runtime 中转方式，避免 AMFI 在进入 main 前拒绝本地二进制。
+    // Python 等待 Runtime，二者共享独立进程组；Core 仍直接启动并拥有原生命周期管道。
+    #[cfg(target_os = "macos")]
+    let mut runtime_command = {
+        let mut command = tokio::process::Command::new("/usr/bin/python3");
+        command.args(["-I", "-S", "-c", "import subprocess,sys; p=subprocess.run(sys.argv[1:]); sys.exit(p.returncode if p.returncode>=0 else 128-p.returncode)"]);
+        command.arg(&runtime).process_group(0);
+        command
+    };
+    #[cfg(not(target_os = "macos"))]
     let mut runtime_command = tokio::process::Command::new(&runtime);
     runtime_command
         .arg("--workspace")
@@ -587,7 +612,12 @@ async fn launch(
     let mut runtime_child = runtime_command.spawn().context("start Runtime")?;
     drop(runtime_command);
     eprintln!(
-        "AReaL launcher Runtime PID: {}",
+        "AReaL launcher {} PID: {}",
+        if cfg!(target_os = "macos") {
+            "Runtime supervisor"
+        } else {
+            "Runtime"
+        },
         runtime_child.id().unwrap_or_default()
     );
     let mut core_command = tokio::process::Command::new(binary);
@@ -666,8 +696,9 @@ async fn launch(
                 &mut runtime_child,
             )
             .await;
-            let core_status = finish(&mut core_child, 15, true).await;
-            let runtime_status = finish(&mut runtime_child, 20, false).await;
+            let core_status = finish(&mut core_child, 15, true, false).await;
+            let runtime_status =
+                finish(&mut runtime_child, 20, false, cfg!(target_os = "macos")).await;
             drop(keepalive);
             if let Some(path) = &args.ready_file {
                 let _ = fs::remove_file(path);
@@ -685,10 +716,35 @@ async fn launch(
             Ok(())
         }
         Err(error) => {
-            let _ = finish(&mut runtime_child, 20, false).await;
+            let _ = finish(&mut runtime_child, 20, false, cfg!(target_os = "macos")).await;
             Err(error).context("start Core")
         }
     }
+}
+
+#[cfg(target_os = "macos")]
+async fn check_system_python() -> Result<()> {
+    const REQUIRED: &str = "macOS Runtime requires a working /usr/bin/python3; install Xcode Command Line Tools (xcode-select --install) and retry";
+    let mut child = tokio::process::Command::new("/usr/bin/python3")
+        .args(["-I", "-S", "-c", "import subprocess,sys"])
+        .env_clear()
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .kill_on_drop(true)
+        .spawn()
+        .context(REQUIRED)?;
+    match tokio::time::timeout(Duration::from_secs(10), child.wait()).await {
+        Ok(status) => ensure!(status.context(REQUIRED)?.success(), REQUIRED),
+        Err(_) => {
+            child
+                .kill()
+                .await
+                .context("reap timed-out Python preflight")?;
+            bail!("{REQUIRED}; availability check timed out");
+        }
+    }
+    Ok(())
 }
 
 async fn supervise(
@@ -705,10 +761,12 @@ async fn supervise(
     let deadline = Instant::now() + Duration::from_secs_f64(args.startup_timeout);
     let mut last_log_cleanup = Instant::now();
     while !(ready.exists() && metadata.exists()) {
-        ensure!(
-            core.try_wait()?.is_none() && runtime.try_wait()?.is_none(),
-            "local Harness stopped before becoming ready"
-        );
+        if let Some(status) = core.try_wait()? {
+            bail!("Core stopped before becoming ready: {status}");
+        }
+        if let Some(status) = runtime.try_wait()? {
+            bail!("Runtime stopped before becoming ready: {status}");
+        }
         ensure!(Instant::now() < deadline, "local Harness startup timed out");
         if !owner_alive(args.parent_pid) {
             return Ok(true);
@@ -787,7 +845,7 @@ async fn supervise(
         }
     }
     if let Some(mut child) = tui {
-        let status = finish(&mut child, 10, true).await?;
+        let status = finish(&mut child, 10, true, false).await?;
         ensure!(status.success(), "TUI exited with {status}");
     }
     Ok(false)

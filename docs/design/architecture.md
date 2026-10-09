@@ -13,6 +13,7 @@ AReaL-Harness 采用 **Clients → Core → Runtime** 分层。Core 是会话、
 | 模块 | 职责 |
 |---|---|
 | `clients/cli`, `clients/tui`, `clients/web` | CLI、终端和本地 Web；初始化连接、显示投影与提交请求 |
+| `clients/gui` | React/Electron 桌面客户端；窄 IPC、原生资源、公开服务发现与可重建投影 |
 | `core/config` | 解析用户配置、来源、凭据引用和 Skill 目录，定义工具宿主的代理环境白名单；不依赖 Engine 或 Runtime |
 | `core/protocol` | 客户端协议投影和共享类型 |
 | `core/engine` | 模型、工具、历史、持久化、父子任务和 Workgroup |
@@ -47,7 +48,7 @@ Task Mode 由 `core/engine/src/task_mode` 管理 Task/TaskRun、定时触发、�
 
 [draw.io 源文件](diagrams/task-mode-mailbox-architecture.drawio) · [异步交互流程](diagrams/task-mode-mailbox-flow.svg) · [流程源文件](diagrams/task-mode-mailbox-flow.drawio)
 
-`clients/cli` 是唯一产品可执行入口 `areal`，分派到 TUI、非交互客户端、Core server 和服务宿主的库入口；Core 不依赖客户端。`core/service-host` 的 Rust launcher 持有独立 Core/Runtime 进程与私有生命周期管道，不依赖系统 Python。`scripts/launch.py` 保留用于开发脚本与独立评测入口。发行目录 `bin` 只含 `areal`，Runtime daemon/file helper 放在 `libexec/areal`，不并入客户端进程。命令契约见[客户端指南](../guides/clients.md)。
+`clients/cli` 提供 Rust 命令入口 `areal`，分派到 TUI、非交互客户端、Core server 和服务宿主的库入口；Core 不依赖客户端。`core/service-host` 的 Rust launcher 持有独立 Core/Runtime 进程与私有生命周期管道，Linux 不依赖 Python；macOS 沿用 `/usr/bin/python3` 中转启动 Runtime，以满足本地可执行文件的 AMFI 启动约束。`scripts/launch.py` 保留用于开发脚本与独立评测入口。发行目录 `bin` 只含 `areal`，Runtime daemon/file helper 放在 `libexec/areal`，不并入客户端进程。命令契约见[客户端指南](../guides/clients.md)。
 
 ## 状态与执行
 
@@ -65,9 +66,11 @@ Engine 的 `diagnostics` 模块对非权威排障制品执行有界保留，serv
 
 ## 仓库目录
 
+桌面客户端归属见[迁移决策](../adr/0001-desktop-client-module.md)。`clients/gui` 的独立 Electron 适配器保留系统凭据与订阅转发，通过共享服务公共入口连接 Core；退出 GUI 不终止 Core 任务。GUI 构建、数据隔离与本地包见 [GUI 指南](../../clients/gui/README.md)。移动端源码后续迁移。
+
 ```text
 core/                       配置、协议、Engine、server、MCP、插件 SDK
-clients/                    CLI、TUI、本地 Web
+clients/                    CLI、TUI、本地 Web、GUI
 runtime/                    协议、监督器、OS 后端、文件助手、SDK
 schemas/                    固定上游与 AReaL 机器契约
 examples/desktop-api/        直接 API、CLI 与发行验收

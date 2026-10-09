@@ -32,6 +32,9 @@ pub struct LocalArgs {
     pub allow_concurrent_writes: bool,
     #[arg(long)]
     pub command_timeout_ms: Option<u64>,
+    /// 交互终端单独预算，不放宽普通工具的命令期限。
+    #[arg(long, value_parser = clap::value_parser!(u64).range(1..=86_400_000))]
+    pub desktop_process_timeout_ms: Option<u64>,
     #[arg(long)]
     pub command_output_bytes: Option<u64>,
     #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
@@ -93,6 +96,10 @@ impl LocalArgs {
         }
         for (name, value) in [
             ("command-timeout-ms", self.command_timeout_ms),
+            (
+                "desktop-process-timeout-ms",
+                self.desktop_process_timeout_ms,
+            ),
             ("command-output-bytes", self.command_output_bytes),
             ("runtime-output-bytes", self.runtime_output_bytes),
             (
@@ -163,6 +170,11 @@ impl LaunchSpec {
     }
 
     pub fn in_bin(args: &LocalArgs, bin_dir: PathBuf) -> Result<Self> {
+        ensure!(
+            args.desktop_process_timeout_ms
+                .is_none_or(|value| (1..=86_400_000).contains(&value)),
+            "desktop process timeout must be 1..86400000 ms"
+        );
         ensure!(
             args.runtime_max_processes.is_none_or(|value| value > 0),
             "runtime max processes must be positive"
@@ -320,6 +332,7 @@ impl LaunchSpec {
             (
                 "runtime",
                 json!({"timeout":args.command_timeout_ms.unwrap_or(300000),
+                "desktopTimeout":args.desktop_process_timeout_ms,
                 "output":args.command_output_bytes.unwrap_or(8*1024*1024),
                 "maxProcesses":args.runtime_max_processes.unwrap_or(4),
                 "maxOperations":args.runtime_max_operations.unwrap_or(4096),

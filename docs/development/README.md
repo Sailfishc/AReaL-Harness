@@ -9,7 +9,7 @@
 | 依赖 | 要求 |
 |---|---|
 | Rust | `rust-toolchain.toml` 固定 1.94.0，含 rustfmt / Clippy |
-| Python / uv | 开发使用 Python 3.11+；uv 安装锁定工具。已安装产品启动无需 Python；独立安装与升级脚本需要 PATH 中的 Python 3.9+ |
+| Python / uv | 开发使用 Python 3.11+；uv 安装锁定工具。macOS 产品运行需要可用的 `/usr/bin/python3`（Xcode Command Line Tools）；Linux 产品启动无需 Python；独立安装与升级脚本需要 PATH 中的 Python 3.9+ |
 | Node.js / npm | Node.js 22.19.0+；两套 SDK 与格式工具 |
 | 编译工具 | Git、Bash、GNU Make 3.81+、C/C++ 编译器、CMake；macOS 需 Xcode Command Line Tools |
 | 文件搜索 | Runtime 文件助手内置 ripgrep Rust 搜索库；`make build/release` 不依赖宿主 rg |
@@ -59,3 +59,7 @@ Rust 使用 rustfmt/Clippy；TS/JS/CSS/HTML 使用锁定 Prettier；自有 Pytho
 文档按[文档目录](../README.md)分类，同次修改更新中英文。README 只保留简介与导航；API 放在 `docs/api/`；历史结果放在 `docs/benchmarks/reports/`。移动页面同步修复引用。图表同步维护 draw.io 和 SVG/已有 PNG，遵循[图表规范](../design/STYLE_GUIDE.md)。
 
 Homebrew/Linux 发行产物、安装验收与 draft 发布流程见[发行流程](releasing.md)。
+
+## 桌面 GUI
+
+GUI 使用独立 pnpm 11.7.0 workspace。运行 `make gui-install`、`make gui-build`、`make gui-smoke`；启动、打包与隔离配置见 [GUI 指南](../../clients/gui/README.md)。

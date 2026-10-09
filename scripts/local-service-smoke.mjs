@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import { createServer } from "node:http";
 import { connect as unixConnect } from "node:net";
 import { once } from "node:events";
+import { createHash } from "node:crypto";
 import { mkdtemp, mkdir, readFile, writeFile, realpath, rm, symlink } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { connect } from "../examples/desktop-api/client.mjs";
@@ -14,6 +15,11 @@ const workspace = join(root, "workspace"),
   home = join(root, "home"),
   config = join(root, "config.toml");
 const bin = resolve(process.env.AREAL_TEST_BIN_DIR ?? "target/debug", "areal");
+const evidence = resolve(
+  process.env.AREAL_TEST_EVIDENCE ?? `/tmp/areal-local-service-${Date.now()}.json`,
+);
+const lifecycleChecks = [];
+let passed = false;
 const env = {
   ...Object.fromEntries(
     Object.entries(process.env).filter(
@@ -75,8 +81,8 @@ async function client(s) {
   clients.push(c);
   return c;
 }
-async function until(fn) {
-  const end = Date.now() + 20000;
+async function until(fn, timeoutMs = 20000) {
+  const end = Date.now() + timeoutMs;
   while (Date.now() < end) {
     if (await fn()) return;
     await new Promise((r) => setTimeout(r, 50));
@@ -86,16 +92,19 @@ async function until(fn) {
 async function rejected(fn, pattern) {
   await assert.rejects(fn, (e) => pattern.test(e.stderr ?? e.message));
 }
-async function children(pid) {
+async function children(pid, recursive = false) {
   const { stdout } = await exec("/bin/ps", ["-axo", "pid=,ppid="]);
-  return stdout
+  const rows = stdout
     .trim()
     .split("\n")
-    .map((s) => s.trim().split(/\s+/).map(Number))
-    .filter(([, parent]) => parent === pid)
-    .map(([id]) => id);
+    .map((s) => s.trim().split(/\s+/).map(Number));
+  const found = rows.filter(([, parent]) => parent === pid).map(([id]) => id);
+  if (recursive)
+    for (let i = 0; i < found.length; i++)
+      found.push(...rows.filter(([, parent]) => parent === found[i]).map(([id]) => id));
+  return found;
 }
-async function dead(pid) {
+async function dead(pid, timeoutMs = 20000) {
   await until(async () => {
     try {
       process.kill(pid, 0);
@@ -104,7 +113,7 @@ async function dead(pid) {
       if (e.code === "ESRCH") return true;
       throw e;
     }
-  });
+  }, timeoutMs);
 }
 async function control(s, request) {
   const socket = unixConnect(join(home, "services", s.serviceId, "control.sock"));
@@ -233,11 +242,14 @@ try {
   for (const victim of ["launcher", "host"]) {
     const [launcher] = await children(current.hostPid);
     assert(launcher);
-    const processes = await children(launcher);
+    const direct = await children(launcher);
+    const processes = await children(launcher, true);
     assert(processes.includes(current.corePid));
     if (victim === "host") {
-      const runtime = processes.find((pid) => pid !== current.corePid);
-      assert(runtime);
+      const runtimeOwner = direct.find((pid) => pid !== current.corePid);
+      assert(runtimeOwner);
+      const [runtimeChild] = await children(runtimeOwner);
+      const runtime = runtimeChild ?? runtimeOwner;
       // 让 Runtime 清理停在可观测窗口：Core 锁已释放，launcher 仍须阻止替代实例。
       process.kill(runtime, "SIGSTOP");
       try {
@@ -253,10 +265,37 @@ try {
       process.kill(launcher, "SIGKILL");
     }
     for (const pid of processes) await dead(pid);
+    lifecycleChecks.push({ fault: `${victim}-killed`, descendantsExited: processes });
     await until(
       async () =>
         (await cli(["service", "status", "--instance", current.serviceId])).state === "stopped",
     );
+    const previous = current;
+    current = await ensure();
+    assert.notEqual(current.generation, previous.generation);
+  }
+  if (process.platform === "darwin") {
+    const [launcher] = await children(current.hostPid);
+    const runtimeOwner = (await children(launcher)).find((pid) => pid !== current.corePid);
+    const [runtime] = await children(runtimeOwner);
+    assert(runtime, "macOS Runtime must have a waiting system Python parent");
+    const { stdout } = await exec("/bin/ps", ["-p", `${runtimeOwner},${runtime}`, "-o", "pgid="]);
+    assert.deepEqual(stdout.trim().split(/\s+/).map(Number), [runtimeOwner, runtimeOwner]);
+    const processes = await children(launcher, true);
+    // Runtime 停住时启动器必须强制清理整组，不能只杀中转进程就释放实例锁。
+    process.kill(runtime, "SIGSTOP");
+    try {
+      process.kill(launcher, "SIGTERM");
+      for (const pid of processes) await dead(pid, 60000);
+      await dead(launcher);
+    } finally {
+      try {
+        process.kill(runtime, "SIGCONT");
+      } catch (error) {
+        if (error.code !== "ESRCH") throw error;
+      }
+    }
+    lifecycleChecks.push({ fault: "runtime-stalled", descendantsExited: processes });
     const previous = current;
     current = await ensure();
     assert.notEqual(current.generation, previous.generation);
@@ -369,6 +408,7 @@ try {
     timeout: 60000,
   });
   await cli(["service", "stop", "--workspace", workspace]);
+  passed = true;
   console.log(
     "PASS shared local service: concurrent ensure, TUI windows, Web discovery, auth, busy/cancel stop, workspace isolation, history and crash recovery",
   );
@@ -378,5 +418,22 @@ try {
     if (s.state === "ready") await stop(s, true).catch((e) => console.error(e.stderr ?? e));
   model.closeAllConnections();
   model.close();
-  await rm(root, { recursive: true, force: true });
+  await writeFile(
+    evidence,
+    JSON.stringify(
+      {
+        passed,
+        platform: process.platform,
+        binary: bin,
+        binarySha256: createHash("sha256")
+          .update(await readFile(bin))
+          .digest("hex"),
+        lifecycleChecks,
+      },
+      null,
+      2,
+    ),
+  );
+  console.log(`Evidence: ${evidence}`);
+  if (passed) await rm(root, { recursive: true, force: true });
 }

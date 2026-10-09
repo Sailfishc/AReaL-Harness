@@ -211,3 +211,15 @@ package: release ## 生成 macOS arm64 / Linux x86_64 发行产物及完整性�
 .PHONY: install
 install: release ## 构建并安装完整运行时；PREFIX 指定前缀，DESTDIR 指定打包暂存根
 	python3 scripts/install-local.py --prefix "$(PREFIX)" --destdir "$(DESTDIR)"
+
+.PHONY: gui-install gui-build gui gui-package gui-smoke
+gui-install: ## 安装 GUI 的公开锁定依赖（需 pnpm）
+	pnpm --dir clients/gui install --frozen-lockfile
+gui-build: ## 构建 GUI renderer
+	pnpm --dir clients/gui build
+gui: gui-build ## 启动桌面 GUI（先 make build）
+	pnpm --dir clients/gui start
+gui-package: gui-build ## 生成本地 macOS arm64 应用包（先 make build）
+	pnpm --dir clients/gui package
+gui-smoke: ## 隔离目录中验证真实 Electron/Core 和本地模型
+	pnpm --dir clients/gui test:e2e
