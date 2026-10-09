@@ -16,6 +16,8 @@ make gui
 
 `make gui-build` builds only the renderer. `pnpm --dir clients/gui typecheck` checks renderer and shared desktop contract JSDoc types (not all Electron CJS implementations); `pnpm --dir clients/gui run verify` checks the public source boundary. This module has its own pnpm lockfile; existing SDKs retain npm. Dependencies use the public npm registry; initial Electron/Core tool installation needs network access.
 
+After installing locked dependencies, `make gui-install` explicitly runs the official Electron installer to download the pinned native runtime.
+
 `AREAL_CORE_BIN` selects an absolute trusted Core path; development defaults to `target/debug/areal`. Development data is isolated under `AReaL Harness GUI Dev/<checkout digest>`; installed builds use `AReaL Harness GUI`. Existing desktop installations and data are not imported or replaced. `AREAL_GUI_USER_DATA`, `AREAL_CORE_HOME`, `AREAL_HARNESS_HOME`, and `AREAL_CORE_CONFIG` explicitly select isolated directories/configuration.
 
 Both development and installed macOS builds require a working `/usr/bin/python3` to launch Runtime and trusted tool helpers; install Xcode Command Line Tools with `xcode-select --install`. The interpreter is not bundled. Shared-service startup checks availability and returns an actionable error.
@@ -57,7 +59,7 @@ make gui-package
 make gui-smoke
 ```
 
-Packaging defaults to the already-built debug Core. Run `make release` and set `AREAL_CORE_PROFILE=release` to package release Core. `clients/gui/dist/local-*/` contains a copy-installable `.app`, ZIP, dependency inventory, and Core integrity manifest. `AREAL_GUI_PACKAGE_DIR` selects a fresh output directory. This local acceptance target is macOS arm64; packaging performs no Developer ID signing, notarization, or publishing. The app and Core executables use local ad-hoc signatures without private signing materials. Existing installation upgrades and update-feed continuity are deferred.
+Packaging defaults to the already-built debug Core. Run `make release` and set `AREAL_CORE_PROFILE=release` to package release Core. `clients/gui/dist/local-*/` contains a copy-installable `.app`, ZIP, dependency inventory, and Core integrity manifest. `AREAL_GUI_PACKAGE_DIR` selects a fresh output directory. This local acceptance target is macOS arm64; packaging performs no Developer ID signing, notarization, or publishing. The app and Core executables use local ad-hoc signatures without private signing materials. Local packages do not configure automatic updates. For production GUI releases and the update channel, see the [release guide](../../docs/development/releasing.en.md#gui-releases).
 
 `make gui-smoke` runs real Electron/Core/Runtime against a deterministic local HTTP model with native sandboxing enabled. The project picker is injected with an isolated temporary workspace. Screenshots and `manifest.json` remain in the printed temporary directory. Set `AREAL_GUI_EXECUTABLE` to the absolute installed app executable for package testing; that mode uses bundled Core instead of an external binary. Real account login, paid models, other operating systems, and signed distribution require separate acceptance.
 

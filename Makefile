@@ -211,6 +211,7 @@ install: release ## 构建并安装完整运行时；PREFIX 指定前缀，DESTD
 .PHONY: gui-install gui-build gui gui-package gui-smoke
 gui-install: ## 安装 GUI 的公开锁定依赖（需 pnpm）
 	pnpm --dir clients/gui install --frozen-lockfile
+	pnpm --dir clients/gui --filter @areal/gui-desktop exec install-electron
 gui-build: ## 构建 GUI renderer
 	pnpm --dir clients/gui build
 gui: gui-build ## 启动桌面 GUI（先 make build）

@@ -16,6 +16,8 @@ make gui
 
 `make gui-build` 只构建 renderer。`pnpm --dir clients/gui typecheck` 检查界面类型及共享桌面契约的 JSDoc 类型（尚未覆盖整个 Electron CJS 实现），`pnpm --dir clients/gui run verify` 检查公开文件边界。此模块单独锁定 pnpm 依赖，不改变仓库 SDK 的 npm 工具链。依赖来自公开 npm registry；Electron 和 Core 工具首次安装需网络。
 
+`make gui-install` 按锁文件安装依赖后，显式运行 Electron 官方安装器下载固定版本的原生运行时。
+
 `AREAL_CORE_BIN` 可指定可信 Core 的绝对路径；开发默认使用仓库 `target/debug/areal`。默认使用独立的 `AReaL Harness GUI Dev/<工作树摘要>` 数据目录；安装版使用 `AReaL Harness GUI`。不导入或替换旧桌面安装与数据。`AREAL_GUI_USER_DATA`、`AREAL_CORE_HOME`、`AREAL_HARNESS_HOME`、`AREAL_CORE_CONFIG` 可显式设置隔离目录/配置。
 
 macOS 开发和安装版均需要可执行的 `/usr/bin/python3`，供 Runtime 及可信工具助手启动中转；可通过 `xcode-select --install` 安装 Xcode Command Line Tools。该解释器不随应用打包；共享服务在启动前检查可用性并返回明确错误。
@@ -57,7 +59,7 @@ make gui-package
 make gui-smoke
 ```
 
-打包默认使用已构建的 debug Core。先 `make release` 并设置 `AREAL_CORE_PROFILE=release` 可使用 release Core。输出位于 `clients/gui/dist/local-*/`，包含可复制安装的 `.app`、ZIP、依赖清单与 Core 完整性清单；设置 `AREAL_GUI_PACKAGE_DIR` 可选择新输出目录。只面向本次 macOS arm64 本地验收，不执行 Developer ID 签名、公证或发布。应用与 Core 可执行文件使用本地 ad-hoc 签名；没有私有签名材料。旧安装升级与自动更新衔接不在本次范围内。
+打包默认使用已构建的 debug Core。先 `make release` 并设置 `AREAL_CORE_PROFILE=release` 可使用 release Core。输出位于 `clients/gui/dist/local-*/`，包含可复制安装的 `.app`、ZIP、依赖清单与 Core 完整性清单；设置 `AREAL_GUI_PACKAGE_DIR` 可选择新输出目录。只面向本次 macOS arm64 本地验收，不执行 Developer ID 签名、公证或发布。应用与 Core 可执行文件使用本地 ad-hoc 签名；没有私有签名材料。本地包不配置自动更新。正式 GUI 发布与更新频道见[发行流程](../../docs/development/releasing.md#gui-发布)。
 
 `make gui-smoke` 使用真实 Electron/Core/Runtime 和确定性本地 HTTP 模型，原生沙箱保持启用；项目选择对话框注入临时工作区，测试目录隔离，截图及 `manifest.json` 留在命令打印的临时目录。安装包测试可设置 `AREAL_GUI_EXECUTABLE=/absolute/App.app/Contents/MacOS/AReaL\ Harness\ GUI`，此时不使用外部 Core 路径。实际账号登录、付费模型、其他操作系统和签名安装分发须单独验收。
 
