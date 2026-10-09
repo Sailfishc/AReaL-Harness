@@ -16,10 +16,10 @@ const sourceRevision = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: gui, en
 const scriptSha256 = createHash('sha256').update(await readFile(fileURLToPath(import.meta.url))).digest('hex');
 const checks = [];
 async function launch(executable, name) {
-  const home = join(scratch, name); await mkdir(home);
+  const home = join(scratch, name); await mkdir(home); await mkdir(join(home, 'user'));
   const config = join(home, 'config.toml');
   await writeFile(config, 'schema_version=1\n[model]\nprovider="fixture"\nname="fixture"\n[model.providers.fixture]\nprotocol="chat-completions"\nendpoint="http://127.0.0.1:9/v1/chat/completions"\n');
-  const env = { ...process.env, AREAL_GUI_SMOKE: '1', AREAL_GUI_USER_DATA: join(home, 'electron'),
+  const env = { ...process.env, HOME: join(home, 'user'), AREAL_GUI_SMOKE: '1', AREAL_GUI_USER_DATA: join(home, 'electron'),
     AREAL_CORE_HOME: join(home, 'core'), AREAL_CORE_USER_HOME: join(home, 'user'),
     AREAL_HARNESS_HOME: join(home, 'runtime'), AREAL_CORE_CONFIG: config };
   for (const key of ['AREAL_CORE_WORKSPACE', 'AREAL_CORE_DESKTOP_CONFIG', 'AREAL_UPDATE_FEED_URL', 'ELECTRON_RUN_AS_NODE']) delete env[key];
@@ -88,17 +88,20 @@ try {
     await page.getByTestId('areal-update-download').waitFor({ timeout: 30000 });
     await page.getByTestId('areal-update-download').click();
     await page.waitForFunction(() => window.updateTrace.some(state => state.status === 'installing' || state.status === 'error'), {}, { timeout: 240000 });
-    const result = await app.evaluate(({ app }) => {
+    const result = await app.evaluate(async ({ app }) => {
       const read = process.getBuiltinModule('module').createRequire(app.getAppPath() + '/package.json');
       const { autoUpdater } = read(app.getAppPath() + '/node_modules/electron-updater');
+      // installing 通知先于异步 Core 关闭；以实际安装调用作为准备完成的证据。
+      const deadline = Date.now() + 20000;
+      while (!globalThis.updateSmokeInstall && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 50));
       return { nativeReady: autoUpdater.squirrelDownloadedUpdate, installPrepared: globalThis.updateSmokeInstall === true };
     });
     const trace = await page.evaluate(() => window.updateTrace);
+    await writeFile(join(scratch, 'native-download.json'), JSON.stringify({ ...result, trace }, null, 2));
     assert.ok(!trace.some(state => state.status === 'error'), JSON.stringify(trace));
     assert.equal(result.nativeReady, true); assert.equal(result.installPrepared, true);
     assert.ok(trace.some(state => state.status === 'downloading' && state.percent > 0));
     assert.ok(trace.some(state => state.status === 'validating'));
-    await writeFile(join(scratch, 'native-download.json'), JSON.stringify({ ...result, trace }, null, 2));
     checks.push('real public ZIP download, SHA-512 verification, Squirrel signed update staging and safe Core shutdown; final install intercepted');
   }
   await writeFile(join(scratch, 'manifest.json'), JSON.stringify({ passed: true, checks, scratch, sourceRevision, scriptSha256 }, null, 2));
