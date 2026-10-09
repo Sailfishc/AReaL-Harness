@@ -364,6 +364,28 @@ impl LaunchSpec {
     pub fn directory(&self) -> Result<PathBuf> {
         storage::registry(&self.home, &self.service_id)
     }
+
+    pub(crate) fn restart_command(&self) -> String {
+        // PATH 中的安装版可能与当前开发版不同；保留参数以重启同一部署。
+        std::iter::once(self.bin_dir.join("areal").into_os_string())
+            .chain([OsString::from("service"), OsString::from("restart")])
+            .chain(self.args.launcher_args())
+            .map(|arg| shell_quote(&arg.to_string_lossy()))
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+}
+
+fn shell_quote(value: &str) -> String {
+    if !value.is_empty()
+        && value
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || b"/_-.=:".contains(&c))
+    {
+        value.into()
+    } else {
+        format!("'{}'", value.replace('\'', "'\\''"))
+    }
 }
 
 #[cfg(test)]
@@ -375,6 +397,34 @@ mod tests {
     struct Cli {
         #[command(flatten)]
         local: LocalArgs,
+    }
+
+    #[test]
+    fn restart_command_uses_current_binary_and_preserves_deployment_args() {
+        let spec = LaunchSpec {
+            args: LocalArgs {
+                workspace: Some("/tmp/work space".into()),
+                data_dir: Some("/tmp/state".into()),
+                config: Some("/tmp/user's config.toml".into()),
+                runtime_max_processes: Some(32),
+                permissions: Some("ASK_PERMISSIONS".into()),
+                ..Default::default()
+            },
+            bin_dir: "/repo/target/debug".into(),
+            home: "/tmp/home".into(),
+            launch_cwd: "/repo".into(),
+            service_id: String::new(),
+            fingerprint: String::new(),
+            components: BTreeMap::new(),
+        };
+        assert_eq!(
+            spec.restart_command(),
+            "/repo/target/debug/areal service restart --config '/tmp/user'\\''s config.toml' --workspace '/tmp/work space' --data-dir /tmp/state --permissions=ASK_PERMISSIONS --runtime-max-processes=32"
+        );
+        assert_eq!(
+            shell_quote("$(touch /tmp/unwanted)"),
+            "'$(touch /tmp/unwanted)'"
+        );
     }
 
     #[test]

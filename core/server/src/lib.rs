@@ -4,7 +4,7 @@ use areal_config::{
 };
 use areal_engine::{Engine, Limits};
 use clap::{Parser, Subcommand};
-use std::{path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
 mod reload;
 mod telemetry;
@@ -314,7 +314,26 @@ async fn run_configured(mut args: Args, diagnostic: Option<ConfigCommand>) -> Re
         let _ = tokio::signal::ctrl_c().await;
         signal.cancel();
     });
-    let result = serve(args, config, model, stopping, extensions, inputs).await;
+    let diagnostics_stop = stopping.clone();
+    let diagnostics_root = config.data_dir.clone();
+    let diagnostics_task = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(60));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            tokio::select! {
+                _ = diagnostics_stop.cancelled() => break,
+                _ = interval.tick() => {
+                    let root = diagnostics_root.clone();
+                    if !matches!(tokio::task::spawn_blocking(move || areal_engine::diagnostics::collect(&root)).await, Ok(Ok(()))) {
+                        tracing::warn!("diagnostic retention cleanup failed");
+                    }
+                }
+            }
+        }
+    });
+    let result = serve(args, config, model, stopping.clone(), extensions, inputs).await;
+    stopping.cancel();
+    let _ = diagnostics_task.await;
     signal_task.abort();
     let _ = signal_task.await;
     #[cfg(unix)]

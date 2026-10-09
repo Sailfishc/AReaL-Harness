@@ -23,6 +23,16 @@ make verify
 
 `setup` 安装锁定的 Cargo、npm 和 uv 依赖。模型 fixture 无需密钥。使用代理时保留已有 `NO_PROXY` 条目并加入 `127.0.0.1,localhost`，同时配置了 `no_proxy` 时也同步更新。
 
+开发时，启动和服务控制统一使用 `target/debug/areal`，避免与 PATH 中的安装版混用：
+
+```sh
+make build
+./target/debug/areal service restart
+./target/debug/areal
+```
+
+仅二进制变化时，共享服务空闲会自动重启，无需每次手动操作。若报配置冲突，执行诊断中的完整重启命令；有后台任务时先等待结算，确需取消才加 `--cancel`。频繁切换开发版/安装版时，可给开发版指定独立的外部目录，例如 `--data-dir /tmp/areal-dev-state`，启动和重启都传入同一参数；该目录使用独立历史。服务兼容性见[本地服务契约](../api/local-service.md#实例兼容性与历史)。
+
 ## 验证入口
 
 | 修改范围 | 命令 |

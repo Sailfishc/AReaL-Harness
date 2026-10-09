@@ -62,7 +62,8 @@ async fn ensure_inner(
                 }
                 if Instant::now() >= deadline {
                     bail!(
-                        "model configuration has not been applied; the running service is unchanged. Inspect its configuration error or run `areal service restart` to inherit updated credentials"
+                        "model configuration has not been applied; the running service is unchanged. Inspect its configuration error or run `{}` to inherit updated credentials",
+                        spec.restart_command()
                     );
                 }
                 tokio::time::sleep(Duration::from_millis(200)).await;
@@ -87,7 +88,7 @@ async fn ensure_inner(
             }
         }
         stop_unlocked(&spec.home, &spec.service_id, restart.unwrap_or(false)).await
-            .context("configuration requires a restart; wait for background work to finish, or run `areal service restart --cancel` to explicitly cancel it")?;
+            .with_context(|| format!("configuration requires a restart; wait for background work to finish, or run `{} --cancel` to explicitly cancel it", spec.restart_command()))?;
         if !reconnect {
             eprintln!("Restarting local service with the updated configuration");
         }
@@ -106,6 +107,15 @@ async fn ensure_inner(
     }
     let log = storage::open_private(&directory.join("host.log"), true)?;
     log.set_len(0)?;
+    // 宿主定期截断日志时，继承描述符必须 append，避免旧偏移产生稀疏大文件。
+    use std::os::fd::AsRawFd;
+    unsafe {
+        let flags = libc::fcntl(log.as_raw_fd(), libc::F_GETFL);
+        ensure!(
+            flags >= 0 && libc::fcntl(log.as_raw_fd(), libc::F_SETFL, flags | libc::O_APPEND) >= 0,
+            "could not configure service log append mode"
+        );
+    }
     let mut command = tokio::process::Command::new(spec.bin_dir.join("areal"));
     command.arg("service-host");
     command
@@ -198,9 +208,10 @@ fn check_compatible(spec: &LaunchSpec, service: &Service, directory: &Path) -> R
             .map(|(k, _)| k.as_str())
             .collect();
         bail!(
-            "service configuration conflict ({}) for instance {}; run `areal service restart` in its workspace, or use another --data-dir",
+            "service configuration conflict ({}) for instance {}; run `{}` using the same binary and environment as this client, or use another --data-dir",
             changed.join(", "),
-            spec.service_id
+            spec.service_id,
+            spec.restart_command()
         );
     }
     Ok(())

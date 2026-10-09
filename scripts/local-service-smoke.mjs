@@ -142,9 +142,17 @@ try {
   );
   assert.equal((await cli(["web", "--json", ...local])).generation, current.generation);
   assert.equal((await ensure(["--runtime-max-processes", "4"])).generation, current.generation);
-  await rejected(
+  await assert.rejects(
     () => ensure(["--runtime-max-processes", "32"]),
-    /configuration conflict.*runtime/s,
+    (error) => {
+      const message = JSON.parse(error.stderr.trim()).error.message;
+      assert.match(message, /configuration conflict.*runtime/s);
+      assert(message.includes(`${bin} service restart`));
+      assert(message.includes(`--workspace ${workspace}`));
+      assert(message.includes(`--config ${config}`));
+      assert(message.includes("--runtime-max-processes=32"));
+      return true;
+    },
   );
   await symlink(workspace, join(root, "alias"));
   assert.equal((await ensure(["--workspace", join(root, "alias")])).generation, current.generation);

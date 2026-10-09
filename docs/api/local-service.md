@@ -53,6 +53,8 @@ target/debug/areal web --workspace /absolute/workspace --json
 
 同一 dataDir 只允许一个 Core。`ensure` 串行化并发启动，发现运行实例后校验身份和配置；模型文件变更原地热更新；其他 TOML 配置和二进制更新在空闲时自动重启，有后台工作时拒绝自动重启。权限、Runtime、部署文件或模型 CLI/环境覆盖变化需执行 `areal service restart`。不会静默扩大写/网络权限，也不会杀掉未被托管的旧 Core。符号链接按规范路径识别。
 
+开发版与 PATH 中的安装版在相同工作区、相同 dataDir 下会定位同一实例，但二进制内容及不同版本的默认配置可能不兼容。冲突诊断给出当前客户端二进制的绝对路径和已解析的部署参数；使用该命令并保持相同环境重启，避免裸 `areal` 重新启动另一版本。纯二进制/普通配置更新仍沿用空闲自动重启；Runtime、权限等边界变化仍需显式重启。
+
 未显式配置 dataDir 时，共享入口使用 `$AREAL_HARNESS_HOME/instances/<workspace-hash前24位>/state`；home 默认 `~/.areal`。显式 CLI、环境变量或 TOML 中的 dataDir 保持配置优先级。独占 launcher、非交互 CLI 的默认目录保持原有规则。
 
 旧 `~/.areal-harness/state` 不自动搬迁或混入新工作区。可显式指定 `--data-dir`，或停止旧 Core 后绑定默认目录：
@@ -88,3 +90,7 @@ TUI 断线会重新发现服务，故障清理完成后可启动新 generation�
 认证 GET `/areal/service` 返回描述中的六个身份字段（protocolVersion/serviceId/generation/workspace/dataDir/configFingerprint），需要 observe 权限，拒绝不匹配的 Origin；无托管身份的已认证 Core 返回 404。业务协议仍见 [Core](core.md) 与[桌面 API](desktop.md)，无需另建 Agent loop。
 
 LocalArgs 新增 permissions（YOLO/ASK_PERMISSIONS）与 scratch。生效权限策略和 scratch 参与部署兼容性摘要。本地 launcher 默认改为 full-access；旧共享服务需显式重启应用此默认变更，客户端连接不会静默扩权。见[权限配置](../guides/configuration.md#permissions)。
+
+宿主 `host.log` 在运行期间每秒检查，超过 1 MiB 即清空；写入描述符使用 append，截断后不会按旧偏移形成稀疏大文件。launcher 当前日志同样有 1 MiB 检查阈值，已结束的 `launch-*.log` 最多保留 7 天、8 份、总计 8 MiB，启动、退出和运行期间每分钟检查。阈值按检查周期执行，并非每次写入的硬限制；检查之间可短暂超过。活跃 launcher 日志由文件锁租约保护，不按已结束日志回收。
+
+launcher 握手临时目录放入 `data_dir/launcher-state/`，正常退出自动删除，下次启动按租约回收崩溃残留。宿主取得实例锁并确认 Store 没有旧所有者后，清理旧 UUID generation 目录与登记原子写临时文件；不会删除其他实例、用户 scratch 或权威状态。旧版本在系统临时目录中留下的无归属目录无法安全识别，不做全局扫描。模型/Core 诊断保留策略见 [Core API](core.md#recovery)。

@@ -21,6 +21,8 @@ struct Request {
     unknown: bool,
     #[serde(default)]
     acknowledged: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    failure: Option<areal_protocol::TurnOutcome>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 struct Journal {
@@ -216,13 +218,32 @@ impl Budget {
         anyhow::ensure!(!d.poisoned, "GOAL_STORAGE_FAILED");
         anyhow::ensure!(d.enabled, "GOAL_STOPPED");
         let u = usage(&d);
-        anyhow::ensure!(
-            !d.journal
-                .requests
-                .values()
-                .any(|r| r.unknown && !r.acknowledged),
-            "GOAL_USAGE_UNKNOWN"
-        );
+        if let Some((request_id, request)) = d
+            .journal
+            .requests
+            .iter()
+            .filter(|(_, r)| r.unknown && !r.acknowledged)
+            // 取消其他请求也会留下未知消费，优先报告确实观察到的模型失败。
+            .max_by_key(|(_, r)| r.failure.is_some())
+        {
+            if let Some(failure) = &request.failure {
+                let mut outcome = failure.clone();
+                outcome.details = Some(json!({
+                    "cause":failure.details,"goalId":self.goal_id,
+                    "requestId":request_id,"owner":request.owner,"usageUnknown":true
+                }));
+                return Err(crate::outcome::TerminalFailure::new(
+                    format!(
+                        "GOAL_USAGE_UNKNOWN: {} from {} (request {}, owner {:?}); inspect the failed model request, then use /goal-resume to acknowledge the reserved usage and continue",
+                        failure.code, failure.source, request_id, request.owner
+                    ),
+                    outcome,
+                ).into());
+            }
+            anyhow::bail!(
+                "GOAL_USAGE_UNKNOWN: model usage is unconfirmed; inspect the failed request, then use /goal-resume to acknowledge the reserved usage and continue"
+            );
+        }
         if d.token_budget
             .is_some_and(|limit| u.tokens_used.saturating_add(u.reserved_tokens) >= limit)
         {
@@ -333,6 +354,7 @@ impl Budget {
                     settled: false,
                     unknown: false,
                     acknowledged: false,
+                    failure: None,
                 },
             );
             cap
@@ -386,6 +408,23 @@ struct Guard {
     key: String,
     complete: bool,
 }
+impl Guard {
+    fn record_failure(&self, error: &anyhow::Error) {
+        // 仅保存协议分类，不能把上游原文、提示词或凭据复制进共享账本。
+        let failure = crate::outcome::turn_error(error).outcome;
+        if let Some(request) = self
+            .budget
+            .data
+            .lock()
+            .unwrap()
+            .journal
+            .requests
+            .get_mut(&self.key)
+        {
+            request.failure = failure;
+        }
+    }
+}
 impl Drop for Guard {
     fn drop(&mut self) {
         let mut d = self.budget.data.lock().unwrap();
@@ -403,6 +442,11 @@ impl Stream for MeteredStream {
     type Item = anyhow::Result<ModelEvent>;
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let next = self.inner.as_mut().poll_next(cx);
+        if let Poll::Ready(Some(Err(error))) = &next
+            && let Some(guard) = &self.guard
+        {
+            guard.record_failure(error);
+        }
         if let Poll::Ready(Some(Ok(ModelEvent::Usage(value)))) = &next {
             let guard = self.guard.as_ref().unwrap();
             let mut d = guard.budget.data.lock().unwrap();
@@ -507,7 +551,14 @@ impl Model for MeteredModel {
                 self.inner
                     .chat_with_limits(messages, tools, purpose, limits, cap),
             )
-            .await?;
+            .await;
+        let inner = match inner {
+            Ok(inner) => inner,
+            Err(error) => {
+                guard.record_failure(&error);
+                return Err(error);
+            }
+        };
         Ok(Box::pin(MeteredStream {
             inner,
             guard: Some(guard),
@@ -531,6 +582,76 @@ mod tests {
         budget
     }
     struct Known;
+    #[tokio::test]
+    async fn child_failure_survives_shared_guard_and_journal_reload() {
+        let dir = tempfile::tempdir().unwrap();
+        let budget = fixture(dir.path(), 100000);
+        let (guard, _) = model::REQUEST_OWNER
+            .scope(
+                ("child".into(), "child-turn".into()),
+                budget.reserve(100, RequestPurpose::Solve),
+            )
+            .await
+            .unwrap();
+        let request_id = guard.key.clone();
+        let failure = crate::outcome::outcome(
+            "LLM_RESPONSE_FAILED",
+            "infrastructure",
+            "provider_stream",
+            json!({"eventType":"error"}),
+        );
+        let mut stream = MeteredStream {
+            inner: Box::pin(futures_util::stream::iter([Err(
+                crate::outcome::TerminalFailure::new("private provider text", failure).into(),
+            )])),
+            guard: Some(guard),
+        };
+        assert!(stream.next().await.unwrap().is_err());
+        drop(stream);
+        // 其他子请求被取消后也未知，但不能覆盖真正的上游失败来源。
+        budget.data.lock().unwrap().journal.requests.insert(
+            "cancelled".into(),
+            Request {
+                owner: None,
+                purpose: "Solve".into(),
+                reserved: 100,
+                usage: None,
+                settled: true,
+                unknown: true,
+                acknowledged: false,
+                failure: None,
+            },
+        );
+        budget.flush().await.unwrap();
+        let journal_text = std::fs::read_to_string(&budget.path).unwrap();
+        assert!(!journal_text.contains("private provider text"));
+        let goal: Goal = serde_json::from_value(json!({
+            "id":budget.goal_id,"threadId":id(),"objective":"test","status":"blocked",
+            "usage":budget.usage(),"settling":false,"waitingForInput":false,
+            "waitingForCapacity":false,"unreportedTurns":0
+        }))
+        .unwrap();
+        let restored = Budget::open(dir.path(), &goal).unwrap();
+        restored.configure(None, true);
+        let error = restored.guard().unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("GOAL_USAGE_UNKNOWN: LLM_RESPONSE_FAILED")
+        );
+        assert!(error.to_string().contains("child-turn"));
+        assert!(error.to_string().contains("/goal-resume"));
+        let outcome = crate::outcome::turn_error(&error).outcome.unwrap();
+        assert_eq!(outcome.source, "provider_stream");
+        assert_eq!(outcome.details.as_ref().unwrap()["requestId"], request_id);
+        assert_eq!(outcome.details.as_ref().unwrap()["usageUnknown"], true);
+        assert!(restored.unknown_pending());
+        restored.acknowledge_usage();
+        assert!(restored.guard().is_ok());
+        assert!(!restored.usage().accounting_complete);
+        assert!(restored.usage().reserved_tokens > 0);
+    }
+
     #[tokio::test]
     async fn unlimited_request_journal_rolls_without_resetting_usage() {
         let dir = tempfile::tempdir().unwrap();

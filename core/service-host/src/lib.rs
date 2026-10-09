@@ -13,6 +13,7 @@ use tokio::{
     time::{Instant, timeout},
 };
 use tokio_util::sync::CancellationToken;
+mod retention;
 
 pub async fn run() -> Result<()> {
     let mut bytes = Vec::new();
@@ -34,6 +35,11 @@ pub async fn run() -> Result<()> {
     ownership
         .try_lock_exclusive()
         .context("another service host owns the data directory")?;
+    ensure!(
+        storage::store_available(data)?,
+        "previous Core still owns the store"
+    );
+    retention::generations(&directory)?;
     storage::bind_workspace(data, workspace)?;
     let identity = Identity {
         protocol_version: VERSION,
@@ -165,6 +171,7 @@ async fn serve(
             }
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
+        retention::bound_log(&log_file);
     };
     let socket = directory.join("control.sock");
     if socket.exists() {
@@ -176,8 +183,10 @@ async fn serve(
     let service = Arc::new(service);
     let stopping = Arc::new(Mutex::new(false));
     let mut requests = tokio::task::JoinSet::new();
+    let mut log_tick = tokio::time::interval(Duration::from_secs(1));
     let outcome = loop {
         tokio::select! {
+            _ = log_tick.tick() => retention::bound_log(&log_file),
             _ = shutdown.cancelled() => break Ok(()),
             result = child.wait() => break Err(anyhow::anyhow!("Core/Runtime launcher exited: {:?}", result?)),
             incoming = listener.accept() => {

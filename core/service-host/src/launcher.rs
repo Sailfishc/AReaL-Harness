@@ -425,14 +425,14 @@ pub async fn run(args: Vec<OsString>) -> Result<()> {
         );
     }
     let (binary, workspace, data) = preflight(&args).await?;
+    let mut log_lease = None;
     let log = if args.tui || args.desktop {
         fs::create_dir_all(&data)?;
-        let log = tempfile::Builder::new()
-            .prefix("launch-")
-            .suffix(".log")
-            .tempfile_in(&data)?
-            .keep()?
-            .1;
+        let (log, lease) = super::retention::create_log(&data)?;
+        log_lease = Some(lease);
+        if super::retention::logs(&data).is_err() {
+            eprintln!("Could not clean retained launcher logs");
+        }
         eprintln!(
             "Local Harness: {}\nService log: {}",
             workspace.display(),
@@ -458,20 +458,9 @@ pub async fn run(args: Vec<OsString>) -> Result<()> {
             eprintln!("{}", String::from_utf8_lossy(&tail));
         }
     }
-    if let Some(path) = &log {
-        let mut logs: Vec<_> = fs::read_dir(path.parent().unwrap())?
-            .flatten()
-            .filter(|entry| {
-                entry.file_name().to_string_lossy().starts_with("launch-")
-                    && entry.file_name().to_string_lossy().ends_with(".log")
-            })
-            .collect();
-        logs.sort_by_key(|entry| {
-            std::cmp::Reverse(entry.metadata().and_then(|m| m.modified()).ok())
-        });
-        for entry in logs.iter().skip(8) {
-            let _ = fs::remove_file(entry.path());
-        }
+    drop(log_lease);
+    if log.is_some() && super::retention::logs(&data).is_err() {
+        eprintln!("Could not clean retained launcher logs");
     }
     result
 }
@@ -538,7 +527,8 @@ async fn launch(
             );
         }
     }
-    let temporary = tempfile::tempdir().context("create launcher state")?;
+    let (temporary, _state_lease) =
+        super::retention::launcher_state(data).context("create launcher state")?;
     let ready = args
         .ready_file
         .clone()
@@ -769,6 +759,7 @@ async fn supervise(
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     let mut interrupt = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
     let deadline = Instant::now() + Duration::from_secs_f64(args.startup_timeout);
+    let mut last_log_cleanup = Instant::now();
     while !(ready.exists() && metadata.exists()) {
         if let Some(status) = core.try_wait()? {
             bail!("Core stopped before becoming ready: {status}");
@@ -782,6 +773,12 @@ async fn supervise(
         }
         tokio::select! { _ = terminate.recv() => return Ok(true), _ = interrupt.recv() => return Ok(true), _ = tokio::time::sleep(Duration::from_millis(50)) => {} }
         bound_log(log);
+        if last_log_cleanup.elapsed() >= Duration::from_secs(60) {
+            if let Some(path) = log {
+                let _ = super::retention::logs(path.parent().unwrap());
+            }
+            last_log_cleanup = Instant::now();
+        }
     }
     let _terminal = Terminal::capture(args);
     let mut tui = if args.tui {
@@ -840,6 +837,12 @@ async fn supervise(
         }
         tokio::select! { _ = terminate.recv() => break, _ = interrupt.recv() => break, _ = tokio::time::sleep(Duration::from_millis(50)) => {} }
         bound_log(log);
+        if last_log_cleanup.elapsed() >= Duration::from_secs(60) {
+            if let Some(path) = log {
+                let _ = super::retention::logs(path.parent().unwrap());
+            }
+            last_log_cleanup = Instant::now();
+        }
     }
     if let Some(mut child) = tui {
         let status = finish(&mut child, 10, true, false).await?;
@@ -849,11 +852,8 @@ async fn supervise(
 }
 
 fn bound_log(path: Option<&Path>) {
-    if let Some(path) = path
-        && let Ok(file) = File::options().write(true).open(path)
-        && file.metadata().is_ok_and(|meta| meta.len() > 1024 * 1024)
-    {
-        let _ = file.set_len(0);
+    if let Some(path) = path {
+        super::retention::bound_log(path);
     }
 }
 
