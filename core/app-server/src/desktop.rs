@@ -56,8 +56,16 @@ pub(crate) const METHODS: &[&str] = &[
 ];
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SkillList {
+    thread_id: Option<String>,
+    agent_profile: Option<VersionRef>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct SkillRead {
-    thread_id: String,
+    thread_id: Option<String>,
+    agent_profile: Option<VersionRef>,
     skill: VersionRef,
     resource: Option<String>,
     offset: Option<usize>,
@@ -336,20 +344,31 @@ async fn dispatch_inner(
         }
         "areal/profile/read" => Ok(json!(engine.profile(&parse(params)?).map_err(map_error)?)),
         "areal/skill/list" => {
-            let p: ThreadId = parse(params)?;
-            engine.skills(&p.thread_id).await
+            let p: SkillList = parse(params)?;
+            match (p.thread_id, p.agent_profile) {
+                (Some(thread_id), None) => engine.skills(&thread_id).await,
+                (None, Some(profile)) => engine.profile_skills(&profile),
+                _ => Err(Error::Invalid("provide threadId or agentProfile".into())),
+            }
         }
         "areal/skill/read" => {
             let p: SkillRead = parse(params)?;
-            engine
-                .read_skill(
-                    &p.thread_id,
-                    p.skill,
-                    p.resource.as_deref().unwrap_or("SKILL.md"),
-                    p.offset.unwrap_or(0),
-                    p.max_bytes.unwrap_or(8192),
-                )
-                .await
+            let resource = p.resource.as_deref().unwrap_or("SKILL.md");
+            let offset = p.offset.unwrap_or(0);
+            let max_bytes = p.max_bytes.unwrap_or(8192);
+            match (p.thread_id, p.agent_profile) {
+                (Some(thread_id), None) => {
+                    engine
+                        .read_skill(&thread_id, p.skill, resource, offset, max_bytes)
+                        .await
+                }
+                (None, Some(profile)) => {
+                    engine
+                        .read_profile_skill(profile, p.skill, resource, offset, max_bytes)
+                        .await
+                }
+                _ => Err(Error::Invalid("provide threadId or agentProfile".into())),
+            }
         }
         "areal/plan/read" => {
             let p: ThreadId = parse(params)?;

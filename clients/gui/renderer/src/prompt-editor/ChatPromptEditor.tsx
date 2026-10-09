@@ -31,6 +31,8 @@ import {
 import { appendWorkspaceFileMentionToComposer } from "@/lib/workspaceFileComposer.js";
 import { usePromptEditorDragState } from "@/prompt-editor/usePromptEditorDragState.js";
 import { ChatPromptActionMenu } from "@/prompt-editor/ChatPromptActionMenu.js";
+import { ComposerCatalogTrigger } from "./ComposerCatalogTrigger.js";
+import type { ComposerCatalogData } from "./ComposerCatalog.js";
 import { useComposerToolbarFit } from "@/prompt-editor/useComposerToolbarFit.js";
 
 function runAfterFrame(callback: () => void) {
@@ -67,6 +69,7 @@ export function ChatPromptEditor({
   leadingActions,
   attachmentAction,
   menuActions,
+  composerCatalog,
   betweenCancelAndSubmitAction,
   submitControl,
   inputTestId,
@@ -123,6 +126,7 @@ export function ChatPromptEditor({
     testId?: string;
     menuItemTestId?: string;
   };
+  composerCatalog?: ComposerCatalogData;
   menuActions?: readonly import("./ChatPromptActionMenu.js").ComposerMenuAction[];
   /** 行内编辑专用：固定插在取消与主提交之间的第二动作。 */
   betweenCancelAndSubmitAction?: ReactNode;
@@ -397,11 +401,12 @@ export function ChatPromptEditor({
           onPaste={onPaste}
           excludedSlashCommandNames={excludedSlashCommandNames}
           appSlashCommands={appSlashCommands}
+          composerCatalog={composerCatalog}
           enableMentionPanel={enableMentionPanel}
         />}
         toolbar={<ComposerToolbar ref={toolbarRef}
           leading={<>
-              {hasActionMenu ? (
+              {composerCatalog ? <ComposerCatalogTrigger catalog={composerCatalog} anchor={resolvedTriggerPanelContainer} disabled={disabled} onClose={() => resolvedInputApiRef.current?.focus()} /> : hasActionMenu ? (
                 <ChatPromptActionMenu
                   actionMenuTitle={actionMenuTitle}
                   excludedSlashCommandNames={excludedSlashCommandNames}

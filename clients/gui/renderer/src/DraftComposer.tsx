@@ -4,16 +4,21 @@ import { ComposerModelMenu } from "./ComposerModelMenu.js";
 import { ComposerPermissionMenu } from "./ComposerPermissionMenu.js";
 import { permissionOptions, planModeOptions, type PermissionMode } from "./permissions.js";
 import { ComposerPlanMode } from "./ComposerPlanMode.js";
-import { Settings, Plugin, PlanModeIcon as Lightbulb } from "./interfaceIcons.js";
+import { FileTree, AttachmentIcon, GoalIcon, PlanModeIcon as Lightbulb } from "./interfaceIcons.js";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { ChatPromptEditor } from "./prompt-editor/ChatPromptEditor.js";
-import { DraftAttachment } from "./MessageAttachment.js";
+import { ComposerAttachment, composerPaste } from "./ComposerAttachments.js";
+import { useComposerSkills, transferComposerSkills, clearComposerSkills } from "./ComposerSkills.js";
+import { ComposerMcpIcon } from "./ComposerIcons.js";
+import { ComposerMcp } from "./ComposerMcp.js";
+import { Button } from "./components/ui/button.js";
 import type { LexicalChatInputHandle } from "./LexicalChatInput.js";
 import type { Action, Data } from "./services.js";
 import { attachedReviewComments, detachReviewComments, reviewCommentKey, transferNewReviewComments, useReviewComments } from "./reviewComments.js";
 import { ReviewCommentAttachment } from "./ReviewCommentViews.js";
 import {
   attachmentDrafts,
+  attachmentErrors,
   sending,
   subscribeSending,
   markSending,
@@ -24,6 +29,7 @@ import {
 export function DraftComposer({
   project,
   action,
+  readAction = action,
   onOpen,
   onPanel,
   draftKey,
@@ -31,6 +37,7 @@ export function DraftComposer({
 }: {
   project: Data;
   action: Action;
+  readAction?: Action;
   onOpen: (pid: string, tid: string) => Promise<void>;
   onPanel: (panel: string) => void;
   draftKey?: string;
@@ -68,6 +75,11 @@ export function DraftComposer({
   const chosenProfile = profileSelection
     ? project.profiles.find((p: Data) => profileKey(p) === profileSelection)
     : project.profiles.find((p: Data) => p.id === "areal-standard") ?? project.profiles[0];
+  const [menuAnchor, setMenuAnchor] = useState<HTMLDivElement | null>(null);
+  const [mcpOpen, setMcpOpen] = useState(false);
+  const [goalMode, setGoalMode] = useState(() => localStorage.getItem(`${key}:goal`) === "true");
+  const changeGoalMode = (enabled: boolean) => { setGoalMode(enabled); localStorage.setItem(`${key}:goal`, String(enabled)); api.current?.focus(); };
+  const [efforts, setEfforts] = useState<Record<string, string>>(() => JSON.parse(localStorage.getItem(`${key}:efforts`) ?? "{}"));
   const unavailableProfile = !!profileSelection && !chosenProfile;
   const setPlanMode = (enabled: boolean) => { setPlan(enabled); localStorage.setItem(`${key}:plan`, String(enabled)); };
   const [model, setModel] = useState(
@@ -85,6 +97,8 @@ export function DraftComposer({
           const m = project.models.find((m: Data) => m.providerId && m.available !== false);
           return m ? `${m.providerId}/${m.modelId}` : "";
         })();
+  const currentModel = project.models.find((item: Data) => effectiveModel ? `${item.providerId}/${item.modelId}` === effectiveModel : chosenProfile?.model ? item.providerId === chosenProfile.model.providerId && item.modelId === chosenProfile.model.modelId : !item.providerId);
+  const effort = efforts[effectiveModel] ?? "";
   const [unknown, setUnknown] = useState(() => localStorage.getItem(`${key}:pending-create`));
   const busy = useSyncExternalStore(subscribeSending, () => sending.has(key));
   const disabled =
@@ -93,6 +107,7 @@ export function DraftComposer({
     !project.state?.connected ||
     !!project.pending.length ||
     !!unknown || !!reviewDraft.error || unavailableProfile;
+  const skills = useComposerSkills({ project, profile: chosenProfile, draftKey: key, action: readAction, disabled });
   useEffect(() => {
     attachmentDrafts.set(key, files);
   }, [key, files]);
@@ -102,6 +117,8 @@ export function DraftComposer({
     localStorage.removeItem(`${key}:permission`);
     localStorage.removeItem(`${key}:plan`);
     attachmentDrafts.delete(key);
+    skills.clear();
+    changeGoalMode(false);
     api.current?.clear();
     setText("");
     setFiles([]);
@@ -119,13 +136,15 @@ export function DraftComposer({
       localStorage.getItem(key) ?? "",
       attachmentDrafts.get(key) ?? [],
     );
+    transferComposerSkills(key, `areal-gui:draft:${project.id}:${outcome.threadId}`);
+    if (goalMode) localStorage.setItem(`areal-gui:draft:${project.id}:${outcome.threadId}:goal`, "true");
     localStorage.removeItem(`${key}:pending-create`);
     setUnknown(null);
     clear();
     void onOpen(project.id, outcome.threadId);
   }, [unknown, project.pending.length, project.outcomes]);
   const submit = async (value: string) => {
-    if (disabled || sending.has(key) || (!value.trim() && !files.length && !comments.length)) return;
+    if (disabled || sending.has(key) || (!value.trim() && !files.length && !comments.length && !skills.selected.length) || (goalMode && !value.trim())) return;
     markSending(key, true);
     setDraftError("");
     let targetKey: string | undefined;
@@ -142,6 +161,7 @@ export function DraftComposer({
       creationAttempted = true;
       const result = await action("create", {
         projectId: owner.id,
+        ...(effort ? { parameters: { reasoningEffort: effort } } : {}),
         ...(profile
           ? { profile: { id: profile.id, revision: profile.revision } }
           : {}),
@@ -151,6 +171,8 @@ export function DraftComposer({
       });
       targetKey = stageThreadDraft(owner.id, result.threadId, value, files);
       transferNewReviewComments(owner.id, result.threadId);
+      transferComposerSkills(key, targetKey);
+      if (goalMode) localStorage.setItem(`${targetKey}:goal`, "true");
       markSending(targetKey, true);
       clear();
       // Show the accepted task immediately, including while the first model request waits.
@@ -159,14 +181,27 @@ export function DraftComposer({
       if (!profile?.readOnly && (permission !== "auto" || plan)) {
         await action("configure", { projectId: owner.id, threadId: result.threadId, options: planModeOptions(plan, permissionOptions(permission)) });
       }
-      await submitMessage(action, owner.id, result.threadId, value, files);
+      if (goalMode) {
+        const latest = await action("manage", { projectId: owner.id, threadId: result.threadId, operation: "goal" });
+        await action("manage", { projectId: owner.id, threadId: result.threadId, operation: "goalCreate", objective: value, expectedRevision: latest.revision ?? 0, inferLimits: true });
+        localStorage.removeItem(`${targetKey}:goal`);
+        // 目标只消费正文；技能、文件和评论仍保留在已创建聊天中。
+      } else {
+        await submitMessage(action, owner.id, result.threadId, value, files, { skillAction: readAction });
+        attachmentDrafts.delete(targetKey);
+        clearComposerSkills(targetKey);
+      }
       localStorage.removeItem(targetKey);
-      attachmentDrafts.delete(targetKey);
+      window.dispatchEvent(new CustomEvent("areal-draft-change", { detail: targetKey }));
     } catch (e) {
       setDraftError((e as Error).message);
+      if (targetKey) attachmentErrors.set(targetKey, (e as Error).message);
       const error = e as Error & { submissionUnknown?: boolean; requestId?: string };
       if (creationAttempted && error.submissionUnknown && error.requestId) {
-        if (targetKey) localStorage.setItem(`${targetKey}:pending`, error.requestId);
+        if (targetKey) {
+          localStorage.setItem(`${targetKey}:pending`, error.requestId);
+          if (goalMode) localStorage.setItem(`${targetKey}:pending-goal`, error.requestId);
+        }
         else {
           localStorage.setItem(`${key}:pending-create`, error.requestId);
           setUnknown(error.requestId);
@@ -208,7 +243,10 @@ export function DraftComposer({
       {project.root && !project.state?.connected && <p role="alert" className="notice">连接不可用，输入已保留。{project.error || project.state?.error}</p>}
       {draftError && <p role="alert" className="px-3 py-2 text-ui-sm text-destructive">{draftError}</p>}
       {reviewDraft.error && <p role="alert" className="px-3 py-2 text-ui-sm text-destructive">{reviewDraft.error}</p>}
+      <div className="composer-input-stack">
+      <div ref={setMenuAnchor} className="composer-menu-anchor" />
       <ChatPromptEditor
+        triggerPanelContainer={menuAnchor}
         shellClassName="@container/composer"
         workspacePath={project.root}
         taskId={null}
@@ -216,18 +254,21 @@ export function DraftComposer({
         inputApiRef={api}
         inputTestId="chat-input"
         submitTestId="chat-send-button"
-        placeholder={plan ? "描述任务，生成计划…" : "随心输入"}
+        placeholder={goalMode ? "描述目标，明确可衡量的结果" : plan ? "描述任务，生成计划…" : "随心输入"}
         disabled={disabled}
-        submitDisabled={disabled || (!text.trim() && !files.length && !comments.length)}
+        submitDisabled={disabled || (goalMode ? !text.trim() : !text.trim() && !files.length && !comments.length && !skills.selected.length)}
         submitting={busy}
-        submitLabel="发送"
+        submitLabel={goalMode ? "开始目标" : "发送"}
         enterSubmits={prefs.sendShortcut === "enter"}
         enableMentionPanel={false}
-        appSlashCommands={[
-          ...(chosenProfile?.readOnly ? [] : [{ value: "plan", label: "计划模式", icon: <Lightbulb />, description: plan ? "关闭计划模式" : "开启计划模式", run: () => setPlanMode(!plan) }]),
-          { value: "model", label: "模型", icon: <Settings />, description: "模型与权限设置", run: () => onPanel("设置") },
-          { value: "skills", label: "Skills", icon: <Plugin />, description: "查看 Skills", run: () => onPanel("Skills") },
-        ]}
+        composerCatalog={{ ...skills.catalog, entries: [
+          { value: "upload", label: "上传文件", description: "添加图片、文档或其他文件", group: "功能", icon: <AttachmentIcon />, run: () => upload.current?.click() },
+          ...(project.id !== "projectless" ? [{ value: "mcp", label: "MCP", description: "查看服务器与连接状态", group: "功能" as const, icon: <ComposerMcpIcon />, run: () => setMcpOpen(true) }] : []),
+          ...(project.root ? [{ value: "files", label: "工作区文件", description: "引用当前项目中的文件", group: "功能" as const, icon: <FileTree />, run: () => onPanel("文件") }] : []),
+          { value: "plan", label: "计划模式", description: plan ? "关闭计划模式" : "先规划，再开始执行", group: "功能", icon: <Lightbulb />, disabled: chosenProfile?.readOnly === true, run: () => setPlanMode(!plan) },
+          { value: "goal", label: "设置目标", description: goalMode ? "关闭目标模式" : "设置持续目标与停止条件", group: "功能", icon: <GoalIcon />, run: () => changeGoalMode(!goalMode) },
+          ...skills.catalog.entries,
+        ] }}
         onChange={(value) => {
           setText(value);
           localStorage.setItem(key, value);
@@ -236,23 +277,14 @@ export function DraftComposer({
           void submit(value);
           return false;
         }}
-        onPaste={(e) => {
-          const pasted = Array.from(e.clipboardData?.files ?? []);
-          if (pasted.length) {
-            e.preventDefault();
-            setFiles((f) => [...f, ...pasted]);
-          }
-        }}
-        attachmentAction={{ label: "添加附件", onSelect: () => upload.current?.click() }}
-        menuActions={[{ id: "skills", label: "Skills", description: "查看可用技能", icon: <Plugin />, onSelect: () => onPanel("Skills") },
-          { id: "plan", label: "计划模式", description: plan ? "关闭计划模式" : "开启计划模式", icon: <Lightbulb />,
-          disabled: disabled || chosenProfile?.readOnly === true, onSelect: () => setPlanMode(!plan) }]}
+        onPaste={event => composerPaste(event, pasted => setFiles(current => [...current, ...pasted]))}
         topContent={
-          <><ReviewCommentAttachment comments={comments} disabled={disabled} onRemove={() => detachReviewComments(reviewKey)} />
+          <>{skills.tags}<ReviewCommentAttachment comments={comments} disabled={disabled} onRemove={() => detachReviewComments(reviewKey)} />
           {files.length ? (
             <div className="composer-attachments" data-testid="composer-attachments">
-              {files.map((file, i) => <DraftAttachment key={`${file.name}-${file.lastModified}-${i}`} file={file}
-                onRemove={() => setFiles((current) => current.filter((_, at) => at !== i))} />)}
+              {files.map((file, i) => <ComposerAttachment disabled={disabled} key={`${file.name}-${file.lastModified}-${i}`} file={file}
+                onRemove={() => setFiles((current) => current.filter((_, at) => at !== i))}
+                onExpand={content => { api.current?.appendText(`${text.trim() ? "\n\n" : ""}${content}`); setFiles(current => current.filter(item => item !== file)); }} />)}
             </div>
           ) : null}</>
         }
@@ -260,19 +292,23 @@ export function DraftComposer({
           <><ComposerPermissionMenu value={chosenProfile?.readOnly ? "readOnly" : permission} disabled={disabled}
             lockedReadOnly={chosenProfile?.readOnly === true}
             onChange={value => { setPermission(value); localStorage.setItem(`${key}:permission`, value); }} onClose={() => api.current?.focus()} />
+          {goalMode && <Button type="button" variant="ghost" disabled={disabled} aria-label="退出目标模式" onClick={() => changeGoalMode(false)}><GoalIcon size={16} />目标</Button>}
           {plan && <ComposerPlanMode disabled={disabled || chosenProfile?.readOnly === true} onExit={() => setPlanMode(false)} />}</>
         }
         betweenCancelAndSubmitAction={<ComposerModelMenu
           value={effectiveModel} disabled={disabled}
+          effort={effort} onEffortChange={value => { const next = { ...efforts, [effectiveModel]: value }; setEfforts(next); localStorage.setItem(`${key}:efforts`, JSON.stringify(next)); }}
           options={[
-            ...(chosenProfile?.model ? [{ value: "", label: `预设模型：${chosenProfile.model.modelId}` }] : hasDefaultModel ? [{ value: "", label: "默认模型" }] : !effectiveModel ? [{ value: "", label: "请先配置模型" }] : []),
+            ...(chosenProfile?.model ? [{ value: "", label: `预设模型：${chosenProfile.model.modelId}`, efforts: currentModel?.reasoningEffortOptions }] : hasDefaultModel ? [{ value: "", label: "默认模型", efforts: currentModel?.reasoningEffortOptions }] : !effectiveModel ? [{ value: "", label: "请先配置模型" }] : []),
             ...project.models.filter((model: Data) => model.providerId && model.available !== false)
-              .map((model: Data) => ({ value: `${model.providerId}/${model.modelId}`, label: model.displayName ?? model.modelId })),
+              .map((model: Data) => ({ value: `${model.providerId}/${model.modelId}`, label: model.displayName ?? model.modelId, efforts: model.reasoningEffortOptions })),
           ]}
           onChange={value => { setModel(value); localStorage.setItem(`areal-gui:model:${project.id}`, value); }}
           onClose={() => api.current?.focus()}
         />}
       />
+      </div>
+      <ComposerMcp projectId={project.id} action={readAction} open={mcpOpen} anchor={menuAnchor} onClose={() => { setMcpOpen(false); api.current?.focus(); }} />
     </div>
   );
 }

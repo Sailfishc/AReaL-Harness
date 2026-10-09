@@ -69,10 +69,14 @@ Optional `parameters.reasoningSummary` accepts `auto` / `concise` / `detailed` f
 
 options.readOnly narrows Scope write roots and networking. toolAllowlist narrows the Profile; preapprovedTools cannot remove mandatory deployment approvals and matches only the current tool name; preapproving a read tool does not exempt its hooks. maxModelRounds is 1–1024 with a handoff-only final round, not a team request budget. Profile/Workflow definitions use immutable id/revision pairs; Skill references do not freeze resource content, as described below.
 
+`areal/model/list.reasoningEffortOptions` reports the existing HTTP adapter's accepted values (`none/minimal/low/medium/high/xhigh`; empty for other adapters). This does not guarantee support by every remote model. Composer reads these options from the catalog and submits parameters through the existing thread configuration path.
+
 <a id="skills"></a>
 ## Skill metadata and resources
 
 Trusted deployment manifests accept skills as `{id,revision,root,metadata?:{name,description}}`, with root relative to the manifest directory. When metadata is omitted, registration parses only the bounded SKILL.md header without scanning attachments. Explicit deployments and discovery share the same on-demand read behavior.
+
+`areal/skill/list` accepts either `{threadId}` or `{agentProfile:{id,revision}}`. Drafts can observe registered Profile metadata without creating a Thread or reading content. `areal/skill/read` accepts the same mutually exclusive contexts for draft previews of resources allowed by that Profile. Profile reads do not register Thread loading state; sending reads again in the owning Thread. Composer stores skill references and sources, reads SKILL.md before sending, and attaches it to the current message. Read failures preserve the draft.
 
 Entries in `areal/skill/list` data add name/description; resources is always null instead of a complete resource inventory. available and resourceRoot retain their meaning. Initial model prompts include only names and bounded descriptions; agents call skill_read for full instructions.
 

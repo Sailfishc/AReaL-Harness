@@ -13,18 +13,22 @@ import { ApprovalRequest } from "./ApprovalRequest.js";
 import { GoalCard, goalControlError } from "./Goal.js";
 import { goalContinuationLabel } from "./conversationPresentation.js";
 import { GoalIcon as Target, PlanModeIcon as Lightbulb } from "./interfaceIcons.js";
-import { FileTree, ReviewCommentGlyph, Settings, Plugin, SquarePen, ArchiveChatIcon, SendMessageIcon, StopIcon } from "./interfaceIcons.js";
+import { FileTree, ArchiveChatIcon, SendMessageIcon, StopIcon } from "./interfaceIcons.js";
 import { ChatPromptEditor } from "./prompt-editor/ChatPromptEditor.js";
-import { DraftAttachment } from "./MessageAttachment.js";
+import { ComposerAttachment, composerPaste } from "./ComposerAttachments.js";
+import { useComposerSkills, composerSkillContent, readComposerSkills } from "./ComposerSkills.js";
+import { ComposerMcpIcon } from "./ComposerIcons.js";
+import { ComposerMcp } from "./ComposerMcp.js";
+import { AttachmentIcon } from "./interfaceIcons.js";
+import type { ComposerCatalogEntry } from "./prompt-editor/ComposerCatalog.js";
 import { ReviewCommentAttachment } from "./ReviewCommentViews.js";
 import { attachedReviewComments, consumeReviewComments, detachReviewComments, recordUnknownReviewSubmission, reconcileReviewSubmission, readReviewComments, reviewCommentKey, reviewCommentText, useReviewComments } from "./reviewComments.js";
 import type { LexicalChatInputHandle } from "./LexicalChatInput.js";
-import type { AppSlashCommand } from "./slashCommandHelpers.js";
 import type { Data, Action } from "./services.js";
 // Draft attachments and in-flight UI admission survive task navigation. These are
 // unsent client inputs only; Core remains authoritative for acceptance/outcomes.
 export const attachmentDrafts = new Map<string, File[]>();
-const attachmentErrors = new Map<string, string>();
+export const attachmentErrors = new Map<string, string>();
 export const sending = new Set<string>();
 const sendListeners = new Set<() => void>();
 export const subscribeSending = (listener: () => void) => {
@@ -42,6 +46,7 @@ export function Composer({
   project,
   thread,
   action,
+  readAction = action,
   onPanel,
   onNew,
   onOpenTask,
@@ -49,6 +54,7 @@ export function Composer({
   project: Data;
   thread: Data;
   action: Action;
+  readAction?: Action;
   onPanel: (name: string) => void;
   onNew: () => void;
   onOpenTask?: (target: { projectId: string; taskId: string; runId: string }) => void;
@@ -100,6 +106,9 @@ export function Composer({
   const disabled = !project.state?.connected || archived || busy || pending || !!unknown || !!reviewDraft.error;
   const stop = () => { void action("stop", { projectId: project.id, threadId: thread.id }).catch(() => {}); };
   const config = project.configurations?.[thread.id];
+  const [mcpOpen, setMcpOpen] = useState(false);
+
+  const skills = useComposerSkills({ project, threadId: thread.id, draftKey: key, action: readAction, disabled });
   const planActive = permissionMode(config ?? {}) === "plan";
   const executionPermission = planActive ? permissionMode({ ...config, readOnly: false, options: planModeOptions(false, config?.options) }) : permissionMode(config ?? {});
   const planReady = canExecutePlan(config ?? {}, thread, project.state?.queues?.[thread.id]);
@@ -107,6 +116,7 @@ export function Composer({
     api.current?.clear();
     setText("");
     setFiles([]);
+    skills.clear();
     attachmentDrafts.delete(key);
     setAdmissionError("");
     localStorage.removeItem(key);
@@ -120,6 +130,7 @@ export function Composer({
       if (api.current && api.current.getMarkdown() !== draft) api.current.setText(draft);
       setText(draft);
       setFiles(attachmentDrafts.get(key) ?? []);
+      setAdmissionError(attachmentErrors.get(key) ?? "");
     }
   }, [key, busy]);
   useEffect(() => {
@@ -148,12 +159,8 @@ export function Composer({
   useEffect(() => {
     if (thread.goals?.goal && goalMode) changeGoalMode(false);
   }, [thread.goals?.goal?.id]);
-  const openGoal = () => {
-    if (thread.goals?.goal) { onPanel("编辑目标"); return; }
-    if (!disabled && !running && !thread.parentThreadId) changeGoalMode(true);
-  };
   const submit = async (value: string, invert = false, approvePlan = false) => {
-    if (disabled || sending.has(key) || (!value.trim() && !files.length && !comments.length)) return;
+    if (disabled || sending.has(key) || (!value.trim() && !files.length && !comments.length && !skills.selected.length)) return;
     if (approvePlan && (!planReady || text.trim() || files.length || comments.length)) return;
     if (creatingGoal && (running || thread.parentThreadId || !value.trim())) return;
     setAdmissionError("");
@@ -174,6 +181,7 @@ export function Composer({
         steer: !!running && shouldSteer(prefs.followUp, invert),
         expectedTurnId: running?.id,
         enqueue: !!running,
+        skillAction: readAction,
       });
       clear();
     } catch (e) {
@@ -202,25 +210,15 @@ export function Composer({
     markSending(key, true);
     try {
       await action("configure", { projectId: project.id, threadId: thread.id, expectedRevision: config?.revision, ...values });
-    } catch {} finally { markSending(key, false); }
+    } catch (cause) { setAdmissionError((cause as Error).message); } finally { markSending(key, false); }
   };
-  const commands: AppSlashCommand[] = [
-    { value: "new", label: "新对话", icon: <SquarePen />, description: "创建新任务", run: onNew },
-    { value: "files", label: "文件", icon: <FileTree />, description: "工作区文件", run: () => onPanel("文件") },
-    { value: "diff", label: "改动", icon: <ReviewCommentGlyph />, description: "查看 Git 改动", run: () => onPanel("改动") },
-    { value: "skills", label: "Skills", icon: <Plugin />, description: "查看 Skills", run: () => onPanel("Skills") },
-    { value: "model", label: "模型", icon: <Settings />, description: "模型与权限设置", run: () => onPanel("设置") },
-    { value: "goal", label: "目标", icon: <Target />, description: "设置或编辑持续目标", run: openGoal },
-    {
-      value: "compact", label: "压缩", icon: <ArchiveChatIcon />,
-      description: "压缩当前上下文",
-      run: () =>
-        void action("manage", {
-          projectId: project.id,
-          threadId: thread.id,
-          operation: "contextCompact",
-        }).catch(() => {}),
-    },
+  const catalogActions: ComposerCatalogEntry[] = [
+    { value: "upload", label: "上传文件", description: "添加图片、文档或其他文件", icon: <AttachmentIcon />, group: "功能", run: () => upload.current?.click() },
+    { value: "mcp", label: "MCP", description: "查看服务器与连接状态", icon: <ComposerMcpIcon />, group: "功能", run: () => setMcpOpen(true) },
+    { value: "files", label: "工作区文件", description: "引用当前项目中的文件", icon: <FileTree />, group: "功能", run: () => onPanel("文件") },
+    { value: "plan", label: "计划模式", description: planActive ? "关闭计划模式" : "先规划，再开始执行", icon: <Lightbulb />, group: "功能", disabled: disabled || !!running || !config || config.profile?.readOnly === true, run: () => { void configure({ options: planModeOptions(!planActive, config?.options) }); } },
+    ...(!thread.goals?.goal ? [{ value: "goal", label: "设置目标", description: creatingGoal ? "关闭目标模式" : "设置持续目标与停止条件", icon: <Target />, group: "功能" as const, disabled: disabled || !!running || !!thread.parentThreadId, run: () => changeGoalMode(!goalMode) }] : []),
+    { value: "compact", label: "压缩", description: "压缩当前上下文", icon: <ArchiveChatIcon />, group: "功能", disabled: !!running, run: () => { void action("manage", { projectId: project.id, threadId: thread.id, operation: "contextCompact" }).catch(() => {}); } },
   ];
   // TaskRun owns this worker's lifetime; its history is readable, but it is
   // not an independent conversation that can accept another user turn.
@@ -305,12 +303,12 @@ export function Composer({
         submitTestId="chat-send-button"
         placeholder={archived ? "已归档任务只读" : creatingGoal ? "描述目标，明确可衡量的结果" : planActive ? "描述任务，生成计划…" : "随心输入"}
         disabled={disabled}
-        submitDisabled={disabled || (creatingGoal ? !text.trim() || !!running : !text.trim() && !files.length && !comments.length)}
+        submitDisabled={disabled || (creatingGoal ? !text.trim() || !!running : !text.trim() && !files.length && !comments.length && !skills.selected.length)}
         submitting={busy}
         submitLabel={creatingGoal ? "开始目标" : "发送"}
         enterSubmits={prefs.sendShortcut === "enter"}
         enableMentionPanel={false}
-        appSlashCommands={commands}
+        composerCatalog={{ ...skills.catalog, entries: [...catalogActions, ...skills.catalog.entries] }}
         onChange={(value) => {
           setText(value);
           localStorage.setItem(key, value);
@@ -323,29 +321,14 @@ export function Composer({
           void submit(value, !!running);
           return false;
         } : undefined}
-        onPaste={(e) => {
-          const pasted = Array.from(e.clipboardData?.files ?? []);
-          if (pasted.length) {
-            e.preventDefault();
-            setFiles((f) => [...f, ...pasted]);
-          }
-        }}
-        attachmentAction={{ label: "添加附件", onSelect: () => upload.current?.click() }}
-        menuActions={[
-          { id: "files", label: "工作区文件", description: "浏览文件与文件夹", icon: <FileTree />, onSelect: () => onPanel("文件") },
-          { id: "skills", label: "Skills", description: "查看可用技能", icon: <Plugin />, onSelect: () => onPanel("Skills") },
-          { id: "plan", label: "计划模式", description: planActive ? "关闭计划模式" : "开启计划模式", icon: <Lightbulb />,
-          disabled: disabled || !!running || !config || config?.profile?.readOnly === true,
-          onSelect: () => { void configure({ options: planModeOptions(!planActive, config?.options) }); } },
-          ...(!thread.goals?.goal ? [{ id: "goal", label: "设置目标", description: "设置持续目标与停止条件", icon: <Target />,
-            disabled: disabled || !!running || !!thread.parentThreadId,
-            onSelect: openGoal }] : [])]}
+        onPaste={event => composerPaste(event, pasted => setFiles(current => [...current, ...pasted]))}
         topContent={
-          <><ReviewCommentAttachment comments={comments} disabled={disabled} onRemove={() => detachReviewComments(reviewKey)} />
+          <>{skills.tags}<ReviewCommentAttachment comments={comments} disabled={disabled} onRemove={() => detachReviewComments(reviewKey)} />
           {files.length ? (
             <div className="composer-attachments" data-testid="composer-attachments">
-              {files.map((file, i) => <DraftAttachment key={`${file.name}-${file.lastModified}-${i}`} file={file}
-                onRemove={() => setFiles((current) => current.filter((_, at) => at !== i))} />)}
+              {files.map((file, i) => <ComposerAttachment disabled={disabled} key={`${file.name}-${file.lastModified}-${i}`} file={file}
+                onRemove={() => setFiles((current) => current.filter((_, at) => at !== i))}
+                onExpand={content => { api.current?.appendText(`${text.trim() ? "\n\n" : ""}${content}`); setFiles(current => current.filter(item => item !== file)); }} />)}
             </div>
           ) : null}</>
         }
@@ -377,7 +360,7 @@ export function Composer({
           </div>}</>
         }
         onCancel={running ? stop : undefined}
-        submitControl={running && !text.trim() && !files.length && !comments.length ? (
+        submitControl={running && !text.trim() && !files.length && !comments.length && !skills.selected.length ? (
           <ControlHintTooltip title="停止" shortcut="Esc">
             <Button type="button" variant="secondary" size="icon-md" className="composer-primary-action composer-stop-action" aria-label="停止"
               onClick={() => { stop(); api.current?.focus(); }}>
@@ -387,7 +370,7 @@ export function Composer({
         ) : running ? (
           <ControlHintTooltip title="发送" shortcut={prefs.sendShortcut === "enter" ? "Enter" : "⌘/Ctrl+Enter"}>
             <Button type="button" size="icon-md" aria-label="发送" data-testid="chat-send-button"
-              disabled={disabled || (!text.trim() && !files.length)}
+              disabled={disabled || (!text.trim() && !files.length && !comments.length && !skills.selected.length)}
               className="composer-primary-action bg-foreground text-background hover:bg-foreground/90 disabled:bg-secondary disabled:text-foreground-subtlest disabled:opacity-100"
               onClick={event => void submit(api.current?.getMarkdown() ?? text, event.metaKey || event.ctrlKey)}>
               <SendMessageIcon className="size-5" />
@@ -397,9 +380,11 @@ export function Composer({
         betweenCancelAndSubmitAction={<ComposerModelMenu
           value={config?.model ? `${config.model.providerId}/${config.model.modelId}` : ""}
           disabled={disabled || !!running}
-          options={[{ value: "", label: "默认模型" }, ...project.models
+          effort={config?.parameters?.reasoningEffort ?? ""}
+          onEffortChange={value => { void configure({ parameters: { ...config?.parameters, reasoningEffort: value } }); }}
+          options={[{ value: "", label: "默认模型", efforts: project.models.find((model: Data) => !model.providerId)?.reasoningEffortOptions }, ...project.models
             .filter((model: Data) => model.providerId && model.available !== false)
-            .map((model: Data) => ({ value: `${model.providerId}/${model.modelId}`, label: model.displayName ?? model.modelId }))]}
+            .map((model: Data) => ({ value: `${model.providerId}/${model.modelId}`, label: model.displayName ?? model.modelId, efforts: model.reasoningEffortOptions }))]}
           onChange={value => {
             if (!value) { void configure({ model: null }); return; }
             const model = project.models.find((item: Data) => `${item.providerId}/${item.modelId}` === value);
@@ -409,6 +394,7 @@ export function Composer({
         />}
       />
       </div>
+      <ComposerMcp projectId={project.id} action={readAction} open={mcpOpen} anchor={menuAnchor} onClose={() => { setMcpOpen(false); api.current?.focus(); }} />
       <div className="composer-caption sr-only">
         {prefs.sendShortcut === "enter" ? "Enter" : "⌘/Ctrl+Enter"} 发送 · Shift+Enter 换行 · / 命令
       </div>
@@ -427,7 +413,8 @@ export async function submitMessage(
 ) {
   const reviewKey = reviewCommentKey(projectId, threadId);
   const comments = attachedReviewComments(readReviewComments(reviewKey));
-  const feedback = comments.map(reviewCommentText).join("\n\n");
+  const skillContent = await composerSkillContent(options.skillAction ?? action, projectId, threadId, readComposerSkills(`areal-gui:draft:${projectId}:${threadId}`));
+  const feedback = [comments.map(reviewCommentText).join("\n\n"), skillContent].filter(Boolean).join("\n\n");
   const attachments = [];
   for (const file of files) {
     let bytes: Uint8Array;

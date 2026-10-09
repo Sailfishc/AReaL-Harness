@@ -5,6 +5,7 @@ import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext
 import { $getRoot, $getSelection, $isRangeSelection, $isTextNode, BLUR_COMMAND, KEY_ENTER_COMMAND, KEY_TAB_COMMAND, KEY_ARROW_DOWN_COMMAND, KEY_ARROW_UP_COMMAND, KEY_ESCAPE_COMMAND, COMMAND_PRIORITY_CRITICAL } from "lexical";
 import type { AppSlashCommand } from "./slashCommandHelpers.js";
 import { HISTORY_NAVIGATION_UPDATE_TAG } from "./lib/editorUpdateTags.js";
+import { ComposerCatalog, filterCatalog, type ComposerCatalogData, type ComposerCatalogEntry } from "./prompt-editor/ComposerCatalog.js";
 import { SlashCommandMenu } from "./SlashCommandMenu.js";
 
 // Match only the command token immediately before a collapsed text caret.
@@ -19,7 +20,8 @@ function $commandAtCaret() {
   return match ? { node, start: end - match[1].length - 1, end, query: match[1].toLowerCase() } : null;
 }
 
-export function SlashCommandPlugin({ appCommands = [], container, disabled }: {
+export function SlashCommandPlugin({ appCommands = [], container, disabled, catalog }: {
+  catalog?: ComposerCatalogData;
   appCommands?: readonly AppSlashCommand[];
   container?: HTMLElement | null;
   disabled?: boolean;
@@ -43,8 +45,8 @@ export function SlashCommandPlugin({ appCommands = [], container, disabled }: {
     setQuery(focused && !tags.has(HISTORY_NAVIGATION_UPDATE_TAG) ? $commandAtCaret()?.query ?? null : null);
     setIndex(0);
   })), [editor]);
-  const open = query !== null && !disabled && !!container && appCommands.length > 0;
-  const rows = open ? appCommands.filter(command => [command.value, command.label, command.description, ...command.keywords ?? []]
+  const open = query !== null && !disabled && !!container && (catalog ? true : appCommands.length > 0);
+  const rows = open && catalog ? filterCatalog(catalog.entries, query) : open ? appCommands.filter(command => [command.value, command.label, command.description, ...command.keywords ?? []]
     .some(text => text.toLowerCase().includes(query))) : [];
   const selected = Math.min(index, Math.max(0, rows.length - 1));
   const choose = (command: AppSlashCommand) => {
@@ -73,9 +75,11 @@ export function SlashCommandPlugin({ appCommands = [], container, disabled }: {
   useEffect(() => {
     if (!open) return;
     const activate = (event: KeyboardEvent | null) => {
-      if (!rows.length || event?.isComposing || editor.isComposing() || event?.shiftKey) return false;
+      if (!catalog && (!rows.length || event?.isComposing || editor.isComposing())) return false;
+      if (event?.isComposing || editor.isComposing()) return true;
+      if (event?.shiftKey) return false;
       event?.preventDefault();
-      choose(rows[selected]);
+      if (rows[selected] && !(rows[selected] as ComposerCatalogEntry).disabled) choose(rows[selected]);
       return true;
     };
     const move = (event: KeyboardEvent, direction: number) => {
@@ -99,7 +103,17 @@ export function SlashCommandPlugin({ appCommands = [], container, disabled }: {
     ];
     return () => unsubs.forEach(unsubscribe => unsubscribe());
   }, [editor, open, rows, selected]);
+  useEffect(() => {
+    if (!open) return;
+    catalog?.refresh();
+    const outside = (event: PointerEvent) => {
+      if (event.target instanceof Node && !container?.contains(event.target) && !editor.getRootElement()?.contains(event.target)) setQuery(null);
+    };
+    document.addEventListener("pointerdown", outside);
+    return () => document.removeEventListener("pointerdown", outside);
+  }, [open]);
   if (!open) return null;
+  if (catalog) return createPortal(<div className="composer-catalog-position"><ComposerCatalog id={id} catalog={catalog} index={selected} query={query} anchor={container} onIndex={setIndex} onChoose={choose} /></div>, container);
   return createPortal(<SlashCommandMenu id={id} rows={rows} index={selected} query={query} anchor={container}
     onSelect={setIndex} onChoose={choose} />, container);
 }

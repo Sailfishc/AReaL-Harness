@@ -48,6 +48,7 @@ import {
   type ParagraphNode,
 } from "lexical";
 import { SlashCommandPlugin } from "./SlashCommandPlugin.js";
+import type { ComposerCatalogData } from "./prompt-editor/ComposerCatalog.js";
 import type { AppSlashCommand } from "./slashCommandHelpers.js";
 
 
@@ -1321,6 +1322,7 @@ interface LexicalChatInputProps {
   onWhiteboardMentionSelected?: (boardId: string) => void | Promise<void>;
   onPaste?: (event: ChatComposerPasteEvent) => void;
   excludedSlashCommandNames?: readonly string[];
+  composerCatalog?: ComposerCatalogData;
   /** App 层本地斜杠命令（如 `/side`），选中即执行 UI 行为，不发送。 */
   appSlashCommands?: readonly AppSlashCommand[];
   /** mention（@/#）面板开关。v4 数据面未就绪时显式关闭，入口保留。 */
@@ -1354,6 +1356,7 @@ export function LexicalChatInput({
   onPaste,
   excludedSlashCommandNames,
   appSlashCommands,
+  composerCatalog,
   enableMentionPanel = true,
 }: LexicalChatInputProps) {
   const activeTaskProvider = "areal";
@@ -1444,6 +1447,7 @@ export function LexicalChatInput({
           disabled={disabled}
           excludedCommandNames={excludedSlashCommandNames}
           appCommands={appSlashCommands}
+          catalog={composerCatalog}
         />
 
       </LexicalComposer>

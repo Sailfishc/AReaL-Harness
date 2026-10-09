@@ -180,9 +180,11 @@ impl Engine {
     }
     pub fn model_catalog(&self) -> Value {
         let mut data = Vec::new();
+        // 这是现有 HTTP 适配器的允许值，不代表远端供应商已验证这些选项。
+        let efforts = ["none", "minimal", "low", "medium", "high", "xhigh"];
         let model = self.default_model();
         if !model.name().is_empty() {
-            data.push(json!({"providerId":null,"providerRevision":null,"modelId":model.name(),"transport":model.provider(),"input":model.capabilities().input,"output":model.capabilities().output,"contextWindowTokens":model.capabilities().context_window_tokens,"effectiveContextWindowTokens":model.capabilities().context_window_tokens.unwrap_or(self.limits.context_window_tokens)}));
+            data.push(json!({"providerId":null,"providerRevision":null,"modelId":model.name(),"transport":model.provider(),"reasoningEffortOptions":if matches!(model.provider(), "openai.responses" | "openai.chat_completions") {efforts.to_vec()} else {vec![]},"input":model.capabilities().input,"output":model.capabilities().output,"contextWindowTokens":model.capabilities().context_window_tokens,"effectiveContextWindowTokens":model.capabilities().context_window_tokens.unwrap_or(self.limits.context_window_tokens)}));
         }
         for p in self.desktop.catalog.read().unwrap().providers.values() {
             for name in &p.models {
@@ -201,7 +203,7 @@ impl Engine {
                     "responses" => model::ModelProtocol::Responses.capabilities(),
                     _ => model::ModelProtocol::ChatCompletions.capabilities(),
                 };
-                data.push(json!({"providerId":p.id,"providerRevision":p.revision,"modelId":name,"transport":p.protocol,"input":capabilities.input,"output":capabilities.output,"available":result.is_ok(),"credentialState":self.provider_view(p)["credentialState"],"contextWindowTokens":parameters.context_window_tokens,"effectiveContextWindowTokens":parameters.context_window_tokens.unwrap_or(self.limits.context_window_tokens),"parameterCapabilities":if p.protocol == "responses" {vec!["temperature","maxOutputTokens","contextWindowTokens","reasoningEffort","reasoningSummary"]} else {vec!["temperature","maxOutputTokens","contextWindowTokens","reasoningEffort"]},"connectionState":"unchecked"}));
+                data.push(json!({"providerId":p.id,"providerRevision":p.revision,"modelId":name,"transport":p.protocol,"input":capabilities.input,"output":capabilities.output,"available":result.is_ok(),"credentialState":self.provider_view(p)["credentialState"],"contextWindowTokens":parameters.context_window_tokens,"effectiveContextWindowTokens":parameters.context_window_tokens.unwrap_or(self.limits.context_window_tokens),"parameterCapabilities":if p.protocol == "responses" {vec!["temperature","maxOutputTokens","contextWindowTokens","reasoningEffort","reasoningSummary"]} else {vec!["temperature","maxOutputTokens","contextWindowTokens","reasoningEffort"]},"reasoningEffortOptions":efforts,"connectionState":"unchecked"}));
             }
         }
         json!({"data":data})

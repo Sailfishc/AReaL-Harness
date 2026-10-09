@@ -13,6 +13,7 @@
     "start": "node scripts/start.mjs",
     "package": "node scripts/package.mjs",
     "verify": "node scripts/verify-public.mjs",
+    "test:composer": "node scripts/composer-smoke.mjs",
     "test:e2e": "node scripts/migration-smoke.mjs"
   },
   "devDependencies": {

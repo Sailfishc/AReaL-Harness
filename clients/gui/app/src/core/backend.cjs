@@ -750,6 +750,7 @@ class CoreBackend {
       case 'create': {
         await this.resources.beforeCreate(project);
         const { thread } = await this.submit(project, 'areal/thread/start', { cwd: project.root,
+          ...(request.parameters ? { parameters: request.parameters } : {}),
           ...(request.model ? { model: request.model } : {}),
           ...((request.profile ?? project.resourceProfile ?? this.defaultProfile) ? { agentProfile: request.profile ?? project.resourceProfile ?? this.defaultProfile } : {}),
         });

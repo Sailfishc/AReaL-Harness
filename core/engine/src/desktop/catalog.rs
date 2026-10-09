@@ -592,6 +592,20 @@ impl Engine {
             })
             .collect()
     }
+    /// 草稿目录仅观察已登记 Profile，不创建 Thread 或读取技能正文。
+    pub fn profile_skills(&self, reference: &VersionRef) -> Result<Value> {
+        let profile = self.profile(reference)?;
+        let catalog = self.desktop.catalog.read().unwrap();
+        let data: Vec<_> = profile.skills.iter().map(|r| {
+            let skill = catalog.skills.get(&key(&r.id, &r.revision));
+            json!({"id":r.id,"revision":r.revision,"available":skill.is_some(),
+                "name":skill.map_or(r.id.as_str(), |s| s.metadata.name.as_str()),
+                "description":skill.map_or("", |s| s.metadata.description.as_str()),
+                "resources":null,
+                "resourceRoot":skill.map(|s| format!("areal://skill/{}/{}",s.location.id,s.location.revision))})
+        }).collect();
+        Ok(json!({"data":data}))
+    }
     pub async fn skills(&self, thread_id: &str) -> Result<Value> {
         let cell = self.cell(thread_id).await?;
         let state = cell.state.lock().await;
@@ -613,6 +627,51 @@ impl Engine {
         }).collect();
         Ok(json!({"data":data,"loaded":state.thread.desktop.as_ref().map(|d| &d.loaded_skills)}))
     }
+    /// 新草稿预览只读 Profile 允许的资源，不登记 Thread 加载状态。
+    pub async fn read_profile_skill(
+        &self,
+        profile: VersionRef,
+        reference: VersionRef,
+        resource: &str,
+        offset: usize,
+        max_bytes: usize,
+    ) -> Result<Value> {
+        let configuration = EffectiveConfig {
+            profile: Some(self.profile(&profile)?),
+            ..Default::default()
+        };
+        let skill = self.selected_skill(&configuration, &reference)?;
+        self.read_skill_page(skill, &reference, resource, offset, max_bytes)
+            .await
+    }
+    async fn read_skill_page(
+        &self,
+        skill: Skill,
+        reference: &VersionRef,
+        resource: &str,
+        offset: usize,
+        max_bytes: usize,
+    ) -> Result<Value> {
+        if max_bytes == 0 || max_bytes > 8192 {
+            return Err(invalid("maxBytes must be 1..8192"));
+        }
+        let page = skill
+            .read(resource, offset, max_bytes)
+            .await
+            .map_err(|error| {
+                if error.downcast_ref::<rustix::io::Errno>() == Some(&rustix::io::Errno::NOENT) {
+                    Error::NotFound
+                } else {
+                    invalid(format!("{error:#}"))
+                }
+            })?;
+        use base64::Engine as _;
+        let end = offset + page.bytes.len();
+        Ok(
+            json!({"id":reference.id,"revision":reference.revision,"resource":resource,"sizeBytes":page.size,
+            "dataBase64":base64::engine::general_purpose::STANDARD.encode(&page.bytes),"text":std::str::from_utf8(&page.bytes).ok(),"nextOffset":end,"eof":end>=page.size}),
+        )
+    }
     pub async fn read_skill(
         &self,
         thread_id: &str,
@@ -633,19 +692,9 @@ impl Engine {
             .map(|d| d.configuration.clone())
             .unwrap_or_default();
         let skill = self.selected_skill(&configuration, &reference)?;
-        let page = skill
-            .read(resource, offset, max_bytes)
-            .await
-            .map_err(|error| {
-                if error.downcast_ref::<rustix::io::Errno>() == Some(&rustix::io::Errno::NOENT) {
-                    Error::NotFound
-                } else {
-                    invalid(format!("{error:#}"))
-                }
-            })?;
-        use base64::Engine as _;
-        let bytes = &page.bytes;
-        let end = offset + bytes.len();
+        let page = self
+            .read_skill_page(skill, &reference, resource, offset, max_bytes)
+            .await?;
         let mut candidate = state.thread.clone();
         candidate
             .desktop
@@ -654,9 +703,7 @@ impl Engine {
             .insert(reference.id.clone(), reference.revision.clone());
         self.persist(&candidate).await?;
         state.thread = candidate;
-        Ok(
-            json!({"id":reference.id,"revision":reference.revision,"resource":resource,"sizeBytes":page.size,"dataBase64":base64::engine::general_purpose::STANDARD.encode(bytes),"text":std::str::from_utf8(bytes).ok(),"nextOffset":end,"eof":end>=page.size}),
-        )
+        Ok(page)
     }
 }
 
