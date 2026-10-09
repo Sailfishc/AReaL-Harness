@@ -41,6 +41,8 @@ GUI versions are declared by `clients/gui/package.json` and `clients/gui/app/pac
 
 Production GUI packages contain `areal-update.json` with the fixed feed `https://github.com/areal-project/AReaL-Harness/releases/download/gui-update-channel/`. The `gui-update-channel` prerelease carries only the current `latest-mac.yml`; that manifest points to the immutable ZIP in `gui-v<version>` and includes size and SHA-512. Only same-repository, same-version assets are accepted. Local ad-hoc packages have no update configuration.
 
+Production packaging retains electron-builder's generic publish configuration while `publish: never` disables automatic uploads, allowing the builder to generate the native download configuration `app-update.yml` and its cache directory name. Packaging verifies that it matches the product feed. Discovering an update does not prove download works. The sidebar update button shows download progress, displays failures directly, and allows retries.
+
 Run from a clean, merged commit:
 
 ```sh
@@ -57,3 +59,5 @@ The signing script signs Core executables and updates integrity hashes before si
 Create `gui-v<version>` at the fixed commit, upload ZIP, DMG, `latest-mac.yml`, sanitized `release.json`, and `SHA256SUMS` to a draft, verify downloaded hashes, then publish with `--latest=false`. Verify version assets are downloadable before updating the `gui-update-channel` manifest; create that channel as a prerelease initially. Check full bytes, HTTP Range, manifest size, and SHA-512 after publication. Never overwrite version assets; advance the channel only to verified versions. This workflow does not publish CLI bundles or update the Homebrew tap.
 
 GUI updates support macOS arm64. Electron owns checks and downloads; Core shuts down for installation only after background work becomes idle and native validation finishes. Public download and package smoke checks do not prove replacement of an existing installation; that upgrade requires separate acceptance. Clients configured for other repositories or older test channels need manual installation of the first production GUI package.
+
+`pnpm --dir clients/gui run test:update` uses real Electron preload/IPC to verify visible download errors and retry progress. Set `AREAL_GUI_EXECUTABLE` to a candidate package executable and `AREAL_GUI_UPDATE_BASELINE` to an older signed GUI executable to additionally verify the candidate's native configuration, public ZIP download and SHA-512 verification, Squirrel native staging, and safe Core shutdown. The baseline borrows the candidate configuration without modifying signed resources. The final installation call is intercepted, so this check does not prove installed replacement. The script prints its evidence directory.

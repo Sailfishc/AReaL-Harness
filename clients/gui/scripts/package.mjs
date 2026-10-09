@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { join, resolve } from "node:path";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
+import assert from "node:assert/strict";
 import { stageCoreApp } from "./stage-app.mjs";
 const gui = fileURLToPath(new URL("..", import.meta.url));
 const root = resolve(gui, "../..");
@@ -83,10 +84,17 @@ await build({
       ...(release ? [{ from: updateConfig, to: "areal-update.json" }] : []),
     ],
     mac: { icon, identity: null, notarize: false, category: "public.app-category.developer-tools" },
-    publish: null,
+    // 禁止自动上传，但保留 builder 生成下载缓存所需的 app-update.yml。
+    publish: release ? { provider: "generic", url: githubFeedUrl, useMultipleRangeRequest: false } : null,
   },
 });
 const app = join(output, "package/mac-arm64/AReaL Harness GUI.app");
+if (release) {
+  const native = require("yaml").parse(await readFile(join(app, "Contents/Resources/app-update.yml"), "utf8"));
+  assert.equal(native.provider, "generic");
+  assert.equal(native.url, githubFeedUrl);
+  assert.ok(typeof native.updaterCacheDirName === "string" && native.updaterCacheDirName.length > 0);
+}
 // Apple Silicon 需要有效的本地代码签名；'-' 只做 ad-hoc，不查找证书。
 execFileSync("/usr/bin/codesign", ["--force", "--deep", "--sign", "-", app], { stdio: "inherit" });
 execFileSync("/usr/bin/codesign", ["--verify", "--deep", "--strict", app]);
