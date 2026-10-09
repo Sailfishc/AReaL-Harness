@@ -1,5 +1,5 @@
 //! 可信本地启动器；只管理独立 Core/Runtime 进程，不拥有其业务状态。
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result, bail, ensure};
 use clap::Parser;
 use std::{
     ffi::OsString,
@@ -714,10 +714,12 @@ async fn supervise(
     let mut interrupt = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
     let deadline = Instant::now() + Duration::from_secs_f64(args.startup_timeout);
     while !(ready.exists() && metadata.exists()) {
-        ensure!(
-            core.try_wait()?.is_none() && runtime.try_wait()?.is_none(),
-            "local Harness stopped before becoming ready"
-        );
+        if let Some(status) = core.try_wait()? {
+            bail!("Core stopped before becoming ready: {status}");
+        }
+        if let Some(status) = runtime.try_wait()? {
+            bail!("Runtime stopped before becoming ready: {status}");
+        }
         ensure!(Instant::now() < deadline, "local Harness startup timed out");
         if !owner_alive(args.parent_pid) {
             return Ok(true);

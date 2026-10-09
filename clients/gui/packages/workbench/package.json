@@ -1,0 +1,11 @@
+{
+  "name": "@areal/workbench",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    "./core-model": "./client/core-model.js",
+    "./core-panels": "./client/core-panels.js"
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "name": "areal-gui-workspace",
+  "version": "0.1.3",
+  "private": true,
+  "license": "Apache-2.0",
+  "packageManager": "pnpm@11.7.0",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "build": "pnpm --filter @areal/gui-renderer build",
+    "typecheck": "pnpm --filter @areal/gui-renderer typecheck",
+    "start": "node scripts/start.mjs",
+    "package": "node scripts/package.mjs",
+    "verify": "node scripts/verify-public.mjs",
+    "test:e2e": "node scripts/migration-smoke.mjs"
+  },
+  "devDependencies": {
+    "prettier": "3.9.8"
+  }
+}

@@ -49,3 +49,7 @@ Use rustfmt/Clippy for Rust, locked Prettier for TS/JS/CSS/HTML and Ruff for own
 Organize documentation through the [index](../README.en.md) and update both languages together. Keep README to an introduction and navigation, APIs in `docs/api/`, and historical results in `docs/benchmarks/reports/`. Fix references when moving pages. Maintain draw.io sources together with SVG/existing PNG previews under the [diagram style guide](../design/STYLE_GUIDE.en.md).
 
 See the [release workflow](releasing.en.md) for Homebrew/Linux artifacts, installation verification and draft publication.
+
+## Desktop GUI
+
+The GUI uses a separate pnpm 11.7.0 workspace. Run `make gui-install`, `make gui-build`, and `make gui-smoke`; see the [GUI guide](../../clients/gui/README.en.md) for launch, packaging and isolation.
