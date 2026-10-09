@@ -362,6 +362,8 @@ function AppContent({ services }: { services: PlatformServices }) {
   }, [terminalState.ids]);
   const action: Action = useCallback(
     async (name, params = {}) => {
+      // 新投递清除上一操作的界面提示；本次失败仍由下方 catch 显示。
+      if (name === "send" || name === "steer") setError("");
       try {
         return await call(services, name, params);
       } catch (e) {

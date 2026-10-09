@@ -288,6 +288,15 @@ try {
     await button("发送").click();
     await until((s) => turnCountOf(s) > count, "turn admission");
   };
+  // 通过已有提示入口复现旧错误；后续真实发送不应继续展示它。
+  await page.evaluate(() =>
+    document.dispatchEvent(
+      new CustomEvent("areal:toast", {
+        detail: "thread is busy or the target turn is stale",
+      }),
+    ),
+  );
+  await page.locator(".error-banner").waitFor();
   await send("检查当前项目");
   await until(
     (s) =>
@@ -296,11 +305,13 @@ try {
       ),
     "first send",
   );
+  await page.waitForFunction(() => !document.querySelector(".error-banner"));
   const tid = await page.locator("[data-testid=areal-workbench]").getAttribute("data-thread-id");
   const current = (s) => s.projects[0].state.threads[tid];
   assert.ok(tid);
   await shot("02-conversation");
   checks.push("sandboxed Electron; project picker; first send; real Core/Runtime and local SSE");
+  checks.push("new message clears previous error banner after real Core acceptance");
   await send("审批写入");
   await button("允许一次").click();
   await until((s) => current(s).turns.at(-1)?.status === "completed", "approved write");
