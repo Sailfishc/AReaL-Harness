@@ -75,7 +75,13 @@ def main():
         "files": files,
         "prerequisites": [
             *(
-                [{"path": "/usr/bin/sandbox-exec"}]
+                [
+                    {"path": "/usr/bin/sandbox-exec"},
+                    {
+                        "path": "/usr/bin/python3",
+                        "requiredFor": "macOS Runtime and trusted helper launch; executable interpreter required",
+                    },
+                ]
                 if platform.system() == "Darwin"
                 else [
                     {"glibc": ">=2.35", "verifiedVersion": platform.libc_ver()[1]},
