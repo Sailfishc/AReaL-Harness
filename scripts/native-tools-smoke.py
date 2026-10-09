@@ -105,11 +105,9 @@ def main():
                     elif n == 3:
                         assert results[2]["fileVersion"] != results[0]["fileVersion"]
                         name = "run_command"
-                        arguments = {"command": 'rg --version && printf "value = 3\\n" > code.py'}
+                        arguments = {"command": 'printf "value = 3\\n" > code.py'}
                     elif n == 4:
-                        assert (
-                            results[3]["exitCode"] == 0 and "ripgrep 15.2.0" in results[3]["stdout"]
-                        ), results[3]
+                        assert results[3]["exitCode"] == 0, results[3]
                         name = "fs_apply_patches"
                         arguments = {
                             "path": "code.py",
@@ -271,7 +269,7 @@ max_tool_calls = 32
         environment["HOME"] = str(base / "user")
         environment["AREAL_API_KEY"] = "fixture-only"
         environment["AREAL_HARNESS_HOME"] = str(base / "home")
-        # 即使宿主 PATH 的首个 rg 是坏的，任务也必须使用随包版本。
+        # 即使宿主 PATH 的 rg 不可用，search_files 仍必须通过内置库执行。
         host_tools = base / "host-tools"
         host_tools.mkdir()
         (host_tools / "rg").write_text("#!/bin/sh\nexit 99\n")

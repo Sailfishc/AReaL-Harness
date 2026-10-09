@@ -37,8 +37,6 @@ class RustLauncherTests(legacy.LauncherTests):
 
     def test_real_shared_service_without_python_on_path(self):
         executable = Path(self.command[0])
-        if not (executable.parent / "tools/rg").is_file():
-            self.skipTest("build bundled tools first with make build")
         config = self.root / "empty.toml"
         config.write_text("schema_version = 1\n")
         env = {

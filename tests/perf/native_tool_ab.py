@@ -394,8 +394,6 @@ def main():
                     "areal-runtime-fs",
                     "areal-runtime-reaper",
                     "launch.py",
-                    "tools/rg",
-                    "tools/rg.json",
                 ]
                 if (binary / name).is_file()
             }

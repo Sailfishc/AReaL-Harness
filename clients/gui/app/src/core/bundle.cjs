@@ -8,16 +8,13 @@ const executablePaths = { areal: 'bin/areal', 'areal-runtime': 'libexec/areal/ar
   'areal-runtime-fs': 'libexec/areal/areal-runtime-fs' };
 const executables = Object.keys(executablePaths);
 
-// 内置工具与许可必须完整随包导入。
+// 搜索已编译进文件助手；兼容旧发行包中的可选工具资源并保持路径校验。
 function coreBundleFiles(manifest) {
   const tools = Object.keys(manifest.files ?? {}).filter(path => path.startsWith('libexec/areal/tools/'));
   for (const path of tools) {
     if (!/^libexec\/areal\/tools\/[A-Za-z0-9._+/-]+$/.test(path) || path.split('/').some(part => !part || part === '.' || part === '..')) {
       throw new Error('Core 工具清单路径无效');
     }
-  }
-  if ((!tools.includes('libexec/areal/tools/rg') || !tools.includes('libexec/areal/tools/rg.json') || !tools.some(path => path.startsWith('libexec/areal/tools/licenses/')))) {
-    throw new Error('Core 内置工具或许可证清单不完整');
   }
   return [...Object.values(executablePaths), ...tools.sort()];
 }

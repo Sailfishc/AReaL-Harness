@@ -168,6 +168,8 @@ pub async fn run(mut args: Args) -> Result<()> {
     execute!(std::io::stdout(), EnableBracketedPaste)?;
     if app.prefs.mouse {
         execute!(std::io::stdout(), EnableMouseCapture)?;
+    } else {
+        execute!(std::io::stdout(), DisableMouseCapture)?;
     }
     interactive(&mut client, &mut app, &mut terminal, &args).await
 }
