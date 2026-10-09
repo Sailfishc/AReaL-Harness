@@ -38,7 +38,8 @@ export function TurnExecution({ items, turn, project, threadId, renderItem, acti
   const singleReasoning = rows.length === 1 && rows[0].type === "reasoningGroup";
   // The round disclosure owns commentary; multi-item activity keeps its
   // semantic disclosure. A single tool or reasoning group needs no wrapper.
-  const direct = singleTool || singleReasoning;
+  const onlyAgentEntries = rows.length > 0 && rows.every(item => !!spawnedAgent(item));
+  const direct = singleTool || singleReasoning || onlyAgentEntries;
   const expanded = direct || open;
   const canAnimate = turn.status === "inProgress" && !!project.state?.connected && !awaitingInput && !turn.modelRetry;
   const animateSummary = canAnimate && (running || unfinished) && !(expanded && tools.some(item => toolPresentation(item).running));

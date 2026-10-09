@@ -7,7 +7,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "node:http";
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 const gui = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const desktop = join(gui, "app");
 const require = createRequire(join(desktop, "package.json"));
@@ -154,7 +154,7 @@ const server = createServer(async (req, res) => {
     send({}, "tool_calls");
   } else if (text.includes("启动子任务") && !msgs.slice(last + 1).some((m) => m.role === "tool")) {
     send({
-      tool_calls: ["子任务完成", "子任务等待停止"].map((prompt, index) => ({
+      tool_calls: ["子任务完成", "子任务等待停止", "子任务完成 · 检查参考来源"].map((prompt, index) => ({
         index,
         id: `child-${index}`,
         type: "function",
@@ -325,21 +325,54 @@ try {
     return response.value;
   }, { pid });
   await call("send", { projectId: pid, threadId: tid, text: "启动子任务", attachments: [{ type: "image", url: reference.uri }] });
-  await until(async () => (await call("manage", { projectId: pid, parentThreadId: tid, operation: "agents", limit: 30 })).data.length === 2, "two real children");
+  await until(async () => (await call("manage", { projectId: pid, parentThreadId: tid, operation: "agents", limit: 30 })).data.length === 3, "three real children");
   const children = (await call("manage", { projectId: pid, parentThreadId: tid, operation: "agents", limit: 30 })).data;
   const doneChild = children.find(t => t.preview === "子任务完成");
   const liveChild = children.find(t => t.preview === "子任务等待停止");
   assert.ok(doneChild && liveChild);
+  const backgroundProcess = await call("manage", { projectId: pid, threadId: tid, operation: "processStart", requestId: randomUUID(), argv: ["/bin/sh", "-c", "printf 'Resource process ready\\n'; sleep 300"], cwd: "workspace://repo", lifetime: "thread", tty: false, timeoutMs: 600000 });
+  assert.ok(backgroundProcess.id);
+  const mainWidth = await page.locator("[data-testid=chat-view]").evaluate(el => el.getBoundingClientRect().width);
   await button("任务资源").click();
   const resources = page.getByRole("region", { name: "任务资源", exact: true });
   await resources.getByRole("button", { name: `打开 ${liveChild.id} 子对话`, exact: true }).waitFor();
-  await resources.getByRole("heading", { name: "工作区变更", exact: false }).waitFor();
+  await resources.getByRole("region", { name: "工作区变更", exact: true }).waitFor();
+  await resources.getByRole("heading", { name: "后台进程", exact: false }).waitFor();
+  assert.equal(await resources.getByRole("button", { name: /子对话$/ }).count(), 3);
+  assert.equal(await page.locator("[data-testid=chat-view]").evaluate(el => el.getBoundingClientRect().width), mainWidth);
+  assert.equal(await page.locator(".task-resources-popup").evaluate(el => el.getBoundingClientRect().width), 332);
+  await page.keyboard.press("Escape");
+  await resources.waitFor({ state: "hidden" });
+  assert.equal(await button("任务资源").evaluate(el => el === document.activeElement), true);
+  await button("任务资源").click();
   await resources.getByRole("button", { name: "预览图片 消息图片", exact: true }).waitFor();
   await resources.getByRole("button", { name: "预览图片 消息图片", exact: true }).click();
-  await page.getByRole("button", { name: "关闭图片预览", exact: true }).click();
+  await page.getByRole("button", { name: "关闭图片预览", exact: true }).waitFor();
+  await page.waitForFunction(() => document.activeElement?.closest('[data-slot="dialog-content"]'));
+  await page.locator('[data-slot="dialog-content"]').evaluate(async el => {
+    await Promise.all(el.getAnimations().map(animation => animation.finished));
+  });
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "关闭图片预览", exact: true }).waitFor({ state: "hidden" });
+  await resources.waitFor();
+  await resources.getByRole("button", { name: /变更.*个文件/ }).waitFor();
+  assert.ok(await resources.getByRole("button", { name: /变更.*1 个文件/ }).count());
+  await resources.getByRole("heading", { name: "workspace", exact: true }).click();
+  await page.locator(".task-resources-popup").evaluate(async el => {
+    await Promise.all(el.getAnimations().map(animation => animation.finished));
+  });
+  await writeFile(join(scratch, "resource-layout.json"), JSON.stringify(await page.locator(".task-resources-popup").evaluate(el => ({
+    width: el.getBoundingClientRect().width, background: getComputedStyle(el).backgroundColor, backgroundImage: getComputedStyle(el).backgroundImage,
+    token: getComputedStyle(el).getPropertyValue("--color-popover"),
+    menuToken: getComputedStyle(el).getPropertyValue("--color-menu"),
+    pageBackground: getComputedStyle(el).getPropertyValue("--color-background"),
+    headings: [...el.querySelectorAll("h3")].map(h => ({ text: h.textContent, weight: getComputedStyle(h).fontWeight })),
+  })), null, 2));
   await shot("02r-task-resources");
+  await page.locator(".task-resources-popup").screenshot({ path: join(scratch, "02r-task-resources-crop.png") });
   const liveAvatar = await resources.locator(`[data-agent-avatar="${liveChild.id}"]`).getAttribute("src");
   assert.ok(liveAvatar.startsWith("data:image/svg+xml"));
+  assert.equal(await page.locator("[data-testid=chat-view]").getByRole("button", { name: `打开 ${liveChild.id} 子对话`, exact: true }).innerText(), "已创建 1 个智能体");
   await resources.getByRole("button", { name: `打开 ${liveChild.id} 子对话`, exact: true }).click();
   await page.locator(`[data-agent-conversation="${liveChild.id}"] [data-turn-status=inProgress]`).waitFor();
   assert.equal(await page.locator("[data-testid=areal-workbench]").getAttribute("data-thread-id"), tid);
@@ -353,12 +386,12 @@ try {
   assert.equal(afterClose.data[0].status, "inProgress");
   await page.locator("[data-testid=chat-view]").getByRole("button", { name: `打开 ${liveChild.id} 子对话`, exact: true }).click();
   await page.locator(`[data-agent-conversation="${liveChild.id}"] [data-turn-status=inProgress]`).waitFor();
-  await page.getByRole("tab", { name: "任务资源", exact: true }).click();
+  await button("任务资源").click();
   await resources.getByRole("button", { name: /变更.*个文件/ }).click();
   assert.equal(await page.locator("[data-testid=workspace-review]").getAttribute("data-review-source"), "git");
   await page.getByRole("button", { name: "改动范围", exact: true }).waitFor();
   assert.equal(await page.getByRole("button", { name: "改动范围", exact: true }).innerText(), "未暂存的更改");
-  await page.getByRole("tab", { name: "任务资源", exact: true }).click();
+  await button("任务资源").click();
   await resources.getByRole("button", { name: `打开 ${doneChild.id} 子对话`, exact: true }).click();
   await page.locator(`[data-agent-conversation="${doneChild.id}"] [data-turn-status=completed]`).waitFor();
   assert.equal(await input().innerText(), "主对话草稿保持");
@@ -384,7 +417,10 @@ try {
   await shot("02c-agent-interrupted");
   await button("关闭面板").click();
   await input().fill("");
-  checks.push("Core children: resources, running/completed/interrupted side conversations, switching/closing preserve parent and composer draft");
+  await call("manage", { projectId: pid, threadId: tid, operation: "processTerminate", id: backgroundProcess.id });
+  checks.push("Core children: compact 332px four-group resources, Escape/focus, running/completed/interrupted side conversations, switching/closing preserve parent and composer draft");
+  // 已有完整验收通过后，视觉行文修正只重跑其真实资源/事件路径。
+  if (!process.env.AREAL_GUI_RESOURCE_SMOKE_ONLY) {
   await send("审批写入");
   await button("允许一次").click();
   await until((s) => current(s).turns.at(-1)?.status === "completed", "approved write");
@@ -618,6 +654,7 @@ try {
   checks.push(
     "Core scheduled task triggers once while GUI is closed and run history survives reopening",
   );
+  }
   assert.deepEqual(errors, []);
   passed = true;
   console.log(JSON.stringify({ passed, scratch, checks }));

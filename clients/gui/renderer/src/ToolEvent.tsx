@@ -45,8 +45,7 @@ export function ToolEvent({ item, onFile, onAgent, turnId, readTurnReview, anima
   return (
     <div className="tool-event" data-tool-id={item.id} data-tool-status={view.status}>
       {childId ? <div className="agent-spawn-row">
-        <AgentAvatar id={childId} size={14} /><span>已创建</span>
-        <button type="button" className="agent-spawn-link" aria-label={`打开 ${childId} 子对话`} onClick={() => onAgent?.(childId)}>{agentName(childId)}</button>
+        <button type="button" className="agent-spawn-link" aria-label={`打开 ${childId} 子对话`} title={agentName(childId)} onClick={() => onAgent?.(childId)}><AgentAvatar id={childId} size={14} /><span>已创建 1 个智能体</span></button>
         <button type="button" className="agent-spawn-record" aria-label="查看工具原始记录" aria-expanded={open} aria-controls={recordId} onClick={toggle}><ActivityIcon kind="chevron" size={14} className={open ? "tool-chevron open" : "tool-chevron"} /></button>
       </div> : file ? <div className="tool-summary-row tool-file-row">
         <ActivityIcon kind={readOnly ? "read" : "edit"} />

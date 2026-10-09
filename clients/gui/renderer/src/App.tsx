@@ -10,6 +10,7 @@ import { useAppearance, useApplicationPreferences } from "./settings/application
 import { ConversationStatusCard } from "./ConversationStatusCard.js";
 import { SidePane } from "./app-shell/SidePane.js";
 import { Button } from "./components/ui/button.js";
+import { Popover, PopoverContent, PopoverTrigger } from "./components/ui/popover.js";
 import { ApplicationRail, SidebarSectionToggle, SidebarWorkspaceHeader } from "./app-shell/ApplicationNavigation.js";
 import { NavigationSidebar, WorkbenchShell, WorkspaceHeader, WorkSurface } from "./app-shell/WorkbenchShell.js";
 import { SettingsNavigation, SettingsPage, type SettingsNavigationGroup } from "./settings/SettingsWorkspace.js";
@@ -168,6 +169,22 @@ function Usage({ thread }: { thread: Data }) {
       ))}
     </div>
   );
+}
+
+// 浮层只负责资源导航；子任务对话仍由已有侧栏标签持有。
+function TaskResourcesPopover({ project, thread, action, selectedAgent, onPanel, onAgent, onFile }: {
+  project: Data; thread: Data; action: Action; selectedAgent?: string;
+  onPanel: (name: string) => void; onAgent: (id: string) => void; onFile: (path: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const navigate = <T,>(callback: (value: T) => void) => (value: T) => { setOpen(false); callback(value); };
+  return <Popover open={open} onOpenChange={setOpen}>
+    <PopoverTrigger render={<button className={`icon-button ${open ? "active" : ""}`} aria-label="任务资源" />}><TaskSummaryIcon /></PopoverTrigger>
+    <PopoverContent align="end" sideOffset={8} className="task-resources-popup" aria-label="任务资源面板">
+      <ConversationStatusCard project={project} thread={thread} action={action} selectedAgent={selectedAgent}
+        onPanel={navigate(onPanel)} onAgent={navigate(onAgent)} onFile={navigate(onFile)} />
+    </PopoverContent>
+  </Popover>;
 }
 export function App({ services }: { services: PlatformServices }) {
   return <UnsavedChangesProvider><AppContent services={services} /></UnsavedChangesProvider>;
@@ -346,8 +363,8 @@ function AppContent({ services }: { services: PlatformServices }) {
       setWorkspaceView("split");
       const remembered = panelViews.current.get(panelOwner);
       // Only the terminal owner can supply live IDs; the view cache owns no PTY.
-      setPanelTabs([...(remembered?.tabs.filter(id => !isTerminalTab(id)) ?? []), ...terminalState.ids]);
-      setPanel(remembered && (!isTerminalTab(remembered.panel) || terminalState.ids.includes(remembered.panel)) ? remembered.panel : "");
+      setPanelTabs([...(remembered?.tabs.filter(id => id !== "任务资源" && !isTerminalTab(id)) ?? []), ...terminalState.ids]);
+      setPanel(remembered && remembered.panel !== "任务资源" && (!isTerminalTab(remembered.panel) || terminalState.ids.includes(remembered.panel)) ? remembered.panel : "");
       setFilesOpen(remembered?.filesOpen ?? false);
       setRevealedFile(remembered?.revealedFile ?? "");
       setPreviewFileTab(remembered?.previewFileTab);
@@ -922,7 +939,6 @@ function AppContent({ services }: { services: PlatformServices }) {
     const panel = panelName;
     if (!project) return null;
     const props = { project, thread, action };
-    if (panel === "任务资源" && thread) return <ConversationStatusCard key={`${project.id}:${thread.id}`} project={project} thread={thread} action={resourceAction} onPanel={name => { if (name === "改动") setReviewRequest({ owner: panelOwner, scope: "unstaged" }); showPanel(name); }} onAgent={id => showPanel(`agent:${id}`)} onFile={openFile} />;
     if (panel.startsWith("agent:") && thread) {
       const childId = panel.slice(6);
       return <AgentConversationPane key={`${project.id}:${childId}`} project={project} parentId={project.state?.threads[childId]?.parentThreadId ?? thread.id} childId={childId} action={resourceAction} dark={dark} onLink={onLink} onFile={openFile}
@@ -1199,14 +1215,9 @@ function AppContent({ services }: { services: PlatformServices }) {
               {!settingsOpen && !taskCenterOpen && (
                 <>
                   {thread && !empty && (
-                    <button
-                      className={`icon-button ${panel === "任务资源" ? "active" : ""}`}
-                      aria-label="任务资源"
-                      aria-pressed={panel === "任务资源"}
-                      onClick={() => panel === "任务资源" ? setPanel("") : showPanel("任务资源")}
-                    >
-                      <TaskSummaryIcon />
-                    </button>
+                    <TaskResourcesPopover key={panelOwner} project={project} thread={thread} action={resourceAction} selectedAgent={panel.startsWith("agent:") ? panel.slice(6) : undefined}
+                      onPanel={name => { if (name === "改动") setReviewRequest({ owner: panelOwner, scope: "unstaged" }); showPanel(name); }}
+                      onAgent={id => showPanel(`agent:${id}`)} onFile={openFile} />
                   )}
                   {showBottomPanelControl && <button
                     className={`icon-button ${terminalOpen ? "active" : ""}`}

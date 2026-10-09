@@ -21,3 +21,10 @@ export function spawnedAgent(item: Data): string | undefined {
     } catch { /* 非标准结果继续使用原工具记录。 */ }
   }
 }
+
+/** 摘要使用真实委派输入；长指令留在子对话中，不猜测系统前缀边界。 */
+export function agentAssignment(thread: Data, id: string): string | undefined {
+  const item = (thread.turns ?? []).flatMap((turn: Data) => turn.items ?? []).find((item: Data) => spawnedAgent(item) === id);
+  const text = (item?.arguments?.input ?? []).filter((part: Data) => part.type === "text").map((part: Data) => part.text).join("\n").trim();
+  return text || undefined;
+}

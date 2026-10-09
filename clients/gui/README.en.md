@@ -32,7 +32,7 @@ Images show thumbnails. “Show in text box” appends UTF-8 text attachments to
 
 ## Conversation resources
 
-The conversation header's “Task resources” opens the right pane with workspace changes, direct Core child agents, managed background processes, and user attachments and verified file-read sources. Empty resource groups are omitted. Changes and processes open the existing review and process panels.
+The conversation header's “Task resources” opens a compact popover below the header icon with workspace changes, direct Core child agents, managed background processes, and user attachments and verified file-read sources. Git workspaces retain a review entry when the change count is zero; other empty resource groups are omitted. Changes and processes open the existing review and process panels.
 
 Child-agent creation records in the conversation and entries in the resource list open a right-side child conversation. It reads real history through the same message and tool components. Avatars are generated locally from the authoritative Core Thread ID without an external image service. Child tabs support switching and closing; closing a reading view does not stop the task, and reopening restores from Core. The main conversation and input draft keep their existing owner. Ordinary child conversations and isolated Workgroup writers retain their respective existing entry points.
 
