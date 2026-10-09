@@ -11,7 +11,7 @@ Use these commands after the packages are published to GitHub Releases. Before p
 | macOS arm64 | Complete GitHub Release bundle and Python installer; optional Homebrew formula once the tap is published | macOS 15+, Xcode Command Line Tools; standalone install/upgrade requires Python 3.9+ on PATH |
 | Linux x86_64 | Complete GitHub Release bundle and Python installer | Ubuntu 22.04 or newer compatible glibc 2.35+ system; standalone install/upgrade requires Python 3.9+ on PATH; musl unsupported |
 
-Only these architectures are validated. No Windows, Intel macOS or Linux arm64 packages are provided. **npm and `cargo install` do not provide complete bundles yet**, so neither is an installation channel. Choose Homebrew or standalone installation, not both for the same PATH entry. Bundles contain `bin/areal`, `libexec/areal/{areal-runtime,areal-runtime-fs,tools/rg}`, tool licenses, LICENSE and a file SHA256 manifest; Linux bundles also include `areal-runtime-reaper` in the same directory. Do not copy only `areal`. Startup needs neither Rust/Cargo nor Python after installation; configured Node/Python tools still require their interpreters.
+Only these architectures are validated. No Windows, Intel macOS or Linux arm64 packages are provided. **npm and `cargo install` do not provide complete bundles yet**, so neither is an installation channel. Choose Homebrew or standalone installation, not both for the same PATH entry. Bundles contain `bin/areal`, `libexec/areal/{areal-runtime,areal-runtime-fs}`, LICENSE and a file SHA256 manifest; Linux bundles also include `areal-runtime-reaper` in the same directory. Do not copy only `areal`. Startup needs neither Rust/Cargo nor Python after installation; configured Node/Python tools still require their interpreters.
 
 macOS bundles are ad-hoc signed, without Developer ID signing or notarization. Linux defaults to YOLO/full-access under the current user's permissions. Restricted/read-only scopes require `/usr/bin/bwrap` and usable user namespaces. Install `bubblewrap` on Ubuntu; restricted operations fail if user namespaces are disabled or AppArmor denies them, without silently expanding permissions. See [Runtime deployment](runtime.en.md).
 
@@ -73,3 +73,7 @@ Configure the model in `~/.areal/config.toml` using the [configuration guide](co
 Stop services before uninstalling. Use `brew uninstall areal` or remove the installer-managed standalone entry symlink and selected version directories. Neither installation method automatically deletes configuration or history in `~/.areal`.
 
 Symlink entry points are resolved to the real version directory before locating `libexec/areal`, covering Homebrew Cellar and versioned Linux installations.
+
+## Installing from source
+
+Run `make install` to build release and install the complete Runtime under `/usr/local`. Use `make install PREFIX="$HOME/.local"` for a user installation, or `DESTDIR=/tmp/package` for staging. Search uses ripgrep Rust libraries embedded in the file helper; no separate rg is needed. Shell tasks that invoke rg still require a host installation.

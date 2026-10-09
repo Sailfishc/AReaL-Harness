@@ -83,7 +83,6 @@ def verify_bundle(bundle, version, target_platform):
         "bin/areal",
         "libexec/areal/areal-runtime",
         "libexec/areal/areal-runtime-fs",
-        "libexec/areal/tools/rg",
         "LICENSE",
     }
     actual = {str(p.relative_to(bundle)) for p in bundle.rglob("*") if p.is_file()} - {

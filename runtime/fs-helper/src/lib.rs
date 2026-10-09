@@ -1,3 +1,5 @@
+pub mod search;
+
 use areal_runtime_protocol::*;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use rustix::fs::{self, AtFlags, Mode, OFlags};

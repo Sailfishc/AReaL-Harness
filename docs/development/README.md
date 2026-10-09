@@ -12,7 +12,7 @@
 | Python / uv | 开发使用 Python 3.11+；uv 安装锁定工具。已安装产品启动无需 Python；独立安装与升级脚本需要 PATH 中的 Python 3.9+ |
 | Node.js / npm | Node.js 22.19.0+；两套 SDK 与格式工具 |
 | 编译工具 | Git、Bash、GNU Make 3.81+、C/C++ 编译器、CMake；macOS 需 Xcode Command Line Tools |
-| 文件搜索 | 内置 ripgrep 15.2.0；`make build/release` 按固定源码和锁文件构建，不依赖宿主 rg |
+| 文件搜索 | Runtime 文件助手内置 ripgrep Rust 搜索库；`make build/release` 不依赖宿主 rg |
 | 原生执行 | macOS `/usr/bin/sandbox-exec`；Linux `/usr/bin/bwrap` + Runtime seccomp；固定评测另用[受控 Docker profile](../benchmarks/README.md) |
 
 ```sh

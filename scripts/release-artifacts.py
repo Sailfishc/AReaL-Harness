@@ -83,7 +83,6 @@ def formula(path, output, url=None):
 
   test do
     assert_equal "areal {version}", shell_output("#{{bin}}/areal --version").strip
-    assert_match "ripgrep", shell_output("#{{prefix}}/libexec/areal/tools/rg --version")
     assert_path_exists prefix/"libexec/areal/areal-runtime"
     assert_path_exists prefix/"libexec/areal/areal-runtime-fs"
   end

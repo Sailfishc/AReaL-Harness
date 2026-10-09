@@ -12,7 +12,7 @@ Read the [architecture](../design/architecture.en.md) and [repository instructio
 | Python / uv | Python 3.11+ for development; uv installs locked tools. The installed product starts without Python; standalone installation and upgrade scripts require Python 3.9+ on PATH |
 | Node.js / npm | Node.js 22.19.0+ for both SDKs and formatting tools |
 | Build tools | Git, Bash, GNU Make 3.81+, C/C++ compiler and CMake; Xcode Command Line Tools on macOS |
-| File search | Bundled ripgrep 15.2.0, built from pinned source and its lockfile by `make build/release`; no host rg dependency |
+| File search | Runtime file helper embeds ripgrep search libraries; `make build/release` has no host rg dependency |
 | Native execution | macOS `/usr/bin/sandbox-exec`; Linux `/usr/bin/bwrap` plus Runtime seccomp; fixed benchmarks use the [controlled Docker profile](../benchmarks/README.en.md) |
 
 ```sh

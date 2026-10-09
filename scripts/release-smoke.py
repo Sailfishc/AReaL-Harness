@@ -26,9 +26,6 @@ def main():
         subprocess.check_output([str(executable), "--version"], text=True).strip()
         == manifest["productVersion"]
     )
-    assert "ripgrep" in subprocess.check_output(
-        [str(bundle / "libexec/areal/tools/rg"), "--version"], text=True
-    )
     calls = []
     errors = []
 
