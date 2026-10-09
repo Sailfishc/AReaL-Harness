@@ -168,7 +168,21 @@ try {
   );
   await stop();
   await start();
-  assert.deepEqual((await task(finished.id)).runs, beforeCancel.runs);
+  const restoredRuns = (await task(finished.id)).runs;
+  assert.equal(restoredRuns.length, beforeCancel.runs.length);
+  // JSON 持久化往返可能改变浮点耗时的最低有效位；其他历史字段仍须精确一致。
+  const comparableRuns = restoredRuns.map((run, index) => {
+    const expectedSeconds = beforeCancel.runs[index].usage.timeUsedSeconds;
+    const actualSeconds = run.usage.timeUsedSeconds;
+    assert(Number.isFinite(actualSeconds) && Number.isFinite(expectedSeconds));
+    assert(
+      Math.abs(actualSeconds - expectedSeconds) <=
+        Number.EPSILON * Math.max(1, Math.abs(expectedSeconds)),
+      `restored run duration changed: ${actualSeconds} vs ${expectedSeconds}`,
+    );
+    return { ...run, usage: { ...run.usage, timeUsedSeconds: expectedSeconds } };
+  });
+  assert.deepEqual(comparableRuns, beforeCancel.runs);
   assert.equal((await goal(recurring.threadId)).goal.tokenBudget, remaining);
   evidence.push("restart preserves cancelled task history and accepted budget");
   await controlGoal(recurring.threadId, "resume");
