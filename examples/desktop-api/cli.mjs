@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { spawnNative } from "../../scripts/native-child.mjs";
 import { once } from "node:events";
 import { mkdtemp, mkdir, writeFile, readFile, rm, readdir, chmod } from "node:fs/promises";
@@ -65,6 +66,8 @@ async function run(
     stderr = "",
     buffer = "";
   const frames = [];
+  let signalledPids = [],
+    signalError;
   child.stdout.on("data", (chunk) => {
     stdout += chunk;
     buffer += chunk;
@@ -82,6 +85,23 @@ async function run(
         }
         if (frame.type === "control_request") control?.(frame, child);
         if (signal && frame.type === "stream_event" && frame.event.type === "content_block_delta") {
+          try {
+            // 强杀前记录整棵进程树；macOS 日志中的 supervisor 不是实际 Runtime。
+            signalledPids = [
+              ...stderr.matchAll(/(?:Runtime(?: supervisor)?|Core) PID: (\d+)/g),
+            ].map((match) => Number(match[1]));
+            const rows = execFileSync("/bin/ps", ["-axo", "pid=,ppid="], { encoding: "utf8" })
+              .trim()
+              .split("\n")
+              .map((row) => row.trim().split(/\s+/).map(Number));
+            for (let i = 0; i < signalledPids.length; i++) {
+              signalledPids.push(
+                ...rows.filter(([, parent]) => parent === signalledPids[i]).map(([pid]) => pid),
+              );
+            }
+          } catch (error) {
+            signalError = error;
+          }
           child.kill(signal);
           signal = null;
         }
@@ -94,6 +114,7 @@ async function run(
   else child.stdin.end(input ?? "");
   const [code] = await once(child, "exit");
   clearTimeout(timer);
+  assert.ifError(signalError);
   // 消费 Claude Code 原有消息；禁止重新加入 AReaL 协议标识或私有终态。
   for (const frame of frames) {
     assert(!Object.hasOwn(frame, "areal"));
@@ -158,7 +179,7 @@ async function run(
     }
   }
   all.push({ code, frames });
-  return { code, frames, stdout, stderr };
+  return { code, frames, stdout, stderr, signalledPids };
 }
 try {
   const probe = spawnNative(binary, ["--version"], { stdio: ["ignore", "pipe", "pipe"] });
@@ -414,8 +435,17 @@ try {
   );
   assert.notEqual(r.code, 0);
   assert(!r.frames.some((f) => f.type === "result" && !f.is_error));
-  const owned = [...r.stderr.matchAll(/(?:Runtime|Core) PID: (\d+)/g)].map((m) => Number(m[1]));
-  assert.equal(owned.length, 2, r.stderr);
+  const owners = [...r.stderr.matchAll(/(?:Runtime(?: supervisor)?|Core) PID: (\d+)/g)].map(
+    (match) => Number(match[1]),
+  );
+  assert.equal(owners.length, 2, r.stderr);
+  const owned = r.signalledPids;
+  assert(
+    owners.every((pid) => owned.includes(pid)),
+    "missing pre-kill process snapshot",
+  );
+  // hang fixture 不启动工具：Linux 两个进程，macOS 额外包含等待 Runtime 的 Python。
+  assert.equal(owned.length, process.platform === "darwin" ? 3 : 2, r.stderr);
   const cleanupDeadline = Date.now() + 10000;
   const alive = (pid) => {
     try {
@@ -496,6 +526,7 @@ try {
       consumer: `multica ${consumer.version} / ${consumer.revision}`,
       liveDaemon: "pending",
       cleanupConfirmed: true,
+      cleanupProcessCount: owned.length,
     }),
   );
 } finally {

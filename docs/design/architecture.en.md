@@ -13,6 +13,7 @@ AReaL-Harness follows **Clients → Core → Runtime**. Core exclusively owns se
 | Module | Responsibility |
 |---|---|
 | `clients/cli`, `clients/tui`, `clients/web` | CLI, terminal and local Web; connection setup, projections and requests |
+| `clients/gui` | React/Electron desktop client; narrow IPC, native resources, public service discovery and rebuildable projections |
 | `core/config` | User configuration, provenance, credential references, Skill directories and the tool-host proxy environment allowlist; no Engine/Runtime dependency |
 | `core/protocol` | Client protocol projections and shared types |
 | `core/engine` | Models, tools, history, persistence, child tasks and Workgroups |
@@ -47,7 +48,7 @@ Interactive TUI and Web launchers attach to one service per deployment. The host
 
 [draw.io source](diagrams/task-mode-mailbox-architecture.drawio) · [Asynchronous interaction flow](diagrams/task-mode-mailbox-flow.svg) · [Flow source](diagrams/task-mode-mailbox-flow.drawio)
 
-`clients/cli` provides the sole product executable, `areal`, dispatching to library entry points for TUI, noninteractive execution, Core server and the service host. Core never depends on clients. The Rust launcher in `core/service-host` owns separate Core/Runtime processes and private lifetime pipes without requiring system Python. `scripts/launch.py` remains available for development scripts and independent benchmark entry points. The bundle exposes only `areal` in `bin`; Runtime daemon/file helpers live in `libexec/areal` and are not linked into the client process. See the [client guide](../guides/clients.en.md) for commands.
+`clients/cli` provides the Rust command executable, `areal`, dispatching to library entry points for TUI, noninteractive execution, Core server and the service host. Core never depends on clients. The Rust launcher in `core/service-host` owns separate Core/Runtime processes and private lifetime pipes without Python on Linux; on macOS it uses `/usr/bin/python3` to launch Runtime under the existing AMFI workaround for local executables. `scripts/launch.py` remains available for development scripts and independent benchmark entry points. The bundle exposes only `areal` in `bin`; Runtime daemon/file helpers live in `libexec/areal` and are not linked into the client process. See the [client guide](../guides/clients.en.md) for commands.
 
 ## State and execution
 
@@ -65,9 +66,11 @@ Engine’s `diagnostics` module bounds non-authoritative diagnostic retention; s
 
 ## Repository layout
 
+Desktop ownership follows the [migration decision](../adr/0001-desktop-client-module.en.md). The independent Electron adapter retains OS credentials and subscription forwarding and connects through the public shared-service API. GUI exit preserves Core work. See the [GUI guide](../../clients/gui/README.en.md) for builds, isolation and local packages. Mobile source migration is deferred.
+
 ```text
 core/                       Config, protocol, Engine, server, MCP, plugin SDK
-clients/                    CLI, TUI, local Web
+clients/                    CLI, TUI, local Web, GUI
 runtime/                    Protocol, supervisor, OS backend, file helper, SDK
 schemas/                    Pinned upstream and AReaL machine contracts
 examples/desktop-api/        Direct API, CLI and package validation

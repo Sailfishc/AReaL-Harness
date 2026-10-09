@@ -4,6 +4,8 @@
 
 从[快速开始](guides/quickstart.md)进入。当前支持范围集中维护在[功能与边界](features.md)。所有命令默认从仓库根目录运行。
 
+[产品术语](../GLOSSARY.md) · [桌面端迁移决策（待实施）](adr/0001-desktop-client-module.md)
+
 | 分类 | 文档 |
 |---|---|
 | 使用指南 | [快速开始](guides/quickstart.md) · [CLI、TUI 与 Web](guides/clients.md) · [配置](guides/configuration.md) · [Runtime 部署](guides/runtime.md) |

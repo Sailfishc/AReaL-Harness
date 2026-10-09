@@ -1,0 +1,15 @@
+packages:
+  - app
+  - renderer
+  - packages/*
+
+verifyDepsBeforeRun: error
+allowBuilds:
+  '@google/genai': false
+  electron: true
+  electron-winstaller: false
+  esbuild: true
+  protobufjs: false
+
+patchedDependencies:
+  '@pierre/diffs@1.4.3': patches/@pierre__diffs@1.4.3.patch

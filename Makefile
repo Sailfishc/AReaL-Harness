@@ -212,3 +212,15 @@ desktop-schemas: ## 从 Rust 类型导出 AReaL 桌面契约
 
 package: release ## 生成 macOS arm64 / Linux x86_64 发行产物及完整性清单；ARGS 指定 --output
 	python3 scripts/package.py $(ARGS)
+
+.PHONY: gui-install gui-build gui gui-package gui-smoke
+gui-install: ## 安装 GUI 的公开锁定依赖（需 pnpm）
+	pnpm --dir clients/gui install --frozen-lockfile
+gui-build: ## 构建 GUI renderer
+	pnpm --dir clients/gui build
+gui: gui-build ## 启动桌面 GUI（先 make build）
+	pnpm --dir clients/gui start
+gui-package: gui-build ## 生成本地 macOS arm64 应用包（先 make build）
+	pnpm --dir clients/gui package
+gui-smoke: ## 隔离目录中验证真实 Electron/Core 和本地模型
+	pnpm --dir clients/gui test:e2e

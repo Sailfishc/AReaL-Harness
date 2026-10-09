@@ -15,3 +15,6 @@ __pycache__/
 .env.*
 !.env.example
 !.env.*.example
+
+# GUI workspace package cache
+.pnpm-store/
