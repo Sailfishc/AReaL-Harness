@@ -1,13 +1,13 @@
 use super::*;
 use sha2::{Digest, Sha256};
 use std::{
-    io::Write,
     path::{Path, PathBuf},
     time::Instant,
 };
 
 pub(super) struct Audit {
     path: Option<PathBuf>,
+    lease: Option<std::fs::File>,
     pub value: Value,
     started: Instant,
 }
@@ -73,8 +73,25 @@ impl Audit {
             value["threadId"] = json!(thread);
             value["turnId"] = json!(turn);
         }
+        let lease = directory.and_then(|directory| {
+            let result = (|| {
+                let gate = crate::diagnostics::lock(directory)?;
+                crate::diagnostics::sweep_model(directory, &gate, false)?;
+                crate::diagnostics::lease(directory, &request_id)
+            })();
+            match result {
+                Ok(lease) => Some(lease),
+                Err(_) => {
+                    tracing::warn!("could not initialize model request audit");
+                    None
+                }
+            }
+        });
         let audit = Self {
-            path: directory.map(|d| d.join(format!("{request_id}.json"))),
+            path: directory
+                .filter(|_| lease.is_some())
+                .map(|d| d.join(format!("{request_id}.json"))),
+            lease,
             value,
             started: Instant::now(),
         };
@@ -95,16 +112,10 @@ impl Audit {
             .join(path.file_name().unwrap());
         // tempfile 默认 0600；原文不进入 JSONL、TurnOutcome 或遥测，只写独立私有制品。
         let result = (|| -> std::io::Result<()> {
-            use std::os::unix::fs::DirBuilderExt;
+            let _gate = crate::diagnostics::lock(path.parent().unwrap().parent().unwrap())?;
             let directory = path.parent().unwrap();
-            std::fs::DirBuilder::new()
-                .recursive(true)
-                .mode(0o700)
-                .create(directory)?;
-            let mut file = tempfile::NamedTempFile::new_in(directory)?;
-            file.write_all(detail.to_string().as_bytes())?;
-            file.persist(&path)?;
-            Ok(())
+            crate::diagnostics::private_dir(directory)?;
+            crate::diagnostics::atomic_write(directory, &path, detail.to_string().as_bytes())
         })();
         if result.is_ok() {
             self.value["errorDetailFile"] = json!(path);
@@ -115,10 +126,13 @@ impl Audit {
     fn save(&self) {
         if let Some(path) = &self.path {
             let result = (|| -> std::io::Result<()> {
-                std::fs::create_dir_all(path.parent().unwrap())?;
-                let temporary = path.with_extension("tmp");
-                std::fs::write(&temporary, self.value.to_string())?;
-                std::fs::rename(temporary, path)
+                let directory = path.parent().unwrap();
+                let _gate = crate::diagnostics::lock(directory)?;
+                crate::diagnostics::atomic_write(
+                    directory,
+                    path,
+                    &crate::diagnostics::encode(&self.value),
+                )
             })();
             if result.is_err() {
                 tracing::warn!("could not save model request audit");
@@ -138,11 +152,18 @@ impl Drop for Audit {
         // snapshots. Artifact catalogs can otherwise fill before late requests.
         if let Some(path) = &self.path {
             let append = (|| -> std::io::Result<()> {
-                let mut file = std::fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(path.parent().unwrap().join("requests.jsonl"))?;
-                file.write_all(format!("{}\n", self.value).as_bytes())
+                let directory = path.parent().unwrap();
+                let gate = crate::diagnostics::lock(directory)?;
+                crate::diagnostics::append_jsonl(directory, &self.value)?;
+                // 最终记录发布后才释放租约，清理不能删除在途请求或中断其原文写入。
+                self.lease.take();
+                std::fs::remove_file(
+                    directory
+                        .join(".leases")
+                        .join(path.file_name().unwrap())
+                        .with_extension("lock"),
+                )?;
+                crate::diagnostics::sweep_model(directory, &gate, false)
             })();
             if append.is_err() {
                 tracing::warn!("could not append model request audit");

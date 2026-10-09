@@ -191,6 +191,13 @@ async fn repeated_network_failures_preserve_request_usage_and_confirmed_tools() 
     assert_eq!(result.turns[0].usage.as_ref().unwrap().input_tokens, 50);
     let audits: Vec<Value> = std::fs::read_dir(data.path().join("audit"))
         .unwrap()
+        .filter(|f| {
+            f.as_ref()
+                .unwrap()
+                .path()
+                .extension()
+                .is_some_and(|x| x == "json")
+        })
         .map(|f| serde_json::from_slice(&std::fs::read(f.unwrap().path()).unwrap()).unwrap())
         .collect();
     assert_eq!(audits.len(), 5);

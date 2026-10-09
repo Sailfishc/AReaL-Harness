@@ -107,6 +107,15 @@ async fn ensure_inner(
     }
     let log = storage::open_private(&directory.join("host.log"), true)?;
     log.set_len(0)?;
+    // 宿主定期截断日志时，继承描述符必须 append，避免旧偏移产生稀疏大文件。
+    use std::os::fd::AsRawFd;
+    unsafe {
+        let flags = libc::fcntl(log.as_raw_fd(), libc::F_GETFL);
+        ensure!(
+            flags >= 0 && libc::fcntl(log.as_raw_fd(), libc::F_SETFL, flags | libc::O_APPEND) >= 0,
+            "could not configure service log append mode"
+        );
+    }
     let mut command = tokio::process::Command::new(spec.bin_dir.join("areal"));
     command.arg("service-host");
     command

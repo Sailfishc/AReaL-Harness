@@ -126,6 +126,23 @@ Model audits in `data_dir/model-requests/*.json` and `requests.jsonl` record sol
 
 SSE streaming Provider errors also write `data_dir/model-requests/errors/<requestId>.json`, referenced by `errorDetailFile` in the ordinary audit. The directory is 0700 and files are 0600. They contain the original error object, including code/type/message values outside the classification allowlist. Serialized content over 16 KiB is stored as a UTF-8-safe `rawJsonPrefix` with `truncated=true`. These private diagnostic artifacts may contain upstream echoed content; they are excluded from `requests.jsonl`, TurnOutcome and telemetry. Original content discarded by older versions cannot be recovered.
 
+Diagnostics use fixed retention limits. At collection time, reaching any age, count or aggregate size limit evicts the oldest completed records:
+
+| Artifact (limits apply separately to each directory) | Maximum age | File count / size |
+|---|---|---|
+| `model-requests/*.json`, `model-requests-child/*.json` | 30 days | 4096 / 64 MiB |
+| `errors/*.json` beneath either request directory | 7 days | 512 / 8 MiB |
+| `audit/*.json` (compaction, discarded responses and other Core diagnostics) | 30 days | 1024 / 16 MiB |
+| `requests.jsonl`, `requests.jsonl.1` beneath either request directory | 30 days | Two files, 8 MiB each |
+
+The same rules apply to existing diagnostics after upgrade, including shrinking legacy oversized JSONL; there is no permanent-retention toggle. Services check immediately on startup and every minute thereafter; request writes also trigger checks at most once per minute. Embedded callers can invoke `areal_engine::diagnostics::collect(data_dir)`. File-lock leases protect in-flight requests, which are excluded from completed-record limits. Completion releases leases; subsequent checks reclaim crashed leases. Raw details can expire before ordinary audits, so `errorDetailFile` is not permanently readable. Removing a parent audit also removes orphan details. Export private artifacts before expiration if longer investigation retention is needed.
+
+JSONL expiration uses the file’s last modification time, without inspecting each row’s age; size rotation happens during writes. Per-request JSON and error details expire by their own modification times. Count and aggregate size limits apply at collection time and can be briefly exceeded between checks.
+
+An ordinary audit exceeding 1 MiB retains only identity/status fields plus `auditTruncated=true` and `originalBytes`; authoritative history is unaffected. JSONL writes and rotation share a cross-process lock. Legacy oversized files retain a bounded tail of complete records; unterminated records from interrupted writes are discarded. Aggregate readers should inspect both the current file and `.1`; earlier records are available only in unexpired per-request JSON. Diagnostic directories are 0700 and files 0600. Cleanup recognizes only known regular-file names and does not follow symlinks. Diagnostic atomic-write staging files expire after one day; Store staging remnants are removed after acquiring exclusive ownership.
+
+These limits do not apply to session history, Goal journals/request archives, Workgroup artifacts or user scratch used for recovery and audit. They must not be deleted by diagnostic TTL; Blob/cold-history GC remains reference-based.
+
 An unset tokenBudget means unlimited tokens, while Goal accounting and unknown-consumption checks remain active. A valid usage object with zero input/output counters and confirmed terminal framing settles as known zero. A scalar `usage: 0`, missing counters or invalid values do not establish known zero. Usage in a generic error event, even zero, does not replace final usage confirmation. Fabricated zero counters from a Provider underestimate usage; Harness does not infer actual billing from them.
 
 Transport failures, HTTP error statuses and non-SSE responses before stream consumption are also recorded as `outcome=failed`, with sanitized diagnostics in `error`. Non-SSE responses suggest checking the full API endpoint, without recording error-page bodies or raw response headers. Cancelled or unfinished requests remain `interrupted_or_unfinished`.

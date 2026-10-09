@@ -126,6 +126,23 @@ Checkpoint 的 `retainedInputs: [{itemId, content}]` 保存有界的真实用户
 
 SSE 流式 Provider 错误另写入 `data_dir/model-requests/errors/<requestId>.json`，普通审计的 `errorDetailFile` 指向该文件。目录 0700、文件 0600，保存错误对象原文（包括未进入白名单的 code/type/message）；序列化原文超过 16 KiB 时保存 UTF-8 安全截取的 `rawJsonPrefix` 并标记 `truncated=true`。这些私有排障制品可能包含上游回显内容，不进入 `requests.jsonl`、TurnOutcome 或遥测；旧请求未保存的原文无法回取。
 
+诊断制品采用固定保留上限，检查时达到年龄、数量或总容量任一条件即回收最旧的已完成记录：
+
+| 制品（每个目录独立计数） | 最长保留 | 最多文件/容量 |
+|---|---|---|
+| `model-requests/*.json`、`model-requests-child/*.json` | 30 天 | 4096 份 / 64 MiB |
+| 两个请求目录下的 `errors/*.json` | 7 天 | 512 份 / 8 MiB |
+| `audit/*.json`（压缩、丢弃响应等 Core 诊断） | 30 天 | 1024 份 / 16 MiB |
+| 两个请求目录下的 `requests.jsonl`、`requests.jsonl.1` | 30 天 | 两份，各 8 MiB |
+
+升级后已有诊断也应用这些规则，旧大 JSONL 会缩减；不提供永久保留开关。服务启动后立即检查，此后每分钟检查；请求写入也会触发检查（最多每分钟一次）。嵌入式调用方可调用 `areal_engine::diagnostics::collect(data_dir)`。在途请求用文件锁租约保护，不计入已完成记录的容量上限；请求结束后释放，崩溃租约在下次检查回收。原始错误详情可先于普通审计到期，`errorDetailFile` 不保证永远可读；父请求审计被删除时也删除孤立详情。需要长期排障时应在到期前导出私有制品。
+
+JSONL 的 30 天期限按文件最后修改时间计算，不逐条检查行的年龄；文件容量在写入时轮转。逐请求 JSON 与错误详情按各自文件的最后修改时间回收。数量和总容量上限在清理检查时执行，检查间可短暂超过。
+
+普通单条审计超过 1 MiB 时只保留身份、状态和 `auditTruncated=true` / `originalBytes`；不截断权威历史。JSONL 写入与轮转共享跨进程锁，旧大文件只保留有界尾部完整记录，异常退出留下的未换行记录会丢弃。读取汇总时同时检查当前文件和 `.1`，更早记录只在尚未过期的逐请求 JSON 中。诊断目录为 0700，文件为 0600；清理只识别已知命名的普通文件，不跟随符号链接。诊断原子写临时文件保留最多一天；Store 的原子写遗留文件在取得独占所有权后清理。
+
+这些上限不适用于会话历史、Goal 账本及请求归档、Workgroup 制品或用户 scratch，它们用于恢复与审计，不能按诊断 TTL 删除；Blob/冷历史仍按引用 GC。
+
 未设置 tokenBudget 表示不限 token，仍维护 Goal 计量和未知消费检查。合法 usage 对象中输入/输出计数均为 0，且终态确认时，按已知零结算；裸数值 `usage: 0`、缺失计数或非法值不能视为已知零。普通 error 事件中的 usage 即使为 0，也不替代最终用量确认。提供方伪造零计数会导致低估，Harness 不据此推断实际计费。
 
 开始消费响应流前的传输失败、HTTP 错误状态和非 SSE 响应也记为 `outcome=failed`，`error` 保存脱敏诊断；非 SSE 响应提示检查完整 API endpoint，不记录错误页正文或原始响应 header。取消或未完成的请求仍记为 `interrupted_or_unfinished`。
