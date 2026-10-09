@@ -21,6 +21,7 @@ const dependencies = await stageCoreApp({ root: gui, destination: appStage });
 const release = process.env.AREAL_GUI_RELEASE === "1";
 const { githubFeedUrl } = require(join(gui, "app/src/update/config.cjs"));
 const updateConfig = join(staged, "areal-update.json");
+const nativeUpdateConfig = join(staged, "app-update.yml");
 if (release) {
   const dirty = execFileSync("git", ["status", "--porcelain"], { cwd: root, encoding: "utf8" });
   if (dirty.trim()) throw new Error("GUI release requires a clean source checkout");
@@ -28,6 +29,11 @@ if (release) {
     updateConfig,
     JSON.stringify({ engine: "electron", feedUrl: githubFeedUrl }) + "\n",
   );
+  // dir 目标不会生成原生更新元数据；在签名前写入同一权威更新源与稳定缓存名。
+  await writeFile(nativeUpdateConfig, require("yaml").stringify({
+    provider: "generic", url: githubFeedUrl, updaterCacheDirName: "areal-harness-gui-updater",
+    useMultipleRangeRequest: false,
+  }));
 }
 const bundle = join(output, "areal-core");
 execFileSync(
@@ -81,11 +87,13 @@ await build({
     extraResources: [
       { from: bundle, to: "areal-core" },
       { from: join(gui, "renderer/dist"), to: "areal-gui" },
-      ...(release ? [{ from: updateConfig, to: "areal-update.json" }] : []),
+      ...(release ? [
+        { from: updateConfig, to: "areal-update.json" },
+        { from: nativeUpdateConfig, to: "app-update.yml" },
+      ] : []),
     ],
     mac: { icon, identity: null, notarize: false, category: "public.app-category.developer-tools" },
-    // 禁止自动上传，但保留 builder 生成下载缓存所需的 app-update.yml。
-    publish: release ? { provider: "generic", url: githubFeedUrl, useMultipleRangeRequest: false } : null,
+    publish: null,
   },
 });
 const app = join(output, "package/mac-arm64/AReaL Harness GUI.app");
