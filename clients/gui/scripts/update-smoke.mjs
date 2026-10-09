@@ -72,7 +72,12 @@ try {
     assert.equal(native.provider, 'generic'); assert.equal(native.url, githubFeedUrl);
     assert.ok(typeof native.updaterCacheDirName === 'string' && native.updaterCacheDirName.length > 0);
     checks.push('candidate contains electron-builder native update configuration and stable cache name');
-    instance = await launch(baseline, 'native');
+    const baselineApp = resolve(dirname(baseline), '../..');
+    assert.ok(baselineApp.endsWith('.app'), 'Baseline executable must belong to an app bundle');
+    const copiedApp = join(scratch, 'baseline.app');
+    execFileSync('/usr/bin/ditto', [baselineApp, copiedApp]);
+    const copiedExecutable = join(copiedApp, 'Contents/MacOS', baseline.split('/').at(-1));
+    instance = await launch(copiedExecutable, 'native');
     const { app, page } = instance;
     await page.evaluate(() => { window.updateTrace = []; window.arealDesktop.onUpdate(state => window.updateTrace.push(state)); });
     await app.evaluate(({ app, Menu }, options) => {
@@ -80,6 +85,7 @@ try {
       const { autoUpdater } = read(app.getAppPath() + '/node_modules/electron-updater');
       // 已发布旧包缺配置，借用候选包的真实配置验证原生传输，不修改任何签名资源。
       autoUpdater.updateConfigPath = options.nativePath;
+      autoUpdater.autoRunAppAfterInstall = false;
       Object.defineProperty(autoUpdater.app, 'baseCachePath', { get: () => options.cache });
       // 验证原生准备和 Core 安全停止；不触发用户安装替换。
       autoUpdater.quitAndInstall = () => { globalThis.updateSmokeInstall = true; };
@@ -103,6 +109,19 @@ try {
     assert.ok(trace.some(state => state.status === 'downloading' && state.percent > 0));
     assert.ok(trace.some(state => state.status === 'validating'));
     checks.push('real public ZIP download, SHA-512 verification, Squirrel signed update staging and safe Core shutdown; final install intercepted');
+    const target = trace.find(state => state.status === 'available').version;
+    // Squirrel 在退出时也可能安装已准备的更新，因此始终只启动复制出的旧包。
+    await close(instance); instance = null;
+    let installed;
+    const deadline = Date.now() + 30000;
+    do {
+      installed = execFileSync('/usr/bin/plutil', ['-extract', 'CFBundleShortVersionString', 'raw', join(copiedApp, 'Contents/Info.plist')], { encoding: 'utf8' }).trim();
+      if (installed === target) break;
+      await new Promise(resolve => setTimeout(resolve, 100));
+    } while (Date.now() < deadline);
+    assert.equal(installed, target);
+    await writeFile(join(scratch, 'copy-replacement.json'), JSON.stringify({ target, installed, copiedApp }, null, 2));
+    checks.push('Squirrel replaces only the isolated baseline copy with the expected public version after exit');
   }
   await writeFile(join(scratch, 'manifest.json'), JSON.stringify({ passed: true, checks, scratch, sourceRevision, scriptSha256 }, null, 2));
   console.log(JSON.stringify({ passed: true, checks, scratch }));
