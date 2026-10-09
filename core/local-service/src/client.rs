@@ -62,7 +62,8 @@ async fn ensure_inner(
                 }
                 if Instant::now() >= deadline {
                     bail!(
-                        "model configuration has not been applied; the running service is unchanged. Inspect its configuration error or run `areal service restart` to inherit updated credentials"
+                        "model configuration has not been applied; the running service is unchanged. Inspect its configuration error or run `{}` to inherit updated credentials",
+                        spec.restart_command()
                     );
                 }
                 tokio::time::sleep(Duration::from_millis(200)).await;
@@ -87,7 +88,7 @@ async fn ensure_inner(
             }
         }
         stop_unlocked(&spec.home, &spec.service_id, restart.unwrap_or(false)).await
-            .context("configuration requires a restart; wait for background work to finish, or run `areal service restart --cancel` to explicitly cancel it")?;
+            .with_context(|| format!("configuration requires a restart; wait for background work to finish, or run `{} --cancel` to explicitly cancel it", spec.restart_command()))?;
         if !reconnect {
             eprintln!("Restarting local service with the updated configuration");
         }
@@ -198,9 +199,10 @@ fn check_compatible(spec: &LaunchSpec, service: &Service, directory: &Path) -> R
             .map(|(k, _)| k.as_str())
             .collect();
         bail!(
-            "service configuration conflict ({}) for instance {}; run `areal service restart` in its workspace, or use another --data-dir",
+            "service configuration conflict ({}) for instance {}; run `{}` using the same binary and environment as this client, or use another --data-dir",
             changed.join(", "),
-            spec.service_id
+            spec.service_id,
+            spec.restart_command()
         );
     }
     Ok(())

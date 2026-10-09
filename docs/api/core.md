@@ -100,7 +100,11 @@ Responses 摘要通过可选 `reasoning_summary` / `reasoningSummary` 显式开�
 
 watchdog 保留同一请求的 messages、tools、采样参数与模型轮次，不消耗 `max_completion_retries`；重试不会再次预留 Agent 逻辑请求额度，Workgroup 仍计入每次实际请求及部署预算。250 ms 指数退避封顶 30 秒，释放失败流持有的共享模型许可后等待；取消与显式任务预算仍能结束等待，求解请求还响应 steer。Core 审计并丢弃失败响应的文本、上下文与未执行工具调用，恢复该响应占用的输出字节额度，保留此前已执行工具和已观测 usage。发布 `areal/model/completionDiscarded`（新增 `retryKind=network|completion`）及 `areal/model/watchdogRetry {threadId,turnId,purpose:solve|summary,retry,delayMs}`。这里的丢弃不回滚已执行工具，也不重启整个 Turn。
 
+SSE 错误 `server_is_overloaded` 和 `service_unavailable_error` 保留为可重试的过载/暂不可用分类；鉴权、额度等明确永久错误仍优先禁止重试。分类只决定网络 watchdog 的候选范围，不绕过 Goal 的未知消费检查。
+
 Goal 请求先检查共享预算与用量是否已知，再决定是否重试。请求失败或超时留下未知消费时，保留预留并将 Goal 置为 blocked（usageUnknown）；不进入 watchdog 退避或有限响应重试。Turn 错误同时保留 `GOAL_USAGE_UNKNOWN` 与原始请求失败原因，避免用量检查覆盖接口、鉴权或超时诊断。摘要请求同样受此约束，保留旧 checkpoint，不写入降级摘要。已计量的 HTTP 请求禁用传输层内部重试，避免同一预留隐含多次消费。
+
+Goal 的根线程与子线程共享账本。子模型失败后缺失最终用量，会阻止其他线程继续提交模型或工具；根线程诊断保留已观察到的子请求终止分类、账本请求 ID 和所属 thread/turn，避免把上游错误误报为无来源的内部故障。账本只新增可选的脱敏分类字段，兼容旧记录；旧记录可能无法还原失败来源。检查失败请求后，可在 TUI 使用 `/goal-resume` 确认未知消费的保守预留并继续；不会自动重放失败工具或将未知用量改为零。
 
 `max_completion_retries` 默认 0，可为已分类的长度截断、非法工具 index、空回复等提供有限恢复（仅 reasoning 不算最终回复）；关闭 watchdog 后，已分类网络错误也沿用此有限额度。工具仍只在完整成功流后执行；UNKNOWN、持久化错误、取消与显式任务预算错误不重放。
 
@@ -119,6 +123,10 @@ Checkpoint 的 `retainedInputs: [{itemId, content}]` 保存有界的真实用户
 `limits.context_compaction_enabled=false` 时自动阈值超限使 Turn 失败，显式 `areal/context/compact` 返回错误，不写入 checkpoint；配置见[上下文限额](../guides/configuration.md#模型与限额)。
 
 模型审计写入 `data_dir/model-requests/*.json` 与 `requests.jsonl`，记录 solve/summary、参数、请求体摘要/大小、attempt、usage、stopReason、耗时与有限响应形状，不记录 header、endpoint 或 prompt。`usageObserved=true` 表示收到可解析的完整用量事件（包括 0）；缺失/false 不能视为已知零。length 终态仍收集同帧/尾帧 usage，等待受期限和取消限制，随后判定截断并禁止执行工具。
+
+SSE 流式 Provider 错误另写入 `data_dir/model-requests/errors/<requestId>.json`，普通审计的 `errorDetailFile` 指向该文件。目录 0700、文件 0600，保存错误对象原文（包括未进入白名单的 code/type/message）；序列化原文超过 16 KiB 时保存 UTF-8 安全截取的 `rawJsonPrefix` 并标记 `truncated=true`。这些私有排障制品可能包含上游回显内容，不进入 `requests.jsonl`、TurnOutcome 或遥测；旧请求未保存的原文无法回取。
+
+未设置 tokenBudget 表示不限 token，仍维护 Goal 计量和未知消费检查。合法 usage 对象中输入/输出计数均为 0，且终态确认时，按已知零结算；裸数值 `usage: 0`、缺失计数或非法值不能视为已知零。普通 error 事件中的 usage 即使为 0，也不替代最终用量确认。提供方伪造零计数会导致低估，Harness 不据此推断实际计费。
 
 开始消费响应流前的传输失败、HTTP 错误状态和非 SSE 响应也记为 `outcome=failed`，`error` 保存脱敏诊断；非 SSE 响应提示检查完整 API endpoint，不记录错误页正文或原始响应 header。取消或未完成的请求仍记为 `interrupted_or_unfinished`。
 

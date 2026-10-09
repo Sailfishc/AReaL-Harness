@@ -83,7 +83,17 @@ struct StreamError {
     error_type: Option<String>,
     reason: Option<String>,
     error_shape: &'static str,
+    #[serde(skip)]
+    private_detail: PrivateErrorDetail,
 }
+
+struct PrivateErrorDetail(Value);
+impl std::fmt::Debug for PrivateErrorDetail {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("<private provider error>")
+    }
+}
+
 impl StreamError {
     fn from_value(value: &Value, event_type: &'static str) -> Self {
         fn label(value: &Value) -> Option<String> {
@@ -100,6 +110,8 @@ impl StreamError {
                 | "not_found_error"
                 | "model_not_found"
                 | "server_error"
+                | "server_is_overloaded"
+                | "service_unavailable_error"
                 | "api_error"
                 | "overloaded_error"
                 | "content_policy_violation"
@@ -111,6 +123,17 @@ impl StreamError {
                 _ => None,
             }
         }
+        let encoded = value.to_string();
+        // 上游原文只供本机私有制品使用；先有界截取，禁止进入协议分类与 tracing。
+        let private_detail = if encoded.len() <= 16 * 1024 {
+            json!({"error":value,"truncated":false})
+        } else {
+            let mut end = 16 * 1024;
+            while !encoded.is_char_boundary(end) {
+                end -= 1;
+            }
+            json!({"rawJsonPrefix":&encoded[..end],"truncated":true,"originalBytes":encoded.len()})
+        };
         Self {
             event_type,
             code: label(&value["code"]),
@@ -121,6 +144,7 @@ impl StreamError {
                 Value::String(_) => "string",
                 _ => "other",
             },
+            private_detail: PrivateErrorDetail(private_detail),
         }
     }
 }
@@ -260,6 +284,8 @@ pub(crate) fn is_network_error(error: &anyhow::Error) -> bool {
                 "rate_limit_exceeded"
                     | "rate_limit_error"
                     | "server_error"
+                    | "server_is_overloaded"
+                    | "service_unavailable_error"
                     | "api_error"
                     | "overloaded_error"
             )
@@ -1159,6 +1185,7 @@ impl Model for HttpModel {
                                 json!(error.is::<FinalUsageError>());
                             if let Some(detail) = error.downcast_ref::<StreamError>() {
                                 audit.value["streamError"] = json!(detail);
+                                audit.save_error_detail(&detail.private_detail.0);
                             }
                             if let Some(detail) = tool_error_detail(&error) {
                                 audit.value["errorCode"] = detail["code"].clone();

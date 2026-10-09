@@ -727,6 +727,29 @@ mod truncated_usage_tests {
     use super::*;
 
     #[test]
+    fn zero_usage_is_known_but_missing_or_scalar_usage_is_not() {
+        assert!(parse_usage(Some(&json!({"input_tokens":0,"output_tokens":0}))).is_some());
+        assert!(parse_usage(Some(&json!({"prompt_tokens":0,"completion_tokens":0}))).is_some());
+        for value in [json!(0), json!(null), json!({}), json!({"input_tokens":0})] {
+            assert!(parse_usage(Some(&value)).is_none());
+        }
+        for (kind, known) in [("response.failed", true), ("error", false)] {
+            let event = json!({"type":kind,"response":{
+                "usage":{"input_tokens":0,"output_tokens":0},
+                "error":{"code":"server_error"}
+            }});
+            let mut decoder = Decoder::Responses(ResponsesDecoder::default());
+            let events = decoder
+                .feed(format!("data: {event}\n\n").as_bytes())
+                .unwrap();
+            assert!(events.iter().any(
+                |e| matches!(e, ModelEvent::Usage(u) if u.input_tokens == 0 && u.output_tokens == 0)
+            ));
+            assert_eq!(decoder.finish().unwrap_err().is::<FinalUsageError>(), known);
+        }
+    }
+
+    #[test]
     fn final_usage_marker_requires_terminal_framing() {
         for (tail, known) in [("data: [DONE]\n\n", true), ("", true), ("data: {", false)] {
             let mut decoder = Decoder::Chat(ChatDecoder::default());
@@ -876,6 +899,16 @@ mod tests {
             (json!({"type":"server_error"}), true),
             (json!({"type":"api_error"}), true),
             (json!({"type":"overloaded_error"}), true),
+            (
+                json!({"code":"server_is_overloaded","type":"service_unavailable_error"}),
+                true,
+            ),
+            (json!({"code":"server_is_overloaded"}), true),
+            (json!({"type":"service_unavailable_error"}), true),
+            (
+                json!({"code":"insufficient_quota","type":"service_unavailable_error"}),
+                false,
+            ),
             (
                 json!({"code":"insufficient_quota","type":"server_error"}),
                 false,

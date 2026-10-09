@@ -86,6 +86,32 @@ impl Audit {
             self.value[field] = json!(self.started.elapsed().as_millis() as u64);
         }
     }
+    pub fn save_error_detail(&mut self, detail: &Value) {
+        let Some(path) = &self.path else { return };
+        let path = path
+            .parent()
+            .unwrap()
+            .join("errors")
+            .join(path.file_name().unwrap());
+        // tempfile 默认 0600；原文不进入 JSONL、TurnOutcome 或遥测，只写独立私有制品。
+        let result = (|| -> std::io::Result<()> {
+            use std::os::unix::fs::DirBuilderExt;
+            let directory = path.parent().unwrap();
+            std::fs::DirBuilder::new()
+                .recursive(true)
+                .mode(0o700)
+                .create(directory)?;
+            let mut file = tempfile::NamedTempFile::new_in(directory)?;
+            file.write_all(detail.to_string().as_bytes())?;
+            file.persist(&path)?;
+            Ok(())
+        })();
+        if result.is_ok() {
+            self.value["errorDetailFile"] = json!(path);
+        } else {
+            tracing::warn!("could not save private model error detail");
+        }
+    }
     fn save(&self) {
         if let Some(path) = &self.path {
             let result = (|| -> std::io::Result<()> {
@@ -100,6 +126,7 @@ impl Audit {
         }
     }
 }
+
 impl Drop for Audit {
     fn drop(&mut self) {
         if self.value["outcome"] == "pending" {
@@ -121,5 +148,47 @@ impl Drop for Audit {
                 tracing::warn!("could not append model request audit");
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn provider_error_is_private_and_not_copied_into_audit() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut audit = Audit::new(Some(directory.path()), &json!({}), RequestPurpose::Solve);
+        let error = StreamError::from_value(&json!({"message":"private prompt and key"}), "error");
+        assert!(!format!("{error:?}").contains("private prompt and key"));
+        assert!(
+            !serde_json::to_string(&error)
+                .unwrap()
+                .contains("private prompt and key")
+        );
+        audit.save_error_detail(&error.private_detail.0);
+        let path = PathBuf::from(audit.value["errorDetailFile"].as_str().unwrap());
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        let detail: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        assert_eq!(detail["error"]["message"], "private prompt and key");
+        drop(audit);
+        assert!(
+            !std::fs::read_to_string(directory.path().join("requests.jsonl"))
+                .unwrap()
+                .contains("private prompt and key")
+        );
+        let large = StreamError::from_value(&json!({"message":"中".repeat(20000)}), "error");
+        assert_eq!(large.private_detail.0["truncated"], true);
+        assert!(
+            large.private_detail.0["rawJsonPrefix"]
+                .as_str()
+                .unwrap()
+                .len()
+                <= 16 * 1024
+        );
     }
 }

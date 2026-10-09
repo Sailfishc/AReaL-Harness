@@ -23,6 +23,16 @@ make verify
 
 `setup` installs locked Cargo, npm and uv dependencies. Model fixtures require no credentials. When using a proxy, append `127.0.0.1,localhost` to existing `NO_PROXY` entries and to `no_proxy` if set.
 
+Use `target/debug/areal` consistently for development startup and service control to avoid mixing it with the installed version on PATH:
+
+```sh
+make build
+./target/debug/areal service restart
+./target/debug/areal
+```
+
+Binary-only changes automatically restart an idle shared service, so manual restarts are not needed after every build. For configuration conflicts, use the complete restart command in the diagnostic. Wait for background work to settle; add `--cancel` only when cancellation is intended. If switching versions frequently, use a separate external directory for development, such as `--data-dir /tmp/areal-dev-state`, on both startup and restart; it has separate history. See [local service compatibility](../api/local-service.en.md#identity-compatibility-and-history).
+
 ## Checks
 
 | Change | Command |
