@@ -69,8 +69,21 @@ def main():
                             "arguments": json.dumps({"path": "release-check.txt"}),
                         },
                     }
+                elif len(results) == 2:
+                    assert "RELEASE_RW_OK" in json.dumps(results[1]), results
+                    tool = {
+                        "id": "search",
+                        "type": "function",
+                        "function": {
+                            "name": "search_files",
+                            "arguments": json.dumps({"pattern": "RELEASE_RW_OK", "context": 0}),
+                        },
+                    }
                 else:
-                    assert len(results) == 2 and "RELEASE_RW_OK" in json.dumps(results[1]), results
+                    assert len(results) == 3, results
+                    assert results[2]["limited"] is False, results
+                    assert len(results[2]["matches"]) == 1, results
+                    assert results[2]["matches"][0]["text"] == "RELEASE_RW_OK\n", results
                     tool = None
                 delta = (
                     {"tool_calls": [{"index": 0, **tool}]} if tool else {"content": "RELEASE_RW_OK"}
@@ -150,7 +163,7 @@ watchdog_disable=true
             assert result.returncode == 0, result.stderr[-4000:]
             assert "RELEASE_RW_OK" in result.stdout, result.stdout
             assert (workspace / "release-check.txt").read_text() == "RELEASE_RW_OK\n"
-            assert calls == [0, 1, 2], calls
+            assert calls == [0, 1, 2, 3], calls
             print(
                 json.dumps(
                     {
@@ -158,7 +171,7 @@ watchdog_disable=true
                         "platform": manifest["platform"],
                         "profile": manifest["profile"],
                         "model": "local-fixture",
-                        "toolCalls": 2,
+                        "toolCalls": 3,
                         "sourceRevision": manifest["sourceRevision"],
                     }
                 )

@@ -131,3 +131,5 @@ TUI 与共享服务 PTY 检查共用终端画面解析器，处理增量重绘�
 构建后执行 `node scripts/context-live-smoke.mjs /absolute/model.toml`，显式选择真实模型配置，会产生模型用量。脚本创建独立工作区和状态目录，追加任务修订、三次压缩、重启 Core，然后以真实读写和命令完成 Goal；独立核验每个输出字段及已验收文件字节不变。JSON 报告记录缓存用量，不把未知用量当零。测试专用字节窗口可设 20,000、近期预算 4,096、`context_target_tokens=16000` 以触发压缩；不要把这些压力配置复制到生产。脚本不重启生产会话。 可追加第二个参数指定新的报告目录。报告分别记录 `functionalVerified`、有效模型摘要数和摘要失败；降级证据回退不能替代三次有效模型摘要，出现摘要失败时脚本非零退出。 可通过 `AREAL_CONTEXT_LIVE_BIN_DIR` 指定已冻结的二进制目录，确保重启使用同一候选版本。
 
 工具慢时在日志过滤器启用 `areal::tool_timing=debug,areal::persistence=debug`。工具阶段区分意图持久化（含锁/clone）、执行、结果投影和最终提交；持久化区分编码、IO 准入、文件写入和 sync/rename。计时事件不增加参数、文件内容或凭据。一次编码仍保持执行前持久化和文件/目录同步顺序。
+
+搜索回归直接运行 Runtime 文件助手，覆盖无宿主 rg/Python 的搜索、工作区 ignore、glob、上下文、截断与符号链接拒绝。原生和发行 smoke 通过 Core 的 `search_files` 验证完整调用链，不依赖 shell 中存在 rg。
