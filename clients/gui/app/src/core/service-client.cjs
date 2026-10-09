@@ -103,7 +103,11 @@ class SharedCoreBackend {
   get providerUpdating() { return this.status.providerUpdating; }
   get starting() { return { size: this.status.starting ?? 0 }; }
   hasWork() { return !this.status.connected || this.status.busy === true; }
-  ownsThread(projectId, threadId) { return this.saved.some(p => p.id === projectId && (!threadId || p.state?.threads?.[threadId])); }
+  ownsThread(projectId, threadId) {
+    if (this.value.library.projects[projectId]?.hidden) return false;
+    const thread = this.saved.find(p => p.id === projectId)?.state?.threads?.[threadId];
+    return !!thread && !thread.desktop?.archived;
+  }
   snapshot() { return { ...this.value, revision: ++this.revision, connection: this.connectionState }; }
   accept(packet) {
     if (!packet || packet.sequence <= this.sequence) return;

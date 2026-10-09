@@ -9,11 +9,13 @@
   },
   "scripts": {
     "build": "pnpm --filter @areal/gui-renderer build",
-    "typecheck": "pnpm --filter @areal/gui-renderer typecheck",
+    "typecheck": "pnpm --filter @areal/gui-renderer typecheck && pnpm --filter @areal/gui-renderer exec tsc --allowJs --checkJs --noEmit --skipLibCheck --target ES2022 --module NodeNext ../packages/workbench/client/desktop-contract.cjs",
     "start": "node scripts/start.mjs",
     "package": "node scripts/package.mjs",
     "verify": "node scripts/verify-public.mjs",
     "test:composer": "node scripts/composer-smoke.mjs",
+    "test:connection": "node scripts/connection-smoke.mjs",
+    "test:architecture": "node scripts/architecture-smoke.mjs",
     "test:e2e": "node scripts/migration-smoke.mjs"
   },
   "devDependencies": {
