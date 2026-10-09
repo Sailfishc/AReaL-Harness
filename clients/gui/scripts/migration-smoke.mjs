@@ -58,7 +58,7 @@ await writeFile(
   }),
 );
 const received = [];
-let finishBackground;
+let finishBackground, finishAgentParent;
 const server = createServer(async (req, res) => {
   if (req.url.startsWith("/preview")) {
     res.setHeader("Content-Type", "text/html");
@@ -94,6 +94,17 @@ const server = createServer(async (req, res) => {
       res.end("data: [DONE]\n\n");
     };
     return;
+  }
+  if (text.includes("启动子任务") && msgs.slice(last + 1).some(m => m.role === "tool")) {
+    send({ content: "父任务继续处理，子任务运行中。" });
+    finishAgentParent = () => {
+      send({ content: "父任务已完成。" }); send({}, "stop"); res.end("data: [DONE]\n\n");
+    };
+    return;
+  }
+  if ((text.includes("子任务完成") || text === "检查当前项目") && !msgs.slice(last + 1).some(m => m.role === "tool")) {
+    send({ tool_calls: [{ index: 0, id: "child-read", type: "function", function: { name: "fs_read", arguments: JSON.stringify({ path: "workspace://repo/hello.ts" }) } }] });
+    send({}, "tool_calls"); res.end("data: [DONE]\n\n"); return;
   }
   if (text.includes("等待停止")) {
     send({ content: "正在运行，等待下一步指令。" });
@@ -143,20 +154,15 @@ const server = createServer(async (req, res) => {
     send({}, "tool_calls");
   } else if (text.includes("启动子任务") && !msgs.slice(last + 1).some((m) => m.role === "tool")) {
     send({
-      tool_calls: [
-        {
-          index: 0,
-          id: "child",
-          type: "function",
-          function: {
-            name: "agent_spawn_configured",
-            arguments: JSON.stringify({
-              input: [{ type: "text", text: "只读检查项目" }],
-              workspaceMode: "sharedReadOnly",
-            }),
-          },
+      tool_calls: ["子任务完成", "子任务等待停止"].map((prompt, index) => ({
+        index,
+        id: `child-${index}`,
+        type: "function",
+        function: {
+          name: "agent_spawn_configured",
+          arguments: JSON.stringify({ input: [{ type: "text", text: prompt }], workspaceMode: "sharedReadOnly" }),
         },
-      ],
+      })),
     });
     send({}, "tool_calls");
   } else {
@@ -213,7 +219,7 @@ async function until(predicate, label) {
   const end = Date.now() + 30000;
   while (Date.now() < end) {
     const s = await state();
-    if (predicate(s)) return s;
+    if (await predicate(s)) return s;
     await new Promise((r) => setTimeout(r, 80));
   }
   throw Error("Timeout: " + label);
@@ -312,6 +318,73 @@ try {
   await shot("02-conversation");
   checks.push("sandboxed Electron; project picker; first send; real Core/Runtime and local SSE");
   checks.push("new message clears previous error banner after real Core acceptance");
+  // 子对话只改变侧面板；真实子 Thread、工具记录与停止结果由 Core 提供。
+  const reference = await page.evaluate(async ({ pid }) => {
+    const response = await window.arealDesktop.command("media", { projectId: pid, threadId: document.querySelector("[data-testid=areal-workbench]").dataset.threadId, operation: "upload", mime: "image/png", bytes: Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aL1sAAAAASUVORK5CYII="), char => char.charCodeAt(0)) });
+    if (!response.ok) throw Error(response.error.message);
+    return response.value;
+  }, { pid });
+  await call("send", { projectId: pid, threadId: tid, text: "启动子任务", attachments: [{ type: "image", url: reference.uri }] });
+  await until(async () => (await call("manage", { projectId: pid, parentThreadId: tid, operation: "agents", limit: 30 })).data.length === 2, "two real children");
+  const children = (await call("manage", { projectId: pid, parentThreadId: tid, operation: "agents", limit: 30 })).data;
+  const doneChild = children.find(t => t.preview === "子任务完成");
+  const liveChild = children.find(t => t.preview === "子任务等待停止");
+  assert.ok(doneChild && liveChild);
+  await button("任务资源").click();
+  const resources = page.getByRole("region", { name: "任务资源", exact: true });
+  await resources.getByRole("button", { name: `打开 ${liveChild.id} 子对话`, exact: true }).waitFor();
+  await resources.getByRole("heading", { name: "工作区变更", exact: false }).waitFor();
+  await resources.getByRole("button", { name: "预览图片 消息图片", exact: true }).waitFor();
+  await resources.getByRole("button", { name: "预览图片 消息图片", exact: true }).click();
+  await page.getByRole("button", { name: "关闭图片预览", exact: true }).click();
+  await shot("02r-task-resources");
+  const liveAvatar = await resources.locator(`[data-agent-avatar="${liveChild.id}"]`).getAttribute("src");
+  assert.ok(liveAvatar.startsWith("data:image/svg+xml"));
+  await resources.getByRole("button", { name: `打开 ${liveChild.id} 子对话`, exact: true }).click();
+  await page.locator(`[data-agent-conversation="${liveChild.id}"] [data-turn-status=inProgress]`).waitFor();
+  assert.equal(await page.locator("[data-testid=areal-workbench]").getAttribute("data-thread-id"), tid);
+  assert.equal(await input().count(), 1);
+  await input().fill("主对话草稿保持");
+  assert.equal(await page.locator(`.agent-conversation-heading [data-agent-avatar="${liveChild.id}"]`).getAttribute("src"), liveAvatar);
+  assert.equal(await page.locator(`[data-testid=chat-view] [data-agent-avatar="${liveChild.id}"]`).getAttribute("src"), liveAvatar);
+  await shot("02a-agent-running");
+  await page.locator(`[aria-label="关闭 Agent · ${liveChild.id.slice(0, 8)} 标签"]`).click();
+  const afterClose = await call("manage", { projectId: pid, parentThreadId: tid, operation: "agentWait", threadIds: [liveChild.id], timeoutMs: 0 });
+  assert.equal(afterClose.data[0].status, "inProgress");
+  await page.locator("[data-testid=chat-view]").getByRole("button", { name: `打开 ${liveChild.id} 子对话`, exact: true }).click();
+  await page.locator(`[data-agent-conversation="${liveChild.id}"] [data-turn-status=inProgress]`).waitFor();
+  await page.getByRole("tab", { name: "任务资源", exact: true }).click();
+  await resources.getByRole("button", { name: /变更.*个文件/ }).click();
+  assert.equal(await page.locator("[data-testid=workspace-review]").getAttribute("data-review-source"), "git");
+  await page.getByRole("button", { name: "改动范围", exact: true }).waitFor();
+  assert.equal(await page.getByRole("button", { name: "改动范围", exact: true }).innerText(), "未暂存的更改");
+  await page.getByRole("tab", { name: "任务资源", exact: true }).click();
+  await resources.getByRole("button", { name: `打开 ${doneChild.id} 子对话`, exact: true }).click();
+  await page.locator(`[data-agent-conversation="${doneChild.id}"] [data-turn-status=completed]`).waitFor();
+  assert.equal(await input().innerText(), "主对话草稿保持");
+  const donePane = page.locator(`[data-agent-conversation="${doneChild.id}"]`);
+  assert.equal(await donePane.locator(".user-message").count(), 1);
+  assert.ok(await donePane.locator(".tool-event").count() > 0);
+  await donePane.locator(".turn-progress-summary").click();
+  await donePane.getByRole("button", { name: "查看工具原始记录", exact: true }).click();
+  await donePane.getByLabel("工具结果", { exact: true }).waitFor();
+  await shot("02b-agent-completed");
+  await page.locator(`[aria-label="关闭 Agent · ${doneChild.id.slice(0, 8)} 标签"]`).click();
+  await page.getByRole("tab", { name: `Agent · ${liveChild.id.slice(0, 8)}`, exact: true }).click();
+  await call("stop", { projectId: pid, threadId: liveChild.id });
+  await page.locator(`[data-agent-conversation="${liveChild.id}"] [data-turn-status=interrupted]`).waitFor();
+  await button("新聊天").click();
+  assert.equal(await page.locator("[data-agent-conversation]").count(), 0);
+  await page.locator(`#areal-sidebar [data-thread-id="${tid}"]`).first().click();
+  await page.locator(`[data-agent-conversation="${liveChild.id}"] [data-turn-status=interrupted]`).waitFor();
+  assert.equal(await input().innerText(), "主对话草稿保持");
+  assert.ok(finishAgentParent);
+  finishAgentParent();
+  await until(s => current(s).turns.at(-1)?.status === "completed", "parent completes after child stop");
+  await shot("02c-agent-interrupted");
+  await button("关闭面板").click();
+  await input().fill("");
+  checks.push("Core children: resources, running/completed/interrupted side conversations, switching/closing preserve parent and composer draft");
   await send("审批写入");
   await button("允许一次").click();
   await until((s) => current(s).turns.at(-1)?.status === "completed", "approved write");
@@ -468,6 +541,15 @@ try {
   assert.equal(received.length, requestCount);
   assert.equal(await input().textContent(), "保留未发送草稿");
   await shot("07-background-recovered");
+  await button("任务资源").click();
+  await page.getByRole("region", { name: "任务资源", exact: true }).getByRole("button", { name: `打开 ${doneChild.id} 子对话`, exact: true }).click();
+  await page.locator(`[data-agent-conversation="${doneChild.id}"] [data-turn-status=completed]`).waitFor();
+  assert.ok(await page.locator(`[data-agent-conversation="${doneChild.id}"] .tool-event`).count() > 0);
+  assert.equal(await page.locator(`.agent-conversation-heading [data-agent-avatar="${doneChild.id}"]`).getAttribute("src"), await page.locator(`[data-testid=chat-view] [data-agent-avatar="${doneChild.id}"]`).getAttribute("src"));
+  assert.equal(received.length, requestCount);
+  await shot("07a-agent-restored");
+  await button("关闭面板").click();
+  checks.push("child messages/tools and local avatar identity restore after GUI restart without provider replay");
   checks.push(
     "running Core turn completes after GUI quit; reopen restores history/draft without replay",
   );
@@ -543,6 +625,7 @@ try {
   console.error("renderer errors", errors);
   console.error(await page?.locator("body").innerText());
   await shot("failure").catch(() => {});
+  if (page) await writeFile(join(scratch, "failure-state.json"), JSON.stringify(await state(), null, 2)).catch(() => {});
   throw error;
 } finally {
   await quit();

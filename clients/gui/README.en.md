@@ -30,6 +30,12 @@ A new send or steer clears the previous operation's UI error. A failed attempt s
 
 Images show thumbnails. “Show in text box” appends UTF-8 text attachments to the body. Pasting more than 200 characters or at least five lines creates a text card; expansion is limited to 1 MiB. Removing files or skills preserves the body. Goal mode uses the same editor; goal creation consumes only the objective and leaves other attachments unsent. `pnpm --dir clients/gui run test:composer` verifies these paths with isolated Electron/Core/Runtime instances.
 
+## Conversation resources
+
+The conversation header's “Task resources” opens the right pane with workspace changes, direct Core child agents, managed background processes, and user attachments and verified file-read sources. Empty resource groups are omitted. Changes and processes open the existing review and process panels.
+
+Child-agent creation records in the conversation and entries in the resource list open a right-side child conversation. It reads real history through the same message and tool components. Avatars are generated locally from the authoritative Core Thread ID without an external image service. Child tabs support switching and closing; closing a reading view does not stop the task, and reopening restores from Core. The main conversation and input draft keep their existing owner. Ordinary child conversations and isolated Workgroup writers retain their respective existing entry points.
+
 ## Lifecycle
 
 The renderer accesses the desktop adapter through narrow preload IPC. The independent adapter connects through `areal service ensure/restart/stop --json`, without managing Core PIDs. GUI exit disconnects the interface and settles GUI-owned terminals; Core Turn/Goal and configured scheduled tasks continue. Reopening restores authoritative snapshots without replaying submissions. Stopping the background service is explicit; safe stop rejects busy instances.

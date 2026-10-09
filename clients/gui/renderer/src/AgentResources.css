@@ -1,0 +1,34 @@
+.agent-avatar { flex: none; object-fit: contain; }
+.agent-spawn-row { display: flex; align-items: center; gap: 7px; min-height: 24px; color: var(--color-foreground-subtle); font-size: 13px; }
+.agent-spawn-link { display: inline-flex; align-items: center; gap: 5px; padding: 0; border: 0; background: transparent; color: var(--color-foreground); font: inherit; text-align: left; }
+.agent-spawn-link:hover { text-decoration: underline; }
+.agent-spawn-record { margin-left: auto; border: 0; background: transparent; padding: 3px; color: var(--color-foreground-subtle); }
+.agent-conversation-pane { height: 100%; display: flex; flex-direction: column; min-height: 0; }
+.agent-conversation-heading { display: flex; align-items: center; gap: 7px; padding: 12px 16px; font-size: 13px; border-bottom: 1px solid var(--color-border); }
+.agent-conversation-heading strong { font-weight: 500; }
+.agent-conversation-heading > span { margin-left: auto; color: var(--color-foreground-subtle); font-size: 12px; }
+.agent-conversation-pane > .messages-shell { flex: 1; min-height: 0; }
+.agent-conversation-pane .message-column { width: 100%; padding: 16px; }
+.agent-pane-notice { padding: 8px 16px; font-size: 12px; color: var(--color-foreground-subtle); }
+.agent-pane-notice button { margin-left: 8px; text-decoration: underline; }
+.task-resources { height: 100%; overflow: auto; padding: 16px 20px; font-size: 13px; }
+.task-resources-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+.task-resources-header h2 { font-size: 14px; font-weight: 500; }
+.task-resources-section { padding: 14px 0; }
+.task-resources-section + .task-resources-section { border-top: 1px solid var(--color-border); }
+.task-resources-heading { display: flex; gap: 8px; align-items: center; color: var(--color-foreground-subtle); font-size: 12px; margin: 0 0 8px; }
+.task-resources-heading > span:last-child { margin-left: auto; }
+.task-resource-row { width: 100%; border: 0; background: transparent; display: flex; align-items: center; gap: 8px; padding: 7px 4px; text-align: left; border-radius: 6px; }
+.task-resource-row:hover { background: var(--color-hover); }
+.task-resource-row > svg { flex-shrink: 0; }
+.task-resource-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-resource-row small, .task-resource-note { color: var(--color-foreground-subtle); font-size: 12px; }
+.task-resource-identity { display: flex; gap: 6px; align-items: center; }
+.task-resource-agent-body { flex: 1; min-width: 0; }
+.task-resource-agent-body p { margin: 3px 0 0 24px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-foreground-subtle); font-size: 12px; }
+.task-resources-agents { height: auto; }
+
+/* 折叠保留创建入口，其他活动仍由现有 disclosure 隐藏。 */
+.execution-details[data-expanded="false"][data-agent-entries="true"] { display: flex; }
+
+.task-resource-attachments { display: flex; flex-wrap: wrap; gap: 8px; padding: 4px 0 8px; }
