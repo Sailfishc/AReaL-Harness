@@ -67,7 +67,7 @@ TUI 顶部和 Web 显示 YOLO/ASK_PERMISSIONS，以 Core 状态为准。TUI 审�
 | 操作 | 行为 |
 |---|---|
 | Enter | 空闲时开始 Turn；运行中追加指令 |
-| ←/→、Ctrl-A / Ctrl-E | 输入框内按完整字素移动光标、跳到当前行首 / 行尾 |
+| ←/→、Option+←/→、Ctrl-A / Ctrl-E | 输入框内按完整字素移动光标；Option+←/→（Alt+b / Alt+f）按 Codex 词边界跳到上一词开头 / 下一词结尾；Ctrl-A / Ctrl-E 跳到当前行首 / 行尾 |
 | Ctrl-D / Delete、Backspace | 删除光标处 / 光标前的完整字素；空输入或相应边界不操作，不退出 |
 | `/`、Tab、Esc | Slash 候选、补全和关闭候选 |
 | Ctrl-C / Ctrl-Q | 暂停当前 Goal 并取消 Turn（无 Goal 时中断 Turn）/ 退出 |
