@@ -57,7 +57,7 @@ make gui-package
 make gui-smoke
 ```
 
-打包默认使用已构建的 debug Core。先 `make release` 并设置 `AREAL_CORE_PROFILE=release` 可使用 release Core。输出位于 `clients/gui/dist/local-*/`，包含可复制安装的 `.app`、ZIP、依赖清单与 Core 完整性清单；设置 `AREAL_GUI_PACKAGE_DIR` 可选择新输出目录。只面向本次 macOS arm64 本地验收，不执行 Developer ID 签名、公证或发布。应用与 Core 可执行文件使用本地 ad-hoc 签名；没有私有签名材料。旧安装升级与自动更新衔接不在本次范围内。
+打包默认使用已构建的 debug Core。先 `make release` 并设置 `AREAL_CORE_PROFILE=release` 可使用 release Core。输出位于 `clients/gui/dist/local-*/`，包含可复制安装的 `.app`、ZIP、依赖清单与 Core 完整性清单；设置 `AREAL_GUI_PACKAGE_DIR` 可选择新输出目录。只面向本次 macOS arm64 本地验收，不执行 Developer ID 签名、公证或发布。应用与 Core 可执行文件使用本地 ad-hoc 签名；没有私有签名材料。本地包不配置自动更新。正式 GUI 发布与更新频道见[发行流程](../../docs/development/releasing.md#gui-发布)。
 
 `make gui-smoke` 使用真实 Electron/Core/Runtime 和确定性本地 HTTP 模型，原生沙箱保持启用；项目选择对话框注入临时工作区，测试目录隔离，截图及 `manifest.json` 留在命令打印的临时目录。安装包测试可设置 `AREAL_GUI_EXECUTABLE=/absolute/App.app/Contents/MacOS/AReaL\ Harness\ GUI`，此时不使用外部 Core 路径。实际账号登录、付费模型、其他操作系统和签名安装分发须单独验收。
 
