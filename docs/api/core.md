@@ -325,3 +325,5 @@ checkpoint 恢复最多保留 8 组接口导向文件片段，序列化内容总
 嵌入式 Rust 宿主显式构造 NativeFactory/NativeExecutor 时需提供 `worker_limits: Limits`，把累计预算和上下文策略传给 worker Engine。NativeExecutor::new 提供预算无限的默认值；单请求工具保护仍由 tool_call_limits 指定。
 
 `ModelCapabilities` 和 `ModelOptions` 增加可选窗口/输出元数据；自定义 Rust 结构体字面量需补齐新字段或使用默认值。客户端协议中的 `ModelParameters.contextWindowTokens` 为新增可选字段。
+
+项目指令由 Engine 在每个 Turn 首次模型请求前加载，并保存为 `instructionSnapshot`。按工作区根到 Thread `cwd` 的目录链读取 `AGENTS.md`，来源路径随正文写入快照；不新增 API 字段，已有仅根文件项目保持兼容。正文合计超过 32 KiB、无效 UTF-8、符号链接或超过 64 层的目录链使 Turn 在请求模型前失败，不截断规则。作用域、优先级与 cwd 路径别名见[客户端指南](../guides/clients.md#历史恢复与观测)。
