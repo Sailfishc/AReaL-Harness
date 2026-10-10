@@ -8,6 +8,8 @@
 
 `Explicit CLI > registered environment > selected TOML > defaults`. Default configuration is `~/.areal/config.toml`, with data in its sibling `state/`. `AREAL_HARNESS_HOME` selects a nonempty absolute home. `--config` takes precedence over `AREAL_HARNESS_CONFIG` and replaces, rather than overlays, the default file. Project TOML and `.env` are not discovered automatically.
 
+The GUI defaults to the same configuration file and Core read/write interface, with isolated service registration and runtime data. `AREAL_HARNESS_SERVICE_HOME` selects only a nonempty absolute directory for shared-service registration and default instance data; it does not change configuration lookup. When omitted, it falls back to `AREAL_HARNESS_HOME` or `~/.areal`. The GUI selects its service directory automatically, so sharing the default configuration requires no environment variable. See the [GUI guide](../../clients/gui/README.en.md) for overrides.
+
 Shared TUI/Web entry points use a workspace-specific default data directory; explicit dataDir configuration retains the precedence above. See [local services](../api/local-service.en.md) for migration and compatibility.
 
 A missing default file is allowed. A missing explicit file, unknown field, type/version error or explicitly empty value is rejected. Files must be regular UTF-8, at most 1 MiB, with `schema_version=1` or `2`. TOML paths resolve against its directory; CLI/env paths resolve against startup cwd. There is no tilde, variable or glob expansion. Malformed lower-priority inputs are rejected even when overridden.

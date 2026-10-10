@@ -18,7 +18,7 @@ make gui
 
 After installing locked dependencies, `make gui-install` explicitly runs the official Electron installer to download the pinned native runtime.
 
-`AREAL_CORE_BIN` selects an absolute trusted Core path; development defaults to `target/debug/areal`. Development data is isolated under `AReaL Harness GUI Dev/<checkout digest>`; installed builds use `AReaL Harness GUI`. Existing desktop installations and data are not imported or replaced. `AREAL_GUI_USER_DATA`, `AREAL_CORE_HOME`, `AREAL_HARNESS_HOME`, and `AREAL_CORE_CONFIG` explicitly select isolated directories/configuration.
+`AREAL_CORE_BIN` selects an absolute trusted Core path; development defaults to `target/debug/areal`. Development data is isolated under `AReaL Harness GUI Dev/<checkout digest>`; installed builds use `AReaL Harness GUI`. Existing desktop installations and data are not imported or replaced. `AREAL_GUI_USER_DATA`, `AREAL_CORE_HOME`, and `AREAL_HARNESS_SERVICE_HOME` explicitly select isolated directories. Model configuration defaults to the CLI's `~/.areal/config.toml`; Core owns parsing, validation, and saving. `AREAL_HARNESS_HOME` changes the Core configuration home, and `AREAL_CORE_CONFIG` explicitly selects another file. Reads do not create configuration; Core creates the default file on first save. Configuration in old GUI isolated directories is not merged automatically.
 
 Both development and installed macOS builds require a working `/usr/bin/python3` to launch Runtime and trusted tool helpers; install Xcode Command Line Tools with `xcode-select --install`. The interpreter is not bundled. Shared-service startup checks availability and returns an actionable error.
 
@@ -50,7 +50,7 @@ Main owns native previews by project/Thread and caches at most 8 pages, evicting
 
 The adapter retains credential encryption, subscription forwarding, and mobile pairing, without another Agent loop. The subscription transport's local capability and fixed loopback port persist in a mode-0600 file under a private directory; upstream account/API credentials use OS secure storage. Adapter exit interrupts active forwarded HTTP responses. Stable transport identity supports subsequent requests, not uninterrupted streams through crashes. Normal GUI exit retains the adapter.
 
-The registry defaults to `~/.areal/gui/<GUI data directory digest>` to keep macOS Unix socket paths short. CLI clients must explicitly use the GUI's `AREAL_HARNESS_HOME` and instance descriptor to reach the same instance; default CLI and GUI data locations are separate. Authentication descriptors never enter the renderer. See [shared local services](../../docs/api/local-service.en.md).
+The registry defaults to `~/.areal/gui/<GUI data directory digest>` to keep macOS Unix socket paths short. The GUI isolates registration through `AREAL_HARNESS_SERVICE_HOME`, preserving Core's default configuration location. CLI clients must explicitly use the GUI's `AREAL_HARNESS_SERVICE_HOME` and instance descriptor to reach the same instance; shared configuration does not imply shared runtime data. Authentication descriptors never enter the renderer. See [shared local services](../../docs/api/local-service.en.md).
 
 ## Local installation and acceptance
 
