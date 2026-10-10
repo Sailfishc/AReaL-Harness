@@ -59,6 +59,7 @@ fn shared_catalog_round_trips_without_credentials_and_keeps_file_defaults_separa
     let root = tempfile::tempdir().unwrap();
     let empty = read(root.path());
     assert_eq!(empty["data"], json!([]));
+    assert_eq!(empty["credentialStates"], json!({}));
     assert!(empty["defaultModel"].is_null());
     assert!(
         !root.path().join("home").exists(),
@@ -79,10 +80,20 @@ fn shared_catalog_round_trips_without_credentials_and_keeps_file_defaults_separa
         &[],
     ));
     assert_eq!(written["data"], request["data"]);
+    assert_eq!(written["credentialStates"]["local"], "unavailable");
     assert_eq!(written["defaultModel"], request["defaultModel"]);
     let again = read(root.path());
     assert_eq!(again["revision"], written["revision"]);
     assert_eq!(again["data"], request["data"]);
+    for key in ["", "   ", "invalid\nheader"] {
+        let missing = success(invoke(
+            root.path(),
+            &["config", "models", "read"],
+            None,
+            &[("FIXTURE_API_KEY", key)],
+        ));
+        assert_eq!(missing["credentialStates"]["local"], "unavailable");
+    }
     let overridden = success(invoke(
         root.path(),
         &["config", "models", "read"],
@@ -94,6 +105,7 @@ fn shared_catalog_round_trips_without_credentials_and_keeps_file_defaults_separa
     ));
     assert_eq!(overridden["defaultModel"]["modelId"], "second");
     assert_eq!(overridden["effective"]["model"]["name"], "first");
+    assert_eq!(overridden["credentialStates"]["local"], "available");
     assert_eq!(
         overridden["effective"]["sources"]["model.name"]["kind"],
         "env"
@@ -129,6 +141,7 @@ fn edits_preserve_other_settings_reject_stale_invalid_and_manual_disabled_defaul
         &[],
     ));
     let before = fs::read_to_string(&path).unwrap();
+    assert_eq!(saved["credentialStates"]["local"], "notRequired");
     assert!(
         before.contains("# keep this comment")
             && before.contains("max_active_turns = 7 # keep this budget")

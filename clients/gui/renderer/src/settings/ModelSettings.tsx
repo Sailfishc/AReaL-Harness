@@ -15,6 +15,11 @@ import { ProviderApiKeySection, ProviderConnectionSection } from "./model-provid
 import type { Action, Data } from "../services.js";
 
 const CHATGPT = "chatgpt";
+const credentialLabels: Record<string, string> = {
+  notRequired: "无需凭据",
+  available: "凭据就绪",
+  unavailable: "缺少凭据",
+};
 
 export function ModelSettings({ project, thread, action }: { project?: Data; thread?: Data; action: Action }) {
   const navigate = useGuardedNavigation();
@@ -51,6 +56,14 @@ export function ModelSettings({ project, thread, action }: { project?: Data; thr
     return saved;
   };
   const baseline = items.find(item => item.id === selected);
+  // 开关与输入框是草稿；状态只投影 Core 的已保存目录和凭据诊断。
+  const savedStatus = (item?: Data) => item
+    ? [item.enabled ? "已启用" : "未启用", credentialLabels[state.value?.credentialStates?.[item.id]] ?? "凭据状态待刷新", state.value?.pendingApply ? "待应用" : ""].filter(Boolean).join(" · ")
+    : "未保存";
+  const modelStatus = (model: Data) => {
+    const saved = baseline?.models.find((item: Data) => item.id === model.id);
+    return saved ? savedStatus({ ...baseline, enabled: baseline!.enabled && saved.enabled }) : "未保存";
+  };
   const dirty = key !== undefined || (draft !== null && (!baseline || Object.keys(draft).some(field => field !== "basedOnRevision" && JSON.stringify(draft[field]) !== JSON.stringify(baseline[field]))));
   const discard = () => { setDraft(null); setKey(undefined); setKeyVisible(false); setError(""); };
   useDraftBlocker({
@@ -72,7 +85,7 @@ export function ModelSettings({ project, thread, action }: { project?: Data; thr
   const matches = (name: string) => name.toLowerCase().includes(query.trim().toLowerCase());
   const catalog = [
     { id: CHATGPT, name: "ChatGPT", enabled: accountModels.length > 0, detail: accountLabel || "未登录" },
-    ...items.map(item => ({ id: item.id as string, name: item.name as string, enabled: !!item.enabled, detail: item.enabled ? "已启用" : "未启用" })),
+    ...items.map(item => ({ id: item.id as string, name: item.name as string, enabled: !!item.enabled, detail: savedStatus(item) })),
   ].filter(item => matches(item.name));
   const enabled = catalog.filter(item => item.enabled);
   const disabled = catalog.filter(item => !item.enabled);
@@ -98,6 +111,9 @@ export function ModelSettings({ project, thread, action }: { project?: Data; thr
       </aside>
       <div className="provider-detail">
         <div className="provider-file-status">
+          <p className="settings-muted" role="status" aria-label="配置应用状态">
+            {state.value ? state.value.pendingApply ? "待应用：已保存的模型配置尚未应用到全部项目。" : state.value.projects?.some((item: Data) => item.connected) ? "已应用：已连接项目已加载当前模型配置。" : "未连接项目；连接时将读取已保存配置。" : "正在读取配置状态…"}
+          </p>
           {overrides.length > 0 && <p className="settings-muted" role="status">命令行或环境配置覆盖了文件值；保存不会修改这些覆盖。{overrides.map(([field, source]) => `${field}：${(source as Data).name ?? (source as Data).flag}`).join(" ")}</p>}
           <div className="flex gap-2">
             <Button variant="ghost" size="icon" aria-label="刷新供应商" disabled={busy || state.loading} onClick={refreshCatalog}><RefreshCw size={16} /></Button>
@@ -121,6 +137,8 @@ export function ModelSettings({ project, thread, action }: { project?: Data; thr
             <Switch disabled={busy} aria-label="启用供应商" checked={provider.enabled} onCheckedChange={enabled => edit({ enabled })} />
             {provider.id && <Button variant="ghost" size="icon" aria-label={`移除 ${provider.name}`} onClick={() => navigate(() => setRemove(provider))}><Trash2 size={16} /></Button>}
           </div>
+          <p className="settings-muted" role="status" aria-label="供应商状态">{savedStatus(baseline)}</p>
+          {dirty && <p className="settings-muted" role="status" aria-label="保存状态">有未保存修改；状态展示以已保存配置为准。</p>}
           <ProviderConnectionSection provider={{ config: { api: { baseUrl: provider.baseUrl, type: provider.protocol } } }} apiFormat={provider.protocol} baseUrlValue={provider.baseUrl} onApiFormatChange={protocol => edit({ protocol })} onBaseUrlChange={baseUrl => edit({ baseUrl })} onBaseUrlBlur={() => {}} />
           <ProviderApiKeySection apiKeyValue={key ?? ""} apiKeyVisible={keyVisible} onApiKeyChange={value => { setKey(value); edit({}); }} onToggleApiKeyVisibility={() => setKeyVisible(!keyVisible)} onApiKeyBlur={() => {}} />
           {provider.apiKeyEnv && <p className="settings-muted">命令行密钥环境变量：{provider.apiKeyEnv}</p>}
@@ -137,7 +155,7 @@ export function ModelSettings({ project, thread, action }: { project?: Data; thr
             {provider.models.length > 0 && <SettingsSearchInput placeholder="搜索模型名称或 ID" aria-label="搜索模型名称或 ID" value={modelQuery} onChange={e => setModelQuery(e.target.value)} onClear={() => setModelQuery("")} clearLabel="清除模型搜索" containerClassName="provider-model-search" />}
             {provider.models.length ? <div className="provider-model-scroll overflow-hidden rounded-lg border border-input-border bg-input">
               {visibleModels.map(({ model, index }: { model: Data; index: number }) => <div key={`${model.id}:${index}`} className="provider-model-row flex items-center gap-2 px-3 py-2 border-b border-input-border last:border-b-0">
-                <div className="min-w-0 flex-1 provider-model-label" title={`${model.displayName || model.id}${model.displayName ? ` · ${model.id}` : ""}`}><strong>{model.displayName || model.id}</strong><small>{model.displayName ? model.id : ""}{model.parameters?.maxOutputTokens ? ` · 输出 ${model.parameters.maxOutputTokens.toLocaleString()}` : ""}{model.parameters?.reasoningEffort ? ` · 推理 ${model.parameters.reasoningEffort}` : ""}{model.parameters?.temperature != null ? ` · 温度 ${model.parameters.temperature}` : ""}</small></div>
+                <div className="min-w-0 flex-1 provider-model-label" title={`${model.displayName || model.id}${model.displayName ? ` · ${model.id}` : ""}`}><strong>{model.displayName || model.id}</strong><small>{model.displayName ? model.id : ""}{model.parameters?.maxOutputTokens ? ` · 输出 ${model.parameters.maxOutputTokens.toLocaleString()}` : ""}{model.parameters?.reasoningEffort ? ` · 推理 ${model.parameters.reasoningEffort}` : ""}{model.parameters?.temperature != null ? ` · 温度 ${model.parameters.temperature}` : ""}</small><small role="status" aria-label={`模型 ${model.id} 状态`}>{modelStatus(model)}</small></div>
                 {probe[model.id] && <small>{probe[model.id]}</small>}
                 {provider.id && (isDefault(provider.id, model.id) ? <span className="provider-model-default">默认</span> : <Button size="sm" variant="ghost" disabled={!provider.enabled || !model.enabled || dirty || busy} onClick={() => setDefault({ providerId: provider.id, modelId: model.id })}>设为默认</Button>)}
                 <Button size="icon" variant="ghost" aria-label={`测试模型 ${model.id}`} disabled={!provider.enabled || !model.enabled} onClick={() => void saveThen(async saved => { await api("probe", { id: saved.id, model: model.id }); setProbe(p => ({ ...p, [model.id]: "连接成功" })); setMessage(`模型 ${model.id} 连接成功`); })}><Unplug size={14} /></Button>
@@ -146,7 +164,7 @@ export function ModelSettings({ project, thread, action }: { project?: Data; thr
                 <Button size="icon" variant="ghost" aria-label={`下移模型 ${model.id}`} disabled={index === provider.models.length - 1} onClick={() => { const models = [...provider.models]; [models[index + 1], models[index]] = [models[index], models[index + 1]]; edit({ models }); }}><ArrowDown size={14} /></Button>
                 <Button size="icon" variant="ghost" aria-label={`删除模型 ${model.id}`} onClick={() => edit({ models: provider.models.filter((_: Data, i: number) => i !== index) })}><Trash2 size={14} /></Button>
                 <Switch disabled={busy} size="sm" aria-label={`启用模型 ${model.id}`} checked={model.enabled} onCheckedChange={enabled => edit({ models: provider.models.map((m: Data, i: number) => i === index ? { ...m, enabled } : m) })} />
-                {canChoose && <Button variant="ghost" disabled={!provider.enabled || !model.enabled || state.value?.pendingApply || dirty} aria-label={`使用模型 ${model.id}`} onClick={() => void saveThen(async saved => { await action("configure", { projectId: project!.id, threadId: thread!.id, expectedRevision: configuration.revision, model: { providerId: saved.id, modelId: model.id } }); setMessage("当前会话模型已更新"); })}>使用</Button>}
+                {canChoose && <Button variant="ghost" disabled={!provider.enabled || !model.enabled || state.value?.credentialStates?.[provider.id] === "unavailable" || state.value?.pendingApply || dirty} aria-label={`使用模型 ${model.id}`} onClick={() => void saveThen(async saved => { await action("configure", { projectId: project!.id, threadId: thread!.id, expectedRevision: configuration.revision, model: { providerId: saved.id, modelId: model.id } }); setMessage("当前会话模型已更新"); })}>使用</Button>}
               </div>)}
               {!visibleModels.length && <p className="settings-muted p-3">没有匹配的模型</p>}
             </div> : <div className="mt-1 flex h-12 items-center rounded-lg border border-dashed border-border px-4 text-ui-base text-foreground-subtle">暂无模型，点击添加模型或从服务获取。</div>}

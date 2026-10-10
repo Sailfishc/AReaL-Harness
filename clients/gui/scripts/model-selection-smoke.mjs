@@ -31,6 +31,8 @@ const env = { ...process.env, AREAL_GUI_USER_DATA: join(scratch, "electron"),
   AREAL_HARNESS_SERVICE_HOME: join(scratch, "registry"),
   AREAL_CORE_BIN: process.env.AREAL_CORE_BIN || resolve(gui, "../../target/debug/areal") };
 for (const key of ["AREAL_CORE_WORKSPACE", "AREAL_CORE_CONFIG", "AREAL_HARNESS_HOME", "AREAL_HARNESS_CONFIG", "AREAL_CORE_DESKTOP_CONFIG", "AREAL_CREDENTIAL_MISSING_theta", "AREAL_CREDENTIAL_MISSING_arena"]) delete env[key];
+// 非法凭据也不能被 Core 启动时的引用注入误标为可用。
+env.AREAL_CREDENTIAL_MISSING_arena = "   ";
 if (process.env.AREAL_GUI_EXECUTABLE) delete env.AREAL_CORE_BIN;
 let app, page, passed = false;
 const checks = [], errors = [];
@@ -74,10 +76,28 @@ try {
   await page.getByRole("heading", { name: "模型设置", exact: true }).waitFor();
   checks.push("Core unavailable models remain visible with credential reasons and an active settings entry");
   await page.locator(".provider-catalog-row").filter({ hasText: "theta" }).click();
+  const providerStatus = page.getByRole("status", { name: "供应商状态", exact: true });
+  const applyStatus = page.getByRole("status", { name: "配置应用状态", exact: true });
+  await providerStatus.waitFor();
+  assert.match(await providerStatus.innerText(), /已启用.*缺少凭据/);
+  assert.match(await applyStatus.innerText(), /已应用/);
+  assert.match(await page.getByRole("status", { name: "模型 theta-model 状态", exact: true }).innerText(), /已启用.*缺少凭据/);
   await page.getByRole("textbox", { name: "API Key", exact: true }).fill("fixture-key");
+  assert.match(await providerStatus.innerText(), /缺少凭据/, "unsaved credentials cannot claim readiness");
   await button("保存供应商").click();
+  await page.waitForFunction(() => document.querySelector('[aria-label="配置应用状态"]')?.textContent.includes("待应用"));
+  const saved = await call("providers", { operation: "list" });
+  assert.equal(saved.credentialStates.theta, "available", "credential state is supplied by Core config read");
+  assert.equal(saved.pendingApply, true);
+  assert.match(await providerStatus.innerText(), /凭据就绪/);
+  assert.match(await applyStatus.innerText(), /待应用/);
+  assert.match(await page.getByRole("status", { name: "模型 theta-model 状态", exact: true }).innerText(), /待应用/);
+  assert.equal((await state()).projects[0].models.find(m => m.providerId === "theta").available, false, "saving does not silently apply credentials to a live project");
+  await page.screenshot({ path: join(scratch, "pending-model-configuration.png"), animations: "disabled" });
   await button("应用模型配置").click();
   await until(s => s.projects[0].models.some(m => m.available === true), "credential applies to Core");
+  await page.waitForFunction(() => document.querySelector('[aria-label="配置应用状态"]')?.textContent.includes("已应用"));
+  assert.equal((await call("providers", { operation: "list" })).pendingApply, false);
   await button("返回应用").click();
   assert.match(await button("模型").innerText(), /theta-model/);
   await page.getByTestId("chat-input").fill("Use the configured model");
@@ -89,6 +109,38 @@ try {
   await button("配置模型").click();
   await page.getByRole("heading", { name: "模型设置", exact: true }).waitFor();
   checks.push("settings credential save and safe apply restore draft and existing Composer selection; Core executes the selected model");
+  // 启用开关、凭据与配置应用分别验收；两个可用模型之间必须能实际切换。
+  await page.locator(".provider-catalog-row").filter({ hasText: "arena" }).click();
+  await page.getByRole("textbox", { name: "API Key", exact: true }).fill("fixture-key");
+  await button("保存供应商").click(); await button("应用模型配置").click();
+  await until(s => s.projects[0].models.every(m => m.available === true), "both models available");
+  await button("返回应用").click();
+  await button("模型").click(); await button("选择模型").click();
+  const arena = page.getByRole("radio", { name: "arena-model", exact: true });
+  assert.equal(await arena.isEnabled(), true); await arena.click();
+  await page.keyboard.press("Escape");
+  await until(s => s.projects[0].configurations[Object.keys(s.projects[0].state.threads)[0]]?.model?.providerId === "arena", "Core accepts Composer model selection");
+  await page.getByTestId("chat-input").fill("Use the other configured model"); await button("发送").click();
+  await until(s => Object.values(s.projects[0].state.threads).some(t => t.turns?.length === 2 && t.turns.at(-1).status === "completed"), "selected model turn completes");
+  assert.deepEqual(requests.at(-1), { model: "arena-model", authenticated: true });
+  await button("模型").click(); await button("配置模型").click();
+  await page.locator(".provider-catalog-row").filter({ hasText: "arena" }).click();
+  await page.getByRole("switch", { name: "启用供应商", exact: true }).click();
+  assert.match(await providerStatus.innerText(), /已启用/, "unsaved toggles cannot change saved status");
+  await button("保存供应商").click();
+  await button("应用模型配置").waitFor();
+  assert.match(await providerStatus.innerText(), /未启用/);
+  assert.match(await applyStatus.innerText(), /待应用/);
+  await button("应用模型配置").click();
+  await until(s => s.projects[0].models.length === 1, "disabled provider absent from executable Core catalog");
+  await page.screenshot({ path: join(scratch, "disabled-provider.png"), animations: "disabled" });
+  await page.locator(".provider-catalog-row").filter({ hasText: "theta" }).click();
+  await page.getByRole("switch", { name: "启用模型 theta-model", exact: true }).click();
+  await button("保存供应商").click(); await button("应用模型配置").waitFor();
+  assert.match(await page.getByRole("status", { name: "模型 theta-model 状态", exact: true }).innerText(), /未启用/);
+  await button("应用模型配置").click();
+  await until(s => s.projects[0].models.length === 0, "disabled model absent from executable Core catalog");
+  checks.push("Core credential states and saved enablement remain separate from drafts and pending apply; Composer explicitly selects and executes another available model");
   // 空目录也必须提供可操作入口，不制造一个不可选的占位模型。
   let providers = await call("providers", { operation: "list" });
   for (const provider of [...providers.data]) providers = await call("providers", { operation: "remove", id: provider.id, expectedRevision: providers.revision });
@@ -116,7 +168,7 @@ try {
     } catch (error) { errors.push(`cleanup: ${error.message}`); passed = false; process.exitCode = 1; }
   }
   server.closeAllConnections(); await new Promise(resolve => server.close(resolve));
-  const files = ["scripts/model-selection-smoke.mjs", "renderer/src/ComposerModelMenu.tsx", "renderer/src/Composer.tsx", "renderer/src/DraftComposer.tsx", "renderer/src/workbench.css"];
+  const files = ["scripts/model-selection-smoke.mjs", "renderer/src/settings/ModelSettings.tsx", "app/src/core/model-config.cjs", "../../core/config/src/models.rs", "../../core/config/src/lib.rs", "../../core/server/src/lib.rs", "renderer/src/ComposerModelMenu.tsx", "renderer/src/Composer.tsx", "renderer/src/DraftComposer.tsx", "renderer/src/workbench.css"];
   const hashes = Object.fromEntries(await Promise.all(files.map(async file => [file, createHash("sha256").update(await readFile(join(gui, file))).digest("hex")])));
   await writeFile(join(scratch, "manifest.json"), JSON.stringify({ passed, checks, errors, source: execFileSync("git", ["rev-parse", "HEAD"], { cwd: gui, encoding: "utf8" }).trim(), hashes, executable: process.env.AREAL_GUI_EXECUTABLE || "source Electron", scope: "isolated Electron/Core model selection; deterministic local authenticated fixture" }, null, 2));
   console.log(JSON.stringify({ passed, evidence: scratch, checks, errors }));

@@ -200,7 +200,7 @@ target/debug/areal exec --desktop-config deployment.json --agent code-agent@v2 "
 
 ### GUI 与 CLI 共享模型目录
 
-`areal config models read [--config /absolute/config.toml]` 输出 JSON：`path`、文件内容 revision、`data`（供应商目录）、`defaultModel`（文件值）和 `effective`（经过 CLI／环境覆盖的诊断，含 sources）。读取不创建文件、不需要密钥值。`areal config models write` 从 stdin 接收 `{ "expectedRevision": "...", "data": [...], "defaultModel": { "providerId": "local", "modelId": "one" } }`；传 `null` 清除默认值。接口完整替换模型目录，保留其他配置和注释，输出新快照。两个入口必须使用同一文件才共享；环境覆盖不会写回文件。
+`areal config models read [--config /absolute/config.toml]` 输出 JSON：`path`、文件内容 revision、`data`（供应商目录）、`defaultModel`（文件值）、`credentialStates`（供应商 ID 到凭据状态的映射）和 `effective`（经过 CLI／环境覆盖的诊断，含 sources）。读取不创建文件、缺少密钥不阻止管理读取。`credentialStates` 使用 `notRequired`、`available`、`unavailable`，由 Core 按当前可信环境和解析后的凭据引用判断；不包含密钥，不影响文件 revision，也不代表远端认证或推理已通过。`areal config models write` 从 stdin 接收 `{ "expectedRevision": "...", "data": [...], "defaultModel": { "providerId": "local", "modelId": "one" } }`；传 `null` 清除默认值。接口完整替换模型目录，保留其他配置和注释，输出新快照。两个入口必须使用同一文件才共享；环境覆盖不会写回文件。
 
 ```toml
 schema_version = 1
@@ -228,6 +228,8 @@ JSON 使用 camelCase（`apiKeyEnv`、`displayName`、`maxOutputTokens`、`reaso
 写入先校验、检查整个文件 revision，再使用同目录临时文件、fsync 和原子替换；合作写入者通过锁串行，过期请求失败。默认缺失文件可以首次创建，显式缺失文件和写入符号链接拒绝。非合作编辑器不参与锁，多次摘要校验不等于文件系统原子 CAS。
 
 共享目录采用保存／应用分离：`catalog_version = 1` 的模型变更显示 restartRequired，由客户端在安全空闲时重启；未启动实例下次加载。运行中的模型及已有任务不被保存动作修改，新默认值仅用于应用后创建的任务。历史任务保留原配置和凭据引用，轮换时需继续提供旧引用所需的环境凭据。
+
+GUI 设置页分别显示 Core 已保存的启用状态、凭据状态与配置应用状态；未保存的开关或密钥输入保留为草稿。桌面适配器把安全存储中的凭据提供给 Core 诊断，Renderer 只接收状态。当前文件 revision 与项目已加载 revision 不一致时显示“待应用”；安全应用成功后刷新项目的 Core 模型目录。停用的供应商或模型不进入 Composer 的执行目录，启用但缺少凭据的模型仍显示名称与原因。GUI 数据目录隔离意味着共享配置中的凭据引用可能在另一个 GUI 实例中不可用，状态按当前实例诊断。
 
 ## 模型配置热更新
 

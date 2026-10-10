@@ -22,7 +22,8 @@ class ModelConfiguration {
     const args = ['config', 'models', operation];
     if (this.backend.config) args.push('--config', this.backend.config);
     return new Promise((resolve, reject) => {
-      const child = execFile(this.backend.binary, args, { env: this.backend.hooks.environment(), timeout: 15000, maxBuffer: 2 * 1024 * 1024 }, (error, stdout, stderr) => {
+      // 与项目启动使用相同的凭据环境，由 Core 判断就绪状态，输出不含密钥。
+      const child = execFile(this.backend.binary, args, { env: { ...this.backend.hooks.environment(), ...this.environment() }, timeout: 15000, maxBuffer: 2 * 1024 * 1024 }, (error, stdout, stderr) => {
         if (error) { reject(new Error(`Core 模型配置失败：${this.backend.providers.redact(stderr || error.message).slice(0, 2048)}。配置若已变化，请刷新后重试。`)); return; }
         try { resolve(JSON.parse(stdout)); } catch { reject(new Error('Core 返回了无效的模型配置')); }
       });

@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     fs,
     io::Write,
     path::{Path, PathBuf},
@@ -107,11 +107,19 @@ pub struct ModelRef {
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+pub enum CredentialState {
+    NotRequired,
+    Available,
+    Unavailable,
+}
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ModelConfiguration {
     pub path: PathBuf,
     pub revision: String,
     pub data: Vec<ProviderConfig>,
     pub default_model: Option<ModelRef>,
+    pub credential_states: BTreeMap<String, CredentialState>,
     pub effective: Value,
 }
 #[derive(Deserialize)]
@@ -352,11 +360,33 @@ fn snapshot(
         }
     }
     let config = resolve::load_mode(inputs, true, Some(layer.clone()))?;
+    // 只返回凭据状态；密钥不进入文件快照或 revision。选中供应商沿用解析后的覆盖。
+    let credential_states = layer
+        .catalog
+        .iter()
+        .map(|provider| {
+            let reference = if config.model.provider == provider.id && !config.model.name.is_empty()
+            {
+                config.model.api_key_env.as_deref()
+            } else {
+                provider.api_key_env.as_deref()
+            };
+            let state = match reference {
+                None => CredentialState::NotRequired,
+                Some(name) if crate::credential_value(&inputs.env, name).is_some() => {
+                    CredentialState::Available
+                }
+                Some(_) => CredentialState::Unavailable,
+            };
+            (provider.id.clone(), state)
+        })
+        .collect();
     Ok(ModelConfiguration {
         revision: revision(&path, &layer),
         path,
         default_model: default_model(&layer),
         data: layer.catalog,
+        credential_states,
         effective: config.diagnostic(true),
     })
 }
