@@ -47,7 +47,7 @@ concurrency:
 
 jobs:
   gui:
-    name: macOS GUI checks and model/Composer/queue smoke
+    name: macOS GUI checks and Composer/queue smoke
     runs-on: macos-15
     timeout-minutes: 60
     steps:
