@@ -21,6 +21,7 @@ class ModelConfiguration {
   execute(operation, request) {
     const args = ['config', 'models', operation];
     if (this.backend.config) args.push('--config', this.backend.config);
+    for (const reference of Object.keys(this.vault.keys)) args.push('--stored-credential-env', reference);
     return new Promise((resolve, reject) => {
       // 与项目启动使用相同的凭据环境，由 Core 判断就绪状态，输出不含密钥。
       const child = execFile(this.backend.binary, args, { env: { ...this.backend.hooks.environment(), ...this.environment() }, timeout: 15000, maxBuffer: 2 * 1024 * 1024 }, (error, stdout, stderr) => {
@@ -72,6 +73,7 @@ class ModelConfiguration {
     return reference;
   }
   key(item) {
+    if (!item?.apiKeyEnv) return '';
     const encrypted = this.vault.keys[item?.apiKeyEnv];
     if (!encrypted) return process.env[item?.apiKeyEnv] ?? '';
     try { return this.encryption.decryptString(Buffer.from(encrypted, 'base64')); }
@@ -83,7 +85,7 @@ class ModelConfiguration {
   }
   public() {
     const value = this.value;
-    return { ...value, data: value.data.map(item => ({ ...item, protocol: item.protocol === 'chat-completions' ? 'chatCompletions' : item.protocol, baseUrl: baseUrl(item.endpoint), hasApiKey: !!this.vault.keys[item.apiKeyEnv] || !!process.env[item.apiKeyEnv] })),
+    return { ...value, data: value.data.map(item => ({ ...item, protocol: item.protocol === 'chat-completions' ? 'chatCompletions' : item.protocol, baseUrl: baseUrl(item.endpoint) })),
       projects: [...this.backend.projects.values()].map(project => ({ projectId: project.id, root: project.root, connected: !!project.client?.ready, applied: !!project.client?.ready && project.providerRevision === value.revision })),
       pendingApply: [...this.backend.projects.values()].some(project => project.service && project.providerRevision !== value.revision) };
   }

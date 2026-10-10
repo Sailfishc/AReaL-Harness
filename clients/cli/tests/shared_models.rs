@@ -81,6 +81,7 @@ fn shared_catalog_round_trips_without_credentials_and_keeps_file_defaults_separa
     ));
     assert_eq!(written["data"], request["data"]);
     assert_eq!(written["credentialStates"]["local"], "unavailable");
+    assert_eq!(written["credentialSources"]["local"], "environment");
     assert_eq!(written["defaultModel"], request["defaultModel"]);
     let again = read(root.path());
     assert_eq!(again["revision"], written["revision"]);
@@ -106,6 +107,37 @@ fn shared_catalog_round_trips_without_credentials_and_keeps_file_defaults_separa
     assert_eq!(overridden["defaultModel"]["modelId"], "second");
     assert_eq!(overridden["effective"]["model"]["name"], "first");
     assert_eq!(overridden["credentialStates"]["local"], "available");
+    assert_eq!(overridden["credentialSources"]["local"], "environment");
+    let stored = success(invoke(
+        root.path(),
+        &[
+            "config",
+            "models",
+            "read",
+            "--stored-credential-env",
+            "FIXTURE_API_KEY",
+        ],
+        None,
+        &[("FIXTURE_API_KEY", "private-fixture-key")],
+    ));
+    assert_eq!(stored["credentialSources"]["local"], "stored");
+    assert_eq!(stored["credentialStates"]["local"], "available");
+    assert_eq!(stored["revision"], written["revision"]);
+    assert!(!stored.to_string().contains("private-fixture-key"));
+    let missing_stored = success(invoke(
+        root.path(),
+        &[
+            "config",
+            "models",
+            "read",
+            "--stored-credential-env",
+            "FIXTURE_API_KEY",
+        ],
+        None,
+        &[],
+    ));
+    assert_eq!(missing_stored["credentialSources"]["local"], "stored");
+    assert_eq!(missing_stored["credentialStates"]["local"], "unavailable");
     assert_eq!(
         overridden["effective"]["sources"]["model.name"]["kind"],
         "env"
@@ -142,6 +174,7 @@ fn edits_preserve_other_settings_reject_stale_invalid_and_manual_disabled_defaul
     ));
     let before = fs::read_to_string(&path).unwrap();
     assert_eq!(saved["credentialStates"]["local"], "notRequired");
+    assert_eq!(saved["credentialSources"]["local"], "none");
     assert!(
         before.contains("# keep this comment")
             && before.contains("max_active_turns = 7 # keep this budget")
