@@ -9,7 +9,7 @@ const gui = fileURLToPath(new URL("..", import.meta.url));
 const root = resolve(gui, "../..");
 const require = createRequire(join(gui, "app/package.json"));
 if (process.platform !== "darwin" || process.arch !== "arm64")
-  throw new Error("Local package acceptance currently targets macOS arm64");
+  throw new Error("GUI package staging currently targets macOS arm64");
 const output = resolve(
   process.env.AREAL_GUI_PACKAGE_DIR || join(gui, "dist", `local-${Date.now()}`),
 );
@@ -117,7 +117,7 @@ await writeFile(
       archive,
       dependencies,
       core: JSON.parse(await readFile(join(bundle, "manifest.json"), "utf8")),
-      signing: "Ad-hoc only; no Developer ID, notarization or publishing; local installation only",
+      signing: "Ad-hoc staging only; run sign:mac for Developer ID signing and app/DMG notarization before installation acceptance",
     },
     null,
     2,

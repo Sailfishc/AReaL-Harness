@@ -54,16 +54,21 @@ Core 观察连接意外关闭时，项目连接所有者以 500ms 起步、最�
 
 服务注册默认位于 `~/.areal/gui/<GUI 数据目录摘要>`，避免 macOS Unix socket 路径过长；GUI 通过 `AREAL_HARNESS_SERVICE_HOME` 隔离注册，不改变 Core 的默认配置位置。CLI 如需连接相同实例，应显式使用 GUI 的 `AREAL_HARNESS_SERVICE_HOME` 与实例描述；共享配置不代表共享运行数据。认证描述不交给 Renderer。契约见[共享本地服务](../../docs/api/local-service.md)。
 
-## 本地安装与验收
+## 候选构建与安装包验收
 
 ```sh
-make gui-package
-make gui-smoke
+make release
+AREAL_CORE_PROFILE=release AREAL_GUI_PACKAGE_DIR=/absolute/new-package make gui-package
+pnpm --dir clients/gui run sign:mac --app "/absolute/new-package/package/mac-arm64/AReaL Harness GUI.app" \
+  --output /absolute/new-signed-directory --identity "Developer ID Application: Name (TEAMID)" \
+  --keychain-profile areal-harness
 ```
 
-打包默认使用已构建的 debug Core。先 `make release` 并设置 `AREAL_CORE_PROFILE=release` 可使用 release Core。输出位于 `clients/gui/dist/local-*/`，包含可复制安装的 `.app`、ZIP、依赖清单与 Core 完整性清单；设置 `AREAL_GUI_PACKAGE_DIR` 可选择新输出目录。只面向本次 macOS arm64 本地验收，不执行 Developer ID 签名、公证或发布。应用与 Core 可执行文件使用本地 ad-hoc 签名；没有私有签名材料。本地包不配置自动更新。正式 GUI 发布与更新频道见[发行流程](../../docs/development/releasing.md#gui-发布)。
+`gui-package` 只构建 macOS arm64 候选应用，默认使用已构建的 debug Core；安装包使用上面的 release Core。候选输出包含 `.app`、ad-hoc ZIP、依赖清单与 Core 完整性清单，不能作为安装包验收完成结果。`sign:mac` 在独立副本中完成 Developer ID 签名、app/DMG Apple 公证、stapling、Gatekeeper 和通用桌面及模型专项验收；通过后交付其最终 ZIP/DMG。使用全新输出目录，并将包内 Core revision 与最终修复提交绑定。候选包不配置自动更新，签名和公证不执行发布。正式发布与更新频道见[发行流程](../../docs/development/releasing.md#gui-发布)。
 
 `make gui-smoke` 使用真实 Electron/Core/Runtime 和确定性本地 HTTP 模型，原生沙箱保持启用；项目选择对话框注入临时工作区，测试目录隔离，截图及 `manifest.json` 留在命令打印的临时目录。安装包测试可设置 `AREAL_GUI_EXECUTABLE=/absolute/App.app/Contents/MacOS/AReaL\ Harness\ GUI`，此时不使用外部 Core 路径。实际账号登录、付费模型、其他操作系统和签名安装分发须单独验收。
+
+Core 构建完成后再启动使用该二进制的桌面 smoke，验收期间不重新链接它。模型专项等待保存完成及 Core 的模型选择状态，再进行下一步操作；GUI CI 运行该专项并上传其日志、截图和 manifest。Core 模型配置子进程失败时，后台服务日志保留操作、退出码、signal 和超时分类，不记录密钥或完整环境。
 
 `pnpm --dir clients/gui run test:connection` 验证真实 Core 断线恢复、并发操作、旧连接消息隔离及显式关闭；`pnpm --dir clients/gui run test:architecture` 通过真实 Electron IPC 验证契约拒绝、错误码透传及原生预览的驱逐、崩溃重建和归属释放。两者使用隔离目录并输出证据，不替代安装包验收。
 

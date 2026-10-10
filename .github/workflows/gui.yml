@@ -47,7 +47,7 @@ concurrency:
 
 jobs:
   gui:
-    name: macOS GUI checks and Composer/queue smoke
+    name: macOS GUI checks and model/Composer/queue smoke
     runs-on: macos-15
     timeout-minutes: 60
     steps:
@@ -79,6 +79,8 @@ jobs:
         run: make gui-smoke 2>&1 | tee target/ci/gui/migration.log
       - name: Verify Composer workflow
         run: pnpm --dir clients/gui run test:composer 2>&1 | tee target/ci/gui/composer.log
+      - name: Verify model configuration and selection
+        run: pnpm --dir clients/gui run test:model-selection 2>&1 | tee target/ci/gui/model-selection.log
       - name: Verify queue workflow
         run: pnpm --dir clients/gui run test:queue 2>&1 | tee target/ci/gui/queue.log
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -88,4 +90,5 @@ jobs:
           path: |
             target/ci/gui/
             /private/tmp/areal-gui-*/
+            /private/tmp/ams-*/
           retention-days: 7

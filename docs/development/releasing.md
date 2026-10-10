@@ -54,7 +54,7 @@ pnpm --dir clients/gui run sign:mac --app "/absolute/new-package/package/mac-arm
 node clients/gui/scripts/release-assets.mjs /absolute/new-signed-directory /absolute/new-assets
 ```
 
-签名脚本先签 Core 可执行文件并更新完整性摘要，再签 Electron 应用；Apple Accepted 回执、stapler、Gatekeeper、签名后隔离 GUI/Core/Runtime smoke 和只读 DMG 内签名验证均通过才完成。Apple 仍在处理时退出 2，使用同脚本的 `--resume --output` 恢复；不可修改已签名应用。
+签名脚本先签 Core 可执行文件并更新完整性摘要，再签 Electron 应用；Apple Accepted 回执、stapler、Gatekeeper、签名后隔离 GUI/Core/Runtime smoke、模型配置与 Composer 专项以及只读 DMG 内签名验证均通过才完成。`notarization.json` 与脱敏 `release.json` 记录 `packagedModelSelection: "passed"`；导出脚本拒绝没有该项验收的旧候选，需要使用当前签名脚本生成新候选。Apple 仍在处理时退出 2，使用同脚本的 `--resume --output` 恢复；不可修改已签名应用。
 
 在固定提交创建 `gui-v<版本>` 标签，以 draft 上传 ZIP、DMG、`latest-mac.yml`、脱敏 `release.json` 与 `SHA256SUMS`；回读摘要后公开，保持 `--latest=false`。先确认版本附件可下载，再更新 `gui-update-channel` 的清单；首次创建该频道时使用 prerelease。公开后核对完整字节、HTTP Range、清单大小及 SHA-512。版本附件不可覆盖；频道清单按已验收版本推进。此流程不发布 CLI 包，也不更新 Homebrew tap。
 

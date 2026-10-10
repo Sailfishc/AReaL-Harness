@@ -36,9 +36,18 @@ for (const key of ["AREAL_CORE_WORKSPACE", "AREAL_CORE_CONFIG", "AREAL_HARNESS_H
 env.AREAL_CREDENTIAL_MISSING_arena = "   ";
 env.AREAL_CREDENTIAL_fixture_env = "fixture-key";
 if (process.env.AREAL_GUI_EXECUTABLE) delete env.AREAL_CORE_BIN;
+const coreBinary = process.env.AREAL_GUI_EXECUTABLE
+  ? join(process.env.AREAL_GUI_EXECUTABLE, "../../Resources/areal-core/bin/areal")
+  : env.AREAL_CORE_BIN;
+const coreSha256 = createHash("sha256").update(await readFile(coreBinary)).digest("hex");
 let app, page, passed = false;
 const checks = [], errors = [];
 const button = name => page.getByRole("button", { name, exact: true });
+async function saveProvider() {
+  await button("保存供应商").click();
+  // 等待已保存目录刷新和按钮恢复，避免读取“保存中…”的旧状态。
+  await button("应用模型配置").click({ trial: true });
+}
 const state = () => page.evaluate(() => window.arealDesktop.snapshot());
 async function call(name, params) {
   const result = await page.evaluate(({ name, params }) => window.arealDesktop.command(name, params), { name, params });
@@ -87,7 +96,7 @@ try {
   assert.match(await page.getByRole("status", { name: "模型 theta-model 状态", exact: true }).innerText(), /已启用.*缺少凭据/);
   await page.getByRole("textbox", { name: "API Key", exact: true }).fill("fixture-key");
   assert.match(await providerStatus.innerText(), /缺少凭据/, "unsaved credentials cannot claim readiness");
-  await button("保存供应商").click();
+  await saveProvider();
   await page.waitForFunction(() => document.querySelector('[aria-label="配置应用状态"]')?.textContent.includes("待应用"));
   const saved = await call("providers", { operation: "list" });
   assert.equal(saved.credentialStates.theta, "available", "credential state is supplied by Core config read");
@@ -117,7 +126,7 @@ try {
   // 启用开关、凭据与配置应用分别验收；两个可用模型之间必须能实际切换。
   await page.locator(".provider-catalog-row").filter({ hasText: "arena" }).click();
   await page.getByRole("textbox", { name: "API Key", exact: true }).fill("fixture-key");
-  await button("保存供应商").click(); await button("应用模型配置").click();
+  await saveProvider(); await button("应用模型配置").click();
   await until(s => s.projects[0].models.every(m => m.available === true), "both models available");
   await button("返回应用").click();
   await button("模型").click(); await button("选择模型").click();
@@ -134,17 +143,14 @@ try {
   await page.getByRole("combobox", { name: "认证方式", exact: true }).click();
   await page.getByRole("option", { name: "无需认证", exact: true }).click();
   assert.match(await providerStatus.innerText(), /已保存凭据/);
-  await button("保存供应商").click(); await button("应用模型配置").waitFor();
+  await saveProvider();
   const noAuth = await call("providers", { operation: "list" });
   assert.equal(noAuth.credentialStates.arena, "notRequired");
   assert.equal(noAuth.credentialSources.arena, "none");
   assert.equal(noAuth.data.find(p => p.id === "arena").apiKeyEnv, undefined);
   assert.match(await providerStatus.innerText(), /无需认证/);
   assert.match(await applyStatus.innerText(), /待应用/);
-  const cliBinary = process.env.AREAL_GUI_EXECUTABLE
-    ? join(process.env.AREAL_GUI_EXECUTABLE, "../../Resources/areal-core/bin/areal")
-    : env.AREAL_CORE_BIN;
-  const shared = JSON.parse(execFileSync(cliBinary, ["config", "models", "read"], { env: { ...env, HOME: userHome }, encoding: "utf8" }));
+  const shared = JSON.parse(execFileSync(coreBinary, ["config", "models", "read"], { env: { ...env, HOME: userHome }, encoding: "utf8" }));
   assert.equal(shared.path, config);
   assert.equal(shared.credentialSources.arena, "none");
   assert.equal(shared.data.find(p => p.id === "arena").apiKeyEnv, undefined);
@@ -167,6 +173,7 @@ try {
   await button("模型").click(); await button("选择模型").click();
   await page.getByRole("radio", { name: "arena-model", exact: true }).click();
   await page.keyboard.press("Escape");
+  await until(s => s.projects[0].configurations[Object.keys(s.projects[0].state.threads)[0]]?.model?.providerId === "arena", "Core accepts no-auth model selection");
   await page.getByTestId("chat-input").fill("Use the provider without authentication"); await button("发送").click();
   await until(s => Object.values(s.projects[0].state.threads).some(t => t.turns?.length === 3 && t.turns.at(-1).status === "completed"), "no-auth turn completes");
   assert.deepEqual(requests.at(-1), { model: "arena-model", authenticated: false, authorizationPresent: false });
@@ -177,7 +184,7 @@ try {
   assert.match(await providerStatus.innerText(), /环境变量凭据.*凭据就绪/);
   await page.getByRole("textbox", { name: "API Key", exact: true }).fill("");
   await page.getByRole("switch", { name: "启用供应商", exact: true }).click();
-  await button("保存供应商").click(); await button("应用模型配置").click();
+  await saveProvider(); await button("应用模型配置").click();
   await until(s => s.projects[0].models.length === 3, "environment model available after apply");
   assert.equal((await call("providers", { operation: "list" })).credentialSources.env, "environment", "an empty API Key input preserves the configured environment reference");
   await page.screenshot({ path: join(scratch, "environment-credential.png"), animations: "disabled" });
@@ -185,6 +192,7 @@ try {
   await button("模型").click(); await button("选择模型").click();
   await page.getByRole("radio", { name: "env-model", exact: true }).click();
   await page.keyboard.press("Escape");
+  await until(s => s.projects[0].configurations[Object.keys(s.projects[0].state.threads)[0]]?.model?.providerId === "env", "Core accepts environment model selection");
   await page.getByTestId("chat-input").fill("Use an environment credential"); await button("发送").click();
   await until(s => Object.values(s.projects[0].state.threads).some(t => t.turns?.length === 4 && t.turns.at(-1).status === "completed"), "environment turn completes");
   assert.deepEqual(requests.at(-1), { model: "env-model", authenticated: true, authorizationPresent: true });
@@ -192,13 +200,12 @@ try {
   await button("模型").click(); await button("配置模型").click();
   await page.locator(".provider-catalog-row").filter({ hasText: /^env/ }).click();
   await page.getByRole("switch", { name: "启用供应商", exact: true }).click();
-  await button("保存供应商").click(); await button("应用模型配置").click();
+  await saveProvider(); await button("应用模型配置").click();
   await until(s => s.projects[0].models.length === 2, "environment provider disabled again");
   await page.locator(".provider-catalog-row").filter({ hasText: "arena" }).click();
   await page.getByRole("switch", { name: "启用供应商", exact: true }).click();
   assert.match(await providerStatus.innerText(), /已启用/, "unsaved toggles cannot change saved status");
-  await button("保存供应商").click();
-  await button("应用模型配置").waitFor();
+  await saveProvider();
   assert.match(await providerStatus.innerText(), /未启用/);
   assert.match(await applyStatus.innerText(), /待应用/);
   await button("应用模型配置").click();
@@ -206,7 +213,7 @@ try {
   await page.screenshot({ path: join(scratch, "disabled-provider.png"), animations: "disabled" });
   await page.locator(".provider-catalog-row").filter({ hasText: "theta" }).click();
   await page.getByRole("switch", { name: "启用模型 theta-model", exact: true }).click();
-  await button("保存供应商").click(); await button("应用模型配置").waitFor();
+  await saveProvider();
   assert.match(await page.getByRole("status", { name: "模型 theta-model 状态", exact: true }).innerText(), /未启用/);
   await button("应用模型配置").click();
   await until(s => s.projects[0].models.length === 0, "disabled model absent from executable Core catalog");
@@ -240,6 +247,8 @@ try {
   server.closeAllConnections(); await new Promise(resolve => server.close(resolve));
   const files = ["scripts/model-selection-smoke.mjs", "renderer/src/settings/ModelSettings.tsx", "renderer/src/i18n/IntlProvider.tsx", "app/src/core/model-config.cjs", "app/src/core/providers.cjs", "../../core/config/src/models.rs", "../../core/config/src/lib.rs", "../../core/server/src/lib.rs", "renderer/src/ComposerModelMenu.tsx", "renderer/src/Composer.tsx", "renderer/src/DraftComposer.tsx", "renderer/src/workbench.css"];
   const hashes = Object.fromEntries(await Promise.all(files.map(async file => [file, createHash("sha256").update(await readFile(join(gui, file))).digest("hex")])));
-  await writeFile(join(scratch, "manifest.json"), JSON.stringify({ passed, checks, errors, source: execFileSync("git", ["rev-parse", "HEAD"], { cwd: gui, encoding: "utf8" }).trim(), hashes, executable: process.env.AREAL_GUI_EXECUTABLE || "source Electron", scope: "isolated Electron/Core model selection; deterministic local authenticated fixture" }, null, 2));
+  const coreUnchanged = createHash("sha256").update(await readFile(coreBinary)).digest("hex") === coreSha256;
+  if (!coreUnchanged) { errors.push("Core binary changed during acceptance"); passed = false; process.exitCode = 1; }
+  await writeFile(join(scratch, "manifest.json"), JSON.stringify({ passed, checks, errors, source: execFileSync("git", ["rev-parse", "HEAD"], { cwd: gui, encoding: "utf8" }).trim(), hashes, core: { binary: coreBinary, sha256: coreSha256, unchanged: coreUnchanged }, executable: process.env.AREAL_GUI_EXECUTABLE || "source Electron", scope: "isolated Electron/Core model selection; deterministic local authenticated fixture" }, null, 2));
   console.log(JSON.stringify({ passed, evidence: scratch, checks, errors }));
 }

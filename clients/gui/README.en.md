@@ -54,16 +54,21 @@ The adapter retains credential encryption, subscription forwarding, and mobile p
 
 The registry defaults to `~/.areal/gui/<GUI data directory digest>` to keep macOS Unix socket paths short. The GUI isolates registration through `AREAL_HARNESS_SERVICE_HOME`, preserving Core's default configuration location. CLI clients must explicitly use the GUI's `AREAL_HARNESS_SERVICE_HOME` and instance descriptor to reach the same instance; shared configuration does not imply shared runtime data. Authentication descriptors never enter the renderer. See [shared local services](../../docs/api/local-service.en.md).
 
-## Local installation and acceptance
+## Candidate builds and package acceptance
 
 ```sh
-make gui-package
-make gui-smoke
+make release
+AREAL_CORE_PROFILE=release AREAL_GUI_PACKAGE_DIR=/absolute/new-package make gui-package
+pnpm --dir clients/gui run sign:mac --app "/absolute/new-package/package/mac-arm64/AReaL Harness GUI.app" \
+  --output /absolute/new-signed-directory --identity "Developer ID Application: Name (TEAMID)" \
+  --keychain-profile areal-harness
 ```
 
-Packaging defaults to the already-built debug Core. Run `make release` and set `AREAL_CORE_PROFILE=release` to package release Core. `clients/gui/dist/local-*/` contains a copy-installable `.app`, ZIP, dependency inventory, and Core integrity manifest. `AREAL_GUI_PACKAGE_DIR` selects a fresh output directory. This local acceptance target is macOS arm64; packaging performs no Developer ID signing, notarization, or publishing. The app and Core executables use local ad-hoc signatures without private signing materials. Local packages do not configure automatic updates. For production GUI releases and the update channel, see the [release guide](../../docs/development/releasing.en.md#gui-releases).
+`gui-package` only stages a macOS arm64 candidate, defaulting to the already-built debug Core; installation packages use release Core as shown above. Candidate outputs include an `.app`, ad-hoc ZIP, dependency inventory and Core integrity manifest, and do not establish package acceptance. `sign:mac` uses an independent copy for Developer ID signing, app/DMG Apple notarization, stapling, Gatekeeper, and general desktop plus model-selection acceptance. Deliver its final ZIP/DMG after those checks pass. Use fresh output directories and bind the bundled Core revision to the final fix commit. Candidates have no automatic-update configuration; signing and notarization do not publish. See the [release guide](../../docs/development/releasing.en.md#gui-releases) for production publication and the update channel.
 
 `make gui-smoke` runs real Electron/Core/Runtime against a deterministic local HTTP model with native sandboxing enabled. The project picker is injected with an isolated temporary workspace. Screenshots and `manifest.json` remain in the printed temporary directory. Set `AREAL_GUI_EXECUTABLE` to the absolute installed app executable for package testing; that mode uses bundled Core instead of an external binary. Real account login, paid models, other operating systems, and signed distribution require separate acceptance.
+
+Finish Core builds before starting desktop smoke tests that use that binary, and do not relink it during acceptance. Model-selection smoke waits for saving and the Core model-selection state before the next action; GUI CI runs it and uploads logs, screenshots and manifests. On Core model-configuration child-process failure, the background service log preserves the operation, exit code, signal and timeout classification without recording secrets or the full environment.
 
 `pnpm --dir clients/gui run test:connection` covers real Core disconnect recovery, concurrent operations, retired connection messages and explicit shutdown. `pnpm --dir clients/gui run test:architecture` uses real Electron IPC to cover contract rejection, error-code forwarding and native preview eviction, crash reconstruction and owner release. Both isolate data and produce evidence; they do not replace package acceptance.
 
