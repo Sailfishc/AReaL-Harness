@@ -24,7 +24,7 @@ Both development and installed macOS builds require a working `/usr/bin/python3`
 
 ## Composer
 
-New drafts and existing chats share the grouped action/Skills catalog and search through `+` and `/`. Arrow keys select, Enter confirms, and Esc closes it. Skills attach to the current message; Core reads their content before sending, and failures preserve the draft and tags. The model control opens effort first, then the actual model catalog. Effort values come from Core adapter capabilities; remote provider support needs separate verification.
+New drafts and existing chats share the grouped action/Skills catalog and search through `+` and `/`. Arrow keys select, Enter confirms, and Esc closes it. Skills attach to the current message; Core reads their content before sending, and failures preserve the draft and tags. An available selected model opens effort first, then the actual catalog; a missing or unavailable selection opens the catalog directly. Core supplies effort values and availability. Models with missing credentials retain their names and show “Missing API Key” as disabled options. “Configure models” opens model settings; the empty catalog's configuration control is also clickable. `pnpm --dir clients/gui run test:model-selection` uses isolated Electron/Core instances to verify the catalog, settings entry, credential save and apply, and model execution. Remote provider support needs separate verification.
 
 While an IME composition is active, candidate text stays in the editor; the final draft synchronizes after commit or cancellation. Enter used to confirm a candidate does not send a message. The text caret uses the foreground color.
 

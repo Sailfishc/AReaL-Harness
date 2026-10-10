@@ -15,6 +15,7 @@
     "verify": "node scripts/verify-public.mjs",
     "test:queue": "node scripts/queue-smoke.mjs",
     "test:composer": "node scripts/composer-smoke.mjs",
+    "test:model-selection": "node scripts/model-selection-smoke.mjs",
     "test:connection": "node scripts/connection-smoke.mjs",
     "test:architecture": "node scripts/architecture-smoke.mjs",
     "test:e2e": "node scripts/migration-smoke.mjs",

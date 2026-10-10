@@ -1,0 +1,123 @@
+import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { createServer } from "node:http";
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { captureSmokeFailure, createProjectConversation } from "./smoke-navigation.mjs";
+
+// 模型可用性来自真实 Core；仅上游推理使用本地确定性服务。
+const gui = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const require = createRequire(join(gui, "app/package.json"));
+const { _electron: electron } = require("playwright-core");
+const scratch = await mkdtemp("/private/tmp/ams-");
+const workspace = join(scratch, "workspace"), userHome = join(scratch, "user");
+await mkdir(workspace); await mkdir(join(userHome, ".areal"), { recursive: true });
+execFileSync("git", ["init", "-b", "main"], { cwd: workspace, stdio: "ignore" });
+const requests = [];
+const server = createServer(async (request, response) => {
+  let body = ""; for await (const chunk of request) body += chunk;
+  requests.push({ model: JSON.parse(body).model, authenticated: request.headers.authorization === "Bearer fixture-key" });
+  response.writeHead(200, { "Content-Type": "text/event-stream" });
+  response.end(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: "MODEL_SELECTION_OK" }, finish_reason: null }] })}\n\ndata: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`);
+});
+await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+const config = join(userHome, ".areal", "config.toml");
+await writeFile(config, `schema_version=1\n[model]\ncatalog_version=1\nprovider="areal_openai"\nname="unavailable-account-model"\n` + ["theta", "arena"].map(id => `\n[model.providers.${id}]\nname="${id}"\nendpoint="http://127.0.0.1:${server.address().port}/v1/chat/completions"\nprotocol="chat-completions"\napi_key_env="AREAL_CREDENTIAL_MISSING_${id}"\nmodels=[{id="${id}-model",enabled=true}]\n`).join(""));
+const env = { ...process.env, AREAL_GUI_USER_DATA: join(scratch, "electron"),
+  AREAL_CORE_HOME: join(scratch, "core"), AREAL_CORE_USER_HOME: userHome,
+  AREAL_HARNESS_SERVICE_HOME: join(scratch, "registry"),
+  AREAL_CORE_BIN: process.env.AREAL_CORE_BIN || resolve(gui, "../../target/debug/areal") };
+for (const key of ["AREAL_CORE_WORKSPACE", "AREAL_CORE_CONFIG", "AREAL_HARNESS_HOME", "AREAL_HARNESS_CONFIG", "AREAL_CORE_DESKTOP_CONFIG", "AREAL_CREDENTIAL_MISSING_theta", "AREAL_CREDENTIAL_MISSING_arena"]) delete env[key];
+if (process.env.AREAL_GUI_EXECUTABLE) delete env.AREAL_CORE_BIN;
+let app, page, passed = false;
+const checks = [], errors = [];
+const button = name => page.getByRole("button", { name, exact: true });
+const state = () => page.evaluate(() => window.arealDesktop.snapshot());
+async function call(name, params) {
+  const result = await page.evaluate(({ name, params }) => window.arealDesktop.command(name, params), { name, params });
+  assert.equal(result.ok, true, JSON.stringify(result)); return result.value;
+}
+async function until(predicate, label) {
+  const deadline = Date.now() + 30000;
+  while (Date.now() < deadline) { const snapshot = await state(); if (predicate(snapshot)) return snapshot; await new Promise(resolve => setTimeout(resolve, 80)); }
+  throw new Error(`Timeout: ${label}`);
+}
+try {
+  app = await electron.launch({ executablePath: process.env.AREAL_GUI_EXECUTABLE || require("electron"), args: process.env.AREAL_GUI_EXECUTABLE ? [] : [join(gui, "app")], env, timeout: 120000 });
+  page = await app.firstWindow(); page.setDefaultTimeout(15000);
+  page.on("pageerror", error => errors.push(error.message));
+  await page.getByTestId("areal-workbench").waitFor({ timeout: 120000 });
+  await until(s => s.connection?.state === "ready", "desktop ready");
+  await app.evaluate(({ dialog, BrowserWindow }, path) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] });
+    dialog.showMessageBox = async () => ({ response: 1 });
+    BrowserWindow.getAllWindows()[0].setSize(1440, 960);
+  }, workspace);
+  await page.evaluate(() => window.arealDesktop.chooseProject());
+  await createProjectConversation(page, "workspace");
+  const ready = await until(s => s.projects[0]?.state?.connected && s.projects[0].models.length === 2, "unavailable Core catalog");
+  const projectId = ready.projects[0].id;
+  assert.ok(ready.projects[0].models.every(m => m.available === false && m.credentialState === "unavailable"));
+  assert.equal(await button("模型").isEnabled(), true, "missing credentials must not disable the model configuration entry");
+  await button("模型").click();
+  for (const id of ["theta", "arena"]) {
+    const option = page.getByRole("radio", { name: new RegExp(`${id}-model`) });
+    await option.waitFor(); assert.equal(await option.isDisabled(), true);
+    assert.match(await option.innerText(), /缺少 API Key/);
+  }
+  assert.equal(requests.length, 0, "unavailable entries cannot send a model request");
+  await page.screenshot({ path: join(scratch, "unavailable-models.png"), animations: "disabled" });
+  await button("配置模型").click();
+  await page.getByRole("heading", { name: "模型设置", exact: true }).waitFor();
+  checks.push("Core unavailable models remain visible with credential reasons and an active settings entry");
+  await page.locator(".provider-catalog-row").filter({ hasText: "theta" }).click();
+  await page.getByRole("textbox", { name: "API Key", exact: true }).fill("fixture-key");
+  await button("保存供应商").click();
+  await button("应用模型配置").click();
+  await until(s => s.projects[0].models.some(m => m.available === true), "credential applies to Core");
+  await button("返回应用").click();
+  assert.match(await button("模型").innerText(), /theta-model/);
+  await page.getByTestId("chat-input").fill("Use the configured model");
+  await button("发送").click();
+  await until(s => Object.values(s.projects[0].state.threads).some(t => t.turns?.at(-1)?.status === "completed"), "model turn completes");
+  assert.deepEqual(requests, [{ model: "theta-model", authenticated: true }]);
+  await button("模型").click(); await button("选择模型").click();
+  assert.equal(await page.getByRole("radio", { name: /arena-model/ }).isDisabled(), true);
+  await button("配置模型").click();
+  await page.getByRole("heading", { name: "模型设置", exact: true }).waitFor();
+  checks.push("settings credential save and safe apply restore draft and existing Composer selection; Core executes the selected model");
+  // 空目录也必须提供可操作入口，不制造一个不可选的占位模型。
+  let providers = await call("providers", { operation: "list" });
+  for (const provider of [...providers.data]) providers = await call("providers", { operation: "remove", id: provider.id, expectedRevision: providers.revision });
+  await call("providers", { operation: "apply", expectedRevision: providers.revision });
+  await button("返回应用").click();
+  await createProjectConversation(page, "workspace");
+  await until(s => s.projects[0].models.length === 0, "empty Core catalog");
+  assert.equal(await button("模型").isEnabled(), true);
+  await button("模型").click();
+  await page.getByRole("heading", { name: "模型设置", exact: true }).waitFor();
+  checks.push("an empty model catalog opens model settings directly");
+  assert.deepEqual(errors, []); passed = true;
+} catch (error) {
+  if (page) await captureSmokeFailure(page, scratch, error);
+  throw error;
+} finally {
+  if (app) {
+    // 先断开 GUI，避免设置页的刷新请求与安全停止竞争。
+    await app.close();
+    try {
+      const { ServiceConnection } = require("../app/src/core/service-client.cjs");
+      const connection = new ServiceConnection();
+      try { const metadata = JSON.parse(await readFile(join(scratch, "core/service.json"), "utf8")); await connection.connect(metadata); await connection.request("stopService", { protocol: metadata.protocol }, true); }
+      finally { connection.close(); }
+    } catch (error) { errors.push(`cleanup: ${error.message}`); passed = false; process.exitCode = 1; }
+  }
+  server.closeAllConnections(); await new Promise(resolve => server.close(resolve));
+  const files = ["scripts/model-selection-smoke.mjs", "renderer/src/ComposerModelMenu.tsx", "renderer/src/Composer.tsx", "renderer/src/DraftComposer.tsx", "renderer/src/workbench.css"];
+  const hashes = Object.fromEntries(await Promise.all(files.map(async file => [file, createHash("sha256").update(await readFile(join(gui, file))).digest("hex")])));
+  await writeFile(join(scratch, "manifest.json"), JSON.stringify({ passed, checks, errors, source: execFileSync("git", ["rev-parse", "HEAD"], { cwd: gui, encoding: "utf8" }).trim(), hashes, executable: process.env.AREAL_GUI_EXECUTABLE || "source Electron", scope: "isolated Electron/Core model selection; deterministic local authenticated fixture" }, null, 2));
+  console.log(JSON.stringify({ passed, evidence: scratch, checks, errors }));
+}
