@@ -75,6 +75,7 @@ pub(crate) fn digest(bytes: &[u8]) -> String {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Plan {
+    pub plan_hash: String,
     pub input: TaskInput,
     pub files: Vec<String>,
     pub bytes: usize,
@@ -152,7 +153,9 @@ pub fn prepare(mut input: TaskInput, revision: &str) -> Result<(Plan, Vec<u8>)> 
     );
     input.snapshot_sha256 = digest(&snapshot);
     let model_request_limit = input.max_turns + 4;
+    let plan_hash = digest(&serde_json::to_vec(&input)?);
     let plan = Plan {
+        plan_hash,
         input,
         files,
         bytes: snapshot.len(),

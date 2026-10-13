@@ -146,6 +146,23 @@ pub fn verify(dir: &Path, manifest: &Manifest) -> Result<()> {
     }
     Ok(())
 }
+pub fn review(store: &Store, id: &str) -> Result<serde_json::Value> {
+    let task = store.read(id)?;
+    let manifest = task.manifest.context("results have not been saved")?;
+    let dir = store.dir(id)?.join("artifacts");
+    verify(&dir, &manifest)?;
+    ensure!(
+        fs::metadata(dir.join("changes.patch"))?.len() <= 1024 * 1024,
+        "Diff 超过 1 MiB，请下载结果后审阅"
+    );
+    let diff = fs::read_to_string(dir.join("changes.patch"))?;
+    let new_files: Vec<String> = serde_json::from_slice(&fs::read(dir.join("new-files.json"))?)?;
+    let report: serde_json::Value =
+        serde_json::from_slice(&fs::read(dir.join("test-report.json"))?)?;
+    Ok(
+        serde_json::json!({"taskId":id,"verified":true,"diff":diff,"newFiles":new_files,"testReport":report,"manifest":manifest}),
+    )
+}
 pub fn download(store: &Store, id: &str, dest: &Path) -> Result<()> {
     let task = store.read(id)?;
     let manifest = task.manifest.context("missing manifest")?;

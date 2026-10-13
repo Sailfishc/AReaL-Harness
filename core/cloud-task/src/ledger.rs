@@ -170,17 +170,23 @@ impl Store {
         )
     }
     pub fn find_request(&self, request: &str) -> Result<Option<Task>> {
+        Ok(self
+            .list()?
+            .into_iter()
+            .find(|task| task.request_id == request))
+    }
+    pub fn list(&self) -> Result<Vec<Task>> {
+        let mut tasks = Vec::new();
         for entry in fs::read_dir(&self.root)? {
             let name = entry?.file_name().to_string_lossy().into_owned();
             if uuid::Uuid::parse_str(&name).is_ok() && self.dir(&name)?.join("task.json").is_file()
             {
                 let task = self.read(&name)?;
-                if task.request_id == request {
-                    return Ok(Some(task));
-                }
+                tasks.push(task);
             }
         }
-        Ok(None)
+        tasks.sort_by(|a, b| a.id.cmp(&b.id));
+        Ok(tasks)
     }
     pub fn accept(&self, request: &str, input: TaskInput, snapshot: &[u8]) -> Result<(Task, bool)> {
         ensure!(

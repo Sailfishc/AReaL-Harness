@@ -201,6 +201,7 @@ fn failed_export_retains_resource_then_retry_verifies_download_and_cleans() {
     .unwrap();
     assert!(artifacts::download(&store, &task.id, &root.path().join("corrupt")).is_err());
     assert!(!root.path().join("corrupt").exists());
+    assert!(artifacts::review(&store, &task.id).is_err());
 }
 #[test]
 fn save_failure_and_cleanup_failure_never_claim_ready() {
@@ -226,6 +227,10 @@ fn save_failure_and_cleanup_failure_never_claim_ready() {
         fs::read(downloaded.join("new/hello.txt")).unwrap(),
         b"hello"
     );
+    let review = artifacts::review(&store, &task.id).unwrap();
+    assert_eq!(review["verified"], true);
+    assert_eq!(review["newFiles"], serde_json::json!(["hello.txt"]));
+    assert_eq!(review["testReport"]["testExitCode"], 0);
     backend.remove_fail.set(false);
     collect(&store, &task.id, &backend).unwrap();
     assert_eq!(store.read(&task.id).unwrap().phase, Phase::Ready);
@@ -371,6 +376,38 @@ fn source_is_committed_only_and_apply_rejects_local_conflicts() {
         fs::read_to_string(repo.join("code.txt")).unwrap(),
         "local\n"
     );
+}
+#[test]
+fn preview_hash_tracks_submission_contract_and_ledger_can_recover_receipt() {
+    let root = tempfile::tempdir().unwrap();
+    let repo = root.path().join("repo");
+    repository(&repo);
+    let i = input(&repo);
+    let (plan, snapshot) = prepare(i.clone(), "HEAD").unwrap();
+    assert_eq!(
+        plan.plan_hash,
+        prepare(i.clone(), "HEAD").unwrap().0.plan_hash
+    );
+    let mut changed = i;
+    changed.model_fingerprint = "changed-provider".into();
+    assert_ne!(
+        plan.plan_hash,
+        prepare(changed.clone(), "HEAD").unwrap().0.plan_hash
+    );
+    changed.prompt = "changed intent".into();
+    assert_ne!(
+        plan.plan_hash,
+        prepare(changed, "HEAD").unwrap().0.plan_hash
+    );
+    let store = Store::open(&root.path().join("ledger")).unwrap();
+    assert!(store.find_request("receipt").unwrap().is_none());
+    let task = store.accept("receipt", plan.input, &snapshot).unwrap().0;
+    let reopened = Store::open(store.root()).unwrap();
+    assert_eq!(
+        reopened.find_request("receipt").unwrap().unwrap().id,
+        task.id
+    );
+    assert_eq!(reopened.list().unwrap().len(), 1);
 }
 #[tokio::test(flavor = "multi_thread")]
 async fn broker_uses_existing_config_without_exposing_provider_key_and_bounds_requests() {

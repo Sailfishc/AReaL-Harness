@@ -13,9 +13,29 @@ pub enum Commands {
         input: Submission,
         #[arg(long)]
         request_id: String,
+        #[arg(long)]
+        expected_plan: Option<String>,
     },
     /// 读取权威任务账本。
     Status { id: String },
+    /// 当前工作区的持久任务；不启动执行。
+    List {
+        #[arg(long)]
+        workspace: PathBuf,
+    },
+    /// 核对未知受理；不重新提交。
+    Find {
+        #[arg(long)]
+        request_id: String,
+    },
+    /// 原子读取状态及指定游标后的事件。
+    Inspect {
+        id: String,
+        #[arg(long, default_value_t = 0)]
+        after: u64,
+    },
+    /// 校验后读取 Diff 和实际测试报告。
+    Review { id: String },
     /// 补读事件；记录最后 sequence 后可以断线重连。
     Events {
         id: String,
@@ -150,12 +170,15 @@ fn task_backend(store: &Store, id: &str) -> Result<Docker> {
         crate::BackendTarget::Docker { endpoint } => Docker::at(&endpoint),
     }
 }
-fn emit_task(task: &crate::Task) -> Result<()> {
+fn task_view(task: &crate::Task) -> Result<serde_json::Value> {
     let mut value = serde_json::to_value(task)?;
     value["resultsAvailable"] = serde_json::json!(task.manifest.is_some());
     value["cleanupConfirmed"] =
         serde_json::json!(task.resource == crate::Resource::Absent && task.phase.terminal());
-    emit(&value)
+    Ok(value)
+}
+fn emit_task(task: &crate::Task) -> Result<()> {
+    emit(&task_view(task)?)
 }
 pub async fn run(options: Options) -> Result<()> {
     let store = Store::open(&options.store)?;
@@ -167,6 +190,7 @@ pub async fn run(options: Options) -> Result<()> {
         Commands::Submit {
             input: s,
             request_id,
+            expected_plan,
         } => {
             let mut input = input(&s)?;
             // 受理重试先返回原记录；工作区后续修改不触发再次上传。
@@ -186,12 +210,23 @@ pub async fn run(options: Options) -> Result<()> {
                     old.input == input,
                     "idempotency key reused with different input"
                 );
+                ensure!(
+                    expected_plan.as_ref().is_none_or(|hash| *hash
+                        == crate::source::digest(&serde_json::to_vec(&old.input).unwrap())),
+                    "发送计划已变化，请重新预览"
+                );
                 if old.phase == Phase::Accepted {
                     spawn(&store, &old).await?;
                 }
                 emit_task(&old)?;
             } else {
                 let (plan, snapshot) = prepare(input, &s.revision)?;
+                ensure!(
+                    expected_plan
+                        .as_ref()
+                        .is_none_or(|hash| *hash == plan.plan_hash),
+                    "发送计划已变化，请重新预览"
+                );
                 let (task, fresh) = store.accept(&request_id, plan.input, &snapshot)?;
                 if fresh {
                     spawn(&store, &task).await?;
@@ -200,6 +235,32 @@ pub async fn run(options: Options) -> Result<()> {
             }
         }
         Commands::Status { id } => emit_task(&store.read(&id)?)?,
+        Commands::List { workspace } => {
+            let workspace = workspace.canonicalize()?;
+            let tasks = store
+                .list()?
+                .into_iter()
+                .filter(|t| t.input.workspace == workspace)
+                .map(|t| task_view(&t))
+                .collect::<Result<Vec<_>>>()?;
+            emit(&tasks)?;
+        }
+        Commands::Find { request_id } => emit(
+            &store
+                .find_request(&request_id)?
+                .map(|t| task_view(&t))
+                .transpose()?,
+        )?,
+        Commands::Inspect { id, after } => {
+            let task = store.read(&id)?;
+            let events = task
+                .events
+                .iter()
+                .filter(|e| e.sequence > after)
+                .collect::<Vec<_>>();
+            emit(&serde_json::json!({"task":task_view(&task)?,"events":events}))?;
+        }
+        Commands::Review { id } => emit(&artifacts::review(&store, &id)?)?,
         Commands::Events {
             id,
             mut after,

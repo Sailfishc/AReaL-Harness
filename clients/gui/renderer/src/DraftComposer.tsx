@@ -34,6 +34,7 @@ export function DraftComposer({
   onPanel,
   draftKey,
   prepareProject,
+  onCloudTask,
 }: {
   project: Data;
   action: Action;
@@ -42,6 +43,7 @@ export function DraftComposer({
   onPanel: (panel: string) => void;
   draftKey?: string;
   prepareProject?: () => Promise<Data>;
+  onCloudTask?: (prompt: string, model?: {providerId:string;modelId:string}) => void;
 }) {
   const prefs = useApplicationPreferences();
   const key = draftKey ?? `areal-gui:draft:${project.id}:new`;
@@ -266,6 +268,8 @@ export function DraftComposer({
           { value: "upload", label: "上传文件", description: "添加图片、文档或其他文件", group: "功能", icon: <AttachmentIcon />, run: () => upload.current?.click() },
           ...(project.id !== "projectless" ? [{ value: "mcp", label: "MCP", description: "查看服务器与连接状态", group: "功能" as const, icon: <ComposerMcpIcon />, run: () => setMcpOpen(true) }] : []),
           ...(project.root ? [{ value: "files", label: "工作区文件", description: "引用当前项目中的文件", group: "功能" as const, icon: <FileTree />, run: () => onPanel("文件") }] : []),
+          ...(project.root && onCloudTask ? [{value:"cloud-task",label:"独立环境任务",description:"从已提交代码在本机 Docker 创建新任务",group:"功能" as const,icon:<GoalIcon />,
+            disabled:!!files.length || !!comments.length || !!skills.selected.length,run:()=>onCloudTask(text,currentModel?.providerId ? {providerId:currentModel.providerId,modelId:currentModel.modelId}:undefined)}] : []),
           { value: "plan", label: "计划模式", description: plan ? "关闭计划模式" : "先规划，再开始执行", group: "功能", icon: <Lightbulb />, disabled: chosenProfile?.readOnly === true, run: () => setPlanMode(!plan) },
           { value: "goal", label: "设置目标", description: goalMode ? "关闭目标模式" : "设置持续目标与停止条件", group: "功能", icon: <GoalIcon />, run: () => changeGoalMode(!goalMode) },
           ...skills.catalog.entries,

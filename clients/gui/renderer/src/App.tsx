@@ -39,6 +39,7 @@ import { ConversationDraftEmptyState } from "./ConversationDraftEmptyState.js";
 import { NewTaskButtonGroup } from "./NewTaskButtonGroup.js";
 import { Composer, sending, subscribeSending } from "./Composer.js";
 import { DraftComposer } from "./DraftComposer.js";
+import { CloudTaskDialog, type CloudModel } from "./CloudTaskDialog.js";
 import { ProjectlessDraft } from "./ProjectlessDraft.js";
 import { WorktreeStarter } from "./WorktreeStarter.js";
 import { ComposerWorkspaceContext } from "./ComposerWorkspaceContext.js";
@@ -215,6 +216,7 @@ function AppContent({ services }: { services: PlatformServices }) {
   // Window-local locations, never Core execution or a persisted recovery log.
   const [workspaceHistory, setWorkspaceHistory] = useState<{ entries: { projectId: string; threadId: string }[]; index: number }>({ entries: [], index: -1 });
   const [panel, setPanel] = useState("");
+  const [cloudIntent, setCloudIntent] = useState<{projectId:string;prompt?:string;model?:CloudModel}>();
   const [reviewRequest, setReviewRequest] = useState<{ owner: string; threadId?: string } & ({ turnId: string; scope?: never } | { scope: "unstaged"; turnId?: never })>();
   const [panelTabs, setPanelTabs] = useState<string[]>([]);
   const [previewFileTab, setPreviewFileTab] = useState<string | undefined>();
@@ -948,6 +950,7 @@ function AppContent({ services }: { services: PlatformServices }) {
             <DropdownMenuTrigger render={<button className="icon-button" aria-label={`项目操作 ${library.projects?.[owner.id]?.title || owner.root.split("/").pop()}`}><MoreHorizontal size={16} /></button>} />
             <DropdownMenuContent>
               <DropdownMenuItem onClick={() => requestNavigation(() => {updateSettingsOpen(false);setTaskScope(owner.id);setTaskNotification(undefined);setTaskCenterOpen(true);})}>执行任务</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setCloudIntent({projectId:owner.id})}>独立环境任务</DropdownMenuItem>
               <DropdownMenuItem onClick={() => startRename({ operation: "renameProject", projectId: owner.id }, library.projects?.[owner.id]?.title || owner.root.split("/").pop())}>重命名</DropdownMenuItem>
               <DropdownMenuItem disabled={!services.fileOpen} onClick={() => void services.fileOpen?.({ operation: "open", projectId: owner.id, path: "." }).catch(cause => setError(cause.message))}>在默认应用中打开</DropdownMenuItem>
               <DropdownMenuItem disabled={!services.fileOpen} onClick={() => void services.fileOpen?.({ operation: "reveal", projectId: owner.id, path: "." }).catch(cause => setError(cause.message))}>在文件管理器中显示</DropdownMenuItem>
@@ -1567,6 +1570,7 @@ function AppContent({ services }: { services: PlatformServices }) {
                             project={project}
                             action={action}
                             readAction={resourceAction}
+                            onCloudTask={(prompt,model) => setCloudIntent({projectId:project.id,prompt,model})}
                             onOpen={(pid, id) => open(pid, id, "replace")}
                             onPanel={showPanel}
                           />
@@ -1748,6 +1752,9 @@ function AppContent({ services }: { services: PlatformServices }) {
           </form>
         </div>
       )}
+      {cloudIntent && <CloudTaskDialog key={cloudIntent.projectId} projectId={cloudIntent.projectId}
+        projectName={projects.find(owner=>owner.id===cloudIntent.projectId)?.root.split("/").pop() || "当前工作区"}
+        initialPrompt={cloudIntent.prompt} model={cloudIntent.model} action={resourceAction} onClose={()=>setCloudIntent(undefined)} />}
       {forkIntent && <ForkTargetDialog anchor={forkIntent.anchor} title={forkIntent.title} boundary={forkIntent.boundary} models={forkIntent.models} profiles={forkIntent.profiles}
         onClose={() => { forkIntent.resolve(); setForkIntent(current => current === forkIntent ? null : current); }}
         onCheck={() => resourceAction("reconcile", { projectId: forkIntent.projectId })}

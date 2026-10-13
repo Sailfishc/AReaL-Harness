@@ -8,6 +8,7 @@
 /** @typedef {{projectId:string,sourceThreadId:string,requestId?:string,workspaceMode:'sharedCurrent',anchor:{turnId:string,boundary:'before'|'after'},target?:Record<string,unknown>}} ForkRequest */
 
 /** @typedef {{operation:'status'|'retry'}} TrajectoryRequest */
+/** @typedef {{projectId:string,operation:'list'}|{projectId:string,operation:'plan',prompt:string,image?:string,testCommand?:string,model?:{providerId:string,modelId:string}}|{projectId:string,operation:'submit',planId:string,requestId:string}|{projectId:string,operation:'recover',requestId:string}|{projectId:string,operation:'read'|'cancel'|'retry'|'reconcile'|'review'|'download'|'apply',id:string,after?:number}} CloudTaskRequest */
 /** @typedef {{id:string,status:'pending'|'uploading'|'failed'|'uploaded'|'evicted',created_at:number,uploaded_at:number|null,attempts:number,next_attempt_at:number|null,bytes:number,error:string|null,turn_id?:string|null,event_name?:string|null,model_name?:string|null,harness_version?:string|null,execution_duration_ms?:number|null,model_call_duration_ms?:number|null,occurred_at?:number|null}} TrajectoryRecord */
 /** @typedef {{scope:'recent_records',record_limit:100,records_considered:number,model_calls:number,total_duration_ms:number|null,mean_duration_ms:number|null,max_duration_ms:number|null}} TrajectoryModelCallSummary */
 /** @typedef {{enabled:boolean,state:'disabled'|'ready'|'degraded'|'invalid',endpoint:string,configPath:string|null,spool_dir:string,worker_running:boolean,queue:{pending:number,uploading:number,failed:number,uploaded:number,evicted:number,bytes:number,max_bytes:number,dropped_memory:number,dropped_oversize:number},last_error:string|null,last_success_at:number|null,records:TrajectoryRecord[],model_call_summary?:TrajectoryModelCallSummary,limits:{max_retries:number,upload_interval_ms:number,max_memory_bytes:number}}} TrajectoryStatus */
@@ -23,11 +24,12 @@ const commandDefinitions = Object.freeze({
   steer: ['service', 'thread'], dismissRecovery: ['service', 'project'], providers: ['service', 'app'],
   chatgpt: ['service', 'app'], analytics: ['service', 'app'], resources: ['service', 'app'],
   projectless: ['service', 'app'], tasks: ['service', 'app'], trajectory: ['service', 'app'],
+  cloudTask: ['service', 'project'],
   serviceStatus: ['main', 'app'], stopService: ['main', 'app'], recoverResources: ['main', 'app'],
   connectService: ['main', 'app'], export: ['main', 'thread'], remoteControl: ['main', 'app'],
 });
 /** @typedef {keyof typeof commandDefinitions} CommandName */
-/** @template {CommandName} N @typedef {N extends 'fork' ? ForkRequest : N extends 'configure' ? ConfigureRequest : N extends 'side' ? SideRequest : N extends 'trajectory' ? TrajectoryRequest : Record<string,unknown>} CommandParams */
+/** @template {CommandName} N @typedef {N extends 'cloudTask' ? CloudTaskRequest : N extends 'fork' ? ForkRequest : N extends 'configure' ? ConfigureRequest : N extends 'side' ? SideRequest : N extends 'trajectory' ? TrajectoryRequest : Record<string,unknown>} CommandParams */
 /** @typedef {'show'|'navigate'|'back'|'forward'|'reload'|'stop'|'state'|'external'|'devtools'|'openLink'|'release'|'claim'|'takeover'|'captureRegion'|'captureElement'|'selectElement'|'cancelElementSelection'|'checkElement'|'endRegion'|'beginStyleTrial'|'applyStyleTrial'|'undoStyleTrial'|'redoStyleTrial'|'styleTrialState'|'captureStyleTrialAfter'|'clearStyleTrial'|'newPage'|'selectPage'|'subscribe'|'unsubscribe'|'allowNextDownload'|'cancelFileHandoff'|'cancelDownload'|'authorizeFrameOrigin'|'reloadFrameOrigin'|'revokeFrameOrigin'} OwnedPreviewOperation */
 /** @typedef {{operation:'hide',projectId?:string,threadId?:string,pageId?:string,captureId?:string}|{operation:OwnedPreviewOperation,projectId:string,threadId:string,pageId?:string,captureId?:string,x?:number,y?:number,elementId?:string,trialId?:string,property?:string,value?:string,downloadId?:string,url?:string,userIntent?:boolean,visible?:boolean,bounds?:{x:number,y:number,width:number,height:number}}} PreviewRequest */
 /** @param {unknown} value @returns {value is Record<string,unknown>} */
@@ -63,6 +65,13 @@ function validateCommand(name, params, { serviceOnly = false } = {}) {
 
   // 导出目标与配置路径只由可信启动配置选择，Renderer 不能扩展 CLI 参数。
   if (name === 'trajectory' && (!['status', 'retry'].includes(String(params.operation)) || Object.keys(params).some(key => key !== 'operation'))) invalid();
+  if (name === 'cloudTask') {
+    const op=String(params.operation), uuid=value => typeof value==='string' && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(value);
+    const allowed=['projectId','operation',...(op==='plan'?['prompt','image','testCommand','model']:op==='submit'?['planId','requestId']:op==='recover'?['requestId']:op==='list'?[]:['id',...(op==='read'?['after']:[])])];
+    if (!['list','plan','submit','recover','read','cancel','retry','reconcile','review','download','apply'].includes(op) || Object.keys(params).some(key=>!allowed.includes(key))) invalid();
+    if (op==='plan' && (typeof params.prompt!=='string' || !params.prompt.trim() || params.prompt.length>32768 || params.image!==undefined && (typeof params.image!=='string' || !params.image.trim() || params.image.startsWith('-') || params.image.length>512) || params.testCommand!==undefined && (typeof params.testCommand!=='string' || params.testCommand.length>8192) || params.model!==undefined && (!record(params.model) || !identifier(params.model.providerId) || !identifier(params.model.modelId) || Object.keys(params.model).some(key=>!['providerId','modelId'].includes(key))))) invalid();
+    if (op==='submit' && (!uuid(params.planId) || !uuid(params.requestId)) || op==='recover' && !uuid(params.requestId) || !['list','plan','submit','recover'].includes(op) && !uuid(params.id) || params.after!==undefined && (!Number.isSafeInteger(params.after) || Number(params.after)<0)) invalid();
+  }
   if (['manage', 'workspace', 'media', 'queueEdit', 'library', 'providers', 'chatgpt', 'analytics', 'resources', 'projectless', 'tasks', 'remoteControl'].includes(name)
     && !identifier(params.operation)) invalid();
   if (name !== 'configure') return;

@@ -9,6 +9,7 @@ const WebSocket = require('ws');
 const { ScopedResources } = require('./scoped-resources.cjs');
 const { AppHooks } = require('./hooks.cjs');
 const { TrajectoryExport } = require('./trajectory.cjs');
+const { CloudTasks } = require('./cloud-tasks.cjs');
 const { AppProviders } = require('./providers.cjs');
 const { UsageAnalytics } = require('./analytics.cjs');
 const { CoreLibrary } = require('./library.cjs');
@@ -56,6 +57,7 @@ class CoreBackend {
     this.resources = new ScopedResources(this);
     this.hooks = new AppHooks(this);
     this.trajectory = new TrajectoryExport(this);
+    this.cloudTasks = new CloudTasks(this);
     this.providers = new AppProviders(this, encryption);
     this.activeCommands = 0;
     this.awaitingResponses = new WeakSet();
@@ -944,6 +946,7 @@ class CoreBackend {
     if (name === 'analytics') return this.analytics.command(request);
     // 后台只读状态不占任务或配置准入；参数仍由轨迹能力校验。
     if (name === 'trajectory' && request?.operation === 'status') return this.trajectory.command(request);
+    if (name === 'cloudTask' && ['list','read','recover','review'].includes(request?.operation)) return this.cloudTasks.command(request);
     if (name === 'chatgpt') return this.providers.chatgpt(request);
     if (name === 'providers') return this.providers.command(request);
     if (name === 'resources') return this.resources.command(request);
@@ -956,6 +959,7 @@ class CoreBackend {
   async executeCommand(name, request, context = {}) {
     if (this.closing) throw new Error('应用正在退出');
     if (name === 'trajectory') return this.trajectory.command(request);
+    if (name === 'cloudTask') return this.cloudTasks.command(request);
     if (name === 'tasks') return taskCatalog(this, request);
     if (name === 'projectless') return this.projectless.command(request);
     if (name === 'library') return this.library.command(request);
@@ -1130,6 +1134,7 @@ class CoreBackend {
   }
 
   async shutdown({ requireSafe = true } = {}) {
+    await this.cloudTasks.assertSettled();
     if (!requireSafe) return this.disconnect();
     // 先检查全部已连接实例；真正停机仍由 Core 的公共服务接口关准入并结算。
     for (const project of this.projects.values()) {
