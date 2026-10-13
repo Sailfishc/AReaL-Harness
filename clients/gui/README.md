@@ -103,3 +103,11 @@ Core 构建完成后再启动使用该二进制的桌面 smoke，验收期间不
 `pnpm --dir clients/gui run test:connection` 验证真实 Core 断线恢复、并发操作、旧连接消息隔离及显式关闭；`pnpm --dir clients/gui run test:architecture` 通过真实 Electron IPC 验证契约拒绝、错误码透传及原生预览的驱逐、崩溃重建和归属释放。两者使用隔离目录并输出证据，不替代安装包验收。
 
 第三方归属见 [THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES.md)。运行时图标沿用源仓库版本；不迁入采集档案、开发 Skills/AGENTS 或来源 Git 历史。
+
+## 供应商状态与恢复
+
+ChatGPT 授权由本地后台持有，Renderer 只读取状态。状态区分 `ready`、`refreshing`、`temporarily_unavailable`、`reauth_required`、`permission_denied`、`quota_exceeded`、`storage_locked` 和 `signed_out`。网络、目录或基础设施临时失败保留凭据；普通 HTTP 401 不等于授权撤销。只有确认终止的刷新错误停止使用 token 并保留注册映射供重新授权，权限和额度错误不自动重登，也不切换至 API Key 计费。
+
+临期刷新在同一账户实例内共享一个在途结果。完成的轮换不随请求取消而丢弃；安全存储写入失败时停止推理并允许同一后台重试保存。若在保存成功前后台崩溃，无法保证恢复已轮换 token，需要重新核对授权。本地转发只对明确的接纳前 access-token 过期拒绝强制刷新并重试一次，已接纳或部分流式请求不会重放。诊断仅记录固定错误码、阶段、HTTP 状态和经过过滤的 request ID，不透传供应商错误正文或凭据。
+
+GUI 保存保留 Core 的合法 `contextWindowTokens`，不因编辑名称或其他参数而重建丢失；未知或非法参数拒绝保存。运行中的任务继续使用冻结配置。`node --test clients/gui/scripts/provider-recovery.test.mjs` 使用隔离的确定性凭据、HTTP 和安全存储 fixture 验证恢复与配置保真，不读取用户密钥，不等于真实登录或系统钥匙串验收。
