@@ -170,7 +170,7 @@ export class ChatGPTAccount extends EventEmitter {
         return this.pendingRotation.record
       })
       this.pendingRotation = null
-      if (record?.kind === 'grant') this.failure = null
+      if (record?.kind === 'grant' && this.failure?.phase !== 'admission') this.failure = null
       return record
     } catch (error) { throw this.fail(error, this.pendingRotation ? 'storage' : error?.phase ?? 'storage') }
   }
