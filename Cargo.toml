@@ -1,6 +1,6 @@
 [workspace]
 members = ["core/mcp", "core/config", "core/protocol", "core/engine", "core/app-server", "core/server", "core/service-host", "core/local-service", "clients/tui", "clients/cli",
-    "runtime/protocol", "runtime/host-tools", "runtime/client", "runtime/supervisor", "runtime/exec-native", "runtime/daemon", "runtime/fs-helper"]
+    "runtime/protocol", "runtime/host-tools", "runtime/client", "runtime/supervisor", "runtime/exec-native", "runtime/daemon", "runtime/fs-helper", "core/cloud-task"]
 resolver = "2"
 
 [workspace.package]
@@ -53,6 +53,7 @@ areal-mcp = { path = "core/mcp" }
 areal-protocol = { path = "core/protocol" }
 areal-config = { path = "core/config" }
 areal-local-service = { path = "core/local-service" }
+areal-cloud-task = { path = "core/cloud-task" }
 areal-engine = { path = "core/engine" }
 areal-app-server = { path = "core/app-server" }
 areal-runtime-protocol = { path = "runtime/protocol" }

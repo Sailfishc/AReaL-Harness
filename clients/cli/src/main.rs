@@ -27,6 +27,8 @@ struct MultitoolCli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// 把已提交代码中的新任务交给本机 Docker 独立执行环境。
+    CloudTask(areal_cloud_task::cli::Options),
     /// 显示当前版本；等价于 --version。
     Version,
     /// 查询可信 Core 二进制内嵌构建身份，不启动服务。
@@ -193,6 +195,7 @@ async fn main() {
     }
     let args = MultitoolCli::parse_from(raw);
     let result = match args.command {
+        Some(Command::CloudTask(options)) => areal_cloud_task::cli::run(options).await,
         Some(Command::Version) => {
             println!("areal {}", env!("CARGO_PKG_VERSION"));
             return;
@@ -313,6 +316,7 @@ mod tests {
             vec!["web"],
             vec!["workgroup"],
             vec!["workgroup", "run"],
+            vec!["cloud-task"],
         ] {
             let mut raw = vec!["areal"];
             raw.extend(command);

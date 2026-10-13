@@ -1,4 +1,5 @@
 .git
+.local
 .areal
 target
 **/node_modules

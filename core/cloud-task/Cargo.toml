@@ -1,0 +1,28 @@
+[package]
+name = "areal-cloud-task"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+areal-config.workspace = true
+areal-local-service.workspace = true
+axum.workspace = true
+clap.workspace = true
+fs2.workspace = true
+futures-util.workspace = true
+libc.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tempfile.workspace = true
+tar = "0.4.45"
+tokio.workspace = true
+tokio-util.workspace = true
+toml_edit = { workspace = true, features = ["display"] }
+url.workspace = true
+uuid.workspace = true

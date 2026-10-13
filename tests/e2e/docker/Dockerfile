@@ -25,7 +25,7 @@ RUN apk add --no-cache bubblewrap python3 coreutils
 RUN cargo test --locked --profile ci -p areal-runtime-exec-native --no-run
 CMD ["cargo", "test", "--offline", "--locked", "--profile", "ci", "-p", "areal-runtime-exec-native"]
 
-FROM ${BASE_IMAGE}
+FROM ${BASE_IMAGE} AS perf-base
 
 ARG BUILD_PROFILE
 ARG CODEX_VERSION=0.145.0
@@ -101,3 +101,14 @@ LABEL org.opencontainers.image.title="AReaL-Harness local performance runner" \
       io.areal.perf.source-sha256="${PERF_SOURCE_SHA256}"
 
 ENTRYPOINT ["python3", "/opt/areal-perf/agent_entrypoint.py"]
+
+# 云任务只复用 OCI 和现有 Core/Runtime，不执行仓库 devcontainer 的主机脚本。
+FROM perf-base AS cloud-task
+COPY core/cloud-task/runner.py /opt/areal-cloud-task/runner.py
+RUN mkdir -p /input /task && chmod 1777 /task
+VOLUME ["/task"]
+USER 65532:65532
+LABEL io.areal.cloud-task.contract="1"
+ENTRYPOINT ["python3", "-I", "/opt/areal-cloud-task/runner.py"]
+
+FROM perf-base AS perf
