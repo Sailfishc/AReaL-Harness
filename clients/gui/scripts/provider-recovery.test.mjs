@@ -331,3 +331,22 @@ test("accepted or partial response never qualifies for replay", async () => {
   );
   assert.equal(safeRefresh(error), false);
 });
+
+test('terminal forced refresh plus failed persistence cannot revive a still-fresh old grant', async () => {
+  let exchanges = 0;
+  const f = fixture(async () => { exchanges++; throw Object.assign(new Error('fixture terminal'), { code: 'invalid_grant' }); });
+  await f.store.modifyRecord('', record => ({ ...record, payload: { ...record.payload, expires: Date.now() + 3600000 } }));
+  const modify = f.store.modifyRecord.bind(f.store); let writes = 0;
+  f.store.modifyRecord = (key, mutate) => modify(key, async current => {
+    const next = await mutate(current);
+    if (++writes === 1) throw Object.assign(new Error('fixture disk failure'), { code: 'storage_write_failed' });
+    return next;
+  });
+  await assert.rejects(f.account.accessToken(undefined, { force: true, rejectedToken: 'fixture-access' }), error => error.state === 'storage_locked');
+  assert.equal(f.record.kind, 'grant');
+  await assert.rejects(f.account.accessToken(), error => error.state === 'reauth_required');
+  assert.equal(f.record.kind, 'registration');
+  assert.equal(f.record.payload.access, undefined);
+  assert.equal(exchanges, 1);
+  assert.equal((await f.account.status()).state, 'reauth_required');
+});

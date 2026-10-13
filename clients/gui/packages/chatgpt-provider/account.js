@@ -73,6 +73,8 @@ export class ChatGPTAccount extends EventEmitter {
           return { kind: 'grant', payload: value }
         })
         this.failure = null
+        this.pendingRotation = null
+        this.terminalFailure = null
         this.changed()
       } catch {
         if (!signal.aborted) this.error = 'ChatGPT 授权未完成或已失败，请重试。'
@@ -103,6 +105,7 @@ export class ChatGPTAccount extends EventEmitter {
       this.error = null
       this.failure = null
       this.pendingRotation = null
+      this.terminalFailure = null
     } finally { this.busy = false; this.changed() }
   }
   async read() {
@@ -161,7 +164,9 @@ export class ChatGPTAccount extends EventEmitter {
           if (failure.state !== 'reauth_required') throw failure
           // 终止错误仅清 token，保留注册、host 和经验证的账户映射用于重新授权。
           const { access, refresh, idToken, expires, ...registration } = value
-          return { kind: 'registration', payload: { ...registration, reauthRequired: true } }
+          this.terminalFailure = failure
+          this.pendingRotation = { previousRefresh: value.refresh, record: { kind: 'registration', payload: { ...registration, reauthRequired: true } } }
+          return this.pendingRotation.record
         }
         credential({ kind: 'grant', payload: next })
         if (next.accountId !== value.accountId) throw new ProviderError('account_changed', { phase: 'refresh' })
@@ -170,7 +175,8 @@ export class ChatGPTAccount extends EventEmitter {
         return this.pendingRotation.record
       })
       this.pendingRotation = null
-      if (record?.kind === 'grant' && this.failure?.phase !== 'admission') this.failure = null
+      if (record?.kind === 'registration' && record.payload?.reauthRequired) this.failure = this.terminalFailure ?? new ProviderError('credential_missing', { phase: 'account' })
+      else if (record?.kind === 'grant' && this.failure?.phase !== 'admission') this.failure = null
       return record
     } catch (error) { throw this.fail(error, this.pendingRotation ? 'storage' : error?.phase ?? 'storage') }
   }
