@@ -118,7 +118,7 @@ class AppProviders {
   async applySubscription(project, service) {
     const status = service ? await service.account.status() : { authenticated: false };
     const existing = (await project.client.request('areal/provider/list')).data.find(p => p.id === (service?.id ?? 'areal_openai'));
-    if (status.modelError) return;
+    if (status.modelError || status.state && !['ready', 'signed_out'].includes(status.state)) return;
     if (!status.authenticated || status.models?.length === 0) {
       if (existing) await this.backend.submit(project, 'areal/provider/remove', { id: existing.id, expectedRevision: existing.revision });
       return;

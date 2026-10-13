@@ -130,8 +130,15 @@ export class CoreSubscription {
     return this.catalogLoading
   }
   async loadCatalog(revision) {
-    const access = await this.account.accessToken()
-    const response = await this.network.fetch('https://api.openai.com/v1/models', { headers: { Authorization: `Bearer ${access}` }, redirect: 'error', signal: AbortSignal.timeout(30_000) })
+    let access = await this.account.accessToken()
+    const send = token => this.network.fetch('https://api.openai.com/v1/models', { headers: { Authorization: `Bearer ${token}` }, redirect: 'error', signal: AbortSignal.any([this.account.lifetime.signal, AbortSignal.timeout(30_000)]) })
+    let response = await send(access)
+    if (response.status === 401) {
+      const failure = await responseError(response, 'catalog', [access])
+      if (!safeRefresh(failure)) throw this.account.fail(failure, 'catalog')
+      access = await this.account.accessToken(undefined, { force: true, rejectedToken: access })
+      response = await send(access)
+    }
     if (!response.ok) { this.models = []; this.catalogExpires = 0; throw this.account.fail(await responseError(response, 'catalog', [access]), 'catalog') }
     let bytes = 0, chunks = []
     for await (const chunk of response.body) { bytes += chunk.length; if (bytes > 1024 * 1024) throw new Error('OpenAI model catalog too large'); chunks.push(chunk) }
@@ -183,17 +190,7 @@ export class CoreSubscription {
       const send = token => this.network.fetch(this.kind === 'openai' ? 'https://api.openai.com/v1/responses' : ENDPOINT, { method: 'POST', redirect: 'error', signal: controller.signal,
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'text/event-stream', ...(this.kind === 'codex' ? { 'ChatGPT-Account-Id': accountId, 'OpenAI-Beta': 'responses=experimental', originator: 'areal-harness' } : {}) }, body: JSON.stringify(body) })
       let response = await send(token)
-      // 只重试明确在接纳前拒绝的过期 access token；不重放已开始的流或泛化 401。
-      if (this.kind === 'openai' && response.status === 401) {
-        const failure = await responseError(response, 'admission', [token])
-        if (!safeRefresh(failure)) {
-          this.account.fail(failure, 'admission')
-          if (audit) { audit.upstreamHttpStatus = response.status; audit.failureKind = 'auth'; Object.assign(audit, failure.diagnostic()) }
-          deny(response.status, failure.message, failure); return
-        }
-        token = await this.account.accessToken(controller.signal, { force: true, rejectedToken: token })
-        response = await send(token)
-      }
+      // POST 无已接纳状态的权威证明，认证拒绝也不自动重放推理。
       if (audit) {
         audit.upstreamHttpStatus = response.status
         const type = response.headers.get('content-type')?.split(';')[0].trim().toLowerCase()
@@ -210,7 +207,7 @@ export class CoreSubscription {
       if (audit) audit.localHttpStatus = 200
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' })
       await pipeline(stream, res, { signal: controller.signal })
-      if (audit) { audit.outcome = 'completed'; audit.failureKind = null }
+      if (audit) { audit.outcome = 'forwarded'; audit.failureKind = null }
     } catch (error) {
       if (audit) {
         audit.outcome = controller.signal.aborted ? 'cancelled' : 'failed'

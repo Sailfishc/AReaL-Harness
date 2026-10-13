@@ -211,9 +211,9 @@ const successStream = () =>
       }),
     { headers: { "Content-Type": "text/event-stream" } },
   );
-async function relay(t, inference) {
+async function relay(t, inference, catalog) {
   let refreshes = 0,
-    sends = 0;
+    sends = 0, catalogCalls = 0;
   const f = fixture();
   await f.store.modifyRecord("", (current) => ({
     ...current,
@@ -253,7 +253,7 @@ async function relay(t, inference) {
         });
       }
       if (url.endsWith("/models"))
-        return Response.json({
+        return catalog ? catalog(++catalogCalls, options) : Response.json({
           models: [{ slug: "fixture-model", display_name: "Fixture", visibility: "list" }],
         });
       assert.equal(url, "https://api.openai.com/v1/responses");
@@ -283,20 +283,12 @@ async function relay(t, inference) {
   };
 }
 
-test("explicit pre-admission expired token refreshes once and preserves usage stream", async (t) => {
-  const f = await relay(t, ({ sends }) =>
-    sends === 1
-      ? Response.json(
-          { error: { code: "invalid_token", message: "fixture-secret-text" } },
-          { status: 401 },
-        )
-      : successStream(),
-  );
+test("inference token rejection is diagnosed without automatic POST replay", async t => {
+  const f = await relay(t, () => Response.json({ error: { code: 'invalid_token', message: 'fixture-secret-text' } }, { status: 401 }));
   const response = await f.send();
-  assert.equal(response.status, 200);
-  assert.match(await response.text(), /"input_tokens":3/);
-  assert.equal(f.sends, 2);
-  assert.equal(f.refreshes, 1);
+  assert.equal(response.status, 401);
+  assert.equal((await response.json()).error.code, 'invalid_token');
+  assert.equal(f.sends, 1); assert.equal(f.refreshes, 0);
 });
 
 for (const [status, body, state] of [
@@ -349,4 +341,71 @@ test('terminal forced refresh plus failed persistence cannot revive a still-fres
   assert.equal(f.record.payload.access, undefined);
   assert.equal(exchanges, 1);
   assert.equal((await f.account.status()).state, 'reauth_required');
+});
+
+test('status to Core sync retains provider while refreshing or storage is locked', async () => {
+  let finish;
+  const wait = new Promise(resolve => { finish = resolve; });
+  const f = fixture(async (_action, { credential }) => { await wait; return { ...credential, expires: Date.now() + 3600000 }; });
+  const calls = [];
+  const app = new AppProviders({ submit: async (...args) => calls.push(args) }, {});
+  const project = { client: { request: async () => ({ data: [{ id: 'areal_openai', revision: 1, models: ['fixture-model'] }] }) } };
+  const service = { id: 'areal_openai', account: f.account, models: [], ready: async () => {} };
+  const rotation = f.account.accessToken();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal((await f.account.status()).state, 'refreshing');
+  await app.applySubscription(project, service);
+  assert.deepEqual(calls, []);
+  finish(); await rotation;
+  f.store.readRecord = async () => { throw Object.assign(new Error('fixture lock'), { code: 'storage_locked' }); };
+  assert.equal((await f.account.status()).state, 'storage_locked');
+  await app.applySubscription(project, service);
+  assert.deepEqual(calls, []);
+});
+
+test('Core sync removes subscription only on explicit sign-out or confirmed empty ready catalog', async () => {
+  const calls = [];
+  const app = new AppProviders({ submit: async (_project, method) => calls.push(method) }, {});
+  const project = { client: { request: async () => ({ data: [{ id: 'areal_openai', revision: 1 }] }) } };
+  for (const status of [{ state: 'signed_out', authenticated: false }, { state: 'ready', authenticated: true, models: [] }]) {
+    await app.applySubscription(project, { id: 'areal_openai', account: { status: async () => status } });
+  }
+  assert.deepEqual(calls, ['areal/provider/remove', 'areal/provider/remove']);
+});
+
+test('partial SSE followed by transport failure is not replayed or billed elsewhere', async t => {
+  const f = await relay(t, () => new Response(new ReadableStream({ start(controller) {
+    controller.enqueue(new TextEncoder().encode(event({ type: 'response.output_text.delta', delta: 'partial fixture' })));
+    setTimeout(() => controller.error(new Error('fixture stream disconnect')), 25);
+  } }), { headers: { 'Content-Type': 'text/event-stream' } }));
+  const response = await f.send();
+  assert.equal(response.status, 200);
+  await assert.rejects(response.text());
+  assert.equal(f.sends, 1); assert.equal(f.refreshes, 0);
+});
+
+test('stream EOF alone is not accepted as a successful connection probe', async t => {
+  const f = await relay(t, () => new Response(event({ type: 'response.output_text.delta', delta: 'partial fixture' }), { headers: { 'Content-Type': 'text/event-stream' } }));
+  await assert.rejects(f.service.probe('fixture-model'), /未完成/);
+  assert.equal(f.sends, 1); assert.equal(f.refreshes, 0);
+  assert.equal(f.audits[0].outcome, 'forwarded');
+});
+
+for (const recover of [true, false]) test(`catalog GET refreshes once and ${recover ? 'recovers' : 'stops on second 401'}`, async t => {
+  let calls = 0;
+  const models = () => Response.json({ models: [{ slug: 'fixture-model', visibility: 'list' }] });
+  const f = await relay(t, () => successStream(), () => {
+    calls++;
+    return calls === 1 || recover && calls === 3 ? models() : Response.json({ error: { code: 'invalid_token' } }, { status: 401 });
+  });
+  f.service.catalogExpires = 0;
+  if (f.service.catalog) f.service.catalog.expiresAt = 0;
+  if (recover) {
+    await f.service.discover({ force: true });
+    const response = await f.send(); assert.equal(response.status, 200); assert.match(await response.text(), /input_tokens/);
+  } else {
+    await assert.rejects(f.service.discover({ force: true }));
+    assert.deepEqual(f.service.models, []);
+  }
+  assert.equal(calls, 3); assert.equal(f.refreshes, 1); assert.equal(f.sends, recover ? 1 : 0);
 });

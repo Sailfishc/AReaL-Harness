@@ -108,6 +108,6 @@ Core 构建完成后再启动使用该二进制的桌面 smoke，验收期间不
 
 ChatGPT 授权由本地后台持有，Renderer 只读取状态。状态区分 `ready`、`refreshing`、`temporarily_unavailable`、`reauth_required`、`permission_denied`、`quota_exceeded`、`storage_locked` 和 `signed_out`。网络、目录或基础设施临时失败保留凭据；普通 HTTP 401 不等于授权撤销。只有确认终止的刷新错误停止使用 token 并保留注册映射供重新授权，权限和额度错误不自动重登，也不切换至 API Key 计费。
 
-临期刷新在同一账户实例内共享一个在途结果。完成的轮换不随请求取消而丢弃；安全存储写入失败时停止推理并允许同一后台重试保存。若在保存成功前后台崩溃，无法保证恢复已轮换 token，需要重新核对授权。本地转发只对明确的接纳前 access-token 过期拒绝强制刷新并重试一次，已接纳或部分流式请求不会重放。诊断仅记录固定错误码、阶段、HTTP 状态和经过过滤的 request ID，不透传供应商错误正文或凭据。
+临期刷新在同一账户实例内共享一个在途结果。完成的轮换不随请求取消而丢弃；安全存储写入失败时停止推理并允许同一后台重试保存。若在保存成功前后台崩溃，无法保证恢复已轮换 token，需要重新核对授权。模型目录 GET 可在明确认证拒绝后强制刷新并重试一次；推理 POST 的认证拒绝仍不足以证明安全重放，统一保留诊断并交用户明确重试。已接纳或部分流式请求不会重放。刷新中或暂时无法读取状态不会删除既有 Core provider。诊断仅记录固定错误码、阶段、HTTP 状态和经过过滤的 request ID，不透传供应商错误正文或凭据。转发 EOF 仅标记 `forwarded`，成功推理仍由 Core 校验 `response.completed`；连接测试同样要求成功终态。
 
 GUI 保存保留 Core 的合法 `contextWindowTokens`，不因编辑名称或其他参数而重建丢失；未知或非法参数拒绝保存。运行中的任务继续使用冻结配置。`node --test clients/gui/scripts/provider-recovery.test.mjs` 使用隔离的确定性凭据、HTTP 和安全存储 fixture 验证恢复与配置保真，不读取用户密钥，不等于真实登录或系统钥匙串验收。

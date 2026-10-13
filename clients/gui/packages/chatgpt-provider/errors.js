@@ -108,12 +108,11 @@ export async function responseError(response, phase, secrets = []) {
     httpStatus: response.status,
     requestId,
   });
-  failure.beforeAdmission = !!data?.error && !data.id && !data.response;
   return failure;
 }
 export function safeRefresh(error) {
   return (
-    error.beforeAdmission &&
+    error.phase === "catalog" &&
     error.httpStatus === 401 &&
     ["invalid_token", "token_expired"].includes(error.code)
   );
