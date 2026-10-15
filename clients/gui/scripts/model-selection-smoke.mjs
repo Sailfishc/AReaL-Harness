@@ -105,7 +105,7 @@ try {
   await page.getByRole("heading", { name: "模型设置", exact: true }).waitFor();
   checks.push("a missing default-provider credential permits Core connection and model settings without an upstream request");
   await page.locator(".provider-catalog-row").filter({ hasText: "theta" }).click();
-  const providerStatus = page.getByRole("status", { name: "供应商状态", exact: true });
+  let providerStatus = page.getByRole("status", { name: "供应商状态", exact: true });
   await providerStatus.waitFor();
   assert.match(await providerStatus.innerText(), /缺少凭据/);
 
@@ -138,6 +138,7 @@ try {
   await app.close(); app = undefined;
   await stopService();
   await launch();
+  providerStatus = page.getByRole("status", { name: "供应商状态", exact: true });
   await until(s => s.projects[0]?.state?.connected && s.projects[0].models.some(m => m.providerId === "theta" && m.available === true), "saved default credential survives a cold reopen");
   const reopened = await call("providers", { operation: "list" });
   assert.equal(reopened.defaultModel.providerId, "theta");
