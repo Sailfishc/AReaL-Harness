@@ -84,11 +84,16 @@ try {
   await launch();
   await page.evaluate(() => window.arealDesktop.chooseProject());
   await createProjectConversation(page, "workspace");
-  const ready = await until(s => s.projects[0]?.state?.connected && s.projects[0].models.length === 2, "unavailable Core catalog");
+  const ready = await until(s => s.projects[0]?.state?.connected && s.projects[0].models.length === 3, "unavailable Core catalog");
   const projectId = ready.projects[0].id;
-  assert.ok(ready.projects[0].models.every(m => m.available === false && m.credentialState === "unavailable"));
+  assert.ok(ready.projects[0].models.every(m => m.available === false), "the default alias and named entries must all reject unavailable models");
+  assert.ok(ready.projects[0].models.filter(m => m.providerId).every(m => m.credentialState === "unavailable"));
+  assert.equal(await button("发送").isDisabled(), true, "a missing default credential cannot enable sending");
   assert.equal(await button("模型").isEnabled(), true, "missing credentials must not disable the model configuration entry");
   await button("模型").click();
+  const defaultOption = page.getByRole("radio", { name: /默认模型/ });
+  assert.equal(await defaultOption.isDisabled(), true);
+  assert.match(await defaultOption.innerText(), /模型不可用/);
   for (const id of ["theta", "arena"]) {
     const option = page.getByRole("radio", { name: new RegExp(`${id}-model`) });
     await option.waitFor(); assert.equal(await option.isDisabled(), true);
@@ -141,6 +146,10 @@ try {
   assert.equal(requests.length, 1, "reopening does not replay the completed request");
   await page.screenshot({ path: join(scratch, "reopened-default-credential.png"), animations: "disabled" });
   checks.push("the default provider's saved credential survives a cold GUI/backend reopen without replaying a request");
+  // 默认凭据恢复已验收；后续启停用例沿用无全局默认项的独立目录前置条件。
+  const withoutDefault = await call("providers", { operation: "default", model: null, expectedRevision: reopened.revision });
+  await call("providers", { operation: "apply", expectedRevision: withoutDefault.revision });
+  await until(s => s.projects[0].models.length === 2, "explicit default cleared for catalog enablement checks");
   await button("模型").click(); await button("选择模型").click();
   assert.equal(await page.getByRole("radio", { name: /arena-model/ }).isDisabled(), true);
   await button("配置模型").click();
@@ -300,7 +309,7 @@ try {
     } catch (error) { cleanupFailure("stop service", error); }
   }
   server.closeAllConnections(); await new Promise(resolve => server.close(resolve));
-  const files = ["scripts/model-selection-smoke.mjs", "renderer/src/settings/ModelSettings.tsx", "renderer/src/settings/UnsavedChanges.tsx", "renderer/src/settings/SettingsWorkspace.tsx", "renderer/src/i18n/IntlProvider.tsx", "app/src/core/model-config.cjs", "app/src/core/providers.cjs", "../../core/config/src/models.rs", "../../core/config/src/lib.rs", "../../core/local-service/src/spec.rs", "../../core/server/src/lib.rs", "renderer/src/ComposerModelMenu.tsx", "renderer/src/Composer.tsx", "renderer/src/DraftComposer.tsx", "renderer/src/workbench.css"];
+  const files = ["scripts/model-selection-smoke.mjs", "renderer/src/settings/ModelSettings.tsx", "renderer/src/settings/UnsavedChanges.tsx", "renderer/src/settings/SettingsWorkspace.tsx", "renderer/src/i18n/IntlProvider.tsx", "app/src/core/model-config.cjs", "app/src/core/providers.cjs", "../../core/config/src/models.rs", "../../core/config/src/lib.rs", "../../core/local-service/src/spec.rs", "../../core/engine/src/desktop/server.rs", "../../core/server/src/lib.rs", "renderer/src/ComposerModelMenu.tsx", "renderer/src/Composer.tsx", "renderer/src/DraftComposer.tsx", "renderer/src/workbench.css"];
   const hashes = Object.fromEntries(await Promise.all(files.map(async file => [file, createHash("sha256").update(await readFile(join(gui, file))).digest("hex")])));
   const coreUnchanged = createHash("sha256").update(await readFile(coreBinary)).digest("hex") === coreSha256;
   if (!coreUnchanged) { errors.push("Core binary changed during acceptance"); passed = false; process.exitCode = 1; }
