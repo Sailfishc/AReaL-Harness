@@ -83,6 +83,8 @@ for (const entry of [
 ]) assert.equal(isBackgroundStatusRead(entry), false, "only exact background trajectory and feedback status reads may be excluded");
 
 async function state() { return page.evaluate(() => window.arealDesktop.snapshot()); }
+const project = (snapshot) =>
+  snapshot.projects.find((p) => p.root === workspace && !p.projectless);
 async function showMainConversation() {
   const input = page.getByTestId("chat-input");
   if (!await input.isVisible()) {
@@ -209,7 +211,7 @@ async function composeText(input, text, label, append = false) {
   }
 }
 async function send(text, threadId) {
-  const previousCount = threadId ? (await state()).projects[0]?.state?.threads?.[threadId]?.turns?.length ?? 0 : 0;
+  const previousCount = threadId ? project(await state())?.state?.threads?.[threadId]?.turns?.length ?? 0 : 0;
   const previousRequests = requests.length;
   await page.getByTestId("chat-input").fill(text);
   await page.locator(".composer-dock:not(.side-chat-composer)").getByRole("button", { name: "发送", exact: true }).click();
@@ -221,10 +223,10 @@ async function send(text, threadId) {
   assert.ok(activeId);
   if (threadId) assert.equal(activeId, threadId);
   const snapshot = await until(s => {
-    const turns = s.projects[0]?.state?.threads?.[activeId]?.turns;
+    const turns = project(s)?.state?.threads?.[activeId]?.turns;
     return turns?.length > previousCount && turns.at(-1)?.status === "completed" && requests.length > previousRequests;
   }, `completed send ${text}`);
-  const turns = snapshot.projects[0].state.threads[activeId].turns;
+  const turns = project(snapshot).state.threads[activeId].turns;
   assert.ok(turns.at(-1)?.id);
   return { threadId: activeId, turnId: turns.at(-1).id };
 }
@@ -351,8 +353,8 @@ try {
   await app.evaluate(({ dialog }, selected) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [selected] }); }, workspace);
   await page.getByRole("button", { name: "不在项目中工作", exact: true }).click();
   await page.getByRole("menuitem", { name: "新建项目", exact: true }).click();
-  await until(s => s.projects[0]?.state?.connected, "project connection");
-  projectId = (await state()).projects[0].id;
+  await until(s => project(s)?.state?.connected, "project connection");
+  projectId = project(await state()).id;
   // 新草稿需显式选择目录中的模型，再开始本专项的来源对话。
   await page.getByRole("button", { name: "模型", exact: true }).click();
   await page.getByRole("radio", { name: "fixture", exact: true }).and(page.locator('[data-model-value="fixture/fixture"]')).click();
@@ -411,7 +413,7 @@ try {
   assert.notEqual(second.turnId, anchorTurnId);
   assert.equal(requests.length, 2, "plain-text source should require exactly two fixture requests");
   await shot("01-source.png");
-  const sourceTurns = (await state()).projects[0].state.threads[sourceThreadId].turns.map(turn => turn.id);
+  const sourceTurns = project(await state()).state.threads[sourceThreadId].turns.map(turn => turn.id);
   const beforeCreation = { modelRequests: requests.length, workspaceSha256: await hash(fixturePath) };
   assert.equal(beforeCreation.workspaceSha256, workspaceBefore);
   const anchor = page.locator(`[data-turn-id="${anchorTurnId}"]`);
@@ -443,7 +445,7 @@ try {
   await forkDialog.getByRole("alert").filter({ hasText: "PROFILE_NOT_SUPPORTED" }).waitFor();
   assert.equal(await forkDialog.getByRole("button", { name: "创建分支", exact: true }).isEnabled(), true);
   assert.equal(requests.length, beforeCreation.modelRequests);
-  assert.equal(Object.keys((await state()).projects[0].state.threads).length, 1);
+  assert.equal(Object.keys(project(await state()).state.threads).length, 1);
   await shot("01a-fork-config-refusal.png");
   checks.push("AC15/61: compact Fork offers one inherited-config action, dismisses via Escape/outside click, and preserves retry after actual Core Workflow rejection without a target or model request");
   await app.evaluate(() => { globalThis.__scfLoseNextForkResponse = true; });
@@ -454,7 +456,7 @@ try {
   const lostResult = (await app.evaluate(() => globalThis.__scfMutations)).find(entry => entry.fixture === "committed GUI response lost");
   assert.ok(lostResult?.accepted && lostResult.resultThreadId && lostResult.requestId);
   assert.equal(requests.length, beforeCreation.modelRequests);
-  assert.equal(Object.keys((await state()).projects[0].state.threads).length, 2);
+  assert.equal(Object.keys(project(await state()).state.threads).length, 2);
   await shot("01b-fork-response-unknown.png");
   await page.keyboard.press("Escape");
   await forkDialog.waitFor({ state: "hidden" });
@@ -465,7 +467,7 @@ try {
   assert.ok(targetThreadId && targetThreadId !== sourceThreadId);
   assert.equal(requests.length, beforeCreation.modelRequests, "fork creation must not call the model");
   assert.equal(await hash(fixturePath), beforeCreation.workspaceSha256, "fork creation must not change files");
-  const target = (await state()).projects[0].state.threads[targetThreadId];
+  const target = project(await state()).state.threads[targetThreadId];
   assert.equal(target.conversation?.kind, "fork");
   assert.equal(target.conversation?.origin?.sourceThreadId, sourceThreadId);
   assert.equal(target.conversation?.origin?.sourceTurnId, anchorTurnId);
@@ -487,7 +489,7 @@ try {
     return current && current !== id;
   }, targetThreadId);
   nestedThreadId = await page.getByTestId("areal-workbench").getAttribute("data-thread-id");
-  const nestedFork = (await state()).projects[0].state.threads[nestedThreadId];
+  const nestedFork = project(await state()).state.threads[nestedThreadId];
   assert.equal(nestedFork.conversation.origin.sourceThreadId, targetThreadId);
   assert.equal(nestedFork.conversation.historySeed.turnCount, 1);
   assert.equal(nestedFork.turns.length, 0);
@@ -499,7 +501,7 @@ try {
   const branchInput = JSON.stringify(branchRequest?.messages ?? []);
   assert.ok(branchInput.includes(head) && branchInput.includes(forkQuestion), "model input must include selected source prefix and explicit new input");
   assert.ok(!branchInput.includes(future), "model input must exclude future source Turn");
-  assert.deepEqual((await state()).projects[0].state.threads[sourceThreadId].turns.map(turn => turn.id), sourceTurns);
+  assert.deepEqual(project(await state()).state.threads[sourceThreadId].turns.map(turn => turn.id), sourceTurns);
   assert.equal(await hash(fixturePath), workspaceBefore);
   await shot("03-fork-sent.png");
   checks.push("AC06: actual model input excludes the future sentinel; explicit send leaves source Turn IDs and workspace bytes unchanged");
@@ -507,13 +509,13 @@ try {
   await page.getByTestId("chat-input").fill(activeQuestion);
   await page.locator(".composer-dock:not(.side-chat-composer)").getByRole("button", { name: "发送", exact: true }).click();
   const running = await until(s => {
-    const turn = s.projects[0]?.state?.threads?.[sourceThreadId]?.turns?.at(-1);
+    const turn = project(s)?.state?.threads?.[sourceThreadId]?.turns?.at(-1);
     return turn && !sourceTurns.includes(turn.id) && turn.status === "inProgress"
       && JSON.stringify(requests.at(-1)?.body?.messages ?? []).includes(activeQuestion);
   }, "source active Turn at model barrier");
-  activeTurnId = running.projects[0].state.threads[sourceThreadId].turns.at(-1).id;
+  activeTurnId = project(running).state.threads[sourceThreadId].turns.at(-1).id;
   await untilFile(toolStarted, "Core/Runtime source command marker");
-  const sourceProject = (await state()).projects[0];
+  const sourceProject = project(await state());
   const sourceConfig = sourceProject.configurations?.[sourceThreadId];
   assert.ok(Number.isInteger(sourceConfig?.revision) && sourceConfig.revision > 0,
     "source must have an actual Core configuration before retention check");
@@ -521,7 +523,7 @@ try {
   await page.getByTestId("chat-input").fill(mainDraftSentinel);
   await page.locator('.composer-dock input[type="file"]').setInputFiles({ name: "main-attachment.txt", mimeType: "text/plain", buffer: Buffer.from("keep this main attachment") });
   await page.getByTestId("composer-attachments").getByText("main-attachment.txt").waitFor();
-  assert.equal(running.projects[0].state.threads[sourceThreadId].turns.at(-1).status, "inProgress");
+  assert.equal(project(running).state.threads[sourceThreadId].turns.at(-1).status, "inProgress");
   checks.push("AC30: source run_command entered the real Core/Runtime process and remains held while Side begins");
   await shot("04-source-tool-running.png");
   // 通过真实消息选区界面选择首个持久轮次中的 Unicode 子串。
@@ -535,11 +537,11 @@ try {
   await selectConversation(page, sourceThreadId);
   // 导航会补全默认模型的权威版本；在打开 Side 前固定完整配置基线。
   const refreshedSource = await until(s => {
-    const configuration = s.projects[0]?.configurations?.[sourceThreadId];
+    const configuration = project(s)?.configurations?.[sourceThreadId];
     return configuration?.model?.providerId === "fixture" && configuration.model.modelId === "fixture"
       || configuration?.model === null && typeof configuration.defaultModelRevision === "string" && configuration.defaultModelRevision.length > 0;
   }, "source configured fixture model restored after navigation");
-  const mainConfigBefore = JSON.stringify(refreshedSource.projects[0].configurations[sourceThreadId]);
+  const mainConfigBefore = JSON.stringify(project(refreshedSource).configurations[sourceThreadId]);
   await selectSideExcerpt();
   checks.push("AC55: switching the source Thread invalidates the prior Side selection owner");
   await sideTrigger.focus();
@@ -555,7 +557,7 @@ try {
   const sideInput = sidePane.getByRole("textbox", { name: "随心输入" });
   assert.equal(await sideInput.getAttribute("contenteditable"), "true", "Side must use the shared Lexical editor");
   assert.ok(await sidePane.locator(".composer-surface").isVisible());
-  const sourceConfigBeforeSideModel = JSON.stringify((await state()).projects[0].configurations[sourceThreadId]);
+  const sourceConfigBeforeSideModel = JSON.stringify(project(await state()).configurations[sourceThreadId]);
   await sidePane.getByRole("button", { name: "模型", exact: true }).click();
   const modelPage = page.getByRole("button", { name: "选择模型", exact: true });
   if (await modelPage.isVisible()) await modelPage.click();
@@ -584,41 +586,41 @@ try {
   await sidePane.getByRole("alert").filter({ hasText: "STALE_SELECTION" }).waitFor();
   assert.equal(await sidePane.getByRole("textbox", { name: "随心输入" }).innerText(), sideQuestion);
   assert.equal(requests.length, sideStartRequests);
-  assert.ok(!Object.values((await state()).projects[0].state.threads).some(thread => thread.conversation?.kind === "side"));
+  assert.ok(!Object.values(project(await state()).state.threads).some(thread => thread.conversation?.kind === "side"));
   await shot("04a-stale-selection.png");
   checks.push("AC36/61: actual Core rejects a changed selection digest; Side keeps its question and creates no target or model request");
   await sidePane.getByRole("button", { name: "发送", exact: true }).click();
-  const sideStarted = await until(s => Object.values(s.projects[0]?.state?.threads ?? {}).some(t =>
+  const sideStarted = await until(s => Object.values(project(s)?.state?.threads ?? {}).some(t =>
     t.conversation?.kind === "side" && t.conversation.origin?.sourceThreadId === sourceThreadId &&
     t.turns?.at(-1)?.status === "completed"), "Side first answer during source Runtime tool");
-  const side = Object.values(sideStarted.projects[0].state.threads).find(t => t.conversation?.kind === "side" && t.conversation.origin?.sourceThreadId === sourceThreadId);
+  const side = Object.values(project(sideStarted).state.threads).find(t => t.conversation?.kind === "side" && t.conversation.origin?.sourceThreadId === sourceThreadId);
   sideThreadId = side.id;
   assert.equal(await page.locator(`#areal-sidebar [data-thread-id="${sideThreadId}"]`).count(), 0,
     "main navigation must exclude Side conversations");
   assert.ok(await page.locator(`#areal-sidebar [data-thread-id="${targetThreadId}"]`).count(),
     "main navigation must retain independent Fork conversations");
-  assert.equal(sideStarted.projects[0].configurations[sideThreadId].model.modelId, "fixture-alternate");
-  assert.equal(JSON.stringify(sideStarted.projects[0].configurations[sourceThreadId]), sourceConfigBeforeSideModel);
+  assert.equal(project(sideStarted).configurations[sideThreadId].model.modelId, "fixture-alternate");
+  assert.equal(JSON.stringify(project(sideStarted).configurations[sourceThreadId]), sourceConfigBeforeSideModel);
   assert.ok(requests.slice(sideStartRequests).some(request => request.body.model === "fixture-alternate"), "first Side question uses the selected real Core model");
   checks.push("shared Lexical composer and Core model menu: alternate model applies to Side first question without configuring the source");
   assert.equal(side.conversation.policy?.workspaceAccess, "none", "frozen evidence journey uses session-only Side policy");
   assert.equal(side.conversation.selection?.text, unicodeExcerpt);
   assert.equal(side.conversation.selection?.verified, true);
-  assert.equal(sideStarted.projects[0].state.threads[sourceThreadId].turns.at(-1).status, "inProgress");
+  assert.equal(project(sideStarted).state.threads[sourceThreadId].turns.at(-1).status, "inProgress");
   assert.ok((await readFile(toolStarted, "utf8")).includes("started"));
   const sideModelInput = JSON.stringify(requests.slice(sideStartRequests).flatMap(r => r.body.messages ?? []));
   assert.ok(sideModelInput.includes(sideQuestion) && sideModelInput.includes(unicodeExcerpt));
   assert.ok(!sideModelInput.includes(lateSentinel));
-  const firstSideRevision = sideStarted.projects[0].configurations[sideThreadId].revision;
+  const firstSideRevision = project(sideStarted).configurations[sideThreadId].revision;
   await sidePane.getByRole("button", { name: "模型", exact: true }).click();
   const sideModelPage = page.getByRole("button", { name: "选择模型", exact: true });
   if (await sideModelPage.isVisible()) await sideModelPage.click();
   await page.locator('[role="radio"][data-model-value="fixture/fixture"]').click();
   await page.keyboard.press("Escape");
   await sidePane.getByRole("textbox", { name: "随心输入" }).click();
-  await until(s => s.projects[0].configurations[sideThreadId]?.revision > firstSideRevision && s.projects[0].configurations[sideThreadId]?.model?.modelId === "fixture", "Side model update through Core configure");
-  assert.equal(JSON.stringify((await state()).projects[0].configurations[sourceThreadId]), sourceConfigBeforeSideModel);
-  assert.equal((await state()).projects[0].state.threads[sideThreadId].conversation.policy.workspaceAccess, "none");
+  await until(s => project(s).configurations[sideThreadId]?.revision > firstSideRevision && project(s).configurations[sideThreadId]?.model?.modelId === "fixture", "Side model update through Core configure");
+  assert.equal(JSON.stringify(project(await state()).configurations[sourceThreadId]), sourceConfigBeforeSideModel);
+  assert.equal(project(await state()).state.threads[sideThreadId].conversation.policy.workspaceAccess, "none");
   checks.push("shared model menu configures only an idle Side and preserves its Core read-only policy");
   await openSideContext(sidePane);
   await sidePane.getByRole("button", { name: "查看冻结证据" }).click();
@@ -626,7 +628,7 @@ try {
   await shot("05-side-answered-frozen.png");
   checks.push("AC30/39: Side answers during a live source Runtime command; Unicode source selection is verified and frozen evidence is visible");
   const beforeBring = { requests: requests.length, commands: (await app.evaluate(() => globalThis.__scfMutations)).length,
-    sourceTurns: sideStarted.projects[0].state.threads[sourceThreadId].turns.length,
+    sourceTurns: project(sideStarted).state.threads[sourceThreadId].turns.length,
     sideTurns: side.turns.length, workspaceSha256: await hash(fixturePath) };
   await sidePane.getByRole("button", { name: "带回整条回复" }).first().click();
   const preview = sidePane.getByRole("region", { name: "带回预览" });
@@ -674,21 +676,21 @@ try {
   events.push({ bringBackCommandWindow: { from: beforeBring.commands, insertionFrom: commandsBeforeInsert,
     to: bringCommands.length, injectedStatusAccepted: true, injectedFeedbackStatusAccepted: true } });
   checks.push("bring-back retains raw RPC evidence and tolerates real background trajectory/status and feedback/status reads without allowing feedback mutation, retry, send, configure, queue or steer");
-  assert.equal((await state()).projects[0].state.threads[sourceThreadId].turns.length, beforeBring.sourceTurns);
-  assert.equal((await state()).projects[0].state.threads[sideThreadId].turns.length, beforeBring.sideTurns);
+  assert.equal(project(await state()).state.threads[sourceThreadId].turns.length, beforeBring.sourceTurns);
+  assert.equal(project(await state()).state.threads[sideThreadId].turns.length, beforeBring.sideTurns);
   assert.equal(await hash(fixturePath), beforeBring.workspaceSha256);
   await shot("06-bring-back-draft.png");
   await page.getByRole("button", { name: "关闭面板", exact: true }).click();
   await page.getByTestId("composer-attachments").getByText("main-attachment.txt").waitFor();
   await composeText(page.getByTestId("chat-input"), " 输入法确认🌊汉字", "main IME", true);
   assert.ok((await page.getByTestId("chat-input").innerText()).includes(brought));
-  assert.equal(JSON.stringify((await state()).projects[0].configurations?.[sourceThreadId] ?? null), mainConfigBefore,
+  assert.equal(JSON.stringify(project(await state()).configurations?.[sourceThreadId] ?? null), mainConfigBefore,
     "main model configuration must survive Side and bring-back");
   // 关闭面板会记住当前任务的 lastPanel；主窗口的展开按钮恢复同一 Side 标签。
   await page.getByRole("button", { name: "展开侧边面板", exact: true }).click();
   await showRelated(sidePane);
   await page.getByRole("region", { name: "相关讨论" }).getByRole("button", { name: new RegExp(sideQuestion) }).waitFor();
-  assert.equal((await state()).projects[0].state.threads[sideThreadId].id, sideThreadId);
+  assert.equal(project(await state()).state.threads[sideThreadId].id, sideThreadId);
   checks.push("AC47/52/53/54/55/74: bring-back appends to the concurrent main draft with its attachment and model; edited preview survives Side switching; Chromium composition Enter submits neither editor; narrow return restores the original trigger or main editor fallback");
   const activeAnchor = page.locator(`[data-turn-id="${activeTurnId}"]`);
   assert.equal(await activeAnchor.getByRole("button", { name: /^轮次操作 / }).count(), 0, "streaming turns have no menu");
@@ -702,23 +704,23 @@ try {
   beforeThreadId = beforeResult.value.threadId;
   await selectConversation(page, beforeThreadId);
   const beforeSnapshot = await state();
-  const beforeThread = beforeSnapshot.projects[0].state.threads[beforeThreadId];
+  const beforeThread = project(beforeSnapshot).state.threads[beforeThreadId];
   assert.equal(beforeThread.conversation?.origin?.sourceTurnId, activeTurnId);
   assert.equal(beforeThread.conversation?.origin?.boundary, "before");
   assert.equal(beforeThread.turns?.length, 0);
-  assert.equal(beforeSnapshot.projects[0].state.threads[sourceThreadId].turns.at(-1).status, "inProgress");
+  assert.equal(project(beforeSnapshot).state.threads[sourceThreadId].turns.at(-1).status, "inProgress");
   assert.equal(requests.length, requestsBeforeActiveFork);
   const beforeHistory = page.locator(".messages .message-column");
   await beforeHistory.getByText(future, { exact: true }).waitFor();
   assert.equal(await beforeHistory.getByText(activeQuestion, { exact: false }).count(), 0);
   await shot("07-before-active.png");
   await writeFile(toolRelease, "release\n");
-  await until(s => s.projects[0]?.state?.threads?.[sourceThreadId]?.turns?.at(-1)?.status === "completed", "source completes independently");
-  assert.ok(JSON.stringify((await state()).projects[0].state.threads[sourceThreadId].turns.at(-1)).includes("finished"));
+  await until(s => project(s)?.state?.threads?.[sourceThreadId]?.turns?.at(-1)?.status === "completed", "source completes independently");
+  assert.ok(JSON.stringify(project(await state()).state.threads[sourceThreadId].turns.at(-1)).includes("finished"));
   assert.equal(await hash(fixturePath), workspaceBefore);
   checks.push("AC18/19: active Turn actions are hidden, Core before creates an idle exact prefix, and the source completes independently");
   await selectConversation(page, sourceThreadId);
-  const completedTool = (await state()).projects[0].state.threads[sourceThreadId].turns
+  const completedTool = project(await state()).state.threads[sourceThreadId].turns
     .find(turn => turn.id === activeTurnId).items.find(item => item.type === "dynamicToolCall" && item.execution?.resultSnapshot);
   assert.match(completedTool.execution?.resultSnapshot?.uri ?? "", /^areal:\/\/blob\//);
   const requestsBeforeRawFork = requests.length;
@@ -751,18 +753,18 @@ try {
   await until(async () => (await app.evaluate(() => globalThis.__scfDownload))?.state === "completed", "native raw-result download");
   assert.equal(await hash(rawPath), rawRead.resultSha256);
   assert.ok(Object.keys(JSON.parse(await readFile(rawPath, "utf8"))).length);
-  assert.equal((await state()).projects[0].state.threads[rawThreadId].turns.length, 0);
+  assert.equal(project(await state()).state.threads[rawThreadId].turns.length, 0);
   assert.equal(requests.length, requestsBeforeRawFork);
   await shot("07b-inherited-raw-result.png");
   checks.push("AC13/16: inherited raw Runtime result is read under the target identity and downloaded byte-for-byte; history has no source controls and the Fork has no local execution");
   await selectConversation(page, sourceThreadId);
   const beforeFileRefusal = { requests: requests.length,
-    turns: (await state()).projects[0].state.threads[sourceThreadId].turns.length };
+    turns: project(await state()).state.threads[sourceThreadId].turns.length };
   await page.getByTestId("chat-input").fill(lateSentinel);
   await page.locator(".composer-dock:not(.side-chat-composer)").getByRole("button", { name: "发送", exact: true }).click();
   await page.getByText("model does not support File input", { exact: true }).first().waitFor();
   assert.equal(requests.length, beforeFileRefusal.requests);
-  assert.equal((await state()).projects[0].state.threads[sourceThreadId].turns.length, beforeFileRefusal.turns);
+  assert.equal(project(await state()).state.threads[sourceThreadId].turns.length, beforeFileRefusal.turns);
   assert.equal(await page.getByTestId("chat-input").innerText(), lateSentinel);
   assert.ok(!(await sidePane.innerText()).includes("model does not support File input"));
   await page.getByTestId("composer-attachments").getByText("main-attachment.txt").waitFor();
@@ -772,12 +774,12 @@ try {
   const late = await send(lateSentinel, sourceThreadId);
   assert.ok(late.turnId);
   assert.match(await sidePane.innerText(), /来源已推进/);
-  const previousSideTurns = (await state()).projects[0].state.threads[sideThreadId].turns.length;
+  const previousSideTurns = project(await state()).state.threads[sideThreadId].turns.length;
   const followStart = requests.length;
   await sidePane.getByRole("textbox", { name: "随心输入" }).fill(sideFollowUp);
   await sidePane.getByRole("button", { name: "发送", exact: true }).click();
-  await until(s => s.projects[0]?.state?.threads?.[sideThreadId]?.turns?.length > previousSideTurns &&
-    s.projects[0].state.threads[sideThreadId].turns.at(-1).status === "completed", "Side follow-up from frozen history");
+  await until(s => project(s)?.state?.threads?.[sideThreadId]?.turns?.length > previousSideTurns &&
+    project(s).state.threads[sideThreadId].turns.at(-1).status === "completed", "Side follow-up from frozen history");
   const followInput = JSON.stringify(requests.slice(followStart).flatMap(request => request.body.messages ?? []));
   assert.ok(followInput.includes(sideFollowUp) && followInput.includes(sideQuestion));
   assert.ok(!followInput.includes(lateSentinel), "later source Turn must never enter old Side model context");
@@ -799,7 +801,7 @@ try {
   await app.evaluate(({ dialog }) => { dialog.showMessageBox = async () => ({ response: 1 }); });
   await showRelated(sidePane);
   await related.getByRole("button", { name: "归档", exact: true }).click();
-  await until(s => s.projects[0]?.state?.threads?.[sideThreadId]?.desktop?.archived === true, "Side archived");
+  await until(s => project(s)?.state?.threads?.[sideThreadId]?.desktop?.archived === true, "Side archived");
   assert.equal(await sidePane.getByRole("textbox", { name: "随心输入" }).getAttribute("contenteditable"), "false");
   await preview.getByRole("button", { name: "确认插入主草稿" }).click();
   await sidePane.getByText("来源或目标已变化，未写入草稿。可复制预览文字。", { exact: true }).waitFor();
@@ -822,23 +824,23 @@ try {
   await related.getByRole("button", { name: /已归档/ }).waitFor();
   await showRelated(sidePane);
   await related.getByRole("button", { name: "恢复", exact: true }).click();
-  await until(s => s.projects[0]?.state?.threads?.[sideThreadId]?.desktop?.archived === false, "Side unarchived");
-  assert.equal((await state()).projects[0].state.threads[sideThreadId].turns.length, previousSideTurns + 1);
+  await until(s => project(s)?.state?.threads?.[sideThreadId]?.desktop?.archived === false, "Side unarchived");
+  assert.equal(project(await state()).state.threads[sideThreadId].turns.length, previousSideTurns + 1);
   checks.push("AC48/51: archived Side is listed under related discussions and explicitly restored without a new Turn");
   await sidePane.getByRole("button", { name: "新讨论", exact: true }).click();
   if (env.AREAL_CORE_SANDBOX_PROFILE === "native") {
-    assert.equal((await state()).projects[0].core?.features?.sideWorkspaceRead, true,
+    assert.equal(project(await state()).core?.features?.sideWorkspaceRead, true,
       "explicit native deployment must expose verified Side workspace read");
   }
-  if ((await state()).projects[0].core?.features?.sideWorkspaceRead === true) {
+  if (project(await state()).core?.features?.sideWorkspaceRead === true) {
   await openSideContext(sidePane);
   await sidePane.getByLabel("文件访问范围").selectOption("readOnly");
   await sidePane.getByRole("textbox", { name: "随心输入" }).fill(sideFileQuestion);
   await sidePane.getByRole("button", { name: "发送", exact: true }).click();
-  const fileSideState = await until(s => Object.values(s.projects[0].state.threads).some(thread =>
+  const fileSideState = await until(s => Object.values(project(s).state.threads).some(thread =>
     thread.conversation?.kind === "side" && thread.conversation.policy?.workspaceAccess === "readOnly"
     && thread.turns?.at(-1)?.status === "completed"), "native read-only Side completion");
-  const fileSide = Object.values(fileSideState.projects[0].state.threads).find(thread => thread.conversation?.kind === "side"
+  const fileSide = Object.values(project(fileSideState).state.threads).find(thread => thread.conversation?.kind === "side"
     && thread.conversation.policy?.workspaceAccess === "readOnly");
   const fileResult = fileSide.turns.at(-1).items.find(item => item.type === "dynamicToolCall" && item.tool === "fs_read");
   assert.equal(JSON.parse(fileResult.contentItems.find(item => item.type === "inputText").text).source, "currentWorkspace");
@@ -849,7 +851,7 @@ try {
   checks.push("AC41/46: explicit readOnly Side performs real native fs_read with currentWorkspace provenance and current-file UI notice; explicit none journey remains separate and file bytes are unchanged");
   } else {
     const question = "工作区只读不可用时，只讨论冻结会话证据";
-    const before = { count: Object.keys((await state()).projects[0].state.threads).length, requests: requests.length };
+    const before = { count: Object.keys(project(await state()).state.threads).length, requests: requests.length };
     await openSideContext(sidePane);
     await sidePane.getByText(/当前 Core 未提供经过验证的工作区只读能力/).waitFor();
     await sidePane.getByRole("textbox", { name: "随心输入" }).fill(question);
@@ -857,12 +859,12 @@ try {
     await sidePane.getByRole("button", { name: "发送", exact: true }).click();
     await sidePane.getByRole("alert").filter({ hasText: "WORKSPACE_READ_UNAVAILABLE" }).waitFor();
     assert.equal(await sidePane.getByRole("textbox", { name: "随心输入" }).innerText(), question);
-    assert.equal(Object.keys((await state()).projects[0].state.threads).length, before.count);
+    assert.equal(Object.keys(project(await state()).state.threads).length, before.count);
     assert.equal(requests.length, before.requests);
     await openSideContext(sidePane);
   await sidePane.getByLabel("文件访问范围").selectOption("none");
     await sidePane.getByRole("button", { name: "发送", exact: true }).click();
-    await until(s => Object.values(s.projects[0].state.threads).some(thread => thread.conversation?.kind === "side"
+    await until(s => Object.values(project(s).state.threads).some(thread => thread.conversation?.kind === "side"
       && thread.preview === question && thread.turns?.at(-1)?.status === "completed"), "explicit evidence-only Side after read-only refusal");
     await shot("08d-side-workspace-unavailable.png");
     checks.push("AC46: unavailable native workspace read is explicitly refused by Core, GUI retains question, explicit none creates an evidence-only Side with no silent fallback");
@@ -874,8 +876,8 @@ try {
   await page.getByTestId("chat-input").fill(capacitySourceQuestion);
   await page.locator(".composer-dock:not(.side-chat-composer)").getByRole("button", { name: "发送", exact: true }).click();
   await until(s => heldResponses.has(capacitySourceQuestion)
-    && s.projects[0]?.state?.threads?.[sourceThreadId]?.turns?.at(-1)?.status === "inProgress", "source owns the single model slot");
-  const streamingTurnId = (await state()).projects[0].state.threads[sourceThreadId].turns.at(-1).id;
+    && project(s)?.state?.threads?.[sourceThreadId]?.turns?.at(-1)?.status === "inProgress", "source owns the single model slot");
+  const streamingTurnId = project(await state()).state.threads[sourceThreadId].turns.at(-1).id;
   const streamingBody = page.locator(`[data-turn-id="${streamingTurnId}"] .assistant-message .conversation-markdown`);
   await streamingBody.getByText(streamExcerpt, { exact: true }).waitFor();
   await selectMessageExcerpt(streamingBody, streamExcerpt);
@@ -886,9 +888,9 @@ try {
   await sidePane.getByLabel("文件访问范围").selectOption("none");
   await sidePane.getByRole("textbox", { name: "随心输入" }).fill("等待模型名额的旁路问题");
   await sidePane.getByRole("button", { name: "发送", exact: true }).click();
-  const quoteState = await until(s => Object.values(s.projects[0].state.threads).some(thread =>
+  const quoteState = await until(s => Object.values(project(s).state.threads).some(thread =>
     thread.conversation?.selection?.text === streamExcerpt && thread.desktop?.sideCapacityStatus === "waiting"), "Side waits for model capacity");
-  const quotedSide = Object.values(quoteState.projects[0].state.threads).find(thread => thread.conversation?.selection?.text === streamExcerpt);
+  const quotedSide = Object.values(project(quoteState).state.threads).find(thread => thread.conversation?.selection?.text === streamExcerpt);
   userQuoteSideId = quotedSide.id;
   assert.equal(quotedSide.conversation.selection.verified, false);
   assert.equal(quotedSide.conversation.selection.selection.kind, "userQuote");
@@ -910,43 +912,43 @@ try {
   await sidePane.getByRole("status").filter({ hasText: "等待模型容量" }).waitFor();
   await shot("08a-side-waiting-capacity.png");
   await sidePane.getByRole("button", { name: "停止旁路", exact: true }).click();
-  await until(s => s.projects[0]?.state?.threads?.[userQuoteSideId]?.turns?.at(-1)?.status === "interrupted", "waiting Side stops independently");
-  assert.equal((await state()).projects[0].state.threads[sourceThreadId].turns.at(-1).status, "inProgress");
+  await until(s => project(s)?.state?.threads?.[userQuoteSideId]?.turns?.at(-1)?.status === "interrupted", "waiting Side stops independently");
+  assert.equal(project(await state()).state.threads[sourceThreadId].turns.at(-1).status, "inProgress");
   heldResponses.get(capacitySourceQuestion)(); heldResponses.delete(capacitySourceQuestion);
-  await until(s => s.projects[0]?.state?.threads?.[sourceThreadId]?.turns?.at(-1)?.status === "completed", "source retains and releases its model slot");
+  await until(s => project(s)?.state?.threads?.[sourceThreadId]?.turns?.at(-1)?.status === "completed", "source retains and releases its model slot");
   await showRelated(sidePane);
   await related.getByRole("button", { name: new RegExp(sideQuestion) }).click();
   await sidePane.getByRole("textbox", { name: "随心输入" }).fill(capacitySideQuestion);
   await sidePane.getByRole("button", { name: "发送", exact: true }).click();
   await until(s => heldResponses.has(capacitySideQuestion)
-    && s.projects[0]?.state?.threads?.[sideThreadId]?.desktop?.sideCapacityStatus === "available", "Side owns the single model slot");
+    && project(s)?.state?.threads?.[sideThreadId]?.desktop?.sideCapacityStatus === "available", "Side owns the single model slot");
   await showMainConversation();
   await page.getByTestId("chat-input").fill("等待模型名额的来源问题");
   await page.locator(".composer-dock:not(.side-chat-composer)").getByRole("button", { name: "发送", exact: true }).click();
-  await until(s => s.projects[0]?.state?.threads?.[sourceThreadId]?.turns?.at(-1)?.status === "inProgress", "source waits while Side runs");
+  await until(s => project(s)?.state?.threads?.[sourceThreadId]?.turns?.at(-1)?.status === "inProgress", "source waits while Side runs");
   await page.getByRole("button", { name: "停止", exact: true }).click();
-  await until(s => s.projects[0]?.state?.threads?.[sourceThreadId]?.turns?.at(-1)?.status === "interrupted", "source stops independently");
-  assert.equal((await state()).projects[0].state.threads[sideThreadId].turns.at(-1).status, "inProgress");
+  await until(s => project(s)?.state?.threads?.[sourceThreadId]?.turns?.at(-1)?.status === "interrupted", "source stops independently");
+  assert.equal(project(await state()).state.threads[sideThreadId].turns.at(-1).status, "inProgress");
   heldResponses.get(capacitySideQuestion)(); heldResponses.delete(capacitySideQuestion);
-  await until(s => s.projects[0]?.state?.threads?.[sideThreadId]?.turns?.at(-1)?.status === "completed", "Side completes after source Stop");
+  await until(s => project(s)?.state?.threads?.[sideThreadId]?.turns?.at(-1)?.status === "completed", "Side completes after source Stop");
   checks.push("AC34/50/72: visible single-slot waiting, independent Side Stop and source Stop, no deadlock or cancellation cascade");
   await showSideConversation();
-  const beforeDisconnect = (await state()).projects[0];
+  const beforeDisconnect = project(await state());
   await app.evaluate(() => globalThis.__scfConnection.socket.terminate());
   await until(s => s.connection?.state === "unavailable", "GUI-to-Core transport disconnect");
   await openSideContext(sidePane);
   await sidePane.getByText(/^来源：.*来源当前状态未知/).waitFor();
   await page.getByRole("button", { name: "重新连接后台" }).click();
-  const reconnected = await until(s => s.connection?.state === "ready" && s.projects[0]?.state?.connected &&
-    s.projects[0]?.state?.threads?.[sourceThreadId]?.turns?.length === beforeDisconnect.state.threads[sourceThreadId].turns.length &&
-    s.projects[0]?.state?.threads?.[sideThreadId]?.turns?.length === beforeDisconnect.state.threads[sideThreadId].turns.length,
+  const reconnected = await until(s => s.connection?.state === "ready" && project(s)?.state?.connected &&
+    project(s)?.state?.threads?.[sourceThreadId]?.turns?.length === beforeDisconnect.state.threads[sourceThreadId].turns.length &&
+    project(s)?.state?.threads?.[sideThreadId]?.turns?.length === beforeDisconnect.state.threads[sideThreadId].turns.length,
   "GUI-to-Core reconnection and authoritative source/Side snapshot");
-  assert.equal(reconnected.projects[0].state.threads[sideThreadId].conversation.origin.sourceThreadId, sourceThreadId);
-  assert.equal(reconnected.projects[0].state.threads[sourceThreadId].conversation?.kind ?? "main", "main");
+  assert.equal(project(reconnected).state.threads[sideThreadId].conversation.origin.sourceThreadId, sourceThreadId);
+  assert.equal(project(reconnected).state.threads[sourceThreadId].conversation?.kind ?? "main", "main");
   checks.push("AC49: real GUI transport disconnect/reconnect restored distinct source and Side identities without duplicate Turns");
   // 重启使用同一隔离状态目录，并另行标记第二段连续录屏。
-  const preRestart = { sourceTurns: (await state()).projects[0].state.threads[sourceThreadId].turns.length,
-    sideTurns: (await state()).projects[0].state.threads[sideThreadId].turns.length, requests: requests.length };
+  const preRestart = { sourceTurns: project(await state()).state.threads[sourceThreadId].turns.length,
+    sideTurns: project(await state()).state.threads[sideThreadId].turns.length, requests: requests.length };
   firstMutations = await app.evaluate(() => globalThis.__scfMutations);
   const forkResults = firstMutations.filter(entry => entry.command === "fork" && entry.accepted);
   assert.deepEqual(forkResults.map(entry => entry.resultThreadId), [targetThreadId, nestedThreadId, beforeThreadId, rawThreadId]);
@@ -978,9 +980,9 @@ try {
   await page.getByRole("menuitem", { name: "旁路讨论", exact: true }).click();
   await showRelated(page.getByRole("region", { name: "旁路讨论" }));
   await page.getByRole("region", { name: "相关讨论" }).getByRole("button", { name: new RegExp(sideQuestion) }).click();
-  const restored = await until(s => s.projects[0]?.state?.threads?.[sourceThreadId]?.turns?.length === preRestart.sourceTurns &&
-    s.projects[0]?.state?.threads?.[sideThreadId]?.turns?.length === preRestart.sideTurns, "restarted source and Side identity");
-  assert.equal(restored.projects[0].state.threads[sideThreadId].conversation.origin.sourceThreadId, sourceThreadId);
+  const restored = await until(s => project(s)?.state?.threads?.[sourceThreadId]?.turns?.length === preRestart.sourceTurns &&
+    project(s)?.state?.threads?.[sideThreadId]?.turns?.length === preRestart.sideTurns, "restarted source and Side identity");
+  assert.equal(project(restored).state.threads[sideThreadId].conversation.origin.sourceThreadId, sourceThreadId);
   assert.equal(requests.length, preRestart.requests, "restart must not repeat unknown Side submission");
   restartVideoPath = await page.video()?.path();
   await shot("09-restarted-identities.png");
@@ -1005,16 +1007,16 @@ try {
   const corruptHistory = page.locator(".messages .message-column");
   await corruptHistory.locator(`[data-turn-id="${activeTurnId}"]`).getByRole("button", { name: /^轮次操作 / }).click();
   await page.getByRole("menuitem", { name: "在此轮之后分支", exact: true }).click();
-  const rawSnapshot = (await state()).projects[0].state.threads[rawThreadId].conversation.historySeed.snapshotId;
+  const rawSnapshot = project(await state()).state.threads[rawThreadId].conversation.historySeed.snapshotId;
   const snapshotPath = join(scratch, "core", projectId, "state", "history", rawSnapshot);
   const validSnapshotBytes = await readFile(snapshotPath);
-  const countBeforeCorruptFork = Object.keys((await state()).projects[0].state.threads).length;
+  const countBeforeCorruptFork = Object.keys(project(await state()).state.threads).length;
   try {
     await writeFile(snapshotPath, "SCF isolated corrupt snapshot fixture\n");
     await forkDialog.getByRole("button", { name: "创建分支", exact: true }).click();
     await forkDialog.getByRole("alert").waitFor();
     assert.equal(await page.getByTestId("chat-input").innerText(), "冷历史损坏时保留这份草稿");
-    assert.equal(Object.keys((await state()).projects[0].state.threads).length, countBeforeCorruptFork);
+    assert.equal(Object.keys(project(await state()).state.threads).length, countBeforeCorruptFork);
     assert.equal(requests.length, preRestart.requests);
     await shot("11-corrupt-history-refusal.png");
     events.push({ corruptSnapshotFixture: { path: snapshotPath, error: await forkDialog.getByRole("alert").innerText(), restored: true } });

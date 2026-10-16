@@ -223,6 +223,8 @@ const errors = [],
   checks = [];
 const button = (name) => page.getByRole("button", { name, exact: true });
 const state = () => page.evaluate(() => window.arealDesktop.snapshot());
+const project = (snapshot) =>
+  snapshot.projects.find((p) => p.root === workspace && !p.projectless);
 async function call(name, params) {
   const result = await page.evaluate(
     async ({ name, params }) => window.arealDesktop.command(name, params),
@@ -308,11 +310,11 @@ try {
   }, workspace);
   await button("不在项目中工作").click();
   await page.getByRole("menuitem", { name: "新建项目", exact: true }).click();
-  await until((s) => s.projects[0]?.state?.connected, "project ready");
-  const pid = (await state()).projects[0].id;
+  await until((s) => project(s)?.state?.connected, "project ready");
+  const pid = project(await state()).id;
   const input = () => page.locator("[data-testid=chat-input]");
   const turnCountOf = (s) =>
-    Object.values(s.projects[0].state.threads).reduce((n, t) => n + (t.turns?.length ?? 0), 0);
+    Object.values(project(s).state.threads).reduce((n, t) => n + (t.turns?.length ?? 0), 0);
   const send = async (text) => {
     const count = turnCountOf(await state());
     await input().fill(text);
@@ -331,14 +333,14 @@ try {
   await send("检查当前项目");
   await until(
     (s) =>
-      Object.values(s.projects[0].state.threads).some(
+      Object.values(project(s).state.threads).some(
         (t) => t.turns?.at(-1)?.status === "completed",
       ),
     "first send",
   );
   await page.waitForFunction(() => !document.querySelector(".error-banner"));
   const tid = await page.locator("[data-testid=areal-workbench]").getAttribute("data-thread-id");
-  const current = (s) => s.projects[0].state.threads[tid];
+  const current = (s) => project(s).state.threads[tid];
   assert.ok(tid);
   await shot("02-conversation");
   checks.push("sandboxed Electron; project picker; first send; real Core/Runtime and local SSE");
@@ -508,7 +510,7 @@ try {
   );
   await button("清除目标").click();
   await until(
-    (s) => current(s).goals?.goal === null && !s.projects[0].pending.length,
+    (s) => current(s).goals?.goal === null && !project(s).pending.length,
     "unfinished goal cleared",
   );
   await send("目标清除后发送普通消息");
@@ -637,7 +639,7 @@ try {
   finishBackground();
   await launch();
   await until(
-    (s) => s.projects[0]?.state?.connected && current(s)?.turns.at(-1)?.status === "completed",
+    (s) => project(s)?.state?.connected && current(s)?.turns.at(-1)?.status === "completed",
     "recover after GUI exit",
   );
   assert.equal(current(await state()).turns.length, turnCount);
@@ -670,7 +672,7 @@ try {
     await readFile(join(scratch, "core/subscription-transport.json"), "utf8"),
   );
   await launch();
-  await until((s) => s.projects[0]?.state?.connected, "recover after adapter exit");
+  await until((s) => project(s)?.state?.connected, "recover after adapter exit");
   const restored = JSON.parse(
     await readFile(join(scratch, "core/subscription-transport.json"), "utf8"),
   );
@@ -701,7 +703,7 @@ try {
   await quit();
   await new Promise((r) => setTimeout(r, 4500));
   await launch();
-  await until((s) => s.projects[0]?.state?.connected, "scheduled task reconnect");
+  await until((s) => project(s)?.state?.connected, "scheduled task reconnect");
   let task;
   for (let i = 0; i < 100; i++) {
     task = await call("manage", { projectId: pid, operation: "task", taskId: scheduled.id });
