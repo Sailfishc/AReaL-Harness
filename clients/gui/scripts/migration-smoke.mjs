@@ -582,10 +582,7 @@ try {
   }
   assert.match(output, /AREAL_TERMINAL_OK/);
   await shot("05-terminal");
-  await page
-    .locator(".bottom-terminal")
-    .getByRole("button", { name: "关闭面板", exact: true })
-    .click();
+  await button("关闭面板").click();
   checks.push("real Runtime PTY with input/output");
   await app.evaluate(({ dialog }, origin) => {
     const showMessageBox = dialog.showMessageBox.bind(dialog);
@@ -606,10 +603,20 @@ try {
     if (window.isMinimized()) window.restore();
     window.show(); app.focus({ steal: true }); window.focus();
   });
-  await until(() => app.evaluate(({ BrowserWindow }) => {
-    const window = BrowserWindow.getAllWindows()[0];
-    return window.isVisible() && !window.isMinimized() && window.isFocused();
-  }), "visible focused window for development-site consent");
+  let previewWindowState = null;
+  try {
+    await until(async () => {
+      previewWindowState = await app.evaluate(({ app, BrowserWindow }) => {
+        const window = BrowserWindow.getAllWindows()[0];
+        return { id: window.id, visible: window.isVisible(), minimized: window.isMinimized(),
+          focused: window.isFocused(), focusedWindowId: BrowserWindow.getFocusedWindow()?.id ?? null,
+          appHidden: app.isHidden() };
+      });
+      return previewWindowState.visible && !previewWindowState.minimized && previewWindowState.focused;
+    }, "visible focused window for development-site consent");
+  } finally {
+    await writeFile(join(scratch, "preview-window-state.json"), JSON.stringify(previewWindowState, null, 2));
+  }
   await page.getByLabel("预览地址").press("Enter");
   let previewEvidence;
   for (let i = 0; i < 100; i++) {

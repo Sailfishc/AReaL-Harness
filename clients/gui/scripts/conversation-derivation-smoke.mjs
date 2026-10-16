@@ -231,12 +231,13 @@ async function send(text, threadId) {
   return { threadId: activeId, turnId: turns.at(-1).id };
 }
 async function stopService(env) {
-  const { ServiceConnection, waitForServiceProcessExit } = require(join(desktop, "src/core/service-client.cjs"));
+  const { ServiceConnection } = require(join(desktop, "src/core/service-client.cjs"));
+  const { DesktopLifecycle } = require(join(desktop, "src/core/lifecycle.cjs"));
   const { executeCore } = require(join(desktop, "src/core/core-process.cjs"));
   const service = async args => JSON.parse((await executeCore(binary, ["service", ...args, "--json"], {
     env: { ...env, AREAL_HARNESS_SERVICE_HOME: serviceRegistry }, timeout: 30000,
   })).stdout);
-  const cleanup = { registry: serviceRegistry, stopped: false, instances: [], errors: [] };
+  const cleanup = { registry: serviceRegistry, stopped: false, stopOutcomeUnknown: false, instances: [], errors: [] };
   events.push({ serviceCleanup: cleanup });
   let metadata;
   try {
@@ -247,14 +248,26 @@ async function stopService(env) {
     try {
       await connection.connect(metadata);
       await connection.request("hello", { protocol: metadata.protocol, identity: metadata.identity });
-      const result = await connection.request("stopService", { protocol: metadata.protocol }, true);
-      assert.equal(result.stopped, true, "desktop service stop must be confirmed");
+      const lifecycle = new DesktopLifecycle({ connection, metadata, home: join(scratch, "core"),
+        forUpdate: false, notify: async () => ({ response: 1 }) });
+      const observed = await lifecycle.observe();
+      const instances = await service(["list"]);
+      assert.ok(Array.isArray(instances), "isolated service list must be an array");
+      for (const target of observed.targets) if (target.serviceId !== null) {
+        assert.ok(instances.some(instance => instance.serviceId === target.serviceId && instance.generation === target.generation),
+          "desktop cleanup target must belong to the isolated registry generation");
+      }
+      const result = await lifecycle.stop({ mode: "cancel", observed });
+      assert.equal(result.kind, "exited", "desktop lifecycle exit must be confirmed");
     } finally { connection.close(); }
-  } catch (error) { cleanup.errors.push(error.message); }
+  } catch (error) {
+    cleanup.stopOutcomeUnknown = error.submissionUnknown === true;
+    cleanup.errors.push(error.message);
+  }
   try {
     const instances = await service(["list"]);
     assert.ok(Array.isArray(instances), "isolated service list must be an array");
-    for (const instance of instances) if (instance.state !== "stopped") {
+    for (const instance of instances) if (instance.state !== "stopped" && !cleanup.stopOutcomeUnknown) {
       try {
         const stopped = await service(["stop", "--instance", instance.serviceId,
           "--expected-generation", instance.generation, "--cancel"]);
@@ -267,7 +280,6 @@ async function stopService(env) {
     assert.ok(remaining.every(instance => instance.state === "stopped"), "isolated registry still has live or unconfirmed services");
   } catch (error) { cleanup.errors.push(error.message); }
   if (metadata) try {
-    await waitForServiceProcessExit(join(scratch, "core"), metadata);
     try {
       await readFile(join(scratch, "core/service.json"), "utf8");
       throw Error("desktop service metadata remains after stop");
