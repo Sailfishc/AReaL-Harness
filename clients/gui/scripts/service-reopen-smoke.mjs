@@ -121,11 +121,7 @@ const { appendFileSync } = require('node:fs');
 globalThis.__reopenDialogs = [];
 dialog.showMessageBox = async (...args) => {
   const options = args.at(-1);
-  const reuse = process.env.AREAL_REOPEN_LEGACY === '1' && process.env.AREAL_REOPEN_PHASE === 'reopened'
-    && globalThis.__reopenDialogs.length === 0
-    && ['后台暂时无法重启', '需要重启后台服务'].includes(options.message)
-    && options.buttons?.includes('继续使用原后台');
-  const response = reuse ? options.buttons.indexOf('继续使用原后台') : (options.cancelId ?? 0);
+  const response = options.cancelId ?? 0;
   const entry = { phase: process.env.AREAL_REOPEN_PHASE, ...options, response, selectedButton: options.buttons?.[response] };
   globalThis.__reopenDialogs.push(entry);
   appendFileSync(${JSON.stringify(join(scratch, 'dialogs.jsonl'))}, JSON.stringify(entry) + '\\n');
@@ -134,17 +130,8 @@ dialog.showMessageBox = async (...args) => {
 require(process.env.AREAL_REOPEN_MAIN);
 `);
 const dialogs = async () => app.evaluate(() => globalThis.__reopenDialogs);
-function checkDialogs(seen, label, ready = false) {
-  if (!legacy || label !== 'reopened') {
-    assert.deepEqual(seen, [], 'ordinary GUI opening must not ask to recover, restart or cancel the running task');
-    return;
-  }
-  assert.ok(seen.length <= 1, 'legacy migration permits exactly one explicit reuse dialog');
-  if (ready) assert.equal(seen.length, 1, 'legacy source migration requires explicit reuse of the original backend');
-  for (const dialog of seen) {
-    assert.ok(['后台暂时无法重启', '需要重启后台服务'].includes(dialog.message), 'only the startup recovery dialog is allowed');
-    assert.equal(dialog.selectedButton, '继续使用原后台', 'legacy migration must choose the explicit reuse option');
-  }
+function checkDialogs(seen) {
+  assert.deepEqual(seen, [], 'every GUI opening, including legacy migration, must enter the workspace without a recovery dialog');
 }
 async function launch(label) {
   phase = label;
@@ -159,10 +146,10 @@ async function launch(label) {
   await page.waitForFunction(() => typeof window.arealDesktop?.snapshot === 'function');
   await until(async () => {
     const seen = await dialogs();
-    checkDialogs(seen, label);
+    checkDialogs(seen);
     return (await state()).connection?.state === 'ready';
   }, `${label} Desktop ready`);
-  checkDialogs(await dialogs(), label, true);
+  checkDialogs(await dialogs());
   await page.getByTestId('areal-workbench').waitFor();
 }
 async function closeGui() {
@@ -243,6 +230,7 @@ try {
     assert.equal(sha(await readFile(binary)), binarySha256, 'legacy migration leaves the binary unchanged');
   }
   await launch('reopened');
+  await page.getByText('已连接运行中的后台，沿用其原有启动配置。新的启动配置需安全停止后台并重新连接后生效。', { exact: true }).waitFor();
   await until(async () => project(await state())?.state?.connected && turn(await state())?.id === turnId, 'original Thread restored automatically');
   observations.after = await inspectService();
   assert.deepEqual(observations.after.desktop, observations.before.desktop, 'reopen must attach to the original Desktop');
@@ -265,15 +253,55 @@ try {
   assert.ok(observations.continued.turn.items.some(item => item.type === 'agentMessage' && item.text === 'REOPEN_HELD REOPEN_CONTINUED'),
     'authoritative original service receives the continuation from the original model stream');
   observations.reopenDialogs = await dialogs();
-  checkDialogs(observations.reopenDialogs, 'reopened', true);
+  checkDialogs(observations.reopenDialogs);
   await page.screenshot({ path: join(scratch, '02-same-turn-after-reopen.png') });
   await writeFile(join(scratch, 'after.json'), JSON.stringify(observations.after, null, 2));
+
+  phase = 'second-close';
+  await closeGui();
+  observations.secondClosed = await inspectService();
+  assert.deepEqual(observations.secondClosed.desktop, observations.before.desktop);
+  assert.deepEqual(observations.secondClosed.core, observations.before.core);
+  assert.equal(observations.secondClosed.turn.id, turnId);
+  assert.equal(observations.secondClosed.turn.status, 'inProgress');
+  assert.equal(requests.length, 1, 'second GUI close must retain the original model request');
+  assert.equal(held.size, 1, 'original model stream remains connected after the second GUI close');
+  await launch('reopened-again');
+  await page.getByText('已连接运行中的后台，沿用其原有启动配置。新的启动配置需安全停止后台并重新连接后生效。', { exact: true }).waitFor();
+  await until(async () => project(await state())?.state?.connected && turn(await state())?.id === turnId,
+    'original Thread restored automatically after the second reopen');
+  observations.secondAfter = await inspectService();
+  assert.deepEqual(observations.secondAfter.desktop, observations.before.desktop, 'second reopen must attach to the original Desktop');
+  assert.deepEqual(observations.secondAfter.core, observations.before.core, 'second reopen must keep the original Core generation');
+  assert.equal(observations.secondAfter.turn.id, turnId);
+  assert.equal(observations.secondAfter.turn.status, 'inProgress');
+  assert.equal(requests.length, 1, 'two reopens must not submit or replay a model request');
+  assert.equal(held.size, 1, 'original model stream remains connected after two reopens');
+  for (const response of held) send(response, ' SECOND_REOPEN_CONTINUED');
+  await until(async () => turn(await state())?.items.some(item => item.type === 'agentMessage'
+    && item.text === 'REOPEN_HELD REOPEN_CONTINUED SECOND_REOPEN_CONTINUED'), 'original stream reaches the GUI after the second reopen');
+  await page.getByText('REOPEN_HELD REOPEN_CONTINUED SECOND_REOPEN_CONTINUED', { exact: true }).waitFor();
+  assert.equal(turn(await state()).id, turnId);
+  assert.equal(turn(await state()).status, 'inProgress');
+  assert.equal(requests.length, 1);
+  observations.secondContinued = await inspectService();
+  assert.deepEqual(observations.secondContinued.desktop, observations.before.desktop);
+  assert.deepEqual(observations.secondContinued.core, observations.before.core);
+  assert.equal(observations.secondContinued.turn.id, turnId);
+  assert.equal(observations.secondContinued.turn.status, 'inProgress');
+  assert.ok(observations.secondContinued.turn.items.some(item => item.type === 'agentMessage'
+    && item.text === 'REOPEN_HELD REOPEN_CONTINUED SECOND_REOPEN_CONTINUED'),
+    'authoritative original service receives the continuation after the second reopen from the original model stream');
+  observations.secondReopenDialogs = await dialogs();
+  checkDialogs(observations.secondReopenDialogs);
+  await page.screenshot({ path: join(scratch, '03-same-turn-after-second-reopen.png') });
+  await writeFile(join(scratch, 'after-second-reopen.json'), JSON.stringify(observations.secondContinued, null, 2));
   checks.push(scenario === 'legacy'
-    ? 'genuine pre-fix Desktop source permits explicit reuse with the same Desktop PID, Core generation and active Turn'
+    ? 'genuine pre-fix Desktop source permits two automatic reopens without a dialog and keeps the same Desktop PID, Core generation and active Turn'
     : scenario === 'replacement'
-      ? 'actual different Mach-O bytes at the same Core path permit ordinary reopen with the same Desktop PID, Core generation and active Turn'
-      : 'changed deployment timestamp permits ordinary reopen with the same Desktop PID, Core generation and active Turn');
-  checks.push('the original model stream continues into the reopened GUI without cancellation, restart or replay');
+      ? 'actual different Mach-O bytes at the same Core path permit two automatic reopens with the same Desktop PID, Core generation and active Turn'
+      : 'changed deployment timestamp permits two automatic reopens with the same Desktop PID, Core generation and active Turn');
+  checks.push('the original model stream continues into both reopened GUIs without cancellation, restart or replay');
   assert.deepEqual(errors, []);
   passed = true;
 } catch (error) {
