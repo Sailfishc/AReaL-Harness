@@ -82,7 +82,7 @@ function Preview() {
   const [showPanel, setShowPanel] = useState(true);
   const [panelLocation, setPanelLocation] = useState<"bottom" | "right">("bottom");
   const [message, setMessage] = useState("");
-  const [reducedMotion, setReducedMotion] = useState(true);
+  const [reducedMotion, setReducedMotion] = useState(false);
   const [values, setValues] = useState<Record<string, string>>({});
   const api = useRef<LexicalChatInputHandle | null>(null);
   useAppearance(dark);
