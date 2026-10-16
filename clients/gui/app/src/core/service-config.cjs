@@ -1,6 +1,6 @@
 'use strict';
 const { createHash } = require('node:crypto');
-const { existsSync, readFileSync, readdirSync, statSync, realpathSync } = require('node:fs');
+const { existsSync, readFileSync, readdirSync, realpathSync } = require('node:fs');
 const { join, dirname, basename, resolve } = require('node:path');
 const { homedir } = require('node:os');
 const { resolveCoreBinary, executables } = require('./bundle.cjs');
@@ -47,8 +47,6 @@ function configurationIdentity(path) {
 }
 async function serviceIdentity(options) {
   const hash = createHash('sha256');
-  // Source changes must not silently attach a new GUI to old backend code. GUI
-  // assets are deliberately excluded. Binary stamps also cover sibling helpers.
   for (const name of readdirSync(__dirname).filter(n => /\.(cjs|json)$/.test(n)).sort()) hash.update(name).update(readFileSync(join(__dirname, name)));
   const subscriptionRoot = dirname(require.resolve('@areal/chatgpt-provider/package.json'));
   for (const name of readdirSync(subscriptionRoot).filter(n => /\.(js|json)$/.test(n)).sort()) hash.update(name).update(readFileSync(join(subscriptionRoot, name)));
@@ -63,7 +61,7 @@ async function serviceIdentity(options) {
     const packagedHelper = join(dirname(options.binary), '..', 'libexec', 'areal', name);
     const path = name !== 'areal' && existsSync(packagedHelper)
       ? packagedHelper : join(dirname(options.binary), name);
-    try { const stat = statSync(path); hash.update(JSON.stringify([realpathSync(path), stat.size, stat.mtimeMs])); }
+    try { hash.update(JSON.stringify([realpathSync(path)])); }
     catch (e) { if (name === 'areal') throw e; hash.update(name + ':absent'); }
   }
   // Core owns mutable model configuration and its revisions. Saving it must

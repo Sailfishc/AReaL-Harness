@@ -11,6 +11,24 @@ const { inspectCoreCapabilities } = require('./core-capabilities.cjs');
 const { desktopExecutables } = require('./desktop-executables.cjs');
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+function validateServicePacket(packet, metadata) {
+  const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+  const count = value => Number.isSafeInteger(value) && value >= 0;
+  const snapshot = packet?.snapshot, service = packet?.service, library = snapshot?.library;
+  if (!count(packet?.sequence) || !record(snapshot) || !record(library)
+    || !record(library.projects) || !record(library.threads) || !record(library.settings)
+    || !Array.isArray(library.projectOrder) || !library.projectOrder.every(id => typeof id === 'string')
+    || !Array.isArray(snapshot.projects) || snapshot.projects.some(project => !record(project)
+      || typeof project.id !== 'string' || typeof project.root !== 'string'
+      || project.state !== null && (!record(project.state) || !record(project.state.threads)))
+    || !record(service) || service.connected !== true || typeof service.busy !== 'boolean'
+    || typeof service.providerUpdating !== 'boolean' || !count(service.clients)
+    || !count(service.activeCommands) || !count(service.starting)
+    || !Number.isSafeInteger(service.pid) || service.pid <= 1 || service.pid !== metadata.pid) {
+    throw Object.assign(new Error('后台服务快照不受支持，原后台保持运行。请安全重启后使用本次配置。'), { code: 'SERVICE_SNAPSHOT_INVALID' });
+  }
+}
+
 async function waitForServiceExit(home, metadata) {
   const deadline = Date.now() + 60000;
   while (Date.now() < deadline) {
@@ -125,8 +143,9 @@ class SharedCoreBackend {
     return !!thread && !thread.desktop?.archived;
   }
   snapshot() { return { ...this.value, revision: ++this.revision, connection: this.connectionState }; }
-  accept(packet) {
-    if (!packet || packet.sequence <= this.sequence) return;
+  accept(packet, metadata = this.metadata) {
+    validateServicePacket(packet, metadata);
+    if (packet.sequence <= this.sequence) return;
     this.sequence = packet.sequence; this.value = packet.snapshot; this.status = packet.service; this.connectionState = packet.service.stopReport ? { state: 'unavailable', message: '后台停止尚未完成，请检查后台状态' } : { state: 'ready' }; this.onChange();
   }
   disconnected() {
@@ -138,11 +157,17 @@ class SharedCoreBackend {
     this.value = { ...this.value, projects: this.value.projects.map(p => ({ ...p, error: stopped ? null : message, state: p.state ? { ...p.state, connected: false, error: stopped ? null : message } : null })) };
     this.onChange();
   }
-  async attach() {
+  async attach(reconnectMetadata = null) {
     let metadata;
     try { metadata = JSON.parse(await readFile(join(this.home, 'service.json'), 'utf8')); }
     catch (e) { if (e.code === 'ENOENT') return false; throw e; }
-    const connection = new ServiceConnection(packet => { if (this.connection === connection) this.accept(packet); }, () => { if (this.connection === connection) this.disconnected(); }, notice => { if (this.connection === connection) this.onNotification?.(notice); }, target => { if (this.connection === connection) this.onNotificationOpen?.(target); }, request => {
+    const identity = reconnectMetadata && ['protocol', 'endpoint', 'token', 'pid', 'identity'].every(key => metadata[key] === reconnectMetadata[key])
+      ? metadata.identity : this.identity;
+    const connection = new ServiceConnection(packet => {
+      if (this.connection !== connection) return;
+      try { this.accept(packet, metadata); }
+      catch { this.connection = null; connection.close(); this.disconnected(); }
+    }, () => { if (this.connection === connection) this.disconnected(); }, notice => { if (this.connection === connection) this.onNotification?.(notice); }, target => { if (this.connection === connection) this.onNotificationOpen?.(target); }, request => {
       if (this.connection !== connection || this.disposed) throw new Error('Browser host is disconnected');
       return this.onBrowserRequest?.(request) ?? Promise.reject(new Error('Browser host unavailable'));
     }, request => { if (this.connection === connection) this.onBrowserCancel?.(request); }, event => {
@@ -157,7 +182,11 @@ class SharedCoreBackend {
     try {
       const deadline = Date.now() + 60000;
       for (;;) {
-        try { this.accept(await connection.request('hello', { protocol: PROTOCOL, identity: this.identity, notifications: !!this.onNotification })); break; }
+        try {
+          const packet = await connection.request('hello', { protocol: PROTOCOL, identity, notifications: !!this.onNotification });
+          if (this.connection !== connection) throw Object.assign(new Error('后台服务连接已变化，请重新连接'), { code: 'DISCONNECTED' });
+          this.accept(packet, metadata); break;
+        }
         catch (error) {
           if (error.code !== 'SERVICE_STOPPING') throw error;
           // Safety inspection can cancel retirement. Retry only the read-only
@@ -175,7 +204,8 @@ class SharedCoreBackend {
       // 旧 v1 服务没有错误码，只兼容其明确的身份不匹配消息。
       const incompatible = e.code === 'SERVICE_INCOMPATIBLE' || e.message.startsWith('后台服务版本或启动配置不兼容。');
       if (!incompatible || !this.recoverIncompatible) throw e;
-      await this.recoverIncompatible(metadata, this.home);
+      const decision = await this.recoverIncompatible(metadata, this.home);
+      if (decision?.kind === 'reconnect-existing') return this.attach(metadata);
       return false;
     }
     helloTrace.finish('ok');

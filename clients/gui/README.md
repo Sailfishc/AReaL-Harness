@@ -112,6 +112,10 @@ Renderer 仅通过窄 preload IPC 访问桌面适配器。独立适配器使用 
 
 macOS 安装包将后台放在独立应用身份的 `AReaL Harness Service.app` 中，前台退出后 Finder 重开只启动前台并复用原后台与 Core；后台通知使用主应用入口打开界面。前后台共享同一安装包资源、配置、凭据名称和数据目录。`verify` 包含身份与路径回归；指定 `AREAL_GUI_EXECUTABLE` 运行 `node --test clients/gui/scripts/macos-service.test.mjs` 可额外检查包内后台入口的真实启动与安全停止，Finder 重开仍需原生安装验收。
 
+普通重开 GUI 使用连接身份检查，Core 和 Runtime 在原路径重新构建或修改文件时间不要求替换运行中的后台。适配器源码、程序路径和启动配置仍参与连接身份。已经运行的 Core 在显式安全重启后采用新二进制。旧版身份或配置不匹配时，启动恢复可选择“继续使用原后台”，接回原实例并恢复权威快照，不取消任务、不重放请求。此选择保留后台原有的配置、沙箱和权限，本次新的启动配置尚未应用。旧后台尚未按新身份规则重启时，后续重开可能仍需此选择。协议不受支持或快照无效时拒绝接入；实例在确认后变化时重新核对。
+
+`AREAL_CORE_BIN=/absolute/path/to/private/.local/dev-bin/<slot>/areal pnpm --dir clients/gui run test:service-reopen` 使用私有固定产物验证隔离 Electron 的关闭与重开，保持同 Desktop PID、Core generation 和活动 Turn，原模型流继续且无重复请求。脚本仅修改该私有副本的时间，并在清理时恢复。`AREAL_REOPEN_REPLACEMENT_BIN` 可指定另一份 Core 构建以验证原路径内容替换；`AREAL_REOPEN_LEGACY=1` 使用修复前的真实 adapter 源码验证明确接回旧后台。原生目录选择和恢复确认由 fixture 应答，不代表安装包或真实供应商验收。
+
 Core 观察连接意外关闭时，项目连接所有者以 500ms 起步、最长 30s 的退避重试，通过 `service status --instance` 发现兼容的运行中实例，并用原子 `areal/thread/observe` 恢复 Thread/Task 快照、订阅和通知基线。观察恢复不重绑工具宿主；用户显式认领原生页时，才读取权威状态并在 Thread 空闲时尝试 `thread/resume` 绑定，仍受 Core 宿主冲突检查约束。恢复不重新提交任务、不同步 Provider/MCP 配置，也不执行配置 revision 屏障。旧连接的消息与异步结果失去投影写入资格。显式停止、适配器关闭、停止中的 Core 或部署指纹不兼容会阻止自动恢复；重新连接需显式操作。
 
 桌面命令名、作用域、入口参数外形与错误字段由 `@areal/workbench/desktop-contract` 共享；会话配置具有具体参数类型，其他命令仍依赖运行时作用域校验。Main 保留 IPC 来源验证。嵌套配置和执行规则归 Core；字符串或数字 `code`、`submissionUnknown`、`requestId` 穿过适配器和 Main，供界面核对未知结果。
