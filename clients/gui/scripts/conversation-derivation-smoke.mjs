@@ -231,28 +231,52 @@ async function send(text, threadId) {
   return { threadId: activeId, turnId: turns.at(-1).id };
 }
 async function stopService(env) {
-  // 优先显式停止 Core；失败时只终止此隔离目录注册的服务。
+  const { ServiceConnection, waitForServiceProcessExit } = require(join(desktop, "src/core/service-client.cjs"));
+  const { executeCore } = require(join(desktop, "src/core/core-process.cjs"));
+  const service = async args => JSON.parse((await executeCore(binary, ["service", ...args, "--json"], {
+    env: { ...env, AREAL_HARNESS_SERVICE_HOME: serviceRegistry }, timeout: 30000,
+  })).stdout);
+  const cleanup = { registry: serviceRegistry, stopped: false, instances: [], errors: [] };
+  events.push({ serviceCleanup: cleanup });
+  let metadata;
   try {
-    const metadata = JSON.parse(await readFile(join(scratch, "core/service.json"), "utf8"));
-    const { ServiceConnection } = require(join(desktop, "src/core/service-client.cjs"));
+    metadata = JSON.parse(await readFile(join(scratch, "core/service.json"), "utf8"));
+  } catch (error) { if (error.code !== "ENOENT") cleanup.errors.push(error.message); }
+  if (metadata) try {
     const connection = new ServiceConnection();
     try {
       await connection.connect(metadata);
-      await connection.request("stopService", { protocol: "areal.desktop-service.v1" }, true);
-      checks.push("isolated Core service stopped");
-      return;
+      await connection.request("hello", { protocol: metadata.protocol, identity: metadata.identity });
+      const result = await connection.request("stopService", { protocol: metadata.protocol }, true);
+      assert.equal(result.stopped, true, "desktop service stop must be confirmed");
     } finally { connection.close(); }
-  } catch (error) { events.push({ cleanupStopError: error.message }); }
+  } catch (error) { cleanup.errors.push(error.message); }
   try {
-    const instances = JSON.parse(execFileSync(binary, ["service", "list", "--json"], { env, encoding: "utf8", timeout: 30000 }));
-    for (const instance of instances) if (instance.workspace === workspace && instance.state !== "stopped") {
-      execFileSync(binary, ["service", "stop", "--instance", instance.serviceId, "--cancel", "--json"], { env, timeout: 30000, stdio: "pipe" });
+    const instances = await service(["list"]);
+    assert.ok(Array.isArray(instances), "isolated service list must be an array");
+    for (const instance of instances) if (instance.state !== "stopped") {
+      try {
+        const stopped = await service(["stop", "--instance", instance.serviceId,
+          "--expected-generation", instance.generation, "--cancel"]);
+        assert.equal(stopped.state, "stopped", `service ${instance.serviceId} stop must be confirmed`);
+      } catch (error) { cleanup.errors.push(`${instance.serviceId}: ${error.message}`); }
     }
-  } catch (error) { events.push({ cleanupCliError: error.message }); }
-  try {
-    const metadata = JSON.parse(await readFile(join(scratch, "core/service.json"), "utf8"));
-    if (Number.isInteger(metadata.pid)) process.kill(metadata.pid, "SIGTERM");
-  } catch {}
+    const remaining = await service(["list"]);
+    assert.ok(Array.isArray(remaining), "isolated service confirmation must be an array");
+    cleanup.instances = remaining.map(({ serviceId, generation, workspace, state }) => ({ serviceId, generation, workspace, state }));
+    assert.ok(remaining.every(instance => instance.state === "stopped"), "isolated registry still has live or unconfirmed services");
+  } catch (error) { cleanup.errors.push(error.message); }
+  if (metadata) try {
+    await waitForServiceProcessExit(join(scratch, "core"), metadata);
+    try {
+      await readFile(join(scratch, "core/service.json"), "utf8");
+      throw Error("desktop service metadata remains after stop");
+    } catch (error) { if (error.code !== "ENOENT") throw error; }
+  } catch (error) { cleanup.errors.push(error.message); }
+  if (cleanup.errors.length) throw Error(`isolated service cleanup not confirmed: ${cleanup.errors.join("; ")}`);
+  cleanup.stopped = true;
+  checks.push("isolated desktop service exited and all registry Core services stopped, including projectless");
+  return cleanup;
 }
 
 console.log("GUI evidence:", scratch);
@@ -1056,9 +1080,17 @@ try {
       try { app.process()?.kill("SIGTERM"); } catch {}
     }
   }
-  await stopService(env);
-  await cp(serviceRegistry, join(scratch, "service-registry"), { recursive: true }).catch(error => events.push({ registryEvidenceCopyError: error.message }));
-  await rm(serviceRegistry, { recursive: true, force: true });
+  try {
+    await stopService(env);
+    await cp(serviceRegistry, join(scratch, "service-registry"), { recursive: true });
+    await rm(serviceRegistry, { recursive: true, force: true });
+  } catch (error) {
+    events.push({ cleanupFailed: error.message, retainedRegistry: serviceRegistry });
+    failure ??= error.stack ?? String(error);
+    passed = false;
+    process.exitCode = 1;
+    await cp(serviceRegistry, join(scratch, "service-registry"), { recursive: true }).catch(copyError => events.push({ registryEvidenceCopyError: copyError.message }));
+  }
   if (server) {
     server.closeAllConnections();
     await new Promise(resolve => server.close(resolve));
