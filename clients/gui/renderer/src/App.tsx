@@ -454,6 +454,7 @@ function AppContent({ services }: { services: PlatformServices }) {
         // message or upload dialog. A global banner would follow a task switch.
         if (!["providers", "chatgpt"].includes(name) && !(name === "respond" && params.answers)
           && name !== "media"
+          && !(name === "feedback" && params.operation === "status")
           && !(name === "manage" && params.operation === "goalCreate")) setError(err.message);
         throw e;
       }
