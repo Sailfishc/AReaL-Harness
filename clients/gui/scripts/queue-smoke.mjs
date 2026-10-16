@@ -210,6 +210,19 @@ try {
   await page.getByRole("menuitem", { name: "新建项目", exact: true }).click();
   await until((s) => project(s)?.state?.connected, "project ready");
   const pid = project(await state()).id;
+  const selectFixtureProfile = async () => {
+    await page.waitForFunction((id) => {
+      const workbench = document.querySelector('[data-testid="areal-workbench"]');
+      return workbench?.dataset.projectId === id && !workbench.dataset.threadId;
+    }, pid);
+    assert(project(await state()).profiles.some((p) => p.id === "standard" && p.revision === "v1"));
+    await page.evaluate((id) => {
+      const key = `areal-gui:draft:${id}:new`;
+      localStorage.setItem(`${key}:profile`, JSON.stringify({ id: "standard", revision: "v1" }));
+      window.dispatchEvent(new CustomEvent("areal-draft-change", { detail: key }));
+    }, pid);
+  };
+  await selectFixtureProfile();
   await call("manage", {
     projectId: pid,
     operation: "providerSave",
@@ -238,6 +251,8 @@ try {
     "held active turn",
   );
   const tid = await page.getByTestId("areal-workbench").getAttribute("data-thread-id");
+  assert.equal(project(await state()).configurations[tid].profile.id, "standard");
+  assert.equal(project(await state()).configurations[tid].profile.revision, "v1");
   const key = `areal-gui:draft:${pid}:${tid}`;
   const queue = (s) => project(s).state.queues[tid];
   const pending = (s) => queue(s).items.filter((i) => i.status === "pending");

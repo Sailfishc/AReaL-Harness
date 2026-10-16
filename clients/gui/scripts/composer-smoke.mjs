@@ -209,6 +209,19 @@ try {
   await page.getByRole("menuitem", { name: "新建项目", exact: true }).click();
   await until((s) => project(s)?.state?.connected, "project ready");
   const pid = project(await state()).id;
+  const selectFixtureProfile = async () => {
+    await page.waitForFunction((id) => {
+      const workbench = document.querySelector('[data-testid="areal-workbench"]');
+      return workbench?.dataset.projectId === id && !workbench.dataset.threadId;
+    }, pid);
+    assert(project(await state()).profiles.some((p) => p.id === "standard" && p.revision === "v1"));
+    await page.evaluate((id) => {
+      const key = `areal-gui:draft:${id}:new`;
+      localStorage.setItem(`${key}:profile`, JSON.stringify({ id: "standard", revision: "v1" }));
+      window.dispatchEvent(new CustomEvent("areal-draft-change", { detail: key }));
+    }, pid);
+  };
+  await selectFixtureProfile();
   await call("manage", {
     projectId: pid,
     operation: "providerSave",
@@ -489,6 +502,8 @@ try {
   await slider.press("Escape");
   await sendAndWait();
   const tid = await page.locator("[data-testid=areal-workbench]").getAttribute("data-thread-id");
+  assert.equal(project(await state()).configurations[tid].profile.id, "standard");
+  assert.equal(project(await state()).configurations[tid].profile.revision, "v1");
   const current = (s) => project(s).state.threads[tid];
   const sentBody = received.at(-1);
   assert.equal(sentBody.model, "fixture-alt");
@@ -516,6 +531,7 @@ try {
         !document.querySelector('[data-testid="areal-workbench"]')?.dataset.threadId,
       );
       await input().waitFor();
+      await selectFixtureProfile();
     }
     let pasteTid = newDraft ? null : tid;
     const pasteThread = (s) => project(s).state.threads[pasteTid];
@@ -724,6 +740,7 @@ try {
   checks.push("existing Composer inline Goal toggle; model effort configuration and request");
   // 新目标只消费目标正文；技能和文件留在新聊天。
   await button("新聊天").click();
+  await selectFixtureProfile();
   await chooseFirst();
   await page.locator("input[type=file]").setInputFiles({
     name: "goal-note.txt",

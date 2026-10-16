@@ -312,6 +312,19 @@ try {
   await page.getByRole("menuitem", { name: "新建项目", exact: true }).click();
   await until((s) => project(s)?.state?.connected, "project ready");
   const pid = project(await state()).id;
+  const selectFixtureProfile = async () => {
+    await page.waitForFunction((id) => {
+      const workbench = document.querySelector('[data-testid="areal-workbench"]');
+      return workbench?.dataset.projectId === id && !workbench.dataset.threadId;
+    }, pid);
+    assert(project(await state()).profiles.some((p) => p.id === "standard" && p.revision === "v1"));
+    await page.evaluate((id) => {
+      const key = `areal-gui:draft:${id}:new`;
+      localStorage.setItem(`${key}:profile`, JSON.stringify({ id: "standard", revision: "v1" }));
+      window.dispatchEvent(new CustomEvent("areal-draft-change", { detail: key }));
+    }, pid);
+  };
+  await selectFixtureProfile();
   const input = () => page.locator("[data-testid=chat-input]");
   const turnCountOf = (s) =>
     Object.values(project(s).state.threads).reduce((n, t) => n + (t.turns?.length ?? 0), 0);
@@ -340,6 +353,8 @@ try {
   );
   await page.waitForFunction(() => !document.querySelector(".error-banner"));
   const tid = await page.locator("[data-testid=areal-workbench]").getAttribute("data-thread-id");
+  assert.equal(project(await state()).configurations[tid].profile.id, "standard");
+  assert.equal(project(await state()).configurations[tid].profile.revision, "v1");
   const current = (s) => project(s).state.threads[tid];
   assert.ok(tid);
   await shot("02-conversation");
