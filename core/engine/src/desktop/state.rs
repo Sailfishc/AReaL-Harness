@@ -904,12 +904,14 @@ impl Engine {
                 return Err(invalid("invalid client option budget"));
             }
             if let Some(names) = &o.tool_allowlist {
-                let registry = cell.bindings.read().await;
                 if names.len() > 128 {
                     return Err(invalid("tool allowlist exceeds budget"));
                 }
+                let registry = engine
+                    .managed_registry(&state.thread, cell.research)
+                    .map_err(invalid)?;
                 for name in names {
-                    registry.registry.get(name).map_err(invalid)?;
+                    registry.get(name).map_err(invalid)?;
                     if configuration
                         .tool_allowlist
                         .as_ref()
