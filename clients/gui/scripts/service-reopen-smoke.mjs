@@ -6,7 +6,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'nod
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 
 const script = fileURLToPath(import.meta.url);
 const gui = resolve(dirname(script), '..');
@@ -58,7 +58,7 @@ const binaryStage = join(dirname(binary), `.reopen-stage-${basename(scratch)}`);
 const home = join(scratch, 'core'), workspace = join(scratch, 'workspace'), registry = join(scratch, 'registry');
 const observations = {}, checks = [], errors = [], requests = [], held = new Set();
 const cleanup = { guiClosed: false, serviceStopped: false, binaryContentsRestored: false, binaryTimestampRestored: false };
-let app, page, projectId, threadId, turnId, passed = false, phase = 'setup';
+let app, page, projectId, threadId, turnId, legacyChild, passed = false, phase = 'setup';
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const until = async (predicate, label, timeout = 60000) => {
   const deadline = Date.now() + timeout;
@@ -154,7 +154,7 @@ function checkDialogs(seen) {
 async function launch(label) {
   phase = label;
   app = await electron.launch({ executablePath: process.env.AREAL_ELECTRON_EXECUTABLE || require('electron'), args: [testApp],
-    env: { ...env, AREAL_REOPEN_PHASE: label, AREAL_REOPEN_MAIN: label === 'initial' ? initialMain : currentMain }, timeout: 120000 });
+    env: { ...env, AREAL_REOPEN_PHASE: label, AREAL_REOPEN_MAIN: currentMain }, timeout: 120000 });
   observations[`${label}GuiPid`] = app.process().pid;
   app.process().stdout?.on('data', chunk => appendFileSync(join(scratch, `${label}-stdout.log`), chunk));
   app.process().stderr?.on('data', chunk => appendFileSync(join(scratch, `${label}-stderr.log`), chunk));
@@ -219,6 +219,23 @@ async function seedLegacyCommand(name, request) {
 }
 console.log('Service reopen evidence:', scratch);
 try {
+  if (legacy) {
+    legacyChild = spawn(process.env.AREAL_ELECTRON_EXECUTABLE || require('electron'), [testApp, '--areal-core-service'], {
+      env: { ...env, AREAL_REOPEN_PHASE: 'legacy-service', AREAL_REOPEN_MAIN: initialMain },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    legacyChild.stdout.on('data', chunk => appendFileSync(join(scratch, 'legacy-service-stdout.log'), chunk));
+    legacyChild.stderr.on('data', chunk => appendFileSync(join(scratch, 'legacy-service-stderr.log'), chunk));
+    let launchError;
+    legacyChild.once('error', error => { launchError = error; });
+    await until(async () => {
+      if (launchError) throw launchError;
+      if (legacyChild.exitCode !== null) throw new Error(`legacy service exited ${legacyChild.exitCode}`);
+      try { return JSON.parse(await readFile(join(home, 'service.json'), 'utf8')); }
+      catch (error) { if (error.code === 'ENOENT') return false; throw error; }
+    }, 'historical Desktop ready before the current GUI attaches');
+    observations.legacyServicePid = legacyChild.pid;
+  }
   await launch('initial');
   await app.evaluate(({ dialog }, path) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] }); }, workspace);
   await page.evaluate(() => window.arealDesktop.chooseProject());
@@ -314,11 +331,15 @@ try {
   if (legacy) {
     observations.desktopCapabilities = (await state()).desktopCapabilities;
     assert.equal(observations.desktopCapabilities?.currentCommands, false, 'unadvertised legacy service cannot claim current command semantics');
+    await page.getByTestId('chat-input').fill('LEGACY_DRAFT_RETAINED');
+    assert.equal(await page.getByTestId('chat-input').isEditable(), true, 'legacy observation keeps draft editing available');
+    assert.equal(await page.getByTestId('chat-send-button').isDisabled(), true, 'legacy GUI disables unsupported submission');
     const rejected = await page.evaluate(({ projectId, threadId }) => window.arealDesktop.command('send', { projectId, threadId, text: 'MUST_NOT_REACH_LEGACY_MODEL' }), { projectId, threadId });
     assert.equal(rejected.ok, false);
     assert.equal(rejected.error.code, 'SERVICE_COMMAND_UNSUPPORTED');
     assert.equal(rejected.error.submissionUnknown, undefined, 'unsupported send is rejected before submission');
     assert.equal(requests.length, 2, 'rejected unsupported send never reaches the original model');
+    assert.equal(await page.getByTestId('chat-input').innerText(), 'LEGACY_DRAFT_RETAINED', 'known rejection preserves the editable draft');
   }
   assert.equal(await page.getByRole('button', { name: '点赞', exact: true }).count(), 0, 'unavailable feedback keeps its entry hidden');
   observations.reopenErrors = await page.locator('.error-banner').allTextContents();
@@ -352,6 +373,7 @@ try {
   await page.getByText('已连接运行中的后台，沿用其原有启动配置。新的启动配置需安全停止后台并重新连接后生效。', { exact: true }).waitFor();
   await until(async () => project(await state())?.state?.connected && turn(await state())?.id === turnId,
     'original Thread restored automatically after the second reopen');
+  if (legacy) assert.equal(await page.getByTestId('chat-input').innerText(), 'LEGACY_DRAFT_RETAINED', 'second reopen retains the draft without replay');
   observations.secondAfter = await inspectService();
   assert.deepEqual(observations.secondAfter.desktop, observations.before.desktop, 'second reopen must attach to the original Desktop');
   assert.deepEqual(observations.secondAfter.core, observations.before.core, 'second reopen must keep the original Core generation');
@@ -409,6 +431,7 @@ try {
     await until(async () => !(await lifecycle.observe()).blockers.length, 'owned service cleanup admission');
     const result = await lifecycle.stop({ mode: 'cancel' });
     assert.equal(result.kind, 'exited');
+    if (legacyChild) await until(() => !alive(legacyChild.pid), 'owned historical Desktop process exit', 15000);
     cleanup.serviceStopped = true;
   } catch (error) {
     if (error.code === 'ENOENT') cleanup.serviceStopped = true;

@@ -331,7 +331,7 @@ async function manageTaskDraft(backend, project, request) {
         options: { readOnly: true, toolAllowlist: [],
         maxModelRounds: 1, systemPrompt: instructions(zone, !!target),
         appendInstructions: `${marker}\nTime zone: ${zone}\n${workspaceContext(project, thread.cwd)}\nCurrent civil time: ${now.iso} (${now.chinese})\nUse this civil calendar for Chinese dates. schedule.at may be YYYY-MM-DDTHH:mm:ss without an offset; the host resolves that form in this time zone.${currentTask ? `\n${targetPrefix}${JSON.stringify(targetContext(currentTask))}` : ''}`} });
-      const result = await backend.submit(project, 'areal/turn/start', { threadId, input });
+      const result = await backend.submit(project, 'areal/turn/start', { threadId, input }, { requestId: request.requestId });
       return { threadId, turnId: result.turn?.id ?? result.turnId };
     }
     if (operation !== 'taskDraftConfirm') throw new Error('不支持的任务配置操作');

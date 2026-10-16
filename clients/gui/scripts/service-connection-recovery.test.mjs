@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createRequire } from 'node:module';
-import { mkdtemp, writeFile, rm, realpath } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, rm, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { once } from 'node:events';
 
 const require = createRequire(import.meta.url);
+const { CoreBackend } = require('../app/src/core/backend.cjs');
 const { SharedCoreBackend } = require('../app/src/core/service-client.cjs');
 const { PROTOCOL } = require('../app/src/core/service-protocol.cjs');
 const { WebSocketServer } = require('../app/node_modules/ws');
@@ -68,6 +69,86 @@ async function fixture(t, { commandContract = 'areal.desktop-commands.v1', comma
       for (const socket of server.clients) socket.send(JSON.stringify({ method: 'state', params }));
     },
     setStop: value => { stop = value; } };
+}
+
+async function journalFixture(t) {
+  const home = await realpath(await mkdtemp(join(tmpdir(), 'areal-correlated-receipt-')));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const calls = [];
+  const reload = async () => {
+    const backend = new CoreBackend({ binary: process.execPath, home });
+    backend.saved = [{ id: 'p', root: home }];
+    const project = await backend.loadProjectJournal('p');
+    project.client = { ready: true, request: async (method, params) => {
+      calls.push({ method, params });
+      if (['thread/list', 'areal/request/read'].includes(method)) return { data: [] };
+      assert.ok(['areal/turn/start', 'areal/turn/enqueue'].includes(method), `unexpected Core request ${method}`);
+      return { turn: { id: 'accepted-turn' } };
+    } };
+    return { backend, project };
+  };
+  return { home, calls, reload, ...await reload() };
+}
+
+for (const method of ['areal/turn/start', 'areal/turn/enqueue']) {
+  test(`caller-correlated ${method} survives a lost outer response and journal reload`, async t => {
+    const f = await journalFixture(t);
+    const requestId = 'f12a0dbc-3375-43f8-a3f1-36f204ed4e8a';
+    const parameters = { threadId: 't', input: [{ type: 'text', text: 'send once' }] };
+    await assert.rejects(async () => {
+      await f.backend.submit(f.project, method, parameters, { requestId });
+      throw Object.assign(Error('outer response lost'), { submissionUnknown: true, requestId });
+    }, error => error.submissionUnknown === true && error.requestId === requestId);
+    assert.deepEqual(JSON.parse(await readFile(join(f.home, 'p-outcomes.json'), 'utf8')), {
+      [requestId]: { accepted: true, method, threadId: 't' },
+    });
+    assert.deepEqual(JSON.parse(await readFile(join(f.home, 'p-pending.json'), 'utf8')), []);
+    const recovered = await f.reload();
+    assert.deepEqual(await recovered.backend.command('reconcile', { projectId: 'p' }), {
+      outcomes: { [requestId]: { accepted: true, method, threadId: 't' } },
+    });
+    assert.deepEqual(f.calls, [
+      { method, params: { ...parameters, requestId } },
+      { method: 'thread/list', params: { limit: 100 } },
+    ]);
+  });
+
+  test(`caller-correlated ${method} keeps its unknown journal when acceptance cannot persist`, async t => {
+    const f = await journalFixture(t);
+    const requestId = 'f12a0dbc-3375-43f8-a3f1-36f204ed4e8a';
+    const parameters = { threadId: 't', input: [{ type: 'text', text: 'send once' }] };
+    await mkdir(join(f.home, 'p-outcomes.json'));
+    await assert.rejects(f.backend.submit(f.project, method, parameters, { requestId }), error => {
+      assert.equal(error.submissionUnknown, true);
+      assert.equal(error.requestId, requestId);
+      return true;
+    });
+    assert.deepEqual(JSON.parse(await readFile(join(f.home, 'p-pending.json'), 'utf8')), [
+      { method, params: { ...parameters, requestId } },
+    ]);
+    await rm(join(f.home, 'p-outcomes.json'), { recursive: true });
+    const recovered = await f.reload();
+    assert.deepEqual(await recovered.backend.command('reconcile', { projectId: 'p' }), { outcomes: {} });
+    assert.deepEqual(JSON.parse(await readFile(join(f.home, 'p-pending.json'), 'utf8')), [
+      { method, params: { ...parameters, requestId } },
+    ]);
+    assert.deepEqual(f.calls, [
+      { method, params: { ...parameters, requestId } },
+      { method: 'areal/request/read', params: { requestId, threadId: 't' } },
+      { method: 'thread/list', params: { limit: 100 } },
+    ]);
+  });
+
+  test(`uncorrelated ${method} does not retain a generated acceptance receipt`, async t => {
+    const f = await journalFixture(t);
+    const parameters = { threadId: 't', input: [{ type: 'text', text: 'send once' }] };
+    assert.deepEqual(await f.backend.submit(f.project, method, parameters), { turn: { id: 'accepted-turn' } });
+    assert.deepEqual(JSON.parse(await readFile(join(f.home, 'p-pending.json'), 'utf8')), []);
+    await assert.rejects(readFile(join(f.home, 'p-outcomes.json'), 'utf8'), { code: 'ENOENT' });
+    assert.equal(f.calls.length, 1);
+    assert.equal(f.calls[0].method, method);
+    assert.deepEqual(f.calls[0].params.input, [{ type: 'text', text: 'send once' }]);
+  });
 }
 
 test('public command availability comes only from the current service contract', async t => {

@@ -6,6 +6,7 @@ const { validateCommand: validateDesktopCommand, desktopError } = require('@area
 const { inspectResources, recoverResource, summary, blocked } = require('./resource-recovery.cjs');
 const { validToolInput, failure: browserFailure, success: browserSuccess } = require('./browser-tool.cjs');
 const PROTOCOL = 'areal.desktop-service.v1';
+const COMMAND_CONTRACT = 'areal.desktop-commands.v1';
 const browserKey = (projectId, threadId) => JSON.stringify([projectId, threadId]);
 function validateCommand(name, params) {
   validateDesktopCommand(name, params, { serviceOnly: true });
@@ -61,7 +62,7 @@ class DesktopService {
   }
   packet() {
     return { sequence: ++this.sequence, snapshot: this.backend.snapshot(), service: {
-      connected: true, cancelStop: true, clients: this.clients.size, busy: this.backend.hasWork({ includePausedQueues: false }),
+      connected: true, commandContract: COMMAND_CONTRACT, cancelStop: true, clients: this.clients.size, busy: this.backend.hasWork({ includePausedQueues: false }),
       activeCommands: this.inflight, providerUpdating: !!this.backend.providerUpdating,
       starting: this.backend.starting.size, pid: process.pid, lifecycleVersion: 1, stopReport: this.stopReport ?? null,
       targets: [...this.backend.projects].map(([projectId, p]) => ({ projectId, serviceId: p.service?.serviceId ?? null, generation: p.service?.generation ?? null })),
@@ -587,4 +588,4 @@ class DesktopService {
     return browserSuccess(result);
   }
 }
-module.exports = { PROTOCOL, DesktopService, validateCommand, encodeMedia, decodeMedia };
+module.exports = { PROTOCOL, COMMAND_CONTRACT, DesktopService, validateCommand, encodeMedia, decodeMedia };

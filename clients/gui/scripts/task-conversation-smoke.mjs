@@ -243,7 +243,8 @@ try{
  if(loadingRegression){await checkLoadingRegression();passed=true;}else{
  await page.getByRole('button',{name:'设置',exact:true}).click();
  await page.getByRole('button',{name:'外观',exact:true}).click();
- await page.getByRole('button',{name:'浅色',exact:true}).click();
+ await page.getByRole('combobox',{name:'界面主题',exact:true}).click();
+ await page.getByRole('option',{name:'浅色',exact:true}).click();
  await until(()=>page.locator('html').evaluate(el=>el.classList.contains('theme-areal-light')&&!el.classList.contains('dark')),'light theme');
  await page.getByRole('button',{name:'定时任务',exact:true}).click();
  assert.equal(await page.getByLabel('筛选任务归属',{exact:true}).count(),0,'task directory has no workspace filter');
@@ -389,7 +390,8 @@ try{
  await page.screenshot({path:join(scratch,'task-detail-light.png')});
  await page.getByRole('button',{name:'设置',exact:true}).click();
  await page.getByRole('button',{name:'外观',exact:true}).click();
- await page.getByRole('button',{name:'深色',exact:true}).click();
+ await page.getByRole('combobox',{name:'界面主题',exact:true}).click();
+ await page.getByRole('option',{name:'深色',exact:true}).click();
  await until(()=>page.locator('html').evaluate(el=>el.classList.contains('dark')),'dark theme');
  await page.getByRole('button',{name:'定时任务',exact:true}).click();
  await resources.click();await page.getByLabel('定时任务安排').waitFor();

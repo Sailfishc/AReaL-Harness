@@ -124,6 +124,7 @@ export function Composer({
   const queueEditor = useComposerQueueEdit({ project, threadId: thread.id, draftKey: key, action, readAction, api, draftFiles: attachmentDrafts,
     setText, setFiles, setGoalMode, inFlight: busy, setInFlight: active => markSending(key, active), uploadFiles: selected => uploadComposerFiles(action, project.id, thread.id, selected) });
   const disabled = baseDisabled || queueEditor.busy || queueEditor.locked;
+  const desktopUnsupported = project.desktopCapabilities?.currentCommands === false;
   const stop = () => { void action("stop", { projectId: project.id, threadId: thread.id }).catch(() => {}); };
   const config = project.configurations?.[thread.id];
   const [mcpOpen, setMcpOpen] = useState(false);
@@ -197,6 +198,7 @@ export function Composer({
     if (thread.goals?.goal && goalMode) changeGoalMode(false);
   }, [thread.goals?.goal?.id]);
   const submit = async (value: string, invert = false, approvePlan = false) => {
+    if (desktopUnsupported && !creatingGoal && !queueEditor.edit) return;
     const submittedInput = composerInput(value, files);
     const sideCommand = /^\/side(?:\s|$)/i.exec(submittedInput.text);
     if (sideCommand && (!onSide || submittedInput.files.length)) {
@@ -255,7 +257,7 @@ export function Composer({
     }
   };
   const continueExecution = async () => {
-    if (!canContinue || disabled || sending.has(key)) return;
+    if (desktopUnsupported || !canContinue || disabled || sending.has(key)) return;
     markSending(key, true); setDeliveryError("");
     try {
       await action("continue", { projectId: project.id, threadId: thread.id, expectedTurnId: interrupted.id, expectedConfigRevision: config?.revision });
@@ -317,6 +319,7 @@ export function Composer({
         }}
       />
       {deliveryError && <p role="alert" className="notice">{deliveryError}</p>}
+      {desktopUnsupported && <p role="status" className="notice">升级后台后可发送新消息或继续执行。草稿已保留，现有任务可继续管理。</p>}
       {unknown && (
         <div role="status" className="notice">
           提交结果尚未确认。草稿已保留，等待 Core 对账；不会自动重发。
@@ -329,7 +332,7 @@ export function Composer({
       )}
       {planReady && !queueEditor.edit && <section className="flex items-center justify-between gap-3 px-3 py-2 text-ui-sm" aria-label="计划确认">
         <span className="text-foreground-subtle">计划已完成。批准后将以自动编辑模式执行。</span>
-        <Button size="sm" disabled={disabled || !!input.text.trim() || !!input.files.length || !!comments.length} onClick={() => void submit("按上方已确认的计划执行。", false, true)}>批准并执行</Button>
+        <Button size="sm" disabled={disabled || desktopUnsupported || !!input.text.trim() || !!input.files.length || !!comments.length} onClick={() => void submit("按上方已确认的计划执行。", false, true)}>批准并执行</Button>
       </section>}
       <div className="composer-input-stack">
       <div ref={setMenuAnchor} className="composer-menu-anchor" />
@@ -373,7 +376,7 @@ export function Composer({
         submitTestId="chat-send-button"
         placeholder={archived ? "已归档任务只读" : creatingGoal ? "描述目标，明确可衡量的结果" : planActive ? "描述任务，生成计划…" : "随心输入"}
         disabled={disabled}
-        submitDisabled={disabled || (taskManagement && !!running) || annotationEditing || invalidAnnotation || (queueEditor.edit ? queueEditor.saveDisabled || (!input.text.trim() && !input.files.length && !queueEditor.edit.attachments.length) : creatingGoal ? !input.text.trim() || !!running : !canContinue && emptyDraft)}
+        submitDisabled={disabled || (desktopUnsupported && !queueEditor.edit && !creatingGoal) || (taskManagement && !!running) || annotationEditing || invalidAnnotation || (queueEditor.edit ? queueEditor.saveDisabled || (!input.text.trim() && !input.files.length && !queueEditor.edit.attachments.length) : creatingGoal ? !input.text.trim() || !!running : !canContinue && emptyDraft)}
         submitting={busy}
         submitLabel={queueEditor.edit ? "保存排队消息" : creatingGoal ? "开始目标" : canContinue ? "继续执行" : "发送"}
         enterSubmits={prefs.sendShortcut === "enter"}
@@ -462,7 +465,7 @@ export function Composer({
         ) : running ? (
           <ControlHintTooltip title="发送" shortcut={prefs.sendShortcut === "enter" ? "Enter" : "⌘/Ctrl+Enter"}>
             <Button type="button" variant="composer" size="icon-md" aria-label="发送" data-testid="chat-send-button"
-              disabled={disabled || taskManagement || (!input.text.trim() && !input.files.length && !comments.length && !skills.selected.length && !mcpDraft.length)}
+              disabled={disabled || desktopUnsupported || taskManagement || (!input.text.trim() && !input.files.length && !comments.length && !skills.selected.length && !mcpDraft.length)}
               onClick={event => void submit(api.current?.getMarkdown() ?? text, event.metaKey || event.ctrlKey)}>
               <SendMessageIcon className="size-5" />
             </Button>
@@ -470,7 +473,7 @@ export function Composer({
         ) : canContinue ? (
           <ControlHintTooltip title="继续执行">
             <Button type="button" variant="composer" size="icon-md" aria-label="继续执行" data-testid="chat-continue-button"
-              disabled={disabled} className="composer-primary-action" onClick={() => void continueExecution()}>
+              disabled={disabled || desktopUnsupported} className="composer-primary-action" onClick={() => void continueExecution()}>
               <ContinueExecutionIcon className="size-5" />
             </Button>
           </ControlHintTooltip>

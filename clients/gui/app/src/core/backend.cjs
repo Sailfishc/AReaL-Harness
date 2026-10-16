@@ -982,7 +982,7 @@ class CoreBackend {
       }
       try {
         if (workgroupMutationMethods.has(method)) await this.rememberWorkgroupOutcome(project, entry, result);
-        if (method === 'areal/turn/submit') await this.changeOutcomes(project, outcomes => ({ ...outcomes, [params.requestId]: {
+        if (method === 'areal/turn/submit' || (requestId !== undefined && ['areal/turn/start', 'areal/turn/enqueue'].includes(method))) await this.changeOutcomes(project, outcomes => ({ ...outcomes, [params.requestId]: {
           accepted: true, method, threadId: params.threadId,
         } }));
         if (method === 'areal/agent/spawn') {
@@ -1380,7 +1380,7 @@ class CoreBackend {
         if (isTaskDraftConfiguration(project.configurations?.[threadId])) {
           const zone = project.configurations[threadId].options.appendInstructions.split('\n')[1].slice('Time zone: '.length);
           return manageTaskDraft(this, project, { operation: 'taskDraftSend', threadId, timeZone: zone,
-            text: request.text, attachments: request.attachments });
+            text: request.text, attachments: request.attachments, requestId: request.requestId });
         }
         await this.ensureBrowserTools(project, threadId);
         const input = messageInput(this, request);

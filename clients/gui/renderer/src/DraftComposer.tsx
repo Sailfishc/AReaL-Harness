@@ -99,6 +99,7 @@ export function DraftComposer({
     !!project.pending.length ||
     !!unknown || !!reviewDraft.error || unavailableProfile;
   const disabled = modelSelectionDisabled || !currentModel || currentModel.available === false;
+  const desktopUnsupported = project.desktopCapabilities?.currentCommands === false;
   const skills = useComposerSkills({ project, profile: chosenProfile, draftKey: key, action: readAction, disabled });
   useEffect(() => {
     attachmentDrafts.set(key, files);
@@ -143,13 +144,15 @@ export function DraftComposer({
   }, [unknown, project.pending.length, project.outcomes]);
   const submit = async (value: string) => {
     const submittedInput = composerInput(value, files);
-    if (disabled || sending.has(key) || (!submittedInput.text.trim() && !submittedInput.files.length && !comments.length && !skills.selected.length) || (goalMode && !submittedInput.text.trim())) return;
+    if ((desktopUnsupported && !goalMode) || disabled || sending.has(key) || (!submittedInput.text.trim() && !submittedInput.files.length && !comments.length && !skills.selected.length) || (goalMode && !submittedInput.text.trim())) return;
     markSending(key, true);
     setDraftError("");
     let targetKey: string | undefined;
     let creationAttempted = false;
     try {
       const owner = prepareProject ? await prepareProject() : project;
+      if (owner.desktopCapabilities?.currentCommands === false && !goalMode)
+        throw new Error("升级后台后可发送新消息，草稿已保留。");
       const profile = resolveDraftProfile(owner, profileSelection);
       if ((profileSelection || owner.defaultProfile) && !profile) throw new Error("当前任务配置不可用，输入已保留。");
       const chosenModel = owner.models.find((item: Data) => modelValue(item) === effectiveModel);
@@ -250,6 +253,7 @@ export function DraftComposer({
         <button onClick={() => { setProfileSelection(""); localStorage.removeItem(`${key}:profile`); }}>恢复默认配置</button>
       </div>}
       {project.root && !project.state?.connected && (project.error || project.state?.error) && <p role="alert" className="notice">连接不可用，输入已保留。{project.error || project.state?.error}</p>}
+      {desktopUnsupported && <p role="status" className="notice">升级后台后可发送新消息。草稿已保留，现有任务可继续管理。</p>}
       {draftError && <p role="alert" className="px-3 py-2 text-ui-sm text-destructive">{draftError}</p>}
       {reviewDraft.error && <p role="alert" className="px-3 py-2 text-ui-sm text-destructive">{reviewDraft.error}</p>}
       <div className="composer-input-stack">
@@ -265,7 +269,7 @@ export function DraftComposer({
         submitTestId="chat-send-button"
         placeholder={goalMode ? "描述目标，明确可衡量的结果" : plan ? "描述任务，生成计划…" : "随心输入"}
         disabled={disabled}
-        submitDisabled={disabled || (goalMode ? !input.text.trim() : !input.text.trim() && !input.files.length && !comments.length && !skills.selected.length)}
+        submitDisabled={disabled || (desktopUnsupported && !goalMode) || (goalMode ? !input.text.trim() : !input.text.trim() && !input.files.length && !comments.length && !skills.selected.length)}
         submitting={busy}
         submitLabel={goalMode ? "开始目标" : "发送"}
         enterSubmits={prefs.sendShortcut === "enter"}

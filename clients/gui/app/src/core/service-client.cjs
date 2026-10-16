@@ -5,11 +5,23 @@ const { randomUUID } = require('node:crypto');
 const { mkdir, readFile, realpath, open, writeFile, rename, rm } = require('node:fs/promises');
 const { join } = require('node:path');
 const WebSocket = require('ws');
-const { PROTOCOL, encodeMedia, decodeMedia } = require('./service-protocol.cjs');
+const { PROTOCOL, COMMAND_CONTRACT, encodeMedia, decodeMedia } = require('./service-protocol.cjs');
 const { serviceIdentity } = require('./service-config.cjs');
 const { inspectCoreCapabilities } = require('./core-capabilities.cjs');
 const { desktopExecutables } = require('./desktop-executables.cjs');
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+const currentCommands = new Set(['send', 'continue', 'prepareCreator', 'feedback']);
+const currentManagePrefixes = ['plugin', 'marketplace', 'mcpApp', 'mcpForm'];
+const currentManageOperations = new Set(['mcpExtensionCall', 'mcpToolResult', 'connectorConfigure', 'connectorCredential', 'hookAcknowledge']);
+
+function requiresCurrentCommands(name, request) {
+  return currentCommands.has(name)
+    || ['steer', 'queueEdit'].includes(name) && request.mcpContent?.length > 0
+    || name === 'trajectory' && request.operation === 'setEnabled'
+    || name === 'providers' && request.operation === 'defaultAndApply'
+    || name === 'manage' && (currentManageOperations.has(request.operation)
+      || currentManagePrefixes.some(prefix => request.operation?.startsWith(prefix)));
+}
 
 function validateServicePacket(packet, metadata) {
   const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -144,7 +156,12 @@ class SharedCoreBackend {
     const thread = this.saved.find(p => p.id === projectId)?.state?.threads?.[threadId];
     return !!thread && !thread.desktop?.archived;
   }
-  snapshot() { return { ...this.value, revision: ++this.revision, connection: this.connectionState }; }
+  snapshot() {
+    const desktopCapabilities = { currentCommands: this.status.commandContract === COMMAND_CONTRACT };
+    return { ...this.value, desktopCapabilities,
+      projects: this.value.projects.map(project => ({ ...project, desktopCapabilities })),
+      revision: ++this.revision, connection: this.connectionState };
+  }
   accept(packet, metadata = this.metadata) {
     if (this.disposed) return;
     validateServicePacket(packet, metadata);
@@ -370,6 +387,9 @@ class SharedCoreBackend {
     // not undo the user's stop action; in-flight commands are never replayed.
     if (name === 'connect') await this.init();
     if (!this.status.connected) throw new Error('后台尚未连接，请先处理后台连接提示');
+    if (this.status.commandContract !== COMMAND_CONTRACT && requiresCurrentCommands(name, request)) {
+      throw Object.assign(new Error('当前运行中的后台不支持此操作。现有任务继续运行，输入已保留；请在任务完成后安全停止后台并重新连接。'), { code: 'SERVICE_COMMAND_UNSUPPORTED' });
+    }
     // Only explicitly GUI-owned shells are tied to this GUI's lifetime. Model
     // tools and manually managed thread processes keep their Core lifetime.
     const ownedStart = name === 'manage' && request.operation === 'processStart' && request.guiOwned === true;

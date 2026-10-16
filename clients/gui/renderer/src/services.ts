@@ -8,6 +8,7 @@ export type FileOpenRequest = { operation: 'targets' } | { operation: 'setDefaul
     | { operation: 'open' | 'reveal' | 'saveAs'; projectId: string; path: string };
 export interface Snapshot {
     projects: Data[];
+    desktopCapabilities?: { currentCommands: boolean };
     power?: { enabled: boolean; active: boolean; error: string | null } | null;
     menuBar?: { supported: boolean; active: boolean; error: string | null } | null;
     projectless?: { directory: string };
