@@ -27,6 +27,9 @@ const originalStat = await lstat(binary);
 assert.ok(originalStat.isFile() && originalStat.nlink === 1, 'Core must be a regular private copy, not a hard link');
 const binarySha256 = sha(await readFile(binary));
 const legacy = process.env.AREAL_REOPEN_LEGACY === '1';
+const compatibilityAudit = process.env.AREAL_REOPEN_COMPAT_AUDIT === '1';
+const legacyRef = process.env.AREAL_REOPEN_LEGACY_REF || 'ed43b272';
+assert.ok(['ed43b272', '653c8156'].includes(legacyRef), 'use an audited historical Desktop revision');
 const replacement = process.env.AREAL_REOPEN_REPLACEMENT_BIN;
 assert.ok(!(legacy && replacement), 'run binary replacement and legacy-source migration separately');
 const scenario = legacy ? 'legacy' : replacement ? 'replacement' : 'mtime';
@@ -107,7 +110,7 @@ let initialMain = currentMain;
 if (legacy) {
   const legacyRoot = join(scratch, 'legacy-source');
   const archive = join(scratch, 'legacy-app.tar');
-  const commit = execFileSync('git', ['rev-parse', 'ed43b272'], { cwd: root, encoding: 'utf8' }).trim();
+  const commit = execFileSync('git', ['rev-parse', legacyRef], { cwd: root, encoding: 'utf8' }).trim();
   await mkdir(legacyRoot);
   execFileSync('git', ['archive', '--format=tar', '--output', archive, commit, 'clients/gui/app', 'clients/gui/packages/workbench'], { cwd: root });
   execFileSync('tar', ['-xf', archive, '-C', legacyRoot]);
@@ -205,21 +208,48 @@ async function inspectService() {
     };
   } finally { connection.close(); }
 }
+async function seedLegacyCommand(name, request) {
+  const metadata = JSON.parse(await readFile(join(home, 'service.json'), 'utf8'));
+  const connection = new ServiceConnection();
+  try {
+    await connection.connect(metadata);
+    await connection.request('hello', { protocol: metadata.protocol, identity: metadata.identity });
+    return await connection.request('command', { name, request }, true);
+  } finally { connection.close(); }
+}
 console.log('Service reopen evidence:', scratch);
 try {
   await launch('initial');
   await app.evaluate(({ dialog }, path) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] }); }, workspace);
   await page.evaluate(() => window.arealDesktop.chooseProject());
   projectId = (await until(async () => (await state()).projects.find(value => value.root === workspace && value.state?.connected), 'connected isolated project')).id;
-  await page.getByTestId('chat-input').fill('Complete this ordinary turn before the held task.');
-  await page.getByRole('button', { name: '发送', exact: true }).click();
-  threadId = await until(() => page.getByTestId('areal-workbench').getAttribute('data-thread-id'), 'created Thread identity');
+  if (legacy) {
+    ({ threadId } = await seedLegacyCommand('create', { projectId }));
+    await seedLegacyCommand('send', { projectId, threadId, text: 'Complete this ordinary turn before the held task.' });
+    await page.evaluate(({ projectId, threadId }) => localStorage.setItem(`areal-gui:thread:${projectId}`, threadId), { projectId, threadId });
+    await page.reload();
+    await page.getByTestId('areal-workbench').waitFor();
+  } else {
+    await page.getByTestId('chat-input').fill('Complete this ordinary turn before the held task.');
+    await page.getByRole('button', { name: '发送', exact: true }).click();
+    threadId = await until(() => page.getByTestId('areal-workbench').getAttribute('data-thread-id'), 'created Thread identity');
+  }
   await until(async () => requests.length === 1 && turn(await state())?.status === 'completed', 'completed ordinary turn');
   await page.getByText('LEGACY_COMPLETED_REPLY', { exact: true }).waitFor();
+  if (compatibilityAudit) {
+    const completed = turn(await state());
+    const item = completed.items.find(value => value.type === 'agentMessage' && value.phase === 'final_answer');
+    observations.savedFeedbackKey = `areal-feedback:${JSON.stringify([projectId, threadId, completed.id, item.id])}`;
+    await page.evaluate(key => localStorage.setItem(key, '00000000-0000-4000-8000-000000000001'), observations.savedFeedbackKey);
+  }
   checks.push('completed ordinary response is visible before the held Turn starts');
-  await page.getByTestId('chat-input').fill('Hold this task while I close and reopen the GUI.');
-  await page.getByRole('button', { name: '发送', exact: true }).click();
-  threadId = await until(() => page.getByTestId('areal-workbench').getAttribute('data-thread-id'), 'created Thread identity');
+  if (legacy) {
+    await seedLegacyCommand('send', { projectId, threadId, text: 'Hold this task while I close and reopen the GUI.' });
+  } else {
+    await page.getByTestId('chat-input').fill('Hold this task while I close and reopen the GUI.');
+    await page.getByRole('button', { name: '发送', exact: true }).click();
+    threadId = await until(() => page.getByTestId('areal-workbench').getAttribute('data-thread-id'), 'created Thread identity');
+  }
   await until(async () => requests.length === 2 && turn(await state())?.status === 'inProgress'
     && turn(await state()).items.some(item => item.type === 'agentMessage' && item.text === 'REOPEN_HELD'), 'original held streaming turn');
   turnId = turn(await state()).id;
@@ -281,8 +311,28 @@ try {
   assert.equal(observations.continued.turn.status, 'inProgress');
   assert.ok(observations.continued.turn.items.some(item => item.type === 'agentMessage' && item.text === 'REOPEN_HELD REOPEN_CONTINUED'),
     'authoritative original service receives the continuation from the original model stream');
+  if (legacy) {
+    observations.desktopCapabilities = (await state()).desktopCapabilities;
+    assert.equal(observations.desktopCapabilities?.currentCommands, false, 'unadvertised legacy service cannot claim current command semantics');
+    const rejected = await page.evaluate(({ projectId, threadId }) => window.arealDesktop.command('send', { projectId, threadId, text: 'MUST_NOT_REACH_LEGACY_MODEL' }), { projectId, threadId });
+    assert.equal(rejected.ok, false);
+    assert.equal(rejected.error.code, 'SERVICE_COMMAND_UNSUPPORTED');
+    assert.equal(rejected.error.submissionUnknown, undefined, 'unsupported send is rejected before submission');
+    assert.equal(requests.length, 2, 'rejected unsupported send never reaches the original model');
+  }
   assert.equal(await page.getByRole('button', { name: '点赞', exact: true }).count(), 0, 'unavailable feedback keeps its entry hidden');
   observations.reopenErrors = await page.locator('.error-banner').allTextContents();
+  if (compatibilityAudit) {
+    await page.getByRole('button', { name: '设置', exact: true }).click();
+    await page.getByRole('button', { name: /数据飞轮/ }).click();
+    observations.feedbackPreferenceDisabled = await page.getByRole('switch', { name: '显示点赞和点踩', exact: true }).isDisabled();
+    observations.trajectoryToggleDisabled = await page.getByRole('switch', { name: '启用数据飞轮', exact: true }).isDisabled();
+    observations.savedFeedbackRetained = await page.evaluate(key => localStorage.getItem(key) === '00000000-0000-4000-8000-000000000001', observations.savedFeedbackKey);
+    await page.getByRole('button', { name: '返回应用', exact: true }).click();
+    assert.equal(observations.feedbackPreferenceDisabled, true, 'unsupported Desktop feedback preference stays disabled');
+    assert.equal(observations.trajectoryToggleDisabled, true, 'legacy trajectory status without a revision cannot toggle');
+    assert.equal(observations.savedFeedbackRetained, true, 'unsupported feedback keeps the saved draft identity');
+  }
   assert.deepEqual(observations.reopenErrors, [], 'reopened GUI must not show a global error banner for optional feedback status');
   observations.reopenDialogs = await dialogs();
   checkDialogs(observations.reopenDialogs);

@@ -20,16 +20,20 @@ async function until(predicate) {
   }
 }
 
-async function fixture(t) {
+async function fixture(t, { commandContract = 'areal.desktop-commands.v1', commandResult } = {}) {
   const home = await realpath(await mkdtemp(join(tmpdir(), 'areal-service-observer-')));
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
   await once(server, 'listening');
   const metadata = { protocol: PROTOCOL, endpoint: `ws://127.0.0.1:${server.address().port}`,
     token: 'a'.repeat(64), identity: 'fixture', pid: 2147483000 };
   const calls = [];
-  let connections = 0, stop = 'success';
-  const packet = () => ({ sequence: 1, snapshot: { library: { projects: {}, threads: {}, projectOrder: [], settings: {} }, projects: [] },
-    service: { connected: true, clients: 1, busy: false, providerUpdating: false, activeCommands: 0, starting: 0, pid: metadata.pid, lifecycleVersion: 1, targets: [] } });
+  let connections = 0, stop = 'success', sequence = 0;
+  const packet = () => ({ sequence: ++sequence, snapshot: {
+    library: { projects: {}, threads: {}, projectOrder: [], settings: {} },
+    desktopCapabilities: { currentCommands: commandContract !== 'areal.desktop-commands.v1' },
+    projects: [{ id: 'p', root: home, state: { threads: {} }, desktopCapabilities: { currentCommands: commandContract !== 'areal.desktop-commands.v1' } }],
+  }, service: { connected: true, clients: 1, busy: false, providerUpdating: false, activeCommands: 0, starting: 0,
+    pid: metadata.pid, lifecycleVersion: 1, targets: [], ...(commandContract === null ? {} : { commandContract }) } });
   server.on('connection', (socket, request) => {
     connections++;
     assert.equal(request.headers.authorization, `Bearer ${metadata.token}`);
@@ -39,10 +43,10 @@ async function fixture(t) {
         socket.send(JSON.stringify({ id: message.id, error: { code: 'SERVICE_INCOMPATIBLE', message: 'fixture identity changed' } }));
         return;
       }
-      if (message.method === 'command' || (message.method === 'stopService' && stop === 'unknown')) {
+      if ((message.method === 'command' && commandResult === undefined) || (message.method === 'stopService' && stop === 'unknown')) {
         socket.terminate(); return;
       }
-      let result = message.method === 'resources' ? [] : packet();
+      let result = message.method === 'command' ? commandResult : message.method === 'resources' ? [] : packet();
       if (message.method === 'stopService') {
         await rm(join(home, 'service.json')); result = { stopped: true };
       }
@@ -58,8 +62,100 @@ async function fixture(t) {
     await rm(home, { recursive: true, force: true });
   });
   return { backend, metadata, calls, publish, drop, connections: () => connections,
+    updateContract: value => {
+      commandContract = value;
+      const params = packet();
+      for (const socket of server.clients) socket.send(JSON.stringify({ method: 'state', params }));
+    },
     setStop: value => { stop = value; } };
 }
+
+test('public command availability comes only from the current service contract', async t => {
+  const f = await fixture(t, { commandContract: null }); await f.publish(); await f.backend.attach();
+  const capabilities = () => {
+    const snapshot = f.backend.snapshot();
+    return [snapshot.desktopCapabilities, snapshot.projects[0].desktopCapabilities];
+  };
+  assert.deepEqual(capabilities(), [{ currentCommands: false }, { currentCommands: false }]);
+  f.updateContract('areal.desktop-commands.v1');
+  await until(() => f.backend.status.commandContract === 'areal.desktop-commands.v1');
+  assert.deepEqual(capabilities(), [{ currentCommands: true }, { currentCommands: true }]);
+  f.updateContract('areal.desktop-commands.v2');
+  await until(() => f.backend.status.commandContract === 'areal.desktop-commands.v2');
+  assert.deepEqual(capabilities(), [{ currentCommands: false }, { currentCommands: false }]);
+  f.updateContract(null);
+  await until(() => f.backend.status.commandContract === undefined);
+  assert.deepEqual(capabilities(), [{ currentCommands: false }, { currentCommands: false }]);
+  assert.deepEqual(f.calls.map(c => c.method), ['hello']);
+});
+
+test('an unadvertised backend rejects current commands before sending or inventing a receipt', async t => {
+  const f = await fixture(t, { commandContract: null }); await f.publish(); await f.backend.attach();
+  const thread = { projectId: 'p', threadId: 't' };
+  const requests = [
+    ['send', { ...thread, text: 'keep my draft' }],
+    ['continue', { ...thread, expectedTurnId: 'turn' }],
+    ['prepareCreator', { projectId: 'p' }],
+    ['feedback', { operation: 'status' }],
+    ['feedback', { operation: 'preference', enabled: true }],
+    ['feedback', { ...thread, operation: 'prepare', turnId: 'turn', itemId: 'answer', rating: 'down' }],
+    ...['read', 'draft', 'refine', 'submit', 'close'].map(operation => ['feedback', { ...thread, operation, id: 'saved-draft' }]),
+    ['trajectory', { operation: 'setEnabled', enabled: true, expectedRevision: 'a'.repeat(64) }],
+    ['providers', { operation: 'defaultAndApply', id: 'provider' }],
+    ['steer', { ...thread, expectedTurnId: 'turn', mcpContent: [{ type: 'text', text: 'MCP input' }] }],
+    ['queueEdit', { ...thread, operation: 'replace', mcpContent: [{ type: 'text', text: 'MCP input' }] }],
+    ['manage', { ...thread, operation: 'pluginInstall', id: 'plugin', scope: 'project', source: '/fixture/plugin', expectedDigest: 'a'.repeat(64), expectedRevision: 1 }],
+    ['manage', { ...thread, operation: 'marketplaceUpdate', expectedRevision: 1 }],
+    ...['plugins', 'marketplaces', 'mcpApps', 'mcpAppOpen', 'mcpForms', 'mcpFormRespond',
+      'mcpExtensionCall', 'mcpToolResult'].map(operation => ['manage', { ...thread, operation }]),
+    ...['connectorConfigure', 'connectorCredential'].map(operation => ['manage', { ...thread, operation,
+      id: 'plugin', connectorId: 'github', provider: 'github', expectedDigest: 'a'.repeat(64),
+      requestId: 'connector-request', credentialRef: 'saved-ref', secret: 'fixture-secret' }]),
+    ['manage', { ...thread, operation: 'hookAcknowledge', requestId: 'hook-request', invocationId: 'invocation', inspection: 'reviewed' }],
+  ];
+  for (const [name, request] of requests) {
+    await assert.rejects(f.backend.command(name, request), error => {
+      assert.equal(error.code, 'SERVICE_COMMAND_UNSUPPORTED', `${name}.${request.operation ?? ''}`);
+      assert.equal(error.message, '当前运行中的后台不支持此操作。现有任务继续运行，输入已保留；请在任务完成后安全停止后台并重新连接。');
+      assert.notEqual(error.submissionUnknown, true);
+      assert.equal(Object.hasOwn(error, 'requestId'), false);
+      return true;
+    });
+  }
+  assert.equal(f.backend.status.connected, true);
+  assert.deepEqual(f.calls.map(c => c.method), ['hello']);
+});
+
+test('an unadvertised backend keeps compatible observation and control commands', async t => {
+  const f = await fixture(t, { commandContract: null, commandResult: { accepted: true } });
+  await f.publish(); await f.backend.attach();
+  const thread = { projectId: 'p', threadId: 't' };
+  const requests = [
+    ['list', { projectId: 'p' }], ['open', thread], ['stop', thread],
+    ['reconcile', { projectId: 'p' }], ['queue', thread],
+    ['steer', { ...thread, text: 'compatible text', expectedTurnId: 'turn', mcpContent: [] }],
+    ['configure', { ...thread, options: { readOnly: true } }],
+    ['providers', { operation: 'save', id: 'provider' }],
+    ['trajectory', { operation: 'status' }], ['manage', { ...thread, operation: 'processes' }],
+  ];
+  for (const [name, request] of requests) assert.deepEqual(await f.backend.command(name, request), { accepted: true });
+  assert.deepEqual(f.calls.filter(c => c.method === 'command').map(c => c.params),
+    requests.map(([name, request]) => ({ name, request })));
+});
+
+test('legacy queue edits retain the original receipt after disconnect without replay', async t => {
+  const f = await fixture(t, { commandContract: null }); await f.publish(); await f.backend.attach();
+  const requestId = '62bedfab-f198-4d6a-b66d-46760b04e214';
+  const request = { projectId: 'p', threadId: 't', operation: 'replace', itemId: 'queued', text: 'edited', requestId };
+  await assert.rejects(f.backend.command('queueEdit', request), error => {
+    assert.equal(error.submissionUnknown, true);
+    assert.equal(error.requestId, requestId);
+    return true;
+  });
+  await until(() => f.backend.status.connected);
+  assert.deepEqual(f.calls.filter(c => c.method === 'command').map(c => c.params), [{ name: 'queueEdit', request }]);
+  assert.equal(f.calls.filter(c => c.method === 'hello').length, 2);
+});
 
 test('a backend published after startup timeout attaches without launching again', async t => {
   const f = await fixture(t); let launches = 0;
@@ -74,9 +170,11 @@ test('a backend published after startup timeout attaches without launching again
 
 test('an unknown command is never replayed when its observer reconnects', async t => {
   const f = await fixture(t); await f.publish(); await f.backend.attach();
-  await assert.rejects(f.backend.command('send', { projectId: 'p', text: 'once' }), e => e.submissionUnknown === true);
+  const requestId = 'e99d906b-7912-4e95-81dc-a3fd3c967779';
+  const request = { projectId: 'p', threadId: 't', text: 'once', requestId };
+  await assert.rejects(f.backend.command('send', request), error => error.submissionUnknown === true && error.requestId === requestId);
   await until(() => f.backend.status.connected);
-  assert.equal(f.calls.filter(c => c.method === 'command').length, 1);
+  assert.deepEqual(f.calls.filter(c => c.method === 'command').map(c => c.params), [{ name: 'send', request }]);
   assert.equal(f.calls.filter(c => c.method === 'hello').length, 2);
 });
 
