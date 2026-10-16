@@ -43,8 +43,6 @@ async function start() {
       const metadata = JSON.parse(await readFile(join(serviceHome(app), 'service.json'), 'utf8'));
       await connection.connect(metadata);
       if (recover) {
-        // Recovery uses the existing v1 service's identity only for its narrow
-        // resource API. The GUI still requires its own build identity to attach.
         await connection.request('hello', { protocol: PROTOCOL, identity: metadata.identity });
         await app.whenReady();
         await createResourceRecovery({

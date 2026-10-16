@@ -66,7 +66,9 @@ class ServiceConnection {
   async connect(metadata) {
     const url = new URL(metadata.endpoint);
     if (metadata.protocol !== PROTOCOL || url.protocol !== 'ws:' || url.hostname !== '127.0.0.1'
-      || url.username || url.password || !/^[a-f0-9]{64}$/.test(metadata.token)) throw new Error('本地后台服务连接元数据无效');
+      || url.username || url.password || !/^[a-f0-9]{64}$/.test(metadata.token)
+      || typeof metadata.identity !== 'string' || !metadata.identity
+      || !Number.isSafeInteger(metadata.pid) || metadata.pid <= 1) throw new Error('本地后台服务连接元数据无效');
     const socket = this.socket = new WebSocket(url, { headers: { Authorization: `Bearer ${metadata.token}` }, followRedirects: false, maxPayload: 256 * 1024 * 1024 });
     socket.on('error', () => {});
     socket.on('message', bytes => {
@@ -122,10 +124,10 @@ class ServiceConnection {
 // GUI-local connection/projection only. Control intent lives in GUI userData;
 // shared Core history and execution state remain owned by the service.
 class SharedCoreBackend {
-  constructor({ app, onChange = () => {}, onNotification, onNotificationOpen, recoverIncompatible, onRecoveryAttention, ...options }) {
+  constructor({ app, onChange = () => {}, onNotification, onNotificationOpen, onRecoveryAttention, ...options }) {
     this.onNotification = onNotification;
     this.onNotificationOpen = onNotificationOpen;
-    this.recoverIncompatible = recoverIncompatible; this.onRecoveryAttention = onRecoveryAttention; this.app = app; this.options = options; this.home = options.home; this.onChange = onChange;
+    this.onRecoveryAttention = onRecoveryAttention; this.app = app; this.options = options; this.home = options.home; this.onChange = onChange;
     this.value = { library: { projects: {}, threads: {}, projectOrder: [], settings: {} }, projects: [] };
     this.status = { connected: false }; this.sequence = -1;
     this.connectionState = { state: 'connecting' }; this.revision = 0;
@@ -146,7 +148,10 @@ class SharedCoreBackend {
   accept(packet, metadata = this.metadata) {
     validateServicePacket(packet, metadata);
     if (packet.sequence <= this.sequence) return;
-    this.sequence = packet.sequence; this.value = packet.snapshot; this.status = packet.service; this.connectionState = packet.service.stopReport ? { state: 'unavailable', message: '后台停止尚未完成，请检查后台状态' } : { state: 'ready' }; this.onChange();
+    this.sequence = packet.sequence; this.value = packet.snapshot; this.status = packet.service;
+    this.connectionState = packet.service.stopReport ? { state: 'unavailable', message: '后台停止尚未完成，请检查后台状态' }
+      : { state: 'ready', ...(this.connection?.readyMessage ? { message: this.connection.readyMessage } : {}) };
+    this.onChange();
   }
   disconnected() {
     this.onBrowserDisconnected?.();
@@ -157,12 +162,11 @@ class SharedCoreBackend {
     this.value = { ...this.value, projects: this.value.projects.map(p => ({ ...p, error: stopped ? null : message, state: p.state ? { ...p.state, connected: false, error: stopped ? null : message } : null })) };
     this.onChange();
   }
-  async attach(reconnectMetadata = null) {
+  async attach({ expectedIdentity } = {}) {
     let metadata;
     try { metadata = JSON.parse(await readFile(join(this.home, 'service.json'), 'utf8')); }
     catch (e) { if (e.code === 'ENOENT') return false; throw e; }
-    const identity = reconnectMetadata && ['protocol', 'endpoint', 'token', 'pid', 'identity'].every(key => metadata[key] === reconnectMetadata[key])
-      ? metadata.identity : this.identity;
+    const identity = expectedIdentity ?? metadata.identity;
     const connection = new ServiceConnection(packet => {
       if (this.connection !== connection) return;
       try { this.accept(packet, metadata); }
@@ -173,6 +177,7 @@ class SharedCoreBackend {
     }, request => { if (this.connection === connection) this.onBrowserCancel?.(request); }, event => {
       if (this.connection === connection && !this.disposed) this.onMcpAppNotification?.(event);
     });
+    if (expectedIdentity === undefined) connection.readyMessage = '已连接运行中的后台，沿用其原有启动配置。新的启动配置需安全停止后台并重新连接后生效。';
     try { await connection.connect(metadata); }
     catch (e) { connection.close(); if (e.code === 'DISCONNECTED') return false; throw e; }
     if (this.disposed) { connection.close(); throw new Error('GUI 连接已关闭'); }
@@ -201,12 +206,10 @@ class SharedCoreBackend {
       this.connection = null;
       connection.close();
       if (e.code === 'DISCONNECTED') return false; // Only a read-only handshake was attempted.
-      // 旧 v1 服务没有错误码，只兼容其明确的身份不匹配消息。
-      const incompatible = e.code === 'SERVICE_INCOMPATIBLE' || e.message.startsWith('后台服务版本或启动配置不兼容。');
-      if (!incompatible || !this.recoverIncompatible) throw e;
-      const decision = await this.recoverIncompatible(metadata, this.home);
-      if (decision?.kind === 'reconnect-existing') return this.attach(metadata);
-      return false;
+      if (expectedIdentity !== undefined && (e.code === 'SERVICE_INCOMPATIBLE' || e.message.startsWith('后台服务版本或启动配置不兼容。'))) {
+        throw Object.assign(new Error('当前后台使用了不同的启动配置，本次启动配置尚未生效。请重新连接，或安全停止后台后重试。'), { code: 'SERVICE_INCOMPATIBLE' });
+      }
+      throw e;
     }
     helloTrace.finish('ok');
     if (this.lastActivity) void connection.request('activity', this.lastActivity).catch(() => {});
@@ -278,11 +281,12 @@ class SharedCoreBackend {
     try {
       await mkdir(this.home, { recursive: true, mode: 0o700 });
       this.home = await realpath(this.home);
-      trace.advance('identity');
-      this.identity = await serviceIdentity(this.options);
       if (this.disposed) throw new Error('GUI 连接已关闭');
       trace.advance('attach');
       if (await this.attach()) { return; }
+      if (this.disposed) throw new Error('GUI 连接已关闭');
+      trace.advance('identity');
+      this.identity = await serviceIdentity(this.options);
       if (this.disposed) throw new Error('GUI 连接已关闭');
       // Explain a known binary incompatibility through this connection attempt's
       // error channel; never expose shared or stale service log contents to GUI.
@@ -308,7 +312,7 @@ class SharedCoreBackend {
         while (Date.now() < deadline) {
           if (this.disposed) throw new Error('GUI 连接已关闭');
           if (launchError) throw launchError;
-          if (await this.attach()) { return; }
+          if (await this.attach({ expectedIdentity: this.identity })) { return; }
           if (retryLaunch) launch();
           await sleep(100);
         }

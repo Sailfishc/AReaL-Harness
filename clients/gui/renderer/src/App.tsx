@@ -1450,7 +1450,7 @@ function AppContent({ services }: { services: PlatformServices }) {
               )}
             </div>
           </WorkspaceHeader>}
-          {snapshot.connection && snapshot.connection.state !== "ready" && (
+          {snapshot.connection && (snapshot.connection.state !== "ready" || snapshot.connection.message) && (
             <div className="notice" role="status">
               <span>{snapshot.connection.state === "connecting" ? "正在连接后台…" : snapshot.connection.message || "后台尚未连接"}</span>
               {snapshot.connection.state === "unavailable" && (

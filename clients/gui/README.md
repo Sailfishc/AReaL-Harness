@@ -24,7 +24,7 @@ make gui
 
 启动 GUI 前可显式设置 `AREAL_CORE_SANDBOX_PROFILE=native`，或在 `areal service ensure/restart` 使用 `--sandbox-profile native`，请求原生 Runtime 沙箱。默认仍为 `full-access`。此选择纳入部署兼容性；切换时需先停止活动任务并显式重启服务。只有 Core 验证原生隔离能力后，Side 对话才提供只读访问当前工作区文件的选项。原生隔离不可用时启动失败，不降级为 full-access。
 
-配置文件按 `AREAL_CORE_CONFIG`、`AREAL_HARNESS_CONFIG`、Core 配置 home 下的 `config.toml` 顺序选择。配置 home 优先使用 `AREAL_HARNESS_HOME`，否则使用 `AREAL_CORE_USER_HOME` 指定的用户目录（省略时为当前用户 home）下的 `.areal`。显式文件的相对路径在 GUI 启动目录解析；实际配置路径和配置 home 均参与后台身份校验，即使服务登记目录相同，切换配置 home 也不会误接旧后台。尚未创建的默认文件首次保存不改变后台身份。同一 GUI 后台的不同项目沿用这份配置，设置页不随项目切换选择另一份上传配置。
+配置文件按 `AREAL_CORE_CONFIG`、`AREAL_HARNESS_CONFIG`、Core 配置 home 下的 `config.toml` 顺序选择。配置 home 优先使用 `AREAL_HARNESS_HOME`，否则使用 `AREAL_CORE_USER_HOME` 指定的用户目录（省略时为当前用户 home）下的 `.areal`。显式文件的相对路径在 GUI 启动目录解析；实际配置路径和配置 home 均参与新后台的部署身份。已有后台运行时，普通重开沿用它的原配置；切换配置 home 需安全停止后台并重新连接，界面会提示新的启动配置尚未应用。尚未创建的默认文件首次保存不改变后台身份。同一 GUI 后台的不同项目沿用这份配置，设置页不随项目切换选择另一份上传配置。
 
 macOS 开发和安装版均需要可执行的 `/usr/bin/python3`，供 Runtime 及可信工具助手启动中转；可通过 `xcode-select --install` 安装 Xcode Command Line Tools。该解释器不随应用打包；共享服务在启动前检查可用性并返回明确错误。
 
@@ -108,13 +108,13 @@ macOS 桌面适配器通过系统 `/usr/bin/python3` 保留可信 Core 命令的
 
 Renderer 仅通过窄 preload IPC 访问桌面适配器。独立适配器使用 `areal service ensure/restart/stop --json` 连接 Core，不直接管理持久 Core 服务的 PID。退出 GUI 断开界面并结算 GUI 拥有的终端，Core Turn/Goal 和已配置的定时任务继续执行；重新打开按权威快照恢复，不自动重放提交。
 
-停止后台服务是显式操作，忙碌时拒绝安全停止；启动恢复对话框提供“取消任务并重启”，即使没有活动轮次，只要仍有活动目标、后台任务或排队消息，也可使用此入口。二次确认后通过公共 `areal service stop --cancel` 完成 Core 取消、执行资源结算和宿主退出，保留待发输入。旧后台尚不支持取消参数时，Main 使用旧后台仍持有的本机 Core 管理连接完成取消，再请求旧后台安全退出；多个 GUI 连接或后台操作未完成时仍拒绝，结果未确认时不自动重发。
+停止后台服务是显式操作，忙碌时拒绝安全停止；后台管理和更新恢复提供明确取消任务后停止的入口。即使没有活动轮次，活动目标、后台任务或排队消息仍受生命周期保护。二次确认后通过公共 `areal service stop --cancel` 完成 Core 取消、执行资源结算和宿主退出，保留待发输入。旧后台尚不支持取消参数时，Main 使用旧后台仍持有的本机 Core 管理连接完成取消，再请求旧后台安全退出；多个 GUI 连接或后台操作未完成时仍拒绝，结果未确认时不自动重发。普通重开不会进入取消或重启流程。
 
 macOS 安装包将后台放在独立应用身份的 `AReaL Harness Service.app` 中，前台退出后 Finder 重开只启动前台并复用原后台与 Core；后台通知使用主应用入口打开界面。前后台共享同一安装包资源、配置、凭据名称和数据目录。`verify` 包含身份与路径回归；指定 `AREAL_GUI_EXECUTABLE` 运行 `node --test clients/gui/scripts/macos-service.test.mjs` 可额外检查包内后台入口的真实启动与安全停止，Finder 重开仍需原生安装验收。
 
-普通重开 GUI 使用连接身份检查，Core 和 Runtime 在原路径重新构建或修改文件时间不要求替换运行中的后台。适配器源码、程序路径和启动配置仍参与连接身份。已经运行的 Core 在显式安全重启后采用新二进制。旧版身份或配置不匹配时，启动恢复可选择“继续使用原后台”，接回原实例并恢复权威快照，不取消任务、不重放请求。此选择保留后台原有的配置、沙箱和权限，本次新的启动配置尚未应用。旧后台尚未按新身份规则重启时，后续重开可能仍需此选择。协议不受支持或快照无效时拒绝接入；实例在确认后变化时重新核对。
+普通重开 GUI 优先连接当前数据目录已登记的后台，使用其真实身份完成认证，不因源码或二进制部署指纹变化要求重启或弹出恢复确认。连接前仍验证协议、环回地址、令牌、PID 和快照；协议或快照不受支持时保留原后台并拒绝接入。工作区直接恢复原任务和权威历史，不取消任务、不重放请求。非阻塞提示说明后台仍沿用原启动配置；新的配置路径、沙箱或工作组启动选项需显式安全停止后台并重新连接后生效。只有没有可连接的后台时，GUI 才读取本次部署身份、检查 Core 能力并启动新后台，启动等待仍核对预期身份。
 
-`AREAL_CORE_BIN=/absolute/path/to/private/.local/dev-bin/<slot>/areal pnpm --dir clients/gui run test:service-reopen` 使用私有固定产物验证隔离 Electron 的关闭与重开，保持同 Desktop PID、Core generation 和活动 Turn，原模型流继续且无重复请求。脚本仅修改该私有副本的时间，并在清理时恢复。`AREAL_REOPEN_REPLACEMENT_BIN` 可指定另一份 Core 构建以验证原路径内容替换；`AREAL_REOPEN_LEGACY=1` 使用修复前的真实 adapter 源码验证明确接回旧后台。原生目录选择和恢复确认由 fixture 应答，不代表安装包或真实供应商验收。
+`AREAL_CORE_BIN=/absolute/path/to/private/.local/dev-bin/<slot>/areal pnpm --dir clients/gui run test:service-reopen` 使用私有固定产物验证隔离 Electron 连续两次关闭与重开，要求零恢复弹窗，同 Desktop PID、Core generation 和活动 Turn，原模型流继续且无重复请求。`AREAL_REOPEN_REPLACEMENT_BIN` 指定另一份真实 Core 构建以验证原路径内容替换；`AREAL_REOPEN_LEGACY=1` 从修复前的真实 adapter 源码启动后台，验证旧实例也能自动接回。脚本清理自有服务并恢复私有二进制，原生目录选择由 fixture 应答，不代表安装包或真实供应商验收。
 
 Core 观察连接意外关闭时，项目连接所有者以 500ms 起步、最长 30s 的退避重试，通过 `service status --instance` 发现兼容的运行中实例，并用原子 `areal/thread/observe` 恢复 Thread/Task 快照、订阅和通知基线。观察恢复不重绑工具宿主；用户显式认领原生页时，才读取权威状态并在 Thread 空闲时尝试 `thread/resume` 绑定，仍受 Core 宿主冲突检查约束。恢复不重新提交任务、不同步 Provider/MCP 配置，也不执行配置 revision 屏障。旧连接的消息与异步结果失去投影写入资格。显式停止、适配器关闭、停止中的 Core 或部署指纹不兼容会阻止自动恢复；重新连接需显式操作。
 
@@ -142,7 +142,7 @@ pnpm --dir clients/gui run sign:mac --app "/absolute/new-package/package/mac-arm
 
 `make gui-smoke` 使用真实 Electron/Core/Runtime 和确定性本地 HTTP 模型，原生沙箱保持启用；项目选择对话框注入临时工作区，测试目录隔离。本地模型请求直连 loopback，测试保留并合并已有 `NO_PROXY` / `no_proxy` 条目。截图及 `manifest.json` 留在命令打印的临时目录，清单记录运行前后的 Core 二进制校验和及失败原因。安装包测试可设置 `AREAL_GUI_EXECUTABLE=/absolute/App.app/Contents/MacOS/AReaL\ Harness\ GUI`，此时不使用外部 Core 路径。实际账号登录、付费模型、其他操作系统和签名安装分发须单独验收。
 
-启动恢复、更新恢复与菜单停止共用生命周期观察和停止流程。普通停止仍保护包含 pending 输入的暂停 Queue；明确取消会保留输入与安排，并将 cancel 意图传到最终公共服务宿主。确认后项目范围或 Core generation 变化会要求重新确认；多项目部分退出或未知结果不会显示成恢复正常。`pnpm --dir clients/gui run test:lifecycle` 验证真实 Core 的 Queue 保留、安全退出，以及隔离 Electron 的菜单取消、重开和不兼容启动恢复；原生对话框由 fixture 应答，不进行更新下载或安装。
+更新恢复与菜单停止共用生命周期观察和停止流程。普通停止仍保护包含 pending 输入的暂停 Queue；明确取消会保留输入与安排，并将 cancel 意图传到最终公共服务宿主。确认后项目范围或 Core generation 变化会要求重新确认；多项目部分退出或未知结果不会显示成恢复正常。`pnpm --dir clients/gui run test:lifecycle` 验证真实 Core 的 Queue 保留、安全退出，以及隔离 Electron 的菜单取消、不同配置路径下接回原后台和更新恢复；普通重开不弹恢复对话框，明确停止的原生确认由 fixture 应答，不进行更新下载或安装。
 
 缺少 `cancelStop` 的旧后台只在明确 busy 拒绝后使用兼容取消。取消前，可信 Main 将原启用安排的工作区、任务、时间与运行身份写入私有 `legacy-schedule-recovery.json`；旧 Core 自行暂停或安全停止前临时暂停安排后，新后台先确认旧进程退出，再核对任务修订号，仅恢复安排，不恢复已暂停 Run。未知提交不自动重发，任务变化或恢复失败保留记录并提示人工核对。专项 `test:lifecycle:legacy` 需要 `AREAL_CORE_BIN` 和 `AREAL_LEGACY_CORE_BIN` 分别指向已核对的新旧 Core；使用归档旧 adapter 源码、当前 renderer/依赖与隔离数据，不安装或发布版本。可用 `AREAL_LEGACY_PAUSE_UNKNOWN=1` 注入暂停回执丢失。
 

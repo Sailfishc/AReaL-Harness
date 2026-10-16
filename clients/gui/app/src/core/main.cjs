@@ -18,7 +18,7 @@ const { validateCommand, validatePreview, desktopError } = require('@areal/workb
 const { CorePreview } = require('./preview.cjs');
 const { configureUserData, serviceOptions } = require('./service-config.cjs');
 const { SharedCoreBackend } = require('./service-client.cjs');
-const { recoverStartupService, recoverConnectedService } = require('./startup-recovery.cjs');
+const { recoverConnectedService } = require('./startup-recovery.cjs');
 const { loadThemes, engineCss, panelCss } = require('../themes');
 
 startupTraceMain.advance('app_ready');
@@ -175,8 +175,7 @@ app.whenReady().then(async () => {
     onNotification: notice => showCoreNotification(Notification, window, notice, openNotificationTarget),
     onNotificationOpen: openNotificationTarget,
     onRecoveryAttention: attention => dialog.showMessageBox(window, { type: 'warning', message: '定时安排需要核对',
-      detail: attention.join('\n\n') + '\n\n可打开原任务核对安排。应用不会恢复已暂停的 Run 或自动重发未知操作。', buttons: ['打开应用后核对'], defaultId: 0, cancelId: 0 }),
-    recoverIncompatible: (metadata, home) => recoverStartupService({ metadata, home, notify: options => dialog.showMessageBox(window, options) }) });
+      detail: attention.join('\n\n') + '\n\n可打开原任务核对安排。应用不会恢复已暂停的 Run 或自动重发未知操作。', buttons: ['打开应用后核对'], defaultId: 0, cancelId: 0 }) });
   backend.onBrowserDisconnected = () => preview?.revokeAll();
   backend.onBrowserCancel = request => preview?.cancelRead(request);
   backend.onBrowserRequest = async request => {
