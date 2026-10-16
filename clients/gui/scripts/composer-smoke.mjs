@@ -655,7 +655,8 @@ try {
   for (const theme of ["dark", "light"]) {
     await button("设置").click();
     await button("外观").click();
-    await button(theme === "dark" ? "深色" : "浅色").click();
+    await page.getByRole("combobox", { name: "界面主题", exact: true }).click();
+    await page.getByRole("option", { name: theme === "dark" ? "深色" : "浅色", exact: true }).click();
     await page.waitForFunction(
       (theme) => document.documentElement.classList.contains(`theme-areal-${theme}`) &&
         document.documentElement.classList.contains("dark") === (theme === "dark"),
@@ -757,7 +758,7 @@ try {
     clipboardData.setData("text/plain", text);
     element.dispatchEvent(new ClipboardEvent("paste", { clipboardData, bubbles: true, cancelable: true }));
   }, foldedGoal);
-  await button("移除附件 粘贴的文本.txt").waitFor();
+  await button("移除附件 完成").waitFor();
   assert.equal(await input().textContent(), "");
   await button("开始目标").click();
   await until(
@@ -770,7 +771,7 @@ try {
     .locator("[data-testid=areal-workbench]")
     .getAttribute("data-thread-id");
   assert.equal(project(await state()).state.threads[goalTid].goals.goal.objective, foldedGoal);
-  assert.equal(await button("移除附件 粘贴的文本.txt").count(), 0);
+  assert.equal(await button("移除附件 完成").count(), 0);
   await until(
     (s) => project(s).state.threads[goalTid]?.goals?.goal?.status !== "active",
     "goal settles without progress",

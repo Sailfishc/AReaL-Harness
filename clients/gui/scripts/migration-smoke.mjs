@@ -277,7 +277,7 @@ async function launch() {
 async function openPanel(name) {
   if (await button("返回工作区").isVisible()) await button("返回工作区").click();
   if (name === "终端") {
-    await button(name).click();
+    await page.keyboard.press("Control+Backquote");
     return;
   }
   await button("任务操作").click();
@@ -412,7 +412,9 @@ try {
   await page.locator(".task-resources-popup").screenshot({ path: join(scratch, "02r-task-resources-crop.png") });
   const liveAvatar = await resources.locator(`[data-agent-avatar="${liveChild.id}"]`).getAttribute("src");
   assert.ok(liveAvatar.startsWith("data:image/svg+xml"));
-  assert.equal(await page.locator("[data-testid=chat-view]").getByRole("button", { name: `打开 ${liveChild.id} 子对话`, exact: true }).innerText(), "已创建 1 个智能体");
+  const liveAgentCard = page.locator("[data-testid=chat-view]").getByRole("button", { name: `打开 ${liveChild.id} 子对话`, exact: true });
+  assert.equal(await liveAgentCard.count(), 1);
+  assert.match(await liveAgentCard.innerText(), new RegExp(`Agent · ${liveChild.id.slice(0, 8)}`));
   await resources.getByRole("button", { name: `打开 ${liveChild.id} 子对话`, exact: true }).click();
   await page.locator(`[data-agent-conversation="${liveChild.id}"] [data-turn-status=inProgress]`).waitFor();
   assert.equal(await page.locator("[data-testid=areal-workbench]").getAttribute("data-thread-id"), tid);
@@ -551,7 +553,7 @@ try {
   await shot("04-diff");
   await button("关闭面板").click();
   checks.push("native file edit and Git diff panel");
-  await button("终端").click();
+  await openPanel("终端");
   const terminal = page.locator(".xterm-helper-textarea");
   await terminal.waitFor();
   await terminal.pressSequentially("printf 'AREAL_TERMINAL_OK\\n'");
