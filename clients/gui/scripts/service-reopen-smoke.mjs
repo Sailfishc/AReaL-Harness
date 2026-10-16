@@ -80,6 +80,11 @@ const model = createServer(async (request, response) => {
     for await (const chunk of request) raw += chunk;
     requests.push(JSON.parse(raw));
     response.writeHead(200, { 'Content-Type': 'text/event-stream' });
+    if (requests.length === 1) {
+      send(response, 'LEGACY_COMPLETED_REPLY');
+      response.end(`data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`);
+      return;
+    }
     send(response, 'REOPEN_HELD');
     held.add(response);
     response.on('close', () => held.delete(response));
@@ -104,14 +109,24 @@ if (legacy) {
   const archive = join(scratch, 'legacy-app.tar');
   const commit = execFileSync('git', ['rev-parse', 'ed43b272'], { cwd: root, encoding: 'utf8' }).trim();
   await mkdir(legacyRoot);
-  execFileSync('git', ['archive', '--format=tar', '--output', archive, commit, 'clients/gui/app'], { cwd: root });
+  execFileSync('git', ['archive', '--format=tar', '--output', archive, commit, 'clients/gui/app', 'clients/gui/packages/workbench'], { cwd: root });
   execFileSync('tar', ['-xf', archive, '-C', legacyRoot]);
   const legacyGui = join(legacyRoot, 'clients/gui');
-  await symlink(join(gui, 'app/node_modules'), join(legacyGui, 'app/node_modules'), 'dir');
+  const legacyModules = join(legacyGui, 'app/node_modules');
+  await mkdir(join(legacyModules, '@areal'), { recursive: true });
+  for (const name of await readdir(join(gui, 'app/node_modules'))) {
+    if (name === '@areal') continue;
+    await symlink(join(gui, 'app/node_modules', name), join(legacyModules, name), 'dir');
+  }
+  for (const name of await readdir(join(gui, 'app/node_modules/@areal'))) {
+    await symlink(name === 'workbench' ? join(legacyGui, 'packages/workbench') : join(gui, 'app/node_modules/@areal', name),
+      join(legacyModules, '@areal', name), 'dir');
+  }
   await symlink(join(gui, 'renderer'), join(legacyGui, 'renderer'), 'dir');
   initialMain = join(legacyGui, 'app/src/main.cjs');
   source.legacy = { commit, main: initialMain, archiveSha256: sha(await readFile(archive)),
-    serviceConfigSha256: sha(await readFile(join(legacyGui, 'app/src/core/service-config.cjs'))) };
+    serviceConfigSha256: sha(await readFile(join(legacyGui, 'app/src/core/service-config.cjs'))),
+    desktopContractSha256: sha(await readFile(join(legacyGui, 'packages/workbench/client/desktop-contract.cjs'))) };
 }
 await mkdir(testApp);
 await writeFile(join(testApp, 'package.json'), JSON.stringify({ name: 'areal-service-reopen-fixture', main: 'bootstrap.cjs' }));
@@ -165,6 +180,13 @@ async function inspectService() {
   try {
     await connection.connect(metadata);
     const packet = await connection.request('hello', { protocol: metadata.protocol, identity: metadata.identity });
+    if (!observations.feedbackStatus) {
+      try {
+        observations.feedbackStatus = { result: await connection.request('command', { name: 'feedback', request: { operation: 'status' } }) };
+      } catch (error) {
+        observations.feedbackStatus = { code: error.code ?? null, message: error.message };
+      }
+    }
     const descriptors = [];
     for (const name of await readdir(join(registry, 'services'))) {
       try { descriptors.push(JSON.parse(await readFile(join(registry, 'services', name, 'service.json'), 'utf8'))); }
@@ -189,13 +211,20 @@ try {
   await app.evaluate(({ dialog }, path) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] }); }, workspace);
   await page.evaluate(() => window.arealDesktop.chooseProject());
   projectId = (await until(async () => (await state()).projects.find(value => value.root === workspace && value.state?.connected), 'connected isolated project')).id;
+  await page.getByTestId('chat-input').fill('Complete this ordinary turn before the held task.');
+  await page.getByRole('button', { name: '发送', exact: true }).click();
+  threadId = await until(() => page.getByTestId('areal-workbench').getAttribute('data-thread-id'), 'created Thread identity');
+  await until(async () => requests.length === 1 && turn(await state())?.status === 'completed', 'completed ordinary turn');
+  await page.getByText('LEGACY_COMPLETED_REPLY', { exact: true }).waitFor();
+  checks.push('completed ordinary response is visible before the held Turn starts');
   await page.getByTestId('chat-input').fill('Hold this task while I close and reopen the GUI.');
   await page.getByRole('button', { name: '发送', exact: true }).click();
   threadId = await until(() => page.getByTestId('areal-workbench').getAttribute('data-thread-id'), 'created Thread identity');
-  await until(async () => requests.length === 1 && turn(await state())?.status === 'inProgress'
+  await until(async () => requests.length === 2 && turn(await state())?.status === 'inProgress'
     && turn(await state()).items.some(item => item.type === 'agentMessage' && item.text === 'REOPEN_HELD'), 'original held streaming turn');
   turnId = turn(await state()).id;
   observations.before = await inspectService();
+  if (legacy) assert.equal(observations.feedbackStatus.code, 'INVALID_DESKTOP_REQUEST', 'legacy fixture rejects the unsupported feedback status command');
   assert.equal(held.size, 1);
   await page.screenshot({ path: join(scratch, '01-held-before-close.png') });
   await writeFile(join(scratch, 'before.json'), JSON.stringify(observations.before, null, 2));
@@ -237,14 +266,14 @@ try {
   assert.deepEqual(observations.after.core, observations.before.core, 'reopen must keep the original Core generation');
   assert.equal(observations.after.turn.id, turnId);
   assert.equal(observations.after.turn.status, 'inProgress');
-  assert.equal(requests.length, 1, 'reopen must not submit or replay a model request');
+  assert.equal(requests.length, 2, 'reopen must not submit or replay a model request');
   assert.equal(held.size, 1, 'original model stream remains connected');
   for (const response of held) send(response, ' REOPEN_CONTINUED');
   await until(async () => turn(await state())?.items.some(item => item.type === 'agentMessage' && item.text === 'REOPEN_HELD REOPEN_CONTINUED'), 'original stream reaches reopened GUI');
   await page.getByText('REOPEN_HELD REOPEN_CONTINUED', { exact: true }).waitFor();
   assert.equal(turn(await state()).id, turnId);
   assert.equal(turn(await state()).status, 'inProgress');
-  assert.equal(requests.length, 1);
+  assert.equal(requests.length, 2);
   observations.continued = await inspectService();
   assert.deepEqual(observations.continued.desktop, observations.before.desktop);
   assert.deepEqual(observations.continued.core, observations.before.core);
@@ -252,6 +281,9 @@ try {
   assert.equal(observations.continued.turn.status, 'inProgress');
   assert.ok(observations.continued.turn.items.some(item => item.type === 'agentMessage' && item.text === 'REOPEN_HELD REOPEN_CONTINUED'),
     'authoritative original service receives the continuation from the original model stream');
+  assert.equal(await page.getByRole('button', { name: '点赞', exact: true }).count(), 0, 'unavailable feedback keeps its entry hidden');
+  observations.reopenErrors = await page.locator('.error-banner').allTextContents();
+  assert.deepEqual(observations.reopenErrors, [], 'reopened GUI must not show a global error banner for optional feedback status');
   observations.reopenDialogs = await dialogs();
   checkDialogs(observations.reopenDialogs);
   await page.screenshot({ path: join(scratch, '02-same-turn-after-reopen.png') });
@@ -264,7 +296,7 @@ try {
   assert.deepEqual(observations.secondClosed.core, observations.before.core);
   assert.equal(observations.secondClosed.turn.id, turnId);
   assert.equal(observations.secondClosed.turn.status, 'inProgress');
-  assert.equal(requests.length, 1, 'second GUI close must retain the original model request');
+  assert.equal(requests.length, 2, 'second GUI close must retain the original model request');
   assert.equal(held.size, 1, 'original model stream remains connected after the second GUI close');
   await launch('reopened-again');
   await page.getByText('已连接运行中的后台，沿用其原有启动配置。新的启动配置需安全停止后台并重新连接后生效。', { exact: true }).waitFor();
@@ -275,7 +307,7 @@ try {
   assert.deepEqual(observations.secondAfter.core, observations.before.core, 'second reopen must keep the original Core generation');
   assert.equal(observations.secondAfter.turn.id, turnId);
   assert.equal(observations.secondAfter.turn.status, 'inProgress');
-  assert.equal(requests.length, 1, 'two reopens must not submit or replay a model request');
+  assert.equal(requests.length, 2, 'two reopens must not submit or replay a model request');
   assert.equal(held.size, 1, 'original model stream remains connected after two reopens');
   for (const response of held) send(response, ' SECOND_REOPEN_CONTINUED');
   await until(async () => turn(await state())?.items.some(item => item.type === 'agentMessage'
@@ -283,7 +315,7 @@ try {
   await page.getByText('REOPEN_HELD REOPEN_CONTINUED SECOND_REOPEN_CONTINUED', { exact: true }).waitFor();
   assert.equal(turn(await state()).id, turnId);
   assert.equal(turn(await state()).status, 'inProgress');
-  assert.equal(requests.length, 1);
+  assert.equal(requests.length, 2);
   observations.secondContinued = await inspectService();
   assert.deepEqual(observations.secondContinued.desktop, observations.before.desktop);
   assert.deepEqual(observations.secondContinued.core, observations.before.core);
@@ -292,6 +324,9 @@ try {
   assert.ok(observations.secondContinued.turn.items.some(item => item.type === 'agentMessage'
     && item.text === 'REOPEN_HELD REOPEN_CONTINUED SECOND_REOPEN_CONTINUED'),
     'authoritative original service receives the continuation after the second reopen from the original model stream');
+  if (legacy) await page.waitForTimeout(16000);
+  observations.secondReopenErrors = await page.locator('.error-banner').allTextContents();
+  assert.deepEqual(observations.secondReopenErrors, [], 'second reopened GUI must not show a global error banner for optional feedback status');
   observations.secondReopenDialogs = await dialogs();
   checkDialogs(observations.secondReopenDialogs);
   await page.screenshot({ path: join(scratch, '03-same-turn-after-second-reopen.png') });
