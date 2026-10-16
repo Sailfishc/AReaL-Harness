@@ -156,8 +156,9 @@ verify-harness: ## 全部常规与原生集成验收（容量测试单独运行�
 	$(MAKE) verify
 	$(MAKE) runtime-smoke harness-smoke examples-desktop-api workgroup-smoke
 
-verify-native: ## macOS 原生后端与 Harness 集成验收（通用回归由 Linux CI 执行）
+verify-native: build ## macOS 原生后端与 Harness 集成验收（通用回归由 Linux CI 执行）
 	cargo test --locked -p areal-runtime-exec-native
+	cargo test --locked -p areal-runtime --features native-tests --test native_transport
 	$(MAKE) launcher-test runtime-smoke harness-smoke examples-desktop-api workgroup-smoke
 
 smoke: build ## 构建后验证 TUI、HTTP/SSE、持久化、强杀恢复和异步轨迹补传
