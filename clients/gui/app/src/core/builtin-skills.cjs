@@ -57,7 +57,12 @@ async function builtinSkill(home, id) {
       }
       await chmod(stage, 0o500);
       try { await rename(stage, root); }
-      catch (cause) { if (!['EEXIST', 'ENOTEMPTY'].includes(cause.code)) throw cause; }
+      catch (cause) {
+        // macOS 在其他发布者已创建只读目标目录时可能返回 EACCES。
+        if (!['EEXIST', 'ENOTEMPTY', 'EACCES'].includes(cause.code)) throw cause;
+        try { await verifiedFiles(root, manifest); }
+        catch { throw cause; }
+      }
     } finally {
       await chmod(stage, 0o700).catch(() => {});
       await rm(stage, { recursive: true, force: true });
