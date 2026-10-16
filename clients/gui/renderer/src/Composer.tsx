@@ -405,20 +405,23 @@ export function Composer({
           </div>}
           {queueEditor.feedback && <p role="alert" className="composer-queue-feedback">{queueEditor.feedback}</p>}
           {queueEditor.edit?.unknown && <Button type="button" size="sm" disabled={queueEditor.busy || !project.state?.connected} onClick={() => void queueEditor.reconcile()}>核对编辑操作</Button>}
-          {!queueEditor.edit && <>{skills.tags}<ReviewCommentAttachment comments={comments} disabled={disabled} onRemove={() => detachReviewComments(reviewKey)} /></>}
+          {!queueEditor.edit && skills.tags}
+          <BrowserAnnotationAttachments files={files} disabled={disabled} onChange={setFiles} />
+          <div className="composer-attachment-row">
           {!!queueEditor.edit?.attachments.length && <div className="composer-attachments">
             {queueEditor.edit.attachments.map((part, index) => <ComposerQueueAttachment key={`${index}:${part.url}`} part={part} projectId={project.id} threadId={thread.id} action={readAction} disabled={disabled}
               onRemove={() => queueEditor.removeAttachment(index)} />)}
           </div>}
-          {!queueEditor.edit && <McpComposerAttachments draftKey={key} entries={mcpDraft} disabled={disabled}/> }
-          <BrowserAnnotationAttachments files={files} disabled={disabled} onChange={setFiles} />
           {files.some(file => !isComposerFile(file) || !browserAnnotation(file)) ? (
             <div className="composer-attachments" data-testid="composer-attachments">
               {files.filter(file => !isComposerFile(file) || !browserAnnotation(file)).map((file, i) => <ComposerAttachment disabled={disabled} key={isComposerFile(file) ? `${file.name}-${file.lastModified}-${i}` : `pasted-text-${i}`} file={file}
                 onRemove={() => setFiles((current) => current.filter(item => item !== file))}
                 onExpand={content => { api.current?.appendText(`${text.length ? "\n\n" : ""}${content}`); setFiles(current => current.filter(item => item !== file)); }} />)}
             </div>
-          ) : null}</>
+          ) : null}
+          {!queueEditor.edit && <ReviewCommentAttachment comments={comments} disabled={disabled} onRemove={() => detachReviewComments(reviewKey)} />}
+          {!queueEditor.edit && <McpComposerAttachments draftKey={key} entries={mcpDraft} disabled={disabled} />}
+          </div></>
         }
         promptHistory={(thread.turns ?? []).flatMap((t: Data) =>
           (t.items ?? [])

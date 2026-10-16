@@ -288,14 +288,16 @@ export function DraftComposer({
         }}
         onPaste={event => composerPaste(event, pasted => setFiles(current => [...current, ...pasted]))}
         topContent={
-          <>{skills.tags}<ReviewCommentAttachment comments={comments} disabled={disabled} onRemove={() => detachReviewComments(reviewKey)} />
+          <>{skills.tags}<div className="composer-attachment-row">
           {files.length ? (
             <div className="composer-attachments" data-testid="composer-attachments">
               {files.map((file, i) => <ComposerAttachment disabled={disabled} key={isComposerFile(file) ? `${file.name}-${file.lastModified}-${i}` : `pasted-text-${i}`} file={file}
                 onRemove={() => setFiles((current) => current.filter((_, at) => at !== i))}
                 onExpand={content => { api.current?.appendText(`${text.length ? "\n\n" : ""}${content}`); setFiles(current => current.filter(item => item !== file)); }} />)}
             </div>
-          ) : null}</>
+          ) : null}
+          <ReviewCommentAttachment comments={comments} disabled={disabled} onRemove={() => detachReviewComments(reviewKey)} />
+          </div></>
         }
         leadingActions={
           <><ComposerPermissionMenu value={chosenProfile?.readOnly ? "readOnly" : permission} disabled={disabled}

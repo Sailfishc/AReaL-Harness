@@ -4,6 +4,7 @@ import { ChatPromptEditor } from "./prompt-editor/ChatPromptEditor.js";
 import { EditMessageIcon } from "./interfaceIcons.js";
 import { ControlHintTooltip } from "./ControlHintTooltip.js";
 import { Button } from "./components/ui/button.js";
+import { Spinner } from "./components/ui/spinner.js";
 import { markSending, sending, subscribeSending } from "./Composer.js";
 import type { Data, Action } from "./services.js";
 
@@ -54,12 +55,14 @@ export function UserPromptEdit({ project, thread, item, action }: { project: Dat
         onClick={() => { setText(localStorage.getItem(key) ?? original); setOpen(true); }}><EditMessageIcon size={14} /></button>
     </ControlHintTooltip>
     {open && <section role="region" aria-label="编辑用户消息" className="user-prompt-edit w-full">
-      <p className="text-ui-caption text-foreground-subtle">作为新消息发送，原回复与执行记录保留。</p>
       <ChatPromptEditor workspacePath={project.root} taskId={thread.id} initialValue={text} inputTestId="user-prompt-edit-input"
         showMentionButton={false} showSlashButton={false} enableMentionPanel={false} enableWorkspaceFileDrop={false} enableExternalFileDrop={false}
-        disabled={disabled} submitDisabled={disabled || !text.trim()} submitting={busy} submitLabel="发送" cancelLabel="取消"
+        disabled={disabled} submitDisabled={disabled || !text.trim()} submitting={busy} submitLabel="发送"
+        betweenCancelAndSubmitAction={<Button type="button" variant="outline" className="user-prompt-edit-cancel" disabled={!!unknown || busy} onClick={close}>取消</Button>}
+        submitControl={<Button type="submit" variant="secondary" className="user-prompt-edit-send" aria-label="发送" disabled={disabled || !text.trim()}>{busy && <Spinner className="size-4" />}发送</Button>}
         onChange={value => { setText(value); localStorage.setItem(key, value); }}
         onSubmit={value => { void submit(value); return false; }} onCancel={unknown || busy ? undefined : close} />
+      <p className="user-prompt-edit-note">作为新消息发送，原回复与执行记录保留。</p>
       {error && <p role="alert">{error}</p>}
       {unknown && <Button type="button" variant="ghost" disabled={!project.state?.connected || busy}
         onClick={() => void action("reconcile", { projectId: project.id }).catch(cause => setError(cause.message))}>核对提交结果</Button>}

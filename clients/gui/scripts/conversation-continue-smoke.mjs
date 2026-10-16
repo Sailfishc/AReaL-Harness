@@ -12,6 +12,7 @@ import { withSmokeDeadline } from './smoke-deadline.mjs';
 const gui = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const root = resolve(gui, '../..');
 const sourceDesktop = join(gui, 'app');
+const sourceRenderer = resolve(process.env.AREAL_COMPOSER_RENDERER_DIR || join(gui, 'renderer/dist'));
 const require = createRequire(join(sourceDesktop, 'package.json'));
 const { _electron: electron } = require('playwright-core');
 const { ServiceConnection, waitForServiceProcessExit } = require(join(sourceDesktop, 'src/core/service-client.cjs'));
@@ -220,17 +221,17 @@ const chunk = content => `data: ${JSON.stringify({ id: 'continue-fixture', objec
 console.log('GUI evidence:', scratch);
 try {
   await checkpoint('freeze source app and built renderer');
-  const sourceArtifacts = { app: await artifactFiles(sourceDesktop), renderer: await artifactFiles(join(gui, 'renderer/dist')) };
+  const sourceArtifacts = { app: await artifactFiles(sourceDesktop), renderer: await artifactFiles(sourceRenderer) };
   assert.ok(sourceArtifacts.renderer['index.html'], 'built renderer index exists');
   await mkdir(dirname(desktop), { recursive: true });
   await cp(sourceDesktop, desktop, { recursive: true, filter: path => path !== join(sourceDesktop, 'node_modules') });
   await symlink(join(sourceDesktop, 'node_modules'), join(desktop, 'node_modules'), 'dir');
-  await cp(join(gui, 'renderer/dist'), renderer, { recursive: true });
+  await cp(sourceRenderer, renderer, { recursive: true });
   assert.deepEqual(await artifactFiles(sourceDesktop), sourceArtifacts.app, 'source app remained stable while copied');
-  assert.deepEqual(await artifactFiles(join(gui, 'renderer/dist')), sourceArtifacts.renderer, 'built renderer remained stable while copied');
+  assert.deepEqual(await artifactFiles(sourceRenderer), sourceArtifacts.renderer, 'built renderer remained stable while copied');
   assert.deepEqual(await artifactFiles(desktop), sourceArtifacts.app, 'frozen app matches source');
   assert.deepEqual(await artifactFiles(renderer), sourceArtifacts.renderer, 'frozen renderer matches build');
-  run.artifacts = { desktop, renderer, files: sourceArtifacts,
+  run.artifacts = { desktop, renderer, sourceRenderer, files: sourceArtifacts,
     acceptanceScriptSha256: createHash('sha256').update(await readFile(fileURLToPath(import.meta.url))).digest('hex') };
   await mkdir(env.AREAL_CORE_HOME, { recursive: true });
   await writeFile(join(env.AREAL_CORE_HOME, 'projects.json'), JSON.stringify([{ id: projectId, root: workspace }]));
@@ -296,7 +297,8 @@ try {
   checks.push('nonempty paused composer sends the literal new user message');
   await checkpoint(checks.at(-1));
 
-  const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lWQAAAAASUVORK5CYII=';
+  const screenshot = await page.screenshot({ path: join(scratch, '02-attachment-source.png'), animations: 'disabled' });
+  const png = screenshot.toString('base64');
   const uploaded = await command('media', { operation: 'upload', mime: 'image/png', bytes: png });
   assert.ok(uploaded.result?.uri, JSON.stringify(uploaded));
   const resource = { type: 'resource_link', uri: 'https://example.invalid/source', name: `SOURCE_REF_${marker}` };
@@ -311,9 +313,39 @@ try {
     window.dispatchEvent(new CustomEvent('areal-draft-change', { detail: draftKey }));
   }, { draftKey, retainedMcp });
   await page.locator('input[type="file"]').last().setInputFiles({ name: 'main-unsent.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') });
+  const pastedText = `\n\nComposer reference acceptance ${marker}\n${'Complete pasted text is retained. '.repeat(16)}\nPASTED_END_${marker}`;
+  await input().evaluate((element, text) => {
+    const clipboardData = new DataTransfer(); clipboardData.setData('text/plain', text);
+    element.dispatchEvent(new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }));
+  }, pastedText);
+  await page.getByTitle(`Composer reference acceptance ${marker}`, { exact: true }).waitFor();
+  const reviewLines = [1, 2, 3].map(line => `attached review evidence ${line} ${marker}`);
+  await writeFile(join(workspace, 'evidence.txt'), `continue acceptance workspace\n${reviewLines.join('\n')}\n`);
+  const review = await command('workspace', { operation: 'review', scope: 'unstaged' });
+  assert.ok(review.result?.token && review.result.root === workspace && review.result.head && typeof review.result.base === 'string', JSON.stringify(review));
+  assert.ok(review.result.diff.includes(reviewLines[2]), 'review version includes the exact added fixture lines');
+  const reviewKey = `areal-gui:review-comments:${projectId}:${threadId}`;
+  const comments = reviewLines.map((snippet, index) => ({ id: randomUUID(), path: 'evidence.txt', root: review.result.root,
+    scope: 'unstaged', ref: '', token: review.result.token, head: review.result.head, base: review.result.base,
+    side: 'additions', start: index + 2, end: index + 2, snippet, body: `Seeded local review draft ${index + 1} ${marker}` }));
+  const retainedReview = JSON.stringify({ comments, attachedIds: comments.map(comment => comment.id) });
+  run.reviewCommentFixture = { boundary: 'seeded local review draft using the authoritative unstaged review version; does not prove comment collection', comments };
+  await saveRun();
+  await page.evaluate(({ reviewKey, retainedReview }) => {
+    localStorage.setItem(reviewKey, retainedReview);
+    window.dispatchEvent(new CustomEvent('areal-review-comments-change', { detail: reviewKey }));
+  }, { reviewKey, retainedReview });
+  await page.getByRole('button', { name: '3 个评论', exact: true }).waitFor();
   await page.getByRole('button', { name: '编辑消息', exact: true }).click();
   const edit = page.getByRole('region', { name: '编辑用户消息', exact: true });
   await edit.getByRole('textbox').fill(`CANCELLED_${marker}`);
+  await edit.getByRole('textbox').press('Escape');
+  await edit.waitFor({ state: 'hidden' });
+  assert.equal(await input().innerText(), mainDraft, 'Escape preserves the main draft');
+  await page.getByRole('button', { name: '编辑消息', exact: true }).click();
+  await edit.getByRole('textbox').fill(`CANCELLED_${marker}`);
+  assert.equal(await edit.getByRole('button', { name: '取消', exact: true }).innerText(), '取消');
+  assert.equal(await edit.getByRole('button', { name: '发送', exact: true }).innerText(), '发送');
   await edit.getByRole('button', { name: '取消', exact: true }).click();
   const beforeEdit = (await turns()).map(t => t.id);
   const editRequests = requests.length;
@@ -321,6 +353,68 @@ try {
   assert.equal(requests.length, editRequests);
   await page.getByRole('button', { name: '编辑消息', exact: true }).click();
   await edit.getByRole('textbox').fill(`REVISED_${marker}`);
+  const focusEvidence = await edit.getByRole('textbox').evaluate(element => {
+    const style = getComputedStyle(element);
+    const rect = node => { const { x, y, width, height, bottom, right } = node.getBoundingClientRect(); return { x, y, width, height, bottom, right }; };
+    const region = element.closest('.user-prompt-edit');
+    return { focused: document.activeElement === element, outlineStyle: style.outlineStyle, outlineWidth: style.outlineWidth,
+      outlineColor: style.outlineColor, panel: rect(region.querySelector('.composer-surface')), messageColumn: rect(region.closest('.message-column')),
+      userBubbleVisible: getComputedStyle(region.closest('.user-message-content').querySelector('.user-bubble')).display !== 'none' };
+  });
+  await writeFile(join(scratch, 'focused-editor.json'), JSON.stringify(focusEvidence, null, 2));
+  assert.equal(focusEvidence.focused, true);
+  assert.equal(focusEvidence.outlineStyle, 'none', 'the editor has no clipped inner focus outline');
+  assert.ok(focusEvidence.panel.width >= focusEvidence.messageColumn.width - 36, 'inline edit spans the message column');
+  assert.equal(focusEvidence.userBubbleVisible, false, 'the original bubble does not duplicate the open editor');
+  await edit.getByRole('textbox').press('Tab');
+  assert.equal(await edit.getByRole('button', { name: '取消', exact: true }).evaluate(element => document.activeElement === element), true, 'keyboard reaches visible Cancel');
+  await page.emulateMedia({ forcedColors: 'active' });
+  await edit.getByRole('textbox').focus();
+  const forcedFocus = await edit.getByRole('textbox').evaluate(element => {
+    const shell = getComputedStyle(element.closest('.composer-surface'));
+    return { style: shell.outlineStyle, width: shell.outlineWidth, innerStyle: getComputedStyle(element).outlineStyle };
+  });
+  assert.equal(forcedFocus.innerStyle, 'none', 'forced colors keeps the editor free of clipped inner outlines');
+  assert.equal(forcedFocus.style, 'solid', 'forced colors retains a visible shell focus indicator');
+  assert.notEqual(forcedFocus.width, '0px');
+  await page.emulateMedia({ forcedColors: 'none' });
+  const originalTheme = await page.evaluate(() => window.arealDesktop.theme());
+  const layoutEvidence = [];
+  for (const colorScheme of ['light', 'dark']) {
+    await page.evaluate(theme => window.arealDesktop.theme(theme), colorScheme === 'dark' ? 'data-dense' : 'soft-glass');
+    await app.evaluate(({ nativeTheme }) => nativeTheme.emit('updated'));
+    await page.waitForFunction(dark => document.documentElement.classList.contains('dark') === dark, colorScheme === 'dark');
+    const layout = await page.locator('.composer-dock').evaluate(dock => {
+      const rect = selector => { const { x, y, width, height, bottom, right } = dock.querySelector(selector).getBoundingClientRect(); return { x, y, width, height, bottom, right }; };
+      const image = dock.querySelector('.composer-image-card img');
+      return { image: rect('.composer-image-card'), comments: rect('.review-comment-attachment'), text: rect('.composer-text-card:has(.composer-text-copy > button)'),
+        imageLoaded: image.complete && image.naturalWidth > 100, textPreview: dock.querySelector('.composer-text-copy > span').textContent,
+        row: rect('.composer-attachment-row') };
+    });
+    assert.equal(layout.imageLoaded, true, 'the attached screenshot renders actual GUI pixels');
+    assert.equal(layout.textPreview, `Composer reference acceptance ${marker}`, 'pasted text shows the first nonempty line');
+    assert.ok(layout.image.x < layout.comments.x && layout.comments.x < layout.text.x, 'image, comments and text share the reference order');
+    assert.ok(Math.abs(layout.image.bottom - layout.comments.bottom) <= 1 && Math.abs(layout.image.bottom - layout.text.bottom) <= 1, 'wide attachment row aligns card bottoms');
+    await shot(`02-editing-${colorScheme}-wide.png`);
+    layoutEvidence.push({ colorScheme, viewport: 'wide', ...layout });
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(860, 960));
+    const narrow = await page.locator('.composer-attachment-row').evaluate(row => {
+      const { width, height } = row.getBoundingClientRect();
+      return { width, height, scrollWidth: row.scrollWidth, clientWidth: row.clientWidth,
+        children: [...row.querySelectorAll('.composer-image-card, .review-comment-attachment, .composer-text-card')].map(element => {
+          const { x, y, width, bottom, right } = element.getBoundingClientRect(); return { x, y, width, bottom, right };
+        }) };
+    });
+    assert.ok(narrow.scrollWidth <= narrow.clientWidth + 1, 'narrow attachment row has no horizontal overflow');
+    assert.ok(narrow.children.some(child => child.y > narrow.children[0].bottom), 'narrow attachment row wraps');
+    await shot(`02-editing-${colorScheme}-narrow.png`);
+    layoutEvidence.push({ colorScheme, viewport: 'narrow', ...narrow });
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 960));
+  }
+  await page.evaluate(theme => window.arealDesktop.theme(theme), originalTheme.id);
+  await app.evaluate(({ nativeTheme }) => nativeTheme.emit('updated'));
+  await page.waitForFunction(dark => document.documentElement.classList.contains('dark') === dark, originalTheme.dark);
+  await writeFile(join(scratch, 'composer-layout.json'), JSON.stringify(layoutEvidence, null, 2));
   await shot('02-editing-prompt.png');
   await app.evaluate(() => { globalThis.__continueLoseNext = true; });
   await edit.getByRole('button', { name: '发送', exact: true }).click();
@@ -332,11 +426,52 @@ try {
   assert.equal(revisedContent.find(c => c.type === 'image').url, uploaded.result.uri);
   assert.deepEqual(revisedContent.find(c => c.mcpContent).mcpContent, resource);
   assert.equal(await page.evaluate(key => localStorage.getItem(`${key}:mcpContent`), draftKey), retainedMcp);
+  assert.equal(await page.evaluate(key => localStorage.getItem(key), reviewKey), retainedReview, 'editing leaves all attached review drafts unchanged');
   assert.equal(await page.locator('.composer-image-card').count(), 1);
   await shot('03-edited-as-new-message.png');
+  await page.getByRole('button', { name: '3 个评论', exact: true }).click();
+  for (const comment of comments) await page.getByText(comment.body, { exact: true }).waitFor();
+  await page.keyboard.press('Escape');
+  const screenshotPixels = async (image, base64) => {
+    const source = await createImageBitmap(new Blob([Uint8Array.from(atob(base64), value => value.charCodeAt(0))], { type: 'image/png' }));
+    const pixels = async (drawable, width, height) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = width; canvas.height = height;
+      const context = canvas.getContext('2d');
+      context.drawImage(drawable, 0, 0);
+      const rgba = context.getImageData(0, 0, width, height).data;
+      return [...new Uint8Array(await crypto.subtle.digest('SHA-256', rgba))].map(value => value.toString(16).padStart(2, '0')).join('');
+    };
+    try {
+      return {
+        actual: { name: image.alt, complete: image.complete, naturalWidth: image.naturalWidth, naturalHeight: image.naturalHeight,
+          sha256: await pixels(image, image.naturalWidth, image.naturalHeight) },
+        expected: { name: 'main-unsent.png', complete: true, naturalWidth: source.width, naturalHeight: source.height,
+          sha256: await pixels(source, source.width, source.height) },
+      };
+    } finally { source.close(); }
+  };
+  const beforeExpansion = await page.locator('.composer-image-card img').evaluate(screenshotPixels, png);
+  assert.deepEqual(beforeExpansion.actual, beforeExpansion.expected, 'the attachment retains the full-resolution screenshot pixels before expansion');
+  await page.getByRole('button', { name: '在文本框中显示', exact: false }).click();
+  const expandedText = await input().innerText();
+  assert.equal(expandedText.split(pastedText).length, 2, 'expand inserts complete pasted text exactly once');
+  assert.equal(expandedText.slice(0, -pastedText.length).trimEnd(), mainDraft, 'expand retains the main draft before the text separator');
+  assert.ok(expandedText.endsWith(pastedText), 'expand retains every pasted character through its final marker');
+  assert.equal(await page.getByTitle(`Composer reference acceptance ${marker}`, { exact: true }).count(), 0, 'expanded text card is removed');
+  const afterExpansion = await page.locator('.composer-image-card img').evaluate(screenshotPixels, png);
+  assert.deepEqual(afterExpansion.actual, afterExpansion.expected, 'expansion retains the full-resolution screenshot pixels');
+  assert.deepEqual(afterExpansion.actual, beforeExpansion.actual, 'expansion preserves the loaded screenshot attachment');
+  assert.equal(await page.evaluate(key => localStorage.getItem(key), reviewKey), retainedReview, 'text expansion leaves comments unchanged');
   await page.getByRole('button', { name: '移除附件 main-unsent.png', exact: true }).click();
+  assert.equal(await page.locator('.composer-image-card').count(), 0);
+  await page.getByRole('button', { name: '移除应用附件', exact: true }).click();
+  assert.equal(await page.evaluate(key => localStorage.getItem(`${key}:mcpContent`), draftKey), null);
+  await page.getByRole('button', { name: '移除评论附件', exact: true }).click();
+  assert.deepEqual(await page.evaluate(key => JSON.parse(localStorage.getItem(key)), reviewKey), { comments, attachedIds: [] }, 'detach keeps the saved review drafts');
   await page.evaluate(key => { localStorage.removeItem(`${key}:mcpContent`); window.dispatchEvent(new CustomEvent('areal-draft-change', { detail: key })); }, draftKey);
   checks.push('edit Cancel preserves history; Send appends a revised prompt with original attachment/MCP references and retains the main draft/resources even when its committed response is lost');
+  checks.push('inline edit has text actions and keyboard focus; actual screenshot, seeded review comments and pasted text align, wrap and render in both themes; expansion and removal preserve exact draft content');
   await checkpoint(checks.at(-1));
   await input().fill('');
 
