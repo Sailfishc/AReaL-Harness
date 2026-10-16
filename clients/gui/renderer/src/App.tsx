@@ -16,6 +16,7 @@ import { ConversationStatusCard } from "./ConversationStatusCard.js";
 import { SidePane } from "./app-shell/SidePane.js";
 import { useBrowserWorkspace, browserTabId, browserPageId, isBrowserTab } from "./app-shell/useBrowserWorkspace.js";
 import { Button } from "./components/ui/button.js";
+import { BackendStatusNotice, type BackendStatusAction } from "./BackendStatusNotice.js";
 import { Popover, PopoverContent, PopoverTrigger } from "./components/ui/popover.js";
 import { ApplicationRail, SidebarSectionToggle, SidebarWorkspaceHeader } from "./app-shell/ApplicationNavigation.js";
 import { NavigationSidebar, WorkbenchShell, WorkspaceHeader, WorkSurface } from "./app-shell/WorkbenchShell.js";
@@ -207,6 +208,12 @@ function AppContent({ services }: { services: PlatformServices }) {
   const requestNavigation = useGuardedNavigation();
   const { terminalLocation } = useApplicationPreferences();
   const [snapshot, updateSnapshot] = useState<Snapshot>({ projects: [], connection: { state: "connecting" } });
+  const backendActionInFlight = React.useRef(false);
+  const [backendActionPending, setBackendActionPending] = useState(false);
+  const [backendActionError, setBackendActionError] = useState("");
+  useEffect(() => { setBackendActionError(""); }, [snapshot.connection?.state, snapshot.connection?.message,
+    snapshot.connection?.recovery, snapshot.backendUpdate?.state, snapshot.backendUpdate?.message,
+    snapshot.desktopCapabilities?.currentCommands]);
   const [themeReady, setThemeReady] = useState(false);
   const [trajectoryAttention, setTrajectoryAttention] = useState(false);
   const [restoration, setRestoration] = useState<{ projectId: string; pending: boolean; failed: boolean }>();
@@ -493,6 +500,27 @@ function AppContent({ services }: { services: PlatformServices }) {
       if (threadId) await resourceAction("open", { projectId: project.id, threadId });
     }
   };
+  const runBackendAction = async (kind: BackendStatusAction) => {
+    if (backendActionInFlight.current) return;
+    backendActionInFlight.current = true;
+    setBackendActionPending(true);
+    setBackendActionError("");
+    try {
+      if (kind === "update") {
+        const result = await resourceAction("stopService");
+        if (result?.stopped === true) await resourceAction("connectService");
+      } else if (kind === "check") {
+        await resourceAction("connectService");
+      } else {
+        await reconnectService();
+      }
+    } catch (cause) {
+      setBackendActionError((cause as Error).message);
+    } finally {
+      backendActionInFlight.current = false;
+      setBackendActionPending(false);
+    }
+  };
   const choose = async () => {
     setPanel("");
     try {
@@ -741,7 +769,7 @@ function AppContent({ services }: { services: PlatformServices }) {
       setPanel("Skills");
       return;
     }
-    if (["设置", "Skills", "MCP"].includes(name)) {
+    if (["设置", "Skills", "MCP", "后台服务"].includes(name)) {
       setSettingsTab(name === "设置" ? "模型服务" : name);
       setSettingsOpen(true);
       return;
@@ -1451,14 +1479,9 @@ function AppContent({ services }: { services: PlatformServices }) {
               )}
             </div>
           </WorkspaceHeader>}
-          {snapshot.connection && (snapshot.connection.state !== "ready" || snapshot.connection.message) && (
-            <div className="notice" role="status">
-              <span>{snapshot.connection.state === "connecting" ? "正在连接后台…" : snapshot.connection.message || "后台尚未连接"}</span>
-              {snapshot.connection.state === "unavailable" && (
-                <button onClick={() => { setError(""); void reconnectService().catch(cause => setError((cause as Error).message)); }}>重新连接后台</button>
-              )}
-            </div>
-          )}
+          <BackendStatusNotice connection={snapshot.connection} update={snapshot.backendUpdate}
+            currentCommands={snapshot.desktopCapabilities?.currentCommands ?? project?.desktopCapabilities?.currentCommands}
+            pending={backendActionPending} error={backendActionError} onAction={kind => void runBackendAction(kind)} />
           {(error || project?.error || project?.state?.error) && (
             <div className="error-banner" role="alert">
               <span>{error || project?.error || project?.state?.error}</span>

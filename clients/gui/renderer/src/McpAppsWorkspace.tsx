@@ -557,7 +557,7 @@ export function useMcpAppsWorkspace({
                     ))}
             </div>
         ),
-        formsView: !desktopSupported ? <p role="status">{compatibilityHint}</p> : (
+        formsView: !desktopSupported ? null : (
             <>
                 {forms.map((form) => (
                     <McpAppForm

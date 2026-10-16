@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createRequire } from 'node:module';
-import { mkdtemp, mkdir, readFile, writeFile, rm, realpath } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, rm, realpath, stat, utimes } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { once } from 'node:events';
@@ -10,6 +10,7 @@ const require = createRequire(import.meta.url);
 const { CoreBackend } = require('../app/src/core/backend.cjs');
 const { SharedCoreBackend } = require('../app/src/core/service-client.cjs');
 const { PROTOCOL } = require('../app/src/core/service-protocol.cjs');
+const { serviceIdentity } = require('../app/src/core/service-config.cjs');
 const { WebSocketServer } = require('../app/node_modules/ws');
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -21,7 +22,7 @@ async function until(predicate) {
   }
 }
 
-async function fixture(t, { commandContract = 'areal.desktop-commands.v1', commandResult } = {}) {
+async function fixture(t, { commandContract = 'areal.desktop-commands.v1', commandResult, service = {}, resources = [], onStop } = {}) {
   const home = await realpath(await mkdtemp(join(tmpdir(), 'areal-service-observer-')));
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
   await once(server, 'listening');
@@ -34,7 +35,7 @@ async function fixture(t, { commandContract = 'areal.desktop-commands.v1', comma
     desktopCapabilities: { currentCommands: commandContract !== 'areal.desktop-commands.v1' },
     projects: [{ id: 'p', root: home, state: { threads: {} }, desktopCapabilities: { currentCommands: commandContract !== 'areal.desktop-commands.v1' } }],
   }, service: { connected: true, clients: 1, busy: false, providerUpdating: false, activeCommands: 0, starting: 0,
-    pid: metadata.pid, lifecycleVersion: 1, targets: [], ...(commandContract === null ? {} : { commandContract }) } });
+    pid: metadata.pid, lifecycleVersion: 1, targets: [], ...service, ...(commandContract === null ? {} : { commandContract }) } });
   server.on('connection', (socket, request) => {
     connections++;
     assert.equal(request.headers.authorization, `Bearer ${metadata.token}`);
@@ -47,8 +48,13 @@ async function fixture(t, { commandContract = 'areal.desktop-commands.v1', comma
       if ((message.method === 'command' && commandResult === undefined) || (message.method === 'stopService' && stop === 'unknown')) {
         socket.terminate(); return;
       }
-      let result = message.method === 'command' ? commandResult : message.method === 'resources' ? [] : packet();
+      if (message.method === 'stopService' && stop === 'refused') {
+        socket.send(JSON.stringify({ id: message.id, error: { code: 'LIFECYCLE_BLOCKED', message: 'fixture work started during inspection' } }));
+        return;
+      }
+      let result = message.method === 'command' ? commandResult : message.method === 'resources' ? resources : packet();
       if (message.method === 'stopService') {
+        await onStop?.({ home, metadata });
         await rm(join(home, 'service.json')); result = { stopped: true };
       }
       socket.send(JSON.stringify({ id: message.id, result }));
@@ -62,7 +68,7 @@ async function fixture(t, { commandContract = 'areal.desktop-commands.v1', comma
     await new Promise(resolve => server.close(resolve));
     await rm(home, { recursive: true, force: true });
   });
-  return { backend, metadata, calls, publish, drop, connections: () => connections,
+  return { home, backend, metadata, calls, publish, drop, service, connections: () => connections,
     updateContract: value => {
       commandContract = value;
       const params = packet();
@@ -309,4 +315,176 @@ test('an explicit reconnect can reopen observation after a persisted user stop',
   assert.equal(f.backend.status.connected, false); assert.equal(starts, 0);
   await f.backend.init();
   assert.equal(f.backend.status.connected, true); assert.equal(starts, 1);
+});
+
+
+async function startupFixture(t, options = {}) {
+  let replacementIdentity, controlAtStop;
+  const f = await fixture(t, { ...options, onStop: async ({ home, metadata }) => {
+    controlAtStop = JSON.parse(await readFile(join(home, 'service-control.json'), 'utf8'));
+    const capabilities = await readFile(join(home, 'capabilities.log'), 'utf8');
+    assert.ok(capabilities.includes('config models --help'), 'inspect the replacement before stopping the retained service');
+    metadata.identity = replacementIdentity;
+  } });
+  const binary = join(f.home, 'areal');
+  await writeFile(binary, `#!/bin/sh
+printf '%s\n' "$*" >> '${join(f.home, 'capabilities.log')}'
+printf 'fixture model help\n'
+`, { mode: 0o700 });
+  for (const name of ['areal-runtime', 'areal-runtime-fs']) await writeFile(join(f.home, name), name);
+  f.backend.options = { home: f.home, binary, configHome: join(f.home, 'config') };
+  replacementIdentity = await serviceIdentity(f.backend.options);
+  const launcher = join(f.home, 'desktop-fixture.cjs');
+  await writeFile(launcher, `const fs = require('node:fs');
+const home = ${JSON.stringify(f.home)};
+fs.appendFileSync(home + '/launches.log', 'launch\\n');
+fs.writeFileSync(home + '/service.json', fs.readFileSync(home + '/replacement.json'));
+`);
+  await writeFile(join(f.home, 'replacement.json'), JSON.stringify({ ...f.metadata, identity: replacementIdentity }));
+  f.backend.app.getAppPath = () => launcher;
+  await f.publish();
+  return { ...f, binary, identity: replacementIdentity, controlAtStop: () => controlAtStop,
+    launches: async () => {
+      try { return (await readFile(join(f.home, 'launches.log'), 'utf8')).trim().split('\n').length; }
+      catch (error) { if (error.code === 'ENOENT') return 0; throw error; }
+    } };
+}
+
+test('deployment identity tracks actual executable content and ignores mtime alone', async t => {
+  const f = await startupFixture(t);
+  for (const name of ['areal', 'areal-runtime', 'areal-runtime-fs']) {
+    const path = join(f.home, name), before = await stat(path);
+    const identity = await serviceIdentity(f.backend.options);
+    await utimes(path, before.atime, new Date(before.mtimeMs + 10_000));
+    assert.equal(await serviceIdentity(f.backend.options), identity, `${name} timestamp is not deployment content`);
+    const original = await readFile(path);
+    await writeFile(path, Buffer.concat([original, Buffer.from('changed content')]));
+    await utimes(path, before.atime, before.mtime);
+    assert.notEqual(await serviceIdentity(f.backend.options), identity, `${name} same-path replacement must change identity`);
+    await writeFile(path, original);
+  }
+});
+
+test('automatic same-deployment reopen silently retains the existing service', async t => {
+  const f = await startupFixture(t); f.metadata.identity = f.identity; await f.publish();
+  await f.backend.init({ automatic: true });
+  assert.deepEqual(f.backend.snapshot().connection, { state: 'ready' });
+  assert.equal(f.backend.snapshot().backendUpdate, undefined);
+  assert.equal(await f.launches(), 0);
+  assert.deepEqual(f.calls.map(call => call.method), ['hello']);
+});
+
+test('automatic idle replacement persists stop intent and starts only after confirmed exit', async t => {
+  const f = await startupFixture(t);
+  await f.backend.init({ automatic: true });
+  assert.equal(f.controlAtStop().state, 'unconfirmed');
+  assert.equal(f.backend.metadata.identity, f.identity);
+  assert.equal(await f.launches(), 1);
+  assert.deepEqual(f.backend.snapshot().connection, { state: 'ready' });
+  assert.equal(f.backend.snapshot().backendUpdate, undefined);
+  assert.deepEqual(f.calls.filter(call => call.method === 'stopService').map(call => call.params), [
+    { protocol: PROTOCOL, forUpdate: true, cancel: false, expectedTargets: [] },
+  ]);
+  await assert.rejects(readFile(f.backend.controlPath), { code: 'ENOENT' });
+});
+
+for (const [label, service, resources] of [
+  ['active Turn', { busy: true }, []],
+  ['other GUI', { clients: 2 }, []],
+  ['pending Queue', {}, [{ projectId: 'p', root: '/fixture', restartSafe: true, resources: [], waitingMessages: 1 }]],
+  ['UNKNOWN', {}, [{ projectId: 'p', root: '/fixture', restartSafe: false, resources: [], unresolvedTools: 1 }]],
+]) {
+  test(`automatic changed deployment retains ${label} and never watches for idle`, async t => {
+    const f = await startupFixture(t, { service, resources });
+    await f.backend.init({ automatic: true });
+    assert.equal(f.backend.status.connected, true);
+    assert.deepEqual(f.backend.snapshot().backendUpdate, { state: 'pending' });
+    assert.equal(f.backend.metadata.identity, 'fixture');
+    Object.assign(f.service, { busy: false, clients: 1 });
+    await f.backend.init({ automatic: true });
+    await sleep(30);
+    assert.equal(f.calls.some(call => call.method === 'stopService'), false);
+    assert.equal(await f.launches(), 0);
+  });
+}
+
+test('explicit connect observes a changed deployment without automatic replacement', async t => {
+  const f = await startupFixture(t);
+  await f.backend.init();
+  assert.equal(f.backend.status.connected, true);
+  assert.deepEqual(f.backend.snapshot().backendUpdate, { state: 'pending' });
+  assert.equal(f.calls.some(call => call.method === 'stopService'), false);
+  assert.equal(await f.launches(), 0);
+});
+
+test('replacement capability failure keeps the original connected service', async t => {
+  const f = await startupFixture(t);
+  await writeFile(f.binary, '#!/bin/sh\nprintf "unrecognized subcommand\\n"\n');
+  await f.backend.init({ automatic: true });
+  assert.equal(f.backend.status.connected, true);
+  assert.equal(f.backend.snapshot().connection.state, 'ready');
+  assert.equal(f.backend.snapshot().backendUpdate.state, 'failed');
+  assert.match(f.backend.snapshot().backendUpdate.message, /当前 Core 不支持/);
+  assert.equal(f.calls.some(call => call.method === 'stopService'), false);
+  assert.equal(await f.launches(), 0);
+});
+
+test('identity read failure leaves a retained observer usable with an update error', async t => {
+  const f = await startupFixture(t); await rm(f.binary);
+  await f.backend.init({ automatic: true });
+  assert.equal(f.backend.status.connected, true);
+  assert.equal(f.backend.snapshot().connection.state, 'ready');
+  assert.equal(f.backend.snapshot().backendUpdate.state, 'failed');
+  assert.equal(f.calls.some(call => call.method === 'stopService'), false);
+  assert.equal(await f.launches(), 0);
+});
+
+test('a known replacement refusal keeps the original connected service and removes tentative intent', async t => {
+  const f = await startupFixture(t); f.setStop('refused');
+  await f.backend.init({ automatic: true });
+  assert.equal(f.backend.status.connected, true);
+  assert.deepEqual(f.backend.snapshot().backendUpdate, { state: 'pending' });
+  assert.equal(await f.launches(), 0);
+  assert.equal(f.calls.filter(call => call.method === 'stopService').length, 1);
+  await assert.rejects(readFile(f.backend.controlPath), { code: 'ENOENT' });
+});
+
+test('unknown replacement stop remains check-only across explicit connection and missing descriptor', async t => {
+  const f = await startupFixture(t); f.setStop('unknown');
+  await assert.rejects(f.backend.init({ automatic: true }), error => error.submissionUnknown === true);
+  assert.equal(f.backend.snapshot().connection.state, 'unavailable');
+  assert.equal(f.backend.snapshot().connection.recovery, 'check');
+  assert.equal(JSON.parse(await readFile(f.backend.controlPath, 'utf8')).state, 'unconfirmed');
+  assert.equal(await f.launches(), 0);
+  const journalPath = join(f.home, 'legacy-schedule-recovery.json');
+  await writeFile(journalPath, 'untouched schedule recovery fixture');
+  await f.backend.init();
+  assert.equal(f.backend.status.connected, true);
+  assert.equal(f.backend.snapshot().connection.recovery, 'check');
+  assert.equal(await readFile(journalPath, 'utf8'), 'untouched schedule recovery fixture');
+  assert.equal(JSON.parse(await readFile(f.backend.controlPath, 'utf8')).state, 'unconfirmed');
+  assert.equal(f.calls.filter(call => call.method === 'stopService').length, 1);
+  assert.equal(f.calls.some(call => call.method === 'command'), false);
+  assert.equal(await f.launches(), 0);
+  await assert.rejects(f.backend.command('send', { projectId: 'p', threadId: 't', text: 'must remain held' }),
+    error => error.code === 'LIFECYCLE_INCOMPLETE');
+  assert.equal(f.calls.some(call => call.method === 'command'), false);
+  assert.equal((await f.backend.serviceStatus()).connected, true);
+  await assert.rejects(f.backend.addProject('/fixture/new-project'), error => error.code === 'LIFECYCLE_INCOMPLETE');
+  assert.equal(f.calls.some(call => call.method === 'addProject'), false);
+  f.drop(); await until(() => !f.backend.status.connected); await rm(join(f.home, 'service.json'));
+  await assert.rejects(f.backend.init(), /未确认|核查/);
+  assert.equal(await f.launches(), 0);
+  assert.equal(f.calls.filter(call => call.method === 'stopService').length, 1);
+  assert.equal(JSON.parse(await readFile(f.backend.controlPath, 'utf8')).state, 'unconfirmed');
+});
+
+test('confirmed replacement stop followed by launch failure retains stopped intent', async t => {
+  const f = await startupFixture(t);
+  f.backend.app.getAppPath = () => { throw Error('replacement launch unavailable'); };
+  await assert.rejects(f.backend.init({ automatic: true }), /replacement launch unavailable/);
+  assert.equal(JSON.parse(await readFile(f.backend.controlPath, 'utf8')).state, 'stopped');
+  await f.backend.init({ automatic: true });
+  assert.equal(f.calls.filter(call => call.method === 'stopService').length, 1);
+  assert.equal(await f.launches(), 0);
 });

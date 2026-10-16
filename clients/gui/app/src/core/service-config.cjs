@@ -1,6 +1,6 @@
 'use strict';
 const { createHash } = require('node:crypto');
-const { existsSync, readFileSync, readdirSync, realpathSync } = require('node:fs');
+const { existsSync, readFileSync, readdirSync, realpathSync, createReadStream } = require('node:fs');
 const { join, dirname, basename, resolve } = require('node:path');
 const { homedir } = require('node:os');
 const { resolveCoreBinary, executables } = require('./bundle.cjs');
@@ -61,8 +61,13 @@ async function serviceIdentity(options) {
     const packagedHelper = join(dirname(options.binary), '..', 'libexec', 'areal', name);
     const path = name !== 'areal' && existsSync(packagedHelper)
       ? packagedHelper : join(dirname(options.binary), name);
-    try { hash.update(JSON.stringify([realpathSync(path)])); }
-    catch (e) { if (name === 'areal') throw e; hash.update(name + ':absent'); }
+    let actual;
+    try { actual = realpathSync(path); }
+    catch (e) { if (name === 'areal' || !['ENOENT', 'ENOTDIR'].includes(e.code)) throw e; hash.update(name + ':absent'); continue; }
+    hash.update(JSON.stringify([actual]));
+    const content = createHash('sha256');
+    for await (const chunk of createReadStream(actual)) content.update(chunk);
+    hash.update(content.digest());
   }
   // Core owns mutable model configuration and its revisions. Saving it must
   // not make a later window incompatible with the still-running service;

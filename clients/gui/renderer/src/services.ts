@@ -13,7 +13,8 @@ export interface Snapshot {
     menuBar?: { supported: boolean; active: boolean; error: string | null } | null;
     projectless?: { directory: string };
     revision?: number;
-    connection?: { state: 'connecting' | 'ready' | 'unavailable'; message?: string };
+    connection?: { state: 'connecting' | 'ready' | 'unavailable'; message?: string; recovery?: 'check' };
+    backendUpdate?: { state: 'applying' | 'pending' | 'failed'; message?: string };
     library?: Data;
 }
 export interface UpdateState {

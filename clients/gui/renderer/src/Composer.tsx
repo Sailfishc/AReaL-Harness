@@ -10,6 +10,7 @@ import { canExecutePlan, permissionMode, permissionOptions, planModeOptions } fr
 import { ComposerPlanMode } from "./ComposerPlanMode.js";
 import { ControlHintTooltip } from "./ControlHintTooltip.js";
 import { Button } from "./components/ui/button.js";
+import { BACKEND_STATUS_ID } from "./BackendStatusNotice.js";
 import { ComposerQueue } from "./ComposerQueue.js";
 import { useComposerQueueEdit } from "./useComposerQueueEdit.js";
 import { ComposerQueueAttachment } from "./ComposerQueueAttachment.js";
@@ -319,7 +320,6 @@ export function Composer({
         }}
       />
       {deliveryError && <p role="alert" className="notice">{deliveryError}</p>}
-      {desktopUnsupported && <p role="status" className="notice">升级后台后可发送新消息或继续执行。草稿已保留，现有任务可继续管理。</p>}
       {unknown && (
         <div role="status" className="notice">
           提交结果尚未确认。草稿已保留，等待 Core 对账；不会自动重发。
@@ -332,7 +332,7 @@ export function Composer({
       )}
       {planReady && !queueEditor.edit && <section className="flex items-center justify-between gap-3 px-3 py-2 text-ui-sm" aria-label="计划确认">
         <span className="text-foreground-subtle">计划已完成。批准后将以自动编辑模式执行。</span>
-        <Button size="sm" disabled={disabled || desktopUnsupported || !!input.text.trim() || !!input.files.length || !!comments.length} onClick={() => void submit("按上方已确认的计划执行。", false, true)}>批准并执行</Button>
+        <Button size="sm" disabled={disabled || desktopUnsupported || !!input.text.trim() || !!input.files.length || !!comments.length} aria-describedby={desktopUnsupported ? BACKEND_STATUS_ID : undefined} onClick={() => void submit("按上方已确认的计划执行。", false, true)}>批准并执行</Button>
       </section>}
       <div className="composer-input-stack">
       <div ref={setMenuAnchor} className="composer-menu-anchor" />
@@ -465,6 +465,7 @@ export function Composer({
         ) : running ? (
           <ControlHintTooltip title="发送" shortcut={prefs.sendShortcut === "enter" ? "Enter" : "⌘/Ctrl+Enter"}>
             <Button type="button" variant="composer" size="icon-md" aria-label="发送" data-testid="chat-send-button"
+              aria-describedby={desktopUnsupported ? BACKEND_STATUS_ID : undefined}
               disabled={disabled || desktopUnsupported || taskManagement || (!input.text.trim() && !input.files.length && !comments.length && !skills.selected.length && !mcpDraft.length)}
               onClick={event => void submit(api.current?.getMarkdown() ?? text, event.metaKey || event.ctrlKey)}>
               <SendMessageIcon className="size-5" />
@@ -473,6 +474,7 @@ export function Composer({
         ) : canContinue ? (
           <ControlHintTooltip title="继续执行">
             <Button type="button" variant="composer" size="icon-md" aria-label="继续执行" data-testid="chat-continue-button"
+              aria-describedby={desktopUnsupported ? BACKEND_STATUS_ID : undefined}
               disabled={disabled || desktopUnsupported} className="composer-primary-action" onClick={() => void continueExecution()}>
               <ContinueExecutionIcon className="size-5" />
             </Button>
