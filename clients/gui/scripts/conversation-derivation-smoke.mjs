@@ -72,6 +72,12 @@ const toolSse = (name, args) => [
 // 只剔除与草稿动作无关的精确只读轮询，保留原始 RPC 证据与全部变更命令。
 const isBackgroundStatusRead = entry => ["trajectory", "feedback"].includes(entry.command)
   && entry.parameters?.operation === "status" && Object.keys(entry.parameters).length === 1;
+const isBackgroundMcpFormsRead = (entry, owner) => entry.command === "manage"
+  && typeof owner?.projectId === "string" && owner.projectId.length > 0
+  && typeof owner?.threadId === "string" && owner.threadId.length > 0
+  && entry.parameters?.operation === "mcpForms"
+  && Object.keys(entry.parameters).sort().join(",") === "operation,projectId,threadId"
+  && entry.parameters.projectId === owner.projectId && entry.parameters.threadId === owner.threadId;
 for (const command of ["trajectory", "feedback"])
   assert.ok(isBackgroundStatusRead({ command, parameters: { operation: "status" } }));
 for (const entry of [
@@ -81,6 +87,19 @@ for (const entry of [
   { command: "feedback", parameters: { operation: "status", enabled: true } },
   { command: "trajectory", parameters: {} },
 ]) assert.equal(isBackgroundStatusRead(entry), false, "only exact background trajectory and feedback status reads may be excluded");
+const classifierOwner = { projectId: "classifier-project", threadId: "classifier-source" };
+const classifierForms = { command: "manage", parameters: { operation: "mcpForms", ...classifierOwner } };
+assert.ok(isBackgroundMcpFormsRead(classifierForms, classifierOwner));
+for (const entry of [
+  ...["mcpApps", "mcpFormRespond", "mcpFormPreview", "mcpFormResourceStage", "mcpFormResourceSubmission", "mcpFormResourcePrepare", "mcpFormResourceRelease", "mcpExtensionCall", "mcpSave", "mcpConnect", "mcpDisconnect"].map(operation => ({ command: "manage", parameters: { operation, ...classifierOwner } })),
+  { ...classifierForms, command: "side" },
+  { command: "manage", parameters: { operation: "mcpForms", projectId: "other-project", threadId: classifierOwner.threadId } },
+  { command: "manage", parameters: { operation: "mcpForms", projectId: classifierOwner.projectId, threadId: "other-thread" } },
+  { command: "manage", parameters: { operation: "mcpForms", projectId: classifierOwner.projectId } },
+  ...["requestId", "response", "selectionToken", "retry"].map(key => ({ ...classifierForms, parameters: { ...classifierForms.parameters, [key]: true } })),
+]) assert.equal(isBackgroundMcpFormsRead(entry, classifierOwner), false, "only the exact source-owned MCP forms query may be excluded");
+for (const owner of [undefined, {}, { projectId: "", threadId: classifierOwner.threadId }, { projectId: classifierOwner.projectId, threadId: "" }])
+  assert.equal(isBackgroundMcpFormsRead(classifierForms, owner), false, "background MCP forms queries require a complete owner");
 
 async function state() { return page.evaluate(() => window.arealDesktop.snapshot()); }
 const project = (snapshot) =>
@@ -664,6 +683,7 @@ try {
   await sidePane.getByRole("region", { name: "冻结证据" }).locator("pre").filter({ hasText: unicodeExcerpt }).first().waitFor();
   await shot("05-side-answered-frozen.png");
   checks.push("AC30/39: Side answers during a live source Runtime command; Unicode source selection is verified and frozen evidence is visible");
+  const bringBackOwner = { projectId, threadId: sourceThreadId };
   const beforeBring = { requests: requests.length, commands: (await app.evaluate(() => globalThis.__scfMutations)).length,
     sourceTurns: project(sideStarted).state.threads[sourceThreadId].turns.length,
     sideTurns: side.turns.length, workspaceSha256: await hash(fixturePath) };
@@ -705,14 +725,14 @@ try {
     "the raw RPC evidence must retain the successful injected trajectory status request");
   assert.ok(insertCommands.some(entry => entry.command === "feedback" && isBackgroundStatusRead(entry) && entry.accepted),
     "the raw RPC evidence must retain the successful injected feedback status request");
-  assert.deepEqual(insertCommands.filter(entry => !isBackgroundStatusRead(entry)), [],
-    "confirming bring-back must not issue any command beyond independent trajectory and feedback status reads, including queue or steer");
+  assert.deepEqual(insertCommands.filter(entry => !isBackgroundStatusRead(entry) && !isBackgroundMcpFormsRead(entry, bringBackOwner)), [],
+    "confirming bring-back may only overlap independent trajectory/feedback status and exact source-owned MCP forms reads, never queue or steer");
   assert.ok(bringCommands.slice(beforeBring.commands).every(entry =>
-    isBackgroundStatusRead(entry) || (entry.command === "side" && entry.parameters.operation === "list")),
-  "switching related discussions may only refresh the read-only list alongside independent trajectory and feedback status reads");
-  events.push({ bringBackCommandWindow: { from: beforeBring.commands, insertionFrom: commandsBeforeInsert,
+    isBackgroundStatusRead(entry) || isBackgroundMcpFormsRead(entry, bringBackOwner) || (entry.command === "side" && entry.parameters.operation === "list")),
+  "switching related discussions may only refresh the read-only list alongside independent status and exact source-owned MCP forms reads");
+  events.push({ bringBackCommandWindow: { owner: bringBackOwner, from: beforeBring.commands, insertionFrom: commandsBeforeInsert,
     to: bringCommands.length, injectedStatusAccepted: true, injectedFeedbackStatusAccepted: true } });
-  checks.push("bring-back retains raw RPC evidence and tolerates real background trajectory/status and feedback/status reads without allowing feedback mutation, retry, send, configure, queue or steer");
+  checks.push("bring-back retains raw RPC evidence and tolerates exact background trajectory/status, feedback/status and source-owned MCP forms reads without allowing MCP or feedback mutation, retry, send, configure, queue or steer");
   assert.equal(project(await state()).state.threads[sourceThreadId].turns.length, beforeBring.sourceTurns);
   assert.equal(project(await state()).state.threads[sideThreadId].turns.length, beforeBring.sideTurns);
   assert.equal(await hash(fixturePath), beforeBring.workspaceSha256);
@@ -1061,6 +1081,36 @@ try {
   await page.keyboard.press("Escape");
   await forkDialog.waitFor({ state: "hidden" });
   checks.push("AC11: actual frozen-history corruption is refused in the Fork dialog without a target or execution; source draft survives and original snapshot bytes are restored");
+  const inspectionSource = project(await state()).state.threads[sourceThreadId].turns
+    .find(turn => turn.id === activeTurnId).items.find(item => item.id === unknownItem.id);
+  assert.equal(inspectionSource.tool, "run_command");
+  assert.equal(inspectionSource.execution.outcome, "unknown");
+  assert.deepEqual(inspectionSource.contentItems, unknownItem.contentItems);
+  const originalReceipt = JSON.parse(inspectionSource.contentItems.find(content => content.type === "inputText").text);
+  assert.equal(originalReceipt.commandStatus, "succeeded");
+  assert.equal(originalReceipt.state, "exited");
+  assert.equal(originalReceipt.exitCode, 0);
+  assert.equal(originalReceipt.stdout, "finished");
+  assert.equal(originalReceipt.stopReason, null);
+  assert.equal(originalReceipt.outputClosed, true);
+  assert.equal(originalReceipt.outputReadComplete, true);
+  assert.equal(originalReceipt.outputIntegrity, "retained");
+  const inspection = "Inspected the isolated test fixture: the original run_command receipt confirms exit 0, state exited, stdout finished and closed retained output. Core and Runtime were safely stopped before this test changed only the stored outcome to UNKNOWN. AC21 and AC11 refusal checks are complete. No command was replayed; preserve UNKNOWN history.";
+  const acknowledged = await page.evaluate(params => window.arealDesktop.command("manage", params),
+    { projectId, threadId: sourceThreadId, operation: "toolAcknowledge", itemId: unknownItem.id, inspection });
+  assert.ok(acknowledged.ok, JSON.stringify(acknowledged));
+  const inspected = await until(s => project(s)?.state?.threads?.[sourceThreadId]?.turns
+    .find(turn => turn.id === activeTurnId)?.items.find(item => item.id === unknownItem.id)?.execution.inspection === inspection,
+  "persisted injected UNKNOWN inspection");
+  const inspectedItem = project(inspected).state.threads[sourceThreadId].turns
+    .find(turn => turn.id === activeTurnId).items.find(item => item.id === unknownItem.id);
+  assert.equal(inspectedItem.execution.outcome, "unknown");
+  assert.equal(inspectedItem.execution.inspection, inspection);
+  assert.deepEqual(inspectedItem.contentItems, unknownItem.contentItems, "inspection preserves the complete original Runtime receipt");
+  assert.equal(requests.length, preRestart.requests, "inspection must not submit to the model");
+  events.push({ unknownFixtureInspection: { sourceThreadId, turnId: activeTurnId, itemId: unknownItem.id,
+    processId: originalReceipt.processId, inspection, outcome: inspectedItem.execution.outcome } });
+  checks.push("after AC21/AC11 refusals, public inspection preserves the injected UNKNOWN and original completed Runtime receipt without replay or a model request");
   assert.deepEqual(pageErrors, []);
   passed = true;
 } catch (error) {
@@ -1129,7 +1179,7 @@ try {
       "04-source-tool-running.png": "Core/Runtime command marker exists and source Turn remains inProgress",
       "04a-stale-selection.png": "real Core stale-selection rejection retains the Side question without creating a Side",
       "05-side-answered-frozen.png": "Side first answer completed while source tool remains active; Unicode selection verified",
-      "06-bring-back-draft.png": "preview confirmed; local main draft includes Side text and insertion issues no command beyond independent trajectory/status and feedback/status reads",
+      "06-bring-back-draft.png": "preview confirmed; local main draft includes Side text and insertion issues no command beyond independent trajectory/status, feedback/status and exact source-owned MCP forms reads",
       "07-before-active.png": "before-active Fork has idle bounded inherited history",
       "07a-main-error-isolated.png": "Core refuses unsupported main attachment without sending or losing its draft; Side has no main Composer error",
       "07b-inherited-raw-result.png": "target-owned inherited raw result is displayed and downloaded with no source controls or local execution",
