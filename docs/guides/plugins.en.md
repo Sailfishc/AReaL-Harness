@@ -71,6 +71,8 @@ Installed copies retain content identity; source edits do not change installed r
 
 Applying standalone skill configuration to a new chat can restart Core. The desktop restores previously connected standalone MCP servers and trusted plugin MCP connections. Plugin restoration still requires the original installed digest. Failures do not replay tool calls. After creating a chat, an interactive app reads the current connection for the same plugin version before its first open request.
 
+For ordinary conversations, Core saves the message and submission receipt before automatically reconnecting trusted plugins for the first model request. Accepted messages remain visible while plugin authentication or initialization waits. The model request starts after preparation. Cancelling the Turn retains shared connection cleanup; pending preparation remains an unsettled lifecycle resource. Reconnection uses only trusted plugin digests allowed when the Turn was admitted and does not expand restricted Profile permissions.
+
 Mutations require `requestId` and applicable `expectedRevision`; RPC installation additionally requires selected `source` and `expectedDigest`. Identical requests recover their prior result; reused keys with different parameters reject. Check Plugin Submission queries receipts after an unknown outcome without replay:
 
 ```sh

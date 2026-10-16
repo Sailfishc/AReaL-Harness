@@ -163,6 +163,11 @@ pub enum Error {
 }
 pub type Result<T> = std::result::Result<T, Error>;
 
+struct TrustedPlugin {
+    id: String,
+    digest: String,
+}
+
 struct Active {
     registry: std::result::Result<tools::Registry, String>,
     hooks: Vec<plugin_hooks::BoundHook>,

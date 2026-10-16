@@ -31,7 +31,6 @@ impl Engine {
         cancel: CancellationToken,
     ) -> Result<Turn> {
         self.refresh_plugins().await?;
-        self.connect_trusted_plugins(thread_id).await?;
         let _admission = self.tasks.token();
         let _gate = self.desktop.lifecycle.gate.lock().await;
         let cell = self.cell(thread_id).await?;
@@ -283,6 +282,8 @@ impl Engine {
             process_cursors: BTreeMap::new(),
             handles: tools::Handles::default(),
         });
+        let pending =
+            self.pending_trusted_plugins(cell, &state.thread, turn, state.active.as_ref().unwrap());
         cell.settled.send_replace(false);
         let thread_id = &state.thread.id;
         cell.emit("turn/started", json!({"threadId": thread_id, "turn": turn}));
@@ -310,7 +311,7 @@ impl Engine {
             areal.turn.status = tracing::field::Empty,
         );
         self.tasks
-            .spawn(async move { engine.run(run_cell, cancel, rx).await }.instrument(span));
+            .spawn(async move { engine.run(run_cell, cancel, rx, pending).await }.instrument(span));
     }
 
     pub async fn steer(
@@ -584,6 +585,7 @@ impl Engine {
         cell: Arc<Cell>,
         cancel: CancellationToken,
         mut steer: mpsc::Receiver<bool>,
+        pending: Vec<TrustedPlugin>,
     ) {
         let prompt_span = info_span!(target: trajectory::TARGET, "areal.user_prompt",
             gen_ai.input.messages = tracing::field::Empty,
@@ -653,6 +655,11 @@ impl Engine {
         };
         let mut result = {
             let generation = std::panic::AssertUnwindSafe(async {
+                if !pending.is_empty() {
+                    let turn_id = cell.state.lock().await.active.as_ref().unwrap().id.clone();
+                    self.prepare_turn_plugins(cell.clone(), turn_id, pending).await?;
+                }
+                anyhow::ensure!(!cancel.is_cancelled(), "cancelled before turn preparation completed");
                 if exclusive {
                     let guard=tokio::select! {biased; _=cancel.cancelled()=>anyhow::bail!("cancelled before writer admission"), guard=self.workspace_gate.clone().write_owned()=>guard};
                     self.ensure_workspace_processes_settled().await?;

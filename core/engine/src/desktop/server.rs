@@ -158,6 +158,11 @@ impl Engine {
                 groups.push(group);
             }
         }
+        let preparations = self.desktop.plugin_mcp.pending_preparations();
+        if preparations > 0 {
+            resources
+                .push(json!({"kind":"pluginPreparation","state":"running","count":preparations}));
+        }
         let mut status = json!({"configuration":self.configuration_status.read().unwrap().clone(),"activeTasks":active_tasks,"activeGoals":active_goals,"pendingQueueItems":pending_queue_items,"compactions":compacting,"workgroups":groups,"apiVersion":API_VERSION,"stateVersion":crate::store::STATE_VERSION,"productVersion":env!("CARGO_PKG_VERSION"),"draining":self.desktop.lifecycle.draining.load(Ordering::Acquire),"closed":self.is_closed(),"acceptingWork":self.accepting_work(),"activeTurns":active,"resources":resources,"unresolvedTools":unknown,"runtime":runtime,"capacity":{"threads":cells.len(),"maxThreads":self.limits.max_threads,"activeTurns":self.limits.max_active_turns-self.active_turns.available_permits(),"maxActiveTurns":self.limits.max_active_turns,"historyBytesPerThread":self.limits.max_history_bytes,"blobBytes":512*1024*1024u64}});
         status["lifecycle"] = lifecycle_assessment(&status, unsettled);
         status["restartSafe"] = status["lifecycle"]["settled"]["allowed"].clone();
