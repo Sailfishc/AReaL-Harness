@@ -2,7 +2,9 @@
 
 # 桌面 API：areal.core.v1
 
-本契约扩展 [Core WebSocket](core.md)，与 Runtime JSONL 和 [CLI stdio](claude-cli.md) 分开。完整请求、响应、通知和持久类型见 [areal-core-v1.json](../../schemas/areal-core-v1.json)；请求拒绝未知字段。
+本契约扩展 [Core WebSocket](core.md)，与 Runtime JSONL 和 [CLI stdio](claude-cli.md) 分开。完整请求、响应、通知和持久类型见 [areal-core-v1.json](../../schemas/areal-core-v1.json)；强类型 AReaL 请求拒绝未知字段，Codex 兼容方法保留固定版本的 wire 契约。
+
+`make desktop-schemas` 从 Rust 类型导出插件和 Hook DTO，并纳入[固定 Codex 0.162.1 插件契约](../../upstream/schemas/codex-plugins-0.162.1/methods.json)，各契约来源见[溯源记录](../../upstream/schemas/codex-plugins-0.162.1/provenance.json)。生成时要求请求与响应 schema 成对且覆盖全部广告通知；示例客户端进一步对照运行中 Core 的 capabilities 检查覆盖率。
 
 Web/PWA Remote 使用独立的受限 [areal.remote.v2 契约](remote-control.md)，由桌面后台代理并重新检查设备授权。它不向浏览器提供本契约的通用调用入口或本地 Bearer；Remote 的设计与已实现范围分别标注。
 
