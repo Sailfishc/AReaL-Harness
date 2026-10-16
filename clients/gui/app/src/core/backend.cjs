@@ -11,6 +11,7 @@ const WebSocket = require('ws');
 const { ScopedResources } = require('./scoped-resources.cjs');
 const { AppHooks } = require('./hooks.cjs');
 const { TrajectoryExport } = require('./trajectory.cjs');
+const { UserFeedback } = require('./feedback.cjs');
 const { AppProviders } = require('./providers.cjs');
 const { UsageAnalytics } = require('./analytics.cjs');
 const { CoreLibrary } = require('./library.cjs');
@@ -76,6 +77,7 @@ class CoreBackend {
     this.resources = new ScopedResources(this);
     this.hooks = new AppHooks(this);
     this.trajectory = new TrajectoryExport(this);
+    this.feedback = new UserFeedback(this);
     this.providers = new AppProviders(this, encryption);
     this.activeCommands = 0;
     this.awaitingResponses = new WeakSet();
@@ -100,6 +102,8 @@ class CoreBackend {
       await inspectCoreCapabilities(this.binary);
       trace.advance('providers');
       await this.providers.init();
+      trace.advance('feedback');
+      await this.feedback.init();
       trace.advance('resources');
       await this.resources.init();
       trace.finish('ok');
@@ -1225,6 +1229,8 @@ class CoreBackend {
     if (name === 'analytics') return this.analytics.command(request);
     // 后台只读状态不占任务或配置准入；参数仍由轨迹能力校验。
     if (name === 'trajectory' && request?.operation === 'status') return this.trajectory.command(request);
+    if (name === 'trajectory' && request?.operation === 'setEnabled') return this.trajectory.setEnabled(request);
+    if (name === 'feedback' && request?.operation === 'status') return this.feedback.command(request);
     if (name === 'chatgpt') return this.providers.chatgpt(request);
     if (name === 'providers') return this.providers.command(request);
     if (name === 'resources') return this.resources.command(request);
@@ -1237,6 +1243,7 @@ class CoreBackend {
   async executeCommand(name, request, context = {}) {
     if (this.closing) throw new Error('应用正在退出');
     if (name === 'trajectory') return this.trajectory.command(request);
+    if (name === 'feedback') return this.feedback.command(request);
     if (name === 'tasks') return taskCatalog(this, request);
     if (name === 'projectless') return this.projectless.command(request);
     if (name === 'library') return this.library.command(request);

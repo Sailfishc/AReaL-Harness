@@ -247,3 +247,9 @@ MCP 清理失败保持 cleanupFailed，并持久保存 cleanupUnconfirmed。无�
 `desktop.hookRuns` 保存每次 invocation 的包/定义摘要、event、turnId/toolUseId、Runtime operationId、outcome、asynchronous、delivered、output 和 inspection。`areal/hook/completed` 是刷新提示，权威恢复仍读 Thread 快照。未知结果未检查时新轮次被拒绝；关闭中的 Session 也拒绝新执行。
 
 `turn/steer` 新增可选 `requestId`；提供时与 `areal/queue/steer` 一样把 hook 与提交结果包含在持久去重边界。相同身份/方法/key/参数等待原执行或返回已存结果；不同参数拒绝。`areal/request/read {requestId}` 查询部署收据，带 threadId 的查询也附带该身份同 key 的部署记录。旧客户端省略 key 可继续调用，但不能保证丢失响应后的单次重试。并行管理操作按 key 排队，日志总预算 8 MiB，为每个 accepted 操作预留最多 256 KiB 响应及记录余量；无法预留时在执行前拒绝，不截断旧收据。schema 的相应方法与投影由 `make desktop-schemas` 生成。
+
+评价命令通过可信桌面后端执行；Renderer 不能指定接收端、归属或上下文。契约与限制见 [user feedback](../guides/user-feedback.md).
+
+## 桌面轨迹开关
+
+GUI 服务的窄命令 `trajectory` 支持 `{operation:"status"}`、`{operation:"retry"}` 和 `{operation:"setEnabled",enabled:boolean,expectedRevision:string}`。启停要求当前文件的 64 位小写 SHA-256，不接受配置路径、目的地址或认证覆盖；桌面适配器固定使用与 Core 相同的配置和凭据环境。状态读取不解密凭据，也不进入任务准入计数。启停立即应用上传控制；采集设置只在 Core 空闲、无排队任务且没有其它配置变化时，复用安全应用的 `ifIdle` 排空与重启。响应的可选 `capture_apply_pending` 和 `capture_apply_error` 分别表示等待应用及应用问题；客户端不能把它们显示为就绪开启。远端分析和归档状态不由该开关推断。

@@ -9,10 +9,10 @@
 /** @typedef {{projectId:string,threadId:string,expectedTurnId:string,expectedConfigRevision?:number,requestId?:string}} ContinueRequest */
 /** @typedef {{projectId:string,sourceThreadId:string,requestId?:string,workspaceMode:'sharedCurrent',anchor:{turnId:string,boundary:'before'|'after'},target?:Record<string,unknown>}} ForkRequest */
 
-/** @typedef {{operation:'status'|'retry'}} TrajectoryRequest */
+/** @typedef {{operation:'status'|'retry'}|{operation:'setEnabled',enabled:boolean,expectedRevision:string}} TrajectoryRequest */
 /** @typedef {{id:string,status:'pending'|'uploading'|'failed'|'uploaded'|'evicted',created_at:number,uploaded_at:number|null,attempts:number,next_attempt_at:number|null,bytes:number,error:string|null,turn_id?:string|null,event_name?:string|null,model_name?:string|null,harness_version?:string|null,execution_duration_ms?:number|null,model_call_duration_ms?:number|null,occurred_at?:number|null}} TrajectoryRecord */
 /** @typedef {{scope:'recent_records',record_limit:100,records_considered:number,model_calls:number,total_duration_ms:number|null,mean_duration_ms:number|null,max_duration_ms:number|null}} TrajectoryModelCallSummary */
-/** @typedef {{enabled:boolean,state:'disabled'|'ready'|'degraded'|'invalid',endpoint:string,configPath:string|null,spool_dir:string,worker_running:boolean,queue:{pending:number,uploading:number,failed:number,uploaded:number,evicted:number,bytes:number,max_bytes:number,dropped_memory:number,dropped_oversize:number},last_error:string|null,last_success_at:number|null,records:TrajectoryRecord[],model_call_summary?:TrajectoryModelCallSummary,limits:{max_retries:number,upload_interval_ms:number,max_memory_bytes:number}}} TrajectoryStatus */
+/** @typedef {{enabled:boolean,config_revision?:string,capture_apply_pending?:boolean,capture_apply_error?:string|null,state:'disabled'|'ready'|'degraded'|'invalid',endpoint:string,configPath:string|null,spool_dir:string,worker_running:boolean,queue:{pending:number,uploading:number,failed:number,uploaded:number,evicted:number,bytes:number,max_bytes:number,dropped_memory:number,dropped_oversize:number},last_error:string|null,last_success_at:number|null,records:TrajectoryRecord[],model_call_summary?:TrajectoryModelCallSummary,limits:{max_retries:number,upload_interval_ms:number,max_memory_bytes:number}}} TrajectoryStatus */
 
 // 名称、作用域和执行层只维护一份；Main 专属能力不能从后台服务入口调用。
 const commandDefinitions = Object.freeze({
@@ -24,7 +24,7 @@ const commandDefinitions = Object.freeze({
   manage: ['service', 'project'], workspace: ['service', 'project'], media: ['service', 'thread'],
   steer: ['service', 'thread'], dismissRecovery: ['service', 'project'], providers: ['service', 'app'],
   chatgpt: ['service', 'app'], analytics: ['service', 'app'], resources: ['service', 'app'],
-  projectless: ['service', 'app'], tasks: ['service', 'app'], trajectory: ['service', 'app'],
+  projectless: ['service', 'app'], tasks: ['service', 'app'], trajectory: ['service', 'app'], feedback: ['service', 'app'],
   serviceStatus: ['main', 'app'], stopService: ['main', 'app'], recoverResources: ['main', 'app'],
   connectService: ['main', 'app'], export: ['main', 'thread'], remoteControl: ['main', 'app'],
 });
@@ -71,7 +71,30 @@ function validateCommand(name, params, { serviceOnly = false } = {}) {
     || params.expectedToolsetRevision < 0)) invalid();
 
   // 导出目标与配置路径只由可信启动配置选择，Renderer 不能扩展 CLI 参数。
-  if (name === 'trajectory' && (!['status', 'retry'].includes(String(params.operation)) || Object.keys(params).some(key => key !== 'operation'))) invalid();
+  if (name === 'trajectory') {
+    const toggling = params.operation === 'setEnabled';
+    if ((!toggling && !['status', 'retry'].includes(String(params.operation)))
+      || Object.keys(params).some(key => !(toggling ? ['operation','enabled','expectedRevision'] : ['operation']).includes(key))
+      || toggling && (typeof params.enabled !== 'boolean' || typeof params.expectedRevision !== 'string' || !/^[a-f0-9]{64}$/.test(params.expectedRevision))) invalid();
+  }
+  if (name === 'feedback') {
+    const operation = String(params.operation);
+    if (!['status','preference','prepare','read','draft','refine','submit','close'].includes(operation)) invalid();
+    const fields = ['operation', ...(operation === 'preference' ? ['enabled'] : operation === 'status' ? [] :
+      ['projectId','threadId', ...(operation === 'prepare' ? ['turnId','itemId','rating'] : ['id']),
+        ...(['draft','refine','submit'].includes(operation) ? ['rating','reason','analysis','analysisItemId'] : []),
+        ...(operation === 'refine' ? ['text'] : [])])];
+    if (Object.keys(params).some(key => !fields.includes(key))) invalid();
+    if (operation === 'preference' && typeof params.enabled !== 'boolean') invalid();
+    if (!['status','preference'].includes(operation) && (!identifier(params.projectId) || !identifier(params.threadId))) invalid();
+    if (operation === 'prepare' && (!identifier(params.turnId) || !identifier(params.itemId) || !['up','down'].includes(String(params.rating)))) invalid();
+    if (!['status','preference','prepare'].includes(operation) && !identifier(params.id)) invalid();
+    if (params.rating !== undefined && !['up','down'].includes(String(params.rating))) invalid();
+    if (params.analysisItemId !== undefined && (typeof params.analysisItemId !== 'string' || params.analysisItemId.length > 256)) invalid();
+    for (const [key, max] of /** @type {[string,number][]} */ ([['reason',32768],['analysis',65536],['text',16384]])) {
+      if (params[key] !== undefined && (typeof params[key] !== 'string' || new TextEncoder().encode(/** @type {string} */ (params[key])).length > max)) invalid();
+    }
+  }
   if (['manage', 'workspace', 'media', 'queueEdit', 'library', 'providers', 'chatgpt', 'analytics', 'resources', 'projectless', 'tasks', 'remoteControl'].includes(name)
     && !identifier(params.operation)) invalid();
   if (name === 'resources' && params.operation === 'builtinSkill'

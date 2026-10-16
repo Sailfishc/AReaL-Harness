@@ -92,9 +92,9 @@ Browser 工具在每次新用户请求中先 `describe`，再重新观察，拒�
 
 主聊天、Side 与子对话按 Core 的稳定消息 ID 展示历史。上下文压缩及正常完成、停止或失败不会移除较早的用户消息、追加指令、附件或 Agent 回复；流式 Turn 事件按条目合并，重新打开和断线恢复使用 Core 还原的完整历史。[历史合并契约](../../docs/api/core.md#传输与会话)区分事件更新与权威快照。`verify` 包含历史投影回归；构建 renderer 后运行 `pnpm --dir clients/gui run test:history`，使用 Chrome、真实桌面 backend/Core/Runtime 和确定性本地模型验证同轮压缩、steer、停止、失败、切换聊天及重载后的气泡内容。该检查使用 preload 传输夹具，不替代 Electron IPC 或安装包验收。
 
-设置中的“数据飞轮”页通过 `areal trajectory status/retry` 读取当前配置、上传进程、积压与最近上传记录，页面可见且连接正常时每 2.5 秒刷新，也可手动刷新和重试。记录分别显示 Turn、模型、Harness 版本、模型调用耗时、Agent 执行耗时与事件/创建/上传时间，汇总范围仅为最近 100 条记录；模型调用耗时包含网络与内部重试。会话可见时另以 15 秒间隔检查，在设置入口标记读取失败或导出异常，恢复后清除。轮询共享一个在途请求，隐藏、离开或断线后停止相应轮询并忽略过期响应，上传信息不进入聊天内容。状态读取不启动 Core 或上传器，也不解密 GUI 凭据；手动重试可能启动上传器，继承 Core 启动的凭据环境。编辑本页显示的配置文件中的 `[trajectory]`，通过 `areal trajectory sync-config` 应用本地上传控制；已有 Core 的采集参数需安全重启生效，本页不编辑地址或凭据。边界与耗时语义见[配置指南](../../docs/guides/configuration.md#持久轨迹导出)。
+设置中的“数据飞轮”页通过 `areal trajectory status/retry/set-enabled` 读取当前配置、上传进程、积压与最近上传记录，页面可见且连接正常时每 2.5 秒刷新，也可手动刷新和重试。记录分别显示 Turn、模型、Harness 版本、模型调用耗时、Agent 执行耗时与事件/创建/上传时间，汇总范围仅为最近 100 条记录；模型调用耗时包含网络与内部重试。会话可见时另以 15 秒间隔检查，在设置入口标记读取失败或导出异常，恢复后清除。轮询共享一个在途请求，隐藏、离开或断线后停止相应轮询并忽略过期响应，上传信息不进入聊天内容。状态读取不启动 Core 或上传器，也不解密 GUI 凭据；手动重试可能启动上传器，继承 Core 启动的凭据环境。编辑本页显示的配置文件中的 `[trajectory]`，通过 `areal trajectory sync-config` 应用本地上传控制；本页提供启停开关，就绪开启浅绿，关闭或待处理浅橙；只修改 enabled，保留其它配置。已有 Core 的采集参数在空闲后自动安全应用，不取消任务；其它配置变化或失败交由后台服务安全应用，本页不编辑地址或凭据。边界与耗时语义见[配置指南](../../docs/guides/configuration.md#持久轨迹导出)。
 
-`pnpm --dir clients/gui run test:trajectory` 验证命令边界、凭据环境、状态投影，以及轮询时序、单一在途请求、可见性和过期结果隔离。`test:trajectory-config` 使用已构建 CLI，在隔离目录验证配置身份及跨项目一致性，不启动 Core 或上传器。构建 renderer 后，`test:trajectory-ui` 使用本机 Chrome 和隔离桌面服务 fixture 验证真实设置交互、自动刷新、耗时及异常恢复；`AREAL_GUI_TEST_BROWSER` 可指定浏览器。上述检查不替代 Electron/Core 集成验收。
+`pnpm --dir clients/gui run test:trajectory` 验证命令边界、凭据环境、状态投影，以及轮询时序、单一在途请求、可见性和过期结果隔离。`test:trajectory-config` 使用已构建 CLI，在隔离目录验证配置身份及跨项目一致性，不启动 Core 或上传器。构建 renderer 后，`test:trajectory-ui` 使用本机 Chrome 和隔离桌面服务 fixture 验证真实设置交互、自动刷新、耗时及异常恢复；`AREAL_GUI_TEST_BROWSER` 可指定浏览器。上述检查不替代 Electron/Core 集成验收。 `test:trajectory-native` 使用真实桌面后端、Core、Runtime 和本地模型/接收器，验证关闭启动、运行中启用、空闲安全重启、停用保留与失败副本自动补传，不替代正式远端或 Electron IPC 验收。
 
 macOS 桌面适配器通过系统 `/usr/bin/python3` 保留可信 Core 命令的父进程，与 Runtime 的原生启动方式一致。命令参数、环境和标准输入输出保持原样；超时、取消和强杀作用于真实 Core 子进程，适配器或桥退出时清理其仍运行的直接子进程。该路径不重放写入，也不终止 Core 已建立的持久服务。`pnpm --dir clients/gui run test:core-process` 验证信号退出、超时升级、取消、输出上限及进程清理。
 
@@ -117,6 +117,8 @@ macOS 安装包将后台放在独立应用身份的 `AReaL Harness Service.app` 
 `AREAL_CORE_BIN=/absolute/path/to/private/.local/dev-bin/<slot>/areal pnpm --dir clients/gui run test:service-reopen` 使用私有固定产物验证隔离 Electron 连续两次关闭与重开，要求零恢复弹窗，同 Desktop PID、Core generation 和活动 Turn，原模型流继续且无重复请求。`AREAL_REOPEN_REPLACEMENT_BIN` 指定另一份真实 Core 构建以验证原路径内容替换；`AREAL_REOPEN_LEGACY=1` 从修复前的真实 adapter 源码启动后台，验证旧实例也能自动接回。脚本清理自有服务并恢复私有二进制，原生目录选择由 fixture 应答，不代表安装包或真实供应商验收。
 
 Core 观察连接意外关闭时，项目连接所有者以 500ms 起步、最长 30s 的退避重试，通过 `service status --instance` 发现兼容的运行中实例，并用原子 `areal/thread/observe` 恢复 Thread/Task 快照、订阅和通知基线。观察恢复不重绑工具宿主；用户显式认领原生页时，才读取权威状态并在 Thread 空闲时尝试 `thread/resume` 绑定，仍受 Core 宿主冲突检查约束。恢复不重新提交任务、不同步 Provider/MCP 配置，也不执行配置 revision 屏障。旧连接的消息与异步结果失去投影写入资格。显式停止、适配器关闭、停止中的 Core 或部署指纹不兼容会阻止自动恢复；重新连接需显式操作。
+
+GUI Main 与桌面后台的观察连接断开，或首次启动等待超时但后台稍后就绪时，也以 500ms 起步、最长 30s 的退避重新发现并认证兼容的后台，仅恢复快照与通知连接。此恢复不启动或重启后台/Core、不执行不兼容服务的退出流程、不重放结果未知的命令。明确停止、停止结果未知、持久停止意图、停止中的服务和 GUI 关闭均阻止自动连接；版本不兼容等不可恢复错误保留显式重连入口。`pnpm --dir clients/gui run test:service-connection` 覆盖真实 WebSocket 的延迟就绪、未知命令、身份变化和停止边界。
 
 桌面命令名、作用域、入口参数外形与错误字段由 `@areal/workbench/desktop-contract` 共享；会话配置具有具体参数类型，其他命令仍依赖运行时作用域校验。Main 保留 IPC 来源验证。嵌套配置和执行规则归 Core；字符串或数字 `code`、`submissionUnknown`、`requestId` 穿过适配器和 Main，供界面核对未知结果。
 
