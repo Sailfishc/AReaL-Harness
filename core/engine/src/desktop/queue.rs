@@ -10,7 +10,13 @@ impl Engine {
         {
             let cell = self.cell(&request.thread_id).await?;
             let state = cell.state.lock().await;
-            if let Some(result) = receipt(&desktop(&state.thread), &identity, &request.request_id, "areal/turn/submit", &hash)? {
+            if let Some(result) = receipt(
+                &desktop(&state.thread),
+                &identity,
+                &request.request_id,
+                "areal/turn/submit",
+                &hash,
+            )? {
                 return Ok(result);
             }
         }
@@ -299,9 +305,17 @@ impl Engine {
                 && execution.plugin.as_ref().is_some_and(|plugin| plugin.operations.iter().any(|op| op.outcome == areal_protocol::ToolOutcome::Unknown))))
             || state.thread.desktop.as_ref().is_some_and(|data| data.hook_runs.iter().any(|hook| hook.outcome == "unknown" && hook.inspection.is_none()))
         { return Err(invalid("UNKNOWN requires operator inspection")); }
-        if state.thread.desktop.as_ref().is_some_and(|data| data.processes.iter().any(|process|
-            !process.cleanup_confirmed && (process.state == "unknown" || state.active.is_none() && process.lifetime == "turn")))
-        { return Err(invalid("UNKNOWN process cleanup requires operator inspection")); }
+        if state.thread.desktop.as_ref().is_some_and(|data| {
+            data.processes.iter().any(|process| {
+                !process.cleanup_confirmed
+                    && (process.state == "unknown"
+                        || state.active.is_none() && process.lifetime == "turn")
+            })
+        }) {
+            return Err(invalid(
+                "UNKNOWN process cleanup requires operator inspection",
+            ));
+        }
         Ok(())
     }
     pub async fn queue(&self, thread_id: &str) -> Result<Queue> {

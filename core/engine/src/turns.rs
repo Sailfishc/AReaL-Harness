@@ -42,7 +42,12 @@ impl Engine {
         if state.active.is_some() || state.compacting {
             return Err(Error::Conflict);
         }
-        if state.thread.desktop.as_ref().is_some_and(|data| data.queue.items.iter().any(|item| matches!(item.status.as_str(), "pending" | "running"))) {
+        if state.thread.desktop.as_ref().is_some_and(|data| {
+            data.queue
+                .items
+                .iter()
+                .any(|item| matches!(item.status.as_str(), "pending" | "running"))
+        }) {
             return Err(Error::Conflict);
         }
         if state.thread.is_side() && (input.len() != 1 || !matches!(&input[0], Input::Text { .. }))
@@ -492,7 +497,8 @@ impl Engine {
             }
         } else if state.thread.desktop.is_some() {
             let mut candidate = state.thread.clone();
-            if state.active.is_some() && !state.thread.is_side()
+            if state.active.is_some()
+                && !state.thread.is_side()
                 && state.thread.parent_thread_id.is_none()
                 && state.thread.goal_owner.is_none()
                 && state.thread.source != "nativeTaskAgent"

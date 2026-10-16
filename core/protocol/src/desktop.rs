@@ -516,7 +516,9 @@ pub struct TurnSubmit {
 #[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
 #[serde(tag = "type", rename_all = "camelCase", deny_unknown_fields)]
 pub enum TurnSubmitIntent {
-    Message { input: Vec<Input> },
+    Message {
+        input: Vec<Input>,
+    },
     Continue {
         #[serde(rename = "expectedTurnId")]
         expected_turn_id: String,
