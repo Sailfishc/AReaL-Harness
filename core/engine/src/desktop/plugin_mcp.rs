@@ -89,11 +89,12 @@ struct AuthConfiguration {
     references: areal_protocol::plugin_runtime::HostAuthReferences,
     revision: String,
 }
+type ServerStates = BTreeMap<String, (String, BTreeMap<String, String>)>;
 pub(crate) struct Manager {
     live: std::sync::RwLock<BTreeMap<String, Generation>>,
     owners: Mutex<Vec<Owned>>,
     states: std::sync::RwLock<BTreeMap<String, String>>,
-    server_states: std::sync::RwLock<BTreeMap<String, (String, BTreeMap<String, String>)>>,
+    server_states: std::sync::RwLock<ServerStates>,
     trusted: std::sync::RwLock<BTreeMap<String, String>>,
     connectors: std::sync::RwLock<BTreeMap<String, Connector>>,
     auth_configurations: std::sync::RwLock<BTreeMap<String, AuthConfiguration>>,
@@ -516,11 +517,11 @@ impl Engine {
         let mut active = BTreeSet::new();
         for cell in cells {
             let state = cell.state.lock().await;
-            if let Some(a) = &state.active {
-                if let Ok(registry) = &a.registry {
-                    for generation in registry.mcp_generations() {
-                        active.insert(generation);
-                    }
+            if let Some(a) = &state.active
+                && let Ok(registry) = &a.registry
+            {
+                for generation in registry.mcp_generations() {
+                    active.insert(generation);
                 }
             }
         }
@@ -832,18 +833,17 @@ impl Engine {
             if let Some(failure) = error
                 .chain()
                 .find_map(|e| e.downcast_ref::<areal_mcp::ConnectionFailure>())
+                && let Some(challenge) = failure.authentication_challenge()
             {
-                if let Some(challenge) = failure.authentication_challenge() {
-                    self.desktop
-                        .plugin_mcp
-                        .auth_challenges
-                        .write()
-                        .unwrap()
-                        .insert(
-                            (id.clone(), failure.server.clone(), component.digest.clone()),
-                            challenge,
-                        );
-                }
+                self.desktop
+                    .plugin_mcp
+                    .auth_challenges
+                    .write()
+                    .unwrap()
+                    .insert(
+                        (id.clone(), failure.server.clone(), component.digest.clone()),
+                        challenge,
+                    );
             }
             let state = connection_failure_state(&error);
             for server in eligible.keys() {

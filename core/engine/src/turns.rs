@@ -214,7 +214,7 @@ impl Engine {
         cancel: CancellationToken,
         admission: OwnedSemaphorePermit,
     ) {
-        self.activate_with_tool(cell, state, turn, cancel, admission, None, None);
+        self.activate_with_tool(cell, state, turn, cancel, admission, (None, None));
     }
 
     pub(super) fn activate_with_tool(
@@ -224,9 +224,12 @@ impl Engine {
         turn: &Turn,
         cancel: CancellationToken,
         admission: OwnedSemaphorePermit,
-        direct_tool: Option<model::ToolCall>,
-        tool_meta: Option<serde_json::Map<String, Value>>,
+        direct_tool: (
+            Option<model::ToolCall>,
+            Option<serde_json::Map<String, Value>>,
+        ),
     ) {
+        let (direct_tool, tool_meta) = direct_tool;
         self.spawn_goal_scheduler();
         self.start_task_scheduler();
         let (tx, rx) = mpsc::channel(self.limits.mailbox_capacity);

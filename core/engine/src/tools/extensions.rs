@@ -656,7 +656,7 @@ impl Invocation<'_> {
                     owner.clone(),
                     tool.server_name().into(),
                     tool.generation(),
-                    Some(tool.clone()),
+                    Some(tool.as_ref().clone()),
                 );
                 let key = (tool.server_name().to_owned(), tool.generation());
                 {

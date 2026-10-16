@@ -528,20 +528,18 @@ fn normalize(portable: bool, v: &Value, root: &Path, data: &Path) -> Result<Plug
     if auth.is_none() && o.get("auth").is_some_and(|v| v == "oauth") {
         auth = Some(AuthPolicy::default());
     }
-    if portable {
-        if let Some(extensions) = o.get("extensions") {
-            let extensions = extensions
-                .as_object()
-                .ok_or_else(|| anyhow::anyhow!("invalid extensions"))?;
-            let nested = extensions.get("com.openai").and_then(|v| v.get("auth"));
-            let dotted = extensions.get("com.openai.auth");
-            ensure!(
-                nested.is_none() || dotted.is_none(),
-                "duplicate authentication declaration"
-            );
-            if let Some(v) = nested.or(dotted) {
-                auth = portable_auth(v)?;
-            }
+    if portable && let Some(extensions) = o.get("extensions") {
+        let extensions = extensions
+            .as_object()
+            .ok_or_else(|| anyhow::anyhow!("invalid extensions"))?;
+        let nested = extensions.get("com.openai").and_then(|v| v.get("auth"));
+        let dotted = extensions.get("com.openai.auth");
+        ensure!(
+            nested.is_none() || dotted.is_none(),
+            "duplicate authentication declaration"
+        );
+        if let Some(v) = nested.or(dotted) {
+            auth = portable_auth(v)?;
         }
     }
     Ok(PluginServerConfig {

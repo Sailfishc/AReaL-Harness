@@ -111,10 +111,9 @@ impl Input {
             mcp_content: Some(content),
             ..
         } = self
+            && mcp_content_text(content)? != *text
         {
-            if mcp_content_text(content)? != *text {
-                return Err("MCP content projection mismatch".into());
-            }
+            return Err("MCP content projection mismatch".into());
         }
         Ok(())
     }

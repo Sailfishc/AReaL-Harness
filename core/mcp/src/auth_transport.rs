@@ -506,81 +506,74 @@ impl OAuthHttpClient for TokenClient {
                     refresh_scope = Some(scope);
                 }
             }
-            if let Some(host) = &self.jwt {
-                if token_request {
-                    let client = self
-                        .client_id
-                        .as_ref()
-                        .ok_or("OAuth client identity missing")?;
-                    let mut pairs: Vec<(String, String)> =
-                        url::form_urlencoded::parse(request.request.body())
-                            .into_owned()
-                            .filter(|(k, _)| {
-                                !matches!(
-                                    k.as_str(),
-                                    "client_secret" | "client_assertion" | "client_assertion_type"
-                                )
-                            })
-                            .collect();
-                    let (key, algorithm) =
-                        signing_key(host).map_err(|_| "invalid OAuth signing key")?;
-                    let mut header = jsonwebtoken::Header::new(algorithm);
-                    header.kid = host.private_key_id.clone();
-                    let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-                    static NEXT: std::sync::atomic::AtomicU64 =
-                        std::sync::atomic::AtomicU64::new(0);
-                    let claims = json!({"iss":client,"sub":client,"aud":self.token_endpoint.get(),"iat":now,"exp":now+60,"jti":format!("{}-{}-{}",std::process::id(),SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos(),NEXT.fetch_add(1,std::sync::atomic::Ordering::Relaxed))});
-                    let assertion = jsonwebtoken::encode(&header, &claims, &key)
-                        .map_err(|_| "OAuth signing failed")?;
-                    pairs.push((
-                        "client_assertion_type".into(),
-                        "urn:ietf:params:oauth:client-assertion-type:jwt-bearer".into(),
-                    ));
-                    pairs.push(("client_assertion".into(), assertion));
-                    *request.request.body_mut() =
-                        url::form_urlencoded::Serializer::new(String::new())
-                            .extend_pairs(pairs)
-                            .finish()
-                            .into_bytes();
-                    request
-                        .request
-                        .headers_mut()
-                        .remove(oauth2::http::header::AUTHORIZATION);
-                    request
-                        .request
-                        .headers_mut()
-                        .remove(oauth2::http::header::CONTENT_LENGTH);
-                }
+            if let Some(host) = &self.jwt
+                && token_request
+            {
+                let client = self
+                    .client_id
+                    .as_ref()
+                    .ok_or("OAuth client identity missing")?;
+                let mut pairs: Vec<(String, String)> =
+                    url::form_urlencoded::parse(request.request.body())
+                        .into_owned()
+                        .filter(|(k, _)| {
+                            !matches!(
+                                k.as_str(),
+                                "client_secret" | "client_assertion" | "client_assertion_type"
+                            )
+                        })
+                        .collect();
+                let (key, algorithm) =
+                    signing_key(host).map_err(|_| "invalid OAuth signing key")?;
+                let mut header = jsonwebtoken::Header::new(algorithm);
+                header.kid = host.private_key_id.clone();
+                let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+                static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+                let claims = json!({"iss":client,"sub":client,"aud":self.token_endpoint.get(),"iat":now,"exp":now+60,"jti":format!("{}-{}-{}",std::process::id(),SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos(),NEXT.fetch_add(1,std::sync::atomic::Ordering::Relaxed))});
+                let assertion = jsonwebtoken::encode(&header, &claims, &key)
+                    .map_err(|_| "OAuth signing failed")?;
+                pairs.push((
+                    "client_assertion_type".into(),
+                    "urn:ietf:params:oauth:client-assertion-type:jwt-bearer".into(),
+                ));
+                pairs.push(("client_assertion".into(), assertion));
+                *request.request.body_mut() = url::form_urlencoded::Serializer::new(String::new())
+                    .extend_pairs(pairs)
+                    .finish()
+                    .into_bytes();
+                request
+                    .request
+                    .headers_mut()
+                    .remove(oauth2::http::header::AUTHORIZATION);
+                request
+                    .request
+                    .headers_mut()
+                    .remove(oauth2::http::header::CONTENT_LENGTH);
             }
             let discovery = request.request.method() == oauth2::http::Method::GET;
             let mut response = self.inner.execute(request).await?;
             if let Some(scope) = refresh_scope
                 && response.status().is_success()
+                && let Ok(mut value) = serde_json::from_slice::<Value>(response.body())
+                && value.get("access_token").and_then(Value::as_str).is_some()
+                && value.get("scope").is_none()
             {
-                if let Ok(mut value) = serde_json::from_slice::<Value>(response.body()) {
-                    if value.get("access_token").and_then(Value::as_str).is_some()
-                        && value.get("scope").is_none()
-                    {
-                        // RFC 6749 omission means the actual request's scope. Inform the
-                        // SDK of that exact set, not its pre-adapter expanded fallback.
-                        value["scope"] = json!(scope);
-                        *response.body_mut() = serde_json::to_vec(&value)?;
-                        response
-                            .headers_mut()
-                            .remove(oauth2::http::header::CONTENT_LENGTH);
-                    }
-                }
+                // RFC 6749 omission means the actual request's scope. Inform the
+                // SDK of that exact set, not its pre-adapter expanded fallback.
+                value["scope"] = json!(scope);
+                *response.body_mut() = serde_json::to_vec(&value)?;
+                response
+                    .headers_mut()
+                    .remove(oauth2::http::header::CONTENT_LENGTH);
             }
-            if discovery && response.status().is_success() {
-                if let Ok(value) = serde_json::from_slice::<Value>(response.body()) {
-                    if value.get("authorization_servers").is_some() {
-                        if let Some(resource) = value.get("resource").and_then(Value::as_str) {
-                            if let Ok(mut identity) = self.resource_identity.lock() {
-                                *identity = Some(resource.to_owned());
-                            }
-                        }
-                    }
-                }
+            if discovery
+                && response.status().is_success()
+                && let Ok(value) = serde_json::from_slice::<Value>(response.body())
+                && value.get("authorization_servers").is_some()
+                && let Some(resource) = value.get("resource").and_then(Value::as_str)
+                && let Ok(mut identity) = self.resource_identity.lock()
+            {
+                *identity = Some(resource.to_owned());
             }
             Ok(response)
         })

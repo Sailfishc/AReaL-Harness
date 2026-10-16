@@ -879,14 +879,13 @@ impl Engine {
             let Some(skill) = catalog.skills.get(&format!("{}/{}", r.id, r.revision)) else {
                 continue;
             };
-            if let Some(plugin) = &skill.plugin {
-                if !manager.enabled_plugin_ids.contains(&plugin.plugin_id)
+            if let Some(plugin) = &skill.plugin
+                && (!manager.enabled_plugin_ids.contains(&plugin.plugin_id)
                     || (model
                         && !plugin.allow_implicit_invocation
-                        && config.selected_skills.is_none())
-                {
-                    continue;
-                }
+                        && config.selected_skills.is_none()))
+            {
+                continue;
             }
             if !result.contains(r) {
                 result.push(r.clone());
