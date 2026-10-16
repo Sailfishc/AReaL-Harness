@@ -36,7 +36,7 @@ impl std::fmt::Debug for HostAuthConfiguration {
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, schemars::JsonSchema)]
 #[serde(tag = "status", rename_all = "camelCase")]
 pub enum AuthStatus {
     Pending {
@@ -460,7 +460,14 @@ impl AuthManager {
             return Ok(Prepared::Fixed(transport::api_key_header(policy, host)?));
         }
         let (mut manager, metadata, mut scopes, resource_identity, refresh_scope_boundary) =
-            transport::prepare_manager(endpoint, policy, challenge, host).await?;
+            transport::prepare_manager(
+                endpoint,
+                policy,
+                challenge,
+                host,
+                matches!(intent, PreparationIntent::CachedOnly),
+            )
+            .await?;
         // Bind every persisted token to the trusted account, all declared configuration,
         // issuer, client identity and host credential values (hash only, never plaintext).
         let binding = serde_json::to_vec(&serde_json::json!([

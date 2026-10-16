@@ -165,6 +165,7 @@ pub(super) async fn prepare_manager(
     policy: &AuthPolicy,
     challenge: Option<&str>,
     host: &HostAuthConfiguration,
+    cached_only: bool,
 ) -> Result<(
     AuthorizationManager,
     AuthorizationMetadata,
@@ -175,6 +176,7 @@ pub(super) async fn prepare_manager(
     let v = declaration(policy);
     let resource_identity = Arc::new(std::sync::Mutex::new(None));
     let http = Arc::new(TokenClient {
+        blocked_resource_probe: cached_only.then(|| url::Url::parse(endpoint)).transpose()?,
         resource_identity: resource_identity.clone(),
         inner: Arc::new(rmcp::transport::auth::default_oauth_http_client()?),
         token_endpoint: std::sync::OnceLock::new(),
@@ -432,6 +434,7 @@ impl RefreshScopeBoundary {
     }
 }
 struct TokenClient {
+    blocked_resource_probe: Option<url::Url>,
     resource_identity: Arc<std::sync::Mutex<Option<String>>>,
     inner: Arc<dyn OAuthHttpClient>,
     token_endpoint: std::sync::OnceLock<String>,
@@ -442,6 +445,21 @@ struct TokenClient {
 impl OAuthHttpClient for TokenClient {
     fn execute(&self, mut request: OAuthHttpRequest) -> OAuthHttpClientFuture<'_> {
         Box::pin(async move {
+            if request.request.method() == oauth2::http::Method::GET
+                && self
+                    .blocked_resource_probe
+                    .as_ref()
+                    .is_some_and(|endpoint| {
+                        url::Url::parse(&request.request.uri().to_string())
+                            .is_ok_and(|url| &url == endpoint)
+                    })
+            {
+                // 缓存恢复只读取元数据，不能提前消费真实 MCP 请求的认证挑战。
+                // 本地跳过资源探测后，SDK 继续其既有 well-known 发现与校验。
+                return Ok(oauth2::http::Response::builder()
+                    .status(oauth2::http::StatusCode::NOT_FOUND)
+                    .body(Vec::new())?);
+            }
             let token_request = request.request.method() == oauth2::http::Method::POST
                 && self
                     .token_endpoint
