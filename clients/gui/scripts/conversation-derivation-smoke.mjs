@@ -983,7 +983,7 @@ try {
   await page.getByTestId("chat-input").fill("等待模型名额的来源问题");
   await page.locator(".composer-dock:not(.side-chat-composer)").getByRole("button", { name: "发送", exact: true }).click();
   await until(s => project(s)?.state?.threads?.[sourceThreadId]?.turns?.at(-1)?.status === "inProgress", "source waits while Side runs");
-  await page.getByRole("button", { name: "停止", exact: true }).click();
+  await page.locator(".composer-dock:not(.side-chat-composer)").getByRole("button", { name: "暂停执行", exact: true }).click();
   await until(s => project(s)?.state?.threads?.[sourceThreadId]?.turns?.at(-1)?.status === "interrupted", "source stops independently");
   assert.equal(project(await state()).state.threads[sideThreadId].turns.at(-1).status, "inProgress");
   heldResponses.get(capacitySideQuestion)(); heldResponses.delete(capacitySideQuestion);
