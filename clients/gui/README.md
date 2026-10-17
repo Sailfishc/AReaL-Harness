@@ -157,3 +157,11 @@ Core 构建完成后再启动使用该二进制的桌面 smoke，验收期间不
 `pnpm --dir clients/gui run test:connection` 验证真实 Core 断线恢复、并发操作、旧连接消息隔离及显式关闭；`pnpm --dir clients/gui run test:architecture` 通过真实 Electron IPC 验证契约拒绝、错误码透传及原生预览的驱逐、崩溃重建和归属释放。两者使用隔离目录并输出证据，不替代安装包验收。
 
 第三方归属见 [THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES.md)。运行时图标沿用源仓库版本；不迁入采集档案、开发 Skills/AGENTS 或来源 Git 历史。
+
+## Cloud 后端配置
+
+设置中的 Cloud 页面保存通用后端 API 地址和 token。token 由系统安全存储加密，不通过状态查询返回给 Renderer；切换后端地址必须重新提供凭据，系统安全存储不可用时拒绝明文降级。地址需包含 API 基路径，例如 `https://backend.example/openapi/v1`。
+
+Cloud 接入层保持一个桌面会话对应同一个平台 Session，连接票据只在可信适配器中使用。重连读取远端权威历史，不重放 query；关闭连接不删除云端 Session。客户端不上传本地 Harness、Skill 或项目目录，创建请求的 Harness 留空，因此后端需要提供默认运行配置。
+
+当前设置与传输层已实现；项目会话 Cloud 选择和 CLI Task 入口尚未接入，不能仅据配置保存成功认定云端执行可用。

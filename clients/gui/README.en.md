@@ -155,3 +155,11 @@ Finish Core builds before starting desktop smoke tests that use that binary, and
 `pnpm --dir clients/gui run test:connection` covers real Core disconnect recovery, concurrent operations, retired connection messages and explicit shutdown. `pnpm --dir clients/gui run test:architecture` uses real Electron IPC to cover contract rejection, error-code forwarding and native preview eviction, crash reconstruction and owner release. Both isolate data and produce evidence; they do not replace package acceptance.
 
 See [THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES.md). Runtime icons retain the source repository's versions; capture archives, development Skills/AGENTS, and source Git history are excluded.
+
+## Cloud backend configuration
+
+The Cloud settings page stores a generic backend API URL and token. The token is encrypted through system secure storage and is never returned to the renderer by status queries. Changing the backend URL requires a new credential; unavailable secure storage never falls back to plaintext. Include the API base path, for example `https://backend.example/openapi/v1`.
+
+The Cloud transport binds one desktop conversation to one platform Session. Connection credentials stay in the trusted adapter. Reconnection reads authoritative remote history without replaying queries; closing the connection does not delete the cloud Session. The client does not upload local Harness materials, Skills, or project directories. Session creation leaves Harness unspecified, so the backend must supply runtime defaults.
+
+Settings and transport are implemented. Project conversation Cloud selection and the CLI Task entry point are not connected yet; saving configuration alone does not establish cloud execution readiness.

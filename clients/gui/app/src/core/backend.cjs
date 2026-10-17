@@ -13,6 +13,7 @@ const { AppHooks } = require('./hooks.cjs');
 const { TrajectoryExport } = require('./trajectory.cjs');
 const { UserFeedback } = require('./feedback.cjs');
 const { AppProviders } = require('./providers.cjs');
+const { CloudSettings } = require('./cloud-settings.cjs');
 const { UsageAnalytics } = require('./analytics.cjs');
 const { CoreLibrary } = require('./library.cjs');
 const { CoreNotifications, TaskNotificationMonitor } = require('./notifications.cjs');
@@ -79,6 +80,7 @@ class CoreBackend {
     this.trajectory = new TrajectoryExport(this);
     this.feedback = new UserFeedback(this);
     this.providers = new AppProviders(this, encryption);
+    this.cloud = new CloudSettings(this, encryption);
     this.activeCommands = 0;
     this.awaitingResponses = new WeakSet();
   }
@@ -1233,6 +1235,7 @@ class CoreBackend {
     if (name === 'feedback' && request?.operation === 'status') return this.feedback.command(request);
     if (name === 'chatgpt') return this.providers.chatgpt(request);
     if (name === 'providers') return this.providers.command(request);
+    if (name === 'cloud') return this.cloud.command(request);
     if (name === 'resources') return this.resources.command(request);
     if (this.providerUpdating || this.resourcesUpdating) throw new Error('配置正在应用，请稍后重试');
     this.activeCommands++;

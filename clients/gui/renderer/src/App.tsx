@@ -94,6 +94,7 @@ import { SideDraftWorkspace } from "./side-draft-owner.js";
 import { agentName } from "./AgentIdentity.js";
 import { WorkgroupsPane } from "./WorkgroupsPane.js";
 import { ServiceStatusSettings } from "./settings/ServiceStatusSettings.js";
+import { CloudSettings } from "./settings/CloudSettings.js";
 import { TrajectorySettings } from "./settings/TrajectorySettings.js";
 import { useTrajectoryPolling } from "./settings/useTrajectoryPolling.js";
 import type { TrajectoryStatus } from "@areal/workbench/desktop-contract";
@@ -120,6 +121,7 @@ const settingsNavigationGroups: SettingsNavigationGroup[] = [
     { id: "钩子", label: "钩子", icon: <SettingsHooksIcon /> },
     { id: "模型服务", label: "模型设置", icon: <Cpu strokeWidth={1.5} /> },
     { id: "会话配置", label: "会话配置", icon: <SettingsConfigurationIcon /> },
+    { id: "Cloud", label: "Cloud", icon: <Server strokeWidth={1.5} /> },
     { id: "后台服务", label: "后台服务", icon: <Server strokeWidth={1.5} /> },
     { id: "数据飞轮", label: "数据飞轮", icon: <Database strokeWidth={1.5} /> },
     { id: "手机连接", label: "手机连接", icon: <Smartphone strokeWidth={1.5} /> },
@@ -1554,6 +1556,8 @@ function AppContent({ services }: { services: PlatformServices }) {
                 <MobileSettings action={resourceAction} projects={snapshot.projects} />
               ) : settingsTab === "数据飞轮" ? (
                 <TrajectorySettings action={resourceAction} connected={snapshot.connection?.state === "ready"} onStatus={onTrajectoryStatus} />
+              ) : settingsTab === "Cloud" ? (
+                <CloudSettings action={resourceAction} />
               ) : settingsTab === "后台服务" ? (
                 <><ServiceStatusSettings connected={snapshot.connection?.state === "ready"} action={resourceAction}
                   onConnect={reconnectService}

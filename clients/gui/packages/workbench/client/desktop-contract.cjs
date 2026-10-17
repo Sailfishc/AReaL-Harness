@@ -24,7 +24,7 @@ const commandDefinitions = Object.freeze({
   manage: ['service', 'project'], workspace: ['service', 'project'], media: ['service', 'thread'],
   steer: ['service', 'thread'], dismissRecovery: ['service', 'project'], providers: ['service', 'app'],
   chatgpt: ['service', 'app'], analytics: ['service', 'app'], resources: ['service', 'app'],
-  projectless: ['service', 'app'], tasks: ['service', 'app'], trajectory: ['service', 'app'], feedback: ['service', 'app'],
+  cloud: ['service', 'app'], projectless: ['service', 'app'], tasks: ['service', 'app'], trajectory: ['service', 'app'], feedback: ['service', 'app'],
   serviceStatus: ['main', 'app'], stopService: ['main', 'app'], recoverResources: ['main', 'app'],
   connectService: ['main', 'app'], export: ['main', 'thread'], remoteControl: ['main', 'app'],
 });
@@ -71,6 +71,9 @@ function validateCommand(name, params, { serviceOnly = false } = {}) {
     || params.expectedToolsetRevision < 0)) invalid();
 
   // 导出目标与配置路径只由可信启动配置选择，Renderer 不能扩展 CLI 参数。
+  if (name === 'cloud' && (!['status', 'save'].includes(String(params.operation))
+    || Object.keys(params).some(key => !['operation', 'baseURL', 'token'].includes(key))
+    || params.operation === 'save' && (typeof params.baseURL !== 'string' || params.token !== undefined && typeof params.token !== 'string'))) invalid();
   if (name === 'trajectory') {
     const toggling = params.operation === 'setEnabled';
     if ((!toggling && !['status', 'retry'].includes(String(params.operation)))
