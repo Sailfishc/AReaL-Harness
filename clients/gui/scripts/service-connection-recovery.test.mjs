@@ -555,6 +555,21 @@ test('legacy unconfirmed startup attaches for observation without a permanent gl
   assert.equal(f.calls.some(call => ['stopService', 'lifecycleRequest'].includes(call.method)), false);
 });
 
+test('restoring a project on a connected legacy backend does not restart connection recovery', async t => {
+  const f = await fixture(t, { commandResult: { accepted: true } }); await f.publish();
+  await f.backend.saveControl('unconfirmed');
+  await f.backend.init({ automatic: true });
+  const states = [];
+  f.backend.onChange = () => states.push(f.backend.snapshot().connection.state);
+  const original = await readFile(f.backend.controlPath, 'utf8');
+  assert.deepEqual(await f.backend.command('connect', { projectId: 'p' }), { accepted: true });
+  assert.deepEqual(await f.backend.command('open', { projectId: 'p', threadId: 't' }), { accepted: true });
+  assert.deepEqual(states, [], 'project restoration must not invalidate its own ready connection');
+  assert.equal(f.calls.filter(call => call.method === 'hello').length, 1);
+  assert.equal(await readFile(f.backend.controlPath, 'utf8'), original, 'legacy outcome remains unacknowledged');
+  assert.equal(f.calls.some(call => ['stopService', 'lifecycleRequest'].includes(call.method)), false);
+});
+
 
 test('a completed target receipt and original Desktop exit settle the crash before exit intent', async t => {
   const target = { projectId: 'p', serviceId: 's', generation: 'g' };
