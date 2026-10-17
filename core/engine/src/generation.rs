@@ -596,16 +596,18 @@ impl Engine {
                     let pending_response = tokio::time::timeout(
                         self.limits.stream_idle_timeout,
                         model::REQUEST_OWNER
-                            .scope(
-                                (thread_id.clone(), turn_id.clone()),
-                                model.chat_with_limits(
-                                    messages.clone(),
-                                    tool_definitions.clone(),
-                                    model::RequestPurpose::Solve,
-                                    tool_limits,
-                                    None,
-                                ),
-                            )
+                            .scope((thread_id.clone(), turn_id.clone()), async {
+                                anyhow::ensure!(!cancel.is_cancelled(), "cancelled");
+                                model
+                                    .chat_with_limits(
+                                        messages.clone(),
+                                        tool_definitions.clone(),
+                                        model::RequestPurpose::Solve,
+                                        tool_limits,
+                                        None,
+                                    )
+                                    .await
+                            })
                             .instrument(model_span.clone()),
                     );
                     tokio::pin!(pending_response);
