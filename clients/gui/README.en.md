@@ -162,4 +162,6 @@ The Cloud settings page stores a generic backend API URL and token. The token is
 
 The Cloud transport binds one desktop conversation to one platform Session. Connection credentials stay in the trusted adapter. Reconnection reads authoritative remote history without replaying queries; closing the connection does not delete the cloud Session. The client does not upload local Harness materials, Skills, or project directories. Session creation leaves Harness unspecified, so the backend must supply runtime defaults.
 
-Settings and transport are implemented. Project conversation Cloud selection and the CLI Task entry point are not connected yet; saving configuration alone does not establish cloud execution readiness.
+New project conversations offer Local and Cloud execution. Cloud conversations remain under their project, using remote message projections and a dedicated text composer. Follow-up messages, connection refresh, and reopening reuse the saved Session/Thread. The local project directory is navigation metadata and is not uploaded or synchronized. Cloud currently accepts text and does not inherit local model, permission, Skill, attachment, or browser configuration.
+
+The backend must accept Session creation without a Harness and supply runtime defaults. Without this contract, creation preserves the draft and idempotency identity rather than selecting a test Harness. Live streaming verification of an existing Session does not prove the new-session path. See the [client guide](../../docs/guides/clients.en.md#cloud) for the CLI entry point.

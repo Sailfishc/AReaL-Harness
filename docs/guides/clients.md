@@ -150,3 +150,34 @@ Core 提供统一的 [Task Mode API](../api/tasks.md)，可创建前台、定时
 TUI headless 与无双向应答通道的 Claude CLI 使用 headless 交互策略；明确启用双向 stream-json 的 CLI 保留宿主应答，dontAsk 仍禁止等待。headless 中：问题立即返回不可用，必须人工批准的工具立即拒绝，模型继续其他工作或报告 blocker。要让任务在窗口关闭后运行，连接持续存活的共享或外部 Core 服务；owned launcher 退出仍会关闭其服务。
 
 TUI 默认启用鼠标捕获，支持点击和滚动。需要终端原生拖选复制时使用 `areal --mouse=false`，选中后使用终端的复制快捷键；这不会把 Ctrl-C 改成复制。
+
+## Cloud
+
+`areal cloud` 连接通用 HTTP 后端，提交无状态 Task，不启动本地 Core，不挂载本地项目、不提供 UPFS，也不指定或同步 Harness。GUI 的持久 Session 入口见[GUI 指南](../../clients/gui/README.md#cloud-后端配置)。后端需支持 `POST /harness-tasks` 的 `{ "prompt": "..." }` 请求，并根据服务端默认配置选择运行包、模型与任务环境；客户端不会自行猜测 Harness 或 stream。尚未实现默认契约的后端会明确拒绝提交。
+
+
+Cloud 也可独立使用配置文件，无需本地模型配置：
+
+```toml
+schema_version = 1
+[cloud]
+url = "https://backend.example/openapi/v1"
+token_file = "cloud-token"
+# 或 token_env = "MY_CLOUD_TOKEN"，不能与 token_file 同时配置。
+```
+
+运行 `areal cloud --config ./config.toml exec '完成任务'`。配置路径沿用共享规则：`--config`、`AREAL_HARNESS_CONFIG`、`$AREAL_HARNESS_HOME/config.toml`，最后为 `~/.areal/config.toml`。文件中的相对 `token_file` 相对于配置文件目录；参数/环境变量中的相对路径相对于当前工作目录。URL 优先级为显式参数、环境变量、文件。凭据优先级为 `--token-file`、`AREAL_CLOUD_TOKEN_FILE`、`AREAL_CLOUD_TOKEN`、文件中的凭据引用；未指定引用时使用 `AREAL_CLOUD_TOKEN`。配置文件不接受明文 token 字段。
+
+```sh
+export AREAL_CLOUD_URL=https://backend.example/openapi/v1
+export AREAL_CLOUD_TOKEN_FILE=/absolute/path/to/private-token
+areal cloud exec '完成任务并生成产物'
+areal cloud exec --no-wait '后台执行任务'
+areal cloud status JOB_ID
+areal cloud result TASK_ID
+areal cloud artifact TASK_ID artifact.json --output ./artifact.json
+```
+
+token 文件只包含原始 token；Unix 权限须为 `0600` 或更严格。也可以通过 `AREAL_CLOUD_TOKEN` 注入，不提供会暴露在进程参数中的 token 参数。`--url` 和 `--token-file` 可覆盖环境变量。GUI token 独立使用系统安全存储加密，不将其导出给 CLI。
+
+`exec` 省略 prompt 时读取标准输入，最多 1 MiB；默认等待最多 900 秒，可通过 `--timeout-seconds` 调整。输出为 JSON：先给受理身份，完成后给 TaskResult 和产物清单。仅作业 DONE 不算成功，结果还必须为 OK。`--no-wait` 只证明受理，不代表任务完成。等待超时或退出 CLI 不取消远端任务；可使用返回的 ID 查询。网络中断不会自动重发 POST，stderr 的请求 UUID 用于核对未知提交。

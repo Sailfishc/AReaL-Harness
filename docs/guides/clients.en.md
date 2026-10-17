@@ -150,3 +150,34 @@ Background tasks can use asynchronous questions or headless execution. Schedules
 TUI headless and Claude CLI without a bidirectional response channel use headless interaction policy. Explicit bidirectional stream-json retains host responses; dontAsk still forbids waiting. In headless mode, questions immediately return unavailable and tools requiring human approval are denied, allowing other work or a blocker report. To continue after closing a window, use a persistent shared or external Core service; an owned launcher still shuts down its service on exit.
 
 The TUI captures the mouse by default for clicking and scrolling. Use `areal --mouse=false` for native terminal drag selection, then use the terminal copy shortcut. Ctrl-C continues to interrupt tasks.
+
+## Cloud
+
+`areal cloud` connects to a generic HTTP backend and submits stateless Tasks without starting local Core, mounting the local project, using UPFS, or selecting or synchronizing a Harness. Persistent GUI Sessions are described in the [GUI guide](../../clients/gui/README.en.md#cloud-backend-configuration). The backend must accept `{ "prompt": "..." }` on `POST /harness-tasks` and choose runtime, model, and task environment through server-side defaults. The client does not guess a Harness or stream; backends without this default contract reject submission.
+
+
+Cloud can use a configuration file without any local model configuration:
+
+```toml
+schema_version = 1
+[cloud]
+url = "https://backend.example/openapi/v1"
+token_file = "cloud-token"
+# Or token_env = "MY_CLOUD_TOKEN"; do not configure both.
+```
+
+Run `areal cloud --config ./config.toml exec 'Complete the task'`. Configuration discovery follows the shared order: `--config`, `AREAL_HARNESS_CONFIG`, `$AREAL_HARNESS_HOME/config.toml`, then `~/.areal/config.toml`. A relative `token_file` in the file is resolved against its directory; CLI/environment token paths are relative to the working directory. URL precedence is explicit argument, environment, then file. Credential precedence is `--token-file`, `AREAL_CLOUD_TOKEN_FILE`, `AREAL_CLOUD_TOKEN`, then the file credential reference; without a reference, `AREAL_CLOUD_TOKEN` is used. Plaintext token fields are not accepted in configuration files.
+
+```sh
+export AREAL_CLOUD_URL=https://backend.example/openapi/v1
+export AREAL_CLOUD_TOKEN_FILE=/absolute/path/to/private-token
+areal cloud exec 'Complete the task and produce artifacts'
+areal cloud exec --no-wait 'Run the task in the background'
+areal cloud status JOB_ID
+areal cloud result TASK_ID
+areal cloud artifact TASK_ID artifact.json --output ./artifact.json
+```
+
+The token file contains only the raw token and must have Unix permissions `0600` or stricter. `AREAL_CLOUD_TOKEN` is also supported; there is no token argument that would expose it in process arguments. `--url` and `--token-file` override environment variables. GUI credentials use separate system-encrypted storage and are not exported to the CLI.
+
+Without a prompt argument, `exec` reads up to 1 MiB from stdin. It waits up to 900 seconds by default, adjustable through `--timeout-seconds`. JSON output first reports acceptance identities, then TaskResult and artifacts. DONE alone is insufficient: the result must also be OK. `--no-wait` proves acceptance only. Timeout or CLI exit does not cancel the remote task; use the returned IDs to query it. POST requests are never automatically replayed after network failure; retain the request UUID printed to stderr to reconcile an unknown submission.

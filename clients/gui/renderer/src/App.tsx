@@ -45,6 +45,7 @@ import { ForkTargetDialog } from "./ForkTargetDialog.js";
 import { ConversationDraftEmptyState } from "./ConversationDraftEmptyState.js";
 import { NewTaskButtonGroup } from "./NewTaskButtonGroup.js";
 import { Composer, sending, subscribeSending } from "./Composer.js";
+import { CloudComposer } from "./CloudComposer.js";
 import { DraftComposer } from "./DraftComposer.js";
 import { ProjectlessDraft } from "./ProjectlessDraft.js";
 import { WorktreeStarter } from "./WorktreeStarter.js";
@@ -578,7 +579,9 @@ function AppContent({ services }: { services: PlatformServices }) {
     localStorage.setItem("areal-gui:project", project.id);
     const remembered = localStorage.getItem(`areal-gui:thread:${project.id}`);
     setThreadId(remembered ?? "");
-    void action("connect", { projectId: project.id })
+    const cloud = remembered ? project.state?.threads?.[remembered]?.cloud
+      : localStorage.getItem(`areal-draft-environment:${project.id}`) === "cloud";
+    void (cloud ? Promise.resolve() : action("connect", { projectId: project.id }))
       .then(() => {
         if (active && remembered && localStorage.getItem(`areal-gui:thread:${project.id}`) === remembered)
           return action("open", {
@@ -1607,11 +1610,11 @@ function AppContent({ services }: { services: PlatformServices }) {
                           project={project}
                           thread={thread}
                           action={action}
-                          onFork={forkFromTurn}
-                          onSideSelection={project.core?.features?.sidePreview === true && !thread.desktop?.archived ? openSideSelection : undefined}
+                          onFork={thread.cloud ? undefined : forkFromTurn}
+                          onSideSelection={!thread.cloud && project.core?.features?.sidePreview === true && !thread.desktop?.archived ? openSideSelection : undefined}
                           dark={dark}
                           onLink={onLink}
-                          onFile={openFile}
+                          onFile={thread.cloud ? () => setError("Cloud 文件位于远端工作区，不能按本机路径打开。") : openFile}
                           onReview={turnId => { setReviewRequest({ owner: panelOwner, turnId }); setPanel("改动"); setWorkspaceView(mode => mode === "split" ? mode : "panel"); }}
                           readTurnReview={readTurnReview}
                           onAgent={id => showPanel(`agent:${id}`)}
@@ -1629,11 +1632,13 @@ function AppContent({ services }: { services: PlatformServices }) {
                             </div>
                           </div>
                         )}
+                        {!thread.cloud && <>
                         <McpAppEntrypoints servers={mcpWorkspace.servers} kind="thread" onOpen={(server,tool)=>void mcpWorkspace.openApp(server,tool,{kind:"thread"}).catch(cause=>setError(cause.message))}/>
                         {mcpWorkspace.contexts}
                         {mcpWorkspace.formsView}
                         {mcpMentionsOpen && <McpMentionsPicker servers={mcpWorkspace.servers} projectId={project.id} threadId={thread.id} action={resourceAction} onClose={()=>setMcpMentionsOpen(false)}/>}
-                        <Composer
+                        </>}
+                        {thread.cloud ? <CloudComposer key={thread.id} project={project} thread={thread} action={resourceAction} /> : <Composer
                           key={`${project.id}:${thread.id}`}
                           onMcpMention={()=>setMcpMentionsOpen(true)}
                           project={project}
@@ -1658,7 +1663,7 @@ function AppContent({ services }: { services: PlatformServices }) {
                           } : undefined}
                           onNew={() => void newTask()}
                           onOpenTask={target => { updateSettingsOpen(false); setTaskScope(undefined); setTaskNotification(target); setTaskCenterOpen(true); }}
-                        />
+                        />}
                       </div>
                     </>
                   ) : threadId ? (

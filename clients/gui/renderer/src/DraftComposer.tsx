@@ -1,3 +1,5 @@
+import { CloudComposer } from "./CloudComposer.js";
+import "./CloudComposer.css";
 import { resolveDraftProfile } from "./ProfileDetails.js";
 import { useApplicationPreferences } from "./settings/applicationPreferences.js";
 import { ComposerModelMenu, composerModelOption } from "./ComposerModelMenu.js";
@@ -26,7 +28,7 @@ import {
   submitMessage,
 } from "./Composer.js";
 
-export function DraftComposer({
+function LocalDraftComposer({
   project,
   action,
   readAction = action,
@@ -331,4 +333,18 @@ export function DraftComposer({
       <ComposerMcp projectId={project.id} action={readAction} open={mcpOpen} anchor={menuAnchor} onClose={() => { setMcpOpen(false); api.current?.focus(); }} />
     </div>
   );
+}
+
+export function DraftComposer(props: Parameters<typeof LocalDraftComposer>[0]) {
+  const key = `areal-draft-environment:${props.project.id}`;
+  const [environment, setEnvironment] = useState(() => localStorage.getItem(key) === "cloud" ? "cloud" : "local");
+  return <>
+    <label className="cloud-environment-picker">运行环境
+      <select aria-label="会话运行环境" value={environment} onChange={event => { setEnvironment(event.target.value); localStorage.setItem(key, event.target.value); }}>
+        <option value="local">Local</option>
+        <option value="cloud" disabled={props.project.id === "projectless"}>Cloud</option>
+      </select>
+    </label>
+    {environment === "cloud" ? <CloudComposer project={props.project} action={props.action} onOpen={props.onOpen} /> : <LocalDraftComposer {...props} />}
+  </>;
 }

@@ -14,6 +14,7 @@ const { TrajectoryExport } = require('./trajectory.cjs');
 const { UserFeedback } = require('./feedback.cjs');
 const { AppProviders } = require('./providers.cjs');
 const { CloudSettings } = require('./cloud-settings.cjs');
+const { CloudConversations } = require('./cloud-conversations.cjs');
 const { UsageAnalytics } = require('./analytics.cjs');
 const { CoreLibrary } = require('./library.cjs');
 const { CoreNotifications, TaskNotificationMonitor } = require('./notifications.cjs');
@@ -81,6 +82,7 @@ class CoreBackend {
     this.feedback = new UserFeedback(this);
     this.providers = new AppProviders(this, encryption);
     this.cloud = new CloudSettings(this, encryption);
+    this.cloudConversations = new CloudConversations(this);
     this.activeCommands = 0;
     this.awaitingResponses = new WeakSet();
   }
@@ -96,6 +98,7 @@ class CoreBackend {
       } catch (error) { if (error.code !== 'ENOENT') throw error; this.saved = []; }
       trace.advance('library');
       await this.library.init();
+      await this.cloudConversations.init();
       trace.advance('projectless');
       await this.projectless.init();
       trace.advance('analytics');
@@ -151,18 +154,20 @@ class CoreBackend {
   snapshot() {
     return { library: this.library.value, projectless: this.projectless.snapshot(), power: this.power ?? null, projects: this.saved.map(project => {
       const live = this.projects.get(project.id);
-      const snapshot = live?.model.getSnapshot() ?? null;
+      const localSnapshot = live?.model.getSnapshot() ?? null;
+      const cloud = this.cloudConversations.projection(project.id);
+      const snapshot = cloud.summaries.length ? { ...(localSnapshot ?? {connected:false, interactions:{}, queues:{}}), threads: {...localSnapshot?.threads, ...cloud.threads} } : localSnapshot;
       // Management conversations remain hidden from chat navigation, but use the
       // same snapshot/message components through a decoded display projection.
       const state = snapshot?.threads ? {...snapshot, threads: Object.fromEntries(Object.entries(snapshot.threads).map(([id, thread]) =>
-        [id, isTaskDraftConfiguration(live.configurations?.[id] ?? thread.desktop?.configuration)
+        [id, isTaskDraftConfiguration(live?.configurations?.[id] ?? thread.desktop?.configuration)
           ? displayTaskDraftThread(thread, live) : thread]))} : snapshot;
       return { ...project, backend: 'areal', core: { ...projectCoreCapabilities(this.binary, live?.client?.capabilities),
         instanceId: live?.service?.serviceId ?? null, connectionGeneration: live?.connectionGeneration ?? 0 },
-        state: state && live.resourceInitializing ? {...state, connected:false} : state,
+        state: state && live?.resourceInitializing ? {...state, connected:false} : state,
         pending: (live?.pending ?? []).filter(entry => !isRemoteControl(entry)).map(entry => ({ ...entry, awaitingResponse: this.awaitingResponses.has(entry) })), outcomes: live?.outcomes ?? {}, models: this.providers.catalog(live?.models ?? [], live), profiles: live?.profiles ?? [],
         defaultProfile: live?.resourceProfile ?? this.defaultProfile ?? null, configurations: live?.configurations ?? {},
-        summaries: live?.summaries ?? [], summariesLoaded: live?.summariesLoaded === true, error: live?.error ?? null };
+        summaries: [...(live?.summaries ?? []), ...cloud.summaries], summariesLoaded: live?.summariesLoaded === true, error: live?.error ?? null };
     }) };
   }
 
@@ -1236,6 +1241,11 @@ class CoreBackend {
     if (name === 'chatgpt') return this.providers.chatgpt(request);
     if (name === 'providers') return this.providers.command(request);
     if (name === 'cloud') return this.cloud.command(request);
+    if (name === 'cloudSession') return this.cloudConversations.command(request);
+    if (this.cloudConversations.owns(request?.projectId, request?.threadId)) {
+      if (name === 'open') return this.cloudConversations.command({...request, operation:'open'});
+      throw new Error('此操作尚不支持 Cloud 会话');
+    }
     if (name === 'resources') return this.resources.command(request);
     if (this.providerUpdating || this.resourcesUpdating) throw new Error('配置正在应用，请稍后重试');
     this.activeCommands++;
@@ -1487,6 +1497,7 @@ class CoreBackend {
 
   async disconnect() {
     this.closing = true;
+    this.cloudConversations.close();
     for (const project of this.projects.values()) {
       clearTimeout(project.reconnectTimer); project.reconnectTimer = null;
       project.taskNotificationMonitor?.stop();
