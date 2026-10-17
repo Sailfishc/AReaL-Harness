@@ -93,13 +93,27 @@ const stop = (s, cancel = false) =>
   cli(["service", "stop", "--json", "--instance", s.serviceId, ...(cancel ? ["--cancel"] : [])]);
 const operation = (s, requestId) =>
   cli([
-    "service", "operation", "--json", "--instance", s.serviceId,
-    "--expected-generation", s.generation, "--request-id", requestId,
+    "service",
+    "operation",
+    "--json",
+    "--instance",
+    s.serviceId,
+    "--expected-generation",
+    s.generation,
+    "--request-id",
+    requestId,
   ]);
 const requestStop = (s, requestId, cancel = false) =>
   cli([
-    "service", "stop", "--json", "--instance", s.serviceId,
-    "--expected-generation", s.generation, "--request-id", requestId,
+    "service",
+    "stop",
+    "--json",
+    "--instance",
+    s.serviceId,
+    "--expected-generation",
+    s.generation,
+    "--request-id",
+    requestId,
     ...(cancel ? ["--cancel"] : []),
   ]);
 async function client(s) {
@@ -208,7 +222,7 @@ async function discardControlResponse(s, request) {
   const socket = unixConnect(join(home, "services", s.serviceId, "control.sock"));
   await once(socket, "connect");
   await new Promise((resolve, reject) => {
-    socket.write(JSON.stringify(request) + "\n", (error) => error ? reject(error) : resolve());
+    socket.write(JSON.stringify(request) + "\n", (error) => (error ? reject(error) : resolve()));
   });
   socket.destroy();
 }
@@ -285,8 +299,13 @@ try {
   setPhase("stop-operation-capabilities");
   assert.deepEqual(
     await cli([
-      "service", "capabilities", "--json", "--instance", current.serviceId,
-      "--expected-generation", current.generation,
+      "service",
+      "capabilities",
+      "--json",
+      "--instance",
+      current.serviceId,
+      "--expected-generation",
+      current.generation,
     ]),
     { version: 1, stopOperations: 1 },
   );
@@ -360,11 +379,15 @@ try {
   process.kill(stoppedTopology.launcher, "SIGSTOP");
   try {
     await discardControlResponse(current, {
-      method: "stopOperation", version: 1, generation: current.generation,
-      requestId: stopRequestId, cancel: true,
+      method: "stopOperation",
+      version: 1,
+      generation: current.generation,
+      requestId: stopRequestId,
+      cancel: true,
     });
-    await until(async () =>
-      (await operation(current, stopRequestId)).operation?.lifecycle?.settled?.allowed === true,
+    await until(
+      async () =>
+        (await operation(current, stopRequestId)).operation?.lifecycle?.settled?.allowed === true,
     );
     assert.equal(
       (await operation(current, stopRequestId)).operation?.state,
@@ -386,7 +409,10 @@ try {
   assert.equal(completedStop.requestId, stopRequestId);
   assert.equal(completedStop.generation, current.generation);
   assert.equal(completedStop.cancel, true);
-  assert.equal((await cli(["service", "status", "--instance", current.serviceId])).state, "stopped");
+  assert.equal(
+    (await cli(["service", "status", "--instance", current.serviceId])).state,
+    "stopped",
+  );
   assert.deepEqual(await requestStop(current, stopRequestId, true), completedStop);
   await dead(current.corePid);
   const old = current;
@@ -397,8 +423,10 @@ try {
   await rejected(() => requestStop(current, stopRequestId, true), /request.*conflict/i);
   assert.equal((await cli(["service", "status", "--instance", current.serviceId])).state, "ready");
   lifecycleChecks.push({
-    fault: "stop-response-discarded", requestId: stopRequestId,
-    generation: old.generation, observedState: completedStop.state,
+    fault: "stop-response-discarded",
+    requestId: stopRequestId,
+    generation: old.generation,
+    observedState: completedStop.state,
     replacementGeneration: current.generation,
   });
   const resumed = await client(current);
@@ -416,11 +444,15 @@ try {
       try {
         interruptedRequestId = crypto.randomUUID();
         await discardControlResponse(current, {
-          method: "stopOperation", version: 1, generation: current.generation,
-          requestId: interruptedRequestId, cancel: true,
+          method: "stopOperation",
+          version: 1,
+          generation: current.generation,
+          requestId: interruptedRequestId,
+          cancel: true,
         });
-        await until(async () =>
-          (await operation(current, interruptedRequestId)).operation?.state === "acceptedPending",
+        await until(
+          async () =>
+            (await operation(current, interruptedRequestId)).operation?.state === "acceptedPending",
         );
         process.kill(current.hostPid, "SIGKILL");
         try {
@@ -455,7 +487,10 @@ try {
       const interrupted = (await operation(previous, interruptedRequestId)).operation;
       assert.equal(interrupted.state, "admissionUnknown");
       assert.deepEqual(await requestStop(previous, interruptedRequestId, true), interrupted);
-      assert.equal((await cli(["service", "status", "--instance", current.serviceId])).state, "ready");
+      assert.equal(
+        (await cli(["service", "status", "--instance", current.serviceId])).state,
+        "ready",
+      );
       lifecycleCheck.interruptedOperation = interrupted;
     }
     for (const status of statuses) {
