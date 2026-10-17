@@ -72,7 +72,7 @@ export function CloudComposer({
         }
     };
     return (
-        <div className="cloud-composer">
+        <div className="composer-dock cloud-composer">
             <ChatPromptEditor
                 workspacePath=""
                 taskId={thread?.id ?? null}
