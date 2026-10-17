@@ -29,7 +29,7 @@ impl Client {
         let config = tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default()
             .max_message_size(Some(areal_protocol::MAX_FRAME_BYTES));
         let (socket, _) = tokio::time::timeout(
-            Duration::from_secs(10),
+            Duration::from_secs(180),
             tokio_tungstenite::connect_async_with_config(request, Some(config), false),
         )
         .await??;
@@ -81,6 +81,32 @@ impl Client {
             .send(notification("initialized", json!({})))
             .await?;
         Ok(client)
+    }
+    pub(crate) async fn default_profile(
+        &mut self,
+    ) -> Result<Option<areal_protocol::desktop::VersionRef>> {
+        let id = self.send("areal/profile/list", json!({}))?;
+        let reply = tokio::time::timeout(Duration::from_secs(10), self.rx.recv())
+            .await?
+            .context("connection closed while reading profiles")?;
+        anyhow::ensure!(
+            reply["id"] == id && reply.get("error").is_none(),
+            "cannot read remote Agent Profiles"
+        );
+        let profiles = reply["result"]["data"]
+            .as_array()
+            .context("invalid profile catalog")?;
+        anyhow::ensure!(
+            profiles.len() <= 1,
+            "remote server requires --agent when multiple profiles are deployed"
+        );
+        profiles
+            .first()
+            .map(|p| {
+                serde_json::from_value(json!({"id":p["id"],"revision":p["revision"]}))
+                    .map_err(Into::into)
+            })
+            .transpose()
     }
     pub(crate) fn send(&mut self, method: &str, params: Value) -> Result<u64> {
         let id = self.next;

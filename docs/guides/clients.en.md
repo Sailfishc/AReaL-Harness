@@ -151,6 +151,19 @@ TUI headless and Claude CLI without a bidirectional response channel use headles
 
 The TUI captures the mouse by default for clicking and scrolling. Use `areal --mouse=false` for native terminal drag selection, then use the terminal copy shortcut. Ctrl-C continues to interrupt tasks.
 
+## Unified remote app-server
+
+GUI, CLI, and TUI can connect to the same native AReaL WebSocket service. Arena provisions a workspace and UPFS; a remote machine or Docker host runs `areal serve` ahead of time. Only endpoint and credentials change. Without `--agent`, a single deployed Profile is selected automatically; multiple Profiles require explicit selection. Cold connections have a three-minute deadline.
+
+```sh
+# TUI; change only endpoint and credential file for a direct remote server
+areal --endpoint ws://127.0.0.1:18088/openapi/v1/app-server/my-workspace/ --auth-file /private/arena-auth.json
+# CLI uses the same protocol with optional streaming JSON
+areal exec --endpoint ws://127.0.0.1:18457/ --auth-file /private/remote-auth.json --output-format stream-json --verbose 'Inspect the workspace'
+```
+
+Credentials use the native security/auth.json shape, with `principals[0].token`. Servers must offer compatible `areal.core.v1` capabilities; this is not a claim of complete OpenAI Codex extension support. The following `areal cloud` command remains the legacy batch HTTP compatibility entry, not native remote mode.
+
 ## Cloud
 
 `areal cloud` connects to a generic HTTP backend and submits stateless Tasks without starting local Core, mounting the local project, using UPFS, or selecting or synchronizing a Harness. Persistent GUI Sessions are described in the [GUI guide](../../clients/gui/README.en.md#cloud-backend-configuration). The backend must accept `{ "prompt": "..." }` on `POST /harness-tasks` and choose runtime, model, and task environment through server-side defaults. The client does not guess a Harness or stream; backends without this default contract reject submission.

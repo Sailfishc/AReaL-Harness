@@ -60,10 +60,8 @@ class CloudSettings {
     }
     async check() {
         const client = await this.client();
-        // 只读认证接口，检查连接不会创建会话或沙箱。
-        const result = await client.request("GET", "harness-sessions?limit=1", undefined, { signal: AbortSignal.timeout(10_000) });
-        if (!result || !Array.isArray(result.items)) throw new Error("Cloud 返回了无效的会话列表");
-        return { connected: true };
+        // 原生握手核对认证与能力；工作区后端可能在首次连接时启动运行实例。
+        return client.check();
     }
     async client() {
         const record = await this.record();

@@ -151,4 +151,4 @@ MCP hook 绑定原工具 generation 与真实 Turn/compaction owner，取消旧 
 
 用户评价在 Clients 层冻结公开历史并复用独立 Side；Core Server 仅适配既有轨迹接收端。边界见 [user feedback](../guides/user-feedback.md).
 
-Cloud 接入归 Clients：桌面适配器保存远端 Session/Thread 身份及加密凭据，CLI 提交无状态 Task；消息与执行事实仍归远端 Core/Runtime。本地 Project 不因此变成另一份权威历史，后端运行默认值不由客户端选择。见[Cloud 客户端](../guides/clients.md#cloud)。
+Cloud 接入归 Clients：桌面适配器保存远端原生 Thread 身份及加密凭据，GUI、CLI 和 TUI 使用同一 app-server 协议连接 Arena 或远程 Core。Arena 工作区生命周期不进入客户端，批任务 HTTP CLI 仅保留兼容入口；消息与执行事实仍归远端 Core/Runtime。本地 Project 不因此变成另一份权威历史，后端运行默认值不由客户端选择。见[Cloud 客户端](../guides/clients.md#cloud)。

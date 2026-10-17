@@ -23,25 +23,25 @@ test("Cloud 凭据状态不回显token，地址变更不能沿用旧凭据", asy
     assert.deepEqual(await settings.status(), { baseURL: "", tokenConfigured: false });
     const result = await settings.command({
         operation: "save",
-        baseURL: "https://one.test/api/",
+        baseURL: "wss://one.test/api/",
         token: "secret-value",
     });
-    assert.deepEqual(result, { baseURL: "https://one.test/api", tokenConfigured: true });
+    assert.deepEqual(result, { baseURL: "wss://one.test/api", tokenConfigured: true });
     assert.equal(JSON.stringify(await settings.status()).includes("secret-value"), false);
     assert.equal(
         (await readFile(join(home, "cloud.json"), "utf8")).includes("secret-value"),
         false,
     );
     await assert.rejects(
-        settings.command({ operation: "save", baseURL: "https://two.test/api" }),
+        settings.command({ operation: "save", baseURL: "wss://two.test/api" }),
         /token/,
     );
-    assert.equal((await settings.status()).baseURL, "https://one.test/api");
-    await settings.command({ operation: "save", baseURL: "https://one.test/api" });
+    assert.equal((await settings.status()).baseURL, "wss://one.test/api");
+    await settings.command({ operation: "save", baseURL: "wss://one.test/api" });
     assert.equal((await settings.client()).token, "secret-value");
     await settings.command({
         operation: "save",
-        baseURL: "https://two.test/api",
+        baseURL: "wss://two.test/api",
         token: "new-secret",
     });
     assert.equal((await settings.client()).token, "new-secret");
@@ -79,27 +79,17 @@ test("桌面窄契约接受 Cloud 配置，拒绝无效操作及未声明字段"
     assert.throws(() => validateCommand("cloud", { operation: "save", baseURL: 123 }));
 });
 
-test("连接检查只读认证接口，拒绝错误凭据及非协议响应", async (t) => {
-    const { createServer } = require("node:http");
-    const { CloudClient } = require("../app/src/core/cloud-client.cjs");
-    let response = "ok";
-    const requests = [];
-    const server = createServer((req, res) => {
-        requests.push([req.method, req.url, req.headers.authorization]);
-        if (response === "unauthorized") { res.writeHead(401); res.end(); return; }
-        res.setHeader("Content-Type", "application/json");
-        res.end(JSON.stringify(response === "ok" ? { items: [] } : { healthy: true }));
-    });
-    await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
-    t.after(() => new Promise(resolve => server.close(resolve)));
+test("连接检查委托原生握手，错误不返回已连接", async () => {
     const settings = new CloudSettings({}, {});
-    settings.client = async () => new CloudClient({ baseURL: `http://127.0.0.1:${server.address().port}/openapi/v1`, token: "check-token" });
+    settings.client = async () => ({
+        check: async () => ({ connected: true, apiVersion: "areal.core.v1" }),
+    });
     validateCommand("cloud", { operation: "check" }, { serviceOnly: true });
-    assert.deepEqual(await settings.command({ operation: "check" }), { connected: true });
-    response = "unauthorized";
-    await assert.rejects(settings.command({ operation: "check" }), /401/);
-    response = "invalid";
-    await assert.rejects(settings.command({ operation: "check" }), /无效/);
-    assert.equal(requests.length, 3);
-    for (const request of requests) assert.deepEqual(request, ["GET", "/openapi/v1/harness-sessions?limit=1", "Bearer check-token"]);
+    assert.equal((await settings.command({ operation: "check" })).connected, true);
+    settings.client = async () => ({
+        check: async () => {
+            throw Error("authentication failed");
+        },
+    });
+    await assert.rejects(settings.command({ operation: "check" }), /authentication/);
 });

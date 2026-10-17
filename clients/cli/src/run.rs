@@ -228,6 +228,21 @@ async fn execute_connected(args: &Cli, local: &local::Local) -> Result<(i32, Vec
         )
         .await?;
     }
+    let mut profile = local.profile.clone();
+    // 远端部署一个 Profile 时使用它，避免绕过服务端 Harness 材料。
+    if args.endpoint.is_some() && args.resume.is_none() && profile.is_none() {
+        let catalog = rpc.call("areal/profile/list", json!({})).await?;
+        let profiles = catalog["data"]
+            .as_array()
+            .context("invalid profile catalog")?;
+        ensure!(
+            profiles.len() <= 1,
+            "remote server requires an explicit default Agent Profile"
+        );
+        if let Some(entry) = profiles.first() {
+            profile = Some(json!({"id":entry["id"],"revision":entry["revision"]}));
+        }
+    }
     let thread = if let Some(id) = &args.resume {
         // CLI cannot answer ambient tool callbacks; keep any live desktop owner bound.
         rpc.call("areal/thread/observe", json!({"threadId":id}))
@@ -235,7 +250,7 @@ async fn execute_connected(args: &Cli, local: &local::Local) -> Result<(i32, Vec
     } else {
         rpc.call(
             "areal/thread/start",
-            json!({"requestId":key(),"agentProfile":local.profile}),
+            json!({"requestId":key(),"agentProfile":profile}),
         )
         .await?
     };

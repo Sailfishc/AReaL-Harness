@@ -123,7 +123,7 @@ pub async fn run_with_trajectory_notice(
     mut args: Args,
     mut trajectory_notice: Option<tokio::sync::oneshot::Receiver<String>>,
 ) -> Result<()> {
-    let agent_profile = args
+    let mut agent_profile = args
         .agent
         .as_deref()
         .map(areal_local_service::parse_agent_profile)
@@ -163,6 +163,9 @@ pub async fn run_with_trajectory_notice(
     let mut client = Client::connect(endpoint, args.auth_file.as_deref()).await.with_context(|| {
         format!("Cannot connect to Core at {endpoint}. Start the server first, or omit --endpoint to start a local Harness.")
     })?;
+    if agent_profile.is_none() && args.resume.is_none() && args.shared_service.is_none() {
+        agent_profile = client.default_profile().await?;
+    }
     if let Some(goal) = args.goal {
         return headless::goal_with_profile(
             &mut client,

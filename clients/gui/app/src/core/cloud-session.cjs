@@ -1,9 +1,8 @@
 "use strict";
 
 const { randomUUID } = require("node:crypto");
-const WebSocket = require("ws");
 
-/** 一个桌面会话固定一个平台 Session；不因 query 或重连重新分配持久卷。 */
+/** 一个桌面会话绑定远端原生 thread，连接方式与运行平台无关。 */
 class CloudSession {
     constructor({ platform, binding, save, onNotification = () => {}, onClose = () => {} }) {
         this.platform = platform;
@@ -40,39 +39,36 @@ class CloudSession {
             };
             await this.save(this.binding);
         }
-        if (!this.binding.sessionId) {
-            const session = await this.platform.createSession(this.binding.createId, { signal });
-            if (!session?.session_id) throw new Error("Cloud 未返回 Session ID");
-            this.binding = { ...this.binding, sessionId: session.session_id };
-            await this.save(this.binding);
-        }
-        const connection = await this.platform.connectSession(this.binding.sessionId, { signal });
-        if (this.closed || signal?.aborted) throw new Error("Cloud 连接已取消");
-        const { CoreClient } = await import("@areal/runtime-client/core");
-        const client = new CoreClient({
-            createSocket: () =>
-                new WebSocket(connection.endpoint, {
-                    headers: { Authorization: `Bearer ${connection.credential}` },
-                    followRedirects: false,
-                    maxPayload: 4 * 1024 * 1024,
-                }),
+        if (this.binding.sessionId)
+            throw new Error("旧 Arena 会话请使用原客户端打开；新入口使用原生 app-server 工作区");
+        let client;
+        client = await this.platform.connect({
+            onNotification: (method, params) => this.onNotification(method, params),
+            onClose: () => {
+                if (this.client === client && !this.closed) this.onClose();
+            },
         });
+        if (this.closed || signal?.aborted) {
+            client.close();
+            throw new Error("Cloud 连接已取消");
+        }
         this.client?.close();
         this.client = client;
-        client.onNotification((method, params) => this.onNotification(method, params));
-        client.onClose(() => {
-            if (this.client === client && !this.closed) this.onClose();
-        });
         try {
-            await client.connect();
             if (this.closed || signal?.aborted) throw new Error("Cloud 连接已取消");
             if (!this.binding.threadId) {
-                const start = connection.threadStart;
-                if (!["thread/start", "areal/thread/start"].includes(start?.method))
-                    throw new Error("Cloud 未提供受支持的 thread/start 方法");
-                const result = await client.request(start.method, {
+                if (!client.capabilities?.methods?.includes("areal/thread/start"))
+                    throw new Error("远端不支持幂等会话创建，请升级 AReaL app-server");
+                const catalog = await client.request("areal/profile/list", {});
+                const profiles = catalog.data ?? [];
+                if (profiles.length > 1)
+                    throw new Error("远端存在多个 Agent Profile，请在服务端配置唯一默认运行包");
+                const profile = profiles[0];
+                const result = await client.request("areal/thread/start", {
                     requestId: this.binding.threadRequestId,
-                    ...(start.agentProfile ? { agentProfile: start.agentProfile } : {}),
+                    ...(profile
+                        ? { agentProfile: { id: profile.id, revision: profile.revision } }
+                        : {}),
                 });
                 if (!result.thread?.id) throw new Error("Cloud 未返回 Thread ID");
                 this.binding = { ...this.binding, threadId: result.thread.id };

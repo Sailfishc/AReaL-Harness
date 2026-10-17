@@ -151,6 +151,19 @@ TUI headless 与无双向应答通道的 Claude CLI 使用 headless 交互策略
 
 TUI 默认启用鼠标捕获，支持点击和滚动。需要终端原生拖选复制时使用 `areal --mouse=false`，选中后使用终端的复制快捷键；这不会把 Ctrl-C 改成复制。
 
+## 统一远端 app-server
+
+GUI、CLI 与 TUI 可连接同一 AReaL 原生 WS 服务。Arena 负责工作区分配与 UPFS；远程机器或 Docker 负责预先运行 `areal serve`。客户端协议相同，仅地址和认证文件不同。远端未指定 `--agent` 且只部署一个 Profile 时自动使用它；多个 Profile 必须显式选择。连接冷启动超时为三分钟。
+
+```sh
+# TUI；替换地址和认证文件即可直连远程机器
+areal --endpoint ws://127.0.0.1:18088/openapi/v1/app-server/my-workspace/ --auth-file /private/arena-auth.json
+# CLI 使用同一协议，可输出流式 JSON
+areal exec --endpoint ws://127.0.0.1:18457/ --auth-file /private/remote-auth.json --output-format stream-json --verbose '检查工作区'
+```
+
+认证文件沿用原生 `security/auth.json` 的 `principals[0].token` 格式。远端部署必须提供兼容的 `areal.core.v1` 能力；这不表示支持 OpenAI Codex 的全部扩展。下面的 `areal cloud` 保留为原有批任务 HTTP 兼容入口，不是原生远端模式。
+
 ## Cloud
 
 `areal cloud` 连接通用 HTTP 后端，提交无状态 Task，不启动本地 Core，不挂载本地项目、不提供 UPFS，也不指定或同步 Harness。GUI 的持久 Session 入口见[GUI 指南](../../clients/gui/README.md#cloud-后端配置)。后端需支持 `POST /harness-tasks` 的 `{ "prompt": "..." }` 请求，并根据服务端默认配置选择运行包、模型与任务环境；客户端不会自行猜测 Harness 或 stream。尚未实现默认契约的后端会明确拒绝提交。

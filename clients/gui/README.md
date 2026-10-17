@@ -160,10 +160,10 @@ Core 构建完成后再启动使用该二进制的桌面 smoke，验收期间不
 
 ## Cloud 后端配置
 
-设置中的 Cloud 页面保存通用后端 API 地址和 token。token 由系统安全存储加密，不通过状态查询返回给 Renderer；切换后端地址必须重新提供凭据，系统安全存储不可用时拒绝明文降级。地址需包含 API 基路径，例如 `https://backend.example/openapi/v1`。
+Cloud 使用 AReaL 原生 app-server WebSocket 接口。设置后端地址和 token 后，项目输入框上方的“本地”菜单增加 Cloud。Arena 示例为 `ws://127.0.0.1:18088/openapi/v1/app-server/my-workspace/`；远程机器经 SSH 端口转发的示例为 `ws://127.0.0.1:18457/`。HTTP(S) 地址仅转换为 WS(S)，客户端不拼接或调用 Arena Session HTTP API。
 
-Cloud 接入层保持一个桌面会话对应同一个平台 Session，连接票据只在可信适配器中使用。重连读取远端权威历史，不重放 query；关闭连接不删除云端 Session。客户端不上传本地 Harness、Skill 或项目目录，创建请求的 Harness 留空，因此后端需要提供默认运行配置。
+“保存并连接”进行真实原生握手，绿色状态表示认证和能力协商成功。Arena 首次连接可能分配沙箱，因此冷启动最多等待三分钟。token 通过系统安全存储加密，改变地址需提供新 token。
 
-配置 Cloud 后，项目新会话输入框上方的“本地”菜单会增加 Cloud 选项。Cloud 会话复用现有消息与输入组件；后续消息及重新打开窗口继续使用保存的 Session/Thread。设置页的“保存并连接”执行只读认证检查，绿色“后端已连接”表示本次检查成功，不代表某个 Session 的 Core 已连接。项目目录只用于本地导航，不自动上传或同步。Cloud 输入暂限文本，不沿用本地模型、权限、Skill、附件和浏览器配置。
+桌面会话只保存 endpoint 和原生 thread 身份；重连读取权威历史，不重放 query。服务端部署零个 Profile 时使用原生默认配置，一个时使用该 Profile；多个时 GUI 拒绝猜测。一个 Arena endpoint 的所有 thread 共用同一个用户隔离工作区；不同工作区使用不同 URL。关闭 GUI 不停止远端进程。
 
-后端必须支持空 Harness 的 Session 创建并提供默认运行配置。未提供默认契约时，创建失败会保留草稿和幂等标识，不回退到测试 Harness。已有 Session 的真实流式复验不能替代新建路径验收。CLI 入口见[客户端指南](../../docs/guides/clients.md#cloud)。
+Cloud 输入暂限文本，不同步本地项目、模型、Skill、附件或浏览器。旧版本保存了 Arena sessionId 的会话保留在本机，但本入口不会自动转换或创建替代会话；请用原客户端继续访问旧会话。CLI/TUI 的原生连接命令见[客户端指南](../../docs/guides/clients.md#统一远端-app-server)。

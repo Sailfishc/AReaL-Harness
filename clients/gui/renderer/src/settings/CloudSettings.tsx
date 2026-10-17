@@ -53,8 +53,8 @@ export function CloudSettings({ action }: { action: Action }) {
             action={<span className="cloud-connection-status" data-state={connection} role="status"><span className="cloud-connection-dot" aria-hidden="true"/>
                 {{ idle: "未验证", checking: "正在连接…", connected: "后端已连接", failed: "连接失败" }[connection]}</span>}>
             <SettingsGroupCard>
-                <SettingsRow label={<label htmlFor="cloud-url">后端地址</label>} description="Cloud 服务的 API 地址" controlLayout="wide" control={
-                    <Input id="cloud-url" aria-label="Cloud 后端地址" type="url" value={baseURL} disabled={busy} placeholder="https://backend.example/openapi/v1" required
+                <SettingsRow label={<label htmlFor="cloud-url">后端地址</label>} description="AReaL app-server 地址" controlLayout="wide" control={
+                    <Input id="cloud-url" aria-label="Cloud 后端地址" type="text" value={baseURL} disabled={busy} placeholder="wss://backend.example/app-server/workspace/" required
                         onChange={event => { edit(); setBaseURL(event.target.value); }}/>}/>
                 <SettingsRow label={<label htmlFor="cloud-token">Token</label>} description="在本机安全存储" controlLayout="wide" control={
                     <Input id="cloud-token" aria-label="Cloud token" type="password" autoComplete="off" value={token} disabled={busy}

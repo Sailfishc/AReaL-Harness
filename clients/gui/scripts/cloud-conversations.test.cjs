@@ -10,43 +10,31 @@ const { WebSocketServer } = appRequire("ws");
 const { CloudClient } = require("../app/src/core/cloud-client.cjs");
 const { CloudConversations } = require("../app/src/core/cloud-conversations.cjs");
 
-test("HTTP/WS 协议夹具：并发创建去重、流式投影、重启复用绑定且不重发 query", async (t) => {
+test("原生 WS 协议夹具：并发创建去重、流式投影、重启复用绑定且不重发 query", async (t) => {
     let allocations = 0,
         queries = 0,
         persisted = [];
     const thread = { id: "thread-one", turns: [], status: { type: "idle" } };
-    const http = createServer(async (req, res) => {
-        let raw = "";
-        for await (const chunk of req) raw += chunk;
-        res.setHeader("Content-Type", "application/json");
-        if (req.method === "POST" && req.url === "/api/harness-sessions") {
-            assert.equal(raw, "{}");
-            assert.ok(req.headers["idempotency-key"]);
-            allocations++;
-            return res.end(JSON.stringify({ session_id: "ses_one" }));
-        }
-        if (req.url.endsWith("/connections"))
-            return res.end(
-                JSON.stringify({
-                    session_id: "ses_one",
-                    endpoint: "/runtime-native/one/",
-                    credential: "ticket",
-                    thread_start: { method: "thread/start" },
-                }),
-            );
-        res.end(JSON.stringify({ session_id: "ses_one", state: "ACTIVE" }));
+    const http = createServer((_req, res) => {
+        res.writeHead(404);
+        res.end();
     });
     const ws = new WebSocketServer({ server: http });
     ws.on("connection", (socket, req) => {
-        assert.equal(req.headers.authorization, "Bearer ticket");
+        assert.equal(req.headers.authorization, "Bearer token");
         socket.on("message", (raw) => {
             const { id, method, params } = JSON.parse(raw);
             if (!id) return;
             const reply = (result) => socket.send(JSON.stringify({ id, result }));
             if (method === "initialize") return reply({});
             if (method === "areal/capabilities")
-                return reply({ methods: ["areal/thread/observe"] });
-            if (method === "thread/start" || method === "areal/thread/observe")
+                return reply({
+                    apiVersion: "areal.core.v1",
+                    methods: ["areal/thread/observe", "areal/thread/start"],
+                });
+            if (method === "areal/profile/list") return reply({ data: [] });
+            if (method === "areal/thread/start") allocations++;
+            if (method === "areal/thread/start" || method === "areal/thread/observe")
                 return reply({ thread });
             assert.equal(method, "turn/start");
             assert.deepEqual(Object.keys(params).sort(), ["input", "threadId"]);
@@ -101,7 +89,7 @@ test("HTTP/WS 协议夹具：并发创建去重、流式投影、重启复用绑
     const [first, second] = await Promise.all([manager.command(request), manager.command(request)]);
     assert.deepEqual(first, second);
     assert.equal(allocations, 1);
-    assert.equal(persisted[0].binding.sessionId, "ses_one");
+    assert.equal(persisted[0].binding.sessionId, undefined);
     await manager.command({
         projectId: "project",
         threadId: first.threadId,
