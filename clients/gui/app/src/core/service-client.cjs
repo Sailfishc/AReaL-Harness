@@ -398,7 +398,7 @@ class SharedCoreBackend {
     if (this.connecting) await this.connecting.catch(() => {});
     // Only explicit reconnect opens a stopped service. Periodic panel reads must
     // not undo the user's stop action; in-flight commands are never replayed.
-    if (name === 'connect') await this.init();
+    if (name === 'connect' && !this.status.connected) await this.init();
     if (this.disposed) throw new Error('GUI 连接已关闭');
     if (!this.status.connected) throw new Error('后台尚未连接，请先处理后台连接提示');
     if (name === 'stop') {
