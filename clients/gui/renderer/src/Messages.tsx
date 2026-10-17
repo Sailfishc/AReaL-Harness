@@ -70,6 +70,7 @@ export function Messages({
   onReview: (turnId: string) => void;
   readTurnReview: (turnId: string, itemId?: string) => Promise<Data>;
 }) {
+  if (localThread.cloud) project = { ...project, cloud: true, state: { ...project.state, connected: localThread.cloud.connected } };
   const inherited = useForkHistory(project.id, localThread, action);
   const thread: Data = { ...localThread, turns: [...inherited.turns, ...(localThread.turns ?? [])] };
   const inheritedIds = new Set(inherited.turns.map(turn => turn.id));
@@ -442,12 +443,12 @@ export function Messages({
             return <Fragment key={group.id}>
               {turn.status === "interrupted" && groupIndex === stopHeaderIndex && stopHeading}
               {group.progress ? <TurnProgress summaryAvailable
-                turn={groupIndex === firstProgress ? turn : undefined} connected={!!project.state?.connected}
+                turn={!thread.cloud && groupIndex === firstProgress ? turn : undefined} connected={!!project.state?.connected}
                 label={legacyReply ? "早前消息与活动" : "本轮过程"}
                 settled={turn.status === "completed" && hasReadingSummary && !outcome.unfinished}
                 {...outcome}>{contents}</TurnProgress> : contents}
               {group.entries.some(({ item }) => item === initialUser) &&
-                firstProgress < 0 &&
+                !thread.cloud && firstProgress < 0 &&
                 <TurnElapsed turn={turn} connected={!!project.state?.connected} />}
             </Fragment>;
             })}

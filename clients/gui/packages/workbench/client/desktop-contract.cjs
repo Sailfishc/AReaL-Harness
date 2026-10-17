@@ -77,7 +77,7 @@ function validateCommand(name, params, { serviceOnly = false } = {}) {
     || params.operation === 'create' && (typeof params.requestId !== 'string' || !/^[0-9a-f-]{36}$/.test(params.requestId))
     || params.operation === 'send' && (typeof params.text !== 'string' || !params.text.trim())
     || params.operation === 'stop' && !identifier(params.turnId))) invalid();
-  if (name === 'cloud' && (!['status', 'save'].includes(String(params.operation))
+  if (name === 'cloud' && (!['status', 'save', 'check'].includes(String(params.operation))
     || Object.keys(params).some(key => !['operation', 'baseURL', 'token'].includes(key))
     || params.operation === 'save' && (typeof params.baseURL !== 'string' || params.token !== undefined && typeof params.token !== 'string'))) invalid();
   if (name === 'trajectory') {

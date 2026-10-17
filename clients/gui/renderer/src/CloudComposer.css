@@ -1,42 +1,6 @@
-.cloud-composer {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 16px;
-  border: 1px solid var(--border, #8885);
-  border-radius: 16px;
-}
-.cloud-composer textarea {
-  width: 100%;
-  min-height: 100px;
-  resize: vertical;
-  padding: 12px;
-  background: transparent;
-  color: inherit;
-  border: 1px solid var(--border, #8885);
-  border-radius: 8px;
-}
-.cloud-composer-status {
-  font-size: 12px;
-  opacity: 0.75;
-  overflow-wrap: anywhere;
-}
-.cloud-composer-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-.cloud-environment-picker {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 8px 0;
-  font-size: 13px;
-}
-.cloud-environment-picker select {
-  padding: 6px 12px;
-  border: 1px solid var(--border, #8885);
-  border-radius: 8px;
-  background: transparent;
-  color: inherit;
-}
+.cloud-composer { display: flex; flex-direction: column; gap: 8px; }
+.cloud-composer > [role="alert"] { padding: 8px 12px; font-size: 13px; color: var(--destructive); }
+.cloud-connection-status { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--muted-foreground); }
+.cloud-connection-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted-foreground); }
+.cloud-connection-status[data-state="connected"] .cloud-connection-dot { background: #22a06b; }
+.cloud-connection-status[data-state="failed"] .cloud-connection-dot { background: var(--destructive); }

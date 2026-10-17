@@ -1,3 +1,4 @@
+import { useCloudEnvironment } from "./cloudEnvironment.js";
 import { WorkspaceFileTree } from "./workspace-file-tree/WorkspaceFileTree.js";
 import { WorkspaceFilePane, confirmCloseFiles } from "./WorkspaceFilePane.js";
 import { GitPane } from "./GitPane.js";
@@ -476,6 +477,13 @@ function AppContent({ services }: { services: PlatformServices }) {
     (name: import("./services.js").CommandName, params: Data = {}) => call(services, name, params),
     [services],
   );
+  const draftEnvironment = useCloudEnvironment(project ?? { id: "projectless" }, resourceAction);
+  const cloudView = !!thread?.cloud || (!threadId && draftEnvironment.environment === "cloud");
+  useEffect(() => {
+    if (!project?.id || threadId || !draftEnvironment.ready || draftEnvironment.environment !== "local" || snapshot.connection?.state !== "ready") return;
+    // 从云端草稿切回本地时，原本跳过的本地 Core 连接需要恢复。
+    void resourceAction("connect", { projectId: project.id }).catch(() => {});
+  }, [project?.id, threadId, draftEnvironment.ready, draftEnvironment.environment, snapshot.connection?.state]);
   const onTrajectoryStatus = useCallback((status: TrajectoryStatus | null) => {
     setTrajectoryAttention(!status || status.state === "degraded" || status.state === "invalid");
   }, []);
@@ -581,7 +589,7 @@ function AppContent({ services }: { services: PlatformServices }) {
     setThreadId(remembered ?? "");
     const cloud = remembered ? project.state?.threads?.[remembered]?.cloud
       : localStorage.getItem(`areal-draft-environment:${project.id}`) === "cloud";
-    void (cloud ? Promise.resolve() : action("connect", { projectId: project.id }))
+    void (cloud ? Promise.resolve() : resourceAction("connect", { projectId: project.id }))
       .then(() => {
         if (active && remembered && localStorage.getItem(`areal-gui:thread:${project.id}`) === remembered)
           return action("open", {
@@ -1487,7 +1495,7 @@ function AppContent({ services }: { services: PlatformServices }) {
           <BackendStatusNotice connection={snapshot.connection} update={snapshot.backendUpdate}
             currentCommands={snapshot.desktopCapabilities?.currentCommands ?? project?.desktopCapabilities?.currentCommands}
             pending={backendActionPending} error={backendActionError} onAction={kind => void runBackendAction(kind)} />
-          {(error || project?.error || project?.state?.error) && (
+          {(error || (!cloudView && (project?.error || project?.state?.error))) && (
             <div className="error-banner" role="alert">
               <span>{error || project?.error || project?.state?.error}</span>
               {thread && restoration?.projectId === project?.id && restoration?.failed && (
@@ -1499,7 +1507,7 @@ function AppContent({ services }: { services: PlatformServices }) {
             </div>
           )}
           {/* Restored projects connect asynchronously; only actual failures need recovery. */}
-          {project && !project.state?.connected && (project.error || project.state?.error) && (
+          {!cloudView && project && !project.state?.connected && (project.error || project.state?.error) && (
             <div className="notice" role="status">
               Core 未连接。
               <button
@@ -1628,7 +1636,7 @@ function AppContent({ services }: { services: PlatformServices }) {
                               <ProjectFolderIcon />
                               <span>{library.projects?.[project.id]?.title || project.root.split("/").pop()}</span>
                             </div>
-                            <ComposerWorkspaceContext project={project} action={resourceAction} />
+                            <ComposerWorkspaceContext project={project} action={resourceAction} cloud={!!thread?.cloud} selectable={!thread} />
                             </div>
                           </div>
                         )}
@@ -1709,9 +1717,9 @@ function AppContent({ services }: { services: PlatformServices }) {
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
-                          {project && <ComposerWorkspaceContext project={project} action={resourceAction} />}
+                          {project && <ComposerWorkspaceContext project={project} action={resourceAction} cloud={!!thread?.cloud} selectable={!thread} />}
                           </div>
-                        {project && <WorktreeStarter key={project.id} project={project} action={resourceAction} onOpen={async id => { setSnapshot(await services.snapshot()); newTask(id); }} />}
+                        {!cloudView && project && <WorktreeStarter key={project.id} project={project} action={resourceAction} onOpen={async id => { setSnapshot(await services.snapshot()); newTask(id); }} />}
                       </div>
                       {project ? (
                           <DraftComposer

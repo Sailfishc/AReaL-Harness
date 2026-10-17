@@ -32,6 +32,7 @@ class CloudSettings {
     }
     command(request) {
         if (request?.operation === "status") return this.status();
+        if (request?.operation === "check") return this.check();
         if (request?.operation !== "save") throw new Error("不支持的 Cloud 配置操作");
         const operation = this.chain.then(async () => {
             const previous = await this.record();
@@ -56,6 +57,13 @@ class CloudSettings {
         });
         this.chain = operation.catch(() => {});
         return operation;
+    }
+    async check() {
+        const client = await this.client();
+        // 只读认证接口，检查连接不会创建会话或沙箱。
+        const result = await client.request("GET", "harness-sessions?limit=1", undefined, { signal: AbortSignal.timeout(10_000) });
+        if (!result || !Array.isArray(result.items)) throw new Error("Cloud 返回了无效的会话列表");
+        return { connected: true };
     }
     async client() {
         const record = await this.record();

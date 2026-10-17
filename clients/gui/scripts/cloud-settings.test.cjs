@@ -78,3 +78,28 @@ test("桌面窄契约接受 Cloud 配置，拒绝无效操作及未声明字段"
     assert.throws(() => validateCommand("cloud", { operation: "execute", shell: "command" }));
     assert.throws(() => validateCommand("cloud", { operation: "save", baseURL: 123 }));
 });
+
+test("连接检查只读认证接口，拒绝错误凭据及非协议响应", async (t) => {
+    const { createServer } = require("node:http");
+    const { CloudClient } = require("../app/src/core/cloud-client.cjs");
+    let response = "ok";
+    const requests = [];
+    const server = createServer((req, res) => {
+        requests.push([req.method, req.url, req.headers.authorization]);
+        if (response === "unauthorized") { res.writeHead(401); res.end(); return; }
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify(response === "ok" ? { items: [] } : { healthy: true }));
+    });
+    await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+    t.after(() => new Promise(resolve => server.close(resolve)));
+    const settings = new CloudSettings({}, {});
+    settings.client = async () => new CloudClient({ baseURL: `http://127.0.0.1:${server.address().port}/openapi/v1`, token: "check-token" });
+    validateCommand("cloud", { operation: "check" }, { serviceOnly: true });
+    assert.deepEqual(await settings.command({ operation: "check" }), { connected: true });
+    response = "unauthorized";
+    await assert.rejects(settings.command({ operation: "check" }), /401/);
+    response = "invalid";
+    await assert.rejects(settings.command({ operation: "check" }), /无效/);
+    assert.equal(requests.length, 3);
+    for (const request of requests) assert.deepEqual(request, ["GET", "/openapi/v1/harness-sessions?limit=1", "Bearer check-token"]);
+});

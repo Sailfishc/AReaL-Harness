@@ -1,6 +1,9 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { Action, Data } from "./services.js";
 import { Button } from "./components/ui/button.js";
+import { ChatPromptEditor } from "./prompt-editor/ChatPromptEditor.js";
+import type { LexicalChatInputHandle } from "./LexicalChatInput.js";
+import { useApplicationPreferences } from "./settings/applicationPreferences.js";
 
 export function CloudComposer({
     project,
@@ -13,6 +16,8 @@ export function CloudComposer({
     action: Action;
     onOpen?: (projectId: string, threadId: string) => Promise<void>;
 }) {
+    const input = useRef<LexicalChatInputHandle | null>(null);
+    const prefs = useApplicationPreferences();
     const key = `areal-cloud-draft:${project.id}:${thread?.id ?? "new"}`;
     const [text, setText] = useState(() => localStorage.getItem(key) ?? "");
     const [busy, setBusy] = useState(false);
@@ -47,6 +52,7 @@ export function CloudComposer({
             localStorage.removeItem(`${key}:create`);
             localStorage.removeItem(`areal-cloud-draft:${project.id}:${target}`);
             setText("");
+            input.current?.setText("");
             if (!thread) await onOpen?.(project.id, target);
         } catch (cause) {
             const failure = cause as Error & { submissionUnknown?: boolean };
@@ -65,79 +71,32 @@ export function CloudComposer({
             setBusy(false);
         }
     };
-    const refresh = async () => {
-        setBusy(true);
-        setError("");
-        try {
-            await action("cloudSession", {
-                operation: "open",
-                projectId: project.id,
-                threadId: thread?.id,
-            });
-            // 只刷新历史，未知提交由用户核对后决定后续输入，不自动重发。
-        } catch (cause) {
-            setError((cause as Error).message);
-        } finally {
-            setBusy(false);
-        }
-    };
     return (
-        <form
-            className="cloud-composer"
-            onSubmit={(event) => {
-                event.preventDefault();
-                void send();
-            }}
-        >
-            <div className="cloud-composer-status">
-                Cloud · {thread?.cloud?.sessionId ?? "新会话"}
-            </div>
-            <textarea
-                aria-label="Cloud 消息"
-                value={text}
+        <div className="cloud-composer">
+            <ChatPromptEditor
+                workspacePath=""
+                taskId={thread?.id ?? null}
+                initialValue={text}
+                inputApiRef={input}
+                inputTestId="cloud-chat-input"
+                submitTestId="cloud-chat-send"
+                placeholder="随心输入"
                 disabled={busy || !!running || unknown}
-                rows={4}
-                placeholder="在云端执行任务；本地项目与 Harness 不会上传"
-                onChange={(event) => {
-                    setText(event.target.value);
-                    localStorage.setItem(key, event.target.value);
-                }}
+                submitDisabled={busy || !!running || unknown || !text.trim()}
+                submitting={busy}
+                enterSubmits={prefs.sendShortcut === "enter"}
+                enableMentionPanel={false}
+                submitLabel="发送"
+                onChange={(value) => { setText(value); localStorage.setItem(key, value); }}
+                onSubmit={() => { void send(); return false; }}
+                submitControl={running ? <Button type="button" disabled={busy} onClick={() => {
+                    void action("cloudSession", { operation: "stop", projectId: project.id,
+                        threadId: thread?.id, turnId: running.id }).catch(cause => setError(cause.message));
+                }}>停止</Button> : undefined}
             />
-            <div className="cloud-composer-actions">
-                {thread && (
-                    <Button
-                        type="button"
-                        variant="ghost"
-                        disabled={busy}
-                        onClick={() => void refresh()}
-                    >
-                        刷新连接与历史
-                    </Button>
-                )}
-                {running ? (
-                    <Button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => {
-                            void action("cloudSession", {
-                                operation: "stop",
-                                projectId: project.id,
-                                threadId: thread?.id,
-                                turnId: running.id,
-                            }).catch((cause) => setError(cause.message));
-                        }}
-                    >
-                        停止
-                    </Button>
-                ) : (
-                    <Button type="submit" disabled={busy || unknown || !text.trim()}>
-                        {busy ? "连接中…" : "发送"}
-                    </Button>
-                )}
-            </div>
             {unknown && (
                 <p role="alert">
-                    提交结果未知，不会自动重发。请刷新并核对历史。
+                    提交结果未知，不会自动重发。请重新打开会话并核对历史。
                     <button
                         type="button"
                         onClick={() => {
@@ -150,6 +109,6 @@ export function CloudComposer({
                 </p>
             )}
             {(error || thread?.cloud?.error) && <p role="alert">{error || thread?.cloud?.error}</p>}
-        </form>
+        </div>
     );
 }
