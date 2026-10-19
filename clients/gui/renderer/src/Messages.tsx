@@ -196,11 +196,7 @@ export function Messages({
   const renderImage = useCallback((uri: string, name: string) => /^areal:\/\/blob\/[A-Za-z0-9_-]+$/.test(uri)
     ? <SentAttachment part={{ type: "image", uri, name: name || "回复图片" }} projectId={project.id} threadId={thread.id} action={action} /> : null, [project.id, thread.id, action]);
   const renderAgentMessage = (entry: Data, turn: Data, deferActions = false) => !entry.text?.trim() ? null : <div className={`assistant-message${deferActions ? " assistant-message-final" : ""}`} data-message-phase={entry.phase ?? "legacy"} data-side-item-id={entry.id} key={entry.id}>
-    {entry.phase === "commentary" && (turn.status !== "inProgress" || entry.id !== turn.items?.findLast((item: Data) => ["agentMessage", "dynamicToolCall", "userMessage", "agentMedia"].includes(item.type))?.id)
-      ? <div className="commentary-scroll" role="region" aria-label="过程消息" tabIndex={0}>
-        <MessageResponse className="conversation-markdown" preserveLineBreaks theme={dark ? "dark" : "light"} onOpenExternalUrl={onLink} onOpenFileLink={onFile} onRenderImage={renderImage} webPreviews>{entry.text}</MessageResponse>
-      </div>
-      : <MessageResponse className="conversation-markdown" preserveLineBreaks streaming={turn.status === "inProgress"} theme={dark ? "dark" : "light"} onOpenExternalUrl={onLink} onOpenFileLink={onFile} onRenderImage={renderImage} webPreviews>{entry.text}</MessageResponse>}
+    <MessageResponse className="conversation-markdown" preserveLineBreaks streaming={turn.status === "inProgress" && (entry.phase !== "commentary" || entry.id === turn.items?.findLast((item: Data) => ["agentMessage", "dynamicToolCall", "userMessage", "agentMedia"].includes(item.type))?.id)} theme={dark ? "dark" : "light"} onOpenExternalUrl={onLink} onOpenFileLink={onFile} onRenderImage={renderImage} webPreviews>{entry.text}</MessageResponse>
     {!deferActions && entry.phase !== "commentary" && turn.status !== "inProgress" && <MessageActions text={entry.text} />}
   </div>;
   useLayoutEffect(() => {
@@ -360,7 +356,10 @@ export function Messages({
             const progress = item.type !== "questionAnswer" && item.type !== "userMessage" && item.type !== "agentMedia" && (item.type !== "agentMessage" || item.phase === "commentary" || (!!legacyReply && item.id !== legacyReply.id));
             const previous = groups.at(-1);
             if (progress && previous?.progress) previous.entries.push({ item, index });
-            else groups.push({ id: item.id, progress, entries: [{ item, index }] });
+            // An earlier empty commentary can become visible after the reader
+            // opens tools. Anchor its group to the preceding reading boundary
+            // so that insertion retains both disclosure levels.
+            else groups.push({ id: progress ? `progress:${previous?.id ?? turn.id}` : item.id, progress, entries: [{ item, index }] });
           });
           // Stop is a Core terminal state, not a completed response. Keep its
           // process text inspectable and put the state before that content.

@@ -47,6 +47,23 @@ try {
   assert.equal(await page.evaluate(() => typeof window.arealDesktop), "undefined");
   const input = page.getByTestId("preview-composer");
   const timeline = page.getByRole("region", { name: "对话时间线预览", exact: true });
+  const updating = page.getByRole("region", { name: "实时活动状态预览", exact: true });
+  const progressToggle = updating.locator(".turn-progress-summary");
+  await progressToggle.click();
+  await progressToggle.click();
+  const updatingGroup = updating.getByRole("button", { name: "执行过程", exact: true });
+  await updatingGroup.click();
+  const updatingTool = updating.locator('[data-tool-id="disclosure-skill"]');
+  await updatingTool.getByRole("button").click();
+  await updatingTool.getByLabel("工具结果", { exact: true }).waitFor();
+  for (const name of ["补全早前过程消息", "追加活动", "完成回合"]) {
+    await updating.getByRole("button", { name, exact: true }).click();
+    assert.equal(await updatingGroup.getAttribute("aria-expanded"), "true", `${name} retains the first disclosure`);
+    assert.equal(await updatingTool.getByRole("button").getAttribute("aria-expanded"), "true", `${name} retains the second disclosure`);
+    assert.equal(await updatingTool.getByLabel("工具结果", { exact: true }).isVisible(), true);
+  }
+  await updating.screenshot({ path: join(scratch, "retained-tool-disclosures.png"), animations: "disabled" });
+  checks.push("both tool disclosure levels retain manual expansion when earlier commentary arrives, activities append and the turn completes");
   const earlier = timeline.locator('[data-side-item-id="timeline-progress"]');
   const durationToggle = timeline.getByRole("button", { name: "用时 19秒", exact: true });
   assert.equal(await durationToggle.getAttribute("aria-expanded"), "false");
@@ -66,15 +83,14 @@ try {
   await durationToggle.click();
   assert.equal(await earlier.isVisible(), true);
   const longProgress = timeline.locator('[data-side-item-id="timeline-long-progress"]');
-  const progressScroll = longProgress.getByRole("region", { name: "过程消息", exact: true });
-  const progressSize = await progressScroll.evaluate(el => ({ height: el.clientHeight, full: el.scrollHeight, line: parseFloat(getComputedStyle(el).lineHeight), overflow: getComputedStyle(el).overflowY }));
-  assert.ok(progressSize.full > progressSize.height && Math.abs(progressSize.height - progressSize.line * 6) <= 1);
-  assert.equal(progressSize.overflow, "auto");
+  const progressText = longProgress.locator(".conversation-markdown");
+  const progressSize = await progressText.evaluate(el => ({ height: el.clientHeight, full: el.scrollHeight, line: parseFloat(getComputedStyle(el).lineHeight), overflow: getComputedStyle(el).overflowY }));
+  assert.ok(progressSize.height > progressSize.line * 6 && progressSize.full <= progressSize.height + 1, "past commentary retains its full natural height");
+  assert.equal(progressSize.overflow, "visible");
+  assert.equal(await longProgress.locator(".commentary-scroll").count(), 0);
   assert.equal(await longProgress.getByRole("button", { name: "展开全文", exact: true }).count(), 0);
-  await progressScroll.press("End");
-  await page.waitForFunction(() => document.querySelector('[data-side-item-id="timeline-long-progress"] .commentary-scroll').scrollTop > 0);
-  assert.equal(await progressScroll.evaluate(el => el.clientHeight), progressSize.height, "reading the tail never expands commentary");
   assert.ok((await longProgress.innerText()).includes("检查记录 10"));
+  await longProgress.screenshot({ path: join(scratch, "full-commentary.png"), animations: "disabled" });
   const activity = timeline.getByRole("region", { name: "工具活动", exact: true }).first();
   const activityToggle = timeline.getByRole("button", { name: "执行过程", exact: true }).first();
   assert.equal(await activityToggle.getAttribute("aria-expanded"), "false");
@@ -134,9 +150,9 @@ try {
   assert.ok(await command.locator(".turn-thinking").evaluate(el => el.getAnimations().length > 0), "running activity text has the shared sweep animation");
   await timeline.getByRole("button", { name: "显示已完成", exact: true }).click();
   assert.equal(await command.locator(".turn-thinking").count(), 0, "completed activity text stops sweeping");
-  assert.equal(await progressScroll.evaluate(el => el.clientHeight), progressSize.height);
+  assert.equal(await progressText.evaluate(el => el.clientHeight), progressSize.height);
   assert.ok((await timeline.locator('[data-side-item-id="timeline-final"]').innerText()).includes("最终回答保留完整内容"));
-  checks.push("top duration folds process only; tool groups default folded and scroll when expanded; images, direct links and local browser cards remain usable; file changes show five rows with more/less controls");
+  checks.push("commentary has full natural height; top duration folds process only; tool groups, images, links, browser cards and file changes remain usable");
   await input.fill("保留这份草稿 Keep this draft");
   await input.press("Enter");
   await page.getByRole("status").filter({ hasText: "预览收到输入" }).waitFor();
