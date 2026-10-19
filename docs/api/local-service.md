@@ -67,6 +67,15 @@ Host 在 drain 前原子保存并 fsync 回执，目录位于私有 registry 的
 
 `completed` 来自公共 operation 查询：Host 已确认 launcher/Runtime 清理且原实例的服务锁和 Store 锁释放，或锁保护的新代际已接管。Core PID 消失、socket 断开或清理登记缺失都不够。Host 在确认清理前崩溃保留未知状态。私有 socket 的重复请求返回原持久快照，物理退出状态由公共 operation 投影核验。
 
+
+## CLI 与 GUI 的默认隔离边界
+
+模型配置默认共用 `~/.areal/config.toml`，共享文件不代表共享执行实例、历史或全部认证状态。不带 `--endpoint` 的 `areal exec` 为每个 run 使用 `<home>/cli/runs/<runId>/state`，会话映射位于 `<home>/cli/sessions/`，`--resume` 复用原 run；其中 home 为 `AREAL_HARNESS_HOME` 或 `~/.areal`。直接使用独占 `serve`／launcher 时，通用配置的数据默认值才是配置 home 的 `state/`。公共 `areal service` 默认 registry 为 `~/.areal`（可由 `AREAL_HARNESS_SERVICE_HOME` 选择），默认 dataDir 为 `<registry>/instances/<workspace-hash>/state`，已有 bind 映射及显式配置优先。
+
+GUI 的 registry 默认是 `~/.areal/gui/<GUI Core home 摘要>`，每项目 dataDir 是 `<GUI Core home>/<projectId>/state`。GUI Core home 默认为 GUI userData 下的 `areal-core`；开发 userData 按源码工作树隔离，安装版、显式 profile/worktree 可有不同数据目录。GUI 退出／停止只处理这个 owner 已登记并核实身份的实例，不枚举或停止默认 CLI registry 或其他 profile。
+
+显式连接同一服务（例如 CLI 的 `--endpoint` 和 `--auth-file`）才共享该实例的执行与历史；仅使用相同模型配置、同一源码目录，甚至仅指定相同 registry 都不等价。同一 dataDir 的 Store 单写锁始终有效，不能以另一个进程或入口绕过。不同 dataDir 也不会隔离同一源码工作区的文件修改：多个入口仍可读到彼此修改，写入需要协调，或选择不同 Git worktree。
+
 ## 实例、兼容性与历史
 
 同一 dataDir 只允许一个 Core。`ensure` 串行化并发启动，发现运行实例后校验身份和配置；模型文件变更原地热更新；其他 TOML 配置和二进制更新在空闲时自动重启，有后台工作时拒绝自动重启。权限、Runtime、部署文件或模型 CLI/环境覆盖变化需执行 `areal service restart`。不会静默扩大写/网络权限，也不会杀掉未被托管的旧 Core。符号链接按规范路径识别。

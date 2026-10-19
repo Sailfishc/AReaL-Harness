@@ -103,6 +103,10 @@ try {
   // Arrange the existing user's remembered navigation; recovery itself uses UI.
   await page.evaluate(({projectId,threadId})=>{localStorage.setItem('areal-gui:project',projectId);localStorage.setItem(`areal-gui:thread:${projectId}`,threadId);},{projectId,threadId});
   await page.reload();await page.getByTestId('areal-workbench').waitFor();
+  await app.evaluate(({Menu})=>{Menu.getApplicationMenu().items[0].submenu.items.find(i=>i.label==='停止后台并退出…').click();});
+  await until(async()=>(await state()).lifecycle?.error,'unsettled legacy stop keeps GUI open');
+  assert.equal(app.process().exitCode,null);assert.equal(alive(old.pid),true);assert.equal(requests.length,1);
+  checks.push('stop-and-quit refuses an unresolved legacy operation and keeps the GUI open');
   await page.getByRole('button',{name:'检查后台',exact:true}).click();
   await page.getByRole('button',{name:'恢复后台…',exact:true}).waitFor();
   assert.equal(alive(old.pid),true);assert.equal(requests.length,1,'inspection must not replay any turn');

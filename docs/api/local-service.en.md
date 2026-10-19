@@ -67,6 +67,15 @@ Before drain, Host atomically stores and fsyncs a receipt in private registry `o
 
 Public operation reads derive `completed` only after confirmed launcher/Runtime cleanup and release of the original service and Store locks, or lock-protected replacement ownership. A vanished Core PID, disconnected socket or missing registration is insufficient. Host crashes before cleanup confirmation retain uncertainty. Duplicate private-socket requests return durable snapshots; public operation reads verify physical exit.
 
+
+## Default CLI and GUI isolation
+
+Model configuration defaults to the shared `~/.areal/config.toml`. Sharing that file does not share execution instances, history or every authentication state. `areal exec` without `--endpoint` uses `<home>/cli/runs/<runId>/state` per run, with session mappings under `<home>/cli/sessions/`; `--resume` reuses the original run. Here home is `AREAL_HARNESS_HOME` or `~/.areal`. Direct exclusive `serve`/launcher entry points use the general configuration default `<configuration home>/state/`. Public `areal service` uses `~/.areal` as its default registry (overridden by `AREAL_HARNESS_SERVICE_HOME`) and `<registry>/instances/<workspace-hash>/state` as its default dataDir; existing bind mappings and explicit configuration take precedence.
+
+The GUI defaults to `~/.areal/gui/<GUI Core home digest>` for its registry and `<GUI Core home>/<projectId>/state` for each project. GUI Core home defaults to `areal-core` under GUI userData. Development userData is scoped to the source checkout; installed builds and explicit profiles/worktrees can use separate directories. GUI stop/exit controls only the instances registered to that owner after verifying their identities. It does not enumerate or stop the default CLI registry or other profiles.
+
+Execution and history are shared only by explicitly connecting to the same service, for example using CLI `--endpoint` and `--auth-file`. The same model configuration, source workspace or even registry alone is insufficient. The Store single-writer lock still protects each dataDir across processes and clients. Separate dataDirs do not isolate changes to files in the same source workspace: coordinate writes or use separate Git worktrees.
+
 ## Identity, compatibility and history
 
 One dataDir allows one Core. `ensure` serializes concurrent launches and checks the running identity/configuration. Model file edits reload without restarting. Other TOML changes and rebuilt binaries restart automatically when the service is idle; active work prevents automatic restart. Permission, Runtime, deployment-file or model CLI/environment override changes require `areal service restart`. It never silently expands write/network permissions or kills an unmanaged Core. Symlinks resolve to canonical identity.

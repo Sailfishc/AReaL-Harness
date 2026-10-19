@@ -14,6 +14,7 @@ export interface Snapshot {
     projectless?: { directory: string };
     revision?: number;
     connection?: { state: 'connecting' | 'ready' | 'unavailable'; message?: string; recovery?: 'check' };
+    serviceSummary?: { state: 'running' | 'stopped' | 'unknown'; busy: boolean };
     backendUpdate?: { state: 'applying' | 'pending' | 'failed'; message?: string };
     lifecycle?: { recovery?: { canRecover: boolean; message: string; projects: { projectId: string; root: string; state: string; message: string }[] }; supported: boolean; phase?: string; message?: string; error?: string; requestId?: string; kind?: string; desktopExit?: string;
       targets?: { projectId: string; phase: string; message?: string }[];

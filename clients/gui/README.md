@@ -84,6 +84,12 @@ Browser 工具在每次新用户请求中先 `describe`，再重新观察，拒�
 
 ## 生命周期
 
+强退恢复可用现有 runner 验证：`AREAL_REOPEN_FORCE_GUI=1` 配合 `test:service-reopen` 只强制结束测试 GUI，核对原后台、Core generation、历史和流式轮次不变。加 `AREAL_REOPEN_REPLACEMENT_BIN=/absolute/verified/areal` 时，只替换测试私有槽位的真实 Mach-O 字节，验证连接原部署并显示更新待应用；finally 恢复原产物。`AREAL_LIFECYCLE_CRASH_UPDATE=1 node clients/gui/scripts/lifecycle-smoke.mjs` 在真实更新受理后的响应边界只结束测试 GUI，重开读取原 request ID/代际回执，旧实例退出已确认后通过“更新后台…”完成连接，不重发停止或再次确认。已确认停止则提供重新连接；仍未知或未结算只提供检查。本次强退代表用例覆盖模型执行与生命周期回执；浏览器／动态 ToolHost 的真实强退 UNKNOWN 需专项验收，既有宿主丢失与 generation 失效契约保持不变。
+
+关闭窗口只隐藏界面，GUI 仍持有单实例锁；再次启动会唤回原窗口，并在启动控制台说明已复用界面。应用菜单、菜单栏入口和“后台服务”设置提供两种退出方式：“退出界面，后台继续”（⌘Q / Ctrl+Q）仅退出 GUI，已有后台执行继续；“停止后台并退出…”先检查所管理工作空间，有活动任务时列出影响并请求确认，只有原 Core/Runtime 清理和 Desktop 退出已确认后才退出 GUI。拒绝确认、部分停止、结果未知或清理未完成时保持界面打开并显示下一步，不自动重复停止。聊天顶部持续显示后台连接状态，通过“后台详情”查看周期刷新的任务、目标、排队输入和未清理资源，并打开所属对话处理。
+
+`AREAL_CORE_BIN=/absolute/fixed-slot/areal pnpm --dir clients/gui run test:desktop-exit` 使用隔离真实 Electron/Core/Runtime 验证隐藏、重复启动唤回、两种退出、文本草稿与活动轮次保留、取消确认以及独占 CLI／其他 GUI profile 不受影响；目录选择和原生确认由夹具应答，不代表安装包或物理键鼠验收。
+
 普通会话运行时的主要停止操作显示为“暂停执行”。暂停结算后，完整草稿为空时显示播放图标和“继续执行”；文本、附件、Skill、MCP 或评论草稿存在时显示普通发送。发送将输入作为新的用户消息追加到原会话。继续使用已保存历史和当前工作区，不复活旧模型调用或进程。重开 GUI、Core 或电脑后仅恢复历史，必须手动继续。排队输入保留并按现有顺序优先执行；正常回复完成后等待下一次用户输入，不自动创建 Goal。
 
 暂停正在执行或等待输出的本地命令时，Core 先请求 Runtime 关闭本轮 scope，再保留原进程的终态、输出和停止原因。已确认终止的命令允许手动继续，继续不会重放原命令。远端 MCP、钩子或 Runtime 的结果仍无法确认时，UNKNOWN 继续要求先核查原操作。

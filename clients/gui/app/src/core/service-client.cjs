@@ -171,6 +171,8 @@ class SharedCoreBackend {
     const desktopCapabilities = { currentCommands: this.status.commandContract === COMMAND_CONTRACT };
     const connection = this.initializing && this.connectionState.state === 'ready' ? { state: 'connecting' } : this.connectionState;
     return { ...this.value, desktopCapabilities,
+      serviceSummary: { state: this.status.connected ? 'running' : this.serviceExited ? 'stopped' : 'unknown',
+        busy: this.status.busy === true },
       projects: this.value.projects.map(project => ({ ...project, desktopCapabilities })),
       backendUpdate: this.backendUpdate, lifecycle: this.lifecycleProjection(),
       revision: ++this.revision, connection };
