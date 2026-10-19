@@ -165,7 +165,9 @@ sys.exit(code)
     def pump(self, seconds=0.1):
         deadline = time.monotonic() + seconds
         while time.monotonic() < deadline:
-            if not select.select([self.master], [], [], min(0.1, max(0, deadline - time.monotonic())))[0]:
+            if not select.select(
+                [self.master], [], [], min(0.1, max(0, deadline - time.monotonic()))
+            )[0]:
                 continue
             try:
                 chunk = os.read(self.master, 65536)
@@ -240,7 +242,7 @@ class Fixture:
         self.config = self.root / "config.toml"
         self.config.write_text(f'''schema_version = 1
 [server]
-data_dir = "{self.root / 'data'}"
+data_dir = "{self.root / "data"}"
 [model]
 catalog_version = 1
 provider = "fixture"
@@ -267,12 +269,21 @@ models = [{{id="fixture-model",enabled=true}}]
         if override:
             self.env.update(override)
         self.local_args = ["--workspace", str(self.workspace), "--config", str(self.config), *extra]
-        self.tui_args = [str(binary), *self.local_args, "--local-mode=shared", "--ascii=true", "--theme=dark"]
+        self.tui_args = [
+            str(binary),
+            *self.local_args,
+            "--local-mode=shared",
+            "--ascii=true",
+            "--theme=dark",
+        ]
 
     def cli(self, args, env=None):
         result = subprocess.run(
-            [str(self.binary), *args], cwd=self.workspace, env=env or self.env,
-            capture_output=True, timeout=45,
+            [str(self.binary), *args],
+            cwd=self.workspace,
+            env=env or self.env,
+            capture_output=True,
+            timeout=45,
         )
         number = len(self.report.commands)
         log = self.root / f"command-{number}.log"
@@ -302,10 +313,18 @@ models = [{{id="fixture-model",enabled=true}}]
         for path in records:
             service = json.loads(path.read_text())
             if service["state"] != "stopped":
-                stopped = self.cli([
-                    "service", "stop", "--json", "--instance", service["serviceId"],
-                    "--expected-generation", service["generation"], "--cancel",
-                ])
+                stopped = self.cli(
+                    [
+                        "service",
+                        "stop",
+                        "--json",
+                        "--instance",
+                        service["serviceId"],
+                        "--expected-generation",
+                        service["generation"],
+                        "--cancel",
+                    ]
+                )
                 assert stopped["state"] == "stopped", stopped
             deadline = time.monotonic() + 5
             while time.monotonic() < deadline:
@@ -314,7 +333,9 @@ models = [{{id="fixture-model",enabled=true}}]
                     inspection = subprocess.run(
                         ["/bin/ps", "-p", str(pid), "-o", "stat="], capture_output=True, text=True
                     )
-                    assert inspection.returncode in (0, 1) and not inspection.stderr.strip(), "could not inspect owned process"
+                    assert inspection.returncode in (0, 1) and not inspection.stderr.strip(), (
+                        "could not inspect owned process"
+                    )
                     state = inspection.stdout.strip()
                     if state and not state.startswith("Z"):
                         alive.append(pid)
@@ -337,19 +358,37 @@ def missing_cases(fixture):
     fixture.start()
     session = fixture.session("missing")
     report.check("missing-env-name", lambda: session.expect(KEY_ENV.encode()), session)
-    report.check("missing-env-recovery-guidance", lambda: (
-        session.expect(rb"(?i)(missing|not set|empty|unavailable|required|credential)"),
-        require(re.search(rb"(?i)restart", session.screen.text()), "missing service restart guidance"),
-        require(re.search(rb"(?i)(export|environment|config)", session.screen.text()), "missing environment/config guidance"),
-    ), session)
-    report.check("failed-thread-has-no-loading-target", lambda: require(
-        b"To loading" not in session.screen.text(), "failed thread still displays To loading"
-    ), session)
+    report.check(
+        "missing-env-recovery-guidance",
+        lambda: (
+            session.expect(rb"(?i)(missing|not set|empty|unavailable|required|credential)"),
+            require(
+                re.search(rb"(?i)restart", session.screen.text()),
+                "missing service restart guidance",
+            ),
+            require(
+                re.search(rb"(?i)(export|environment|config)", session.screen.text()),
+                "missing environment/config guidance",
+            ),
+        ),
+        session,
+    )
+    report.check(
+        "failed-thread-has-no-loading-target",
+        lambda: require(
+            b"To loading" not in session.screen.text(), "failed thread still displays To loading"
+        ),
+        session,
+    )
     session.send(b"/model\r")
-    report.check("missing-default-unavailable", lambda: (
-        session.expect(rb"Models.*Enter apply"),
-        session.expect(rb"Default[^\n]*unavailable"),
-    ), session)
+    report.check(
+        "missing-default-unavailable",
+        lambda: (
+            session.expect(rb"Models.*Enter apply"),
+            session.expect(rb"Default[^\n]*unavailable"),
+        ),
+        session,
+    )
     report.check("missing-picker-ctrl-q-exits", lambda: session.exit(b"\x11"), session)
 
     before = len(fixture.model.requests)
@@ -360,18 +399,33 @@ def missing_cases(fixture):
     if reused.child.poll() is None:
         reused.send(b"must-not-reach-model-before-restart\r")
         reused.pump(1)
-    report.check("reused-service-does-not-import-client-secret", lambda: (
-        require(len(fixture.model.requests) == before, "old service sent a model request after client-only environment change"),
-        require(fixture.cli(["service", "status", "--json", "--instance", fixture.service["serviceId"]])["generation"] == generation,
-                "client silently restarted the shared service"),
-    ), reused)
+    report.check(
+        "reused-service-does-not-import-client-secret",
+        lambda: (
+            require(
+                len(fixture.model.requests) == before,
+                "old service sent a model request after client-only environment change",
+            ),
+            require(
+                fixture.cli(
+                    ["service", "status", "--json", "--instance", fixture.service["serviceId"]]
+                )["generation"]
+                == generation,
+                "client silently restarted the shared service",
+            ),
+        ),
+        reused,
+    )
     if reused.child.poll() is None:
         report.check("reused-client-exits", lambda: reused.exit(b"\x11"), reused)
 
     fixture.env[KEY_ENV] = SECRET
     fixture.service = fixture.cli(["service", "restart", "--json", *fixture.local_args])
     fixture.report.services.append(fixture.service)
-    require(fixture.service["generation"] != generation, "explicit restart did not replace service generation")
+    require(
+        fixture.service["generation"] != generation,
+        "explicit restart did not replace service generation",
+    )
     success_case(fixture, "explicit-service-restart-recovers")
 
 
@@ -383,8 +437,10 @@ def success_case(fixture, name):
     session.expect((REPLY + prompt).encode())
     session.expect(rb"Completed")
     requests = fixture.model.requests[before:]
-    require(any(r["prompt"] == prompt and r["authorized"] for r in requests),
-            "model fixture did not receive the configured environment credential")
+    require(
+        any(r["prompt"] == prompt and r["authorized"] for r in requests),
+        "model fixture did not receive the configured environment credential",
+    )
     require(SECRET.encode() not in session.output, "credential appeared in terminal output")
     session.exit(b"\x11")
 
@@ -400,6 +456,7 @@ def exit_cases(fixture):
         ("navigation-slash-quit-exits", b"\t", b"/quit\r"),
         ("content-slash-quit-exits", b"\t\t", b"/quit\r"),
     ]:
+
         def run_case():
             session = fixture.ready(name)
             if prepare:
@@ -409,6 +466,7 @@ def exit_cases(fixture):
                 else:
                     session.pump(0.2)
             report.check(name, lambda: session.exit(keys), session)
+
         report.check(name + "-setup", run_case)
 
     def cancellation():
@@ -416,35 +474,69 @@ def exit_cases(fixture):
         session.send(b"tui-fixture-hold\r")
         session.expect(rb"Waiting for model response")
         deadline = time.monotonic() + report.timeout
-        while not any(r["prompt"] == "tui-fixture-hold" for r in fixture.model.requests) and time.monotonic() < deadline:
+        while (
+            not any(r["prompt"] == "tui-fixture-hold" for r in fixture.model.requests)
+            and time.monotonic() < deadline
+        ):
             session.pump()
-        require(any(r["prompt"] == "tui-fixture-hold" and r["authorized"] for r in fixture.model.requests),
-                "active request never reached the authorized HTTP fixture")
+        require(
+            any(
+                r["prompt"] == "tui-fixture-hold" and r["authorized"]
+                for r in fixture.model.requests
+            ),
+            "active request never reached the authorized HTTP fixture",
+        )
         session.send(b"\x03")
-        report.check("active-ctrl-c-cancels-and-stays", lambda: (
-            session.expect(rb"Interrupted"),
-            require(session.child.poll() is None, "Ctrl-C exited instead of cancelling the active turn"),
-        ), session)
+        report.check(
+            "active-ctrl-c-cancels-and-stays",
+            lambda: (
+                session.expect(rb"Interrupted"),
+                require(
+                    session.child.poll() is None,
+                    "Ctrl-C exited instead of cancelling the active turn",
+                ),
+            ),
+            session,
+        )
         report.check("idle-ctrl-c-after-cancel-exits", lambda: session.exit(b"\x03"), session)
+
     report.check("active-cancel-setup", cancellation)
 
     def disconnected():
         service = fixture.service
-        session = fixture.ready("disconnected", args=[
-            str(fixture.binary), "--endpoint", service["endpoint"],
-            "--auth-file", service["authFile"], "--ascii=true", "--theme=dark",
-        ])
-        stopped = fixture.cli([
-            "service", "stop", "--json", "--instance", service["serviceId"],
-            "--expected-generation", service["generation"],
-        ])
+        session = fixture.ready(
+            "disconnected",
+            args=[
+                str(fixture.binary),
+                "--endpoint",
+                service["endpoint"],
+                "--auth-file",
+                service["authFile"],
+                "--ascii=true",
+                "--theme=dark",
+            ],
+        )
+        stopped = fixture.cli(
+            [
+                "service",
+                "stop",
+                "--json",
+                "--instance",
+                service["serviceId"],
+                "--expected-generation",
+                service["generation"],
+            ]
+        )
         require(stopped["state"] == "stopped", "isolated Core did not stop")
         session.expect(rb"RECONNECTING")
         session.send(b"\x03")
         session.pump(0.3)
-        require(session.child.poll() is None, "Ctrl-C treated an unconfirmed cached snapshot as idle")
+        require(
+            session.child.poll() is None, "Ctrl-C treated an unconfirmed cached snapshot as idle"
+        )
         session.expect(rb"(?i)(awaiting confirmation|check status)")
         session.exit(b"\x11")
+
     report.check("disconnected-ctrl-c-preserves-uncertainty", disconnected)
 
 
@@ -482,28 +574,52 @@ def main():
         for name, valid, extra, override, operation in [
             ("missing-config-env", False, (), None, missing_cases),
             ("valid-config-env", True, (), None, exit_cases),
-            ("cli-env-override", False, ("--api-key-env", OVERRIDE_ENV), {OVERRIDE_ENV: SECRET},
-             lambda f: (f.start(), success_case(f, "cli-api-key-env-recovers"))),
-            ("environment-env-override", False, (), {"AREAL_HARNESS_API_KEY_ENV": OVERRIDE_ENV, OVERRIDE_ENV: SECRET},
-             lambda f: (f.start(), success_case(f, "environment-api-key-env-recovers"))),
+            (
+                "cli-env-override",
+                False,
+                ("--api-key-env", OVERRIDE_ENV),
+                {OVERRIDE_ENV: SECRET},
+                lambda f: (f.start(), success_case(f, "cli-api-key-env-recovers")),
+            ),
+            (
+                "environment-env-override",
+                False,
+                (),
+                {"AREAL_HARNESS_API_KEY_ENV": OVERRIDE_ENV, OVERRIDE_ENV: SECRET},
+                lambda f: (f.start(), success_case(f, "environment-api-key-env-recovers")),
+            ),
         ]:
             fixture = Fixture(report, binary, model, name, valid, extra, override)
             fixtures.append(fixture)
             report.check(name + "-scenario", lambda: operation(fixture))
             report.check(name + "-cleanup", fixture.close)
         report.check("http-fixture-errors", lambda: require(not model.errors, repr(model.errors)))
-        report.check("http-authorization", lambda: require(
-            model.requests and all(r["authorized"] for r in model.requests),
-            "HTTP fixture received no authenticated requests or received invalid Authorization",
-        ))
-        report.check("binaries-unchanged", lambda: require(
-            before == {str(path): digest(path) for path in binaries}, "fixed binaries changed during the run"
-        ))
-        report.check("fixture-secret-not-in-output", lambda: require(
-            not any(SECRET.encode() in path.read_bytes() for path in evidence.rglob("*")
-                    if path.is_file() and (path.suffix == ".log" or path.name.endswith(".screen.txt"))),
-            "fixture credential appeared in terminal, command, or service output",
-        ))
+        report.check(
+            "http-authorization",
+            lambda: require(
+                model.requests and all(r["authorized"] for r in model.requests),
+                "HTTP fixture received no authenticated requests or received invalid Authorization",
+            ),
+        )
+        report.check(
+            "binaries-unchanged",
+            lambda: require(
+                before == {str(path): digest(path) for path in binaries},
+                "fixed binaries changed during the run",
+            ),
+        )
+        report.check(
+            "fixture-secret-not-in-output",
+            lambda: require(
+                not any(
+                    SECRET.encode() in path.read_bytes()
+                    for path in evidence.rglob("*")
+                    if path.is_file()
+                    and (path.suffix == ".log" or path.name.endswith(".screen.txt"))
+                ),
+                "fixture credential appeared in terminal, command, or service output",
+            ),
+        )
     finally:
         model.shutdown()
         model.server_close()
@@ -511,8 +627,13 @@ def main():
         result = {
             "passed": bool(report.cases) and all(case["passed"] for case in report.cases),
             "scope": "real shared Core/Runtime and PTY with local deterministic HTTP model; no paid provider or package acceptance",
-            "source": identity, "buildInfo": build_info, "binaries": before, "evidence": str(evidence),
-            "cases": report.cases, "commands": report.commands, "services": report.services,
+            "source": identity,
+            "buildInfo": build_info,
+            "binaries": before,
+            "evidence": str(evidence),
+            "cases": report.cases,
+            "commands": report.commands,
+            "services": report.services,
         }
         (evidence / "report.json").write_text(json.dumps(result, indent=2) + "\n")
     print(f"Evidence: {evidence}", flush=True)
