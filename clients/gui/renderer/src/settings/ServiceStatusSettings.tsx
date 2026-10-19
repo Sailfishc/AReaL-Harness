@@ -54,6 +54,7 @@ export function ServiceStatusSettings({ connected, action, onConnect, onOpen, on
       else {
         const result = await action(operation);
         if (operation === "stopService") { stopped = result.stopped === true; setNotice(stopped ? "后台已关闭" : result.canceled ? "已取消关闭" : "关闭结果待确认"); }
+        if (operation === "recoverResources" && result.recovered) { await onConnect(); setNotice("后台已恢复，配置和历史已保留。"); }
       }
     } catch (cause) { setActionError((cause as Error).message); }
     finally {
@@ -69,7 +70,7 @@ export function ServiceStatusSettings({ connected, action, onConnect, onOpen, on
         <SettingsRow label="后台服务" description={connected ? status ? `已连接 · ${status.clients} 个窗口 · ${status.activeCommands} 个处理中请求` : "已连接" : "未连接"}
           control={<SettingsSwitch aria-label="后台服务" checked={connected} disabled={busy || (connected && !!readError)} onCheckedChange={enabled => void run(enabled ? "connect" : "stopService")} />} />
         <SettingsRow label="资源检查与恢复"
-          control={<ActionButton disabled={busy || !connected || !!readError || !status} onClick={() => void run("recoverResources")}>检查与恢复</ActionButton>} />
+          control={<ActionButton disabled={busy} onClick={() => void run("recoverResources")}>检查与恢复</ActionButton>} />
       </SettingsGroupCard>
       {(busy || (reading && refreshing)) && <p role="status" className="settings-section-desc">正在处理…</p>}
       {notice && <p role="status">{notice}</p>}

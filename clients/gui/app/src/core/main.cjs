@@ -348,12 +348,13 @@ app.whenReady().then(async () => {
       if (name === 'remoteControl') return { ok: true, value: await backend.remoteControl(params) };
       if (name === 'serviceLifecycle') {
         const value = params.operation === 'update' ? await backend.applyUpdate({ notify: options => dialog.showMessageBox(window, options) })
-          : params.operation === 'stop' ? await requestStopService() : await backend.checkLifecycle();
+          : params.operation === 'stop' ? await requestStopService()
+          : params.operation === 'recover' ? await backend.recoverBackend({ notify: options => dialog.showMessageBox(window, options) }) : await backend.checkLifecycle();
         return { ok: true, value };
       }
       if (name === 'serviceStatus') return { ok: true, value: await backend.serviceStatus() };
       if (name === 'stopService') return { ok: true, value: await requestStopService() };
-      if (name === 'recoverResources') { await backend.checkLifecycle(); return { ok: true, value: null }; }
+      if (name === 'recoverResources') return { ok: true, value: await backend.recoverBackend({ notify: options => dialog.showMessageBox(window, options) }) };
       if (name === 'connectService') { await backend.init(); return { ok: true, value: null }; }
       if (name === 'manage' && params.operation === 'archive') {
         const answer = await dialog.showMessageBox(window, { type: 'question', message: '归档此会话？', detail: '历史仍可查看。当前 Core 不支持取消归档，归档后无法继续发送消息；该会话的临时浏览页面和登录状态也会关闭。', buttons: ['取消', '归档会话'], defaultId: 0, cancelId: 0 });

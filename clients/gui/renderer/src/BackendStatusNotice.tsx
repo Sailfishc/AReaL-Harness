@@ -2,7 +2,7 @@ import { Button } from "./components/ui/button.js";
 import type { Snapshot } from "./services.js";
 
 export const BACKEND_STATUS_ID = "backend-status";
-export type BackendStatusAction = "update" | "check" | "reconnect";
+export type BackendStatusAction = "update" | "check" | "reconnect" | "recover";
 
 export function BackendStatusNotice({ connection, update, lifecycle, currentCommands, pending, error, onAction }: {
   connection: Snapshot["connection"];
@@ -18,6 +18,9 @@ export function BackendStatusNotice({ connection, update, lifecycle, currentComm
   if (lifecycle?.error) {
     message = error || lifecycle.error;
     action = "check";
+  } else if (lifecycle?.recovery) {
+    message = error || lifecycle.recovery.message;
+    action = 'check';
   } else if (lifecycle?.phase && ["acceptedPending", "admissionUnconfirmed", "partial", "settlementIncomplete"].includes(lifecycle.phase)) {
     message = error || lifecycle.message || (lifecycle.phase === "acceptedPending" ? "正在确认后台操作的完成状态。" : "部分后台操作尚未完成，请检查原请求。现有历史和草稿已保留。");
     action = "check";
@@ -52,6 +55,9 @@ export function BackendStatusNotice({ connection, update, lifecycle, currentComm
   return <div id={BACKEND_STATUS_ID} role="status" aria-live="polite" aria-atomic="true"
     className="pointer-events-auto mx-2 mb-2 flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-border px-3 py-2 text-ui-caption text-foreground-subtle">
     <span className="min-w-0 flex-1 basis-64 break-words">{applying ? "正在更新后台…" : message}</span>
+    {lifecycle?.recovery && <Button type="button" variant="outline" size="sm" disabled={pending} onClick={() => onAction("recover")}>
+      恢复后台…
+    </Button>}
     {retryUpdate && <Button type="button" variant="outline" size="sm" disabled={pending || update?.state === "applying"} onClick={() => onAction("update")}>
       更新后台…
     </Button>}

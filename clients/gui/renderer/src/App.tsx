@@ -508,6 +508,9 @@ function AppContent({ services }: { services: PlatformServices }) {
     try {
       if (kind === "update") {
         await resourceAction("serviceLifecycle", { operation: "update" });
+      } else if (kind === "recover") {
+        const result = await resourceAction("serviceLifecycle", { operation: "recover" });
+        if (result?.recovered) { await reconnectService(); setError(""); }
       } else if (kind === "check") {
         await resourceAction("serviceLifecycle", { operation: "check" });
       } else {
