@@ -74,7 +74,7 @@ Host 在 drain 前原子保存并 fsync 回执，目录位于私有 registry 的
 
 模型配置默认共用 `~/.areal/config.toml`，共享文件不代表共享执行实例、历史或全部认证状态。不带 `--endpoint` 的 `areal exec` 为每个 run 使用 `<home>/cli/runs/<runId>/state`，会话映射位于 `<home>/cli/sessions/`，`--resume` 复用原 run；其中 home 为 `AREAL_HARNESS_HOME` 或 `~/.areal`。直接使用独占 `serve`／launcher 时，通用配置的数据默认值才是配置 home 的 `state/`。公共 `areal service` 默认 registry 为 `~/.areal`（可由 `AREAL_HARNESS_SERVICE_HOME` 选择），默认 dataDir 为 `<registry>/instances/<workspace-hash>/state`，已有 bind 映射及显式配置优先。
 
-GUI 的 registry 默认是 `~/.areal/gui/<GUI Core home 摘要>`，每项目 dataDir 是 `<GUI Core home>/<projectId>/state`。GUI Core home 默认为 GUI userData 下的 `areal-core`；开发 userData 按源码工作树隔离，安装版、显式 profile/worktree 可有不同数据目录。每次 GUI 应用运行以 `{kind:"gui", appRunId, profile}` 标记 owner，`profile` 是规范绝对 userData 路径。服务描述的可选 `owner` 字段记录这个身份；独立 CLI 持久服务没有 GUI owner。GUI 退出／停止只处理这个 owner 已登记并核实身份的全部实例，包括已隐藏、断连项目和启动尚未完成的实例，不停止默认 CLI registry 或其他 profile。旧版独立 Desktop 和其他 appRunId 不能被新 GUI 静默认领，须先核对原代际并显式安全迁移。
+GUI 的 registry 默认是 `~/.areal/gui/<GUI Core home 摘要>`，每项目 dataDir 是 `<GUI Core home>/<projectId>/state`。GUI Core home 默认为 GUI userData 下的 `areal-core`；开发 userData 按源码工作树隔离，安装版、显式 profile/worktree 可有不同数据目录。每次 GUI 应用运行以 `{kind:"gui", appRunId, profile}` 标记 owner，`profile` 是规范绝对 userData 路径。服务描述的可选 `owner` 字段记录这个身份；独立 CLI 持久服务没有 GUI owner。GUI 退出／停止只处理这个 owner 已登记并核实身份的全部实例，包括已隐藏、断连项目和启动尚未完成的实例。恢复的历史项目沿用项目索引中的 ID；所属服务匹配同时核对已登记工作区与数据目录，不按路径重新散列替换原 ID。不停止默认 CLI registry 或其他 profile。旧版独立 Desktop 和其他 appRunId 不能被新 GUI 静默认领，须先核对原代际并显式安全迁移。
 
 显式连接同一服务（例如 CLI 的 `--endpoint` 和 `--auth-file`）才共享该实例的执行与历史；仅使用相同模型配置、同一源码目录，甚至仅指定相同 registry 都不等价。同一 dataDir 的 Store 单写锁始终有效，不能以另一个进程或入口绕过。不同 dataDir 也不会隔离同一源码工作区的文件修改：多个入口仍可读到彼此修改，写入需要协调，或选择不同 Git worktree。
 
