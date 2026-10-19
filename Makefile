@@ -245,3 +245,7 @@ gui-package: gui-build ## 构建 macOS arm64 候选应用（先构建 Core，随
 	pnpm --dir clients/gui package
 gui-smoke: ## 隔离目录中验证真实 Electron/Core 和本地模型
 	pnpm --dir clients/gui test:e2e
+
+.PHONY: artifact-cleanup
+artifact-cleanup: ## 预览旧 GUI/Rust 产物和中间缓存；默认保留最近 5 轮
+	python3 scripts/artifact-cleanup.py $(ARGS)
