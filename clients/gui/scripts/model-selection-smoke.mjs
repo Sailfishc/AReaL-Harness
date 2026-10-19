@@ -1,3 +1,4 @@
+import { assertApplicationStopped } from "./application-cleanup.mjs";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
@@ -57,7 +58,7 @@ const coreBinary = process.env.AREAL_GUI_EXECUTABLE
   ? join(process.env.AREAL_GUI_EXECUTABLE, "../../Resources/areal-core/bin/areal")
   : env.AREAL_CORE_BIN;
 const coreSha256 = createHash("sha256").update(await readFile(coreBinary)).digest("hex");
-let app, page, failure = null, passed = false;
+let app, page, stoppingAdapter, failure = null, passed = false;
 const checks = [], errors = [];
 const stoppedServices = [];
 const button = name => page.getByRole("button", { name, exact: true });
@@ -93,6 +94,12 @@ async function until(predicate, label) {
   throw new Error(`Timeout: ${label}`);
 }
 async function stopService() {
+  if (stoppingAdapter?.applicationOwner) {
+    await assertApplicationStopped(coreBinary, env, stoppingAdapter);
+    stoppedServices.push({ pid: stoppingAdapter.pid, exited: true });
+    stoppingAdapter = undefined;
+    return;
+  }
   const { ServiceConnection } = require("../app/src/core/service-client.cjs");
   const connection = new ServiceConnection();
   const metadata = JSON.parse(await readFile(join(scratch, "core/service.json"), "utf8"));
@@ -136,10 +143,16 @@ async function closeGui() {
   const current = app;
   if (!current) return;
   const child = current.process();
-  await current.evaluate(({ BrowserWindow, app }) => {
-    for (const window of BrowserWindow.getAllWindows()) window.destroy();
-    app.exit(0);
-  }).catch(error => { if (child.exitCode === null) throw error; });
+  stoppingAdapter = await readFile(join(scratch, "core/service.json"), "utf8").then(JSON.parse).catch(error => { if (error.code === "ENOENT") return null; throw error; });
+  if (failure) {
+    await current.evaluate(({ app }) => app.exit(1)).catch(error => { if (child.exitCode === null) throw error; });
+  } else {
+    await current.evaluate(({ Menu }) => {
+      const quit = Menu.getApplicationMenu().items[0].submenu.items.find(item => item.label === "退出 AReaL Harness");
+      if (!quit) throw new Error("Safe application quit menu is missing");
+      quit.click();
+    }).catch(error => { if (child.exitCode === null) throw error; });
+  }
   const deadline = Date.now() + 15000;
   while (child.exitCode === null && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 50));
   assert.notEqual(child.exitCode, null, "owned Electron process exits");
