@@ -14,6 +14,36 @@ const { serviceIdentity } = require('../app/src/core/service-config.cjs');
 const { WebSocketServer } = require('../app/node_modules/ws');
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+test('application shutdown preserves registered historical project identity and rejects crossed bindings', async () => {
+  const local = require('../app/src/core/local-service.cjs');
+  const original = local.serviceRequest;
+  const owner = { kind: 'gui', appRunId: '5c450fa8-b0af-492c-9c7b-2233736efbed', profile: '/fixture/profile' };
+  const home = '/fixture/core', id = '111111111111111111111111', root = '/fixture/restored-workspace';
+  const project = { id, root };
+  const descriptor = { owner, serviceId: 'instance', generation: 'generation', workspace: root,
+    dataDir: join(home, id, 'state'), state: 'running' };
+  let descriptors = [descriptor];
+  local.serviceRequest = async () => descriptors;
+  const backend = Object.assign(Object.create(CoreBackend.prototype), { home, applicationOwner: owner,
+    saved: [project], projects: new Map([[id, project]]), ownedEngines: new Map(), starting: new Map() });
+  try {
+    await backend.refreshOwnedEngines();
+    assert.equal(backend.ownedEngines.get(id).service, descriptor, 'the registered ID owns its original data');
+    assert.equal(backend.ownedEngines.size, 1);
+    for (const changed of [{ dataDir: join(home, 'another-project', 'state') }, { workspace: '/fixture/other-workspace' }]) {
+      descriptors = [{ ...descriptor, ...changed }];
+      await assert.rejects(backend.refreshOwnedEngines(), /数据目录与登记不匹配/);
+      assert.equal(backend.ownedEngines.get(id).service, descriptor, 'invalid binding cannot replace the original generation');
+    }
+    descriptors = [{ ...descriptor, generation: 'replacement' }];
+    await assert.rejects(backend.refreshOwnedEngines(), { code: 'CONFIRMATION_STALE' });
+    assert.equal(backend.ownedEngines.get(id).service, descriptor);
+    descriptors = [{ ...descriptor, owner: { ...owner, appRunId: 'another-app' }, dataDir: '/another-profile/state' }];
+    await backend.refreshOwnedEngines();
+    assert.equal(backend.ownedEngines.size, 1, 'another application remains outside this owner');
+  } finally { local.serviceRequest = original; }
+});
+
 test('completed original shutdown clears GUI terminals after the transport disconnects', async t => {
   const f = await fixture(t);
   await f.publish(); await f.backend.attach();

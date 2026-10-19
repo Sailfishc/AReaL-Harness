@@ -308,7 +308,10 @@ class CoreBackend {
     if (!Array.isArray(descriptors)) throw new Error('Core 返回了无效的服务登记列表');
     for (const descriptor of descriptors) {
       if (!sameOwner(descriptor.owner, this.applicationOwner)) continue;
-      const projectId = createHash('sha256').update(descriptor.workspace).digest('hex').slice(0, 24);
+      // 历史索引沿用原项目 ID；路径散列只用于尚未登记的启动恢复，不能替换已登记身份。
+      const registered = this.saved.find(project => /^[a-f0-9]{24}$/.test(project.id)
+        && project.root === descriptor.workspace && descriptor.dataDir === join(this.home, project.id, 'state'));
+      const projectId = registered?.id ?? createHash('sha256').update(descriptor.workspace).digest('hex').slice(0, 24);
       if (descriptor.dataDir !== join(this.home, projectId, 'state')) throw new Error('所属 Core 的数据目录与登记不匹配');
       if (descriptor.state === 'stopped') {
         const target = { projectId, serviceId: descriptor.serviceId, generation: descriptor.generation, root: descriptor.workspace };
