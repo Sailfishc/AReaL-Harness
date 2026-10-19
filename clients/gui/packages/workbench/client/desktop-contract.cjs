@@ -72,10 +72,11 @@ function validateCommand(name, params, { serviceOnly = false } = {}) {
 
   // 导出目标与配置路径只由可信启动配置选择，Renderer 不能扩展 CLI 参数。
   if (name === 'cloudSession' && (!['create', 'open', 'send', 'stop'].includes(String(params.operation))
-    || Object.keys(params).some(key => !['operation', 'projectId', 'threadId', 'requestId', 'text', 'turnId'].includes(key))
+    || Object.keys(params).some(key => !['operation', 'projectId', 'threadId', 'requestId', 'text', 'turnId', 'attachments'].includes(key))
     || params.operation !== 'create' && !identifier(params.threadId)
     || params.operation === 'create' && (typeof params.requestId !== 'string' || !/^[0-9a-f-]{36}$/.test(params.requestId))
-    || params.operation === 'send' && (typeof params.text !== 'string' || !params.text.trim())
+    || params.operation === 'send' && (typeof params.text !== 'string' || (!params.text.trim() && (!Array.isArray(params.attachments) || !params.attachments.length)))
+    || params.attachments !== undefined && (params.operation !== 'send' || !Array.isArray(params.attachments) || params.attachments.length > 16 || params.attachments.some(item => !record(item) || !['image','audio','file'].includes(String(item.type)) || typeof item.url !== 'string' || !/^areal:\/\/blob\/[A-Za-z0-9_-]+$/.test(item.url)))
     || params.operation === 'stop' && !identifier(params.turnId))) invalid();
   if (name === 'cloud' && (!['status', 'save', 'check'].includes(String(params.operation))
     || Object.keys(params).some(key => !['operation', 'baseURL', 'token'].includes(key))

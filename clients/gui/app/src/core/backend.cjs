@@ -1243,6 +1243,7 @@ class CoreBackend {
     if (name === 'cloud') return this.cloud.command(request);
     if (name === 'cloudSession') return this.cloudConversations.command(request);
     if (this.cloudConversations.owns(request?.projectId, request?.threadId)) {
+      if (name === 'media') return this.cloudConversations.media(request);
       if (name === 'open') return this.cloudConversations.command({...request, operation:'open'});
       // 阅读标记是本地导航元数据，不向云端执行环境发送命令。
       if (name === 'library' && request.operation === 'readThread') return this.library.command(request);

@@ -2,6 +2,7 @@
 
 const { readFile } = require("node:fs/promises");
 const { join } = require("node:path");
+const { mediaCommand, messageInput } = require("./media.cjs");
 const { CloudSession } = require("./cloud-session.cjs");
 
 /** 本地只保存远端身份和导航摘要；消息从远端 Core 读取。 */
@@ -145,6 +146,17 @@ class CloudConversations {
         this.creating.set(id, task);
         return task;
     }
+    async media(request) {
+        const record = this.records.find(value => value.projectId === request.projectId && value.binding.threadId === request.threadId);
+        if (!record) throw new Error("未知 Cloud 会话");
+        const live = await this.open(record);
+        const platform = live.session.platform;
+        if (request.operation === "upload" && !live.session.client.capabilities?.features?.blobUpload)
+            throw new Error("远端尚不支持附件上传，请升级运行包");
+        return mediaCommand({model: live.model, client: live.session.client,
+            endpoint: platform.baseURL.href, token: platform.token}, request,
+            {submit: (project, method, params) => project.client.request(method, params)});
+    }
     async command(request) {
         if (request.operation === "create") return this.create(request);
         const record = this.records.find(
@@ -168,9 +180,9 @@ class CloudConversations {
                 throw new Error("请等待当前 Cloud 查询完成");
             live.submitting = true;
             try {
-                const result = await live.session.query(request.text);
+                const result = await live.session.query(messageInput(this.backend, request));
                 if (record.title === "Cloud") {
-                    record.title = `Cloud · ${request.text.slice(0, 60)}`;
+                    record.title = `Cloud · ${(request.text?.trim() || request.attachments?.[0]?.name || "附件").slice(0, 60)}`;
                     await this.save();
                 }
                 return result;

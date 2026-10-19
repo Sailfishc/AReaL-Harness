@@ -90,14 +90,14 @@ class CloudSession {
         return client.request("thread/resume", { threadId: this.binding.threadId });
     }
 
-    async query(text, { signal } = {}) {
-        if (typeof text !== "string" || !text.trim()) throw new Error("请输入消息");
+    async query(input, { signal } = {}) {
+        if (!Array.isArray(input) || !input.length) throw new Error("请输入消息或添加附件");
         const client = await this.connect({ signal });
         await this.read({ signal });
         // 标准 turn/start 只接受 threadId/input；未知提交不得通过重试制造重复执行。
         return client.request("turn/start", {
             threadId: this.binding.threadId,
-            input: [{ type: "text", text }],
+            input,
         });
     }
 

@@ -35,7 +35,7 @@ async function mediaCommand(project, request, backend) {
   }
   const url = new URL(project.endpoint);
   url.protocol = url.protocol === 'wss:' ? 'https:' : 'http:';
-  url.pathname = '/areal/blobs'; url.search = ''; url.searchParams.set('threadId', request.threadId);
+  url.pathname = `${url.pathname.replace(/\/+$/, '')}/areal/blobs`; url.search = ''; url.searchParams.set('threadId', request.threadId);
   if (request.operation === 'read') {
     if (!/^areal:\/\/blob\/[A-Za-z0-9_-]+$/.test(request.uri)) throw new Error('无效附件引用');
     url.pathname += `/${request.uri.split('/').at(-1)}`;
@@ -59,10 +59,28 @@ async function mediaCommand(project, request, backend) {
     response = await fetch(url, { method: 'POST', headers: { Authorization: `Bearer ${project.token}`, 'Content-Type': request.mime }, body: request.bytes, redirect: 'error', signal: AbortSignal.timeout(30000) });
   } catch (error) {
     // 响应没回到客户端时不能判断 Core 是否已写入，也不能再发一次。
-    throw new Error(`附件上传结果待核对：${error.message}。草稿已保留，不会自动重发。`);
+    const failure = new Error(`附件上传结果待核对：${error.message}。草稿已保留，不会自动重发。`);
+    failure.submissionUnknown = true;
+    throw failure;
   }
-  if (!response.ok) throw uploadError(response.status, await response.text());
-  return response.json();
+  if (!response.ok) {
+    let detail;
+    try { detail = await response.text(); }
+    catch { detail = '无法读取上传响应'; }
+    const failure = uploadError(response.status, detail);
+    if (response.status >= 500) failure.submissionUnknown = true;
+    throw failure;
+  }
+  try {
+    const receipt = await response.json();
+    if (!/^areal:\/\/blob\/[A-Za-z0-9_-]+$/.test(receipt?.uri) || typeof receipt.mimeType !== 'string' || receipt.sizeBytes !== request.bytes.length)
+      throw new Error('上传回执不完整');
+    return receipt;
+  } catch (cause) {
+    const failure = new Error(`附件上传结果待核对：${cause.message}。不会自动重发。`);
+    failure.submissionUnknown = true;
+    throw failure;
+  }
 }
 function messageInput(backend, request) {
   const media = request.attachments ?? [];

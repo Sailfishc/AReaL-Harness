@@ -73,6 +73,7 @@ test("原生 WS 协议夹具：并发创建去重、流式投影、重启复用�
         token: "token",
     });
     const backend = {
+        textInput: text => [{type:"text",text}],
         saved: [{ id: "project" }],
         cloud: { client: async () => platform },
         save: async (_name, value) => {

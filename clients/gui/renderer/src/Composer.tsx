@@ -1,3 +1,5 @@
+import { uploadComposerFiles } from "./ComposerUploads.js";
+export { uploadComposerFiles } from "./ComposerUploads.js";
 import { isOrdinaryConversation, interruptedConversationTurn } from "./ordinaryConversation.js";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { McpComposerAttachments, useMcpDraft } from "./McpComposerAttachments.js";
@@ -548,36 +550,4 @@ export function stageThreadDraft(projectId: string, threadId: string, text: stri
   localStorage.setItem(key, text);
   attachmentDrafts.set(key, files);
   return key;
-}
-
-// 发送和队列更新共用上传边界，编辑中现存 Core 引用不经过此函数。
-export async function uploadComposerFiles(action: Action, projectId: string, threadId: string, files: File[]) {
-  const attachments = [];
-  for (const file of files) {
-    let bytes: Uint8Array;
-    try {
-      bytes = new Uint8Array(await file.arrayBuffer());
-    } catch (cause) {
-      const reason = cause instanceof Error ? cause.message : String(cause);
-      throw new Error(`无法读取附件 ${file.name}：${reason}`);
-    }
-    const media = await action("media", {
-      projectId,
-      threadId,
-      operation: "upload",
-      mime: file.type || "application/octet-stream",
-      bytes,
-    });
-    attachments.push({
-      type: file.type.startsWith("image/")
-        ? "image"
-        : file.type.startsWith("audio/")
-          ? "audio"
-          : "file",
-      url: media.uri,
-      name: file.name,
-      mimeType: media.mimeType,
-    });
-  }
-  return attachments;
 }
