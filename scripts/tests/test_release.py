@@ -160,7 +160,7 @@ class ReleaseTests(unittest.TestCase):
             self.assertIn("on_linux do", text)
             self.assertIn("on_macos do", text)
             self.assertIn(hashlib.sha256(linux.read_bytes()).hexdigest(), text)
-            self.assertEqual("keg_only :versioned_formula" in text, "-beta." in version)
+            self.assertEqual('keg_only "the beta channel is opt-in' in text, "-beta." in version)
             self.assertEqual("class ArealBeta" in text, "-beta." in version)
             self.assertIn("/usr/bin/bwrap", text)
             with self.assertRaises(ValueError):

@@ -86,7 +86,12 @@ def formula(path, output, url=None, extra_archives=()):
     sha256 "{sha(item)}"
   end''')
     output.parent.mkdir(parents=True, exist_ok=True)
-    isolation = "  keg_only :versioned_formula\n" if beta else ""
+    # Homebrew 会自动 link :versioned_formula；预览必须始终保持显式隔离。
+    isolation = (
+        '  keg_only "the beta channel is opt-in and must not replace the stable CLI"\n'
+        if beta
+        else ""
+    )
     output.write_text(f'''class {name} < Formula
   desc "Agent harness with a terminal UI and local tool runtime"
   homepage "https://github.com/areal-project/AReaL-Harness"
