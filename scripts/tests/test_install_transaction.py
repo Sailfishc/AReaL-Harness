@@ -5,7 +5,6 @@ import io
 import json
 import os
 import platform
-import shutil
 import subprocess
 import sys
 import unittest
