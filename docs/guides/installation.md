@@ -68,7 +68,12 @@ macOS 离线安装将归档名改为 `areal-harness-v0.1.6-aarch64-apple-darwin.
 
 按[配置指南](configuration.md)在 `~/.areal/config.toml` 配置模型，然后在工作区启动 `areal`。旧配置必须删除已移除的 `limits.turn_timeout_seconds` 和 `AREAL_HARNESS_TURN_TIMEOUT_SECONDS`。`areal config validate` 可检查配置。旧 `~/.areal-harness` 不会自动迁移。
 
-`areal version` 与 `areal --version` 等价。`areal upgrade --check` 查询最新已公开版本，`areal upgrade` 按原安装来源执行：Homebrew 使用 formula 并核对安装版本（tap 尚未更新会报错），独立安装使用已校验的完整新包并原子切换入口；源码构建或非安装器管理的复制品拒绝自升级。升级前用 `areal service list` 检查服务，在各工作区执行 `areal service stop --workspace /absolute/workspace`；忙碌任务默认拒绝停止，应先完成或显式暂停任务。命令也会拒绝在共享服务尚未停止时升级。不要直接覆盖运行中的二进制。独立安装保留旧版本目录，允许停止服务后手动切回旧入口；数据格式升级后不能保证旧版本可读取新状态，升级前备份 `~/.areal`。
+`areal version` 与 `areal --version` 等价。`areal upgrade --check` 查询最新已公开版本，不安装。`areal upgrade` 按原安装来源执行；源码构建或非安装器管理的复制品拒绝自升级。
+
+- **独立安装**先校验完整新包，再原子切换命令入口，不要求停止共享服务。升级命令不停止或重启后台，也不迁移运行中的会话。旧版本目录保持不变，供原有进程及其 Runtime 继续使用；新命令入口指向新版本。不应手动删除仍被运行中进程使用的版本目录。
+- **Homebrew 安装**使用 formula 并核对安装版本，tap 尚未更新会报错。此渠道仍要求所有共享服务停止后才能执行 `areal upgrade`，因为该命令不控制 Homebrew 对旧版本目录的清理。先用 `areal service list` 检查服务，再在各工作区执行 `areal service stop --workspace /absolute/workspace`。忙碌任务默认拒绝停止，应先完成或显式暂停任务，不要为了升级强制取消任务。
+
+安装新版本不等于后台已切换到新版本。需要更新某个后台时，先完成或暂停其任务，再通过该客户端的服务更新或停止、启动流程操作。GUI 的后台更新入口仍是显式操作。不要直接覆盖运行中的二进制。独立安装保留旧版本目录，可在停止服务后手动切回旧入口；数据格式升级后不能保证旧版本可读取新状态，升级前备份 `~/.areal`。
 
 卸载先停止服务。Homebrew 用 `brew uninstall areal`；Linux 删除安装器管理的入口链接及选定版本目录。两种方式都不自动删除 `~/.areal` 的配置与历史。
 

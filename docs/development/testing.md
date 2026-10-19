@@ -8,6 +8,7 @@
 |---|---|
 | `make verify` | Cordis pin、格式、静态检查、Rust workspace、两套 SDK、Python、文档、TUI 与统一委派 smoke |
 | `make script-test` | 启动器、Web 思考/等待/取消投影、perf 统计/证据、适配器依赖边界与文档链接/语言配对 |
+| `make upgrade-smoke` | 隔离运行真实 CLI 与离线安装器，验证独立安装升级、旧版本保留、Homebrew 保护及校验失败；合成服务记录不代表真实任务连续性 |
 | `make test-core` / `make test-protocol` | Engine / app-server |
 | `make test-concurrency` | 并发原语 |
 | `make verify-runtime` | Runtime 单元测试与真实文件、进程、权限和关闭 smoke |
