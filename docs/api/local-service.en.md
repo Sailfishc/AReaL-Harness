@@ -53,6 +53,8 @@ Descriptor fields are defined in [local-service-v1.json](../../schemas/local-ser
 
 ## Inspectable stop operations
 
+When the original instance still holds its lease but its control endpoint has closed or disconnected, `status` reports `unavailable`, not a completed stop. Protocol, permission and timeout errors remain failures. `ensure` does not take over that active owner. Store startup allows about 100 ms for inherited-descriptor handoff, never cleans pending writes before acquiring the exclusive lock, and still refuses a persistent owner.
+
 GUI uses `service ensure --no-auto-restart`: compatible services may be reused and absent instances started under the existing locks. Replacement of a running instance requires an explicit lifecycle operation. Ordinary CLI ensure retains its existing idle-update behavior.
 
 ```sh

@@ -53,6 +53,8 @@ target/debug/areal web --workspace /absolute/workspace --json
 
 ## 可核查的停止操作
 
+`status` 在原实例仍持锁但控制端点已关闭或断开时报告 `unavailable`，不将 socket 消失或响应丢失当作停止；协议、权限和超时错误仍显式失败。`ensure` 不接管这类仍有 owner 的实例。Store 启动仅为派生进程继承描述符的短暂交接等待约 100 ms，未取得独占锁前不清理临时写入，仍拒绝持续持锁的 owner。
+
 可信 GUI 使用 `service ensure --no-auto-restart`：兼容实例可以复用，不存在时可以在原有锁下启动；需要替换运行实例时返回冲突，不能在 ensure 内隐式停止。普通 CLI ensure 的既有空闲更新行为保留。
 
 ```sh
