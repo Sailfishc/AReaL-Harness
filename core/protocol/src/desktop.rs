@@ -192,6 +192,7 @@ pub const NOTIFICATIONS: &[&str] = &[
     "areal/model/watchdogRetry",
     "areal/tool/cancelled",
     "areal/thread/configured",
+    "areal/thread/edited",
     "areal/thread/archived",
     "areal/thread/unarchived",
     "areal/plan/updated",

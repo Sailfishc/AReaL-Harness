@@ -494,6 +494,10 @@ pub fn projections() -> (Value, Value) {
     notifications.insert("areal/goal/updated".into(), goal_view);
     notifications.insert("areal/goal/cleared".into(),object(json!({"threadId":string,"revision":number,"eventSequence":number,"goal":nullable(schema::<areal_protocol::goals::Goal>()),"goalId":string})));
     notifications.insert("thread/started".into(), object(json!({"thread":thread})));
+    notifications.insert(
+        "areal/thread/edited".into(),
+        object(json!({"threadId":string,"thread":thread})),
+    );
     for name in ["turn/started", "turn/completed"] {
         notifications.insert(name.into(), object(json!({"threadId":string,"turn":turn})));
     }
