@@ -68,7 +68,7 @@ try{
   await app.evaluate(({dialog},workspace)=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:[workspace]});},workspace);
   await page.evaluate(()=>window.arealDesktop.chooseProject());
   projectId=(await until(async()=>(await state()).projects.find(p=>p.root===workspace&&p.state?.connected),'main project')).id;
-  await page.getByRole('button',{name:'后台详情',exact:true}).waitFor();
+  await page.locator('#backend-status').waitFor({state:'hidden'});
   await page.getByTestId('chat-input').fill('GUI_HOLD');await page.getByRole('button',{name:'发送',exact:true}).click();
   threadId=await until(()=>page.getByTestId('areal-workbench').getAttribute('data-thread-id'),'main Thread');
   await until(()=>held.has('gui'),'GUI turn is running');
@@ -88,7 +88,9 @@ try{
   assert.equal(held.has('gui'),true);assert.equal(cliExit,undefined);checks.push('interface quit preserves the same background and active Turn');
   await launch();await until(async()=>(await state()).projects.find(p=>p.id===projectId)?.state?.connected,'reopened project');
   assert.equal(await page.getByTestId('chat-input').innerText(),draft);assert.equal(requests.length,2,'GUI reopen replays no prompt');
-  await page.getByRole('button',{name:'后台详情',exact:true}).click();
+  await page.locator('#backend-status').waitFor({state:'hidden'});
+  await page.getByRole('button',{name:'设置',exact:true}).click();
+  await page.getByRole('button',{name:'后台服务',exact:true}).click();
   await page.getByLabel('后台服务管理').waitFor();await page.getByText('正在执行',{exact:true}).waitFor();
   await page.screenshot({path:join(scratch,'01-blockers.png')});
   await menu('停止后台并退出…');await until(()=>app.evaluate(()=>globalThis.__exitDialogs.length>0),'stop quit confirmation');

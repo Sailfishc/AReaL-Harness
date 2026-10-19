@@ -51,8 +51,7 @@ export function BackendStatusNotice({ connection, update, lifecycle, summary, cu
     message = error || "已连接原后台，当前部署更新尚未应用。现有任务继续运行。";
     action = "update";
   } else if (connection?.state === "ready") {
-    message = summary?.busy ? "后台运行中 · 已连接 · 有待处理工作" : "后台运行中 · 已连接";
-    action = "status";
+    return null;
   } else {
     message = summary?.state === "stopped" ? "后台已停止" : "后台连接与运行状态待检查";
     action = "status";
