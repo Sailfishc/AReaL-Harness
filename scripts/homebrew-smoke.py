@@ -43,10 +43,8 @@ def main():
     }
     env.update(
         # 干净 Linux runner 无 Git 身份，tap-new 的本地提交不能依赖用户全局配置。
-        GIT_AUTHOR_NAME="AReaL release validation",
-        GIT_AUTHOR_EMAIL="validation@example.invalid",
-        GIT_COMMITTER_NAME="AReaL release validation",
-        GIT_COMMITTER_EMAIL="validation@example.invalid",
+        HOMEBREW_GIT_NAME="AReaL release validation",
+        HOMEBREW_GIT_EMAIL="validation@example.invalid",
         HOME=str(root / "user"),
         AREAL_HARNESS_HOME=str(root / "state"),
         HOMEBREW_NO_AUTO_UPDATE="1",
