@@ -106,6 +106,7 @@ async fn name_is_nonblocking_preserves_turns_merges_latest_and_survives_restart(
     let m = model(Some("修复会话标题"), true);
     let e = Engine::open(dir.path(), m.clone(), Limits::default()).unwrap();
     let t = e.create("/workspace".into()).await.unwrap();
+    let mut events = e.subscribe(&t.id).await.unwrap();
     let first = solve(&e, &t.id, "请优化 session 名称的语义总结").await;
     started(&m).await;
     assert_eq!(e.read(&t.id, true).await.unwrap().turns.len(), 1);
@@ -114,6 +115,19 @@ async fn name_is_nonblocking_preserves_turns_merges_latest_and_survives_restart(
     m.release.notify_one();
     let result = named(&e, &t.id).await;
     assert_eq!(result["name"], "修复会话标题");
+    let edited = tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            let event = events.recv().await.unwrap();
+            if event["method"] == "areal/thread/edited" {
+                break event;
+            }
+        }
+    })
+    .await
+    .unwrap();
+    assert!(areal_protocol::desktop::NOTIFICATIONS.contains(&edited["method"].as_str().unwrap()));
+    assert_eq!(edited["params"]["threadId"], t.id);
+    assert_eq!(edited["params"]["thread"], result);
     assert_eq!(result["turns"], second["turns"]);
     assert_eq!(result["preview"], first["preview"]);
     assert_eq!(m.summaries.load(Ordering::SeqCst), 1);
