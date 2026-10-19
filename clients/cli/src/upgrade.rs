@@ -175,6 +175,8 @@ mod tests {
 
     #[test]
     fn release_order_accepts_preview_to_same_release_but_never_downgrades() {
+        assert!(newer_release("0.1.7", "0.1.7-beta.10").unwrap());
+        assert!(!newer_release("0.1.6", "0.1.7-beta.1").unwrap());
         assert!(newer_release("0.1.7", "0.1.7-test.1").unwrap());
         assert!(newer_release("0.2.0", "0.1.7-test.1").unwrap());
         assert!(!newer_release("0.1.6", "0.1.7-test.1").unwrap());

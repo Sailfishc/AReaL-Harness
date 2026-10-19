@@ -110,12 +110,12 @@ class UpgradeSmoke(unittest.TestCase):
             check=True,
             timeout=30,
         ).stdout.strip()
-        match = re.fullmatch(r"areal (\d+)\.(\d+)\.(\d+)", output)
+        match = re.fullmatch(r"areal (\d+)\.(\d+)\.(\d+)(-beta\.[1-9]\d*)?", output)
         if not match:
-            raise RuntimeError(f"expected stable CLI version, got {output!r}")
+            raise RuntimeError(f"expected stable or beta CLI version, got {output!r}")
         cls.current = output.removeprefix("areal ")
-        major, minor, patch = map(int, match.groups())
-        cls.latest = f"{major}.{minor}.{patch + 1}"
+        major, minor, patch = map(int, match.groups()[:3])
+        cls.latest = f"{major}.{minor}.{patch if match[4] else patch + 1}"
         cls.old_archive = archive(cls.root, cls.current, probe)
         cls.new_archive = archive(cls.root, cls.latest)
         cls.installer = (ROOT / "scripts/install.py").read_text()

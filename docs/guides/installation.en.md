@@ -58,11 +58,9 @@ The installer verifies the archive and all bundle files before executing any bun
 
 ## Upgrade commands
 
-Back up configuration and history first (normally `~/.areal`, plus any custom data directories), finish active work, then stop each shared service:
+Back up configuration and history first (normally `~/.areal`, plus custom data directories). Installer-managed complete bundles can update their entry while backends keep running:
 
 ```sh
-areal service list
-areal service stop --workspace /absolute/workspace
 areal upgrade --check
 areal upgrade
 command -v areal
@@ -72,15 +70,11 @@ areal build-info
 
 `command -v areal` should select the intended installation entry. Check PATH when several prefixes coexist, and run `hash -r` if needed. `build-info` reports the source commit; the complete bundle's `manifest.json` records platform and per-file SHA-256. Retain it alongside the matching release's `SHA256SUMS`.
 
-The current source installer and `areal upgrade` both refuse running, stopping, or unknown shared services. The installer checks again after downloading and excludes concurrent installers for one prefix. The published 0.1.6 installer predates these additional protections: manually check and stop services before reinstalling it. Participating versions share a service lease per installation prefix: admission acquires it before registration, and the installer holds exclusive admission across the final check and switch. In-flight or running services block switching; starts during switching fail immediately and should retry through the active entry afterward. Workspaces, registration directories and GUI profiles using the same managed Core prefix share this protection. Bundled GUI Core and other prefixes use independent leases.
+Entry installation and backend handoff are separate. The current source installer validates a complete new bundle and atomically switches the entry without stopping backends, changing configuration/history or deleting old versions. A service starting during download or switching can keep its resolved complete old bundle; other workspaces and GUI instances are not stopped. Concurrent installers for one prefix are refused. Published 0.1.6 embeds an older stop-before-upgrade check: installing a newer target does not retrofit its CLI. Use the target release's verified installer to update the entry without a forced cold migration.
+
+A new client must clearly report an incompatible backend rather than implicitly stopping, downgrading or taking it over. Handoff uses an explicit update/restart after work becomes idle. Unknown acceptance is checked through the original request without repeating stop. Retaining an old package does not back up data formats; verify the active entry and backend versions separately.
 
 Interrupted downloads, bad checksums, mismatched program versions, and failed entry switches preserve the old entry and configuration/history. Fix the cause and retry. If interruption follows a completed entry switch, the new version may already be active: inspect the entry and version before deleting any candidate directory. Forced termination can leave staging or an inactive version directory: retain old installations and user data. If a version directory already exists, inspect its integrity and the active entry before proceeding; do not overwrite it. To roll back the executable, stop services and repoint the entry symlink to the retained old version. If the new version has written data, restore the matching pre-upgrade backup; old versions are not guaranteed to read newer data formats.
-
-## Migrating older versions without admission coordination
-
-`installationGuardVersion: 1` in `areal build-info` means the program participates in installation/start coordination. The current source installer requires both the active program and candidate bundle to declare this capability; otherwise it refuses automatic switching and preserves the old package and data. Published 0.1.6 and earlier programs do not gain this guarantee by using the new installer. Retained old programs and old installers do not honor the new lock either.
-
-Finish tasks, stop all related services and clients, and back up configuration/history before migrating. Once a participating version is published, use its installer with a new empty prefix (for example `~/.local/areal-next`), verify its version, complete bundle and capability, then explicitly select the new prefix's `bin` on PATH. Retain the original installation for review or a rollback with matching data. Do not reopen old clients or execute old retained binaries afterward. This manual cold migration provides no new atomic coordination for legacy processes and is not a concurrent automatic upgrade path.
 
 ## Configuration, upgrades and uninstalling
 

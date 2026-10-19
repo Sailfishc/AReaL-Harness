@@ -49,8 +49,6 @@ async fn ensure_inner(
     reconnect: bool,
     allow_automatic_restart: bool,
 ) -> Result<Service> {
-    // 前缀租约先于服务启动锁；检查/切换独占期间不能开始任何工作区的启动。
-    let _installation = crate::installation::acquire(&spec.bin_dir)?;
     let directory = spec.directory()?;
     storage::private_dir(&spec.home.join("services"))?;
     storage::private_dir(&directory)?;

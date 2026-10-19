@@ -9,7 +9,7 @@ import shutil
 import subprocess
 import sys
 import unittest
-from contextlib import nullcontext, redirect_stdout
+from contextlib import redirect_stdout
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -139,48 +139,63 @@ class InstallTransactionTests(unittest.TestCase):
         self.install("0.1.6")
         self.assertEqual(self.user_data(), self.data_before)
 
-    def test_running_stopping_unknown_and_malformed_services_block_direct_installer(self):
+    def test_service_states_do_not_block_entry_only_install_or_mutate_records(self):
         self.old_install()
-        args = self.args("0.1.6")
-        for value in [
-            '[{"state":"ready"}]',
-            '[{"state":"stopping"}]',
-            '[{"state":"unavailable"}]',
-            "[{}]",
-            "{}",
-            "invalid",
-        ]:
-            with self.subTest(value=value):
-                self.services.write_text(value)
-                with self.assertRaises(ValueError):
-                    self.install("0.1.6", args)
-                self.unchanged()
-        self.services.write_text('[{"state":"stopped"}]')
-        self.install("0.1.6", args)
-        self.assertEqual(self.user_data(), self.data_before)
-
-    def test_first_install_also_checks_shared_services(self):
-        self.services.write_text('[{"state":"ready"}]')
-        with self.assertRaisesRegex(ValueError, "stop all shared services"):
-            self.install("0.1.6")
-        self.assertFalse((self.prefix / "bin/areal").exists())
-        self.assertEqual(self.user_data(), self.data_before)
-
-    def test_service_started_during_download_blocks_commit(self):
-        self.old_install()
-        offline = self.args("0.1.6")
-        args = SimpleNamespace(prefix=self.prefix, archive=None, checksums=None)
-
-        def download(url, path):
-            shutil.copyfile(
-                offline.checksums if url.endswith("SHA256SUMS") else offline.archive, path
+        for index, value in enumerate(
+            [
+                '[{"state":"ready"}]',
+                '[{"state":"stopping"}]',
+                '[{"state":"unavailable"}]',
+                "{}",
+                "invalid",
+            ]
+        ):
+            self.services.write_text(value)
+            version = f"0.2.{index}"
+            self.install(version)
+            self.assertEqual(self.services.read_text(), value)
+            self.assertEqual(self.old.read_bytes(), self.old_bytes)
+            self.assertEqual(self.user_data(), self.data_before)
+            self.assertEqual(
+                subprocess.check_output([str(self.prefix / "bin/areal"), "--version"], text=True),
+                f"areal {version}\n",
             )
-            self.services.write_text('[{"state":"ready"}]')
 
-        with patch.object(installer, "download", side_effect=download):
-            with self.assertRaisesRegex(ValueError, "stop all shared services"):
-                self.install("0.1.6", args)
-        self.unchanged()
+    def test_first_install_does_not_operate_existing_services(self):
+        self.services.write_text('[{"state":"ready"}]')
+        self.install("0.1.6")
+        self.assertEqual(self.services.read_text(), '[{"state":"ready"}]')
+        self.assertEqual(self.user_data(), self.data_before)
+
+    def test_service_start_after_validation_preserves_its_old_complete_bundle(self):
+        self.old_install()
+        check = installer.check_program
+
+        def validated_then_started(binary, version):
+            check(binary, version)
+            self.services.write_text('[{"state":"ready"}]')
+            self.assertEqual(
+                subprocess.check_output([str(self.old), "--version"], text=True), "areal 0.1.5\n"
+            )
+
+        with patch.object(installer, "check_program", side_effect=validated_then_started):
+            self.install("0.1.6")
+        self.assertEqual(self.services.read_text(), '[{"state":"ready"}]')
+        self.assertEqual(self.old.read_bytes(), self.old_bytes)
+        self.assertEqual(self.user_data(), self.data_before)
+        self.assertEqual(
+            subprocess.check_output([str(self.prefix / "bin/areal"), "--version"], text=True),
+            "areal 0.1.6\n",
+        )
+
+    def test_beta_complete_bundle_reports_exact_semver(self):
+        version = "0.1.7-beta.10"
+        self.install(version)
+        entry = self.prefix / "bin/areal"
+        self.assertEqual(
+            subprocess.check_output([str(entry), "--version"], text=True), "areal 0.1.7-beta.10\n"
+        )
+        self.assertEqual(entry.resolve().parents[1].name, version + "-" + self.target[2])
 
     def test_link_commit_failure_or_interrupt_rolls_back_candidate(self):
         self.old_install()
@@ -277,84 +292,3 @@ class InstallTransactionTests(unittest.TestCase):
             self.install("0.1.7")
         self.assertEqual(link.resolve(), cellar)
         self.assertEqual(cellar.read_text(), "brew fixture")
-
-    def start_admission(self):
-        # 子进程真实参与 flock；stdin/stdout 是确定性交错屏障，不使用 sleep。
-        program = """import fcntl, sys
-with open(sys.argv[1], "a+") as gate:
-    try:
-        fcntl.flock(gate, fcntl.LOCK_SH | fcntl.LOCK_NB)
-    except BlockingIOError:
-        print("BLOCKED", flush=True)
-        sys.exit(23)
-    print("ADMITTED", flush=True)
-    sys.stdin.read(1)
-"""
-        child = subprocess.Popen(
-            [sys.executable, "-c", program, str(self.prefix / "lib/areal/.service.lock")],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            text=True,
-        )
-        self.addCleanup(lambda: child.poll() is None and child.communicate("x", timeout=10))
-        return child, child.stdout.readline().strip()
-
-    def test_final_check_to_switch_has_a_deterministic_negative_control(self):
-        self.old_install()
-        replace = installer.os.replace
-        observations = []
-
-        def switch_while_attempting_start(source, destination):
-            child, admission = self.start_admission()
-            observations.append(admission)
-            replace(source, destination)
-            if admission == "ADMITTED":
-                self.assertIsNone(child.poll())
-                child.communicate("x", timeout=10)
-            else:
-                child.communicate(timeout=10)
-                self.assertEqual(child.returncode, 23)
-
-        with patch.object(installer, "switch_gate", side_effect=lambda _: nullcontext()):
-            with patch.object(installer.os, "replace", side_effect=switch_while_attempting_start):
-                self.install("0.1.6")
-        with patch.object(installer.os, "replace", side_effect=switch_while_attempting_start):
-            self.install("0.1.7")
-        self.assertEqual(observations, ["ADMITTED", "BLOCKED"])
-        self.assertEqual(self.old.read_bytes(), self.old_bytes)
-        self.assertEqual(self.user_data(), self.data_before)
-
-    def test_inflight_start_without_registry_record_blocks_switch_and_releases_on_exit(self):
-        self.old_install()
-        child, admission = self.start_admission()
-        self.assertEqual(admission, "ADMITTED")
-        args = self.args("0.1.6")
-        try:
-            with self.assertRaisesRegex(ValueError, "running or starting"):
-                self.install("0.1.6", args)
-            self.unchanged()
-            self.assertEqual(self.services.read_text(), "[]")
-        finally:
-            child.communicate("x", timeout=10)
-        self.install("0.1.6", args)
-        self.assertEqual(self.user_data(), self.data_before)
-
-    def test_legacy_active_program_is_refused_without_switching_or_deleting_old_package(self):
-        self.old_install()
-        args = self.args("0.1.6")
-        for capability, message in [("0", "legacy binary lacks"), ("invalid", "cannot confirm")]:
-            with patch.dict(os.environ, {"AREAL_INSTALL_FIXTURE_GUARD_VERSION": capability}):
-                with self.assertRaisesRegex(ValueError, message):
-                    self.install("0.1.6", args)
-            self.unchanged()
-        self.install("0.1.6", args)
-        self.assertEqual(self.old.read_bytes(), self.old_bytes)
-
-    def test_unsupported_candidate_is_refused_and_can_be_retried_with_supported_bundle(self):
-        args = self.args("0.1.6")
-        with patch.dict(os.environ, {"AREAL_INSTALL_FIXTURE_GUARD_VERSION": "0"}):
-            with self.assertRaisesRegex(ValueError, "legacy binary lacks"):
-                self.install("0.1.6", args)
-        self.assertFalse((self.prefix / "bin/areal").exists())
-        self.install("0.1.6", args)
-        self.assertEqual(self.user_data(), self.data_before)

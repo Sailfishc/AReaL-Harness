@@ -1,22 +1,16 @@
 #!/usr/bin/env python3
-"""使用完整包和真实共享服务验证直接安装器保护；只操作本轮隔离实例。"""
+"""使用完整包和真实共享服务验证入口更新不接管旧后台；只操作本轮隔离实例。"""
 
 import argparse
 import hashlib
-import importlib.util
 import json
 import os
-import platform
 import shutil
 import subprocess
 import sys
 import tarfile
 import tempfile
 from pathlib import Path
-from contextlib import nullcontext, redirect_stdout
-from io import StringIO
-from types import SimpleNamespace
-from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -84,8 +78,18 @@ def main():
     try:
         first = install(prefix)
         assert first.returncode == 0, first.stderr
-        assert run([str(entry), "--version"]).stdout.strip() == "areal " + version
         before = entry.resolve()
+        # 同一真实二进制的合成旧布局；不冒充已发布旧版本。
+        baseline = before.parent.parent.with_name("baseline-fixture")
+        before.parent.parent.rename(baseline)
+        entry.unlink()
+        entry.symlink_to(baseline / "bin/areal")
+        old_entry = entry.resolve()
+        retained = {
+            str(p.relative_to(baseline)): hashlib.sha256(p.read_bytes()).hexdigest()
+            for p in baseline.rglob("*")
+            if p.is_file()
+        }
         service = json.loads(
             run(
                 [
@@ -101,15 +105,42 @@ def main():
             ).stdout
         )
         assert service["state"] == "ready", service
-        for destination, requested in [(root / "second-prefix", version), (prefix, "999.0.0")]:
-            blocked = install(destination, requested)
-            assert blocked.returncode != 0 and "stop all shared services" in blocked.stderr, (
-                blocked.stderr
-            )
-            assert entry.resolve() == before
-            assert not (root / "second-prefix/bin/areal").exists()
+        original = {key: service[key] for key in ["serviceId", "generation", "hostPid", "corePid"]}
+        config_before = config.read_bytes()
+        installed = install(prefix)
+        assert installed.returncode == 0, installed.stderr
+        observed = json.loads(
+            run(
+                [str(entry), "service", "status", "--json", "--instance", service["serviceId"]]
+            ).stdout
+        )
+        assert observed["state"] == "ready", observed
+        assert {key: observed[key] for key in original} == original
+        assert old_entry.exists() and entry.resolve() != old_entry
+        assert run([str(old_entry), "--version"]).stdout.strip() == "areal " + version
+        assert run([str(entry), "--version"]).stdout.strip() == "areal " + version
+        assert config.read_bytes() == config_before
+        assert retained == {
+            str(p.relative_to(baseline)): hashlib.sha256(p.read_bytes()).hexdigest()
+            for p in baseline.rglob("*")
+            if p.is_file()
+        }
         report["checks"].append(
-            "direct fresh installation and existing upgrade refuse a real running shared service"
+            "entry switches while the real old service retains PID/generation and its complete unchanged bundle"
+        )
+        # 新前缀安装不接管另一个安装的后台。
+        second = install(root / "second-prefix")
+        assert second.returncode == 0, second.stderr
+        assert (
+            json.loads(
+                run(
+                    [str(entry), "service", "status", "--json", "--instance", service["serviceId"]]
+                ).stdout
+            )["generation"]
+            == original["generation"]
+        )
+        report["checks"].append(
+            "installing another prefix never stops or replaces the existing service"
         )
         run([str(entry), "service", "stop", "--json", "--instance", service["serviceId"]])
         state = json.loads(
@@ -119,96 +150,6 @@ def main():
         )
         assert state["state"] == "stopped", state
         service = None
-        # 同一真实二进制构造保留旧布局，不冒充实际发布的旧版本。
-        baseline = before.parent.parent.with_name("baseline-fixture")
-        before.parent.parent.rename(baseline)
-        entry.unlink()
-        entry.symlink_to(baseline / "bin/areal")
-        spec = importlib.util.spec_from_file_location("installer", ROOT / "scripts/install.py")
-        installer = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(installer)
-        installer_args = SimpleNamespace(prefix=prefix, archive=archive, checksums=sums)
-        install_target = installer.TARGETS[(platform.system(), platform.machine())]
-        race_workspace = root / "race-workspace"
-        race_workspace.mkdir()
-        replace = installer.os.replace
-        race_result = []
-
-        def race(source, destination):
-            nonlocal service
-            started = run(
-                [
-                    str(entry),
-                    "service",
-                    "ensure",
-                    "--json",
-                    "--workspace",
-                    str(race_workspace),
-                    "--config",
-                    str(config),
-                ],
-                check=False,
-            )
-            if started.returncode == 0:
-                service = json.loads(started.stdout)
-                assert service["state"] == "ready", service
-                race_result.append("admitted")
-            else:
-                assert "installation switch in progress" in started.stderr, started.stderr
-                race_result.append("blocked")
-            replace(source, destination)
-
-        # 负对照只撤掉安装侧共锁，保留真实服务启动；在最后检查后确实能违规启动。
-        with patch.dict(os.environ, env, clear=True), redirect_stdout(StringIO()):
-            with patch.object(installer, "switch_gate", side_effect=lambda _: nullcontext()):
-                with patch.object(installer.os, "replace", side_effect=race):
-                    installer.install(installer_args, version, install_target)
-        assert race_result == ["admitted"], race_result
-        run([str(entry), "service", "stop", "--json", "--instance", service["serviceId"]])
-        service = None
-        active = entry.resolve().parent.parent
-        preserved = active.with_name("second-baseline-fixture")
-        active.rename(preserved)
-        entry.unlink()
-        entry.symlink_to(preserved / "bin/areal")
-        with patch.dict(os.environ, env, clear=True), redirect_stdout(StringIO()):
-            with patch.object(installer.os, "replace", side_effect=race):
-                installer.install(installer_args, version, install_target)
-        assert race_result == ["admitted", "blocked"], race_result
-        assert (baseline / "bin/areal").exists()
-        assert (preserved / "bin/areal").exists()
-        stale = run(
-            [
-                str(preserved / "bin/areal"),
-                "service",
-                "ensure",
-                "--json",
-                "--workspace",
-                str(race_workspace),
-                "--config",
-                str(config),
-            ],
-            check=False,
-        )
-        assert stale.returncode != 0 and "inactive installer-managed version" in stale.stderr, (
-            stale.stderr
-        )
-        report["checks"].append(
-            "deterministic final-check/switch race: real service admits with coordination removed, blocks with exclusive gate; late inactive entry rejects"
-        )
-        before = entry.resolve()
-        config_before = config.read_bytes()
-        installed = install(root / "second-prefix")
-        assert installed.returncode == 0, installed.stderr
-        assert (
-            run([str(root / "second-prefix/bin/areal"), "--version"]).stdout.strip()
-            == "areal " + version
-        )
-        assert config.read_bytes() == config_before
-        assert entry.resolve() == before
-        report["checks"].append(
-            "after confirmed stop, a complete package installs without changing the original entry or model config"
-        )
         report["passed"] = True
     except BaseException as error:
         report["error"] = str(error)

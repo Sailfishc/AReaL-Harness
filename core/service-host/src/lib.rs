@@ -32,7 +32,6 @@ pub async fn run() -> Result<()> {
     )
     .await??;
     let spec: LaunchSpec = serde_json::from_slice(&bytes)?;
-    let _installation = areal_local_service::installation::acquire(&spec.bin_dir)?;
     let directory = spec.directory()?;
     storage::private_dir(&directory)?;
     let data = spec

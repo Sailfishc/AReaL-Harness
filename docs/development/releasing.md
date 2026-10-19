@@ -43,7 +43,7 @@ python3 scripts/release-smoke.py --bundle target/release-bundle/areal
 python3 -m unittest discover -s scripts/tests -p test_release.py
 ```
 
-Homebrew formula 安装 `bin`、`libexec`、LICENSE 和 manifest，避免改变 Core 查找 helper 的相对路径。安装器将不同版本放在不同目录，只原子替换入口符号链接；用户配置与历史不由安装器维护。校验、版本探测、服务状态或入口提交失败均不得切换旧入口。`install-smoke.py` 在隔离目录用真实完整包/共享服务验证直接新装与升级拒绝运行中服务，并在确认停止后重试安装；该脚本随 Release bundles 运行。普通脚本测试使用合成包覆盖异常，不启动用户服务。
+Homebrew formula 安装 `bin`、`libexec`、LICENSE 和 manifest，避免改变 Core 查找 helper 的相对路径。安装器将不同版本放在不同目录，只原子替换入口符号链接；用户配置与历史不由安装器维护。校验、版本探测或入口提交失败均不得切换旧入口。`install-smoke.py` 在隔离目录用真实完整包/共享服务验证入口更新时保留真实运行中服务的 PID、generation 和完整旧包；该脚本随 Release bundles 运行。普通脚本测试使用合成包覆盖异常，不启动用户服务。
 
 ## 可选平台适配包
 
