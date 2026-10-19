@@ -102,7 +102,7 @@ def formula(path, output, url=None, extra_archives=()):
 
   def install
     if OS.linux?
-      glibc = Utils.safe_popen_read("getconf", "GNU_LIBC_VERSION").split.last
+      glibc = Utils.safe_popen_read("/usr/bin/getconf", "GNU_LIBC_VERSION").split.last
       odie "AReaL requires host glibc >= 2.35" if Version.new(glibc) < Version.new("2.35")
       odie "Install system bubblewrap at /usr/bin/bwrap" unless File.executable?("/usr/bin/bwrap")
     end

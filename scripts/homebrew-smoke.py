@@ -50,7 +50,6 @@ def main():
         HOMEBREW_NO_AUTO_UPDATE="1",
         HOMEBREW_NO_INSTALL_CLEANUP="1",
         HOMEBREW_NO_ANALYTICS="1",
-        HOMEBREW_NO_INSTALL_FROM_API="1",
         HOMEBREW_CACHE=str(root / "cache"),
         HOMEBREW_TEMP=str(root / "build-tmp"),
         PATH=f"{prefix}/bin:" + os.environ["PATH"],

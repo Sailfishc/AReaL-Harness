@@ -130,10 +130,8 @@ jobs:
           rm ${{ runner.temp }}/areal-release-assets/SHA256SUMS
           AREAL_PACKAGE_PROFILE=release node examples/desktop-api/soak.mjs
       - name: Verify isolated Homebrew stable and beta channels
+        if: runner.os == 'macOS'
         run: |
-          if [ "$RUNNER_OS" = Linux ]; then
-            eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
-          fi
           archive="${{ runner.temp }}/areal-release-assets/areal-harness-v${RELEASE_VERSION}-${{ matrix.target }}.tar.gz"
           python3 scripts/homebrew-smoke.py --archive "$archive" --evidence target/ci/homebrew.json
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -149,9 +147,42 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  linux_homebrew:
+    name: Native Linuxbrew install and upgrade
+    needs: [scope, bundle]
+    if: needs.scope.outputs.release == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: release-x86_64-unknown-linux-gnu
+          path: target/linux-release-assets
+      - name: Verify Ubuntu 22.04 bundle on a supported Linuxbrew host
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap
+          npm ci --ignore-scripts
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          archive=(target/linux-release-assets/areal-harness-v*-x86_64-unknown-linux-gnu.tar.gz)
+          test "${#archive[@]}" = 1
+          python3 scripts/homebrew-smoke.py --archive "${archive[0]}" --evidence target/ci/homebrew-linux.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: failure()
+        with:
+          name: linuxbrew-diagnostics
+          path: target/ci/
+          retention-days: 7
+
   draft:
     name: Assemble draft release
-    needs: bundle
+    needs: [bundle, linux_homebrew]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-22.04
     permissions:
@@ -193,7 +224,7 @@ jobs:
 
   gate:
     name: Release gate
-    needs: [scope, bundle]
+    needs: [scope, bundle, linux_homebrew]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -205,5 +236,6 @@ jobs:
         env:
           SCOPE_RESULT: ${{ needs.scope.result }}
           WORK_RESULT: ${{ needs.bundle.result }}
+          HOMEBREW_RESULT: ${{ needs.scope.outputs.release == 'true' && needs.linux_homebrew.result || 'success' }}
           NEEDED: ${{ needs.scope.outputs.release }}
         run: python3 scripts/ci-gate.py

@@ -116,3 +116,5 @@ python3 scripts/sync-homebrew.py --tag vX.Y.Z --tap-checkout /absolute/new-tap -
 ```
 
 脚本不会创建仓库或凭据。公共渠道验收必须在未认证的公开地址核查 tap、formula、双平台归档和 SHA256，并在两平台的隔离 Homebrew prefix 实测首次安装、旧版升级、实际来源路由和稳定/beta 隔离。`homebrew-smoke.py` 在 macOS/Linux runner 执行原生候选验收；其中 `areal-validation/channel` 是隔离测试 tap，不等于公共 tap 验收。安装器完整性、Linux 原生工具、真实运行任务及旧包保留检查继续执行。Homebrew 可能清理旧 keg，升级要求先让任务完成并安全停服；不隐式停止后台。
+
+Linux 完整包仍在 Ubuntu 22.04 / glibc 2.35 原生构建并执行安装器、工具回归；Linuxbrew 在 Ubuntu 24.04 上下载并验证同一归档。Homebrew 自身当前需要较新的 glibc，旧宿主与长自定义 prefix 会触发其额外工具链引导，不能把该行为当作产品 glibc 基线变化，也不能跳过依赖检查冒充验收通过。两项均纳入 Release gate 和草稿发布门槛。

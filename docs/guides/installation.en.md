@@ -31,7 +31,7 @@ brew install areal-project/tap/areal-beta
 "$(brew --prefix areal-project/tap/areal-beta)/bin/areal" --version
 ```
 
-The Linux formula supports only x86_64 with host glibc ≥ 2.35 and system `/usr/bin/bwrap` (Ubuntu: `sudo apt-get install bubblewrap`). See the [official Linux guide](https://docs.brew.sh/Homebrew-on-Linux) for Homebrew's own prerequisites and support policy. Linux arm64 and musl support are not added.
+The Linux formula supports only x86_64 with host glibc ≥ 2.35 and system `/usr/bin/bwrap` (Ubuntu: `sudo apt-get install bubblewrap`). See the [official Linux guide](https://docs.brew.sh/Homebrew-on-Linux) for Homebrew's own prerequisites and support policy. Linux arm64 and musl support are not added. Complete bundles and the standalone installer retain the glibc 2.35 baseline; native Linuxbrew acceptance uses Ubuntu 24.04 / glibc 2.39. On older hosts, Homebrew may install its own glibc/GCC. This acceptance does not establish all older-system/custom-prefix combinations; use the standalone installer where needed.
 
 Before upgrading, finish tasks and safely stop shared services (`areal service list`, then `areal service stop --workspace /absolute/workspace` for each workspace, retaining its original configuration arguments without cancellation flags):
 

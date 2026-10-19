@@ -31,7 +31,7 @@ brew install areal-project/tap/areal-beta
 "$(brew --prefix areal-project/tap/areal-beta)/bin/areal" --version
 ```
 
-Linux formula 仅支持 x86_64、宿主 glibc ≥ 2.35，需系统安装 `/usr/bin/bwrap`（Ubuntu: `sudo apt-get install bubblewrap`）；Homebrew 自身的系统依赖与支持范围见[官方 Linux 指南](https://docs.brew.sh/Homebrew-on-Linux)。这不新增 Linux arm64 或 musl 支持。
+Linux formula 仅支持 x86_64、宿主 glibc ≥ 2.35，需系统安装 `/usr/bin/bwrap`（Ubuntu: `sudo apt-get install bubblewrap`）；Homebrew 自身的系统依赖与支持范围见[官方 Linux 指南](https://docs.brew.sh/Homebrew-on-Linux)。这不新增 Linux arm64 或 musl 支持。 产品完整包与独立安装器保持 glibc 2.35 基线；原生 Linuxbrew 验收使用 Ubuntu 24.04 / glibc 2.39。较旧 glibc 主机上，Homebrew 可能额外安装自身 glibc/GCC；本次验收不证明所有旧系统与自定义 prefix 的组合，必要时使用独立安装器。
 
 后续升级先完成任务并安全停止共享服务（`areal service list`；各工作区用 `areal service stop --workspace /absolute/workspace`，保留原配置参数，不加取消选项），然后：
 
