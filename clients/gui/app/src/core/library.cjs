@@ -88,7 +88,7 @@ class CoreLibrary {
     if (!global && !this.backend.saved.some(item => item.id === projectId)) throw new Error('未知工作区');
     if (['renameThread', 'pinThread', 'orderThread', 'moveThread', 'readThread', 'orderSidebarThread'].includes(operation)
       && !this.threadSummaries(projectId).some(item => item.id === threadId)
-      && !(operation === 'readThread' && this.backend.projects.get(projectId)?.model.state.threads?.[threadId])) throw new Error('未知会话');
+      && !(operation === 'readThread' && (this.backend.projects.get(projectId)?.model.state.threads?.[threadId] || this.backend.cloudConversations?.owns(projectId, threadId)))) throw new Error('未知会话');
     if ((operation.startsWith('rename') || operation === 'createSection') && (typeof title !== 'string' || !title.trim() || title.length > 200)) throw new Error('名称需要 1–200 个字符');
     if (operation === 'hideProject' && request.hidden) {
       const live = await this.backend.start(projectId);

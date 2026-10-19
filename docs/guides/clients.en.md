@@ -164,6 +164,8 @@ areal exec --endpoint ws://127.0.0.1:18457/ --auth-file /private/remote-auth.jso
 
 Credentials use the native security/auth.json shape, with `principals[0].token`. Servers must offer compatible `areal.core.v1` capabilities; this is not a claim of complete OpenAI Codex extension support. The following `areal cloud` command remains the legacy batch HTTP compatibility entry, not native remote mode.
 
+Remote CLI resume selects `areal/thread/observe` when advertised. With older Core versions it reads state through `thread/read` and subscribes when submitting the next turn, without taking over an existing desktop tool host through `thread/resume`. The legacy read and subscription are not atomic; permission and network failures do not trigger fallback retries.
+
 ## Cloud
 
 `areal cloud` connects to a generic HTTP backend and submits stateless Tasks without starting local Core, mounting the local project, using UPFS, or selecting or synchronizing a Harness. Persistent GUI Sessions are described in the [GUI guide](../../clients/gui/README.en.md#cloud-backend-configuration). The backend must accept `{ "prompt": "..." }` on `POST /harness-tasks` and choose runtime, model, and task environment through server-side defaults. The client does not guess a Harness or stream; backends without this default contract reject submission.

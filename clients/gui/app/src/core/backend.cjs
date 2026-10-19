@@ -1244,6 +1244,8 @@ class CoreBackend {
     if (name === 'cloudSession') return this.cloudConversations.command(request);
     if (this.cloudConversations.owns(request?.projectId, request?.threadId)) {
       if (name === 'open') return this.cloudConversations.command({...request, operation:'open'});
+      // 阅读标记是本地导航元数据，不向云端执行环境发送命令。
+      if (name === 'library' && request.operation === 'readThread') return this.library.command(request);
       throw new Error('此操作尚不支持 Cloud 会话');
     }
     if (name === 'resources') return this.resources.command(request);

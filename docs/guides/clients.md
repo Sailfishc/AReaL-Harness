@@ -164,6 +164,8 @@ areal exec --endpoint ws://127.0.0.1:18457/ --auth-file /private/remote-auth.jso
 
 认证文件沿用原生 `security/auth.json` 的 `principals[0].token` 格式。远端部署必须提供兼容的 `areal.core.v1` 能力；这不表示支持 OpenAI Codex 的全部扩展。下面的 `areal cloud` 保留为原有批任务 HTTP 兼容入口，不是原生远端模式。
 
+远端 CLI 恢复线程时按能力选择 `areal/thread/observe`；旧 Core 使用 `thread/read` 读取状态，提交新 Turn 时订阅事件，不通过 `thread/resume` 接管已有桌面工具宿主。旧版读取与订阅不是原子快照；权限或网络错误不会触发降级重试。
+
 ## Cloud
 
 `areal cloud` 连接通用 HTTP 后端，提交无状态 Task，不启动本地 Core，不挂载本地项目、不提供 UPFS，也不指定或同步 Harness。GUI 的持久 Session 入口见[GUI 指南](../../clients/gui/README.md#cloud-后端配置)。后端需支持 `POST /harness-tasks` 的 `{ "prompt": "..." }` 请求，并根据服务端默认配置选择运行包、模型与任务环境；客户端不会自行猜测 Harness 或 stream。尚未实现默认契约的后端会明确拒绝提交。

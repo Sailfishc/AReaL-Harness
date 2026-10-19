@@ -165,3 +165,5 @@ Save and connect performs a native authenticated handshake. Green means authenti
 Conversations retain only their endpoint and native thread identity. Reconnection reads authoritative history without replaying queries. Zero deployed Profiles uses native defaults; one selects that Profile; multiple Profiles are rejected rather than guessed. All threads at an Arena endpoint share one owner-isolated workspace. Use separate URLs for separate workspaces. Closing the GUI does not stop the server.
 
 Cloud currently accepts text and does not synchronize local projects, models, Skills, attachments, or browser state. Older records containing an Arena sessionId remain on disk but are not automatically migrated or replaced; use the original client for those conversations. See the [client guide](../../docs/guides/clients.en.md#unified-remote-app-server) for CLI/TUI commands.
+
+Read marks for Cloud conversations are stored in local navigation metadata and do not require remote support for desktop organization commands.

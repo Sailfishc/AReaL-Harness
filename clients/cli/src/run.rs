@@ -205,7 +205,8 @@ async fn execute_connected(args: &Cli, local: &local::Local) -> Result<(i32, Vec
     .await?;
     rpc.send(json!({"method":"initialized","params":{}}))
         .await?;
-    rpc.call("areal/capabilities", json!({"apiVersion":"areal.core.v1"}))
+    let capabilities = rpc
+        .call("areal/capabilities", json!({"apiVersion":"areal.core.v1"}))
         .await?;
     for (id, config) in &local.mcp {
         let catalog = rpc.call("areal/mcp/list", json!({})).await?;
@@ -244,9 +245,9 @@ async fn execute_connected(args: &Cli, local: &local::Local) -> Result<(i32, Vec
         }
     }
     let thread = if let Some(id) = &args.resume {
-        // CLI cannot answer ambient tool callbacks; keep any live desktop owner bound.
-        rpc.call("areal/thread/observe", json!({"threadId":id}))
-            .await?
+        // 旧 Core 通过 turn/start 订阅事件；只读恢复避免接管桌面工具宿主。
+        let method = resume_method(&capabilities);
+        rpc.call(method, json!({"threadId":id})).await?
     } else {
         rpc.call(
             "areal/thread/start",
@@ -459,4 +460,31 @@ async fn execute_connected(args: &Cli, local: &local::Local) -> Result<(i32, Vec
                 }
     }
     Ok((if failed { 1 } else { 0 }, terminal_results))
+}
+
+fn resume_method(capabilities: &Value) -> &'static str {
+    if capabilities["methods"]
+        .as_array()
+        .is_some_and(|methods| methods.iter().any(|m| m == "areal/thread/observe"))
+    {
+        "areal/thread/observe"
+    } else {
+        "thread/read"
+    }
+}
+
+#[cfg(test)]
+mod resume_compatibility {
+    use super::*;
+    #[test]
+    fn legacy_resume_does_not_claim_desktop_tool_host() {
+        assert_eq!(
+            resume_method(&json!({"methods":["thread/read", "thread/resume", "areal/turn/start"]})),
+            "thread/read"
+        );
+        assert_eq!(
+            resume_method(&json!({"methods":["areal/thread/observe", "thread/read"]})),
+            "areal/thread/observe"
+        );
+    }
 }

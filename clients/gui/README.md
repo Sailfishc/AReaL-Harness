@@ -167,3 +167,5 @@ Cloud 使用 AReaL 原生 app-server WebSocket 接口。设置后端地址和 to
 桌面会话只保存 endpoint 和原生 thread 身份；重连读取权威历史，不重放 query。服务端部署零个 Profile 时使用原生默认配置，一个时使用该 Profile；多个时 GUI 拒绝猜测。一个 Arena endpoint 的所有 thread 共用同一个用户隔离工作区；不同工作区使用不同 URL。关闭 GUI 不停止远端进程。
 
 Cloud 输入暂限文本，不同步本地项目、模型、Skill、附件或浏览器。旧版本保存了 Arena sessionId 的会话保留在本机，但本入口不会自动转换或创建替代会话；请用原客户端继续访问旧会话。CLI/TUI 的原生连接命令见[客户端指南](../../docs/guides/clients.md#统一远端-app-server)。
+
+Cloud 对话的已读标记保存在本地导航元数据中，不要求云端支持桌面整理命令。
