@@ -122,6 +122,7 @@ script-test: integration-boundaries ## 无需产品二进制的脚本、Web 投�
 	node --test scripts/web-progress.test.mjs
 	node --test scripts/local-service-wait.test.mjs
 	node --test clients/gui/scripts/smoke-deadline.test.mjs
+	node --test clients/gui/scripts/update.test.cjs
 	python3 -m unittest discover -s scripts/tests
 	python3 tests/perf/perf.py self-test
 

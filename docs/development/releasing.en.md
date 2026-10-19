@@ -4,6 +4,12 @@
 
 Validated standalone channels are complete macOS arm64 and Linux x86_64 glibc bundles with the Python installer; macOS may also ship a Homebrew formula. Unlike the [official Codex CLI installation matrix](https://learn.chatgpt.com/docs/codex/cli#getting-started), this project has no complete npm or native Windows distribution yet. `cargo install areal-cli` also lacks the Runtime and bundled tools. See [installation](../guides/installation.en.md) for platform scope.
 
+## Channels and source gate
+
+Formal and preview CLI releases both ship complete bundles. macOS retains and strictly verifies input ad-hoc signatures without Developer ID distribution signing or Apple notarization. Formal GUI releases retain Developer ID signing, notarization, DMG installation and ZIP updates. GUI previews retain default ad-hoc signing, are installed manually, contain no formal update configuration, and do not advance the formal feed or promise automatic migration to formal releases. Previews are prereleases and never Latest; only a formal CLI release may become Latest.
+
+Before formal export, run `git fetch origin main`, then `python3 scripts/release-source.py --revision "$(git rev-parse HEAD)"`. This requires a clean checkout's full HEAD SHA to belong to fetched main; an old offline ref cannot replace fetching before release. CLI tag builds and formal GUI asset export enforce this gate, while PR candidates may validate unmerged source. GUI export must match the candidate Core source commit and records the verified main commit. Retain version, commit, platform and checksums with every artifact. Published version assets must never be replaced. Candidates and previews do not automatically change the formal channel.
+
 ## Candidate builds
 
 The `Release bundles` workflow builds candidates on relevant pull requests or workflow_dispatch. These triggers upload CI artifacts without creating Git tags or Releases. It uses the pinned Rust toolchain and Cargo.lock, building natively on macOS 15 arm64 and Ubuntu 22.04 x86_64.
@@ -94,3 +100,5 @@ GUI updates support macOS arm64. Electron owns checks and downloads; Core shuts 
 ## Build identity and GUI compatibility
 
 `areal build-info` exposes the Core revision, dirty state, Rust/Cargo/schema input hash, and compiled API/Store versions. Packaging verifies the input hash and revision first, so an old binary cannot acquire a new checkout identity. Manifest format 2 stores coreBuild and actual component byte hashes; sourceRevision refers to Core, without independently asserting the compile source of each Runtime binary. GUI accepts legacy format 1; format 2 also requires matching API, Store version and revision between coreBuild and manifest. GUI requires areal.core.v1, a matching platform and a supported persistent version; Core still reads the Store. Rebuild after source input changes before packaging. `make desktop-schema-check` temporarily generates and compares all three normalized schemas; `make desktop-schemas` replaces them atomically after all generators succeed.
+
+`python3 scripts/install-smoke.py --bundle /absolute/complete-bundle --evidence /absolute/install.json` validates the direct installer with a real isolated shared service: entry updates keep the real service PID, generation and old complete bundle unchanged. Release bundles runs this check. Ordinary script regressions use synthetic executable bundles to check failure invariants without starting user services.
