@@ -8076,6 +8076,18 @@
             "modelProvider": {
               "type": "string"
             },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "nameAttemptTurnId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "parentThreadId": {
               "type": [
                 "string",
@@ -23474,6 +23486,18 @@
               "modelProvider": {
                 "type": "string"
               },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "nameAttemptTurnId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "parentThreadId": {
                 "type": [
                   "string",
@@ -27518,6 +27542,18 @@
                 },
                 "modelProvider": {
                   "type": "string"
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "nameAttemptTurnId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 },
                 "parentThreadId": {
                   "type": [
@@ -34811,6 +34847,18 @@
               },
               "modelProvider": {
                 "type": "string"
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "nameAttemptTurnId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "parentThreadId": {
                 "type": [
@@ -47331,6 +47379,18 @@
             "modelProvider": {
               "type": "string"
             },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "nameAttemptTurnId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "parentThreadId": {
               "type": [
                 "string",
@@ -59275,6 +59335,18 @@
             "modelProvider": {
               "type": "string"
             },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "nameAttemptTurnId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "parentThreadId": {
               "type": [
                 "string",
@@ -68881,6 +68953,18 @@
             "modelProvider": {
               "type": "string"
             },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "nameAttemptTurnId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "parentThreadId": {
               "type": [
                 "string",
@@ -73779,6 +73863,18 @@
             "modelProvider": {
               "type": "string"
             },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "nameAttemptTurnId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "parentThreadId": {
               "type": [
                 "string",
@@ -77806,6 +77902,18 @@
             },
             "modelProvider": {
               "type": "string"
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "nameAttemptTurnId": {
+              "type": [
+                "string",
+                "null"
+              ]
             },
             "parentThreadId": {
               "type": [
@@ -92641,6 +92749,18 @@
               "modelProvider": {
                 "type": "string"
               },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "nameAttemptTurnId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "parentThreadId": {
                 "type": [
                   "string",
@@ -96673,6 +96793,18 @@
             },
             "modelProvider": {
               "type": "string"
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "nameAttemptTurnId": {
+              "type": [
+                "string",
+                "null"
+              ]
             },
             "parentThreadId": {
               "type": [
@@ -100727,6 +100859,18 @@
             },
             "modelProvider": {
               "type": "string"
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "nameAttemptTurnId": {
+              "type": [
+                "string",
+                "null"
+              ]
             },
             "parentThreadId": {
               "type": [
@@ -104789,6 +104933,18 @@
             },
             "modelProvider": {
               "type": "string"
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "nameAttemptTurnId": {
+              "type": [
+                "string",
+                "null"
+              ]
             },
             "parentThreadId": {
               "type": [
@@ -110245,6 +110401,18 @@
       },
       "modelProvider": {
         "type": "string"
+      },
+      "name": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "nameAttemptTurnId": {
+        "type": [
+          "string",
+          "null"
+        ]
       },
       "parentThreadId": {
         "type": [
