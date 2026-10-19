@@ -9,6 +9,7 @@ Install dependencies using the [development guide](README.en.md). Regular tests 
 | `make verify` | Cordis pin, formatting, static checks, Rust workspace, both SDKs, Python, documentation, TUI and unified delegation smoke |
 | `make script-test` | Launcher, Web reasoning/wait/cancel projections, benchmark statistics/evidence, adapter dependency boundaries and documentation links/language pairs |
 | `make upgrade-smoke` | Real CLI and offline installer in isolated directories, covering standalone upgrades, old-bundle retention, Homebrew protection and checksum failure; synthetic service records do not establish real-task continuity |
+| `make tui-upgrade-smoke ARGS='--old-bin-dir /absolute/old/bin --new-bin-dir /absolute/new/bin'` | Two immutable real bundles, old and new TUI PTYs, local model and Core/Runtime, verifying old reconnects cannot stop or downgrade the explicitly activated new backend |
 | `make test-core` / `make test-protocol` | Engine / app-server |
 | `make test-concurrency` | Concurrency primitives |
 | `make verify-runtime` | Runtime unit tests and real file, process, permission and shutdown smoke |
@@ -21,6 +22,8 @@ Install dependencies using the [development guide](README.en.md). Regular tests 
 Snapshot format changes require `make verify-harness`: Harness and plugin smoke check the written version, and desktop relocation tests compare the release manifest, `areal/server/status.stateVersion`, and actual snapshot versions.
 
 Real PTY smoke tests reconstruct incremental output with a terminal-cell emulator. Wide characters also overwrite the adjacent cell so stale characters cannot produce false Unicode-editing failures. Script unit tests cover this redraw boundary.
+
+`tui-upgrade-smoke` does not build or deploy artifacts. Prepare complete, immutable old and new binary directories, using an old version that cannot read the new state format. The script isolates home, workspace, state and model endpoint. It submits messages through real old and new TUIs, explicitly restarts the service to activate the new version, then resumes the still-open old TUI and triggers reconnect. Across multiple retry periods it checks the new Host/Core PIDs, generation, state format and a subsequent reply. Use `--evidence /absolute/output` to retain terminal screens, command logs, source and bundle identities, and cleanup results; evidence defaults to a temporary directory. This check does not run the installer or replace `upgrade-smoke`, package validation or real-provider acceptance.
 
 macOS native smoke tests require Seatbelt; Linux native smoke tests require `/usr/bin/bwrap` and user namespaces. Neither platform may substitute unsandboxed execution when the capability is missing. `outer-container-perf` remains validated in controlled containers. Default `cargo test` excludes explicitly ignored native Workgroup and capacity cases.
 
