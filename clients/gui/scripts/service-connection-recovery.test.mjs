@@ -14,6 +14,28 @@ const { serviceIdentity } = require('../app/src/core/service-config.cjs');
 const { WebSocketServer } = require('../app/node_modules/ws');
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+test('completed original shutdown clears GUI terminals after the transport disconnects', async t => {
+  const f = await fixture(t);
+  await f.publish(); await f.backend.attach();
+  f.backend.guiTerminals.set('terminal', { projectId: 'p', threadId: 'thread', id: 'terminal' });
+  f.backend.reconnectBlocked = true;
+  f.drop(); await until(() => !f.backend.status.connected);
+  const reference = { requestId: '41b2ce45-08df-4b60-a2f7-cbbfdb6c12cb', kind: 'stopDesktop', mode: 'ifIdle',
+    desktopGeneration: f.metadata.desktopGeneration, desktop: f.metadata, targets: [] };
+  const receipt = { version: 1, ...reference, desktopExit: 'notRequested', phase: 'admissionUnconfirmed' };
+  try {
+    await f.backend.acceptLifecycleReceipt(reference, receipt);
+    assert.equal(f.backend.guiTerminals.size, 1, 'unknown shutdown never clears a terminal handle');
+    const completed = await f.backend.acceptLifecycleReceipt(reference, { ...receipt, phase: 'acceptedPending', desktopExit: 'requested' });
+    assert.equal(completed.phase, 'completed');
+    assert.equal(f.backend.guiTerminals.size, 0, 'the matching exited generation has already cleaned its terminals');
+    await f.backend.prepareQuit();
+    assert.equal(f.calls.some(call => call.method === 'lifecycleRequest'), false, 'receipt reconciliation never sends another stop');
+  } finally {
+    f.backend.guiTerminals.clear();
+  }
+});
+
 async function until(predicate) {
   const deadline = Date.now() + 2500;
   while (!predicate()) {
