@@ -24,10 +24,10 @@ macOS packaging preserves the build artifacts' signatures and original bytes and
 
 1. Merge preparation changes. Confirm Verify and Release bundles pass for the selected commit; inspect version, licenses and migration notes.
 2. Review both platform candidates, Homebrew checks and Linux installation logs; confirm scope and version.
-3. Create tag `v0.1.4` on the selected commit. It must match `areal --version`. Tag builds reconstruct and verify both packages, then create a **draft** Release only after all checks pass; they do not publish it.
-4. Download draft assets and verify SHA256SUMS and manifest sourceRevision, profile and platform. Complete release notes covering default permissions, dependencies, retired timeout settings, compaction defaults and known caching limitations. macOS has no Developer ID signing/notarization and must not be labeled notarized.
-5. Publish the draft after explicit approval. Create/update `Formula/areal.rb` in `areal-project/homebrew-tap` from that Release asset. Confirm public download availability before testing `brew install areal-project/tap/areal`.
-6. Install through the public URL on clean Linux and run read/write validation. Record artifact digests and results. Repeat for future versions without replacing published archives.
+3. Create an unused `v<version>` tag on the selected commit (`vX.Y.Z-beta.N` for previews). It must match `areal --version`; never replace an existing tag. Tag builds reconstruct and verify both packages, then create a **draft** Release only after all checks pass; they do not publish it.
+4. Download draft assets and verify SHA256SUMS and manifest sourceRevision, profile and platform. Complete concise Chinese and English release notes covering this release’s user-visible changes, important fixes and necessary upgrade notes. macOS has no Developer ID signing/notarization and must not be labeled notarized.
+5. Publish the draft under existing authorization, then synchronize its channel through the public tap procedure below: stable updates only `Formula/areal.rb`, and beta updates only `Formula/areal-beta.rb`. Confirm public access to the repository, corresponding formula and archives before providing installation commands; failed synchronization does not establish Homebrew availability.
+6. In isolated macOS arm64 and Linux x86_64 environments, verify public Homebrew first installation, older-version upgrade, actual-source routing, channel isolation and complete Runtime behavior; retain standalone installer regressions. Record artifact digests and results. Repeat for future versions without replacing published archives.
 
 Tagging, publishing and tap creation/updates are external publication operations performed after artifact review. The draft job does not overwrite existing Releases; inspect remote state before retrying failures. This workflow does not publish Linux container images.
 

@@ -24,10 +24,10 @@ macOS 打包保留构建产物的签名与原始字节，并执行 `codesign --v
 
 1. 合并发布准备变更；确认选定提交的 Verify 与 Release bundles 验收通过，并检查当前版本、许可证和迁移说明。
 2. 审阅两平台候选、Homebrew 测试和 Linux 安装日志，确认版本及支持范围。
-3. 在固定提交创建 `v0.1.4` tag；tag 必须与 `areal --version` 一致。tag workflow 重建并验收两平台产物，全部通过后才创建 **draft** Release，不自动公开。
-4. 下载 draft assets，核对 SHA256SUMS、manifest 中的 sourceRevision、profile 和平台；补齐 release notes（默认权限、依赖、旧超时配置移除、压缩默认值及缓存已知限制）。macOS 尚无 Developer ID/公证，不应标为已公证。
-5. 明确批准后公开 draft。创建/更新 `areal-project/homebrew-tap` 的 `Formula/areal.rb`，内容来自该 Release 资产；先确认公开下载 URL 可用，再测试 `brew install areal-project/tap/areal`。
-6. 在干净 Linux 上用公开地址安装并跑读写验收；记录发行 digest 与最终结果。后续版本重复本流程，不替换已公开版本的归档。
+3. 在固定提交创建尚未使用的 `v<版本>` tag（预览为 `vX.Y.Z-beta.N`）；tag 必须与 `areal --version` 一致，不覆盖已有 tag。tag workflow 重建并验收两平台产物，全部通过后才创建 **draft** Release，不自动公开。
+4. 下载 draft assets，核对 SHA256SUMS、manifest 中的 sourceRevision、profile 和平台；补齐简短中英文 release notes，仅写本次用户可见变化、重要修复与必要升级注意。macOS 尚无 Developer ID/公证，不应标为已公证。
+5. 按已有授权公开 draft，再按下方公共 tap 流程同步对应渠道：正式版只更新 `Formula/areal.rb`，beta 只更新 `Formula/areal-beta.rb`。先确认公共仓库、对应 formula 和归档可下载，再提供相应安装命令；同步失败不能声称 Homebrew 可用。
+6. 在 macOS arm64 与 Linux x86_64 的隔离环境，从公共地址验证 Homebrew 首装、旧版升级、实际来源路由、渠道隔离和完整 Runtime，并保留独立安装器回归；记录发行 digest 与最终结果。后续版本重复本流程，不替换已公开版本的归档。
 
 Release tag 与公开、tap 创建/更新是外部发布操作，应在产物审阅完成后执行。draft job 不覆盖已有 Release；失败重试前应先检查已存在的远端状态，避免替换已公开资产。GitHub Release 不是 Linux 容器镜像发布，此流程不推送镜像。
 
