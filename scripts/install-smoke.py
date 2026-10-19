@@ -3,6 +3,7 @@
 
 import argparse
 import hashlib
+import http.server
 import json
 import os
 import shutil
@@ -10,9 +11,33 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import threading
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+class HeldModel(http.server.BaseHTTPRequestHandler):
+    def log_message(self, *_):
+        pass
+
+    def do_POST(self):
+        self.rfile.read(int(self.headers.get("Content-Length", 0)))
+        self.server.requests += 1
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.end_headers()
+        self.wfile.write(
+            b'data: {"choices":[{"index":0,"delta":{"content":"retained turn"},"finish_reason":null}]}\n\n'
+        )
+        self.wfile.flush()
+        self.server.entered.set()
+        if not self.server.release.wait(40):
+            return
+        self.wfile.write(
+            b'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n'
+        )
+        self.wfile.flush()
 
 
 def main():
@@ -32,9 +57,15 @@ def main():
     (root / "user").mkdir()
     workspace = root / "workspace"
     workspace.mkdir()
+    model = http.server.ThreadingHTTPServer(("127.0.0.1", 0), HeldModel)
+    model.entered = threading.Event()
+    model.release = threading.Event()
+    model.requests = 0
+    threading.Thread(target=model.serve_forever, daemon=True).start()
     config = root / "config.toml"
     config.write_text(
-        'schema_version=1\n[model]\nname="fixture"\n[model.providers.default]\nprotocol="chat-completions"\nendpoint="http://127.0.0.1:9/v1/chat/completions"\n'
+        'schema_version=1\n[model]\nname="fixture"\n[model.providers.default]\nprotocol="chat-completions"\n'
+        f'endpoint="http://127.0.0.1:{model.server_port}/v1/chat/completions"\n'
     )
     archive = root / f"areal-harness-v{version}-{target}.tar.gz"
     with tarfile.open(archive, "w:gz") as stream:
@@ -44,6 +75,7 @@ def main():
     prefix = root / "installed bundle"
     entry = prefix / "bin/areal"
     service = None
+    turn = None
     report = {
         "passed": False,
         "sourceRevision": manifest["sourceRevision"],
@@ -107,6 +139,39 @@ def main():
         assert service["state"] == "ready", service
         original = {key: service[key] for key in ["serviceId", "generation", "hostPid", "corePid"]}
         config_before = config.read_bytes()
+        # 通过公开协议挂住真实 Turn；入口切换不得取消任务或重新提交模型请求。
+        turn = subprocess.Popen(
+            [
+                "node",
+                "--input-type=module",
+                "-e",
+                """
+const { connect } = await import(process.argv[1]);
+const service = JSON.parse(process.argv[2]);
+const client = await connect(service.endpoint, service.authFile);
+try {
+  const { thread } = await client.call("areal/thread/start", {
+    requestId: crypto.randomUUID(), cwd: process.argv[3],
+  });
+  await client.call("areal/turn/start", {
+    requestId: crypto.randomUUID(), threadId: thread.id,
+    input: [{ type: "text", text: "hold through entry update" }],
+  });
+  const completed = await client.waitEvent("turn/completed", p => p.threadId === thread.id);
+  if (completed.turn.status !== "completed") throw Error(JSON.stringify(completed));
+  console.log(JSON.stringify({ status: completed.turn.status }));
+} finally { await client.close(); }
+""",
+                (ROOT / "examples/desktop-api/client.mjs").as_uri(),
+                json.dumps(service),
+                str(workspace),
+            ],
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        assert model.entered.wait(20), "real turn did not reach the held model fixture"
         installed = install(prefix)
         assert installed.returncode == 0, installed.stderr
         observed = json.loads(
@@ -116,6 +181,8 @@ def main():
         )
         assert observed["state"] == "ready", observed
         assert {key: observed[key] for key in original} == original
+        assert turn.poll() is None, "active turn ended before the model fixture was released"
+        assert model.requests == 1, "entry update replayed the model request"
         assert old_entry.exists() and entry.resolve() != old_entry
         assert run([str(old_entry), "--version"]).stdout.strip() == "areal " + version
         assert run([str(entry), "--version"]).stdout.strip() == "areal " + version
@@ -127,6 +194,15 @@ def main():
         }
         report["checks"].append(
             "entry switches while the real old service retains PID/generation and its complete unchanged bundle"
+        )
+        model.release.set()
+        stdout, stderr = turn.communicate(timeout=30)
+        assert turn.returncode == 0, stderr
+        assert json.loads(stdout)["status"] == "completed"
+        assert model.requests == 1
+        turn = None
+        report["checks"].append(
+            "the original active turn completes once without interruption or replay"
         )
         # 新前缀安装不接管另一个安装的后台。
         second = install(root / "second-prefix")
@@ -158,14 +234,31 @@ def main():
             report["stdout"] = error.stdout
         raise
     finally:
+        model.release.set()
+        if turn is not None:
+            try:
+                turn.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                turn.terminate()
+                turn.communicate(timeout=5)
         if service is not None:
             stopped = run(
-                [str(entry), "service", "stop", "--json", "--instance", service["serviceId"]],
+                [
+                    str(entry),
+                    "service",
+                    "stop",
+                    "--json",
+                    "--instance",
+                    service["serviceId"],
+                    "--cancel",
+                ],
                 check=False,
             )
             report["cleanupStopExitCode"] = stopped.returncode
             if stopped.returncode != 0:
                 report["passed"] = False
+        model.shutdown()
+        model.server_close()
         args.evidence.parent.mkdir(parents=True, exist_ok=True)
         args.evidence.write_text(json.dumps(report, indent=2) + "\n")
         if report["passed"]:
