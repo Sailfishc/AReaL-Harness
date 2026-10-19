@@ -197,8 +197,9 @@ def install(args, version, target):
             try:
                 os.replace(temporary_link, link)
             except BaseException:
-                # 入口尚未提交，删除仅本次创建的候选，不触碰旧版本和用户数据。
-                shutil.rmtree(final)
+                # 系统调用成功后仍可能收到中断；入口已指向候选时不能删除活动版本。
+                if not link.is_symlink() or link.resolve() != final / "bin/areal":
+                    shutil.rmtree(final)
                 raise
     print("Installed " + str(link))
     selected = shutil.which("areal")

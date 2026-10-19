@@ -218,6 +218,26 @@ class InstallTransactionTests(unittest.TestCase):
         self.assertIn("another installation is in progress", result.stderr)
         self.unchanged()
 
+    def test_interruption_after_committed_switch_keeps_active_version_usable(self):
+        self.old_install()
+        args = self.args("0.1.6")
+        replace = installer.os.replace
+
+        def committed_then_interrupted(source, destination):
+            replace(source, destination)
+            raise KeyboardInterrupt()
+
+        with patch.object(installer.os, "replace", side_effect=committed_then_interrupted):
+            with self.assertRaises(KeyboardInterrupt):
+                self.install("0.1.6", args)
+        entry = self.prefix / "bin/areal"
+        self.assertEqual(
+            subprocess.check_output([str(entry), "--version"], text=True), "areal 0.1.6\n"
+        )
+        self.assertEqual(self.old.read_bytes(), self.old_bytes)
+        self.assertEqual(self.user_data(), self.data_before)
+        self.assertEqual(list((self.prefix / "lib/areal").glob(".install-*")), [])
+
     def test_candidate_must_report_expected_version(self):
         self.old_install()
         bundle = self.fixture.bundle("0.1.6", self.target[0])
