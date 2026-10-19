@@ -55,7 +55,7 @@ Descriptor fields are defined in [local-service-v1.json](../../schemas/local-ser
 
 When the original instance still holds its lease but its control endpoint has closed or disconnected, `status` reports `unavailable`, not a completed stop. Protocol, permission and timeout errors remain failures. `ensure` does not take over that active owner. Store startup allows about 100 ms for inherited-descriptor handoff, never cleans pending writes before acquiring the exclusive lock, and still refuses a persistent owner.
 
-GUI uses `service ensure --no-auto-restart`: compatible services may be reused and absent instances started under the existing locks. Replacement of a running instance requires an explicit lifecycle operation. Ordinary CLI ensure retains its existing idle-update behavior.
+GUI uses `service ensure --no-auto-restart`: compatible services may be reused and absent instances started under the existing locks. Replacement of a running instance requires an explicit lifecycle operation. Ordinary CLI ensure and TUI reconnect may still apply configuration changes to an idle service running the same binaries. Changed binary hashes require explicit `service restart` or a GUI lifecycle update, preventing implicit upgrades and downgrades.
 
 ```sh
 areal service capabilities --instance INSTANCE --expected-generation GENERATION --json
@@ -63,7 +63,7 @@ areal service stop --instance INSTANCE --expected-generation GENERATION --reques
 areal service operation --instance INSTANCE --expected-generation GENERATION --request-id UUID --json
 ```
 
-Capabilities returns `{version:1,stopOperations:1}`. Unsupported hosts reject new writes without a Stop probe. Stop with request-id returns `{version:1,requestId,serviceId,generation,cancel,state,message?,lifecycle?}`; operation returns `{operation:<original receipt or null>}`. Within each service registry, an ID permanently binds the generation and cancel strategy; changed parameters conflict. Legacy stop without request-id still returns a Service descriptor.
+Capabilities returns `{version:1,stopOperations:1}`. Unsupported hosts reject new writes without a Stop probe. Stop with request-id returns `{version:1,requestId,serviceId,generation,cancel,state,message?,lifecycle?}`; operation returns `{operation:<original receipt or null>}`. Within each service registry, an ID permanently binds the generation and cancel strategy; changed parameters conflict. The current CLI also creates a durable stop operation when request-id is omitted, returning a Service descriptor only after the original instance exits. Failures retain the request ID and generation for inspection. New hosts reject the legacy control protocol's unreceipted `Stop` without draining or cancelling work, preventing a still-running old TUI from stopping a newer backend during reconnect. Hosts from 0.1.5 support durable stop operations. Stop hosts without that capability, including 0.1.4, explicitly with their original CLI before starting the new version; capability-query failures never trigger a fallback to legacy Stop.
 
 Before drain, Host atomically stores and fsyncs a receipt in private registry `operations/`, outside generation cleanup. States are `acceptedPending`, `blocked`, `admissionUnknown`, `settlementIncomplete`, and `completed`. Known refusal is distinct from admitted but incomplete settlement. Reads never repeat drain or cancel; null does not prove non-admission. A new explicit intent may observe again and use a new ID after known refusal or incomplete settlement. Uncertain admission requires inspection first.
 
