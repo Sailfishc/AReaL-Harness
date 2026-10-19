@@ -55,6 +55,17 @@ Do not require the optional adapter job in regular pull-request branch protectio
 
 For local validation without new signatures, use `AREAL_GUI_UNSIGNED_LOCAL=1 AREAL_GUI_PACKAGE_DIR=/absolute/new-directory pnpm --dir clients/gui package`, or `python3 scripts/package.py --unsigned-local --profile debug --output /absolute/new-directory` for a CLI bundle. This explicit mode skips signing Core copies and the app while builder retains `identity: null`. It preserves input bytes and existing signatures, records actual bundle signature verification, and neither removes signatures nor changes system policy. It is incompatible with `AREAL_GUI_RELEASE=1`; the default flow still creates local ad-hoc signatures. A generated ZIP does not prove launchability: extract into a new isolated directory and validate, preserving the first system rejection and stopping that launch path if denied.
 
+Default local ad-hoc packaging produces an `.app`, `AReaL-Harness-GUI-mac-arm64.zip`, and a matching `.dmg`. `package-evidence.json` records the DMG path, compressed size, SHA-256, and verified framework hardlink counts. `AREAL_GUI_UNSIGNED_LOCAL=1` and the `AREAL_GUI_RELEASE=1` staging step still export only ZIP.
+
+To export a preview DMG from an already signed app, use a destination that does not exist:
+
+```sh
+node clients/gui/scripts/macos-dmg.mjs --app "/absolute/AReaL Harness GUI.app" \
+  --output /absolute/new-preview.dmg --volume-name "AReaL Harness Preview"
+```
+
+Preview and production DMGs use the same exporter. It preserves the source app and proves equivalent payloads, layout, and signing policies for both Electron frameworks in a private copy before hardlinking corresponding regular files. For differently signed code, it removes signatures only from disposable file copies and compares all remaining bytes. Unsupported differences fail the export. The main app and background service retain independent helpers, metadata, and local framework directories. The exporter does not sign code. After the final app signature, it creates an HFS+ UDZO DMG and publishes only after a read-only mount passes signature, layout, and shared-inode checks. The production flow then signs, notarizes, and staples the DMG. The ZIP format and update path are unchanged, with no promised ZIP size reduction. An ad-hoc preview does not establish Apple distribution trust.
+
 GUI versions are declared by `clients/gui/package.json` and `clients/gui/app/package.json`, independently of Cargo/CLI. Publish to `areal-project/AReaL-Harness` using `gui-v<version>` tags; CLI tags remain `v<version>`. GUI releases are not GitHub Latest, preserving the CLI installer's Latest semantics.
 
 Production GUI packages contain `areal-update.json` with the fixed feed `https://github.com/areal-project/AReaL-Harness/releases/download/gui-update-channel/`. The `gui-update-channel` prerelease carries only the current `latest-mac.yml`; that manifest points to the immutable ZIP in `gui-v<version>` and includes size and SHA-512. Only same-repository, same-version assets are accepted. Local ad-hoc packages have no update configuration.

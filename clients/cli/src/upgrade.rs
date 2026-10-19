@@ -105,16 +105,16 @@ pub async fn run(check: bool) -> Result<()> {
         newer_release(&latest, current)?,
         "refusing to downgrade to {latest}"
     );
-    let root = areal_local_service::home()?;
-    let services = areal_local_service::list(&root).await?;
-    ensure!(
-        services
-            .iter()
-            .all(|service| service.state == State::Stopped),
-        "stop all shared services before upgrading: areal service list"
-    );
     match source {
         Installation::Homebrew => {
+            let root = areal_local_service::home()?;
+            let services = areal_local_service::list(&root).await?;
+            ensure!(
+                services
+                    .iter()
+                    .all(|service| service.state == State::Stopped),
+                "stop all shared services before upgrading: areal service list"
+            );
             let status = Command::new("brew")
                 .args(["upgrade", "--formula", "areal-project/tap/areal"])
                 .status()

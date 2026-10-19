@@ -8,6 +8,7 @@ Install dependencies using the [development guide](README.en.md). Regular tests 
 |---|---|
 | `make verify` | Cordis pin, formatting, static checks, Rust workspace, both SDKs, Python, documentation, TUI and unified delegation smoke |
 | `make script-test` | Launcher, Web reasoning/wait/cancel projections, benchmark statistics/evidence, adapter dependency boundaries and documentation links/language pairs |
+| `make upgrade-smoke` | Real CLI and offline installer in isolated directories, covering standalone upgrades, old-bundle retention, Homebrew protection and checksum failure; synthetic service records do not establish real-task continuity |
 | `make test-core` / `make test-protocol` | Engine / app-server |
 | `make test-concurrency` | Concurrency primitives |
 | `make verify-runtime` | Runtime unit tests and real file, process, permission and shutdown smoke |
