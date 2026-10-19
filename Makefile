@@ -236,7 +236,8 @@ gui-install: ## 安装 GUI 的公开锁定依赖（需 pnpm）
 	pnpm --dir clients/gui install --frozen-lockfile
 	pnpm --dir clients/gui --filter @areal/gui-desktop exec install-electron
 	pnpm --dir clients/gui --filter @areal/gui-desktop exec playwright-core install ffmpeg
-gui-build: ## 构建 GUI renderer
+gui-build: ## 同步锁定依赖并构建 GUI renderer
+	pnpm --dir clients/gui install --frozen-lockfile
 	pnpm --dir clients/gui build
 gui: gui-build ## 启动桌面 GUI（先 make build）
 	pnpm --dir clients/gui start

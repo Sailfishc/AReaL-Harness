@@ -20,7 +20,7 @@ make gui-install
 make gui
 ```
 
-`make gui-build` builds only the renderer. `pnpm --dir clients/gui typecheck` checks renderer and shared desktop contract JSDoc types (not all Electron CJS implementations); `pnpm --dir clients/gui run verify` checks the public source boundary. This module has its own pnpm lockfile; existing SDKs retain npm. Dependencies use the public npm registry; initial Electron/Core tool installation needs network access.
+`make gui-build` runs `pnpm install --frozen-lockfile` before building the renderer. `make gui` and `make gui-package` share this step, automatically synchronizing dependencies and installation records after branch or version changes. A lockfile mismatch stops the command without updating the lockfile. `pnpm --dir clients/gui typecheck` checks renderer and shared desktop contract JSDoc types (not all Electron CJS implementations); `pnpm --dir clients/gui run verify` checks the public source boundary. This module has its own pnpm lockfile; existing SDKs retain npm. Dependencies use the public npm registry; initial Electron/Core tool installation needs network access.
 
 After installing locked dependencies, `make gui-install` explicitly runs the official Electron installer to download the pinned native runtime.
 
