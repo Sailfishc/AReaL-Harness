@@ -209,13 +209,15 @@ async function launch() {
   });
 }
 async function closeGui() {
+  observer?.close(); observer = undefined;
   if (!app) return;
   const current = app;
   const process = current.process();
   if (process.exitCode === null) {
-    await current.evaluate(({ BrowserWindow, app }) => {
-      for (const window of BrowserWindow.getAllWindows()) window.destroy();
-      app.exit(0);
+    await current.evaluate(({ Menu }) => {
+      const quit = Menu.getApplicationMenu().items[0].submenu.items.find(item => item.label === "退出 AReaL Harness");
+      if (!quit) throw new Error("Safe application quit menu is missing");
+      quit.click();
     }).catch(async error => {
       await until(() => process.exitCode !== null, "owned GUI exit after channel closes").catch(() => { throw error; });
     });
@@ -226,6 +228,14 @@ async function closeGui() {
 async function stopOwnedService() {
   observer?.close(); observer = undefined;
   metadata ??= JSON.parse(await readFile(join(env.AREAL_CORE_HOME, "service.json"), "utf8"));
+  if (metadata.applicationOwner) {
+    await waitForServiceProcessExit(env.AREAL_CORE_HOME, metadata);
+    for (const pid of ownedPids) await waitForProcessExit(pid);
+    const records = cli(["service", "list"]);
+    assert.deepEqual((records.data ?? records).filter(record => record.state !== "stopped"), [], "Application lifetime cleanup stops every owned Core generation");
+    metadata = undefined;
+    return;
+  }
   const connection = new ServiceConnection();
   try {
     await connection.connect(metadata);
