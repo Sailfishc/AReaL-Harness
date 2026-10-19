@@ -24,7 +24,10 @@ def main():
     args = parser.parse_args()
     candidate = args.archive.resolve()
     target = "aarch64-apple-darwin" if platform.system() == "Darwin" else "x86_64-unknown-linux-gnu"
-    root = Path(tempfile.mkdtemp(prefix="areal-brew-", dir="/tmp")).resolve()
+    # macOS Homebrew 沙箱允许临时目录写入，prefix 必须放在其外以保留 brew 自身写保护。
+    isolation = ROOT / "target"
+    isolation.mkdir(exist_ok=True)
+    root = Path(tempfile.mkdtemp(prefix="homebrew-", dir=isolation)).resolve()
     owner = subprocess.check_output(["brew", "--repository"], text=True).strip()
     prefix = root / "brew"
     subprocess.run(["git", "clone", "--quiet", "--shared", owner, str(prefix)], check=True)
