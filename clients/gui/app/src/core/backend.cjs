@@ -274,9 +274,9 @@ class CoreBackend {
       trace.advance('provider_prepare');
       await this.providers.prepare();
       trace.advance('provider_config');
-      const providerSnapshot = await this.providers.config.current();
-      project.providerSnapshot = providerSnapshot;
+      await this.providers.config.current();
       project.providerRevision = null;
+      delete project.providerSnapshot;
       trace.advance('hooks');
       const hookDeployment = await this.hooks.launch();
       project.hookRevision = null;
@@ -287,7 +287,6 @@ class CoreBackend {
       project.endpoint = descriptor.endpoint;
       project.token = token;
       trace.advance('configuration_recheck');
-      if ((await this.providers.config.current()).revision === providerSnapshot.revision) project.providerRevision = providerSnapshot.revision;
       if ((await this.hooks.current()).revision === hookDeployment.revision) project.hookRevision = hookDeployment.revision;
       trace.finish('ok');
       const attached = startupTrace('core.service_ready', { projectId: project.id, coreGeneration: descriptor.generation });
@@ -436,6 +435,9 @@ class CoreBackend {
       project.error = null;
       project.configurations ??= {};
       project.configurationChanges ??= new Map();
+      trace.advance('provider_configuration');
+      await this.providers.reconcileProject(project);
+      this.requireConnection(project, client);
       if (!observeOnly) {
         trace.advance('providers');
         await this.providers.sync(project, correlation);
