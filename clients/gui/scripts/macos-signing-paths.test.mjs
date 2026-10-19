@@ -26,16 +26,22 @@ test("outer signing preserves Core bytes through main and background-service res
     await writeFile(path, "signed Core: " + name);
     paths.push(path);
   }
-  const other = join(contents, "MacOS/GUI");
-  await mkdir(join(other, ".."), { recursive: true });
-  await writeFile(other, "unsigned GUI");
+  const others = [
+    join(contents, "MacOS/GUI"),
+    join(service, "MacOS/Service"),
+    join(contents, "Frameworks/Native.framework/Versions/A/Native"),
+  ];
+  for (const other of others) {
+    await mkdir(join(other, ".."), { recursive: true });
+    await writeFile(other, "unsigned nested executable");
+  }
   const ignore = preserveSignedPaths(paths);
   for (const path of [...paths, ...names.map((name) => join(service, "Resources", name)), other]) {
     if (!ignore(path)) await writeFile(path, "outer signature");
   }
   for (let i = 0; i < paths.length; i++)
     assert.equal(await readFile(paths[i], "utf8"), "signed Core: " + names[i]);
-  assert.equal(await readFile(other, "utf8"), "outer signature");
+  for (const other of others) assert.equal(await readFile(other, "utf8"), "outer signature");
   assert.equal(ignore(join(contents, "Resources/areal-core/LICENSE")), false);
 });
 
