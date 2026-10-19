@@ -9,6 +9,7 @@
 | `make verify` | Cordis pin、格式、静态检查、Rust workspace、两套 SDK、Python、文档、TUI 与统一委派 smoke |
 | `make script-test` | 启动器、Web 思考/等待/取消投影、perf 统计/证据、适配器依赖边界与文档链接/语言配对 |
 | `make upgrade-smoke` | 隔离运行真实 CLI 与离线安装器，验证独立安装升级、旧版本保留、Homebrew 保护及校验失败；合成服务记录不代表真实任务连续性 |
+| `make tui-upgrade-smoke ARGS='--old-bin-dir /absolute/old/bin --new-bin-dir /absolute/new/bin'` | 两套固定真实产物、真实新旧 TUI PTY、本地模型与 Core/Runtime，验证显式换代后旧客户端重连不会停止或降级新后台 |
 | `make test-core` / `make test-protocol` | Engine / app-server |
 | `make test-concurrency` | 并发原语 |
 | `make verify-runtime` | Runtime 单元测试与真实文件、进程、权限和关闭 smoke |
@@ -21,6 +22,8 @@
 快照格式变更须运行 `make verify-harness`：Harness 与插件 smoke 核对写入版本，桌面搬迁测试同时核对发行 manifest、`areal/server/status.stateVersion` 与实际快照版本一致。
 
 真实 PTY smoke 使用终端单元格模拟器重建增量画面；宽字符同时覆盖相邻单元格，避免旧字符残留造成 Unicode 编辑结果误报。脚本单元测试覆盖该重绘边界。
+
+`tui-upgrade-smoke` 不构建或部署产物；先分别准备完整的不可变旧版与新版目录，并选择旧版不支持新版状态格式的组合。脚本隔离 home、工作区、状态和模型端点，通过真实 TUI 提交旧版与新版消息，显式重启激活新版，然后恢复仍打开的旧 TUI 并触发重连。它跨多个重试周期核对新版 Host/Core PID、generation、状态格式和后续回复。用 `--evidence /absolute/output` 保留终端画面、命令日志、源码与产物身份及清理结果；默认保存于临时目录。该检查不执行安装器，不替代 `upgrade-smoke`、安装包或真实供应商验收。
 
 macOS 原生 smoke 需要 Seatbelt，Linux 原生 smoke 需要 `/usr/bin/bwrap` 和 user namespace；两者都不能在能力缺失时回退到无沙箱执行。`outer-container-perf` 仍在受控容器中验证。默认 `cargo test` 不运行显式忽略的原生 Workgroup 和容量用例。
 
