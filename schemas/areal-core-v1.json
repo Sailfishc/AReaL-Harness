@@ -16647,6 +16647,72 @@
       "properties": {},
       "type": "object"
     },
+    "areal/server/modelConfiguration/apply": {
+      "additionalProperties": false,
+      "properties": {
+        "credentials": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "expectedApplied": {
+          "additionalProperties": false,
+          "properties": {
+            "revision": {
+              "type": "string"
+            },
+            "sequence": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "revision",
+            "sequence"
+          ],
+          "type": "object"
+        },
+        "expectedGeneration": {
+          "type": "string"
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "targetRevision": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "expectedGeneration",
+        "expectedApplied",
+        "targetRevision",
+        "credentials"
+      ],
+      "title": "ModelConfigurationApply",
+      "type": "object"
+    },
+    "areal/server/modelConfiguration/read": {
+      "additionalProperties": false,
+      "properties": {
+        "expectedGeneration": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "requestId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "title": "ModelConfigurationRead",
+      "type": "object"
+    },
     "areal/server/status": {
       "additionalProperties": false,
       "properties": {},
@@ -56057,6 +56123,288 @@
         "deletedBlobs",
         "reclaimedBytes",
         "retainedBytes"
+      ],
+      "type": "object"
+    },
+    "areal/server/modelConfiguration/apply": {
+      "additionalProperties": true,
+      "properties": {
+        "applied": {
+          "additionalProperties": false,
+          "properties": {
+            "revision": {
+              "type": "string"
+            },
+            "sequence": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "revision",
+            "sequence"
+          ],
+          "title": "AppliedModelConfiguration",
+          "type": "object"
+        },
+        "credentialStates": {
+          "additionalProperties": {
+            "enum": [
+              "notRequired",
+              "available",
+              "unavailable"
+            ]
+          },
+          "type": "object"
+        },
+        "generation": {
+          "type": "string"
+        },
+        "modelRevision": {
+          "type": "string"
+        },
+        "operation": {
+          "additionalProperties": true,
+          "properties": {
+            "error": {
+              "properties": {
+                "code": {
+                  "format": "int64",
+                  "type": "integer"
+                },
+                "data": true,
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "code",
+                "message"
+              ],
+              "title": "RpcError",
+              "type": "object"
+            },
+            "requestId": {
+              "type": "string"
+            },
+            "result": {
+              "additionalProperties": true,
+              "properties": {
+                "applied": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "revision": {
+                      "type": "string"
+                    },
+                    "sequence": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "revision",
+                    "sequence"
+                  ],
+                  "title": "AppliedModelConfiguration",
+                  "type": "object"
+                },
+                "credentialStates": {
+                  "additionalProperties": {
+                    "enum": [
+                      "notRequired",
+                      "available",
+                      "unavailable"
+                    ]
+                  },
+                  "type": "object"
+                },
+                "generation": {
+                  "type": "string"
+                },
+                "modelRevision": {
+                  "type": "string"
+                },
+                "serviceId": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "applied",
+                "credentialStates",
+                "generation",
+                "modelRevision",
+                "serviceId"
+              ],
+              "type": "object"
+            },
+            "state": {
+              "enum": [
+                "running",
+                "applied",
+                "rejected",
+                "unknown"
+              ]
+            }
+          },
+          "required": [
+            "requestId",
+            "state"
+          ],
+          "type": "object"
+        },
+        "serviceId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "applied",
+        "credentialStates",
+        "generation",
+        "modelRevision",
+        "serviceId"
+      ],
+      "type": "object"
+    },
+    "areal/server/modelConfiguration/read": {
+      "additionalProperties": true,
+      "properties": {
+        "applied": {
+          "additionalProperties": false,
+          "properties": {
+            "revision": {
+              "type": "string"
+            },
+            "sequence": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "revision",
+            "sequence"
+          ],
+          "title": "AppliedModelConfiguration",
+          "type": "object"
+        },
+        "credentialStates": {
+          "additionalProperties": {
+            "enum": [
+              "notRequired",
+              "available",
+              "unavailable"
+            ]
+          },
+          "type": "object"
+        },
+        "generation": {
+          "type": "string"
+        },
+        "modelRevision": {
+          "type": "string"
+        },
+        "operation": {
+          "additionalProperties": true,
+          "properties": {
+            "error": {
+              "properties": {
+                "code": {
+                  "format": "int64",
+                  "type": "integer"
+                },
+                "data": true,
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "code",
+                "message"
+              ],
+              "title": "RpcError",
+              "type": "object"
+            },
+            "requestId": {
+              "type": "string"
+            },
+            "result": {
+              "additionalProperties": true,
+              "properties": {
+                "applied": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "revision": {
+                      "type": "string"
+                    },
+                    "sequence": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "revision",
+                    "sequence"
+                  ],
+                  "title": "AppliedModelConfiguration",
+                  "type": "object"
+                },
+                "credentialStates": {
+                  "additionalProperties": {
+                    "enum": [
+                      "notRequired",
+                      "available",
+                      "unavailable"
+                    ]
+                  },
+                  "type": "object"
+                },
+                "generation": {
+                  "type": "string"
+                },
+                "modelRevision": {
+                  "type": "string"
+                },
+                "serviceId": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "applied",
+                "credentialStates",
+                "generation",
+                "modelRevision",
+                "serviceId"
+              ],
+              "type": "object"
+            },
+            "state": {
+              "enum": [
+                "running",
+                "applied",
+                "rejected",
+                "unknown"
+              ]
+            }
+          },
+          "required": [
+            "requestId",
+            "state"
+          ],
+          "type": "object"
+        },
+        "serviceId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "applied",
+        "credentialStates",
+        "generation",
+        "modelRevision",
+        "serviceId"
       ],
       "type": "object"
     },
