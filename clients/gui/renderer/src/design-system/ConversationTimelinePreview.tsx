@@ -56,6 +56,41 @@ function DisclosureUpdatePreview({ dark }: { dark: boolean }) {
   </section>;
 }
 
+function ActivityReadingPreview({ dark }: { dark: boolean }) {
+  const [shape, setShape] = useState("multiple");
+  const [state, setState] = useState("running");
+  const [output, setOutput] = useState(0);
+  const [accepted, setAccepted] = useState(false);
+  const command = { ...tool("reading-command", "run_command", { command: Array.from({ length: 12 }, (_, index) => `printf 'command line ${index + 1}\\n'`).join("\n") },
+    { stdout: `延迟输出 ${output}\n` + "正在检查阅读位置。\n".repeat(24 + output * 12), stderr: "", commandStatus: "running" }), status: "inProgress", success: undefined };
+  const reasoning = { id: "reading-reasoning", type: "reasoning", summary: ["阅读思考过程时，后续输出保留当前位置。".repeat(12)] };
+  const turn = { id: "reading-turn", status: "inProgress", items: [
+    { id: "reading-user", type: "userMessage", content: [{ type: "text", text: "展开执行详情并继续阅读。" }] },
+    ...(shape === "multiple" ? [command, tool("reading-plan", "plan_read", {}, { steps: ["检查阅读位置", "保留阅读意图"] }), reasoning]
+      : shape === "single" ? [command] : shape === "reasoning" ? [reasoning] : []),
+    ...(output ? [{ id: "reading-output", type: "agentMessage", phase: "commentary", text: `后续回复 ${output}\n\n` + "后续回复继续增加，阅读位置由用户决定。\n\n".repeat(output * 8) }] : []),
+  ], ...(state === "retry" ? { modelRetry: { purpose: "solve", retry: 2 } } : {}) };
+  const thread = { id: "reading-preview", turns: [
+    { id: "reading-history", status: "completed", items: [{ id: "reading-history-reply", type: "agentMessage", phase: "final_answer", text: "此前的回复保留完整阅读空间。\n\n".repeat(30) }] }, ...(accepted ? [turn] : []),
+  ] };
+  const project = { id: "reading-project", root: "/preview", configurations: {}, state: { connected: state !== "disconnected",
+    interactions: state === "input" ? { [thread.id]: { data: [{ status: "pending", turnId: turn.id }] } } : {}, queues: {}, threads: {} } };
+  return <section id="activity-reading-preview" className="design-preview-panel design-preview-messages" aria-label="活动与阅读预览">
+    <div className="design-preview-actions">
+      <label>活动形状<select aria-label="活动形状" value={shape} onChange={event => { setShape(event.target.value); setOutput(0); }}>
+        <option value="multiple">多项活动</option><option value="single">单项工具</option><option value="reasoning">思考过程</option><option value="empty">等待响应</option>
+      </select></label>
+      <label>活动状态<select aria-label="活动状态" value={state} onChange={event => setState(event.target.value)}>
+        <option value="running">运行中</option><option value="input">等待输入</option><option value="retry">模型重试</option><option value="disconnected">连接中断</option>
+      </select></label>
+      <Button variant="outline" disabled={accepted} onClick={() => setAccepted(true)}>接受新轮次</Button>
+      <Button variant="outline" onClick={() => window.setTimeout(() => setOutput(value => value + 1), 120)}>延迟追加输出</Button>
+    </div>
+    <Messages project={project} thread={thread} action={action} dark={dark} readTurnReview={readReview}
+      onLink={() => {}} onFile={() => {}} onReview={() => {}} />
+  </section>;
+}
+
 export function ConversationTimelinePreview({ dark }: { dark: boolean }) {
   const [live, setLive] = useState(false);
   const [opened, setOpened] = useState("");
@@ -72,5 +107,5 @@ export function ConversationTimelinePreview({ dark }: { dark: boolean }) {
     <Messages project={project} thread={thread} action={action} dark={dark} reserveResponseSpace={false}
       onLink={setOpened} onFile={setOpened} onReview={() => setOpened("本轮文件变更")} onAgent={setOpened} readTurnReview={readReview} />
     {opened && <p role="status">预览打开：{opened}</p>}
-  </section><DisclosureUpdatePreview dark={dark} /></>;
+  </section><DisclosureUpdatePreview dark={dark} /><ActivityReadingPreview dark={dark} /></>;
 }

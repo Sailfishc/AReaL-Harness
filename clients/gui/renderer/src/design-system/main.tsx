@@ -17,7 +17,7 @@ import { Button } from "../components/ui/button.js";
 import { Feedback } from "../components/ui/feedback.js";
 import { TooltipProvider } from "../components/ui/tooltip.js";
 import { MessageResponse } from "../components/ai-elements/message.js";
-import { TurnExecution } from "../TurnExecution.js";
+import { TurnActivity } from "../TurnExecution.js";
 import { Messages } from "../Messages.js";
 import { ConversationTimelinePreview } from "./ConversationTimelinePreview.js";
 import type { LexicalChatInputHandle } from "../LexicalChatInput.js";
@@ -62,7 +62,7 @@ function ChatMotionPreview({ dark }: { dark: boolean }) {
   }, [playing]);
   return <section className="design-preview-panel" aria-label="聊天动效预览">
     <h2>流式输出与等待状态</h2>
-    <TurnExecution items={[]} turn={{ id: "preview-turn", status: "inProgress", items: [] }} project={project} threadId="main" renderItem={() => null} />
+    <TurnActivity turn={{ id: "preview-turn", status: "inProgress", items: [] }} project={project} threadId="main" />
     <div className="design-preview-actions">
       <Button variant="outline" disabled={playing} onClick={() => setPlaying(true)}>播放流式输出</Button>
       <Button variant="ghost" disabled={playing} onClick={() => setLength(value => Math.min(value + 8, motionText.length))}>追加片段</Button>

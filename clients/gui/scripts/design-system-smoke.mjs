@@ -48,6 +48,98 @@ try {
   const input = page.getByTestId("preview-composer");
   const timeline = page.getByRole("region", { name: "对话时间线预览", exact: true });
   const updating = page.getByRole("region", { name: "实时活动状态预览", exact: true });
+  const reading = page.getByRole("region", { name: "活动与阅读预览", exact: true });
+  const transcript = reading.locator(".messages");
+  const liveTurn = reading.locator('[data-turn-id="reading-turn"]');
+  const settleLayout = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(resolve)))));
+  const position = control => control.evaluate(el => {
+    const container = el.closest(".messages");
+    return { y: el.getBoundingClientRect().top - container.getBoundingClientRect().top, top: container.scrollTop, max: container.scrollHeight - container.clientHeight };
+  });
+  const toggleHere = async (control, key, label) => {
+    await control.scrollIntoViewIfNeeded();
+    await settleLayout();
+    const before = await position(control);
+    const collapsing = await control.evaluate(el => el.getAttribute("aria-expanded") === "true" || el.parentElement?.matches("details[open]") === true);
+    if (key) { await control.focus(); await control.press(key); } else await control.click();
+    await settleLayout();
+    const after = await position(control);
+    const clamped = collapsing ? Math.max(0, before.top - after.max) : 0;
+    assert.ok(Math.abs(after.y - before.y - clamped) <= 1, `${label} retains the activated control position: ${JSON.stringify({ before, after, clamped })}`);
+  };
+  await transcript.scrollIntoViewIfNeeded();
+  await transcript.evaluate(el => el.scrollTo(0, el.scrollHeight));
+  await settleLayout();
+  await reading.getByRole("button", { name: "接受新轮次", exact: true }).click();
+  await settleLayout();
+  assert.ok(await reading.locator(".message-response-space").evaluate(el => el.getBoundingClientRect().height > 0), "a mounted accepted follow-up reserves response space");
+  const readingGroup = reading.getByRole("button", { name: "执行过程", exact: true });
+  await toggleHere(readingGroup, undefined, "activity group mouse expansion");
+  await toggleHere(readingGroup, "Enter", "activity group keyboard collapse");
+  await toggleHere(readingGroup, "Space", "activity group keyboard expansion");
+  const readingCommand = reading.locator('[data-tool-id="reading-command"]');
+  const commandToggle = readingCommand.locator("button.tool-summary-row");
+  await toggleHere(commandToggle, undefined, "nested tool mouse expansion");
+  await toggleHere(commandToggle, "Enter", "nested tool keyboard collapse");
+  await toggleHere(commandToggle, "Space", "nested tool keyboard expansion");
+  const fullCommand = readingCommand.locator(".command-input-toggle");
+  await toggleHere(fullCommand, undefined, "full command mouse expansion");
+  await toggleHere(fullCommand, "Space", "full command keyboard collapse");
+  await toggleHere(fullCommand, "Enter", "full command keyboard expansion");
+  const rawCommand = readingCommand.locator(".command-raw summary");
+  await toggleHere(rawCommand, undefined, "native raw record mouse expansion");
+  await toggleHere(rawCommand, "Enter", "native raw record keyboard collapse");
+  await toggleHere(rawCommand, "Space", "native raw record keyboard expansion");
+  await toggleHere(rawCommand, undefined, "native raw record mouse collapse");
+  const reasoningToggle = reading.getByRole("button", { name: "思考过程", exact: true });
+  await toggleHere(reasoningToggle, "Enter", "reasoning keyboard expansion");
+  await toggleHere(reasoningToggle, undefined, "reasoning mouse collapse");
+  const processToggle = reading.locator(".turn-progress-summary");
+  await toggleHere(processToggle, "Enter", "turn progress keyboard collapse");
+  await toggleHere(processToggle, undefined, "turn progress mouse expansion");
+  await readingGroup.scrollIntoViewIfNeeded();
+  await settleLayout();
+  const beforeOutput = await position(readingGroup);
+  await reading.getByRole("button", { name: "延迟追加输出", exact: true }).click();
+  await liveTurn.locator('[data-side-item-id="reading-output"]').getByText("后续回复 1", { exact: false }).waitFor();
+  await settleLayout();
+  assert.ok(Math.abs((await position(readingGroup)).y - beforeOutput.y) <= 1, "delayed tool and reply output retains reading position");
+  await reading.getByRole("button", { name: "滚动到底部", exact: true }).click();
+  await settleLayout();
+  assert.ok(await transcript.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight <= 1), "return to bottom reaches the transcript tail");
+  await reading.getByRole("button", { name: "延迟追加输出", exact: true }).click();
+  await liveTurn.locator('[data-side-item-id="reading-output"]').getByText("后续回复 2", { exact: false }).waitFor();
+  await settleLayout();
+  assert.ok(await transcript.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight <= 1), "new output follows after return to bottom");
+  await reading.screenshot({ path: join(scratch, "activity-reading.png"), animations: "disabled" });
+  checks.push("mouse and native keyboard disclosures retain reading position across group, nested tool, full command, raw record, reasoning and turn history; delayed output respects reading and explicit bottom resumes following");
+  for (const [shape, expected] of [["multiple", "正在运行命令…"], ["single", "正在运行命令…"], ["reasoning", "正在思考…"], ["empty", "等待模型响应…"]]) {
+    await reading.getByLabel("活动形状", { exact: true }).selectOption(shape);
+    const status = liveTurn.getByTestId("turn-activity");
+    assert.equal(await status.count(), 1, `${shape} has exactly one live turn status`);
+    assert.equal(await status.getAttribute("role"), "status");
+    assert.equal(await status.evaluate(el => !!el.closest("button, summary, .turn-progress, .turn-execution")), false, `${shape} status is outside every disclosure`);
+    assert.ok((await status.innerText()).startsWith(expected), `${shape} status describes the whole turn`);
+    assert.equal(await status.evaluate(el => el === el.closest("[data-turn-id]").lastElementChild), true, `${shape} status is the turn tail`);
+    assert.ok(await status.evaluate(el => el.getAnimations().length > 0), `${shape} status animates while connected`);
+    if (shape === "multiple" || shape === "single") assert.ok((await status.innerText()).includes("command line 1"), "current tool target stays visible in the tail status");
+    if (shape === "multiple") {
+      await processToggle.click();
+      assert.equal(await status.isVisible(), true, "folded turn history retains the separate tail status");
+      assert.equal(await liveTurn.getByTestId("turn-activity").count(), 1);
+      await processToggle.click();
+      assert.ok((await readingGroup.innerText()).includes("运行命令"), "the execution disclosure describes its activities");
+      assert.equal((await readingGroup.innerText()).includes("正在"), false, "live status does not replace the activity summary");
+    }
+  }
+  for (const [state, expected] of [["input", "等待你的确认或回答"], ["retry", "模型连接遇到网络问题，正在重试（第 2 次）…"], ["disconnected", "连接已中断，任务状态待同步"]]) {
+    await reading.getByLabel("活动状态", { exact: true }).selectOption(state);
+    const status = liveTurn.getByTestId("turn-activity");
+    assert.equal(await status.innerText(), expected);
+    assert.equal(await status.evaluate(el => el.getAnimations().length), 0, `${state} status does not animate`);
+  }
+  await reading.getByLabel("活动状态", { exact: true }).selectOption("running");
+  checks.push("single tool, grouped tools, reasoning and empty turns share one independent animated tail status; input, retry and disconnect retain their canonical static labels");
   const progressToggle = updating.locator(".turn-progress-summary");
   await progressToggle.click();
   await progressToggle.click();
