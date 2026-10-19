@@ -11,23 +11,13 @@ Use these commands after the packages are published to GitHub Releases. Before p
 | macOS arm64 | Complete GitHub Release bundle and Python installer; optional Homebrew formula once the tap is published | macOS 15+, Xcode Command Line Tools; standalone install/upgrade requires Python 3.9+ on PATH |
 | Linux x86_64 | Complete GitHub Release bundle and Python installer | Ubuntu 22.04 or newer compatible glibc 2.35+ system; standalone install/upgrade requires Python 3.9+ on PATH; musl unsupported |
 
-Only these architectures are validated. No Windows, Intel macOS or Linux arm64 packages are provided. **npm and `cargo install` do not provide complete bundles yet**, so neither is an installation channel. Choose Homebrew or standalone installation, not both for the same PATH entry. Bundles contain `bin/areal`, `libexec/areal/{areal-runtime,areal-runtime-fs}`, LICENSE and a file SHA256 manifest; Linux bundles also include `areal-runtime-reaper` in the same directory. Do not copy only `areal`. Startup needs neither Rust/Cargo nor Python after installation; configured Node/Python tools still require their interpreters.
+Only these architectures are validated. No Windows, Intel macOS or Linux arm64 packages are provided. **npm and `cargo install` do not provide complete bundles yet**, so neither is an installation channel. Choose Homebrew or standalone installation, not both for the same PATH entry. Bundles contain `bin/areal`, `libexec/areal/{areal-runtime,areal-runtime-fs}`, LICENSE and a file SHA256 manifest; Linux bundles also include `areal-runtime-reaper` in the same directory. Do not copy only `areal`. Startup does not require Rust/Cargo. macOS still requires an executable `/usr/bin/python3` from Command Line Tools; configured Node/Python tools need their interpreters.
 
 macOS bundles are ad-hoc signed, without Developer ID signing or notarization. Linux defaults to YOLO/full-access under the current user's permissions. Restricted/read-only scopes require `/usr/bin/bwrap` and usable user namespaces. Install `bubblewrap` on Ubuntu; restricted operations fail if user namespaces are disabled or AppArmor denies them, without silently expanding permissions. See [Runtime deployment](runtime.en.md).
 
-## Homebrew (macOS)
+## Homebrew (future channel)
 
-After maintainers publish the release-generated `areal.rb` to `areal-project/homebrew-tap`:
-
-```sh
-xcode-select --install  # Skip if Command Line Tools are installed
-brew tap areal-project/tap
-brew install areal-project/tap/areal
-areal --version
-brew test areal-project/tap/areal
-```
-
-The tap may not exist before the first release. The formula uses the final archive SHA256 and installs a complete precompiled bundle without compiling Rust. It does not register brew services; use `areal service` for shared services.
+Use the complete-bundle installer below. An `areal.rb` release attachment does not establish a public tap. Do not overwrite Homebrew files with the installer. Existing Homebrew installations remain owned by Homebrew: `areal upgrade` invokes the original formula and fails explicitly if its tap has not caught up.
 
 ## Standalone installation (macOS / Linux)
 
@@ -47,7 +37,9 @@ assert len(expected) == 1 and hashlib.sha256(Path('install.py').read_bytes()).he
 PY
 python3 install.py --version "$version"
 export PATH="$HOME/.local/bin:$PATH"
+command -v areal
 areal --version
+areal build-info
 ```
 
 The default destination is `~/.local/lib/areal/<version>-macos-arm64` or `<version>-linux-x86_64`, with a symlink at `~/.local/bin/areal`. Use `--prefix /absolute/path` for another writable directory. The installer never invokes sudo or changes shell configuration. It refuses to replace an unmanaged `bin/areal` or an existing version directory.
@@ -63,6 +55,26 @@ python3 install.py --version 0.1.6 --prefix "$HOME/.local" \
 For macOS offline installation, use `areal-harness-v0.1.6-aarch64-apple-darwin.tar.gz` instead. `python3 install.py --version latest --check` queries the latest public Release without installing it; `--version latest` installs it when explicitly requested.
 
 The installer verifies the archive and all bundle files before executing any bundled program, rejecting links, devices and traversal entries. SHA256 verifies consistency with the published manifest; it is not independent authentication of the release source.
+
+## Upgrade commands
+
+Back up configuration and history first (normally `~/.areal`, plus any custom data directories), finish active work, then stop each shared service:
+
+```sh
+areal service list
+areal service stop --workspace /absolute/workspace
+areal upgrade --check
+areal upgrade
+command -v areal
+areal --version
+areal build-info
+```
+
+`command -v areal` should select the intended installation entry. Check PATH when several prefixes coexist, and run `hash -r` if needed. `build-info` reports the source commit; the complete bundle's `manifest.json` records platform and per-file SHA-256. Retain it alongside the matching release's `SHA256SUMS`.
+
+The current source installer and `areal upgrade` both refuse running, stopping, or unknown shared services. The installer checks again after downloading and excludes concurrent installers for one prefix. The published 0.1.6 installer predates these additional protections: manually check and stop services before reinstalling it. Other processes can still start work after a service check, so keep clients closed during the switch.
+
+Interrupted downloads, bad checksums, mismatched program versions, and failed entry switches preserve the old entry and configuration/history. Fix the cause and retry. Forced termination can leave staging or an inactive version directory: retain old installations and user data. If a version directory already exists, inspect its integrity and the active entry before proceeding; do not overwrite it. To roll back the executable, stop services and repoint the entry symlink to the retained old version. If the new version has written data, restore the matching pre-upgrade backup; old versions are not guaranteed to read newer data formats.
 
 ## Configuration, upgrades and uninstalling
 

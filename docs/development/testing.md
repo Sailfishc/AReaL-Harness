@@ -196,3 +196,5 @@ Verify 汇总要求 host、container 和独立依赖审计全部成功。GUI gat
 从仓库根先执行 `make build` 与 `make gui-build`。`node scripts/plugin-p0-smoke.mjs` 使用真实共享 Core、CLI、认证 RPC 与本地确定性模型，验证原包发现/安装、摘要变化拒绝、共享资源边界、范围/撤权、setup 去重、丢失响应收据查询和服务重启。`pnpm --dir clients/gui test:plugins` 在隔离 Electron/Core 数据目录中完成目录→安装→setup→打开对话→停用/启用→卸载；setup 响应在 Main 到 Renderer 边界注入丢失，恢复通过真实 Core 收据，不能重放。制品目录由脚本输出，清单包含二进制和变更源码摘要。
 
 包与 Engine 集成：`cargo test --locked -p areal-plugins --test store -p areal-engine --test codex_plugins --test skills --test agents --test queue_transfer`。它们分别检查文件系统/安装事务与会话/Turn 权限和生命周期。上述检查不替代真实供应商、签名安装包、物理输入或跨平台验收，后续范围见[实施计划](codex-plugins-plan.md)。
+
+安装与更新改动：`make script-test` 包含合成完整包的安装事务回归、独立 Git 仓库的来源门禁和无 Electron 依赖的 GUI 更新控制器回归。覆盖下载中断、摘要/版本错误、服务拒绝、入口提交失败、安装互斥、数据不变、原生准备超时与受理未知不重发；模拟传输错误不代表真实签名替换。Release bundles 另运行 `scripts/install-smoke.py` 的真实共享服务保护。正式相邻版本的签名替换、重开及数据保持仍使用隔离包副本的 `test:update` 与合成 `test:history-compat`，按发行影响执行；Gatekeeper、Finder 启动和真人权限不由单元测试代替。

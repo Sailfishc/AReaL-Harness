@@ -166,3 +166,11 @@ Finish Core builds before starting desktop smoke tests that use that binary, and
 `pnpm --dir clients/gui run test:connection` covers real Core disconnect recovery, concurrent operations, retired connection messages and explicit shutdown. `pnpm --dir clients/gui run test:architecture` uses real Electron IPC to cover contract rejection, error-code forwarding and native preview eviction, crash reconstruction and owner release. Both isolate data and produce evidence; they do not replace package acceptance.
 
 See [THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES.md). Runtime icons retain the source repository's versions; capture archives, development Skills/AGENTS, and source Git history are excluded.
+
+## Installation and updates
+
+Formal macOS arm64 releases use a DMG for first installation and a ZIP for automatic updates, with Developer ID signing and Apple notarization. Verify the matching release's `SHA256SUMS`, drag the app from the DMG to your chosen installation directory, and open it while following macOS security and privacy prompts.
+
+Before upgrading, back up GUI data (normally `~/Library/Application Support/AReaL Harness GUI`), shared configuration in `~/.areal`, and custom project data. Downloading keeps tasks running. After native validation, installation waits for active tasks, queued input, and backend operations to settle safely before stopping the backend and handing replacement/relaunch to the system. If stop acceptance is unknown, inspect the original backend resources without submitting installation again. Retry download/validation failures; if the app does not reopen after system handoff, open its original installation location and check the version. Reverting the app does not downgrade data: restoring an older app may require its matching backup. Credentials keep their existing secure-storage identity; directory backups do not imply keychain portability between machines.
+
+Previews are manual ad-hoc installations without Developer ID distribution signing or notarization, and do not advance the formal update channel. Use isolated data or make a backup first. Older formal versions may not read preview data; moving from preview to formal requires manual installation and separate validation. Do not disable security protection or clear quarantine attributes to bypass system rejection.
