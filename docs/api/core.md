@@ -38,7 +38,7 @@ input 为有序 text/image/audio/file 等内容，UTF-8 文本合计最多 1 MiB
 
 ### 会话名称
 
-`Thread` 增加可选只读字段 `name`（自动总结的名称）和 `nameAttemptTurnId`（已领取命名请求的来源 Turn）。旧记录缺失时保持兼容；`preview` 仍保留原始首条输入的预览。普通、非临时的 `appServer` 根会话在首个成功用户 Turn 后异步尝试一次，排除子会话、Side、TaskRun 和 Goal 流程。名称通过 `thread/list`、`thread/read` 和 `areal/thread/edited` 返回。不会在启动时批量为已有会话补名。
+`Thread` 增加可选只读字段 `name`（自动总结的名称）和 `nameAttemptTurnId`（已领取命名请求的来源 Turn）。旧记录缺失时保持兼容；`preview` 仍保留原始首条输入的预览。普通、非临时的 `appServer` 根会话在首个成功用户 Turn 后异步尝试一次，排除子会话、Side、TaskRun 和 Goal 流程。名称通过 `thread/list`、`thread/read` 和 `areal/thread/edited` 返回。不会在启动时批量为已有会话补名。 Workgroup 内部 worker 不参与命名，避免占用父 Goal 或 Workgroup 的模型预算。
 
 Core 使用该 Turn 的模型和共享模型容量，仅发送有界文本，不提供工具。用户与 Agent 文本各最多 2048 字符，输出预算为 96 tokens，总时限为 20 秒。有效名称为单行、最多 60 字符；空白、控制字符、多行、超长、工具和二进制结果不提交。命名请求会产生额外模型用量，但不改写已完成 Turn 的历史、状态或 usage。沿用模型传输层的现有重试策略，不新增命名重试。
 
