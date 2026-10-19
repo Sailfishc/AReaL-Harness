@@ -861,8 +861,8 @@ impl Executor for NativeExecutor {
                     engine.create_inner(workspace.to_string_lossy().into_owned(), None, None, vec![], None,
                         Some(areal_protocol::desktop::DesktopState { configuration, ..Default::default() })).await?.0
                 };
-                // An isolated worker is not a user session. In particular, naming it
-                // must not submit an auxiliary request against its parent's Goal budget.
+                // 隔离 worker 不是用户会话，不能为自动命名发出额外请求，
+                // 否则会意外消耗父 Goal 的模型预算。
                 {
                     let cell = engine.cell(&thread.id).await?;
                     let mut state = cell.state.lock().await;
