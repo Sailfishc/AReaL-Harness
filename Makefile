@@ -18,7 +18,7 @@ endif
 	test-protocol test-concurrency verify smoke server tui schemas docs clean \
 	capacity capacity-primitives capacity-core perf runtime test-runtime runtime-smoke verify-runtime \
 	cordis-pin update-cordis sdk-test harness harness-smoke verify-harness \
-	setup setup-node sdk-build script-test launcher-test workgroup-smoke unified-execution-smoke capacity-workgroup local-service-smoke \
+	setup setup-node sdk-build script-test launcher-test workgroup-smoke unified-execution-smoke capacity-workgroup local-service-smoke upgrade-smoke \
 	verify-native integration-boundaries
 
 help: ## 显示常用操作（默认目标）
@@ -146,6 +146,10 @@ unified-execution-smoke: build ## 真实 Runtime 的统一委派、组合交付�
 
 local-service-smoke: build ## 验证共享服务、多个窗口与宿主故障恢复
 	node scripts/local-service-smoke.mjs
+
+upgrade-smoke: ## 构建真实 CLI 并隔离验证升级、旧版本保留与 Homebrew 保护
+	cargo build --locked -p areal-cli
+	uv run --locked --only-group dev python scripts/upgrade-smoke.py $(ARGS)
 
 workgroup-smoke: build ## 真实 Runtime 的 Workgroup 写入、组合、期限与故障结算回归
 	$(WORKGROUP_ENV) cargo test --locked -p areal-engine --test workgroup real_core_workers_use_private_runtimes_and_final_combination_is_verified -- --ignored --exact
