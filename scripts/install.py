@@ -9,11 +9,13 @@ import os
 import platform
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tarfile
 import tempfile
 import urllib.request
+from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
 
 RELEASES = "https://github.com/areal-project/AReaL-Harness/releases/download"
@@ -138,6 +140,48 @@ def check_services(binary):
         raise ValueError("stop all shared services before upgrading: areal service list")
 
 
+def check_guard_support(binary):
+    try:
+        result = subprocess.run(
+            [str(binary), "build-info"], capture_output=True, text=True, timeout=30, check=True
+        )
+        info = json.loads(result.stdout)
+    except (subprocess.SubprocessError, ValueError) as error:
+        raise ValueError(
+            "cannot confirm installation admission guard; legacy automatic switching is unsafe"
+        ) from error
+    capability = info.get("installationGuardVersion") if isinstance(info, dict) else None
+    if type(capability) is not int or capability != 1:
+        raise ValueError(
+            "legacy binary lacks installation admission guard; automatic switching is unsafe"
+        )
+
+
+@contextmanager
+def switch_gate(versions):
+    # 与 Rust 服务租约共用 flock；文件不能 unlink，否则会出现两个独立锁。
+    fd = os.open(
+        versions / ".service.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600
+    )
+    with os.fdopen(fd, "r+") as gate:
+        metadata = os.fstat(gate.fileno())
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_uid != os.geteuid()
+            or metadata.st_mode & 0o077
+        ):
+            raise ValueError(
+                "installation gate must be a private regular file owned by the current user"
+            )
+        try:
+            fcntl.flock(gate, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise ValueError(
+                "stop all shared services before upgrading; a service is running or starting"
+            ) from error
+        yield
+
+
 def managed_link(link, versions):
     if not (link.exists() or link.is_symlink()):
         return None
@@ -173,6 +217,7 @@ def install(args, version, target):
             )
         if previous:
             check_services(previous)
+            check_guard_support(previous)
         filename = "areal-harness-v" + version + "-" + archive_target + ".tar.gz"
         with tempfile.TemporaryDirectory(prefix=".install-", dir=versions) as temporary:
             staging = Path(temporary)
@@ -186,21 +231,23 @@ def install(args, version, target):
             bundle = extract_bundle(archive, staging / "unpack")
             verify_bundle(bundle, version, target_platform)
             check_program(bundle / "bin/areal", version)
-            # 首次安装也检查既有服务；下载期间启动的服务会在此再次被拒绝。
-            check_services(previous or bundle / "bin/areal")
-            if managed_link(link, versions) != previous:
-                raise ValueError("installation entry changed while preparing the update")
-            link.parent.mkdir(parents=True, exist_ok=True)
-            temporary_link = staging / "areal-link"
-            temporary_link.symlink_to(final / "bin/areal")
-            bundle.rename(final)
-            try:
-                os.replace(temporary_link, link)
-            except BaseException:
-                # 系统调用成功后仍可能收到中断；入口已指向候选时不能删除活动版本。
-                if not link.is_symlink() or link.resolve() != final / "bin/areal":
-                    shutil.rmtree(final)
-                raise
+            check_guard_support(bundle / "bin/areal")
+            with switch_gate(versions):
+                # 独占租约覆盖最后检查与提交；共享启动租约必须在 start.lock 前获取。
+                check_services(previous or bundle / "bin/areal")
+                if managed_link(link, versions) != previous:
+                    raise ValueError("installation entry changed while preparing the update")
+                link.parent.mkdir(parents=True, exist_ok=True)
+                temporary_link = staging / "areal-link"
+                temporary_link.symlink_to(final / "bin/areal")
+                bundle.rename(final)
+                try:
+                    os.replace(temporary_link, link)
+                except BaseException:
+                    # 系统调用成功后仍可能收到中断；入口已指向候选时不能删除活动版本。
+                    if not link.is_symlink() or link.resolve() != final / "bin/areal":
+                        shutil.rmtree(final)
+                    raise
     print("Installed " + str(link))
     selected = shutil.which("areal")
     if selected and Path(selected).resolve() != link.resolve():

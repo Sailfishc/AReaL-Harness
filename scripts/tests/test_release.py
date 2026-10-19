@@ -72,6 +72,8 @@ class ReleaseTests(unittest.TestCase):
             "from pathlib import Path\n"
             "if sys.argv[1:] == ['--version']:\n"
             f"    print('areal {version}')\n"
+            "elif sys.argv[1:] == ['build-info']:\n"
+            "    print(json.dumps({'installationGuardVersion': int(os.environ.get('AREAL_INSTALL_FIXTURE_GUARD_VERSION', '1'))}))\n"
             "elif sys.argv[1:] == ['service', 'list', '--json']:\n"
             "    path = os.environ.get('AREAL_INSTALL_FIXTURE_SERVICES')\n"
             "    print(Path(path).read_text() if path else '[]')\n"

@@ -6,7 +6,7 @@ mod run;
 mod service;
 mod trajectory;
 mod upgrade;
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 use clap::{CommandFactory, Parser, Subcommand};
 use std::path::PathBuf;
 #[derive(Parser)]
@@ -208,7 +208,10 @@ async fn main() {
             return;
         }
         Some(Command::BuildInfo) => {
-            println!("{}", areal_server::build_info());
+            let mut info = areal_server::build_info();
+            info["installationGuardVersion"] =
+                serde_json::json!(areal_local_service::installation::GUARD_VERSION);
+            println!("{info}");
             return;
         }
         Some(Command::Upgrade { check }) => upgrade::run(check).await,
@@ -238,7 +241,18 @@ async fn main() {
             return;
         }
         Some(Command::Serve { args }) => areal_service_host::launcher::run(args).await,
-        Some(Command::AppServer(args)) => areal_server::run(*args).await,
+        Some(Command::AppServer(args)) => {
+            async {
+                let executable = std::env::current_exe()?.canonicalize()?;
+                let _installation = areal_local_service::installation::acquire(
+                    executable
+                        .parent()
+                        .context("missing executable directory")?,
+                )?;
+                areal_server::run(*args).await
+            }
+            .await
+        }
         Some(Command::Config(args)) => areal_server::diagnose(*args).await,
         Some(Command::Trajectory(options)) => trajectory::run(options),
         Some(Command::TrajectoryWorker { spool_dir }) => {

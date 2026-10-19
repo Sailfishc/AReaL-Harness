@@ -497,6 +497,10 @@ pub async fn run(args: Vec<OsString>) -> Result<()> {
     let mut args =
         Args::try_parse_from(std::iter::once(OsString::from("areal launcher")).chain(args))?;
     args.validate()?;
+    let selected = binary(&args)?;
+    let _installation = areal_local_service::installation::acquire(
+        selected.parent().context("missing executable directory")?,
+    )?;
     if let Some(fd) = args.lease_fd {
         // 宿主持有锁；launcher 继承一份，但其子进程不得继续继承。
         ensure!(
