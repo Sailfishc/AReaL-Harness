@@ -36,7 +36,11 @@ test("outer signing preserves Core bytes through main and background-service res
     await writeFile(other, "unsigned nested executable");
   }
   const ignore = preserveSignedPaths(paths);
-  for (const path of [...paths, ...names.map((name) => join(service, "Resources", name)), other]) {
+  for (const path of [
+    ...paths,
+    ...names.map((name) => join(service, "Resources", name)),
+    ...others,
+  ]) {
     if (!ignore(path)) await writeFile(path, "outer signature");
   }
   for (let i = 0; i < paths.length; i++)
