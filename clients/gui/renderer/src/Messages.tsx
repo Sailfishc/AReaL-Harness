@@ -292,7 +292,7 @@ export function Messages({
   }, [owner, latestTurnId, reserveResponseSpace]);
   return (
     <div className="messages-shell">
-    <TurnNavigation turns={thread.turns ?? []} container={container} onNavigate={() => {
+    <TurnNavigation key={owner} turns={thread.turns ?? []} container={container} onNavigate={() => {
       follow.current = false;
       releaseResponseSpace();
       rememberReading();
