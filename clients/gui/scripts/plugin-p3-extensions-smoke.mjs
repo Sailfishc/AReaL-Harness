@@ -8,6 +8,7 @@ import {createServer} from 'node:http';
 import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {captureSmokeFailure,createProjectConversation,selectConversation} from './smoke-navigation.mjs';
+import {assertApplicationStopped} from './application-cleanup.mjs';
 const gui=resolve(dirname(fileURLToPath(import.meta.url)),'..'),require=createRequire(join(gui,'app/package.json'));
 const {_electron:electron}=require('playwright-core');
 const scratch=await mkdtemp('/private/tmp/areal-plugin-extensions-'),workspace=join(scratch,'workspace'),userHome=join(scratch,'user');
@@ -67,7 +68,16 @@ const env={...process.env,AREAL_GUI_USER_DATA:join(scratch,'electron'),AREAL_COR
 AREAL_HARNESS_SERVICE_HOME:join(scratch,'registry'),AREAL_CORE_BIN:process.env.AREAL_CORE_BIN??resolve(gui,'../../target/debug/areal')};
 for(const k of ['AREAL_CORE_WORKSPACE','AREAL_CORE_CONFIG','AREAL_HARNESS_HOME','AREAL_HARNESS_CONFIG','AREAL_CORE_DESKTOP_CONFIG'])delete env[k];
 const coreBinary=env.AREAL_CORE_BIN,coreSha256=createHash('sha256').update(await readFile(coreBinary)).digest('hex');
-let app,page,failure,passed=false;
+const fixtureApp=join(scratch,'app'),mainErrorsPath=join(scratch,'main-errors.jsonl');
+await mkdir(fixtureApp);
+await writeFile(mainErrorsPath,'');
+await writeFile(join(fixtureApp,'package.json'),JSON.stringify({name:'plugin-extensions-fixture',main:'bootstrap.cjs'}));
+await writeFile(join(fixtureApp,'bootstrap.cjs'),`
+process.on('uncaughtExceptionMonitor',(error,origin)=>require('node:fs').appendFileSync(${JSON.stringify(mainErrorsPath)},JSON.stringify({pid:process.pid,origin,name:error.name,message:error.message,stack:error.stack})+'\\n'));
+require(${JSON.stringify(join(gui,'app/src/main.cjs'))});
+`);
+let app,page,appProcess,failure,passed=false;
+const cleanup={};
 const button=n=>page.getByRole('button',{name:n,exact:true});
 const state=()=>page.evaluate(()=>window.arealDesktop.snapshot());
 async function until(fn,label){const end=Date.now()+30_000;while(Date.now()<end){const s=await state();if(fn(s))return s;await new Promise(r=>setTimeout(r,75));}throw Error('timeout: '+label);}
@@ -75,7 +85,8 @@ async function waitEvents(predicate,label){const end=Date.now()+30_000;while(Dat
 async function appFrame(){const end=Date.now()+30_000;while(Date.now()<end){const active=page.getByRole('region',{name:'MCP 应用',exact:true}).locator('iframe');const source=await active.count()?await active.getAttribute('src'):null;const token=source?new URL(source).hostname:null;const frame=page.frames().find(frame=>frame.url()===`areal-mcp://${token}/view`);if(frame){await frame.locator('#ready').filter({hasText:'initialized'}).waitFor();return frame;}await new Promise(resolve=>setTimeout(resolve,100));}throw Error('sandbox app frame missing');}
 async function settings(){await page.getByRole('navigation',{name:'应用导航',exact:true}).getByRole('button',{name:'插件',exact:true}).click();const installed=page.getByRole('complementary',{name:'插件导航',exact:true}).getByRole('button',{name:'Extensions Fixture',exact:true});if(await installed.isVisible()){await installed.click();return;}if(await button('返回插件列表').isVisible())await button('返回插件列表').click();await page.getByRole('tablist',{name:'市场范围',exact:true}).getByRole('tab',{name:'个人',exact:true}).click();await button('查看插件 hello@gui-p0').click();}
 try{
-app=await electron.launch({executablePath:require('electron'),args:[join(gui,'app')],env,timeout:120_000});
+app=await electron.launch({executablePath:require('electron'),args:[fixtureApp],env,timeout:120_000});
+appProcess=app.process();await writeFile(join(scratch,'run.json'),JSON.stringify({pid:appProcess.pid,scratch,coreBinary}));console.log('Electron '+appProcess.pid+' '+scratch);
 page=await app.firstWindow();page.setDefaultTimeout(20_000);page.on('pageerror',e=>errors.push(e.message));
 await page.getByTestId('areal-workbench').waitFor({timeout:120_000});await until(s=>s.connection?.state==='ready','desktop ready');
 await app.evaluate(({dialog,BrowserWindow},path)=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:[path]});dialog.showMessageBox=async()=>({response:1});BrowserWindow.getAllWindows()[0].setSize(1440,960);},workspace);
@@ -122,18 +133,34 @@ await page.screenshot({path:join(scratch,'opaque-file-entrypoint.png'),animation
 assert.deepEqual(errors,[]);passed=true;
 }catch(e){failure={message:e.message,stack:e.stack};process.exitCode=1;if(page)await captureSmokeFailure(page,scratch,e);}
 finally{
+let metadata;
+try{metadata=JSON.parse(await readFile(join(scratch,'core/service.json'),'utf8'));}catch(error){if(error.code!=='ENOENT')errors.push('read cleanup identity: '+error.message);}
 if(app){
-await app.close().catch(e=>errors.push('close GUI: '+e.message));
-try{const {ServiceConnection}=require('../app/src/core/service-client.cjs');const connection=new ServiceConnection();
-try{const metadata=JSON.parse(await readFile(join(scratch,'core/service.json'),'utf8'));await connection.connect(metadata);await connection.request('stopService',{protocol:metadata.protocol},true);}
-finally{connection.close();}}
-catch(e){if(e.code!=='ENOENT')errors.push('stop service: '+e.message);}
+let quitTimer;
+try{
+await Promise.race([app.close(),new Promise((_resolve,reject)=>{quitTimer=setTimeout(()=>reject(Error('owned Electron quit timed out')),15000);})]);
+if(appProcess.exitCode===null&&appProcess.signalCode===null)await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('owned Electron did not exit')),15000);appProcess.once('exit',()=>{clearTimeout(timer);resolve();});});
+assert.equal(appProcess.exitCode,0,'owned Electron quit exit code');assert.equal(appProcess.signalCode,null,'owned Electron quit signal');cleanup.electronExited=true;
+}catch(error){errors.push('close GUI: '+error.message);}finally{clearTimeout(quitTimer);}
 }
+if(metadata){
+try{await assertApplicationStopped(coreBinary,env,metadata);cleanup.applicationStopped=true;}
+catch(error){errors.push('verify application cleanup: '+error.message);}
+}
+if(errors.length&&metadata){
+const {ServiceConnection}=require('../app/src/core/service-client.cjs');const connection=new ServiceConnection();
+try{await connection.connect(metadata);const packet=await connection.request('hello',{protocol:metadata.protocol,identity:metadata.identity});await connection.request('stopService',{protocol:metadata.protocol,cancel:true,expectedDesktopGeneration:metadata.desktopGeneration,expectedTargets:packet.service.targets},true);}
+catch(error){if(error.code!=='ENOENT'&&error.code!=='ECONNREFUSED'&&error.code!=='ESRCH')errors.push('fallback stop service: '+error.message);}
+finally{connection.close();}
+}
+if(appProcess&&appProcess.exitCode===null&&appProcess.signalCode===null){appProcess.kill('SIGKILL');await new Promise(resolve=>appProcess.once('exit',resolve));cleanup.forcedElectronExit=true;}
+const mainErrors=(await readFile(mainErrorsPath,'utf8')).trim().split('\n').filter(Boolean).map(line=>JSON.parse(line));
+for(const error of mainErrors)errors.push('uncaught Main '+error.origin+': '+error.message);
 model.closeAllConnections();await new Promise(r=>model.close(r));
-try{const instances=JSON.parse(execFileSync(coreBinary,['service','list','--json'],{env,encoding:'utf8'}));assert(instances.every(instance=>instance.state==='stopped'),'owned Core remains live');}catch(error){errors.push('verify Core cleanup: '+error.message);}
+try{const instances=JSON.parse(execFileSync(coreBinary,['service','list','--json'],{env,encoding:'utf8'}));cleanup.instances=instances.map(instance=>({serviceId:instance.serviceId,hostPid:instance.hostPid,corePid:instance.corePid,state:instance.state}));assert(instances.every(instance=>instance.state==='stopped'),'owned Core remains live');}catch(error){errors.push('verify Core cleanup: '+error.message);}
 await writeFile(join(scratch,'model-requests.json'),JSON.stringify({conversation:requests,sessionNames:titleRequests},null,2));
 if(errors.length){passed=false;process.exitCode=1;}
-const manifest={passed,checks,errors,failure,scratch,source:execFileSync('git',['rev-parse','HEAD'],{cwd:gui,encoding:'utf8'}).trim(),
+const manifest={passed,checks,errors,mainErrors,failure,scratch,cleanup,source:execFileSync('git',['rev-parse','HEAD'],{cwd:gui,encoding:'utf8'}).trim(),
 sourceFiles,sourceDiffSha256,core:{binary:coreBinary,sha256:coreSha256,unchanged:createHash('sha256').update(await readFile(coreBinary)).digest('hex')===coreSha256},
 modelRequests:requests.length+titleRequests.length,conversationModelRequests:requests.length,sessionNameModelRequests:titleRequests.length,transportEvents:await transportEvents(), gaps:['file writes/CAS and native Runtime ancestor-race acceptance are outside this read-only journey','native form file/directory uploads and modern MRTR are unsupported','no real provider/GitHub/OAuth or packaged acceptance'], scope:'actual source Electron/Core desktop settings, mentions, legacy forms and opaque file read; self-owned stdio MCP server; deterministic local inference endpoint; known session-name requests recorded separately'};
 await writeFile(join(scratch,'manifest.json'),JSON.stringify(manifest,null,2));console.log(JSON.stringify(manifest,null,2));

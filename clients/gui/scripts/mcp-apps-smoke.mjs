@@ -89,6 +89,58 @@ await assert.rejects(
   ),
 );
 
+
+let activeOwner = 5, destroyedOwner = false;
+const lifecycleCalls = [];
+const lifecycleBackend = {
+  ownsThread: () => true,
+  snapshot: () => ({ projects: [] }),
+  command: async (_name, request) => {
+    lifecycleCalls.push(request);
+    return request.operation === "mcpAppOpen" ? {
+      instanceId: "instance-" + lifecycleCalls.length,
+      serverId: "s", generation: "g",
+      resource: { mimeType: "text/html;profile=mcp-app", html: "<p>owned</p>" },
+    } : {};
+  },
+};
+const ownerHost = new McpAppsHost({ backend: lifecycleBackend, ownerId: () => {
+  if (destroyedOwner) throw Error("Object has been destroyed");
+  return activeOwner;
+} });
+const openOwned = owner => ownerHost.open({ projectId: "p", threadId: "t", serverId: "s", expectedGeneration: "g", toolName: "app" }, owner);
+const originalOwnerApp = await openOwned(5);
+activeOwner = 6;
+assert.throws(() => ownerHost.get(originalOwnerApp.token, 5), /closed|stale/);
+assert.throws(() => ownerHost.get(originalOwnerApp.token, 6), /closed|stale/);
+await assert.rejects(ownerHost.request(originalOwnerApp.token, { jsonrpc: "2.0", id: 1, method: "tools/list" }, 6), /closed|stale/);
+await assert.rejects(ownerHost.close(originalOwnerApp.token, 6), /Invalid app owner/);
+const replacementOwnerApp = await openOwned(6);
+assert.equal(ownerHost.get(replacementOwnerApp.token, 6).instanceId, replacementOwnerApp.instanceId);
+destroyedOwner = true;
+assert.equal(ownerHost.notification({ projectId: "p", threadId: "t", instanceId: originalOwnerApp.instanceId, generation: "g", notification: { jsonrpc: "2.0", method: "ui/notifications/closed" } }), true);
+ownerHost.dispose();
+assert.deepEqual(lifecycleCalls.filter(request => request.operation === "mcpAppClose").map(request => request.instanceId), [originalOwnerApp.instanceId, replacementOwnerApp.instanceId]);
+assert.equal((await ownerHost.resource(new Request(replacementOwnerApp.frameUrl))).status, 404);
+
+let releaseOpen;
+activeOwner = 5;
+const pendingCalls = [];
+const pendingOwnerHost = new McpAppsHost({ ownerId: () => activeOwner, backend: {
+  ownsThread: () => true,
+  command: async (_name, request) => {
+    pendingCalls.push(request);
+    if (request.operation === "mcpAppOpen") return new Promise(resolve => { releaseOpen = resolve; });
+    return {};
+  },
+} });
+const changingOwnerOpen = pendingOwnerHost.open({ projectId: "p", threadId: "t", serverId: "s", expectedGeneration: "g", toolName: "app" }, 5);
+const staleOpenRejected = assert.rejects(changingOwnerOpen, /invalid|stale/i);
+activeOwner = 6;
+releaseOpen({ instanceId: "pending-original-owner", serverId: "s", generation: "g", resource: { mimeType: "text/html;profile=mcp-app", html: "<p>stale</p>" } });
+await staleOpenRejected;
+assert.deepEqual(pendingCalls.filter(request => request.operation === "mcpAppClose"), [{ operation: "mcpAppClose", projectId: "p", threadId: "t", instanceId: "pending-original-owner", generation: "g" }]);
+
 // Main file-resource integration tests grant/delegation only. Core descriptor-anchored
 // reads, CAS writes, and ancestor-swap races require the real Runtime acceptance test.
 const { mkdtemp, writeFile, readFile, rm, symlink } = await import("node:fs/promises");
