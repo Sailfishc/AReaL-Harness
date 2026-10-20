@@ -4,7 +4,7 @@ import {mkdtemp,mkdir,writeFile,readFile,readdir} from 'node:fs/promises';
 import {dirname,join,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {execFileSync} from 'node:child_process';
-import {createHash} from 'node:crypto';
+import {createHash,randomUUID} from 'node:crypto';
 import {createServer} from 'node:http';
 import {assertApplicationStopped} from './application-cleanup.mjs';
 
@@ -37,7 +37,6 @@ const scratch=await mkdtemp(join(evidenceRoot,'task-history-'));
 const workspace=join(scratch,'workspace'),userHome=join(scratch,'user');
 await mkdir(workspace);await mkdir(join(userHome,'.areal'),{recursive:true});
 execFileSync('git',['init','-b','main'],{cwd:workspace,stdio:'ignore'});
-await writeFile(join(userHome,'.areal/config.toml'),'schema_version=1\n[model]\nprovider="fixture"\nname="fixture"\n[model.providers.fixture]\nprotocol="chat-completions"\nendpoint="http://127.0.0.1:9/v1/chat/completions"\n[permissions]\nmode="YOLO"\n');
 const env={...process.env,AREAL_GUI_USER_DATA:join(scratch,'electron'),AREAL_CORE_HOME:join(scratch,'core'),AREAL_CORE_USER_HOME:userHome,AREAL_HARNESS_SERVICE_HOME:join(scratch,'registry'),AREAL_CORE_BIN:binary};
 for(const key of ['AREAL_CORE_WORKSPACE','AREAL_CORE_CONFIG','AREAL_HARNESS_HOME','AREAL_HARNESS_CONFIG','AREAL_CORE_DESKTOP_CONFIG'])delete env[key];
 const fixtureApp=join(scratch,'app');await mkdir(fixtureApp);
@@ -49,38 +48,49 @@ service.SharedCoreBackend=class extends Backend {
  constructor(options) { super(options); global.taskHistoryNotificationOpen=options.onNotificationOpen; global.taskHistoryBackend=this; global.taskHistoryReads=[]; }
  async command(name,request) {
   if(name==='manage'&&request.operation==='taskRun') {
-   if(global.taskHistoryRunGate) await global.taskHistoryRunGate;
+   if(global.taskHistoryRunGate) { global.taskHistoryRunWaiting=request.runId; await global.taskHistoryRunGate; global.taskHistoryRunWaiting=null; }
    if(global.taskHistoryRunFailures>0) { global.taskHistoryRunFailures--; throw Error('TASK_HISTORY_COLD_READ_FAILURE'); }
   }
   const forwarded=name==='manage'&&request.operation==='taskRuns'&&global.taskHistoryHeadLimit&&!request.cursor?{...request,limit:global.taskHistoryHeadLimit}:request;
   if(name==='manage'&&request.operation==='taskRuns'&&!request.cursor&&global.taskHistoryHeadGate) await global.taskHistoryHeadGate;
-  if(name==='manage'&&request.operation==='taskRuns'&&request.cursor&&global.taskHistoryTailGate) await global.taskHistoryTailGate;
+  if(name==='manage'&&request.operation==='taskRuns'&&request.cursor&&global.taskHistoryTailGate) { global.taskHistoryTailWaiting=request.cursor; await global.taskHistoryTailGate; global.taskHistoryTailWaiting=null; }
   const result=await super.command(name,forwarded);
-  if(name==='manage'&&['taskRuns','taskRun'].includes(request.operation)) global.taskHistoryReads.push({operation:request.operation,cursor:request.cursor,dataLength:result.data?.length,runCount:result.runCount});
+  if(name==='manage'&&['taskRuns','taskRun'].includes(request.operation)) global.taskHistoryReads.push({operation:request.operation,runId:request.runId,cursor:request.cursor,dataLength:result.data?.length,runCount:result.runCount});
   return result;
  }
 };
 require(${JSON.stringify(join(gui,'app/src/main.cjs'))});
 `);
-const checks=[],errors=[],held=new Set();
+const checks=[],errors=[],held=new Set(),modelRequests=[];
 const model=createServer(async(request,response)=>{
  try {
   let raw='';for await(const chunk of request)raw+=chunk;
-  const body=JSON.parse(raw);
+  const body=JSON.parse(raw);modelRequests.push(body);
   if(body.stream===false){response.setHeader('Content-Type','application/json');response.end(JSON.stringify({choices:[{message:{role:'assistant',content:'Task history fixture'}}]}));return;}
   response.writeHead(200,{'Content-Type':'text/event-stream'});
-  const text=(body.messages??[]).map(message=>typeof message.content==='string'?message.content:JSON.stringify(message.content)).join('\n');
-  if(text.includes('AREAL_TASK_DRAFT')) {
-   const content=JSON.stringify({kind:'control',message:'将取消任务并保留历史。',action:'cancel'});
-   response.write(`data: ${JSON.stringify({choices:[{index:0,delta:{content},finish_reason:null}]})}\n\n`);
-   response.write(`data: ${JSON.stringify({choices:[{index:0,delta:{},finish_reason:'stop'}]})}\n\n`);
-   response.end('data: [DONE]\n\n');return;
+  const send=(delta,finish_reason=null)=>response.write(`data: ${JSON.stringify({choices:[{index:0,delta,finish_reason}]})}\n\n`);
+  const end=()=>{response.write(`data: ${JSON.stringify({choices:[],usage:{prompt_tokens:20,completion_tokens:10,total_tokens:30}})}\n\n`);response.end('data: [DONE]\n\n');};
+  const finish=content=>{send({content});send({},'stop');end();};
+  const tool=(name,args)=>{send({tool_calls:[{index:0,id:randomUUID(),type:'function',function:{name,arguments:JSON.stringify(args)}}]});send({},'tool_calls');end();};
+  const texts=(body.messages??[]).map(message=>typeof message.content==='string'?message.content:(message.content??[]).map(part=>part.text??'').join('\n'));
+  if(texts.some(text=>text.includes('AREAL_TASK_DRAFT'))) {
+   finish(JSON.stringify({kind:'control',message:'将取消任务并保留历史。',action:'cancel'}));return;
   }
-  response.write(`data: ${JSON.stringify({choices:[{index:0,delta:{content:'CAPACITY_REAL_GOAL_HELD'},finish_reason:null}]})}\n\n`);
+  const context=texts.findLast(text=>text.includes('Current authoritative goal: '));
+  if(!context){finish('Task history fixture');return;}
+  const goalView=JSON.parse(context.split('Current authoritative goal: ').at(-1));
+  if(goalView.goal.limitsPending){tool('goal_set_limits',{expectedRevision:goalView.revision,sources:{}});return;}
+  if(goalView.goal.objective==='TASK_HISTORY_ARCHIVE_FIXTURE') {
+   if(goalView.goal.report?.status==='complete'){finish('TASK_HISTORY_REAL_RUN_COMPLETED');return;}
+   tool('goal_update',{expectedRevision:goalView.revision,status:'complete',summary:'TASK_HISTORY_REAL_RUN_COMPLETED',evidence:['Deterministic task history fixture completed its response.'],remaining:[]});return;
+  }
+  assert.equal(goalView.goal.objective,'TASK_HISTORY_CAPACITY_REAL_GOAL');
+  send({content:'CAPACITY_REAL_GOAL_HELD'});
   held.add(response);response.on('close',()=>held.delete(response));
  }catch(error){errors.push(error.message);response.destroy(error);}
 });
 await new Promise(resolve=>model.listen(0,'127.0.0.1',resolve));
+await writeFile(join(userHome,'.areal/config.toml'),`schema_version=1\n[model]\nprovider="fixture"\nname="fixture"\n[model.providers.fixture]\nprotocol="chat-completions"\nendpoint="http://127.0.0.1:${model.address().port}/v1/chat/completions"\n[permissions]\nmode="YOLO"\n`);
 let app,page,pid,taskId,coldThreadId,electronProcess,passed=false;
 async function until(fn,label,timeout=60000){const end=Date.now()+timeout;while(Date.now()<end){const value=await fn();if(value)return value;await new Promise(resolve=>setTimeout(resolve,100));}throw Error(`Timeout: ${label}`);}
 const snapshot=()=>page.evaluate(()=>window.arealDesktop.snapshot());
@@ -92,8 +102,9 @@ async function launch(){
  await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setSize(1440,960));
 }
 async function stopOwnedService(){
- const metadata=await app.evaluate(()=>global.taskHistoryBackend.metadata);
  await app.evaluate(({dialog})=>{dialog.showMessageBox=async()=>({response:1});});
+ await app.evaluate(()=>global.taskHistoryBackend.waitForApplicationReady());
+ const metadata=await app.evaluate(()=>global.taskHistoryBackend.metadata);
  await call('stopService',{});await app.close();app=null;page=null;await waitForElectronExit();await assertApplicationStopped(binary,env,metadata);
 }
 async function waitForElectronExit(){if(!electronProcess||electronProcess.exitCode!==null||electronProcess.signalCode!==null)return;await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('owned Electron did not exit')),15000);electronProcess.once('exit',()=>{clearTimeout(timer);resolve();});});}
@@ -136,25 +147,35 @@ try{
  await revealed.waitFor();
  await until(async()=>revealed.evaluate(node=>node.contains(document.activeElement)),'cold notification focuses its exact resolved run');
  await page.getByRole('button',{name:'任务资源',exact:true}).click();
+ await page.getByLabel('任务资源面板',{exact:true}).waitFor({state:'detached'});
  assert.equal(await page.getByLabel('任务资源面板',{exact:true}).count(),0,'user can close notification reveal without reopening');
  await call('open',{projectId:pid,threadId:coldThreadId});
  await page.getByRole('button',{name:'定时任务',exact:true}).click();
  await page.getByRole('button',{name:'打开自动化 TASK_HISTORY_ARCHIVE_FIXTURE',exact:true}).click();
  assert.equal(await page.getByLabel('任务资源面板',{exact:true}).count(),0,'ordinary task navigation preserves explicitly closed notification panel');
+ const coreBeforeReconnect=(await snapshot()).projects.find(project=>project.id===pid).core;
  const readsBeforeReconnect=await app.evaluate(()=>global.taskHistoryReads.length);
- await app.evaluate(()=>global.taskHistoryBackend.connection.socket.terminate());
- await until(async()=>(await snapshot()).connection?.state==='ready'&&await app.evaluate(before=>global.taskHistoryReads.length>before,readsBeforeReconnect),'reconnect reloads task history');
+ await app.evaluate(()=>{global.taskHistoryOldConnection=global.taskHistoryBackend.connection;global.taskHistoryOldConnection.socket.terminate();});
+ await until(async()=>(await snapshot()).connection?.state==='ready'&&await app.evaluate(()=>global.taskHistoryBackend.connection!==global.taskHistoryOldConnection&&global.taskHistoryBackend.connection?.socket.readyState===1&&global.taskHistoryBackend.status.connected),'shared observation transport reconnects');
+ const coreAfterReconnect=(await snapshot()).projects.find(project=>project.id===pid).core;
+ assert.equal(coreAfterReconnect.instanceId,coreBeforeReconnect.instanceId);
+ assert.equal(coreAfterReconnect.connectionGeneration,coreBeforeReconnect.connectionGeneration);
+ await writeFile(join(scratch,'reconnect.json'),JSON.stringify({coreBeforeReconnect,coreAfterReconnect,readsBeforeReconnect,readsAfterReconnect:await app.evaluate(()=>global.taskHistoryReads.length),transportReplaced:true},null,2));
  assert.equal(await page.getByLabel('任务资源面板',{exact:true}).count(),0,'reconnect preserves explicitly closed notification panel');
+ checks.push('shared observation transport actually reconnects to the same Core instance and generation while the explicitly closed notification panel remains closed');
  await app.evaluate((_electron,target)=>global.taskHistoryNotificationOpen(target),{projectId:pid,taskId,runId:'history-run-000'});
  await revealed.waitFor();
  await page.getByRole('button',{name:'任务资源',exact:true}).click();
+ await page.getByLabel('任务资源面板',{exact:true}).waitFor({state:'detached'});
  await app.evaluate(()=>{global.taskHistoryRunGate=new Promise(resolve=>{global.taskHistoryReleaseRun=()=>{global.taskHistoryRunGate=null;resolve();};});});
  await app.evaluate((_electron,target)=>global.taskHistoryNotificationOpen(target),{projectId:pid,taskId,runId:'history-run-001'});
  await page.getByText('正在读取通知运行…',{exact:true}).waitFor();
+ await until(()=>app.evaluate(()=>global.taskHistoryRunWaiting==='history-run-001'),'the exact run read reaches its Main barrier');
  await page.getByRole('button',{name:'任务资源',exact:true}).click();
+ await page.getByLabel('任务资源面板',{exact:true}).waitFor({state:'detached'});
  const readsBeforeRelease=await app.evaluate(()=>global.taskHistoryReads.length);
  await app.evaluate(()=>global.taskHistoryReleaseRun());
- await until(()=>app.evaluate(before=>global.taskHistoryReads.length>before,readsBeforeRelease),'pending exact run read completes after panel close');
+ await until(()=>app.evaluate((_electron,before)=>global.taskHistoryReads.slice(before).some(read=>read.operation==='taskRun'&&read.runId==='history-run-001'),readsBeforeRelease),'pending exact run read completes after panel close');
  assert.equal(await page.getByLabel('任务资源面板',{exact:true}).count(),0,'exact run completion preserves panel close during pending reveal');
  checks.push('injected exact cold-read failure stays visible with retry; real Core retry focuses the exact run; manual close survives navigation, reconnect and delayed read; a new explicit event for the same run opens anew; native OS notification delivery is not exercised');
  await app.close();app=null;page=null;await waitForElectronExit();
@@ -170,7 +191,9 @@ try{
  const cold=history.locator('[data-run-id="history-run-000"]');await cold.waitFor();
  await cold.getByText('Original objective 0',{exact:false}).waitFor();
  await cold.getByText('COLD_RUN_REPORT_SENTINEL',{exact:true}).first().waitFor();
- await cold.getByText('COLD_WORKER_REPORT_SENTINEL',{exact:true}).waitFor();
+ const coldWorker=cold.getByLabel(`worker ${coldThreadId}`,{exact:true});
+ assert.equal(await coldWorker.getAttribute('data-worker-turn'),'cold-worker-turn');
+ await coldWorker.getByText('COLD_WORKER_REPORT_SENTINEL',{exact:true}).waitFor();
  assert.equal(await cold.getByRole('button',{name:'继续本次运行',exact:true}).count(),0);
  assert.equal(await cold.getByRole('button',{name:'停止本次运行',exact:true}).count(),0);
  const runIds=await history.locator('[data-run-id]').evaluateAll(nodes=>nodes.map(node=>node.getAttribute('data-run-id')));assert.equal(runIds.length,160);assert.equal(new Set(runIds).size,160);
@@ -188,7 +211,12 @@ try{
  const recurring=await call('manage',{projectId:pid,operation:'taskUpdate',taskId,expectedRevision:latest.revision,schedule:{at:Math.floor(Date.now()/1000)+2,intervalSeconds:1,timeZone:'Asia/Shanghai'}});
  if(recurring.paused)await call('manage',{projectId:pid,operation:'taskResume',taskId,expectedRevision:recurring.revision});
  latest=await until(async()=>{const value=await readTask();return value.runCount>=165&&value;},'several real admissions exceed the short head page');
- await call('manage',{projectId:pid,operation:'taskPause',taskId,expectedRevision:latest.revision});
+ await until(async()=>{
+  latest=await readTask();
+  const reply=await page.evaluate(request=>window.arealDesktop.command('manage',request),{projectId:pid,operation:'taskPause',taskId,expectedRevision:latest.revision});
+  if(reply.ok){assert.equal(reply.value.paused,true);return true;}
+  assert.equal(reply.error.code,-32009,JSON.stringify(reply));return false;
+ },'public pause accepts a current Task revision after burst admissions');
  await app.evaluate(()=>global.taskHistoryReleaseHead());
  await history.getByRole('button',{name:'刷新运行记录',exact:true}).waitFor();
  const shortHead=await app.evaluate(()=>global.taskHistoryReads.findLast(read=>read.operation==='taskRuns'&&!read.cursor));
@@ -198,6 +226,7 @@ try{
  assert.equal(await history.getByRole('button',{name:'加载更早运行',exact:true}).count(),1,'explicit refresh restores a valid new tail continuation');
  await app.evaluate(()=>{global.taskHistoryTailGate=new Promise(resolve=>{global.taskHistoryReleaseTail=()=>{global.taskHistoryTailGate=null;resolve();};});});
  await history.getByRole('button',{name:'加载更早运行',exact:true}).click();
+ const pendingTailCursor=await until(()=>app.evaluate(()=>global.taskHistoryTailWaiting),'the older history read reaches its Main barrier');
  let beforeTailAdmission=await until(async()=>{const value=await readTask();return value.runs.every(run=>['completed','failed','cancelled'].includes(run.status))&&value;},'burst admissions settle before the held tail read');
  const tailCount=beforeTailAdmission.runCount;
  const once=await call('manage',{projectId:pid,operation:'taskUpdate',taskId,expectedRevision:beforeTailAdmission.revision,schedule:{at:Math.floor(Date.now()/1000)+2,intervalSeconds:null,timeZone:'Asia/Shanghai'}});
@@ -205,7 +234,8 @@ try{
  await until(async()=>(await readTask()).runCount===tailCount+1,'a new run arrives while the frozen tail read is pending');
  const headReadsBeforeTail=await app.evaluate(()=>global.taskHistoryReads.filter(read=>read.operation==='taskRuns'&&!read.cursor).length);
  await app.evaluate(()=>global.taskHistoryReleaseTail());
- await until(()=>app.evaluate(before=>global.taskHistoryReads.filter(read=>read.operation==='taskRuns'&&!read.cursor).length>before,headReadsBeforeTail),'tail response with a newer total still causes a head refresh');
+ await until(()=>app.evaluate((_electron,cursor)=>global.taskHistoryReads.some(read=>read.operation==='taskRuns'&&read.cursor===cursor),pendingTailCursor),'the exact held tail read completes');
+ await until(()=>app.evaluate((_electron,before)=>global.taskHistoryReads.filter(read=>read.operation==='taskRuns'&&!read.cursor).length>before,headReadsBeforeTail),'tail response with a newer total still causes a head refresh');
  while(await history.getByRole('button',{name:'加载更早运行',exact:true}).count()){await history.getByRole('button',{name:'加载更早运行',exact:true}).click();await until(async()=>!await history.getByRole('button',{name:'加载更早运行',exact:true}).count()||await history.getByRole('button',{name:'加载更早运行',exact:true}).isEnabled(),'older page completes');}
  assert.equal((await history.locator('[data-run-id]').count()),(await readTask()).runCount,'paging after explicit refresh closes the burst gap');
  await app.evaluate(()=>{global.taskHistoryHeadLimit=0;});
@@ -215,12 +245,12 @@ try{
  await until(async()=>await page.getByTestId('areal-workbench').getAttribute('data-thread-id')===coldThreadId&&await page.getByTestId('areal-workbench').getAttribute('data-project-id')===pid,'cold history opens its exact original execution Thread');
  checks.push('real TaskCenter loads older history without duplicate rows, retains cold report and worker identity, offers no terminal-run controls and opens the original execution Thread');
  await stopOwnedService();
- await writeFile(join(userHome,'.areal/config.toml'),`schema_version=1\n[model]\nprovider="fixture"\nname="fixture"\n[model.providers.fixture]\nprotocol="chat-completions"\nendpoint="http://127.0.0.1:${model.address().port}/v1/chat/completions"\n[permissions]\nmode="YOLO"\n`);
  await launch();
  const capacity=await call('manage',{projectId:pid,operation:'taskCreate',mode:'scheduled',objective:'TASK_HISTORY_CAPACITY_REAL_GOAL',schedule:{at:Math.floor(Date.now()/1000)+2,timeZone:'Asia/Shanghai'}});
  const readCapacity=()=>call('manage',{projectId:pid,operation:'task',taskId:capacity.id});
  let admitted=await until(async()=>{const value=await readCapacity();return value.runs.some(run=>run.goalId&&run.threadId&&!['completed','failed','cancelled'].includes(run.status))&&value;},'a real admitted capacity run has its original Goal and Thread');
  const liveRun=admitted.runs.find(run=>run.goalId&&run.threadId&&!['completed','failed','cancelled'].includes(run.status));
+ await until(()=>held.size===1,'the real capacity Goal reaches its held model response');
  const goal=await call('manage',{projectId:pid,operation:'goal',threadId:liveRun.threadId});
  await call('manage',{projectId:pid,operation:'goalPause',threadId:liveRun.threadId,goalId:liveRun.goalId,expectedRevision:goal.revision});
  admitted=await until(async()=>{const value=await readCapacity();return value.runs.some(run=>run.id===liveRun.id&&run.status==='paused'&&run.reason!=='stopRequested')&&value;},'public Goal pause retains its real nonterminal run without clearing usage');
@@ -244,6 +274,7 @@ try{
  await active.getByRole('button',{name:'停止本次运行',exact:true}).click();
  await until(async()=>{const value=await readCapacity();return value.runs.some(run=>run.id===originalRun.id&&['completed','failed','cancelled'].includes(run.status));},'GUI stop settles the original real run at historical receipt capacity');
  await page.getByRole('button',{name:'任务资源',exact:true}).click();
+ await page.getByLabel('任务资源面板',{exact:true}).waitFor({state:'detached'});
  await page.getByTestId('chat-input').fill('取消任务。');
  await page.getByTestId('chat-send-button').click();
  const cancelled=await until(async()=>{const value=await readCapacity();return value.cancelled&&value;},'GUI management conversation cancels at historical receipt capacity');
@@ -254,6 +285,7 @@ try{
  checks.push('8192 explicitly seeded historical pause receipts migrate with a real publicly admitted Run/Goal/Thread; real GUI stop and management cancel succeed, retain identity and remain cancelled after restart');
  assert.deepEqual(errors,[]);passed=true;
 }catch(error){
+ errors.push(error.stack??error.message);
  if(page){await writeFile(join(scratch,'failure-state.json'),JSON.stringify(await snapshot(),null,2)).catch(()=>{});await page.screenshot({path:join(scratch,'failure.png')}).catch(()=>{});}
  throw error;
 }finally{
@@ -261,9 +293,15 @@ try{
  for(const response of held)response.destroy();
  if(app){try{await stopOwnedService();}catch(error){errors.push(`cleanup: ${error.message}`);await app.close().catch(()=>{});await waitForElectronExit().catch(failure=>errors.push(`cleanup: ${failure.message}`));}}
  model.closeAllConnections();await new Promise(resolve=>model.close(resolve));
- try{await assertApplicationStopped(binary,env);}catch(error){errors.push(`cleanup: ${error.message}`);}
+ let cleanupPassed=false;
+ try{await assertApplicationStopped(binary,env);cleanupPassed=true;}catch(error){errors.push(`cleanup: ${error.message}`);}
+ const binarySha256After=createHash('sha256').update(await readFile(binary)).digest('hex');
+ const binaryUnchanged=binarySha256After===binarySha256;
+ if(!binaryUnchanged)errors.push('Core binary changed during task history acceptance');
+ const cleanup={applicationStopped:cleanupPassed,electronExited:!electronProcess||electronProcess.exitCode!==null||electronProcess.signalCode!==null};
  passed=passed&&errors.length===0;if(!passed)process.exitCode=1;
- await writeFile(join(scratch,'evidence.json'),JSON.stringify({passed,binary,binarySha256,checks,errors},null,2));
- await writeFile(join(scratch,'manifest.json'),JSON.stringify({passed,sourceCommit:execFileSync('git',['rev-parse','HEAD'],{cwd:gui,encoding:'utf8'}).trim(),diff:execFileSync('git',['diff','--stat'],{cwd:gui,encoding:'utf8'}),binary,binarySha256,checks,errors,boundaries:['real isolated Electron, preload, desktop adapter and Core','160 terminal runs and8192 old receipts are explicit stopped legacy v3 setup','new runs and capacity Run/Goal/Thread use public admission','notification input and transient read faults are injected at Main service-client boundary','native OS notification delivery, real providers and packaged app are not exercised']},null,2));
+ await writeFile(join(scratch,'model-requests.json'),JSON.stringify(modelRequests,null,2));
+ await writeFile(join(scratch,'evidence.json'),JSON.stringify({passed,binary,binarySha256,binarySha256After,binaryUnchanged,cleanup,checks,errors},null,2));
+ await writeFile(join(scratch,'manifest.json'),JSON.stringify({passed,sourceCommit:execFileSync('git',['rev-parse','HEAD'],{cwd:gui,encoding:'utf8'}).trim(),diff:execFileSync('git',['diff','--stat'],{cwd:gui,encoding:'utf8'}),binary,binarySha256,binarySha256After,binaryUnchanged,cleanup,checks,errors,boundaries:['real isolated Electron, preload, desktop adapter and Core','160 terminal runs and8192 old receipts are explicit stopped legacy v3 setup','new runs and capacity Run/Goal/Thread use public admission','notification input and transient read faults are injected at Main service-client boundary','native OS notification delivery, real providers and packaged app are not exercised']},null,2));
  console.log(JSON.stringify({passed,scratch,checks,errors}));
 }
