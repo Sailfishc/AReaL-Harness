@@ -215,7 +215,7 @@ export function TaskDraft({ projects, initialProjectId, task, action, disabled, 
       <div role="status">{opening || startRequested && !disabled && !saved.threadId && !saved.pending ? "正在打开会话…" : task || saved.threadId || saved.pending ? "正在读取会话…" : error ? "会话打开失败，请重试。" : "等待连接后台…"}{!saved.pending && !opening && (error || saved.threadId) && <Button variant="ghost" disabled={disabled} onClick={() => {setStartRequested(true);setRetry(n => n + 1);}}>{saved.threadId ? "重新读取" : "重试"}</Button>}</div>
     </div>}
     {preparingInput && <div className="task-conversation-body"><section className="task-chat-pane">
-      <div className="flex-1 overflow-auto">{welcome}<p role="status" className="task-plan-note">{opening || startRequested && !disabled && !saved.pending ? "正在准备会话，可先输入。" : "输入已保留，会话就绪后即可发送。"}{!saved.pending && !opening && (error || saved.threadId) && <Button variant="ghost" disabled={disabled} onClick={() => { setStartRequested(true); setRetry(n => n + 1); }}>重试</Button>}</p></div>
+      <div className="flex-1 overflow-auto">{welcome}{!opening && (!startRequested || disabled || saved.pending) && <p role="status" className="task-plan-note">输入已保留，会话就绪后即可发送。{!saved.pending && (error || saved.threadId) && <Button variant="ghost" disabled={disabled} onClick={() => { setStartRequested(true); setRetry(n => n + 1); }}>重试</Button>}</p>}</div>
       <div ref={preparingElement} className="composer-dock" data-v4-composer-dock="true"
         onCompositionStartCapture={() => { composing.current = true; }}
         onCompositionEnd={() => {
