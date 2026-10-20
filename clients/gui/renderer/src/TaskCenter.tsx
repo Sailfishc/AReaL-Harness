@@ -12,8 +12,9 @@ import type { Action, Data } from "./services.js";
 import { GoalUsageSummary } from "./GoalUsage.js";
 import { goalBudgetMessage } from "./conversationPresentation.js";
 
-type RunHistory = { owner: string; enabled: boolean | null; data: Data[]; nextCursor: string | null; runCount: number; pending: boolean; error: string; retryMore: boolean };
-const emptyRunHistory = (owner = ""): RunHistory => ({ owner, enabled: null, data: [], nextCursor: null, runCount: 0, pending: false, error: "", retryMore: false });
+type HistoryReadMode = "head" | "more" | "refresh";
+type RunHistory = { owner: string; enabled: boolean | null; data: Data[]; nextCursor: string | null; runCount: number; headRunCount: number; pending: boolean; error: string; retryMode: HistoryReadMode; needsRefresh: boolean };
+const emptyRunHistory = (owner = ""): RunHistory => ({ owner, enabled: null, data: [], nextCursor: null, runCount: 0, headRunCount: 0, pending: false, error: "", retryMode: "head", needsRefresh: false });
 const mergeRuns = (previous: Data[], next: Data[]) => [...new Map([...previous, ...next].map(run => [run.id, run])).values()];
 
 type CatalogIdentity = { requestId: string; viewEpoch: number };
@@ -177,7 +178,7 @@ export function ChannelQuestion({ row, projectId, action, disabled, onReplied, s
   </article>;
 }
 
-export function TaskCenter({ projects, connected, initialProjectId, defaultProjectId, action, onOpenThread, onOpenModelSettings, navigation, target, renderConversation, renderResources }: Props & { navigation: ReactNode; renderConversation: TaskConversationRenderer; renderResources: (project: Data, thread: Data, task: Data, history: ReactNode, revealKey?: string) => ReactNode; target?: { projectId: string; taskId: string; runId?: string; questionId?: string } }) {
+export function TaskCenter({ projects, connected, initialProjectId, defaultProjectId, action, onOpenThread, onOpenModelSettings, navigation, target, renderConversation, renderResources }: Props & { navigation: ReactNode; renderConversation: TaskConversationRenderer; renderResources: (project: Data, thread: Data, task: Data, history: ReactNode, revealKey?: string) => ReactNode; target?: { projectId: string; taskId: string; runId?: string; questionId?: string; eventId?: string } }) {
   const layout = useRef<HTMLElement>(null);
   const [narrow, setNarrow] = useState(false);
   useLayoutEffect(() => {
@@ -205,15 +206,15 @@ export function TaskCenter({ projects, connected, initialProjectId, defaultProje
   const [messages, setMessages] = useState<Data[]>([]);
   const [history, setHistory] = useState<RunHistory>(() => emptyRunHistory());
   const historyEpoch = useRef(0);
-  const readRuns = useRef<(more?: boolean) => Promise<void>>(async () => {});
+  const readRuns = useRef<(mode?: HistoryReadMode) => Promise<void>>(async () => {});
   const rows = Object.values(catalog).flatMap(read => ownerRows(read)?.data ?? []);
   const failedProjects = projects.filter(project => catalog[project.id]?.status === "error").map(project => project.id);
   const loading = connected && projects.some(project => !catalog[project.id] || catalog[project.id].status === "pending");
   const fresh = connected && projects.every(project => catalog[project.id]?.status === "ready");
   const hasMore = Object.values(catalog).some(read => ownerRows(read)?.hasMore);
   const [selected, setSelected] = useState(() => sessionStorage.getItem("areal-gui:selected-global-task") ?? ""), [creating, setCreating] = useState(false);
-  const selection = useRef({ selected, projects });
-  selection.current = { selected, projects };
+  const selection = useRef({ selected, projects, target });
+  selection.current = { selected, projects, target };
   const [busy, setBusy] = useState(false), [error, setError] = useState("");
   const [viewId] = useState(() => {
     const key = "areal-gui:global-task-view";
@@ -223,9 +224,7 @@ export function TaskCenter({ projects, connected, initialProjectId, defaultProje
     if (!target) return;
     setCreating(false); setSelected(`${target.projectId}:${target.taskId}`); setDetailsOpen(true);
   }, [target]);
-  const focusedTarget = useRef<typeof target>(undefined);
-  const revealTarget = useRef<{ target: typeof target; key: string }>({ target: undefined, key: "" });
-  if (revealTarget.current.target !== target) revealTarget.current = { target, key: target ? crypto.randomUUID() : "" };
+  const focusedTarget = useRef<string | undefined>(undefined);
   const sequence = useRef(0), mutation = useRef(false);
   const refreshRead = useRef<(more?: boolean, retryProjectId?: string) => Promise<void>>(async () => {});
   const pages = useRef(1);
@@ -263,13 +262,14 @@ export function TaskCenter({ projects, connected, initialProjectId, defaultProje
     if (!task || !project?.state?.connected || !connected) return;
     const projectId = project.id, taskId = task.id;
     let enabled: boolean | null = null, loading = false;
-    let cursor: string | null = null;
+    let cursor: string | null = null, headRunCount: number | null = null;
     const seenCursors = new Set<string>();
     const current = () => historyEpoch.current === epoch && selection.current.selected === owner;
-    const read = async (more = false) => {
+    const read = async (mode: HistoryReadMode = "head") => {
+      const more = mode === "more";
       if (!current() || loading || more && !cursor) return;
       loading = true;
-      setHistory(previous => ({ ...previous, pending: true, error: "", retryMore: more }));
+      setHistory(previous => ({ ...previous, pending: true, error: "", retryMode: mode }));
       try {
         if (enabled === null) {
           const capabilities = await action("manage", { projectId, operation: "taskHistoryCapabilities" });
@@ -282,10 +282,13 @@ export function TaskCenter({ projects, connected, initialProjectId, defaultProje
         if (!current()) return;
         if (!Array.isArray(page.data) || !Number.isSafeInteger(page.runCount) || page.runCount < 0
           || typeof page.hasMore !== "boolean" || page.hasMore && (typeof page.nextCursor !== "string" || !page.nextCursor || more && (page.nextCursor === cursor || seenCursors.has(page.nextCursor)))) throw new Error("运行记录分页未前进，请重试读取。");
+        const reset = mode === "refresh" || headRunCount === null;
+        const gap = !more && !reset && headRunCount !== null && page.runCount - headRunCount > page.data.length;
         if (more && cursor) seenCursors.add(cursor);
-        if (!more) seenCursors.clear();
-        cursor = page.hasMore ? page.nextCursor : null;
-        setHistory(previous => ({ ...previous, data: mergeRuns(previous.data, page.data), nextCursor: cursor, runCount: page.runCount }));
+        if (reset) seenCursors.clear();
+        if (more || reset) cursor = page.hasMore ? page.nextCursor : null;
+        if (!more) headRunCount = page.runCount;
+        setHistory(previous => ({ ...previous, data: mode === "refresh" ? page.data : mergeRuns(previous.data, page.data), nextCursor: cursor, runCount: Math.max(previous.runCount, page.runCount), headRunCount: more ? previous.headRunCount : page.runCount, needsRefresh: reset ? false : previous.needsRefresh || gap }));
       } catch (cause) {
         if (current()) setHistory(previous => ({ ...previous, error: (cause as Error).message }));
       } finally {
@@ -298,24 +301,25 @@ export function TaskCenter({ projects, connected, initialProjectId, defaultProje
     return () => { historyEpoch.current++; };
   }, [action, connected, project?.id, project?.state?.connected, project?.core?.connectionGeneration, task?.id]);
   useEffect(() => {
-    if (history.owner === selected && history.enabled && !history.pending && !history.error && task?.runCount > history.runCount) void readRuns.current();
-  }, [history.owner, history.enabled, history.pending, history.error, history.runCount, selected, task?.runCount]);
+    if (history.owner === selected && history.enabled && !history.pending && !history.error && task?.runCount > history.headRunCount) void readRuns.current();
+  }, [history.owner, history.enabled, history.pending, history.error, history.headRunCount, selected, task?.runCount]);
   const historyRuns = history.owner === selected ? history.data : [];
   const displayedRuns = mergeRuns(historyRuns, task?.runs ?? []).sort((a, b) => b.scheduledAt - a.scheduledAt || String(b.id).localeCompare(String(a.id)));
-  const requestedHistoryTarget = useRef<{ target: typeof target; epoch: number } | undefined>(undefined);
+  const [targetRead, setTargetRead] = useState<{ target: typeof target; epoch: number; status: "pending" | "ready" | "error"; error: string } | null>(null);
   useEffect(() => {
-    if (!target?.runId || (requestedHistoryTarget.current?.target === target && requestedHistoryTarget.current.epoch === historyEpoch.current) || !history.enabled || history.owner !== selected
+    if (!target?.runId || targetRead?.target === target && targetRead.epoch === historyEpoch.current || !history.enabled || history.owner !== selected
       || selected !== `${target.projectId}:${target.taskId}` || displayedRuns.some(run => run.id === target.runId)) return;
     const epoch = historyEpoch.current;
-    requestedHistoryTarget.current = { target, epoch };
+    setTargetRead({ target, epoch, status: "pending", error: "" });
     void action("manage", { projectId: target.projectId, operation: "taskRun", taskId: target.taskId, runId: target.runId }).then(run => {
-      if (epoch !== historyEpoch.current || selection.current.selected !== history.owner) return;
+      if (epoch !== historyEpoch.current || selection.current.selected !== history.owner || selection.current.target !== target) return;
       if (run.id !== target.runId) throw new Error("运行记录与通知目标不匹配。");
       setHistory(previous => ({ ...previous, data: mergeRuns(previous.data, [run]) }));
+      setTargetRead({ target, epoch, status: "ready", error: "" });
     }).catch(cause => {
-      if (epoch === historyEpoch.current) setHistory(previous => ({ ...previous, error: cause.message }));
+      if (epoch === historyEpoch.current && selection.current.selected === history.owner && selection.current.target === target) setTargetRead({ target, epoch, status: "error", error: cause.message });
     });
-  }, [action, target, selected, history.enabled, history.owner, displayedRuns]);
+  }, [action, target, targetRead, selected, history.enabled, history.owner, displayedRuns]);
   const pending = project?.pending?.filter((p: Data) => p.method.startsWith("areal/task/") || p.method === "areal/channel/reply") ?? [];
   const ownerFailed = !!project && failedProjects.includes(project.id);
   const watchConfirmed = confirmedWatch?.owner === selected && confirmedWatch?.generation === (project?.core?.connectionGeneration ?? 0);
@@ -418,30 +422,34 @@ export function TaskCenter({ projects, connected, initialProjectId, defaultProje
     void readChannel(project.id, task.id);
     return () => { channelEpoch.current++; };
   }, [project?.id, project?.state?.connected, readChannel, task?.channelSequence, task?.id]);
-  const revealKey = target && selected === `${target.projectId}:${target.taskId}`
-    && (!target.runId || displayedRuns.some(run => run.id === target.runId))
-    && (!target.questionId || messages.some(message => message.id === target.questionId)) ? revealTarget.current.key : undefined;
+  const revealKey = target && selected === `${target.projectId}:${target.taskId}` ? target.eventId : undefined;
   useEffect(() => {
-    if (!target || !revealKey || !target.runId && !target.questionId || focusedTarget.current === target) return;
-    let observer: MutationObserver | undefined;
-    const focus = () => {
+    if (!target || !revealKey || !target.runId && !target.questionId || focusedTarget.current === revealKey) return;
+    const notification = target;
+    let observedRoot = false;
+    const observer = new MutationObserver(focus);
+    const deadline = window.setTimeout(() => observer.disconnect(), 15000);
+    function settle() {
+      focusedTarget.current = revealKey;
+      observer.disconnect();
+      clearTimeout(deadline);
+    }
+    function focus() {
       const historyRoot = [...document.querySelectorAll<HTMLElement>("[data-task-history-owner]")].find(element => element.dataset.taskHistoryOwner === selected);
-      const attribute = target.questionId ? "data-question-id" : "data-run-id";
-      const id = target.questionId ?? target.runId;
-      const element = [...historyRoot?.querySelectorAll<HTMLElement>(`[${attribute}]`) ?? []].find(candidate => candidate.getAttribute(attribute) === id);
+      if (!historyRoot) { if (observedRoot) settle(); return; }
+      observedRoot = true;
+      const attribute = notification.questionId ? "data-question-id" : "data-run-id";
+      const id = notification.questionId ?? notification.runId;
+      const element = [...historyRoot.querySelectorAll<HTMLElement>(`[${attribute}]`)].find(candidate => candidate.getAttribute(attribute) === id);
       if (!element) return;
-      focusedTarget.current = target;
       element.scrollIntoView({ block: "nearest" });
       element.querySelector<HTMLElement>('textarea, button, [role="combobox"]')?.focus({ preventScroll: true });
-      observer?.disconnect();
-    };
-    focus();
-    if (focusedTarget.current !== target) {
-      observer = new MutationObserver(focus);
-      observer.observe(document.body, { childList: true, subtree: true });
+      settle();
     }
-    return () => observer?.disconnect();
-  }, [target, selected, revealKey]);
+    observer.observe(document.body, { childList: true, subtree: true });
+    focus();
+    return () => { observer.disconnect(); clearTimeout(deadline); };
+  }, [target, selected, revealKey, targetRead?.status]);
   const control = async (operation: string, runId?: string) => {
     if (!task || !project || disabled || mutation.current) return;
     mutation.current = true; setBusy(true); setError("");
@@ -477,14 +485,17 @@ export function TaskCenter({ projects, connected, initialProjectId, defaultProje
     {channelError && <p role="alert">{channelError}</p>}
     {typeof task.runCount === "number" && <p className="text-foreground-subtle">最近窗口 {task.runs.length} 次 · 共 {Math.max(task.runCount, history.owner === selected ? history.runCount : 0)} 次 · 已加载 {displayedRuns.length} 次</p>}
     {task.runsComplete === false && history.enabled === false && <p role="status">当前 Core 仅提供最近运行窗口。更新 Core 后可读取更早记录。</p>}
-    {history.owner === selected && history.error && <div><p role="alert">{history.error}</p><Button size="sm" variant="ghost" disabled={history.pending || !connected} onClick={() => { requestedHistoryTarget.current = undefined; void readRuns.current(history.retryMore); }}>重试读取运行记录</Button></div>}
+    {targetRead && targetRead.target === target && targetRead.epoch === historyEpoch.current && targetRead.status === "pending" && <p role="status">正在读取通知运行…</p>}
+    {targetRead && targetRead.target === target && targetRead.epoch === historyEpoch.current && targetRead.status === "error" && <div><p role="alert">{targetRead.error}</p><Button size="sm" variant="ghost" disabled={!connected || !project.state?.connected} onClick={() => setTargetRead(null)}>重试读取通知运行</Button></div>}
+    {history.owner === selected && history.error && <div><p role="alert">{history.error}</p><Button size="sm" variant="ghost" disabled={history.pending || !connected} onClick={() => void readRuns.current(history.retryMode)}>重试读取运行记录</Button></div>}
+    {history.owner === selected && history.needsRefresh && <div><p role="status">新增运行超过本次读取范围，请刷新运行记录以读取完整历史。</p><Button size="sm" variant="ghost" disabled={history.pending || !connected || !project.state?.connected} onClick={() => void readRuns.current("refresh")}>刷新运行记录</Button></div>}
     {overdueMerge && <p>恢复后，错过的周期会合并为一次运行。</p>}
     {mergedSpan && <p>错过的周期已合并；运行未结束时不会重叠启动。</p>}
     {!!task.skippedRuns && <p>前次运行未结束，已跳过 {task.skippedRuns} 次触发。</p>}
           {!displayedRuns.length && !task.runCount && <p className="text-foreground-subtle">尚未运行</p>}
           {[...displayedRuns].sort((a: Data,b: Data) => Number(["blocked","waitingForInput","paused"].includes(b.status)) - Number(["blocked","waitingForInput","paused"].includes(a.status))).map((run: Data) => <article key={run.id} data-run-id={run.id} className="grid gap-1 rounded-control border border-border p-2"><div className="flex flex-wrap justify-between gap-1"><span>{statusLabels[run.status] ?? run.status}</span><span className="text-foreground-subtle">计划：{date(run.scheduledAt, task.schedule?.timeZone)} · 开始：{date(run.startedAt, task.schedule?.timeZone)}</span></div>{run.objective && run.objective !== task.objective && <p className="whitespace-pre-wrap">任务内容：{run.objective}</p>}<p className="break-words text-foreground-subtle">运行原因：{run.reason ? <span>{runReason(run.reason, task)}</span> : "—"}</p>{goalBudgetMessage(run.reason) && !scheduledTokenLimit(task, run.reason) && <p className="text-foreground-subtle">打开执行会话，在“编辑目标”中调整预算后恢复。</p>}<p className="text-foreground-subtle">{run.usage.tokensUsed.toLocaleString()} Token · {run.usage.turnsStarted} 轮 · {run.usage.timeUsedSeconds.toLocaleString(undefined, { maximumFractionDigits: 1 })} 秒{!run.usage.accountingComplete && " · 用量尚未结算完整"}</p><GoalUsageSummary usage={run.usage} label="运行用量" />{messages.filter(message => message.runId === run.id && message.kind === "report").at(-1)?.text && <p>{messages.filter(message => message.runId === run.id && message.kind === "report").at(-1)?.text}</p>}{!terminal(run) && task.runs.some((live: Data) => live.id === run.id) && <div className="flex gap-1">{["blocked","paused"].includes(run.status) && <Button size="sm" disabled={disabled || ["stopRequested","resumeRequested"].includes(run.reason)} onClick={() => void control("taskResumeRun", run.id)}>继续本次运行</Button>}<Button size="sm" variant="outline" disabled={disabled || run.reason === "stopRequested"} onClick={() => void control("taskStopRun", run.id)}>停止本次运行</Button></div>}{run.threadId && <Button className="justify-self-start" size="sm" variant="ghost" onClick={() => onOpenThread(project.id, run.threadId)}>打开执行会话</Button>}{messages.filter(message => message.runId === run.id).map(message => <ChannelRecord key={message.id} message={message} task={task} projectId={project.id} action={action} disabled={disabled || !!channelError} onReplied={() => void refresh()} />)}{run.workers?.map((worker: Data) => <WorkerParticipant key={`${worker.threadId}:${worker.turnId}`} task={task} run={run} worker={worker} messages={messages} project={project} onOpenThread={onOpenThread} />)}</article>)}
           {history.owner === selected && history.pending && <p role="status">正在读取运行记录…</p>}
-          {history.owner === selected && history.enabled && history.nextCursor && <Button size="sm" variant="ghost" disabled={history.pending || !connected || !project.state?.connected} onClick={() => void readRuns.current(true)}>加载更早运行</Button>}
+          {history.owner === selected && history.enabled && history.nextCursor && <Button size="sm" variant="ghost" disabled={history.pending || !connected || !project.state?.connected} onClick={() => void readRuns.current("more")}>加载更早运行</Button>}
           {messages.filter(message => !displayedRuns.some((run: Data) => run.id === message.runId)).map(message => <ChannelRecord key={message.id} message={message} task={task} projectId={project.id} action={action} disabled={disabled || !!channelError} onReplied={() => void refresh()} />)}
   </div></details>;
   return <section ref={layout} aria-label="自动化中心" className={`task-center text-ui-base ${detailOpen ? "has-detail" : ""} ${narrow ? "is-narrow" : ""}`}>
