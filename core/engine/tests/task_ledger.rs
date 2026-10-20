@@ -111,6 +111,246 @@ async fn full_receipt_ledger_stops_cancels_and_replays_original_responses_after_
 }
 
 #[tokio::test]
+async fn packed_receipts_split_by_rows_and_bytes_and_replay_after_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    legacy(dir.path(), 0, 1, 0);
+    let path = dir.path().join("desktop/task-mode.json");
+    let mut snapshot: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    let mut receipts = Vec::new();
+    let mut requests = Vec::new();
+    let mut counts = [0; 3];
+    for n in 0..100_000 {
+        let request = format!("packed-{n}");
+        let key = format!(
+            "{:x}",
+            Sha256::digest(serde_json::to_vec(&("owner", "pause", &request)).unwrap())
+        );
+        let bucket = u8::from_str_radix(&key[..2], 16).unwrap() as usize;
+        let limits = [64, 3, 1];
+        if bucket >= limits.len() || counts[bucket] == limits[bucket] {
+            continue;
+        }
+        counts[bucket] += 1;
+        let result = match bucket {
+            0 => json!({"original":n}),
+            1 => json!({"original":n,"text":"b".repeat(70 * 1024)}),
+            _ => json!({"original":n,"text":"s".repeat(140 * 1024)}),
+        };
+        receipts.push(json!({"identity":"owner","method":"pause","requestId":request,
+            "digest":format!("{:x}",Sha256::digest(serde_json::to_vec(&control(&request,1,None)).unwrap())),
+            "result":result}));
+        requests.push((request, result));
+        if counts == limits {
+            break;
+        }
+    }
+    assert_eq!(counts, [64, 3, 1]);
+    snapshot["receipts"] = json!(receipts);
+    let original = serde_json::to_vec(&snapshot).unwrap();
+    std::fs::write(&path, &original).unwrap();
+    let engine = open(dir.path());
+    let inserted_request = (0..100_000)
+        .map(|n| format!("insert-packed-{n}"))
+        .find(|request| {
+            format!(
+                "{:x}",
+                Sha256::digest(serde_json::to_vec(&("owner", "pause", request)).unwrap())
+            )
+            .starts_with("00")
+        })
+        .unwrap();
+    let inserted = engine
+        .task_control(
+            "owner".into(),
+            "pause".into(),
+            control(&inserted_request, 1, None),
+        )
+        .await
+        .unwrap();
+    assert_eq!(inserted["paused"], true);
+    assert_eq!(inserted["revision"], 2);
+    requests.push((inserted_request, inserted));
+    engine.shutdown().await;
+    drop(engine);
+    let backup = dir
+        .path()
+        .join("desktop/task-legacy")
+        .join(format!("{:x}", Sha256::digest(&original)));
+    assert_eq!(std::fs::read(backup).unwrap(), original);
+    let reopened = open(dir.path());
+    for (request, result) in &requests {
+        assert_eq!(
+            reopened
+                .task_control("owner".into(), "pause".into(), control(request, 1, None))
+                .await
+                .unwrap(),
+            *result
+        );
+    }
+    assert!(matches!(
+        reopened
+            .task_control(
+                "owner".into(),
+                "pause".into(),
+                control(&requests[0].0, 2, None)
+            )
+            .await,
+        Err(Error::Conflict)
+    ));
+    let paused = reopened
+        .task_control(
+            "owner".into(),
+            "pause".into(),
+            control("packed-missing", 2, None),
+        )
+        .await
+        .unwrap();
+    assert_eq!(paused["paused"], true);
+    assert_eq!(paused["revision"], 3);
+    reopened.shutdown().await;
+    drop(reopened);
+    let reopened = open(dir.path());
+    assert_eq!(
+        reopened
+            .task_control(
+                "owner".into(),
+                "pause".into(),
+                control("packed-missing", 2, None)
+            )
+            .await
+            .unwrap(),
+        paused
+    );
+    reopened.shutdown().await;
+}
+
+#[tokio::test]
+async fn packed_receipt_corruption_fails_closed_before_publishing_a_new_root() {
+    let dir = tempfile::tempdir().unwrap();
+    legacy(dir.path(), 0, 1, 0);
+    let engine = open(dir.path());
+    engine.shutdown().await;
+    drop(engine);
+    let path = dir.path().join("desktop/task-mode.json");
+    let catalog: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    let key = format!(
+        "{:x}",
+        Sha256::digest(serde_json::to_vec(&("owner", "pause", "packed-valid")).unwrap())
+    );
+    let row = json!({"identity":"owner","method":"pause","requestId":"packed-valid",
+        "digest":format!("{:x}",Sha256::digest(serde_json::to_vec(&control("packed-valid",1,None)).unwrap())),
+        "result":{"original":17}});
+    let valid = json!({"version":2,"prefix":&key[..2],"rows":[[key,row]],"children":{}});
+    let mut cases = Vec::new();
+    let mut duplicate = valid.clone();
+    duplicate["rows"] = json!([[key, row], [key, row]]);
+    cases.push(("duplicate", duplicate, true, "invalid Task index node"));
+    let mut unordered = valid.clone();
+    let greater = format!("{}{}", &key[..2], "f".repeat(62));
+    unordered["rows"] = json!([[greater, row], [key, row]]);
+    cases.push(("unordered", unordered, true, "invalid Task index node"));
+    let mut malformed = valid.clone();
+    malformed["rows"][0][0] = json!(format!("{}z", &key[..63]));
+    cases.push(("non-hex key", malformed, true, "invalid Task index node"));
+    let mut prefix = valid.clone();
+    prefix["prefix"] = json!(if &key[..2] == "00" { "01" } else { "00" });
+    cases.push(("prefix mismatch", prefix, true, "invalid Task index node"));
+    let mut children = valid.clone();
+    children["children"] = json!({"0":{"digest":"a".repeat(64),"leaf":true}});
+    cases.push(("leaf children", children, true, "leaf cannot have children"));
+    let mut too_many = valid.clone();
+    let mut rows = vec![json!([key, row]); 64];
+    rows.push(Value::Null);
+    too_many["rows"] = json!(rows);
+    cases.push((
+        "row decode bound",
+        too_many,
+        true,
+        "Task index leaf exceeds row limit",
+    ));
+    cases.push((
+        "reference kind",
+        valid.clone(),
+        false,
+        "Task index reference kind mismatch",
+    ));
+    let mut byte_bound = valid.clone();
+    let mut large = row.clone();
+    large["result"] = json!("x".repeat(70 * 1024));
+    byte_bound["rows"] = json!([[key, large], [greater, large]]);
+    cases.push((
+        "pack byte bound",
+        byte_bound,
+        true,
+        "Task index leaf exceeds pack bound",
+    ));
+    let mut oversized_branch = valid.clone();
+    oversized_branch["padding"] = json!("x".repeat(2048));
+    cases.push((
+        "branch predecode bound",
+        oversized_branch,
+        false,
+        "task ledger leaf exceeds read limit",
+    ));
+    for (case, node, leaf, message) in cases {
+        let bytes = serde_json::to_vec(&node).unwrap();
+        let digest = format!("{:x}", Sha256::digest(&bytes));
+        std::fs::write(dir.path().join("desktop/task-ledger").join(&digest), bytes).unwrap();
+        let mut corrupt = catalog.clone();
+        corrupt["receipts"][u8::from_str_radix(&key[..2], 16).unwrap().to_string()] =
+            json!({"digest":digest,"leaf":leaf});
+        let original = serde_json::to_vec(&corrupt).unwrap();
+        std::fs::write(&path, &original).unwrap();
+        let model = ChatModel::new("http://127.0.0.1:9".into(), "unused".into(), None).unwrap();
+        let error = Engine::open(dir.path(), Arc::new(model), Limits::default())
+            .err()
+            .unwrap_or_else(|| panic!("accepted corrupt leaf {case}"));
+        assert!(format!("{error:#}").contains(message), "{case}: {error:#}");
+        assert_eq!(std::fs::read(&path).unwrap(), original, "{case}");
+    }
+    let bytes = serde_json::to_vec(&valid).unwrap();
+    let digest = format!("{:x}", Sha256::digest(&bytes));
+    std::fs::write(dir.path().join("desktop/task-ledger").join(&digest), bytes).unwrap();
+    let mut restored = catalog;
+    restored["receipts"][u8::from_str_radix(&key[..2], 16).unwrap().to_string()] =
+        json!({"digest":digest,"leaf":true});
+    std::fs::write(&path, serde_json::to_vec(&restored).unwrap()).unwrap();
+    let reopened = open(dir.path());
+    assert_eq!(
+        reopened
+            .task_control(
+                "owner".into(),
+                "pause".into(),
+                control("packed-valid", 1, None)
+            )
+            .await
+            .unwrap(),
+        json!({"original":17})
+    );
+    reopened.shutdown().await;
+}
+
+#[tokio::test]
+async fn unsupported_experimental_index_preserves_the_committed_catalog() {
+    let dir = tempfile::tempdir().unwrap();
+    legacy(dir.path(), 0, 1, 0);
+    let engine = open(dir.path());
+    engine.shutdown().await;
+    drop(engine);
+    let path = dir.path().join("desktop/task-mode.json");
+    let mut catalog: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    catalog["index_version"] = json!(2);
+    let bytes = serde_json::to_vec(&catalog).unwrap();
+    std::fs::write(&path, &bytes).unwrap();
+    let model = ChatModel::new("http://127.0.0.1:9".into(), "unused".into(), None).unwrap();
+    let error = Engine::open(dir.path(), Arc::new(model), Limits::default())
+        .err()
+        .expect("experimental index_version 2 must not be read as packed index_version 3");
+    assert!(format!("{error:#}").contains("unsupported Task index version"));
+    assert_eq!(std::fs::read(path).unwrap(), bytes);
+}
+
+#[tokio::test]
 async fn legacy_near_32_mib_without_archivable_data_can_persist_control() {
     let dir = tempfile::tempdir().unwrap();
     legacy(dir.path(), 0, 1, 32 * 1024 * 1024 - 4096);

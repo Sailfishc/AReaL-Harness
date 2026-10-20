@@ -106,6 +106,8 @@ scheduled 的 pause/resume 只影响后续触发，不改变本次执行或 work
 
 `desktop/task-mode.json` 是版本 4 的唯一提交根，引用 `desktop/task-ledger/` 中不可变的热 Task、历史分段与收据/归属索引。每部署仍最多 1024 Task，普通热状态总预算为 32 MiB；单个不可变文件的硬读取上限为 256 MiB。128 Run 和 1024 消息是热保留目标，完整历史和原始幂等响应保留在冷存储中，不因历史数量暂停周期任务。终态、用量已确认、无未知请求、worker 已结算且无待处理问题的 Run 才可归档；未知工具效果、审批或无法在有界检查中确认的 Thread 历史保留热态。常规保留每次最多检查 16 个 Thread 快照；引用超过 16 个 Thread 的 Run 会保持热态，直到启动时完整检查，因此仍可能占用普通热状态预算，默认 worker 上限为 64。普通增长满额时返回 `taskHotStateCapacity`，已受理工作的控制和有界终态结算可使用预留容量。物理写入或提交结果不明返回存储错误，并冻结 Task 写入与新派发；重启校验且同步已提交根与全部引用文件后才恢复。活动或挂起等待的 Run 在 Core 重启后暂停，显式 resumeRun（scheduled）或 resume 后才继续；尚未触发的 schedule 保留。恢复不自动重放未知工具副作用。`server/drain` 停止当前执行并关闭准入，但保留 scheduled 的启用状态；`server/status.activeTasks` 计入待执行时间点，ifIdle 不把它们视为空闲。
 
+私有收据与归属索引使用 256 个桶头和完整 SHA-256 键的压缩 radix。单次查找最多访问 64 个节点，并在最多 64 行的有序终端叶中查找。分支文件读取前限制为 2 KiB，普通打包叶的序列化上限为 128 KiB；单个更大的历史响应可使用 256 MiB 文件上限。更新只重写终端叶与祖先路径。catalog 的 index_version 3 使用节点版本 2。未发布的实验性 index_version 2 会被拒绝，原根不会被替换；已部署的 Task store v1–3 仍保留完整原字节备份后迁移。
+
 Thread 快照版本为 13，API 保持 areal.core.v1；旧 Thread/Goal 可读取，旧 Goal 在首次 resume 时补登记 Task。旧二进制不能读取新版本快照。嵌入式宿主在完成模型、工具装配后调用 `Engine::start_task_scheduler()`；app-server 自动调用。
 
 ## 请求示例

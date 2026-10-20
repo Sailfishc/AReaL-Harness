@@ -6,6 +6,8 @@ const ROOT_BYTES: usize = 1024 * 1024;
 const FILE_BYTES: usize = 256 * 1024 * 1024;
 const PAGE_BYTES: usize = 131072;
 const INDEX_BYTES: usize = 2048;
+const INDEX_ROWS: usize = 64;
+const INDEX_PACK_BYTES: usize = 128 * 1024;
 
 #[cfg(feature = "test-support")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -58,12 +60,51 @@ struct IndexRef {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(deny_unknown_fields, bound(deserialize = "T: Deserialize<'de>"))]
 struct IndexLeaf<T> {
     version: u32,
     prefix: String,
-    row: T,
+    #[serde(deserialize_with = "index_rows")]
+    rows: Vec<(String, T)>,
     children: EmptyChildren,
+}
+fn index_rows<'de, D, T>(decoder: D) -> std::result::Result<Vec<(String, T)>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    struct Rows<T>(std::marker::PhantomData<T>);
+    impl<'de, T: Deserialize<'de>> serde::de::Visitor<'de> for Rows<T> {
+        type Value = Vec<(String, T)>;
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            write!(f, "at most {INDEX_ROWS} Task index rows")
+        }
+        fn visit_seq<S: serde::de::SeqAccess<'de>>(
+            self,
+            mut sequence: S,
+        ) -> std::result::Result<Self::Value, S::Error> {
+            let mut rows = Vec::with_capacity(sequence.size_hint().unwrap_or(0).min(INDEX_ROWS));
+            for _ in 0..INDEX_ROWS {
+                let Some(row) = sequence.next_element()? else {
+                    return Ok(rows);
+                };
+                rows.push(row);
+            }
+            struct ExcessRow;
+            impl<'de> Deserialize<'de> for ExcessRow {
+                fn deserialize<D: serde::Deserializer<'de>>(
+                    _: D,
+                ) -> std::result::Result<Self, D::Error> {
+                    Err(serde::de::Error::custom(
+                        "Task index leaf exceeds row limit",
+                    ))
+                }
+            }
+            sequence.next_element::<ExcessRow>()?;
+            Ok(rows)
+        }
+    }
+    decoder.deserialize_seq(Rows(std::marker::PhantomData))
 }
 struct EmptyChildren;
 impl<'de> Deserialize<'de> for EmptyChildren {
@@ -89,11 +130,12 @@ impl<'de> Deserialize<'de> for EmptyChildren {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(deny_unknown_fields, bound(deserialize = "T: Deserialize<'de>"))]
 struct IndexNode<T> {
     version: u32,
     prefix: String,
-    row: Option<T>,
+    #[serde(deserialize_with = "index_rows")]
+    rows: Vec<(String, T)>,
     children: BTreeMap<u8, IndexRef>,
 }
 #[derive(Clone, Serialize, Deserialize)]
@@ -202,7 +244,7 @@ impl Snapshot {
                 root: root.into(),
                 catalog: Catalog {
                     version: 4,
-                    index_version: 2,
+                    index_version: 3,
                     ..Default::default()
                 },
                 ..Default::default()
@@ -218,9 +260,9 @@ impl Snapshot {
         if header["version"] == 4 {
             anyhow::ensure!(bytes.len() <= ROOT_BYTES, "task catalog exceeds capacity");
             let catalog: Catalog = serde_json::from_slice(&bytes)?;
+            anyhow::ensure!(catalog.index_version == 3, "unsupported Task index version");
             anyhow::ensure!(
-                catalog.index_version == 2
-                    && catalog.tasks.len() <= MAX_TASKS
+                catalog.tasks.len() <= MAX_TASKS
                     && catalog.receipts.len() <= 256
                     && catalog.bindings.len() <= 256,
                 "task catalog exceeds capacity"
@@ -264,7 +306,7 @@ impl Snapshot {
             );
             state.root = root.into();
             state.catalog.version = 4;
-            state.catalog.index_version = 2;
+            state.catalog.index_version = 3;
             crate::store::write_immutable(&root.join("desktop/task-legacy"), &bytes)?;
             state.restore_runs();
             state.version = 4;
@@ -322,35 +364,28 @@ impl Snapshot {
             self.visit_history_refs(&task.id, |_, digest| sync(digest))?;
         }
         for (&bucket, head) in &self.catalog.receipts {
-            self.visit_index::<RequestReceipt>(head, None, |digest, row, key| {
-                sync(digest)?;
-                if let Some(row) = row {
-                    if receipt_key(&row.identity, &row.method, &row.request_id) != key
-                        || self::bucket(key) != bucket
-                    {
-                        return Err(storage("receipt index identity mismatch"));
-                    }
+            self.visit_index::<RequestReceipt>(head, None, sync, |row, key| {
+                if receipt_key(&row.identity, &row.method, &row.request_id) != key
+                    || self::bucket(key) != bucket
+                {
+                    return Err(storage("receipt index identity mismatch"));
                 }
                 Ok(())
             })?;
         }
         for (&bucket, head) in &self.catalog.bindings {
-            self.visit_index::<Binding>(head, None, |digest, row, key| {
-                sync(digest)?;
-                if let Some(row) = row {
-                    let run = self.binding_run(row)?;
-                    if self::bucket(key) != bucket
-                        || !(binding_key("run", &run.id) == key
-                            || run
-                                .goal_id
-                                .as_ref()
-                                .is_some_and(|goal| binding_key("goal", goal) == key))
-                    {
-                        return Err(storage("Run binding identity mismatch"));
-                    }
-                    sync(&row.segment)?;
+            self.visit_index::<Binding>(head, None, sync, |row, key| {
+                let run = self.binding_run(row)?;
+                if self::bucket(key) != bucket
+                    || !(binding_key("run", &run.id) == key
+                        || run
+                            .goal_id
+                            .as_ref()
+                            .is_some_and(|goal| binding_key("goal", goal) == key))
+                {
+                    return Err(storage("Run binding identity mismatch"));
                 }
-                Ok(())
+                sync(&row.segment)
             })?;
         }
         if let Some(digest) = &self.catalog.preparations {
@@ -368,12 +403,16 @@ impl Snapshot {
     }
 
     fn write_index<T: Serialize>(&self, node: &IndexNode<T>) -> Result<IndexRef> {
-        if node.row.is_none() && serde_json::to_vec(node).map_err(storage)?.len() > INDEX_BYTES {
+        let bytes = serde_json::to_vec(node).map_err(storage)?.len();
+        if node.rows.is_empty() && bytes > INDEX_BYTES {
             return Err(storage("Task index branch exceeds decode bound"));
+        }
+        if node.rows.len() > INDEX_ROWS || node.rows.len() > 1 && bytes > INDEX_PACK_BYTES {
+            return Err(storage("Task index leaf exceeds pack bound"));
         }
         Ok(IndexRef {
             digest: self.write_leaf(node)?,
-            leaf: node.row.is_some(),
+            leaf: !node.rows.is_empty(),
         })
     }
 
@@ -388,30 +427,43 @@ impl Snapshot {
             IndexNode {
                 version: leaf.version,
                 prefix: leaf.prefix,
-                row: Some(leaf.row),
+                rows: leaf.rows,
                 children: BTreeMap::new(),
             }
         } else {
             self.read_leaf_limited(&reference.digest, INDEX_BYTES)?
         };
-        if node.row.is_some() != reference.leaf {
+        if !node.rows.is_empty() != reference.leaf {
             return Err(storage("Task index reference kind mismatch"));
         }
-        if node.version != 1
+        if node.version != 2
             || node.prefix.len() < 2
             || node.prefix.len() > 64
             || !node
                 .prefix
                 .bytes()
                 .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-            || node.row.is_some() && (node.prefix.len() != 64 || !node.children.is_empty())
-            || node.row.is_none()
+            || reference.leaf
+                && (!node.children.is_empty()
+                    || node.rows.iter().any(|(key, _)| {
+                        key.len() != 64
+                            || !key.starts_with(&node.prefix)
+                            || !key
+                                .bytes()
+                                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+                    })
+                    || node.rows.windows(2).any(|rows| rows[0].0 >= rows[1].0))
+            || !reference.leaf
                 && (node.prefix.len() == 64
                     || !(2..=16).contains(&node.children.len())
-                    || node.children.keys().any(|n| *n > 15)
-                    || serde_json::to_vec(&node).map_err(storage)?.len() > INDEX_BYTES)
+                    || node.children.keys().any(|n| *n > 15))
         {
             return Err(storage("invalid Task index node"));
+        }
+        if node.rows.len() > 1
+            && serde_json::to_vec(&node).map_err(storage)?.len() > INDEX_PACK_BYTES
+        {
+            return Err(storage("Task index leaf exceeds pack bound"));
         }
         if parent.is_some_and(|(prefix, edge)| {
             node.prefix.len() <= prefix.len()
@@ -426,22 +478,33 @@ impl Snapshot {
         &self,
         reference: &IndexRef,
         parent: Option<(&str, u8)>,
-        mut visit: impl FnMut(&str, Option<&T>, &str) -> Result<()>,
+        mut visit_file: impl FnMut(&str) -> Result<()>,
+        mut visit_row: impl FnMut(&T, &str) -> Result<()>,
     ) -> Result<()> {
         fn walk<T: serde::de::DeserializeOwned + Serialize>(
             state: &Snapshot,
             reference: &IndexRef,
             parent: Option<(&str, u8)>,
-            visit: &mut impl FnMut(&str, Option<&T>, &str) -> Result<()>,
+            visit_file: &mut impl FnMut(&str) -> Result<()>,
+            visit_row: &mut impl FnMut(&T, &str) -> Result<()>,
         ) -> Result<()> {
             let node = state.index_node::<T>(reference, parent)?;
-            visit(&reference.digest, node.row.as_ref(), &node.prefix)?;
+            visit_file(&reference.digest)?;
+            for (key, row) in &node.rows {
+                visit_row(row, key)?;
+            }
             for (edge, child) in &node.children {
-                walk(state, child, Some((&node.prefix, *edge)), visit)?;
+                walk(
+                    state,
+                    child,
+                    Some((&node.prefix, *edge)),
+                    visit_file,
+                    visit_row,
+                )?;
             }
             Ok(())
         }
-        walk(self, reference, parent, &mut visit)
+        walk(self, reference, parent, &mut visit_file, &mut visit_row)
     }
     fn index_get<T: serde::de::DeserializeOwned + Serialize>(
         &self,
@@ -453,7 +516,7 @@ impl Snapshot {
         };
         let mut parent: Option<(String, u8)> = None;
         for _ in 0..64 {
-            let node =
+            let mut node =
                 self.index_node::<T>(&cursor, parent.as_ref().map(|(p, e)| (p.as_str(), *e)))?;
             if self::bucket(&node.prefix) != bucket(key) {
                 return Err(storage("Task index bucket mismatch"));
@@ -461,8 +524,12 @@ impl Snapshot {
             if !key.starts_with(&node.prefix) {
                 return Ok(None);
             }
-            if node.row.is_some() {
-                return Ok(node.row);
+            if cursor.leaf {
+                return Ok(node
+                    .rows
+                    .binary_search_by(|(candidate, _)| candidate.as_str().cmp(key))
+                    .ok()
+                    .map(|position| node.rows.swap_remove(position).1));
             }
             let edge = nibble(key, node.prefix.len());
             let Some(child) = node.children.get(&edge) else {
@@ -480,39 +547,46 @@ impl Snapshot {
         row: T,
     ) -> Result<IndexRef> {
         let Some(head) = head else {
-            return self.write_index(&IndexNode {
-                version: 1,
-                prefix: key.into(),
-                row: Some(row),
-                children: BTreeMap::new(),
-            });
+            return self.index_build(&[(key.into(), row)]);
         };
         let mut node = self.index_node::<T>(head, None)?;
+        if head.leaf {
+            match node
+                .rows
+                .binary_search_by(|(candidate, _)| candidate.as_str().cmp(key))
+            {
+                Ok(position) => {
+                    if serde_json::to_value(&node.rows[position].1).map_err(storage)?
+                        != serde_json::to_value(&row).map_err(storage)?
+                    {
+                        return Err(storage("Task index key collision"));
+                    }
+                    return Ok(head.clone());
+                }
+                Err(position) => node.rows.insert(position, (key.into(), row)),
+            }
+            return self.index_build(&node.rows);
+        }
         let common = node
             .prefix
             .bytes()
             .zip(key.bytes())
             .take_while(|(a, b)| a == b)
             .count();
+        if common < 2 {
+            return Err(storage("Task index bucket mismatch"));
+        }
         if common < node.prefix.len() {
             let new = self.index_insert(None, key, row)?;
             return self.write_index(&IndexNode::<T> {
-                version: 1,
+                version: 2,
                 prefix: key[..common].into(),
-                row: None,
+                rows: Vec::new(),
                 children: BTreeMap::from([
                     (nibble(&node.prefix, common), head.clone()),
                     (nibble(key, common), new),
                 ]),
             });
-        }
-        if let Some(prior) = node.row {
-            if serde_json::to_value(prior).map_err(storage)?
-                != serde_json::to_value(row).map_err(storage)?
-            {
-                return Err(storage("Task index key collision"));
-            }
-            return Ok(head.clone());
         }
         let edge = nibble(key, node.prefix.len());
         let next = self.index_insert(node.children.get(&edge), key, row)?;
@@ -520,24 +594,38 @@ impl Snapshot {
         self.write_index(&node)
     }
     fn index_build<T: Serialize + Clone>(&self, rows: &[(String, T)]) -> Result<IndexRef> {
-        if rows.len() == 1 {
-            return self.write_index(&IndexNode {
-                version: 1,
-                prefix: rows[0].0.clone(),
-                row: Some(rows[0].1.clone()),
-                children: BTreeMap::new(),
-            });
+        if rows.is_empty()
+            || rows.iter().any(|(key, _)| {
+                key.len() != 64
+                    || !key
+                        .bytes()
+                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            })
+            || rows.windows(2).any(|rows| rows[0].0 >= rows[1].0)
+        {
+            return Err(storage("invalid or duplicate Task index key"));
         }
-        let common = rows
-            .first()
-            .unwrap()
+        let common = rows[0]
             .0
             .bytes()
             .zip(rows.last().unwrap().0.bytes())
             .take_while(|(a, b)| a == b)
             .count();
-        if common == 64 {
-            return Err(storage("duplicate Task index key"));
+        if common < 2 {
+            return Err(storage("Task index bucket mismatch"));
+        }
+        if rows.len() <= INDEX_ROWS {
+            let leaf = IndexNode {
+                version: 2,
+                prefix: rows[0].0[..common].into(),
+                rows: rows.to_vec(),
+                children: BTreeMap::new(),
+            };
+            if rows.len() == 1
+                || serde_json::to_vec(&leaf).map_err(storage)?.len() <= INDEX_PACK_BYTES
+            {
+                return self.write_index(&leaf);
+            }
         }
         let mut children = BTreeMap::new();
         let mut start = 0;
@@ -551,9 +639,9 @@ impl Snapshot {
             start = end;
         }
         self.write_index(&IndexNode::<T> {
-            version: 1,
+            version: 2,
             prefix: rows[0].0[..common].into(),
-            row: None,
+            rows: Vec::new(),
             children,
         })
     }
