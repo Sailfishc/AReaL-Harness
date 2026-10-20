@@ -103,9 +103,8 @@ async function launch(){
 }
 async function stopOwnedService(){
  await app.evaluate(({dialog})=>{dialog.showMessageBox=async()=>({response:1});});
- await app.evaluate(()=>global.taskHistoryBackend.waitForApplicationReady());
  const metadata=await app.evaluate(()=>global.taskHistoryBackend.metadata);
- await call('stopService',{});await app.close();app=null;page=null;await waitForElectronExit();await assertApplicationStopped(binary,env,metadata);
+ await app.close();app=null;page=null;await waitForElectronExit();await assertApplicationStopped(binary,env,metadata);
 }
 async function waitForElectronExit(){if(!electronProcess||electronProcess.exitCode!==null||electronProcess.signalCode!==null)return;await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('owned Electron did not exit')),15000);electronProcess.once('exit',()=>{clearTimeout(timer);resolve();});});}
 async function taskFiles(root){const found=[];for(const item of await readdir(root,{withFileTypes:true})){if(item.isSymbolicLink())continue;const path=join(root,item.name);if(item.isDirectory())found.push(...await taskFiles(path));else if(item.name==='task-mode.json')found.push(path);}return found;}
