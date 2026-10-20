@@ -161,24 +161,27 @@ const cleanup={};
 let metadata;
 try{metadata=JSON.parse(await readFile(join(scratch,'core/service.json'),'utf8'));}catch(error){if(error.code!=='ENOENT')errors.push('read cleanup identity: '+error.message);}
 if(app){
-const close=app.close().catch(error=>errors.push('close GUI: '+error.message));await Promise.race([close,new Promise(resolve=>setTimeout(resolve,3000))]);
+let quitTimer;
+try{
+await Promise.race([app.close(),new Promise((_resolve,reject)=>{quitTimer=setTimeout(()=>reject(Error('owned Electron quit timed out')),15000);})]);
+if(appProcess.exitCode===null&&appProcess.signalCode===null)await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('owned Electron did not exit')),15000);appProcess.once('exit',()=>{clearTimeout(timer);resolve();});});
+assert.equal(appProcess.exitCode,0,'owned Electron quit exit code');assert.equal(appProcess.signalCode,null,'owned Electron quit signal');cleanup.electronExited=true;
+}catch(error){errors.push('close GUI: '+error.message);}finally{clearTimeout(quitTimer);}
 }
 if(metadata){
+try{await assertApplicationStopped(coreBinary,env,metadata);cleanup.desktopExited=true;cleanup.applicationStopped=true;}
+catch(error){errors.push('verify application cleanup: '+error.message);}
+}
+if(errors.length&&metadata&&!cleanup.applicationStopped){
+cleanup.assistedServiceStop=true;
 const {ServiceConnection,waitForServiceProcessExit}=require('../app/src/core/service-client.cjs');const connection=new ServiceConnection();
 try{
-let packet;
-try{await connection.connect(metadata);packet=await connection.request('hello',{protocol:metadata.protocol,identity:metadata.identity});}
-catch(error){try{process.kill(metadata.pid,0);throw error;}catch(check){if(check.code!=='ESRCH')throw check;}}
-if(packet){try{await connection.request('stopService',{protocol:metadata.protocol,cancel:true,expectedDesktopGeneration:metadata.desktopGeneration,expectedTargets:packet.service.targets},true);}catch(error){if(!error.message.includes('已请求退出'))throw error;}}
+await connection.connect(metadata);const packet=await connection.request('hello',{protocol:metadata.protocol,identity:metadata.identity});
+try{await connection.request('stopService',{protocol:metadata.protocol,cancel:true,expectedDesktopGeneration:metadata.desktopGeneration,expectedTargets:packet.service.targets},true);}catch(error){if(!error.message.includes('已请求退出'))throw error;}
 await waitForServiceProcessExit(join(scratch,'core'),metadata);cleanup.desktopExited=true;
-}catch(error){errors.push('stop service: '+error.message);}finally{connection.close();}
-}else cleanup.desktopExited=true;
-if(appProcess){
-try{if(appProcess.exitCode===null&&appProcess.signalCode===null)await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('owned Electron did not exit')),15000);appProcess.once('exit',()=>{clearTimeout(timer);resolve();});});assert.equal(appProcess.exitCode,0,'owned Electron quit exit code');assert.equal(appProcess.signalCode,null,'owned Electron quit signal');cleanup.electronExited=true;}
-catch(error){errors.push('verify Electron exit: '+error.message);}
-if(appProcess.exitCode===null&&appProcess.signalCode===null){appProcess.kill('SIGKILL');await new Promise(resolve=>appProcess.once('exit',resolve));cleanup.forcedElectronExit=true;}
+}catch(error){if(error.code!=='ENOENT'&&error.code!=='ECONNREFUSED'&&error.code!=='ESRCH')errors.push('fallback stop service: '+error.message);}finally{connection.close();}
 }
-if(metadata){try{await assertApplicationStopped(coreBinary,env,metadata);cleanup.applicationStopped=true;}catch(error){errors.push('verify application cleanup: '+error.message);}}
+if(appProcess&&appProcess.exitCode===null&&appProcess.signalCode===null){errors.push('forced Electron cleanup');appProcess.kill('SIGKILL');await new Promise(resolve=>appProcess.once('exit',resolve));cleanup.forcedElectronExit=true;}
 const mainErrors=(await readFile(mainErrorsPath,'utf8')).trim().split('\n').filter(Boolean).map(line=>JSON.parse(line));
 for(const error of mainErrors)errors.push('uncaught Main '+error.origin+': '+error.message);
 try{const instances=JSON.parse(execFileSync(coreBinary,['service','list','--json'],{env,encoding:'utf8'}));cleanup.instances=instances.map(instance=>({serviceId:instance.serviceId,workspace:instance.workspace,state:instance.state}));assert(instances.every(instance=>instance.state==='stopped'),'owned Core instance remains live');cleanup.coreStopped=true;}catch(error){errors.push('verify owned Core cleanup: '+error.message);}
