@@ -8,8 +8,8 @@
 
 | 平台         | 分发方式                                                               | 前置条件                                                                                       |
 | ------------ | ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| macOS arm64  | GitHub Release 完整包 + Python 安装器；Homebrew tap 发布后可选 formula | macOS 15+、Xcode Command Line Tools；独立安装/升级需 PATH 中的 Python 3.9+                     |
-| Linux x86_64 | GitHub Release 完整包 + Python 安装器；tap 发布后可用 Homebrew         | Ubuntu 22.04 或更新的兼容 glibc 2.35+ 系统；独立安装/升级需 PATH 中的 Python 3.9+；不支持 musl |
+| macOS arm64  | GitHub Release 完整包 + Python 安装器；公开 Homebrew beta formula | macOS 15+、Xcode Command Line Tools；独立安装/升级需 PATH 中的 Python 3.9+                     |
+| Linux x86_64 | GitHub Release 完整包 + Python 安装器；公开 Homebrew beta formula         | Ubuntu 22.04 或更新的兼容 glibc 2.35+ 系统；独立安装/升级需 PATH 中的 Python 3.9+；不支持 musl |
 
 只验证上述架构，不提供 Windows、macOS Intel 或 Linux arm64 包。**npm 与 `cargo install` 尚未提供完整发行包**，不能作为安装渠道。Homebrew 和独立安装器二选一，不应同时管理同一个 PATH 入口。每个包包含 `bin/areal`、`libexec/areal/{areal-runtime,areal-runtime-fs}`、LICENSE 和文件 SHA256 manifest；Linux 包另外包含同目录的 `areal-runtime-reaper`，不要只复制 `areal`。安装后无需 Rust/Cargo；macOS 仍需要可用的 `/usr/bin/python3`（Command Line Tools），运行自定义 Node/Python 工具需对应解释器。
 
