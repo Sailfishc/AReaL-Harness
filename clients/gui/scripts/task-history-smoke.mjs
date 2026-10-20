@@ -176,6 +176,9 @@ try{
  const readsBeforeRelease=await app.evaluate(()=>global.taskHistoryReads.length);
  await app.evaluate(()=>global.taskHistoryReleaseRun());
  await until(()=>app.evaluate((_electron,before)=>global.taskHistoryReads.slice(before).some(read=>read.operation==='taskRun'&&read.runId==='history-run-001'),readsBeforeRelease),'pending exact run read completes after panel close');
+ assert.equal((await call('manage',{projectId:pid,operation:'taskHistoryCapabilities'})).enabled,true,'same Renderer read completes after the exact run result');
+ await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+ assert.equal(await page.getByRole('button',{name:'任务资源',exact:true}).getAttribute('aria-expanded'),'false','exact run completion preserves the closed resource button');
  assert.equal(await page.getByLabel('任务资源面板',{exact:true}).count(),0,'exact run completion preserves panel close during pending reveal');
  checks.push('injected exact cold-read failure stays visible with retry; real Core retry focuses the exact run; manual close survives navigation, reconnect and delayed read; a new explicit event for the same run opens anew; native OS notification delivery is not exercised');
  await app.close();app=null;page=null;await waitForElectronExit();
