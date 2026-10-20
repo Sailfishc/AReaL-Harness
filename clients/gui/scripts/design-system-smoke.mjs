@@ -42,6 +42,26 @@ try {
   });
   page = await context.newPage();
   page.on("pageerror", error => errors.push(error.message));
+  await page.addInitScript(() => {
+    window.readingResize = { phase: null, samples: [], errors: [] };
+    window.addEventListener("error", event => {
+      if (window.readingResize.phase && /ResizeObserver/.test(event.message)) window.readingResize.errors.push(event.message);
+    });
+    const NativeResizeObserver = window.ResizeObserver;
+    window.ResizeObserver = class extends NativeResizeObserver {
+      constructor(callback) {
+        super((entries, observer) => {
+          callback.call(observer, entries, observer);
+          const capture = window.readingResize;
+          if (!capture.phase || !entries.some(({ target }) => target.matches(".messages, .message-column") && target.closest("#activity-reading-preview"))) return;
+          const transcript = document.querySelector("#activity-reading-preview .messages");
+          capture.samples.push({ phase: capture.phase, output: transcript.querySelector('[data-side-item-id="reading-output"]')?.textContent,
+            remaining: transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight,
+            space: transcript.querySelector(".message-response-space").getBoundingClientRect().height });
+        });
+      }
+    };
+  });
   await page.goto(`${origin}/design-system.html`);
   await page.getByRole("heading", { name: "客户端设计系统", exact: true }).waitFor();
   assert.equal(await page.evaluate(() => typeof window.arealDesktop), "undefined");
@@ -73,6 +93,17 @@ try {
   await reading.getByRole("button", { name: "接受新轮次", exact: true }).click();
   await settleLayout();
   assert.ok(await reading.locator(".message-response-space").evaluate(el => el.getBoundingClientRect().height > 0), "a mounted accepted follow-up reserves response space");
+  await page.evaluate(() => { window.readingResize.phase = "reserved response"; });
+  await reading.getByRole("button", { name: "延迟追加输出", exact: true }).click();
+  await liveTurn.locator('[data-side-item-id="reading-output"]').getByText("后续回复 1", { exact: false }).waitFor();
+  await settleLayout();
+  const reservedResize = await page.evaluate(() => { window.readingResize.phase = null; return window.readingResize; });
+  samples.push({ reservedResize });
+  assert.ok(reservedResize.samples.some(sample => sample.output?.includes("后续回复 1")), "reserved response growth reaches the production ResizeObserver");
+  assert.deepEqual(reservedResize.errors, [], "response-space reconciliation does not defer undelivered ResizeObserver notifications");
+  await reading.getByLabel("活动形状", { exact: true }).selectOption("empty");
+  await reading.getByLabel("活动形状", { exact: true }).selectOption("multiple");
+  await settleLayout();
   const readingGroup = reading.getByRole("button", { name: "执行过程", exact: true });
   await toggleHere(readingGroup, undefined, "activity group mouse expansion");
   await toggleHere(readingGroup, "Enter", "activity group keyboard collapse");
@@ -107,9 +138,16 @@ try {
   await reading.getByRole("button", { name: "滚动到底部", exact: true }).click();
   await settleLayout();
   assert.ok(await transcript.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight <= 1), "return to bottom reaches the transcript tail");
+  await page.evaluate(() => { window.readingResize.phase = "following tail"; window.readingResize.samples = []; window.readingResize.errors = []; });
   await reading.getByRole("button", { name: "延迟追加输出", exact: true }).click();
   await liveTurn.locator('[data-side-item-id="reading-output"]').getByText("后续回复 2", { exact: false }).waitFor();
   await settleLayout();
+  const followingResize = await page.evaluate(() => { window.readingResize.phase = null; return window.readingResize; });
+  samples.push({ followingResize });
+  const appendedResize = followingResize.samples.filter(sample => sample.output?.includes("后续回复 2"));
+  assert.ok(appendedResize.length > 0, "tail growth reaches the production ResizeObserver");
+  assert.ok(appendedResize.every(sample => Math.abs(sample.remaining) <= 1), `following output reaches the tail during resize reconciliation before paint: ${JSON.stringify(appendedResize)}`);
+  assert.deepEqual(followingResize.errors, [], "tail reconciliation does not defer undelivered ResizeObserver notifications");
   assert.ok(await transcript.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight <= 1), "new output follows after return to bottom");
   await reading.screenshot({ path: join(scratch, "activity-reading.png"), animations: "disabled" });
   checks.push("mouse and native keyboard disclosures retain reading position across group, nested tool, full command, raw record, reasoning and turn history; delayed output respects reading and explicit bottom resumes following");
@@ -364,19 +402,17 @@ try {
     await page.getByLabel("主题", { exact: true }).selectOption(theme);
     await page.waitForFunction(() => document.documentElement.dataset.reducedMotion === "false");
     await motion.getByRole("button", { name: "追加片段", exact: true }).click();
-    await stream.locator("[data-sd-animate]").first().waitFor();
-    await page.waitForFunction(() => [...document.querySelectorAll('[data-testid="preview-stream"] [data-sd-animate]')].every(element => getComputedStyle(element).opacity === "1"));
     const priorText = await stream.innerText();
+    assert.ok(priorText.startsWith("流式文字沿用当前"), "the first streamed fragment is immediately readable");
     await motion.getByRole("button", { name: "追加片段", exact: true }).click();
-    assert.ok((await stream.innerText()).startsWith(priorText), "append retains earlier Chinese text");
-    const animation = await stream.locator("[data-sd-animate]").evaluateAll(elements => ({
-      priorVisible: getComputedStyle(elements[0]).opacity === "1",
-      lastDuration: parseFloat(getComputedStyle(elements.at(-1)).animationDuration),
-      maxDelay: Math.max(...elements.map(element => parseFloat(getComputedStyle(element).animationDelay))),
+    const streamedText = await stream.innerText();
+    assert.ok(streamedText.startsWith(priorText) && streamedText.length > priorText.length, "append immediately displays new text and retains earlier Chinese text");
+    const appearance = await stream.locator(".conversation-markdown").evaluate(element => ({
+      opacity: getComputedStyle(element).opacity,
+      animations: element.getAnimations({ subtree: true }).length,
+      characterWrappers: element.querySelectorAll("[data-sd-animate]").length,
     }));
-    assert.equal(animation.priorVisible, true, "new chunks must not fade previously read text again");
-    assert.ok(animation.lastDuration > 0, "new Chinese text fades in");
-    assert.ok(animation.maxDelay <= 0.08, "burst text does not create a long typing queue");
+    assert.deepEqual(appearance, { opacity: "1", animations: 0, characterWrappers: 0 }, "streamed Markdown remains visible without per-character animation wrappers");
     // 对真实文字逐段截图，捕获高光离开文字后出现的视觉停顿。
     const duration = await waiting.evaluate(element => {
       const animation = element.getAnimations()[0];
@@ -411,9 +447,9 @@ try {
     assert.equal(sweep[0].sha256, sweep[7].sha256, "waiting highlight repeats at the same phase");
     await waiting.evaluate(element => element.getAnimations()[0].play());
     await motion.screenshot({ path: join(scratch, `${theme}-chat-motion.png`), animations: "disabled" });
-    samples.push({ theme, animation, sweep, seamDifference });
+    samples.push({ theme, streamedText, appearance, sweep, seamDifference });
   }
-  checks.push("Chinese streaming append preserves earlier text, bounds fade delay, and uses a continuous themed waiting sweep");
+  checks.push("Chinese streaming append is immediately readable, preserves earlier text without character wrappers, and retains the themed waiting sweep");
   await motion.getByRole("button", { name: "完成输出", exact: true }).click();
   assert.equal(await stream.locator("[data-sd-animate]").count(), 0, "completed Markdown has no streaming animation wrappers");
   assert.ok((await stream.innerText()).includes("Streaming text stays readable"));
@@ -425,7 +461,7 @@ try {
   await motion.getByRole("button", { name: "播放流式输出", exact: true }).click();
   await page.waitForFunction(() => document.querySelector('[data-testid="preview-stream"]').textContent.includes("流式文字"));
   assert.equal(await stream.locator("[data-sd-animate]").count(), 0, "reduced motion shows streamed content immediately");
-  checks.push("completed Markdown retains formatting; reduced motion disables streaming and waiting effects");
+  checks.push("completed Markdown retains formatting; reduced motion keeps streamed text readable and disables the waiting sweep");
   await page.getByLabel("状态", { exact: true }).selectOption("busy");
   assert.equal(await input.getAttribute("contenteditable"), "false");
   await page.getByRole("region", { name: "工具审批", exact: true }).getByRole("button", { name: "允许一次", exact: true }).click();
