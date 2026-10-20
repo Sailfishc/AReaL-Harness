@@ -103,16 +103,19 @@ def main():
             restored = bytearray()
             pages = 0
             while len(restored) < len(source):
-                value = runtime.call("fs.execute", {
-                    "operationId": runtime.op(),
-                    "scopeId": scope,
-                    "command": {
-                        "kind": "readForHistory",
-                        "path": "workspace://repo/history.bin",
-                        "offset": len(restored),
-                        "maxBytes": 65536,
+                value = runtime.call(
+                    "fs.execute",
+                    {
+                        "operationId": runtime.op(),
+                        "scopeId": scope,
+                        "command": {
+                            "kind": "readForHistory",
+                            "path": "workspace://repo/history.bin",
+                            "offset": len(restored),
+                            "maxBytes": 65536,
+                        },
                     },
-                })
+                )
                 assert value["sha256"] == digest and value["size"] == len(source), value
                 chunk = base64.b64decode(value["dataBase64"], validate=True)
                 assert chunk and len(chunk) <= 65536
@@ -123,18 +126,42 @@ def main():
             assert value["eof"] is True
             assert runtime.call("scope.get", {"scopeId": root})["outputBytes"] == 0
             assert runtime.call("scope.get", {"scopeId": scope})["outputBytes"] == 0
-            runtime.expect_error("INVALID_ARGUMENT", "fs.execute", {
-                "operationId": runtime.op(), "scopeId": scope,
-                "command": {"kind": "readForHistory", "path": "workspace://repo/../outside", "offset": 0, "maxBytes": 16},
-            })
-            direct = runtime.call("process.start", {
-                "operationId": runtime.op(), "scopeId": scope,
-                "argv": [str(args.bin_dir.resolve() / "areal-runtime-fs"), json.dumps({
-                    "root": str(Path(directory).resolve()),
-                    "command": {"kind": "readForHistory", "path": "history.bin", "offset": 0, "maxBytes": 65536},
-                })],
-                "cwd": "workspace://repo",
-            })["processId"]
+            runtime.expect_error(
+                "INVALID_ARGUMENT",
+                "fs.execute",
+                {
+                    "operationId": runtime.op(),
+                    "scopeId": scope,
+                    "command": {
+                        "kind": "readForHistory",
+                        "path": "workspace://repo/../outside",
+                        "offset": 0,
+                        "maxBytes": 16,
+                    },
+                },
+            )
+            direct = runtime.call(
+                "process.start",
+                {
+                    "operationId": runtime.op(),
+                    "scopeId": scope,
+                    "argv": [
+                        str(args.bin_dir.resolve() / "areal-runtime-fs"),
+                        json.dumps(
+                            {
+                                "root": str(Path(directory).resolve()),
+                                "command": {
+                                    "kind": "readForHistory",
+                                    "path": "history.bin",
+                                    "offset": 0,
+                                    "maxBytes": 65536,
+                                },
+                            }
+                        ),
+                    ],
+                    "cwd": "workspace://repo",
+                },
+            )["processId"]
             done = runtime.call("process.wait", {"processId": direct})
             assert done["stopReason"] == "outputBytes exceeded", done
             assert runtime.call("scope.get", {"scopeId": root})["outputBytes"] == 1024
@@ -143,9 +170,12 @@ def main():
             assert done["stopReason"] == "outputBytes exceeded", done
             assert runtime.call("scope.get", {"scopeId": root})["outputBytes"] == 2048
             results["historyEvidence"] = {
-                "sourceBytes": len(source), "pages": pages,
-                "exactBytesRestored": True, "commandBudgetCharged": False,
-                "ordinaryCommandLimitPreserved": True, "traversalRejected": True,
+                "sourceBytes": len(source),
+                "pages": pages,
+                "exactBytesRestored": True,
+                "commandBudgetCharged": False,
+                "ordinaryCommandLimitPreserved": True,
+                "traversalRejected": True,
                 "helperArgvCannotBypassQuota": True,
             }
         finally:
