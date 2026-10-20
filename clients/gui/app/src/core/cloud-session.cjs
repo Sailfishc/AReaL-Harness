@@ -13,6 +13,7 @@ class CloudSession {
         this.client = null;
         this.connecting = null;
         this.closed = false;
+        this.onIdle = () => {};
     }
 
     connect({ signal } = {}) {
@@ -39,11 +40,17 @@ class CloudSession {
             };
             await this.save(this.binding);
         }
-        if (this.binding.sessionId)
+        if (this.binding.sessionId?.startsWith("ses_"))
             throw new Error("旧 Arena 会话请使用原客户端打开；新入口使用原生 app-server 工作区");
         let client;
         client = await this.platform.connect({
-            onNotification: (method, params) => this.onNotification(method, params),
+            onNotification: (method, params) => {
+                this.onNotification(method, params);
+                if (method === "areal/server/draining") {
+                    client?.close();
+                    this.onIdle();
+                }
+            },
             onClose: () => {
                 if (this.client === client && !this.closed) this.onClose();
             },

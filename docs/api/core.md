@@ -411,3 +411,9 @@ Shared Browser 的旧 Thread 固定工具包追加已实现，方法为 `areal/t
 Core 可通过默认关闭的实验配置，在请求投影与检查点证据中有界保留完整文件参考；执行等待仍由 Runtime 管理。参考回取、非交互 stdin 和连续失败上限见[配置指南](../guides/configuration.md#参考保留与有界工具恢复)。
 
 Rust `Limits` 与 `ResolvedCoreConfig` 增加上述实验控制字段及 `command_stdin_closed`。直接使用完整结构体字面量的调用方需补齐字段，或使用 `..Limits::default()`；默认值不启用四项实验策略。
+
+## 空闲回收
+
+`areal/server/status` 返回 `idleForMs`，表示当前执行实例连续无工作的毫秒数。Core 重启、活动工作、持久 thread/turn 的最新变更都会收紧此值；只读观察和连接心跳不延长空闲时间。该字段不作为执行完成的独立凭据。
+
+`areal/server/drain` 新增可选 `idleTimeoutMs`（1–604800000），仅用于 `strategy:"ifIdle"`。Core 在同一准入锁中检查空闲时长和全部生命周期阻塞条件；不满足时拒绝且保持准入开放。满足时关闭新工作准入并执行既有安全排空。控制面必须继续验证排空响应和 writer 隔离凭据，再销毁沙箱。旧客户端省略此字段时行为保持不变；不支持该字段的旧 Core 不能用于自动空闲回收。

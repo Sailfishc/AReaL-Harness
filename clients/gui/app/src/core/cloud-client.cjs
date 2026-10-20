@@ -24,6 +24,13 @@ class CloudClient {
             throw new Error("Cloud token 无效");
         this.token = token;
     }
+    forWorkspace(sessionId) {
+        if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(sessionId))
+            throw new Error("Cloud Session ID 无效");
+        const url = new URL(this.baseURL);
+        url.pathname += encodeURIComponent(sessionId) + "/";
+        return new CloudClient({ baseURL: url.href, token: this.token });
+    }
     async connect({ onNotification = () => {}, onClose = () => {} } = {}) {
         const { CoreClient } = await import("@areal/runtime-client/core");
         const client = new CoreClient({
@@ -59,4 +66,11 @@ class CloudClient {
         }
     }
 }
-module.exports = { CloudClient, backendURL };
+function cloudServiceURL(value) {
+    const url = backendURL(value);
+    if (url.pathname === "/") url.pathname = "/openapi/v1/app-server/";
+    if (!url.pathname.endsWith("/app-server/"))
+        throw new Error("请填写固定服务地址，例如 https://host/openapi/v1/app-server/，不要附加 workspace");
+    return url;
+}
+module.exports = { CloudClient, backendURL, cloudServiceURL };

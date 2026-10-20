@@ -397,3 +397,9 @@ Shared Browser attachment of the fixed bundle to an older Thread is implemented 
 An experimental setting, disabled by default, enables bounded whole-file references in Core request projection and checkpoint evidence; Runtime owns execution waits. See the [configuration guide](../guides/configuration.en.md#reference-retention-and-bounded-tool-recovery) for retrieval, noninteractive stdin and failure limits.
 
 Rust `Limits` and `ResolvedCoreConfig` gain these experimental control fields plus `command_stdin_closed`. Callers constructing exhaustive struct literals must supply them, or use `..Limits::default()` where applicable; defaults enable none of the four experimental policies.
+
+## Idle reclamation
+
+`areal/server/status` returns `idleForMs`, the current execution instance's continuous idle duration in milliseconds. Core startup, active work, and recent persisted thread/turn changes bound this value; read-only observation and connection heartbeats do not extend idle time. This field alone is not execution-completion evidence.
+
+`areal/server/drain` accepts optional `idleTimeoutMs` (1–604800000), only with `strategy:"ifIdle"`. Core checks the duration and all lifecycle blockers under the same admission lock. Rejection leaves admission open; acceptance closes admission and performs existing safe drain. The control plane must still verify the drain result and writer isolation receipt before destroying the sandbox. Existing clients omitting the field retain their behavior. Older Core packages without this field cannot participate in automatic idle reclamation.

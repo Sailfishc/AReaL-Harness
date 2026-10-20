@@ -22,6 +22,7 @@ test("原生 WS 协议夹具：并发创建去重、流式投影、重启复用�
     const ws = new WebSocketServer({ server: http });
     ws.on("connection", (socket, req) => {
         assert.equal(req.headers.authorization, "Bearer token");
+        assert.equal(req.url, `/api/${request.requestId}/`);
         socket.on("message", (raw) => {
             const { id, method, params } = JSON.parse(raw);
             if (!id) return;
@@ -89,6 +90,7 @@ test("原生 WS 协议夹具：并发创建去重、流式投影、重启复用�
     const request = { projectId: "project", operation: "create", requestId: randomUUID() };
     const [first, second] = await Promise.all([manager.command(request), manager.command(request)]);
     assert.deepEqual(first, second);
+    assert.equal(first.sessionId, request.requestId);
     assert.equal(allocations, 1);
     assert.equal(persisted[0].binding.sessionId, undefined);
     await manager.command({
@@ -108,6 +110,8 @@ test("原生 WS 协议夹具：并发创建去重、流式投影、重启复用�
     restored.records = persisted;
     t.after(() => restored.close());
     await restored.command({ projectId: "project", threadId: first.threadId, operation: "open" });
+    assert.equal(restored.projection("project").threads[first.threadId].cloud.connected, false);
+    await restored.open(persisted[0], true);
     assert.equal(allocations, 1);
     assert.equal(queries, 1);
     assert.equal(restored.projection("project").threads[first.threadId].turns.length, 1);

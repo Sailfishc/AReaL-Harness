@@ -69,7 +69,7 @@ backend.snapshot = () => {
     ],
   };
 };
-const live = await manager.open(manager.records[0]);
+const live = await manager.open(manager.records[0], true);
 live.session.client.onNotification((method, params) => events.push({ method, params }));
 const dist = join(gui, "renderer/dist");
 const assets = createServer(async (request, response) => {

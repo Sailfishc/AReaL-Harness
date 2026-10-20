@@ -153,6 +153,8 @@ The TUI captures the mouse by default for clicking and scrolling. Use `areal --m
 
 ## Unified remote app-server
 
+GUI Cloud settings use the fixed `/openapi/v1/app-server/` service address and saving does not connect. Each new session UUID becomes its workspace; see the [GUI guide](../../clients/gui/README.en.md#cloud-backend-configuration). CLI/TUI `--endpoint` continues to accept the full native endpoint including workspace.
+
 GUI, CLI, and TUI can connect to the same native AReaL WebSocket service. Arena provisions a workspace and UPFS; a remote machine or Docker host runs `areal serve` ahead of time. Only endpoint and credentials change. Without `--agent`, a single deployed Profile is selected automatically; multiple Profiles require explicit selection. Cold connections have a three-minute deadline.
 
 ```sh

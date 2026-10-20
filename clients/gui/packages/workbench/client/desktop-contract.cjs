@@ -78,7 +78,7 @@ function validateCommand(name, params, { serviceOnly = false } = {}) {
     || params.operation === 'send' && (typeof params.text !== 'string' || (!params.text.trim() && (!Array.isArray(params.attachments) || !params.attachments.length)))
     || params.attachments !== undefined && (params.operation !== 'send' || !Array.isArray(params.attachments) || params.attachments.length > 16 || params.attachments.some(item => !record(item) || !['image','audio','file'].includes(String(item.type)) || typeof item.url !== 'string' || !/^areal:\/\/blob\/[A-Za-z0-9_-]+$/.test(item.url)))
     || params.operation === 'stop' && !identifier(params.turnId))) invalid();
-  if (name === 'cloud' && (!['status', 'save', 'check'].includes(String(params.operation))
+  if (name === 'cloud' && (!['status', 'save'].includes(String(params.operation))
     || Object.keys(params).some(key => !['operation', 'baseURL', 'token'].includes(key))
     || params.operation === 'save' && (typeof params.baseURL !== 'string' || params.token !== undefined && typeof params.token !== 'string'))) invalid();
   if (name === 'trajectory') {

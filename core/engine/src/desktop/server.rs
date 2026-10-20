@@ -4,12 +4,21 @@ use std::sync::atomic::{AtomicBool, Ordering};
 pub(crate) struct Lifecycle {
     pub draining: AtomicBool,
     pub gate: Mutex<()>,
+    idle_clock: std::sync::Mutex<IdleClock>,
+}
+struct IdleClock {
+    since: std::time::Instant,
+    busy: bool,
 }
 impl Default for Lifecycle {
     fn default() -> Self {
         Self {
             draining: AtomicBool::new(false),
             gate: Mutex::new(()),
+            idle_clock: std::sync::Mutex::new(IdleClock {
+                since: std::time::Instant::now(),
+                busy: false,
+            }),
         }
     }
 }
@@ -61,11 +70,18 @@ impl Engine {
         let mut compacting = Vec::new();
         let mut active_goals = Vec::new();
         let mut pending_queue_items = 0usize;
+        let mut latest_activity = 0i64;
         for cell in &cells {
             if let Some(scope) = self.hook_task_unknown(cell).await {
                 unknown.push(scope);
             }
             let s = cell.state.lock().await;
+            latest_activity = latest_activity.max(s.thread.updated_at);
+            for turn in &s.thread.turns {
+                latest_activity = latest_activity
+                    .max(turn.started_at.unwrap_or(0))
+                    .max(turn.completed_at.unwrap_or(0));
+            }
             if cell.hooks.closing.load(Ordering::Acquire)
                 && !cell.hooks.ended.load(Ordering::Acquire)
             {
@@ -166,12 +182,44 @@ impl Engine {
         let mut status = json!({"configuration":self.configuration_status.read().unwrap().clone(),"activeTasks":active_tasks,"activeGoals":active_goals,"pendingQueueItems":pending_queue_items,"compactions":compacting,"workgroups":groups,"apiVersion":API_VERSION,"stateVersion":crate::store::STATE_VERSION,"productVersion":env!("CARGO_PKG_VERSION"),"draining":self.desktop.lifecycle.draining.load(Ordering::Acquire),"closed":self.is_closed(),"acceptingWork":self.accepting_work(),"activeTurns":active,"resources":resources,"unresolvedTools":unknown,"runtime":runtime,"capacity":{"threads":cells.len(),"maxThreads":self.limits.max_threads,"activeTurns":self.limits.max_active_turns-self.active_turns.available_permits(),"maxActiveTurns":self.limits.max_active_turns,"historyBytesPerThread":self.limits.max_history_bytes,"blobBytes":512*1024*1024u64}});
         status["lifecycle"] = lifecycle_assessment(&status, unsettled);
         status["restartSafe"] = status["lifecycle"]["settled"]["allowed"].clone();
+        // 观察、轮询和 WebSocket 心跳不延长空闲时间；活动工作与持久 Turn 时间才计入。
+        let mut idle_clock = self.desktop.lifecycle.idle_clock.lock().unwrap();
+        let busy = status["lifecycle"]["ifIdle"]["allowed"] != true;
+        if busy || idle_clock.busy {
+            // 从忙碌转为空闲后重新计时，不把最后一次忙碌观察之后的时间算作空闲。
+            idle_clock.since = std::time::Instant::now();
+        }
+        idle_clock.busy = busy;
+        let wall_now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        let persisted_idle = wall_now.saturating_sub((latest_activity.max(0) as u128 + 1) * 1000);
+        status["idleForMs"] = json!(
+            idle_clock
+                .since
+                .elapsed()
+                .as_millis()
+                .min(persisted_idle)
+                .min(u64::MAX as u128) as u64
+        );
         status
     }
     pub async fn drain(self: &Arc<Self>, strategy: String, timeout_ms: u64) -> Result<Value> {
-        if !matches!(strategy.as_str(), "wait" | "cancel" | "ifIdle") || timeout_ms > 60000 {
+        self.drain_with_idle(strategy, timeout_ms, None).await
+    }
+    pub async fn drain_with_idle(
+        self: &Arc<Self>,
+        strategy: String,
+        timeout_ms: u64,
+        idle_timeout_ms: Option<u64>,
+    ) -> Result<Value> {
+        if !matches!(strategy.as_str(), "wait" | "cancel" | "ifIdle")
+            || timeout_ms > 60000
+            || idle_timeout_ms.is_some_and(|v| v == 0 || v > 604_800_000 || strategy != "ifIdle")
+        {
             return Err(invalid(
-                "strategy must be wait, cancel or ifIdle and timeoutMs <= 60000",
+                "strategy must be wait, cancel or ifIdle and timeoutMs <= 60000; idleTimeoutMs requires ifIdle and 1..604800000",
             ));
         }
         let engine = self.clone();
@@ -180,6 +228,11 @@ impl Engine {
             let _guard = engine.desktop.lifecycle.gate.lock().await;
             if strategy == "ifIdle" {
                 let status = engine.server_status().await;
+                if idle_timeout_ms
+                    .is_some_and(|minimum| status["idleForMs"].as_u64().unwrap_or(0) < minimum)
+                {
+                    return Err(invalid("service idle timeout has not elapsed"));
+                }
                 if status["lifecycle"]["ifIdle"]["allowed"] != true {
                     return Err(invalid(
                         "service is busy; wait for work to settle or stop with --cancel",

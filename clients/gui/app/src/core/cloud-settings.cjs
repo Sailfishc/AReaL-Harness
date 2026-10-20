@@ -2,7 +2,7 @@
 
 const { readFile } = require("node:fs/promises");
 const { join } = require("node:path");
-const { backendURL, CloudClient } = require("./cloud-client.cjs");
+const { cloudServiceURL, CloudClient } = require("./cloud-client.cjs");
 
 /** Renderer 只读配置状态；token 只在可信适配器解密用于目标后端。 */
 class CloudSettings {
@@ -13,7 +13,14 @@ class CloudSettings {
     }
     async record() {
         try {
-            return JSON.parse(await readFile(join(this.backend.home, "cloud.json"), "utf8"));
+            const record = JSON.parse(await readFile(join(this.backend.home, "cloud.json"), "utf8"));
+            // 旧配置只移除已知 Arena workspace 后缀，仍保留原目标和加密凭据。
+            if (record.baseURL) {
+                const url = new URL(record.baseURL);
+                const path = url.pathname.match(/^(.*\/app-server\/)[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}\/?$/);
+                if (path) { url.pathname = path[1]; record.baseURL = url.href.replace(/\/$/, ""); }
+            }
+            return record;
         } catch (error) {
             if (error.code === "ENOENT") return {};
             throw new Error("无法读取 Cloud 配置");
@@ -32,11 +39,10 @@ class CloudSettings {
     }
     command(request) {
         if (request?.operation === "status") return this.status();
-        if (request?.operation === "check") return this.check();
         if (request?.operation !== "save") throw new Error("不支持的 Cloud 配置操作");
         const operation = this.chain.then(async () => {
             const previous = await this.record();
-            const baseURL = backendURL(request.baseURL).href.replace(/\/$/, "");
+            const baseURL = cloudServiceURL(request.baseURL).href.replace(/\/$/, "");
             if (request.token !== undefined && typeof request.token !== "string")
                 throw new Error("Cloud token 无效");
             let secret;
@@ -57,11 +63,6 @@ class CloudSettings {
         });
         this.chain = operation.catch(() => {});
         return operation;
-    }
-    async check() {
-        const client = await this.client();
-        // 原生握手核对认证与能力；工作区后端可能在首次连接时启动运行实例。
-        return client.check();
     }
     async client() {
         const record = await this.record();

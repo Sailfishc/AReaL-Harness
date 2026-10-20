@@ -16556,6 +16556,11 @@
     "areal/server/drain": {
       "additionalProperties": false,
       "properties": {
+        "idleTimeoutMs": {
+          "maximum": 604800000,
+          "minimum": 1,
+          "type": "integer"
+        },
         "strategy": {
           "enum": [
             "wait",
@@ -55174,6 +55179,10 @@
         "draining": {
           "type": "boolean"
         },
+        "idleForMs": {
+          "minimum": 0,
+          "type": "integer"
+        },
         "pendingQueueItems": {
           "minimum": 0,
           "type": "integer"
@@ -55319,6 +55328,7 @@
         "compactions",
         "configuration",
         "draining",
+        "idleForMs",
         "pendingQueueItems",
         "productVersion",
         "resources",
@@ -55475,6 +55485,10 @@
         "draining": {
           "type": "boolean"
         },
+        "idleForMs": {
+          "minimum": 0,
+          "type": "integer"
+        },
         "pendingQueueItems": {
           "minimum": 0,
           "type": "integer"
@@ -55620,6 +55634,7 @@
         "compactions",
         "configuration",
         "draining",
+        "idleForMs",
         "pendingQueueItems",
         "productVersion",
         "resources",

@@ -153,6 +153,8 @@ TUI 默认启用鼠标捕获，支持点击和滚动。需要终端原生拖选�
 
 ## 统一远端 app-server
 
+GUI Cloud 设置使用固定服务地址 `/openapi/v1/app-server/`，保存时不连接；新会话 UUID 自动作为 workspace，具体生命周期见 [GUI 指南](../../clients/gui/README.md#cloud-后端配置)。CLI/TUI 的 `--endpoint` 继续填写含 workspace 的完整原生 endpoint。
+
 GUI、CLI 与 TUI 可连接同一 AReaL 原生 WS 服务。Arena 负责工作区分配与 UPFS；远程机器或 Docker 负责预先运行 `areal serve`。客户端协议相同，仅地址和认证文件不同。远端未指定 `--agent` 且只部署一个 Profile 时自动使用它；多个 Profile 必须显式选择。连接冷启动超时为三分钟。
 
 ```sh

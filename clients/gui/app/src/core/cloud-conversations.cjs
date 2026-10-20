@@ -4,6 +4,7 @@ const { readFile } = require("node:fs/promises");
 const { join } = require("node:path");
 const { mediaCommand, messageInput } = require("./media.cjs");
 const { CloudSession } = require("./cloud-session.cjs");
+const { CloudClient } = require("./cloud-client.cjs");
 
 /** 本地只保存远端身份和导航摘要；消息从远端 Core 读取。 */
 class CloudConversations {
@@ -40,7 +41,7 @@ class CloudConversations {
         )) {
             const live = this.live.get(record.id);
             const cloud = {
-                sessionId: record.binding.sessionId,
+                sessionId: record.id,
                 connected: live?.session.client?.ready === true,
                 error: live?.error ?? null,
             };
@@ -63,7 +64,15 @@ class CloudConversations {
         return { threads, summaries };
     }
     async context(record) {
-        const platform = await this.backend.cloud.client();
+        const service = await this.backend.cloud.client();
+        let platform = record.binding.workspace ? service.forWorkspace(record.id) : service;
+        if (!record.binding.workspace && record.binding.baseURL !== service.baseURL.href) {
+            const bound = new URL(record.binding.baseURL);
+            const suffix = bound.pathname.slice(service.baseURL.pathname.length).replace(/\/$/, "");
+            if (bound.origin === service.baseURL.origin && bound.pathname.startsWith(service.baseURL.pathname)
+                && /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(suffix))
+                platform = new CloudClient({baseURL: bound.href, token: service.token});
+        }
         if (record.binding.baseURL !== platform.baseURL.href)
             throw new Error("此会话属于另一个 Cloud 后端，请恢复原后端配置");
         if (this.live.has(record.id)) {
@@ -99,11 +108,16 @@ class CloudConversations {
                 this.backend.onChange();
             },
         });
+        live.session.onIdle = () => {
+            model.connection(false);
+            this.backend.onChange();
+        };
         this.live.set(record.id, live);
         return live;
     }
-    async open(record) {
+    async open(record, wake = false) {
         const live = await this.context(record);
+        if (!wake && record.binding.threadId && !live.session.client?.ready) return live;
         try {
             const result = await live.session.read();
             live.model.replace(result.thread);
@@ -129,19 +143,20 @@ class CloudConversations {
             if (record && record.projectId !== request.projectId)
                 throw new Error("Cloud 创建请求归属不匹配");
             if (!record) {
-                const platform = await this.backend.cloud.client();
+                const service = await this.backend.cloud.client();
+                const platform = service.forWorkspace(id);
                 record = {
                     id,
                     projectId: request.projectId,
                     title: "Cloud",
                     createdAt: Math.floor(Date.now() / 1000),
-                    binding: { baseURL: platform.baseURL.href, createId: id, threadRequestId: id },
+                    binding: { baseURL: platform.baseURL.href, workspace: id, createId: id, threadRequestId: id },
                 };
                 this.records.push(record);
                 await this.save();
             }
-            await this.open(record);
-            return { threadId: record.binding.threadId, sessionId: record.binding.sessionId };
+            await this.open(record, true);
+            return { threadId: record.binding.threadId, sessionId: record.id };
         })().finally(() => this.creating.delete(id));
         this.creating.set(id, task);
         return task;
@@ -149,7 +164,7 @@ class CloudConversations {
     async media(request) {
         const record = this.records.find(value => value.projectId === request.projectId && value.binding.threadId === request.threadId);
         if (!record) throw new Error("未知 Cloud 会话");
-        const live = await this.open(record);
+        const live = await this.open(record, true);
         const platform = live.session.platform;
         if (request.operation === "upload" && !live.session.client.capabilities?.features?.blobUpload)
             throw new Error("远端尚不支持附件上传，请升级运行包");
@@ -180,6 +195,7 @@ class CloudConversations {
                 throw new Error("请等待当前 Cloud 查询完成");
             live.submitting = true;
             try {
+                await this.open(record, true);
                 const result = await live.session.query(messageInput(this.backend, request));
                 if (record.title === "Cloud") {
                     record.title = `Cloud · ${(request.text?.trim() || request.attachments?.[0]?.name || "附件").slice(0, 60)}`;

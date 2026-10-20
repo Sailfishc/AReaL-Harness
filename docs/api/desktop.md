@@ -261,3 +261,7 @@ GUI 服务的窄命令 `trajectory` 支持 `{operation:"status"}`、`{operation:
 共享 Desktop 的 `areal.desktop-service.v1` 认证快照新增 `service.commandContract: "areal.desktop-commands.v1"`。这项声明来自驻留 Desktop 代码，与 Rust Core 的能力独立。Main 将精确匹配结果投影为顶层及每个项目的 `desktopCapabilities.currentCommands`，不采用旧快照自行声明的同名投影。
 
 缺失或未知声明不阻止只读接入或停止原后台。Main 对需要当前语义的 `send`、`continue`、`prepareCreator`、`feedback`、携带 MCP 内容的 steer/队列更新、新增插件管理操作、`providers.defaultAndApply` 和 `trajectory.setEnabled` 在发出前返回 `SERVICE_COMMAND_UNSUPPORTED`。这是已知未提交，不带未知提交标记或伪造的请求 ID。兼容的队列操作继续使用原业务请求键；不退回另一种写操作。评价草稿读取、偏好及 MCP Apps/表单轮询按这项可用性降级，保留本地草稿。
+
+## Cloud 配置与会话生命周期
+
+Cloud 设置只接受 `status` 和 `save`，不提供会分配资源的 `check`。固定地址为 `/openapi/v1/app-server/`；桌面可信适配器用持久化的 Cloud Session UUID 派生 workspace endpoint。新建会话时建立原生 thread 并投影真实连接状态，query 直接使用该连接。服务端回收后的断线不自动重连；下一条用户消息恢复原 endpoint、thread 和 UPFS。已提交但结果未知的 Turn 不自动重发。旧会话 endpoint 保持绑定，不因修改服务地址而迁移到新工作区。
