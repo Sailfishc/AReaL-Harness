@@ -297,12 +297,15 @@ impl Invocation<'_> {
                 result = self.invoke(&arguments, browser_plan.as_ref()) => result,
             }
         };
+        // Known capture failures still run ordinary failure hooks. A cancelled
+        // capture never submitted the write and must not start effectful hooks.
         if result.as_ref().is_err_and(|error| {
             uncertain(error)
-                || error
-                    .details
-                    .as_ref()
-                    .is_some_and(|details| details["reason"] == "FILE_BEFORE_CAPTURE_FAILED")
+                || self.cancel.is_cancelled()
+                    && error
+                        .details
+                        .as_ref()
+                        .is_some_and(|details| details["reason"] == "FILE_BEFORE_CAPTURE_FAILED")
         }) {
             return result;
         }
