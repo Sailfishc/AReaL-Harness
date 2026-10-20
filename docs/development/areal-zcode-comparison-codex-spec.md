@@ -577,7 +577,7 @@ Z9. [独立删除/清理历史能力](https://github.com/zai-org/ZCode/blob/0a1f
 
 **拆成两次可合并PR**：
 
-1. **AUTO-01A 控制、收据冷存储与诊断**：为 Task 增加结构化 `suspensionReason`/`storageHealth`（名称由同一协议定义）。这一 PR 必须包括最小不可变收据冷段、已提交 root 查询和 v3 迁移；先归档已提交收据释放热空间，再保证新的 stopRun/cancel 仍可持久受理。每 Task 控制状态有界，完整旧收据保存 identity/method/requestId/digest/原响应；只有其收据已进入可查询的已提交冷链后，才能覆盖控制槽。单个槽不能代替历史请求账本。旧 v3 已接近 32 MiB 的合法快照也须迁移，不能只为新计划预留空间。新增长工作容量不足先拒绝，不能在未落盘时返回 accepted。UI 显示结构化原因与恢复条件，保留执行结算状态。
+1. **AUTO-01A 控制、收据冷存储与诊断**：复用现有 Task 控制字段和 Core 结构化错误，提供容量资源与恢复条件。这一切片包括不可变收据索引、已提交根查询和 v3 迁移，保证容量下新的 stopRun/cancel 仍可持久受理。每 Task 控制状态有界，完整旧收据保存 identity、method、requestId、digest 和原响应，不能由单个可覆盖控制槽替代。旧 v3 已接近 32 MiB 的合法快照也须迁移，不能只为新计划预留空间。新增长工作容量不足先拒绝，不能在未落盘时返回 accepted。UI 显示结构化原因与恢复条件，保留执行结算状态。磁盘写入失败通过当前错误与冻结状态表达，不能要求再持久写入一个假定成功的 storageHealth。
 
 2. **AUTO-01B Run/Channel 历史与查询 UI**：仅归档 terminal 且 workers settled、usage accounting complete、无 pending问题/未知工具待检查的 Run。热记录上限成为保留窗口，非计划寿命。冷段先持久落盘再提交热快照引用；按 task/run 授权分页查历史。累计已确认/预留消费、Run总数、thread/goal关系在迁移后仍可核对。复用 A 已实现的收据冷查询，不能因压缩重新受理旧副作用。删除策略与归档策略分开。
 
@@ -585,7 +585,7 @@ Z9. [独立删除/清理历史能力](https://github.com/zai-org/ZCode/blob/0a1f
 
 - `core/engine/src/task_mode/mod.rs`、`desktop_schedules.rs`、`overview.rs`；
 
-- `core/engine/src/store.rs`，新增 `core/engine/src/store/task_archive.rs`（参考现有 `store/archive.rs` 持久原语，不复用Thread专用模型）；
+- `core/engine/src/store.rs`，新增 `core/engine/src/task_mode/ledger.rs`（参考现有 `store/archive.rs` 持久原语，不复用 Thread 专用模型）；
 
 - `core/protocol/src/tasks.rs`、`core/app-server/src/task_mode.rs`；
 
@@ -593,7 +593,7 @@ Z9. [独立删除/清理历史能力](https://github.com/zai-org/ZCode/blob/0a1f
 
 - `docs/api/tasks.md/.en.md`、`docs/features.md/.en.md`、`docs/development/testing.md/.en.md`。
 
-**拟新增接口**（提案，不是现有API）：`areal/task/runs/list {taskId,cursor?,limit?}` -> `{data,nextCursor?,hasMore}`；`areal/task/run/read {taskId,runId}`；Task summary 给 `runCount`/`archivedRunCount`/状态原因。limit沿用现有1-100和字节上限。现有客户端先检测 methods 再分页。
+**第一阶段接口契约**：`areal/task/runs/list {taskId,cursor?,limit?}` 返回 `{data:TaskRun[],nextCursor:string|null,hasMore:boolean,runCount:number}`；`areal/task/run/read {taskId,runId}` 返回原始 `TaskRun`。Task summary 提供 `runCount`、`archivedRunCount` 和 `runsComplete`。limit 为 1–100，沿用响应字节上限。列表按 `(scheduledAt,id)` 从新到旧排序，游标固定首次读取的上界，不依赖记录在热区或冷区的位置。GUI 先检测 Core methods，再使用窄管理操作；旧 Core 仅显示内联窗口。
 
 **验收**：
 
@@ -708,7 +708,7 @@ Z9. [独立删除/清理历史能力](https://github.com/zai-org/ZCode/blob/0a1f
 
 ### AUTO-01 持久方案定案和数据库取舍
 
-**P0 定案：继续使用 Core Store 的 JSON 热快照与不可变冷段，不引入 SQLite。** 冷段放在独立 `task-history/` 和 `task-receipts/` 命名空间，或把其引用显式接入 Store GC；禁止直接放进当前只遍历 Thread history 根的目录。TaskMode snapshot 保存已提交冷链head、累计量、每Task最近128个Run及所有尚未安全归档记录；128成为热窗口，不再是计划执行寿命。
+**P0 定案：继续使用 Core Store 的 JSON 与不可变文件，不引入 SQLite。** `desktop/task-mode.json` 的 v4 紧凑目录是唯一提交根，引用 `desktop/task-ledger/` 中原样 Task 热负载、历史段、收据和归属索引。内存保留现有 `Task` 及其控制字段，不另建控制 overlay。每 Task 保留最近 128 个 Run 和所有尚未安全归档的记录；128 是保留窗口，不再是计划寿命。Task 文件不混入只识别 Thread 历史根的 GC。
 
 具体提交协议：
 
@@ -720,15 +720,17 @@ Z9. [独立删除/清理历史能力](https://github.com/zai-org/ZCode/blob/0a1f
 
 4. 重启按已提交snapshot roots恢复。孤立段只能由明确GC清理，不通过文件名猜执行事实。
 
-5. 收据冷段保留完整identity/method/requestId/digest/原response。新receipt与Task变更仍在同一次snapshot commit生效；冷热lookup只用已提交root，提前写出的payload不能证明受理。可用固定数量hash-bucket链heads加速，不在热snapshot无限增长全局index。
+5. 收据保留完整 identity、method、requestId、digest 和原响应。收据与 Task 变更在同一次目录提交中生效，查询只使用已提交根。固定 256 个桶头分别指向不可变压缩 radix 索引；收据键和冷 Run/Goal 归属键使用完整 SHA-256，查找深度不超过 64。叶节点仍核对原身份，不能用摘要碰撞替换记录。历史段可以保留链结构，但停止路径不能遍历它。
 
-6. 正常新增历史先保障控制空间预留；reserve由MAX_TASKS和严格有界控制记录大小推导。stop/cancel意图用固定大小状态，完整response进入不可变收据冷链，但同样以snapshot提交为准；归档旧收据到已提交冷链后才能覆盖相应热记录。AUTO-01A 已包含这一最小收据实现和旧满快照迁移，不等待 B。归档工作不能持有停止控制锁做无界I/O。真正磁盘不可写时报告未持久，不能伪造成功。
+6. 普通增长受 32 MiB 热状态预算约束。已受理工作另有按现有 Run、worker 和结算记录大小推导的有界结算预留，保证 stop/cancel 以及后续报告和用量结算可以提交；它不能容纳新 Run、worker 或任意配置增长。旧 v3 满快照也必须迁移并获得这项保护。停止提交跳过归档，未变化的 Task 文件不重写。历史读取捕获同一个不可变快照后，在全局 Task 锁之外核对授权并生成响应。真正磁盘不可写时返回未确认持久化，不能伪造成功。
 
 7. Task总token消费=冷已结算累计+热已确认/预留；归档一次只累计一次。热冷同时存在的故障窗口仍按已提交分界计量。Channel sequence不重置。
 
-8. 暂停原因区分user、historyCapacity、receiptCapacity、storageFailure；UI读Core字段，不能从128个Run猜。容量失败给resource和remedy。
+8. 逻辑容量失败给出结构化 resource 和恢复条件，GUI 显示 Core 返回的原因，不能从 128 条记录猜测。原子替换后的目录同步失败属于提交结果未确认，冻结 Task 写入和派发；重启验证并同步已引用文件与目录后再恢复。仅重新读取根文件不能证明持久化。磁盘失败时不能假装已经持久保存 storageHealth。
 
 归档还须保留 Task/Run 对旧 Thread/Goal 的来源和授权依据。现有 app-server 的 Task 访问会核对关联 Run 的 Thread scope；不能归档后仅核对热 Run，从而扩大旧历史可见范围。分页与单条读取均通过 Core 授权，冷段文件路径不得暴露给客户端。
+
+**对原方案的进一步修正**：固定数量的 hash-bucket 链只能限制热根大小，不能限制查询成本。历史越长，停止前的收据查找和归属检查仍可能占用全局锁越久。因此改为有界索引，并把只读历史扫描移出该锁。只增加桶数或容量常数无法消除这个问题。
 
 **为什么不选task-only SQLite**：SQLite的事务、receipt唯一键和分页确有价值，但P0引入它要同时解决JSON迁移、与Thread持久化的跨库事务、备份/恢复和双写风险。已有Store具备冷段与原子快照原语，复用改动面更小。只有证明冷段lookup或全局Task热快照仍是瓶颈后，才用单独ADR一次迁移为唯一Task仓库；不允许GUI另存Task事实，不允许两套权威双写。
 

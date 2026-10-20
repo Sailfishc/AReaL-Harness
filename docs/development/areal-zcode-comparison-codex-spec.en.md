@@ -585,7 +585,7 @@ Z9. [Independent history deletion and pruning](https://github.com/zai-org/ZCode/
 
 **Split into two mergeable PRs.**
 
-1. **AUTO-01A control, cold receipts, and diagnostics.** Add structured Task `suspensionReason`/`storageHealth`, with names defined in the same protocol. This PR must include minimal immutable cold receipt segments, queries through the committed root, and v3 migration. Archive committed receipts to release hot capacity before allowing new stopRun/cancel requests to be durably accepted. Keep each Task's control state bounded. Complete historical receipts retain identity/method/requestId/digest/original response. Overwrite a control slot only after its receipt enters the queryable committed cold chain. One slot cannot replace historical request records. Migrate valid v3 snapshots already close to 32MiB, not only reserve capacity for new schedules. Reject new work when capacity for growth is insufficient. Never return accepted before persistence. UI shows structured reasons and recovery conditions while retaining execution-settlement state.
+1. **AUTO-01A control, cold receipts, and diagnostics.** Reuse existing Task control fields and structured Core errors to expose capacity resources and recovery conditions. This slice includes immutable receipt indexes, committed-root queries, and v3 migration so new stopRun/cancel requests can still be durably accepted at capacity. Keep each Task's control state bounded. Complete historical receipts retain identity, method, requestId, digest, and the original response. One overwritable control slot cannot replace them. Migrate valid v3 snapshots already close to 32 MiB, rather than reserving capacity only for new schedules. Reject new work when capacity for growth is insufficient. Never return accepted before persistence. UI shows structured reasons and recovery conditions while retaining execution-settlement state. Report disk write failures through the current error and frozen state, rather than requiring another allegedly successful storageHealth write.
 
 2. **AUTO-01B Run/Channel history and query UI.** Archive only terminal Runs whose workers have settled, usage accounting is complete, and no pending issue or unknown tool result needs inspection. The hot-record limit becomes a retention window rather than a schedule lifetime. Persist cold segments before committing their references in hot snapshots. Authorize paginated history by task/run. After migration, cumulative confirmed/reserved usage, total Run count, and thread/goal relationships remain auditable. Reuse A's cold-receipt queries. Compression must not reaccept old side effects. Keep deletion policy separate from archiving.
 
@@ -593,7 +593,7 @@ Z9. [Independent history deletion and pruning](https://github.com/zai-org/ZCode/
 
 - `core/engine/src/task_mode/mod.rs`, `desktop_schedules.rs`, and `overview.rs`.
 
-- `core/engine/src/store.rs` and new `core/engine/src/store/task_archive.rs`. Reuse persistence operations from `store/archive.rs`, not Thread-specific models.
+- `core/engine/src/store.rs` and new `core/engine/src/task_mode/ledger.rs`. Reuse persistence operations from `store/archive.rs`, not Thread-specific models.
 
 - `core/protocol/src/tasks.rs` and `core/app-server/src/task_mode.rs`.
 
@@ -601,7 +601,7 @@ Z9. [Independent history deletion and pruning](https://github.com/zai-org/ZCode/
 
 - `docs/api/tasks.md/.en.md`, `docs/features.md/.en.md`, and `docs/development/testing.md/.en.md`.
 
-**Proposed interfaces, not existing APIs.** Add `areal/task/runs/list {taskId,cursor?,limit?}` returning `{data,nextCursor?,hasMore}`, and `areal/task/run/read {taskId,runId}`. Task summaries expose `runCount`, `archivedRunCount`, and state reasons. Reuse the current limit of 1-100 and byte bounds. Existing clients detect methods before pagination.
+**Phase-one interface contract.** `areal/task/runs/list {taskId,cursor?,limit?}` returns `{data:TaskRun[],nextCursor:string|null,hasMore:boolean,runCount:number}`. `areal/task/run/read {taskId,runId}` returns the original `TaskRun`. Task summaries expose `runCount`, `archivedRunCount`, and `runsComplete`. Limits are 1–100 with the existing response byte bound. Lists sort newest first by `(scheduledAt,id)`. Cursors retain the first read’s upper bound and do not depend on hot or cold storage location. GUI clients detect Core methods before using narrow management operations. Older Core versions expose only the inline window.
 
 **Acceptance.**
 
@@ -717,7 +717,7 @@ New `skip` rules must persist `maxLatenessSeconds`. The proposed product default
 
 ### AUTO-01 persistence decision and database trade-off
 
-**P0 decision. Keep Core Store JSON hot snapshots and immutable cold segments. Do not introduce SQLite.** Put cold segments in separate `task-history/` and `task-receipts/` namespaces, or explicitly add their references to Store GC. Do not put them directly in a directory where current traversal only follows Thread history roots. TaskMode snapshots retain committed cold-chain heads, cumulative totals, the most recent 128 Runs per Task, and every record not yet safe to archive. The 128 limit becomes a hot window rather than a schedule lifetime.
+**P0 decision. Keep Core Store JSON and immutable files. Do not introduce SQLite.** The compact v4 catalog at `desktop/task-mode.json` is the sole commit root. It references full Task payloads, history segments, receipts, and provenance indexes in `desktop/task-ledger/`. Keep the existing in-memory `Task` and control fields without a separate control overlay. Retain the latest 128 Runs per Task and every record not yet safe to archive. The 128 limit becomes a retention window rather than a schedule lifetime. Keep Task files outside GC that only recognizes Thread history roots.
 
 Commit protocol:
 
@@ -729,15 +729,17 @@ Commit protocol:
 
 4. Restart restores committed snapshot roots. Only explicit GC removes orphan segments. Do not infer execution facts from filenames.
 
-5. Cold receipt segments retain full identity/method/requestId/digest/original response. New receipts and Task changes still take effect in the same snapshot commit. Hot/cold lookups use only committed roots. A payload written early does not prove acceptance. A fixed number of hash-bucket chain heads may accelerate lookup. Do not grow a global index without bounds in the hot snapshot.
+5. Receipts retain the full identity, method, requestId, digest, and original response. Receipts and Task changes take effect in the same catalog commit. Queries use only committed roots. Fixed sets of 256 bucket heads reference immutable compressed radix indexes. Receipt keys and cold Run/Goal provenance keys use full SHA-256 values, with lookup depth at most 64. Leaves still verify original identity and reject hash collisions. History segments may remain chains, but the stop path must not traverse them.
 
-6. Reserve control capacity before adding ordinary history. Derive the reserve from MAX_TASKS and strictly bounded control-record sizes. stop/cancel intent uses fixed-size state. Full responses enter immutable cold receipt chains, still committed only through the snapshot. Archive old receipts into a committed cold chain before overwriting corresponding hot records. AUTO-01A includes this minimal receipt implementation and migration of old full snapshots. It does not wait for B. Archiving must not hold stop-control locks across unbounded I/O. If the disk truly cannot be written, report non-persistence rather than success.
+6. Ordinary growth is subject to a 32 MiB hot-state budget. Already admitted work has a bounded settlement reserve derived from its existing Runs, workers, and settlement record sizes. This reserve covers stop/cancel and subsequent reports and usage settlement. It cannot admit new Runs, workers, or arbitrary configuration growth. Migrate old full v3 snapshots with this protection. Stop commits skip archiving, and unchanged Task files are not rewritten. Historical reads capture one immutable snapshot, then authorize and project outside the global Task lock. If disk writes fail, report unconfirmed persistence rather than success.
 
 7. Total Task token usage equals settled cold totals plus hot confirmed/reserved usage. Count each archive once. In a failure window where records exist in both places, account according to the committed boundary. Do not reset Channel sequence.
 
-8. Distinguish pause reasons user, historyCapacity, receiptCapacity, and storageFailure. UI reads Core fields rather than guessing from 128 Runs. Capacity failures provide resource and remedy.
+8. Logical capacity failures provide a structured resource and recovery condition. GUI uses Core’s reason rather than guessing from a count of 128. A directory sync failure after atomic replacement leaves the commit outcome unconfirmed. Freeze Task writes and dispatch until restart validates and synchronizes referenced files and directories. Rereading the root alone does not prove durability. Do not pretend that storageHealth was persisted when disk writes failed.
 
 Archiving must also preserve Task/Run provenance and authorization for old Threads/Goals. Existing app-server Task access checks Thread scope for associated Runs. Checking only hot Runs after archiving would expand historical visibility. Both pagination and individual reads go through Core authorization. Do not expose cold-segment file paths to clients.
+
+**Further correction to the original design.** A fixed number of hash-bucket chains bounds the hot root, but not lookup work. As history grows, receipt lookup and provenance checks before a stop can hold the global lock for longer. Use bounded indexes and move read-only history scans outside that lock. Increasing bucket counts or capacity constants does not remove this failure mode.
 
 **Why not Task-only SQLite.** SQLite transactions, receipt uniqueness, and pagination have value. Introducing it for P0 also requires JSON migration, cross-store transactions with Thread persistence, backup/recovery, and dual-write handling. Store already provides cold segments and atomic snapshots, so reuse changes less. Only after demonstrating that cold lookup or global Task hot snapshots remain a bottleneck should a separate ADR migrate once to a single Task store. GUI must not store its own Task facts. Do not maintain two authoritative stores through dual writes.
 
