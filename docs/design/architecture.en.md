@@ -71,6 +71,8 @@ Scheduled-task management reuses ordinary Messages and Composer, reusing TaskRes
 
 ## State and execution
 
+The GUI Desktop service and Main encode rebuildable state through `workbench/client/state-projection`. Each connection starts with a full baseline, then sends changes and order by Project, Thread, Turn, and Item identity. Unchanged history bodies are omitted. Main encodes only filtered desktop state. Renderer reconstructs complete snapshots after contextBridge. A missing baseline or sequence gap triggers a full state read without resubmitting execution requests. Initial loads and explicit snapshots still transfer full state. A changed Item is still replaced in full.
+
 Changes within a Thread are serialized; different Threads progress concurrently. Model, tool and child-task waits do not retain the session lock. Model permits are released during tool execution. Active Turns, model requests and OS processes have separate limits.
 
 Tools persist intent before dispatch to Runtime or an external host, then record confirmed outcomes. Snapshots retain authoritative history; media and large original tool results are stored as SHA-256-addressed Blobs; owning Thread call records authorize result references, and initial tool views are generated once and persisted with history; explicitly enabled experimental observation projections affect requests without rewriting authoritative history. Restart marks unfinished execution UNKNOWN without replay. Archiving releases hot history; GC after drain reclaims unreferenced Blobs.

@@ -9,6 +9,10 @@
       "import": "./client/desktop-contract.js",
       "require": "./client/desktop-contract.cjs"
     },
+    "./state-projection": {
+      "import": "./client/state-projection.js",
+      "require": "./client/state-projection.cjs"
+    },
     "./core-model": "./client/core-model.js",
     "./core-panels": "./client/core-panels.js"
   }

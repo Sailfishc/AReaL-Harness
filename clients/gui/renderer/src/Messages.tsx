@@ -278,15 +278,12 @@ export function Messages({
     element.addEventListener("wheel", wheel, { passive: false });
     // File summaries, disclosures and Markdown/media resize independently of
     // Core snapshots. Reuse this reading owner; no new store or execution loop.
-    let frame: number | undefined;
-    const resize = new ResizeObserver(() => {
-      frame ??= requestAnimationFrame(() => { frame = undefined; layout(); });
-    });
+    // Resize notifications run before paint; a new frame exposes the old tail.
+    const resize = new ResizeObserver(layout);
     resize.observe(element);
     if (element.firstElementChild) resize.observe(element.firstElementChild);
     return () => {
       resize.disconnect();
-      if (frame !== undefined) cancelAnimationFrame(frame);
       element.removeEventListener("wheel", wheel);
     };
   }, [owner, latestTurnId, reserveResponseSpace]);
@@ -478,8 +475,8 @@ export function Messages({
             <TurnActivity turn={turn} project={project} threadId={thread.id} />
           </section>;
         })}
-        <div ref={responseSpace} className="message-response-space" aria-hidden="true" />
       </div>
+      <div ref={responseSpace} className="message-response-space" aria-hidden="true" />
     </div>
     {selectedSideText?.owner === selectionOwner && <button type="button" className="side-selection-action" onClick={() => void askAboutSelection()}>在旁路中询问所选内容</button>}
     {readingHistory && <TimelineBottomButton onClick={returnToBottom} />}
