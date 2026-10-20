@@ -987,7 +987,7 @@ ZCode UI Apps can provide page tools to the Agent and perform sampling within an
 
 1. Build a RED fixture with unsaved text, a random bootId, initialization count, subscription count, and a slow tool callId inside the page. Check it after switching tabs, hiding and showing the page, and switching away from and back to a session.
 
-2. Provide a stable page host and a single bridge. Display references change only the layout. Hidden pages do not take focus, and click-through behavior remains correct.
+2. Provide a stable page host and a single bridge. Display references change only the layout. Hidden pages do not take focus, and click-through behavior remains correct. Each instance records the window owner from open. Disposal and revocation use that recorded owner rather than reading a destroyed BrowserWindow during will-quit. Recheck owner and epoch after asynchronous open, and compensate stale results through the existing close path. Main IPC continues to validate the current window, sender, main frame, and application URL. An old token cannot transfer to a new owner.
 
 3. Bound the page count and provide explicit capacity feedback. Commit the initial limit as explicit product configuration. Reject new pages when capacity is exhausted, without silently evicting editor pages. Choose the default through real Electron measurements with multiple pages, not by copying ZCode's 64.
 

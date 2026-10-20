@@ -47,7 +47,7 @@ Skill 发现由 `core/config` 根据可信启动参数执行，只返回元信�
 
 Codex 兼容包由 `core/plugins` 持有本地安装与范围选择；Engine 登记不可变插件 Skill 根，并在 Turn 提交时固定引用、读取时检查当前撤权。普通会话可以发现新安装，显式 Profile、Side 和隔离 worker 不自动扩权。onboarding 使用已有普通 Turn 入口；客户端通过现有管理收据恢复 UNKNOWN。独立 Skills 保持动态描述符读取契约。当前支持及限制见[插件指南](../guides/plugins.md)，后续完整兼容任务见[实施计划](../development/codex-plugins-plan.md)。
 
-插件来源解析仍归 `core/plugins`，Git/npm 不执行安装脚本。`core/mcp` 持有认证、资源与连接版本，Engine 固定 Turn 的 schema/调用对象并拥有撤权、受理和清理。Apps 绑定 Core 进程 epoch、Thread 与包摘要；Electron 的独立沙箱只持窄能力。文件实际读写复用 Runtime 的目录描述符助手，模型投影剔除 `_meta`。原始 Connector ID 通过明确映射接到 GitHub；客户端凭据仅由可信启动环境注入。
+插件来源解析仍归 `core/plugins`，Git/npm 不执行安装脚本。`core/mcp` 持有认证、资源与连接版本，Engine 固定 Turn 的 schema/调用对象并拥有撤权、受理和清理。Apps 绑定 Core 进程 epoch、Thread 与包摘要；Electron 的独立沙箱只持窄能力。Main 为每个 App 实例记录原窗口 owner，普通导航保留活 iframe；销毁和撤权按实例归属回收，不依赖原生窗口仍然存活。异步打开返回时复核 owner 与 epoch，旧 token 不随活动窗口转移。文件实际读写复用 Runtime 的目录描述符助手，模型投影剔除 `_meta`。原始 Connector ID 通过明确映射接到 GitHub；客户端凭据仅由可信启动环境注入。
 
 插件下载与准备不持有 Engine 目录刷新锁；Store 的跨进程锁和 revision CAS 负责提交，随后从同一安装状态快照在刷新锁内发布目录，连接排空在锁外执行。MCP 清理未确认以类型化错误进入 `cleanupUnknown`，不能按普通失败重连；没有清理凭据的后续断开操作也不能清除此状态。跨实例共享启用状态与本实例受审阅定义分开：hook 调用前读取当前启用状态，后台协调取消已停用包的在途 hooks（包括升级后新版已删除定义的旧调用）；固定 Turn 版本不会固定启用权限。显式 Profile 默认排除插件，仅部署定义的 `allowPluginSkills` 可选择加入，且子任务继续受父任务插件范围约束；hook 角色与 matcher 使用已受理 Profile 身份，压缩保留子任务归属。状态轮询只读安装状态，不枚举包。组件解析按包身份、摘要和政策缓存，每次使用通过 NOFOLLOW 描述符检查文件/目录身份、权限、大小、mtime/ctime；变化后重新校验完整摘要。MCP 调用只验证所属包。该缓存不增加对任意同 UID 并发目录替换的隔离承诺。
 
@@ -61,7 +61,7 @@ Core 的生命周期判定区分普通停止准入与取消后的执行结算。
 
 Task Mode 由 `core/engine/src/task_mode` 管理 Task/TaskRun、定时触发、独立 Channel 和 worker。它复用 Goal 账本与 Thread 准入，通信状态由 Core 持有；Inbox 是授权问题的查询投影。TaskRun worker 可跨协调 Turn，在独立 Session 中执行，仍由 Core 负责取消和结算。接口见 [Task 契约](../api/tasks.md)。
 
-Task 持久化的唯一提交点为版本 4 的 `desktop/task-mode.json`。紧凑根引用不可变热 Task、按 Task 链接的历史与固定桶头的压缩 radix 收据/归属索引，索引深度受 256 位键宽限制。控制不触发历史扫描，只发布变更 Task、原始收据与根；普通保留检查有界，无法确认的历史继续留热。冷 Run 用量与计数同根提交，旧 Goal 身份不因归档变成普通 Goal。读取在短锁内捕获 Snapshot，再在锁外以同一快照完成授权和投影。文件先同步，根最后原子替换并同步目录；结果不明时冻结写入，重启校验、同步全部可达引用后再恢复。版本 1 至 3 的原字节先备份，迁移不依赖孤儿扫描。
+Task 持久化的唯一提交点为版本 4 的 `desktop/task-mode.json`。紧凑根引用不可变热 Task、按 Task 链接的历史与固定桶头的压缩 radix 收据/归属索引，索引深度受 256 位键宽限制，终止叶最多 64 行、普通打包 128 KiB，合法大单条仍受 256 MiB 硬上限约束。控制不触发历史扫描，只发布变更 Task、原始收据与根；普通保留检查有界，无法确认的历史继续留热。冷 Run 用量与计数同根提交，旧 Goal 身份不因归档变成普通 Goal。读取在短锁内捕获 Snapshot，再在锁外以同一快照完成授权和投影。文件先同步，根最后原子替换并同步目录；结果不明时冻结写入，重启校验、同步全部可达引用后再恢复。版本 1 至 3 的原字节先备份，迁移不依赖孤儿扫描。
 
 定时任务管理界面复用普通 Messages 与 Composer，直接复用普通会话的 TaskResourcesPopover；ConversationStatusCard 增加任务描述与状态概要，不建立固定右栏。宿主 task-draft 在同一管理 Thread 中解释 Agent 回复并校验保存；Core 历史保持原样，界面只读取解码后的显示投影。创建收据和逐轮修改收据阻止重复处理；执行限制不由 Renderer 的权限菜单解除。新建先明确选择项目与工作目录，再建立管理 Thread；项目内子目录由宿主和 Core 校验，独立任务目录仍归 ProjectlessWorkspaces 分配。管理 Thread 与执行 Thread 分离，执行锚点继承管理 Thread 的 cwd。提案摘要基于稳定解析结果；重复时间仅在提交边界推进至未来，修改省略频率时继承原值。安排与控制消息的成功状态仅来自匹配宿主收据。定时 Task 的根 Thread 只定位执行环境；每个 Run 新建会话并冻结配置。Core 持有触发、离线补执行和忙碌跳过，经认证桌面 Host 通过 prepare/ready 提供配置及工具。暂停安排只影响后续触发，停止或恢复通过 Run 控制，审批超时保留受阻执行。
 

@@ -980,7 +980,7 @@ ZCode 的 UI App 能提供页面工具给 Agent，并在已存在的可操作任
 
 1. RED fixture：页面内 unsaved text、随机 bootId、初始化次数、订阅计数、慢工具 callId。切 tab、隐藏/显示、切 session 往返后检查。
 
-2. 稳定页承载，单次 bridge，显示引用只改布局。隐藏页面不抢焦点，点击穿透保持正确。
+2. 稳定页承载，单次 bridge，显示引用只改布局。隐藏页面不抢焦点，点击穿透保持正确。实例保存打开时的窗口 owner，销毁和撤权使用这份归属回收；不能在 will-quit 时重新读取已销毁 BrowserWindow 的 webContents。异步打开返回时复核原 owner 与 epoch，失效结果沿原关闭路径补偿。Main IPC 继续核对当前窗口、sender、主 frame 和应用 URL，旧 token 不得转交给新的 owner。
 
 3. 有界页面数与显式容量反馈。初始上限应作为产品配置明确提交；容量不足拒绝新增，不能偷偷淘汰编辑页。通过多页真实 Electron 测量决定默认值，不能直接照抄 ZCode 的 64。
 
