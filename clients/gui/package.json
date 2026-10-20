@@ -48,6 +48,7 @@
     "test:browser-feasibility": "node scripts/browser-feasibility.mjs",
     "test:browser-attach": "node scripts/browser-attach-smoke.mjs",
     "test:browser-annotations": "node scripts/browser-annotation-smoke.mjs",
+    "test:image-annotations": "node scripts/image-annotation-smoke.mjs",
     "test:browser-contracts": "node --test scripts/browser-read-contract.test.mjs scripts/browser-network-policy.test.mjs scripts/browser-diagnostics-contract.test.cjs scripts/browser-evidence-contract.test.mjs scripts/browser-startup-contract.test.mjs scripts/browser-observation-privacy.test.cjs",
     "test:remote-command": "node scripts/remote-command-contract.mjs",
     "test:remote-command-e2e": "node scripts/remote-session-commands-e2e.mjs",
