@@ -8,8 +8,8 @@
 
 | 平台         | 分发方式                                                               | 前置条件                                                                                       |
 | ------------ | ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| macOS arm64  | GitHub Release 完整包 + Python 安装器；公开 Homebrew beta formula | macOS 15+、Xcode Command Line Tools；独立安装/升级需 PATH 中的 Python 3.9+                     |
-| Linux x86_64 | GitHub Release 完整包 + Python 安装器；公开 Homebrew beta formula         | Ubuntu 22.04 或更新的兼容 glibc 2.35+ 系统；独立安装/升级需 PATH 中的 Python 3.9+；不支持 musl |
+| macOS arm64  | GitHub Release 完整包 + Python 安装器；公开 Homebrew 稳定版与 beta formula | macOS 15+、Xcode Command Line Tools；独立安装/升级需 PATH 中的 Python 3.9+                     |
+| Linux x86_64 | GitHub Release 完整包 + Python 安装器；公开 Homebrew 稳定版与 beta formula         | Ubuntu 22.04 或更新的兼容 glibc 2.35+ 系统；独立安装/升级需 PATH 中的 Python 3.9+；不支持 musl |
 
 只验证上述架构，不提供 Windows、macOS Intel 或 Linux arm64 包。**npm 与 `cargo install` 尚未提供完整发行包**，不能作为安装渠道。Homebrew 和独立安装器二选一，不应同时管理同一个 PATH 入口。每个包包含 `bin/areal`、`libexec/areal/{areal-runtime,areal-runtime-fs}`、LICENSE 和文件 SHA256 manifest；Linux 包另外包含同目录的 `areal-runtime-reaper`，不要只复制 `areal`。安装后无需 Rust/Cargo；macOS 仍需要可用的 `/usr/bin/python3`（Command Line Tools），运行自定义 Node/Python 工具需对应解释器。
 
@@ -17,12 +17,16 @@ macOS 包采用 ad-hoc 签名，尚无 Developer ID 签名和公证。Linux 默�
 
 ## Homebrew（macOS / Linux）
 
-公开 [tap](https://github.com/areal-project/homebrew-tap) 已提供 macOS arm64 与 Linux x86_64 的 `areal-beta`，使用公开 Release 的完整归档及 SHA256 校验和。该 tap 尚未发布稳定版 `areal` formula；稳定版继续使用独立安装器。
+公开 [tap](https://github.com/areal-project/homebrew-tap) 提供 macOS arm64 与 Linux x86_64 的默认稳定版 `areal` 和可选的 `areal-beta`，使用公开 Release 的完整归档及 SHA256 校验和。发布 Beta 只更新 `areal-beta`；默认 `areal` formula 继续跟踪稳定版。
 
-两平台使用相同 beta 命令。`areal-beta` 为 keg-only，不替换已有稳定版 PATH 入口：
+两平台使用相同命令。`areal-beta` 为 keg-only，不替换稳定版 PATH 入口：
 
 ```sh
 brew tap areal-project/tap
+brew install areal-project/tap/areal
+brew test areal-project/tap/areal
+areal --version
+# 可选 Beta：用绝对入口启动，不强制 link
 brew install areal-project/tap/areal-beta
 brew test areal-project/tap/areal-beta
 "$(brew --prefix areal-project/tap/areal-beta)/bin/areal" --version
@@ -34,6 +38,10 @@ Linux formula 仅支持 x86_64、宿主 glibc ≥ 2.35，需系统安装 `/usr/b
 
 ```sh
 brew update
+brew upgrade --formula areal-project/tap/areal
+brew test areal-project/tap/areal
+areal --version
+# Beta 仅升级自身
 brew upgrade --formula areal-project/tap/areal-beta
 brew test areal-project/tap/areal-beta
 "$(brew --prefix areal-project/tap/areal-beta)/bin/areal" --version
