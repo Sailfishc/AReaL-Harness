@@ -6,6 +6,8 @@ const reads = {
   tasks: ['areal/task/list', ['after', 'limit']], task: ['areal/task/read', ['taskId']],
   taskInbox: ['areal/inbox/list', ['after', 'limit']],
   taskChannel: ['areal/channel/read', ['taskId', 'afterSequence', 'limit']],
+  taskRuns: ['areal/task/runs/list', ['taskId', 'cursor', 'limit']],
+  taskRun: ['areal/task/run/read', ['taskId', 'runId']],
 };
 const writes = {
   taskCreate: ['areal/task/create', ['mode', 'objective', 'threadId', 'interactionMode', 'schedule', 'tokenBudget', 'maxTurns', 'maxActiveSeconds']],
@@ -18,7 +20,7 @@ const writes = {
   taskReply: ['areal/channel/reply', ['taskId', 'runId', 'questionId', 'answers']],
 };
 const taskMutationMethods = new Set(Object.values(writes).map(([method]) => method));
-const taskOperations = new Set([...Object.keys(reads), ...Object.keys(writes), ...taskDraftOperations, 'taskWatch', 'taskUnwatch']);
+const taskOperations = new Set([...Object.keys(reads), ...Object.keys(writes), ...taskDraftOperations, 'taskHistoryCapabilities', 'taskWatch', 'taskUnwatch']);
 const pick = (request, keys) => Object.fromEntries(keys.filter(key => request[key] !== undefined).map(key => [key, request[key]]));
 const unknown = () => Object.assign(new Error('原任务提交结果尚未确认，请先核对任务列表；不会重复创建。'), { submissionUnknown: true });
 const executionRequestId = requestId => {
@@ -65,6 +67,15 @@ async function taskCreate(backend, project, request) {
 
 async function manageTask(backend, project, request) {
   const operation = request.operation;
+  const historyEnabled = () => ['areal/task/runs/list', 'areal/task/run/read'].every(method => project.client.capabilities?.methods?.includes(method));
+  if (operation === 'taskHistoryCapabilities') return { enabled: historyEnabled() };
+  if (operation === 'taskRuns' || operation === 'taskRun') {
+    const identifier = value => typeof value === 'string' && value.length > 0 && value.length <= 256 && !value.includes('\0');
+    if (!identifier(request.taskId) || operation === 'taskRun' && !identifier(request.runId)
+      || operation === 'taskRuns' && (request.cursor !== undefined && (typeof request.cursor !== 'string' || !request.cursor || request.cursor.length > 2048)
+        || request.limit !== undefined && (!Number.isSafeInteger(request.limit) || request.limit < 1 || request.limit > 100))) throw new Error('无效运行记录读取参数');
+    if (!historyEnabled()) throw new Error('当前 Core 尚不支持完整运行记录，请更新 Core 后重试。');
+  }
   if (taskDraftOperations.has(operation)) return manageTaskDraft(backend, project, request);
   if (operation === 'taskWatch' || operation === 'taskUnwatch') {
     if (typeof request.viewId !== 'string' || !request.viewId || request.viewId.length > 128) throw new Error('缺少任务视图标识');
