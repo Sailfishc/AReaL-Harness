@@ -7,6 +7,7 @@ import {fileURLToPath} from 'node:url';
 import {createServer} from 'node:http';
 import {execFileSync} from 'node:child_process';
 import {createHash,randomUUID} from 'node:crypto';
+import {CoreClient} from '../packages/runtime-client/core.js';
 const gui=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const require=createRequire(join(gui,'app/package.json'));
 const {_electron:electron}=require('playwright-core');
@@ -214,17 +215,6 @@ CoreBackend.prototype.executeCommand=async function(name,request,context){
  try{const result=await execute.call(this,name,request,context);ok=true;return result;}
  finally{if(measured)fs.appendFileSync(${JSON.stringify(join(scratch,'command-timings.jsonl'))},JSON.stringify({name,operation:request.operation,elapsedMs:performance.now()-start,ok})+'\\n');}
 };
-require(${JSON.stringify(join(gui,'app/src/main.cjs'))});
-`);
-}
-if(inlineRegression){
- launchApp=join(scratch,'inline-app');await mkdir(launchApp);
- await writeFile(join(launchApp,'package.json'),JSON.stringify({name:'task-inline-fixture',main:'bootstrap.cjs'}));
- // 仅保留真实后端连接供只读核对，不经 openThread 改变选中会话或补齐界面投影。
- await writeFile(join(launchApp,'bootstrap.cjs'),`
-const {CoreBackend}=require(${JSON.stringify(join(gui,'app/src/core/backend.cjs'))});
-const execute=CoreBackend.prototype.executeCommand;
-CoreBackend.prototype.executeCommand=function(...args){globalThis.__inlineBackend=this;return execute.apply(this,args);};
 require(${JSON.stringify(join(gui,'app/src/main.cjs'))});
 `);
 }
@@ -482,10 +472,20 @@ async function checkInlineRegression(){
  const managementThread=history.threadId;
  assert.equal(managementThread,creation.saved.threadId);
  const readManagement=()=>call('manage',{projectId:pid,operation:'taskDraftRead',threadId:managementThread});
- const readCore=threadId=>app.evaluate(async(_,{projectId,threadId})=>{
-  const project=globalThis.__inlineBackend.projects.get(projectId);
-  return (await project.client.request('thread/read',{threadId,includeTurns:true})).thread;
- },{projectId:pid,threadId});
+ const readCore=async threadId=>{
+  // CoreBackend lives in the shared service, not Electron Main. Observe the
+  // original Core directly without hydrating the GUI's execution projection.
+  const owner=(await snapshot()).projects.find(project=>project.id===pid);
+  const descriptor=JSON.parse(execFileSync(binary,['service','status','--instance',owner.core.instanceId,'--json'],{env,encoding:'utf8'}));
+  assert.equal(descriptor.state,'ready');assert.equal(descriptor.serviceId,owner.core.instanceId);
+  const auth=JSON.parse(await readFile(descriptor.authFile,'utf8'));
+  const principal=auth.principals.find(value=>value.permissions.includes('observe'));
+  assert.ok(principal?.token);
+  const WebSocket=require('ws');
+  const client=new CoreClient({createSocket:()=>new WebSocket(descriptor.endpoint,{headers:{Authorization:`Bearer ${principal.token}`},followRedirects:false})});
+  try{await client.connect();return (await client.request('thread/read',{threadId,includeTurns:true})).thread;}
+  finally{client.close();}
+ };
  const originalCore=await readCore(managementThread);
  const original=await readManagement();
  assert.equal(original.thread.turns.length,2,'clarification and creation turns are retained');
@@ -553,7 +553,7 @@ async function checkInlineRegression(){
    const source=await readCore(run.threadId);
    const finalTurns=source.turns.filter(turn=>turn.items.some(item=>item.type==='agentMessage'&&item.phase!=='commentary'&&item.text===fixture.final));
    assert.equal(finalTurns.length,1,'fixture final is persisted in the actual execution Thread');
-   assert.equal(await message(row(run.id).locator(`[data-turn-id="${finalTurns[0].id}"]`),fixture.final).count(),1,'inline final uses the real execution Turn');
+   assert.equal(await row(run.id).locator(`[data-turn-id="${finalTurns[0].id}"] .assistant-message .conversation-markdown`).getByText(fixture.final,{exact:true}).count(),1,'inline final uses the real execution Turn');
    assert.equal(await row(run.id).count(),1,label+' renders each Run once');
    assert.equal(await message(row(run.id),fixture.final).count(),1,label+' renders each final once');
    assert.equal(await message(inline(),fixture.final).count(),1,label+' has no duplicate final in another Run');
