@@ -86,31 +86,38 @@ The long-term part of AUTO-01 targets sustainable recurring tasks. Its stop-cont
 
 ## Phases and parallel execution
 
-Use this order for the first round. Detailed acceptance remains in each domain specification. Do not edit files from this table alone.
+GUI user paths are the primary delivery surface. CLI checks may validate Core or browser adapter contracts first, but they do not replace GUI entry points or real desktop acceptance. A headless Chromium process, noninteractive Core execution, and execution after GUI exit are separate capabilities.
 
-1. AUTO-01A covers control at capacity, minimal cold receipt storage, v3 migration, and structured reasons. First establish a real page-switch reproduction for UI-01.
+### Confirmed delivery order
 
-2. AUTO-01B adds Run/Channel archives and history UI. Implement UI-01. These write sets are independent and can proceed in parallel.
+| Phase | Scope | Observable completion condition |
+| --- | --- | --- |
+| One | AUTO-01 and UI-01 | Receipt and history capacity do not block durable stop; hot and cold history preserve execution ownership and budgets; ordinary navigation retains live pages and unsaved edits. |
+| Two | AUTO-03, B1, PLG-01 | Run Now preserves the schedule; browser actions have observable targets; component reports identify the exact package version. |
+| Three | AUTO-02 and UI-02 | Core calendar previews match actual triggers; mounting selects the exact original result without executing the tool again. |
+| Four | UI-03B | A fixed real editor supports bounded selection reads, revision-checked page edits, authorization, cancellation, and UNKNOWN. This remains part of the full plan; CLI, UI-02, PLG-01, and UI-03A are not mandatory prerequisites. |
+| Demand-driven extensions | AUTO-04, B2, B3, PLG-02 | Background execution, terminal browsing, account login, and a fixed target plugin respectively justify these slices. They are not all enabled by default for this round. |
 
-3. AUTO-03, B1, and PLG-01 can proceed in parallel with independent write sets. One integrator serializes public protocol and generated-type changes.
+### Phase-one delivery units
 
-4. AUTO-02 and UI-02 each depend on their corresponding foundations. B2 is a separate provider workflow that delivers CLI support before AUTO-04 integration.
+1. Establish failing capacity-stop and page-navigation cases against isolated Core state and a real Electron page respectively.
+2. AUTO-01A delivers v3 migration, committed cold receipt lookup, and control at capacity. Return accepted only after durable commit. Preserve each original request identity, digest, and response.
+3. AUTO-01B archives safely settled Runs and closed Channel records, and retires their preparations. Resume, ensure, budget, prompt limits, approval classification, and history authorization retain the same Run/Goal provenance across hot and cold records. Channel pagination merges records by their original sequence.
+4. UI-01 reuses the existing window apps descriptors. Stable token-keyed iframe hosts live outside the conditional SidePane and Thread key. Hidden pages route to their original project and Thread without stealing focus. Source revocation reaches every retained page.
+5. Integrate GUI history entry points, capacity reasons, and public contracts. Verify Core recovery and real GUI paths separately, inspect the owned diff, and create local commits.
 
-5. Start AUTO-04, PLG-02, UI-03, and B3 only for real use cases. Their presence in this document is not authorization to implement them.
+Core remains the sole Task ledger and execution owner. This round prefers JSON hot snapshots and immutable cold segments. Sync cold segments before committing snapshot references. Existing Thread archives provide a commit-protocol precedent, not a reusable Task data model. Archiving must neither grant old Goals new execution eligibility nor retain cumulative usage while losing original ownership.
 
-```mermaid
-flowchart TD
-    A["AUTO-01 control and ledger"] --> B["AUTO-03 manual runs"]
-    A --> C["AUTO-02 calendar rules"]
-    D["UI-01 live pages"] --> E["UI-02 result mounting"]
-    E --> F["UI-03 page tools"]
-    G["PLG-01 support matrix"] --> H["PLG-02 component adapters"]
-    I["B2 headless Host"] --> J["AUTO-04 browser integration"]
-    B --> J
-    I --> K["B3 dedicated account state"]
-```
+### Contract corrections for later slices
 
-AUTO-04 can deliver shell/files first. Only browser task integration depends on B2. B3 persistent Profiles can be validated in CLI first, with recurring-task binding dependent on AUTO-04. B1 can proceed independently. B2 must use the same browser contracts to accept implemented actions, without implying that every B1 extension is present. UI-01, UI-02, and UI-03 change the same page/bridge boundary and should merge in sequence. AUTO-01, AUTO-02, AUTO-03, and AUTO-04 share `core/protocol/src/tasks.rs` and `task_mode`. Do not have several workers edit those files concurrently and rely on automatic merging.
+- UI-02 selects a tool record by threadId, turnId, and Core itemId. Upstream callId values can repeat across Turns and are not sufficient historical identities. New snapshots carry source bindings; insufficient old evidence falls back to ordinary records. Old requests cannot revive closed pages.
+- B1 supplies observable option facts and controlled option identities. State waits do not reuse action checks that reject disabled elements. When scroll or hover invalidates observations, batches stop with their confirmed prefix preserved.
+- If B2 starts, the same CLI Core connection handles prepare/call/cancel and forwards through private IPC to the browser child. The child holds no Core credential. Reuse bidirectional stream-json approvals. A browser without a window does not authorize noninteractive execution.
+- PLG-01 distinguishes candidate sourceDigest from actual installedDigest and reuses installation, connection, and trust projections.
+- AUTO-04 local shell/files first reuse Core server-owned execution where suitable. Background browsing depends on the necessary service adapter and scoped authorization, without requiring CLI B2 first.
+- UI-03A starts only when a real page reaches the request budget. UI-03B needs stable pages and the Core tool boundary. Existing MCP tools remain preferred for durable documents; page tools address real selection, undo, or unsaved state.
+
+AUTO-01 and UI-01 can proceed in isolated worktrees. One integrator serializes public protocol, generated schema, integration builds, and desktop focus. Each phase reports source, Core/CLI, real GUI, real-provider, and packaged-install evidence separately. This section takes precedence over conflicting candidate interfaces or older dependencies below. Unexecuted checks are not passes.
 
 ## Shared handoff requirements
 
