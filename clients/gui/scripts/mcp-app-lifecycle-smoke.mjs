@@ -1,6 +1,3 @@
-// Failure modes fixed before implementation: navigation reloads an unsaved page;
-// hidden messages change the selected owner; slow calls/subscriptions replay;
-// source revocation leaves a retained token live; capacity evicts existing pages.
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {mkdtemp,mkdir,readFile,writeFile} from 'node:fs/promises';
