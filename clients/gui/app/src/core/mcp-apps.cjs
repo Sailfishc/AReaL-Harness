@@ -106,6 +106,7 @@ class McpAppsHost {
         if (
             ownerId !== (typeof this.ownerId === "function" ? this.ownerId() : this.ownerId) ||
             !app ||
+            ownerId !== app.ownerId ||
             app.closed ||
             !this.backend.ownsThread(app.projectId, app.threadId)
         )
@@ -158,6 +159,7 @@ class McpAppsHost {
             };
             if (
                 epoch !== this.epoch ||
+                ownerId !== (typeof this.ownerId === "function" ? this.ownerId() : this.ownerId) ||
                 !this.backend.ownsThread(params.projectId, params.threadId) ||
                 !text(result?.instanceId) ||
                 result.serverId !== params.serverId ||
@@ -179,6 +181,7 @@ class McpAppsHost {
             const token = randomBytes(24).toString("hex");
             const app = {
                 ...result,
+                ownerId,
                 projectId: params.projectId,
                 threadId: params.threadId,
                 token,
@@ -362,8 +365,7 @@ class McpAppsHost {
     async close(token, ownerId) {
         const app = this.instances.get(token);
         if (!app) return {};
-        if (ownerId !== (typeof this.ownerId === "function" ? this.ownerId() : this.ownerId))
-            throw Error("Invalid app owner");
+        if (ownerId !== app.ownerId) throw Error("Invalid app owner");
         app.closed = true;
         app.abort.abort();
         this.instances.delete(token);
@@ -403,7 +405,7 @@ class McpAppsHost {
                 (event.notification.method === "ui/notifications/closed" || this.backend.ownsThread(app.projectId, app.threadId))
             ) {
                 if (event.notification.method === "ui/notifications/closed")
-                    void this.close(token, typeof this.ownerId === "function" ? this.ownerId() : this.ownerId).catch(() => {});
+                    void this.close(token, app.ownerId).catch(() => {});
                 else this.notify({ token, notification: event.notification });
                 return true;
             }
@@ -417,16 +419,13 @@ class McpAppsHost {
             if (this.backend.ownsThread(app.projectId, app.threadId)) continue;
             const owner = snapshot.projects.find(project => project.id === app.projectId);
             if (owner && !owner.state?.connected) continue;
-            void this.close(token, typeof this.ownerId === "function" ? this.ownerId() : this.ownerId).catch(() => {});
+            void this.close(token, app.ownerId).catch(() => {});
         }
     }
     dispose() {
         this.epoch++;
-        for (const token of this.instances.keys())
-            void this.close(
-                token,
-                typeof this.ownerId === "function" ? this.ownerId() : this.ownerId,
-            ).catch(() => {});
+        for (const [token, app] of this.instances)
+            void this.close(token, app.ownerId).catch(() => {});
     }
     async resource(request) {
         const url = new URL(request.url),

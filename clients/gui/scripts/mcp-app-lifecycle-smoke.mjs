@@ -7,6 +7,7 @@ import {createServer} from 'node:http';
 import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {captureSmokeFailure,createProjectConversation,selectConversation} from './smoke-navigation.mjs';
+import {assertApplicationStopped} from './application-cleanup.mjs';
 const gui=resolve(dirname(fileURLToPath(import.meta.url)),'..'),require=createRequire(join(gui,'app/package.json'));
 const {_electron:electron}=require('playwright-core');
 const scratch=await mkdtemp('/private/tmp/areal-mcp-lifecycle-'),workspace=join(scratch,'workspace'),userHome=join(scratch,'user');
@@ -61,6 +62,14 @@ AREAL_HARNESS_SERVICE_HOME:join(scratch,'registry'),AREAL_CORE_BIN:process.env.A
 for(const k of ['AREAL_CORE_WORKSPACE','AREAL_CORE_CONFIG','AREAL_HARNESS_HOME','AREAL_HARNESS_CONFIG','AREAL_CORE_DESKTOP_CONFIG'])delete env[k];
 const coreBuildInfo=JSON.parse(execFileSync(env.AREAL_CORE_BIN,['build-info'],{encoding:'utf8'}));
 const coreBinary=env.AREAL_CORE_BIN,coreSha256=createHash('sha256').update(await readFile(coreBinary)).digest('hex');
+const fixtureApp=join(scratch,'app'),mainErrorsPath=join(scratch,'main-errors.jsonl');
+await mkdir(fixtureApp);
+await writeFile(mainErrorsPath,'');
+await writeFile(join(fixtureApp,'package.json'),JSON.stringify({name:'mcp-lifecycle-fixture',main:'bootstrap.cjs'}));
+await writeFile(join(fixtureApp,'bootstrap.cjs'),`
+process.on('uncaughtExceptionMonitor',(error,origin)=>require('node:fs').appendFileSync(${JSON.stringify(mainErrorsPath)},JSON.stringify({pid:process.pid,origin,name:error.name,message:error.message,stack:error.stack})+'\\n'));
+require(${JSON.stringify(join(gui,'app/src/main.cjs'))});
+`);
 let app,page,appPid,appProcess,failure,passed=false;
 const button=n=>page.getByRole('button',{name:n,exact:true});
 const state=()=>page.evaluate(()=>window.arealDesktop.snapshot());
@@ -75,7 +84,7 @@ async function fixture(frame){return frame.evaluate(()=>({...window.fixture,draf
 async function selected(){return page.getByTestId('areal-workbench').evaluate(el=>({projectId:el.dataset.projectId,threadId:el.dataset.threadId}));}
 const {builtinSkill,BUILTIN_SKILL_ID}=require('../app/src/core/builtin-skills.cjs');await builtinSkill(join(scratch,'core'),BUILTIN_SKILL_ID);
 try{
-app=await electron.launch({executablePath:require('electron'),args:[join(gui,'app')],env,timeout:120_000});
+app=await electron.launch({executablePath:require('electron'),args:[fixtureApp],env,timeout:120_000});
 page=await app.firstWindow();appProcess=app.process();appPid=appProcess.pid;console.log('Electron '+appPid+' '+scratch);await writeFile(join(scratch,'run.json'),JSON.stringify({pid:app.process().pid,scratch,env:{AREAL_CORE_HOME:env.AREAL_CORE_HOME,AREAL_GUI_USER_DATA:env.AREAL_GUI_USER_DATA},coreBinary}));page.setDefaultTimeout(20_000);page.on('pageerror',e=>errors.push(e.message));
 await page.getByTestId('areal-workbench').waitFor({timeout:120_000});await until(s=>s.connection?.state==='ready','desktop ready');
 await app.evaluate(({dialog,BrowserWindow},path)=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:[path]});dialog.showMessageBox=async()=>({response:1});BrowserWindow.getAllWindows()[0].setSize(1440,960);},workspace);
@@ -164,11 +173,18 @@ if(packet){try{await connection.request('stopService',{protocol:metadata.protoco
 await waitForServiceProcessExit(join(scratch,'core'),metadata);cleanup.desktopExited=true;
 }catch(error){errors.push('stop service: '+error.message);}finally{connection.close();}
 }else cleanup.desktopExited=true;
-if(appProcess&&appProcess.exitCode===null&&appProcess.signalCode===null){try{appProcess.kill('SIGKILL');}catch(error){errors.push('fallback close GUI: '+error.message);}}
+if(appProcess){
+try{if(appProcess.exitCode===null&&appProcess.signalCode===null)await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('owned Electron did not exit')),15000);appProcess.once('exit',()=>{clearTimeout(timer);resolve();});});assert.equal(appProcess.exitCode,0,'owned Electron quit exit code');assert.equal(appProcess.signalCode,null,'owned Electron quit signal');cleanup.electronExited=true;}
+catch(error){errors.push('verify Electron exit: '+error.message);}
+if(appProcess.exitCode===null&&appProcess.signalCode===null){appProcess.kill('SIGKILL');await new Promise(resolve=>appProcess.once('exit',resolve));cleanup.forcedElectronExit=true;}
+}
+if(metadata){try{await assertApplicationStopped(coreBinary,env,metadata);cleanup.applicationStopped=true;}catch(error){errors.push('verify application cleanup: '+error.message);}}
+const mainErrors=(await readFile(mainErrorsPath,'utf8')).trim().split('\n').filter(Boolean).map(line=>JSON.parse(line));
+for(const error of mainErrors)errors.push('uncaught Main '+error.origin+': '+error.message);
 try{const instances=JSON.parse(execFileSync(coreBinary,['service','list','--json'],{env,encoding:'utf8'}));cleanup.instances=instances.map(instance=>({serviceId:instance.serviceId,workspace:instance.workspace,state:instance.state}));assert(instances.every(instance=>instance.state==='stopped'),'owned Core instance remains live');cleanup.coreStopped=true;}catch(error){errors.push('verify owned Core cleanup: '+error.message);}
 model.closeAllConnections();await new Promise(r=>model.close(r));
 if(errors.length){passed=false;process.exitCode=1;}
-const manifest={passed,checks,errors,failure,scratch,cleanup,source:execFileSync('git',['rev-parse','HEAD'],{cwd:gui,encoding:'utf8'}).trim(),
+const manifest={passed,checks,errors,mainErrors,failure,scratch,cleanup,source:execFileSync('git',['rev-parse','HEAD'],{cwd:gui,encoding:'utf8'}).trim(),
 sourceFiles,sourceDiffSha256,core:{buildInfo:coreBuildInfo,binary:coreBinary,sha256:coreSha256,unchanged:createHash('sha256').update(await readFile(coreBinary)).digest('hex')===coreSha256},
 modelRequests:requests.length,transportEvents:await transportEvents(), gaps:[...(process.env.AREAL_MCP_EXTERNAL_REVOCATION==='1'?[]:['external source revocation event requires integrated current Core; this run exercises same-window source disable']),'no real provider/GitHub/OAuth or packaged acceptance'], scope:'actual source Electron/Core live MCP page lifecycle; self-owned stdio MCP server; deterministic local inference endpoint; archive fixture uses real management API; transient directory failure injected only at IPC response'};
 console.log('Evidence: '+scratch);await writeFile(join(scratch,'manifest.json'),JSON.stringify(manifest,null,2));console.log(JSON.stringify(manifest,null,2));

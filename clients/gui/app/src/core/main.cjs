@@ -312,7 +312,7 @@ app.whenReady().then(async () => {
         : /budget exceeded|Sensitive field|viewport changed|content changed during capture|capture guard unavailable/.test(error.message) ? 'evidence_unavailable' : 'page_unavailable' }; }
   };
   app.on('will-quit', () => mcpApps?.dispose());
-  mcpApps = new McpAppsHost({ backend, ownerId: () => window?.webContents.id,
+  mcpApps = new McpAppsHost({ backend, ownerId: () => window && !window.isDestroyed() && !window.webContents.isDestroyed() ? window.webContents.id : undefined,
     notify: value => { if (window && !window.isDestroyed()) window.webContents.send('areal-core:mcp-app-event', value); },
     openFile: (request, current) => fileOpen({ backend, shell, home: app.getPath('home'), authorize: current,
       chooseSave: options => dialog.showSaveDialog(window, options) }, request) });
