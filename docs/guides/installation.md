@@ -17,17 +17,14 @@ macOS 包采用 ad-hoc 签名，尚无 Developer ID 签名和公证。Linux 默�
 
 ## Homebrew（macOS / Linux）
 
-公共安装的前提是 [tap](https://github.com/areal-project/homebrew-tap) 已公开，且对应 formula 和归档可下载。Release 中存在 `.rb` 附件或 CI 临时 tap 不代表公共渠道可用；tap 未就绪时使用下方独立安装器。
+公开 [tap](https://github.com/areal-project/homebrew-tap) 已提供 macOS arm64 与 Linux x86_64 的 `areal-beta`，使用公开 Release 的完整归档及 SHA256 校验和。该 tap 尚未发布稳定版 `areal` formula；稳定版继续使用独立安装器。
 
-渠道就绪后，两平台使用相同命令。稳定版跟踪 `areal`；显式选择 beta 使用独立、keg-only 的 `areal-beta`，不替换稳定版 PATH 入口：
+两平台使用相同 beta 命令。`areal-beta` 为 keg-only，不替换已有稳定版 PATH 入口：
 
 ```sh
 brew tap areal-project/tap
-brew install areal-project/tap/areal
-brew test areal-project/tap/areal
-areal --version
-# 可选 beta：独立安装并用绝对入口启动，不强制 link
 brew install areal-project/tap/areal-beta
+brew test areal-project/tap/areal-beta
 "$(brew --prefix areal-project/tap/areal-beta)/bin/areal" --version
 ```
 
@@ -37,10 +34,6 @@ Linux formula 仅支持 x86_64、宿主 glibc ≥ 2.35，需系统安装 `/usr/b
 
 ```sh
 brew update
-brew upgrade --formula areal-project/tap/areal
-brew test areal-project/tap/areal
-areal --version
-# beta 仅升级自身
 brew upgrade --formula areal-project/tap/areal-beta
 brew test areal-project/tap/areal-beta
 "$(brew --prefix areal-project/tap/areal-beta)/bin/areal" --version
