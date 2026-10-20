@@ -130,7 +130,7 @@ def main():
             direct = runtime.call("process.start", {
                 "operationId": runtime.op(), "scopeId": scope,
                 "argv": [str(args.bin_dir.resolve() / "areal-runtime-fs"), json.dumps({
-                    "root": directory,
+                    "root": str(Path(directory).resolve()),
                     "command": {"kind": "readForHistory", "path": "history.bin", "offset": 0, "maxBytes": 65536},
                 })],
                 "cwd": "workspace://repo",
