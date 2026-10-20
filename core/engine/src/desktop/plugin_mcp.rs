@@ -432,6 +432,13 @@ impl Engine {
         for o in owners.iter().filter(|o| o.view.plugin == id) {
             o.connection.revoke();
         }
+        let generations = owners
+            .iter()
+            .filter(|owner| owner.view.plugin == id)
+            .flat_map(|owner| owner.view.servers.iter().map(|server| server.generation()))
+            .collect();
+        self.revoke_plugin_apps_without_mutation_lock(id, &generations)
+            .await;
         // Losing a failed startup/drain handle is not proof of process exit.
         // A later Disconnect must retain the UNKNOWN gate instead of clearing it
         // merely because there are no remaining owners to join.

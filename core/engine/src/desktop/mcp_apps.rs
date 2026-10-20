@@ -882,6 +882,53 @@ impl Engine {
             .await
             .map_err(invalid)?
     }
+    pub(super) async fn revoke_plugin_apps_without_mutation_lock(
+        &self,
+        plugin: &str,
+        generations: &std::collections::BTreeSet<u64>,
+    ) {
+        let closed = {
+            let mut instances = self.desktop.mcp_apps.instances.write().unwrap();
+            let closed: Vec<_> = instances
+                .values()
+                .filter(|instance| instance.plugin == plugin)
+                .cloned()
+                .collect();
+            instances.retain(|_, instance| instance.plugin != plugin);
+            closed
+        };
+        self.desktop
+            .mcp_apps
+            .subscriptions
+            .write()
+            .unwrap()
+            .retain(|(_, generation, _), _| !generations.contains(generation));
+        self.desktop
+            .mcp_apps
+            .settings
+            .write()
+            .unwrap()
+            .retain(|(_, _, _, generation), _| !generations.contains(generation));
+        self.desktop
+            .mcp_apps
+            .reads
+            .write()
+            .unwrap()
+            .retain(|_, (generation, cancel)| {
+                if generations.contains(generation) {
+                    cancel.cancel();
+                    false
+                } else {
+                    true
+                }
+            });
+        for instance in closed {
+            if let Ok(cell) = self.raw_cell(&instance.thread_id).await {
+                cell.emit("areal/mcp/app/notification",json!({"threadId":instance.thread_id,"instanceId":instance.instance_id,"generation":instance.generation,"notification":{"jsonrpc":"2.0","method":"ui/notifications/closed"}}));
+            }
+        }
+    }
+
     pub async fn mcp_app_close(
         self: &Arc<Self>,
         identity: String,
