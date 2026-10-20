@@ -15,6 +15,7 @@ const { chromium } = require("playwright-core");
 const dist = join(gui, "dist/design-system");
 const scratch = await mkdtemp(join(tmpdir(), "areal-design-system-"));
 const baseline = process.argv.includes("--baseline");
+const settingsOnly = process.argv.includes("--settings-only");
 const html = await readFile(join(dist, "design-system.html"), "utf8");
 const buildDigest = createHash("sha256").update(html);
 for (const match of html.matchAll(/(?:src|href)="([^\"]+\.(?:js|css))"/g)) buildDigest.update(await readFile(join(dist, match[1])));
@@ -33,6 +34,183 @@ await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
 const origin = `http://127.0.0.1:${server.address().port}`;
 let browser, page, passed = false;
 const errors = [], external = [], samples = [], checks = [];
+async function settingsChecks() {
+  const preview = page.getByRole("region", { name: "设置组合预览", exact: true });
+  const host = name => page.locator(`[data-settings-host="${name}"]`);
+  const settle = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const measure = locator => locator.evaluate(el => {
+    const css = getComputedStyle(el), rect = el.getBoundingClientRect();
+    const separator = getComputedStyle(el.querySelector(".settings-field-row"), "::after");
+    const title = getComputedStyle(el.closest(".settings-section").querySelector(".settings-section-title"));
+    const description = getComputedStyle(el.closest(".settings-section").querySelector(".settings-section-desc"));
+    const row = getComputedStyle(el.querySelector(".settings-field-row"));
+    const layout = getComputedStyle(el.querySelector(".settings-field-layout"));
+    const wide = getComputedStyle(el.querySelector(".settings-field-layout-wide"));
+    const text = getComputedStyle(el.querySelector('input[type="text"]'));
+    const probe = document.createElement("span");
+    probe.style.background = "var(--color-settings-card)";
+    probe.style.color = "var(--color-settings-secondary)";
+    el.append(probe);
+    const semantic = { background: getComputedStyle(probe).backgroundColor, secondary: getComputedStyle(probe).color };
+    probe.remove();
+    return { radius: css.borderRadius, background: css.backgroundColor, semantic, width: rect.width,
+      title: { font: title.fontSize, weight: title.fontWeight, margin: title.margin, line: title.lineHeight },
+      description: { font: description.fontSize, color: description.color, margin: description.margin },
+      row: { minHeight: row.minHeight, padding: row.padding }, separator: { height: separator.height, content: separator.content, left: separator.left, right: separator.right },
+      columns: layout.gridTemplateColumns.split(" ").length, wideColumns: wide.gridTemplateColumns.split(" "),
+      nativeText: { font: text.fontSize, height: text.height },
+      overflow: [...el.querySelectorAll(".settings-field-row, .settings-field-label, .settings-field-description")].filter(node => node.scrollWidth > node.clientWidth + 1).map(node => ({ className: node.className, width: node.clientWidth, scroll: node.scrollWidth })),
+      bounds: [...el.querySelectorAll(".settings-field-layout, .settings-field-control, .settings-field-control > *")].filter(node => { const box = node.getBoundingClientRect(); return !node.matches('input[aria-hidden="true"][tabindex="-1"]') && (box.left < rect.left - 1 || box.right > rect.right + 1); }).map(node => ({ tag: node.tagName, className: node.className, html: node.outerHTML.slice(0, 250), rect: { left: node.getBoundingClientRect().left, right: node.getBoundingClientRect().right }, card: { left: rect.left, right: rect.right } })),
+      cardOverflow: el.scrollWidth > el.clientWidth + 1 };
+  });
+  for (const sample of [
+    { theme: "light", font: "14", width: "wide" }, { theme: "dark", font: "14", width: "wide" },
+    { theme: "light", font: "18", width: "narrow" }, { theme: "dark", font: "18", width: "narrow" },
+  ]) {
+    await page.setViewportSize({ width: sample.width === "wide" ? 1440 : 420, height: 900 });
+    await page.getByLabel("主题", { exact: true }).selectOption(sample.theme);
+    await page.getByLabel("字号", { exact: true }).selectOption(sample.font);
+    await page.getByLabel("面板宽度", { exact: true }).selectOption(sample.width);
+    await settle();
+    const observations = {};
+    const assertCard = (value, name) => {
+      assert.equal(value.radius, "20px", `${name} uses the overlay radius`);
+      assert.equal(value.background, value.semantic.background, `${name} consumes the settings card semantic background`);
+      assert.equal(value.title.font, `${sample.font}px`);
+      assert.equal(value.title.weight, "500");
+      assert.equal(value.title.margin, "0px");
+      assert.equal(value.title.line, "21px");
+      assert.equal(value.description.font, `${Number(sample.font) - 2}px`);
+      assert.equal(value.description.color, value.semantic.secondary);
+      assert.equal(value.description.margin, "2px 0px 0px");
+      assert.equal(value.row.minHeight, "48px");
+      assert.equal(value.row.padding, "12px 16px");
+      assert.deepEqual(value.separator, { height: "0.5px", content: '""', left: "16px", right: "16px" });
+      assert.equal(value.columns, sample.width === "wide" ? 2 : 1, `${name} stacks at the card container boundary`);
+      assert.equal(value.wideColumns.length, sample.width === "wide" ? 2 : 1);
+      if (sample.width === "wide") assert.equal(value.wideColumns[1], "280px", `${name} keeps the wide control column`);
+      assert.deepEqual(value.nativeText, { font: `${Number(sample.font) - 1}px`, height: `${Number(sample.font) + 14}px` });
+      assert.deepEqual(value.overflow, [], `${name} retains long Chinese and English without horizontal overflow`);
+      assert.deepEqual(value.bounds, [], `${name} keeps controls and their layout inside the card`);
+      assert.equal(value.cardOverflow, false, `${name} has no card overflow`);
+    };
+    for (const name of ["standalone", "page"]) {
+      observations[name] = await measure(host(name).locator(".settings-group-card"));
+      assertCard(observations[name], name);
+    }
+    const compact = await host("compact").locator(".settings-field-row").first().evaluate(el => ({ minHeight: getComputedStyle(el).minHeight, top: getComputedStyle(el).paddingTop, bottom: getComputedStyle(el).paddingBottom }));
+    assert.deepEqual(compact, { minHeight: "40px", top: "8px", bottom: "8px" });
+    const mobile = await host("mobile").locator(".remote-access-panel").evaluate(el => {
+      const child = el.firstElementChild;
+      return { direct: child.matches('[data-slot="card-content"]'), padding: getComputedStyle(child).padding, display: getComputedStyle(child).display };
+    });
+    assert.deepEqual(mobile, { direct: true, padding: "16px", display: "flex" }, "the real Mobile stylesheet retains its direct content slot and padding");
+    assert.equal(await preview.evaluate(el => el.scrollWidth <= el.clientWidth + 1), true, "settings gallery does not overflow");
+    await preview.getByRole("button", { name: "打开设置弹窗", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "设置弹窗预览", exact: true });
+    await dialog.waitFor();
+    assert.equal(await dialog.evaluate(el => !el.closest(".design-preview")), true, "SettingsDialog is rendered through the production portal");
+    observations.dialog = await measure(host("dialog").locator(".settings-group-card"));
+    assertCard(observations.dialog, "dialog");
+    await dialog.screenshot({ path: join(scratch, `settings-dialog-${sample.theme}-${sample.font}-${sample.width}.png`), animations: "disabled" });
+    await page.keyboard.press("Escape");
+    await dialog.waitFor({ state: "detached" });
+    for (const name of ["standalone", "page", "compact", "mobile", "states"]) {
+      await host(name).screenshot({ path: join(scratch, `settings-${name}-${sample.theme}-${sample.font}-${sample.width}.png`), animations: "disabled" });
+    }
+    samples.push({ settings: sample, observations, compact, mobile });
+  }
+  checks.push("settings standalone, production SettingsPage and portal SettingsDialog share literal 20px radius, semantic backgrounds and section typography across themes/font sizes/widths; compact density, dividers, responsive stacking and Mobile content slot/padding are preserved");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.getByLabel("主题", { exact: true }).selectOption("light");
+  await page.getByLabel("字号", { exact: true }).selectOption("14");
+  await page.getByLabel("面板宽度", { exact: true }).selectOption("wide");
+  const toggle = host("standalone").getByRole("switch", { name: "独立开关", exact: true });
+  await toggle.focus(); await page.keyboard.press("Space");
+  assert.equal(await toggle.getAttribute("aria-checked"), "false");
+  assert.equal(await toggle.evaluate(el => el === document.activeElement && el.matches(":focus-visible")), true);
+  const text = host("standalone").getByLabel("独立文本", { exact: true });
+  await text.fill("已编辑 Edited");
+  await text.press("Tab");
+  const number = host("standalone").getByLabel("独立数字", { exact: true });
+  assert.equal(await number.evaluate(el => el === document.activeElement), true);
+  await number.press("ArrowUp"); assert.equal(await number.inputValue(), "4");
+  await number.press("Tab");
+  const range = host("standalone").getByLabel("独立范围", { exact: true });
+  assert.equal(await range.evaluate(el => el === document.activeElement), true);
+  await range.press("ArrowRight"); assert.equal(await range.inputValue(), "15");
+  assert.equal(await host("standalone").getByLabel("独立范围值", { exact: true }).innerText(), "15");
+  await host("standalone").getByRole("combobox", { name: "独立显示模式", exact: true }).click();
+  await page.locator('[data-slot="select-content"]').getByRole("option", { name: "深色", exact: true }).click();
+  assert.equal(await host("standalone").getByRole("combobox", { name: "独立显示模式", exact: true }).innerText(), "深色");
+  assert.equal(await text.inputValue(), "已编辑 Edited");
+  checks.push("shared rows retain keyboard focus and native text/number/range/output values; public custom Select keeps the selected option");
+  const draft = host("states").getByLabel("状态草稿", { exact: true });
+  await draft.fill("保留我的草稿 Keep draft");
+  for (const state of ["disabled", "pending", "failed", "unknown"]) {
+    await page.getByLabel("设置展示状态", { exact: true }).selectOption(state);
+    assert.equal(await draft.inputValue(), "保留我的草稿 Keep draft");
+    const save = host("states").getByRole("button", { name: "保存", exact: true });
+    assert.equal(await save.isDisabled(), state !== "failed");
+    if (state === "pending") assert.equal(await save.getAttribute("aria-busy"), "true");
+    if (state === "failed") { await save.click(); assert.equal(await host("states").getByRole("alert").innerText(), "示例操作明确失败，草稿已保留。"); }
+    if (state === "unknown") assert.equal(await host("states").getByRole("status").innerText(), "结果待确认，保留当前值；不重复提交。");
+  }
+  checks.push("external presentation fixtures preserve draft values across unavailable/pending/known failure/unknown states without reporting a successful save");
+  const general = host("general");
+  await general.getByRole("switch", { name: "底部面板", exact: true }).click();
+  await general.getByRole("tablist", { name: "默认终端位置", exact: true }).getByRole("tab", { name: "底部", exact: true }).click();
+  await preview.getByRole("button", { name: "重新挂载常规设置", exact: true }).click();
+  assert.equal(await general.getByRole("switch", { name: "底部面板", exact: true }).getAttribute("aria-checked"), "false");
+  assert.equal(await general.getByRole("tablist", { name: "默认终端位置", exact: true }).getByRole("tab", { name: "底部", exact: true }).getAttribute("aria-selected"), "true");
+  assert.equal(await general.getByRole("switch", { name: "运行时防止系统休眠", exact: true }).isDisabled(), true);
+  assert.deepEqual(await page.evaluate(() => { const prefs = JSON.parse(localStorage.getItem("areal-gui:application-preferences")); return { showBottomPanelControl: prefs.showBottomPanelControl, terminalLocation: prefs.terminalLocation }; }), { showBottomPanelControl: false, terminalLocation: "bottom" });
+  await page.reload();
+  assert.equal(await general.getByRole("switch", { name: "底部面板", exact: true }).getAttribute("aria-checked"), "false");
+  assert.equal(await general.getByRole("tablist", { name: "默认终端位置", exact: true }).getByRole("tab", { name: "底部", exact: true }).getAttribute("aria-selected"), "true");
+  checks.push("real GeneralSettings writes local preferences through its production controls and retains them after remount/reload in the isolated context; service controls remain unavailable");
+  await preview.getByRole("button", { name: "打开设置弹窗", exact: true }).click();
+  await page.getByRole("dialog", { name: "设置弹窗预览", exact: true }).waitFor();
+  const signature = () => page.evaluate(() => [...document.querySelectorAll('[data-settings-host] .settings-group-card, [data-settings-host] .settings-section-title, [data-settings-host] .settings-section-heading .settings-section-desc, [data-settings-host] .settings-field-row, [data-settings-host] .settings-field-layout, [data-settings-host] .settings-field-control input, [data-settings-host] .settings-group-content')].map(el => {
+    const css = getComputedStyle(el);
+    const separator = getComputedStyle(el, "::after");
+    return [css.borderRadius, css.backgroundColor, css.fontSize, css.color, css.lineHeight, css.margin, css.padding, css.minHeight, css.display, css.gridTemplateColumns, separator.height];
+  }));
+  const orders = [];
+  for (const width of [1440, 420]) {
+    await page.setViewportSize({ width, height: 900 });
+    await settle();
+    const before = await signature();
+    for (const sharedLast of [false, true]) {
+      const reordered = await page.evaluate(sharedLast => {
+        const moved = [];
+        for (const sheet of document.styleSheets) {
+          const selected = [...sheet.cssRules].map((rule, index) => {
+            const shared = rule.selectorText && /\.settings-(?:section\b|group-card\b|group-content\b|field-|locked-value\b)/.test(rule.selectorText) ||
+              rule.cssText.startsWith("@container") && rule.cssText.includes(".settings-field-layout") && !rule.cssText.includes(".appearance-");
+            const legacy = rule.selectorText && /\.settings-page (?:h2|p)(?:[\s,{]|$)|\.design-preview h2|\.settings-sections section|\.remote-access-panel >/.test(rule.selectorText);
+            return { rule, index, shared, legacy };
+          }).filter(entry => entry.shared || entry.legacy);
+          if (!selected.length) continue;
+          const shared = selected.filter(entry => entry.shared).map(({ rule }) => rule.cssText);
+          const legacy = selected.filter(entry => !entry.shared).map(({ rule }) => rule.cssText);
+          for (const { index } of selected.reverse()) sheet.deleteRule(index);
+          for (const rule of sharedLast ? [...legacy, ...shared] : [...shared, ...legacy]) sheet.insertRule(rule, sheet.cssRules.length);
+          moved.push({ href: sheet.href, shared: shared.length, legacy: legacy.length });
+        }
+        return moved;
+      }, sharedLast);
+      assert.ok(reordered.some(sheet => sheet.shared > 10 && sheet.legacy > 1), "CSSOM actually swaps shared and legacy/gallery rules even when Vite emits one stylesheet");
+      await settle();
+      assert.deepEqual(await signature(), before, `settings computed styles survive shared styles ${sharedLast ? "after" : "before"} legacy at viewport ${width}`);
+      orders.push({ width, sharedLast, moved: reordered });
+    }
+  }
+  samples.push({ settingsStylesheetOrder: orders });
+  checks.push("real shared and legacy/gallery CSSOM rule groups swap in both orders at wide and narrow viewports with unchanged standalone/page/dialog and Mobile computed styles; component-internal order is preserved");
+  await page.keyboard.press("Escape");
+}
+
 try {
   browser = await chromium.launch({ headless: true, ...(process.env.AREAL_GUI_TEST_BROWSER ? { executablePath: process.env.AREAL_GUI_TEST_BROWSER } : { channel: "chrome" }) });
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, serviceWorkers: "block" });
@@ -62,9 +240,10 @@ try {
       }
     };
   });
-  await page.goto(`${origin}/design-system.html`);
+  await page.goto(`${origin}/design-system.html${settingsOnly ? "?settings" : ""}`);
   await page.getByRole("heading", { name: "客户端设计系统", exact: true }).waitFor();
   assert.equal(await page.evaluate(() => typeof window.arealDesktop), "undefined");
+  if (!settingsOnly) {
   const input = page.getByTestId("preview-composer");
   const timeline = page.getByRole("region", { name: "对话时间线预览", exact: true });
   const updating = page.getByRole("region", { name: "实时活动状态预览", exact: true });
@@ -475,6 +654,8 @@ try {
   await card.getByRole("button", { name: "核对待审批状态", exact: true }).waitFor();
   assert.equal(await card.getByRole("button", { name: "允许一次", exact: true }).count(), 0);
   checks.push("real approval component shows busy/failure/unknown and blocks duplicate decisions");
+  }
+  await settingsChecks();
   assert.deepEqual(errors, []); assert.deepEqual(external, []);
   passed = true;
 } catch (error) {
@@ -483,6 +664,6 @@ try {
   process.exitCode = 1;
 } finally {
   await browser?.close(); await new Promise(resolve => server.close(resolve));
-  await writeFile(join(scratch, "manifest.json"), JSON.stringify({ passed, baseline, commit, buildSha256, checks, errors, external, samples, scope: "production renderer components with local fixture actions; no Electron/Core acceptance" }, null, 2));
+  await writeFile(join(scratch, "manifest.json"), JSON.stringify({ passed, baseline, settingsOnly, commit, buildSha256, checks, errors, external, samples, scope: "production renderer components with local fixture actions; no Electron/Core acceptance" }, null, 2));
   console.log(JSON.stringify({ passed, scratch, checks, errors }));
 }
