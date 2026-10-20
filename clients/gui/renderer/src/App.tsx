@@ -189,11 +189,12 @@ function Usage({ thread }: { thread: Data }) {
 }
 
 // 浮层只负责资源导航；子任务对话仍由已有侧栏标签持有。
-function TaskResourcesPopover({ project, thread, action, selectedAgent, onPanel, onAgent, onFile, scheduledTask, runHistory }: {
-  project: Data; thread: Data; action: Action; selectedAgent?: string; scheduledTask?: Data; runHistory?: React.ReactNode;
+function TaskResourcesPopover({ project, thread, action, selectedAgent, onPanel, onAgent, onFile, scheduledTask, runHistory, revealKey, onReveal }: {
+  project: Data; thread: Data; action: Action; selectedAgent?: string; scheduledTask?: Data; runHistory?: React.ReactNode; revealKey?: string; onReveal?: (key: string) => void;
   onPanel: (name: string) => void; onAgent: (id: string) => void; onFile: (path: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  useEffect(() => { if (revealKey) { setOpen(true); onReveal?.(revealKey); } }, [revealKey, onReveal]);
   const navigate = <T,>(callback: (value: T) => void) => (value: T) => { setOpen(false); callback(value); };
   return <Popover open={open} onOpenChange={setOpen}>
     <PopoverTrigger render={<button className={`icon-button ${open ? "active" : ""}`} aria-label="任务资源" />}><TaskSummaryIcon /></PopoverTrigger>
@@ -255,7 +256,9 @@ function AppContent({ services }: { services: PlatformServices }) {
   const taskCenterOpen = taskSurface !== null;
   const setTaskCenterOpen = (open: boolean) => setTaskSurface(open ? "tasks" : null);
   const [taskScope, setTaskScope] = useState<string>();
-  const [taskNotification, setTaskNotification] = useState<{ projectId: string; taskId: string; runId?: string; questionId?: string } | undefined>();
+  const [taskNotification, setTaskNotification] = useState<{ projectId: string; taskId: string; runId?: string; questionId?: string; eventId?: string } | undefined>();
+  const consumedResourceReveal = React.useRef<string | undefined>(undefined);
+  const consumeResourceReveal = useCallback((key: string) => { consumedResourceReveal.current = key; }, []);
   const [pluginsOpen, setPluginsOpen] = useState(false);
   const [pluginMarketRequest, setPluginMarketRequest] = useState(0);
   const [settingsOpen, updateSettingsOpen] = useState(false);
@@ -594,16 +597,20 @@ function AppContent({ services }: { services: PlatformServices }) {
     [action, recordWorkspaceLocation],
   );
   const [mcpMentionsOpen, setMcpMentionsOpen] = useState(false);
-  const mcpWorkspace = useMcpAppsWorkspace({ project, threadId, action: resourceAction,
+  const mcpWorkspace = useMcpAppsWorkspace({ project, projects: snapshot.projects, activeTab: !annotationVisible && !pluginsOpen && !settingsOpen && !taskCenterOpen && workspaceView !== "conversation" ? panel : "", threadId, action: resourceAction,
     onOpenThread: async (pid, tid) => { updateSettingsOpen(false); await open(pid, tid); },
     onReveal: (tab, owner) => { if(activePanelOwner.current!==`${owner.projectId}:${owner.threadId}`){mcpPendingReveal.current={tab,owner:`${owner.projectId}:${owner.threadId}`};return;} updateSettingsOpen(false); setWorkspaceView("split"); setPanelTabs(tabs => tabs.includes(tab) ? tabs : [...tabs, tab]); setPanel(tab); },
-    onRemoveTab: tab => { setPanelTabs(tabs => tabs.filter(item => item !== tab)); setPanel(current => current === tab ? "" : current); }, onError: setError });
+    onRemoveTab: tab => {
+      for (const [owner, view] of panelViews.current) panelViews.current.set(owner, { ...view, tabs: view.tabs.filter(item => item !== tab), panel: view.panel === tab ? "" : view.panel, lastPanel: view.lastPanel === tab ? undefined : view.lastPanel });
+      if (mcpPendingReveal.current?.tab === tab) mcpPendingReveal.current = null;
+      setPanelTabs(tabs => tabs.filter(item => item !== tab)); setPanel(current => current === tab ? "" : current);
+    }, onError: setError });
   useEffect(() => services.onNotificationOpen?.(target => requestNavigation(() => {
     updateSettingsOpen(false);
     setSearchOpen(false);
     if (target.taskId !== undefined) {
       setTaskScope(undefined);
-      setTaskNotification({ projectId: target.projectId, taskId: target.taskId, runId: target.runId, questionId: target.questionId });
+      setTaskNotification({ projectId: target.projectId, taskId: target.taskId, runId: target.runId, questionId: target.questionId, eventId: crypto.randomUUID() });
       setTaskCenterOpen(true);
     } else void open(target.projectId, target.threadId);
   })), [services, open, requestNavigation, projectId]);
@@ -1619,7 +1626,7 @@ function AppContent({ services }: { services: PlatformServices }) {
               onReview={turnId => {void open(owner.id,managementThread.id).then(() => {setReviewRequest({owner:`${owner.id}:${managementThread.id}`,turnId});setPanel("改动");});}}
               readTurnReview={(turnId,itemId) => resourceAction("workspace",{projectId:owner.id,threadId:managementThread.id,turnId,itemId,operation:"turnReview"})}/>
               {!options?.embedded && <Composer key={managementThread.id} project={owner} thread={managementThread} action={resourceAction} readAction={resourceAction} onPanel={name => {if(name === "设置") {showPanel("设置");} else {void open(owner.id,managementThread.id).then(() => showPanel(name));}}} onNew={() => void newTask()}/>}</>}
-            renderResources={(owner,managementThread,scheduledTask,runHistory) => <TaskResourcesPopover project={owner} thread={managementThread} scheduledTask={scheduledTask} runHistory={runHistory} action={resourceAction} onPanel={name => {void open(owner.id,managementThread.id).then(() => showPanel(name));}} onAgent={id => void open(owner.id,id)} onFile={path => {void open(owner.id,managementThread.id).then(() => openFile(path));}} />}
+            renderResources={(owner,managementThread,scheduledTask,runHistory,revealKey?: string) => <TaskResourcesPopover revealKey={revealKey !== consumedResourceReveal.current ? revealKey : undefined} onReveal={consumeResourceReveal} project={owner} thread={managementThread} scheduledTask={scheduledTask} runHistory={runHistory} action={resourceAction} onPanel={name => {void open(owner.id,managementThread.id).then(() => showPanel(name));}} onAgent={id => void open(owner.id,id)} onFile={path => {void open(owner.id,managementThread.id).then(() => openFile(path));}} />}
 
             navigation={<>
               {!sidebar && <button className="icon-button" aria-label="展开侧栏" onClick={() => setSidebar(true)}><SidebarToggleIcon /></button>}
@@ -1694,7 +1701,7 @@ function AppContent({ services }: { services: PlatformServices }) {
                             window.dispatchEvent(new CustomEvent("areal-side-draft", { detail: { owner, text: localStorage.getItem(key) ?? "" } }));
                           } : undefined}
                           onNew={() => void newTask()}
-                          onOpenTask={target => { updateSettingsOpen(false); setTaskScope(undefined); setTaskNotification(target); setTaskCenterOpen(true); }}
+                          onOpenTask={target => { updateSettingsOpen(false); setTaskScope(undefined); setTaskNotification({ ...target, eventId: crypto.randomUUID() }); setTaskCenterOpen(true); }}
                         />
                       </div>
                     </>
@@ -1790,6 +1797,7 @@ function AppContent({ services }: { services: PlatformServices }) {
             </div>
           )}
         </WorkSurface>
+        {mcpWorkspace.pages}
         {annotationVisible && annotationTarget && !pluginsOpen && !settingsOpen && !taskCenterOpen && <SidePane
           transient hideDisabled={annotationPending} workspaceKey={project?.root ?? "projectless"} ownerTaskId={threadId || null} active="图片标注" names={["图片标注"]}
           onSelect={() => {}} onChange={() => {}} onHide={finishImageAnnotation} dirtyFiles={{}} canClose={() => false}

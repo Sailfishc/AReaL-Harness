@@ -52,7 +52,7 @@ class DesktopService {
         || !['string', 'number'].includes(typeof event.generation)
         || notification?.jsonrpc !== '2.0' || notification.id !== undefined
         || !['notifications/resources/updated', 'notifications/resources/list_changed',
-          'notifications/tools/list_changed', 'ui/notifications/host-context-changed'].includes(notification.method)) return;
+          'notifications/tools/list_changed', 'ui/notifications/host-context-changed', 'ui/notifications/closed'].includes(notification.method)) return;
       // Only authenticated clients that completed hello are present in this set.
       // Main owns the final app-instance/window match; background events never reveal a pane.
       const params = { projectId: event.projectId, threadId: event.threadId,

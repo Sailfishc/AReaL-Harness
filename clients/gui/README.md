@@ -56,6 +56,8 @@ macOS GUI 后台自动读取系统静态 HTTP、HTTPS 和 SOCKS 代理，供 Cor
 
 Browser 工具在每次新用户请求中先 `describe`，再重新观察，拒绝跨轮次使用旧 Ref/快照。导航后的 `documentReady` 等待不依赖元素观察，可跨越同一已授权 Origin 的文档加载；页面变化导致的在途观察失效返回 `plan_stale`，人工接管返回 `human_control`。`node clients/gui/scripts/browser-google-smoke.mjs` 从仓库根运行隔离的真实 Electron/Core 与 Google 页面，使用确定性本地模型验证打开、搜索 `AI Agent`、读取结果及旧 Ref/撤权拒绝，并保留 GUI/原生截图与历史；不替代真实供应商或安装包验收。 Google 触发验证码时不算结果读取通过；本地回归可设置 `AREAL_BROWSER_LOCAL_SEARCH=1`，证据明确标为合成搜索页面。
 
+MCP 应用页面在窗口内保留。切换标签、隐藏面板、会话或项目导航，以及打开设置或定时任务均保留同一 iframe、未保存内容与在途调用。显式关闭、会话归档或来源撤销释放页面。每窗口最多 8 个活页面，正在打开的页面计入额度；超出时明确拒绝新增。后台消息保持原会话归属，不能打开新会话或修改当前输入草稿。`pnpm --dir clients/gui run test:mcp-app-lifecycle` 使用隔离 Electron/Core 与本地 MCP 夹具验证这些行为，不替代安装包或真实供应商验收。
+
 ## 插件详情
 
 插件详情优先展示当前安装包的状态和下一步操作。安装前先解析并核对来源及内容摘要；认证、当前快照的 MCP 信任与连接分别确认，安装或启用插件不会授权钩子。连接结果未知时只核对原提交，不重复连接；断开操作同时撤销当前快照的 MCP 信任。

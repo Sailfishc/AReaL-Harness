@@ -1,7 +1,7 @@
 import { Button } from "./components/ui/button.js";
 import { SettingsSelect } from "./settings/SettingsPageParts.js";
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { ContentBlock } from "@modelcontextprotocol/client";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { ProtocolError, type ContentBlock } from "@modelcontextprotocol/client";
 import type { McpUiHostContext } from "@modelcontextprotocol/ext-apps/app-bridge";
 import {
     McpAppHost,
@@ -10,6 +10,7 @@ import {
     type McpAppDescriptor,
     type McpAppMessage,
     type McpAppModelContext,
+    type McpAppPlacement,
 } from "./McpAppHost.js";
 import { McpAppForm, type McpFormResponse, type McpFormResource } from "./McpAppForm.js";
 import { McpContentLabel } from "./McpComposerAttachments.js";
@@ -52,6 +53,8 @@ function entrypoint(tool: McpAppTool, kind: string) {
 }
 export function useMcpAppsWorkspace({
     project,
+    projects,
+    activeTab,
     threadId,
     action,
     onOpenThread,
@@ -60,6 +63,8 @@ export function useMcpAppsWorkspace({
     onError,
 }: {
     project?: Data;
+    projects: Data[];
+    activeTab: string;
     threadId: string;
     action: Action;
     onOpenThread: (projectId: string, threadId: string) => Promise<void>;
@@ -82,6 +87,8 @@ export function useMcpAppsWorkspace({
     appsRef.current = apps;
     const current = useRef({
         project,
+        projects,
+        activeTab,
         threadId,
         action,
         onOpenThread,
@@ -89,7 +96,7 @@ export function useMcpAppsWorkspace({
         onRemoveTab,
         onError,
     });
-    current.current = { project, threadId, action, onOpenThread, onReveal, onRemoveTab, onError };
+    current.current = { project, projects, activeTab, threadId, action, onOpenThread, onReveal, onRemoveTab, onError };
     const readEpoch = useRef(0),
         formPending = useRef(new Set<string>());
     const refresh = useCallback(async () => {
@@ -112,25 +119,6 @@ export function useMcpAppsWorkspace({
             if (epoch !== readEpoch.current) return;
             if (!Array.isArray(result.data)) throw Error("应用目录格式无效");
             setServers(result.data);
-            const stale = appsRef.current.filter(
-                (app) =>
-                    app.projectId === project.id &&
-                    !result.data.some(
-                        (server: McpWorkspaceServer) =>
-                            server.serverId === app.serverId &&
-                            server.generation === app.generation,
-                    ),
-            );
-            for (const app of stale) {
-                void mcpAppDesktop()
-                    .mcpApp({ operation: "close", token: app.token })
-                    .catch(() => {});
-                current.current.onRemoveTab(appTab(app));
-            }
-            if (stale.length)
-                setApps((items) =>
-                    items.filter((app) => !stale.some((item) => item.token === app.token)),
-                );
         } catch (cause) {
             if (epoch === readEpoch.current) {
                 setServers([]);
@@ -146,14 +134,59 @@ export function useMcpAppsWorkspace({
             readEpoch.current++;
         };
     }, [project?.id, project?.state?.connected, desktopSupported, threadId, refresh]);
+    const removeApps = useCallback((tokens: Set<string>) => {
+        const removed = appsRef.current.filter(app => tokens.has(app.token));
+        if (!removed.length) return;
+        appsRef.current = appsRef.current.filter(app => !tokens.has(app.token));
+        setApps(appsRef.current);
+        for (const app of removed) current.current.onRemoveTab(appTab(app));
+    }, []);
+    const validationEpoch = useRef(0);
+    const revalidate = useCallback(async () => {
+        const epoch = ++validationEpoch.current;
+        const { projects, action } = current.current;
+        const owners = new Map<string, McpAppDescriptor[]>();
+        const stale = new Set<string>();
+        for (const app of appsRef.current) {
+            const owner = projects.find(project => project.id === app.projectId);
+            if (!owner || (owner.state?.connected && (!owner.state.threads[app.threadId] || owner.state.threads[app.threadId].desktop?.archived))) {
+                stale.add(app.token);
+                continue;
+            }
+            if (!owner.state?.connected || owner.desktopCapabilities?.currentCommands === false) continue;
+            const key = `${app.projectId}:${app.threadId}`;
+            owners.set(key, [...(owners.get(key) ?? []), app]);
+        }
+        await Promise.allSettled([...owners.values()].map(async apps => {
+            const owner = apps[0];
+            const result = await action("manage", { operation: "mcpApps", projectId: owner.projectId, threadId: owner.threadId });
+            if (!Array.isArray(result.data)) throw Error("应用目录格式无效");
+            for (const app of apps)
+                if (!result.data.some((server: McpWorkspaceServer) => server.serverId === app.serverId && server.generation === app.generation))
+                    stale.add(app.token);
+        }));
+        if (epoch !== validationEpoch.current) return;
+        removeApps(stale);
+        for (const token of stale) void mcpAppDesktop().mcpApp({ operation: "close", token }).catch(() => {});
+    }, [removeApps]);
+    const ownerVersion = JSON.stringify(apps.map(app => {
+        const owner = projects.find(project => project.id === app.projectId);
+        return [app.token, !!owner, owner?.state?.connected, owner?.core?.instanceId, owner?.core?.connectionGeneration,
+            owner?.state?.threads[app.threadId] ? owner.state.threads[app.threadId].desktop?.archived === true : null];
+    }));
+    useEffect(() => { void revalidate(); return () => { validationEpoch.current++; }; }, [ownerVersion, revalidate]);
     useEffect(() => {
-        const listener = () => void refresh();
+        const listener = () => { void refresh(); void revalidate(); };
         window.addEventListener("areal-plugins-changed", listener);
         return () => window.removeEventListener("areal-plugins-changed", listener);
-    }, [refresh]);
+    }, [refresh, revalidate]);
     useEffect(
         () =>
             mcpAppDesktop().onMcpAppEvent((event) => {
+                if ("method" in event.notification && event.notification.method === "ui/notifications/closed") {
+                    removeApps(new Set([event.token]));
+                    return;
+                }
                 if (
                     !("method" in event.notification) ||
                     event.notification.method !== "ui/notifications/host-context-changed"
@@ -184,9 +217,8 @@ export function useMcpAppsWorkspace({
         const app = appsRef.current.find((item) => appTab(item) === tab);
         if (!app) return;
         await mcpAppDesktop().mcpApp({ operation: "close", token: app.token });
-        setApps((items) => items.filter((item) => item.token !== app.token));
-        current.current.onRemoveTab(tab);
-    }, []);
+        removeApps(new Set([app.token]));
+    }, [removeApps]);
     async function ensureThread(forceNew = false) {
         const { project, threadId, action, onOpenThread } = current.current;
         if (!project?.state?.connected) throw Error("请先连接项目");
@@ -203,6 +235,7 @@ export function useMcpAppsWorkspace({
         await onOpenThread(project.id, result.threadId);
         return { projectId: project.id, threadId: result.threadId };
     }
+    const pendingOpens = useRef(0);
     async function openApp(
         server: McpWorkspaceServer,
         tool: McpAppTool,
@@ -245,37 +278,49 @@ export function useMcpAppsWorkspace({
             current.current.onReveal(appTab(existing), existing);
             return;
         }
-        const owner = await ensureThread(global);
-        const directory = await current.current.action("manage", {
-            operation: "mcpApps",
-            projectId: owner.projectId,
-            threadId: owner.threadId,
-        });
-        if (current.current.project?.id !== project.id || owner.projectId !== project.id)
-            throw Error("应用所属项目已变化，请重新打开。");
-        if (!Array.isArray(directory.data)) throw Error("应用目录格式无效");
-        const servers: McpWorkspaceServer[] = directory.data;
-        const connectedServer = servers.find((candidate) =>
-            candidate.serverId === server.serverId && candidate.pluginId === server.pluginId &&
-            candidate.installedDigest === server.installedDigest,
-        );
-        const connectedTool = connectedServer?.tools.find((candidate) => candidate.name === tool.name);
-        if (!connectedServer || !connectedTool)
-            throw Error("应用连接或插件版本已变化，请刷新后重新打开。");
-        const app = await openMcpApp({
-            ...owner,
-            serverId: connectedServer.serverId,
-            expectedGeneration: connectedServer.generation,
-            toolName: connectedTool.name,
-            ...(options.filePath ? { filePath: options.filePath } : {}),
-            ...(options.deepLink ? { deepLink: options.deepLink } : {}),
-            ...(options.arguments ? { arguments: options.arguments } : {}),
-        });
-        setApps((items) => [...items, app]);
-        current.current.onReveal(appTab(app), app);
+        if (appsRef.current.length + pendingOpens.current >= 8)
+            throw Error("最多可同时打开 8 个应用页面，请先关闭一个页面。");
+        pendingOpens.current++;
+        try {
+            const owner = await ensureThread(global);
+            const directory = await current.current.action("manage", {
+                operation: "mcpApps",
+                projectId: owner.projectId,
+                threadId: owner.threadId,
+            });
+            if (current.current.project?.id !== project.id || owner.projectId !== project.id)
+                throw Error("应用所属项目已变化，请重新打开。");
+            if (!Array.isArray(directory.data)) throw Error("应用目录格式无效");
+            const servers: McpWorkspaceServer[] = directory.data;
+            const connectedServer = servers.find((candidate) =>
+                candidate.serverId === server.serverId && candidate.pluginId === server.pluginId &&
+                candidate.installedDigest === server.installedDigest,
+            );
+            const connectedTool = connectedServer?.tools.find((candidate) => candidate.name === tool.name);
+            if (!connectedServer || !connectedTool)
+                throw Error("应用连接或插件版本已变化，请刷新后重新打开。");
+            const app = await openMcpApp({
+                ...owner,
+                serverId: connectedServer.serverId,
+                expectedGeneration: connectedServer.generation,
+                toolName: connectedTool.name,
+                ...(options.filePath ? { filePath: options.filePath } : {}),
+                ...(options.deepLink ? { deepLink: options.deepLink } : {}),
+                ...(options.arguments ? { arguments: options.arguments } : {}),
+            });
+            appsRef.current = [...appsRef.current, app];
+            setApps(appsRef.current);
+            current.current.onReveal(appTab(app), app);
+        } finally { pendingOpens.current--; }
     }
     async function message(value: McpAppMessage) {
-        const { project, action } = current.current;
+        const { projects, action, activeTab } = current.current;
+        const project = projects.find(owner => owner.id === value.projectId);
+        const app = appsRef.current.find(app => app.instanceId === value.instanceId && app.projectId === value.projectId && app.threadId === value.threadId);
+        if (!app) throw Error("应用已关闭");
+        const foreground = current.current.project?.id === value.projectId && current.current.threadId === value.threadId && activeTab === appTab(app);
+        if (!foreground && (value.target === "new" || !value.send))
+            throw new ProtocolError(-32000, "后台应用无法打开会话或修改输入草稿。", { reason: "app_hidden" });
         if (project?.desktopCapabilities?.currentCommands === false) throw Error(compatibilityHint);
         if (
             !project ||
@@ -485,6 +530,24 @@ export function useMcpAppsWorkspace({
             setFormPreview({ requestId: form.requestId, contents: result.contents });
         }
     }
+    const [slot, setSlot] = useState<HTMLDivElement | null>(null);
+    const [placement, setPlacement] = useState<McpAppPlacement | null>(null);
+    const displaySlot = useCallback((element: HTMLDivElement | null) => { setSlot(element); }, []);
+    useLayoutEffect(() => {
+        if (!slot || !activeTab) { setPlacement(null); return; }
+        const measure = () => {
+            const rect = slot.getBoundingClientRect();
+            const next = rect.width > 0 && rect.height > 0 && getComputedStyle(slot).visibility !== "hidden"
+                ? { left: rect.left, top: rect.top, width: rect.width, height: rect.height } : null;
+            setPlacement(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
+        };
+        measure();
+        const observer = new ResizeObserver(measure);
+        for (let element: HTMLElement | null = slot; element; element = element.parentElement) observer.observe(element);
+        window.addEventListener("resize", measure);
+        window.addEventListener("scroll", measure, true);
+        return () => { observer.disconnect(); window.removeEventListener("resize", measure); window.removeEventListener("scroll", measure, true); };
+    }, [slot, activeTab]);
     const contentFor = (app: McpAppDescriptor) => {
         const context = app.hostContext["openai/modelContext"] as
             { content?: ContentBlock[] } | null | undefined;
@@ -506,24 +569,17 @@ export function useMcpAppsWorkspace({
         },
         render: (tab: string) => {
             if (!desktopSupported) return <p role="status">{compatibilityHint}</p>;
-            const app = apps.find((item) => appTab(item) === tab);
-            return app ? (
-                <McpAppHost
-                    key={app.token}
-                    app={app}
-                    context={app.hostContext}
-                    closeOnUnmount={false}
-                    onMessage={message}
-                    onModelContext={modelContext}
-                    onClose={() => {
-                        void close(tab).catch((cause) => current.current.onError(cause.message));
-                    }}
-                    onError={onError}
-                />
-            ) : (
-                <p role="status">应用已关闭，请从应用入口重新打开。</p>
-            );
+            return apps.some(app => appTab(app) === tab)
+                ? <div data-mcp-app-slot={tab} ref={displaySlot} style={{ height: "100%", minHeight: 0 }} />
+                : <p role="status">应用已关闭，请从应用入口重新打开。</p>;
         },
+        pages: apps.map(app => <McpAppHost
+            key={app.token} app={app} context={app.hostContext}
+            placement={activeTab === appTab(app) && project?.id === app.projectId && threadId === app.threadId ? placement : null}
+            closeOnUnmount={false} onMessage={message} onModelContext={modelContext}
+            onClose={() => { void close(appTab(app)).catch(cause => current.current.onError(cause.message)); }}
+            onError={onError}
+        />),
         contexts: (
             <div aria-label="应用上下文">
                 {(desktopSupported ? apps : [])

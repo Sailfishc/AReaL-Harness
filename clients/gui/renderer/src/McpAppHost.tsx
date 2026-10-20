@@ -16,6 +16,7 @@ import type {
 import { z } from "zod";
 import { McpAppIcon } from "./McpAppIcon.js";
 
+export type McpAppPlacement = { left: number; top: number; width: number; height: number };
 export type McpAppDescriptor = {
     token: string;
     frameUrl: string;
@@ -178,8 +179,10 @@ export function McpAppHost({
     onError,
     context,
     closeOnUnmount = true,
+    placement,
 }: {
     app: McpAppDescriptor;
+    placement?: McpAppPlacement | null;
     onMessage?: (message: McpAppMessage) => Promise<void>;
     onModelContext?: (context: McpAppModelContext) => Promise<void>;
     onClose: () => void;
@@ -359,7 +362,8 @@ export function McpAppHost({
             );
         }
         const unsubscribe = desktop.onMcpAppEvent((event) => {
-            if (active && event.token === app.token && transport.initialized)
+            if (active && event.token === app.token && transport.initialized &&
+                !("method" in event.notification && event.notification.method === "ui/notifications/closed"))
                 void transport.send(event.notification).catch(error);
         });
         void bridge
@@ -388,18 +392,18 @@ export function McpAppHost({
     return (
         <section
             aria-label="MCP 应用"
-            style={
-                mode === "fullscreen"
-                    ? {
-                          position: "fixed",
-                          inset: 0,
-                          zIndex: 60,
-                          background: "var(--color-background, #202020)",
-                          display: "flex",
-                          flexDirection: "column",
-                      }
-                    : { height: "100%", minHeight: 360, display: "flex", flexDirection: "column" }
-            }
+            aria-hidden={placement === null || undefined}
+            inert={placement === null}
+            data-app-token={app.token}
+            style={{
+                ...(mode === "fullscreen" ? {
+                    position: "fixed", left: 0, top: 0, width: "100vw", height: "100vh", zIndex: 60,
+                    background: "var(--color-background)", minHeight: 0,
+                } : placement === undefined ? { height: "100%", minHeight: 360 } : {
+                    position: "fixed", ...placement, zIndex: 10, background: "var(--color-background)", minHeight: 0,
+                }),
+                display: placement === null ? "none" : "flex", flexDirection: "column",
+            }}
         >
             <header style={{ display: "flex", alignItems: "center", gap: 12, padding: 10 }}>
                 <McpAppIcon icon={app.toolMetadata?.icons?.[0]} />
@@ -434,7 +438,7 @@ export function McpAppHost({
                 title={app.toolMetadata?.title ?? "MCP 应用"}
                 sandbox="allow-scripts allow-same-origin"
                 referrerPolicy="no-referrer"
-                style={{ border: 0, flex: 1, width: "100%", minHeight: 300 }}
+                style={{ border: 0, flex: 1, width: "100%", minHeight: placement === undefined ? 300 : 0 }}
             />
         </section>
     );
