@@ -110,7 +110,7 @@ impl Engine {
             return Ok(());
         }
         task.revision += 1;
-        self.save_tasks(&mut state, candidate, id).await
+        self.save_tasks(&mut state, candidate, id, true).await
     }
 
     pub(super) async fn control_goal_from_task(
@@ -137,6 +137,9 @@ impl Engine {
     }
 
     pub(super) async fn advance_task(self: &Arc<Self>, task_id: &str) -> Result<()> {
+        if self.task_modes.frozen.load(Ordering::Acquire) {
+            return Err(Error::Storage("Task persistence requires restart".into()));
+        }
         self.edit_task(task_id, |task| {
             let current_run = task.runs.last().map(|r| r.id.as_str());
             let mut expired = false;
@@ -267,7 +270,7 @@ impl Engine {
                                     m.sequence = task.channel_sequence;
                                 }
                             }
-                            if task.messages.len() < MAX_MESSAGES {
+                            {
                                 task.channel_sequence += 1;
                                 task.messages.push(ChannelMessage {
                                     id: id(),
@@ -368,11 +371,7 @@ impl Engine {
                         });
                 // 周期任务合并错过的时间点；已有 Run 未结束时跳过本次触发。
                 if !busy {
-                    if task.runs.len() >= MAX_RUNS {
-                        task.paused = true;
-                    } else {
-                        task.runs.push(new_run(task.thread_id.clone(), at));
-                    }
+                    task.runs.push(new_run(task.thread_id.clone(), at));
                 }
             })
             .await?;
@@ -438,11 +437,8 @@ impl Engine {
             .await?;
             view = self.goal_get(&thread).await?;
         }
-        let used: u64 = task
-            .runs
-            .iter()
-            .map(|r| r.usage.tokens_used.saturating_add(r.usage.reserved_tokens))
-            .fold(0, u64::saturating_add);
+        let usage = self.task_modes.state.lock().await.usage(task_id);
+        let used = usage.tokens_used.saturating_add(usage.reserved_tokens);
         let budget = task.token_budget.map(|n| n.saturating_sub(used));
         if budget == Some(0) {
             return Err(invalid("task token budget exhausted"));

@@ -2,7 +2,7 @@
 
 # Task Mode 与独立通信
 
-本契约属于 `areal.core.v1`，面向 TUI、GUI、WebUI 和其他客户端。Rust 类型位于 [tasks.rs](../../core/protocol/src/tasks.rs)，请求、响应和通知的机器契约位于 [areal-core-v1.json](../../schemas/areal-core-v1.json)。先完成 [连接与认证](desktop.md)，再检查 `features.taskModes/taskChannels/asyncQuestions/headlessInteractions`。
+本契约属于 `areal.core.v1`，面向 TUI、GUI、WebUI 和其他客户端。Rust 类型位于 [tasks.rs](../../core/protocol/src/tasks.rs)，请求、响应和通知的机器契约位于 [areal-core-v1.json](../../schemas/areal-core-v1.json)。先完成 [连接与认证](desktop.md)，再检查 `features.taskModes/taskChannels/asyncQuestions/headlessInteractions`；完整 Run 历史另检查 `features.taskRunHistory`。
 
 ## 所有权与模式
 
@@ -52,6 +52,8 @@ async 默认期限 86400 秒，允许 1–604800 秒；同步问题允许 1–36
 | task/create | `requestId, mode, objective, threadId?, interactionMode?, schedule?, tokenBudget?, maxTurns?, maxActiveSeconds?` | Task 投影 |
 | task/list | `after?, limit?` | `{data: Task[], nextCursor}` |
 | task/read | `taskId` | Task 投影 |
+| task/runs/list | `taskId, cursor?, limit?` | `{data: TaskRun[], nextCursor, hasMore, runCount}` |
+| task/run/read | `taskId, runId` | 完整单条 TaskRun |
 | task/update | `requestId, taskId, expectedRevision, objective?, schedule?` | 更新后的 Task 投影 |
 | task/pause, task/resume, task/cancel | `requestId, taskId, expectedRevision` | 已持久受理控制意图的 Task 投影 |
 | task/stopRun, task/resumeRun | `requestId, taskId, expectedRevision, expectedRunId` | 当前 Run 的停止／明确恢复意图，重复安排不变 |
@@ -64,7 +66,7 @@ async 默认期限 86400 秒，允许 1–604800 秒；同步问题允许 1–36
 
 `task/pause` 还接受可选 `expectedRunId`，由 `features.taskPauseRunGuard` 声明。Core 查询收据后，在同一 Task 锁内将其与最新 Run 比较，并同时检查 `expectedRevision`；Run 缺失或变化返回冲突。resume/cancel 不接受此字段。同参数已受理请求即使在版本/Run 改变或重启后仍返回原收据；同键更换 Run 返回冲突。省略字段保持旧调用与收据摘要兼容。对于 scheduled，pause 只暂停之后的触发；stopRun 才停止当前执行。执行停止仍以 Run 和 worker 结算为准。
 
-Task 投影包括 `id, revision, channelSequence, owner, mode, interactionMode, objective, threadId, schedule, nextRunAt, paused, cancelled, tokenBudget, maxTurns, maxActiveSeconds, runs, skippedRuns, lastSkippedAt, pendingQuestions`；不内嵌 messages。每个 Run 包含 `id, threadId, goalId, status, reason, objective?, scheduledAt, startedAt, completedAt, usage, waitRequested, workers`。worker 包含 `threadId, turnId, status, settled`；status 为 running/completed/cancelled/failed。
+Task 投影包括 `id, revision, channelSequence, owner, mode, interactionMode, objective, threadId, schedule, nextRunAt, paused, cancelled, tokenBudget, maxTurns, maxActiveSeconds, runs, runCount, archivedRunCount, runsComplete, skippedRuns, lastSkippedAt, pendingQuestions`；不内嵌 messages。每个 Run 包含 `id, threadId, goalId, status, reason, objective?, scheduledAt, startedAt, completedAt, usage, waitRequested, workers`。worker 包含 `threadId, turnId, status, settled`；status 为 running/completed/cancelled/failed。
 
 Run status 为 `queued/running/waitingForInput/waitingForAgents/paused/blocked/completed/failed/cancelled`；后三项是终态。paused/cancelled 为 Task 控制意图，清理期间 Run 可能仍为 running。以 Run 终态及 worker.settled 判断执行结算，不以控制请求返回或协调 Turn completed 代替。
 
@@ -102,7 +104,7 @@ scheduled 的 pause/resume 只影响后续触发，不改变本次执行或 work
 
 周期Task有Token总上限时，更新或恢复关联Goal还会扣除其他Run的已确认及预留消费，校验本轮额度不超过余额；不能将本轮额度改为无限。超限返回`TASK_TOKEN_BUDGET`（参数错误），不保存修改或恢复执行。当前没有修改周期Task总上限的公开接口；需要更多总额度时应明确创建新任务。
 
-状态保存在 `desktop/task-mode.json`，含 Task、Channel 和幂等收据。每部署最多 1024 Task、8192 收据、32 MiB；每 Task 最多 128 Run、1024 消息，满后拒绝或暂停，不自动删除历史。活动或挂起等待的 Run 在 Core 重启后暂停，显式 resumeRun（scheduled）或 resume 后才继续；尚未触发的 schedule 保留。恢复不自动重放未知工具副作用。`server/drain` 停止当前执行并关闭准入，但保留 scheduled 的启用状态；`server/status.activeTasks` 计入待执行时间点，ifIdle 不把它们视为空闲。
+`desktop/task-mode.json` 是版本 4 的唯一提交根，引用 `desktop/task-ledger/` 中不可变的热 Task、历史分段与收据/归属索引。每部署仍最多 1024 Task，普通热状态总预算为 32 MiB；单个不可变文件的硬读取上限为 256 MiB。128 Run 和 1024 消息是热保留目标，完整历史和原始幂等响应保留在冷存储中，不因历史数量暂停周期任务。终态、用量已确认、无未知请求、worker 已结算且无待处理问题的 Run 才可归档；未知工具效果、审批或无法在有界检查中确认的 Thread 历史保留热态。常规保留每次最多检查 16 个 Thread 快照；引用超过 16 个 Thread 的 Run 会保持热态，直到启动时完整检查，因此仍可能占用普通热状态预算，默认 worker 上限为 64。普通增长满额时返回 `taskHotStateCapacity`，已受理工作的控制和有界终态结算可使用预留容量。物理写入或提交结果不明返回存储错误，并冻结 Task 写入与新派发；重启校验且同步已提交根与全部引用文件后才恢复。活动或挂起等待的 Run 在 Core 重启后暂停，显式 resumeRun（scheduled）或 resume 后才继续；尚未触发的 schedule 保留。恢复不自动重放未知工具副作用。`server/drain` 停止当前执行并关闭准入，但保留 scheduled 的启用状态；`server/status.activeTasks` 计入待执行时间点，ifIdle 不把它们视为空闲。
 
 Thread 快照版本为 13，API 保持 areal.core.v1；旧 Thread/Goal 可读取，旧 Goal 在首次 resume 时补登记 Task。旧二进制不能读取新版本快照。嵌入式宿主在完成模型、工具装配后调用 `Engine::start_task_scheduler()`；app-server 自动调用。
 
@@ -142,4 +144,12 @@ Inbox 获取的是原频道问题，回复引用其 runId 和 id：
 
 Task worker 在调用方和父配置均未给出轮数时默认无限；显式限制仍继承并执行。部署 Goal 上限为 0 表示无限，不表示零调用额度。Task/Channel 记录容量仍属于独立服务资源限制。
 
-Task 存储写入版本 3，兼容读取版本 1／2，新增持久准备配置；旧二进制拒绝读取版本 3。TaskWorker 保留旧 threadId/turnId，新增可选 execution/executionId，统一投影共享与隔离 worker。新模型入口为 agent_spawn；旧 task_spawn 兼容但不再展示。候选待交付不能完成 Run；没有活跃 Turn 时唤醒原协调者，不重复执行。
+Task 存储写入版本 4，迁移读取版本 1／2／3；原始旧文件字节备份保存在 `desktop/task-legacy/`。迁移先同步不可变文件，再原子替换原路径的版本 4 根，旧二进制拒绝读取。备份、复制与恢复必须包含根及其可达文件；孤儿文件不代表已受理操作，本阶段不自动回收。准备配置在 Goal 身份已持久绑定或 Run 终结后退出热状态。TaskWorker 保留旧 threadId/turnId，新增可选 execution/executionId，统一投影共享与隔离 worker。新模型入口为 agent_spawn；旧 task_spawn 兼容但不再展示。候选待交付不能完成 Run；没有活跃 Turn 时唤醒原协调者，不重复执行。
+
+## 完整 Run 历史与容量诊断
+
+Task 投影中的 `runs` 是热窗口。`runCount` 包含冷热 Run，`archivedRunCount` 表示已归档数量，`runsComplete=false` 要求客户端通过历史接口读取。`task/runs/list` 默认 30 条，允许 1–100 条，按 `(scheduledAt,id)` 从新到旧返回。游标绑定 Task、第一页的排序上界与最后一行，归档位置和重启不改变游标含义。`task/run/read` 返回原始 TaskRun；超过 128 KiB 响应预算的单条记录明确报容量错误。历史读取、Channel、列表和订阅使用同一捕获快照进行权限判断与投影，归档不扩大受限客户端的 Thread 权限。
+
+Channel 只返回消息的最终状态，按 sequence 升序且每个 ID 一次。`nextSequence` 是最后实际返回的 sequence；状态更新留下的序号空洞不表示仍有下一页。单条消息超过响应预算时明确报错，不返回永远 `hasMore=true` 的空页。
+
+容量错误使用现有 RPC 错误边界。`-32001` 的 `data` 为 `{reason:"taskHotStateCapacity",resource:"taskHotState",recovery:"settleOrCancelExistingWork",retryable:false}`。Task 写入失败及冻结后的 `-32603` 使用 `{reason:"taskStorageRecoveryRequired",resource:"taskStorage",recovery:"restartCore",retryable:false}`。存储失败后不伪造已持久化的磁盘故障状态。停止意图受理、worker 结算和 Run 终态仍是不同的观察结果。

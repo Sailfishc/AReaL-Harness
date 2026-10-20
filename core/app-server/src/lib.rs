@@ -846,7 +846,15 @@ impl Connection {
         self.forward(id, events);
         Ok(())
     }
-    fn forward(&mut self, id: &str, mut events: broadcast::Receiver<Value>) {
+    fn forward(&mut self, id: &str, events: broadcast::Receiver<Value>) {
+        self.forward_authorized(id, events, None);
+    }
+    fn forward_authorized(
+        &mut self,
+        id: &str,
+        mut events: broadcast::Receiver<Value>,
+        task_engine: Option<std::sync::Weak<Engine>>,
+    ) {
         let task_filter = id.strip_prefix("task:").map(str::to_owned);
         let principal = self.principal.clone();
         let subscription = self.stop.child_token();
@@ -866,7 +874,10 @@ impl Connection {
                 match event {
                     Ok(event) => {
                         if task_filter.as_ref().is_some_and(|id| event["params"]["taskId"].as_str()!=Some(id)) { continue; }
-                        if task_filter.is_some() && !task_mode::visible_projection(&principal,&event["params"]["task"]) {subscription.cancel();break;}
+                        if let Some(task_id)=&task_filter {
+                            let Some(engine)=task_engine.as_ref().and_then(|weak|weak.upgrade()) else {subscription.cancel();break;};
+                            if !engine.task_visible(task_id,principal.thread_ids.as_ref()).await.unwrap_or(false) {subscription.cancel();break;}
+                        }
                         if event["method"].as_str().is_some_and(|m| suppressed.contains(m)) { continue; }
                         let _delivery = delivery.lock().await;
                         if subscription.is_cancelled() { break; }
@@ -950,17 +961,24 @@ impl Connection {
                     return Err(RpcError::invalid("subscription limit reached"));
                 }
                 let (snapshot, events) = engine
-                    .task_snapshot_and_subscribe(&p.task_id)
+                    .task_snapshot_and_subscribe_for_threads(
+                        &p.task_id,
+                        self.principal.thread_ids.as_ref(),
+                    )
                     .await
                     .map_err(map_error)?;
-                if !task_mode::visible_projection(&self.principal, &snapshot) {
+                if !engine
+                    .task_visible(&p.task_id, self.principal.thread_ids.as_ref())
+                    .await
+                    .map_err(map_error)?
+                {
                     return Err(RpcError {
                         code: -32003,
                         message: "task permission changed".into(),
                         data: None,
                     });
                 }
-                self.forward(&key, events);
+                self.forward_authorized(&key, events, Some(Arc::downgrade(engine)));
                 return Ok(snapshot);
             }
             return task_mode::dispatch(engine, &self.principal, method, params).await;
@@ -1105,7 +1123,7 @@ impl Connection {
                     "browserToolBundles":if can_attach_browser {json!([{"bundleId":areal_protocol::desktop::BROWSER_V1_BUNDLE,
                         "definition":areal_protocol::desktop::browser_v1_tool()}])} else {json!([])},
                     "features":{"conversationDerivationV1":json!({"preview":false,"methods":["areal/thread/fork","areal/side/start","areal/conversation/list","areal/conversation/history","areal/conversation/unarchive","areal/side/context/read"],"limits":engine.conversation_derivation_limits(),"forkBoundaries":["after","before"],"workspaceModes":["sharedCurrent"],"sideWorkspaceAccess":if engine.side_workspace_read_available() {json!(["none","readOnly"])} else {json!(["none"])},"historyBytes":engine.fork_snapshot_limit()}),"subscriptionRemoval":true,"atomicResume":true,"atomicObserve":true,"atomicObserveOwnership":true,"browserToolAttachment":can_attach_browser,
-                        "ordinaryTurnSubmit":true,"editLastMessage":true,"turnStartAdmissionGuard":true,"turnEnqueueAdmissionGuard":true,"turnInterruptAdmissionGuard":true,"threadStartAdmissionGuard":true,"taskPauseRunGuard":true,"taskModes":true,"taskChannels":true,"asyncQuestions":true,"headlessInteractions":true,"goals":true,"dynamicTools":true,"mediaOutput":true,"durableSubmissionDeduplication":true,"profiles":true,"skills":true,"plans":true,"interactions":true,"queue":true,"providerConfiguration":true,"modelReset":true,"toolMedia":true,"blobUpload":true},
+                        "ordinaryTurnSubmit":true,"editLastMessage":true,"turnStartAdmissionGuard":true,"turnEnqueueAdmissionGuard":true,"turnInterruptAdmissionGuard":true,"threadStartAdmissionGuard":true,"taskPauseRunGuard":true,"taskModes":true,"taskRunHistory":true,"taskChannels":true,"asyncQuestions":true,"headlessInteractions":true,"goals":true,"dynamicTools":true,"mediaOutput":true,"durableSubmissionDeduplication":true,"profiles":true,"skills":true,"plans":true,"interactions":true,"queue":true,"providerConfiguration":true,"modelReset":true,"toolMedia":true,"blobUpload":true},
                     "limits":{"frameBytes":MAX_FRAME_BYTES,"subscriptions":128,"sendQueue":256,"threadEventWindow":128},
                     "runtime":engine.runtime_capabilities()}))
             }
@@ -1274,6 +1292,13 @@ fn parse<T: serde::de::DeserializeOwned>(value: Value) -> Result<T, RpcError> {
     serde_json::from_value(value).map_err(|e| RpcError::invalid(e.to_string()))
 }
 fn map_error(error: Error) -> RpcError {
+    if matches!(&error,Error::Invalid(reason) if reason=="TASK_PERMISSION_DENIED") {
+        return RpcError {
+            code: -32003,
+            message: "task permission denied".into(),
+            data: None,
+        };
+    }
     if matches!(&error, Error::Invalid(reason) if reason == "SIDE_POLICY_VIOLATION") {
         return RpcError {
             code: -32010,
@@ -1281,6 +1306,20 @@ fn map_error(error: Error) -> RpcError {
             data: Some(json!({"reason":"SIDE_POLICY_VIOLATION","retryable":false})),
         };
     }
+    let data = match &error {
+        Error::Exhausted(reason)
+            if reason.starts_with("task hot-state capacity")
+                || reason.starts_with("task preparation capacity") =>
+        {
+            Some(
+                json!({"reason":"taskHotStateCapacity","resource":"taskHotState","recovery":"settleOrCancelExistingWork","retryable":false}),
+            )
+        }
+        Error::Storage(reason) if reason.contains("Task persistence requires restart") => Some(
+            json!({"reason":"taskStorageRecoveryRequired","resource":"taskStorage","recovery":"restartCore","retryable":false}),
+        ),
+        _ => None,
+    };
     let code = match &error {
         Error::Invalid(_) => -32602,
         Error::NotFound => -32004,
@@ -1292,7 +1331,7 @@ fn map_error(error: Error) -> RpcError {
     RpcError {
         code,
         message: error.to_string(),
-        data: None,
+        data,
     }
 }
 

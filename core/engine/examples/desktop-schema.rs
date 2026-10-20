@@ -98,6 +98,10 @@ fn main() {
     add!("areal/goal/create", areal_protocol::goals::GoalCreate);
     add!("areal/task/create", areal_protocol::tasks::TaskCreate);
     add!("areal/task/update", areal_protocol::tasks::TaskUpdate);
+    add!("areal/task/runs/list", areal_protocol::tasks::TaskRunsList);
+    methods.get_mut("areal/task/runs/list").unwrap()["properties"]["limit"] =
+        json!({"type":["integer","null"],"minimum":1,"maximum":100});
+    add!("areal/task/run/read", areal_protocol::tasks::TaskRunRead);
     add!("areal/task/pause", areal_protocol::tasks::TaskControl);
     for method in ["areal/task/stopRun", "areal/task/resumeRun"] {
         let mut control =

@@ -3222,6 +3222,12 @@
         },
         "task": {
           "properties": {
+            "archivedRunCount": {
+              "default": 0,
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
             "cancelled": {
               "type": "boolean"
             },
@@ -3294,6 +3300,12 @@
               "type": "integer"
             },
             "revision": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "runCount": {
+              "default": 0,
               "format": "uint64",
               "minimum": 0,
               "type": "integer"
@@ -3520,6 +3532,10 @@
               },
               "type": "array"
             },
+            "runsComplete": {
+              "default": true,
+              "type": "boolean"
+            },
             "schedule": {
               "anyOf": [
                 {
@@ -3587,6 +3603,9 @@
             "paused",
             "cancelled",
             "runs",
+            "runCount",
+            "archivedRunCount",
+            "runsComplete",
             "pendingQuestions"
           ],
           "title": "Task",
@@ -21671,6 +21690,50 @@
         "expectedRunId"
       ],
       "title": "TaskControl",
+      "type": "object"
+    },
+    "areal/task/run/read": {
+      "additionalProperties": false,
+      "properties": {
+        "runId": {
+          "type": "string"
+        },
+        "taskId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "taskId",
+        "runId"
+      ],
+      "title": "TaskRunRead",
+      "type": "object"
+    },
+    "areal/task/runs/list": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "maximum": 100,
+          "minimum": 1,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "taskId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "taskId"
+      ],
+      "title": "TaskRunsList",
       "type": "object"
     },
     "areal/task/stopRun": {
@@ -66851,6 +66914,12 @@
     },
     "areal/task/cancel": {
       "properties": {
+        "archivedRunCount": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "cancelled": {
           "type": "boolean"
         },
@@ -66923,6 +66992,12 @@
           "type": "integer"
         },
         "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "runCount": {
+          "default": 0,
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
@@ -67149,6 +67224,10 @@
           },
           "type": "array"
         },
+        "runsComplete": {
+          "default": true,
+          "type": "boolean"
+        },
         "schedule": {
           "anyOf": [
             {
@@ -67216,6 +67295,9 @@
         "paused",
         "cancelled",
         "runs",
+        "runCount",
+        "archivedRunCount",
+        "runsComplete",
         "pendingQuestions"
       ],
       "title": "Task",
@@ -67223,6 +67305,12 @@
     },
     "areal/task/create": {
       "properties": {
+        "archivedRunCount": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "cancelled": {
           "type": "boolean"
         },
@@ -67295,6 +67383,12 @@
           "type": "integer"
         },
         "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "runCount": {
+          "default": 0,
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
@@ -67521,6 +67615,10 @@
           },
           "type": "array"
         },
+        "runsComplete": {
+          "default": true,
+          "type": "boolean"
+        },
         "schedule": {
           "anyOf": [
             {
@@ -67588,6 +67686,9 @@
         "paused",
         "cancelled",
         "runs",
+        "runCount",
+        "archivedRunCount",
+        "runsComplete",
         "pendingQuestions"
       ],
       "title": "Task",
@@ -67611,6 +67712,12 @@
         "data": {
           "items": {
             "properties": {
+              "archivedRunCount": {
+                "default": 0,
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
               "cancelled": {
                 "type": "boolean"
               },
@@ -67683,6 +67790,12 @@
                 "type": "integer"
               },
               "revision": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "runCount": {
+                "default": 0,
                 "format": "uint64",
                 "minimum": 0,
                 "type": "integer"
@@ -67909,6 +68022,10 @@
                 },
                 "type": "array"
               },
+              "runsComplete": {
+                "default": true,
+                "type": "boolean"
+              },
               "schedule": {
                 "anyOf": [
                   {
@@ -67976,6 +68093,9 @@
               "paused",
               "cancelled",
               "runs",
+              "runCount",
+              "archivedRunCount",
+              "runsComplete",
               "pendingQuestions"
             ],
             "title": "Task",
@@ -68002,6 +68122,12 @@
     },
     "areal/task/pause": {
       "properties": {
+        "archivedRunCount": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "cancelled": {
           "type": "boolean"
         },
@@ -68074,6 +68200,12 @@
           "type": "integer"
         },
         "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "runCount": {
+          "default": 0,
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
@@ -68300,6 +68432,10 @@
           },
           "type": "array"
         },
+        "runsComplete": {
+          "default": true,
+          "type": "boolean"
+        },
         "schedule": {
           "anyOf": [
             {
@@ -68367,6 +68503,9 @@
         "paused",
         "cancelled",
         "runs",
+        "runCount",
+        "archivedRunCount",
+        "runsComplete",
         "pendingQuestions"
       ],
       "title": "Task",
@@ -68374,6 +68513,12 @@
     },
     "areal/task/read": {
       "properties": {
+        "archivedRunCount": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "cancelled": {
           "type": "boolean"
         },
@@ -68446,6 +68591,12 @@
           "type": "integer"
         },
         "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "runCount": {
+          "default": 0,
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
@@ -68672,6 +68823,10 @@
           },
           "type": "array"
         },
+        "runsComplete": {
+          "default": true,
+          "type": "boolean"
+        },
         "schedule": {
           "anyOf": [
             {
@@ -68739,6 +68894,9 @@
         "paused",
         "cancelled",
         "runs",
+        "runCount",
+        "archivedRunCount",
+        "runsComplete",
         "pendingQuestions"
       ],
       "title": "Task",
@@ -68746,6 +68904,12 @@
     },
     "areal/task/resume": {
       "properties": {
+        "archivedRunCount": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "cancelled": {
           "type": "boolean"
         },
@@ -68818,6 +68982,12 @@
           "type": "integer"
         },
         "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "runCount": {
+          "default": 0,
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
@@ -69044,6 +69214,10 @@
           },
           "type": "array"
         },
+        "runsComplete": {
+          "default": true,
+          "type": "boolean"
+        },
         "schedule": {
           "anyOf": [
             {
@@ -69111,6 +69285,9 @@
         "paused",
         "cancelled",
         "runs",
+        "runCount",
+        "archivedRunCount",
+        "runsComplete",
         "pendingQuestions"
       ],
       "title": "Task",
@@ -69118,6 +69295,12 @@
     },
     "areal/task/resumeRun": {
       "properties": {
+        "archivedRunCount": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "cancelled": {
           "type": "boolean"
         },
@@ -69190,6 +69373,12 @@
           "type": "integer"
         },
         "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "runCount": {
+          "default": 0,
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
@@ -69416,6 +69605,10 @@
           },
           "type": "array"
         },
+        "runsComplete": {
+          "default": true,
+          "type": "boolean"
+        },
         "schedule": {
           "anyOf": [
             {
@@ -69483,13 +69676,491 @@
         "paused",
         "cancelled",
         "runs",
+        "runCount",
+        "archivedRunCount",
+        "runsComplete",
         "pendingQuestions"
       ],
       "title": "Task",
       "type": "object"
     },
+    "areal/task/run/read": {
+      "properties": {
+        "completedAt": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "goalId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "objective": {
+          "description": "受理时的任务内容；修改安排只影响之后的 Run。",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "scheduledAt": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "startedAt": {
+          "default": null,
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "status": {
+          "enum": [
+            "queued",
+            "running",
+            "waitingForInput",
+            "waitingForAgents",
+            "paused",
+            "blocked",
+            "completed",
+            "failed",
+            "cancelled"
+          ],
+          "type": "string"
+        },
+        "threadId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "usage": {
+          "additionalProperties": false,
+          "properties": {
+            "accountingComplete": {
+              "type": "boolean"
+            },
+            "cachedInputTokens": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "inputTokens": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "outputTokens": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "reservedTokens": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "timeUsedSeconds": {
+              "format": "double",
+              "type": "number"
+            },
+            "tokensUsed": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "turnsStarted": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "unknownRequests": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "inputTokens",
+            "cachedInputTokens",
+            "outputTokens",
+            "tokensUsed",
+            "reservedTokens",
+            "unknownRequests",
+            "timeUsedSeconds",
+            "turnsStarted",
+            "accountingComplete"
+          ],
+          "type": "object"
+        },
+        "waitRequested": {
+          "type": "boolean"
+        },
+        "workers": {
+          "default": [],
+          "items": {
+            "properties": {
+              "execution": {
+                "anyOf": [
+                  {
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "kind": {
+                            "const": "thread",
+                            "type": "string"
+                          },
+                          "threadId": {
+                            "type": "string"
+                          },
+                          "turnId": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "threadId",
+                          "turnId"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "automatic": {
+                            "default": false,
+                            "type": "boolean"
+                          },
+                          "kind": {
+                            "const": "workgroup",
+                            "type": "string"
+                          },
+                          "workgroupId": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "workgroupId"
+                        ],
+                        "type": "object"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "executionId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "settled": {
+                "type": "boolean"
+              },
+              "status": {
+                "type": "string"
+              },
+              "threadId": {
+                "type": "string"
+              },
+              "turnId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "settled"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "scheduledAt",
+        "usage",
+        "waitRequested"
+      ],
+      "title": "TaskRun",
+      "type": "object"
+    },
+    "areal/task/runs/list": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "items": {
+            "properties": {
+              "completedAt": {
+                "format": "int64",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "goalId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "id": {
+                "type": "string"
+              },
+              "objective": {
+                "description": "受理时的任务内容；修改安排只影响之后的 Run。",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "reason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "scheduledAt": {
+                "format": "int64",
+                "type": "integer"
+              },
+              "startedAt": {
+                "default": null,
+                "format": "int64",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "status": {
+                "enum": [
+                  "queued",
+                  "running",
+                  "waitingForInput",
+                  "waitingForAgents",
+                  "paused",
+                  "blocked",
+                  "completed",
+                  "failed",
+                  "cancelled"
+                ],
+                "type": "string"
+              },
+              "threadId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "usage": {
+                "additionalProperties": false,
+                "properties": {
+                  "accountingComplete": {
+                    "type": "boolean"
+                  },
+                  "cachedInputTokens": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "inputTokens": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "outputTokens": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "reservedTokens": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "timeUsedSeconds": {
+                    "format": "double",
+                    "type": "number"
+                  },
+                  "tokensUsed": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "turnsStarted": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "unknownRequests": {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "inputTokens",
+                  "cachedInputTokens",
+                  "outputTokens",
+                  "tokensUsed",
+                  "reservedTokens",
+                  "unknownRequests",
+                  "timeUsedSeconds",
+                  "turnsStarted",
+                  "accountingComplete"
+                ],
+                "type": "object"
+              },
+              "waitRequested": {
+                "type": "boolean"
+              },
+              "workers": {
+                "default": [],
+                "items": {
+                  "properties": {
+                    "execution": {
+                      "anyOf": [
+                        {
+                          "oneOf": [
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "kind": {
+                                  "const": "thread",
+                                  "type": "string"
+                                },
+                                "threadId": {
+                                  "type": "string"
+                                },
+                                "turnId": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "threadId",
+                                "turnId"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "properties": {
+                                "automatic": {
+                                  "default": false,
+                                  "type": "boolean"
+                                },
+                                "kind": {
+                                  "const": "workgroup",
+                                  "type": "string"
+                                },
+                                "workgroupId": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "workgroupId"
+                              ],
+                              "type": "object"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "executionId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "settled": {
+                      "type": "boolean"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "threadId": {
+                      "type": "string"
+                    },
+                    "turnId": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "settled"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "id",
+              "status",
+              "scheduledAt",
+              "usage",
+              "waitRequested"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "hasMore": {
+          "type": "boolean"
+        },
+        "nextCursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "runCount": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "data",
+        "hasMore",
+        "runCount",
+        "nextCursor"
+      ],
+      "title": "TaskRunsPage",
+      "type": "object"
+    },
     "areal/task/stopRun": {
       "properties": {
+        "archivedRunCount": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "cancelled": {
           "type": "boolean"
         },
@@ -69562,6 +70233,12 @@
           "type": "integer"
         },
         "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "runCount": {
+          "default": 0,
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
@@ -69788,6 +70465,10 @@
           },
           "type": "array"
         },
+        "runsComplete": {
+          "default": true,
+          "type": "boolean"
+        },
         "schedule": {
           "anyOf": [
             {
@@ -69855,6 +70536,9 @@
         "paused",
         "cancelled",
         "runs",
+        "runCount",
+        "archivedRunCount",
+        "runsComplete",
         "pendingQuestions"
       ],
       "title": "Task",
@@ -69862,6 +70546,12 @@
     },
     "areal/task/subscribe": {
       "properties": {
+        "archivedRunCount": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "cancelled": {
           "type": "boolean"
         },
@@ -69934,6 +70624,12 @@
           "type": "integer"
         },
         "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "runCount": {
+          "default": 0,
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
@@ -70160,6 +70856,10 @@
           },
           "type": "array"
         },
+        "runsComplete": {
+          "default": true,
+          "type": "boolean"
+        },
         "schedule": {
           "anyOf": [
             {
@@ -70227,6 +70927,9 @@
         "paused",
         "cancelled",
         "runs",
+        "runCount",
+        "archivedRunCount",
+        "runsComplete",
         "pendingQuestions"
       ],
       "title": "Task",
@@ -70246,6 +70949,12 @@
     },
     "areal/task/update": {
       "properties": {
+        "archivedRunCount": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "cancelled": {
           "type": "boolean"
         },
@@ -70318,6 +71027,12 @@
           "type": "integer"
         },
         "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "runCount": {
+          "default": 0,
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
@@ -70544,6 +71259,10 @@
           },
           "type": "array"
         },
+        "runsComplete": {
+          "default": true,
+          "type": "boolean"
+        },
         "schedule": {
           "anyOf": [
             {
@@ -70611,6 +71330,9 @@
         "paused",
         "cancelled",
         "runs",
+        "runCount",
+        "archivedRunCount",
+        "runsComplete",
         "pendingQuestions"
       ],
       "title": "Task",

@@ -42,11 +42,17 @@ impl Engine {
                 .is_some_and(|h| h.id() == host.id())
     }
 
-    pub(crate) async fn is_desktop_schedule_goal(&self, goal_id: &str) -> bool {
-        self.task_modes.state.lock().await.tasks.values().any(|t| {
+    pub(crate) async fn is_desktop_schedule_goal(&self, goal_id: &str) -> Result<bool> {
+        let state = self.task_modes.state.lock().await;
+        if state.tasks.values().any(|t| {
             t.mode == TaskMode::Scheduled
                 && t.runs.iter().any(|r| r.goal_id.as_deref() == Some(goal_id))
-        })
+        }) {
+            return Ok(true);
+        }
+        Ok(state
+            .cold_run(Some(goal_id), None)?
+            .is_some_and(|(id, _)| state.tasks[&id].mode == TaskMode::Scheduled))
     }
 
     /// 先结算旧执行，再决定触发。未开始的离线时间合并一次；忙碌时间直接跳过。
@@ -196,7 +202,7 @@ impl Engine {
                                 m.sequence = t.channel_sequence;
                             }
                         }
-                        if t.messages.len() < MAX_MESSAGES {
+                        {
                             t.channel_sequence += 1;
                             t.messages.push(ChannelMessage {
                                 id: id(),
@@ -267,12 +273,10 @@ impl Engine {
                     if busy {
                         t.skipped_runs = t.skipped_runs.saturating_add(count);
                         t.last_skipped_at = Some(at);
-                    } else if t.runs.len() < MAX_RUNS {
+                    } else {
                         let mut admitted = new_run(None, at);
                         admitted.objective = Some(t.objective.clone());
                         t.runs.push(admitted);
-                    } else {
-                        t.paused = true;
                     }
                 })
                 .await?;
@@ -338,7 +342,8 @@ impl Engine {
                 return Ok(());
             }
             candidate.preparations.insert(run.id.clone(), p.clone());
-            self.save_tasks(&mut state, candidate, task_id).await?;
+            self.save_tasks(&mut state, candidate, task_id, true)
+                .await?;
             p
         };
         if !self.host_current(&host).await {
@@ -402,11 +407,8 @@ impl Engine {
         if !view["goal"].is_null() {
             return Ok(());
         }
-        let used = task
-            .runs
-            .iter()
-            .map(|r| r.usage.tokens_used.saturating_add(r.usage.reserved_tokens))
-            .fold(0, u64::saturating_add);
+        let usage = self.task_modes.state.lock().await.usage(task_id);
+        let used = usage.tokens_used.saturating_add(usage.reserved_tokens);
         let budget = task.token_budget.map(|n| n.saturating_sub(used));
         if budget == Some(0) {
             return Err(invalid("task token budget exhausted"));

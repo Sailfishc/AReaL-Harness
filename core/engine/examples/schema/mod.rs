@@ -105,6 +105,12 @@ pub fn projections() -> (Value, Value) {
         .as_array_mut()
         .unwrap()
         .retain(|v| v != "messages");
+    for name in ["runCount", "archivedRunCount", "runsComplete"] {
+        task_view["required"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!(name));
+    }
     task_view["properties"]["pendingQuestions"] = number.clone();
     task_view["required"]
         .as_array_mut()
@@ -126,6 +132,16 @@ pub fn projections() -> (Value, Value) {
             "task/resumeRun",
         ],
         task_view.clone(),
+    );
+    let mut runs_page = schema::<areal_protocol::tasks::TaskRunsPage>();
+    runs_page["required"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!("nextCursor"));
+    insert(&["task/runs/list"], runs_page);
+    insert(
+        &["task/run/read"],
+        schema::<areal_protocol::tasks::TaskRun>(),
     );
     insert(&["task/host/ready"], object(json!({"ready":boolean})));
     insert(&["task/unsubscribe"], object(json!({"removed":boolean})));

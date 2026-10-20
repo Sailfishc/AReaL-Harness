@@ -191,6 +191,12 @@ impl TaskWorker {
 #[serde(rename_all = "camelCase")]
 pub struct Task {
     #[serde(default)]
+    pub run_count: u64,
+    #[serde(default)]
+    pub archived_run_count: u64,
+    #[serde(default = "complete_runs")]
+    pub runs_complete: bool,
+    #[serde(default)]
     pub skipped_runs: u64,
     #[serde(default)]
     pub last_skipped_at: Option<i64>,
@@ -211,6 +217,34 @@ pub struct Task {
     pub max_active_seconds: Option<u64>,
     pub runs: Vec<TaskRun>,
     pub messages: Vec<ChannelMessage>,
+}
+
+fn complete_runs() -> bool {
+    true
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TaskRunsList {
+    pub task_id: String,
+    pub cursor: Option<String>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TaskRunRead {
+    pub task_id: String,
+    pub run_id: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TaskRunsPage {
+    pub data: Vec<TaskRun>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
+    pub run_count: u64,
 }
 
 #[cfg(test)]

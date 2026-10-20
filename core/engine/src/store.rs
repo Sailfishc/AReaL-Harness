@@ -423,6 +423,30 @@ impl Store {
         Ok(threads)
     }
 
+    pub(crate) fn read_thread_snapshot_sync(
+        &self,
+        id: &str,
+        maximum_bytes: usize,
+        include_history: bool,
+    ) -> Result<Thread> {
+        anyhow::ensure!(uuid::Uuid::parse_str(id).is_ok(), "invalid thread ID");
+        let path = self.root.join(format!("{id}.json"));
+        anyhow::ensure!(
+            std::fs::metadata(&path)?.len() <= maximum_bytes as u64,
+            "Thread exceeds snapshot read bound"
+        );
+        let bytes = std::fs::read(path)?;
+        let mut thread = serde_json::from_slice::<Record>(&bytes)?.thread;
+        anyhow::ensure!(
+            include_history || thread.history_archive.is_none(),
+            "Thread requires archived history inspection"
+        );
+        if include_history {
+            archive::hydrate(&self.root, &mut thread)?;
+        }
+        Ok(thread)
+    }
+
     pub(crate) async fn read_thread(&self, id: &str) -> Result<Thread> {
         anyhow::ensure!(uuid::Uuid::parse_str(id).is_ok(), "invalid thread ID");
         let bytes = tokio::fs::read(self.root.join(format!("{id}.json"))).await?;
@@ -471,10 +495,10 @@ if keep.contains(&name){retained+=e.metadata()?.len();}else{reclaimed+=e.metadat
         let bytes = serde_json::to_vec(value)?;
         let root = self.root.join("desktop");
         let name = name.to_owned();
-        tokio::task::spawn_blocking(move || atomic_metadata(&root, &name, &bytes)).await?
+        tokio::task::spawn_blocking(move || write_metadata(&root, &name, &bytes)).await?
     }
     pub(crate) fn save_metadata_sync(&self, name: &str, value: &impl Serialize) -> Result<()> {
-        atomic_metadata(
+        write_metadata(
             &self.root.join("desktop"),
             name,
             &serde_json::to_vec(value)?,
@@ -678,13 +702,55 @@ fn cleanup_temps(root: &Path) -> Result<()> {
     Ok(())
 }
 
-fn atomic_metadata(root: &Path, name: &str, bytes: &[u8]) -> Result<()> {
+pub(crate) fn write_immutable(root: &Path, bytes: &[u8]) -> Result<String> {
+    let digest = write_immutable_staged(root, bytes)?;
+    File::open(root)?.sync_all()?;
+    if let Some(parent) = root.parent() {
+        File::open(parent)?.sync_all()?;
+        if let Some(grandparent) = parent.parent() {
+            File::open(grandparent)?.sync_all()?;
+        }
+    }
+    Ok(digest)
+}
+
+pub(crate) fn write_immutable_staged(root: &Path, bytes: &[u8]) -> Result<String> {
+    use std::io::Write;
+    std::fs::create_dir_all(root)?;
+    let digest = format!("{:x}", Sha256::digest(bytes));
+    let path = root.join(&digest);
+    if path.exists() {
+        anyhow::ensure!(
+            std::fs::read(&path)? == bytes,
+            "immutable metadata checksum mismatch"
+        );
+        File::open(&path)?.sync_all()?;
+    } else {
+        let mut file = tempfile::NamedTempFile::new_in(root)?;
+        file.write_all(bytes)?;
+        file.as_file().sync_all()?;
+        file.persist_noclobber(&path)?;
+    }
+    Ok(digest)
+}
+
+pub(crate) fn write_metadata(root: &Path, name: &str, bytes: &[u8]) -> Result<()> {
+    write_metadata_after_replace(root, name, bytes, || Ok(()))
+}
+
+pub(crate) fn write_metadata_after_replace(
+    root: &Path,
+    name: &str,
+    bytes: &[u8],
+    after_replace: impl FnOnce() -> Result<()>,
+) -> Result<()> {
     use std::io::Write;
     std::fs::create_dir_all(root)?;
     let mut file = tempfile::NamedTempFile::new_in(root)?;
     file.write_all(bytes)?;
     file.as_file().sync_all()?;
     file.persist(root.join(format!("{name}.json")))?;
+    after_replace()?;
     #[cfg(unix)]
     File::open(root)?.sync_all()?;
     Ok(())
