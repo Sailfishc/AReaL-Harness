@@ -3374,6 +3374,13 @@
                       "null"
                     ]
                   },
+                  "trigger": {
+                    "enum": [
+                      "schedule",
+                      "manual"
+                    ],
+                    "type": "string"
+                  },
                   "usage": {
                     "additionalProperties": false,
                     "properties": {
@@ -20871,19 +20878,46 @@
       "type": "object"
     },
     "areal/request/read": {
-      "additionalProperties": false,
-      "properties": {
-        "requestId": {
-          "type": "string"
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "requestId": {
+              "type": "string"
+            },
+            "threadId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "requestId"
+          ],
+          "type": "object"
         },
-        "threadId": {
-          "type": "string"
+        {
+          "additionalProperties": false,
+          "properties": {
+            "expectedRevision": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "requestId": {
+              "type": "string"
+            },
+            "taskId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "requestId",
+            "taskId",
+            "expectedRevision"
+          ],
+          "title": "TaskRunNow",
+          "type": "object"
         }
-      },
-      "required": [
-        "requestId"
-      ],
-      "type": "object"
+      ]
     },
     "areal/server/drain": {
       "additionalProperties": false,
@@ -21707,6 +21741,29 @@
         "runId"
       ],
       "title": "TaskRunRead",
+      "type": "object"
+    },
+    "areal/task/runNow": {
+      "additionalProperties": false,
+      "properties": {
+        "expectedRevision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "taskId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "taskId",
+        "expectedRevision"
+      ],
+      "title": "TaskRunNow",
       "type": "object"
     },
     "areal/task/runs/list": {
@@ -43766,6 +43823,143 @@
                   "catalogSource": {
                     "default": null
                   },
+                  "componentSupport": {
+                    "anyOf": [
+                      {
+                        "properties": {
+                          "compatibility": {
+                            "properties": {
+                              "reasonCodes": {
+                                "items": {
+                                  "type": "string"
+                                },
+                                "type": "array"
+                              },
+                              "state": {
+                                "enum": [
+                                  "allowed",
+                                  "blocked"
+                                ],
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "state",
+                              "reasonCodes"
+                            ],
+                            "type": "object"
+                          },
+                          "components": {
+                            "items": {
+                              "properties": {
+                                "activationRequirements": {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                },
+                                "kind": {
+                                  "enum": [
+                                    "skills",
+                                    "mcp",
+                                    "hooks",
+                                    "apps",
+                                    "commands",
+                                    "agents",
+                                    "uiSurfaces"
+                                  ],
+                                  "type": "string"
+                                },
+                                "reasonCodes": {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                },
+                                "required": {
+                                  "type": "boolean"
+                                },
+                                "sourceField": {
+                                  "type": "string"
+                                },
+                                "status": {
+                                  "enum": [
+                                    "supported",
+                                    "partial",
+                                    "unsupported"
+                                  ],
+                                  "type": "string"
+                                },
+                                "supportedSchema": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "sourceField",
+                                "status",
+                                "reasonCodes",
+                                "required",
+                                "activationRequirements"
+                              ],
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "digest": {
+                            "type": "string"
+                          },
+                          "manifestFormat": {
+                            "enum": [
+                              "portable1",
+                              "codex",
+                              "claude",
+                              "cursor"
+                            ],
+                            "type": "string"
+                          },
+                          "validation": {
+                            "properties": {
+                              "distribution": {
+                                "type": "string"
+                              },
+                              "platform": {
+                                "type": "string"
+                              },
+                              "provider": {
+                                "type": "string"
+                              },
+                              "scope": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "scope",
+                              "provider",
+                              "platform",
+                              "distribution"
+                            ],
+                            "type": "object"
+                          }
+                        },
+                        "required": [
+                          "digest",
+                          "manifestFormat",
+                          "components",
+                          "compatibility",
+                          "validation"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null
+                  },
                   "components": {
                     "items": {
                       "type": "string"
@@ -43792,6 +43986,143 @@
                   },
                   "installed": {
                     "type": "boolean"
+                  },
+                  "installedComponentSupport": {
+                    "anyOf": [
+                      {
+                        "properties": {
+                          "compatibility": {
+                            "properties": {
+                              "reasonCodes": {
+                                "items": {
+                                  "type": "string"
+                                },
+                                "type": "array"
+                              },
+                              "state": {
+                                "enum": [
+                                  "allowed",
+                                  "blocked"
+                                ],
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "state",
+                              "reasonCodes"
+                            ],
+                            "type": "object"
+                          },
+                          "components": {
+                            "items": {
+                              "properties": {
+                                "activationRequirements": {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                },
+                                "kind": {
+                                  "enum": [
+                                    "skills",
+                                    "mcp",
+                                    "hooks",
+                                    "apps",
+                                    "commands",
+                                    "agents",
+                                    "uiSurfaces"
+                                  ],
+                                  "type": "string"
+                                },
+                                "reasonCodes": {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                },
+                                "required": {
+                                  "type": "boolean"
+                                },
+                                "sourceField": {
+                                  "type": "string"
+                                },
+                                "status": {
+                                  "enum": [
+                                    "supported",
+                                    "partial",
+                                    "unsupported"
+                                  ],
+                                  "type": "string"
+                                },
+                                "supportedSchema": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "sourceField",
+                                "status",
+                                "reasonCodes",
+                                "required",
+                                "activationRequirements"
+                              ],
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "digest": {
+                            "type": "string"
+                          },
+                          "manifestFormat": {
+                            "enum": [
+                              "portable1",
+                              "codex",
+                              "claude",
+                              "cursor"
+                            ],
+                            "type": "string"
+                          },
+                          "validation": {
+                            "properties": {
+                              "distribution": {
+                                "type": "string"
+                              },
+                              "platform": {
+                                "type": "string"
+                              },
+                              "provider": {
+                                "type": "string"
+                              },
+                              "scope": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "scope",
+                              "provider",
+                              "platform",
+                              "distribution"
+                            ],
+                            "type": "object"
+                          }
+                        },
+                        "required": [
+                          "digest",
+                          "manifestFormat",
+                          "components",
+                          "compatibility",
+                          "validation"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null
                   },
                   "installedDigest": {
                     "default": null,
@@ -44068,6 +44399,143 @@
                   "catalogSource": {
                     "default": null
                   },
+                  "componentSupport": {
+                    "anyOf": [
+                      {
+                        "properties": {
+                          "compatibility": {
+                            "properties": {
+                              "reasonCodes": {
+                                "items": {
+                                  "type": "string"
+                                },
+                                "type": "array"
+                              },
+                              "state": {
+                                "enum": [
+                                  "allowed",
+                                  "blocked"
+                                ],
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "state",
+                              "reasonCodes"
+                            ],
+                            "type": "object"
+                          },
+                          "components": {
+                            "items": {
+                              "properties": {
+                                "activationRequirements": {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                },
+                                "kind": {
+                                  "enum": [
+                                    "skills",
+                                    "mcp",
+                                    "hooks",
+                                    "apps",
+                                    "commands",
+                                    "agents",
+                                    "uiSurfaces"
+                                  ],
+                                  "type": "string"
+                                },
+                                "reasonCodes": {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                },
+                                "required": {
+                                  "type": "boolean"
+                                },
+                                "sourceField": {
+                                  "type": "string"
+                                },
+                                "status": {
+                                  "enum": [
+                                    "supported",
+                                    "partial",
+                                    "unsupported"
+                                  ],
+                                  "type": "string"
+                                },
+                                "supportedSchema": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "sourceField",
+                                "status",
+                                "reasonCodes",
+                                "required",
+                                "activationRequirements"
+                              ],
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "digest": {
+                            "type": "string"
+                          },
+                          "manifestFormat": {
+                            "enum": [
+                              "portable1",
+                              "codex",
+                              "claude",
+                              "cursor"
+                            ],
+                            "type": "string"
+                          },
+                          "validation": {
+                            "properties": {
+                              "distribution": {
+                                "type": "string"
+                              },
+                              "platform": {
+                                "type": "string"
+                              },
+                              "provider": {
+                                "type": "string"
+                              },
+                              "scope": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "scope",
+                              "provider",
+                              "platform",
+                              "distribution"
+                            ],
+                            "type": "object"
+                          }
+                        },
+                        "required": [
+                          "digest",
+                          "manifestFormat",
+                          "components",
+                          "compatibility",
+                          "validation"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null
+                  },
                   "components": {
                     "items": {
                       "type": "string"
@@ -44094,6 +44562,143 @@
                   },
                   "installed": {
                     "type": "boolean"
+                  },
+                  "installedComponentSupport": {
+                    "anyOf": [
+                      {
+                        "properties": {
+                          "compatibility": {
+                            "properties": {
+                              "reasonCodes": {
+                                "items": {
+                                  "type": "string"
+                                },
+                                "type": "array"
+                              },
+                              "state": {
+                                "enum": [
+                                  "allowed",
+                                  "blocked"
+                                ],
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "state",
+                              "reasonCodes"
+                            ],
+                            "type": "object"
+                          },
+                          "components": {
+                            "items": {
+                              "properties": {
+                                "activationRequirements": {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                },
+                                "kind": {
+                                  "enum": [
+                                    "skills",
+                                    "mcp",
+                                    "hooks",
+                                    "apps",
+                                    "commands",
+                                    "agents",
+                                    "uiSurfaces"
+                                  ],
+                                  "type": "string"
+                                },
+                                "reasonCodes": {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                },
+                                "required": {
+                                  "type": "boolean"
+                                },
+                                "sourceField": {
+                                  "type": "string"
+                                },
+                                "status": {
+                                  "enum": [
+                                    "supported",
+                                    "partial",
+                                    "unsupported"
+                                  ],
+                                  "type": "string"
+                                },
+                                "supportedSchema": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "sourceField",
+                                "status",
+                                "reasonCodes",
+                                "required",
+                                "activationRequirements"
+                              ],
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "digest": {
+                            "type": "string"
+                          },
+                          "manifestFormat": {
+                            "enum": [
+                              "portable1",
+                              "codex",
+                              "claude",
+                              "cursor"
+                            ],
+                            "type": "string"
+                          },
+                          "validation": {
+                            "properties": {
+                              "distribution": {
+                                "type": "string"
+                              },
+                              "platform": {
+                                "type": "string"
+                              },
+                              "provider": {
+                                "type": "string"
+                              },
+                              "scope": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "scope",
+                              "provider",
+                              "platform",
+                              "distribution"
+                            ],
+                            "type": "object"
+                          }
+                        },
+                        "required": [
+                          "digest",
+                          "manifestFormat",
+                          "components",
+                          "compatibility",
+                          "validation"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null
                   },
                   "installedDigest": {
                     "default": null,
@@ -44370,6 +44975,143 @@
                   "catalogSource": {
                     "default": null
                   },
+                  "componentSupport": {
+                    "anyOf": [
+                      {
+                        "properties": {
+                          "compatibility": {
+                            "properties": {
+                              "reasonCodes": {
+                                "items": {
+                                  "type": "string"
+                                },
+                                "type": "array"
+                              },
+                              "state": {
+                                "enum": [
+                                  "allowed",
+                                  "blocked"
+                                ],
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "state",
+                              "reasonCodes"
+                            ],
+                            "type": "object"
+                          },
+                          "components": {
+                            "items": {
+                              "properties": {
+                                "activationRequirements": {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                },
+                                "kind": {
+                                  "enum": [
+                                    "skills",
+                                    "mcp",
+                                    "hooks",
+                                    "apps",
+                                    "commands",
+                                    "agents",
+                                    "uiSurfaces"
+                                  ],
+                                  "type": "string"
+                                },
+                                "reasonCodes": {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                },
+                                "required": {
+                                  "type": "boolean"
+                                },
+                                "sourceField": {
+                                  "type": "string"
+                                },
+                                "status": {
+                                  "enum": [
+                                    "supported",
+                                    "partial",
+                                    "unsupported"
+                                  ],
+                                  "type": "string"
+                                },
+                                "supportedSchema": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "sourceField",
+                                "status",
+                                "reasonCodes",
+                                "required",
+                                "activationRequirements"
+                              ],
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "digest": {
+                            "type": "string"
+                          },
+                          "manifestFormat": {
+                            "enum": [
+                              "portable1",
+                              "codex",
+                              "claude",
+                              "cursor"
+                            ],
+                            "type": "string"
+                          },
+                          "validation": {
+                            "properties": {
+                              "distribution": {
+                                "type": "string"
+                              },
+                              "platform": {
+                                "type": "string"
+                              },
+                              "provider": {
+                                "type": "string"
+                              },
+                              "scope": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "scope",
+                              "provider",
+                              "platform",
+                              "distribution"
+                            ],
+                            "type": "object"
+                          }
+                        },
+                        "required": [
+                          "digest",
+                          "manifestFormat",
+                          "components",
+                          "compatibility",
+                          "validation"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null
+                  },
                   "components": {
                     "items": {
                       "type": "string"
@@ -44396,6 +45138,143 @@
                   },
                   "installed": {
                     "type": "boolean"
+                  },
+                  "installedComponentSupport": {
+                    "anyOf": [
+                      {
+                        "properties": {
+                          "compatibility": {
+                            "properties": {
+                              "reasonCodes": {
+                                "items": {
+                                  "type": "string"
+                                },
+                                "type": "array"
+                              },
+                              "state": {
+                                "enum": [
+                                  "allowed",
+                                  "blocked"
+                                ],
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "state",
+                              "reasonCodes"
+                            ],
+                            "type": "object"
+                          },
+                          "components": {
+                            "items": {
+                              "properties": {
+                                "activationRequirements": {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                },
+                                "kind": {
+                                  "enum": [
+                                    "skills",
+                                    "mcp",
+                                    "hooks",
+                                    "apps",
+                                    "commands",
+                                    "agents",
+                                    "uiSurfaces"
+                                  ],
+                                  "type": "string"
+                                },
+                                "reasonCodes": {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                },
+                                "required": {
+                                  "type": "boolean"
+                                },
+                                "sourceField": {
+                                  "type": "string"
+                                },
+                                "status": {
+                                  "enum": [
+                                    "supported",
+                                    "partial",
+                                    "unsupported"
+                                  ],
+                                  "type": "string"
+                                },
+                                "supportedSchema": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "sourceField",
+                                "status",
+                                "reasonCodes",
+                                "required",
+                                "activationRequirements"
+                              ],
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "digest": {
+                            "type": "string"
+                          },
+                          "manifestFormat": {
+                            "enum": [
+                              "portable1",
+                              "codex",
+                              "claude",
+                              "cursor"
+                            ],
+                            "type": "string"
+                          },
+                          "validation": {
+                            "properties": {
+                              "distribution": {
+                                "type": "string"
+                              },
+                              "platform": {
+                                "type": "string"
+                              },
+                              "provider": {
+                                "type": "string"
+                              },
+                              "scope": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "scope",
+                              "provider",
+                              "platform",
+                              "distribution"
+                            ],
+                            "type": "object"
+                          }
+                        },
+                        "required": [
+                          "digest",
+                          "manifestFormat",
+                          "components",
+                          "compatibility",
+                          "validation"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null
                   },
                   "installedDigest": {
                     "default": null,
@@ -44672,6 +45551,143 @@
                   "catalogSource": {
                     "default": null
                   },
+                  "componentSupport": {
+                    "anyOf": [
+                      {
+                        "properties": {
+                          "compatibility": {
+                            "properties": {
+                              "reasonCodes": {
+                                "items": {
+                                  "type": "string"
+                                },
+                                "type": "array"
+                              },
+                              "state": {
+                                "enum": [
+                                  "allowed",
+                                  "blocked"
+                                ],
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "state",
+                              "reasonCodes"
+                            ],
+                            "type": "object"
+                          },
+                          "components": {
+                            "items": {
+                              "properties": {
+                                "activationRequirements": {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                },
+                                "kind": {
+                                  "enum": [
+                                    "skills",
+                                    "mcp",
+                                    "hooks",
+                                    "apps",
+                                    "commands",
+                                    "agents",
+                                    "uiSurfaces"
+                                  ],
+                                  "type": "string"
+                                },
+                                "reasonCodes": {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                },
+                                "required": {
+                                  "type": "boolean"
+                                },
+                                "sourceField": {
+                                  "type": "string"
+                                },
+                                "status": {
+                                  "enum": [
+                                    "supported",
+                                    "partial",
+                                    "unsupported"
+                                  ],
+                                  "type": "string"
+                                },
+                                "supportedSchema": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "sourceField",
+                                "status",
+                                "reasonCodes",
+                                "required",
+                                "activationRequirements"
+                              ],
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "digest": {
+                            "type": "string"
+                          },
+                          "manifestFormat": {
+                            "enum": [
+                              "portable1",
+                              "codex",
+                              "claude",
+                              "cursor"
+                            ],
+                            "type": "string"
+                          },
+                          "validation": {
+                            "properties": {
+                              "distribution": {
+                                "type": "string"
+                              },
+                              "platform": {
+                                "type": "string"
+                              },
+                              "provider": {
+                                "type": "string"
+                              },
+                              "scope": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "scope",
+                              "provider",
+                              "platform",
+                              "distribution"
+                            ],
+                            "type": "object"
+                          }
+                        },
+                        "required": [
+                          "digest",
+                          "manifestFormat",
+                          "components",
+                          "compatibility",
+                          "validation"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null
+                  },
                   "components": {
                     "items": {
                       "type": "string"
@@ -44698,6 +45714,143 @@
                   },
                   "installed": {
                     "type": "boolean"
+                  },
+                  "installedComponentSupport": {
+                    "anyOf": [
+                      {
+                        "properties": {
+                          "compatibility": {
+                            "properties": {
+                              "reasonCodes": {
+                                "items": {
+                                  "type": "string"
+                                },
+                                "type": "array"
+                              },
+                              "state": {
+                                "enum": [
+                                  "allowed",
+                                  "blocked"
+                                ],
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "state",
+                              "reasonCodes"
+                            ],
+                            "type": "object"
+                          },
+                          "components": {
+                            "items": {
+                              "properties": {
+                                "activationRequirements": {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                },
+                                "kind": {
+                                  "enum": [
+                                    "skills",
+                                    "mcp",
+                                    "hooks",
+                                    "apps",
+                                    "commands",
+                                    "agents",
+                                    "uiSurfaces"
+                                  ],
+                                  "type": "string"
+                                },
+                                "reasonCodes": {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                },
+                                "required": {
+                                  "type": "boolean"
+                                },
+                                "sourceField": {
+                                  "type": "string"
+                                },
+                                "status": {
+                                  "enum": [
+                                    "supported",
+                                    "partial",
+                                    "unsupported"
+                                  ],
+                                  "type": "string"
+                                },
+                                "supportedSchema": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "sourceField",
+                                "status",
+                                "reasonCodes",
+                                "required",
+                                "activationRequirements"
+                              ],
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "digest": {
+                            "type": "string"
+                          },
+                          "manifestFormat": {
+                            "enum": [
+                              "portable1",
+                              "codex",
+                              "claude",
+                              "cursor"
+                            ],
+                            "type": "string"
+                          },
+                          "validation": {
+                            "properties": {
+                              "distribution": {
+                                "type": "string"
+                              },
+                              "platform": {
+                                "type": "string"
+                              },
+                              "provider": {
+                                "type": "string"
+                              },
+                              "scope": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "scope",
+                              "provider",
+                              "platform",
+                              "distribution"
+                            ],
+                            "type": "object"
+                          }
+                        },
+                        "required": [
+                          "digest",
+                          "manifestFormat",
+                          "components",
+                          "compatibility",
+                          "validation"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null
                   },
                   "installedDigest": {
                     "default": null,
@@ -46931,6 +48084,143 @@
         "catalogSource": {
           "default": null
         },
+        "componentSupport": {
+          "anyOf": [
+            {
+              "properties": {
+                "compatibility": {
+                  "properties": {
+                    "reasonCodes": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "state": {
+                      "enum": [
+                        "allowed",
+                        "blocked"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "reasonCodes"
+                  ],
+                  "type": "object"
+                },
+                "components": {
+                  "items": {
+                    "properties": {
+                      "activationRequirements": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "kind": {
+                        "enum": [
+                          "skills",
+                          "mcp",
+                          "hooks",
+                          "apps",
+                          "commands",
+                          "agents",
+                          "uiSurfaces"
+                        ],
+                        "type": "string"
+                      },
+                      "reasonCodes": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "required": {
+                        "type": "boolean"
+                      },
+                      "sourceField": {
+                        "type": "string"
+                      },
+                      "status": {
+                        "enum": [
+                          "supported",
+                          "partial",
+                          "unsupported"
+                        ],
+                        "type": "string"
+                      },
+                      "supportedSchema": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "sourceField",
+                      "status",
+                      "reasonCodes",
+                      "required",
+                      "activationRequirements"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "digest": {
+                  "type": "string"
+                },
+                "manifestFormat": {
+                  "enum": [
+                    "portable1",
+                    "codex",
+                    "claude",
+                    "cursor"
+                  ],
+                  "type": "string"
+                },
+                "validation": {
+                  "properties": {
+                    "distribution": {
+                      "type": "string"
+                    },
+                    "platform": {
+                      "type": "string"
+                    },
+                    "provider": {
+                      "type": "string"
+                    },
+                    "scope": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "scope",
+                    "provider",
+                    "platform",
+                    "distribution"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "digest",
+                "manifestFormat",
+                "components",
+                "compatibility",
+                "validation"
+              ],
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "components": {
           "items": {
             "type": "string"
@@ -46957,6 +48247,143 @@
         },
         "installed": {
           "type": "boolean"
+        },
+        "installedComponentSupport": {
+          "anyOf": [
+            {
+              "properties": {
+                "compatibility": {
+                  "properties": {
+                    "reasonCodes": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "state": {
+                      "enum": [
+                        "allowed",
+                        "blocked"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "reasonCodes"
+                  ],
+                  "type": "object"
+                },
+                "components": {
+                  "items": {
+                    "properties": {
+                      "activationRequirements": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "kind": {
+                        "enum": [
+                          "skills",
+                          "mcp",
+                          "hooks",
+                          "apps",
+                          "commands",
+                          "agents",
+                          "uiSurfaces"
+                        ],
+                        "type": "string"
+                      },
+                      "reasonCodes": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "required": {
+                        "type": "boolean"
+                      },
+                      "sourceField": {
+                        "type": "string"
+                      },
+                      "status": {
+                        "enum": [
+                          "supported",
+                          "partial",
+                          "unsupported"
+                        ],
+                        "type": "string"
+                      },
+                      "supportedSchema": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "sourceField",
+                      "status",
+                      "reasonCodes",
+                      "required",
+                      "activationRequirements"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "digest": {
+                  "type": "string"
+                },
+                "manifestFormat": {
+                  "enum": [
+                    "portable1",
+                    "codex",
+                    "claude",
+                    "cursor"
+                  ],
+                  "type": "string"
+                },
+                "validation": {
+                  "properties": {
+                    "distribution": {
+                      "type": "string"
+                    },
+                    "platform": {
+                      "type": "string"
+                    },
+                    "provider": {
+                      "type": "string"
+                    },
+                    "scope": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "scope",
+                    "provider",
+                    "platform",
+                    "distribution"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "digest",
+                "manifestFormat",
+                "components",
+                "compatibility",
+                "validation"
+              ],
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "installedDigest": {
           "default": null,
@@ -47699,6 +49126,143 @@
         "catalogSource": {
           "default": null
         },
+        "componentSupport": {
+          "anyOf": [
+            {
+              "properties": {
+                "compatibility": {
+                  "properties": {
+                    "reasonCodes": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "state": {
+                      "enum": [
+                        "allowed",
+                        "blocked"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "reasonCodes"
+                  ],
+                  "type": "object"
+                },
+                "components": {
+                  "items": {
+                    "properties": {
+                      "activationRequirements": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "kind": {
+                        "enum": [
+                          "skills",
+                          "mcp",
+                          "hooks",
+                          "apps",
+                          "commands",
+                          "agents",
+                          "uiSurfaces"
+                        ],
+                        "type": "string"
+                      },
+                      "reasonCodes": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "required": {
+                        "type": "boolean"
+                      },
+                      "sourceField": {
+                        "type": "string"
+                      },
+                      "status": {
+                        "enum": [
+                          "supported",
+                          "partial",
+                          "unsupported"
+                        ],
+                        "type": "string"
+                      },
+                      "supportedSchema": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "sourceField",
+                      "status",
+                      "reasonCodes",
+                      "required",
+                      "activationRequirements"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "digest": {
+                  "type": "string"
+                },
+                "manifestFormat": {
+                  "enum": [
+                    "portable1",
+                    "codex",
+                    "claude",
+                    "cursor"
+                  ],
+                  "type": "string"
+                },
+                "validation": {
+                  "properties": {
+                    "distribution": {
+                      "type": "string"
+                    },
+                    "platform": {
+                      "type": "string"
+                    },
+                    "provider": {
+                      "type": "string"
+                    },
+                    "scope": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "scope",
+                    "provider",
+                    "platform",
+                    "distribution"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "digest",
+                "manifestFormat",
+                "components",
+                "compatibility",
+                "validation"
+              ],
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "components": {
           "items": {
             "type": "string"
@@ -47725,6 +49289,143 @@
         },
         "installed": {
           "type": "boolean"
+        },
+        "installedComponentSupport": {
+          "anyOf": [
+            {
+              "properties": {
+                "compatibility": {
+                  "properties": {
+                    "reasonCodes": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "state": {
+                      "enum": [
+                        "allowed",
+                        "blocked"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "reasonCodes"
+                  ],
+                  "type": "object"
+                },
+                "components": {
+                  "items": {
+                    "properties": {
+                      "activationRequirements": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "kind": {
+                        "enum": [
+                          "skills",
+                          "mcp",
+                          "hooks",
+                          "apps",
+                          "commands",
+                          "agents",
+                          "uiSurfaces"
+                        ],
+                        "type": "string"
+                      },
+                      "reasonCodes": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "required": {
+                        "type": "boolean"
+                      },
+                      "sourceField": {
+                        "type": "string"
+                      },
+                      "status": {
+                        "enum": [
+                          "supported",
+                          "partial",
+                          "unsupported"
+                        ],
+                        "type": "string"
+                      },
+                      "supportedSchema": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "sourceField",
+                      "status",
+                      "reasonCodes",
+                      "required",
+                      "activationRequirements"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "digest": {
+                  "type": "string"
+                },
+                "manifestFormat": {
+                  "enum": [
+                    "portable1",
+                    "codex",
+                    "claude",
+                    "cursor"
+                  ],
+                  "type": "string"
+                },
+                "validation": {
+                  "properties": {
+                    "distribution": {
+                      "type": "string"
+                    },
+                    "platform": {
+                      "type": "string"
+                    },
+                    "provider": {
+                      "type": "string"
+                    },
+                    "scope": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "scope",
+                    "provider",
+                    "platform",
+                    "distribution"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "digest",
+                "manifestFormat",
+                "components",
+                "compatibility",
+                "validation"
+              ],
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "installedDigest": {
           "default": null,
@@ -47923,6 +49624,143 @@
         "catalogSource": {
           "default": null
         },
+        "componentSupport": {
+          "anyOf": [
+            {
+              "properties": {
+                "compatibility": {
+                  "properties": {
+                    "reasonCodes": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "state": {
+                      "enum": [
+                        "allowed",
+                        "blocked"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "reasonCodes"
+                  ],
+                  "type": "object"
+                },
+                "components": {
+                  "items": {
+                    "properties": {
+                      "activationRequirements": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "kind": {
+                        "enum": [
+                          "skills",
+                          "mcp",
+                          "hooks",
+                          "apps",
+                          "commands",
+                          "agents",
+                          "uiSurfaces"
+                        ],
+                        "type": "string"
+                      },
+                      "reasonCodes": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "required": {
+                        "type": "boolean"
+                      },
+                      "sourceField": {
+                        "type": "string"
+                      },
+                      "status": {
+                        "enum": [
+                          "supported",
+                          "partial",
+                          "unsupported"
+                        ],
+                        "type": "string"
+                      },
+                      "supportedSchema": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "sourceField",
+                      "status",
+                      "reasonCodes",
+                      "required",
+                      "activationRequirements"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "digest": {
+                  "type": "string"
+                },
+                "manifestFormat": {
+                  "enum": [
+                    "portable1",
+                    "codex",
+                    "claude",
+                    "cursor"
+                  ],
+                  "type": "string"
+                },
+                "validation": {
+                  "properties": {
+                    "distribution": {
+                      "type": "string"
+                    },
+                    "platform": {
+                      "type": "string"
+                    },
+                    "provider": {
+                      "type": "string"
+                    },
+                    "scope": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "scope",
+                    "provider",
+                    "platform",
+                    "distribution"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "digest",
+                "manifestFormat",
+                "components",
+                "compatibility",
+                "validation"
+              ],
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "components": {
           "items": {
             "type": "string"
@@ -47949,6 +49787,143 @@
         },
         "installed": {
           "type": "boolean"
+        },
+        "installedComponentSupport": {
+          "anyOf": [
+            {
+              "properties": {
+                "compatibility": {
+                  "properties": {
+                    "reasonCodes": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "state": {
+                      "enum": [
+                        "allowed",
+                        "blocked"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "reasonCodes"
+                  ],
+                  "type": "object"
+                },
+                "components": {
+                  "items": {
+                    "properties": {
+                      "activationRequirements": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "kind": {
+                        "enum": [
+                          "skills",
+                          "mcp",
+                          "hooks",
+                          "apps",
+                          "commands",
+                          "agents",
+                          "uiSurfaces"
+                        ],
+                        "type": "string"
+                      },
+                      "reasonCodes": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "required": {
+                        "type": "boolean"
+                      },
+                      "sourceField": {
+                        "type": "string"
+                      },
+                      "status": {
+                        "enum": [
+                          "supported",
+                          "partial",
+                          "unsupported"
+                        ],
+                        "type": "string"
+                      },
+                      "supportedSchema": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "sourceField",
+                      "status",
+                      "reasonCodes",
+                      "required",
+                      "activationRequirements"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "digest": {
+                  "type": "string"
+                },
+                "manifestFormat": {
+                  "enum": [
+                    "portable1",
+                    "codex",
+                    "claude",
+                    "cursor"
+                  ],
+                  "type": "string"
+                },
+                "validation": {
+                  "properties": {
+                    "distribution": {
+                      "type": "string"
+                    },
+                    "platform": {
+                      "type": "string"
+                    },
+                    "provider": {
+                      "type": "string"
+                    },
+                    "scope": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "scope",
+                    "provider",
+                    "platform",
+                    "distribution"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "digest",
+                "manifestFormat",
+                "components",
+                "compatibility",
+                "validation"
+              ],
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "installedDigest": {
           "default": null,
@@ -48150,6 +50125,143 @@
               "catalogSource": {
                 "default": null
               },
+              "componentSupport": {
+                "anyOf": [
+                  {
+                    "properties": {
+                      "compatibility": {
+                        "properties": {
+                          "reasonCodes": {
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          },
+                          "state": {
+                            "enum": [
+                              "allowed",
+                              "blocked"
+                            ],
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "state",
+                          "reasonCodes"
+                        ],
+                        "type": "object"
+                      },
+                      "components": {
+                        "items": {
+                          "properties": {
+                            "activationRequirements": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "kind": {
+                              "enum": [
+                                "skills",
+                                "mcp",
+                                "hooks",
+                                "apps",
+                                "commands",
+                                "agents",
+                                "uiSurfaces"
+                              ],
+                              "type": "string"
+                            },
+                            "reasonCodes": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "required": {
+                              "type": "boolean"
+                            },
+                            "sourceField": {
+                              "type": "string"
+                            },
+                            "status": {
+                              "enum": [
+                                "supported",
+                                "partial",
+                                "unsupported"
+                              ],
+                              "type": "string"
+                            },
+                            "supportedSchema": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "sourceField",
+                            "status",
+                            "reasonCodes",
+                            "required",
+                            "activationRequirements"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "digest": {
+                        "type": "string"
+                      },
+                      "manifestFormat": {
+                        "enum": [
+                          "portable1",
+                          "codex",
+                          "claude",
+                          "cursor"
+                        ],
+                        "type": "string"
+                      },
+                      "validation": {
+                        "properties": {
+                          "distribution": {
+                            "type": "string"
+                          },
+                          "platform": {
+                            "type": "string"
+                          },
+                          "provider": {
+                            "type": "string"
+                          },
+                          "scope": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "scope",
+                          "provider",
+                          "platform",
+                          "distribution"
+                        ],
+                        "type": "object"
+                      }
+                    },
+                    "required": [
+                      "digest",
+                      "manifestFormat",
+                      "components",
+                      "compatibility",
+                      "validation"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
               "components": {
                 "items": {
                   "type": "string"
@@ -48176,6 +50288,143 @@
               },
               "installed": {
                 "type": "boolean"
+              },
+              "installedComponentSupport": {
+                "anyOf": [
+                  {
+                    "properties": {
+                      "compatibility": {
+                        "properties": {
+                          "reasonCodes": {
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          },
+                          "state": {
+                            "enum": [
+                              "allowed",
+                              "blocked"
+                            ],
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "state",
+                          "reasonCodes"
+                        ],
+                        "type": "object"
+                      },
+                      "components": {
+                        "items": {
+                          "properties": {
+                            "activationRequirements": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "kind": {
+                              "enum": [
+                                "skills",
+                                "mcp",
+                                "hooks",
+                                "apps",
+                                "commands",
+                                "agents",
+                                "uiSurfaces"
+                              ],
+                              "type": "string"
+                            },
+                            "reasonCodes": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "required": {
+                              "type": "boolean"
+                            },
+                            "sourceField": {
+                              "type": "string"
+                            },
+                            "status": {
+                              "enum": [
+                                "supported",
+                                "partial",
+                                "unsupported"
+                              ],
+                              "type": "string"
+                            },
+                            "supportedSchema": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "sourceField",
+                            "status",
+                            "reasonCodes",
+                            "required",
+                            "activationRequirements"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "digest": {
+                        "type": "string"
+                      },
+                      "manifestFormat": {
+                        "enum": [
+                          "portable1",
+                          "codex",
+                          "claude",
+                          "cursor"
+                        ],
+                        "type": "string"
+                      },
+                      "validation": {
+                        "properties": {
+                          "distribution": {
+                            "type": "string"
+                          },
+                          "platform": {
+                            "type": "string"
+                          },
+                          "provider": {
+                            "type": "string"
+                          },
+                          "scope": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "scope",
+                          "provider",
+                          "platform",
+                          "distribution"
+                        ],
+                        "type": "object"
+                      }
+                    },
+                    "required": [
+                      "digest",
+                      "manifestFormat",
+                      "components",
+                      "compatibility",
+                      "validation"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
               },
               "installedDigest": {
                 "default": null,
@@ -48739,6 +50988,143 @@
         "catalogSource": {
           "default": null
         },
+        "componentSupport": {
+          "anyOf": [
+            {
+              "properties": {
+                "compatibility": {
+                  "properties": {
+                    "reasonCodes": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "state": {
+                      "enum": [
+                        "allowed",
+                        "blocked"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "reasonCodes"
+                  ],
+                  "type": "object"
+                },
+                "components": {
+                  "items": {
+                    "properties": {
+                      "activationRequirements": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "kind": {
+                        "enum": [
+                          "skills",
+                          "mcp",
+                          "hooks",
+                          "apps",
+                          "commands",
+                          "agents",
+                          "uiSurfaces"
+                        ],
+                        "type": "string"
+                      },
+                      "reasonCodes": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "required": {
+                        "type": "boolean"
+                      },
+                      "sourceField": {
+                        "type": "string"
+                      },
+                      "status": {
+                        "enum": [
+                          "supported",
+                          "partial",
+                          "unsupported"
+                        ],
+                        "type": "string"
+                      },
+                      "supportedSchema": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "sourceField",
+                      "status",
+                      "reasonCodes",
+                      "required",
+                      "activationRequirements"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "digest": {
+                  "type": "string"
+                },
+                "manifestFormat": {
+                  "enum": [
+                    "portable1",
+                    "codex",
+                    "claude",
+                    "cursor"
+                  ],
+                  "type": "string"
+                },
+                "validation": {
+                  "properties": {
+                    "distribution": {
+                      "type": "string"
+                    },
+                    "platform": {
+                      "type": "string"
+                    },
+                    "provider": {
+                      "type": "string"
+                    },
+                    "scope": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "scope",
+                    "provider",
+                    "platform",
+                    "distribution"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "digest",
+                "manifestFormat",
+                "components",
+                "compatibility",
+                "validation"
+              ],
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "components": {
           "items": {
             "type": "string"
@@ -48765,6 +51151,143 @@
         },
         "installed": {
           "type": "boolean"
+        },
+        "installedComponentSupport": {
+          "anyOf": [
+            {
+              "properties": {
+                "compatibility": {
+                  "properties": {
+                    "reasonCodes": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "state": {
+                      "enum": [
+                        "allowed",
+                        "blocked"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "reasonCodes"
+                  ],
+                  "type": "object"
+                },
+                "components": {
+                  "items": {
+                    "properties": {
+                      "activationRequirements": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "kind": {
+                        "enum": [
+                          "skills",
+                          "mcp",
+                          "hooks",
+                          "apps",
+                          "commands",
+                          "agents",
+                          "uiSurfaces"
+                        ],
+                        "type": "string"
+                      },
+                      "reasonCodes": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "required": {
+                        "type": "boolean"
+                      },
+                      "sourceField": {
+                        "type": "string"
+                      },
+                      "status": {
+                        "enum": [
+                          "supported",
+                          "partial",
+                          "unsupported"
+                        ],
+                        "type": "string"
+                      },
+                      "supportedSchema": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "sourceField",
+                      "status",
+                      "reasonCodes",
+                      "required",
+                      "activationRequirements"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "digest": {
+                  "type": "string"
+                },
+                "manifestFormat": {
+                  "enum": [
+                    "portable1",
+                    "codex",
+                    "claude",
+                    "cursor"
+                  ],
+                  "type": "string"
+                },
+                "validation": {
+                  "properties": {
+                    "distribution": {
+                      "type": "string"
+                    },
+                    "platform": {
+                      "type": "string"
+                    },
+                    "provider": {
+                      "type": "string"
+                    },
+                    "scope": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "scope",
+                    "provider",
+                    "platform",
+                    "distribution"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "digest",
+                "manifestFormat",
+                "components",
+                "compatibility",
+                "validation"
+              ],
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "installedDigest": {
           "default": null,
@@ -48963,6 +51486,143 @@
         "catalogSource": {
           "default": null
         },
+        "componentSupport": {
+          "anyOf": [
+            {
+              "properties": {
+                "compatibility": {
+                  "properties": {
+                    "reasonCodes": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "state": {
+                      "enum": [
+                        "allowed",
+                        "blocked"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "reasonCodes"
+                  ],
+                  "type": "object"
+                },
+                "components": {
+                  "items": {
+                    "properties": {
+                      "activationRequirements": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "kind": {
+                        "enum": [
+                          "skills",
+                          "mcp",
+                          "hooks",
+                          "apps",
+                          "commands",
+                          "agents",
+                          "uiSurfaces"
+                        ],
+                        "type": "string"
+                      },
+                      "reasonCodes": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "required": {
+                        "type": "boolean"
+                      },
+                      "sourceField": {
+                        "type": "string"
+                      },
+                      "status": {
+                        "enum": [
+                          "supported",
+                          "partial",
+                          "unsupported"
+                        ],
+                        "type": "string"
+                      },
+                      "supportedSchema": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "sourceField",
+                      "status",
+                      "reasonCodes",
+                      "required",
+                      "activationRequirements"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "digest": {
+                  "type": "string"
+                },
+                "manifestFormat": {
+                  "enum": [
+                    "portable1",
+                    "codex",
+                    "claude",
+                    "cursor"
+                  ],
+                  "type": "string"
+                },
+                "validation": {
+                  "properties": {
+                    "distribution": {
+                      "type": "string"
+                    },
+                    "platform": {
+                      "type": "string"
+                    },
+                    "provider": {
+                      "type": "string"
+                    },
+                    "scope": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "scope",
+                    "provider",
+                    "platform",
+                    "distribution"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "digest",
+                "manifestFormat",
+                "components",
+                "compatibility",
+                "validation"
+              ],
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "components": {
           "items": {
             "type": "string"
@@ -48989,6 +51649,143 @@
         },
         "installed": {
           "type": "boolean"
+        },
+        "installedComponentSupport": {
+          "anyOf": [
+            {
+              "properties": {
+                "compatibility": {
+                  "properties": {
+                    "reasonCodes": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "state": {
+                      "enum": [
+                        "allowed",
+                        "blocked"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "reasonCodes"
+                  ],
+                  "type": "object"
+                },
+                "components": {
+                  "items": {
+                    "properties": {
+                      "activationRequirements": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "kind": {
+                        "enum": [
+                          "skills",
+                          "mcp",
+                          "hooks",
+                          "apps",
+                          "commands",
+                          "agents",
+                          "uiSurfaces"
+                        ],
+                        "type": "string"
+                      },
+                      "reasonCodes": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "required": {
+                        "type": "boolean"
+                      },
+                      "sourceField": {
+                        "type": "string"
+                      },
+                      "status": {
+                        "enum": [
+                          "supported",
+                          "partial",
+                          "unsupported"
+                        ],
+                        "type": "string"
+                      },
+                      "supportedSchema": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "sourceField",
+                      "status",
+                      "reasonCodes",
+                      "required",
+                      "activationRequirements"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "digest": {
+                  "type": "string"
+                },
+                "manifestFormat": {
+                  "enum": [
+                    "portable1",
+                    "codex",
+                    "claude",
+                    "cursor"
+                  ],
+                  "type": "string"
+                },
+                "validation": {
+                  "properties": {
+                    "distribution": {
+                      "type": "string"
+                    },
+                    "platform": {
+                      "type": "string"
+                    },
+                    "provider": {
+                      "type": "string"
+                    },
+                    "scope": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "scope",
+                    "provider",
+                    "platform",
+                    "distribution"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "digest",
+                "manifestFormat",
+                "components",
+                "compatibility",
+                "validation"
+              ],
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "installedDigest": {
           "default": null,
@@ -54493,6 +57290,143 @@
                   "catalogSource": {
                     "default": null
                   },
+                  "componentSupport": {
+                    "anyOf": [
+                      {
+                        "properties": {
+                          "compatibility": {
+                            "properties": {
+                              "reasonCodes": {
+                                "items": {
+                                  "type": "string"
+                                },
+                                "type": "array"
+                              },
+                              "state": {
+                                "enum": [
+                                  "allowed",
+                                  "blocked"
+                                ],
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "state",
+                              "reasonCodes"
+                            ],
+                            "type": "object"
+                          },
+                          "components": {
+                            "items": {
+                              "properties": {
+                                "activationRequirements": {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                },
+                                "kind": {
+                                  "enum": [
+                                    "skills",
+                                    "mcp",
+                                    "hooks",
+                                    "apps",
+                                    "commands",
+                                    "agents",
+                                    "uiSurfaces"
+                                  ],
+                                  "type": "string"
+                                },
+                                "reasonCodes": {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                },
+                                "required": {
+                                  "type": "boolean"
+                                },
+                                "sourceField": {
+                                  "type": "string"
+                                },
+                                "status": {
+                                  "enum": [
+                                    "supported",
+                                    "partial",
+                                    "unsupported"
+                                  ],
+                                  "type": "string"
+                                },
+                                "supportedSchema": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "sourceField",
+                                "status",
+                                "reasonCodes",
+                                "required",
+                                "activationRequirements"
+                              ],
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "digest": {
+                            "type": "string"
+                          },
+                          "manifestFormat": {
+                            "enum": [
+                              "portable1",
+                              "codex",
+                              "claude",
+                              "cursor"
+                            ],
+                            "type": "string"
+                          },
+                          "validation": {
+                            "properties": {
+                              "distribution": {
+                                "type": "string"
+                              },
+                              "platform": {
+                                "type": "string"
+                              },
+                              "provider": {
+                                "type": "string"
+                              },
+                              "scope": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "scope",
+                              "provider",
+                              "platform",
+                              "distribution"
+                            ],
+                            "type": "object"
+                          }
+                        },
+                        "required": [
+                          "digest",
+                          "manifestFormat",
+                          "components",
+                          "compatibility",
+                          "validation"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null
+                  },
                   "components": {
                     "items": {
                       "type": "string"
@@ -54519,6 +57453,143 @@
                   },
                   "installed": {
                     "type": "boolean"
+                  },
+                  "installedComponentSupport": {
+                    "anyOf": [
+                      {
+                        "properties": {
+                          "compatibility": {
+                            "properties": {
+                              "reasonCodes": {
+                                "items": {
+                                  "type": "string"
+                                },
+                                "type": "array"
+                              },
+                              "state": {
+                                "enum": [
+                                  "allowed",
+                                  "blocked"
+                                ],
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "state",
+                              "reasonCodes"
+                            ],
+                            "type": "object"
+                          },
+                          "components": {
+                            "items": {
+                              "properties": {
+                                "activationRequirements": {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                },
+                                "kind": {
+                                  "enum": [
+                                    "skills",
+                                    "mcp",
+                                    "hooks",
+                                    "apps",
+                                    "commands",
+                                    "agents",
+                                    "uiSurfaces"
+                                  ],
+                                  "type": "string"
+                                },
+                                "reasonCodes": {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                },
+                                "required": {
+                                  "type": "boolean"
+                                },
+                                "sourceField": {
+                                  "type": "string"
+                                },
+                                "status": {
+                                  "enum": [
+                                    "supported",
+                                    "partial",
+                                    "unsupported"
+                                  ],
+                                  "type": "string"
+                                },
+                                "supportedSchema": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "sourceField",
+                                "status",
+                                "reasonCodes",
+                                "required",
+                                "activationRequirements"
+                              ],
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "digest": {
+                            "type": "string"
+                          },
+                          "manifestFormat": {
+                            "enum": [
+                              "portable1",
+                              "codex",
+                              "claude",
+                              "cursor"
+                            ],
+                            "type": "string"
+                          },
+                          "validation": {
+                            "properties": {
+                              "distribution": {
+                                "type": "string"
+                              },
+                              "platform": {
+                                "type": "string"
+                              },
+                              "provider": {
+                                "type": "string"
+                              },
+                              "scope": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "scope",
+                              "provider",
+                              "platform",
+                              "distribution"
+                            ],
+                            "type": "object"
+                          }
+                        },
+                        "required": [
+                          "digest",
+                          "manifestFormat",
+                          "components",
+                          "compatibility",
+                          "validation"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "default": null
                   },
                   "installedDigest": {
                     "default": null,
@@ -60071,43 +63142,101 @@
       "type": "object"
     },
     "areal/request/read": {
-      "additionalProperties": true,
-      "properties": {
-        "capacity": {
-          "minimum": 0,
-          "type": "integer"
-        },
-        "data": {
-          "items": {
-            "oneOf": [
-              {
-                "additionalProperties": true,
-                "properties": {
-                  "digest": {
-                    "type": "string"
+      "oneOf": [
+        {
+          "additionalProperties": true,
+          "properties": {
+            "capacity": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "data": {
+              "items": {
+                "oneOf": [
+                  {
+                    "additionalProperties": true,
+                    "properties": {
+                      "digest": {
+                        "type": "string"
+                      },
+                      "identity": {
+                        "type": "string"
+                      },
+                      "method": {
+                        "type": "string"
+                      },
+                      "requestId": {
+                        "type": "string"
+                      },
+                      "result": true
+                    },
+                    "required": [
+                      "identity",
+                      "requestId",
+                      "method",
+                      "digest",
+                      "result"
+                    ],
+                    "title": "RequestReceipt",
+                    "type": "object"
                   },
-                  "identity": {
-                    "type": "string"
-                  },
-                  "method": {
-                    "type": "string"
-                  },
-                  "requestId": {
-                    "type": "string"
-                  },
-                  "result": true
-                },
-                "required": [
-                  "identity",
-                  "requestId",
-                  "method",
-                  "digest",
-                  "result"
-                ],
-                "title": "RequestReceipt",
-                "type": "object"
+                  {
+                    "additionalProperties": true,
+                    "properties": {
+                      "digest": {
+                        "type": "string"
+                      },
+                      "identity": {
+                        "type": "string"
+                      },
+                      "method": {
+                        "type": "string"
+                      },
+                      "requestId": {
+                        "type": "string"
+                      },
+                      "response": {},
+                      "state": {
+                        "enum": [
+                          "accepted",
+                          "completed",
+                          "unknown"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "digest",
+                      "identity",
+                      "method",
+                      "requestId",
+                      "response",
+                      "state"
+                    ],
+                    "type": "object"
+                  }
+                ]
               },
-              {
+              "type": "array"
+            },
+            "retention": {
+              "enum": [
+                "threadLifetime",
+                "deploymentLifetime"
+              ]
+            }
+          },
+          "required": [
+            "capacity",
+            "data",
+            "retention"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": true,
+          "properties": {
+            "data": {
+              "items": {
                 "additionalProperties": true,
                 "properties": {
                   "digest": {
@@ -60117,18 +63246,37 @@
                     "type": "string"
                   },
                   "method": {
-                    "type": "string"
+                    "const": "areal/task/runNow"
                   },
                   "requestId": {
                     "type": "string"
                   },
-                  "response": {},
-                  "state": {
-                    "enum": [
-                      "accepted",
-                      "completed",
-                      "unknown"
-                    ]
+                  "result": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "accepted": {
+                        "const": true
+                      },
+                      "revision": {
+                        "format": "uint64",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "runId": {
+                        "type": "string"
+                      },
+                      "taskId": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "taskId",
+                      "runId",
+                      "revision",
+                      "accepted"
+                    ],
+                    "title": "TaskRunNowAccepted",
+                    "type": "object"
                   }
                 },
                 "required": [
@@ -60136,28 +63284,23 @@
                   "identity",
                   "method",
                   "requestId",
-                  "response",
-                  "state"
+                  "result"
                 ],
                 "type": "object"
-              }
-            ]
+              },
+              "type": "array"
+            },
+            "retention": {
+              "const": "taskLifetime"
+            }
           },
-          "type": "array"
-        },
-        "retention": {
-          "enum": [
-            "threadLifetime",
-            "deploymentLifetime"
-          ]
+          "required": [
+            "data",
+            "retention"
+          ],
+          "type": "object"
         }
-      },
-      "required": [
-        "capacity",
-        "data",
-        "retention"
-      ],
-      "type": "object"
+      ]
     },
     "areal/server/drain": {
       "additionalProperties": true,
@@ -67066,6 +70209,13 @@
                   "null"
                 ]
               },
+              "trigger": {
+                "enum": [
+                  "schedule",
+                  "manual"
+                ],
+                "type": "string"
+              },
               "usage": {
                 "additionalProperties": false,
                 "properties": {
@@ -67456,6 +70606,13 @@
                   "string",
                   "null"
                 ]
+              },
+              "trigger": {
+                "enum": [
+                  "schedule",
+                  "manual"
+                ],
+                "type": "string"
               },
               "usage": {
                 "additionalProperties": false,
@@ -67863,6 +71020,13 @@
                         "string",
                         "null"
                       ]
+                    },
+                    "trigger": {
+                      "enum": [
+                        "schedule",
+                        "manual"
+                      ],
+                      "type": "string"
                     },
                     "usage": {
                       "additionalProperties": false,
@@ -68274,6 +71438,13 @@
                   "null"
                 ]
               },
+              "trigger": {
+                "enum": [
+                  "schedule",
+                  "manual"
+                ],
+                "type": "string"
+              },
               "usage": {
                 "additionalProperties": false,
                 "properties": {
@@ -68664,6 +71835,13 @@
                   "string",
                   "null"
                 ]
+              },
+              "trigger": {
+                "enum": [
+                  "schedule",
+                  "manual"
+                ],
+                "type": "string"
               },
               "usage": {
                 "additionalProperties": false,
@@ -69056,6 +72234,13 @@
                   "null"
                 ]
               },
+              "trigger": {
+                "enum": [
+                  "schedule",
+                  "manual"
+                ],
+                "type": "string"
+              },
               "usage": {
                 "additionalProperties": false,
                 "properties": {
@@ -69447,6 +72632,13 @@
                   "null"
                 ]
               },
+              "trigger": {
+                "enum": [
+                  "schedule",
+                  "manual"
+                ],
+                "type": "string"
+              },
               "usage": {
                 "additionalProperties": false,
                 "properties": {
@@ -69747,6 +72939,13 @@
             "null"
           ]
         },
+        "trigger": {
+          "enum": [
+            "schedule",
+            "manual"
+          ],
+          "type": "string"
+        },
         "usage": {
           "additionalProperties": false,
           "properties": {
@@ -69904,6 +73103,33 @@
       "title": "TaskRun",
       "type": "object"
     },
+    "areal/task/runNow": {
+      "additionalProperties": false,
+      "properties": {
+        "accepted": {
+          "const": true
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "runId": {
+          "type": "string"
+        },
+        "taskId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "taskId",
+        "runId",
+        "revision",
+        "accepted"
+      ],
+      "title": "TaskRunNowAccepted",
+      "type": "object"
+    },
     "areal/task/runs/list": {
       "additionalProperties": false,
       "properties": {
@@ -69970,6 +73196,13 @@
                   "string",
                   "null"
                 ]
+              },
+              "trigger": {
+                "enum": [
+                  "schedule",
+                  "manual"
+                ],
+                "type": "string"
               },
               "usage": {
                 "additionalProperties": false,
@@ -70306,6 +73539,13 @@
                   "string",
                   "null"
                 ]
+              },
+              "trigger": {
+                "enum": [
+                  "schedule",
+                  "manual"
+                ],
+                "type": "string"
               },
               "usage": {
                 "additionalProperties": false,
@@ -70697,6 +73937,13 @@
                   "string",
                   "null"
                 ]
+              },
+              "trigger": {
+                "enum": [
+                  "schedule",
+                  "manual"
+                ],
+                "type": "string"
               },
               "usage": {
                 "additionalProperties": false,
@@ -71100,6 +74347,13 @@
                   "string",
                   "null"
                 ]
+              },
+              "trigger": {
+                "enum": [
+                  "schedule",
+                  "manual"
+                ],
+                "type": "string"
               },
               "usage": {
                 "additionalProperties": false,

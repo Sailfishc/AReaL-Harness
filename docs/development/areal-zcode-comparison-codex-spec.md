@@ -113,7 +113,9 @@ Core 仍是唯一 Task 账本与执行所有者。本轮首选 JSON 热快照和
 - UI-02 用 threadId、turnId 和 Core itemId 精确选择工具记录。callId 可跨 Turn 重复，不能单独作为历史身份。新快照补来源绑定，旧快照证据不足时降级普通记录；关闭后的旧请求不得复活页面。
 - B1 同步提供受控选项身份和可观察事实。状态等待不复用拒绝 disabled 元素的动作检查；scroll/hover 使既有观察失效时，batch 停止并保留已确认前缀。
 - B2 如启动，CLI 的同一 Core 连接承接 prepare/call/cancel，再经私有 IPC 调用浏览器子进程。子进程不持 Core 凭据。复用双向 stream-json 审批；非交互执行不因无窗口浏览器而获得批准。
-- PLG-01 分开标识候选 sourceDigest 与实际 installedDigest，复用现有安装、连接和信任投影。
+- AUTO-03 使用原 TaskRunNow 参数扩展 `areal/request/read` 的严格 Task 范围，核对身份、摘要和原受理响应。缺收据保持 UNKNOWN，不自动重放。活跃 Run 冲突返回原 runId；总预算不足由同一已受理 Run 进入 Blocked。
+- B1 的原生 select 使用固定 Host 语义操作，绑定完整有序 OPTION 身份并派发非 trusted 的 input/change 事件。输入确认与业务验证分开。观察失效保留 batch 外层调用去重及已确认前缀。
+- PLG-01 分开标识候选 sourceDigest 与实际 installedDigest，复用现有安装、连接和信任投影。必需静态组件仅由 portable 的 `extensions.org.areal.componentRequirements={version:1,requiredKinds:[...]}` 声明；动态连接和信任不参与静态兼容判定。历史 Skill 按自身不可变包摘要检查，不能因新版兼容而放行旧的不兼容内容。
 - AUTO-04 的本地 shell/files 优先复用 Core server-owned 执行。后台浏览器只依赖实际所需的服务适配与有限授权，不要求先实现 CLI B2。
 - UI-03A 仅在实际页面触达请求预算时启动。UI-03B 依赖稳定页面和 Core 工具边界；持久业务文档优先由现有 MCP 工具操作，页内工具针对真实 selection、undo 或未提交状态。
 
