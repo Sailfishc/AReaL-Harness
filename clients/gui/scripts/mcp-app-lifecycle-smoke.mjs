@@ -175,7 +175,8 @@ for(const read of epochReads){assert.equal(read.requestEpoch,epochCatalog.reques
 await page.getByRole('status').filter({hasText:'交互结果暂不可用'}).waitFor();
 const epochRevoked=await page.evaluate(async token=>{try{return await window.arealDesktop.mcpApp({operation:'request',token,request:{jsonrpc:'2.0',id:'after-epoch-change',method:'tools/list'}});}catch(error){return {error:error.message};}},epochToken);
 assert.match(epochRevoked.error,/rejected|closed|stale/i);
-await openSavedResult();assert.equal(page.frames().filter(frame=>/^areal-mcp:/.test(frame.url())).length,0);
+await openSavedResult();await page.getByRole('status').filter({hasText:'交互结果暂不可用'}).waitFor();
+assert.equal(page.frames().filter(frame=>/^areal-mcp:/.test(frame.url())).length,0);
 assert((await page.locator('body').innerText()).includes('BUSINESS_RESULT_READABLE'));
 assert.equal((await transportEvents()).filter(event=>event.method==='tools/call'&&event.params.name==='fixture.business').length,1);
 await page.screenshot({path:join(scratch,'result-epoch-unavailable.png'),animations:'disabled'});

@@ -149,6 +149,21 @@ export function useMcpAppsWorkspace({
         setApps(appsRef.current);
         for (const app of removed) current.current.onRemoveTab(appTab(app));
     }, []);
+    const close = useCallback(async (tab: string) => {
+        const app = appsRef.current.find((item) => appTab(item) === tab);
+        if (!app) return;
+        const key = app.resultSource && mcpResultKey(app.resultSource);
+        const intent = key ? resultIntents.current.get(key) : undefined;
+        if (intent) intent.phase = "closing";
+        try {
+            await mcpAppDesktop().mcpApp({ operation: "close", token: app.token });
+            if (intent) intent.phase = "closed";
+            removeApps(new Set([app.token]));
+        } catch (cause) {
+            if (key) resultState(key, { message: "关闭结果待确认，请再次点击核对。原始记录仍可查看。" });
+            throw cause;
+        }
+    }, [removeApps]);
     const validationEpoch = useRef(0);
     const revalidate = useCallback(async () => {
         const epoch = ++validationEpoch.current;
@@ -169,14 +184,20 @@ export function useMcpAppsWorkspace({
             const owner = apps[0];
             const result = await action("manage", { operation: "mcpApps", projectId: owner.projectId, threadId: owner.threadId });
             if (!Array.isArray(result.data)) throw Error("应用目录格式无效");
-            for (const app of apps)
-                if (!result.data.some((server: McpWorkspaceServer) => server.serverId === app.serverId && server.generation === app.generation))
+            for (const app of apps) {
+                const intent = app.resultSource && resultIntents.current.get(mcpResultKey(app.resultSource));
+                if (!result.data.some((server: McpWorkspaceServer) => server.serverId === app.serverId && server.generation === app.generation)
+                    || (app.resultSource && (!intent || intent.requestId.split(".")[1] !== result.requestEpoch)))
                     stale.add(app.token);
+            }
         }));
         if (epoch !== validationEpoch.current) return;
+        for (const app of appsRef.current.filter(app => stale.has(app.token))) {
+            void close(appTab(app)).catch(() => {});
+            if (app.resultSource) resultState(mcpResultKey(app.resultSource), { message: "交互结果暂不可用，原始记录仍可查看。" });
+        }
         removeApps(stale);
-        for (const token of stale) void mcpAppDesktop().mcpApp({ operation: "close", token }).catch(() => {});
-    }, [removeApps]);
+    }, [removeApps, close]);
     const ownerVersion = JSON.stringify(apps.map(app => {
         const owner = projects.find(project => project.id === app.projectId);
         return [app.token, !!owner, owner?.state?.connected, owner?.core?.instanceId, owner?.core?.connectionGeneration,
@@ -221,21 +242,6 @@ export function useMcpAppsWorkspace({
         },
         [],
     );
-    const close = useCallback(async (tab: string) => {
-        const app = appsRef.current.find((item) => appTab(item) === tab);
-        if (!app) return;
-        const key = app.resultSource && mcpResultKey(app.resultSource);
-        const intent = key ? resultIntents.current.get(key) : undefined;
-        if (intent) intent.phase = "closing";
-        try {
-            await mcpAppDesktop().mcpApp({ operation: "close", token: app.token });
-            if (intent) intent.phase = "closed";
-            removeApps(new Set([app.token]));
-        } catch (cause) {
-            if (key) resultState(key, { message: "关闭结果待确认，请再次点击核对。原始记录仍可查看。" });
-            throw cause;
-        }
-    }, [removeApps]);
     async function ensureThread(forceNew = false) {
         const { project, threadId, action, onOpenThread } = current.current;
         if (!project?.state?.connected) throw Error("请先连接项目");
@@ -349,7 +355,19 @@ export function useMcpAppsWorkspace({
                 }
                 const existing = appsRef.current.find(app => app.resultSource && mcpResultKey(app.resultSource) === key);
                 if (existing) {
-                    current.current.onReveal(appTab(existing), existing);
+                    const directory = await current.current.action("manage", { operation: "mcpApps", projectId: source.projectId, threadId: source.threadId });
+                    if (typeof directory.requestEpoch !== "string") throw Error("结果打开不可用");
+                    if (intent?.requestId.split(".")[1] !== directory.requestEpoch) {
+                        const closing = close(appTab(existing));
+                        removeApps(new Set([existing.token]));
+                        await closing;
+                        resultState(key, { message: "交互结果暂不可用，原始记录仍可查看。" });
+                        return;
+                    }
+                    if (current.current.project?.id === source.projectId && current.current.threadId === source.threadId
+                        && resultIntents.current.get(key) === intent && intent?.phase === "open"
+                        && appsRef.current.some(app => app.token === existing.token))
+                        current.current.onReveal(appTab(existing), existing);
                     resultState(key, {});
                     return;
                 }
@@ -383,7 +401,7 @@ export function useMcpAppsWorkspace({
         resultPending.current.set(key, task);
         void task.finally(() => resultPending.current.delete(key));
         return task;
-    }, []);
+    }, [close, removeApps]);
     const resultPageFailed = (app: McpAppDescriptor) => {
         if (!app.resultSource) return;
         const key = mcpResultKey(app.resultSource);
