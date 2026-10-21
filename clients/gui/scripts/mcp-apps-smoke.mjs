@@ -141,6 +141,99 @@ releaseOpen({ instanceId: "pending-original-owner", serverId: "s", generation: "
 await staleOpenRejected;
 assert.deepEqual(pendingCalls.filter(request => request.operation === "mcpAppClose"), [{ operation: "mcpAppClose", projectId: "p", threadId: "t", instanceId: "pending-original-owner", generation: "g" }]);
 
+const resultEpoch = "4ea7926c-c58c-4671-928f-9bbb27b42b04";
+const resultRequest = n => `result-v1.${resultEpoch}.00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+const resultRef = { projectId: "p", threadId: "t", turnId: "turn-2", itemId: "item-2" };
+const resultCalls = [];
+let resultRelease, resultReply;
+const resultDescriptor = {
+  instanceId: "saved-result", serverId: "s", generation: 7,
+  resource: { mimeType: "text/html;profile=mcp-app", html: "<p>saved</p>" },
+  initialArguments: { changedByHook: true },
+  initialResult: { structuredContent: { answer: 42 }, _meta: { privateMarker: "APP_ONLY" } },
+};
+const resultHost = new McpAppsHost({ ownerId: 5, backend: {
+  ownsThread: (projectId, threadId) => projectId === "p" && threadId === "t",
+  command: async (_name, request) => {
+    resultCalls.push(request);
+    if (request.operation === "mcpAppOpenFromResult") {
+      if (resultReply) return resultReply;
+      return new Promise(resolve => { resultRelease = resolve; });
+    }
+    return {};
+  },
+} });
+assert.equal(typeof resultHost.openFromResult, "function", "Main must expose the strict saved-result operation");
+const firstResult = resultHost.openFromResult({ ...resultRef, requestId: resultRequest(1) }, 5);
+const concurrentResult = resultHost.openFromResult({ ...resultRef, requestId: resultRequest(1) }, 5);
+await new Promise(resolve => setImmediate(resolve));
+assert.deepEqual(resultCalls, [{ operation: "mcpAppOpenFromResult", ...resultRef, requestId: resultRequest(1) }]);
+resultRelease({ status: "open", instance: resultDescriptor });
+const firstResultReply = await firstResult;
+assert.equal(firstResultReply.status, "open");
+const resultApp = firstResultReply.app;
+assert.deepEqual(await concurrentResult, firstResultReply, "concurrent exact result requests reuse the complete descriptor");
+assert.equal(resultApp.resource, undefined);
+assert.deepEqual(resultApp.initialArguments, { changedByHook: true });
+assert.deepEqual(resultApp.initialResult, resultDescriptor.initialResult);
+resultReply = { status: "open", instance: resultDescriptor };
+assert.deepEqual(await resultHost.openFromResult({ ...resultRef, requestId: resultRequest(2) }, 5), firstResultReply, "Core instance reuse must retain Main token and frame URL");
+for (const field of ["html", "resourceUri", "arguments", "serverId", "expectedGeneration", "identity", "callId"]) {
+  await assert.rejects(resultHost.openFromResult({ ...resultRef, requestId: resultRequest(3), [field]: "forged" }, 5), /invalid|unsupported/i);
+}
+await assert.rejects(resultHost.openFromResult({ ...resultRef, requestId: resultRequest(3) }, 6), /owner|stale/i);
+await resultHost.close(resultApp.token, 5);
+assert.equal((await resultHost.resource(new Request(resultApp.frameUrl))).status, 404);
+resultReply = { status: "closed" };
+assert.deepEqual(await resultHost.openFromResult({ ...resultRef, requestId: resultRequest(1) }, 5), { status: "closed" });
+resultReply = { status: "unavailable", reason: "staleSourceEpoch" };
+assert.deepEqual(await resultHost.openFromResult({ ...resultRef, requestId: resultRequest(4) }, 5), resultReply);
+resultReply = { status: "open", instance: { ...resultDescriptor, resource: { mimeType: "text/html", html: "<p>utf8</p>" } } };
+const plainHtml = await resultHost.openFromResult({ ...resultRef, requestId: resultRequest(5) }, 5);
+assert.equal(plainHtml.status, "open", "saved results accept the existing Core HTML MIME contract");
+await resultHost.close(plainHtml.app.token, 5);
+resultReply = { status: "open", instance: { ...resultDescriptor, resource: { mimeType: "text/html;profile=mcp-app", html: "界".repeat(700000) } } };
+assert.deepEqual(await resultHost.openFromResult({ ...resultRef, requestId: resultRequest(6) }, 5), { status: "unavailable", reason: "resourceRejected" });
+resultReply = { status: "open", instance: { ...resultDescriptor, resource: { ...resultDescriptor.resource, _meta: { ui: { csp: { connectDomains: ["https://bad.test;script-src *"] } } } } } };
+assert.deepEqual(await resultHost.openFromResult({ ...resultRef, requestId: resultRequest(7) }, 5), { status: "unavailable", reason: "resourceRejected" });
+assert.equal(resultCalls.filter(call => call.operation === "mcpAppOpen").length, 0, "saved-result opening never invokes the business entrypoint");
+let staleResultRelease;
+const staleResultCalls = [];
+let resultOwnerDestroyed = false;
+const staleResultHost = new McpAppsHost({ ownerId: () => { if (resultOwnerDestroyed) throw Error("Object has been destroyed"); return 5; }, backend: {
+  ownsThread: () => true,
+  command: async (_name, request) => { staleResultCalls.push(request); return request.operation === "mcpAppOpenFromResult" ? new Promise(resolve => { staleResultRelease = resolve; }) : {}; },
+} });
+const disposedResult = staleResultHost.openFromResult({ ...resultRef, requestId: resultRequest(8) }, 5);
+await new Promise(resolve => setImmediate(resolve));
+resultOwnerDestroyed = true;
+staleResultHost.dispose();
+staleResultRelease({ status: "open", instance: resultDescriptor });
+assert.deepEqual(await disposedResult, { status: "unavailable", reason: "sourceUnavailable" });
+assert.deepEqual(staleResultCalls.filter(call => call.operation === "mcpAppClose"), [{ operation: "mcpAppClose", projectId: "p", threadId: "t", instanceId: "saved-result", generation: 7 }]);
+let unknownClose = true;
+const closingCalls = [];
+const closingHost = new McpAppsHost({ ownerId: 5, backend: {
+  ownsThread: () => true,
+  command: async (_name, request) => {
+    closingCalls.push(request);
+    if (request.operation === "mcpAppOpenFromResult") return { status: "open", instance: resultDescriptor };
+    if (request.operation === "mcpAppClose" && unknownClose) throw Object.assign(Error("close outcome unknown"), { code: "RESPONSE_UNKNOWN", submissionUnknown: true });
+    return { closed: true };
+  },
+} });
+const closingApp = (await closingHost.openFromResult({ ...resultRef, requestId: resultRequest(9) }, 5)).app;
+await assert.rejects(closingHost.close(closingApp.token, 5), /unknown/);
+assert.equal((await closingHost.resource(new Request(closingApp.frameUrl))).status, 404);
+await assert.rejects(closingHost.openFromResult({ ...resultRef, requestId: resultRequest(10) }, 5), /closing|unknown|核对/i);
+assert.equal(closingCalls.filter(call => call.operation === "mcpAppOpenFromResult").length, 1);
+unknownClose = false;
+await closingHost.close(closingApp.token, 5);
+assert.deepEqual(closingCalls.filter(call => call.operation === "mcpAppClose"), Array(2).fill({ operation: "mcpAppClose", projectId: "p", threadId: "t", instanceId: "saved-result", generation: 7 }));
+assert.equal((await closingHost.openFromResult({ ...resultRef, requestId: resultRequest(10) }, 5)).status, "open");
+closingHost.dispose();
+console.log("Saved-result Main boundary retains exact owner/token, coalesces concurrent requests, rejects untrusted source fields and closes invalid late results.");
+
 // Main file-resource integration tests grant/delegation only. Core descriptor-anchored
 // reads, CAS writes, and ancestor-swap races require the real Runtime acceptance test.
 const { mkdtemp, writeFile, readFile, rm, symlink } = await import("node:fs/promises");

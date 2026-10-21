@@ -13,13 +13,14 @@ const {_electron:electron}=require('playwright-core');
 const scratch=await mkdtemp('/private/tmp/areal-mcp-lifecycle-'),workspace=join(scratch,'workspace'),userHome=join(scratch,'user');
 await mkdir(join(workspace,'.agents','plugins'),{recursive:true});await mkdir(join(userHome,'.areal'),{recursive:true});
 execFileSync('git',['init','-b','main'],{cwd:workspace,stdio:'ignore'});
+const resultMode=process.env.AREAL_MCP_RESULT_MODE==='1';
 const source=join(workspace,'packages','hello'),transportLog=join(scratch,'mcp.jsonl');
 await mkdir(source,{recursive:true});
 await writeFile(join(source,'plugin.json'),JSON.stringify({$schema:'https://agent-plugins.org/schemas/1.0.0/plugin.schema.json',name:'hello',version:'1.0.0',description:'Desktop extension acceptance fixture.',extensions:{'com.openai':{interface:{displayName:'Extensions Fixture'}}}}));
 const appHtml=`<!doctype html><html><body><h1>Lifecycle fixture</h1><output id="ready">waiting</output><textarea id="draft" aria-label="Unsaved document"></textarea><div id="scroll" style="height:100px;overflow:auto"><div style="height:1500px">Scroll document</div></div><output id="result"></output><button id="slow">Slow call</button><button id="full">Fullscreen</button><script>
 window.fixture={bootId:crypto.randomUUID(),initialInputs:0,initialResults:0,subscriptions:0,notifications:0};let seq=0;const pending=new Map();
 window.call=(method,params)=>new Promise((resolve,reject)=>{const id=++seq;pending.set(id,{resolve,reject});parent.postMessage({jsonrpc:'2.0',id,method,params},'*');});
-addEventListener('message',event=>{if(event.source!==parent)return;const value=event.data;if(value.jsonrpc!=='2.0')return;if(value.method==='ui/notifications/tool-input')fixture.initialInputs++;if(value.method==='ui/notifications/tool-result')fixture.initialResults++;if(value.method==='notifications/resources/updated')fixture.notifications++;if(pending.has(value.id)){const p=pending.get(value.id);pending.delete(value.id);value.error?p.reject(Object.assign(Error(value.error.message),{code:value.error.code,data:value.error.data})):p.resolve(value.result);}});
+addEventListener('message',event=>{if(event.source!==parent)return;const value=event.data;if(value.jsonrpc!=='2.0')return;if(value.method==='ui/notifications/tool-input')fixture.initialInputs++;if(value.method==='ui/notifications/tool-result'){fixture.initialResults++;fixture.savedResult=value.params;}if(value.method==='ui/notifications/tool-input')fixture.savedArguments=value.params;if(value.method==='notifications/resources/updated')fixture.notifications++;if(pending.has(value.id)){const p=pending.get(value.id);pending.delete(value.id);value.error?p.reject(Object.assign(Error(value.error.message),{code:value.error.code,data:value.error.data})):p.resolve(value.result);}});
 document.getElementById('slow').onclick=()=>{document.getElementById('result').textContent='pending';call('tools/call',{name:'fixture.delay',arguments:{bootId:fixture.bootId}}).then(value=>document.getElementById('result').textContent=JSON.stringify(value)).catch(error=>document.getElementById('result').textContent=error.message);};
 document.getElementById('full').onclick=()=>call('ui/request-display-mode',{mode:'fullscreen'});
 call('ui/initialize',{appInfo:{name:'lifecycle-fixture',version:'1'},protocolVersion:'2026-01-26',appCapabilities:{availableDisplayModes:['inline','fullscreen']}}).then(async()=>{parent.postMessage({jsonrpc:'2.0',method:'ui/notifications/initialized'},'*');await call('resources/subscribe',{uri:'fixture://live'});fixture.subscriptions++;document.getElementById('ready').textContent='initialized';});
@@ -31,6 +32,7 @@ import {fileURLToPath} from 'node:url';
 const log=value=>appendFileSync(process.env.FIXTURE_LOG,JSON.stringify(value)+'\n');
 const send=value=>process.stdout.write(JSON.stringify(value)+'\n');
 const tools=Array.from({length:9},(_,i)=>({name:'fixture.page'+(i+1),title:'Lifecycle Page '+(i+1),inputSchema:{type:'object'},annotations:{readOnlyHint:true},_meta:{ui:{resourceUri:'ui://fixture/lifecycle',visibility:['model']},'openai/ui':{entrypoints:[{type:'global'},{type:'thread'}]}}}));
+tools.push({name:'fixture.business',title:'Saved business result',inputSchema:{type:'object',properties:{value:{type:'number'}}},annotations:{readOnlyHint:true},_meta:{ui:{resourceUri:'ui://fixture/lifecycle',visibility:['model']}}});
 tools.push({name:'fixture.delay',inputSchema:{type:'object'},annotations:{readOnlyHint:true},_meta:{ui:{visibility:['app']}}});
 for await(const line of createInterface({input:process.stdin})){let q;try{q=JSON.parse(line);log(q);if(q.id===undefined)continue;let result;switch(q.method){
 case'initialize':result={protocolVersion:q.params.protocolVersion,serverInfo:{name:'lifecycle-fixture',version:'1'},capabilities:{tools:{},resources:{subscribe:true},extensions:{'io.modelcontextprotocol/ui':{}}}};break;
@@ -39,7 +41,7 @@ case'resources/list':result={resources:[{uri:'ui://fixture/lifecycle',name:'Life
 case'resources/templates/list':result={resourceTemplates:[]};break;
 case'resources/read':result={contents:[{uri:q.params.uri,mimeType:'text/html;profile=mcp-app',text:readFileSync(fileURLToPath(new URL('./app.html',import.meta.url)),'utf8'),_meta:{ui:{csp:{connectDomains:[],resourceDomains:[]}}}}]};break;
 case'resources/subscribe':result={};break;case'resources/unsubscribe':result={};break;
-case'tools/call':if(q.params.name==='fixture.delay'){const id=q.id,bootId=q.params.arguments.bootId;const timer=setInterval(()=>{if(!existsSync(process.env.FIXTURE_RELEASE))return;clearInterval(timer);log({settled:id,bootId});send({jsonrpc:'2.0',id,result:{content:[{type:'text',text:'DELAY_DONE_'+bootId}]}});send({jsonrpc:'2.0',method:'notifications/resources/updated',params:{uri:'fixture://live'}});},50);continue;}result={content:[{type:'text',text:'APP_OPENED_'+q.params.name}]};break;
+case'tools/call':if(q.params.name==='fixture.business'){result={content:[{type:'text',text:'BUSINESS_RESULT_READABLE'}],structuredContent:{value:q.params.arguments.value,_meta:{private:'NESTED_RESULT_PRIVATE'}},_meta:{private:'RESULT_APP_ONLY'}};break;}if(q.params.name==='fixture.delay'){const id=q.id,bootId=q.params.arguments.bootId;const timer=setInterval(()=>{if(!existsSync(process.env.FIXTURE_RELEASE))return;clearInterval(timer);log({settled:id,bootId});send({jsonrpc:'2.0',id,result:{content:[{type:'text',text:'DELAY_DONE_'+bootId}]}});send({jsonrpc:'2.0',method:'notifications/resources/updated',params:{uri:'fixture://live'}});},50);continue;}result={content:[{type:'text',text:'APP_OPENED_'+q.params.name}]};break;
 default:throw Error('unsupported method '+q.method);}send({jsonrpc:'2.0',id:q.id,result});}catch(error){if(q?.id!==undefined)send({jsonrpc:'2.0',id:q.id,error:{code:-32602,message:error.message}});}}
 `;
 await writeFile(join(source,'server.mjs'),fixtureServer);
@@ -53,7 +55,9 @@ for(const path of new Set(execFileSync('git',['ls-files','--modified','--others'
 if(/^(core\/|clients\/|scripts\/|schemas\/|Cargo\.|upstream\/)/.test(path))sourceFiles[path]=createHash('sha256').update(await readFile(join(sourceRoot,path))).digest('hex');}
 const sourceDiffSha256=createHash('sha256').update(execFileSync('git',['diff','--binary','HEAD'],{cwd:sourceRoot})).digest('hex');
 const requests=[],checks=[],errors=[];
-const model=createServer(async(req,res)=>{let body='';for await(const p of req)body+=p;requests.push(JSON.parse(body));res.writeHead(200,{'Content-Type':'text/event-stream'});
+let modelBusinessSent=false;
+const model=createServer(async(req,res)=>{let body='';for await(const p of req)body+=p;const request=JSON.parse(body);requests.push(request);res.writeHead(200,{'Content-Type':'text/event-stream'});
+if(resultMode&&!modelBusinessSent&&body.includes('CREATE_SAVED_RESULT')){const tool=request.tools.find(tool=>/fixture[._]business$/.test(tool.function?.name));assert(tool,'normal inference inventory must contain the real MCP business tool');modelBusinessSent=true;res.end('data: '+JSON.stringify({choices:[{index:0,delta:{tool_calls:[{index:0,id:'saved-business-call',type:'function',function:{name:tool.function.name,arguments:'{\"value\":42}'}}]},finish_reason:null}]})+'\n\n'+'data: '+JSON.stringify({choices:[{index:0,delta:{},finish_reason:'tool_calls'}]})+'\n\ndata: [DONE]\n\n');return;}
 res.end('data: '+JSON.stringify({choices:[{index:0,delta:{content:'GUI_PLUGIN_SETUP_OK'},finish_reason:null}]})+'\n\n'+'data: '+JSON.stringify({choices:[{index:0,delta:{},finish_reason:'stop'}]})+'\n\ndata: [DONE]\n\n');});
 await new Promise(r=>model.listen(0,'127.0.0.1',r));
 await writeFile(join(userHome,'.areal','config.toml'),'schema_version=1\n[model]\nname="fixture"\n[model.providers.default]\nprotocol="chat-completions"\nendpoint="http://127.0.0.1:'+model.address().port+'"\n');
@@ -93,6 +97,50 @@ const ready=await until(s=>s.projects.find(p=>p.root===workspace)?.state?.connec
 await settings();await button('核对来源并安装').click();await page.getByRole('checkbox',{name:'我已核对以上来源、版本和内容摘要',exact:true}).check();await button('安装到用户').click();await button('审阅并连接').waitFor();
 await button('审阅并连接').click();await page.getByRole('checkbox',{name:'我信任当前安装快照，并允许启动其 MCP 服务。',exact:true}).check();await button('信任并连接').click();
 await waitEvents(events=>events.some(event=>event.method==='tools/list'),'real MCP transport started');console.log('MCP connected');
+if(resultMode){
+await app.evaluate(({ipcMain})=>{global.resultOpenReceipts=[];const channel='areal-core:mcp-app',original=ipcMain._invokeHandlers.get(channel);ipcMain.removeHandler(channel);ipcMain.handle(channel,async(event,request)=>{const reply=await original(event,request);if(request.operation==='openFromResult')global.resultOpenReceipts.push({request,reply});return reply;});});
+await page.getByRole('navigation',{name:'应用导航',exact:true}).getByRole('button',{name:'首页',exact:true}).click();
+await page.getByTestId('chat-input').fill('CREATE_SAVED_RESULT');await page.getByTestId('chat-send-button').click();
+const settled=await until(s=>Object.values(s.projects.find(p=>p.id===projectId)?.state?.threads??{}).some(thread=>thread.turns?.some(turn=>turn.status==='completed'&&turn.items?.some(item=>item.type==='dynamicToolCall'&&item.callId==='saved-business-call'))),'normal model MCP business call persisted');
+const resultOwner=await selected(),ownerThread=settled.projects.find(p=>p.id===projectId).state.threads[resultOwner.threadId];
+const turn=ownerThread.turns.find(turn=>turn.items?.some(item=>item.callId==='saved-business-call')),item=turn.items.find(item=>item.callId==='saved-business-call');
+assert.equal(item.execution.interactiveResult,true);assert.equal(item.success,true);assert.equal(item.execution.outcome,'succeeded');
+assert.equal(page.frames().filter(frame=>/^areal-mcp:/.test(frame.url())).length,0,'history does not mount result pages');
+await button('打开交互结果').click();
+let inner=await appFrame();const token=new URL(inner.url()).hostname;
+await inner.waitForFunction(()=>fixture.initialInputs===1&&fixture.initialResults===1);
+assert.equal((await fixture(inner)).savedResult.structuredContent.value,42);assert.equal((await fixture(inner)).savedResult._meta.private,'RESULT_APP_ONLY');
+await inner.locator('#draft').fill('SAVED_UNSAVED_DOCUMENT');await inner.locator('#draft').evaluate(el=>el.setSelectionRange(2,9));await inner.locator('#scroll').evaluate(el=>el.scrollTop=480);
+const original=await fixture(inner),receipt=(await app.evaluate(()=>global.resultOpenReceipts))[0];
+assert.deepEqual({threadId:receipt.request.threadId,turnId:receipt.request.turnId,itemId:receipt.request.itemId},{threadId:resultOwner.threadId,turnId:turn.id,itemId:item.id});
+assert.match(receipt.request.requestId,/^result-v1\.[0-9a-f-]{36}\.[0-9a-f-]{36}$/);
+await button('打开交互结果').click();assert.deepEqual(await fixture(await appFrame(token)),original);
+const repeated=await page.evaluate(async request=>Promise.all([window.arealDesktop.mcpApp(request),window.arealDesktop.mcpApp(request)]),receipt.request);
+assert(repeated.every(reply=>reply.status==='open'&&reply.app.token===token&&reply.app.instanceId===receipt.reply.app.instanceId));
+await button('关闭面板').click();assert.equal(await page.locator(`iframe[src="areal-mcp://${token}/"]`).isVisible(),false);
+await button('展开侧边面板').click();assert.deepEqual(await fixture(await appFrame(token)),original);
+await button('设置').click();await selectOwner(resultOwner.threadId);assert.deepEqual(await fixture(await appFrame(token)),original);
+await page.screenshot({path:join(scratch,'result-retained.png'),animations:'disabled'});
+checks.push('normal model invokes business once; raw private result hydrates once; exact result repeat/concurrency/hide/navigation retains token, boot, edits, selection and scroll');
+await page.getByRole('region',{name:'MCP 应用',exact:true}).getByRole('button',{name:'关闭应用',exact:true}).click();
+await page.waitForFunction(token=>!document.querySelector(`iframe[src="areal-mcp://${token}/"]`),token);
+assert.deepEqual(await page.evaluate(request=>window.arealDesktop.mcpApp(request),receipt.request),{status:'closed'});
+await button('打开交互结果').click();const reopened=await appFrame();assert.notEqual(new URL(reopened.url()).hostname,token);assert.notEqual((await fixture(reopened)).bootId,original.bootId);
+assert.equal((await transportEvents()).filter(event=>event.method==='tools/call'&&event.params.name==='fixture.business').length,1);
+assert(!JSON.stringify(requests).includes('RESULT_APP_ONLY'));assert(!JSON.stringify(requests).includes('NESTED_RESULT_PRIVATE'));
+assert.equal((await state()).projects.find(p=>p.id===projectId).state.threads[resultOwner.threadId].turns.length,ownerThread.turns.length);
+const sandbox=await reopened.evaluate(()=>({node:typeof process,require:typeof require,bridge:typeof window.arealDesktop}));assert.deepEqual(sandbox,{node:'undefined',require:'undefined',bridge:'undefined'});
+await page.getByRole('region',{name:'MCP 应用',exact:true}).getByRole('button',{name:'关闭应用',exact:true}).click();
+await app.evaluate(({ipcMain})=>{const channel='areal-core:mcp-app',original=ipcMain._invokeHandlers.get(channel);ipcMain.removeHandler(channel);ipcMain.handle(channel,async(event,request)=>{const reply=await original(event,request);if(request.operation==='openFromResult'&&reply.status==='open')reply.app.frameUrl+='unavailable';return reply;});});
+await button('打开交互结果').click();await page.getByRole('status').filter({hasText:'交互结果无法打开'}).waitFor({timeout:15_000});
+assert.equal(page.frames().filter(frame=>/^areal-mcp:/.test(frame.url())).length,0);
+assert.equal((await transportEvents()).filter(event=>event.method==='tools/call'&&event.params.name==='fixture.business').length,1);
+assert((await page.locator('body').innerText()).includes('BUSINESS_RESULT_READABLE'));
+await page.screenshot({path:join(scratch,'result-unavailable.png'),animations:'disabled'});
+checks.push('explicit close is terminal for old request; fresh reopen has new page without business replay; model privacy/sandbox preserved; broken frame fails within10s and leaves readable history');
+await writeFile(join(scratch,'result-identities.json'),JSON.stringify({source:{projectId,threadId:resultOwner.threadId,turnId:turn.id,itemId:item.id,callId:item.callId},receipts:await app.evaluate(()=>global.resultOpenReceipts),original,sandbox},null,2));
+assert.deepEqual(errors,[]);passed=true;
+}else{
 await button('Lifecycle Page 1').first().click();console.log('First page requested');
 let inner=await appFrame();const token=new URL(inner.url()).hostname,owner=await selected();
 await inner.locator('#draft').fill('UNSAVED_DOCUMENT');await inner.locator('#draft').evaluate(el=>el.setSelectionRange(3,11));await inner.locator('#scroll').evaluate(el=>el.scrollTop=540);
@@ -154,6 +202,7 @@ checks.push('same-window source disable removes retained pages including backgro
 const revoked=await page.evaluate(async token=>{try{return await window.arealDesktop.mcpApp({operation:'request',token,request:{jsonrpc:'2.0',id:'after-revoke',method:'tools/list'}});}catch(error){return {error:error.message};}},token);assert(revoked.error);
 assert.equal((await transportEvents()).filter(event=>event.method==='tools/call'&&event.params.name==='fixture.page1').length,2,'navigation cannot replay the initial tool');
 await page.screenshot({path:join(scratch,'02-revoked.png'),animations:'disabled'});assert.deepEqual(errors,[]);passed=true;
+}
 }catch(e){console.error(e);failure={message:e.message,stack:e.stack};process.exitCode=1;if(page)await captureSmokeFailure(page,scratch,e);}
 finally{
 await writeFile(join(scratch,'release'),'cleanup');
