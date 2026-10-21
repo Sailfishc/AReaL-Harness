@@ -141,6 +141,22 @@ pub fn projections(responses: &mut Map<String, Value>, notifications: &mut Map<S
         ]}),
     );
     insert(&["mcp/app/close"], object(json!({"closed":{"const":true}})));
+    insert(
+        &["mcp/app/tools/register"],
+        schema::<areal_protocol::plugin_runtime::PageRegisterReply>(),
+    );
+    insert(
+        &["mcp/app/tools/revoke"],
+        schema::<areal_protocol::plugin_runtime::PageRevoked>(),
+    );
+    insert(
+        &["mcp/app/tools/claim"],
+        schema::<areal_protocol::plugin_runtime::PageClaimReply>(),
+    );
+    insert(
+        &["mcp/app/tools/resolve"],
+        schema::<areal_protocol::plugin_runtime::PageAccepted>(),
+    );
     insert(&["mcp/extension/call"], tool_result);
     insert(
         &["mcp/forms/list"],
@@ -188,6 +204,14 @@ pub fn projections(responses: &mut Map<String, Value>, notifications: &mut Map<S
             .push(json!(field));
     }
     notifications.insert("areal/mcp/tool/result".into(), result_event);
+    notifications.insert(
+        "areal/mcp/app/tools/pending".into(),
+        schema::<areal_protocol::plugin_runtime::PageCoordinates>(),
+    );
+    notifications.insert(
+        "areal/mcp/app/tools/cancelled".into(),
+        schema::<areal_protocol::plugin_runtime::PageCancelled>(),
+    );
     notifications.insert(
         "areal/mcp/form/requested".into(),
         object(json!({"threadId":string,"requestId":string,"serverId":string,"generation":number})),

@@ -295,6 +295,29 @@ Native Main uses areal/mcp/form/resource/prepare {threadId,requestId,fieldName},
 
 Pinned Codex0.162.1 plugin/list/installed/read/install/uninstall/reconcile/search and marketplace/add/remove/upgrade share the package owner. Only search requires experimentalApi opt-in. Unconfigured hosted share/catalog services return -32004 capability errors, never fake empty success. marketplace/add accepts source/refName?/sparsePaths? with persisted sparse cone paths. Full hooks and other limits remain in the [acceptance matrix](../development/codex-plugins-p1-p3-acceptance.en.md).
 
+### Finite page tools
+
+`areal/mcp/app/tools/register`, `revoke`, `claim`, and `resolve` require unrestricted `manage` and `tools` authorization. `core/protocol` types generate request and response schemas. Page tools cannot reach these routes through generic Renderer management forwarding.
+
+Registration attests that the original page completed SDK initialization in trusted Main. The declaration contains only `version:1`, `documentId`, and unique `getSelection` or `applyPatch` kinds. It accepts no custom names, schemas, descriptions, or executable code. Core generates names under the registration namespace and a schemaDigest, then freezes them at ordinary Turn admission. Tools enter only their original Thread's effective inventory and use ordinary approval, hooks, result budgets, and ToolCall history. Read-only Side, research tasks, and unauthorized restricted workers do not inherit them. A readOnly declaration grants no permission.
+
+| Operation | Input identity | Result |
+| --- | --- | --- |
+| `register` | `threadId,instanceId,generation,ownerId,declaration` | `registrationId,documentId,tools`, each with kind, name, and schemaDigest |
+| `revoke` | `threadId,instanceId,generation,registrationId,ownerId` | `revoked:true`; removes publication and new claims before draining calls |
+| `claim` | `threadId,turnId,callId,registrationId,ownerId,schemaDigest` | `granted` with claimId, kind, documentId, and effective arguments, or `notGranted` with reason |
+| `resolve` | The same call identity, optional claimId, and reply | `accepted` after durable commit |
+
+A reply is `completed` with the fixed result, `noEffect` with a `cancelled`, `closed`, or `unavailable` reason, or `unknown`. `getSelection` returns document revision, anchor, head, bounded selectedText, truncated, and dirty. `applyPatch` accepts `expectedDocumentRevision` and `{from,to,insert}`. Applied evidence includes both revisions, the original range, inserted length, and dirty. Conflict and rejection explicitly report no edit. Offsets and lengths use UTF-16 units, with one unit per LF. CR insertion and offsets that split surrogate pairs are rejected.
+
+Core binds the original actual ToolHost, App epoch, Thread, instance, MCP generation, plugin digest, registration, and schema. Desktop binds the opening Main socket before returning the open response. ownerId is only a service-generated handle. A matching principal or known IDs cannot transfer ownership. Main also checks the original window, token, epoch, and initialized mount. Directed `pending` and `cancelled` notices contain correlation identity only and grant no execution permission.
+
+Core saves ordinary intent and runs approval and hooks before publishing the pending call. Claim persistence precedes the single execution grant. One invocation serializes claim and settlement; endpoints do not independently write history. Repeating identical terminal data reads its receipt. Different terminal data conflicts. Later hook errors, feedback, or generic finalization cannot replace accepted terminal evidence or its result snapshot.
+
+Cancellation before claim proves no execution. After claim, only validated completion or authenticated `noEffect` evidence settles definitively. Timeout, abort, or connection loss does not prove that no edit occurred. Without evidence after the one-second drain, Core saves UNKNOWN. Restart and reopening never replay. Replacing either original connection revokes execution while retaining the unsaved page. Only an explicitly opened new instance can register again. Valid hidden pages remain callable.
+
+v1 permits one registration per instance, eight per Main, 32 per Core Host, and 128 per runtime. Limits are two active calls per page, sixteen per Host, and 128 KiB combined arguments per Host. Declarations are at most 1 KiB, documentId at most 64 bytes, and each input and output at most 32 KiB. Documents contain at most 65,536 UTF-16 units. Replacement and returned selection text contain at most 4,096 units, with explicit truncation. Claim timeout is ten seconds, execution timeout thirty seconds, and cancellation drain one second. Existing page request budgets and the 2 MiB resource limit remain. This capability adds no sampling, cross-device editing, or arbitrary page execution platform.
+
 ## Plugin hooks
 
 These management methods require an unrestricted manage identity and use the deployment submission journal.

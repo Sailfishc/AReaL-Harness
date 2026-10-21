@@ -126,6 +126,8 @@ Git marketplace 快照最多包含 20,000 个文件和 20,000 个文件系统条
 
 结果页面资源支持 `text/html` 和 `text/html;profile=mcp-app`，UTF-8 内容最多 2 MiB，并保留既有 CSP 与沙箱限制。失败、取消、UNKNOWN、损坏快照、插件变更/停用/卸载、连接或 Core 进程变化都会阻止打开。资源或 bridge 初始化失败以及 10 秒内未就绪会回退原始记录并关闭页面；这不保证能辨认所有 CSP 失败原因。打开或关闭结果待确认时，点击核对同一意图，不自动产生新请求。
 
+固定版本的页面可以在 SDK initialize 中声明实验能力 `areal/page-tools`，只提供 `getSelection` 与带 `expectedDocumentRevision` 的 `applyPatch`。可信宿主完成初始化后登记，Agent 通过普通 Core 工具调用操作该页面尚未保存的选区或文字，仍受审批和取消约束。过期 revision 返回冲突，结果不明确时记为 UNKNOWN，不自动重放。隐藏页面保留执行能力；原连接断开则保留页面内容并撤销工具，须显式打开新实例。该扩展不等于支持所有第三方编辑器，作者契约见[有限页面工具](../api/desktop.md#有限页面工具)。
+
 `ui/message` 可以将文本和资源添加到草稿，保留未发送的人类内容；只有 `send:true` 发起明确的新提交。标题和 `_meta` 留在历史/UI，递归剔除 `_meta` 后才进入模型。App 上下文按实例分组，可更新或移除。设置、mentions 和表单预览通过服务器声明的工具/资源处理；不猜测方法或地址。
 
 GitHub Connector 保留 `.app.json` 的原始 ID。在详情中填写这个 ID 和 GitHub token，通过系统安全存储保存，再明确连接。Core 将这个显式映射接到 `https://api.githubcopilot.com/mcp/`；不会根据不透明 ID 猜测供应商。账户凭据不足、未映射和不支持分别显示。`scripts/plugin-github-smoke.mjs` 使用固定版本的官方 GitHub 包，通过真实 MCP 读取公开 `openai/plugins` 仓库的市场文件。模型使用本地确定性服务，GitHub HTTP、桌面用户路径和真实模型供应商的验收分别记录。

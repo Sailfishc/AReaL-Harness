@@ -293,6 +293,29 @@ Core 按 turnId 再按 itemId 读取成功完成的 MCP 记录，核对原始快
 
 固定 Codex0.162.1 的 `plugin/list/installed/read/install/uninstall/reconcile/search` 与 `marketplace/add/remove/upgrade` 共享包所有者。只有 `plugin/search` 需要 initialize 的 `experimentalApi:true`。没有配置私有托管服务时，share/remote catalog 返回 `-32004` 与 capability；不返回伪空成功。`marketplace/add {source,refName?,sparsePaths?}` 已支持顶层 sparse cone 路径和更新保留；完整 hooks 与其余边界见[验收矩阵](../development/codex-plugins-p1-p3-acceptance.md)。
 
+### 有限页面工具
+
+`areal/mcp/app/tools/register`、`revoke`、`claim` 和 `resolve` 要求无限制的 `manage` 与 `tools` 授权。参数与响应由 `core/protocol` 类型生成。页内工具不能通过通用 Renderer 管理转发调用这些接口。
+
+注册是可信 Main 对原页面已完成 SDK initialize 的证明。声明仅包含 `version:1`、`documentId` 和唯一的 `getSelection`、`applyPatch` kind，不接受自定义名称、schema、描述或执行代码。Core 生成带 registration 命名空间的工具名与 schemaDigest，并在普通 Turn 准入时冻结。工具只进入原 Thread 的有效目录，沿用普通权限、hooks、结果预算和 ToolCall 历史。只读 Side、研究任务和未获授权的受限 worker 不继承这些工具。readOnly 声明不授予权限。
+
+| 操作 | 输入中的身份 | 结果 |
+| --- | --- | --- |
+| `register` | `threadId,instanceId,generation,ownerId,declaration` | `registrationId,documentId,tools`，每项包含 kind、name 和 schemaDigest |
+| `revoke` | `threadId,instanceId,generation,registrationId,ownerId` | `revoked:true`，先撤销目录与新 claim，再结算在途调用 |
+| `claim` | `threadId,turnId,callId,registrationId,ownerId,schemaDigest` | `granted` 带 claimId、kind、documentId 和有效 arguments，或 `notGranted` 带 reason |
+| `resolve` | 同一调用身份、可选 claimId 和 reply | 持久提交后返回 `accepted` |
+
+`reply` 只接受 `completed` 加规定结果、`noEffect` 加 `cancelled/closed/unavailable` 原因，或 `unknown`。`getSelection` 返回文档 revision、anchor、head、有界 selectedText、truncated 和 dirty。`applyPatch` 接受 `expectedDocumentRevision` 与 `{from,to,insert}`。成功证据包含前后 revision、原始范围、插入长度和 dirty；冲突或拒绝明确表示未修改。所有偏移与长度使用 UTF-16 单位，LF 占一个单位。拒绝 CR 插入与截断代理对的偏移。
+
+Core 绑定原始实际 ToolHost、App epoch、Thread、实例、MCP generation、插件摘要、registration 与 schema。Desktop 服务在打开响应返回前绑定原 Main socket；ownerId 只是服务生成的句柄。相同 principal 或已知 ID 不能转移归属。Main 再验证原窗口、token、epoch 和初始化 mount。`pending` 与 `cancelled` 通知仅发往原 socket，只含关联身份，不授予执行。
+
+Core 先保存普通调用意图、运行审批及 hooks，再发布待领取调用。claim 必须持久保存后才能返回唯一执行许可。单次 invocation 串行处理领取与结算，端点不独立写历史。相同终态内容重复提交只查询原收据，异内容冲突。已确认终态及结果快照不受后续 hook 错误、反馈或通用 finalizer 覆盖。
+
+领取前取消是确定未执行。领取后仅有效完成证据或原执行端的 `noEffect` 可确定结果，超时、abort 或连接丢失不能证明未修改。取消排空一秒后无证据则保存 UNKNOWN，重启与重开均不重放。任一原连接替换都会撤销工具执行，保留未保存页面。只有显式新打开的实例可以重新登记，隐藏但有效的页面仍可执行。
+
+v1 每实例一份登记、每 Main 八份、每 Core Host 32 份、每 runtime 128 份。每页最多两个在途调用、每 Host 16 个，Host 参数合计最多 128 KiB。声明最多 1 KiB，documentId 最多 64 字节，单次输入和输出各最多 32 KiB。文档最多 65,536 UTF-16 单位，替换和返回选区最多 4,096 单位，截断必须标记。领取期限十秒，领取后执行期限三十秒，取消排空一秒。既有页面请求预算和 2 MiB 资源限制保持有效。该能力不提供 sampling、跨设备编辑或任意页面执行平台。
+
 ## 插件 Hooks
 
 以下管理方法要求无限制 manage 身份；使用已有部署提交账本。

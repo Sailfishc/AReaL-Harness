@@ -1220,7 +1220,7 @@ Before admitting a side effect, durably bind `(transportEpoch, guestRequestId, f
 
 **First fixture.** `getSelection()` returns the page document's revision and selection range. `applyPatch({expectedDocumentRevision, patch})` modifies only that page's document. A stale revision returns a conflict. Do not guess a new target location. Pages may declare tools only within the specified schema, size, and count limits. This must not provide arbitrary JS, shell execution, network proxies, or tool name overrides.
 
-**Proposed new contract.** Core manages `register → claim → resolve/reject` and reuses the existing tool-call permissions, cancellation, and result persistence. `core/protocol` defines the RPC names centrally. The following data is required, but it is not an existing API:
+**Implementation contract.** Use exactly `areal/mcp/app/tools/register`, `revoke`, `claim`, and `resolve`. Resolve accepts completion, definite no-effect, or UNKNOWN. One settlement interface avoids a separate reject route and an outer tool reply. The [desktop contract](../api/desktop.en.md#finite-page-tools) owns types and budgets. Core reuses ordinary inventory, approval, and the ToolCall journal, without a page execution ledger. Admission freezes the following identity:
 
 ```ts
 type AppToolBinding = {
@@ -1229,7 +1229,12 @@ type AppToolBinding = {
   threadId: string;
   pluginId: string;
   pluginDigest: string;
-  toolId: string;
+  appsEpoch: string;
+  toolHostId: string;
+  ownerId: string;
+  registrationId: string;
+  documentId: string;
+  kind: "getSelection" | "applyPatch";
   schemaDigest: string;
 };
 // Core generates callId and durably admits the call. The page cannot specify another Thread or bypass ToolCall.
@@ -1238,9 +1243,9 @@ type AppToolBinding = {
 
 **State and boundaries.**
 
-- A page may register only after initialize. Core decides whether to expose its tools to the model based on the owning Thread, plugin state, and existing authorization. A hidden page that remains valid may execute calls. A closed or revoked generation may not.
+- Trusted Main may register only after the original source-bound bridge completes initialize. Core decides whether to expose its tools to the model based on the owning Thread, plugin state, and existing authorization. A hidden page that remains valid may execute calls. A closed or revoked generation may not.
 
-- Each callId may be held by only one valid claim from the correct instance. The claim binds to the current Host connection and generation. Repeated resolve submissions with identical content are idempotent. Different content is a conflict. An old connection cannot submit results for a new instance.
+- Only the original opening ToolHost and Main socket may claim a callId once. Core persists claim before returning execution permission. ownerId cannot replace original connection authorization. Repeated resolve submissions with identical content are idempotent. Different content is a conflict. An old connection cannot submit results for a new instance.
 
 - The Agent's tool schema freezes when the Turn is admitted. Temporary page schema changes or plugin upgrades must not change the meaning of in-flight calls. Tool names must use a controlled namespace.
 
@@ -1264,7 +1269,9 @@ type AppToolBinding = {
 
 5. Selection and document state persist while the page is hidden. After closure, its tools disappear from the set visible to subsequent calls. Previously accepted calls retain accurate terminal states.
 
-6. Verify UI-03A's in-flight, byte, and history budgets. Reject unbounded registration and unlimited results. Existing MCP Apps file, CAS, and revocation cases must not regress.
+6. Verify UI-03B registration, in-flight, byte, and deadline limits. Existing request budgets remain. MCP Apps file, CAS, and revocation cases must not regress.
+
+**Implementation choices.** Use the CodeMirror version already pinned in the lockfile. UTF-16 ranges permit a synchronous revision comparison, transaction, and undo. Directed notices wake an executor without granting permission. One invocation writes claim and terminal state. Accepted terminal evidence must survive post hooks and generic finalization. Losing either original connection retains the page but revokes tools. Automatic ownership transfer and execution recovery are outside this slice.
 
 **Dependencies and rollback.** UI-03A depends on UI-01. UI-03B depends on UI-01, UI-02, and support diagnostics PLG-01. The two capabilities negotiate independently and have separate switches. To disable a capability, first stop new registrations and dispatches, then drain or explicitly cancel in-flight calls. Preserve existing results and page content. Do not delete user business data. Remote UI, cross-device pages, sampling, and restoration of arbitrary DOM after a crash are outside this round's scope.
 

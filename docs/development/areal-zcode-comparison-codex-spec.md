@@ -1214,7 +1214,7 @@ P1 首期明确只接受原来源仍可验证、原 MCP 连接代次仍有效的
 
 **首个 fixture**：`getSelection()` 返回页面文档 revision 与选择范围；`applyPatch({expectedDocumentRevision, patch})` 只修改该页文档。过期 revision 返回冲突，不猜测重定位。页面仅能声明规定 schema/大小和数量以内的工具；不得借此提供任意 JS、shell、网络代理或工具名覆盖。
 
-**拟新增契约**：Core 管理 `register → claim → resolve/reject`，复用已有工具调用的权限、取消和结果持久化。具体 RPC 名称由 `core/protocol` 统一定义，以下为必要数据，不是现有 API：
+**实施契约**：固定 `areal/mcp/app/tools/register`、`revoke`、`claim`、`resolve` 四个接口。resolve 统一接受完成、明确未执行与 UNKNOWN，避免独立 reject 和外层工具回复形成多条结算路径。具体类型与预算见[桌面 API](../api/desktop.md#有限页面工具)。Core 复用普通目录、审批和 ToolCall journal，不建立页面执行账本。以下身份在准入后冻结：
 
 ```ts
 type AppToolBinding = {
@@ -1223,7 +1223,12 @@ type AppToolBinding = {
   threadId: string;
   pluginId: string;
   pluginDigest: string;
-  toolId: string;
+  appsEpoch: string;
+  toolHostId: string;
+  ownerId: string;
+  registrationId: string;
+  documentId: string;
+  kind: "getSelection" | "applyPatch";
   schemaDigest: string;
 };
 // Core 生成并持久受理 callId，页面不能指定别的 Thread 或绕开 ToolCall。
@@ -1232,9 +1237,9 @@ type AppToolBinding = {
 
 **状态与边界**：
 
-- 页面 initialize 后才能注册；Core 根据所属 Thread、插件状态和已有授权决定是否向模型发布。隐藏但仍有效的页面可以执行；已关闭或撤销代际不能执行。
+- 可信 Main 在原 source-bound bridge 完成 initialize 后才能注册。Core 根据所属 Thread、插件状态和已有授权决定是否向模型发布。隐藏但仍有效的页面可以执行；已关闭或撤销代际不能执行。
 
-- 每个 callId 只能被正确实例的一次有效 claim 持有，绑定当前 Host 连接与 generation。重复 resolve 同内容幂等，异内容冲突。旧连接不能回填新实例的结果。
+- 每个 callId 只能由打开实例的原始 ToolHost 与 Main socket 领取一次。Core 先持久保存 claim，再返回执行许可，ownerId 不代替原连接授权。重复 resolve 同内容幂等，异内容冲突。旧连接不能回填新实例的结果。
 
 - Agent 的 tool schema 在受理 Turn 时冻结；页面临时修改 schema 或插件升级不能改变在途调用含义。工具名必须带受控命名空间。
 
@@ -1258,7 +1263,9 @@ type AppToolBinding = {
 
 5. 页面隐藏后选择与文档状态保持；关闭后工具从后续可见集合消失，原已受理调用留下准确终态。
 
-6. 验证 UI-03A 的在途/字节/历史预算，拒绝无界注册和无限结果；原有 MCP Apps 文件/CAS/撤权用例不退化。
+6. 验证 UI-03B 固定的登记、在途、字节和期限限制，既有请求预算保持不变；原有 MCP Apps 文件/CAS/撤权用例不退化。
+
+**本阶段取舍**：使用锁文件已有版本的 CodeMirror，直接以 UTF-16 范围完成同步 revision 比较、事务与 undo。通知只定向唤醒，不携带执行许可。一次 invocation 是 claim 与终态的唯一写入者。持久终态必须穿过 post-hook 和通用 finalizer 保持不变。任一原连接断开后保留页面但撤销工具；本轮不实现自动迁移归属或恢复执行。
 
 **依赖与回退**：UI-03A 依赖 UI-01；UI-03B 依赖 UI-01、UI-02 与支持诊断 PLG-01。两个能力分别协商和开关控制。关闭能力时先停止新注册/新派发，再 drain 或显式取消在途调用；保留已有结果和页面内容，不删除用户业务数据。远端 UI、跨设备页面、sampling 和崩溃后恢复任意 DOM 均不在本轮范围。
 
