@@ -108,23 +108,31 @@ pub fn projections(responses: &mut Map<String, Value>, notifications: &mut Map<S
         json!({"serverId":string,"generation":number,"toolMetadata":tool_metadata,"mcpResult":tool_result}),
     );
     insert(&["mcp/tool/result"], mcp_result.clone());
-    insert(
-        &["mcp/apps/list"],
-        data(object(json!({
-            "serverId":string,"generation":number,"protocolVersion":string,"pluginId":string,"installedDigest":string,
-            "tools":array(object(json!({"name":string,"inputSchema":any_object,"toolName":string}))),
-            "capabilities":any_object,"title":nullable(string.clone()),"icons":nullable(array(any_object.clone())),"instructions":nullable(string.clone())
-        }))),
-    );
-    insert(
-        &["mcp/app/open"],
-        object(json!({
-            "instanceId":string,"serverId":string,"generation":number,"toolMetadata":tool_metadata,
-            "resource":object(json!({"uri":string,"mimeType":{},"html":string,"_meta":{}})),
-            "initialArguments":any_object,"initialResult":nullable(tool_result.clone()),
-            "hostContext":object(json!({"threadId":string,"modelContext":{},"deepLink":nullable(string.clone())}))
-        })),
-    );
+    let mut apps = data(object(json!({
+        "serverId":string,"generation":number,"protocolVersion":string,"pluginId":string,"installedDigest":string,
+        "tools":array(object(json!({"name":string,"inputSchema":any_object,"toolName":string}))),
+        "capabilities":any_object,"title":nullable(string.clone()),"icons":nullable(array(any_object.clone())),"instructions":nullable(string.clone())
+    })));
+    apps["properties"]["requestEpoch"] = string.clone();
+    apps["required"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!("requestEpoch"));
+    insert(&["mcp/apps/list"], apps);
+    let app = object(json!({
+        "instanceId":string,"serverId":string,"generation":number,"toolMetadata":tool_metadata,
+        "resource":object(json!({"uri":string,"mimeType":{},"html":string,"_meta":{}})),
+        "initialArguments":any_object,"initialResult":nullable(tool_result.clone()),
+        "hostContext":object(json!({"threadId":string,"modelContext":{},"deepLink":nullable(string.clone())}))
+    }));
+    insert(&["mcp/app/open"], app.clone());
+    let mut result_open = schema::<areal_protocol::plugin_runtime::ResultOpenReply>();
+    for variant in result_open["oneOf"].as_array_mut().unwrap() {
+        if variant["properties"].get("instance").is_some() {
+            variant["properties"]["instance"] = app.clone();
+        }
+    }
+    insert(&["mcp/app/openFromResult"], result_open);
     insert(
         &["mcp/app/request"],
         json!({"oneOf":[

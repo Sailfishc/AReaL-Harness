@@ -74,6 +74,10 @@ fn main() {
     add!("areal/mcp/apps/list", areal_protocol::plugin_runtime::Apps);
     add!("areal/mcp/app/open", areal_protocol::plugin_runtime::Open);
     add!(
+        "areal/mcp/app/openFromResult",
+        areal_protocol::plugin_runtime::OpenFromResult
+    );
+    add!(
         "areal/mcp/app/request",
         areal_protocol::plugin_runtime::AppRequest
     );
@@ -98,6 +102,14 @@ fn main() {
     add!("areal/goal/create", areal_protocol::goals::GoalCreate);
     add!("areal/task/create", areal_protocol::tasks::TaskCreate);
     add!("areal/task/update", areal_protocol::tasks::TaskUpdate);
+    add!(
+        "areal/task/schedule/context",
+        areal_protocol::tasks::ScheduleContextInput
+    );
+    add!(
+        "areal/task/schedule/preview",
+        areal_protocol::tasks::SchedulePreview
+    );
     add!("areal/task/runNow", areal_protocol::tasks::TaskRunNow);
     add!("areal/task/runs/list", areal_protocol::tasks::TaskRunsList);
     methods.get_mut("areal/task/runs/list").unwrap()["properties"]["limit"] =

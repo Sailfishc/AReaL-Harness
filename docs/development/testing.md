@@ -162,6 +162,10 @@ TUI 与共享服务 PTY 检查共用终端画面解析器，处理增量重绘�
 
 ## Task Mode 回归
 
+`cargo test --locked -p areal-app-server --lib calendar_` 通过公开 Task dispatcher、Core 测试时钟和真实调度器核对 UTC 字面值、前五次持久 Run、Host 准备与模型观察、重启、夏令时、迟到边界和已受理计划。测试时钟只在 test-support 中可用，不是生产 RPC。GUI 日历路径使用 `AREAL_TASK_CALENDAR_REGRESSION=1 pnpm --dir clients/gui run test:task-conversation`，验证配置会话、Core 预览、错过窗口和保存后重开；本地确定性模型不代表真实供应商效果。
+
+`AREAL_COMPAT_OLD_BIN=/absolute/v4/areal AREAL_CORE_BIN=/absolute/current/areal node examples/desktop-api/calendar-storage.mjs` 要求两个已确认身份的固定产物。它用旧二进制创建真实 v4 状态，通过当前 Core 的生产 WebSocket 路由验证迁移、只读 preview/context 权限、原收据和不可变引用，再确认旧二进制拒绝 v5 且不修改 Task 文件。脚本打印独立 Evidence 目录，保留根、收据、哈希、日志和进程停止结果；它不执行模型或 GUI，也不覆盖安装包升级。
+
 `cargo test --locked -p areal-engine --test task_modes` 覆盖异步提问期间继续工作、独立回复与同 Run 恢复、单个问题过期时仍有其他待答问题的唤醒、headless 提问和审批、定时持久恢复、前台 Goal 异步提问、跨协调 Turn 的 worker 与共享预算、取消清理及重启回复去重。app-server 单元回归校验 Task 请求/响应/通知符合生成 schema，并验证 Thread 授权过滤与独立订阅/退订。
 
 `node examples/desktop-api/schedule-host.mjs` 使用真实 Core/WS 与持久重启验证 Host 离线补执行、每轮新 Thread、受限身份与订阅的授权、准备失败后同 Run 继续、准备期间停止及旧 Host 迟到回复。`node clients/gui/scripts/schedule-desktop-smoke.mjs` 使用隔离 Electron/Core 和确定性本地模型验证对话创建、时区、新会话无历史、忙碌跳过、暂停和停止分离及普通审批 UI，保留截图与 JSON。设置 `AREAL_SCHEDULE_APPROVAL_EXPIRY=1` 会等待默认 300 秒期限，并验证 Turn 结算及同 Run 明确恢复后的新审批；未设置时不声称超时恢复通过。这些证据不替代真实供应商或安装包验收。

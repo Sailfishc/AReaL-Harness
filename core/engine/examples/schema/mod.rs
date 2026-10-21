@@ -96,6 +96,14 @@ pub fn projections() -> (Value, Value) {
         &["work/overview"],
         schema::<areal_protocol::work::OverviewPage>(),
     );
+    insert(
+        &["task/schedule/context"],
+        schema::<areal_protocol::tasks::ScheduleContext>(),
+    );
+    insert(
+        &["task/schedule/preview"],
+        schema::<areal_protocol::tasks::SchedulePreviewed>(),
+    );
     let mut task_view = schema::<areal_protocol::tasks::Task>();
     task_view["properties"]
         .as_object_mut()
