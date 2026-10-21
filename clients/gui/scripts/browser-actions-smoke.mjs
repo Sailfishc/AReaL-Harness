@@ -423,8 +423,8 @@ try {
     checks.push('B1 synthetic public Origin refuses undeclared viewport scroll, hover, select and checkbox without native input');
   } else if (capacityMode === 'b1' && privacyMode) {
     for (const [index, next] of ['selectPrivacy', 'selectPrivacyBatch', 'selectPrivacyNotes'].entries()) {
-      if (index) await app.evaluate(({webContents}, id) => webContents.fromId(id).executeJavaScript(
-        `document.querySelector('#choice').innerHTML='<option value="a">Alpha</option><option value="b">Beta</option><option value="c" disabled>Closed</option>';window.privateEchoSource=${JSON.stringify(next === 'selectPrivacyNotes' ? '#notes' : '#password')}`), nativeId);
+      if (index) await app.evaluate(({webContents}, {id,source}) => webContents.fromId(id).executeJavaScript(
+        `document.querySelector('#choice').innerHTML='<option value="a">Alpha</option><option value="b">Beta</option><option value="c" disabled>Closed</option>';window.privateEchoSource=${JSON.stringify(source)}`), {id:nativeId,source:next === 'selectPrivacyNotes' ? '#notes' : '#password'});
       const expectedPrivateValue = next === 'selectPrivacyNotes' ? notesValue : privateValue;
       await app.evaluate(() => {globalThis.__actionInputs=[]});
       const item = await scenario(next, '允许一次');
