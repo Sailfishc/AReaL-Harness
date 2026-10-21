@@ -10,7 +10,7 @@ import { selectConversation, captureSmokeFailure } from './smoke-navigation.mjs'
 
 // B-10–B-13: public GUI/Core approval and actual native input against a synthetic site.
 const capacityMode = process.argv[2] ?? 'act';
-assert.ok(['act', 'batch'].includes(capacityMode));
+assert.ok(['act', 'batch', 'b1'].includes(capacityMode));
 const gui = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const root = resolve(gui, '../..');
 const require = createRequire(join(gui, 'app/package.json'));
@@ -19,10 +19,12 @@ const scratch = await mkdtemp('/private/tmp/areal-browser-actions-');
 const workspace = join(scratch, 'workspace'), userHome = join(scratch, 'user');
 await mkdir(workspace); await mkdir(join(userHome, '.areal'), { recursive: true });
 execFileSync('git', ['init', '-b', 'main'], { cwd: workspace, stdio: 'ignore' });
-const siteFacts = { gets: 0, posts: 0 };
+const siteFacts = { gets: 0, posts: 0, effects: {} };
 const site = createServer(async (request, response) => {
   if (request.method === 'POST') {
     siteFacts.posts++;
+    const effect = new URL(request.url, 'http://fixture').searchParams.get('kind');
+    if (effect) siteFacts.effects[effect] = (siteFacts.effects[effect] ?? 0) + 1;
     for await (const _chunk of request) { /* consume fixture request without logging values */ }
     response.end('ok');
     return;
@@ -33,7 +35,23 @@ const site = createServer(async (request, response) => {
     <button id="submit" onclick="fetch('/effect',{method:'POST'})">Submit action</button>
     <button id="disabled" disabled>Disabled action</button>
     <form id="form"><label>Draft <input id="draft"></label><button type="submit">Send draft</button></form>
+    ${capacityMode === 'b1' ? `<label>Native choice <select id="choice"><option value="a">Alpha</option><option value="b">Beta</option><option value="c" disabled>Closed</option></select></label>
+    <label>Native check <input id="check" type="checkbox"></label>
+    <label>Disabled check <input id="disabled-check" type="checkbox" disabled checked></label>
+    <label>Multiple choice <select id="multiple" multiple><option value="a">Alpha</option><option value="b">Beta</option></select></label>
+    <label>Radio check <input id="radio" type="radio"></label>
+    <button id="hover">Hover menu</button><div id="menu" hidden>Visible hover menu</div>
+    <div style="height:1800px"></div><div id="sentinel">Lower sentinel</div>` : ''}
     <script>window.keyFacts={downs:[],ups:[],submits:0};
+    window.controlFacts={click:0,input:0,change:0,hover:0,scroll:0,selectInput:0,selectChange:0};
+    const effect=kind=>fetch('/effect?kind='+kind,{method:'POST'});
+    document.querySelector('#check')?.addEventListener('click',()=>{controlFacts.click++;effect('checkClick')});
+    for(const kind of ['input','change']) {
+      document.querySelector('#check')?.addEventListener(kind,()=>{controlFacts[kind]++;effect('check'+kind)});
+      document.querySelector('#choice')?.addEventListener(kind,()=>{controlFacts[kind==='input'?'selectInput':'selectChange']++;effect('select'+kind)});
+    }
+    document.querySelector('#hover')?.addEventListener('mouseenter',()=>{controlFacts.hover++;document.querySelector('#menu').hidden=false;effect('hover')});
+    addEventListener('scroll',()=>{if(!controlFacts.scroll&&scrollY>100){controlFacts.scroll++;effect('scroll')}});
     document.addEventListener('keydown',event=>window.keyFacts.downs.push({key:event.key,target:event.target.id}));
     document.addEventListener('keyup',event=>window.keyFacts.ups.push({key:event.key,target:event.target.id}));
     document.querySelector('#form').addEventListener('submit',event=>{
@@ -43,7 +61,7 @@ const site = createServer(async (request, response) => {
 });
 await new Promise(resolve => site.listen(0, '127.0.0.1', resolve));
 const siteUrl = `http://127.0.0.1:${site.address().port}/`;
-let pageId, mode = 'deny';
+let pageId, mode = capacityMode === 'b1' ? 'scrollDenied' : 'deny';
 let modelStage = 0;
 const modelCalls = [];
 const observationFrom = (value, depth = 0) => {
@@ -70,6 +88,37 @@ const model = createServer(async (request, response) => {
   if (modelStage === 0) {
     modelStage = 1;
     tool(`observe-${mode}`, { operation: 'observe', parameters: { pageId } });
+  } else if (modelStage === 1 && capacityMode === 'b1') {
+    const observation = observationFrom(last.content);
+    assert.ok(observation, `B1 observation for ${mode}`);
+    events[`${mode}Observation`] = observation;
+    const names = { hover: 'Hover menu', choice: 'Native choice', check: 'Native check', disabled: 'Disabled check', multiple: 'Multiple choice', radio: 'Radio check', submit: 'Submit action' };
+    const ref = key => {
+      const node = observation.nodes.find(node => node.name?.trim() === names[key] && node.ref);
+      assert.ok(node, `${mode} has ${names[key]}`); return node.ref;
+    };
+    const select = { kind: 'selectOption', ref: ref('choice'), value: mode === 'selectDisabled' ? 'c' : 'b' };
+    let input;
+    if (mode.startsWith('wait')) {
+      const condition = mode === 'waitEnabledFalse' ? { kind: 'enabled', ref: ref('disabled'), value: false }
+        : { kind: 'checked', ref: ref(mode === 'waitTransition' || mode === 'waitTimeout' ? 'check' : 'disabled'), value: true };
+      input = { operation: 'wait', parameters: { pageId, timeoutMs: mode === 'waitTimeout' ? 300 : 2000, condition } };
+    } else {
+      const action = mode.startsWith('scroll') ? { kind: 'scroll', target: 'viewport', deltaX: 0, deltaY: 700 }
+        : mode.startsWith('hover') ? { kind: 'hover', ref: ref('hover') }
+        : mode === 'multiple' ? { kind: 'selectOption', ref: ref('multiple'), value: 'b' }
+        : mode.startsWith('select') ? select
+        : { kind: 'setChecked', ref: ref(mode === 'checkDisabled' ? 'disabled' : mode === 'checkRadio' ? 'radio' : 'check'), checked: mode !== 'checkFalse' };
+      input = { operation: 'act', parameters: { pageId, snapshotId: observation.observationId, action } };
+      if (mode === 'batchPrefix' || mode === 'batchUnknown') input = { operation: 'runBatch', parameters: { pageId, snapshotId: observation.observationId, steps: [
+        { operation: 'act', snapshotId: observation.observationId, action: { kind: 'setChecked', ref: ref('check'), checked: true } },
+        { operation: 'act', snapshotId: observation.observationId, action: mode === 'batchUnknown' ? select : { kind: 'hover', ref: ref('hover') } },
+        { operation: 'act', snapshotId: observation.observationId, action: { kind: 'click', ref: ref('submit') } },
+      ] } };
+    }
+    if (mode === 'scrollBeforePrepare') await app.evaluate(({webContents}, id) => webContents.fromId(id).executeJavaScript('scrollTo(0,40)'), nativeId);
+    if (mode === 'selectBeforePrepare') await app.evaluate(({webContents}, id) => webContents.fromId(id).executeJavaScript(`{const o=document.querySelector('#choice option[value=b]');o.replaceWith(o.cloneNode(true))}`), nativeId);
+    modelStage = 2; tool(`act-${mode}`, input);
   } else if (modelStage === 1) {
     const observation = observationFrom(last.content);
     if (!observation) { send({ content: `Action ${mode} reviewed` }); send({}, 'stop'); }
@@ -127,7 +176,9 @@ function toolResult(turn) {
 async function nativeFacts() {
   return app.evaluate(({ webContents }, id) => webContents.fromId(id)?.executeJavaScript(
     `({draft:document.querySelector('#draft')?.value,submitPresent:!!document.querySelector('#submit'),
-      activeElement:document.activeElement?.id,keyFacts:window.keyFacts})`), nativeId);
+      activeElement:document.activeElement?.id,keyFacts:window.keyFacts,
+      controlFacts:window.controlFacts,checked:document.querySelector('#check')?.checked,
+      choice:document.querySelector('#choice')?.value,scrollY,menu:document.querySelector('#menu')?.hidden})`), nativeId);
 }
 try {
   app = await electron.launch({ executablePath: require('electron'), args: [join(gui, 'app')], env, timeout: 120000 });
@@ -180,13 +231,27 @@ try {
     debuggerApi.sendCommand = (method, params) => {
       if (['DOM.focus', 'Input.dispatchMouseEvent', 'Input.dispatchKeyEvent'].includes(method))
         globalThis.__actionInputs.push({ method, type: params?.type, key: params?.key });
-      return send(method, params);
+      const pending = send(method, params);
+      if (globalThis.__holdB1Ack && method === 'Runtime.callFunctionOn'
+        && params.functionDeclaration?.includes('function (expected, value)')) {
+        globalThis.__holdB1Ack = false;
+        return pending.then(value => new Promise(resolve => {globalThis.__releaseB1Ack=()=>resolve(value);globalThis.__heldB1Ack=true}));
+      }
+      return pending;
     };
   }, nativeId);
   await app.evaluate((_electron, { modulePath, capacityMode }) => {
     const { CorePreview } = process.getBuiltinModule('module').createRequire(modulePath)(modulePath);
     const execute = CorePreview.prototype.execute, target = CorePreview.prototype.actionTarget;
     const prepare = CorePreview.prototype.prepare;
+    const executeBatch = CorePreview.prototype.executeBatch;
+    CorePreview.prototype.executeBatch = async function(request) {
+      const value=await executeBatch.call(this,request);
+      const duplicate=await executeBatch.call(this,request);
+      const altered=await executeBatch.call(this,{...request,parameters:{...request.parameters,steps:[]}}).then(()=>true,()=>false);
+      globalThis.__batchDedup={value,duplicate,altered};
+      return value;
+    };
     CorePreview.prototype.prepare = async function(request) {
       const original = await prepare.call(this, request);
       if (!globalThis.__planBudgetOnce) return original;
@@ -240,7 +305,18 @@ try {
     if (choice) {
       const panel = page.locator('[data-interaction="approval"]');
       await panel.waitFor({ timeout: 60000 });
-      assert.match(await panel.innerText(), /Submit action|Draft/);
+      assert.match(await panel.innerText(), capacityMode === 'b1' ? /scroll|hover|selectOption|setChecked|wait/ : /Submit action|Draft/);
+      if (capacityMode === 'b1') {
+        const mutation = {
+          selectReplace: `{const o=document.querySelector('#choice option[value=b]');o.replaceWith(o.cloneNode(true))}`,
+          selectReorder: `document.querySelector('#choice').prepend(document.querySelector('#choice option[value=b]'))`,
+          selectType: `{const old=document.querySelector('#choice'),el=document.createElement('input');el.id='choice';old.replaceWith(el)}`,
+          hoverReplace: `{const old=document.querySelector('#hover');old.replaceWith(old.cloneNode(true))}`,
+          scrollStale: 'scrollTo(0,40)',
+          waitTransition: `setTimeout(()=>{document.querySelector('#check').checked=true},200)`,
+        }[next];
+        if (mutation) await app.evaluate(({webContents}, {id, mutation}) => webContents.fromId(id).executeJavaScript(mutation), {id:nativeId,mutation});
+      }
       if (next === 'stale') await app.evaluate(({ webContents }, id) =>
         webContents.fromId(id).executeJavaScript(`{const old=document.querySelector('#submit');old.replaceWith(old.cloneNode(true))}`), nativeId);
       if (next === 'hidden' || next === 'covered') await app.evaluate(({ webContents }, { id, next }) =>
@@ -260,6 +336,76 @@ try {
     console.error(`browser-actions: ${next} completed`);
     return item;
   }
+  if (capacityMode === 'b1') {
+    const native = code => app.evaluate(({webContents}, {id,code}) => webContents.fromId(id).executeJavaScript(code), {id:nativeId,code});
+    const reset = async () => {
+      await native(`scrollTo(0,0);document.querySelector('#check').checked=false;document.querySelector('#choice')?.remove();document.querySelector('#choice-label')?.remove();
+        document.querySelector('#multiple').insertAdjacentHTML('beforebegin','<label id="choice-label">Native choice <select id="choice"><option value="a">Alpha</option><option value="b">Beta</option><option value="c" disabled>Closed</option></select></label>');
+        for(const kind of ['input','change']) document.querySelector('#choice').addEventListener(kind,()=>{controlFacts[kind==='input'?'selectInput':'selectChange']++;effect('select'+kind)});`);
+      await new Promise(resolve => setTimeout(resolve,150));
+      await app.evaluate(() => {globalThis.__actionInputs=[]});
+    };
+    await scenario('scrollDenied','拒绝'); assert.equal(siteFacts.posts,0);
+    for (const next of ['scrollBeforePrepare','selectBeforePrepare']) {
+      await reset();const before=siteFacts.posts;const item=await scenario(next);assert.equal(item.success,false);assert.equal(siteFacts.posts,before);
+      assert.equal((await app.evaluate(()=>globalThis.__actionInputs)).length,0);
+    }
+    for (const next of ['scrollStale','hoverReplace','selectReplace','selectReorder','selectType']) {
+      await reset();const before=siteFacts.posts;const item=await scenario(next,'允许一次');
+      assert.equal(item.success,false);assert.equal(siteFacts.posts,before);
+      assert.equal((await app.evaluate(()=>globalThis.__actionInputs)).length,0);
+    }
+    await reset();const selected=await scenario('select','允许一次');assert.equal(selected.success,true);
+    await until(()=>siteFacts.effects.selectchange===1,'one exact select change');
+    assert.equal((await nativeFacts()).choice,'b');assert.equal(siteFacts.effects.selectinput,1);
+    const control=events.selectObservation.nodes.find(node=>node.nativeControl?.kind==='select')?.nativeControl;
+    assert.equal(control.multiple,false);assert.equal(control.optionsComplete,true);
+    assert.deepEqual(control.options.map(({value,label,disabled,selected})=>({value,label,disabled,selected})),[
+      {value:'a',label:'Alpha',disabled:false,selected:true},{value:'b',label:'Beta',disabled:false,selected:false},{value:'c',label:'Closed',disabled:true,selected:false}]);
+    assert.equal(new Set(control.options.map(o=>o.optionId)).size,3);
+    for(const next of ['selectDisabled','multiple','checkDisabled','checkRadio']) {
+      const before=siteFacts.posts;const item=await scenario(next);assert.equal(item.success,false);assert.equal(siteFacts.posts,before);
+    }
+    await reset();await native(`document.querySelector('#choice').insertAdjacentHTML('beforeend','<option value="b">Duplicate</option>')`);
+    const duplicate=await scenario('selectDuplicate');assert.equal(duplicate.success,false);
+    await reset();await scenario('checkTrue','允许一次');await until(()=>siteFacts.effects.checkClick===1,'one checkbox toggle');
+    assert.equal((await nativeFacts()).checked,true);
+    const again=await scenario('checkAgain','允许一次');assert.equal(again.success,true);
+    assert.match(JSON.stringify(again.contentItems),/"noOp":true/);assert.match(JSON.stringify(again.contentItems),/"inputConfirmed":false/);
+    assert.equal(siteFacts.effects.checkClick,1);
+    await scenario('checkFalse','允许一次');await until(()=>siteFacts.effects.checkClick===2,'checkbox false');assert.equal((await nativeFacts()).checked,false);
+    for(const next of ['waitEnabledFalse','waitCheckedTrue','waitTransition','waitTimeout']) {
+      await native(`document.querySelector('#check').checked=false;document.querySelector('#check').disabled=${next==='waitTransition'}`);
+      await app.evaluate(()=>{globalThis.__actionInputs=[]});
+      const item=await scenario(next,'允许一次');assert.equal(item.success,next!=='waitTimeout');
+      assert.equal((await app.evaluate(()=>globalThis.__actionInputs)).length,0);
+    }
+    await native(`document.querySelector('#check').disabled=false`);await reset();
+    await scenario('hover','允许一次');await until(()=>siteFacts.effects.hover===1,'hover menu');assert.equal((await nativeFacts()).menu,false);
+    await reset();await scenario('scroll','允许一次');await until(()=>siteFacts.effects.scroll===1,'scroll sentinel');assert.ok((await nativeFacts()).scrollY>100);
+    await reset();const prefix=await scenario('batchPrefix','允许一次');
+    assert.equal(prefix.success,true);assert.match(JSON.stringify(prefix.contentItems),/"failedStep":2/);
+    const batch=JSON.parse(prefix.contentItems.find(i=>i.type==='inputText').text);
+    assert.equal(batch.receipts.length,2);assert.equal(batch.remaining,'not_sent');
+    assert.equal(batch.receipts[0].inputConfirmed,true);assert.equal(batch.receipts[1].inputConfirmed,true);
+    const dedup=await app.evaluate(()=>globalThis.__batchDedup);
+    assert.deepEqual(dedup.value,dedup.duplicate);assert.equal(dedup.altered,false);
+    await reset();await app.evaluate(()=>{globalThis.__holdB1Ack=true});
+    const beforeUnknown={...siteFacts.effects}, unknownPromise=scenario('batchUnknown','允许一次');
+    await until(()=>app.evaluate(()=>globalThis.__heldB1Ack===true),'native SELECT sent with ACK withheld');
+    await until(()=>(siteFacts.effects.selectchange??0)===(beforeUnknown.selectchange??0)+1,'unknown select effect once');
+    await page.evaluate(({projectId,threadId,pageId})=>window.arealDesktop.preview({operation:'takeover',projectId,threadId,pageId}),{projectId,threadId,pageId});
+    const unknown=await unknownPromise;
+    assert.equal(unknown.success,false);assert.match(JSON.stringify(unknown),/unknown/i);
+    assert.equal((await nativeFacts()).choice,'b');
+    assert.equal(siteFacts.effects.selectchange,(beforeUnknown.selectchange??0)+1);
+    const unknownDedup=await app.evaluate(()=>globalThis.__batchDedup);
+    assert.equal(unknownDedup.value.receipts.length,1);assert.equal(unknownDedup.value.failedStep,1);
+    assert.equal(unknownDedup.value.remaining,'not_sent');assert.deepEqual(unknownDedup.value,unknownDedup.duplicate);
+    await app.evaluate(()=>{globalThis.__releaseB1Ack()});
+    await until(async()=>(await page.evaluate(({projectId,threadId})=>window.arealDesktop.preview({operation:'state',projectId,threadId}),{projectId,threadId})).browser.control==='human','B1 pending ACK release converges to human');
+    checks.push('B1 public Core calls bind native controls, ordered option identities, disabled state waits, stale targets and batch confirmed prefix to page and server counters');
+  } else {
   const denied = await scenario('deny', '拒绝');
   assert.equal(siteFacts.posts, 0);
   assert.equal(denied.success, false);
@@ -359,6 +505,7 @@ try {
   assert.equal(cleared.plans, 0); assert.equal(cleared.outstanding, 0);
   events.capacity.budget = budget; events.capacity.cleared = cleared;
   checks.push(`09c5 Main ${capacityMode}: actual prepared plans exhaust the workspace budget including the outer batch plan; extra original Main prepare is promptly refused without input, epoch drift or Core history fabrication; takeover clears all plans`);
+  }
   assert.deepEqual(errors, []);
   passed = true;
 } catch (error) {

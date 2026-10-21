@@ -29,6 +29,32 @@ test('browser observation and capture accept only bounded declared parameters', 
   assert.equal(validToolInput({ operation: 'navigate', parameters: { pageId, url: 'http://localhost:3000', allow: true } }), false);
 });
 
+test('native browser controls accept bounded intent and reject injected execution details', () => {
+  const pageId = '00000000-0000-4000-8000-000000000001';
+  const act = action => validToolInput({ operation: 'act', parameters: { pageId, snapshotId: pageId, action } });
+  const wait = condition => validToolInput({ operation: 'wait', parameters: { pageId, timeoutMs: 500, condition } });
+  for (const action of [
+    { kind: 'scroll', target: 'viewport', deltaX: 0, deltaY: 512 },
+    { kind: 'hover', ref: 'r1' }, { kind: 'selectOption', ref: 'r1', value: 'exact' },
+    { kind: 'setChecked', ref: 'r1', checked: true },
+  ]) {
+    assert.equal(act(action), true, JSON.stringify(action));
+    for (const injected of [{ selector: '#control' }, { backendNodeId: 42 }, { code: 'alert(1)' }])
+      assert.equal(act({ ...action, ...injected }), false);
+  }
+  for (const delta of [0.5, 4097, -4097, Infinity, NaN, '10'])
+    assert.equal(act({ kind: 'scroll', target: 'viewport', deltaX: 0, deltaY: delta }), false);
+  assert.equal(act({ kind: 'scroll', target: 'viewport', deltaX: 0, deltaY: 0 }), false);
+  assert.equal(act({ kind: 'selectOption', ref: 'r1', value: 'x'.repeat(257) }), false);
+  assert.equal(act({ kind: 'setChecked', ref: 'r1', checked: 'true' }), false);
+  for (const kind of ['checked', 'enabled']) {
+    assert.equal(wait({ kind, ref: 'r1', value: false }), true);
+    assert.equal(wait({ kind, ref: 'r1', value: true }), true);
+    assert.equal(wait({ kind, ref: 'r1', value: 'false' }), false);
+    assert.equal(wait({ kind, ref: 'r1', value: false, selector: '#control' }), false);
+  }
+});
+
 test('batch accepts only eight observed same-page actions or bounded waits', () => {
   const pageId = '00000000-0000-4000-8000-000000000001';
   const snapshotId = '00000000-0000-4000-8000-000000000002';
