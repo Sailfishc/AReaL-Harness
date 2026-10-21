@@ -14,6 +14,8 @@ CLI 使用 `areal plugins --workspace /path/to/project read <plugin-id>` 读取�
 
 Portable 作者可通过 `extensions.org.areal.componentRequirements` 声明静态必需 kind，例如 `{"version":1,"requiredKinds":["skills"]}`。每个必需 kind 的全部声明记录必须受支持。不兼容的必需 kind 会让包保留安装以供检查，但排除有效激活。可选 unsupported 声明不会禁用有效 Skill。该语义只适用于已识别的 portable 1.0.0 manifest。严格字段及限制见 [API 契约](../api/desktop.md#组件支持报告)。只有 `.zcode-plugin` 的包不受支持，请使用已有文档说明的 portable、Codex、Claude 或 Cursor manifest。
 
+历史 Skill 保留自身包摘要的静态兼容性要求。安装兼容的新版本不会解锁被阻止的旧引用。兼容的旧引用可继续使用，直到当前包被阻止、停用或卸载。
+
 ## 插件、Skills 与 MCP
 
 左侧“插件”打开插件市场。公共和个人目录按已注册来源展示，Skills 和已安装插件在同一工作区导航。点击插件或 Skill 打开内容页，可返回原列表。Skills 页的已安装总览默认展示六项，点击“查看更多”展开。下方通过“个人”和项目标签浏览各来源的已安装技能，各自保留展开状态；搜索展示全部匹配结果。市场操作使用此前明确选择的项目；尚未选择项目时，先选择或打开项目。浏览不会创建任务目录。

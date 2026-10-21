@@ -14,6 +14,8 @@ CLI reads the same Core report with `areal plugins --workspace /path/to/project 
 
 Portable authors can require static component kinds with `extensions.org.areal.componentRequirements` set to `{"version":1,"requiredKinds":["skills"]}`. Every declared row of each required kind must be supported. An incompatible required kind leaves the package installed for inspection but excludes it from effective activation. Optional unsupported declarations do not disable supported Skills. These semantics apply only to the recognized portable 1.0.0 manifest. See the [API contract](../api/desktop.en.md#component-support-reports) for strict fields and limits. A `.zcode-plugin`-only package is unsupported; use a documented portable, Codex, Claude, or Cursor manifest.
 
+Historical Skills retain the static compatibility requirements of their own package digest. Installing a compatible replacement does not unlock a blocked old reference. Compatible old references remain usable until the current package becomes blocked, disabled, or uninstalled.
+
 ## Plugins, Skills, and MCP
 
 The global **Plugins** entry opens the marketplace. Public and Personal list registered sources. Skills and installed plugins share this workspace navigation. A plugin or Skill opens a content page with a return path. The Skills installed overview initially shows six items and expands with Show more. Personal and project tabs below show installed Skills from each source and retain separate expansion state. Search shows all matching results. Management uses the previously selected project. Select or open a project when none is selected. Browsing does not create a task directory.

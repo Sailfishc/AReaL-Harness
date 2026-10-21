@@ -187,43 +187,13 @@ fn server_id(plugin: &str, name: &str) -> String {
     )
 }
 fn app_declarations(c: &areal_plugins::InstalledComponents) -> Vec<Value> {
-    let mut rows = vec![];
-    for document in &c.app_documents {
-        let apps = document.value.get("apps").unwrap_or(&document.value);
-        let values = if let Some(array) = apps.as_array() {
-            array.clone()
-        } else if apps.get("id").is_some() {
-            vec![apps.clone()]
-        } else if let Some(object) = apps.as_object() {
-            object
-                .iter()
-                .map(|(key, value)| {
-                    let mut value = value.clone();
-                    if value.is_object() && value.get("id").is_none() {
-                        value["id"] = json!(key);
-                    }
-                    value
-                })
-                .collect()
-        } else {
-            vec![]
-        };
-        for value in values {
-            if let Some(id) = value["id"].as_str() {
-                let mut summary = json!({"id":id,"name":value["name"].as_str().unwrap_or(id)});
-                for key in ["description", "installUrl", "category"] {
-                    summary[key] = value
-                        .get(key)
-                        .cloned()
-                        .filter(Value::is_string)
-                        .unwrap_or(Value::Null);
-                }
-                rows.push(summary);
-            }
-        }
-    }
-    rows
+    c.app_documents
+        .iter()
+        .flat_map(|document| areal_plugins::app_declarations(&document.value))
+        .filter_map(|declaration| declaration.summary)
+        .collect()
 }
+
 fn connector_ids(c: &areal_plugins::InstalledComponents) -> Vec<String> {
     app_declarations(c)
         .iter()

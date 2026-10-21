@@ -7,7 +7,9 @@ mod metadata;
 mod package;
 mod remote;
 mod support;
-pub use components::{ComponentDocument, InstalledComponents, InstalledSnapshot};
+pub use components::{
+    AppDeclaration, ComponentDocument, InstalledComponents, InstalledSnapshot, app_declarations,
+};
 pub use support::{
     CompatibilityState, ComponentCompatibility, ComponentKind, ComponentSupport, ManifestFormat,
     PackageComponentSupport, SupportStatus, SupportValidation,
@@ -277,7 +279,8 @@ impl Store {
     ) -> Result<PackageComponentSupport> {
         Ok(self
             .read_components(
-                detail,
+                &detail.id,
+                &detail.source_digest,
                 self.root.join("cache").join(&detail.source_digest),
                 state
                     .installed_policies
@@ -660,6 +663,21 @@ impl Store {
         }
         Ok(skills)
     }
+    fn skill_compatible(&self, state: &State, skill: &InstalledSkill) -> Result<bool> {
+        Ok(self
+            .read_components(
+                &skill.plugin_id,
+                &skill.revision,
+                skill.package_root.clone(),
+                state
+                    .installed_policies
+                    .get(&skill.plugin_id)
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null),
+            )?
+            .support
+            .allowed())
+    }
     pub fn is_skill_enabled(&self, id: &str, revision: &str) -> Result<bool> {
         let state = self.state()?;
         match state
@@ -667,7 +685,8 @@ impl Store {
             .iter()
             .find(|skill| skill.id == id && skill.revision == revision)
         {
-            Some(skill) => self.effective(&state, &skill.plugin_id),
+            Some(skill) => Ok(self.effective(&state, &skill.plugin_id)?
+                && self.skill_compatible(&state, skill)?),
             None => Ok(false),
         }
     }

@@ -264,87 +264,84 @@ fn mcp(value: &Value, field: &str, rows: &mut Vec<ComponentSupport>) -> Result<(
     }
     Ok(())
 }
-fn hooks(value: &Value, field: &str, rows: &mut Vec<ComponentSupport>) -> Result<()> {
-    let source = if value.get("hooks").is_some() {
-        pointer(field, "hooks")?
-    } else {
-        field.into()
-    };
-    let field = source.as_str();
-    let Some(events) = value.get("hooks").unwrap_or(value).as_object() else {
+fn document_field(source: crate::components::DocumentSource, manifest_field: &str) -> String {
+    match source {
+        crate::components::DocumentSource::Manifest(indices) => {
+            let mut field = manifest_field.to_owned();
+            for index in indices {
+                field.push_str(&format!("/{index}"));
+            }
+            field
+        }
+        crate::components::DocumentSource::Path(path) => format!("{path}#"),
+    }
+}
+fn hooks(
+    declaration: Option<&Value>,
+    field: &str,
+    files: &package::Files,
+    portable: bool,
+    rows: &mut Vec<ComponentSupport>,
+) -> Result<()> {
+    let discovered = crate::hooks::discover(declaration, files, portable, &mut vec![]);
+    reserve(rows, discovered.rejected.len())?;
+    for origin in discovered.rejected {
         rows.push(partial(
             ComponentKind::Hooks,
-            field.into(),
-            "invalidHookEnvelope",
-        ));
-        return Ok(());
-    };
-    if events.is_empty() {
-        rows.push(partial(
-            ComponentKind::Hooks,
-            field.into(),
-            "emptyHookEnvelope",
+            document_field(origin, field),
+            "invalidHookDeclaration",
         ));
     }
-    for (event, groups) in events {
-        reserve(rows, 1)?;
-        let event_field = pointer(field, event)?;
-        let supported_event = crate::hooks::HookEvent::ALL
-            .iter()
-            .any(|e| e.as_str() == event);
-        let Some(groups) = groups.as_array() else {
-            rows.push(partial(
-                ComponentKind::Hooks,
-                event_field,
-                "invalidHookEnvelope",
-            ));
-            continue;
-        };
-        for (index, group) in groups.iter().enumerate() {
+    for (source, document) in discovered.documents {
+        let base = document_field(source, field);
+        for (path, supported) in crate::hooks::support(&document.value) {
             reserve(rows, 1)?;
-            let group_field = pointer(&event_field, &index.to_string())?;
-            let Some(handlers) = group.get("hooks").and_then(Value::as_array) else {
-                rows.push(partial(
-                    ComponentKind::Hooks,
-                    group_field,
-                    "invalidHookEnvelope",
-                ));
-                continue;
-            };
-            if handlers.is_empty() {
-                rows.push(partial(
-                    ComponentKind::Hooks,
-                    group_field.clone(),
-                    "emptyHookEnvelope",
-                ));
+            let mut field = base.clone();
+            for key in path {
+                field = pointer(&field, &key)?;
             }
-            reserve(rows, handlers.len())?;
-            for (index, handler) in handlers.iter().enumerate() {
-                let field = pointer(&format!("{group_field}/hooks"), &index.to_string())?;
-                let valid = match handler.get("type").and_then(Value::as_str) {
-                    Some("command") => handler
-                        .get("command")
-                        .and_then(Value::as_str)
-                        .is_some_and(|s| !s.is_empty()),
-                    Some("mcp") => {
-                        handler.get("server").and_then(Value::as_str).is_some()
-                            && handler.get("tool").and_then(Value::as_str).is_some()
-                    }
-                    _ => false,
-                };
-                rows.push(if supported_event && valid {
-                    row(ComponentKind::Hooks, field, true)
-                } else {
-                    partial(ComponentKind::Hooks, field, "unsupportedHookEnvelope")
-                });
-            }
+            rows.push(if supported {
+                row(ComponentKind::Hooks, field, true)
+            } else {
+                partial(ComponentKind::Hooks, field, "unsupportedHookEnvelope")
+            });
         }
-        if groups.is_empty() {
-            rows.push(partial(
-                ComponentKind::Hooks,
-                event_field,
-                "emptyHookEnvelope",
-            ));
+    }
+    Ok(())
+}
+fn apps(
+    declaration: Option<&Value>,
+    field: &str,
+    files: &package::Files,
+    portable: bool,
+    rows: &mut Vec<ComponentSupport>,
+) -> Result<()> {
+    let selected =
+        crate::components::documents(declaration, ".app.json", files, portable, &mut vec![]);
+    reserve(rows, selected.rejected.len())?;
+    for origin in selected.rejected {
+        rows.push(partial(
+            ComponentKind::Apps,
+            document_field(origin, field),
+            "invalidConnectorDeclaration",
+        ));
+    }
+    for (source, document) in selected.documents {
+        let mut base = document_field(source, field);
+        if document.value.get("apps").is_some() {
+            base = pointer(&base, "apps")?;
+        }
+        for declaration in crate::app_declarations(&document.value) {
+            reserve(rows, 1)?;
+            let field = match declaration.key {
+                Some(key) => pointer(&base, &key)?,
+                None => base.clone(),
+            };
+            rows.push(if declaration.summary.is_some() {
+                row(ComponentKind::Apps, field, true)
+            } else {
+                partial(ComponentKind::Apps, field, "invalidConnectorEnvelope")
+            });
         }
     }
     Ok(())
@@ -357,7 +354,7 @@ fn document(
     rows: &mut Vec<ComponentSupport>,
 ) -> Result<()> {
     match value {
-        Value::Array(values) if kind != ComponentKind::Apps => {
+        Value::Array(values) => {
             for (index, value) in values.iter().enumerate() {
                 document(
                     value,
@@ -377,7 +374,7 @@ fn document(
                 .get(&path)
                 .and_then(|file| serde_json::from_slice::<Value>(&file.bytes).ok())
             {
-                Some(value) => envelope(&value, kind, &format!("{path}#"), rows)?,
+                Some(value) => mcp(&value, &format!("{path}#"), rows)?,
                 None => rows.push(partial(
                     kind,
                     field.into(),
@@ -385,56 +382,9 @@ fn document(
                 )),
             }
         }
-        value => envelope(value, kind, field, rows)?,
+        value => mcp(value, field, rows)?,
     }
     Ok(())
-}
-fn envelope(
-    value: &Value,
-    kind: ComponentKind,
-    field: &str,
-    rows: &mut Vec<ComponentSupport>,
-) -> Result<()> {
-    match kind {
-        ComponentKind::Mcp => mcp(value, field, rows),
-        ComponentKind::Hooks => hooks(value, field, rows),
-        ComponentKind::Apps => {
-            let declarations = value.get("apps").unwrap_or(value);
-            match declarations {
-                Value::Array(values) => {
-                    reserve(rows, values.len().max(1))?;
-                    for (index, value) in values.iter().enumerate() {
-                        let field = pointer(field, &index.to_string())?;
-                        rows.push(if value.is_object() {
-                            row(kind, field, true)
-                        } else {
-                            partial(kind, field, "invalidConnectorEnvelope")
-                        });
-                    }
-                    if values.is_empty() {
-                        rows.push(partial(kind, field.into(), "emptyConnectorEnvelope"));
-                    }
-                }
-                Value::Object(values) => {
-                    reserve(rows, values.len().max(1))?;
-                    for (key, value) in values {
-                        let field = pointer(field, key)?;
-                        rows.push(if value.is_object() {
-                            row(kind, field, true)
-                        } else {
-                            partial(kind, field, "invalidConnectorEnvelope")
-                        });
-                    }
-                    if values.is_empty() {
-                        rows.push(partial(kind, field.into(), "emptyConnectorEnvelope"));
-                    }
-                }
-                _ => rows.push(partial(kind, field.into(), "invalidConnectorEnvelope")),
-            }
-            Ok(())
-        }
-        _ => unreachable!(),
-    }
 }
 pub(crate) fn parse(
     files: &package::Files,
@@ -481,28 +431,20 @@ pub(crate) fn parse(
             &mut components,
         )?;
     }
-    for (kind, key, default) in [
-        (ComponentKind::Hooks, "hooks", "hooks/hooks.json"),
-        (ComponentKind::Apps, "apps", ".app.json"),
-    ] {
-        if let Some(value) = overlay.get(key) {
-            document(
-                value,
-                kind,
-                &field(&selection.overlay_path, key),
-                files,
-                &mut components,
-            )?;
-        } else if files.contains_key(default) {
-            document(
-                &Value::String(default.into()),
-                kind,
-                default,
-                files,
-                &mut components,
-            )?;
-        }
-    }
+    hooks(
+        overlay.get("hooks"),
+        &field(&selection.overlay_path, "hooks"),
+        files,
+        selection.portable,
+        &mut components,
+    )?;
+    apps(
+        overlay.get("apps"),
+        &field(&selection.overlay_path, "apps"),
+        files,
+        selection.portable,
+        &mut components,
+    )?;
     let mut declarations = vec![(selection.manifest, selection.manifest_path)];
     if !std::ptr::eq(overlay, selection.manifest) {
         declarations.push((overlay, selection.overlay_path.as_str()));

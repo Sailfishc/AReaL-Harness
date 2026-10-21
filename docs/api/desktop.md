@@ -267,7 +267,9 @@ MCP 清理失败保持 cleanupFailed，并持久保存 cleanupUnconfirmed。无�
 
 只有已识别的 portable 1.0.0 manifest 可以声明 `extensions.org.areal.componentRequirements`，严格结构为 `{"version":1,"requiredKinds":["skills"]}`，两个成员都必需。未知成员、版本、kind、重复、错误类型或超过七个 kind 均拒绝解析。兼容格式同名字段、MCP `required`、Skill dependencies 不具有包级必需语义。必需 kind 至少有一项声明，且该 kind 全部记录都须为 `supported`。缺失、partial 或 unsupported 返回 `compatibility.state=blocked`，原因分别为 `requiredKindMissing:<kind>` 或 `requiredKindUnsupported:<kind>`，否则为 `allowed`。
 
-安装可以保留 blocked 包供检查，`enabled` 仍表示配置范围的意图。Store 既有有效选择从 Skills、组件、版本发布及执行检查中排除 blocked 包。可选 unsupported 声明不阻止有效 Skill。动态信任或连接前提独立于静态门禁。
+安装可以保留 blocked 包供检查，`enabled` 仍表示配置范围的意图。Store 既有有效选择从 Skills、组件、版本发布及执行检查中排除 blocked 包。历史 Skill 引用同时受当前包有效状态及其自身不可变包摘要的兼容性约束。允许的新版本不能放行曾被阻止的旧版本；兼容的历史引用仍可在更新后使用，停用、卸载或当前包被阻止会撤销使用资格。可选 unsupported 声明不阻止有效 Skill。动态信任或连接前提独立于静态门禁。
+
+Hook 报告复用运行时声明选择与强类型文档解析，`mcp_tool` 是受识别的 MCP handler 类型。无效声明仍显示 partial 记录；已有规则选择的默认文档另列记录。Hook 的 `supportedSchema` 仅表示文档和 handler 字段结构，不证明 matcher 行为、平台命令、信任或执行结果。Apps 报告先按组件加载规则解析 manifest 路径数组，再识别文档中的单个字符串 `id` 对象、按 id 索引的对象映射和声明数组。静态连接器声明不证明映射、认证或连接已完成。
 
 ## 插件来源、MCP 与桌面 Apps
 
