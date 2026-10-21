@@ -232,6 +232,39 @@ await closingHost.close(closingApp.token, 5);
 assert.deepEqual(closingCalls.filter(call => call.operation === "mcpAppClose"), Array(2).fill({ operation: "mcpAppClose", projectId: "p", threadId: "t", instanceId: "saved-result", generation: 7 }));
 assert.equal((await closingHost.openFromResult({ ...resultRef, requestId: resultRequest(10) }, 5)).status, "open");
 closingHost.dispose();
+for (const scenario of [
+  { name: "matching close before first adoption", generation: 7, expected: "unavailable" },
+  { name: "other generation does not close the pending result", generation: 6, expected: "open" },
+  { name: "other thread does not close the pending result", generation: 7, threadId: "other", expected: "open" },
+  { name: "other instance does not close the pending result", generation: 7, instanceId: "other", expected: "open" },
+  { name: "bounded terminal facts fail the pending adoption closed", generation: 7, extraCloses: 9, expected: "unavailable" },
+]) {
+  let release;
+  const earlyCalls = [];
+  const earlyHost = new McpAppsHost({ ownerId: 5, backend: {
+    ownsThread: () => true,
+    command: async (_name, request) => {
+      earlyCalls.push(request);
+      return request.operation === "mcpAppOpenFromResult" ? new Promise(resolve => { release = resolve; }) : { closed: true };
+    },
+  } });
+  const opening = earlyHost.openFromResult({ ...resultRef, requestId: resultRequest(11) }, 5);
+  for (let i = 0; i < (scenario.extraCloses ?? 1); i++)
+    earlyHost.notification({ projectId: "p", threadId: scenario.threadId ?? "t",
+      instanceId: scenario.extraCloses ? `other-${i}` : scenario.instanceId ?? resultDescriptor.instanceId,
+      generation: scenario.generation, notification: { jsonrpc: "2.0", method: "ui/notifications/closed" } });
+  release({ status: "open", instance: resultDescriptor });
+  const reply = await opening;
+  assert.equal(reply.status, scenario.expected, scenario.name);
+  if (reply.status === "unavailable") {
+    assert.deepEqual(reply, { status: "unavailable", reason: "resourceRejected" });
+    assert.deepEqual(earlyCalls.filter(call => call.operation === "mcpAppClose"), [{ operation: "mcpAppClose", projectId: "p", threadId: "t", instanceId: "saved-result", generation: 7 }]);
+  } else {
+    assert.equal((await earlyHost.resource(new Request(reply.app.frameUrl + "view"))).status, 200);
+    await earlyHost.close(reply.app.token, 5);
+  }
+}
+console.log("Fake Core closed notification wins over first adoption with bounded pending facts; other instances, threads and generations remain open.");
 console.log("Saved-result Main boundary retains exact owner/token, coalesces concurrent requests, rejects untrusted source fields and closes invalid late results.");
 
 // Main file-resource integration tests grant/delegation only. Core descriptor-anchored

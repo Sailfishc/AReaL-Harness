@@ -135,7 +135,35 @@ assert.equal((await transportEvents()).filter(event=>event.method==='tools/call'
 assert(!JSON.stringify(requests).includes('RESULT_APP_ONLY'));assert(!JSON.stringify(requests).includes('NESTED_RESULT_PRIVATE'));
 assert.equal((await state()).projects.find(p=>p.id===projectId).state.threads[resultOwner.threadId].turns.length,ownerThread.turns.length);
 const sandbox=await reopened.evaluate(()=>({node:typeof process,require:typeof require,bridge:typeof window.arealDesktop}));assert.deepEqual(sandbox,{node:'undefined',require:'undefined',bridge:'undefined'});
-await page.getByRole('region',{name:'MCP 应用',exact:true}).getByRole('button',{name:'关闭应用',exact:true}).click();
+const epochToken=new URL(reopened.url()).hostname;
+const epochCatalog=await call('manage',{operation:'mcpApps',projectId,threadId:resultOwner.threadId});
+const changedEpoch=crypto.randomUUID();assert.notEqual(changedEpoch,epochCatalog.requestEpoch);
+await app.evaluate(({ipcMain},{projectId,threadId,changedEpoch})=>{
+ global.resultCatalogEpochInjection=true;global.resultCatalogEpochReads=[];
+ const channel='areal-core:command',original=ipcMain._invokeHandlers.get(channel);
+ ipcMain.removeHandler(channel);ipcMain.handle(channel,async(event,name,params)=>{
+  const reply=await original(event,name,params);
+  if(global.resultCatalogEpochInjection&&name==='manage'&&params.operation==='mcpApps'&&params.projectId===projectId&&params.threadId===threadId&&reply.ok){
+   global.resultCatalogEpochReads.push({requestEpoch:reply.value.requestEpoch,data:reply.value.data});
+   return {...reply,value:{...reply.value,requestEpoch:changedEpoch}};
+  }
+  return reply;
+ });
+},{projectId,threadId:resultOwner.threadId,changedEpoch});
+await page.evaluate(()=>window.dispatchEvent(new Event('areal-plugins-changed')));
+await page.waitForFunction(token=>!document.querySelector(`iframe[src="areal-mcp://${token}/"]`),epochToken,{timeout:5000});
+const epochReads=await app.evaluate(()=>global.resultCatalogEpochReads);assert(epochReads.length>0);
+for(const read of epochReads){assert.equal(read.requestEpoch,epochCatalog.requestEpoch);assert.deepEqual(read.data,epochCatalog.data);}
+await page.getByRole('status').filter({hasText:'交互结果暂不可用'}).waitFor();
+const epochRevoked=await page.evaluate(async token=>{try{return await window.arealDesktop.mcpApp({operation:'request',token,request:{jsonrpc:'2.0',id:'after-epoch-change',method:'tools/list'}});}catch(error){return {error:error.message};}},epochToken);
+assert.match(epochRevoked.error,/rejected|closed|stale/i);
+await openSavedResult();assert.equal(page.frames().filter(frame=>/^areal-mcp:/.test(frame.url())).length,0);
+assert((await page.locator('body').innerText()).includes('BUSINESS_RESULT_READABLE'));
+assert.equal((await transportEvents()).filter(event=>event.method==='tools/call'&&event.params.name==='fixture.business').length,1);
+await page.screenshot({path:join(scratch,'result-epoch-unavailable.png'),animations:'disabled'});
+await writeFile(join(scratch,'result-epoch-boundary.json'),JSON.stringify({injection:'Only requestEpoch is changed after the real mcpApps catalog read. Core is not restarted.',oldRequestEpoch:epochCatalog.requestEpoch,changedEpoch,token:epochToken,reads:epochReads,revoked:epochRevoked},null,2));
+checks.push('catalog requestEpoch boundary injection with unchanged server generations removes the saved iframe and token, keeps readable history and does not replay the business tool');
+await app.evaluate(()=>{global.resultCatalogEpochInjection=false;});
 await app.evaluate(({ipcMain})=>{const channel='areal-core:mcp-app',original=ipcMain._invokeHandlers.get(channel);ipcMain.removeHandler(channel);ipcMain.handle(channel,async(event,request)=>{const reply=await original(event,request);if(request.operation==='openFromResult'&&reply.status==='open')reply.app.frameUrl+='unavailable';return reply;});});
 await openSavedResult();await page.getByRole('status').filter({hasText:'交互结果无法打开'}).waitFor({timeout:15_000});
 assert.equal(page.frames().filter(frame=>/^areal-mcp:/.test(frame.url())).length,0);
