@@ -322,6 +322,9 @@ async fn mcp_only_discovery_trust_and_revocation() {
     .await
     .unwrap();
     let revision = s.list().unwrap().revision;
+    let saved_path = state.path().join("desktop/mcp-apps.json");
+    let mut saved: serde_json::Value =
+        serde_json::from_slice(&fs::read(&saved_path).unwrap()).unwrap();
     s.configure(&d.id, "user", false, revision).unwrap();
     assert!(
         tokio::time::timeout(std::time::Duration::from_secs(5), pending_call)
@@ -361,10 +364,7 @@ async fn mcp_only_discovery_trust_and_revocation() {
     s.configure(&d.id, "user", true, s.list().unwrap().revision)
         .unwrap();
     // Simulate the persisted generation number reused by a fresh Core process.
-    let saved_path = state.path().join("desktop/mcp-apps.json");
-    let mut saved: serde_json::Value =
-        serde_json::from_slice(&fs::read(&saved_path).unwrap()).unwrap();
-    saved[&instance]["generation"] = json!(1);
+    saved["instances"][&instance]["generation"] = json!(1);
     fs::write(&saved_path, serde_json::to_vec(&saved).unwrap()).unwrap();
     let child = std::process::Command::new(std::env::current_exe().unwrap())
         .args(["--exact", "persisted_app_epoch_probe", "--nocapture"])
@@ -2037,15 +2037,39 @@ struct SavedResultModel {
 }
 #[async_trait]
 impl Model for SavedResultModel {
-    fn name(&self) -> &str { "saved-result-fixture" }
-    async fn stream(&self, _: Vec<Message>) -> anyhow::Result<ModelStream> { unreachable!() }
-    async fn chat(&self, messages: Vec<Message>, tools: Vec<serde_json::Value>) -> anyhow::Result<ModelStream> {
-        self.requests.lock().unwrap().push(json!(format!("{messages:?}")));
+    fn name(&self) -> &str {
+        "saved-result-fixture"
+    }
+    async fn stream(&self, _: Vec<Message>) -> anyhow::Result<ModelStream> {
+        unreachable!()
+    }
+    async fn chat(
+        &self,
+        messages: Vec<Message>,
+        tools: Vec<serde_json::Value>,
+    ) -> anyhow::Result<ModelStream> {
+        self.requests
+            .lock()
+            .unwrap()
+            .push(json!(format!("{messages:?}")));
         let round = self.round.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let event = if round % 2 == 0 {
-            let name = tools.iter().find_map(|tool| tool["function"]["name"].as_str().filter(|name| name.ends_with("__app"))).unwrap();
-            ModelEvent::ToolCall(areal_engine::model::ToolCall { id: "repeated-upstream-id".into(), name: name.into(), arguments: json!({"value":round / 2 + 1}).to_string() })
-        } else { ModelEvent::text("saved result complete") };
+            let name = tools
+                .iter()
+                .find_map(|tool| {
+                    tool["function"]["name"]
+                        .as_str()
+                        .filter(|name| name.ends_with("__app"))
+                })
+                .unwrap();
+            ModelEvent::ToolCall(areal_engine::model::ToolCall {
+                id: "repeated-upstream-id".into(),
+                name: name.into(),
+                arguments: json!({"value":round / 2 + 1}).to_string(),
+            })
+        } else {
+            ModelEvent::text("saved result complete")
+        };
         Ok(Box::pin(futures_util::stream::iter([Ok(event)])))
     }
 }
@@ -2061,46 +2085,144 @@ impl SavedResultFixture {
     async fn new(mode: &str) -> Self {
         let workspace = tempfile::tempdir().unwrap();
         let state = tempfile::tempdir().unwrap();
-        write(workspace.path(), ".agents/plugins/marketplace.json", r#"{"name":"local","plugins":[{"name":"sample","source":"./pkg"}]}"#);
-        write(workspace.path(), "pkg/.codex-plugin/plugin.json", r#"{"name":"sample"}"#);
+        write(
+            workspace.path(),
+            ".agents/plugins/marketplace.json",
+            r#"{"name":"local","plugins":[{"name":"sample","source":"./pkg"}]}"#,
+        );
+        write(
+            workspace.path(),
+            "pkg/.codex-plugin/plugin.json",
+            r#"{"name":"sample"}"#,
+        );
         let server = include_str!("../../mcp/tests/substrate.py")
             .replace("\"visibility\":[\"app\"]", "\"visibility\":[\"model\"]")
             .replace("r=json.loads(line);m=r.get(\"method\");p=r.get(\"params\",{});out=None", "r=json.loads(line);m=r.get(\"method\");p=r.get(\"params\",{});out=None\n if m==\"tools/call\":\n  with open(os.environ[\"COUNTER\"],\"a\") as f:f.write(json.dumps(p)+\"\\n\")\n if m==\"resources/read\":\n  with open(os.environ[\"READS\"],\"a\") as f:f.write(\"read\\n\")")
             .replace("\"_meta\":{\"secret\":\"retained\"},\"structuredContent\":{\"v\":1}", "\"_meta\":{\"secret\":\"SAVED_RESULT_PRIVATE\"},\"structuredContent\":{\"v\":p.get(\"arguments\",{}).get(\"value\"),\"_meta\":{\"private\":\"NESTED_PRIVATE\"}},\"isError\":os.environ.get(\"RESULT_MODE\")==\"failed\"");
+        let server = server.replace("\"text\":\"<p>Hello</p>\"", "\"text\":(\"<p>\"+(\"x\"*(1900*1024) if os.environ.get(\"RESULT_MODE\")==\"capacity\" else \"Hello\")+\"</p>\")");
         write(workspace.path(), "pkg/server.py", &server);
         write(workspace.path(), "pkg/.mcp.json", &json!({"mcpServers":{"fixture":{"command":"python3","args":["server.py"],"env":{"COUNTER":workspace.path().join("business.jsonl"),"READS":workspace.path().join("reads.txt"),"RESULT_MODE":mode,"LITERAL":"ordinary result remains readable"}}}}).to_string());
-        let model = Arc::new(SavedResultModel { round: Default::default(), requests: Default::default() });
+        let model = Arc::new(SavedResultModel {
+            round: Default::default(),
+            requests: Default::default(),
+        });
         let engine = Engine::open(state.path(), model.clone(), Limits::default()).unwrap();
-        let store = Arc::new(Store::open(workspace.path().join("plugins"), workspace.path().into(), None).unwrap());
+        let store = Arc::new(
+            Store::open(
+                workspace.path().join("plugins"),
+                workspace.path().into(),
+                None,
+            )
+            .unwrap(),
+        );
         engine.install_plugin_store(store.clone()).unwrap();
         let package = store.read("sample@local").unwrap();
-        engine.plugin_install(package.id.clone(), "user".into(), package.revision, package.source, package.source_digest).await.unwrap();
+        engine
+            .plugin_install(
+                package.id.clone(),
+                "user".into(),
+                package.revision,
+                package.source,
+                package.source_digest,
+            )
+            .await
+            .unwrap();
         let package = store.read(&package.id).unwrap();
-        engine.plugin_connection(package.id, package.installed_digest.unwrap(), true).await.unwrap();
-        let thread = engine.create(workspace.path().to_str().unwrap().into()).await.unwrap().id;
-        Self { workspace, state, engine, store, model, thread }
+        engine
+            .plugin_connection(package.id, package.installed_digest.unwrap(), true)
+            .await
+            .unwrap();
+        let thread = engine
+            .create(workspace.path().to_str().unwrap().into())
+            .await
+            .unwrap()
+            .id;
+        Self {
+            workspace,
+            state,
+            engine,
+            store,
+            model,
+            thread,
+        }
     }
     async fn result(&self) -> areal_protocol::plugin_runtime::OpenFromResult {
-        self.engine.start(&self.thread, vec![areal_protocol::Input::text("call the app business tool once")]).await.unwrap();
-        let thread = tokio::time::timeout(std::time::Duration::from_secs(10), self.engine.wait(&self.thread)).await.unwrap().unwrap();
+        self.engine
+            .start(
+                &self.thread,
+                vec![areal_protocol::Input::text(
+                    "call the app business tool once",
+                )],
+            )
+            .await
+            .unwrap();
+        let thread = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            self.engine.wait(&self.thread),
+        )
+        .await
+        .unwrap()
+        .unwrap();
         let turn = thread.turns.last().unwrap();
-        let item = turn.items.iter().find_map(|item| match item {
-            areal_protocol::Item::DynamicToolCall { id, call_id, .. } if call_id == "repeated-upstream-id" => Some(id.clone()),
-            _ => None,
-        }).unwrap();
-        let epoch = self.engine.mcp_apps_list(None).await.unwrap()["requestEpoch"].as_str().unwrap().to_owned();
-        areal_protocol::plugin_runtime::OpenFromResult { thread_id: self.thread.clone(), turn_id: turn.id.clone(), item_id: item, request_id: format!("result-v1.{epoch}.{}", uuid::Uuid::new_v4()) }
+        let item = turn
+            .items
+            .iter()
+            .find_map(|item| match item {
+                areal_protocol::Item::DynamicToolCall { id, call_id, .. }
+                    if call_id == "repeated-upstream-id" =>
+                {
+                    Some(id.clone())
+                }
+                _ => None,
+            })
+            .unwrap();
+        let epoch = self.engine.mcp_apps_list(None).await.unwrap()["requestEpoch"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        areal_protocol::plugin_runtime::OpenFromResult {
+            thread_id: self.thread.clone(),
+            turn_id: turn.id.clone(),
+            item_id: item,
+            request_id: format!("result-v1.{epoch}.{}", uuid::Uuid::new_v4()),
+        }
     }
-    fn count(&self) -> usize { fs::read_to_string(self.workspace.path().join("business.jsonl")).unwrap().lines().count() }
-    async fn open(&self, input: &areal_protocol::plugin_runtime::OpenFromResult) -> serde_json::Value {
-        self.engine.mcp_app_open_from_result("owner".into(), input.clone()).await.unwrap()
+    fn count(&self) -> usize {
+        fs::read_to_string(self.workspace.path().join("business.jsonl"))
+            .unwrap()
+            .lines()
+            .count()
+    }
+    async fn open(
+        &self,
+        input: &areal_protocol::plugin_runtime::OpenFromResult,
+    ) -> serde_json::Value {
+        self.engine
+            .mcp_app_open_from_result("owner".into(), input.clone())
+            .await
+            .unwrap()
     }
     async fn close(&self, reply: &serde_json::Value) {
-        self.engine.mcp_app_close("owner".into(), self.thread.clone(), reply["instance"]["instanceId"].as_str().unwrap().into(), reply["instance"]["generation"].as_u64().unwrap()).await.unwrap();
+        self.engine
+            .mcp_app_close(
+                "owner".into(),
+                self.thread.clone(),
+                reply["instance"]["instanceId"].as_str().unwrap().into(),
+                reply["instance"]["generation"].as_u64().unwrap(),
+            )
+            .await
+            .unwrap();
     }
-    fn fresh(&self, input: &areal_protocol::plugin_runtime::OpenFromResult) -> areal_protocol::plugin_runtime::OpenFromResult {
+    fn fresh(
+        &self,
+        input: &areal_protocol::plugin_runtime::OpenFromResult,
+    ) -> areal_protocol::plugin_runtime::OpenFromResult {
         let mut input = input.clone();
-        input.request_id = format!("{}.{}", input.request_id.rsplit_once('.').unwrap().0, uuid::Uuid::new_v4());
+        input.request_id = format!(
+            "{}.{}",
+            input.request_id.rsplit_once('.').unwrap().0,
+            uuid::Uuid::new_v4()
+        );
         input
     }
 }
@@ -2113,23 +2235,69 @@ async fn saved_result_exact_identity_reuses_without_business_replay() {
     assert_eq!(fixture.count(), 2);
     assert_ne!(first.turn_id, second.turn_id);
     assert_ne!(first.item_id, second.item_id);
-    assert!(!fixture.state.path().join("desktop/mcp-apps.json").exists(), "reading historical tools must not mount an App");
+    assert!(
+        !fixture.state.path().join("desktop/mcp-apps.json").exists(),
+        "reading historical tools must not mount an App"
+    );
     let opened = fixture.open(&second).await;
     assert_eq!(opened["status"], "open");
     assert_eq!(opened["instance"]["initialArguments"], json!({"value":2}));
-    assert_eq!(opened["instance"]["initialResult"]["structuredContent"]["v"], 2);
-    assert_eq!(opened["instance"]["initialResult"]["_meta"]["secret"], "SAVED_RESULT_PRIVATE");
+    assert_eq!(
+        opened["instance"]["initialResult"]["structuredContent"]["v"],
+        2
+    );
+    assert_eq!(
+        opened["instance"]["initialResult"]["_meta"]["secret"],
+        "SAVED_RESULT_PRIVATE"
+    );
     let alias = fixture.fresh(&second);
-    let (a, b, c) = tokio::join!(fixture.open(&second), fixture.open(&alias), fixture.open(&second));
-    assert_eq!(a, opened); assert_eq!(b, opened); assert_eq!(c, opened);
-    assert_eq!(fs::read_to_string(fixture.workspace.path().join("reads.txt")).unwrap(), "read\n");
-    let mut conflicting = second.clone(); conflicting.item_id = first.item_id.clone();
-    assert!(fixture.engine.mcp_app_open_from_result("owner".into(), conflicting).await.is_err());
-    let mut wrong_turn = fixture.fresh(&first); wrong_turn.turn_id = second.turn_id.clone();
+    let (a, b, c) = tokio::join!(
+        fixture.open(&second),
+        fixture.open(&alias),
+        fixture.open(&second)
+    );
+    assert_eq!(a, opened);
+    assert_eq!(b, opened);
+    assert_eq!(c, opened);
+    assert_eq!(
+        fs::read_to_string(fixture.workspace.path().join("reads.txt")).unwrap(),
+        "read\n"
+    );
+    let mut conflicting = second.clone();
+    conflicting.item_id = first.item_id.clone();
+    assert!(
+        fixture
+            .engine
+            .mcp_app_open_from_result("owner".into(), conflicting)
+            .await
+            .is_err()
+    );
+    let mut other_thread = second.clone();
+    other_thread.thread_id = fixture
+        .engine
+        .create(fixture.workspace.path().to_str().unwrap().into())
+        .await
+        .unwrap()
+        .id;
+    assert!(
+        fixture
+            .engine
+            .mcp_app_open_from_result("owner".into(), other_thread)
+            .await
+            .is_err(),
+        "one result requestId cannot change its source Thread"
+    );
+    let mut wrong_turn = fixture.fresh(&first);
+    wrong_turn.turn_id = second.turn_id.clone();
     assert_eq!(fixture.open(&wrong_turn).await["status"], "unavailable");
     let fork = fixture.engine.fork_thread("owner".into(), serde_json::from_value(json!({"requestId":"saved-result-fork","sourceThreadId":fixture.thread,"anchor":{"turnId":second.turn_id,"boundary":"after"},"workspaceMode":"sharedCurrent"})).unwrap()).await.unwrap();
-    let mut inherited = fixture.fresh(&second); inherited.thread_id = fork.id;
-    assert_eq!(fixture.open(&inherited).await["status"], "unavailable", "inherited history cannot claim the original source");
+    let mut inherited = fixture.fresh(&second);
+    inherited.thread_id = fork.id;
+    assert_eq!(
+        fixture.open(&inherited).await["status"],
+        "unavailable",
+        "inherited history cannot claim the original source"
+    );
     let page_call = fixture.engine.mcp_app_request("owner".into(), fixture.thread.clone(), opened["instance"]["instanceId"].as_str().unwrap().into(), opened["instance"]["generation"].as_u64().unwrap(), json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"app","arguments":{}}}), Some("page-may-not-call-model-only-tool".into())).await;
     assert!(page_call.is_err());
     fixture.close(&opened).await;
@@ -2137,11 +2305,25 @@ async fn saved_result_exact_identity_reuses_without_business_replay() {
     assert_eq!(fixture.open(&alias).await, json!({"status":"closed"}));
     let reopened = fixture.open(&fixture.fresh(&second)).await;
     assert_eq!(reopened["status"], "open");
-    assert_ne!(reopened["instance"]["instanceId"], opened["instance"]["instanceId"]);
+    assert_ne!(
+        reopened["instance"]["instanceId"],
+        opened["instance"]["instanceId"]
+    );
     assert_eq!(fixture.count(), 2);
-    assert_eq!(fixture.engine.read(&fixture.thread, true).await.unwrap().turns.len(), 2, "mount creates no extra business Turn");
+    assert_eq!(
+        fixture
+            .engine
+            .read(&fixture.thread, true)
+            .await
+            .unwrap()
+            .turns
+            .len(),
+        2,
+        "mount creates no extra business Turn"
+    );
     let model_text = serde_json::to_string(&*fixture.model.requests.lock().unwrap()).unwrap();
-    assert!(!model_text.contains("SAVED_RESULT_PRIVATE")); assert!(!model_text.contains("NESTED_PRIVATE"));
+    assert!(!model_text.contains("SAVED_RESULT_PRIVATE"));
+    assert!(!model_text.contains("NESTED_PRIVATE"));
     fixture.engine.shutdown().await;
 }
 
@@ -2152,52 +2334,159 @@ async fn saved_result_concurrent_admission_and_full_receipts_preserve_closed_fac
     let alias = fixture.fresh(&input);
     let (first, second) = tokio::join!(fixture.open(&input), fixture.open(&alias));
     assert_eq!(first, second);
-    assert_eq!(fs::read_to_string(fixture.workspace.path().join("reads.txt")).unwrap(), "read\n");
-    for _ in 2..1024 { assert_eq!(fixture.open(&fixture.fresh(&input)).await, first); }
-    assert_eq!(fixture.open(&fixture.fresh(&input)).await, json!({"status":"unavailable","reason":"capacityReached"}));
+    assert_eq!(
+        fs::read_to_string(fixture.workspace.path().join("reads.txt")).unwrap(),
+        "read\n"
+    );
+    for _ in 2..1024 {
+        assert_eq!(fixture.open(&fixture.fresh(&input)).await, first);
+    }
+    assert_eq!(
+        fixture.open(&fixture.fresh(&input)).await,
+        json!({"status":"unavailable","reason":"capacityReached"})
+    );
     assert_eq!(fixture.open(&input).await, first);
+    fixture.close(&first).await;
     fixture.close(&first).await;
     assert_eq!(fixture.open(&input).await, json!({"status":"closed"}));
     assert_eq!(fixture.open(&alias).await, json!({"status":"closed"}));
-    let store: serde_json::Value = serde_json::from_slice(&fs::read(fixture.state.path().join("desktop/mcp-apps.json")).unwrap()).unwrap();
+    let store: serde_json::Value = serde_json::from_slice(
+        &fs::read(fixture.state.path().join("desktop/mcp-apps.json")).unwrap(),
+    )
+    .unwrap();
     assert_eq!(store["version"], 2);
     assert_eq!(store["resultOperations"].as_object().unwrap().len(), 1024);
     assert_eq!(store["instances"], json!({}));
-    assert!(store["resultOperations"].as_object().unwrap().values().all(|entry| serde_json::to_vec(entry).unwrap().len() <= 1024));
+    assert!(
+        store["resultOperations"]
+            .as_object()
+            .unwrap()
+            .values()
+            .all(|entry| serde_json::to_vec(entry).unwrap().len() <= 1024)
+    );
     assert_eq!(fixture.count(), 1);
     fixture.engine.shutdown().await;
+
+    let large = SavedResultFixture::new("capacity").await;
+    let mut live = Vec::new();
+    for _ in 0..4 {
+        let input = large.result().await;
+        let reply = large.open(&input).await;
+        assert_eq!(reply["status"], "open");
+        assert!(
+            reply["instance"]["resource"]["html"]
+                .as_str()
+                .unwrap()
+                .len()
+                < 2 * 1024 * 1024
+        );
+        live.push((input, reply));
+    }
+    let refused = large.result().await;
+    assert_eq!(
+        large.open(&refused).await,
+        json!({"status":"unavailable","reason":"capacityReached"})
+    );
+    assert!(
+        fs::metadata(large.state.path().join("desktop/mcp-apps.json"))
+            .unwrap()
+            .len()
+            <= 8 * 1024 * 1024
+    );
+    assert_eq!(large.open(&live[0].0).await, live[0].1);
+    large.close(&live[0].1).await;
+    large.close(&live[0].1).await;
+    assert_eq!(large.open(&live[0].0).await, json!({"status":"closed"}));
+    assert_eq!(
+        large.open(&refused).await,
+        json!({"status":"unavailable","reason":"capacityReached"})
+    );
+    assert_eq!(large.open(&large.fresh(&refused)).await["status"], "open");
+    assert_eq!(
+        large.count(),
+        5,
+        "capacity retry and close never replay business calls"
+    );
+    large.engine.shutdown().await;
 }
 
 #[tokio::test]
 async fn saved_result_failed_corrupt_disabled_updated_and_restarted_sources_are_unavailable() {
     let failed = SavedResultFixture::new("failed").await;
     let input = failed.result().await;
-    assert_eq!(failed.open(&input).await, json!({"status":"unavailable","reason":"notSuccessful"}));
+    assert_eq!(
+        failed.open(&input).await,
+        json!({"status":"unavailable","reason":"notSuccessful"})
+    );
     assert_eq!(failed.count(), 1);
     failed.engine.shutdown().await;
 
     let fixture = SavedResultFixture::new("success").await;
     let input = fixture.result().await;
     let thread = fixture.engine.read(&fixture.thread, true).await.unwrap();
-    let snapshot = thread.turns.iter().flat_map(|turn| &turn.items).find_map(|item| match item { areal_protocol::Item::DynamicToolCall { id, execution, .. } if id == &input.item_id => execution.result_snapshot.clone(), _ => None }).unwrap();
+    let snapshot = thread
+        .turns
+        .iter()
+        .flat_map(|turn| &turn.items)
+        .find_map(|item| match item {
+            areal_protocol::Item::DynamicToolCall { id, execution, .. } if id == &input.item_id => {
+                execution.result_snapshot.clone()
+            }
+            _ => None,
+        })
+        .unwrap();
     let digest = snapshot.uri.strip_prefix("areal://blob/").unwrap();
     let path = fixture.state.path().join("blobs").join(digest);
     let original = fs::read(&path).unwrap();
     fs::write(&path, b"corrupt").unwrap();
-    assert_eq!(fixture.open(&input).await, json!({"status":"unavailable","reason":"corruptSnapshot"}));
+    assert_eq!(
+        fixture.open(&input).await,
+        json!({"status":"unavailable","reason":"corruptSnapshot"})
+    );
     fs::write(&path, original).unwrap();
     let package = fixture.store.read("sample@local").unwrap();
-    fixture.engine.plugin_configure(package.id.clone(), "user".into(), false, package.revision).await.unwrap();
-    assert_eq!(fixture.open(&fixture.fresh(&input)).await["status"], "unavailable");
+    fixture
+        .engine
+        .plugin_configure(package.id.clone(), "user".into(), false, package.revision)
+        .await
+        .unwrap();
+    assert_eq!(
+        fixture.open(&fixture.fresh(&input)).await["status"],
+        "unavailable"
+    );
+    let package = fixture.store.read("sample@local").unwrap();
+    fixture
+        .engine
+        .plugin_uninstall(package.id, package.revision)
+        .await
+        .unwrap();
+    assert_eq!(
+        fixture.open(&fixture.fresh(&input)).await["status"],
+        "unavailable"
+    );
     assert_eq!(fixture.count(), 1);
     fixture.engine.shutdown().await;
 
     let fixture = SavedResultFixture::new("success").await;
     let input = fixture.result().await;
     let package = fixture.store.read("sample@local").unwrap();
-    write(fixture.workspace.path(), "pkg/upgrade.txt", "digest changed");
+    write(
+        fixture.workspace.path(),
+        "pkg/upgrade.txt",
+        "digest changed",
+    );
     let next = fixture.store.read(&package.id).unwrap();
-    fixture.engine.plugin_install(next.id.clone(), "user".into(), next.revision, next.source, next.source_digest).await.unwrap();
+    fixture
+        .engine
+        .plugin_install(
+            next.id.clone(),
+            "user".into(),
+            next.revision,
+            next.source,
+            next.source_digest,
+        )
+        .await
+        .unwrap();
     assert_eq!(fixture.open(&input).await["status"], "unavailable");
     assert_eq!(fixture.count(), 1);
     fixture.engine.shutdown().await;
@@ -2207,9 +2496,38 @@ async fn saved_result_failed_corrupt_disabled_updated_and_restarted_sources_are_
     let opened = fixture.open(&input).await;
     fixture.close(&opened).await;
     fixture.engine.shutdown().await;
-    let next = Engine::open(fixture.state.path(), Arc::new(ModelFixture), Limits::default()).unwrap();
-    assert_eq!(next.mcp_app_open_from_result("owner".into(), input).await.unwrap(), json!({"status":"unavailable","reason":"staleSourceEpoch"}));
-    assert_eq!(fixture.count(), 1);
+    drop(fixture.engine);
+    let next = Engine::open(
+        fixture.state.path(),
+        Arc::new(ModelFixture),
+        Limits::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        next.mcp_app_open_from_result("owner".into(), input.clone())
+            .await
+            .unwrap(),
+        json!({"status":"unavailable","reason":"staleSourceEpoch"})
+    );
+    let mut changed_source = input;
+    changed_source.thread_id = next
+        .create(fixture.workspace.path().to_str().unwrap().into())
+        .await
+        .unwrap()
+        .id;
+    assert_eq!(
+        next.mcp_app_open_from_result("owner".into(), changed_source)
+            .await
+            .unwrap(),
+        json!({"status":"unavailable","reason":"staleSourceEpoch"})
+    );
+    assert_eq!(
+        fs::read_to_string(fixture.workspace.path().join("business.jsonl"))
+            .unwrap()
+            .lines()
+            .count(),
+        1
+    );
     next.shutdown().await;
 }
 
@@ -2219,35 +2537,119 @@ async fn saved_result_old_snapshot_and_recovered_non_success_remain_readable() {
     let fixture = SavedResultFixture::new("success").await;
     let original_input = fixture.result().await;
     let thread = fixture.engine.read(&fixture.thread, true).await.unwrap();
-    let snapshot = thread.turns.iter().flat_map(|turn| &turn.items).find_map(|item| match item { areal_protocol::Item::DynamicToolCall { execution, .. } => execution.result_snapshot.clone(), _ => None }).unwrap();
+    let snapshot = thread
+        .turns
+        .iter()
+        .flat_map(|turn| &turn.items)
+        .find_map(|item| match item {
+            areal_protocol::Item::DynamicToolCall { execution, .. } => {
+                execution.result_snapshot.clone()
+            }
+            _ => None,
+        })
+        .unwrap();
     fixture.engine.shutdown().await;
-    let thread_path = fixture.state.path().join(format!("{}.json", fixture.thread));
-    let original: serde_json::Value = serde_json::from_slice(&fs::read(&thread_path).unwrap()).unwrap();
-    for (outcome, backend) in [("failed", "mcp"), ("cancelled", "mcp"), ("unknown", "mcp"), ("succeeded", "runtime")] {
+    drop(fixture.engine);
+    let thread_path = fixture
+        .state
+        .path()
+        .join(format!("{}.json", fixture.thread));
+    let original: serde_json::Value =
+        serde_json::from_slice(&fs::read(&thread_path).unwrap()).unwrap();
+    for (outcome, backend) in [
+        ("failed", "mcp"),
+        ("cancelled", "mcp"),
+        ("unknown", "mcp"),
+        ("succeeded", "runtime"),
+    ] {
         let mut saved = original.clone();
-        let item = saved["thread"]["turns"].as_array_mut().unwrap().iter_mut().flat_map(|turn| turn["items"].as_array_mut().unwrap()).find(|item| item["id"] == original_input.item_id).unwrap();
-        item["execution"]["outcome"] = json!(outcome); item["execution"]["backend"] = json!(backend);
+        let item = saved["thread"]["turns"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .flat_map(|turn| turn["items"].as_array_mut().unwrap())
+            .find(|item| item["id"] == original_input.item_id)
+            .unwrap();
+        item["execution"]["outcome"] = json!(outcome);
+        item["execution"]["backend"] = json!(backend);
         fs::write(&thread_path, serde_json::to_vec(&saved).unwrap()).unwrap();
-        let engine = Engine::open(fixture.state.path(), Arc::new(ModelFixture), Limits::default()).unwrap();
-        let epoch = engine.mcp_apps_list(None).await.unwrap()["requestEpoch"].as_str().unwrap().to_owned();
-        let mut input = original_input.clone(); input.request_id = format!("result-v1.{epoch}.{}", uuid::Uuid::new_v4());
-        assert_eq!(engine.mcp_app_open_from_result("owner".into(), input).await.unwrap(), json!({"status":"unavailable","reason":"notSuccessful"}));
-        assert!(serde_json::to_string(&engine.read(&fixture.thread, true).await.unwrap()).unwrap().contains("ordinary result remains readable"));
+        let engine = Engine::open(
+            fixture.state.path(),
+            Arc::new(ModelFixture),
+            Limits::default(),
+        )
+        .unwrap();
+        let epoch = engine.mcp_apps_list(None).await.unwrap()["requestEpoch"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let mut input = original_input.clone();
+        input.request_id = format!("result-v1.{epoch}.{}", uuid::Uuid::new_v4());
+        assert_eq!(
+            engine
+                .mcp_app_open_from_result("owner".into(), input)
+                .await
+                .unwrap(),
+            json!({"status":"unavailable","reason":"notSuccessful"})
+        );
+        assert!(
+            serde_json::to_string(&engine.read(&fixture.thread, true).await.unwrap())
+                .unwrap()
+                .contains("ordinary result remains readable")
+        );
         engine.shutdown().await;
     }
-    let mut raw: serde_json::Value = serde_json::from_slice(&fs::read(fixture.state.path().join("blobs").join(snapshot.uri.strip_prefix("areal://blob/").unwrap())).unwrap()).unwrap();
+    let mut raw: serde_json::Value = serde_json::from_slice(
+        &fs::read(
+            fixture
+                .state
+                .path()
+                .join("blobs")
+                .join(snapshot.uri.strip_prefix("areal://blob/").unwrap()),
+        )
+        .unwrap(),
+    )
+    .unwrap();
     raw["mcpServer"].as_object_mut().unwrap().remove("source");
-    let bytes = serde_json::to_vec(&raw).unwrap(); let digest = format!("{:x}", Sha256::digest(&bytes));
+    let bytes = serde_json::to_vec(&raw).unwrap();
+    let digest = format!("{:x}", Sha256::digest(&bytes));
     fs::write(fixture.state.path().join("blobs").join(&digest), &bytes).unwrap();
     let mut saved = original;
-    let item = saved["thread"]["turns"].as_array_mut().unwrap().iter_mut().flat_map(|turn| turn["items"].as_array_mut().unwrap()).find(|item| item["id"] == original_input.item_id).unwrap();
+    let item = saved["thread"]["turns"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .flat_map(|turn| turn["items"].as_array_mut().unwrap())
+        .find(|item| item["id"] == original_input.item_id)
+        .unwrap();
     item["execution"]["resultSnapshot"]["uri"] = json!(format!("areal://blob/{digest}"));
     item["execution"]["resultSnapshot"]["sizeBytes"] = json!(bytes.len());
     fs::write(&thread_path, serde_json::to_vec(&saved).unwrap()).unwrap();
-    let engine = Engine::open(fixture.state.path(), Arc::new(ModelFixture), Limits::default()).unwrap();
-    let epoch = engine.mcp_apps_list(None).await.unwrap()["requestEpoch"].as_str().unwrap().to_owned();
-    let mut input = original_input; input.request_id = format!("result-v1.{epoch}.{}", uuid::Uuid::new_v4());
-    assert_eq!(engine.mcp_app_open_from_result("owner".into(), input).await.unwrap(), json!({"status":"unavailable","reason":"missingProvenance"}));
-    assert_eq!(fixture.count(), 1);
+    let engine = Engine::open(
+        fixture.state.path(),
+        Arc::new(ModelFixture),
+        Limits::default(),
+    )
+    .unwrap();
+    let epoch = engine.mcp_apps_list(None).await.unwrap()["requestEpoch"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let mut input = original_input;
+    input.request_id = format!("result-v1.{epoch}.{}", uuid::Uuid::new_v4());
+    assert_eq!(
+        engine
+            .mcp_app_open_from_result("owner".into(), input)
+            .await
+            .unwrap(),
+        json!({"status":"unavailable","reason":"missingProvenance"})
+    );
+    assert_eq!(
+        fs::read_to_string(fixture.workspace.path().join("business.jsonl"))
+            .unwrap()
+            .lines()
+            .count(),
+        1
+    );
     engine.shutdown().await;
 }

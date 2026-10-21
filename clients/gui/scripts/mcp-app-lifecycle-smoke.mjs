@@ -106,7 +106,12 @@ const resultOwner=await selected(),ownerThread=settled.projects.find(p=>p.id===p
 const turn=ownerThread.turns.find(turn=>turn.items?.some(item=>item.callId==='saved-business-call')),item=turn.items.find(item=>item.callId==='saved-business-call');
 assert.equal(item.execution.interactiveResult,true);assert.equal(item.success,true);assert.equal(item.execution.outcome,'succeeded');
 assert.equal(page.frames().filter(frame=>/^areal-mcp:/.test(frame.url())).length,0,'history does not mount result pages');
-await button('打开交互结果').click();
+async function openSavedResult(){
+ await page.locator(`[data-tool-id="${item.id}"]`).waitFor({state:'attached'});
+ if(!await button('打开交互结果').isVisible())await page.locator(`[data-turn-id="${turn.id}"] .turn-progress-summary[aria-expanded="false"]`).first().click();
+ await button('打开交互结果').click();
+}
+await openSavedResult();
 let inner=await appFrame();const token=new URL(inner.url()).hostname;
 await inner.waitForFunction(()=>fixture.initialInputs===1&&fixture.initialResults===1);
 assert.equal((await fixture(inner)).savedResult.structuredContent.value,42);assert.equal((await fixture(inner)).savedResult._meta.private,'RESULT_APP_ONLY');
@@ -114,7 +119,7 @@ await inner.locator('#draft').fill('SAVED_UNSAVED_DOCUMENT');await inner.locator
 const original=await fixture(inner),receipt=(await app.evaluate(()=>global.resultOpenReceipts))[0];
 assert.deepEqual({threadId:receipt.request.threadId,turnId:receipt.request.turnId,itemId:receipt.request.itemId},{threadId:resultOwner.threadId,turnId:turn.id,itemId:item.id});
 assert.match(receipt.request.requestId,/^result-v1\.[0-9a-f-]{36}\.[0-9a-f-]{36}$/);
-await button('打开交互结果').click();assert.deepEqual(await fixture(await appFrame(token)),original);
+await openSavedResult();assert.deepEqual(await fixture(await appFrame(token)),original);
 const repeated=await page.evaluate(async request=>Promise.all([window.arealDesktop.mcpApp(request),window.arealDesktop.mcpApp(request)]),receipt.request);
 assert(repeated.every(reply=>reply.status==='open'&&reply.app.token===token&&reply.app.instanceId===receipt.reply.app.instanceId));
 await button('关闭面板').click();assert.equal(await page.locator(`iframe[src="areal-mcp://${token}/"]`).isVisible(),false);
@@ -125,14 +130,14 @@ checks.push('normal model invokes business once; raw private result hydrates onc
 await page.getByRole('region',{name:'MCP 应用',exact:true}).getByRole('button',{name:'关闭应用',exact:true}).click();
 await page.waitForFunction(token=>!document.querySelector(`iframe[src="areal-mcp://${token}/"]`),token);
 assert.deepEqual(await page.evaluate(request=>window.arealDesktop.mcpApp(request),receipt.request),{status:'closed'});
-await button('打开交互结果').click();const reopened=await appFrame();assert.notEqual(new URL(reopened.url()).hostname,token);assert.notEqual((await fixture(reopened)).bootId,original.bootId);
+await openSavedResult();const reopened=await appFrame();assert.notEqual(new URL(reopened.url()).hostname,token);assert.notEqual((await fixture(reopened)).bootId,original.bootId);
 assert.equal((await transportEvents()).filter(event=>event.method==='tools/call'&&event.params.name==='fixture.business').length,1);
 assert(!JSON.stringify(requests).includes('RESULT_APP_ONLY'));assert(!JSON.stringify(requests).includes('NESTED_RESULT_PRIVATE'));
 assert.equal((await state()).projects.find(p=>p.id===projectId).state.threads[resultOwner.threadId].turns.length,ownerThread.turns.length);
 const sandbox=await reopened.evaluate(()=>({node:typeof process,require:typeof require,bridge:typeof window.arealDesktop}));assert.deepEqual(sandbox,{node:'undefined',require:'undefined',bridge:'undefined'});
 await page.getByRole('region',{name:'MCP 应用',exact:true}).getByRole('button',{name:'关闭应用',exact:true}).click();
 await app.evaluate(({ipcMain})=>{const channel='areal-core:mcp-app',original=ipcMain._invokeHandlers.get(channel);ipcMain.removeHandler(channel);ipcMain.handle(channel,async(event,request)=>{const reply=await original(event,request);if(request.operation==='openFromResult'&&reply.status==='open')reply.app.frameUrl+='unavailable';return reply;});});
-await button('打开交互结果').click();await page.getByRole('status').filter({hasText:'交互结果无法打开'}).waitFor({timeout:15_000});
+await openSavedResult();await page.getByRole('status').filter({hasText:'交互结果无法打开'}).waitFor({timeout:15_000});
 assert.equal(page.frames().filter(frame=>/^areal-mcp:/.test(frame.url())).length,0);
 assert.equal((await transportEvents()).filter(event=>event.method==='tools/call'&&event.params.name==='fixture.business').length,1);
 assert((await page.locator('body').innerText()).includes('BUSINESS_RESULT_READABLE'));

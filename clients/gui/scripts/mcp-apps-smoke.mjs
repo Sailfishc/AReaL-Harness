@@ -188,7 +188,7 @@ resultReply = { status: "closed" };
 assert.deepEqual(await resultHost.openFromResult({ ...resultRef, requestId: resultRequest(1) }, 5), { status: "closed" });
 resultReply = { status: "unavailable", reason: "staleSourceEpoch" };
 assert.deepEqual(await resultHost.openFromResult({ ...resultRef, requestId: resultRequest(4) }, 5), resultReply);
-resultReply = { status: "open", instance: { ...resultDescriptor, resource: { mimeType: "text/html", html: "<p>utf8</p>" } } };
+resultReply = { status: "open", instance: { ...resultDescriptor, instanceId: "saved-result-html", resource: { mimeType: "text/html", html: "<p>utf8</p>" } } };
 const plainHtml = await resultHost.openFromResult({ ...resultRef, requestId: resultRequest(5) }, 5);
 assert.equal(plainHtml.status, "open", "saved results accept the existing Core HTML MIME contract");
 await resultHost.close(plainHtml.app.token, 5);
@@ -217,7 +217,7 @@ const closingHost = new McpAppsHost({ ownerId: 5, backend: {
   ownsThread: () => true,
   command: async (_name, request) => {
     closingCalls.push(request);
-    if (request.operation === "mcpAppOpenFromResult") return { status: "open", instance: resultDescriptor };
+    if (request.operation === "mcpAppOpenFromResult") return { status: "open", instance: { ...resultDescriptor, instanceId: unknownClose ? "saved-result" : "saved-result-reopened" } };
     if (request.operation === "mcpAppClose" && unknownClose) throw Object.assign(Error("close outcome unknown"), { code: "RESPONSE_UNKNOWN", submissionUnknown: true });
     return { closed: true };
   },
