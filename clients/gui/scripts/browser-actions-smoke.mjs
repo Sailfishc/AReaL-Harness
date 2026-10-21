@@ -12,6 +12,9 @@ import { selectConversation, captureSmokeFailure } from './smoke-navigation.mjs'
 // B-10–B-13: public GUI/Core approval and actual native input against a synthetic site.
 const capacityMode = process.argv[2] ?? 'act';
 assert.ok(['act', 'batch', 'b1'].includes(capacityMode));
+const privacyMode = process.env.AREAL_BROWSER_B1_PRIVACY === '1';
+assert.ok(!privacyMode || capacityMode === 'b1');
+const privateValue = 'AZ7q9n42', notesValue = 'BX8r0m53';
 const gui = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const root = resolve(gui, '../..');
 const require = createRequire(join(gui, 'app/package.json'));
@@ -37,6 +40,7 @@ const site = createServer(async (request, response) => {
     <button id="disabled" disabled>Disabled action</button>
     <form id="form"><label>Draft <input id="draft"></label><button type="submit">Send draft</button></form>
     ${capacityMode === 'b1' ? `<label id="choice-label">Native choice <select id="choice"><option value="a">Alpha</option><option value="b">Beta</option><option value="c" disabled>Closed</option></select></label>
+    ${privacyMode ? `<label>Private password <input id="password" type="password" value="${privateValue}"></label><label>Notes <input id="notes" value="${notesValue}"></label>` : ''}
     <label>Native check <input id="check" type="checkbox"></label>
     <label>Disabled check <input id="disabled-check" type="checkbox" disabled checked></label>
     <label>Multiple choice <select id="multiple" multiple><option value="a">Alpha</option><option value="b">Beta</option></select></label>
@@ -51,6 +55,7 @@ const site = createServer(async (request, response) => {
       document.querySelector('#check')?.addEventListener(kind,()=>{controlFacts[kind]++;effect('check'+kind)});
       document.querySelector('#choice')?.addEventListener(kind,()=>{controlFacts[kind==='input'?'selectInput':'selectChange']++;effect('select'+kind)});
     }
+    ${privacyMode ? `document.querySelector('#choice').addEventListener('change',()=>{const option=document.querySelector('#choice').selectedOptions[0];option.value=document.querySelector(window.privateEchoSource||'#password').value;option.label=document.querySelector(window.privateEchoSource||'#password').value;effect('privateEcho')});` : ''}
     document.addEventListener('mouseenter',event=>{if(event.target.id==='hover'){controlFacts.hover++;document.querySelector('#menu').hidden=false;effect('hover')}},true);
     addEventListener('scroll',()=>{if(!controlFacts.scroll&&document.querySelector('#sentinel')?.getBoundingClientRect().top<innerHeight){controlFacts.scroll++;document.querySelector('#sentinel').insertAdjacentHTML('afterend','<p id=loaded>Loaded next segment</p>');effect('scroll')}});
     document.addEventListener('keydown',event=>window.keyFacts.downs.push({key:event.key,target:event.target.id}));
@@ -63,7 +68,7 @@ const site = createServer(async (request, response) => {
 await new Promise(resolve => site.listen(0, '127.0.0.1', resolve));
 const siteUrl = `http://${process.env.AREAL_BROWSER_B1_PUBLIC === '1' ? 'browser-synthetic.localhost' : '127.0.0.1'}:${site.address().port}/`;
 const publicB1 = process.env.AREAL_BROWSER_B1_PUBLIC === '1';
-let pageId, mode = capacityMode === 'b1' ? publicB1 ? 'scroll' : 'scrollDenied' : 'deny';
+let pageId, mode = capacityMode === 'b1' ? privacyMode ? 'selectPrivacy' : publicB1 ? 'scroll' : 'scrollDenied' : 'deny';
 let modelStage = -1;
 const modelCalls = [];
 const observationFrom = (value, depth = 0) => {
@@ -115,6 +120,9 @@ const model = createServer(async (request, response) => {
         : mode.startsWith('select') ? select
         : { kind: 'setChecked', ref: ref(mode === 'checkDisabled' ? 'disabled' : mode === 'checkRadio' ? 'radio' : 'check'), checked: mode !== 'checkFalse' };
       input = { operation: 'act', parameters: { pageId, snapshotId: observation.observationId, action } };
+      if (mode === 'selectPrivacyBatch') input = { operation: 'runBatch', parameters: { pageId, snapshotId: observation.observationId, steps: [
+        { operation: 'act', snapshotId: observation.observationId, action: select },
+      ] } };
       if (mode === 'batchPrefix' || mode === 'batchUnknown') input = { operation: 'runBatch', parameters: { pageId, snapshotId: observation.observationId, steps: [
         { operation: 'act', snapshotId: observation.observationId, action: { kind: 'setChecked', ref: ref('check'), checked: true } },
         { operation: 'act', snapshotId: observation.observationId, action: mode === 'batchUnknown' ? select : { kind: 'hover', ref: ref('hover') } },
@@ -140,7 +148,18 @@ const model = createServer(async (request, response) => {
         tool(`act-${mode}`, input);
       }
     }
-  } else { send({ content: `Action ${mode} reviewed` }); send({}, 'stop'); }
+  } else if (privacyMode && modelStage === 2) {
+    events[`${mode}ModelResult`] = last.content;
+    modelStage = 3;
+    if (mode === 'selectPrivacyNotes') tool(`post-observe-${mode}`, { operation: 'observe', parameters: { pageId } });
+    else { send({ content: `Action ${mode} reviewed` }); send({}, 'stop'); }
+  } else {
+    if (privacyMode && last?.role === 'tool') {
+      events[`${mode}PostObservation`] = observationFrom(last.content);
+      events[`${mode}PostObservationResult`] = last.content;
+    }
+    send({ content: `Action ${mode} reviewed` }); send({}, 'stop');
+  }
   response.end('data: [DONE]\n\n');
   } catch (error) {
     errors.push('fixture model: ' + (error.stack ?? error.message));
@@ -364,7 +383,7 @@ try {
             Object.assign(cover.style,{left:r.left+'px',top:r.top+'px',width:r.width+'px',height:r.height+'px'});
             document.body.append(cover)})()`), { id: nativeId, next });
       if (next === 'unstable') await app.evaluate(() => { globalThis.__unstableActionOnce = true; globalThis.__actionTargetReadPositions = []; });
-      if (['allow','select','checkTrue','hover','scroll'].includes(next)) {
+      if (['allow','select','selectPrivacy','selectPrivacyBatch','checkTrue','hover','scroll'].includes(next)) {
         approvalPath=join(scratch,`${next}-approval.png`);
         await panel.screenshot({path:approvalPath});
       }
@@ -372,6 +391,11 @@ try {
         globalThis.__holdB1Read=true;globalThis.__waitB1Reads=0;
       });
       await panel.getByRole('button', { name: choice }).click();
+    }
+    if (next === 'selectPrivacyNotes') {
+      const panel = page.locator('[data-interaction="approval"]');
+      await until(async () => await panel.count() && /observe/.test(await panel.innerText()), 'post-action observe approval');
+      await panel.getByRole('button', {name:'允许一次',exact:true}).click();
     }
     const turn = await terminalTurn(completedTurns);
     completedTurns++;
@@ -397,6 +421,53 @@ try {
       assert.equal((await app.evaluate(()=>globalThis.__actionInputs)).length,0);
     }
     checks.push('B1 synthetic public Origin refuses undeclared viewport scroll, hover, select and checkbox without native input');
+  } else if (capacityMode === 'b1' && privacyMode) {
+    for (const [index, next] of ['selectPrivacy', 'selectPrivacyBatch', 'selectPrivacyNotes'].entries()) {
+      if (index) await app.evaluate(({webContents}, id) => webContents.fromId(id).executeJavaScript(
+        `document.querySelector('#choice').innerHTML='<option value="a">Alpha</option><option value="b">Beta</option><option value="c" disabled>Closed</option>';window.privateEchoSource=${JSON.stringify(next === 'selectPrivacyNotes' ? '#notes' : '#password')}`), nativeId);
+      const expectedPrivateValue = next === 'selectPrivacyNotes' ? notesValue : privateValue;
+      await app.evaluate(() => {globalThis.__actionInputs=[]});
+      const item = await scenario(next, '允许一次');
+      assert.equal(item.success, true);
+      await until(() => siteFacts.effects.privateEcho === index + 1, 'private echo handler executed once');
+      assert.equal(siteFacts.effects.selectinput, index + 1);
+      assert.equal(siteFacts.effects.selectchange, index + 1);
+      const native = await app.evaluate(({webContents}, id) => webContents.fromId(id).executeJavaScript(
+        `({value:document.querySelector('#choice').value,label:document.querySelector('#choice').selectedOptions[0].label,controlFacts})`), nativeId);
+      assert.equal(native.value, expectedPrivateValue);
+      assert.equal(native.label, expectedPrivateValue);
+      assert.equal(native.controlFacts.selectInput, index + 1);
+      assert.equal(native.controlFacts.selectChange, index + 1);
+      const inputs = await app.evaluate(() => globalThis.__actionInputs);
+      assert.equal(inputs.filter(input => input.method === 'Runtime.callFunctionOn').length, 1);
+      events[next].privateEcho = { native, inputs };
+      const payload = item.contentItems.filter(item => item.type === 'inputText').map(item => JSON.parse(item.text))[0];
+      const receipt = next === 'selectPrivacyBatch' ? payload.receipts[0] : payload;
+      events[next].receipt = receipt;
+      assert.equal(receipt.dispatch, 'confirmed');
+      assert.equal(receipt.inputConfirmed, true);
+      assert.equal(receipt.noOp ?? false, false);
+      assert.equal(receipt.stateMatched, false);
+      assert.equal(JSON.stringify(receipt).includes(expectedPrivateValue), false, 'post-select receipt conceals private field echo');
+      assert.equal(JSON.stringify(item).includes(expectedPrivateValue), false, 'Core tool history conceals private field echo');
+      assert.equal(JSON.stringify(events[`${next}ModelResult`]).includes(expectedPrivateValue), false, 'model-visible Core result conceals private field echo');
+      if (next === 'selectPrivacyNotes') {
+        const observation = events[`${next}PostObservation`];
+        assert.ok(observation, 'post-action observe returns current facts');
+        const select = observation.nodes.find(node => node.nativeControl?.kind === 'select')?.nativeControl;
+        assert.equal(select.optionsComplete, false);
+        assert.deepEqual(select.options, []);
+        assert.equal(JSON.stringify(observation).includes(expectedPrivateValue), false, 'observe conceals private Notes field echo');
+      }
+      if (next === 'selectPrivacyBatch') {
+        const dedup = await app.evaluate(() => globalThis.__batchDedup);
+        assert.deepEqual(dedup.value, dedup.duplicate);
+        assert.equal(JSON.stringify(dedup.value).includes(expectedPrivateValue), false, 'retained batch receipt conceals private field echo');
+        assert.equal(dedup.value.receipts[0].stateMatched, false);
+        events[next].dedup = dedup;
+      }
+      checks.push(`${next} confirms one native select and input/change pair while action, Core and model conceal private field echo`);
+    }
   } else if (capacityMode === 'b1') {
     const native = code => app.evaluate(({webContents}, {id,code}) => webContents.fromId(id).executeJavaScript(code), {id:nativeId,code});
     const reset = async () => {
