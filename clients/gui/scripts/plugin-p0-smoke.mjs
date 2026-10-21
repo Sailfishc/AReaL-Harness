@@ -15,7 +15,7 @@ await mkdir(join(workspace,'.agents','plugins'),{recursive:true});await mkdir(jo
 execFileSync('git',['init','-b','main'],{cwd:workspace,stdio:'ignore'});
 const source=join(workspace,'packages','hello');await mkdir(join(source,'skills','setup'),{recursive:true});
 await writeFile(join(source,'plugin.json'),JSON.stringify({$schema:'https://agent-plugins.org/schemas/1.0.0/plugin.schema.json',
-name:'hello',version:'1.0.0',description:'A local package fixture.',extensions:{'com.openai':{interface:{displayName:'Hello Plugin'},onboardingSkill:'./skills/setup/SKILL.md'}}}));
+name:'hello',version:'1.0.0',description:'A local package fixture.',extensions:{'com.openai':{commands:{review:{command:'DO_NOT_RUN'}},agents:{reviewer:{prompt:'DO_NOT_RUN'}},ui:{surfaces:{panel:{entry:'DO_NOT_RENDER'}}},interface:{displayName:'Hello Plugin'},onboardingSkill:'./skills/setup/SKILL.md'}}}));
 await writeFile(join(source,'skills','setup','SKILL.md'),'---\nname: setup\ndescription: Configure the hello fixture.\n---\nGUI_PLUGIN_SETUP_BODY_MARKER\n');
 await writeFile(join(workspace,'.agents','plugins','marketplace.json'),JSON.stringify({name:'gui-p0',plugins:[{name:'hello',source:{source:'local',path:'./packages/hello'},policy:{installation:'AVAILABLE',authentication:'ON_USE'},category:'Productivity'}]}));
 const sourceRoot=resolve(gui,'../..');
@@ -60,6 +60,38 @@ await button('核对来源并安装').click();
 await page.getByRole('checkbox',{name:'我已核对以上来源、版本和内容摘要',exact:true}).check();
 await button('安装到用户').click();
 await page.getByRole('heading',{name:'已安装',exact:true}).waitFor();assert.equal(requests.length,0,'installation cannot run setup/model');
+  const supportDetail = await call("manage", {
+    projectId,
+    operation: "plugin",
+    id: "hello@gui-p0",
+  });
+  assert.equal(supportDetail.componentSupport.digest, supportDetail.sourceDigest);
+  assert.equal(supportDetail.installedComponentSupport.digest, supportDetail.installedDigest);
+  assert.deepEqual(
+    supportDetail.installedComponentSupport.components.map((row) => [row.kind, row.status]),
+    [
+      ["skills", "supported"],
+      ["commands", "unsupported"],
+      ["agents", "unsupported"],
+      ["uiSurfaces", "unsupported"],
+    ],
+  );
+  const cliDetail = JSON.parse(
+    execFileSync(
+      env.AREAL_CORE_BIN,
+      ["plugins", "--workspace", workspace, "read", "hello@gui-p0"],
+      { env, encoding: "utf8" },
+    ),
+  );
+  assert.deepEqual(cliDetail.componentSupport, supportDetail.componentSupport);
+  assert.deepEqual(cliDetail.installedComponentSupport, supportDetail.installedComponentSupport);
+  await page
+    .getByRole("region", { name: "已安装组件支持", exact: true })
+    .getByText("部分组件不受支持", { exact: true })
+    .waitFor();
+  checks.push(
+    "real Electron and CLI read identical exact-digest reports; optional unsupported declarations keep installed Skill visible",
+  );
 checks.push('GUI discovers unmodified package and installs through Core without model execution');
 await page.screenshot({path:join(scratch,'installed-plugin.png'),animations:'disabled'});
 // Lose a completed response only at the Main-to-renderer boundary. Core executes unchanged.
