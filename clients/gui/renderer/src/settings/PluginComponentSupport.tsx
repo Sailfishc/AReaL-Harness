@@ -58,7 +58,7 @@ export function PluginComponentSupport({ report, digest, installed }: {
     <p>{report.compatibility.state === "blocked" ? "必需组件不兼容，当前快照不可激活。" : partial ? "部分组件不受支持" : "已声明组件符合所列解析契约。"}</p>
     {report.compatibility.reasonCodes.length > 0 && <ul>{report.compatibility.reasonCodes.map(reason => <li key={reason}>{reasonText(reason)}</li>)}</ul>}
     <p>当前会话的 Profile 决定实际准入。</p>
-    <p>MCP 连接、认证与 Hook 信任以各自状态为准。真实供应商、其他平台和发行包验证尚未核实。</p>
+    <p>MCP 连接、认证与 Hook 信任以各自状态为准。</p>
     <details><summary>查看逐项声明与前提</summary>
       <p>快照 <code>{report.digest}</code></p>
       {!report.components.length && <p>此快照未声明组件。</p>}
