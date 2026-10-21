@@ -236,7 +236,7 @@ export function McpSettings({
                   <div>
                     <strong>{item.serverId}</strong>
                     <p>{pluginSourceLabel(item.owner)}</p>
-                    <p>{item.owner.enabled ? "当前项目已启用" : "当前项目已停用"}</p>
+                    <p>{item.owner.compatibilityBlocked ? "必需组件不兼容" : item.owner.enabled ? "当前项目已启用" : "当前项目已停用"}</p>
                   </div>
                   <SettingsBadge>{pluginMcpStateLabel(item.state)}</SettingsBadge>
                   <Button variant="outline" onClick={() => onManagePlugin?.(item.owner.pluginId)}>管理插件</Button>

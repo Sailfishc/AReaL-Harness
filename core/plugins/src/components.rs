@@ -21,6 +21,7 @@ pub struct InstalledComponents {
     pub app_documents: Vec<ComponentDocument>,
     pub policy: Value,
     pub diagnostics: Vec<String>,
+    pub support: crate::PackageComponentSupport,
 }
 /// One atomic state-file read for publishing an activation directory. Package
 /// bytes remain immutable; concurrent commits cannot mix selection revisions.
@@ -33,12 +34,12 @@ pub struct InstalledSnapshot {
 impl Store {
     pub fn installed_snapshot(&self) -> Result<InstalledSnapshot> {
         let state = self.state()?;
-        let enabled_ids: std::collections::BTreeSet<_> = state
-            .installed
-            .keys()
-            .filter(|id| self.enabled(&state, id))
-            .cloned()
-            .collect();
+        let mut enabled_ids = std::collections::BTreeSet::new();
+        for id in state.installed.keys() {
+            if self.effective(&state, id)? {
+                enabled_ids.insert(id.clone());
+            }
+        }
         let enabled_skills = state
             .installed
             .iter()
@@ -77,7 +78,10 @@ impl Store {
     /// authorization hot path; metadata changes still force full integrity checks.
     pub fn enabled_component(&self, id: &str) -> Result<InstalledComponents> {
         let state = self.state()?;
-        ensure!(self.enabled(&state, id), "plugin disabled or uninstalled");
+        ensure!(
+            self.effective(&state, id)?,
+            "plugin disabled, uninstalled or statically incompatible"
+        );
         let detail = state.installed.get(id).context("plugin not installed")?;
         self.read_components(
             detail,
@@ -91,11 +95,12 @@ impl Store {
     }
     fn components(&self, enabled_only: bool) -> Result<Vec<InstalledComponents>> {
         let state = self.state()?;
-        state
-            .installed
-            .values()
-            .filter(|d| !enabled_only || self.enabled(&state, &d.id))
-            .map(|detail| {
+        let mut result = Vec::new();
+        for detail in state.installed.values() {
+            if enabled_only && !self.effective(&state, &detail.id)? {
+                continue;
+            }
+            result.push(
                 self.read_components(
                     detail,
                     self.root.join("cache").join(&detail.source_digest),
@@ -104,9 +109,10 @@ impl Store {
                         .get(&detail.id)
                         .cloned()
                         .unwrap_or(Value::Null),
-                )
-            })
-            .collect()
+                )?,
+            );
+        }
+        Ok(result)
     }
     pub fn component_preview(&self, id: &str) -> Result<InstalledComponents> {
         let state = self.state()?;
@@ -127,7 +133,7 @@ impl Store {
             .unwrap_or_else(|| detail.source.clone());
         self.read_components(&detail, root, detail.policy.clone())
     }
-    fn read_components(
+    pub(super) fn read_components(
         &self,
         detail: &crate::PluginDetail,
         root: PathBuf,
@@ -151,7 +157,7 @@ impl Store {
             "installed package integrity mismatch: {}",
             detail.id
         );
-        package::parse(&files, &detail.id, &detail.source, &root)?;
+        let parsed = package::parse(&files, &detail.id, &detail.source, &root)?;
         let read = |path: &str| {
             files
                 .get(path)
@@ -189,6 +195,9 @@ impl Store {
             app_documents: vec![],
             policy,
             diagnostics: vec![],
+            support: parsed
+                .component_support
+                .context("validated package support report missing")?,
         };
         let mut load = |declaration: Option<&Value>,
                         default: &str,

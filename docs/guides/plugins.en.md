@@ -4,6 +4,16 @@
 
 Shared Core owns plugin installation and selection; GUI and CLI read the same state. Current scope covers local/Git marketplaces, pinned Git/npm packages, Skills/onboarding, trusted MCP connections and desktop Apps. GitHub is the first real Connector service. See [upstream pins](../../upstream/pins.json) and the [implementation/acceptance plan](../development/codex-plugins-plan.en.md).
 
+## Read component support
+
+Open a plugin detail to read its installed component report. A changed catalog snapshot has a separate candidate report. Compare their full digests before installing an update. A report can show supported Skills beside unsupported commands, agents, or UI declarations. This means partial package compatibility, not that all declared capabilities are usable.
+
+Expand the declaration list to read the parser contract, reasons, and activation requirements. Current MCP connection and authentication status and Hook definition trust remain in their existing panels. The target conversation's Profile controls actual admission. Listing reports does not start setup, package code, connections, authentication, or model requests.
+
+CLI reads the same Core report with `areal plugins --workspace /path/to/project read <plugin-id>`. Use `mcp-list` and `hooks-list` under the same command and workspace for current connection and trust facts. Match `pluginId` and `installedDigest`; a candidate digest is not the installed version. Provider, platform, and signed distribution acceptance remain unverified in a static report.
+
+Portable authors can require static component kinds with `extensions.org.areal.componentRequirements` set to `{"version":1,"requiredKinds":["skills"]}`. Every declared row of each required kind must be supported. An incompatible required kind leaves the package installed for inspection but excludes it from effective activation. Optional unsupported declarations do not disable supported Skills. These semantics apply only to the recognized portable 1.0.0 manifest. See the [API contract](../api/desktop.en.md#component-support-reports) for strict fields and limits. A `.zcode-plugin`-only package is unsupported; use a documented portable, Codex, Claude, or Cursor manifest.
+
 ## Plugins, Skills, and MCP
 
 The global **Plugins** entry opens the marketplace. Public and Personal list registered sources. Skills and installed plugins share this workspace navigation. A plugin or Skill opens a content page with a return path. The Skills installed overview initially shows six items and expands with Show more. Personal and project tabs below show installed Skills from each source and retain separate expansion state. Search shows all matching results. Management uses the previously selected project. Select or open a project when none is selected. Browsing does not create a task directory.

@@ -4,6 +4,16 @@
 
 AReaL 的插件包由共享 Core 管理；GUI 与 CLI 读取同一安装与启用状态。支持本地/Git marketplace、Git 与 npm 来源、两种 manifest 中的 Skills，以及显式 onboarding；插件 MCP、Apps 和 GitHub Connector 通过现有 Core 执行边界接入。固定格式基线见 [upstream/pins.json](../../upstream/pins.json)，完整实施与验收见[任务计划](../development/codex-plugins-plan.md)。
 
+## 查看组件支持
+
+打开插件详情可查看安装组件报告。目录快照变化时，候选报告单独显示。安装更新前核对两个完整摘要。报告可以同时显示受支持的 Skills 和不支持的 commands、agents 或 UI 声明，这表示包只部分兼容，不能据此认定全部能力可用。
+
+展开逐项声明可查看解析契约、原因与使用前提。当前 MCP 连接、认证以及 Hook 定义信任仍由原有面板显示。目标会话的 Profile 决定实际准入。查看报告不会启动 setup、包代码、连接、认证或模型请求。
+
+CLI 使用 `areal plugins --workspace /path/to/project read <plugin-id>` 读取同一 Core 报告。同一命令与工作区下的 `mcp-list`、`hooks-list` 提供当前连接和信任事实。核对 `pluginId` 与 `installedDigest`，不能把候选摘要当作安装版本。静态报告中的真实供应商、平台和签名发行包验收保持未核实。
+
+Portable 作者可通过 `extensions.org.areal.componentRequirements` 声明静态必需 kind，例如 `{"version":1,"requiredKinds":["skills"]}`。每个必需 kind 的全部声明记录必须受支持。不兼容的必需 kind 会让包保留安装以供检查，但排除有效激活。可选 unsupported 声明不会禁用有效 Skill。该语义只适用于已识别的 portable 1.0.0 manifest。严格字段及限制见 [API 契约](../api/desktop.md#组件支持报告)。只有 `.zcode-plugin` 的包不受支持，请使用已有文档说明的 portable、Codex、Claude 或 Cursor manifest。
+
 ## 插件、Skills 与 MCP
 
 左侧“插件”打开插件市场。公共和个人目录按已注册来源展示，Skills 和已安装插件在同一工作区导航。点击插件或 Skill 打开内容页，可返回原列表。Skills 页的已安装总览默认展示六项，点击“查看更多”展开。下方通过“个人”和项目标签浏览各来源的已安装技能，各自保留展开状态；搜索展示全部匹配结果。市场操作使用此前明确选择的项目；尚未选择项目时，先选择或打开项目。浏览不会创建任务目录。

@@ -257,6 +257,18 @@ MCP 清理失败保持 cleanupFailed，并持久保存 cleanupUnconfirmed。无�
 
 `areal/marketplace/add`、`areal/marketplace/addGit`、`areal/marketplace/remove`、`areal/marketplace/update` 和 `areal/plugin/uninstall` 在完整 `{"result":catalog}` 回执不超过 256 KiB 时返回原完整目录。超限的成功返回 `{"revision":N,"catalogRefreshRequired":true}`，表示变更已在目录版本 N 完成。相同请求重试和回执查询保留这个原始结果，即使目录随后变化或 Core 重启。`areal/plugin/list` 另行读取完整当前目录，版本可能晚于 N；它不替换历史回执。失败仍返回原错误。
 
+### 组件支持报告
+
+`PluginDetail.componentSupport` 对应候选 `sourceDigest`，`installedComponentSupport` 对应准确的 `installedDigest`。可空报告包含 `digest`、`manifestFormat`、`components`、`compatibility` 和 `validation`。尚未解析或来源不可读的候选没有报告；经校验且没有声明的包返回空组件列表。旧安装 State 缺少字段时，Core 从通过完整性校验的安装缓存重算。候选变化不会替换安装报告。
+
+逐项记录包含 `kind`、包内 `sourceField`、`status`、`reasonCodes`、可空 `supportedSchema`、`required` 和 `activationRequirements`。kind 为 `skills`、`mcp`、`hooks`、`apps`、`commands`、`agents`、`uiSurfaces`。status 为 `supported`、`partial`、`unsupported`。Commands、agents 与 UI surfaces 保留独立声明记录，不导出命令、prompt、环境或凭据值。声明键限制为 256 字节，隐式路径限制为 1024 字节，报告最多 4096 项。超限拒绝候选，不静默丢项。
+
+`supportedSchema` 只标识实际验证的解析契约。MCP 与 Hook 声明结构支持不证明运行配置、宿主策略、认证、平台行为或发行包已经通过验收。`validation.scope` 为 `staticParserContract`，provider、platform、distribution 保留 `unverified`。前提指向既有安装、启用、目标 Thread Profile、摘要信任、连接、认证、Connector 映射及 Hook 授权边界，不授予权限。通过 `areal/plugin/mcp/list` 和 `areal/plugin/hooks/list` 读取当前事实，同时匹配 `pluginId` 和 `installedDigest`。查看报告不会解析远端来源、启动代码或连接、认证、信任或调用模型。固定 Codex adapter 保持原有返回结构。
+
+只有已识别的 portable 1.0.0 manifest 可以声明 `extensions.org.areal.componentRequirements`，严格结构为 `{"version":1,"requiredKinds":["skills"]}`，两个成员都必需。未知成员、版本、kind、重复、错误类型或超过七个 kind 均拒绝解析。兼容格式同名字段、MCP `required`、Skill dependencies 不具有包级必需语义。必需 kind 至少有一项声明，且该 kind 全部记录都须为 `supported`。缺失、partial 或 unsupported 返回 `compatibility.state=blocked`，原因分别为 `requiredKindMissing:<kind>` 或 `requiredKindUnsupported:<kind>`，否则为 `allowed`。
+
+安装可以保留 blocked 包供检查，`enabled` 仍表示配置范围的意图。Store 既有有效选择从 Skills、组件、版本发布及执行检查中排除 blocked 包。可选 unsupported 声明不阻止有效 Skill。动态信任或连接前提独立于静态门禁。
+
 ## 插件来源、MCP 与桌面 Apps
 
 新增方法保留无限制 `manage` 授权要求，参数类型见生成 schema。来源变更使用目录 CAS 与管理回执：`areal/plugin/resolve {id,expectedRevision,requestId}`；`areal/marketplace/addGit {url,refName?,sparsePaths?,expectedRevision,requestId}`；`areal/marketplace/remove {root,expectedRevision,requestId}`；`areal/marketplace/update {expectedRevision,requestId}`。

@@ -271,7 +271,7 @@ export function ScopedSkillsSettings({
                 <small title={item.description}>{item.description || item.id}</small>
               </span>
             </div>
-            <SettingsBadge>{item.owner.enabled ? "当前项目已启用" : "当前项目已停用"}</SettingsBadge>
+            <SettingsBadge>{item.owner.compatibilityBlocked ? "必需组件不兼容" : item.owner.enabled ? "当前项目已启用" : "当前项目已停用"}</SettingsBadge>
             <Button variant="outline" onClick={() => onManagePlugin?.(item.owner.pluginId)}>管理插件</Button>
           </article>
         ))}

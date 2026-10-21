@@ -3,6 +3,7 @@ import { Button } from "../components/ui/button.js";
 import { Feedback } from "./common.js";
 import { SettingsDisclosure } from "./SettingsDisclosure.js";
 import { PluginAuthConfiguration } from "./PluginAuthConfiguration.js";
+import { supportBlocked } from "./PluginComponentSupport.js";
 import { pluginMcpStateLabel } from "./pluginResources.js";
 import type { PluginDetail } from "./PluginCenter.js";
 import type { Data } from "../services.js";
@@ -90,7 +91,7 @@ export function PluginConnectionPanel({ detail, snapshot, loading, error, disabl
   const configurationBlocked = !servers.length && !connectors.length && snapshot?.diagnostics?.some((item: Data) => item.class === "configuration" || item.class === "policy");
   const mappingRequired = connectors.some(connector => connector.state === "missingMapping" || connector.state === "authRequired");
   const hasConnections = servers.length > 0 || connectors.length > 0;
-  const blocked = disabled || loading || authLoading || !!acting;
+  const blocked = supportBlocked(detail.installedComponentSupport, detail.installedDigest) || disabled || loading || authLoading || !!acting;
   const title = loading || !snapshot ? "正在读取连接状态…" : cleanupUnknown ? "清理结果待核对"
     : uncertain ? "连接状态待核对" : allDisabled ? "服务已停用" : configurationBlocked ? "连接配置需要处理"
     : partial ? "部分服务未连接" : authUnknown ? "认证结果待核对" : authPending ? "等待认证完成" : authRequired ? "需要认证" : mappingRequired ? "需要配置连接"
@@ -104,8 +105,8 @@ export function PluginConnectionPanel({ detail, snapshot, loading, error, disabl
     : authPending ? "请完成认证并核对状态，尚未连接的服务不会自动启动。"
     : authRequired ? "完成认证后，再确认信任并连接服务。"
     : mappingRequired ? "请配置此插件声明的 Connector 后再连接。"
-    : connected ? "插件服务已可在对话中使用。"
-    : partial ? "部分服务可用，请查看未连接服务的状态。"
+    : connected ? "当前安装快照的 MCP 服务已连接。当前会话仍需满足 Profile 和工具权限。"
+    : partial ? "部分 MCP 服务已连接，请查看其他服务的状态。"
     : !hasConnections && snapshot ? "插件已安装并启用。" : "连接前，请确认信任当前安装快照。";
 
   return <section className="plugin-status-panel" aria-label="插件连接状态">
@@ -132,7 +133,7 @@ export function PluginConnectionPanel({ detail, snapshot, loading, error, disabl
       {mappingRequired && connectorConfiguration}
       {uncertain && <Button variant="outline" disabled={loading} onClick={onRefresh}>核对连接状态</Button>}
       {(connected || partial || (!hasConnections && !configurationBlocked)) && <div className="plugin-connection-actions plugin-service-actions">
-        <Button disabled={disabled || draftBusy || !detail.enabled} onClick={onStart}>开始对话</Button>
+        <Button disabled={disabled || draftBusy || !detail.enabled || supportBlocked(detail.installedComponentSupport, detail.installedDigest)} onClick={onStart}>开始对话</Button>
         {(connected || partial) && <Button variant="outline" disabled={blocked} onClick={() => {
           setConsent(false); setConsentOpen(false);
           void mutate("pluginConnection", { id: detail.id, expectedDigest: detail.installedDigest, connect: false });

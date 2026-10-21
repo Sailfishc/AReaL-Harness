@@ -7,6 +7,7 @@ import {fileURLToPath} from 'node:url';
 import {createServer} from 'node:http';
 import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
+import {assertApplicationStopped} from './application-cleanup.mjs';
 import {captureSmokeFailure,createProjectConversation,selectConversation} from './smoke-navigation.mjs';
 const gui=resolve(dirname(fileURLToPath(import.meta.url)),'..'),require=createRequire(join(gui,'app/package.json'));
 const {_electron:electron}=require('playwright-core');
@@ -32,7 +33,11 @@ const env={...process.env,AREAL_GUI_USER_DATA:join(scratch,'electron'),AREAL_COR
 AREAL_HARNESS_SERVICE_HOME:join(scratch,'registry'),AREAL_CORE_BIN:process.env.AREAL_CORE_BIN??resolve(gui,'../../target/debug/areal')};
 for(const k of ['AREAL_CORE_WORKSPACE','AREAL_CORE_CONFIG','AREAL_HARNESS_HOME','AREAL_HARNESS_CONFIG','AREAL_CORE_DESKTOP_CONFIG'])delete env[k];
 const coreBinary=env.AREAL_CORE_BIN,coreSha256=createHash('sha256').update(await readFile(coreBinary)).digest('hex');
-let app,page,failure,passed=false;
+const fixtureApp=join(scratch,'app'),mainErrorsPath=join(scratch,'main-errors.jsonl');
+await mkdir(fixtureApp);await writeFile(mainErrorsPath,'');
+await writeFile(join(fixtureApp,'package.json'),JSON.stringify({name:'plugin-support-fixture',main:'bootstrap.cjs'}));
+await writeFile(join(fixtureApp,'bootstrap.cjs'),`process.on('uncaughtExceptionMonitor',(error,origin)=>require('node:fs').appendFileSync(${JSON.stringify(mainErrorsPath)},JSON.stringify({pid:process.pid,origin,name:error.name,message:error.message,stack:error.stack})+'\\n'));require(${JSON.stringify(join(gui,'app/src/main.cjs'))});`);
+let app,page,appProcess,failure,passed=false;
 const button=n=>page.getByRole('button',{name:n,exact:true});
 const state=()=>page.evaluate(()=>window.arealDesktop.snapshot());
 async function until(fn,label){const end=Date.now()+30_000;while(Date.now()<end){const s=await state();if(fn(s))return s;await new Promise(r=>setTimeout(r,75));}throw Error('timeout: '+label);}
@@ -45,8 +50,8 @@ const { builtinSkill, BUILTIN_SKILL_ID } = require('../app/src/core/builtin-skil
 // Provision verified product bytes once; this runner tests plugins, not concurrent first-run cache creation.
 await builtinSkill(join(scratch, 'core'), BUILTIN_SKILL_ID);
 try{
-app=await electron.launch({executablePath:require('electron'),args:[join(gui,'app')],env,timeout:120_000});
-page=await app.firstWindow();page.setDefaultTimeout(20_000);page.on('pageerror',e=>errors.push(e.message));
+app=await electron.launch({executablePath:require('electron'),args:[fixtureApp],env,timeout:120_000});
+page=await app.firstWindow();appProcess=app.process();page.setDefaultTimeout(20_000);page.on('pageerror',e=>errors.push(e.message));
 await page.getByTestId('areal-workbench').waitFor({timeout:120_000});await until(s=>s.connection?.state==='ready','desktop ready');
 await app.evaluate(({dialog,BrowserWindow},path)=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:[path]});dialog.showMessageBox=async()=>({response:1});BrowserWindow.getAllWindows()[0].setSize(1440,960);},workspace);
 await page.evaluate(()=>window.arealDesktop.chooseProject());await createProjectConversation(page,'workspace');
@@ -121,16 +126,30 @@ checks.push('GUI enable/uninstall completes through management receipts');
 assert.deepEqual(errors,[]);passed=true;
 }catch(e){failure={message:e.message,stack:e.stack};process.exitCode=1;if(page)await captureSmokeFailure(page,scratch,e);}
 finally{
-if(app){
-await app.close().catch(e=>errors.push('close GUI: '+e.message));
-try{const {ServiceConnection,waitForServiceExit}=require('../app/src/core/service-client.cjs');const connection=new ServiceConnection();
-try{const metadata=JSON.parse(await readFile(join(scratch,'core/service.json'),'utf8'));await connection.connect(metadata);await connection.request('stopService',{protocol:metadata.protocol},true);await waitForServiceExit(join(scratch,'core'),metadata);}
-finally{connection.close();}}
-catch(e){errors.push('stop service: '+e.message);}
+const cleanup={};let metadata;
+try{metadata=JSON.parse(await readFile(join(scratch,'core/service.json'),'utf8'));}catch(error){if(error.code!=='ENOENT')errors.push('read cleanup identity: '+error.message);}
+if(app){let timer;
+try{
+await Promise.race([app.close(),new Promise((_resolve,reject)=>{timer=setTimeout(()=>reject(Error('owned Electron quit timed out')),15000);})]);
+if(appProcess.exitCode===null&&appProcess.signalCode===null)await new Promise((resolve,reject)=>{const timeout=setTimeout(()=>reject(Error('owned Electron did not exit')),15000);appProcess.once('exit',()=>{clearTimeout(timeout);resolve();});});
+assert.equal(appProcess.exitCode,0,'owned Electron quit exit code');assert.equal(appProcess.signalCode,null,'owned Electron quit signal');cleanup.electronExited=true;
+}catch(error){errors.push('natural GUI quit: '+error.message);}finally{clearTimeout(timer);}
 }
+if(metadata){try{await assertApplicationStopped(coreBinary,env,metadata);cleanup.applicationStopped=true;}catch(error){errors.push('verify natural application cleanup: '+error.message);}}
+if(metadata&&!cleanup.applicationStopped){cleanup.assistedServiceStop=true;
+const {ServiceConnection,waitForServiceProcessExit}=require('../app/src/core/service-client.cjs');const connection=new ServiceConnection();
+try{await connection.connect(metadata);const packet=await connection.request('hello',{protocol:metadata.protocol,identity:metadata.identity});
+try{await connection.request('stopService',{protocol:metadata.protocol,cancel:true,expectedDesktopGeneration:metadata.desktopGeneration,expectedTargets:packet.service.targets},true);}catch(error){if(!error.message.includes('已请求退出'))throw error;}
+await waitForServiceProcessExit(join(scratch,'core'),metadata);
+}catch(error){if(!['ENOENT','ECONNREFUSED','ESRCH'].includes(error.code))errors.push('fallback service cleanup: '+error.message);}finally{connection.close();}}
+if(appProcess&&appProcess.exitCode===null&&appProcess.signalCode===null){errors.push('forced Electron cleanup');appProcess.kill('SIGKILL');await new Promise(resolve=>appProcess.once('exit',resolve));cleanup.forcedElectronExit=true;}
+const mainErrors=(await readFile(mainErrorsPath,'utf8')).trim().split('\n').filter(Boolean).map(line=>JSON.parse(line));
+for(const error of mainErrors)errors.push('uncaught Main '+error.origin+': '+error.message);
+try{const instances=JSON.parse(execFileSync(coreBinary,['service','list','--json'],{env,encoding:'utf8'}));cleanup.instances=instances.map(instance=>({serviceId:instance.serviceId,hostPid:instance.hostPid,corePid:instance.corePid,state:instance.state}));assert(instances.every(instance=>instance.state==='stopped'),'owned Core instance remains live');}catch(error){errors.push('verify final service cleanup: '+error.message);}
+model.closeAllConnections();
 await new Promise(r=>model.close(r));
 if(errors.length){passed=false;process.exitCode=1;}
-const manifest={passed,checks,errors,failure,scratch,source:execFileSync('git',['rev-parse','HEAD'],{cwd:gui,encoding:'utf8'}).trim(),
+const manifest={passed,checks,errors,mainErrors,cleanup,failure,scratch,source:execFileSync('git',['rev-parse','HEAD'],{cwd:gui,encoding:'utf8'}).trim(),
 sourceFiles,sourceDiffSha256,core:{binary:coreBinary,sha256:coreSha256,unchanged:createHash('sha256').update(await readFile(coreBinary)).digest('hex')===coreSha256},
 modelRequests:requests.length,scope:'source Electron/Core P0 plugins; deterministic external model; no packaged/provider acceptance'};
 await writeFile(join(scratch,'manifest.json'),JSON.stringify(manifest,null,2));console.log(JSON.stringify(manifest,null,2));
