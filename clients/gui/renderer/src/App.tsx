@@ -18,6 +18,7 @@ import { SidePane } from "./app-shell/SidePane.js";
 import { useBrowserWorkspace, browserTabId, browserPageId, isBrowserTab } from "./app-shell/useBrowserWorkspace.js";
 import { Button } from "./components/ui/button.js";
 import { BackendStatusNotice, type BackendStatusAction } from "./BackendStatusNotice.js";
+import { SettingsDisclosure } from "./settings/SettingsDisclosure.js";
 import { Popover, PopoverContent, PopoverTrigger } from "./components/ui/popover.js";
 import { ApplicationRail, SidebarSectionToggle, SidebarWorkspaceHeader } from "./app-shell/ApplicationNavigation.js";
 import { NavigationSidebar, WorkbenchShell, WorkspaceHeader, WorkSurface } from "./app-shell/WorkbenchShell.js";
@@ -48,6 +49,7 @@ import { NewTaskButtonGroup } from "./NewTaskButtonGroup.js";
 import { ImageAnnotationPane } from "./ImageAnnotationViews.js";
 import { imageAnnotation, imageAnnotationTitle, setImageAnnotationEditing, useImageAnnotationPending, type ImageAnnotationTarget } from "./imageAnnotations.js";
 import { Composer, attachmentDrafts, sending, subscribeSending } from "./Composer.js";
+import { recoveredOutcome, recoveryMessage, recoverySettings, sameRecoveryOwner, type RecoveryFailure, type RecoveryNotice, type RecoveryOwner } from "./recoveryPresentation.js";
 import { DraftComposer } from "./DraftComposer.js";
 import { ProjectlessDraft } from "./ProjectlessDraft.js";
 import { WorktreeStarter } from "./WorktreeStarter.js";
@@ -147,13 +149,10 @@ function projectExecutionBlocked(lifecycle: Snapshot["lifecycle"], projectId: st
     && operation.targets.some(target => target.projectId === projectId && target.phase !== "completed" && target.phase !== "blocked"),
   ) ?? false;
 }
-type RestorationOwner = { projectId: string; threadId: string; connectionGeneration: number };
-type RestorationState = RestorationOwner & { pending: boolean; error: string };
+type RestorationOwner = RecoveryOwner;
+type RestorationState = RestorationOwner & { pending: boolean; error: string; failureId?: string; failure?: RecoveryFailure };
 type RestorationAttempt = RestorationOwner & { operation: "connect" | "open"; pending: boolean; promise: Promise<void> };
-function sameRestorationOwner(left: RestorationOwner | undefined, right: RestorationOwner) {
-  return left?.projectId === right.projectId && left.threadId === right.threadId
-    && left.connectionGeneration === right.connectionGeneration;
-}
+const sameRestorationOwner = sameRecoveryOwner;
 function Usage({ thread }: { thread: Data }) {
   const turns = thread.turns ?? [];
   const known = turns.filter((t: Data) => t.usage);
@@ -294,7 +293,15 @@ function AppContent({ services }: { services: PlatformServices }) {
   }, [uiFontSize]);
   const [search, setSearch] = useState("");
   const [archived, setArchived] = useState(false);
-  const [error, setError] = useState("");
+  const [notices, setNotices] = useState<RecoveryNotice[]>([]);
+  const [dismissedNotices, setDismissedNotices] = useState<Set<string>>(() => new Set());
+  const selectedRecoveryOwner = React.useRef<RecoveryOwner>({ projectId: "", threadId: "", connectionGeneration: 0 });
+  const recoverySnapshot = React.useRef(snapshot);
+  recoverySnapshot.current = snapshot;
+  const setError = useCallback((message: string) => {
+    if (message) setNotices(previous => [...previous, { ...selectedRecoveryOwner.current, id: crypto.randomUUID(), kind: "error", message }]);
+  }, []);
+  const dismissNotice = (id: string) => setDismissedNotices(previous => new Set(previous).add(id));
   const [dark, setDark] = useState(false);
   useAppearance(dark);
   const [theme, setTheme] = useState(() => localStorage.getItem("areal-gui:theme") ?? "system");
@@ -408,10 +415,63 @@ function AppContent({ services }: { services: PlatformServices }) {
     connectionGeneration: project?.core?.connectionGeneration ?? 0 };
   const selectedRestoration = React.useRef(restorationOwner);
   selectedRestoration.current = restorationOwner;
+  selectedRecoveryOwner.current = restorationOwner;
   const selectionReady = selectedProject === project?.id;
   const currentRestoration = sameRestorationOwner(restoration, restorationOwner) ? restoration : undefined;
-  const restorationError = project?.observationErrors?.[threadId]?.message || currentRestoration?.error || "";
-  const restorationFailed = !!restorationError || !!(!project?.state?.connected && (project?.error || project?.state?.error));
+  const observationFailure = project?.observationErrors?.[threadId];
+  const currentObservationFailure = observationFailure && (observationFailure.connectionGeneration === undefined
+    || observationFailure.connectionGeneration === restorationOwner.connectionGeneration) ? observationFailure : undefined;
+  const viewFailure = currentObservationFailure ?? currentRestoration?.failure
+    ?? (!project?.state?.connected && (project?.error || project?.state?.error)
+      ? { message: project.error || project.state.error } : undefined);
+  const restorationError = viewFailure ? recoveryMessage(viewFailure, "view") : currentRestoration?.error || "";
+  const reconnectingView = !currentObservationFailure && !currentRestoration?.failure && !project?.state?.connected
+    && /连接中断|正在恢复|disconnect|timeout|connection/i.test(restorationError);
+  const [viewRecoveryVisible, setViewRecoveryVisible] = useState(false);
+  useEffect(() => {
+    setViewRecoveryVisible(false);
+    if (!reconnectingView) return;
+    const timer = window.setTimeout(() => setViewRecoveryVisible(true), 1200);
+    return () => window.clearTimeout(timer);
+  }, [reconnectingView, restorationOwner.projectId, restorationOwner.threadId, restorationOwner.connectionGeneration]);
+  const viewRefreshing = !!currentObservationFailure?.refreshPending || !!currentRestoration?.pending;
+  const restorationFailed = !!restorationError && !viewRefreshing && !reconnectingView;
+  const restorationNoticeId = currentObservationFailure?.id ?? currentRestoration?.failureId
+    ?? `connection:${restorationOwner.projectId}:${restorationOwner.connectionGeneration}:${restorationError}`;
+  useEffect(() => {
+    setNotices(previous => {
+      let changed = false;
+      const observed = [...previous];
+      for (const owner of snapshot.projects) for (const entry of owner.pending ?? []) {
+        const requestId = entry.params?.requestId;
+        const ownerThreadId = entry.params?.threadId ?? entry.params?.sourceThreadId ?? "";
+        if (!requestId || entry.awaitingResponse || observed.some(notice => notice.projectId === owner.id && notice.requestId === requestId)
+          || recoveredOutcome(owner, requestId, ownerThreadId, entry.operation)) continue;
+        changed = true;
+        observed.push({ projectId: owner.id, threadId: ownerThreadId,
+          connectionGeneration: owner.core?.connectionGeneration ?? 0, id: `operation:${owner.id}:${requestId}`,
+          kind: "unconfirmed", requestId, operation: entry.operation,
+          message: "操作结果尚未确认。正在核对原请求，不会自动重发。" });
+      }
+      const next = observed.flatMap(notice => {
+        if (notice.kind !== "unconfirmed" || !notice.requestId) return [notice];
+        const owner = snapshot.projects.find(item => item.id === notice.projectId);
+        const operation = notice.operation ?? owner?.pending?.find((entry: Data) => entry.params?.requestId === notice.requestId)?.operation;
+        const outcome = owner && recoveredOutcome(owner, notice.requestId, notice.threadId, operation);
+        if (!outcome) {
+          if (operation && !notice.operation) { changed = true; return [{ ...notice, operation }]; }
+          return [notice];
+        }
+        changed = true;
+        return outcome.status === "failed" || outcome.accepted === false
+          ? [{ ...notice, id: `failed:${notice.id}`, kind: "error" as const, message: outcome.message || (outcome.accepted === false ? "操作未受理，输入已保留，请检查后重试。" : "操作已受理，但执行失败，请检查结果。") }]
+          : [];
+      });
+      return changed ? next : previous;
+    });
+  }, [snapshot.projects, notices]);
+  const operationNotices = notices.filter(notice => notice.projectId === restorationOwner.projectId
+    && notice.threadId === restorationOwner.threadId && !dismissedNotices.has(notice.id));
   const activeConversation = React.useRef("");
   activeConversation.current = `${project?.id ?? ""}:${thread?.id ?? ""}`;
   const recordWorkspaceLocation = useCallback((next: { projectId: string; threadId: string }, replace = false) => {
@@ -533,19 +593,30 @@ function AppContent({ services }: { services: PlatformServices }) {
   }, [terminalState.ids]);
   const action: Action = useCallback(
     async (name: import("./services.js").CommandName, params: Data = {}) => {
-      // 新投递清除上一操作的界面提示；本次失败仍由下方 catch 显示。
-      if (name === "send" || name === "steer") setError("");
+      const selected = selectedRecoveryOwner.current;
+      const target = recoverySnapshot.current.projects.find(item => item.id === (params.projectId ?? selected.projectId));
+      const owner = { projectId: params.projectId ?? selected.projectId, threadId: params.threadId ?? selected.threadId,
+        connectionGeneration: target?.core?.connectionGeneration ?? selected.connectionGeneration };
+      const request = ["create", "configure"].includes(name) ? { ...params, requestId: params.requestId ?? crypto.randomUUID() } : params;
       try {
-        return await call(services, name, params);
-      } catch (e) {
-        const err = e as Error;
-        // Attachment upload, read and release stay on the owning composer,
-        // message or upload dialog. A global banner would follow a task switch.
+        return await call(services, name, request);
+      } catch (cause) {
+        const failure = cause as RecoveryFailure;
         if (!["providers", "chatgpt"].includes(name) && !(name === "respond" && params.answers)
-          && name !== "media"
-          && name !== "feedback"
-          && !(name === "manage" && params.operation === "goalCreate")) setError(err.message);
-        throw e;
+          && name !== "media" && name !== "feedback" && !(name === "manage" && params.operation === "goalCreate")) {
+          const operation = failure.outcome && "operation" in failure.outcome ? failure.outcome.operation : undefined;
+          const requestId = operation?.requestId ?? failure.requestId ?? request.requestId;
+          const unconfirmed = failure.submissionUnknown === true || failure.outcome?.kind === "admitted" || failure.outcome?.kind === "unconfirmed";
+          const id = unconfirmed && requestId ? `operation:${owner.projectId}:${requestId}` : crypto.randomUUID();
+          const latest = recoverySnapshot.current.projects.find(item => item.id === owner.projectId);
+          if ((latest?.core?.connectionGeneration ?? owner.connectionGeneration) === owner.connectionGeneration) {
+            const pendingOperation = latest?.pending?.find((entry: Data) => entry.params?.requestId === requestId)?.operation;
+            setNotices(previous => [...previous.filter(notice => notice.id !== id), { ...owner, id, requestId, operation: operation ?? pendingOperation,
+              kind: unconfirmed ? "unconfirmed" : "error", message: recoveryMessage(failure), settings: recoverySettings(failure),
+              detail: [failure.message, failure.code, failure.reason, operation?.method].filter(value => value !== undefined).join("\n") }]);
+          }
+        }
+        throw cause;
       }
     },
     [services],
@@ -560,7 +631,8 @@ function AppContent({ services }: { services: PlatformServices }) {
     if (sameRestorationOwner(previous, owner) && previous?.operation === operation && previous.pending) return previous.promise;
     const attempt: RestorationAttempt = { ...owner, operation, pending: true, promise: Promise.resolve() };
     restorationAttempt.current = attempt;
-    setRestoration({ ...owner, pending: true, error: "" });
+    setRestoration(previous => sameRestorationOwner(previous, owner) && previous
+      ? { ...previous, pending: true } : { ...owner, pending: true, error: "" });
     const current = () => restorationAttempt.current === attempt && sameRestorationOwner(selectedRestoration.current, owner);
     attempt.promise = (async () => {
       try {
@@ -572,11 +644,14 @@ function AppContent({ services }: { services: PlatformServices }) {
         else if (owner.threadId) {
           await resourceAction("open", { projectId: owner.projectId, threadId: owner.threadId });
           if (!current()) return;
-          await resourceAction("library", { operation: "readThread", projectId: owner.projectId, threadId: owner.threadId, read: true });
+          void resourceAction("library", { operation: "readThread", projectId: owner.projectId, threadId: owner.threadId, read: true }).catch(() => {});
         }
         if (current()) setRestoration({ ...owner, pending: false, error: "" });
       } catch (cause) {
-        if (current()) setRestoration({ ...owner, pending: false, error: (cause as Error).message });
+        if (current()) {
+          const failure = cause as RecoveryFailure;
+          setRestoration({ ...owner, pending: false, error: recoveryMessage(failure, "view"), failure, failureId: crypto.randomUUID() });
+        }
       } finally {
         attempt.pending = false;
       }
@@ -1554,38 +1629,24 @@ function AppContent({ services }: { services: PlatformServices }) {
           <BackendStatusNotice summary={snapshot.serviceSummary} connection={snapshot.connection} update={snapshot.backendUpdate} lifecycle={snapshot.lifecycle}
             currentCommands={snapshot.desktopCapabilities?.currentCommands ?? project?.desktopCapabilities?.currentCommands}
             pending={backendActionPending} error={backendActionError} onAction={kind => void runBackendAction(kind)} />
-          {(error || restorationError || project?.error || project?.state?.error) && (
-            <div className="error-banner" role="alert">
-              <span>{error || restorationError || project?.error || project?.state?.error}</span>
-              {thread && restorationFailed && (
-                <button onClick={() => void retryRestoration()}>重试加载对话</button>
-              )}
-              <button aria-label="关闭提示" onClick={() => setError("")}>
-                <X size={14} />
-              </button>
+          {operationNotices.map(notice => (
+            <div key={notice.id} className={notice.kind === "unconfirmed" ? "notice" : "error-banner"}
+              role={notice.kind === "unconfirmed" ? "status" : "alert"} data-recovery-request-id={notice.requestId}>
+              <span>{notice.message}</span>
+              {notice.requestId && <small className="break-all text-foreground-subtle">请求 {notice.requestId}</small>}
+              {notice.detail && <SettingsDisclosure title="查看详情"><pre className="whitespace-pre-wrap break-all">{notice.detail}</pre></SettingsDisclosure>}
+              {notice.settings && <Button variant="ghost" size="sm" onClick={() => { setSettingsTab(notice.settings!); setSettingsOpen(true); }}>检查{notice.settings === "模型服务" ? "模型服务" : "会话设置"}</Button>}
+              {notice.kind === "unconfirmed" && <button onClick={() => void resourceAction("reconcile", { projectId: notice.projectId }).catch(() => {})}>检查操作状态</button>}
+              <button aria-label="关闭提示" onClick={() => dismissNotice(notice.id)}><X size={14} /></button>
             </div>
-          )}
-          {/* Restored projects connect asynchronously; only actual failures need recovery. */}
-          {project && !project.state?.connected && (project.error || project.state?.error) && (
-            <div className="notice" role="status">
-              Core 未连接。
-              <button
-                onClick={() => {
-                  void retryRestoration();
-                }}
-              >
-                重新连接
-              </button>
-            </div>
-          )}
-          {!!project?.pending.filter((entry: Data) => !entry.awaitingResponse).length && (
-            <div className="notice" role="status">
-              暂时无法确认 {project.pending.filter((entry: Data) => !entry.awaitingResponse).length} 项操作是否已送达，不会自动重发。
-              <button
-                onClick={() => void action("reconcile", { projectId: project.id }).catch(() => {})}
-              >
-                检查发送状态
-              </button>
+          ))}
+          {restorationError && (!reconnectingView || viewRecoveryVisible) && !dismissedNotices.has(restorationNoticeId) && (
+            <div className={viewRefreshing || reconnectingView ? "notice" : "error-banner"} role={viewRefreshing || reconnectingView ? "status" : "alert"}>
+              <span>{viewRefreshing || reconnectingView ? "正在重新加载对话，历史和草稿已保留…" : restorationError}</span>
+              {viewFailure && viewFailure.message !== restorationError && <SettingsDisclosure title="查看详情"><pre className="whitespace-pre-wrap break-all">{viewFailure.message}</pre></SettingsDisclosure>}
+              {viewFailure && recoverySettings(viewFailure) && <Button variant="ghost" size="sm" onClick={() => { setSettingsTab(recoverySettings(viewFailure)!); setSettingsOpen(true); }}>检查设置</Button>}
+              {!viewRefreshing && <button onClick={() => void retryRestoration()}>重试加载对话</button>}
+              <button aria-label="关闭提示" onClick={() => dismissNotice(restorationNoticeId)}><X size={14} /></button>
             </div>
           )}
           <PluginCenter active={pluginCenterActive} marketRequest={pluginMarketRequest} surface={pluginSettingsOpen ? "settings" : "workspace"}

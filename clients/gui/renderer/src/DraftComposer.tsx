@@ -17,6 +17,7 @@ import { useI18n } from "./i18n/IntlProvider.js";
 import { Button } from "./components/ui/button.js";
 import type { LexicalChatInputHandle } from "./LexicalChatInput.js";
 import type { Action, Data } from "./services.js";
+import { recoveredOutcome, recoveryMessage, type RecoveryFailure } from "./recoveryPresentation.js";
 import { attachedReviewComments, detachReviewComments, reviewCommentKey, transferNewReviewComments, useReviewComments } from "./reviewComments.js";
 import { ReviewCommentAttachment } from "./ReviewCommentViews.js";
 import {
@@ -144,8 +145,15 @@ export function DraftComposer({
   };
   useEffect(() => {
     if (!unknown || project.pending.length) return;
-    const outcome = project.outcomes?.[unknown];
-    if (!outcome?.threadId || outcome.accepted !== true) return;
+    const outcome = recoveredOutcome(project, unknown, "");
+    if (!outcome || outcome.operation && outcome.operation.method !== "areal/thread/start") return;
+    if (outcome.status === "failed" || outcome.accepted === false) {
+      localStorage.removeItem(`${key}:pending-create`);
+      setUnknown(null);
+      setDraftError(outcome.message || "创建对话未完成，草稿已保留，请检查后重试。");
+      return;
+    }
+    if (!outcome.threadId || outcome.accepted !== true) return;
     try { transferNewReviewComments(project.id, outcome.threadId); }
     catch (cause) { setDraftError((cause as Error).message); return; }
     // A recovered creation opens the preserved draft; it never sends it automatically.
@@ -169,6 +177,8 @@ export function DraftComposer({
     setDraftError("");
     let targetKey: string | undefined;
     let creationAttempted = false;
+    let configurationRequestId: string | undefined;
+    const creationRequestId = crypto.randomUUID();
     try {
       const owner = prepareProject ? await prepareProject() : project;
       if (owner.desktopCapabilities?.currentCommands === false && !goalMode)
@@ -197,6 +207,7 @@ export function DraftComposer({
       creationAttempted = true;
       const result = await action("create", {
         projectId: owner.id,
+        requestId: creationRequestId,
         parameters,
         ...(profileSelection && profile
           ? { profile: { id: profile.id, revision: profile.revision } }
@@ -218,7 +229,9 @@ export function DraftComposer({
         const accepted = await readAction("manage", { projectId: owner.id, threadId: result.threadId, operation: "inspect" });
         if (!accepted.configuration) throw new Error("无法读取新会话配置，输入已保留。");
         if (!accepted.configuration.profile?.readOnly) {
-          await action("configure", { projectId: owner.id, threadId: result.threadId, options: planModeOptions(plan, permissionOptions(permission)) });
+          configurationRequestId = crypto.randomUUID();
+          await action("configure", { projectId: owner.id, threadId: result.threadId, requestId: configurationRequestId, options: planModeOptions(plan, permissionOptions(permission)) });
+          configurationRequestId = undefined;
         }
       }
       if (goalMode) {
@@ -234,12 +247,17 @@ export function DraftComposer({
       localStorage.removeItem(targetKey);
       window.dispatchEvent(new CustomEvent("areal-draft-change", { detail: targetKey }));
     } catch (e) {
-      setDraftError((e as Error).message);
-      if (targetKey) attachmentErrors.set(targetKey, (e as Error).message);
-      const error = e as Error & { submissionUnknown?: boolean; requestId?: string };
+      const failure = e as RecoveryFailure;
+      if (!failure.submissionUnknown) {
+        setDraftError(recoveryMessage(failure));
+        if (targetKey) attachmentErrors.set(targetKey, recoveryMessage(failure));
+      }
+      const error = failure;
       if (creationAttempted && error.submissionUnknown && error.requestId) {
         if (targetKey) {
           localStorage.setItem(`${targetKey}:pending`, error.requestId);
+          if (configurationRequestId) localStorage.setItem(`${targetKey}:pending-configure`, error.requestId);
+          if (error.outcome && "operation" in error.outcome) localStorage.setItem(`${targetKey}:pending-operation`, JSON.stringify(error.outcome.operation));
           if (goalMode) localStorage.setItem(`${targetKey}:pending-goal`, error.requestId);
         }
         else {

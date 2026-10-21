@@ -23,9 +23,10 @@ test('backend notice hides normal connected status but keeps actionable states',
     for (const busy of [false, true]) {
       assert.equal(render({ summary: { state: 'running', busy } }), '', 'normal status occupies no header space');
     }
+    for (const state of ['connecting', 'unavailable']) {
+      assert.equal(render({ connection: { state } }), '', 'brief connection recovery stays quiet before the presentation delay');
+    }
     for (const [props, message, action] of [
-      [{ connection: { state: 'connecting' } }, '正在连接后台…'],
-      [{ connection: { state: 'unavailable' } }, '后台尚未连接', '重新连接后台'],
       [{ update: { state: 'pending' } }, '当前部署更新尚未应用', '更新后台…'],
       [{ update: { state: 'applying' } }, '正在更新后台…'],
       [{ update: { state: 'failed' } }, '后台更新失败', '更新后台…'],

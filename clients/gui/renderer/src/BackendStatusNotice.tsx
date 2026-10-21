@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Button } from "./components/ui/button.js";
 import type { Snapshot } from "./services.js";
 
@@ -14,6 +15,14 @@ export function BackendStatusNotice({ connection, update, lifecycle, summary, cu
   error: string;
   onAction: (action: BackendStatusAction) => void;
 }) {
+  const [connectionNoticeReady, setConnectionNoticeReady] = useState(false);
+  const reconnecting = connection?.recovery !== "check" && (connection?.state === "connecting" || connection?.state === "unavailable");
+  useEffect(() => {
+    setConnectionNoticeReady(false);
+    if (!reconnecting) return;
+    const timer = window.setTimeout(() => setConnectionNoticeReady(true), 1200);
+    return () => window.clearTimeout(timer);
+  }, [reconnecting]);
   let message: string;
   let action: BackendStatusAction | undefined;
   if (lifecycle?.error) {
@@ -37,9 +46,11 @@ export function BackendStatusNotice({ connection, update, lifecycle, summary, cu
     message = "正在更新后台…";
     action = "update";
   } else if (connection?.state === "connecting") {
-    message = "正在连接后台…";
+    if (!connectionNoticeReady) return null;
+    message = "正在恢复连接，历史和草稿已保留…";
   } else if (connection?.state === "unavailable") {
-    message = error || connection.message || update?.message || "后台尚未连接";
+    if (!connectionNoticeReady) return null;
+    message = error || "暂时无法连接后台，历史和草稿已保留。请重新连接或查看后台详情。";
     action = "reconnect";
   } else if (connection?.state === "ready" && update?.state === "failed") {
     message = error || update.message || "后台更新失败，请检查后台服务。";
