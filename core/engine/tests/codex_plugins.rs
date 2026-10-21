@@ -914,8 +914,13 @@ async fn blocked_historical_skill_cannot_be_selected_after_compatible_replacemen
         fs::remove_dir_all(t.path().join("pkg/skills")).unwrap();
         write(t.path(), "pkg/plugin.json", &json!({"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"sample","extensions":{"com.openai":{}}}).to_string());
         install(&e, &store).await;
+        write(t.path(), "retained-profile.json", &json!({"profiles":[{"id":"retained","revision":"v1","displayName":"Retained","instructions":"","skills":[old],"allowPluginSkills":true}]}).to_string());
+        let mut engine = Some(e);
         for restart in [false, true] {
-            let engine = if restart {
+            if restart {
+                let previous = engine.take().unwrap();
+                previous.shutdown().await;
+                drop(previous);
                 let reopened = Engine::open(
                     state.path(),
                     Arc::new(Recorder(Default::default())),
@@ -927,10 +932,12 @@ async fn blocked_historical_skill_cannot_be_selected_after_compatible_replacemen
                         Store::open(t.path().join("plugins"), t.path().into(), None).unwrap(),
                     ))
                     .unwrap();
-                reopened
-            } else {
-                e.clone()
-            };
+                engine = Some(reopened);
+            }
+            let engine = engine.as_ref().unwrap();
+            engine
+                .install_deployment(&t.path().join("retained-profile.json"))
+                .unwrap();
             let thread = engine
                 .create(t.path().to_str().unwrap().into())
                 .await
@@ -938,7 +945,7 @@ async fn blocked_historical_skill_cannot_be_selected_after_compatible_replacemen
             let selected = engine
                 .configure_thread(
                     serde_json::from_value(
-                        json!({"threadId":thread.id,"expectedRevision":1,"selectedSkills":[old]}),
+                        json!({"threadId":thread.id,"expectedRevision":1,"agentProfile":{"id":"retained","revision":"v1"},"selectedSkills":[old]}),
                     )
                     .unwrap(),
                 )
@@ -959,7 +966,7 @@ async fn blocked_historical_skill_cannot_be_selected_after_compatible_replacemen
             if !blocked {
                 assert!(read.unwrap()["text"].as_str().unwrap().contains("old body"));
             }
-            engine.shutdown().await;
         }
+        engine.take().unwrap().shutdown().await;
     }
 }
