@@ -54,6 +54,7 @@ pub struct Schedule {
 #[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ScheduleDefinition<R> {
+    #[schemars(range(min = 1, max = 1))]
     pub version: u8,
     pub rule: R,
     pub misfire: Misfire,
@@ -134,12 +135,14 @@ pub enum ScheduleRule {
             deserialize_with = "present",
             skip_serializing_if = "Option::is_none"
         )]
+        #[schemars(with = "Vec<u8>")]
         weekdays: Option<Vec<u8>>,
         #[serde(
             default,
             deserialize_with = "present",
             skip_serializing_if = "Option::is_none"
         )]
+        #[schemars(with = "Vec<MonthDay>")]
         month_days: Option<Vec<MonthDay>>,
     },
 }
@@ -170,12 +173,14 @@ pub enum ScheduleIntentRule {
             deserialize_with = "present",
             skip_serializing_if = "Option::is_none"
         )]
+        #[schemars(with = "Vec<u8>")]
         weekdays: Option<Vec<u8>>,
         #[serde(
             default,
             deserialize_with = "present",
             skip_serializing_if = "Option::is_none"
         )]
+        #[schemars(with = "Vec<MonthDay>")]
         month_days: Option<Vec<MonthDay>>,
     },
     OnceLocal {
@@ -209,6 +214,7 @@ pub enum CivilDate {
 pub struct SchedulePreview {
     pub schedule: ScheduleIntent,
     pub from: Option<i64>,
+    #[schemars(range(min = 1, max = 10))]
     pub count: u8,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
