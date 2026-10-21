@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
-import {mkdtemp,mkdir,readFile,writeFile} from 'node:fs/promises';
+import {appendFile,mkdtemp,mkdir,readFile,writeFile} from 'node:fs/promises';
 import {dirname,join,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createServer} from 'node:http';
@@ -32,7 +32,7 @@ import {fileURLToPath} from 'node:url';
 const log=value=>appendFileSync(process.env.FIXTURE_LOG,JSON.stringify(value)+'\n');
 const send=value=>process.stdout.write(JSON.stringify(value)+'\n');
 const tools=Array.from({length:9},(_,i)=>({name:'fixture.page'+(i+1),title:'Lifecycle Page '+(i+1),inputSchema:{type:'object'},annotations:{readOnlyHint:true},_meta:{ui:{resourceUri:'ui://fixture/lifecycle',visibility:['model']},'openai/ui':{entrypoints:[{type:'global'},{type:'thread'}]}}}));
-tools.push({name:'fixture.business',title:'Saved business result',inputSchema:{type:'object',properties:{value:{type:'number'}}},annotations:{readOnlyHint:true},_meta:{ui:{resourceUri:'ui://fixture/lifecycle',visibility:['model']}}});
+tools.push({name:'fixture.business',title:'Saved business result',description:'Create the saved-result acceptance record.',inputSchema:{type:'object',properties:{value:{type:'number'}}},annotations:{readOnlyHint:true},_meta:{ui:{resourceUri:'ui://fixture/lifecycle',visibility:['model']}}});
 tools.push({name:'fixture.delay',inputSchema:{type:'object'},annotations:{readOnlyHint:true},_meta:{ui:{visibility:['app']}}});
 for await(const line of createInterface({input:process.stdin})){let q;try{q=JSON.parse(line);log(q);if(q.id===undefined)continue;let result;switch(q.method){
 case'initialize':result={protocolVersion:q.params.protocolVersion,serverInfo:{name:'lifecycle-fixture',version:'1'},capabilities:{tools:{},resources:{subscribe:true},extensions:{'io.modelcontextprotocol/ui':{}}}};break;
@@ -55,10 +55,28 @@ for(const path of new Set(execFileSync('git',['ls-files','--modified','--others'
 if(/^(core\/|clients\/|scripts\/|schemas\/|Cargo\.|upstream\/)/.test(path))sourceFiles[path]=createHash('sha256').update(await readFile(join(sourceRoot,path))).digest('hex');}
 const sourceDiffSha256=createHash('sha256').update(execFileSync('git',['diff','--binary','HEAD'],{cwd:sourceRoot})).digest('hex');
 const requests=[],checks=[],errors=[];
-let modelBusinessSent=false;
-const model=createServer(async(req,res)=>{let body='';for await(const p of req)body+=p;const request=JSON.parse(body);requests.push(request);res.writeHead(200,{'Content-Type':'text/event-stream'});
-if(resultMode&&!modelBusinessSent&&body.includes('CREATE_SAVED_RESULT')){const tool=request.tools.find(tool=>/fixture[._]business$/.test(tool.function?.name));assert(tool,'normal inference inventory must contain the real MCP business tool');modelBusinessSent=true;res.end('data: '+JSON.stringify({choices:[{index:0,delta:{tool_calls:[{index:0,id:'saved-business-call',type:'function',function:{name:tool.function.name,arguments:'{\"value\":42}'}}]},finish_reason:null}]})+'\n\n'+'data: '+JSON.stringify({choices:[{index:0,delta:{},finish_reason:'tool_calls'}]})+'\n\ndata: [DONE]\n\n');return;}
-res.end('data: '+JSON.stringify({choices:[{index:0,delta:{content:'GUI_PLUGIN_SETUP_OK'},finish_reason:null}]})+'\n\n'+'data: '+JSON.stringify({choices:[{index:0,delta:{},finish_reason:'stop'}]})+'\n\ndata: [DONE]\n\n');});
+let modelBusinessSent=false,modelFailure;
+const model=createServer(async(req,res)=>{
+ try{
+  let body='';for await(const part of req)body+=part;
+  const request=JSON.parse(body);requests.push(request);
+  await appendFile(join(scratch,'model-requests.jsonl'),JSON.stringify(request)+'\n');
+  if(resultMode&&!modelBusinessSent&&body.includes('CREATE_SAVED_RESULT')){
+   const tools=request.tools.filter(tool=>tool.function?.description==='Create the saved-result acceptance record.');
+   assert.equal(tools.length,1,'normal inference inventory must contain exactly one real MCP business tool');
+   const tool=tools[0];assert.match(tool.function.name,/^mcp__/);modelBusinessSent=true;
+   res.writeHead(200,{'Content-Type':'text/event-stream'});
+   res.end('data: '+JSON.stringify({choices:[{index:0,delta:{tool_calls:[{index:0,id:'saved-business-call',type:'function',function:{name:tool.function.name,arguments:'{"value":42}'}}]},finish_reason:null}]})+'\n\n'+'data: '+JSON.stringify({choices:[{index:0,delta:{},finish_reason:'tool_calls'}]})+'\n\ndata: [DONE]\n\n');return;
+  }
+  res.writeHead(200,{'Content-Type':'text/event-stream'});
+  res.end('data: '+JSON.stringify({choices:[{index:0,delta:{content:'GUI_PLUGIN_SETUP_OK'},finish_reason:null}]})+'\n\n'+'data: '+JSON.stringify({choices:[{index:0,delta:{},finish_reason:'stop'}]})+'\n\ndata: [DONE]\n\n');
+ }catch(error){
+  modelFailure=error;errors.push('fixture model: '+error.message);
+  await appendFile(join(scratch,'model-errors.jsonl'),JSON.stringify({message:error.message,stack:error.stack})+'\n').catch(writeError=>errors.push('fixture model evidence: '+writeError.message));
+  if(!res.headersSent)res.writeHead(500,{'Content-Type':'application/json'});
+  res.end(JSON.stringify({error:{message:error.message}}));
+ }
+});
 await new Promise(r=>model.listen(0,'127.0.0.1',r));
 await writeFile(join(userHome,'.areal','config.toml'),'schema_version=1\n[model]\nname="fixture"\n[model.providers.default]\nprotocol="chat-completions"\nendpoint="http://127.0.0.1:'+model.address().port+'"\n');
 const env={...process.env,AREAL_GUI_USER_DATA:join(scratch,'electron'),AREAL_CORE_HOME:join(scratch,'core'),AREAL_CORE_USER_HOME:userHome,
@@ -77,7 +95,7 @@ require(${JSON.stringify(join(gui,'app/src/main.cjs'))});
 let app,page,appPid,appProcess,failure,passed=false;
 const button=n=>page.getByRole('button',{name:n,exact:true});
 const state=()=>page.evaluate(()=>window.arealDesktop.snapshot());
-async function until(fn,label){const end=Date.now()+30_000;while(Date.now()<end){const s=await state();if(fn(s))return s;await new Promise(r=>setTimeout(r,75));}throw Error('timeout: '+label);}
+async function until(fn,label){const end=Date.now()+30_000;while(Date.now()<end){if(modelFailure)throw modelFailure;const s=await state();if(fn(s))return s;await new Promise(r=>setTimeout(r,75));}throw Error('timeout: '+label);}
 async function waitEvents(predicate,label){const end=Date.now()+30_000;while(Date.now()<end){const events=await transportEvents();if(predicate(events))return events;await new Promise(resolve=>setTimeout(resolve,100));}throw Error('timeout: '+label);}
 async function appFrame(token){const end=Date.now()+30_000;while(Date.now()<end){const frame=page.frames().find(frame=>token?frame.url()===`areal-mcp://${token}/view`:/^areal-mcp:\/\/[^/]+\/view$/.test(frame.url()));if(frame){await frame.locator('#ready').filter({hasText:'initialized'}).waitFor({state:'attached'});return frame;}await new Promise(resolve=>setTimeout(resolve,100));}throw Error('sandbox app frame missing');}
 async function call(name,params){const r=await page.evaluate(({name,params})=>window.arealDesktop.command(name,params),{name,params});assert(r.ok,JSON.stringify(r));return r.value;}
