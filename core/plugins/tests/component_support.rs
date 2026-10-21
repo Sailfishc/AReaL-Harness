@@ -368,3 +368,275 @@ fn unresolved_remote_report_is_unknown_and_implicit_unsupported_files_are_visibl
     assert_eq!(detail["sourceDigest"], "");
     assert_eq!(detail["componentSupport"], Value::Null);
 }
+
+#[test]
+fn historical_skill_compatibility_survives_replacement_and_restart() {
+    for initially_blocked in [true, false] {
+        let blocked = portable(
+            json!({"org.areal":{"componentRequirements":{"version":1,"requiredKinds":["commands"]}},"com.openai":{"commands":{"run":{"command":"never execute"}}}}),
+        );
+        let temp = fixture(
+            "plugin.json",
+            if initially_blocked {
+                blocked.clone()
+            } else {
+                portable(json!({}))
+            },
+        );
+        let store = open(&temp);
+        let installed = install(&store);
+        let old = &installed["installedSkills"][0];
+        let id = old["id"].as_str().unwrap();
+        let revision = old["revision"].as_str().unwrap();
+        assert_eq!(
+            store.is_skill_enabled(id, revision).unwrap(),
+            !initially_blocked
+        );
+        fs::remove_dir_all(temp.path().join("pkg/skills")).unwrap();
+        write(
+            temp.path(),
+            "pkg/plugin.json",
+            &portable(json!({})).to_string(),
+        );
+        assert_eq!(install(&store)["installedSkills"], json!([]));
+        for view in [&store, &open(&temp)] {
+            assert_eq!(
+                view.is_skill_enabled(id, revision).unwrap(),
+                !initially_blocked,
+                "historical compatibility changed after an allowed replacement; initially_blocked={initially_blocked}"
+            );
+        }
+        write(temp.path(), "pkg/plugin.json", &blocked.to_string());
+        install(&store);
+        assert!(!store.is_skill_enabled(id, revision).unwrap());
+        write(
+            temp.path(),
+            "pkg/plugin.json",
+            &portable(json!({})).to_string(),
+        );
+        install(&store);
+        store
+            .configure(ID, "user", false, store.list().unwrap().revision)
+            .unwrap();
+        assert!(!store.is_skill_enabled(id, revision).unwrap());
+        store
+            .configure(ID, "user", true, store.list().unwrap().revision)
+            .unwrap();
+        assert_eq!(
+            store.is_skill_enabled(id, revision).unwrap(),
+            !initially_blocked
+        );
+        store.uninstall(ID, store.list().unwrap().revision).unwrap();
+        assert!(!open(&temp).is_skill_enabled(id, revision).unwrap());
+    }
+}
+
+#[test]
+fn hook_support_matches_selected_typed_documents_without_execution() {
+    let command = json!({"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"echo never execute"}]}]}});
+    let cases = [
+        (
+            "mcp_tool",
+            None,
+            json!({"hooks":{"PreToolUse":[{"hooks":[{"type":"mcp_tool","server":"local","tool":"check"}]}]}}),
+            false,
+            vec!["supported"],
+            1,
+            "allowed",
+        ),
+        (
+            "mcp",
+            None,
+            json!({"hooks":{"PreToolUse":[{"hooks":[{"type":"mcp","server":"local","tool":"check"}]}]}}),
+            false,
+            vec!["partial"],
+            0,
+            "blocked",
+        ),
+        (
+            "wrapper",
+            None,
+            json!({"PreToolUse":[{"hooks":[{"type":"command","command":"echo never"}]}]}),
+            false,
+            vec!["partial"],
+            0,
+            "blocked",
+        ),
+        (
+            "typed_timeout",
+            None,
+            json!({"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"echo never","timeout":"bad"}]}]}}),
+            false,
+            vec!["partial"],
+            0,
+            "blocked",
+        ),
+        (
+            "path",
+            Some(json!("./custom.json")),
+            command.clone(),
+            false,
+            vec!["supported"],
+            1,
+            "allowed",
+        ),
+        (
+            "fallback",
+            Some(json!("custom.json")),
+            command.clone(),
+            true,
+            vec!["partial", "supported"],
+            1,
+            "blocked",
+        ),
+        (
+            "unsupported_handler",
+            None,
+            json!({"hooks":{"PreToolUse":[{"hooks":[{"type":"prompt","prompt":"never"}]}]}}),
+            false,
+            vec!["partial"],
+            0,
+            "blocked",
+        ),
+        (
+            "unknown_event",
+            None,
+            json!({"hooks":{"UnknownEvent":[{"hooks":[{"type":"command","command":"echo never"}]}]}}),
+            false,
+            vec!["partial"],
+            0,
+            "blocked",
+        ),
+    ];
+    let mut failures = vec![];
+    for (name, declaration, document, fallback, expected, count, compatibility) in cases {
+        let mut extensions =
+            json!({"org.areal":{"componentRequirements":{"version":1,"requiredKinds":["hooks"]}}});
+        if let Some(declaration) = &declaration {
+            extensions["com.openai"] = json!({"hooks":declaration});
+        }
+        let temp = fixture("plugin.json", portable(extensions));
+        write(
+            temp.path(),
+            if declaration.is_some() {
+                "pkg/custom.json"
+            } else {
+                "pkg/hooks/hooks.json"
+            },
+            &document.to_string(),
+        );
+        if fallback {
+            write(temp.path(), "pkg/hooks/hooks.json", &command.to_string());
+        }
+        let store = open(&temp);
+        let detail = install(&store);
+        let component = store.installed_components().unwrap().remove(0);
+        assert_eq!(
+            areal_plugins::hooks::normalize(&component)
+                .unwrap()
+                .entries
+                .len(),
+            count,
+            "actual Hook parser changed for {name}"
+        );
+        let mut actual: Vec<_> = rows(&detail, "installedComponentSupport")
+            .into_iter()
+            .filter(|row| row["kind"] == "hooks")
+            .map(|row| row["status"].as_str().unwrap().to_owned())
+            .collect();
+        actual.sort();
+        if actual != expected
+            || detail["installedComponentSupport"]["compatibility"]["state"] != compatibility
+        {
+            failures.push(format!("{name}: statuses={actual:?}, compatibility={}, expected={expected:?}/{compatibility}", detail["installedComponentSupport"]["compatibility"]["state"]));
+        }
+        assert_eq!(
+            detail["installedComponentSupport"]["validation"]["platform"],
+            "unverified"
+        );
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn app_support_distinguishes_manifest_paths_from_connector_documents() {
+    let cases = [
+        (
+            "single",
+            None,
+            json!({"id":"github","name":"GitHub"}),
+            "supported",
+            "allowed",
+        ),
+        (
+            "map",
+            None,
+            json!({"github":{"name":"GitHub"}}),
+            "supported",
+            "allowed",
+        ),
+        (
+            "array",
+            None,
+            json!([{"id":"github"}]),
+            "supported",
+            "allowed",
+        ),
+        (
+            "paths",
+            Some(json!(["./connectors.json"])),
+            json!({"apps":[{"id":"github"}]}),
+            "supported",
+            "allowed",
+        ),
+        ("invalid", None, json!({"id":42}), "partial", "blocked"),
+        (
+            "missing_id",
+            None,
+            json!([{"name":"GitHub"}]),
+            "partial",
+            "blocked",
+        ),
+    ];
+    let mut failures = vec![];
+    for (name, declaration, document, status, compatibility) in cases {
+        let mut extensions =
+            json!({"org.areal":{"componentRequirements":{"version":1,"requiredKinds":["apps"]}}});
+        if let Some(declaration) = &declaration {
+            extensions["com.openai"] = json!({"apps":declaration});
+        }
+        let temp = fixture("plugin.json", portable(extensions));
+        write(
+            temp.path(),
+            if declaration.is_some() {
+                "pkg/connectors.json"
+            } else {
+                "pkg/.app.json"
+            },
+            &document.to_string(),
+        );
+        let store = open(&temp);
+        let detail = install(&store);
+        let component = store.installed_components().unwrap().remove(0);
+        assert_eq!(
+            component.app_documents.len(),
+            1,
+            "actual document selection changed for {name}"
+        );
+        assert_eq!(component.app_documents[0].value, document);
+        let actual: Vec<_> = rows(&detail, "installedComponentSupport")
+            .into_iter()
+            .filter(|row| row["kind"] == "apps")
+            .map(|row| row["status"].as_str().unwrap().to_owned())
+            .collect();
+        if actual != [status]
+            || detail["installedComponentSupport"]["compatibility"]["state"] != compatibility
+        {
+            failures.push(format!(
+                "{name}: statuses={actual:?}, compatibility={}, expected={status}/{compatibility}",
+                detail["installedComponentSupport"]["compatibility"]["state"]
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

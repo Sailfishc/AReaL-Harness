@@ -886,3 +886,80 @@ async fn setup_document_cannot_select_another_plugins_hidden_skill() {
     );
     e.shutdown().await;
 }
+
+#[tokio::test]
+async fn blocked_historical_skill_cannot_be_selected_after_compatible_replacement() {
+    for blocked in [true, false] {
+        let t = fixture();
+        let manifest = json!({"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"sample","extensions":if blocked { json!({"org.areal":{"componentRequirements":{"version":1,"requiredKinds":["commands"]}},"com.openai":{"commands":{"run":{"command":"never execute"}}}}) } else { json!({}) }});
+        write(t.path(), "pkg/plugin.json", &manifest.to_string());
+        let state = tempfile::tempdir().unwrap();
+        let e = Engine::open(
+            state.path(),
+            Arc::new(Recorder(Default::default())),
+            Limits::default(),
+        )
+        .unwrap();
+        let store = Arc::new(Store::open(t.path().join("plugins"), t.path().into(), None).unwrap());
+        e.install_plugin_store(store.clone()).unwrap();
+        let installed = install(&e, &store).await;
+        let old = reference(
+            installed["skills"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|s| s["name"] == "One")
+                .unwrap(),
+        );
+        fs::remove_dir_all(t.path().join("pkg/skills")).unwrap();
+        write(t.path(), "pkg/plugin.json", &json!({"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"sample","extensions":{"com.openai":{}}}).to_string());
+        install(&e, &store).await;
+        for restart in [false, true] {
+            let engine = if restart {
+                let reopened = Engine::open(
+                    state.path(),
+                    Arc::new(Recorder(Default::default())),
+                    Limits::default(),
+                )
+                .unwrap();
+                reopened
+                    .install_plugin_store(Arc::new(
+                        Store::open(t.path().join("plugins"), t.path().into(), None).unwrap(),
+                    ))
+                    .unwrap();
+                reopened
+            } else {
+                e.clone()
+            };
+            let thread = engine
+                .create(t.path().to_str().unwrap().into())
+                .await
+                .unwrap();
+            let selected = engine
+                .configure_thread(
+                    serde_json::from_value(
+                        json!({"threadId":thread.id,"expectedRevision":1,"selectedSkills":[old]}),
+                    )
+                    .unwrap(),
+                )
+                .await;
+            assert_eq!(
+                selected.is_ok(),
+                !blocked,
+                "historical selection changed; blocked={blocked}, restart={restart}"
+            );
+            let read = engine
+                .read_skill(&thread.id, old.clone(), "SKILL.md", 0, 8192)
+                .await;
+            assert_eq!(
+                read.is_ok(),
+                !blocked,
+                "historical read changed; blocked={blocked}, restart={restart}"
+            );
+            if !blocked {
+                assert!(read.unwrap()["text"].as_str().unwrap().contains("old body"));
+            }
+            engine.shutdown().await;
+        }
+    }
+}
