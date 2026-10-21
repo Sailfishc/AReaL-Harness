@@ -394,7 +394,7 @@ export function useMcpAppsWorkspace({
                     resultState(key, { message: reply.status === "closed" ? "交互结果已关闭，可再次打开。" : "交互结果暂不可用，原始记录仍可查看。" });
                 }
             } catch {
-                if (intent && intent.phase !== "closing") intent.phase = "unknown";
+                if (intent?.phase === "opening") intent.phase = "unknown";
                 resultState(key, { message: intent?.phase === "closing" ? "关闭结果待确认，请再次点击核对。原始记录仍可查看。" : "打开结果待确认，请再次点击核对。原始记录仍可查看。" });
             }
         })();
