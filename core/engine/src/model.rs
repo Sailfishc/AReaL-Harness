@@ -34,6 +34,7 @@ pub enum RequestPurpose {
     #[default]
     Solve,
     Summary,
+    PermissionReview,
 }
 
 /// Failures of inference, before any tool calls from that response are executed.
@@ -1043,7 +1044,7 @@ impl Model for HttpModel {
             limits.max_buffer_bytes > 0,
             "tool buffer budget must be positive"
         );
-        if purpose == RequestPurpose::Summary
+        if purpose != RequestPurpose::Solve
             || self
                 .options
                 .capabilities
@@ -1130,7 +1131,7 @@ impl Model for HttpModel {
             };
             body["parallel_tool_calls"] = json!(true);
         }
-        if (purpose == RequestPurpose::Summary || limits.max_calls == 0)
+        if (purpose != RequestPurpose::Solve || limits.max_calls == 0)
             && self
                 .options
                 .capabilities

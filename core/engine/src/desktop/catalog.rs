@@ -579,6 +579,7 @@ impl Engine {
         };
         let parameters = merge_model_parameters(parameters, defaults);
         let mut configuration = EffectiveConfig {
+            permissions: None,
             context_window: match (&model, &provider) {
                 (Some(model), Some(provider)) => Some(self.provider_context_window(
                     provider,

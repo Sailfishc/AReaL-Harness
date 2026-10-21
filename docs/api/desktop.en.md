@@ -57,6 +57,16 @@ Compatibility: Bearer clients and the authentication file format are unchanged. 
 | server/status/drain/gc | manage | Resource usage, settling and Blob collection |
 | subscription/remove | observe | Unsubscribe observation without revoking tool hosts |
 
+### Chat permissions
+
+`features.permissionPresets` advertises `options.permissionPreset: "ask" | "autoReview" | "fullAccess"`. `areal/thread/start` accepts optional `options` and atomically saves the initial configuration; `areal/thread/configure` retains revision and idle checks. Missing presets in old configurations retain their previous semantics. Clients must not silently ignore a new selection when the capability is absent.
+
+Core returns optional `EffectiveConfig.permissions: {resources:"workspace"|"deployment",reviewer:"human"|"model"|"none",fullAccessAvailable:boolean}`. `features.permissionFullAccess` supplies deployment availability before creation. Ask and AutoReview use the workspace and task scratch with command networking denied. FullAccess uses the range allowed by deployment. Read-only, Profile, parent constraints and explicit rules still apply. Queues retain the full admitted configuration.
+
+`run_command` accepts `permissionRequest:{readRoots:string[],writeRoots:string[],network:boolean,justification:string}` to request additional access for one operation. Approval binds final arguments and creates only that operation's scope. It does not widen subsequent commands or replay a previously failed command. Automatic review uses a separate model request without tools and binds the verdict to the request digest. Refusal prevents execution; failed or uncertain review uses human approval. Review records remain in tool execution history.
+
+Managed-command permissions do not imply whole-host isolation for Core, plugins, MCP or the browser. Browser access retains separate page control and exact plan validation. See [permission architecture](../design/permissions.en.md).
+
 <a id="submissions"></a>
 ## Submissions, configuration and recovery
 

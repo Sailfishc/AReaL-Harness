@@ -133,7 +133,7 @@ Core server 负责配置监听与模型装配，Engine 在提交时固定模型�
 
 Core `permissions` 负责审批模式、规则优先级与精确请求记忆；Clients 展示并回答请求。Runtime 独立执行部署上限及 Scope 收窄，本地 full-access 由可信 launcher 选择。见[权限配置](../guides/configuration.md#permissions)。
 
-[权限架构提案](permissions.md)建议在上述分工下引入受限自动执行预设和 Core 授权代理：命令规则只决定是否询问，附加能力只授予具体操作，并继续受部署、Profile 与父任务上限约束。该提案待评审，尚未改变当前默认值或执行契约。
+[权限架构](permissions.md)定义聊天的请求审批、帮我审批和完全访问预设。Core 将审批方式与执行范围分别解析，在 Turn 受理时固定结果；额外能力只授予具体操作，并继续受部署、Profile 与父任务上限约束。旧聊天未选择预设时保留原契约。
 
 外部评测平台通过公开契约消费原生 CLI 和标准发布包。输入适配、终态结果投影、产物收集和平台部署由消费平台维护；Core、Runtime、SDK 和独立发行包不依赖平台适配器，见 [CLI 契约](../api/claude-cli.md)。
 

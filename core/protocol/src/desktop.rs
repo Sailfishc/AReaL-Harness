@@ -307,9 +307,42 @@ pub struct AgentProfile {
     pub workflow: Option<VersionRef>,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum PermissionPreset {
+    Ask,
+    AutoReview,
+    FullAccess,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum ResourcePolicy {
+    Workspace,
+    Deployment,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum ApprovalReviewer {
+    Human,
+    Model,
+    None,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EffectivePermissions {
+    pub resources: ResourcePolicy,
+    pub reviewer: ApprovalReviewer,
+    pub full_access_available: bool,
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ClientOptions {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permission_preset: Option<PermissionPreset>,
     #[serde(default)]
     pub interaction_mode: crate::tasks::InteractionMode,
     #[serde(default)]
@@ -328,6 +361,8 @@ pub struct ClientOptions {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EffectiveConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permissions: Option<EffectivePermissions>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_window: Option<super::context::ContextWindow>,
     /// Core-owned scope marker; legacy snapshots conservatively keep explicit scope.
@@ -359,6 +394,7 @@ pub struct EffectiveConfig {
 impl Default for EffectiveConfig {
     fn default() -> Self {
         Self {
+            permissions: None,
             context_window: None,
             allow_plugin_skills: false,
             plugin_skills: None,
@@ -537,6 +573,8 @@ pub struct WorkflowRun {
 #[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ThreadStart {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub options: Option<ClientOptions>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub admission_guard: Option<ThreadStartAdmissionGuard>,
     pub request_id: String,

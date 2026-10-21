@@ -20,7 +20,7 @@ This limit bounds JSON encoding output. Earlier full-history hydration and JSON 
 |---|---|
 | `model/list` | `{}` |
 | `thread/start` | `{cwd?,model?,dynamicTools?}` |
-| `areal/thread/start` | `{requestId,agentProfile:{id,revision},cwd?,model?,parameters?,dynamicTools?}`; starts the Workflow bound to the Profile automatically |
+| `areal/thread/start` | `{requestId,agentProfile?:{id,revision},cwd?,model?,parameters?,options?,dynamicTools?}`; atomically saves initial configuration and starts the Workflow bound to the Profile automatically |
 | `thread/list` | `{cursor?,limit?}`; 1–100, default 30 |
 | `thread/read` | `{threadId,includeTurns?}` |
 | `thread/resume` | `{threadId}` |

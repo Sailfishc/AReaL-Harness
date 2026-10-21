@@ -801,6 +801,9 @@ class CoreBackend {
   }
 
   async configureThread(project, threadId, request) {
+    if (request.options?.permissionPreset !== undefined && project.client?.capabilities?.features?.permissionPresets !== true) {
+      throw new Error('当前 Core 不支持权限模式，请更新后台后重试');
+    }
     const token = randomUUID();
     project.configurationChanges ??= new Map();
     if (project.configurationChanges.has(threadId)) throw new Error('会话配置正在更新，请稍后重试');
@@ -1465,6 +1468,9 @@ class CoreBackend {
       }
       case 'queueEdit': return this.editQueue(project, request);
       case 'create': {
+        if (project.client?.capabilities?.features?.permissionPresets !== true) {
+          throw new Error('当前 Core 不支持权限模式，请更新后台后创建聊天');
+        }
         if (request.browserEnabled === true
           && projectCoreCapabilities(this.binary, project.client?.capabilities).features?.browserToolAttachment !== true) {
           throw new Error('当前 Core 不支持新聊天启用浏览器');
@@ -1473,6 +1479,7 @@ class CoreBackend {
         const { thread } = await this.submit(project, 'areal/thread/start', { cwd: project.root,
           ...(this.supportsBrowser(project) ? { dynamicTools: [browserTool] } : {}),
           ...(request.parameters ? { parameters: request.parameters } : {}),
+          options: { permissionPreset: 'ask', ...request.options },
           ...(request.model ? { model: request.model } : {}),
           ...((request.profile ?? project.resourceProfile ?? this.defaultProfile) ? { agentProfile: request.profile ?? project.resourceProfile ?? this.defaultProfile } : {}),
         });

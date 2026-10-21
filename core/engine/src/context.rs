@@ -513,6 +513,10 @@ impl Engine {
             .last()
             .and_then(|t| t.configuration.clone());
         let task_read_only = configuration.as_ref().is_some_and(|c| c.read_only);
+        let chat_permissions = configuration.as_ref().and_then(|c| c.permissions.clone());
+        let permission_preset = configuration
+            .as_ref()
+            .and_then(|c| c.options.permission_preset);
         if let Some(config) = configuration {
             if let Some(prompt) = &config.options.system_prompt {
                 instructions = InstructionText::new(prompt.clone());
@@ -550,7 +554,10 @@ impl Engine {
                 ),
             );
         }
-        instructions.push(Kind::Other, "运行上下文", &format!("\nExecution settings supplied by Core: {}. Tool approvals use the product dialog; do not ask the user to repeat approval in chat.\n", json!({"permissionMode":self.permission_config().mode,"runtime":self.sandbox(),"taskReadOnly":task_read_only || cell.research,"temporaryDirectory":self.command_scratch(cell)})));
+        instructions.push(Kind::Other, "运行上下文", &format!("\nExecution settings supplied by Core: {}. Runtime reports the deployment ceiling; chatPermissions and taskReadOnly restrict this task. Tool approvals use the product dialog; do not ask the user to repeat approval in chat.\n", json!({"deploymentPermissionMode":self.permission_config().mode,"permissionPreset":permission_preset,"chatPermissions":chat_permissions,"runtime":self.sandbox(),"taskReadOnly":task_read_only || cell.research,"temporaryDirectory":self.command_scratch(cell)})));
+        if permission_preset.is_some() {
+            instructions.push(Kind::Other, "运行上下文", "\nWhen an operation needs additional file or command network access, request only the required roots or network through run_command.permissionRequest with a concrete justification. A request does not grant access. Do not retry a partially executed command automatically after a permission failure. Reviewer denial requires a materially safer alternative or user resolution, not a workaround.\n");
+        }
         if cell.research {
             instructions.push(Kind::Other, "运行上下文", &format!("\nYou are a bounded research worker. Your deliverable is an answer to the assigned subquestion, not a complete solution of the original issue. The repository is read-only. Write reproductions, logs and test output only under {} (also TMPDIR). Do not edit source or tests, install dependencies, delegate further, or leave background work. Inspect the assigned question and run focused checks when useful. Once you have enough evidence, report it instead of expanding into additional investigations or broad test suites. If a check needs repository writes, report that limitation or run a focused reproduction in your scratch. Return concise evidence within 2500 UTF-8 bytes with file paths/lines, observed commands/results, uncertainties and a recommended change. Reserve enough of your request budget to write this report; incomplete evidence with explicit limitations is useful. Parent performs integration and final verification; your conclusions are advisory.", self.command_scratch(cell).context("research scratch missing")?.display()));
         } else if self.extensions.agents.is_some() {

@@ -249,7 +249,7 @@ export function Composer({
         changeGoalMode(false);
         return;
       }
-      if (approvePlan) await action("configure", { projectId: project.id, threadId: thread.id, expectedRevision: config?.revision, options: permissionOptions("auto", config?.options) });
+      if (approvePlan) await action("configure", { projectId: project.id, threadId: thread.id, expectedRevision: config?.revision, options: planModeOptions(false, config?.options) });
       await submitMessage(action, project.id, thread.id, value, files, {
         steer: !taskManagement && !!running && shouldSteer(prefs.followUp, invert),
         expectedTurnId: running?.id,
@@ -462,7 +462,10 @@ export function Composer({
         )}
         leadingActions={
           <><ComposerPermissionMenu value={executionPermission}
-            disabled={disabled || !!queueEditor.edit || !!running || !config} lockedReadOnly={taskManagement || config?.profile?.readOnly === true}
+            configuration={config}
+            permissionsSupported={project.core?.features?.permissionPresets === true}
+            fullAccessAvailable={project.core?.features?.permissionFullAccess === true}
+            disabled={disabled || !!queueEditor.edit || !!running || !config} lockedReadOnly={taskManagement || executionPermission === "readOnly"}
             onClose={() => api.current?.focus()}
             onChange={mode => configure({ options: planModeOptions(planActive, permissionOptions(mode, config?.options)) })} />
           {planActive && <ComposerPlanMode disabled={disabled || !!queueEditor.edit || !!running || config?.profile?.readOnly === true}

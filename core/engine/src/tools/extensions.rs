@@ -9,6 +9,7 @@ pub(super) struct Invocation<'a> {
     pub cancel: &'a CancellationToken,
     pub call: &'a ToolCall,
     pub scope: &'a str,
+    pub granted_scope: Option<String>,
     pub operation: &'a str,
     pub item_id: &'a str,
     pub thread_id: &'a str,
@@ -47,7 +48,7 @@ fn uncertain(error: &rt::Error) -> bool {
 }
 
 impl Invocation<'_> {
-    pub async fn run(&self, post_hook_failed: &mut bool) -> rt::Result<(bool, Value)> {
+    pub async fn run(mut self, post_hook_failed: &mut bool) -> rt::Result<(bool, Value)> {
         let mut arguments: Value = serde_json::from_str(&self.call.arguments).map_err(invalid)?;
         self.validate(&arguments)?;
         {
@@ -138,6 +139,12 @@ impl Invocation<'_> {
                     self.cancel,
                 )
                 .await?;
+            if self.cancel.is_cancelled() {
+                return Err(rt::Error::new(
+                    rt::ErrorCode::ScopeClosed,
+                    "cancelled before dispatch",
+                ));
+            }
             let (success, value) = self.invoke(&arguments, None).await?;
             return self.codex_post(&arguments, success, value).await;
         }
@@ -179,21 +186,41 @@ impl Invocation<'_> {
                 .await?;
             }
         }
+        let requested_permissions = self
+            .engine
+            .requested_permissions(self.cell, &self.call.name, &mut arguments)
+            .await?;
+        if requested_permissions.is_some() {
+            self.edit(|execution, _| execution.effective_arguments = Some(arguments.clone()))
+                .await?;
+        }
+        let explicit_preset = self
+            .cell
+            .state
+            .lock()
+            .await
+            .thread
+            .turns
+            .last()
+            .and_then(|turn| turn.configuration.as_ref())
+            .and_then(|c| c.options.permission_preset)
+            .is_some();
         let browser_plan = if self.call.name == "browser_v1"
             && matches!(self.entry.backend, Backend::Client)
-            && matches!(
-                arguments["operation"].as_str(),
-                Some(
-                    "act"
-                        | "wait"
-                        | "navigate"
-                        | "newPage"
-                        | "runBatch"
-                        | "observe"
-                        | "capture"
-                        | "diagnostics"
-                )
-            ) {
+            && ((explicit_preset && arguments["operation"] == "describe")
+                || matches!(
+                    arguments["operation"].as_str(),
+                    Some(
+                        "act"
+                            | "wait"
+                            | "navigate"
+                            | "newPage"
+                            | "runBatch"
+                            | "observe"
+                            | "capture"
+                            | "diagnostics"
+                    )
+                )) {
             let host = self
                 .host
                 .as_ref()
@@ -210,7 +237,8 @@ impl Invocation<'_> {
             if prepared["preparedActionId"]
                 .as_str()
                 .is_none_or(str::is_empty)
-                || prepared["pageId"] != arguments["parameters"]["pageId"]
+                || (arguments["operation"] != "describe"
+                    && prepared["pageId"] != arguments["parameters"]["pageId"])
                 || prepared["operation"] != arguments["operation"]
                 || prepared["origin"].as_str().is_none()
                 || prepared["fingerprint"].as_str().is_none()
@@ -239,6 +267,40 @@ impl Invocation<'_> {
                 self.cancel,
             )
             .await?;
+        if self.cancel.is_cancelled() {
+            return Err(rt::Error::new(
+                rt::ErrorCode::ScopeClosed,
+                "cancelled after approval",
+            ));
+        }
+        if let Some(permissions) = requested_permissions {
+            self.granted_scope = Some(
+                self.engine
+                    .approved_operation_scope(self.cell, &self.call.id, permissions)
+                    .await?,
+            );
+        } else if matches!(
+            self.call.name.as_str(),
+            "read_process" | "write_process" | "terminate_process"
+        ) {
+            self.granted_scope = self
+                .cell
+                .state
+                .lock()
+                .await
+                .active
+                .as_ref()
+                .and_then(|active| {
+                    arguments["processId"]
+                        .as_str()
+                        .and_then(|id| active.handles.process_scopes.get(id))
+                })
+                .cloned();
+            if let Some(scope) = &self.granted_scope {
+                self.edit(|execution, _| execution.scope_id = scope.clone())
+                    .await?;
+            }
+        }
         if browser_plan.is_some() {
             let current = self.cell.bindings.read().await.host.clone();
             if self
@@ -251,6 +313,12 @@ impl Invocation<'_> {
                     "browser host changed after approval; prepare again",
                 ));
             }
+        }
+        if self.cancel.is_cancelled() {
+            return Err(rt::Error::new(
+                rt::ErrorCode::ScopeClosed,
+                "cancelled before dispatch",
+            ));
         }
         let result = if matches!(self.entry.backend, Backend::Mcp(_) | Backend::Plugin(_)) {
             // These backends own cancellation and cleanup; do not drop their futures first.
@@ -278,7 +346,7 @@ impl Invocation<'_> {
                 biased;
                 result = &mut invocation => result,
                 _ = self.cancel.cancelled() => {
-                    let cleanup = runtime.client.close_scope(self.scope).await;
+                    let cleanup = runtime.client.close_scope(self.execution_scope()).await;
                     let result = invocation.await;
                     match cleanup {
                         Ok(_) => result,
@@ -423,6 +491,10 @@ impl Invocation<'_> {
             .filter(|h| h.event == event && (h.matcher == "*" || h.matcher == self.call.name))
             .collect()
     }
+    fn execution_scope(&self) -> &str {
+        self.granted_scope.as_deref().unwrap_or(self.scope)
+    }
+
     async fn invoke(
         &self,
         args: &Value,
@@ -527,7 +599,7 @@ impl Invocation<'_> {
                     drop(state);
                     return navigation::invoke(
                         runtime,
-                        self.scope,
+                        self.execution_scope(),
                         self.operation,
                         &call.name,
                         &effective,
@@ -536,7 +608,8 @@ impl Invocation<'_> {
                 }
                 if call.name == "image_read" {
                     drop(state);
-                    return images::read(self.engine, runtime, self.scope, &effective).await;
+                    return images::read(self.engine, runtime, self.execution_scope(), &effective)
+                        .await;
                 }
                 let mut request = request_with_policy(
                     &call,
@@ -565,7 +638,7 @@ impl Invocation<'_> {
                     }
                     let scope: rt::ScopeInfo = runtime
                         .client
-                        .call("scope.get", json!({"scopeId":self.scope}))
+                        .call("scope.get", json!({"scopeId":self.execution_scope()}))
                         .await?;
                     command.timeout_ms = command.timeout_ms.min(scope.limits.wall_time_ms);
                     if call.name == "verify_command" {
@@ -637,7 +710,7 @@ impl Invocation<'_> {
                 let invocation = execute(
                     &runtime.client,
                     request,
-                    self.scope,
+                    self.execution_scope(),
                     self.operation,
                     &self.engine.extensions.policy,
                     command_argv.as_deref(),
@@ -657,6 +730,9 @@ impl Invocation<'_> {
                     let receipt = {
                         let mut state = self.cell.state.lock().await;
                         let handles = &mut state.active.as_mut().unwrap().handles;
+                        handles
+                            .process_scopes
+                            .insert(process.clone(), self.execution_scope().to_owned());
                         if self.call.name == "run_command"
                             && let Some(argv) = &command_argv
                         {
@@ -677,8 +753,13 @@ impl Invocation<'_> {
                         handles.verification.get(&process).cloned()
                     };
                     if let Some(receipt) = receipt {
-                        verification::attach(&runtime.client, self.scope, &receipt, &mut result)
-                            .await;
+                        verification::attach(
+                            &runtime.client,
+                            self.execution_scope(),
+                            &receipt,
+                            &mut result,
+                        )
+                        .await;
                     }
                 }
                 return Ok((success, result));
@@ -812,10 +893,31 @@ impl Invocation<'_> {
                 content["code"] == "outcome_unknown" && content["dispatch"] == "unknown"
             })
         {
+            self.cell.browser_permits.lock().await.clear();
             let mut error =
                 unknown("browser batch step outcome is UNKNOWN; inspect the confirmed prefix");
             error.details = response.structured_content;
             return Err(error);
+        }
+        if self.call.name == "browser_v1" && browser_plan.is_some() && response.success {
+            let mut contents: Vec<Value> = response.structured_content.iter().cloned().collect();
+            for content in &response.content_items {
+                if let areal_protocol::ToolContent::InputText { text } = content {
+                    if let Ok(value) = serde_json::from_str::<Value>(text) {
+                        contents.push(value);
+                    }
+                }
+            }
+            for content in contents {
+                self.engine
+                    .remember_browser_permit(self.cell, &content["controlPermit"])
+                    .await;
+                if let Some(permits) = content["controlPermits"].as_array() {
+                    for permit in permits {
+                        self.engine.remember_browser_permit(self.cell, permit).await;
+                    }
+                }
+            }
         }
         self.engine
             .materialize_tool_media(self.cell, &mut response.content_items)

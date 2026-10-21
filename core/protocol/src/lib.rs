@@ -326,6 +326,10 @@ pub enum ToolOutcome {
 #[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ToolExecution {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permission_review: Option<Value>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub permission_scopes: Vec<Value>,
     /// 当前调用准许暴露的原始结果，引用保留在权威历史中以支持恢复与 GC。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub result_snapshot: Option<MediaRef>,

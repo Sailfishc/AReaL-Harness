@@ -320,6 +320,7 @@ class CorePreview {
     // A call identity is retained for this host lifetime. Losing a transport
     // reply must never turn a repeated call into permission to replay a prefix.
     this.batchCalls = new Map();
+    this.discoveryPlans = new Map();
     window.on('blur', () => this.cancelHumanGesture(this.humanMouseGesture?.page));
     // 人工输入来源只在 Main 记录；Renderer 没有通用 sendInputEvent 能力。
     window.webContents.on('before-mouse-event', (event, mouse) => {
@@ -417,6 +418,7 @@ class CorePreview {
     for (const item of this.listeners) if (item.key === event.workspaceId) item.listener(event);
   }
   dispose() {
+    this.discoveryPlans.clear();
     for (const key of [...this.pages.keys()]) this.release(key);
     this.view = null; this.owner = null;
     this.fileReceipts.clear();
@@ -660,6 +662,68 @@ class CorePreview {
     return page.converging;
   }
   revokeAll() { for (const page of this.pages.values()) this.revoke(page); }
+  prepareDiscovery(request) {
+    if (!this.owns(request.projectId, request.threadId)
+      || this.coreIdentity(request.projectId) !== request.coreInstanceId) throw new Error('plan_stale');
+    for (const [id, record] of this.discoveryPlans)
+      if (record.plan.expiresAt <= Date.now()) this.discoveryPlans.delete(id);
+    if (this.discoveryPlans.size >= 128) throw new Error('not_sent');
+    const page = this.page(request.projectId, request.threadId);
+    const c = page?.view?.webContents;
+    if (page && (!this.pageStillOwned(page) || !c || page.crashed || c.isDestroyed()
+      || c.isDevToolsOpened() || !['human', 'agent'].includes(page.control))) throw new Error('plan_stale');
+    const source = page ? c.getURL() || page.url || 'about:blank' : 'about:blank';
+    const workspace = workspaceKey(request.coreInstanceId, request.projectId, request.threadId);
+    const plan = { preparedActionId: randomUUID(), operation: 'describe', pageId: page?.id ?? null,
+      origin: page ? new URL(source).origin : 'about:blank', url: observationUrl(source),
+      alreadyControlled: page?.control === 'agent', control: page?.control ?? null,
+      humanRevision: page?.humanRevision ?? 0, documentEpoch: page?.documentGeneration ?? 0,
+      pageGeneration: page?.pageGeneration ?? 0, controlEpoch: page?.controlEpoch ?? 0,
+      browserHostId: this.browserHostId, hostGeneration: this.hostGeneration,
+      coreInstanceId: request.coreInstanceId, coreGeneration: request.coreGeneration,
+      projectId: request.projectId, threadId: request.threadId, turnId: request.turnId,
+      callId: request.callId, expiresAt: Date.now() + 300000 };
+    plan.fingerprint = createHash('sha256').update(JSON.stringify(plan)).digest('hex');
+    this.discoveryPlans.set(plan.preparedActionId, { plan, page, view: page?.view,
+      source, sequence: this.eventSequences.get(workspace) ?? 0 });
+    return { coreInstanceId: request.coreInstanceId, coreGeneration: request.coreGeneration,
+      projectId: request.projectId, threadId: request.threadId, turnId: request.turnId,
+      callId: request.callId, pageId: plan.pageId, browserHostId: this.browserHostId,
+      hostGeneration: this.hostGeneration, pageGeneration: plan.pageGeneration,
+      controlEpoch: plan.controlEpoch, plan };
+  }
+  consumeDiscovery(request) {
+    const approved = request.browserApproval?.plan;
+    const saved = approved && this.discoveryPlans.get(approved.preparedActionId);
+    if (saved) this.discoveryPlans.delete(approved.preparedActionId);
+    const page = this.page(request.projectId, request.threadId);
+    const workspace = workspaceKey(request.coreInstanceId, request.projectId, request.threadId);
+    if (!saved || !isDeepStrictEqual(saved.plan, approved) || approved.expiresAt <= Date.now()
+      || approved.operation !== 'describe' || approved.coreInstanceId !== request.coreInstanceId
+      || approved.coreGeneration !== request.coreGeneration || approved.projectId !== request.projectId
+      || approved.threadId !== request.threadId || approved.turnId !== request.turnId || approved.callId !== request.callId
+      || approved.browserHostId !== this.browserHostId || approved.hostGeneration !== this.hostGeneration
+      || this.coreIdentity(request.projectId) !== request.coreInstanceId || !this.owns(request.projectId, request.threadId)
+      || page !== saved.page || (this.eventSequences.get(workspace) ?? 0) !== saved.sequence)
+      throw new Error('plan_stale');
+    if (page) {
+      const c = page.view?.webContents;
+      if (!this.pageStillOwned(page) || page.view !== saved.view || !c || c.isDestroyed() || page.crashed
+        || c.isDevToolsOpened() || (c.getURL() || page.url || 'about:blank') !== saved.source
+        || page.control !== approved.control || (page.humanRevision ?? 0) !== approved.humanRevision
+        || page.documentGeneration !== approved.documentEpoch || page.pageGeneration !== approved.pageGeneration
+        || page.controlEpoch !== approved.controlEpoch) throw new Error('plan_stale');
+    }
+    return saved;
+  }
+  controlPermit(projectId, threadId, pageId) {
+    const page = this.page(projectId, threadId, pageId);
+    const c = page?.view?.webContents;
+    if (!page || !this.pageStillOwned(page) || page.control !== 'agent' || !c || c.isDestroyed() || page.crashed)
+      throw new Error('plan_stale');
+    return { pageId: page.id, browserHostId: this.browserHostId, hostGeneration: this.hostGeneration,
+      pageGeneration: page.pageGeneration, controlEpoch: page.controlEpoch, origin: new URL(c.getURL()).origin };
+  }
   async ensureAgentPage(projectId, threadId) {
     // 仅供已通过 Core 权限的工具回调调用；展示页面不会隐式认领。
     if (!this.owns(projectId, threadId) || !this.coreIdentity(projectId)) throw new Error('Browser thread unavailable');
@@ -1633,6 +1697,7 @@ class CorePreview {
         if (this.workspaceOutstanding(page.projectId, page.threadId) >= 16) throw new Error('not_sent');
         const plan = { preparedActionId: randomUUID(), operation: 'runBatch', pageId: page.id,
           origin: new URL(c.getURL()).origin, url: observationUrl(c.getURL()),
+          localDevelopment: stepPlans.every(plan => plan.localDevelopment === true),
           snapshotId: request.parameters.snapshotId, steps: stepPlans,
           pageGeneration: page.pageGeneration, documentEpoch: page.documentGeneration,
           controlEpoch: page.controlEpoch, viewportRevision: page.viewportRevision,
@@ -1884,7 +1949,7 @@ class CorePreview {
       if (!readiness && page.viewportKey !== viewportKey) { page.viewportKey = viewportKey; page.viewportRevision++; }
       if (coordinate && (capture.viewportKey !== viewportKey || capture.url !== url.href)) throw new Error('plan_stale');
       const plan = { preparedActionId: randomUUID(), operation: request.operation, pageId: page.id,
-        origin: url.origin, url: observationUrl(url.href),
+        origin: url.origin, url: observationUrl(url.href), localDevelopment: local,
         snapshotId: request.operation === 'act' ? request.parameters.snapshotId : null,
         target: target ? coordinate ? { ...target, captureId: capture.observationId,
           bitmapWidth: capture.bitmapWidth, bitmapHeight: capture.bitmapHeight }

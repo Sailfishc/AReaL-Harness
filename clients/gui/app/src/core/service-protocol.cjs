@@ -1,5 +1,6 @@
 'use strict';
 const { randomBytes, randomUUID, timingSafeEqual } = require('node:crypto');
+const { isDeepStrictEqual } = require('node:util');
 const { appendFileSync } = require('node:fs');
 const { WebSocketServer } = require('ws');
 const { validateCommand: validateDesktopCommand, desktopError } = require('@areal/workbench/desktop-contract');
@@ -39,6 +40,7 @@ class DesktopService {
     this.token = randomBytes(32).toString('hex'); this.clients = new Set();
     this.browserClaims = new Map(); this.browserClaimAttempts = new Map();
     this.browserEntrypoints = new Map();
+    this.browserDiscoveryPlans = new Map();
     this.browserPending = new Map(); this.nextBrowserId = 0;
     this.browserTestTrace = process.env.AREAL_BROWSER_READ_TEST_TRACE;
     backend.browserRead = request => this.browserRead(request);
@@ -137,6 +139,8 @@ class DesktopService {
       socket.on('message', bytes => { void this.receive(socket, bytes); });
       socket.on('close', () => {
         for (const [key, claim] of this.browserClaims) if (claim.socket === socket) this.browserClaims.delete(key);
+        for (const [id, record] of this.browserDiscoveryPlans)
+          if (record.socket === socket) this.browserDiscoveryPlans.delete(id);
         for (const [key, entries] of this.browserEntrypoints) for (const entry of entries)
           if (entry.socket === socket) this.forgetBrowserEntrypoint(key, entry);
         for (const [key, attempt] of this.browserClaimAttempts) if (attempt.socket === socket) {
@@ -264,8 +268,10 @@ class DesktopService {
       }
       if (method === 'browserRevoke') {
         const key = browserKey(params?.projectId, params?.threadId);
+        for (const [planId, record] of this.browserDiscoveryPlans)
+          if (record.key === key && record.socket === socket) this.browserDiscoveryPlans.delete(planId);
         for (const entry of this.browserEntrypoints.get(key) ?? []) this.forgetBrowserEntrypoint(key, entry);
-        for (const pending of this.browserPending.values()) if (pending.bootstrap && pending.key === key && pending.socket === socket)
+        for (const pending of this.browserPending.values()) if ((pending.bootstrap || pending.discovery) && pending.key === key && pending.socket === socket)
           pending.reject(new Error('Browser entry revoked by human input'));
         const attempt = this.browserClaimAttempts.get(key);
         if (attempt?.socket === socket && (typeof params?.pageId !== 'string' || attempt.pageId === params.pageId)) {
@@ -365,7 +371,7 @@ class DesktopService {
     this.browserClaimAttempts.clear();
     for (const pending of this.browserPending.values()) { clearTimeout(pending.timer); pending.reject(new Error('Browser service closed after dispatch')); }
     for (const entries of this.browserEntrypoints.values()) for (const entry of entries) entry.resolve(null);
-    this.browserPending.clear(); this.browserClaims.clear(); this.browserEntrypoints.clear();
+    this.browserPending.clear(); this.browserClaims.clear(); this.browserEntrypoints.clear(); this.browserDiscoveryPlans.clear();
     this.remote?.close();
     this.power?.close();
     this.backgroundNotifications?.close(); this.pendingNotificationTarget = null;
@@ -413,29 +419,90 @@ class DesktopService {
     }
     return null;
   }
-  async bootstrapBrowser(request, key) {
-    const entry = await this.browserEntrypoint(request, key);
-    if (!entry || !this.browserEntrypoints.get(key)?.has(entry)) return;
-    this.forgetBrowserEntrypoint(key, entry); // 仅消费这条已受理消息的入口，不重放。
-    if (request.signal?.aborted || this.browserPending.size >= 8) return;
+  async dispatchBrowserDiscovery(request, key, socket, phase, browserApproval) {
+    if (request.signal?.aborted || socket.readyState !== 1 || this.browserPending.size >= 8)
+      throw new Error('Browser entry unavailable');
     const requestId = ++this.nextBrowserId;
-    await new Promise((resolve, reject) => {
+    return new Promise((resolve, reject) => {
       const finish = (fn, value) => {
         clearTimeout(timer); request.signal?.removeEventListener('abort', abort);
         this.browserPending.delete(requestId); fn(value);
       };
       const abort = () => finish(reject, new Error('Browser entry cancelled'));
       const timer = setTimeout(() => finish(reject, new Error('Browser entry outcome unknown')), 15000);
-      this.browserPending.set(requestId, { socket: entry.socket, key, bootstrap: true,
+      this.browserPending.set(requestId, { socket, key, bootstrap: phase === 'execute', discovery: true,
         coreInstanceId: request.coreInstanceId, coreGeneration: request.coreGeneration,
         resolve: value => finish(resolve, value), reject: error => finish(reject, error), timer });
       request.signal?.addEventListener('abort', abort, { once: true });
-      this.send(entry.socket, { method: 'browserRequest', params: {
-        requestId, operation: 'describe', phase: 'execute', projectId: request.projectId,
+      this.send(socket, { method: 'browserRequest', params: {
+        requestId, operation: 'describe', phase, projectId: request.projectId,
         threadId: request.threadId, turnId: request.turnId, callId: request.callId,
         coreInstanceId: request.coreInstanceId, coreGeneration: request.coreGeneration,
+        ...(browserApproval ? { browserApproval } : {}),
       } });
     });
+  }
+  async bootstrapBrowser(request, key) {
+    const entry = await this.browserEntrypoint(request, key);
+    if (!entry || !this.browserEntrypoints.get(key)?.has(entry)) return;
+    this.forgetBrowserEntrypoint(key, entry);
+    await this.dispatchBrowserDiscovery(request, key, entry.socket, 'execute');
+  }
+
+  async prepareBrowserDiscovery(request, key, claim) {
+    for (const [id, record] of this.browserDiscoveryPlans)
+      if (record.plan.expiresAt <= Date.now() || record.socket.readyState !== 1) this.browserDiscoveryPlans.delete(id);
+    if (this.browserDiscoveryPlans.size >= 128) return { error: 'host_busy', dispatch: 'not_sent' };
+    const entry = await this.browserEntrypoint(request, key);
+    const socket = claim?.socket ?? entry?.socket;
+    const current = () => socket?.readyState === 1 && !request.signal?.aborted
+      && claim === this.browserClaims.get(key)
+      && (!entry || this.browserEntrypoints.get(key)?.has(entry))
+      && (!claim || (claim.coreInstanceId === request.coreInstanceId && claim.coreGeneration === request.coreGeneration))
+      && this.backend.projects.get(request.projectId)?.service?.serviceId === request.coreInstanceId
+      && this.backend.projects.get(request.projectId)?.service?.generation === request.coreGeneration;
+    if (!current()) return { error: 'human_control', dispatch: 'not_sent' };
+    const result = await this.dispatchBrowserDiscovery(request, key, socket, 'prepare');
+    if (!current()) return { error: 'human_control', dispatch: 'not_sent' };
+    if (result?.error) return { error: result.error, dispatch: 'not_sent' };
+    const plan = result?.plan;
+    if (!plan || plan.operation !== 'describe' || typeof plan.preparedActionId !== 'string'
+      || typeof plan.fingerprint !== 'string' || typeof plan.origin !== 'string'
+      || !(plan.pageId === null || typeof plan.pageId === 'string')
+      || typeof plan.browserHostId !== 'string' || typeof plan.alreadyControlled !== 'boolean'
+      || ![plan.hostGeneration, plan.pageGeneration, plan.controlEpoch, plan.humanRevision, plan.documentEpoch, plan.expiresAt].every(Number.isSafeInteger)
+      || plan.expiresAt <= Date.now() || plan.expiresAt > Date.now() + 300000
+      || plan.coreInstanceId !== request.coreInstanceId || plan.coreGeneration !== request.coreGeneration
+      || plan.projectId !== request.projectId || plan.threadId !== request.threadId
+      || plan.turnId !== request.turnId || plan.callId !== request.callId)
+      throw new Error('Invalid browser discovery plan');
+    const pageClaim = claim?.pages.get(plan.pageId);
+    if (plan.alreadyControlled ? !pageClaim || plan.browserHostId !== claim.browserHostId
+      || plan.hostGeneration !== claim.hostGeneration || plan.pageGeneration !== pageClaim.pageGeneration
+      || plan.controlEpoch !== pageClaim.controlEpoch : !entry || entry.socket !== socket)
+      return { error: 'human_control', dispatch: 'not_sent' };
+    this.browserDiscoveryPlans.set(plan.preparedActionId, { key, plan, claim, entry, socket,
+      pages: claim ? [...claim.pages.values()].map(page => ({ ...page })) : [] });
+    return plan;
+  }
+
+  consumeBrowserDiscovery(request, key, claim) {
+    const plan = request.browserApproval?.plan;
+    const record = plan && this.browserDiscoveryPlans.get(plan.preparedActionId);
+    if (record) this.browserDiscoveryPlans.delete(plan.preparedActionId);
+    if (!record || record.key !== key || !isDeepStrictEqual(record.plan, plan)
+      || record.plan.expiresAt <= Date.now() || record.socket.readyState !== 1
+      || record.claim !== claim || request.signal?.aborted
+      || this.backend.projects.get(request.projectId)?.service?.serviceId !== request.coreInstanceId
+      || this.backend.projects.get(request.projectId)?.service?.generation !== request.coreGeneration
+      || plan.coreInstanceId !== request.coreInstanceId || plan.coreGeneration !== request.coreGeneration
+      || plan.projectId !== request.projectId || plan.threadId !== request.threadId
+      || plan.turnId !== request.turnId || plan.callId !== request.callId
+      || (record.entry && (!this.browserEntrypoints.get(key)?.has(record.entry)
+        || this.backend.projects.get(request.projectId) !== record.entry.project
+        || !this.backend.currentConnection(record.entry.project, record.entry.client)))
+      || (claim && !isDeepStrictEqual(record.pages, [...claim.pages.values()]))) return null;
+    return record;
   }
 
   async browserRead(request) {
@@ -446,10 +513,27 @@ class DesktopService {
       return browserFailure('invalid_arguments', 'Unsupported browser operation or parameters');
     const action = ['act', 'wait', 'navigate', 'newPage', 'runBatch'].includes(input.operation);
     const scoped = input.operation !== 'describe';
-    if (phase === 'prepare' && !scoped) throw new Error('Browser discovery cannot prepare a page plan');
     const key = browserKey(projectId, threadId);
     let claim = this.browserClaims.get(key);
-    if (input.operation === 'describe' && phase === 'execute' && !claim) {
+    if (input.operation === 'describe' && phase === 'prepare') return this.prepareBrowserDiscovery(request, key, claim);
+    let discoveryResult;
+    if (input.operation === 'describe' && browserApproval?.plan) {
+      const prepared = this.consumeBrowserDiscovery(request, key, claim);
+      if (!prepared) return browserFailure('plan_stale', 'Browser entry authorization changed; send a new explicit request');
+      if (prepared.entry) this.forgetBrowserEntrypoint(key, prepared.entry);
+      discoveryResult = await this.dispatchBrowserDiscovery(request, key, prepared.socket, 'execute', browserApproval);
+      if (discoveryResult?.error) return browserFailure(discoveryResult.error, 'Browser entry changed; send a new explicit request');
+      claim = this.browserClaims.get(key);
+      const permit = discoveryResult?.controlPermit;
+      const pageClaim = claim?.pages.get(permit?.pageId);
+      if (!permit || discoveryResult.coreInstanceId !== coreInstanceId || discoveryResult.coreGeneration !== coreGeneration
+        || discoveryResult.projectId !== projectId || discoveryResult.threadId !== threadId
+        || discoveryResult.turnId !== turnId || discoveryResult.callId !== callId
+        || claim?.socket !== prepared.socket || permit.browserHostId !== claim?.browserHostId
+        || permit.hostGeneration !== claim?.hostGeneration || !pageClaim
+        || permit.pageGeneration !== pageClaim.pageGeneration || permit.controlEpoch !== pageClaim.controlEpoch)
+        return browserFailure('plan_stale', 'Browser entry changed during authorization');
+    } else if (input.operation === 'describe' && phase === 'execute' && !claim) {
       await this.bootstrapBrowser(request, key);
       claim = this.browserClaims.get(key);
     }
@@ -483,6 +567,7 @@ class DesktopService {
         documentReady: '{kind:documentReady,state:interactive|complete}',
         accessibleName: '{kind:accessibleName,ref,name}; exact current AX name; stale Ref refused',
         withoutCondition: 'bounded delay only; not page readiness' },
+      ...(discoveryResult?.controlPermit ? { controlPermit: discoveryResult.controlPermit } : {}),
       pages: [...claim.pages.keys()] });
     const pageClaim = claim.pages.get(input.parameters.pageId);
     if (!pageClaim) return browserFailure('wrong_page', 'Page does not belong to this thread');

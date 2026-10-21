@@ -555,7 +555,7 @@ impl Model for ProgressModel {
         limits: ToolCallLimits,
         cap: Option<u64>,
     ) -> Result<ModelStream> {
-        if purpose == crate::model::RequestPurpose::Summary {
+        if purpose != crate::model::RequestPurpose::Solve {
             self.inner
                 .chat_with_limits(messages, tools, purpose, limits, cap)
                 .await

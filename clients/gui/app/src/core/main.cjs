@@ -295,11 +295,15 @@ app.whenReady().then(async () => {
     if (quitting || !preview || !window || window.isDestroyed()) throw new Error('Browser host unavailable');
     try {
       if (request.operation === 'describe') {
+        if (request.phase === 'prepare') return preview.prepareDiscovery(request);
+        if (request.browserApproval?.plan) preview.consumeDiscovery(request);
         const identity = await preview.ensureAgentPage(request.projectId, request.threadId);
         try {
-          await backend.browserClaim({ ...identity, bootstrapRequestId: request.requestId });
+          if (!request.browserApproval?.plan?.alreadyControlled)
+            await backend.browserClaim({ ...identity, bootstrapRequestId: request.requestId });
           const page = preview.page(request.projectId, request.threadId, identity.pageId);
           if (!page || !preview.pageStillOwned(page) || page.control !== 'agent'
+            || preview.page(request.projectId, request.threadId) !== page
             || page.controlEpoch !== identity.controlEpoch || page.pageGeneration !== identity.pageGeneration)
             throw new Error('Browser entry was revoked');
         }
@@ -311,9 +315,16 @@ app.whenReady().then(async () => {
         }
         if (!window.isDestroyed()) window.webContents.send('areal-core:preview-event', {
           kind: 'reveal', projectId: request.projectId, threadId: request.threadId, pageId: identity.pageId });
-        return { claimed: true };
+        return { ...identity, coreGeneration: request.coreGeneration, turnId: request.turnId, callId: request.callId,
+          claimed: true, controlPermit: preview.controlPermit(request.projectId, request.threadId, identity.pageId) };
       }
-      return await (request.phase === 'prepare' ? preview.prepare(request) : preview.execute(request));
+      const result = await (request.phase === 'prepare' ? preview.prepare(request) : preview.execute(request));
+      if (request.phase !== 'prepare' && !result.error) {
+        result.controlPermit = preview.controlPermit(request.projectId, request.threadId, request.pageId);
+        if (result.createdPage) result.controlPermits = [result.controlPermit,
+          preview.controlPermit(request.projectId, request.threadId, result.createdPage.pageId)];
+      }
+      return result;
     }
     catch (error) {
       if (error.message === 'outcome_unknown') throw error;

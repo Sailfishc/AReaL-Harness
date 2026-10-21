@@ -4,7 +4,7 @@ import { resolveNewConversationModel } from "@areal/workbench/model-selection";
 import { useApplicationPreferences } from "./settings/applicationPreferences.js";
 import { ComposerModelMenu, composerModelOption } from "./ComposerModelMenu.js";
 import { ComposerPermissionMenu } from "./ComposerPermissionMenu.js";
-import { permissionOptions, planModeOptions, type PermissionMode } from "./permissions.js";
+import { permissionOptions, planModeOptions, type PermissionPreset } from "./permissions.js";
 import { ComposerPlanMode } from "./ComposerPlanMode.js";
 import { FileTree, AttachmentIcon, GoalIcon, PlanModeIcon as Lightbulb } from "./interfaceIcons.js";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
@@ -81,7 +81,10 @@ export function DraftComposer({
   const input = composerInput(text, files);
   useImageAnnotationRevision();
   const annotationBlocked = imageAnnotationBlocked(key, input.files);
-  const [permission, setPermission] = useState<PermissionMode>(() => localStorage.getItem(`${key}:permission`) === "ask" ? "ask" : "auto");
+  const [permission, setPermission] = useState<PermissionPreset>(() => {
+    const saved = localStorage.getItem(`${key}:permission`);
+    return saved === "autoReview" || saved === "fullAccess" ? saved : "ask";
+  });
   const [plan, setPlan] = useState(() => localStorage.getItem(`${key}:plan`) === "true");
   const [profileSelection, setProfileSelection] = useState(() => localStorage.getItem(`${key}:profile`) ?? "");
   const chosenProfile = resolveDraftProfile(project, profileSelection);
@@ -134,6 +137,8 @@ export function DraftComposer({
     localStorage.removeItem(`${key}:profile`);
     setModel(null);
     setEfforts({});
+    setPermission("ask");
+    setPlan(false);
     setProfileSelection("");
     attachmentDrafts.delete(key);
     skills.clear();
@@ -198,6 +203,7 @@ export function DraftComposer({
       const result = await action("create", {
         projectId: owner.id,
         parameters,
+        options: planModeOptions(plan, permissionOptions(permission)),
         ...(profileSelection && profile
           ? { profile: { id: profile.id, revision: profile.revision } }
           : {}),
@@ -213,14 +219,6 @@ export function DraftComposer({
       clear();
       // Show the accepted task immediately, including while the first model request waits.
       if (mounted.current) void onOpen(owner.id, result.threadId);
-      // Configure before the first turn; on failure the accepted task keeps its draft for explicit retry.
-      if (permission !== "auto" || plan) {
-        const accepted = await readAction("manage", { projectId: owner.id, threadId: result.threadId, operation: "inspect" });
-        if (!accepted.configuration) throw new Error("无法读取新会话配置，输入已保留。");
-        if (!accepted.configuration.profile?.readOnly) {
-          await action("configure", { projectId: owner.id, threadId: result.threadId, options: planModeOptions(plan, permissionOptions(permission)) });
-        }
-      }
       if (goalMode) {
         const latest = await action("manage", { projectId: owner.id, threadId: result.threadId, operation: "goal" });
         await action("manage", { projectId: owner.id, threadId: result.threadId, operation: "goalCreate", objective: submittedInput.text, expectedRevision: latest.revision ?? 0, inferLimits: true });
@@ -334,6 +332,8 @@ export function DraftComposer({
         }
         leadingActions={
           <><ComposerPermissionMenu value={chosenProfile?.readOnly ? "readOnly" : permission} disabled={disabled}
+            permissionsSupported={project.core?.features?.permissionPresets === true}
+            fullAccessAvailable={project.core?.features?.permissionFullAccess === true}
             lockedReadOnly={chosenProfile?.readOnly === true}
             onChange={value => { setPermission(value); localStorage.setItem(`${key}:permission`, value); }} onClose={() => api.current?.focus()} />
           {goalMode && <Button type="button" variant="ghost" disabled={disabled} aria-label="退出目标模式" onClick={() => changeGoalMode(false)}><GoalIcon size={16} />目标</Button>}

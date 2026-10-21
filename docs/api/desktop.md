@@ -57,6 +57,16 @@ Cookie 名为 `areal_session_<origin摘要>`，不指定 Domain，使用 `HttpOn
 | server/status/drain/gc | manage | 资源使用、收敛与 Blob 回收 |
 | subscription/remove | observe | 退订观察，不撤销工具宿主 |
 
+### 聊天权限
+
+`features.permissionPresets` 表示支持 `options.permissionPreset: "ask" | "autoReview" | "fullAccess"`。`areal/thread/start` 接受可选 `options` 并原子保存初始配置；`areal/thread/configure` 沿用 revision 与空闲条件。旧配置缺失 preset 时保留原语义。客户端不得在能力缺失时静默忽略新选择。
+
+Core 返回可选 `EffectiveConfig.permissions: {resources:"workspace"|"deployment",reviewer:"human"|"model"|"none",fullAccessAvailable:boolean}`。`features.permissionFullAccess` 用于创建前的部署可用性判断。Ask 与 AutoReview 使用工作区和任务 scratch，命令网络关闭；FullAccess 使用部署允许的范围。只读、Profile、父任务与显式规则继续收窄权限。队列保存入队时的完整配置。
+
+`run_command` 可携带 `permissionRequest:{readRoots:string[],writeRoots:string[],network:boolean,justification:string}`，显式申请单次附加权限。批准绑定最终参数摘要，只建立本操作 Scope；不改变后续命令的基础权限，不自动重试先前失败命令。自动审核使用独立的无工具模型请求，结果绑定摘要；拒绝不执行，审核失败或不确定时进入人工审批。审核记录随工具执行历史保存。
+
+受管命令权限不等于 Core、插件、MCP 或浏览器宿主的整体隔离。浏览器继续使用独立的页面取控与精确计划校验。详见[权限架构](../design/permissions.md)。
+
 <a id="submissions"></a>
 ## 提交、配置与恢复
 

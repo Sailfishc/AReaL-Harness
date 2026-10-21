@@ -133,7 +133,7 @@ Core server owns configuration polling and model assembly; Engine pins model rev
 
 Core `permissions` owns approval modes, precedence and persisted exact-request memory; Clients display requests and submit answers. Runtime independently enforces the deployment ceiling and narrowed Scopes. Local full-access is selected by the trusted launcher. See [permissions](../guides/configuration.en.md#permissions).
 
-The [permission architecture proposal](permissions.en.md) adds a restricted automatic execution preset and a Core permission broker within these ownership boundaries. Command rules govern prompting; additional capabilities attach to individual operations and remain within deployment, Profile and parent-task ceilings. The proposal awaits review and does not change current defaults or execution contracts.
+The [permission architecture](permissions.en.md) defines Ask for approval, Approve for me and Full access chat presets. Core resolves approval routing separately from resource access and freezes the result at Turn admission. Additional capabilities attach to individual operations within deployment, Profile and parent-task ceilings. Older chats without a preset retain their previous contract.
 
 External evaluation platforms consume the native CLI and standard release bundle through public contracts. Input adaptation, terminal outcome projection, artifact collection and platform deployment live in the consuming platform. Core, Runtime, SDKs and standalone releases do not depend on a platform adapter; see the [CLI contract](../api/claude-cli.en.md).
 

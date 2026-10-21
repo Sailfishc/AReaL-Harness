@@ -200,6 +200,7 @@ struct Active {
     open_items: HashSet<String>,
     sealed: bool,
     scope: Option<String>,
+    base_scope: Option<String>,
     model: Arc<dyn Model>,
     tools: TaskTracker,
     process_cursors: BTreeMap<String, String>,
@@ -216,6 +217,7 @@ struct State {
     quarantined_admission: Option<OwnedSemaphorePermit>,
 }
 struct Cell {
+    browser_permits: Mutex<HashSet<String>>,
     hooks: plugin_hooks::Session,
     inherited_registry: Option<tools::Registry>,
     exclusive_writer: bool,
@@ -224,6 +226,7 @@ struct Cell {
     depth: usize,
     research: bool,
     id: String,
+    scratch_path: std::path::PathBuf,
     agent_requests: AtomicUsize,
     agent_tools: AtomicUsize,
     // 普通接管允许当前请求有界结算；强制取消仍使用短期限。
@@ -237,8 +240,17 @@ struct Cell {
     delegation_creation: Mutex<()>,
 }
 impl Cell {
-    fn new(thread: Thread, depth: usize, bindings: tools::Bindings) -> Arc<Self> {
+    fn new(
+        thread: Thread,
+        depth: usize,
+        bindings: tools::Bindings,
+        parent_scratch: Option<&Path>,
+    ) -> Arc<Self> {
         Arc::new(Self {
+            scratch_path: parent_scratch
+                .unwrap_or_else(|| Path::new(""))
+                .join(format!("agent-{}", thread.id)),
+            browser_permits: Mutex::new(HashSet::new()),
             hooks: plugin_hooks::Session::new(&thread),
             inherited_registry: thread
                 .parent_thread_id
@@ -325,6 +337,7 @@ fn restore_cells(
 ) -> anyhow::Result<BTreeMap<String, Arc<Cell>>> {
     let threads: BTreeMap<_, _> = threads.into_iter().map(|t| (t.id.clone(), t)).collect();
     let mut depths: BTreeMap<String, usize> = BTreeMap::new();
+    let mut scratch_paths: BTreeMap<String, std::path::PathBuf> = BTreeMap::new();
     for id in threads.keys() {
         let mut current = id.as_str();
         let mut path = Vec::new();
@@ -344,6 +357,7 @@ fn restore_cells(
                     "inconsistent root session ownership"
                 );
                 depths.insert(current.to_owned(), 0);
+                scratch_paths.insert(current.to_owned(), format!("agent-{current}").into());
                 break 0;
             };
             let parent = threads
@@ -358,6 +372,9 @@ fn restore_cells(
         };
         for child in path.into_iter().rev() {
             depth += 1;
+            let parent = threads[&child].parent_thread_id.as_ref().unwrap();
+            let scratch = scratch_paths[parent].join(format!("agent-{child}"));
+            scratch_paths.insert(child.clone(), scratch);
             depths.insert(child, depth);
         }
     }
@@ -375,7 +392,11 @@ fn restore_cells(
                 host: None,
             };
             let root_session = thread.parent_thread_id.is_none();
-            let cell = Cell::new(thread, depths[&id], bindings);
+            let parent_scratch = thread
+                .parent_thread_id
+                .as_ref()
+                .map(|parent| scratch_paths[parent].as_path());
+            let cell = Cell::new(thread, depths[&id], bindings, parent_scratch);
             if root_session {
                 *cell.hooks.pending.try_lock().expect("new hook session") = vec!["resume".into()];
             }

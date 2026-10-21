@@ -21,6 +21,14 @@ A missing default file is allowed. A missing explicit file, unknown field, type/
 <a id="permissions"></a>
 ## Permission modes
 
+New desktop and Remote chats default to Ask for approval. The Composer also offers Approve for me and Full access. The first two presets restrict managed commands and file tools to the workspace and task scratch, with command networking denied by default. Routine edits and commands inside that boundary do not ask for approval. Requests for additional access go to the user or, for Approve for me, a separate model review without tools. Unavailable or uncertain reviews fall back to the user. Explicit denials and mandatory human approvals retain priority.
+
+Full access uses the complete resource range allowed by the deployment and skips routine approvals. The menu cannot widen a restricted deployment. Plan mode adds an independent read-only restriction. A selection affects new submissions in the current chat; queued messages retain their admitted permission snapshot. Existing chats without an explicit preset retain their previous semantics and never silently gain Full access. Clients must check `features.permissionPresets` before submitting a new preset.
+
+Resource restrictions cover Runtime-managed execution. They do not imply that Core, MCP, plugin hosts or the browser share the command sandbox. Browser access has separate page control and per-action target validation. See [permission architecture](../design/permissions.en.md).
+
+The deployment settings below still apply to entry points without a chat preset and supply explicit tool rules for all chats.
+
 Local TUI, Web, CLI and `scripts/launch.py` default to **YOLO**: ordinary tasks may read/write files accessible to the current OS user, including outside the workspace and `/tmp`, and commands may use networking without per-call approval. `--allow-write` / `--allow-network` are no longer required. OS permissions, explicit Profiles, read-only Turns, deny rules and restricted Runtime deployments still apply.
 
 Global `~/.areal/config.toml`:

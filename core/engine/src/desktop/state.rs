@@ -277,6 +277,7 @@ impl Engine {
                     registry: engine.registry.clone(),
                     host: None,
                 },
+                None,
             );
             // 创建准入保护未发布目标的容量；目录锁不跨磁盘等待，现有控制仍可查找会话。
             let _creation = engine.thread_creation.lock().await;
@@ -599,6 +600,8 @@ impl Engine {
                 )?,
                 ..Default::default()
             };
+            data.configuration.options = request.options.unwrap_or_default();
+            engine.apply_client_permissions(&mut data.configuration)?;
             engine.pin_desktop_default(&mut data.configuration);
             data.configuration.allow_plugin_skills = allow_plugin_skills
                 || data
@@ -766,6 +769,7 @@ impl Engine {
                 configuration.instructions = previous.instructions;
                 configuration.tool_allowlist = previous.tool_allowlist;
                 configuration.read_only = true;
+                engine.project_permissions(&mut configuration);
                 if configuration.model.is_none() {
                     configuration.default_model_revision = previous.default_model_revision;
                 }
@@ -906,6 +910,7 @@ impl Engine {
                 }
             }
             configuration.selected_skills = selected_skills;
+            engine.apply_client_permissions(&mut configuration)?;
             let o = &configuration.options;
             configuration.read_only |= o.read_only;
             configuration.instructions = previous.instructions;
@@ -1205,13 +1210,16 @@ impl Engine {
             std::fs::create_dir_all(scratch).context("cannot create task scratch")?;
         }
         let state = cell.state.lock().await;
-        let readonly = state
-            .thread
-            .turns
-            .last()
+        let configuration = state
+            .active
+            .as_ref()
+            .and_then(|_| state.thread.turns.last())
             .and_then(|t| t.configuration.as_ref())
-            .or_else(|| state.thread.desktop.as_ref().map(|d| &d.configuration))
-            .is_some_and(|c| c.read_only);
+            .or_else(|| state.thread.desktop.as_ref().map(|d| &d.configuration));
+        let workspace = configuration
+            .and_then(|c| c.options.permission_preset)
+            .is_some_and(|preset| preset != PermissionPreset::FullAccess);
+        let readonly = configuration.is_some_and(|c| c.read_only);
         let side = state.thread.is_side();
         Ok(areal_runtime_protocol::PermissionRequest {
             read_roots: if side {
@@ -1235,7 +1243,7 @@ impl Engine {
                         Vec::new()
                     },
                 )
-            } else if readonly || cell.research {
+            } else if readonly || cell.research || workspace {
                 Some(
                     vec!["workspace://repo".into(), self.scratch_uri(cell)]
                         .into_iter()
@@ -1265,10 +1273,23 @@ impl Engine {
                         Vec::new()
                     },
                 )
+            } else if workspace && !cell.research {
+                Some(
+                    vec!["workspace://repo".into(), self.scratch_uri(cell)]
+                        .into_iter()
+                        .filter(|p| {
+                            p == "workspace://repo"
+                                || self
+                                    .runtime
+                                    .as_ref()
+                                    .is_some_and(|r| r.command_scratch.is_some())
+                        })
+                        .collect(),
+                )
             } else {
                 self.scope_permissions(cell).write_roots
             },
-            network: if readonly || side {
+            network: if readonly || side || workspace {
                 areal_runtime_protocol::NetworkRequest::Deny
             } else {
                 areal_runtime_protocol::NetworkRequest::Inherit

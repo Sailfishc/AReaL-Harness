@@ -92,6 +92,7 @@ pub(crate) fn side_file_tool(name: &str, backend: &registry::Backend) -> bool {
 #[derive(Default)]
 pub(crate) struct Handles {
     processes: BTreeMap<String, String>,
+    process_scopes: BTreeMap<String, String>,
     process_commands: BTreeMap<String, Vec<String>>,
     cursors: BTreeMap<String, (String, String)>,
     versions: BTreeMap<String, (String, String)>,
@@ -433,6 +434,13 @@ fn definitions_with_policy(policy: &ToolPolicy) -> Vec<Value> {
     for definition in &mut definitions {
         let f = &mut definition["function"];
         if f["name"] == "run_command" {
+            f["parameters"]["properties"]["permissionRequest"] =
+                crate::permissions::additional_schema();
+            if let Some(description) = f["description"].as_str() {
+                f["description"] = json!(format!(
+                    "{description} With an explicit permission preset, permissionRequest asks for only the additional readRoots, writeRoots or network needed by this operation, with a justification. It never retries a previously failed command automatically."
+                ));
+            }
             // Core 的执行契约分别排除另一种入口；注册表单独投影模型可接受的描述。
             let branches: Vec<_> = [("command", "argv"), ("argv", "command")]
                 .into_iter()
@@ -616,6 +624,7 @@ fn request_with_policy(
                 json!(["/bin/bash", "-o", "pipefail", "-c", command]),
             );
         }
+        fields.remove("permissionRequest");
         fields.entry("cwd").or_insert(json!("workspace://repo"));
         fields.entry("timeoutMs").or_insert(json!(600_000));
         let command: Command = serde_json::from_value(args)?;
@@ -1005,7 +1014,7 @@ impl Engine {
         } else {
             self.runtime.as_ref()
         };
-        let (thread_id, turn_id, existing_scope) = {
+        let (thread_id, turn_id) = {
             let state = cell.state.lock().await;
             let active = state.active.as_ref().unwrap();
             anyhow::ensure!(
@@ -1014,53 +1023,9 @@ impl Engine {
                 ),
                 "duplicate tool call ID; refusing replay"
             );
-            (
-                state.thread.id.clone(),
-                active.id.clone(),
-                active.scope.clone(),
-            )
+            (state.thread.id.clone(), active.id.clone())
         };
-        let scope = match (runtime, if coordination { None } else { existing_scope }) {
-            (_, Some(scope)) => scope,
-            (Some(config), None) => {
-                let client = &config.client;
-                let created = client
-                    .create_scope(rt::CreateScope {
-                        operation_id: client.operation_id(),
-                        parent_scope_id: self.runtime_task_parent(cell).await?,
-                        owner: rt::Owner {
-                            task_id: format!("{thread_id}/{turn_id}"),
-                            plugin_instance_id: None,
-                        },
-                        permissions: self.active_permissions(cell).await?,
-                        limits: rt::LimitRequest::default(),
-                    })
-                    .await;
-                match created {
-                    Ok(scope) => {
-                        cell.state.lock().await.active.as_mut().unwrap().scope =
-                            Some(scope.scope_id.clone());
-                        scope.scope_id
-                    }
-                    Err(error)
-                        if matches!(
-                            error.code,
-                            rt::ErrorCode::Unsupported
-                                | rt::ErrorCode::PermissionDenied
-                                | rt::ErrorCode::InvalidArgument
-                                | rt::ErrorCode::ResourceExhausted
-                        ) =>
-                    {
-                        // Scope 尚未创建，任务动作确定未派发；记录普通工具失败供模型调整。
-                        rejection = Some(error);
-                        runtime = None;
-                        String::new()
-                    }
-                    Err(error) => return Err(error.into()),
-                }
-            }
-            (None, None) => String::new(),
-        };
+        let mut scope = String::new();
         anyhow::ensure!(!cancel.is_cancelled(), "cancelled");
         let started = std::time::Instant::now();
         let item_id = id();
@@ -1077,6 +1042,8 @@ impl Engine {
             content_items: None,
             call_id: call.id.clone(),
             execution: Box::new(ToolExecution {
+                permission_review: None,
+                permission_scopes: Vec::new(),
                 result_snapshot: None,
                 file_before: None,
                 output_projection: None,
@@ -1125,6 +1092,24 @@ impl Engine {
                 .insert(item_id.clone());
             emit_item(cell, "item/started", &thread_id, &turn_id, &item);
         }
+        if runtime.is_some() {
+            match self.ensure_turn_scope(cell, &call.id).await {
+                Ok(created) => scope = created,
+                Err(error)
+                    if matches!(
+                        error.code,
+                        rt::ErrorCode::Unsupported
+                            | rt::ErrorCode::PermissionDenied
+                            | rt::ErrorCode::InvalidArgument
+                            | rt::ErrorCode::ResourceExhausted
+                    ) =>
+                {
+                    rejection = Some(error);
+                    runtime = None;
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
         let intent_ms = started.elapsed().as_secs_f64() * 1000.0;
         let invocation_started = std::time::Instant::now();
         let submitted = !cancel.is_cancelled() && rejection.is_none();
@@ -1143,6 +1128,7 @@ impl Engine {
                 cancel,
                 call: &call,
                 scope: &scope,
+                granted_scope: None,
                 operation: &operation_id,
                 item_id: &item_id,
                 thread_id: &thread_id,

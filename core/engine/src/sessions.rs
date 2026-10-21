@@ -219,7 +219,11 @@ impl Engine {
             None => None,
         };
         // 注册预留容量后释放目录锁；磁盘 I/O 不串行化不同会话。
-        let cell = Cell::new(thread.clone(), depth, bindings);
+        let parent_scratch = match parent {
+            Some(parent) => Some(self.raw_cell(&parent.id).await?.scratch_path.clone()),
+            None => None,
+        };
+        let cell = Cell::new(thread.clone(), depth, bindings, parent_scratch.as_deref());
         if let Some(hooks) = inherited_hooks
             && !research
         {
@@ -244,6 +248,10 @@ impl Engine {
         if (research || check_execution || (parent.is_some() && initial.is_some()))
             && let Some(scratch) = scratch
         {
+            if let Some(parent) = scratch.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| Error::Storage(format!("create agent scratch parent: {e}")))?;
+            }
             std::fs::create_dir(&scratch)
                 .map_err(|e| Error::Storage(format!("create private agent scratch: {e}")))?;
             scratch_reservation.0 = Some(scratch);

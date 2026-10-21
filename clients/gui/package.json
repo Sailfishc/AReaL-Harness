@@ -26,6 +26,7 @@
     "test:lifecycle:legacy": "node scripts/legacy-lifecycle-smoke.mjs",
     "test:queue": "node scripts/queue-smoke.mjs",
     "test:interactions": "node scripts/interaction-smoke.mjs",
+    "test:permission-presets": "node scripts/permission-presets-smoke.mjs",
     "test:composer": "node scripts/composer-smoke.mjs",
     "test:provider-hot-apply": "node scripts/provider-hot-apply-smoke.mjs",
     "test:context-usage": "node scripts/context-usage-smoke.mjs",
