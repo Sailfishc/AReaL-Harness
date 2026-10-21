@@ -14,6 +14,11 @@ const {_electron:electron}=require('playwright-core');
 const binary=process.env.AREAL_CORE_BIN || resolve(gui,'../../target/debug/areal');
 const binarySha256=createHash('sha256').update(await readFile(binary)).digest('hex');
 const scratch=await mkdtemp('/private/tmp/areal-schedule-desktop-');
+const manualRegression=process.env.AREAL_TASK_MANUAL_REGRESSION==='1';
+const manualDropGate=join(scratch,'drop-manual-response'),manualTrace=join(scratch,'manual-requests.jsonl');
+const manualPrepareGate=join(scratch,'hold-manual-prepare'),manualPrepareTrace=join(scratch,'manual-prepares.jsonl');
+const manualObjective='立即运行验收 MANUAL_FIXTURE';
+const manualRuns=new Map();
 const loadingRegression=process.env.AREAL_TASK_LOADING_REGRESSION==='1';
 const creationRegression=process.env.AREAL_TASK_CREATION_REGRESSION;
 const creationGate=join(scratch,'hold-task-prepare');
@@ -54,6 +59,7 @@ const model=createServer(async(request,response)=>{
   if(messages.some(m=>text(m).includes('AREAL_TASK_DRAFT'))) {
    const last=messages.filter(m=>m.role==='user'&&!text(m).startsWith('AReaL runtime context')).at(-1);
    const requestText=text(last??{});
+   if(manualRegression&&requestText.includes('立即运行验收')){finish(JSON.stringify({kind:'proposal',message:'将保存手动验证任务。',objective:manualObjective,interactionMode:'interactive',schedule:{at:changedAnchor,intervalSeconds:86400}}));return;}
    if(requestText.includes('创建体验验收')){finish(JSON.stringify({kind:'proposal',message:'将保存安排。',objective:requestText,interactionMode:'interactive',schedule:{at:changedAnchor}}));return;}
    if(inlineRegression&&requestText.includes('定时执行内联验收')){
     finish(JSON.stringify({kind:'proposal',message:'将创建内联执行验收任务。',objective:inlineObjective,interactionMode:'interactive',schedule:{at:new Date(Date.now()+6000).toISOString().replace(/\.\d{3}Z$/,'Z'),intervalSeconds:12}}));return;
@@ -85,6 +91,11 @@ const model=createServer(async(request,response)=>{
   const goalView=JSON.parse(contexts.at(-1).split('Current authoritative goal: ').at(-1));
   const goal=goalView.goal;
   if(goal.limitsPending){tool('goal_set_limits',{expectedRevision:goalView.revision,sources:{}});return;}
+  if(manualRegression&&goal.objective===manualObjective){
+   if(goal.report?.status==='complete'){finish('MANUAL_FIXTURE_DONE');return;}
+   const entry={release:()=>{held.delete(response);tool('goal_update',{expectedRevision:goalView.revision,status:'complete',summary:'MANUAL_FIXTURE_REPORT',evidence:['Manual execution requested by the saved Task button.'],remaining:[]});}};
+   manualRuns.set(goal.id,entry);send({content:'MANUAL_FIXTURE_RUNNING'});held.add(response);response.on('close',()=>held.delete(response));return;
+  }
   if(inlineRegression&&goal.objective===inlineObjective){
    let run=inlineRuns.get(goal.id);
    if(!run){
@@ -216,6 +227,39 @@ CoreBackend.prototype.executeCommand=async function(name,request,context){
   }
  }
  return result;
+};
+require(${JSON.stringify(join(gui,'app/src/main.cjs'))});
+`);
+}
+if(manualRegression){
+ launchApp=join(scratch,'manual-app');await mkdir(launchApp);
+ await writeFile(join(launchApp,'package.json'),JSON.stringify({name:'manual-run-fixture',main:'bootstrap.cjs'}));
+ await writeFile(join(launchApp,'bootstrap.cjs'),`
+const {CoreBackend}=require(${JSON.stringify(join(gui,'app/src/core/backend.cjs'))});
+const fs=require('node:fs');
+const start=CoreBackend.prototype.start;
+CoreBackend.prototype.start=async function(id){
+ const project=await start.call(this,id);
+ if(!project.client.manualFixture){
+  project.client.manualFixture=true;
+  const serverRequest=project.client.onServerRequest;
+  project.client.onServerRequest=async(method,params,context)=>{
+   if(method==='areal/task/prepare'&&fs.existsSync(${JSON.stringify(manualPrepareGate)})){
+    fs.appendFileSync(${JSON.stringify(manualPrepareTrace)},JSON.stringify(params)+'\\n');
+    while(fs.existsSync(${JSON.stringify(manualPrepareGate)})&&!context.signal.aborted)await new Promise(resolve=>setTimeout(resolve,25));
+   }
+   return serverRequest(method,params,context);
+  };
+  const request=project.client.request.bind(project.client);
+  project.client.request=async(method,params,options)=>{
+   if(method==='areal/task/runNow')fs.appendFileSync(${JSON.stringify(manualTrace)},JSON.stringify(params)+'\\n');
+   if(method==='areal/request/read'&&params.taskId&&fs.existsSync(${JSON.stringify(manualDropGate)}))throw new Error('receipt read fixture unavailable');
+   const result=await request(method,params,options);
+   if(method==='areal/task/runNow'&&fs.existsSync(${JSON.stringify(manualDropGate)}))throw Object.assign(new Error('accepted response fixture dropped'),{submissionUnknown:true});
+   return result;
+  };
+ }
+ return project;
 };
 require(${JSON.stringify(join(gui,'app/src/main.cjs'))});
 `);
@@ -638,13 +682,68 @@ async function checkInlineRegression(){
  await page.getByRole('button',{name:`打开自动化 ${inlineObjective}`,exact:true}).click();
  await assertRestored('reopen');
 }
+async function checkManualRegression(){
+ await page.getByRole('button',{name:'定时任务',exact:true}).click();
+ await page.getByRole('button',{name:'新建自动化',exact:true}).click();
+ const creation=await assertGlobalCreation();pid=creation.owner.id;
+ await page.getByTestId('chat-input').fill('立即运行验收，明天下午六点开始，每天执行。');
+ await page.getByTestId('chat-send-button').click();
+ const created=await until(async()=>(await call('tasks',{operation:'list'})).data.find(row=>row.objective===manualObjective),'saved manual verification Task');
+ await control(created.id,'taskPause');
+ const before=await task(created.id),plan=value=>({schedule:value.schedule,nextRunAt:value.nextRunAt,paused:value.paused,skippedRuns:value.skippedRuns});
+ const showResources=async()=>{if(!await page.getByLabel('任务资源面板',{exact:true}).count())await page.getByRole('button',{name:'任务资源',exact:true}).click();};
+ await showResources();
+ const runNow=()=>page.getByRole('button',{name:'立即运行',exact:true});
+ await until(()=>runNow().isEnabled(),'saved paused Task offers immediate execution');
+ await runNow().click();
+ const first=await until(async()=>{const value=await task(created.id);return value.runs[0]?.threadId&&value;},'manual Run owns real execution Thread');
+ assert.deepEqual(plan(first),plan(before));assert.equal(first.runCount,1);assert.equal(first.runs[0].trigger,'manual');
+ assert.equal(await runNow().isDisabled(),true);await page.getByRole('button',{name:'查看当前运行',exact:true}).waitFor();
+ assert.ok((await page.getByLabel('定时任务执行记录').innerText()).includes('手动触发'));
+ await page.screenshot({path:join(scratch,'manual-running.png')});
+ await page.getByRole('button',{name:'查看当前运行',exact:true}).click();
+ await until(async()=>(await snapshot()).projects.find(project=>project.id===pid).state.threads[first.runs[0].threadId]?.turns?.length,'current Run opens authoritative Thread');
+ await page.getByRole('button',{name:'定时任务',exact:true}).click();
+ await page.getByRole('button',{name:`打开自动化 ${manualObjective}`,exact:true}).click();
+ const fixture=await until(()=>[...manualRuns.values()][0],'manual fixture stream');fixture.release();
+ const complete=await until(async()=>{const value=await task(created.id);return value.runs[0]?.status==='completed'&&value;},'manual Run completes');
+ assert.deepEqual(plan(complete),plan(before));
+ await until(async()=>(await snapshot()).library.threads[`${pid}:${first.runs[0].threadId}`]?.scheduledCompletionId===first.runs[0].id,'manual completion uses existing unread record');
+ assert.equal((await snapshot()).library.threads[`${pid}:${first.runs[0].threadId}`].unread,true);
+ await showResources();await page.locator('.task-resource-history > summary').click();
+ await page.getByLabel('任务资源面板').getByText('MANUAL_FIXTURE_REPORT',{exact:false}).first().waitFor();
+ await page.screenshot({path:join(scratch,'manual-complete.png')});
+ checks.push('real saved Task click preserves paused plan, blocks a second Run, opens execution Thread and records report/unread');
+ await writeFile(manualDropGate,'held');await writeFile(manualPrepareGate,'held');
+ await runNow().click();
+ const second=await until(async()=>{const value=await task(created.id);return value.runCount===2&&value;},'dropped response has one durable accepted Run');
+ await until(async()=>readFile(manualPrepareTrace,'utf8').then(text=>text.includes(second.runs[1].id)).catch(()=>false),'real Host preparation held after admission');
+ assert.equal(second.runs[1].threadId,null);
+ await until(async()=>(await snapshot()).projects.find(project=>project.id===pid).pending.some(entry=>entry.method==='areal/task/runNow'),'lost response remains in durable pending journal');
+ const pending=(await snapshot()).projects.find(project=>project.id===pid).pending.find(entry=>entry.method==='areal/task/runNow');
+ assert.equal(await runNow().isDisabled(),true);
+ const instance=(await snapshot()).projects.find(project=>project.id===pid).core.instanceId;
+ const service=JSON.parse(await readFile(join(env.AREAL_HARNESS_SERVICE_HOME,'services',instance,'service.json'),'utf8'));
+ assert.ok(Number.isInteger(service.corePid)&&service.corePid>0,'crash targets this fixture Core PID');
+ process.kill(service.corePid,'SIGKILL');
+ await until(()=>{try{process.kill(service.corePid,0);return false;}catch(error){if(error.code==='ESRCH')return true;throw error;}},'fixture Core exits abruptly during held preparation');
+ await rm(manualPrepareGate);await rm(manualDropGate);await app.close();await launch();
+ await until(async()=>!(await snapshot()).projects.find(project=>project.id===pid)?.pending.some(entry=>entry.method==='areal/task/runNow'),'reopen reconciles original request receipt');
+ const secondFixture=await until(()=>[...manualRuns.values()][1],'same Run executes after Core restart');secondFixture.release();
+ const restored=await until(async()=>{const value=await task(created.id);return value.runs[1]?.status==='completed'&&value;},'recovered manual Run completes');assert.equal(restored.runCount,2);assert.equal(restored.runs[1].id,second.runs[1].id);assert.deepEqual(plan(restored),plan(before));
+ const trace=(await readFile(manualTrace,'utf8')).trim().split('\n').map(line=>JSON.parse(line));assert.equal(trace.filter(entry=>entry.requestId===pending.params.requestId).length,1,'recovery never replays runNow');
+ await page.getByRole('button',{name:'定时任务',exact:true}).click();await page.getByRole('button',{name:`打开自动化 ${manualObjective}`,exact:true}).click();await showResources();
+ await until(()=>runNow().isEnabled(),'original receipt releases saved Task controls');
+ checks.push('dropped accepted response persists UNKNOWN; abrupt Core kill during held preparation recovers the same Run and original receipt without replay');
+ await page.screenshot({path:join(scratch,'manual-recovered.png')});assert.deepEqual(errors,[]);
+}
 try{
  await launch();
  await app.evaluate(({dialog,BrowserWindow},path)=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:[path]});BrowserWindow.getAllWindows()[0].setSize(1488,1056);},workspace);
  await page.evaluate(()=>window.arealDesktop.chooseProject());
  pid=(await until(async()=>(await snapshot()).projects.find(p=>p.root===workspace&&p.state?.connected),'project ready')).id;
  workspacePid=pid;
- if(creationRegression){await checkCreationRegression();passed=true;}else if(inlineRegression){await checkInlineRegression();passed=true;}else if(dailyStartRegression){await checkDailyStartRegression();passed=true;}else if(loadingRegression){await checkLoadingRegression();passed=true;}else{
+ if(manualRegression){await checkManualRegression();passed=true;}else if(creationRegression){await checkCreationRegression();passed=true;}else if(inlineRegression){await checkInlineRegression();passed=true;}else if(dailyStartRegression){await checkDailyStartRegression();passed=true;}else if(loadingRegression){await checkLoadingRegression();passed=true;}else{
  await page.getByRole('button',{name:'设置',exact:true}).click();
  await page.getByRole('button',{name:'外观',exact:true}).click();
  await page.getByRole('combobox',{name:'界面主题',exact:true}).click();
@@ -847,6 +946,7 @@ try{
  if(page){await writeFile(join(scratch,'failure-state.json'),JSON.stringify(await snapshot(),null,2)).catch(()=>{});await writeFile(join(scratch,'failure.aria.txt'),await page.locator('body').ariaSnapshot()).catch(()=>{});await writeFile(join(scratch,'failure-ui.json'),JSON.stringify(await page.evaluate(()=>({focus:{tag:document.activeElement?.tagName,id:document.activeElement?.id,role:document.activeElement?.getAttribute('role'),label:document.activeElement?.getAttribute('aria-label')},hidden:document.hidden,options:[...document.querySelectorAll('[role=option]')].map(el=>({html:el.outerHTML,rect:el.getBoundingClientRect().toJSON(),visibility:getComputedStyle(el).visibility,display:getComputedStyle(el).display,opacity:getComputedStyle(el).opacity}))})),null,2)).catch(()=>{});await page.screenshot({path:join(scratch,'failure.png')}).catch(()=>{});}
  throw error;
 }finally{
+ await rm(manualPrepareGate,{force:true});await rm(manualDropGate,{force:true});
  await rm(creationGate,{force:true});
  await rm(loadingGate,{force:true});await rm(loadingRpcGate,{force:true});
  await rm(prepareFailureGate,{force:true});

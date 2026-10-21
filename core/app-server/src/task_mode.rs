@@ -464,3 +464,6 @@ mod tests {
         engine.shutdown().await;
     }
 }
+
+#[cfg(test)]
+mod manual_tests;
