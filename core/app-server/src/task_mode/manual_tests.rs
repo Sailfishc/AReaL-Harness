@@ -36,9 +36,9 @@ impl Model for Complete {
         Ok(Box::pin(futures_util::stream::iter(vec![
             Ok(event),
             Ok(ModelEvent::Usage(areal_protocol::ModelUsage {
-                input_tokens: 10,
+                input_tokens: 50_000,
                 cached_input_tokens: 0,
-                output_tokens: 5,
+                output_tokens: 50_000,
             })),
         ])))
     }
@@ -106,7 +106,7 @@ async fn status(
     task: &Value,
     expected: &str,
 ) -> Value {
-    tokio::time::timeout(Duration::from_secs(15), async {
+    let result = tokio::time::timeout(Duration::from_secs(15), async {
         loop {
             let value = read(engine, conn, task).await;
             if value["runs"]
@@ -120,8 +120,11 @@ async fn status(
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     })
-    .await
-    .unwrap()
+    .await;
+    match result {
+        Ok(value) => value,
+        Err(_) => panic!("waiting for {expected}: {}", read(engine, conn, task).await),
+    }
 }
 async fn prepare(rx: &mut mpsc::Receiver<Value>) -> Value {
     tokio::time::timeout(Duration::from_secs(5), async {
@@ -157,7 +160,7 @@ async fn manual_run_admission_precedes_prepare_and_receipts_survive_restart() {
         "frozen objective",
         now() + 86400,
         Some(86400),
-        Some(1000),
+        Some(1_000_000),
     )
     .await;
     let paused = conn
@@ -441,7 +444,7 @@ async fn manual_run_completed_once_and_archived_usage_keep_total_budget() {
         "budget history",
         now(),
         None,
-        Some(3900),
+        Some(26_000_000),
     )
     .await;
     let mut current = status(&engine, &mut conn, &created, "completed").await;

@@ -75,7 +75,7 @@ export function TaskRunConversations({ project, task, action, disabled, renderCo
       };
       return <article key={run.id} data-task-run-id={run.id} className="grid min-w-0 gap-2 border-t border-border pt-4">
         <header className="flex flex-wrap justify-between gap-2"><h4>运行 {run.id}</h4><span role="status">{statuses[run.status] ?? run.status}</span></header>
-        <p className="text-foreground-subtle">计划：{run.scheduledAt == null ? "—" : new Date(run.scheduledAt * 1000).toLocaleString(undefined, { timeZone: task.schedule?.timeZone })}</p>
+        <p className="text-foreground-subtle">{run.trigger === "manual" ? "手动触发" : "计划"}：{run.scheduledAt == null ? "—" : new Date(run.scheduledAt * 1000).toLocaleString(undefined, { timeZone: task.schedule?.timeZone })}</p>
         {run.reason && <p className="whitespace-pre-wrap">运行原因：{run.reason}</p>}
         {!run.threadId ? <p>本次运行没有执行会话。</p> : <>
           {!connected && <p role="status">连接中断，显示上次读取的执行记录；恢复连接后会重新读取。</p>}

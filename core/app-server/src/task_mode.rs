@@ -5,6 +5,7 @@ use areal_protocol::tasks::*;
 pub(crate) const METHODS: &[&str] = &[
     "areal/task/create",
     "areal/task/update",
+    "areal/task/runNow",
     "areal/task/list",
     "areal/task/read",
     "areal/task/runs/list",
@@ -72,6 +73,30 @@ pub(crate) async fn dispatch(
             )
             .await
             .map_err(map_error),
+        "areal/task/runNow" => {
+            let result = engine
+                .task_run_now_for_threads(
+                    principal.id.clone(),
+                    parse(params)?,
+                    principal.thread_ids.as_ref(),
+                )
+                .await
+                .map_err(map_error)?;
+            match result {
+                areal_engine::TaskRunNowAdmission::Accepted(value) => Ok(json!(value)),
+                areal_engine::TaskRunNowAdmission::ActiveRun {
+                    task_id,
+                    run_id,
+                    revision,
+                } => Err(RpcError {
+                    code: -32009,
+                    message: "task already has an active Run".into(),
+                    data: Some(
+                        json!({"reason":"activeRun","taskId":task_id,"runId":run_id,"revision":revision}),
+                    ),
+                }),
+            }
+        }
         "areal/task/read" => {
             let _: TaskTarget = parse(params)?;
             let task = authorized.ok_or_else(|| RpcError::invalid("taskId required"))?;

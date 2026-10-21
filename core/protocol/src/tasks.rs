@@ -75,6 +75,33 @@ pub struct TaskControl {
     pub expected_revision: u64,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TaskRunNow {
+    pub request_id: String,
+    pub task_id: String,
+    pub expected_revision: u64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TaskRunNowAccepted {
+    pub task_id: String,
+    pub run_id: String,
+    pub revision: u64,
+    pub accepted: bool,
+}
+
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
+#[serde(rename_all = "camelCase")]
+pub enum RunTrigger {
+    #[default]
+    Schedule,
+    Manual,
+}
+
 /// 修改后续计划；不重新绑定执行会话、不重写已受理 Run 的 Goal。
 #[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -140,6 +167,8 @@ pub struct ChannelMessage {
 #[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskRun {
+    #[serde(default)]
+    pub trigger: RunTrigger,
     /// 受理时的任务内容；修改安排只影响之后的 Run。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub objective: Option<String>,

@@ -55,6 +55,7 @@ async 默认期限 86400 秒，允许 1–604800 秒；同步问题允许 1–36
 | task/runs/list | `taskId, cursor?, limit?` | `{data: TaskRun[], nextCursor, hasMore, runCount}` |
 | task/run/read | `taskId, runId` | 完整单条 TaskRun |
 | task/update | `requestId, taskId, expectedRevision, objective?, schedule?` | 更新后的 Task 投影 |
+| task/runNow | `requestId, taskId, expectedRevision` | `{taskId, runId, revision, accepted:true}` |
 | task/pause, task/resume, task/cancel | `requestId, taskId, expectedRevision` | 已持久受理控制意图的 Task 投影 |
 | task/stopRun, task/resumeRun | `requestId, taskId, expectedRevision, expectedRunId` | 当前 Run 的停止／明确恢复意图，重复安排不变 |
 | task/host/ready | `{}`；需要 unrestricted manage + tools | `{ready:true}`；登记当前连接作为桌面 Host |
@@ -66,7 +67,7 @@ async 默认期限 86400 秒，允许 1–604800 秒；同步问题允许 1–36
 
 `task/pause` 还接受可选 `expectedRunId`，由 `features.taskPauseRunGuard` 声明。Core 查询收据后，在同一 Task 锁内将其与最新 Run 比较，并同时检查 `expectedRevision`；Run 缺失或变化返回冲突。resume/cancel 不接受此字段。同参数已受理请求即使在版本/Run 改变或重启后仍返回原收据；同键更换 Run 返回冲突。省略字段保持旧调用与收据摘要兼容。对于 scheduled，pause 只暂停之后的触发；stopRun 才停止当前执行。执行停止仍以 Run 和 worker 结算为准。
 
-Task 投影包括 `id, revision, channelSequence, owner, mode, interactionMode, objective, threadId, schedule, nextRunAt, paused, cancelled, tokenBudget, maxTurns, maxActiveSeconds, runs, runCount, archivedRunCount, runsComplete, skippedRuns, lastSkippedAt, pendingQuestions`；不内嵌 messages。每个 Run 包含 `id, threadId, goalId, status, reason, objective?, scheduledAt, startedAt, completedAt, usage, waitRequested, workers`。worker 包含 `threadId, turnId, status, settled`；status 为 running/completed/cancelled/failed。
+Task 投影包括 `id, revision, channelSequence, owner, mode, interactionMode, objective, threadId, schedule, nextRunAt, paused, cancelled, tokenBudget, maxTurns, maxActiveSeconds, runs, runCount, archivedRunCount, runsComplete, skippedRuns, lastSkippedAt, pendingQuestions`；不内嵌 messages。每个 Run 包含 `id, threadId, goalId, status, reason, objective?, trigger, scheduledAt, startedAt, completedAt, usage, waitRequested, workers`。worker 包含 `threadId, turnId, status, settled`；status 为 running/completed/cancelled/failed。
 
 Run status 为 `queued/running/waitingForInput/waitingForAgents/paused/blocked/completed/failed/cancelled`；后三项是终态。paused/cancelled 为 Task 控制意图，清理期间 Run 可能仍为 running。以 Run 终态及 worker.settled 判断执行结算，不以控制请求返回或协调 Turn completed 代替。
 
@@ -85,6 +86,18 @@ ChannelMessage 包含 `id, sequence, runId, author, kind, status, createdAt, exp
 客户端以 task/subscribe 快照替换任务状态，以通知中的 task 替换投影。channelSequence 增长时分页 channel/read，按 message.id **替换**记录；问题状态变化会获得新 sequence，同一问题可再次出现在增量页。只有处理完该页后才保存 nextSequence。游标不是 Turn ID、Task revision 或已读标记。频道分页是最新消息状态的增量视图，不是完整不可变事件日志；当前没有服务端已读回执。
 
 limit 为 1–100，Task/Inbox 默认 30，Channel 默认 50；Task/Inbox 使用返回的 nextCursor，频道使用 nextSequence/hasMore。页面还有约 128 KiB 的字节上限，Task 单条投影可超过此值；不要假设一页必然达到 limit。Inbox 按需刷新 inbox/list；目前没有全局 Inbox 订阅。
+
+## 立即运行已保存任务
+
+`areal/task/runNow` 为定时 Task 受理一次真实手动执行。调用方需要 interact 权限、不受 Thread 范围限制的身份、仍受理工作的 Core，以及通过 `task/host/ready` 注册的在线桌面 Host。工作区继续共享，调用方不必是 Task 创建者。
+
+Core 在同一次原子提交中保存 queued Run、冻结 objective 和原请求收据，之后才准备 Host。`accepted:true` 只确认持久受理；准备、凭据、模型和执行仍可能失败。准备失败将同一 Run 标为 blocked。`task/resumeRun` 使用原身份和预算继续这次执行。
+
+手动执行不改变 `schedule`、`nextRunAt`、`paused` 或 `skippedRuns`。暂停计划和自然完成的一次性计划允许手动执行，cancelled Task 拒绝。任意非终态 Run 都阻止新受理。重放收据和检查 Task 资格后，重叠请求先于普通 revision 检查返回 `-32009`，其 data 为 `{reason:"activeRun",taskId,runId,revision}`。没有重叠时必须匹配当前 `expectedRevision`。修改和到期触发共用同一准入锁；到期触发输给 manual Run 时仍按原忙碌跳过策略推进。
+
+`TaskRun.trigger` 为 `schedule` 或 `manual`，旧数据默认 `schedule`。manual 的 `scheduledAt` 是逻辑受理时间，客户端显示“手动触发”。Task 总用量包含热记录、已归档 Run 和预留 Token。总预算耗尽时仍可能受理 Run，但随后在 Goal 执行前 blocked。立即运行不增加额度或权限。
+
+丢失响应后，使用完整原请求 `{requestId,taskId,expectedRevision}` 调用 `areal/request/read`。Task selector 不接受 `threadId` 或其他字段。Core 先检查当前 Task 可见性，再按原身份和摘要查询冷热收据。响应为 `{data:[{identity,requestId,method:"areal/task/runNow",digest,result}],retention:"taskLifetime"}`，result 是原始紧凑受理结果。没有收据时 data 为空，不能据此判断拒绝。同一身份和 requestId 改变参数会冲突。客户端在查到原收据前保留 UNKNOWN pending，不重放写请求，也不按 Run 数量猜测受理。既有 Thread 和部署请求查询保持原行为。
 
 ## 修改定时任务
 

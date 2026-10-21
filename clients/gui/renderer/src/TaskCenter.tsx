@@ -13,8 +13,8 @@ import { GoalUsageSummary } from "./GoalUsage.js";
 import { goalBudgetMessage } from "./conversationPresentation.js";
 
 type HistoryReadMode = "head" | "more" | "refresh";
-type RunHistory = { owner: string; enabled: boolean | null; data: Data[]; nextCursor: string | null; runCount: number; headRunCount: number; pending: boolean; error: string; retryMode: HistoryReadMode; needsRefresh: boolean };
-const emptyRunHistory = (owner = ""): RunHistory => ({ owner, enabled: null, data: [], nextCursor: null, runCount: 0, headRunCount: 0, pending: false, error: "", retryMode: "head", needsRefresh: false });
+type RunHistory = { owner: string; enabled: boolean | null; runNow: boolean; data: Data[]; nextCursor: string | null; runCount: number; headRunCount: number; pending: boolean; error: string; retryMode: HistoryReadMode; needsRefresh: boolean };
+const emptyRunHistory = (owner = ""): RunHistory => ({ owner, enabled: null, runNow: false, data: [], nextCursor: null, runCount: 0, headRunCount: 0, pending: false, error: "", retryMode: "head", needsRefresh: false });
 const mergeRuns = (previous: Data[], next: Data[]) => [...new Map([...previous, ...next].map(run => [run.id, run])).values()];
 
 type CatalogIdentity = { requestId: string; viewEpoch: number };
@@ -44,6 +44,7 @@ const date = (seconds: number | null, zone?: string) => {
 // a recurring schedule with another run still has a meaningful paused state.
 const taskStatus = (task: Data) => stopping(task) ? task.cancelled ? "正在取消，等待执行结算" : "正在暂停，等待执行结算" : task.cancelled ? "已取消" : finished(task) ? statusLabels[task.runs.at(-1).status] : task.paused ? "已暂停" : statusLabels[task.runs?.at(-1)?.status] ?? "等待计划时间";
 const runReasons: Record<string, string> = {
+  "task token budget exhausted": "任务总 Token 预算已用完。本次运行不能增加额度；如需更多预算，请创建新任务。",
   approvalExpired: "审批已过期，执行已受阻。继续本次运行将重新检查并申请批准。",
   hostUnavailable: "桌面 Host 已断开，需要明确继续本次运行。",
   stopRequested: "正在停止本次运行，等待资源结算。",
@@ -275,7 +276,7 @@ export function TaskCenter({ projects, connected, initialProjectId, defaultProje
           const capabilities = await action("manage", { projectId, operation: "taskHistoryCapabilities" });
           if (!current()) return;
           enabled = capabilities.enabled === true;
-          setHistory(previous => ({ ...previous, enabled }));
+          setHistory(previous => ({ ...previous, enabled, runNow: capabilities.runNow === true }));
         }
         if (!enabled) return;
         const page = await action("manage", { projectId, operation: "taskRuns", taskId, ...(more ? { cursor } : {}), limit: 100 });
@@ -452,10 +453,12 @@ export function TaskCenter({ projects, connected, initialProjectId, defaultProje
   }, [target, selected, revealKey, targetRead?.status]);
   const control = async (operation: string, runId?: string) => {
     if (!task || !project || disabled || mutation.current) return;
+    const owner = selected;
+    const current = () => selection.current.selected === owner;
     mutation.current = true; setBusy(true); setError("");
     try {
       const receipt = await action("manage", { projectId: project.id, operation, taskId: task.id, expectedRevision: task.revision, ...(runId ? {expectedRunId:runId} : {}) });
-      if (receipt?.id) {
+      if (current() && receipt?.id) {
         const view = { ...task, ...receipt, projectId: project.id, projectName: task.projectName, scope: task.scope };
         flushSync(() => { setControlView(view); });
         // A following read can settle in the same turn. Leave the receipt on
@@ -464,7 +467,7 @@ export function TaskCenter({ projects, connected, initialProjectId, defaultProje
       }
       await refresh(); setControlView(null);
     }
-    catch (cause) { setControlView(null); setError((cause as Error).message); await action("manage", { projectId: project.id, operation: "task", taskId: task.id }).catch(() => {}); }
+    catch (cause) { setControlView(null); if (current()) setError((cause as Error).message); await action("manage", { projectId: project.id, operation: "task", taskId: task.id }).catch(() => {}); }
     finally { mutation.current = false; setBusy(false); }
   };
   const beginCreate = (text = "") => {
@@ -473,6 +476,7 @@ export function TaskCenter({ projects, connected, initialProjectId, defaultProje
   };
   const scheduleInterval = task?.schedule?.intervalSeconds;
   const latestRun = task?.runs?.at(-1);
+  const activeRun = task?.runs?.find((run: Data) => !terminal(run));
   // 过期且没有未结束 Run 时，恢复才会按锚点合并。已有未结束 Run 则只跳过后续触发。
   const overdueMerge = !!task?.paused && !task.cancelled && scheduleInterval && task.nextRunAt != null && task.nextRunAt * 1000 <= Date.now() && (!latestRun || terminal(latestRun));
   const mergedSpan = !!scheduleInterval && latestRun && task.nextRunAt != null && task.nextRunAt >= latestRun.scheduledAt + scheduleInterval * 2;
@@ -481,7 +485,11 @@ export function TaskCenter({ projects, connected, initialProjectId, defaultProje
   const updatedTask = useCallback(() => { void refresh(); }, [refresh]);
   const closeDetails = () => { setCreating(false); setSelected(""); requestAnimationFrame(() => layout.current?.querySelector<HTMLButtonElement>('[aria-label="新建自动化"]')?.focus()); };
   const visibleRows = listed.filter(row => (row.mode === "scheduled") && row.objective.toLowerCase().includes(search.toLowerCase()) && filters.includes(row.cancelled || finished(row) ? "已完成" : row.paused ? "已暂停" : "已开启"));
-  const runHistory = task && project && <details className="task-resource-history" data-task-history-owner={selected} open={detailsOpen} onToggle={event => setDetailsOpen(event.currentTarget.open)}><summary>运行记录</summary><div className="grid gap-3">
+  const runHistory = task && project && <><div className="flex flex-wrap items-center gap-2">
+    <Button size="sm" disabled={disabled || task.cancelled || !!activeRun || history.owner !== selected || !history.runNow} onClick={() => void control("taskRunNow")}>立即运行</Button>
+    {activeRun && <Button size="sm" variant="ghost" disabled={!connected || !project.state?.connected} onClick={() => activeRun.threadId ? onOpenThread(project.id, activeRun.threadId) : setDetailsOpen(true)}>查看当前运行</Button>}
+    {history.owner === selected && history.enabled !== null && !history.runNow && <p className="text-foreground-subtle">当前 Core 尚不支持立即运行。</p>}
+  </div><details className="task-resource-history" data-task-history-owner={selected} open={detailsOpen} onToggle={event => setDetailsOpen(event.currentTarget.open)}><summary>运行记录</summary><div className="grid gap-3">
     {channelError && <p role="alert">{channelError}</p>}
     {typeof task.runCount === "number" && <p className="text-foreground-subtle">最近窗口 {task.runs.length} 次 · 共 {Math.max(task.runCount, history.owner === selected ? history.runCount : 0)} 次 · 已加载 {displayedRuns.length} 次</p>}
     {task.runsComplete === false && history.enabled === false && <p role="status">当前 Core 仅提供最近运行窗口。更新 Core 后可读取更早记录。</p>}
@@ -493,11 +501,11 @@ export function TaskCenter({ projects, connected, initialProjectId, defaultProje
     {mergedSpan && <p>错过的周期已合并；运行未结束时不会重叠启动。</p>}
     {!!task.skippedRuns && <p>前次运行未结束，已跳过 {task.skippedRuns} 次触发。</p>}
           {!displayedRuns.length && !task.runCount && <p className="text-foreground-subtle">尚未运行</p>}
-          {[...displayedRuns].sort((a: Data,b: Data) => Number(["blocked","waitingForInput","paused"].includes(b.status)) - Number(["blocked","waitingForInput","paused"].includes(a.status))).map((run: Data) => <article key={run.id} data-run-id={run.id} className="grid gap-1 rounded-control border border-border p-2"><div className="flex flex-wrap justify-between gap-1"><span>{statusLabels[run.status] ?? run.status}</span><span className="text-foreground-subtle">计划：{date(run.scheduledAt, task.schedule?.timeZone)} · 开始：{date(run.startedAt, task.schedule?.timeZone)}</span></div>{run.objective && run.objective !== task.objective && <p className="whitespace-pre-wrap">任务内容：{run.objective}</p>}<p className="break-words text-foreground-subtle">运行原因：{run.reason ? <span>{runReason(run.reason, task)}</span> : "—"}</p>{goalBudgetMessage(run.reason) && !scheduledTokenLimit(task, run.reason) && <p className="text-foreground-subtle">打开执行会话，在“编辑目标”中调整预算后恢复。</p>}<p className="text-foreground-subtle">{run.usage.tokensUsed.toLocaleString()} Token · {run.usage.turnsStarted} 轮 · {run.usage.timeUsedSeconds.toLocaleString(undefined, { maximumFractionDigits: 1 })} 秒{!run.usage.accountingComplete && " · 用量尚未结算完整"}</p><GoalUsageSummary usage={run.usage} label="运行用量" />{messages.filter(message => message.runId === run.id && message.kind === "report").at(-1)?.text && <p>{messages.filter(message => message.runId === run.id && message.kind === "report").at(-1)?.text}</p>}{!terminal(run) && task.runs.some((live: Data) => live.id === run.id) && <div className="flex gap-1">{["blocked","paused"].includes(run.status) && <Button size="sm" disabled={disabled || ["stopRequested","resumeRequested"].includes(run.reason)} onClick={() => void control("taskResumeRun", run.id)}>继续本次运行</Button>}<Button size="sm" variant="outline" disabled={disabled || run.reason === "stopRequested"} onClick={() => void control("taskStopRun", run.id)}>停止本次运行</Button></div>}{run.threadId && <Button className="justify-self-start" size="sm" variant="ghost" onClick={() => onOpenThread(project.id, run.threadId)}>打开执行会话</Button>}{messages.filter(message => message.runId === run.id).map(message => <ChannelRecord key={message.id} message={message} task={task} projectId={project.id} action={action} disabled={disabled || !!channelError} onReplied={() => void refresh()} />)}{run.workers?.map((worker: Data) => <WorkerParticipant key={`${worker.threadId}:${worker.turnId}`} task={task} run={run} worker={worker} messages={messages} project={project} onOpenThread={onOpenThread} />)}</article>)}
+          {[...displayedRuns].sort((a: Data,b: Data) => Number(["blocked","waitingForInput","paused"].includes(b.status)) - Number(["blocked","waitingForInput","paused"].includes(a.status))).map((run: Data) => <article key={run.id} data-run-id={run.id} className="grid gap-1 rounded-control border border-border p-2"><div className="flex flex-wrap justify-between gap-1"><span>{statusLabels[run.status] ?? run.status}</span><span className="text-foreground-subtle">{run.trigger === "manual" ? "手动触发" : "计划"}：{date(run.scheduledAt, task.schedule?.timeZone)} · 开始：{date(run.startedAt, task.schedule?.timeZone)}</span></div>{run.objective && run.objective !== task.objective && <p className="whitespace-pre-wrap">任务内容：{run.objective}</p>}<p className="break-words text-foreground-subtle">运行原因：{run.reason ? <span>{runReason(run.reason, task)}</span> : "—"}</p>{goalBudgetMessage(run.reason) && !scheduledTokenLimit(task, run.reason) && <p className="text-foreground-subtle">打开执行会话，在“编辑目标”中调整预算后恢复。</p>}<p className="text-foreground-subtle">{run.usage.tokensUsed.toLocaleString()} Token · {run.usage.turnsStarted} 轮 · {run.usage.timeUsedSeconds.toLocaleString(undefined, { maximumFractionDigits: 1 })} 秒{!run.usage.accountingComplete && " · 用量尚未结算完整"}</p><GoalUsageSummary usage={run.usage} label="运行用量" />{messages.filter(message => message.runId === run.id && message.kind === "report").at(-1)?.text && <p>{messages.filter(message => message.runId === run.id && message.kind === "report").at(-1)?.text}</p>}{!terminal(run) && task.runs.some((live: Data) => live.id === run.id) && <div className="flex gap-1">{["blocked","paused"].includes(run.status) && <Button size="sm" disabled={disabled || ["stopRequested","resumeRequested"].includes(run.reason)} onClick={() => void control("taskResumeRun", run.id)}>继续本次运行</Button>}<Button size="sm" variant="outline" disabled={disabled || run.reason === "stopRequested"} onClick={() => void control("taskStopRun", run.id)}>停止本次运行</Button></div>}{run.threadId && <Button className="justify-self-start" size="sm" variant="ghost" onClick={() => onOpenThread(project.id, run.threadId)}>打开执行会话</Button>}{messages.filter(message => message.runId === run.id).map(message => <ChannelRecord key={message.id} message={message} task={task} projectId={project.id} action={action} disabled={disabled || !!channelError} onReplied={() => void refresh()} />)}{run.workers?.map((worker: Data) => <WorkerParticipant key={`${worker.threadId}:${worker.turnId}`} task={task} run={run} worker={worker} messages={messages} project={project} onOpenThread={onOpenThread} />)}</article>)}
           {history.owner === selected && history.pending && <p role="status">正在读取运行记录…</p>}
           {history.owner === selected && history.enabled && history.nextCursor && <Button size="sm" variant="ghost" disabled={history.pending || !connected || !project.state?.connected} onClick={() => void readRuns.current("more")}>加载更早运行</Button>}
           {messages.filter(message => !displayedRuns.some((run: Data) => run.id === message.runId)).map(message => <ChannelRecord key={message.id} message={message} task={task} projectId={project.id} action={action} disabled={disabled || !!channelError} onReplied={() => void refresh()} />)}
-  </div></details>;
+  </div></details></>;
   return <section ref={layout} aria-label="自动化中心" className={`task-center text-ui-base ${detailOpen ? "has-detail" : ""} ${narrow ? "is-narrow" : ""}`}>
     <div className="task-center-toolbar">{navigation}<button className="icon-button" aria-label="前进" disabled><ArrowRight size={16}/></button><button className="icon-button" aria-label="切换任务侧栏" aria-expanded={!navCollapsed} onClick={() => setNavCollapsed(!navCollapsed)}><SidebarToggleIcon/></button></div>
     <div className="task-center-body">
@@ -508,7 +516,7 @@ export function TaskCenter({ projects, connected, initialProjectId, defaultProje
 
       <div className="task-list-subheading"><span>任务目录</span><DropdownMenu><DropdownMenuTrigger aria-label="筛选任务"><ListFilter size={16}/></DropdownMenuTrigger><DropdownMenuContent align="end">{["已开启","已暂停","已完成"].map(label => <DropdownMenuCheckboxItem key={label} checked={filters.includes(label)} onCheckedChange={checked => setFilters(values => checked ? [...values,label] : values.filter(v => v !== label))}>{label}</DropdownMenuCheckboxItem>)}</DropdownMenuContent></DropdownMenu></div>
       <div className="task-list-scroll">
-        {pending.length > 0 && <p role="alert">提交结果尚未确认，请核对任务列表。</p>}
+        {pending.length > 0 && <div><p role="alert">提交结果尚未确认，请核对受理结果。</p>{pending.some((entry: Data) => entry.method === "areal/task/runNow") && <Button size="sm" variant="ghost" disabled={!connected || busy} onClick={() => { setError(""); void action("reconcile", { projectId: project?.id }).catch(cause => setError(cause.message)); }}>核对受理结果</Button>}</div>}
         {error && <p role="alert">{error}</p>}
         {projects.map(owner => {
           const read = catalog[owner.id];

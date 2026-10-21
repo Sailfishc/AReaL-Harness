@@ -8,6 +8,7 @@ import {createServer} from 'node:http';
 import {execFileSync} from 'node:child_process';
 import {createHash,randomUUID} from 'node:crypto';
 import {CoreClient} from '../packages/runtime-client/core.js';
+import {assertApplicationStopped} from './application-cleanup.mjs';
 const gui=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const require=createRequire(join(gui,'app/package.json'));
 const {_electron:electron}=require('playwright-core');
@@ -17,6 +18,8 @@ const scratch=await mkdtemp('/private/tmp/areal-schedule-desktop-');
 const manualRegression=process.env.AREAL_TASK_MANUAL_REGRESSION==='1';
 const manualDropGate=join(scratch,'drop-manual-response'),manualTrace=join(scratch,'manual-requests.jsonl');
 const manualPrepareGate=join(scratch,'hold-manual-prepare'),manualPrepareTrace=join(scratch,'manual-prepares.jsonl');
+const manualMainErrors=join(scratch,'manual-main-errors.jsonl');
+const manualCleanup={exits:[]};
 const manualObjective='立即运行验收 MANUAL_FIXTURE';
 const manualRuns=new Map();
 const loadingRegression=process.env.AREAL_TASK_LOADING_REGRESSION==='1';
@@ -59,7 +62,7 @@ const model=createServer(async(request,response)=>{
   if(messages.some(m=>text(m).includes('AREAL_TASK_DRAFT'))) {
    const last=messages.filter(m=>m.role==='user'&&!text(m).startsWith('AReaL runtime context')).at(-1);
    const requestText=text(last??{});
-   if(manualRegression&&requestText.includes('立即运行验收')){finish(JSON.stringify({kind:'proposal',message:'将保存手动验证任务。',objective:manualObjective,interactionMode:'interactive',schedule:{at:changedAnchor,intervalSeconds:86400}}));return;}
+   if(manualRegression&&requestText.includes('立即运行验收')){finish(JSON.stringify({kind:'proposal',message:'将保存手动验证任务。',objective:manualObjective,interactionMode:'interactive',dailyStart:{kind:'explicit',source:'后天的这个时间开始'},schedule:{at:changedAnchor,intervalSeconds:86400}}));return;}
    if(requestText.includes('创建体验验收')){finish(JSON.stringify({kind:'proposal',message:'将保存安排。',objective:requestText,interactionMode:'interactive',schedule:{at:changedAnchor}}));return;}
    if(inlineRegression&&requestText.includes('定时执行内联验收')){
     finish(JSON.stringify({kind:'proposal',message:'将创建内联执行验收任务。',objective:inlineObjective,interactionMode:'interactive',schedule:{at:new Date(Date.now()+6000).toISOString().replace(/\.\d{3}Z$/,'Z'),intervalSeconds:12}}));return;
@@ -232,9 +235,11 @@ require(${JSON.stringify(join(gui,'app/src/main.cjs'))});
 `);
 }
 if(manualRegression){
+ await writeFile(manualMainErrors,'');
  launchApp=join(scratch,'manual-app');await mkdir(launchApp);
  await writeFile(join(launchApp,'package.json'),JSON.stringify({name:'manual-run-fixture',main:'bootstrap.cjs'}));
  await writeFile(join(launchApp,'bootstrap.cjs'),`
+process.on('uncaughtExceptionMonitor',(error,origin)=>require('node:fs').appendFileSync(${JSON.stringify(manualMainErrors)},JSON.stringify({pid:process.pid,origin,name:error.name,message:error.message,stack:error.stack})+'\\n'));
 const {CoreBackend}=require(${JSON.stringify(join(gui,'app/src/core/backend.cjs'))});
 const fs=require('node:fs');
 const start=CoreBackend.prototype.start;
@@ -682,11 +687,21 @@ async function checkInlineRegression(){
  await page.getByRole('button',{name:`打开自动化 ${inlineObjective}`,exact:true}).click();
  await assertRestored('reopen');
 }
+async function closeManualApp(){
+ const processHandle=app.process();let timer;
+ try{
+  await Promise.race([app.close(),new Promise((_resolve,reject)=>{timer=setTimeout(()=>reject(Error('owned Electron quit timed out')),15000);})]);
+  await until(()=>processHandle.exitCode!==null||processHandle.signalCode!==null,'owned Electron exits naturally',15000);
+  assert.equal(processHandle.exitCode,0,'owned Electron quit exit code');assert.equal(processHandle.signalCode,null,'owned Electron quit signal');
+  manualCleanup.exits.push({pid:processHandle.pid,exitCode:processHandle.exitCode,signal:processHandle.signalCode});
+  app=null;page=null;
+ }finally{clearTimeout(timer);}
+}
 async function checkManualRegression(){
  await page.getByRole('button',{name:'定时任务',exact:true}).click();
  await page.getByRole('button',{name:'新建自动化',exact:true}).click();
  const creation=await assertGlobalCreation();pid=creation.owner.id;
- await page.getByTestId('chat-input').fill('立即运行验收，明天下午六点开始，每天执行。');
+ await page.getByTestId('chat-input').fill('立即运行验收，后天的这个时间开始，每天执行。');
  await page.getByTestId('chat-send-button').click();
  const created=await until(async()=>(await call('tasks',{operation:'list'})).data.find(row=>row.objective===manualObjective),'saved manual verification Task');
  await control(created.id,'taskPause');
@@ -725,9 +740,10 @@ async function checkManualRegression(){
  const instance=(await snapshot()).projects.find(project=>project.id===pid).core.instanceId;
  const service=JSON.parse(await readFile(join(env.AREAL_HARNESS_SERVICE_HOME,'services',instance,'service.json'),'utf8'));
  assert.ok(Number.isInteger(service.corePid)&&service.corePid>0,'crash targets this fixture Core PID');
+ manualCleanup.crashTarget={instance,serviceId:service.serviceId,corePid:service.corePid,hostPid:service.hostPid};
  process.kill(service.corePid,'SIGKILL');
  await until(()=>{try{process.kill(service.corePid,0);return false;}catch(error){if(error.code==='ESRCH')return true;throw error;}},'fixture Core exits abruptly during held preparation');
- await rm(manualPrepareGate);await rm(manualDropGate);await app.close();await launch();
+ await rm(manualPrepareGate);await rm(manualDropGate);await closeManualApp();await launch();
  await until(async()=>!(await snapshot()).projects.find(project=>project.id===pid)?.pending.some(entry=>entry.method==='areal/task/runNow'),'reopen reconciles original request receipt');
  const secondFixture=await until(()=>[...manualRuns.values()][1],'same Run executes after Core restart');secondFixture.release();
  const restored=await until(async()=>{const value=await task(created.id);return value.runs[1]?.status==='completed'&&value;},'recovered manual Run completes');assert.equal(restored.runCount,2);assert.equal(restored.runs[1].id,second.runs[1].id);assert.deepEqual(plan(restored),plan(before));
@@ -958,10 +974,30 @@ try{
    for(const entry of rows.data){if(!entry.cancelled)await call('manage',{projectId:entry.projectId,operation:'taskCancel',taskId:entry.id,expectedRevision:entry.revision}).catch(()=>{});}
    await until(async()=>{const state=await call('serviceStatus',{});return !state.busy&&!state.activeCommands;},'fixture cleanup',20000);
    await app.evaluate(({dialog})=>{const old=dialog.showMessageBox;dialog.showMessageBox=async(...args)=>args.at(-1).message==='停止共享后台服务？'?{response:1}:old(...args);});
-   await call('stopService',{});
+   if(!manualRegression)await call('stopService',{});
   }catch(error){errors.push(`cleanup: ${error.message}`);}
  }
- if(app)await app.close().catch(()=>{});
+ if(manualRegression){
+  const metadata=await readFile(join(scratch,'core/service.json'),'utf8').then(JSON.parse).catch(()=>null);
+  manualCleanup.adapter=metadata&&{pid:metadata.pid,identity:metadata.identity,desktopGeneration:metadata.desktopGeneration};
+  try{if(app)await closeManualApp();await assertApplicationStopped(binary,env,metadata);manualCleanup.applicationStopped=true;}
+  catch(error){errors.push('manual cleanup: '+error.message);}
+  if(metadata&&!manualCleanup.applicationStopped){
+   manualCleanup.assistedServiceStop=true;
+   const {ServiceConnection,waitForServiceProcessExit}=require('../app/src/core/service-client.cjs');const connection=new ServiceConnection();
+   try{
+    await connection.connect(metadata);const packet=await connection.request('hello',{protocol:metadata.protocol,identity:metadata.identity});
+    try{await connection.request('stopService',{protocol:metadata.protocol,cancel:true,expectedDesktopGeneration:metadata.desktopGeneration,expectedTargets:packet.service.targets},true);}catch(error){if(!error.message.includes('已请求退出'))throw error;}
+    await waitForServiceProcessExit(join(scratch,'core'),metadata);manualCleanup.desktopExited=true;
+   }catch(error){if(!['ENOENT','ECONNREFUSED','ESRCH'].includes(error.code))errors.push('fallback stop service: '+error.message);}finally{connection.close();}
+  }
+  if(app){const handle=app.process();if(handle.exitCode===null&&handle.signalCode===null){manualCleanup.forcedElectronExit=true;handle.kill('SIGKILL');await new Promise(resolve=>handle.once('exit',resolve));}}
+  try{manualCleanup.instances=JSON.parse(execFileSync(binary,['service','list','--json'],{env,encoding:'utf8'})).map(({serviceId,workspace,state,hostPid,corePid})=>({serviceId,workspace,state,hostPid,corePid}));assert.ok(manualCleanup.instances.every(instance=>instance.state==='stopped'),'owned Core instance remains live');}catch(error){errors.push('verify owned Core cleanup: '+error.message);}
+  manualCleanup.mainErrors=(await readFile(manualMainErrors,'utf8')).trim().split('\n').filter(Boolean).map(line=>JSON.parse(line));
+  for(const error of manualCleanup.mainErrors)errors.push('uncaught Main '+error.origin+': '+error.message);
+  await writeFile(join(scratch,'manual-cleanup.json'),JSON.stringify(manualCleanup,null,2));
+  if(errors.length){passed=false;process.exitCode=1;}
+ }else if(app)await app.close().catch(()=>{});
  model.closeAllConnections();await new Promise(resolve=>model.close(resolve));
  await writeFile(join(scratch,'catalog-events.json'),JSON.stringify(catalogEvents,null,2));
  await writeFile(join(scratch,'evidence.json'),JSON.stringify({passed,binary,binarySha256,checks,errors,modelRequests:modelRequests.length},null,2));

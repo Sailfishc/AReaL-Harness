@@ -12,6 +12,7 @@ const reads = {
 const writes = {
   taskCreate: ['areal/task/create', ['mode', 'objective', 'threadId', 'interactionMode', 'schedule', 'tokenBudget', 'maxTurns', 'maxActiveSeconds']],
   taskUpdate: ['areal/task/update', ['taskId', 'expectedRevision', 'objective', 'schedule']],
+  taskRunNow: ['areal/task/runNow', ['taskId', 'expectedRevision']],
   taskPause: ['areal/task/pause', ['taskId', 'expectedRevision']],
   taskResume: ['areal/task/resume', ['taskId', 'expectedRevision']],
   taskStopRun: ['areal/task/stopRun', ['taskId', 'expectedRevision', 'expectedRunId']],
@@ -68,7 +69,8 @@ async function taskCreate(backend, project, request) {
 async function manageTask(backend, project, request) {
   const operation = request.operation;
   const historyEnabled = () => ['areal/task/runs/list', 'areal/task/run/read'].every(method => project.client.capabilities?.methods?.includes(method));
-  if (operation === 'taskHistoryCapabilities') return { enabled: historyEnabled() };
+  if (operation === 'taskHistoryCapabilities') return { enabled: historyEnabled(), runNow: project.client.capabilities?.methods?.includes('areal/task/runNow') === true };
+  if (operation === 'taskRunNow' && !project.client.capabilities?.methods?.includes('areal/task/runNow')) throw new Error('当前 Core 尚不支持立即运行，请更新 Core 后重试。');
   if (operation === 'taskRuns' || operation === 'taskRun') {
     const identifier = value => typeof value === 'string' && value.length > 0 && value.length <= 256 && !value.includes('\0');
     if (!identifier(request.taskId) || operation === 'taskRun' && !identifier(request.runId)
@@ -115,7 +117,15 @@ async function manageTask(backend, project, request) {
     return value;
   }
   if (operation === 'taskCreate') return taskCreate(backend, project, request);
+  const client = project.client;
   const value = await backend.submit(project, method, params);
+  if (operation === 'taskRunNow') {
+    backend.requireConnection(project, client);
+    const task = await client.request('areal/task/read', { taskId: params.taskId });
+    backend.requireConnection(project, client);
+    project.model.setTask(task);
+    return value;
+  }
   // Core receipts identify the Run and reply message. Preserve the originating
   // question too, so a delayed Desktop response cannot settle its sibling.
   if (operation === 'taskReply') return { ...value, questionId: params.questionId };

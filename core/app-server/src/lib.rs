@@ -1001,6 +1001,16 @@ impl Connection {
         if codex_plugins::METHODS.contains(&method) {
             return codex_plugins::dispatch(engine, &self.principal.id, method, params).await;
         }
+        if method == "areal/request/read" && params.get("taskId").is_some() {
+            return engine
+                .task_run_now_receipt_for_threads(
+                    &self.principal.id,
+                    parse(params)?,
+                    self.principal.thread_ids.as_ref(),
+                )
+                .await
+                .map_err(map_error);
+        }
         if desktop::METHODS.contains(&method) && method != "areal/thread/start" {
             if matches!(method, "areal/turn/start" | "areal/turn/enqueue") {
                 let p: areal_protocol::desktop::TurnStart = parse(params.clone())?;

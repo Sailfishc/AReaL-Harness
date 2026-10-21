@@ -1091,6 +1091,7 @@ class CoreBackend {
   }
 
   async requestSubmission(project, method, params) {
+    const client = project.client;
     if (method === 'areal/blob/release') {
       // Hold the existing per-thread admission slot while reading this guard.
       // Shared Desktop clients cannot archive between this read and release.
@@ -1107,6 +1108,22 @@ class CoreBackend {
       return await project.client.request(method, method === 'areal/agent/spawn' ? spawn : method === 'turn/steer' ? {...steer,...(durableSteer?{requestId}:{})} : params, ['areal/marketplace/addGit', 'areal/marketplace/update'].includes(method) ? { timeoutMs: 120_000 } : undefined);
     }
     catch (error) {
+      if (method === 'areal/task/runNow') {
+        let receipt;
+        try {
+          this.requireConnection(project, client);
+          const value = await client.request('areal/request/read', params);
+          this.requireConnection(project, client);
+          receipt = value.data.find(item => item.method === method);
+        } catch {
+          throw Object.assign(new Error('立即运行的受理结果待核对；不会自动重试'), { submissionUnknown: true, requestId: params.requestId });
+        }
+        if (receipt?.result) return receipt.result;
+        if (receipt || error.submissionUnknown || typeof error.code !== 'number' || error.code === -32603) {
+          throw Object.assign(new Error('立即运行的受理结果待核对；不会自动重试'), { submissionUnknown: true, requestId: params.requestId });
+        }
+        throw error;
+      }
       if (method === 'areal/turn/submit') {
         let receipt;
         try {
@@ -1132,8 +1149,6 @@ class CoreBackend {
         } catch { /* 保留原业务键，供用户显式核对。 */ }
         throw Object.assign(new Error('会话创建结果待核对；不会自动重试'), { submissionUnknown: true, requestId: params.requestId });
       }
-      // Task receipts and Agent spawn receipts are not publicly queryable. An
-      // internal error may follow a durable write; retain the journal entry.
       if (taskMutationMethods.has(method) || method === 'areal/agent/spawn' || method.startsWith('areal/workgroup/') || method === 'areal/workflow/start') {
         if (error.code === -32603) error.submissionUnknown = true;
         throw error;
@@ -1176,7 +1191,22 @@ class CoreBackend {
       if (entry.remote) { await this.recoverRemoteSubmission(project, entry); continue; }
       if (workgroupMutationMethods.has(entry.method)) { await this.recoverWorkgroupSubmission(project, entry.params.requestId); continue; }
       if (entry.method === 'areal/agent/spawn') { await this.recoverAgentSubmission(project, entry.params.parentThreadId, entry.params.requestId); continue; }
-      if (taskMutationMethods.has(entry.method)) continue; // No public receipt lookup; never infer or replay.
+      if (entry.method === 'areal/task/runNow') {
+        const value = await client.request('areal/request/read', entry.params);
+        this.requireConnection(project, client);
+        const receipt = value.data.find(item => item.method === entry.method);
+        if (!receipt?.result) continue;
+        const task = await client.request('areal/task/read', { taskId: entry.params.taskId });
+        this.requireConnection(project, client);
+        project.model.setTask(task);
+        await this.changeOutcomes(project, outcomes => ({ ...outcomes, [entry.params.requestId]: {
+          ...receipt.result, method: entry.method,
+        } }));
+        await this.changePending(project, pending => pending.filter(value => value !== entry));
+        continue;
+      }
+      if (taskMutationMethods.has(entry.method)) continue;
+
       if (entry.method === 'turn/steer') {
         if(project.client.capabilities?.methods?.includes('areal/plugin/hooks/list')) {
           const result=await client.request('areal/request/read',{requestId:entry.params.requestId});

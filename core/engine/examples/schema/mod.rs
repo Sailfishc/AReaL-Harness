@@ -133,6 +133,9 @@ pub fn projections() -> (Value, Value) {
         ],
         task_view.clone(),
     );
+    let mut run_now = schema::<areal_protocol::tasks::TaskRunNowAccepted>();
+    run_now["properties"]["accepted"] = json!({"const":true});
+    insert(&["task/runNow"], run_now.clone());
     let mut runs_page = schema::<areal_protocol::tasks::TaskRunsPage>();
     runs_page["required"]
         .as_array_mut()
@@ -441,9 +444,10 @@ pub fn projections() -> (Value, Value) {
     );
     insert(
         &["request/read"],
-        object(
-            json!({"data":array(json!({"oneOf":[receipt,object(json!({"identity":string,"requestId":string,"method":string,"digest":string,"state":{"enum":["accepted","completed","unknown"]},"response":{}}))]})),"retention":{"enum":["threadLifetime","deploymentLifetime"]},"capacity":number}),
-        ),
+        json!({"oneOf":[
+            object(json!({"data":array(json!({"oneOf":[receipt,object(json!({"identity":string,"requestId":string,"method":string,"digest":string,"state":{"enum":["accepted","completed","unknown"]},"response":{}}))]})),"retention":{"enum":["threadLifetime","deploymentLifetime"]},"capacity":number})),
+            object(json!({"data":array(object(json!({"identity":string,"requestId":string,"method":{"const":"areal/task/runNow"},"digest":string,"result":run_now}))),"retention":{"const":"taskLifetime"}}))
+        ]}),
     );
     insert(&["tool/acknowledge"], object(json!({})));
     insert(

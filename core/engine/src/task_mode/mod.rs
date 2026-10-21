@@ -16,6 +16,15 @@ use areal_protocol::{desktop::RequestReceipt, goals::*, tasks::*};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::AtomicBool;
 
+pub enum TaskRunNowAdmission {
+    Accepted(TaskRunNowAccepted),
+    ActiveRun {
+        task_id: String,
+        run_id: String,
+        revision: u64,
+    },
+}
+
 const MAX_TASKS: usize = 1024;
 const MAX_RUNS: usize = 128;
 const MAX_MESSAGES: usize = 1024;
@@ -148,6 +157,7 @@ fn run_id(task: &Task) -> Option<&str> {
 }
 fn new_run(thread_id: Option<String>, scheduled_at: i64) -> TaskRun {
     TaskRun {
+        trigger: RunTrigger::Schedule,
         objective: None,
         started_at: None,
         workers: vec![],
@@ -467,6 +477,117 @@ impl Engine {
             engine.wake_tasks();
             Ok(result)
         }).await
+    }
+
+    pub async fn task_run_now(
+        self: &Arc<Self>,
+        owner: String,
+        request: TaskRunNow,
+    ) -> Result<TaskRunNowAdmission> {
+        self.task_run_now_for_threads(owner, request, None).await
+    }
+
+    pub async fn task_run_now_for_threads(
+        self: &Arc<Self>,
+        owner: String,
+        request: TaskRunNow,
+        allowed: Option<&std::collections::BTreeSet<String>>,
+    ) -> Result<TaskRunNowAdmission> {
+        let task = self
+            .task_read_for_threads(&request.task_id, allowed)
+            .await?;
+        if allowed.is_some() {
+            return Err(invalid("TASK_PERMISSION_DENIED"));
+        }
+        self.mutate(move |engine| async move {
+            let host = engine.schedule_host(&task.owner).await;
+            let _gate = engine.desktop.lifecycle.gate.lock().await;
+            let hash = desktop::digest(&request)?;
+            let mut state = engine.task_modes.state.lock().await;
+            if let Some(value) = receipt(&state, &owner, "runNow", &request.request_id, &hash)? {
+                return Ok(TaskRunNowAdmission::Accepted(
+                    serde_json::from_value(value).map_err(invalid)?,
+                ));
+            }
+            if !engine.accepting_work() {
+                return Err(Error::Closed);
+            }
+            let mut candidate = state.clone();
+            let task = candidate
+                .tasks
+                .get_mut(&request.task_id)
+                .ok_or(Error::NotFound)?;
+            if task.cancelled || task.mode != TaskMode::Scheduled {
+                return Err(Error::Conflict);
+            }
+            if let Some(run) = task.runs.iter().find(|run| !run.status.terminal()) {
+                return Ok(TaskRunNowAdmission::ActiveRun {
+                    task_id: task.id.clone(),
+                    run_id: run.id.clone(),
+                    revision: task.revision,
+                });
+            }
+            if task.revision != request.expected_revision {
+                return Err(Error::Conflict);
+            }
+            if host.as_ref().is_none_or(|host| host.is_closed()) {
+                return Err(invalid("scheduled task Host is unavailable"));
+            }
+            let mut run = new_run(None, now());
+            run.trigger = RunTrigger::Manual;
+            run.objective = Some(task.objective.clone());
+            task.revision += 1;
+            let accepted = TaskRunNowAccepted {
+                task_id: task.id.clone(),
+                run_id: run.id.clone(),
+                revision: task.revision,
+                accepted: true,
+            };
+            task.runs.push(run);
+            remember(
+                &mut candidate,
+                owner,
+                "runNow",
+                request.request_id,
+                hash,
+                json!(accepted),
+            );
+            engine
+                .save_tasks(&mut state, candidate, &request.task_id, true)
+                .await?;
+            drop(state);
+            engine.start_task_scheduler();
+            engine.wake_tasks();
+            Ok(TaskRunNowAdmission::Accepted(accepted))
+        })
+        .await
+    }
+
+    pub async fn task_run_now_receipt_for_threads(
+        &self,
+        owner: &str,
+        request: TaskRunNow,
+        allowed: Option<&std::collections::BTreeSet<String>>,
+    ) -> Result<Value> {
+        let state = self.task_modes.state.lock().await;
+        if !state.visible(&request.task_id, allowed)? {
+            return Err(invalid("TASK_PERMISSION_DENIED"));
+        }
+        let hash = desktop::digest(&request)?;
+        let result = receipt(&state, owner, "runNow", &request.request_id, &hash)?
+            .map(serde_json::from_value::<TaskRunNowAccepted>)
+            .transpose()
+            .map_err(invalid)?;
+        if result
+            .as_ref()
+            .is_some_and(|result| result.task_id != request.task_id)
+        {
+            return Err(Error::Conflict);
+        }
+        let records: Vec<_> = result.into_iter().map(|result| json!({
+            "identity":owner,"requestId":request.request_id,"method":"areal/task/runNow","digest":hash,"result":result
+        })).collect();
+        Ok(json!({"data":records,"retention":"taskLifetime"}))
     }
 
     pub async fn task_control(

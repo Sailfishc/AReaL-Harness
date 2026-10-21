@@ -98,6 +98,7 @@ fn main() {
     add!("areal/goal/create", areal_protocol::goals::GoalCreate);
     add!("areal/task/create", areal_protocol::tasks::TaskCreate);
     add!("areal/task/update", areal_protocol::tasks::TaskUpdate);
+    add!("areal/task/runNow", areal_protocol::tasks::TaskRunNow);
     add!("areal/task/runs/list", areal_protocol::tasks::TaskRunsList);
     methods.get_mut("areal/task/runs/list").unwrap()["properties"]["limit"] =
         json!({"type":["integer","null"],"minimum":1,"maximum":100});
@@ -308,10 +309,10 @@ fn main() {
     methods.insert("areal/context/read".into(),object(json!({"threadId":string,"offset":integer,"limit":{"type":"integer","minimum":1,"maximum":32}}),vec!["threadId"]));
     methods.insert(
         "areal/request/read".into(),
-        object(
-            json!({"threadId":string,"requestId":string}),
-            vec!["requestId"],
-        ),
+        json!({"oneOf":[
+            object(json!({"threadId":string,"requestId":string}),vec!["requestId"]),
+            schemars::schema_for!(areal_protocol::tasks::TaskRunNow)
+        ]}),
     );
     methods.insert("areal/server/drain".into(),object(json!({"strategy":{"enum":["wait","cancel","ifIdle"]},"timeoutMs":{"type":"integer","minimum":0,"maximum":60000}}),vec!["strategy","timeoutMs"]));
     methods.insert(

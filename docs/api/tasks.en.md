@@ -55,6 +55,7 @@ The table omits the `areal/` prefix. create/update/control/reply require interac
 | task/runs/list | `taskId, cursor?, limit?` | `{data: TaskRun[], nextCursor, hasMore, runCount}` |
 | task/run/read | `taskId, runId` | One complete TaskRun |
 | task/update | `requestId, taskId, expectedRevision, objective?, schedule?` | Updated Task projection |
+| task/runNow | `requestId, taskId, expectedRevision` | `{taskId, runId, revision, accepted:true}` |
 | task/pause, task/resume, task/cancel | `requestId, taskId, expectedRevision` | Task projection after persisting control intent |
 | task/stopRun, task/resumeRun | `requestId, taskId, expectedRevision, expectedRunId` | Current Run stop/resume intent without changing recurrence |
 | task/host/ready | `{}`; unrestricted manage + tools required | `{ready:true}`; register current desktop connection |
@@ -66,7 +67,7 @@ The table omits the `areal/` prefix. create/update/control/reply require interac
 
 `task/pause` also accepts optional `expectedRunId`, advertised by `features.taskPauseRunGuard`. After receipt lookup, Core checks it against the latest Run together with `expectedRevision` under the same Task lock; a missing or changed Run conflicts. Supplying it to resume/cancel is invalid. An identical accepted duplicate returns its original receipt even after revision/Run changes or restart; changing the Run under the same request key conflicts. Omission preserves existing callers and receipt digests. For scheduled Tasks pause affects future triggers only; stopRun stops current work. Run and worker settlement determine when execution has stopped.
 
-Task projections contain `id, revision, channelSequence, owner, mode, interactionMode, objective, threadId, schedule, nextRunAt, paused, cancelled, tokenBudget, maxTurns, maxActiveSeconds, runs, runCount, archivedRunCount, runsComplete, skippedRuns, lastSkippedAt, pendingQuestions`, without embedded messages. A Run contains `id, threadId, goalId, status, reason, objective?, scheduledAt, startedAt, completedAt, usage, waitRequested, workers`. Workers contain `threadId, turnId, status, settled`, with running/completed/cancelled/failed status.
+Task projections contain `id, revision, channelSequence, owner, mode, interactionMode, objective, threadId, schedule, nextRunAt, paused, cancelled, tokenBudget, maxTurns, maxActiveSeconds, runs, runCount, archivedRunCount, runsComplete, skippedRuns, lastSkippedAt, pendingQuestions`, without embedded messages. A Run contains `id, threadId, goalId, status, reason, objective?, trigger, scheduledAt, startedAt, completedAt, usage, waitRequested, workers`. Workers contain `threadId, turnId, status, settled`, with running/completed/cancelled/failed status.
 
 Run status is `queued/running/waitingForInput/waitingForAgents/paused/blocked/completed/failed/cancelled`; the last three are terminal. Task paused/cancelled fields express control intent; the Run can remain running during cleanup. Determine settlement from Run termination and worker.settled, not a control response or coordinator Turn completion.
 
@@ -85,6 +86,18 @@ Clients can answer the same question from a global Inbox or Task detail without 
 Replace task state with the task/subscribe snapshot and subsequent event task projections. When channelSequence advances, page channel/read and **replace** messages by id. State changes give a question a new sequence, so it can reappear in incremental pages. Save nextSequence only after processing the page. Cursors are neither Turn IDs, Task revisions nor read markers. Channel pagination provides changes to latest message state, not a complete immutable event log. Server-side read receipts are not implemented.
 
 limit is 1–100, defaulting to 30 for Task/Inbox and 50 for Channel. Use nextCursor for Task/Inbox and nextSequence/hasMore for Channel. Pages also have an approximate 128 KiB budget; a single Task projection may exceed it. Do not assume pages reach limit. Refresh Inbox through inbox/list; no global Inbox subscription exists yet.
+
+## Run a saved Task immediately
+
+`areal/task/runNow` admits a real manual Run for a scheduled Task. It requires interact permission, an unrestricted Thread scope, an accepting Core, and a live desktop Host registered through `task/host/ready`. The workspace remains shared. The caller does not need to be the Task creator.
+
+Core atomically persists the queued Run, its objective snapshot, and the original request receipt before Host preparation. `accepted:true` confirms this durable admission. Preparation, credentials, model availability, and execution can still fail. Preparation failure blocks the same Run. `task/resumeRun` continues that Run with its existing identity and budget.
+
+Manual execution preserves `schedule`, `nextRunAt`, `paused`, and `skippedRuns`. A paused plan or a naturally completed one-time plan can run manually. A cancelled Task cannot. Every nonterminal Run prevents another admission. After receipt replay and Task eligibility checks, an overlap returns `-32009` with `{reason:"activeRun",taskId,runId,revision}` before the generic revision check. Otherwise, admission requires the current `expectedRevision`. Concurrent edits and due triggers use the same admission lock. A due tick that loses to a manual Run keeps the existing busy-skip policy.
+
+`TaskRun.trigger` is `schedule` or `manual`. Old stored Runs default to `schedule`. A manual Run uses its logical admission time as `scheduledAt`; clients label it as a manual trigger. Total Task usage includes hot and archived Runs and reserved tokens. Exhausted total budget can admit a Run that then becomes blocked before Goal execution. Manual execution never grants additional budget or permissions.
+
+To reconcile a lost reply, call `areal/request/read` with the full original `{requestId,taskId,expectedRevision}`. This Task selector cannot contain `threadId` or other fields. Current Task visibility is checked before the original identity and digest are looked up in hot and cold receipts. The response is `{data:[{identity,requestId,method:"areal/task/runNow",digest,result}],retention:"taskLifetime"}`. `result` is the exact compact acceptance. An absent receipt returns an empty data array and does not prove rejection. Changed arguments under the same identity and request ID conflict. Clients keep UNKNOWN pending until an original receipt is found; they do not replay the write or infer acceptance from Run counts. Existing thread and deployment request selectors retain their behavior.
 
 ## Updating a scheduled Task
 

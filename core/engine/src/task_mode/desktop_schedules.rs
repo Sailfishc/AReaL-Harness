@@ -24,7 +24,10 @@ impl Engine {
         Ok(())
     }
 
-    async fn schedule_host(&self, owner: &str) -> Option<Arc<dyn tools::DynamicToolHost>> {
+    pub(super) async fn schedule_host(
+        &self,
+        owner: &str,
+    ) -> Option<Arc<dyn tools::DynamicToolHost>> {
         self.task_modes
             .hosts
             .lock()
@@ -262,7 +265,7 @@ impl Engine {
                     let Some(at) = t.next_run_at.filter(|at| *at <= now()) else {
                         return;
                     };
-                    let busy = t.runs.last().is_some_and(|r| !r.status.terminal());
+                    let busy = t.runs.iter().any(|r| !r.status.terminal());
                     if !busy && host.is_none() {
                         return;
                     }
