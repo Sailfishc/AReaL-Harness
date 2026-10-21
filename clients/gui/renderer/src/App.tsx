@@ -930,7 +930,6 @@ function AppContent({ services }: { services: PlatformServices }) {
         archived: t?.desktop?.archived || summary.desktop?.archived,
         pinned: !!library.threads?.[`${owner.id}:${summary.id}`]?.pinned,
         unread: !!library.threads?.[`${owner.id}:${summary.id}`]?.unread,
-        sectionId: library.threads?.[`${owner.id}:${summary.id}`]?.sectionId,
         statePending: owner.summariesLoaded === false || owner.state?.connected === false,
         running: owner.state?.connected && t?.turns?.some((t: Data) => t.status === "inProgress"),
         attention: owner.state?.connected && owner.state?.interactions[summary.id]?.data?.some(
@@ -944,11 +943,10 @@ function AppContent({ services }: { services: PlatformServices }) {
     setRename(values);
     setRenameText(current);
   };
-  const sections: { id: string; title: string }[] = library.sections ?? [];
   const sidebarKey = (row: Data) => `${row.owner.id}:${row.summary.id}`;
-  const sidebarGroup = (row: Data) => row.pinned ? "pinned" : row.sectionId ?? (row.owner.projectless ? "chats" : row.owner.id);
+  const sidebarGroup = (row: Data) => row.pinned ? "pinned" : (row.owner.projectless ? "chats" : row.owner.id);
   const sortMode = (area: "Chats" | "Projects" | "Pinned") => library.settings?.[`sidebarSort${area}`] ?? library.settings?.sidebarSort ?? "updated_at";
-  const rowSortMode = (row: Data) => sortMode(row.pinned ? "Pinned" : row.sectionId || row.owner.projectless ? "Chats" : "Projects");
+  const rowSortMode = (row: Data) => sortMode(row.pinned ? "Pinned" : row.owner.projectless ? "Chats" : "Projects");
   const compareActivity = (a: Data, b: Data) => b.updatedAt - a.updatedAt || a.activityRank - b.activityRank || (b.summary.createdAt ?? 0) - (a.summary.createdAt ?? 0) || a.summary.id.localeCompare(b.summary.id);
   const sortRows = (rows: Data[], mode: string) => [...rows].sort((a, b) => {
     if (mode === "manual") {
@@ -966,36 +964,26 @@ function AppContent({ services }: { services: PlatformServices }) {
   });
   const organize = (request: Data) => void action("library", request).catch(() => {});
   const sidebarDrag = useSidebarDrag(request => action("library", request), library.sidebarRevision ?? 0);
-  const taskPlacement = (row: Data) => row.pinned ? { type: "pinned" } : row.sectionId ? { type: "section", id: row.sectionId } : row.owner.projectless ? { type: "chats" } : { type: "project", id: row.owner.id };
-  const projectPlacement = (id: string) => library.projects?.[id]?.pinned ? { type: "pinned" } : library.projects?.[id]?.sectionId ? { type: "section", id: library.projects[id].sectionId } : { type: "projects" };
+  const taskPlacement = (row: Data) => row.pinned ? { type: "pinned" } : row.owner.projectless ? { type: "chats" } : { type: "project", id: row.owner.id };
+  const projectPlacement = (id: string) => library.projects?.[id]?.pinned ? { type: "pinned" } : { type: "projects" };
   const placementKey = (target: Data) => target.id ? `${target.type}:${target.id}` : target.type;
   const dropRequest = (source: SidebarDragSource, target: Data, edge: "before" | "after", anchor: string | null = null) => {
-    if (source.type === "section") return target.type === "section" && source.id !== target.id
-      ? { operation: "dropSidebar", source, target, edge } : null;
+    if (source.type === "section") return null;
     if (source.type === "thread" && target.type === "projects") target = snapshot.projects.find(p => p.id === source.projectId)?.projectless ? { type: "chats" } : { type: "project", id: source.projectId };
     if (source.type === "thread" && target.type === "project" && target.id !== source.projectId) return null;
     if (source.type === "project" && target.type === "project") return null;
     const key = source.type === "thread" ? `${source.projectId}:${source.id}` : source.id;
     if (anchor === key) return null;
     const order = source.type === "thread"
-      ? sortRows(visibleRows.filter(row => placementKey(taskPlacement(row)) === placementKey(target)), sortMode(target.type === "pinned" ? "Pinned" : target.type === "section" || target.type === "chats" ? "Chats" : "Projects")).map(sidebarKey)
+      ? sortRows(visibleRows.filter(row => placementKey(taskPlacement(row)) === placementKey(target)), sortMode(target.type === "pinned" ? "Pinned" : target.type === "chats" ? "Chats" : "Projects")).map(sidebarKey)
       : (target.type === "pinned" ? pinnedProjects : projects).filter(owner => placementKey(projectPlacement(owner.id)) === placementKey(target)).map(owner => owner.id);
     return { operation: "dropSidebar", source, target, anchor, edge, order };
   };
-  const moveMenu = (operation: "moveThread" | "moveProject", values: Data, current?: string) => (
-    <DropdownMenuSub>
-      <DropdownMenuSubTrigger>移动到分组</DropdownMenuSubTrigger>
-      <DropdownMenuSubContent>
-        <DropdownMenuItem disabled={!current && !values.pinned} onClick={() => organize({ operation, ...values, sectionId: null })}>{snapshot.projects.find(p => p.id === values.projectId)?.projectless ? "任务" : "项目"}</DropdownMenuItem>
-        {sections.map(section => <DropdownMenuItem key={section.id} disabled={current === section.id} onClick={() => organize({ operation, ...values, sectionId: section.id })}>{section.title}</DropdownMenuItem>)}
-      </DropdownMenuSubContent>
-    </DropdownMenuSub>
-  );
   const taskRow = (row: Data) => (
     <MemoTaskItem
       key={`${row.owner.id}:${row.summary.id}`}
       id={row.summary.id}
-      nested={!row.owner.projectless && !row.pinned && !row.sectionId}
+      nested={!row.owner.projectless && !row.pinned}
       title={row.title}
       active={project?.id === row.owner.id && threadId === row.summary.id}
       pinned={row.pinned}
@@ -1009,7 +997,6 @@ function AppContent({ services }: { services: PlatformServices }) {
       }}
       organizationActions={<>
         <DropdownMenuItem onClick={() => organize({ operation: "readThread", projectId: row.owner.id, threadId: row.summary.id, read: row.unread })}>{row.unread ? "标为已读" : "标为未读"}</DropdownMenuItem>
-        {moveMenu("moveThread", { projectId: row.owner.id, threadId: row.summary.id, pinned: row.pinned }, row.sectionId)}
         {([[-1, "上移"], [1, "下移"]] as const).map(([direction, label]) => {
           const siblings = sortRows(visibleRows.filter(candidate => sidebarGroup(candidate) === sidebarGroup(row)), rowSortMode(row));
           const index = siblings.findIndex(candidate => sidebarKey(candidate) === sidebarKey(row));
@@ -1067,10 +1054,10 @@ function AppContent({ services }: { services: PlatformServices }) {
   const dragSource = sidebarDrag.active;
   const dragTitle = !dragSource ? "" : dragSource.type === "thread"
     ? summaries.find(row => row.summary.id === dragSource.id && row.owner.id === dragSource.projectId)?.title
-    : dragSource.type === "section" ? sections.find(section => section.id === dragSource.id)?.title
+    : dragSource.type === "section" ? ""
     : library.projects?.[dragSource.id]?.title || projects.find(owner => owner.id === dragSource.id)?.root.split("/").pop();
   const projectGroup = (owner: Data) => {
-    const rows = sortRows(visibleRows.filter((r) => r.owner.id === owner.id && !r.pinned && !r.sectionId), sortMode("Projects"));
+    const rows = sortRows(visibleRows.filter((r) => r.owner.id === owner.id && !r.pinned), sortMode("Projects"));
     const collapsed = collapsedProjects[owner.id] ?? false;
     const visibleCount = projectVisibleCounts[owner.id] ?? 5;
     return (
@@ -1106,9 +1093,8 @@ function AppContent({ services }: { services: PlatformServices }) {
               <DropdownMenuItem disabled={!services.fileOpen} onClick={() => void services.fileOpen?.({ operation: "open", projectId: owner.id, path: "." }).catch(cause => setError(cause.message))}>在默认应用中打开</DropdownMenuItem>
               <DropdownMenuItem disabled={!services.fileOpen} onClick={() => void services.fileOpen?.({ operation: "reveal", projectId: owner.id, path: "." }).catch(cause => setError(cause.message))}>在文件管理器中显示</DropdownMenuItem>
               <DropdownMenuItem onClick={() => organize({ operation: "pinProject", projectId: owner.id, pinned: !library.projects?.[owner.id]?.pinned })}>{library.projects?.[owner.id]?.pinned ? "取消置顶项目" : "置顶项目"}</DropdownMenuItem>
-              {moveMenu("moveProject", { projectId: owner.id, pinned: library.projects?.[owner.id]?.pinned }, library.projects?.[owner.id]?.sectionId)}
               {([[-1, "上移"], [1, "下移"]] as const).map(([direction, label]) => {
-                const siblings = projects.filter(candidate => (!!library.projects?.[candidate.id]?.pinned === !!library.projects?.[owner.id]?.pinned) && (library.projects?.[candidate.id]?.sectionId ?? null) === (library.projects?.[owner.id]?.sectionId ?? null));
+                const siblings = projects.filter(candidate => (!!library.projects?.[candidate.id]?.pinned === !!library.projects?.[owner.id]?.pinned));
                 const index = siblings.findIndex(candidate => candidate.id === owner.id);
                 return <DropdownMenuItem key={label} disabled={(library.projects?.[owner.id]?.pinned && sortMode("Pinned") !== "manual") || index + direction < 0 || index + direction >= siblings.length} onClick={() => organize({ operation: "orderProject", projectId: owner.id, before: direction < 0 ? siblings[index - 1].id : siblings[index + 2]?.id ?? null })}>{label}</DropdownMenuItem>;
               })}
@@ -1454,28 +1440,6 @@ function AppContent({ services }: { services: PlatformServices }) {
                       </div>
                     </section>
                   )}
-                  {sections.map((section, index) => <section className="project-group" key={section.id} data-sidebar-section={section.id}>
-                    <SidebarDragSurface className="section-heading"
-                      {...sidebarDrag.source({ type: "section", id: section.id }, !!search)}
-                      {...sidebarDrag.target(`section:${section.id}`, (source, edge) => dropRequest(source, { type: "section", id: section.id }, edge))}
-                    >
-                      <SidebarSectionToggle label={section.title} ariaLabel={`分组 ${section.title}`} controls={`sidebar-section-${section.id}`} expanded={!collapsedProjects[section.id]} onToggle={() => toggleSidebarGroup(section.id)} />
-                      <DropdownMenu>
-                        <DropdownMenuTrigger render={<button className="section-action-btn" aria-label={`分组操作 ${section.title}`}><MoreHorizontal size={16} /></button>} />
-                        <DropdownMenuContent>
-                          <DropdownMenuItem onClick={() => startRename({ operation: "renameSection", sectionId: section.id }, section.title)}>重命名</DropdownMenuItem>
-                          <DropdownMenuItem disabled={index === 0} onClick={() => organize({ operation: "orderSection", sectionId: section.id, before: sections[index - 1].id })}>上移</DropdownMenuItem>
-                          <DropdownMenuItem disabled={index === sections.length - 1} onClick={() => organize({ operation: "orderSection", sectionId: section.id, before: sections[index + 2]?.id ?? null })}>下移</DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem onClick={() => organize({ operation: "removeSection", sectionId: section.id })}>移除分组</DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </SidebarDragSurface>
-                    <div id={`sidebar-section-${section.id}`} hidden={!!collapsedProjects[section.id]}>
-                      <ul>{sortRows(visibleRows.filter(row => !row.pinned && row.sectionId === section.id), sortMode("Chats")).map(row => taskRow(row))}</ul>
-                      {projects.filter(owner => !owner.projectless && !library.projects?.[owner.id]?.pinned && library.projects?.[owner.id]?.sectionId === section.id).map(projectGroup)}
-                    </div>
-                  </section>)}
                   <section className="project-group" data-sidebar-projects>
                   <SidebarDragSurface className="section-heading" data-sidebar-drop-zone="projects" {...sidebarDrag.target("projects", (source, edge) => dropRequest(source, { type: "projects" }, edge))}>
                     <SidebarSectionToggle label={archived ? "已归档任务" : "项目"} ariaLabel="项目分类" controls="sidebar-projects" expanded={!collapsedProjects["sidebar:projects"]} onToggle={() => toggleSidebarGroup("sidebar:projects")} />
@@ -1483,7 +1447,7 @@ function AppContent({ services }: { services: PlatformServices }) {
                     <DropdownMenu>
                       <DropdownMenuTrigger render={<button className="section-action-btn" aria-label="侧栏整理"><MoreHorizontal size={16} /></button>} />
                       <DropdownMenuContent>
-                        <DropdownMenuItem onClick={() => startRename({ operation: "createSection" }, "")}>新建分组</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => void requestNavigation(() => void choose())}>{t("chat.newProject")}</DropdownMenuItem>
                         <DropdownMenuSeparator />
                         {([["Chats", "独立任务排序"], ["Projects", "项目内任务排序"], ["Pinned", "置顶项排序"]] as const).map(([area, label]) => <DropdownMenuSub key={area}>
                           <DropdownMenuSubTrigger>{label}</DropdownMenuSubTrigger>
@@ -1499,17 +1463,17 @@ function AppContent({ services }: { services: PlatformServices }) {
                     </DropdownMenu>
                   </SidebarDragSurface>
                   <div id="sidebar-projects" hidden={!!collapsedProjects["sidebar:projects"]}>
-                  {projects.filter(owner => !owner.projectless && !library.projects?.[owner.id]?.pinned && !library.projects?.[owner.id]?.sectionId).map(projectGroup)}
+                  {projects.filter(owner => !owner.projectless && !library.projects?.[owner.id]?.pinned).map(projectGroup)}
                   {!projects.length && <p className="empty-tasks">打开项目以开始</p>}
                   </div>
                   </section>
-                  {visibleRows.some(row => row.owner.projectless && !row.pinned && !row.sectionId) && <section className="project-group" data-sidebar-chats>
+                  {visibleRows.some(row => row.owner.projectless && !row.pinned) && <section className="project-group" data-sidebar-chats>
                     <SidebarDragSurface className="section-heading" data-sidebar-drop-zone="chats"
                       {...sidebarDrag.target("chats", (source, edge) => source.type === "thread" ? dropRequest(source, { type: "projects" }, edge) : null)}>
                       <SidebarSectionToggle label="任务" ariaLabel="独立任务分类" controls="sidebar-chats" expanded={!collapsedProjects["sidebar:chats"]} onToggle={() => toggleSidebarGroup("sidebar:chats")} />
                     </SidebarDragSurface>
                     <div id="sidebar-chats" hidden={!!collapsedProjects["sidebar:chats"]}>
-                      <ul>{sortRows(visibleRows.filter(row => row.owner.projectless && !row.pinned && !row.sectionId), sortMode("Chats")).map(row => taskRow(row))}</ul>
+                      <ul>{sortRows(visibleRows.filter(row => row.owner.projectless && !row.pinned), sortMode("Chats")).map(row => taskRow(row))}</ul>
                     </div>
                   </section>}
                 </div>
@@ -1768,7 +1732,7 @@ function AppContent({ services }: { services: PlatformServices }) {
                             ))}
                             <DropdownMenuItem onClick={() => void choose()}>
                               <NewProjectIcon />
-                              新建项目
+                              {t("chat.newProject")}
                             </DropdownMenuItem>
                             <DropdownMenuItem onClick={() => leaveProject()}>
                               <LeaveProjectIcon />
@@ -1973,7 +1937,7 @@ function AppContent({ services }: { services: PlatformServices }) {
                 .catch(() => {});
             }}
           >
-            <h2>{rename.operation === "createSection" ? "新建分组" : "重命名"}</h2>
+            <h2>重命名</h2>
             <input
               autoFocus
               aria-label="名称"

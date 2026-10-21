@@ -85,6 +85,7 @@ export const commonMessages = {
   "settings.attention": { "zh-CN": "设置 · 数据飞轮需要检查", en: "Settings · Data sharing needs attention" },
   "settings.trajectory.attention": { "zh-CN": "数据飞轮需要检查", en: "Data sharing needs attention" },
   "settings.chooseProject": { "zh-CN": "请先打开项目，以读取当前项目的设置。", en: "Open a project to view its settings." },
+  "chat.newProject": { "zh-CN": "新建项目", en: "New project" },
   "settings.openProject": { "zh-CN": "打开项目", en: "Open project" },
   "settings.language": { "zh-CN": "语言", en: "Language" },
   "settings.language.description": { "zh-CN": "选择设置界面的显示语言", en: "Choose the language for settings" },
