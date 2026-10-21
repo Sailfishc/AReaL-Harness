@@ -1,3 +1,5 @@
+import { useI18n } from "./i18n/IntlProvider.js";
+import { SettingsDisclosure } from "./settings/SettingsDisclosure.js";
 import { ContextMeter } from "./ContextMeter.js";
 import { isOrdinaryConversation, interruptedConversationTurn } from "./ordinaryConversation.js";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
@@ -80,6 +82,7 @@ export function Composer({
   onMcpMention?: () => void;
   onAnnotate?: (target: ImageAnnotationTarget) => void;
 }) {
+  const { t } = useI18n();
   const prefs = useApplicationPreferences();
   const key = `areal-gui:draft:${project.id}:${thread.id}`;
   const mcpDraft = useMcpDraft(key);
@@ -372,12 +375,14 @@ export function Composer({
       {deliveryError && <p role="alert" className="notice">{deliveryError}</p>}
       {unknown && (
         <div role="status" className="notice" data-composer-recovery-request-id={unknown}>
-          提交结果尚未确认。草稿已保留，等待 Core 对账；不会自动重发。
-          <small className="break-all text-foreground-subtle">请求 {unknown}</small>
+          {t("recovery.sendUnconfirmed")}
+          <SettingsDisclosure title={t("recovery.details")}>
+            <small className="break-all text-foreground-subtle">{t("recovery.requestId", { id: unknown })}</small>
+          </SettingsDisclosure>
           <button
             onClick={() => void readAction("reconcile", { projectId: project.id }).catch(() => {})}
           >
-            刷新受理状态
+            {t("recovery.checkOriginal")}
           </button>
         </div>
       )}

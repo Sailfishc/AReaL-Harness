@@ -26,6 +26,13 @@ pub fn projections() -> (Value, Value) {
     let any_object = json!({"type":"object"});
     let turn = schema::<Turn>();
     let thread = schema::<Thread>();
+    let mut deferred = schema::<DeferredHistoryItem>();
+    deferred["properties"]["type"] = json!({"const":"historyDeferred"});
+    let display_item = json!({"anyOf":[schema::<Item>(),deferred.clone()]});
+    let mut display_thread = thread.clone();
+    let ordinary_item = display_thread["$defs"]["Item"].take();
+    display_thread["$defs"]["Item"] = json!({"anyOf":[ordinary_item,deferred]});
+    let history_window = object(json!({"snapshotId":string,"nextCursor":nullable(string.clone()),"complete":boolean}));
     let provider = schema::<Provider>();
     let profile = schema::<AgentProfile>();
     let config = schema::<EffectiveConfig>();
@@ -184,10 +191,9 @@ pub fn projections() -> (Value, Value) {
         object(json!({"subscriptionCount":number})),
     );
     insert(&["thread/start"], object(json!({"thread":thread})));
-    insert(
-        &["thread/observe"],
-        object(json!({"thread":thread,"ownership":schema::<ThreadOwnership>()})),
-    );
+    let mut observation = object(json!({"thread":display_thread,"ownership":schema::<ThreadOwnership>()}));
+    observation["properties"]["history"] = history_window.clone();
+    insert(&["thread/observe"], observation);
     insert(&["thread/configure"], config.clone());
     insert(
         &["thread/inspect"],
@@ -454,12 +460,14 @@ pub fn projections() -> (Value, Value) {
             "nextCursor":nullable(string.clone()),"complete":boolean
         })),
     );
+    let mut history_fragment = object(json!({"text":string,"offsetUtf8":number,"nextOffsetUtf8":number,"totalBytes":number}));
+    history_fragment["properties"]["version"] = string.clone();
     insert(
         &["conversation/history"],
         object(
             json!({"snapshotId":nullable(string.clone()),"data":array(json!({"oneOf":[
-                object(json!({"sourceThreadId":string.clone(),"sourceTurnId":string.clone(),"sourceItemId":string.clone(),"sourceTurnStatus":schema::<TurnStatus>(),"item":schema::<Item>()})),
-                object(json!({"sourceThreadId":string.clone(),"sourceTurnId":string.clone(),"sourceItemId":string.clone(),"sourceTurnStatus":schema::<TurnStatus>(),"fragment":object(json!({"text":string.clone(),"offsetUtf8":number.clone(),"nextOffsetUtf8":number.clone(),"totalBytes":number.clone()}))}))
+                object(json!({"sourceThreadId":string.clone(),"sourceTurnId":string.clone(),"sourceItemId":string.clone(),"sourceTurnStatus":schema::<TurnStatus>(),"item":display_item})),
+                object(json!({"sourceThreadId":string.clone(),"sourceTurnId":string.clone(),"sourceItemId":string.clone(),"sourceTurnStatus":schema::<TurnStatus>(),"fragment":history_fragment}))
             ]})),"nextCursor":nullable(string.clone()),"complete":boolean}),
         ),
     );
@@ -476,9 +484,12 @@ pub fn projections() -> (Value, Value) {
         object(json!({"threadId":string,"toolsetRevision":number,"bundleId":string})),
     );
     responses.insert("thread/read".into(), object(json!({"thread":thread})));
-    for name in ["thread/start", "thread/resume", "areal/thread/observe"] {
+    for name in ["thread/start", "thread/resume"] {
         responses.insert(name.into(),object(json!({"thread":thread,"cwd":string,"model":string,"modelProvider":string,"approvalPolicy":string,"permissionMode":{"enum":["YOLO","ASK_PERMISSIONS"]},"approvalsReviewer":string,"sandbox":any_object,"reasoningEffort":nullable(string.clone())})));
     }
+    responses["thread/resume"]["properties"]["thread"] = display_thread;
+    responses["thread/resume"]["properties"]["history"] = history_window;
+    responses["thread/resume"]["properties"]["ownership"] = schema::<ThreadOwnership>();
     responses.insert(
         "thread/list".into(),
         object(json!({"data":array(thread.clone()),"nextCursor":nullable(string.clone())})),

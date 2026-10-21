@@ -2,6 +2,7 @@ import { useI18n } from "./i18n/IntlProvider.js";
 import { TurnUsage } from "./TurnUsage.js";
 import { McpContentLabel } from "./McpComposerAttachments.js";
 import { useForkHistory } from "./ForkHistory.js";
+import { DeferredHistoryItem, useConversationHistory } from "./ConversationHistory.js";
 import { UnknownToolInspection } from "./UnknownToolInspection.js";
 import { TurnNavigation } from "./TurnNavigation.js";
 import { executionOutcome, executionSegments, goalContinuationLabel, turnFailureMessage } from "./conversationPresentation.js";
@@ -82,6 +83,7 @@ export function Messages({
 }) {
   const { t } = useI18n();
   const inherited = useForkHistory(project.id, localThread, action);
+  const history = useConversationHistory(project.id, localThread, action);
   const thread: Data = { ...localThread, turns: [...inherited.turns, ...(localThread.turns ?? [])] };
   const inheritedIds = new Set(inherited.turns.map(turn => turn.id));
   const ordinary = isOrdinaryConversation(localThread, project.configurations?.[localThread.id]);
@@ -319,6 +321,11 @@ export function Messages({
         {beforeTurns}
         {inherited.loading && <p role="status">正在加载继承历史…</p>}
         {inherited.error && <p role="alert">继承历史读取失败：{inherited.error}</p>}
+        {localThread.displayHistory?.supported && !localThread.displayHistory.complete && <Button type="button" variant="ghost" size="sm"
+          disabled={localThread.displayHistory.loadingOlder} onClick={() => { readHere(); void history.load(); }}>
+          {localThread.displayHistory.loadingOlder ? t("chat.history.loadingOlder") : t("chat.history.loadOlder")}
+        </Button>}
+        {history.failure && !history.failure.itemId && <p role="alert">{history.failure.message}</p>}
         {thread.desktop?.archived && (
           <p role="status" className="notice">
             此任务已归档，历史只读。
@@ -370,7 +377,7 @@ export function Messages({
           // 完成收敛只隐藏内容，不重置工具详情或改变历史顺序。
           const groups: { id: string; progress: boolean; entries: { item: Data; index: number }[] }[] = [];
           segments.forEach((item: Data, index: number) => {
-            const progress = item.type !== "questionAnswer" && item.type !== "userMessage" && item.type !== "agentMedia" && (item.type !== "agentMessage" || item.phase === "commentary" || (!!legacyReply && item.id !== legacyReply.id));
+            const progress = item.type !== "historyDeferred" && item.type !== "questionAnswer" && item.type !== "userMessage" && item.type !== "agentMedia" && (item.type !== "agentMessage" || item.phase === "commentary" || (!!legacyReply && item.id !== legacyReply.id));
             const previous = groups.at(-1);
             if (progress && previous?.progress) previous.entries.push({ item, index });
             // An earlier empty commentary can become visible after the reader
@@ -398,6 +405,10 @@ export function Messages({
             {groups.map((group, groupIndex) => {
             const outcome = executionOutcome(group.entries.flatMap(({ item }) => item.items ?? []));
             const contents = group.entries.map(({ item, index }) => {
+              if (item.type === "historyDeferred") return <DeferredHistoryItem key={item.id} item={item}
+                loading={localThread.displayHistory?.loadingItems?.[item.id]}
+                error={history.failure?.itemId === item.id ? history.failure?.message : undefined}
+                onLoad={() => { readHere(); void history.load(item.id); }} />;
               if (item.type === "questionAnswer") return <div className="user-message" data-question-answer={item.id} key={item.id}>
                 <div className="user-message-content"><div className="user-bubble question-answer-bubble">
                   {item.questions.map((question: Data) => <div key={question.id}>
@@ -461,6 +472,9 @@ export function Messages({
                 }} />;
             });
             return <Fragment key={group.id}>
+              {localThread.displayHistory?.omitted && group.entries.some(({ item }) => item.id === localThread.displayHistory.baselineFirstItemId
+                || item.items?.some((entry: Data) => entry.id === localThread.displayHistory.baselineFirstItemId)) &&
+                <p role="status" className="notice">{t("chat.history.omitted")}</p>}
               {hasInterruption && groupIndex === stopHeaderIndex && stopHeading}
               {group.progress ? <TurnProgress summaryAvailable
                 turn={groupIndex === firstProgress ? turn : undefined} connected={!!project.state?.connected}

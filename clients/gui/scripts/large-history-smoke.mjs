@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
@@ -8,113 +9,174 @@ import { createServer } from 'node:http';
 const gui = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(join(gui, 'app/package.json'));
 const { CoreBackend } = require('../app/src/core/backend.cjs');
+const { DesktopService, PROTOCOL } = require('../app/src/core/service-protocol.cjs');
+const { ServiceConnection } = require('../app/src/core/service-client.cjs');
 const scratch = await mkdtemp('/private/tmp/areal-large-history-');
-const workspace = join(scratch, 'workspace');
-const home = join(scratch, 'desktop');
-await mkdir(workspace);
-await mkdir(join(scratch, 'user', '.areal'), { recursive: true });
-let requests = 0;
-const part = 'H'.repeat(64 * 1024);
+const workspace = join(scratch, 'workspace'), home = join(scratch, 'desktop');
+await mkdir(workspace); await mkdir(join(scratch, 'user', '.areal'), { recursive: true });
+const modelCalls = [];
+const workRequests = () => modelCalls.filter(call => !call.title).length;
 const model = createServer(async (request, response) => {
-  for await (const _ of request) {}
-  requests++;
+  let raw = ''; for await (const chunk of request) raw += chunk;
+  const body = JSON.parse(raw);
+  const title = body.messages?.[0]?.content?.startsWith('Generate a concise semantic session title') === true;
+  modelCalls.push({ title, at: Date.now() });
   response.writeHead(200, { 'Content-Type': 'text/event-stream' });
-  const chunk = (delta, finish_reason = null) => response.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta, finish_reason }] })}\n\n`);
-  for (let index = 0; index < 48; index++) chunk({content: part});
-  chunk({content: 'HISTORY_END_SENTINEL'});
-  chunk({}, 'stop');
-  response.end('data: [DONE]\n\n');
+  response.end(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: title ? 'History fixture' : 'MODEL_RECEIPT_SENTINEL' }, finish_reason: null }] })}\n\ndata: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`);
 });
 await new Promise(resolve => model.listen(0, '127.0.0.1', resolve));
-const config = join(scratch, 'user', '.areal', 'config.toml');
-await writeFile(config, `schema_version=1\n[model]\nprovider="fixture"\nname="fixture"\ncontext_window_tokens=2000000\n[model.providers.fixture]\nprotocol="chat-completions"\nendpoint="http://127.0.0.1:${model.address().port}/v1/chat/completions"\n`);
+await writeFile(join(scratch, 'user', '.areal', 'config.toml'), `schema_version=1\n[model]\nprovider="fixture"\nname="fixture"\ncontext_window_tokens=2000000\n[model.providers.fixture]\nprotocol="chat-completions"\nendpoint="http://127.0.0.1:${model.address().port}/v1/chat/completions"\n`);
 const deployment = join(scratch, 'desktop.json');
 await writeFile(deployment, JSON.stringify({ profiles: [{ id: 'fixture', revision: 'v1', displayName: 'Fixture', instructions: 'Complete the task' }] }));
-const backendOptions = { binary: process.env.AREAL_CORE_BIN || resolve(gui, '../../target/debug/areal'),
-  home, harnessHome: join(scratch, 'registry'), userHome: join(scratch, 'user'),
-  desktopConfig: deployment, defaultProfile: { id: 'fixture', revision: 'v1' } };
-let backend = new CoreBackend(backendOptions);
-const checks = [];
-async function until(predicate, label, timeout = 15000) {
+const options = { binary: process.env.AREAL_CORE_BIN || resolve(gui, '../../target/debug/areal'), home,
+  harnessHome: join(scratch, 'registry'), userHome: join(scratch, 'user'), desktopConfig: deployment, defaultProfile: { id: 'fixture', revision: 'v1' } };
+let backend = new CoreBackend(options), passed = false, service, connection, desktopPacket, stage = 'seed';
+const progress = (value, data = {}) => { stage = value; console.log(JSON.stringify({ stage, ...data })); };
+const rpcTimings = [];
+let maxCacheBytes = 0;
+const checks = [], wireBytes = [];
+async function until(predicate, label, timeout = 60000) {
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) { if (predicate()) return; await new Promise(resolve => setTimeout(resolve, 30)); }
   throw new Error(`Timeout: ${label}`);
 }
-let passed = false;
+const digest = value => createHash('sha256').update(value).digest('hex');
+const ids = thread => thread.turns.flatMap(turn => turn.items.map(item => item.id));
+const history = (projectId, threadId, operation, extra = {}) => backend.command('history', { projectId, threadId, viewId: `smoke:${threadId}`, operation, ...extra });
+function capture(project) {
+  const request = project.client.request.bind(project.client);
+  project.client.request = (method, params, settings) => {
+    if (['areal/thread/observe', 'areal/conversation/history'].includes(method)) {
+      assert.equal(params?.mode ?? params?.view, method === 'areal/thread/observe' ? 'bounded' : 'own');
+      assert.ok(params.maxBytes <= 1048576);
+      assert.ok(settings?.maxResponseBytes <= 1048576);
+    }
+    assert.ok(method !== 'thread/read' || params?.includeTurns !== true, 'ordinary Desktop history path must not bypass bounded observe');
+    const started = performance.now();
+    return request(method, params, settings).then(result => {
+      if (['areal/thread/observe', 'areal/conversation/history'].includes(method)) {
+        const fragment = result.data?.[0]?.fragment;
+        const timing = { method, elapsedMs: Math.round(performance.now() - started), ...(fragment ? { offsetUtf8: fragment.offsetUtf8, totalBytes: fragment.totalBytes } : {}) };
+        rpcTimings.push(timing); progress(stage, timing);
+      }
+      return result;
+    });
+  };
+  project.client.socket.on('message', bytes => { const value = JSON.parse(String(bytes)); if (value.result?.history || value.result?.snapshotId && value.result?.data) wireBytes.push(Buffer.byteLength(bytes)); });
+}
 try {
   await backend.init();
-  const projectId = await backend.addProject(workspace);
-  const project = backend.projects.get(projectId);
-  const {threadId} = await backend.command('create', {projectId});
-  for (let index = 0; index < 2; index++) {
-    await backend.command('send', {projectId, threadId, text: `history fixture ${index}`});
-    await until(() => {
-      const turns = project.model.state.threads[threadId]?.turns ?? [];
-      const failed = turns.find(turn => turn.status === 'failed');
-      if (failed) throw new Error(`Fixture turn failed: ${JSON.stringify(failed.error)}`);
-      return turns.filter(turn => turn.status === 'completed').length === index + 1;
-    }, 'fixture turn completed', 60000);
+  const projectId = await backend.addProject(workspace), project = backend.projects.get(projectId);
+  assert.equal(project.client.capabilities?.features?.boundedObservation, true, 'requires Unit4 Core capability');
+  const { threadId } = await backend.command('create', { projectId });
+  const { threadId: archivedId } = await backend.command('create', { projectId });
+  const { threadId: hugeId } = await backend.command('create', { projectId });
+  const additionalIds = [];
+  for (let n = 0; n < 7; n++) additionalIds.push((await backend.command('create', { projectId })).threadId);
+  await backend.command('send', { projectId, threadId, text: 'fixture seed' });
+  await until(() => project.model.state.threads[threadId]?.turns.some(turn => turn.status === 'completed'), 'seed completed');
+  const modelRequests = workRequests(), dataDir = project.service.dataDir;
+  await backend.shutdown(); await backend.disconnect();
+  const makeTurn = n => ({ id: `turn-${n}`, status: 'completed', items: [
+    { id: `user-${n}`, type: 'userMessage', content: [{ type: 'text', text: `question ${n}` }] },
+    { id: `answer-${n}`, type: 'agentMessage', text: `${n}:雪\\\"🙂\n`.repeat(6000) },
+  ] });
+  const turns = Array.from({ length: 90 }, (_, n) => makeTurn(n));
+  await mkdir(join(dataDir, 'history'), { recursive: true });
+  let previous = null;
+  for (let end = 10; end <= 80; end += 10) {
+    const bytes = Buffer.from(JSON.stringify({ version: 1, previous, turns: turns.slice(end - 10, end) }));
+    const head = digest(bytes); await writeFile(join(dataDir, 'history', head), bytes);
+    previous = { head, throughItemId: `answer-${end - 1}`, completedTurns: end, items: end * 2, bytes: bytes.length };
   }
-  const original = JSON.parse(JSON.stringify(project.model.state.threads[threadId]));
-  assert.ok(Buffer.byteLength(JSON.stringify(original)) > 6 * 1024 * 1024, 'accumulated history exceeds the old frame ceiling without exceeding the per-response model budget');
-  const generation = project.service.generation;
-  const modelRequests = requests;
-  await backend.openThread(project, threadId);
-  assert.equal(project.client.ready, true, 'opening large history keeps Core connected');
-  assert.equal(project.model.state.threads[threadId].turns.length, original.turns.length);
-  assert.match(JSON.stringify(project.model.state.threads[threadId]), /HISTORY_END_SENTINEL/);
-  checks.push('complete history above 6 MiB loads through the production Core WebSocket without disconnecting');
-  const previous = project.client;
-  previous.socket.terminate();
-  await until(() => project.client !== previous && project.model.state.connected && !backend.starting.has(projectId), 'large history reconnect', 60000);
-  assert.equal(project.service.generation, generation);
-  assert.equal(requests, modelRequests, 'recovery never resubmits model work');
-  assert.deepEqual(JSON.parse(JSON.stringify(project.model.state.threads[threadId].turns)), original.turns);
-  checks.push('observer reconnect restores the same complete history without restarting Core or replaying a turn');
-  const {threadId: healthyThreadId} = await backend.command('create', {projectId});
-  const knownRequestId = Object.entries(project.outcomes).find(([, result]) => result.threadId === threadId && result.accepted)?.[0];
-  assert.ok(knownRequestId, 'fixture has an accepted submission receipt');
-  const path = join(project.service.dataDir, `${threadId}.json`);
-  await backend.shutdown();
-  await backend.disconnect();
-  const record = JSON.parse(await readFile(path, 'utf8'));
-  const item = record.thread.turns.flatMap(turn => turn.items).find(item => item.type === 'agentMessage');
-  item.text = 'X'.repeat(64 * 1024 * 1024);
-  await writeFile(path, JSON.stringify(record));
-  backend = new CoreBackend(backendOptions);
-  await backend.init();
-  const restored = await backend.loadProjectJournal(projectId);
-  restored.model.replace(original);
-  await backend.changePending(restored, pending => [...pending, { method: 'areal/turn/submit', params: { threadId, requestId: knownRequestId } }]);
-  await backend.start(projectId);
-  assert.equal(restored.client.ready, true, 'one oversized cached view does not disconnect the project');
-  assert.equal(restored.model.state.connected, true);
-  assert.equal(restored.observationErrors[threadId].code, 'RESPONSE_TOO_LARGE');
-  assert.equal(restored.pending.length, 0, 'known accepted receipt is settled even when its history cannot be delivered');
-  assert.equal(restored.outcomes[knownRequestId].accepted, true);
-  await assert.rejects(backend.openThread(restored, threadId), error => error.code === 'RESPONSE_TOO_LARGE' && error.submissionUnknown === false);
-  await backend.openThread(restored, healthyThreadId);
-  assert.equal(restored.client.ready, true);
-  assert.equal(restored.model.state.threads[healthyThreadId].id, healthyThreadId);
-  await assert.rejects(backend.command('send', { projectId, threadId, text: 'must not execute on a stale baseline' }), error => error.code === 'RESPONSE_TOO_LARGE' && error.submissionUnknown === false);
-  for (const method of ['areal/goal/create', 'areal/queue/steer']) {
-    await assert.rejects(backend.submit(restored, method, { threadId }), error => error.code === 'RESPONSE_TOO_LARGE' && error.submissionUnknown === false);
+  for (const id of [threadId, archivedId, ...additionalIds]) {
+    const path = join(dataDir, `${id}.json`), record = JSON.parse(await readFile(path, 'utf8'));
+    record.thread.turns = turns.slice(80); record.thread.historyArchive = previous; record.thread.desktop.archived = id === archivedId;
+    await writeFile(path, JSON.stringify(record));
   }
-  assert.equal(requests, modelRequests, 'size failures and receipt recovery do not replay or start model work');
-  checks.push('over-64MiB synthetic persisted history returns a correlated read error while a healthy chat and known receipt remain usable');
-  checks.push('cached oversized history cannot submit unobservable work');
-  await backend.shutdown();
-  await backend.disconnect();
-  passed = true;
-} finally {
-  if (!passed) {
-    for (const project of backend.projects.values()) {
-      try { await project.client?.request('areal/server/drain', { strategy: 'cancel' }); } catch {}
+  const hugePath = join(dataDir, `${hugeId}.json`), hugeRecord = JSON.parse(await readFile(hugePath, 'utf8'));
+  const hugeText = '雪\\\"🙂\n'.repeat(5500000);
+  const hugeHash = digest(hugeText);
+  hugeRecord.thread.turns = [{ id: 'huge-turn', status: 'completed', items: [{ id: 'huge-user', type: 'userMessage', content: [{ type: 'text', text: 'huge fixture' }] }, { id: 'huge-item', type: 'agentMessage', text: hugeText }] }];
+  assert.ok(Buffer.byteLength(JSON.stringify(hugeRecord)) > 64 * 1024 * 1024);
+  await writeFile(hugePath, JSON.stringify(hugeRecord));
+  const persisted = new Map();
+  for (const id of [threadId, archivedId, hugeId, ...additionalIds]) {
+    const value = JSON.parse(await readFile(join(dataDir, `${id}.json`), 'utf8')).thread;
+    persisted.set(id, digest(JSON.stringify({ turns: value.turns, receipts: value.receipts })));
+  }
+  backend = new CoreBackend(options); await backend.init(); await backend.start(projectId);
+  const live = backend.projects.get(projectId); capture(live);
+  for (const id of [threadId, archivedId]) {
+    progress(id === archivedId ? 'archived-pages' : 'ordinary-pages');
+    await backend.openThread(live, id); await history(projectId, id, 'acquire');
+    let ordered = ids(live.model.state.threads[id]);
+    assert.ok(Buffer.byteLength(JSON.stringify(live.model.state.threads[id])) <= 1048576, 'initial Desktop view is bounded');
+    let complete = live.model.state.threads[id].displayHistory.complete;
+    while (!complete) {
+      const page = await history(projectId, id, 'loadOlder');
+      ordered = [...page.data.map(entry => entry.sourceItemId), ...ordered];
+      complete = page.complete;
+      assert.ok(Buffer.byteLength(JSON.stringify(live.model.state.threads[id])) < 6 * 1048576, 'old display pages stay bounded while traversing all history');
     }
-    await backend.shutdown().catch(() => backend.disconnect());
+    assert.deepEqual(ordered, turns.flatMap(turn => turn.items.map(item => item.id)), 'all old page IDs are chronological without gaps or duplicates');
+    await history(projectId, id, 'release');
   }
-  model.closeAllConnections();
-  await new Promise(resolve => model.close(resolve));
-  await writeFile(join(scratch, 'manifest.json'), JSON.stringify({ passed, checks, scope: 'production CoreBackend and Core WebSocket; deterministic 3MiB model responses; over-64MiB store and retained-cache failure injection after owned Core shutdown; no Renderer acceptance' }, null, 2));
+  checks.push('ordinary and archived multi-segment histories traverse in order through bounded Desktop reads with finite display retention');
+  progress('huge-baseline');
+  await backend.openThread(live, hugeId);
+  service = new DesktopService(backend, 'large-history-fixture');
+  const metadata = await service.listen();
+  connection = new ServiceConnection(packet => { desktopPacket = packet; }, () => {});
+  await connection.connect(metadata); await connection.request('hello', { protocol: PROTOCOL, identity: metadata.identity });
+  const desktopHistory = (operation, extra = {}) => connection.request('command', { name: 'history', request: { projectId, threadId: hugeId, viewId: 'desktop-huge', operation, ...extra } });
+  await desktopHistory('acquire');
+  assert.equal(live.model.state.threads[hugeId].turns[0].items.find(item => item.id === 'huge-item').type, 'historyDeferred');
+  assert.ok(Buffer.byteLength(JSON.stringify(live.model.state.threads[hugeId])) <= 1048576, 'huge item is not eagerly materialized');
+  progress('huge-fragments');
+  await desktopHistory('loadItem', { itemId: 'huge-item' });
+  assert.equal(digest(live.model.state.threads[hugeId].turns[0].items.find(item => item.id === 'huge-item').text), hugeHash);
+  const received = desktopPacket.snapshot.projects.find(project => project.id === projectId).state.threads[hugeId];
+  assert.equal(digest(received.turns[0].items.find(item => item.id === 'huge-item').text), hugeHash, 'actual Desktop transport preserves the full explicit item');
+  await desktopHistory('release');
+  assert.equal(desktopPacket.snapshot.projects.find(project => project.id === projectId).state.threads[hugeId].turns[0].items.find(item => item.id === 'huge-item').type, 'historyDeferred');
+  assert.ok(Buffer.byteLength(JSON.stringify(live.model.state.threads[hugeId])) <= 1048576, 'last view release drops huge materialization');
+  checks.push('escaped Unicode item above 64MiB reassembles exactly only after explicit load and is released with its view');
+  progress('reconnect');
+  const before = live.client, generation = live.service.generation;
+  before.socket.terminate();
+  await until(() => live.client !== before && live.model.state.connected && !backend.starting.has(projectId), 'bounded reconnect');
+  capture(live);
+  assert.equal(live.service.generation, generation); assert.equal(workRequests(), modelRequests, 'reconnect starts no non-title model work');
+  assert.equal(live.model.state.threads[hugeId].turns[0].items.find(item => item.id === 'huge-item').type, 'historyDeferred');
+  assert.ok(wireBytes.length > 10 && Math.max(...wireBytes) <= 1048576, 'every observed history RPC envelope is <=1MiB');
+  checks.push('reconnect recovers the same bounded views without additional model work or Core restart');
+  progress('cache-views');
+  for (const id of [...additionalIds, threadId]) {
+    await backend.openThread(live, id); await history(projectId, id, 'acquire');
+    for (let n = 0; n < 4 && !live.model.state.threads[id].displayHistory.complete; n++) await history(projectId, id, 'loadOlder');
+    const cacheBytes = Buffer.byteLength(JSON.stringify({ threads: live.model.state.threads, pages: [...backend.historyWindows.values()].map(window => window.pages) }));
+    maxCacheBytes = Math.max(maxCacheBytes, cacheBytes);
+    assert.ok(backend.historyWindows.size <= 8 && cacheBytes < 20 * 1048576, 'all Desktop history windows and retained page entries have finite combined size');
+  }
+  await assert.rejects(backend.openThread(live, archivedId), /视图已达上限/);
+  await history(projectId, additionalIds[0], 'release');
+  await backend.openThread(live, archivedId);
+  assert.equal(backend.historyWindows.size, 8);
+  for (const id of [...additionalIds, threadId]) await history(projectId, id, 'release');
+  checks.push('more than eight conversation views evict unused windows with bounded combined model and page bytes');
+  for (const [id, hash] of persisted) {
+    const value = JSON.parse(await readFile(join(dataDir, `${id}.json`), 'utf8')).thread;
+    assert.equal(digest(JSON.stringify({ turns: value.turns, receipts: value.receipts })), hash, 'read/reconnect cannot append a Turn or change its authoritative effect receipts');
+  }
+  assert.equal(workRequests(), modelRequests);
+  passed = true;
+} catch (error) { console.error(JSON.stringify({ stage, failure: error.message, code: error.code, historyResponses: wireBytes.length, lastRpc: rpcTimings.at(-1) })); throw error;
+} finally {
+  connection?.close(); service?.close();
+  for (const project of backend.projects.values()) { try { await project.client?.request('areal/server/drain', { strategy: 'cancel' }); } catch {} }
+  await backend.shutdown().catch(() => {}); await backend.disconnect().catch(() => {});
+  model.closeAllConnections(); await new Promise(resolve => model.close(resolve));
+  await writeFile(join(scratch, 'manifest.json'), JSON.stringify({ passed, checks, workRequests: workRequests(), titleRequests: modelCalls.filter(call => call.title).length, modelCalls, stage, maxCacheBytes, rpcTimings, historyResponses: wireBytes.length, maxHistoryResponseBytes: Math.max(0, ...wireBytes), scope: 'production CoreBackend and real Core WebSocket plus DesktopService/ServiceConnection, isolated persisted multi-segment fixtures and local deterministic model; no Renderer acceptance' }, null, 2));
   console.log(JSON.stringify({ passed, evidence: scratch, checks }));
 }

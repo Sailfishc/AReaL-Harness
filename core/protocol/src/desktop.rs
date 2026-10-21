@@ -175,6 +175,30 @@ pub struct AttachBrowserTools {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ObserveThread {
     pub thread_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<ObservationMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 1, max = 1048576))]
+    pub max_bytes: Option<usize>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum ObservationMode { Bounded }
+
+pub const DEFAULT_HISTORY_PAGE_BYTES: usize = 256 * 1024;
+pub const MAX_HISTORY_PAGE_BYTES: usize = 1024 * 1024;
+
+/// 只用于显示 DTO；绝不进入执行域 Item 或持久 Thread。
+#[derive(Clone, Debug, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DeferredHistoryItem {
+    pub r#type: String,
+    pub id: String,
+    pub original_type: String,
+    pub cursor: String,
+    pub version: String,
+    pub total_bytes: usize,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]

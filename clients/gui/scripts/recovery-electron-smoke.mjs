@@ -23,6 +23,10 @@ const sha = value => createHash('sha256').update(value).digest('hex');
 const json = (path, value) => writeFile(path, JSON.stringify(value, null, 2));
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const alive = pid => { try { process.kill(pid, 0); return true; } catch (error) { if (error.code === 'ESRCH') return false; throw error; } };
+const displayTurns = turns => turns.map(turn => ({ id: turn.id, status: turn.status, items: turn.items,
+  ...Object.fromEntries(['error', 'interruption', 'continuedFromTurnId', 'startedAt', 'completedAt',
+    'durationMs', 'goal', 'usage', 'generation'].map(key => [key, turn[key] ?? null])),
+}));
 async function until(read, label, timeout = 60000) {
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) { const value = await read(); if (value) return value; await sleep(50); }
@@ -149,7 +153,17 @@ async function cleanup(run) {
     await until(() => !alive(metadata.pid), 'owned Desktop exits', 20000);
   }
   const instances = await records(run.state);
-  assert.ok(instances.every(record => record.workspace === join(run.state, 'workspace')), 'Unexpected workspace in private registry');
+  const projects = JSON.parse(await readFile(join(run.state, 'core/projects.json'), 'utf8'));
+  assert.ok(Array.isArray(projects), 'Invalid private project index');
+  for (const record of instances) {
+    const project = projects.find(project => project.root === record.workspace && /^[a-f0-9]{24}$/.test(project.id)
+      && record.dataDir === join(run.state, 'core', project.id, 'state'));
+    assert.ok(project && (project.root === join(run.state, 'workspace') || project.projectless === true && typeof project.projectlessRequestId === 'string'
+      && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(project.projectlessRequestId)
+      && project.root === join(run.state, 'user/Documents/AReaL', project.projectlessRequestId)), 'Unexpected workspace in private registry');
+    assert.equal(record.owner?.profile, join(run.state, 'electron'), 'Unexpected service profile in private registry');
+    assert.ok((run.appRunIds ?? [run.appRunId]).includes(record.owner?.appRunId), 'Unexpected service application owner');
+  }
   await until(async () => (await records(run.state)).every(record => !alive(record.hostPid) && !alive(record.corePid)), 'owned Core/Host processes exit', 20000);
   return { desktopExited: !metadata || !alive(metadata.pid), hostAndCoreExited: true,
     statePreserved: true, state: run.state, registry: (await records(run.state)).map(({ serviceId, generation, state, hostPid, corePid }) => ({ serviceId, generation, state, hostPid, corePid })) };
@@ -196,7 +210,9 @@ else if (command === 'cleanup' && process.argv[3]) {
     assert.equal(actual.userData, env.AREAL_GUI_USER_DATA); assert.equal(actual.sandbox, true);
     assert.equal(actual.contextIsolation, true); assert.equal(actual.nodeIntegration, false);
     const metadata = JSON.parse(await readFile(join(state, 'core/service.json'), 'utf8'));
-    run.appRunId = metadata.applicationOwner.appRunId; await json(join(evidence, 'run.json'), run);
+    run.appRunId = metadata.applicationOwner.appRunId;
+    run.appRunIds = [...new Set([...(run.appRunIds ?? []), run.appRunId])];
+    await json(join(evidence, 'run.json'), run);
     await json(join(evidence, `doctor-${processHandle.pid}.json`), { ...actual, desktopPid: metadata.pid,
       desktopGeneration: metadata.desktopGeneration, appRunId: run.appRunId, binarySHA256: sha(await readFile(binary)) });
     await app.evaluate(({ dialog }, path) => {
@@ -258,7 +274,7 @@ else if (command === 'cleanup' && process.argv[3]) {
     await page.getByTestId('chat-input').fill('Accept exactly this original send once'); await page.getByTestId('chat-send-button').click();
     await until(() => send.completed, 'real accepted Desktop send response intercepted');
     assert.equal(send.hadError, false, JSON.stringify(send.response)); assert.ok(send.requestId); assert.equal(send.threadId, threadId);
-    const unknown = page.getByTestId('chat-view').locator('.composer-dock [role="status"]').filter({ hasText: '提交结果尚未确认。草稿已保留，等待 Core 对账；不会自动重发。' });
+    const unknown = page.getByTestId('chat-view').locator('.composer-dock [role="status"]').filter({ hasText: '发送结果尚未确认，草稿已保留，正在核对原请求。' });
     await unknown.waitFor();
     await capture('03-send-response-lost');
     const matchingSelector = process.env.AREAL_RECOVERY_NOTICE_SELECTOR ?? '.work-area [data-recovery-request-id="{requestId}"]';
@@ -276,7 +292,7 @@ else if (command === 'cleanup' && process.argv[3]) {
     assert.equal(events.filter(value => value.type === 'command' && value.name === 'send' && value.requestId === send.requestId).length, 1, 'Main never replays accepted send');
     checks.push('real UI accepted send response lost across Main↔Desktop; original request converges and matching notices disappear; one additional Core Turn and non-title model request');
     await json(join(evidence, 'send-fault.json'), send); await capture('04-send-converged');
-    const history = structuredClone(accepted.turns), readModel = workRequests();
+    const history = displayTurns(accepted.turns), readModel = workRequests();
     await createProjectConversation(page, 'workspace');
     const read = proxy.arm('open'); await page.getByTestId(`task-item-${threadId}`).click();
     await until(() => read.completed, 'real Desktop history-open response intercepted');
@@ -287,7 +303,7 @@ else if (command === 'cleanup' && process.argv[3]) {
     await until(async () => await page.getByTestId('areal-workbench').getAttribute('data-thread-id') === threadId, 'original conversation remains selected');
     await page.getByTestId('chat-view').getByText('RECOVERY_HISTORY_SENTINEL_1', { exact: true }).waitFor();
     await page.getByTestId('chat-view').getByText('RECOVERY_HISTORY_SENTINEL_2', { exact: true }).waitFor();
-    assert.deepEqual(thread(await snapshot()).turns, history); assert.equal(workRequests(), readModel);
+    assert.deepEqual(displayTurns(thread(await snapshot()).turns), history); assert.equal(workRequests(), readModel);
     assert.equal(await unknown.count(), 0, 'A read interruption must not invent a pending send');
     checks.push('real UI history-open read response interrupted; reconnect retains visible original history and starts no model work');
     await json(join(evidence, 'read-fault.json'), read); await capture('06-history-restored');
@@ -296,7 +312,7 @@ else if (command === 'cleanup' && process.argv[3]) {
     await launch(); await until(async () => project(await snapshot())?.state?.connected, 'same private project restored after fresh Main launch');
     await page.getByTestId(`task-item-${threadId}`).click();
     await page.getByTestId('chat-view').getByText('RECOVERY_HISTORY_SENTINEL_2', { exact: true }).waitFor();
-    assert.deepEqual(thread(await snapshot()).turns, history); assert.equal(workRequests(), readModel);
+    assert.deepEqual(displayTurns(thread(await snapshot()).turns), history); assert.equal(workRequests(), readModel);
     checks.push('fresh source Electron process restores original history from real Core without replay');
     await capture('07-fresh-process-history'); await stopGUI();
     manifest.threadId = threadId; manifest.projectId = projectId; manifest.modelWorkRequests = workRequests();

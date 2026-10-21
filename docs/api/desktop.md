@@ -113,6 +113,24 @@ thread/configure 使用 expectedRevision，仅空闲且不压缩时生效。rese
 options.readOnly 收窄 Scope 写根和网络；toolAllowlist 收窄 Profile；preapprovedTools 不能取消部署强制审批，且只匹配当前工具名；预批准读取工具不会豁免它触发的 hook。maxModelRounds 为 1–1024，最后一轮仅交接，不等于团队请求预算。Profile/Workflow 定义使用不可变 id/revision；Skill 引用不冻结资源内容，见下文。
 
 <a id="skills"></a>
+### 有界历史显示
+
+GUI 协商 `boundedObservation` 与 `boundedHistory` 后，普通、Side 和归档聊天统一使用 `areal/thread/observe {mode:"bounded",maxBytes:262144}` 建立显示基线。Core 明确返回 `HISTORY_BUDGET_TOO_SMALL` 时，仅增大一次到 1 MiB；仍失败则保留当前聊天的读取错误。`CoreClient` 对该次完整响应独立执行同样的字节上限，安装基线仍在同步 `onResult` 中完成。浏览器宿主恢复另须 `boundedResume`；不以附加工具替代原有宿主绑定。缺少新能力的 Core 保留完整历史兼容路径，不能提供分页容量保证。
+
+Desktop 的只读 `history` 命令接受 `{projectId,threadId,viewId,operation:"acquire"|"loadOlder"|"loadItem"|"release",itemId?}`。仅 `loadItem` 接受 `itemId`；游标、预算与 Core 身份由 Desktop 持有。Messages 为每个阅读视图获取并释放独立 `viewId`，主聊天、Side 和子对话复用同一入口。加载旧页按 Turn/Item ID 合并到当前显示投影，保留读取期间的新事件。Fork 继承历史和 Side 参考快照继续保留原有来源契约。
+
+显示缓存最多保留 8 个聊天窗口，每个保留最新基线和 4 个已加载旧页；更深翻页会释放靠近最新基线的旧页，并在消息流明确标出省略区间。最后一个阅读视图释放时删除旧页和显式展开内容；另一个 GUI 的同一聊天视图仍存在时不释放其内容，也不取消 Core 执行或删除持久历史。完整条目及正在拼接的条目共享 128 MiB 序列化字节预算。打开聊天不自动展开大型 `historyDeferred` 条目；用户点击“加载完整内容”后，Desktop 才按不超过 1 MiB 的响应分片校验 UTF-8 偏移、总长度和版本，完成后替换原占位项。显式展开会增加该条目的可见内存，预算不代表进程峰值内存上限。
+
+旧页游标失效只重建对应聊天基线；条目版本变化丢弃已读片段并至多从 Core 提供的 `restartCursor` 重读一次。加载中保留真实占位项和进度，错误不伪装为 Agent 消息。自动文件变更摘要只读取已加载显示内容；大型工具记录尚未加载时明确提示先展开，不通过完整 `thread/read` 绕过预算。所有历史读取均不重放提交。
+
+Desktop 按已认证 socket 管理阅读视图，客户端断开会释放其全部引用；迟到的 acquire 不能恢复已关闭的视图，也不能释放另一客户端的同名视图。重建基线会让 Renderer 重新获取视图。完成轮次后，如果显示历史超过 1 MiB，会重取有界基线，并释放旧页及显式展开内容，用户可再次按需读取；显式展开不能豁免后续完成历史的容量限制。
+
+Desktop → Main 延续 256 MiB 单帧边界。发送端每连接最多一个正在发送的帧、一份合并后的待发状态，以及总序列化字节不超过 32 MiB 的有序普通回包队列。投影只在实际发送时编码；大条目状态等待发送回调后才发送下一帧，避免将合法大帧后的命令回包误判为慢消费者。发送错误、超时或队列超限关闭连接并释放缓存；现有请求超时仍生效。
+
+### Core 崩溃后的受控恢复
+
+Desktop 首先按相同 generation 查询状态并尝试重连。仅在 `status --recovery` 返回正向 Host 清理证明，且 applicationOwner、存活的客户端生命周期和新读取的配置均匹配时，才调用受控恢复；丢失回复后仍以原 generation 读取已记录的后继，不回退到 `ensure`。每个原 generation 最多两次受控 CLI 查询/恢复调用，每项目五分钟最多两个崩溃候选；`cleanupUnconfirmed` 读取等待最长 30 秒。派发和采纳前均复核生命周期、项目、客户端和退出状态。恢复后的 connect/reconcile 使用 `observeOnly`，Core 启动保留 UNKNOWN，不重放未知提交。权威证明和恢复接口见[本地共享服务](local-service.md)。
+
 ## 模型配置热应用
 
 共享服务提供两个窄方法，能力以当前连接的 `areal/capabilities.methods` 为准。仅经过认证、具有 `manage` 和 `tools`、不受 Thread 范围限制的 `desktop-owner` 可以调用；观察者、普通模型客户端和独立无配置控制器的 Engine 不具有此能力。请求不能指定文件路径、Provider 元数据或任意进程环境。

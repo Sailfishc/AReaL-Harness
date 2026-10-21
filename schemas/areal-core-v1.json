@@ -16720,12 +16720,33 @@
     },
     "areal/conversation/history": {
       "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "view": {
+                "enum": [
+                  "inherited",
+                  "reference"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "maxBytes": {
+                "maximum": 262144
+              }
+            }
+          }
+        }
+      ],
       "properties": {
         "cursor": {
           "type": "string"
         },
         "maxBytes": {
-          "maximum": 262144,
+          "maximum": 1048576,
           "minimum": 1,
           "type": "integer"
         },
@@ -16734,6 +16755,7 @@
         },
         "view": {
           "enum": [
+            "own",
             "inherited",
             "reference"
           ]
@@ -21206,8 +21228,35 @@
       "type": "object"
     },
     "areal/thread/observe": {
+      "$defs": {
+        "ObservationMode": {
+          "enum": [
+            "bounded"
+          ],
+          "type": "string"
+        }
+      },
       "additionalProperties": false,
       "properties": {
+        "maxBytes": {
+          "format": "uint",
+          "maximum": 1048576,
+          "minimum": 1,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "mode": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ObservationMode"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "threadId": {
           "type": "string"
         }
@@ -23373,8 +23422,35 @@
       "type": "object"
     },
     "thread/resume": {
+      "$defs": {
+        "ObservationMode": {
+          "enum": [
+            "bounded"
+          ],
+          "type": "string"
+        }
+      },
       "additionalProperties": false,
       "properties": {
+        "maxBytes": {
+          "format": "uint",
+          "maximum": 1048576,
+          "minimum": 1,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "mode": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ObservationMode"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "threadId": {
           "type": "string"
         }
@@ -23382,6 +23458,7 @@
       "required": [
         "threadId"
       ],
+      "title": "ObserveThread",
       "type": "object"
     },
     "thread/start": {
@@ -33078,576 +33155,615 @@
                 "additionalProperties": true,
                 "properties": {
                   "item": {
-                    "$defs": {
-                      "AgentMessagePhase": {
-                        "enum": [
-                          "commentary",
-                          "final_answer"
-                        ],
-                        "type": "string"
-                      },
-                      "HookExecution": {
-                        "properties": {
-                          "event": {
+                    "anyOf": [
+                      {
+                        "$defs": {
+                          "AgentMessagePhase": {
+                            "enum": [
+                              "commentary",
+                              "final_answer"
+                            ],
                             "type": "string"
                           },
-                          "name": {
-                            "type": "string"
-                          },
-                          "operationId": {
-                            "type": "string"
-                          },
-                          "outcome": {
-                            "$ref": "#/properties/data/items/oneOf/0/properties/item/$defs/ToolOutcome"
-                          },
-                          "result": true
-                        },
-                        "required": [
-                          "name",
-                          "event",
-                          "operationId",
-                          "outcome"
-                        ],
-                        "type": "object"
-                      },
-                      "ImageDetail": {
-                        "enum": [
-                          "auto",
-                          "low",
-                          "high",
-                          "original"
-                        ],
-                        "type": "string"
-                      },
-                      "Input": {
-                        "oneOf": [
-                          {
-                            "additionalProperties": false,
+                          "HookExecution": {
                             "properties": {
-                              "mcpContent": {
-                                "description": "Original MCP attachment metadata for user history; excluded from model projection."
-                              },
-                              "text": {
+                              "event": {
                                 "type": "string"
                               },
-                              "text_elements": {
-                                "default": [],
-                                "items": true,
+                              "name": {
+                                "type": "string"
+                              },
+                              "operationId": {
+                                "type": "string"
+                              },
+                              "outcome": {
+                                "$ref": "#/properties/data/items/oneOf/0/properties/item/anyOf/0/$defs/ToolOutcome"
+                              },
+                              "result": true
+                            },
+                            "required": [
+                              "name",
+                              "event",
+                              "operationId",
+                              "outcome"
+                            ],
+                            "type": "object"
+                          },
+                          "ImageDetail": {
+                            "enum": [
+                              "auto",
+                              "low",
+                              "high",
+                              "original"
+                            ],
+                            "type": "string"
+                          },
+                          "Input": {
+                            "oneOf": [
+                              {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "mcpContent": {
+                                    "description": "Original MCP attachment metadata for user history; excluded from model projection."
+                                  },
+                                  "text": {
+                                    "type": "string"
+                                  },
+                                  "text_elements": {
+                                    "default": [],
+                                    "items": true,
+                                    "type": "array"
+                                  },
+                                  "type": {
+                                    "const": "text",
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "type",
+                                  "text"
+                                ],
+                                "type": "object"
+                              },
+                              {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "detail": {
+                                    "anyOf": [
+                                      {
+                                        "$ref": "#/properties/data/items/oneOf/0/properties/item/anyOf/0/$defs/ImageDetail"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ],
+                                    "default": null
+                                  },
+                                  "type": {
+                                    "const": "image",
+                                    "type": "string"
+                                  },
+                                  "url": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "type",
+                                  "url"
+                                ],
+                                "type": "object"
+                              },
+                              {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "detail": {
+                                    "anyOf": [
+                                      {
+                                        "$ref": "#/properties/data/items/oneOf/0/properties/item/anyOf/0/$defs/ImageDetail"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ],
+                                    "default": null
+                                  },
+                                  "path": {
+                                    "type": "string"
+                                  },
+                                  "type": {
+                                    "const": "localImage",
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "type",
+                                  "path"
+                                ],
+                                "type": "object"
+                              },
+                              {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "type": {
+                                    "const": "audio",
+                                    "type": "string"
+                                  },
+                                  "url": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "type",
+                                  "url"
+                                ],
+                                "type": "object"
+                              },
+                              {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "path": {
+                                    "type": "string"
+                                  },
+                                  "type": {
+                                    "const": "localAudio",
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "type",
+                                  "path"
+                                ],
+                                "type": "object"
+                              },
+                              {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "mime_type": {
+                                    "default": null,
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "name": {
+                                    "default": null,
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "type": {
+                                    "const": "file",
+                                    "type": "string"
+                                  },
+                                  "url": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "type",
+                                  "url"
+                                ],
+                                "type": "object"
+                              }
+                            ]
+                          },
+                          "MediaRef": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "mimeType": {
+                                "type": "string"
+                              },
+                              "sizeBytes": {
+                                "format": "uint64",
+                                "minimum": 0,
+                                "type": "integer"
+                              },
+                              "uri": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "uri",
+                              "mimeType",
+                              "sizeBytes"
+                            ],
+                            "type": "object"
+                          },
+                          "Modality": {
+                            "enum": [
+                              "text",
+                              "image",
+                              "audio",
+                              "file"
+                            ],
+                            "type": "string"
+                          },
+                          "PluginExecution": {
+                            "properties": {
+                              "generation": {
+                                "type": "string"
+                              },
+                              "operations": {
+                                "items": {
+                                  "$ref": "#/properties/data/items/oneOf/0/properties/item/anyOf/0/$defs/PluginOperation"
+                                },
                                 "type": "array"
                               },
+                              "pluginId": {
+                                "type": "string"
+                              },
+                              "scopeId": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "pluginId",
+                              "generation",
+                              "scopeId",
+                              "operations"
+                            ],
+                            "type": "object"
+                          },
+                          "PluginOperation": {
+                            "properties": {
+                              "kind": {
+                                "type": "string"
+                              },
+                              "operationId": {
+                                "type": "string"
+                              },
+                              "outcome": {
+                                "$ref": "#/properties/data/items/oneOf/0/properties/item/anyOf/0/$defs/ToolOutcome"
+                              },
+                              "path": {
+                                "type": "string"
+                              },
+                              "requestSha256": {
+                                "type": "string"
+                              },
+                              "result": true
+                            },
+                            "required": [
+                              "operationId",
+                              "kind",
+                              "path",
+                              "requestSha256",
+                              "outcome"
+                            ],
+                            "type": "object"
+                          },
+                          "ToolExecution": {
+                            "description": "Durable journal carried alongside the upstream dynamic-tool item projection.",
+                            "properties": {
+                              "backend": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "durationMs": {
+                                "description": "Dispatch journal, tool/hooks execution and result preparation; excludes final commit.",
+                                "format": "uint64",
+                                "minimum": 0,
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ]
+                              },
+                              "effectiveArguments": true,
+                              "fileBefore": {
+                                "anyOf": [
+                                  {
+                                    "$ref": "#/properties/data/items/oneOf/0/properties/item/anyOf/0/$defs/MediaRef"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "Exact file bytes captured before a conditional workspace write."
+                              },
+                              "hooks": {
+                                "items": {
+                                  "$ref": "#/properties/data/items/oneOf/0/properties/item/anyOf/0/$defs/HookExecution"
+                                },
+                                "type": "array"
+                              },
+                              "inspection": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "modelArguments": {
+                                "description": "Post-hook arguments before resolving model-facing aliases into Runtime IDs."
+                              },
+                              "operationId": {
+                                "type": "string"
+                              },
+                              "originalArguments": {
+                                "description": "模型返回的原始工具参数，仅在语义未被 hook 改写时用于历史回放。",
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "outcome": {
+                                "$ref": "#/properties/data/items/oneOf/0/properties/item/anyOf/0/$defs/ToolOutcome"
+                              },
+                              "outputProjection": {
+                                "description": "只记录转换度量，不持有另一份权威历史。"
+                              },
+                              "plugin": {
+                                "anyOf": [
+                                  {
+                                    "$ref": "#/properties/data/items/oneOf/0/properties/item/anyOf/0/$defs/PluginExecution"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "resultSnapshot": {
+                                "anyOf": [
+                                  {
+                                    "$ref": "#/properties/data/items/oneOf/0/properties/item/anyOf/0/$defs/MediaRef"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "当前调用准许暴露的原始结果，引用保留在权威历史中以支持恢复与 GC。"
+                              },
+                              "runtimeEpoch": {
+                                "type": "string"
+                              },
+                              "scopeId": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "runtimeEpoch",
+                              "scopeId",
+                              "operationId",
+                              "outcome"
+                            ],
+                            "type": "object"
+                          },
+                          "ToolOutcome": {
+                            "enum": [
+                              "running",
+                              "succeeded",
+                              "failed",
+                              "cancelled",
+                              "unknown"
+                            ],
+                            "type": "string"
+                          },
+                          "ToolStatus": {
+                            "enum": [
+                              "inProgress",
+                              "completed",
+                              "failed"
+                            ],
+                            "type": "string"
+                          }
+                        },
+                        "oneOf": [
+                          {
+                            "properties": {
+                              "content": {
+                                "items": {
+                                  "$ref": "#/properties/data/items/oneOf/0/properties/item/anyOf/0/$defs/Input"
+                                },
+                                "type": "array"
+                              },
+                              "id": {
+                                "type": "string"
+                              },
                               "type": {
-                                "const": "text",
+                                "const": "userMessage",
                                 "type": "string"
                               }
                             },
                             "required": [
                               "type",
+                              "id",
+                              "content"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "phase": {
+                                "anyOf": [
+                                  {
+                                    "$ref": "#/properties/data/items/oneOf/0/properties/item/anyOf/0/$defs/AgentMessagePhase"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ],
+                                "description": "Core 按执行轮次确认正文阶段；旧快照缺失时客户端保留正文。"
+                              },
+                              "text": {
+                                "type": "string"
+                              },
+                              "type": {
+                                "const": "agentMessage",
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "type",
+                              "id",
                               "text"
                             ],
                             "type": "object"
                           },
                           {
-                            "additionalProperties": false,
+                            "description": "模型显式返回的思考文本，独立于正文且不回放为模型输入。",
                             "properties": {
-                              "detail": {
-                                "anyOf": [
-                                  {
-                                    "$ref": "#/properties/data/items/oneOf/0/properties/item/$defs/ImageDetail"
-                                  },
-                                  {
-                                    "type": "null"
-                                  }
-                                ],
-                                "default": null
+                              "content": {
+                                "default": [],
+                                "items": {
+                                  "type": "string"
+                                },
+                                "type": "array"
                               },
-                              "type": {
-                                "const": "image",
+                              "id": {
                                 "type": "string"
                               },
-                              "url": {
+                              "summary": {
+                                "default": [],
+                                "items": {
+                                  "type": "string"
+                                },
+                                "type": "array"
+                              },
+                              "type": {
+                                "const": "reasoning",
                                 "type": "string"
                               }
                             },
                             "required": [
                               "type",
-                              "url"
+                              "id"
                             ],
                             "type": "object"
                           },
                           {
-                            "additionalProperties": false,
                             "properties": {
-                              "detail": {
-                                "anyOf": [
-                                  {
-                                    "$ref": "#/properties/data/items/oneOf/0/properties/item/$defs/ImageDetail"
-                                  },
-                                  {
-                                    "type": "null"
-                                  }
-                                ],
-                                "default": null
-                              },
-                              "path": {
+                              "arguments": true,
+                              "callId": {
                                 "type": "string"
                               },
-                              "type": {
-                                "const": "localImage",
-                                "type": "string"
-                              }
-                            },
-                            "required": [
-                              "type",
-                              "path"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "type": {
-                                "const": "audio",
-                                "type": "string"
-                              },
-                              "url": {
-                                "type": "string"
-                              }
-                            },
-                            "required": [
-                              "type",
-                              "url"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "path": {
-                                "type": "string"
-                              },
-                              "type": {
-                                "const": "localAudio",
-                                "type": "string"
-                              }
-                            },
-                            "required": [
-                              "type",
-                              "path"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "mime_type": {
-                                "default": null,
+                              "contentItems": {
+                                "items": true,
                                 "type": [
-                                  "string",
+                                  "array",
                                   "null"
                                 ]
                               },
-                              "name": {
-                                "default": null,
+                              "execution": {
+                                "$ref": "#/properties/data/items/oneOf/0/properties/item/anyOf/0/$defs/ToolExecution"
+                              },
+                              "id": {
+                                "type": "string"
+                              },
+                              "status": {
+                                "$ref": "#/properties/data/items/oneOf/0/properties/item/anyOf/0/$defs/ToolStatus"
+                              },
+                              "success": {
                                 "type": [
-                                  "string",
+                                  "boolean",
                                   "null"
                                 ]
                               },
-                              "type": {
-                                "const": "file",
+                              "tool": {
                                 "type": "string"
                               },
-                              "url": {
+                              "type": {
+                                "const": "dynamicToolCall",
                                 "type": "string"
                               }
                             },
                             "required": [
                               "type",
-                              "url"
+                              "id",
+                              "tool",
+                              "arguments",
+                              "status",
+                              "callId",
+                              "execution"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "media": {
+                                "$ref": "#/properties/data/items/oneOf/0/properties/item/anyOf/0/$defs/MediaRef"
+                              },
+                              "modality": {
+                                "$ref": "#/properties/data/items/oneOf/0/properties/item/anyOf/0/$defs/Modality"
+                              },
+                              "type": {
+                                "const": "agentMedia",
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "type",
+                              "id",
+                              "modality",
+                              "media"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "description": "Provider-owned opaque context retained for subsequent model requests.",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "type": {
+                                "const": "modelContext",
+                                "type": "string"
+                              },
+                              "value": true
+                            },
+                            "required": [
+                              "type",
+                              "id",
+                              "value"
                             ],
                             "type": "object"
                           }
-                        ]
+                        ],
+                        "title": "Item"
                       },
-                      "MediaRef": {
-                        "additionalProperties": false,
+                      {
+                        "description": "只用于显示 DTO；绝不进入执行域 Item 或持久 Thread。",
                         "properties": {
-                          "mimeType": {
+                          "cursor": {
                             "type": "string"
                           },
-                          "sizeBytes": {
-                            "format": "uint64",
+                          "id": {
+                            "type": "string"
+                          },
+                          "originalType": {
+                            "type": "string"
+                          },
+                          "totalBytes": {
+                            "format": "uint",
                             "minimum": 0,
                             "type": "integer"
                           },
-                          "uri": {
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "uri",
-                          "mimeType",
-                          "sizeBytes"
-                        ],
-                        "type": "object"
-                      },
-                      "Modality": {
-                        "enum": [
-                          "text",
-                          "image",
-                          "audio",
-                          "file"
-                        ],
-                        "type": "string"
-                      },
-                      "PluginExecution": {
-                        "properties": {
-                          "generation": {
-                            "type": "string"
-                          },
-                          "operations": {
-                            "items": {
-                              "$ref": "#/properties/data/items/oneOf/0/properties/item/$defs/PluginOperation"
-                            },
-                            "type": "array"
-                          },
-                          "pluginId": {
-                            "type": "string"
-                          },
-                          "scopeId": {
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "pluginId",
-                          "generation",
-                          "scopeId",
-                          "operations"
-                        ],
-                        "type": "object"
-                      },
-                      "PluginOperation": {
-                        "properties": {
-                          "kind": {
-                            "type": "string"
-                          },
-                          "operationId": {
-                            "type": "string"
-                          },
-                          "outcome": {
-                            "$ref": "#/properties/data/items/oneOf/0/properties/item/$defs/ToolOutcome"
-                          },
-                          "path": {
-                            "type": "string"
-                          },
-                          "requestSha256": {
-                            "type": "string"
-                          },
-                          "result": true
-                        },
-                        "required": [
-                          "operationId",
-                          "kind",
-                          "path",
-                          "requestSha256",
-                          "outcome"
-                        ],
-                        "type": "object"
-                      },
-                      "ToolExecution": {
-                        "description": "Durable journal carried alongside the upstream dynamic-tool item projection.",
-                        "properties": {
-                          "backend": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "durationMs": {
-                            "description": "Dispatch journal, tool/hooks execution and result preparation; excludes final commit.",
-                            "format": "uint64",
-                            "minimum": 0,
-                            "type": [
-                              "integer",
-                              "null"
-                            ]
-                          },
-                          "effectiveArguments": true,
-                          "fileBefore": {
-                            "anyOf": [
-                              {
-                                "$ref": "#/properties/data/items/oneOf/0/properties/item/$defs/MediaRef"
-                              },
-                              {
-                                "type": "null"
-                              }
-                            ],
-                            "description": "Exact file bytes captured before a conditional workspace write."
-                          },
-                          "hooks": {
-                            "items": {
-                              "$ref": "#/properties/data/items/oneOf/0/properties/item/$defs/HookExecution"
-                            },
-                            "type": "array"
-                          },
-                          "inspection": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "modelArguments": {
-                            "description": "Post-hook arguments before resolving model-facing aliases into Runtime IDs."
-                          },
-                          "operationId": {
-                            "type": "string"
-                          },
-                          "originalArguments": {
-                            "description": "模型返回的原始工具参数，仅在语义未被 hook 改写时用于历史回放。",
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "outcome": {
-                            "$ref": "#/properties/data/items/oneOf/0/properties/item/$defs/ToolOutcome"
-                          },
-                          "outputProjection": {
-                            "description": "只记录转换度量，不持有另一份权威历史。"
-                          },
-                          "plugin": {
-                            "anyOf": [
-                              {
-                                "$ref": "#/properties/data/items/oneOf/0/properties/item/$defs/PluginExecution"
-                              },
-                              {
-                                "type": "null"
-                              }
-                            ]
-                          },
-                          "resultSnapshot": {
-                            "anyOf": [
-                              {
-                                "$ref": "#/properties/data/items/oneOf/0/properties/item/$defs/MediaRef"
-                              },
-                              {
-                                "type": "null"
-                              }
-                            ],
-                            "description": "当前调用准许暴露的原始结果，引用保留在权威历史中以支持恢复与 GC。"
-                          },
-                          "runtimeEpoch": {
-                            "type": "string"
-                          },
-                          "scopeId": {
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "runtimeEpoch",
-                          "scopeId",
-                          "operationId",
-                          "outcome"
-                        ],
-                        "type": "object"
-                      },
-                      "ToolOutcome": {
-                        "enum": [
-                          "running",
-                          "succeeded",
-                          "failed",
-                          "cancelled",
-                          "unknown"
-                        ],
-                        "type": "string"
-                      },
-                      "ToolStatus": {
-                        "enum": [
-                          "inProgress",
-                          "completed",
-                          "failed"
-                        ],
-                        "type": "string"
-                      }
-                    },
-                    "oneOf": [
-                      {
-                        "properties": {
-                          "content": {
-                            "items": {
-                              "$ref": "#/properties/data/items/oneOf/0/properties/item/$defs/Input"
-                            },
-                            "type": "array"
-                          },
-                          "id": {
-                            "type": "string"
-                          },
                           "type": {
-                            "const": "userMessage",
+                            "const": "historyDeferred"
+                          },
+                          "version": {
                             "type": "string"
                           }
                         },
                         "required": [
                           "type",
                           "id",
-                          "content"
+                          "originalType",
+                          "cursor",
+                          "version",
+                          "totalBytes"
                         ],
-                        "type": "object"
-                      },
-                      {
-                        "properties": {
-                          "id": {
-                            "type": "string"
-                          },
-                          "phase": {
-                            "anyOf": [
-                              {
-                                "$ref": "#/properties/data/items/oneOf/0/properties/item/$defs/AgentMessagePhase"
-                              },
-                              {
-                                "type": "null"
-                              }
-                            ],
-                            "description": "Core 按执行轮次确认正文阶段；旧快照缺失时客户端保留正文。"
-                          },
-                          "text": {
-                            "type": "string"
-                          },
-                          "type": {
-                            "const": "agentMessage",
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "type",
-                          "id",
-                          "text"
-                        ],
-                        "type": "object"
-                      },
-                      {
-                        "description": "模型显式返回的思考文本，独立于正文且不回放为模型输入。",
-                        "properties": {
-                          "content": {
-                            "default": [],
-                            "items": {
-                              "type": "string"
-                            },
-                            "type": "array"
-                          },
-                          "id": {
-                            "type": "string"
-                          },
-                          "summary": {
-                            "default": [],
-                            "items": {
-                              "type": "string"
-                            },
-                            "type": "array"
-                          },
-                          "type": {
-                            "const": "reasoning",
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "type",
-                          "id"
-                        ],
-                        "type": "object"
-                      },
-                      {
-                        "properties": {
-                          "arguments": true,
-                          "callId": {
-                            "type": "string"
-                          },
-                          "contentItems": {
-                            "items": true,
-                            "type": [
-                              "array",
-                              "null"
-                            ]
-                          },
-                          "execution": {
-                            "$ref": "#/properties/data/items/oneOf/0/properties/item/$defs/ToolExecution"
-                          },
-                          "id": {
-                            "type": "string"
-                          },
-                          "status": {
-                            "$ref": "#/properties/data/items/oneOf/0/properties/item/$defs/ToolStatus"
-                          },
-                          "success": {
-                            "type": [
-                              "boolean",
-                              "null"
-                            ]
-                          },
-                          "tool": {
-                            "type": "string"
-                          },
-                          "type": {
-                            "const": "dynamicToolCall",
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "type",
-                          "id",
-                          "tool",
-                          "arguments",
-                          "status",
-                          "callId",
-                          "execution"
-                        ],
-                        "type": "object"
-                      },
-                      {
-                        "properties": {
-                          "id": {
-                            "type": "string"
-                          },
-                          "media": {
-                            "$ref": "#/properties/data/items/oneOf/0/properties/item/$defs/MediaRef"
-                          },
-                          "modality": {
-                            "$ref": "#/properties/data/items/oneOf/0/properties/item/$defs/Modality"
-                          },
-                          "type": {
-                            "const": "agentMedia",
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "type",
-                          "id",
-                          "modality",
-                          "media"
-                        ],
-                        "type": "object"
-                      },
-                      {
-                        "description": "Provider-owned opaque context retained for subsequent model requests.",
-                        "properties": {
-                          "id": {
-                            "type": "string"
-                          },
-                          "type": {
-                            "const": "modelContext",
-                            "type": "string"
-                          },
-                          "value": true
-                        },
-                        "required": [
-                          "type",
-                          "id",
-                          "value"
-                        ],
+                        "title": "DeferredHistoryItem",
                         "type": "object"
                       }
-                    ],
-                    "title": "Item"
+                    ]
                   },
                   "sourceItemId": {
                     "type": "string"
@@ -33698,6 +33814,9 @@
                       "totalBytes": {
                         "minimum": 0,
                         "type": "integer"
+                      },
+                      "version": {
+                        "type": "string"
                       }
                     },
                     "required": [
@@ -71629,39 +71748,76 @@
     "areal/thread/observe": {
       "additionalProperties": true,
       "properties": {
-        "approvalPolicy": {
-          "type": "string"
-        },
-        "approvalsReviewer": {
-          "type": "string"
-        },
-        "cwd": {
-          "type": "string"
-        },
-        "model": {
-          "type": "string"
-        },
-        "modelProvider": {
-          "type": "string"
-        },
-        "permissionMode": {
-          "enum": [
-            "YOLO",
-            "ASK_PERMISSIONS"
-          ]
-        },
-        "reasoningEffort": {
-          "anyOf": [
-            {
+        "history": {
+          "additionalProperties": true,
+          "properties": {
+            "complete": {
+              "type": "boolean"
+            },
+            "nextCursor": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "snapshotId": {
               "type": "string"
+            }
+          },
+          "required": [
+            "complete",
+            "nextCursor",
+            "snapshotId"
+          ],
+          "type": "object"
+        },
+        "ownership": {
+          "description": "与观察快照同锁捕获，不持久化到 Thread；标识仅对可见 Task 暴露。",
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "ordinary",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "type": "object"
             },
             {
-              "type": "null"
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "task",
+                  "type": "string"
+                },
+                "runId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "taskId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "type": "object"
             }
-          ]
-        },
-        "sandbox": {
-          "type": "object"
+          ],
+          "title": "ThreadOwnership"
         },
         "thread": {
           "$defs": {
@@ -73322,180 +73478,219 @@
               "type": "string"
             },
             "Item": {
-              "oneOf": [
+              "anyOf": [
                 {
-                  "properties": {
-                    "content": {
-                      "items": {
-                        "$ref": "#/properties/thread/$defs/Input"
-                      },
-                      "type": "array"
-                    },
-                    "id": {
-                      "type": "string"
-                    },
-                    "type": {
-                      "const": "userMessage",
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "type",
-                    "id",
-                    "content"
-                  ],
-                  "type": "object"
-                },
-                {
-                  "properties": {
-                    "id": {
-                      "type": "string"
-                    },
-                    "phase": {
-                      "anyOf": [
-                        {
-                          "$ref": "#/properties/thread/$defs/AgentMessagePhase"
+                  "oneOf": [
+                    {
+                      "properties": {
+                        "content": {
+                          "items": {
+                            "$ref": "#/properties/thread/$defs/Input"
+                          },
+                          "type": "array"
                         },
-                        {
-                          "type": "null"
+                        "id": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "const": "userMessage",
+                          "type": "string"
                         }
+                      },
+                      "required": [
+                        "type",
+                        "id",
+                        "content"
                       ],
-                      "description": "Core 按执行轮次确认正文阶段；旧快照缺失时客户端保留正文。"
+                      "type": "object"
                     },
-                    "text": {
-                      "type": "string"
-                    },
-                    "type": {
-                      "const": "agentMessage",
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "type",
-                    "id",
-                    "text"
-                  ],
-                  "type": "object"
-                },
-                {
-                  "description": "模型显式返回的思考文本，独立于正文且不回放为模型输入。",
-                  "properties": {
-                    "content": {
-                      "default": [],
-                      "items": {
-                        "type": "string"
+                    {
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "phase": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/properties/thread/$defs/AgentMessagePhase"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "Core 按执行轮次确认正文阶段；旧快照缺失时客户端保留正文。"
+                        },
+                        "text": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "const": "agentMessage",
+                          "type": "string"
+                        }
                       },
-                      "type": "array"
+                      "required": [
+                        "type",
+                        "id",
+                        "text"
+                      ],
+                      "type": "object"
                     },
-                    "id": {
-                      "type": "string"
-                    },
-                    "summary": {
-                      "default": [],
-                      "items": {
-                        "type": "string"
+                    {
+                      "description": "模型显式返回的思考文本，独立于正文且不回放为模型输入。",
+                      "properties": {
+                        "content": {
+                          "default": [],
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "summary": {
+                          "default": [],
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "type": {
+                          "const": "reasoning",
+                          "type": "string"
+                        }
                       },
-                      "type": "array"
+                      "required": [
+                        "type",
+                        "id"
+                      ],
+                      "type": "object"
                     },
-                    "type": {
-                      "const": "reasoning",
-                      "type": "string"
+                    {
+                      "properties": {
+                        "arguments": true,
+                        "callId": {
+                          "type": "string"
+                        },
+                        "contentItems": {
+                          "items": true,
+                          "type": [
+                            "array",
+                            "null"
+                          ]
+                        },
+                        "execution": {
+                          "$ref": "#/properties/thread/$defs/ToolExecution"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "$ref": "#/properties/thread/$defs/ToolStatus"
+                        },
+                        "success": {
+                          "type": [
+                            "boolean",
+                            "null"
+                          ]
+                        },
+                        "tool": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "const": "dynamicToolCall",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "id",
+                        "tool",
+                        "arguments",
+                        "status",
+                        "callId",
+                        "execution"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "media": {
+                          "$ref": "#/properties/thread/$defs/MediaRef"
+                        },
+                        "modality": {
+                          "$ref": "#/properties/thread/$defs/Modality"
+                        },
+                        "type": {
+                          "const": "agentMedia",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "id",
+                        "modality",
+                        "media"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "description": "Provider-owned opaque context retained for subsequent model requests.",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "const": "modelContext",
+                          "type": "string"
+                        },
+                        "value": true
+                      },
+                      "required": [
+                        "type",
+                        "id",
+                        "value"
+                      ],
+                      "type": "object"
                     }
-                  },
-                  "required": [
-                    "type",
-                    "id"
-                  ],
-                  "type": "object"
+                  ]
                 },
                 {
+                  "description": "只用于显示 DTO；绝不进入执行域 Item 或持久 Thread。",
                   "properties": {
-                    "arguments": true,
-                    "callId": {
+                    "cursor": {
                       "type": "string"
-                    },
-                    "contentItems": {
-                      "items": true,
-                      "type": [
-                        "array",
-                        "null"
-                      ]
-                    },
-                    "execution": {
-                      "$ref": "#/properties/thread/$defs/ToolExecution"
                     },
                     "id": {
                       "type": "string"
                     },
-                    "status": {
-                      "$ref": "#/properties/thread/$defs/ToolStatus"
-                    },
-                    "success": {
-                      "type": [
-                        "boolean",
-                        "null"
-                      ]
-                    },
-                    "tool": {
+                    "originalType": {
                       "type": "string"
                     },
+                    "totalBytes": {
+                      "format": "uint",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
                     "type": {
-                      "const": "dynamicToolCall",
+                      "const": "historyDeferred"
+                    },
+                    "version": {
                       "type": "string"
                     }
                   },
                   "required": [
                     "type",
                     "id",
-                    "tool",
-                    "arguments",
-                    "status",
-                    "callId",
-                    "execution"
+                    "originalType",
+                    "cursor",
+                    "version",
+                    "totalBytes"
                   ],
-                  "type": "object"
-                },
-                {
-                  "properties": {
-                    "id": {
-                      "type": "string"
-                    },
-                    "media": {
-                      "$ref": "#/properties/thread/$defs/MediaRef"
-                    },
-                    "modality": {
-                      "$ref": "#/properties/thread/$defs/Modality"
-                    },
-                    "type": {
-                      "const": "agentMedia",
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "type",
-                    "id",
-                    "modality",
-                    "media"
-                  ],
-                  "type": "object"
-                },
-                {
-                  "description": "Provider-owned opaque context retained for subsequent model requests.",
-                  "properties": {
-                    "id": {
-                      "type": "string"
-                    },
-                    "type": {
-                      "const": "modelContext",
-                      "type": "string"
-                    },
-                    "value": true
-                  },
-                  "required": [
-                    "type",
-                    "id",
-                    "value"
-                  ],
+                  "title": "DeferredHistoryItem",
                   "type": "object"
                 }
               ]
@@ -74719,14 +74914,7 @@
         }
       },
       "required": [
-        "approvalPolicy",
-        "approvalsReviewer",
-        "cwd",
-        "model",
-        "modelProvider",
-        "permissionMode",
-        "reasoningEffort",
-        "sandbox",
+        "ownership",
         "thread"
       ],
       "type": "object"
@@ -96479,11 +96667,82 @@
         "cwd": {
           "type": "string"
         },
+        "history": {
+          "additionalProperties": true,
+          "properties": {
+            "complete": {
+              "type": "boolean"
+            },
+            "nextCursor": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "snapshotId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "complete",
+            "nextCursor",
+            "snapshotId"
+          ],
+          "type": "object"
+        },
         "model": {
           "type": "string"
         },
         "modelProvider": {
           "type": "string"
+        },
+        "ownership": {
+          "description": "与观察快照同锁捕获，不持久化到 Thread；标识仅对可见 Task 暴露。",
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "ordinary",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "task",
+                  "type": "string"
+                },
+                "runId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "taskId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "type": "object"
+            }
+          ],
+          "title": "ThreadOwnership"
         },
         "permissionMode": {
           "enum": [
@@ -98163,180 +98422,219 @@
               "type": "string"
             },
             "Item": {
-              "oneOf": [
+              "anyOf": [
                 {
-                  "properties": {
-                    "content": {
-                      "items": {
-                        "$ref": "#/properties/thread/$defs/Input"
-                      },
-                      "type": "array"
-                    },
-                    "id": {
-                      "type": "string"
-                    },
-                    "type": {
-                      "const": "userMessage",
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "type",
-                    "id",
-                    "content"
-                  ],
-                  "type": "object"
-                },
-                {
-                  "properties": {
-                    "id": {
-                      "type": "string"
-                    },
-                    "phase": {
-                      "anyOf": [
-                        {
-                          "$ref": "#/properties/thread/$defs/AgentMessagePhase"
+                  "oneOf": [
+                    {
+                      "properties": {
+                        "content": {
+                          "items": {
+                            "$ref": "#/properties/thread/$defs/Input"
+                          },
+                          "type": "array"
                         },
-                        {
-                          "type": "null"
+                        "id": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "const": "userMessage",
+                          "type": "string"
                         }
+                      },
+                      "required": [
+                        "type",
+                        "id",
+                        "content"
                       ],
-                      "description": "Core 按执行轮次确认正文阶段；旧快照缺失时客户端保留正文。"
+                      "type": "object"
                     },
-                    "text": {
-                      "type": "string"
-                    },
-                    "type": {
-                      "const": "agentMessage",
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "type",
-                    "id",
-                    "text"
-                  ],
-                  "type": "object"
-                },
-                {
-                  "description": "模型显式返回的思考文本，独立于正文且不回放为模型输入。",
-                  "properties": {
-                    "content": {
-                      "default": [],
-                      "items": {
-                        "type": "string"
+                    {
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "phase": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/properties/thread/$defs/AgentMessagePhase"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "Core 按执行轮次确认正文阶段；旧快照缺失时客户端保留正文。"
+                        },
+                        "text": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "const": "agentMessage",
+                          "type": "string"
+                        }
                       },
-                      "type": "array"
+                      "required": [
+                        "type",
+                        "id",
+                        "text"
+                      ],
+                      "type": "object"
                     },
-                    "id": {
-                      "type": "string"
-                    },
-                    "summary": {
-                      "default": [],
-                      "items": {
-                        "type": "string"
+                    {
+                      "description": "模型显式返回的思考文本，独立于正文且不回放为模型输入。",
+                      "properties": {
+                        "content": {
+                          "default": [],
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "summary": {
+                          "default": [],
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "type": {
+                          "const": "reasoning",
+                          "type": "string"
+                        }
                       },
-                      "type": "array"
+                      "required": [
+                        "type",
+                        "id"
+                      ],
+                      "type": "object"
                     },
-                    "type": {
-                      "const": "reasoning",
-                      "type": "string"
+                    {
+                      "properties": {
+                        "arguments": true,
+                        "callId": {
+                          "type": "string"
+                        },
+                        "contentItems": {
+                          "items": true,
+                          "type": [
+                            "array",
+                            "null"
+                          ]
+                        },
+                        "execution": {
+                          "$ref": "#/properties/thread/$defs/ToolExecution"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "$ref": "#/properties/thread/$defs/ToolStatus"
+                        },
+                        "success": {
+                          "type": [
+                            "boolean",
+                            "null"
+                          ]
+                        },
+                        "tool": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "const": "dynamicToolCall",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "id",
+                        "tool",
+                        "arguments",
+                        "status",
+                        "callId",
+                        "execution"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "media": {
+                          "$ref": "#/properties/thread/$defs/MediaRef"
+                        },
+                        "modality": {
+                          "$ref": "#/properties/thread/$defs/Modality"
+                        },
+                        "type": {
+                          "const": "agentMedia",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "id",
+                        "modality",
+                        "media"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "description": "Provider-owned opaque context retained for subsequent model requests.",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "const": "modelContext",
+                          "type": "string"
+                        },
+                        "value": true
+                      },
+                      "required": [
+                        "type",
+                        "id",
+                        "value"
+                      ],
+                      "type": "object"
                     }
-                  },
-                  "required": [
-                    "type",
-                    "id"
-                  ],
-                  "type": "object"
+                  ]
                 },
                 {
+                  "description": "只用于显示 DTO；绝不进入执行域 Item 或持久 Thread。",
                   "properties": {
-                    "arguments": true,
-                    "callId": {
+                    "cursor": {
                       "type": "string"
-                    },
-                    "contentItems": {
-                      "items": true,
-                      "type": [
-                        "array",
-                        "null"
-                      ]
-                    },
-                    "execution": {
-                      "$ref": "#/properties/thread/$defs/ToolExecution"
                     },
                     "id": {
                       "type": "string"
                     },
-                    "status": {
-                      "$ref": "#/properties/thread/$defs/ToolStatus"
-                    },
-                    "success": {
-                      "type": [
-                        "boolean",
-                        "null"
-                      ]
-                    },
-                    "tool": {
+                    "originalType": {
                       "type": "string"
                     },
+                    "totalBytes": {
+                      "format": "uint",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
                     "type": {
-                      "const": "dynamicToolCall",
+                      "const": "historyDeferred"
+                    },
+                    "version": {
                       "type": "string"
                     }
                   },
                   "required": [
                     "type",
                     "id",
-                    "tool",
-                    "arguments",
-                    "status",
-                    "callId",
-                    "execution"
+                    "originalType",
+                    "cursor",
+                    "version",
+                    "totalBytes"
                   ],
-                  "type": "object"
-                },
-                {
-                  "properties": {
-                    "id": {
-                      "type": "string"
-                    },
-                    "media": {
-                      "$ref": "#/properties/thread/$defs/MediaRef"
-                    },
-                    "modality": {
-                      "$ref": "#/properties/thread/$defs/Modality"
-                    },
-                    "type": {
-                      "const": "agentMedia",
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "type",
-                    "id",
-                    "modality",
-                    "media"
-                  ],
-                  "type": "object"
-                },
-                {
-                  "description": "Provider-owned opaque context retained for subsequent model requests.",
-                  "properties": {
-                    "id": {
-                      "type": "string"
-                    },
-                    "type": {
-                      "const": "modelContext",
-                      "type": "string"
-                    },
-                    "value": true
-                  },
-                  "required": [
-                    "type",
-                    "id",
-                    "value"
-                  ],
+                  "title": "DeferredHistoryItem",
                   "type": "object"
                 }
               ]

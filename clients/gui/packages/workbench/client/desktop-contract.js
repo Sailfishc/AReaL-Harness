@@ -7,3 +7,4 @@ export const { commandDefinitions, commandSemantics, validateCommand, validateCo
 /** @typedef {import('./desktop-contract.cjs').PreviewRequest} PreviewRequest */
 /** @typedef {import('./desktop-contract.cjs').OwnedPreviewOperation} OwnedPreviewOperation */
 /** @typedef {import('./desktop-contract.cjs').TrajectoryStatus} TrajectoryStatus */
+/** @typedef {import('./desktop-contract.cjs').HistoryRequest} HistoryRequest */

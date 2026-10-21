@@ -425,8 +425,12 @@ function AppContent({ services }: { services: PlatformServices }) {
     ?? (!project?.state?.connected && (project?.error || project?.state?.error)
       ? { message: project.error || project.state.error } : undefined);
   const restorationError = viewFailure ? recoveryMessage(viewFailure, "view") : currentRestoration?.error || "";
-  const reconnectingView = !currentObservationFailure && !currentRestoration?.failure && !project?.state?.connected
-    && /连接中断|正在恢复|disconnect|timeout|connection/i.test(restorationError);
+  const reconnectingView = snapshot.connection?.state === "connecting" && !!viewFailure
+    && viewFailure.recovery?.kind !== "needsUser" && !recoverySettings(viewFailure)
+    && !["HISTORY_BUDGET_TOO_SMALL", "RESPONSE_TOO_LARGE"].includes(String(viewFailure.code))
+    && (viewFailure.recovery?.kind === "retryRead"
+      || ["DISCONNECTED", "CONNECTION_LOST", "TIMEOUT", "RESPONSE_UNKNOWN", "TRANSPORT_FAILURE"].includes(String(viewFailure.code))
+      || !viewFailure.code && /连接中断|已断开|正在恢复|disconnect|timeout|connection|transport/i.test(viewFailure.message));
   const [viewRecoveryVisible, setViewRecoveryVisible] = useState(false);
   useEffect(() => {
     setViewRecoveryVisible(false);
@@ -1633,8 +1637,10 @@ function AppContent({ services }: { services: PlatformServices }) {
             <div key={notice.id} className={notice.kind === "unconfirmed" ? "notice" : "error-banner"}
               role={notice.kind === "unconfirmed" ? "status" : "alert"} data-recovery-request-id={notice.requestId}>
               <span>{notice.message}</span>
-              {notice.requestId && <small className="break-all text-foreground-subtle">请求 {notice.requestId}</small>}
-              {notice.detail && <SettingsDisclosure title="查看详情"><pre className="whitespace-pre-wrap break-all">{notice.detail}</pre></SettingsDisclosure>}
+              {(notice.requestId || notice.detail) && <SettingsDisclosure title={t("recovery.details")}>
+                {notice.requestId && <small className="break-all text-foreground-subtle">{t("recovery.requestId", { id: notice.requestId })}</small>}
+                {notice.detail && <pre className="whitespace-pre-wrap break-all">{notice.detail}</pre>}
+              </SettingsDisclosure>}
               {notice.settings && <Button variant="ghost" size="sm" onClick={() => { setSettingsTab(notice.settings!); setSettingsOpen(true); }}>检查{notice.settings === "模型服务" ? "模型服务" : "会话设置"}</Button>}
               {notice.kind === "unconfirmed" && <button onClick={() => void resourceAction("reconcile", { projectId: notice.projectId }).catch(() => {})}>检查操作状态</button>}
               <button aria-label="关闭提示" onClick={() => dismissNotice(notice.id)}><X size={14} /></button>
@@ -1642,10 +1648,10 @@ function AppContent({ services }: { services: PlatformServices }) {
           ))}
           {restorationError && (!reconnectingView || viewRecoveryVisible) && !dismissedNotices.has(restorationNoticeId) && (
             <div className={viewRefreshing || reconnectingView ? "notice" : "error-banner"} role={viewRefreshing || reconnectingView ? "status" : "alert"}>
-              <span>{viewRefreshing || reconnectingView ? "正在重新加载对话，历史和草稿已保留…" : restorationError}</span>
+              <span>{viewRefreshing || reconnectingView ? t("recovery.loadingView") : restorationError}</span>
               {viewFailure && viewFailure.message !== restorationError && <SettingsDisclosure title="查看详情"><pre className="whitespace-pre-wrap break-all">{viewFailure.message}</pre></SettingsDisclosure>}
               {viewFailure && recoverySettings(viewFailure) && <Button variant="ghost" size="sm" onClick={() => { setSettingsTab(recoverySettings(viewFailure)!); setSettingsOpen(true); }}>检查设置</Button>}
-              {!viewRefreshing && <button onClick={() => void retryRestoration()}>重试加载对话</button>}
+              {!viewRefreshing && !reconnectingView && <button onClick={() => void retryRestoration()}>重试加载对话</button>}
               <button aria-label="关闭提示" onClick={() => dismissNotice(restorationNoticeId)}><X size={14} /></button>
             </div>
           )}

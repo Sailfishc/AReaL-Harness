@@ -412,6 +412,26 @@ test('a backend published after startup timeout attaches without launching again
   assert.deepEqual(f.calls.map(c => c.method), ['hello']);
 });
 
+test('passive reconnect publishes connecting until the original observer is ready', async t => {
+  const f = await fixture(t); await f.publish(); await f.backend.attach();
+  const states = []; f.backend.onChange = () => states.push(f.backend.snapshot().connection.state);
+  f.drop(); await until(() => !f.backend.status.connected);
+  assert.equal(f.backend.snapshot().connection.state, 'connecting');
+  assert.ok(f.backend.reconnectTimer);
+  await until(() => f.backend.status.connected);
+  assert.deepEqual([...new Set(states)], ['connecting', 'ready']);
+  assert.equal(f.calls.some(call => call.method === 'command'), false);
+});
+
+test('a persisted user stop discovered during retry ends connecting with an actionable state', async t => {
+  const f = await fixture(t); await f.publish(); await f.backend.attach();
+  await writeFile(f.backend.controlPath, JSON.stringify({ home: f.home, state: 'stopped' }));
+  f.drop(); await until(() => f.backend.reconnectBlocked);
+  assert.equal(f.backend.snapshot().connection.state, 'unavailable');
+  assert.equal(f.backend.snapshot().connection.recovery, 'check');
+  assert.equal(f.connections(), 1);
+});
+
 test('an unknown command is never replayed when its observer reconnects', async t => {
   const f = await fixture(t); await f.publish(); await f.backend.attach();
   const requestId = 'e99d906b-7912-4e95-81dc-a3fd3c967779';
@@ -428,6 +448,7 @@ for (const state of ['stopped', 'unconfirmed']) {
     await f.backend.saveControl(state); f.drop();
     await sleep(700);
     assert.equal(f.backend.status.connected, false);
+    assert.equal(f.backend.snapshot().connection.state, 'unavailable');
     assert.equal(f.connections(), 1);
   });
 }
@@ -439,6 +460,7 @@ test('a changed backend identity needs explicit recovery instead of automatic re
   await sleep(700);
   assert.equal(f.backend.status.connected, false);
   assert.equal(f.connections(), 2);
+  assert.equal(f.backend.snapshot().connection.state, 'unavailable');
   assert.equal(f.calls.filter(c => c.method !== 'hello').length, 0);
 });
 
@@ -448,6 +470,7 @@ for (const forUpdate of [false, true]) {
     assert.equal((await f.backend.stopService(forUpdate)).stopped, true);
     await f.publish(); f.drop(); await sleep(700);
     assert.equal(f.backend.status.connected, false);
+    assert.equal(f.backend.snapshot().connection.state, 'unavailable');
     assert.equal(f.connections(), 1);
     assert.equal(f.calls.filter(c => c.method === 'lifecycleRequest').length, 1);
     assert.equal(f.calls.some(c => c.method === 'stopService'), false);

@@ -328,6 +328,13 @@ impl Engine {
         cursor: Option<String>,
         max_bytes: Option<usize>,
     ) -> Result<Value> {
+        if view == "own" {
+            let max_bytes = max_bytes.unwrap_or(areal_protocol::desktop::DEFAULT_HISTORY_PAGE_BYTES);
+            if !(1..=areal_protocol::desktop::MAX_HISTORY_PAGE_BYTES).contains(&max_bytes) {
+                return Err(invalid("maxBytes must be 1..1048576"));
+            }
+            return self.own_history("", thread_id, cursor, max_bytes).await;
+        }
         if !matches!(view, "inherited" | "reference") {
             return Err(invalid("invalid history view"));
         }
@@ -427,30 +434,8 @@ impl Engine {
                         next,
                     )
                 };
-                let mut low = 0;
-                let mut high = remaining.len().min(max_bytes);
-                let mut best = None;
-                while low <= high {
-                    let mid = low + (high - low) / 2;
-                    let mut end = mid;
-                    while !remaining.is_char_boundary(end) {
-                        end -= 1;
-                    }
-                    let page = fragment_page(&remaining[..end]);
-                    if page.to_string().len() <= max_bytes {
-                        best = Some((page, end));
-                        low = mid + 1;
-                    } else if mid == 0 {
-                        break;
-                    } else {
-                        high = mid - 1;
-                    }
-                }
-                let (page, consumed) =
-                    best.ok_or_else(|| invalid("history page budget too small"))?;
-                if consumed == 0 && !remaining.is_empty() {
-                    return Err(invalid("history page budget too small"));
-                }
+                let page = crate::store::fit_history_fragment(remaining, max_bytes, fragment_page)
+                    .ok_or_else(|| invalid("history page budget too small"))?;
                 if data.is_empty() {
                     return Ok(page);
                 }

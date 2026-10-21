@@ -156,7 +156,7 @@ class ServiceConnection {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(Object.assign(new Error('后台请求超时，请核对结果后继续；不会自动重发。'), { submissionUnknown: mutation, code: 'TIMEOUT', requestId, recovery: { kind: mutation ? 'queryOriginal' : 'retryRead' } }));
+        reject(Object.assign(new Error(mutation ? '后台请求超时，请核对结果后继续；不会自动重发。' : '读取状态超时，请重试。'), { submissionUnknown: mutation, code: 'TIMEOUT', requestId, recovery: { kind: mutation ? 'queryOriginal' : 'retryRead' } }));
       }, 150000);
       this.pending.set(id, { resolve, reject, timer, mutation, requestId });
       this.socket.send(JSON.stringify({ id, method, params }), error => { if (error) this.socket.terminate(); });
@@ -217,8 +217,8 @@ class SharedCoreBackend {
     this.connectionState = { state: 'unavailable', message };
     this.status = { ...this.status, connected: false };
     this.value = { ...this.value, projects: this.value.projects.map(p => ({ ...p, error: stopped ? null : message, state: p.state ? { ...p.state, connected: false, error: stopped ? null : message } : null })) };
-    this.onChange();
     this.scheduleReconnect();
+    this.onChange();
   }
   clearReconnect() { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
   canReconnect() {
@@ -227,6 +227,7 @@ class SharedCoreBackend {
   }
   scheduleReconnect() {
     if (!(this.metadata?.identity ?? this.identity) || !this.canReconnect() || this.reconnectTimer) return;
+    this.connectionState = { state: 'connecting' };
     const delay = Math.min(30000, 500 * 2 ** Math.min(this.reconnectAttempts ?? 0, 6));
     this.reconnectAttempts = (this.reconnectAttempts ?? 0) + 1;
     this.reconnectTimer = setTimeout(() => {
@@ -236,7 +237,11 @@ class SharedCoreBackend {
       // 只恢复观察连接：不调用 initialize，不启动 Core、不重放任何未知提交。
       this.connecting = (async () => {
         const control = await this.readControl();
-        if (control?.state) { this.controlState = control.state; this.reconnectBlocked = true; return; }
+        if (control?.state) {
+          this.controlState = control.state; this.reconnectBlocked = true;
+          this.connectionState = { state: 'unavailable', recovery: 'check', message: '后台操作已保留，请检查原请求后继续。' };
+          this.onChange(); return;
+        }
         this.loadReferences(control);
         if (await this.attach({ passive: true })) {
           for (const reference of this.lifecycleReferences.values()) await this.readLifecycle(reference);

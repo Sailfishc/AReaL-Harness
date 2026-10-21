@@ -110,7 +110,9 @@ export class CoreClient {
     }
   }
 
-  request(method, params = {}, { onResult, timeoutMs = this.timeoutMs } = {}) {
+  request(method, params = {}, { onResult, timeoutMs = this.timeoutMs, maxResponseBytes = MAX_RESPONSE_BYTES } = {}) {
+    if (!Number.isSafeInteger(maxResponseBytes) || maxResponseBytes < 1 || maxResponseBytes > MAX_RESPONSE_BYTES)
+      return Promise.reject(new RangeError('Invalid Core response byte budget'));
     const semantics = this.capabilities?.methodSemantics;
     const bootstrap = method === 'initialize' || method === 'areal/capabilities';
     const effect = bootstrap ? 'read' : semantics
@@ -130,7 +132,7 @@ export class CoreClient {
         this.pending.delete(id);
         reject(requestFailure('Core response timed out', request, 'TIMEOUT'));
       }, timeoutMs);
-      this.pending.set(id, { resolve, reject, timer, ...request, onResult });
+      this.pending.set(id, { resolve, reject, timer, ...request, onResult, maxResponseBytes });
       try { this.socket.send(JSON.stringify({ id, method, params })); }
       catch (cause) {
         clearTimeout(timer);
@@ -144,7 +146,8 @@ export class CoreClient {
     // close 后仍可能收到 socket 缓冲中的包，不能让旧连接再次更新投影。
     if (this.closed) return;
     const text = String(bytes);
-    if ((bytes?.byteLength ?? new TextEncoder().encode(text).byteLength) > MAX_RESPONSE_BYTES) {
+    const responseBytes = bytes?.byteLength ?? new TextEncoder().encode(text).byteLength;
+    if (responseBytes > MAX_RESPONSE_BYTES) {
       this.closeFailure = responseTooLarge();
       this.close();
       return;
@@ -178,6 +181,12 @@ export class CoreClient {
       if (!entry) return;
       this.pending.delete(message.id);
       clearTimeout(entry.timer);
+      if (responseBytes > entry.maxResponseBytes) {
+        entry.reject(requestFailure('Core response exceeds the requested byte budget', entry, 'RESPONSE_TOO_LARGE', {
+          data: { reason: 'RESPONSE_TOO_LARGE', limitBytes: entry.maxResponseBytes, retryable: false, delivery: 'resultUnavailable' }, received: true,
+        }));
+        return;
+      }
       if (message.error) {
         const oversized = message.error.data?.reason === 'RESPONSE_TOO_LARGE';
         entry.reject(requestFailure(message.error.message, entry, oversized ? 'RESPONSE_TOO_LARGE' : message.error.code,

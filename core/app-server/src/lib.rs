@@ -708,7 +708,7 @@ async fn connection(
                     } else if processes::METHODS.contains(&method.as_str()) {
                         processes::dispatch(&engine, &identity, &method, params).await
                     } else if desktop::METHODS.contains(&method.as_str()) {
-                        desktop::dispatch(&engine, &identity, &method, params).await
+                        desktop::dispatch_with_budget(&engine, &identity, &method, params, response_overhead(&id)).await
                     } else {
                         workgroups::dispatch(engine, &identity, &method, params).await
                     }
@@ -735,7 +735,7 @@ async fn connection(
         let delivery = conn.delivery.clone();
         let _delivery = delivery.lock().await;
         let result = conn
-            .dispatch(&engine, method, params)
+            .dispatch_response(&engine, method, params, response_overhead(id.as_ref().unwrap()))
             .instrument(info_span!(
                 "rpc.request",
                 rpc.system = "jsonrpc",
@@ -988,11 +988,21 @@ impl Connection {
             }
         });
     }
+    #[cfg(test)]
     async fn dispatch(
         &mut self,
         engine: &Arc<Engine>,
         method: &str,
         params: Value,
+    ) -> Result<Value, RpcError> {
+        self.dispatch_response(engine, method, params, 0).await
+    }
+    async fn dispatch_response(
+        &mut self,
+        engine: &Arc<Engine>,
+        method: &str,
+        params: Value,
+        response_overhead: usize,
     ) -> Result<Value, RpcError> {
         if method == "initialize" {
             if self.initialized {
@@ -1108,7 +1118,7 @@ impl Connection {
             }
             let scoped_request_search =
                 method == "areal/request/read" && self.principal.thread_ids.is_some();
-            let mut result = desktop::dispatch(engine, &self.principal.id, method, params).await?;
+            let mut result = desktop::dispatch_with_budget(engine, &self.principal.id, method, params, response_overhead).await?;
             if scoped_request_search
                 && let Some(data) = result.get_mut("data").and_then(Value::as_array_mut)
             {
@@ -1226,16 +1236,18 @@ impl Connection {
                             })
                     })
                     .collect::<Result<std::collections::BTreeMap<_, _>, _>>()?;
-                Ok(
-                    json!({"apiVersion": API_VERSION, "methods": methods, "methodSemantics":semantics,
+                let mut capabilities = json!({"apiVersion": API_VERSION, "methods": methods, "methodSemantics":semantics,
                     "notifications": NOTIFICATIONS, "serverRequests":["item/tool/call","areal/task/prepare"],
                     "browserToolBundles":if can_attach_browser {json!([{"bundleId":areal_protocol::desktop::BROWSER_V1_BUNDLE,
                         "definition":areal_protocol::desktop::browser_v1_tool()}])} else {json!([])},
-                    "features":{"operationOutcomes":true,"taskRequestReceipts":true,"atomicConfigureReceipt":true,"conversationDerivationV1":json!({"preview":false,"methods":["areal/thread/fork","areal/side/start","areal/conversation/list","areal/conversation/history","areal/conversation/unarchive","areal/side/context/read"],"limits":engine.conversation_derivation_limits(),"forkBoundaries":["after","before"],"workspaceModes":["sharedCurrent"],"sideWorkspaceAccess":if engine.side_workspace_read_available() {json!(["none","readOnly"])} else {json!(["none"])},"historyBytes":engine.fork_snapshot_limit()}),"subscriptionRemoval":true,"atomicResume":true,"atomicObserve":true,"atomicObserveOwnership":true,"browserToolAttachment":can_attach_browser,
-                        "ordinaryTurnSubmit":true,"editLastMessage":true,"turnStartAdmissionGuard":true,"turnEnqueueAdmissionGuard":true,"turnInterruptAdmissionGuard":true,"threadStartAdmissionGuard":true,"taskPauseRunGuard":true,"taskModes":true,"taskChannels":true,"asyncQuestions":true,"headlessInteractions":true,"goals":true,"dynamicTools":true,"mediaOutput":true,"durableSubmissionDeduplication":true,"profiles":true,"skills":true,"plans":true,"interactions":true,"queue":true,"providerConfiguration":true,"modelReset":true,"toolMedia":true,"blobUpload":true},
+                    "features":json!({"operationOutcomes":true,"taskRequestReceipts":true,"atomicConfigureReceipt":true,"conversationDerivationV1":json!({"preview":false,"methods":["areal/thread/fork","areal/side/start","areal/conversation/list","areal/conversation/history","areal/conversation/unarchive","areal/side/context/read"],"limits":engine.conversation_derivation_limits(),"forkBoundaries":["after","before"],"workspaceModes":["sharedCurrent"],"sideWorkspaceAccess":if engine.side_workspace_read_available() {json!(["none","readOnly"])} else {json!(["none"])},"historyBytes":engine.fork_snapshot_limit()}),"subscriptionRemoval":true,"atomicResume":true,"atomicObserve":true,"atomicObserveOwnership":true,"browserToolAttachment":can_attach_browser,
+                        "ordinaryTurnSubmit":true,"editLastMessage":true,"turnStartAdmissionGuard":true,"turnEnqueueAdmissionGuard":true,"turnInterruptAdmissionGuard":true,"threadStartAdmissionGuard":true,"taskPauseRunGuard":true,"taskModes":true,"taskChannels":true,"asyncQuestions":true,"headlessInteractions":true,"goals":true,"dynamicTools":true,"mediaOutput":true,"durableSubmissionDeduplication":true,"profiles":true,"skills":true,"plans":true,"interactions":true,"queue":true,"providerConfiguration":true,"modelReset":true,"toolMedia":true,"blobUpload":true}),
                     "limits":{"frameBytes":MAX_FRAME_BYTES,"responseBytes":MAX_RESPONSE_BYTES,"subscriptions":128,"sendQueue":256,"threadEventWindow":128},
-                    "runtime":engine.runtime_capabilities()}),
-                )
+                    "runtime":engine.runtime_capabilities()});
+                capabilities["features"]["boundedObservation"] = json!(true);
+                capabilities["features"]["boundedResume"] = json!(true);
+                capabilities["features"]["boundedHistory"] = json!(true);
+                Ok(capabilities)
             }
             "areal/subscription/remove" => {
                 let p: areal_protocol::desktop::RemoveSubscriptions = parse(params)?;
@@ -1289,7 +1301,12 @@ impl Connection {
                 Ok(thread_result(engine, thread))
             }
             "thread/resume" => {
-                let p: ThreadId = parse(params)?;
+                let p: areal_protocol::desktop::ObserveThread = parse(params)?;
+                let budget = match p.mode {
+                    Some(areal_protocol::desktop::ObservationMode::Bounded) => Some(bounded_history_budget(p.max_bytes, response_overhead)?),
+                    None if p.max_bytes.is_some() => return Err(RpcError::invalid("maxBytes requires mode bounded")),
+                    None => None,
+                };
                 if !self.subscriptions.contains_key(&p.thread_id) && self.subscriptions.len() >= 128
                 {
                     return Err(RpcError {
@@ -1303,6 +1320,14 @@ impl Connection {
                         .bind_tool_host(&p.thread_id, self.tool_host.clone())
                         .await
                         .map_err(map_error)?;
+                }
+                if let Some(budget) = budget {
+                    let (result, events) = engine.snapshot_and_subscribe_bounded(
+                        &p.thread_id, &self.principal.id, self.principal.thread_ids.as_ref(),
+                        budget, thread_metadata(engine, ""),
+                    ).await.map_err(map_error)?;
+                    self.forward(&p.thread_id, events);
+                    return Ok(result);
                 }
                 let (thread, events) = engine
                     .snapshot_and_subscribe(&p.thread_id)
@@ -1320,6 +1345,18 @@ impl Connection {
                         message: "subscription limit reached".into(),
                         data: None,
                     });
+                }
+                if p.mode == Some(areal_protocol::desktop::ObservationMode::Bounded) {
+                    let budget = bounded_history_budget(p.max_bytes, response_overhead)?;
+                    let (result, events) = engine.snapshot_and_subscribe_bounded(
+                        &p.thread_id, &self.principal.id, self.principal.thread_ids.as_ref(),
+                        budget, thread_metadata(engine, ""),
+                    ).await.map_err(map_error)?;
+                    self.forward(&p.thread_id, events);
+                    return Ok(result);
+                }
+                if p.mode.is_some() || p.max_bytes.is_some() {
+                    return Err(RpcError::invalid("maxBytes requires mode bounded"));
                 }
                 let (thread, ownership, events) = engine
                     .snapshot_and_subscribe_with_ownership(
@@ -1394,9 +1431,27 @@ fn validate_model(engine: &Engine, model: Option<&str>) -> Result<(), RpcError> 
     }
     Ok(())
 }
-fn thread_result(engine: &Engine, thread: areal_protocol::Thread) -> Value {
-    json!({"cwd":thread.cwd,"thread":thread,"model":engine.model_name(),"modelProvider":engine.model_provider(),
+fn response_overhead(id: &Value) -> usize {
+    serde_json::to_vec(&response(id.clone(), Ok(Value::Null))).unwrap().len() - 4
+}
+fn bounded_history_budget(max_bytes: Option<usize>, overhead: usize) -> Result<usize, RpcError> {
+    let requested = max_bytes.unwrap_or(areal_protocol::desktop::DEFAULT_HISTORY_PAGE_BYTES);
+    if !(1..=areal_protocol::desktop::MAX_HISTORY_PAGE_BYTES).contains(&requested) {
+        return Err(RpcError::invalid("maxBytes must be 1..1048576"));
+    }
+    requested.checked_sub(overhead).ok_or_else(|| RpcError {
+        code: -32012, message: "History page budget too small".into(),
+        data: Some(json!({"reason":"HISTORY_BUDGET_TOO_SMALL","retryable":false,"outcome":{"kind":"noMutation"},"recovery":{"kind":"none"}})),
+    })
+}
+fn thread_metadata(engine: &Engine, cwd: &str) -> Value {
+    json!({"cwd":cwd,"model":engine.model_name(),"modelProvider":engine.model_provider(),
         "approvalPolicy":if engine.permission_config().mode.requires_approval() { "on-request" } else { "never" },"permissionMode":engine.permission_config().mode,"approvalsReviewer":"user","sandbox":engine.sandbox(),"reasoningEffort":null})
+}
+fn thread_result(engine: &Engine, thread: areal_protocol::Thread) -> Value {
+    let mut result = thread_metadata(engine, &thread.cwd);
+    result["thread"] = json!(thread);
+    result
 }
 fn parse<T: serde::de::DeserializeOwned>(value: Value) -> Result<T, RpcError> {
     serde_json::from_value(value)
@@ -1448,6 +1503,12 @@ fn map_error(error: Error) -> RpcError {
     if let Error::Rejected(error) = error {
         return rejected(map_error(*error), "REQUEST_REJECTED");
     }
+    if let Error::HistoryRead { reason, thread_id, restart_cursor } = &error {
+        return RpcError {
+            code: -32012, message: "History view requires a fresh bounded read".into(),
+            data: Some(json!({"reason":reason,"threadId":thread_id,"view":"own","reset":*reason == "HISTORY_CURSOR_STALE","restartCursor":restart_cursor,"retryable":false,"outcome":{"kind":"noMutation"},"recovery":{"kind":"none"}})),
+        };
+    }
     if let Error::OperationOutcome(failure) = &error {
         return RpcError {
             code: -32011,
@@ -1478,7 +1539,7 @@ fn map_error(error: Error) -> RpcError {
         Error::Conflict => -32009,
         Error::Exhausted(_) => -32001,
         Error::Closed => -32000,
-        Error::Storage(_) | Error::OperationOutcome(_) | Error::Rejected(_) => -32603,
+        Error::Storage(_) | Error::OperationOutcome(_) | Error::Rejected(_) | Error::HistoryRead { .. } => -32603,
     };
     RpcError {
         code,

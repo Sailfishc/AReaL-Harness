@@ -286,11 +286,11 @@ export function DraftComposer({
       />
       {unknown && (
         <div role="status" className="notice">
-          任务创建结果待确认，草稿已保留，不会重复创建。
+          {t("recovery.createUnconfirmed")}
           <button
             onClick={() => void action("reconcile", { projectId: project.id }).catch(() => {})}
           >
-            刷新受理状态
+            {t("recovery.checkOriginal")}
           </button>
         </div>
       )}

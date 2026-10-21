@@ -98,6 +98,48 @@ async fn run_host(
         data_dir: data.clone(),
         config_fingerprint: spec.fingerprint.clone(),
     };
+    if let Some(original) = &spec.recovery_origin {
+        let previous: Service = storage::read(&directory.join("service.json"))?;
+        let proof: storage::CrashReceipt = storage::read(&directory.join("crash.json"))?;
+        let mut replacement: storage::ReplacementReceipt =
+            storage::read(&directory.join("replacement.json"))?;
+        ensure!(
+            previous.identity == *original
+                && previous.owner == owner
+                && proof.identity == *original
+                && proof.version == VERSION
+                && proof.unexpected_core_exit
+                && proof.owner == owner
+                && proof.cleanup_confirmed
+                && proof.components == spec.components
+                && replacement.original == *original
+                && replacement.owner == owner
+                && replacement.components == spec.components
+                && matches!(
+                    replacement.successor,
+                    storage::ReplacementPublication::Unconfirmed
+                )
+                && original.service_id == identity.service_id
+                && original.workspace == identity.workspace
+                && original.data_dir == identity.data_dir
+                && original.config_fingerprint == identity.config_fingerprint
+                && !storage::has_admitted_stop_receipt(&directory, original)?,
+            "crash recovery authorization changed"
+        );
+        let fresh = LaunchSpec::in_bin(&spec.args, spec.bin_dir.clone())?;
+        ensure!(
+            fresh.fingerprint == spec.fingerprint
+                && fresh.components == spec.components
+                && fresh.service_id == spec.service_id,
+            "crash recovery configuration changed at Host startup"
+        );
+        ensure!(
+            !shutdown.is_cancelled(),
+            "GUI application ended before replacement startup"
+        );
+        replacement.successor = storage::ReplacementPublication::Published(identity.clone());
+        storage::write(&directory.join("replacement.json"), &replacement)?;
+    }
     let run = tempfile_dir(&directory, &identity.generation)?;
     let info = run.join("identity.json");
     storage::write(&info, &identity)?;
@@ -146,15 +188,49 @@ async fn run_host(
     let stopping = Arc::new(Mutex::new(StopState::default()));
     let result = serve(
         &spec,
-        identity,
+        identity.clone(),
         &ready,
         &directory,
         &mut child,
-        shutdown,
+        shutdown.clone(),
         stopping.clone(),
     )
     .await;
-    let process_cleanup = finish(&mut child, result.is_ok()).await;
+    let exit_expectation = if result.is_ok() {
+        ExitExpectation::RequireSuccess
+    } else {
+        ExitExpectation::ReapOnly
+    };
+    let process_cleanup = finish(&mut child, exit_expectation).await;
+    let launcher_exited = child
+        .try_wait()
+        .is_ok_and(|status| status.is_some_and(|status| status.code().is_some()));
+    let crash_proof = storage::read::<storage::LauncherCleanup>(&run.join("cleanup.json"));
+    if result.is_err()
+        && launcher_exited
+        && !shutdown.is_cancelled()
+        && process_cleanup.is_ok()
+        && let Ok(proof) = crash_proof
+        && proof.identity == identity
+        && proof.unexpected_core_exit
+        && proof.runtime_cleanup_confirmed
+        && !storage::has_admitted_stop_receipt(&directory, &identity)?
+        && let Ok(record) = storage::read::<Service>(&directory.join("service.json"))
+        && record.identity == identity
+        && record.state == State::Ready
+    {
+        storage::write(
+            &directory.join("crash.json"),
+            &storage::CrashReceipt {
+                version: VERSION,
+                unexpected_core_exit: true,
+                identity: identity.clone(),
+                owner: spec.owner.clone(),
+                components: spec.components.clone(),
+                cleanup_confirmed: true,
+            },
+        )?;
+    }
     let socket_cleanup = match std::fs::remove_file(directory.join("control.sock")) {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -462,10 +538,15 @@ async fn begin_stop(
     Ok(receipt.operation)
 }
 
-async fn finish(child: &mut Child, require_clean_exit: bool) -> Result<()> {
+enum ExitExpectation {
+    RequireSuccess,
+    ReapOnly,
+}
+
+async fn finish(child: &mut Child, expectation: ExitExpectation) -> Result<()> {
     if let Some(status) = child.try_wait()? {
         ensure!(
-            !require_clean_exit || status.success(),
+            matches!(expectation, ExitExpectation::ReapOnly) || status.success(),
             "launcher reported cleanup failure"
         );
         return Ok(());

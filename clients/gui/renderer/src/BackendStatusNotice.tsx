@@ -16,7 +16,7 @@ export function BackendStatusNotice({ connection, update, lifecycle, summary, cu
   onAction: (action: BackendStatusAction) => void;
 }) {
   const [connectionNoticeReady, setConnectionNoticeReady] = useState(false);
-  const reconnecting = connection?.recovery !== "check" && (connection?.state === "connecting" || connection?.state === "unavailable");
+  const reconnecting = connection?.recovery !== "check" && connection?.state === "connecting";
   useEffect(() => {
     setConnectionNoticeReady(false);
     if (!reconnecting) return;
@@ -49,7 +49,6 @@ export function BackendStatusNotice({ connection, update, lifecycle, summary, cu
     if (!connectionNoticeReady) return null;
     message = "正在恢复连接，历史和草稿已保留…";
   } else if (connection?.state === "unavailable") {
-    if (!connectionNoticeReady) return null;
     message = error || "暂时无法连接后台，历史和草稿已保留。请重新连接或查看后台详情。";
     action = "reconnect";
   } else if (connection?.state === "ready" && update?.state === "failed") {

@@ -70,6 +70,27 @@ test('mutation timeouts remain unknown and never replay the request', async () =
   });
 });
 
+test('bounded response ceiling rejects before snapshot installation and leaves legacy reads usable', async () => {
+  await fixture(async (client, peer, received) => {
+    let installed = false;
+    const pending = client.request('areal/thread/observe', { threadId: 'history', mode: 'bounded', maxBytes: 1024 },
+      { maxResponseBytes: 1024, onResult: () => { installed = true; } }).catch(error => error);
+    await once(peer(), 'message');
+    peer().send(JSON.stringify({ id: received.at(-1).id, result: { text: '雪'.repeat(600) } }));
+    const error = await pending;
+    assert.equal(error.code, 'RESPONSE_TOO_LARGE');
+    assert.equal(error.data.limitBytes, 1024);
+    assert.equal(error.submissionUnknown, false);
+    assert.equal(error.recovery.kind, 'none');
+    assert.equal(installed, false);
+    assert.equal(client.ready, true);
+    const legacy = client.request('thread/read', { threadId: 'legacy', includeTurns: true });
+    await once(peer(), 'message');
+    peer().send(JSON.stringify({ id: received.at(-1).id, result: { text: '雪'.repeat(600) } }));
+    assert.equal((await legacy).text.length, 600);
+  });
+});
+
 
 test('negotiated Core method semantics classify newly advertised reads and preserve mutation admission', async () => {
   await fixture(async (client, peer, received) => {

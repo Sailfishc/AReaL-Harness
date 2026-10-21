@@ -148,6 +148,21 @@ fn plugin_catalog_mutation_result(catalog: Value) -> areal_engine::Result<Value>
     .map_err(|error| Error::Invalid(error.to_string()))
 }
 
+pub(crate) async fn dispatch_with_budget(
+    engine: &Arc<Engine>, identity: &str, method: &str, params: Value, overhead: usize,
+) -> Result<Value, RpcError> {
+    if method == "areal/conversation/history" && params["view"] == "own" {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        struct OwnHistory { thread_id: String, view: String, cursor: Option<String>, max_bytes: Option<usize> }
+        let request: OwnHistory = parse(params)?;
+        debug_assert_eq!(request.view, "own");
+        let budget = super::bounded_history_budget(request.max_bytes, overhead)?;
+        return engine.own_history(identity, &request.thread_id, request.cursor, budget).await.map_err(map_error);
+    }
+    dispatch(engine, identity, method, params).await
+}
+
 pub(crate) async fn dispatch(
     engine: &Arc<Engine>,
     identity: &str,

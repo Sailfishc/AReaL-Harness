@@ -33,6 +33,24 @@ const workgroupMutationMethods = new Set(['areal/workgroup/start', 'areal/workgr
 const isObservationSizeFailure = error => error?.code === 'RESPONSE_TOO_LARGE'
   && ['thread/read', 'areal/thread/observe'].includes(error.method) && error.submissionUnknown === false;
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+const historyPageBytes = 256 * 1024, historyMaxBytes = 1024 * 1024;
+const historyViewLimit = 8, historyPageLimit = 4, historyItemBytes = 128 * 1024 * 1024;
+const historyReason = error => error?.reason ?? error?.data?.reason;
+const historyFailure = message => Object.assign(new Error(message), { code: 'HISTORY_VIEW_UNAVAILABLE', outcome: { kind: 'noMutation' }, recovery: { kind: 'none' } });
+function mergeHistory(thread, entries) {
+  const turns = new Map();
+  for (const entry of entries) {
+    const turn = turns.get(entry.sourceTurnId) ?? { ...entry.turn, id: entry.sourceTurnId, status: entry.sourceTurnStatus, items: [] };
+    if (!turn.items.some(item => item.id === entry.sourceItemId)) turn.items.push(entry.item);
+    turns.set(turn.id, turn);
+  }
+  for (const current of thread.turns ?? []) {
+    const older = turns.get(current.id);
+    const currentIds = new Set((current.items ?? []).map(item => item.id));
+    turns.set(current.id, older ? { ...older, ...current, items: [...older.items.filter(item => !currentIds.has(item.id)), ...current.items] } : current);
+  }
+  return { ...thread, turns: [...turns.values()] };
+}
 const reconciliationDelays = [500, 1000, 2000, 4000, 8000];
 const creationTargets = new Map([['areal/thread/start', 'thread'], ['areal/thread/fork', 'thread'], ['areal/side/start', 'thread'], ['areal/task/create', 'task']]);
 const processControls = new Set(['areal/process/write', 'areal/process/closeStdin', 'areal/process/resize', 'areal/process/terminate']);
@@ -290,35 +308,40 @@ class CoreBackend {
     } catch (error) { trace?.finish('error', error); throw error; }
   }
 
+  async prepareServiceLaunch(project, trace) {
+    const directory = join(this.home, project.id);
+    const dataDir = join(directory, 'state');
+    const scratch = join(directory, 'scratch');
+    await mkdir(scratch, { recursive: true, mode: 0o700 });
+    const args = ['--workspace', project.root, '--data-dir', dataDir, '--scratch', scratch, '--allow-write'];
+    if (this.desktopProcesses) args.push('--allow-concurrent-writes', '--desktop-process-timeout-ms', '86400000');
+    if (this.config) args.push('--config', this.config);
+    if (this.sandboxProfile) args.push('--sandbox-profile', this.sandboxProfile);
+    if (this.workgroupPolicy) args.push('--workgroup-policy', this.workgroupPolicy);
+    if (this.workgroupToolchain) args.push('--workgroup-toolchain', this.workgroupToolchain);
+    trace.advance('resources');
+    const resourceDeployment = await this.resources.deployment(project);
+    if (resourceDeployment.path) args.push('--desktop-config', resourceDeployment.path);
+    project.resourceProfile = resourceDeployment.profile;
+    project.resourceFingerprint = resourceDeployment.fingerprint;
+    trace.advance('provider_prepare');
+    await this.providers.prepare();
+    trace.advance('provider_config');
+    await this.providers.config.current();
+    project.providerRevision = null;
+    delete project.providerSnapshot;
+    trace.advance('hooks');
+    const hookDeployment = await this.hooks.launch();
+    project.hookRevision = null;
+    const environment = { ...this.hooks.environment(), AREAL_HARNESS_TOOL_EXTENSIONS: hookDeployment.path, ...this.providers.environment() };
+    return { args, environment, dataDir, hookDeployment };
+  }
+
   async launch(project) {
     const trace = startupTrace('core.launch', { projectId: project.id });
     trace.advance('directories');
     try {
-      const directory = join(this.home, project.id);
-      const dataDir = join(directory, 'state');
-      const scratch = join(directory, 'scratch');
-      await mkdir(scratch, { recursive: true, mode: 0o700 });
-      const args = ['--workspace', project.root, '--data-dir', dataDir, '--scratch', scratch, '--allow-write'];
-      if (this.desktopProcesses) args.push('--allow-concurrent-writes', '--desktop-process-timeout-ms', '86400000');
-      if (this.config) args.push('--config', this.config);
-      if (this.sandboxProfile) args.push('--sandbox-profile', this.sandboxProfile);
-      if (this.workgroupPolicy) args.push('--workgroup-policy', this.workgroupPolicy);
-      if (this.workgroupToolchain) args.push('--workgroup-toolchain', this.workgroupToolchain);
-      trace.advance('resources');
-      const resourceDeployment = await this.resources.deployment(project);
-      if (resourceDeployment.path) args.push('--desktop-config', resourceDeployment.path);
-      project.resourceProfile = resourceDeployment.profile;
-      project.resourceFingerprint = resourceDeployment.fingerprint;
-      trace.advance('provider_prepare');
-      await this.providers.prepare();
-      trace.advance('provider_config');
-      await this.providers.config.current();
-      project.providerRevision = null;
-      delete project.providerSnapshot;
-      trace.advance('hooks');
-      const hookDeployment = await this.hooks.launch();
-      project.hookRevision = null;
-      const environment = { ...this.hooks.environment(), AREAL_HARNESS_TOOL_EXTENSIONS: hookDeployment.path, ...this.providers.environment() };
+      const { args, environment, dataDir, hookDeployment } = await this.prepareServiceLaunch(project, trace);
       trace.advance('service_ensure');
       const owned = this.ownedEngines.get(project.id) ?? { project, dataDir, pending: true };
       owned.project = project; owned.pending = true;
@@ -415,7 +438,7 @@ class CoreBackend {
       if (this.providerUpdating || this.resourcesUpdating || this.starting.has(project.id)) { this.scheduleReconnect(project); return; }
       const task = this.reconnectProject(project).catch(error => {
         if (!this.closing) {
-          project.reconnectBlocked = ['CORE_STOPPED', 'CORE_INCOMPATIBLE', 'RESPONSE_TOO_LARGE'].includes(error.code)
+          project.reconnectBlocked = ['CORE_STOPPED', 'CORE_INCOMPATIBLE', 'CORE_RECOVERY_EXHAUSTED', 'LIFECYCLE_INCOMPLETE', 'LIFECYCLE_EXIT_REQUESTED', 'RESPONSE_TOO_LARGE'].includes(error.code)
             || error.reason === 'RESPONSE_TOO_LARGE' || project.client?.closeFailure?.code === 'RESPONSE_TOO_LARGE';
           project.reconnectAttempt = (project.reconnectAttempt ?? 0) + 1;
           this.stopReconciliation(project);
@@ -436,19 +459,75 @@ class CoreBackend {
   }
 
   async reconnectProject(project) {
-    const previous = project.service;
-    // 被动恢复只发现已运行实例；不能用 ensure 启动、升级或复活已停止的 Core。
-    const { descriptor, token } = await connectService(this, 'status', ['--instance', previous.serviceId],
-      this.hooks.environment(), project, previous.dataDir);
-    if (this.closing || project.service !== previous) throw Object.assign(new Error('服务归属已变化'), { code: 'STALE_CONNECTION' });
-    if (descriptor.serviceId !== previous.serviceId || descriptor.generation !== previous.generation || descriptor.configFingerprint !== previous.configFingerprint) {
-      throw Object.assign(new Error('Core 部署配置已变化，请显式重新连接'), { code: 'CORE_INCOMPATIBLE' });
+    const previous = project.service, previousClient = project.client;
+    const current = () => {
+      this.lifecycleOperations.assertProject(project.id);
+      if (this.closing || this.projects.get(project.id) !== project || project.service !== previous || project.client !== previousClient)
+        throw Object.assign(new Error('服务归属已变化'), { code: 'STALE_CONNECTION' });
+    };
+    current();
+    let connection;
+    try {
+      connection = await connectService(this, 'status', ['--instance', previous.serviceId],
+        this.hooks.environment(), project, previous.dataDir);
+      current();
+      if (connection.descriptor.generation !== previous.generation) {
+        if (project.crashRecovery?.original !== previous) throw Object.assign(new Error('Core 代际已变化，请检查原服务'), { code: 'CORE_INCOMPATIBLE' });
+        connection = await this.recoverCrashedProject(project, previous, current);
+      }
+    } catch (error) {
+      if (error.code !== 'CORE_STOPPED' || !this.applicationOwner) throw error;
+      current();
+      connection = await this.recoverCrashedProject(project, previous, current);
     }
+    current();
+    const { descriptor, token } = connection;
+    if (descriptor.serviceId !== previous.serviceId || descriptor.configFingerprint !== previous.configFingerprint)
+      throw Object.assign(new Error('Core 部署配置已变化，请显式重新连接'), { code: 'CORE_INCOMPATIBLE' });
     project.service = descriptor; project.endpoint = descriptor.endpoint; project.token = token;
+    const owned = this.ownedEngines.get(project.id);
+    if (owned) { owned.service = descriptor; owned.pending = false; }
     await this.connect(project, { observeOnly: true });
     await this.reconcile(project, { observeOnly: true });
     project.reconnectAttempt = 0;
     return project;
+  }
+
+  async recoverCrashedProject(project, original, current) {
+    const local = require('./local-service.cjs');
+    current();
+    let attempt = project.crashRecovery;
+    if (attempt?.original !== original) {
+      project.crashCheck ??= { generation: original.generation, started: Date.now() };
+      if (project.crashCheck.generation !== original.generation) project.crashCheck = { generation: original.generation, started: Date.now() };
+      const { service, recovery } = await local.recoveryStatus(this, project, original);
+      current();
+      if (!recovery.eligible) {
+        const waiting = service.state !== 'stopping' && recovery.reason === 'cleanupUnconfirmed'
+          && Date.now() - project.crashCheck.started < 30000;
+        throw Object.assign(new Error(waiting ? '正在确认原执行资源已清理' : '当前服务无法自动恢复，请检查原服务状态后重新连接'),
+          { code: waiting ? 'CORE_RECOVERY_PENDING' : 'CORE_STOPPED' });
+      }
+      const now = Date.now();
+      project.crashAttempts = (project.crashAttempts ?? []).filter(time => now - time < 300000);
+      if (project.crashAttempts.length >= 2) throw Object.assign(new Error('服务连续中断，自动恢复已暂停，请检查服务详情后重新连接'), { code: 'CORE_RECOVERY_EXHAUSTED' });
+      project.crashAttempts.push(now);
+      attempt = project.crashRecovery = { original, calls: 0 };
+    }
+    if (attempt.calls >= 2) throw Object.assign(new Error('原服务的自动恢复结果仍未确认，请检查服务详情后重新连接'), { code: 'CORE_RECOVERY_EXHAUSTED' });
+    const trace = startupTrace('core.crash_recovery', { projectId: project.id, coreGeneration: original.generation });
+    try {
+      const launch = await this.prepareServiceLaunch(project, trace);
+      current();
+      attempt.calls++;
+      const connection = await local.recoverService(this, project, original, launch);
+      current();
+      if (connection.descriptor.generation === original.generation) throw Object.assign(new Error('恢复未返回原服务的后继代际'), { code: 'CORE_INCOMPATIBLE' });
+      if ((await this.hooks.current()).revision === launch.hookDeployment.revision) project.hookRevision = launch.hookDeployment.revision;
+      current();
+      trace.finish('ok');
+      return connection;
+    } catch (error) { trace.finish('error', error); throw error; }
   }
 
   async connect(project, { observeOnly = false } = {}) {
@@ -514,6 +593,10 @@ class CoreBackend {
         }
         if (method === 'areal/mcp/app/notification') this.onMcpAppNotification?.({ projectId: project.id, ...params });
         this.analytics.observe(project.id, method, params);
+        if (method === 'areal/thread/edited' && this.supportsBoundedHistory(client)) {
+          void this.openThread(project, threadId).catch(() => {});
+          return;
+        }
         project.model.event(method, params);
         if (method === 'areal/context/compacted' && params?.threadId) {
           void this.openThread(project, params.threadId).catch(() => {});
@@ -529,6 +612,9 @@ class CoreBackend {
           void this.listThreads(project).catch(() => {});
         }
         if (method === 'turn/completed') this.providers.requestReconciliation();
+        if (method === 'turn/completed' && this.supportsBoundedHistory(client)
+          && Buffer.byteLength(JSON.stringify(project.model.state.threads[threadId] ?? {})) > historyMaxBytes)
+          void this.openThread(project, threadId).catch(() => {});
       });
       client.onClose(failure => { if (project.client === client) {
         project.taskNotificationMonitor?.stop();
@@ -602,7 +688,9 @@ class CoreBackend {
           }
           for(const task of scheduled)for(const run of task.runs) {
             if(run.status!=='completed' || !run.threadId || this.library.value.threads[`${project.id}:${run.threadId}`]?.scheduledCompletionId===run.id)continue;
-            const {thread}=await client.request('thread/read',{threadId:run.threadId,includeTurns:true});
+            const {thread}=this.supportsBoundedHistory(client)
+              ? await this.readObservation(project,run.threadId,{client,install:false})
+              : await client.request('thread/read',{threadId:run.threadId,includeTurns:true});
             this.requireConnection(project,client);
             const completionId=thread.turns?.findLast(turn=>turn.status==='completed')?.id;
             await this.library.recordScheduledCompletion(project.id,run,completionId);
@@ -713,14 +801,184 @@ class CoreBackend {
     return promise;
   }
 
+  supportsBoundedHistory(client) {
+    return client?.capabilities?.features?.boundedObservation === true && client.capabilities.features.boundedHistory === true;
+  }
+
+  historyWindow(project, threadId) { return this.historyWindows?.get(`${project.id}:${threadId}`); }
+
+  publishHistory(project, window) {
+    if (this.historyWindow(project, window.threadId) !== window) return;
+    const thread = project.model.state.threads[window.threadId];
+    if (!thread) return;
+    project.model.replace({ ...thread, displayHistory: { supported: true, complete: window.complete,
+      omitted: window.omitted, loadingOlder: !!window.olderRead, loadingItems: Object.fromEntries(window.loading),
+      baselineFirstItemId: window.baselineFirstItemId, viewGeneration: window.viewGeneration } });
+  }
+
+  installObservation(project, result) {
+    const thread = result.thread;
+    if (!result.history) { project.model.replace({ ...thread, displayHistory: { supported: false } }); return; }
+    this.historyWindows ??= new Map();
+    for (const [key, window] of this.historyWindows) {
+      if (this.projects.get(window.project.id) !== window.project) this.historyWindows.delete(key);
+    }
+    const key = `${project.id}:${thread.id}`, previous = this.historyWindows.get(key);
+    if (!previous && this.historyWindows.size >= historyViewLimit) {
+      const victim = [...this.historyWindows.entries()].find(([, window]) => window.views.size === 0);
+      if (!victim) throw historyFailure('同时打开的历史视图已达上限，请先关闭一个视图。');
+      this.historyWindows.delete(victim[0]);
+      const { project: owner, threadId } = victim[1];
+      const { [threadId]: removed, ...threads } = owner.model.state.threads;
+      const { [threadId]: interactions, ...otherInteractions } = owner.model.state.interactions;
+      const { [threadId]: queue, ...queues } = owner.model.state.queues;
+      owner.model.publish({ threads, interactions: otherInteractions, queues });
+    }
+    const window = { project, threadId: thread.id, ...result.history, views: previous?.views ?? new Set(), viewGeneration: randomUUID(),
+      pages: [], loaded: new Map(), loading: new Map(), omitted: false, epoch: 0, baselineCursor: result.history.nextCursor,
+      baselineComplete: result.history.complete, baselineFirstItemId: thread.turns?.flatMap(turn => turn.items ?? [])[0]?.id };
+    this.historyWindows.delete(key); this.historyWindows.set(key, window);
+    project.model.replace({ ...thread, displayHistory: { supported: true, complete: window.complete, omitted: false,
+      baselineFirstItemId: window.baselineFirstItemId, viewGeneration: window.viewGeneration, loadingItems: {} } });
+  }
+
+  async readObservation(project, threadId, { client = project.client, current = () => this.currentConnection(project, client), timeoutMs, install = true, resume = false } = {}) {
+    const bounded = this.supportsBoundedHistory(client);
+    if (resume && bounded && client.capabilities.features.boundedResume !== true)
+      throw historyFailure('当前 Core 无法按页恢复浏览器连接，请更新 Core 后重试。');
+    const method = resume ? 'thread/resume' : 'areal/thread/observe';
+    for (const maxBytes of bounded ? [historyPageBytes, historyMaxBytes] : [undefined]) {
+      try {
+        return await client.request(method, { threadId, ...(bounded ? { mode: 'bounded', maxBytes } : {}) }, {
+          timeoutMs, ...(bounded ? { maxResponseBytes: maxBytes } : {}),
+          onResult: result => { if (current() && result.thread?.id === threadId && install) this.installObservation(project, result); },
+        });
+      } catch (error) {
+        if (!bounded || maxBytes === historyMaxBytes || historyReason(error) !== 'HISTORY_BUDGET_TOO_SMALL') throw error;
+      }
+    }
+  }
+
+  async historyCommand(project, request) {
+    const { threadId, viewId, operation } = request;
+    let window = this.historyWindow(project, threadId);
+    if (operation === 'release') {
+      if (!window) return { released: true };
+      window.views.delete(viewId);
+      if (!window.views.size) {
+        window.epoch++;
+        const drop = new Set(window.pages.flatMap(page => page.data.map(entry => entry.sourceItemId)));
+        const thread = project.model.state.threads[threadId];
+        if (thread) project.model.replace({ ...thread, turns: thread.turns.map(turn => ({ ...turn,
+          items: turn.items.filter(item => !drop.has(item.id)).map(item => window.loaded.get(item.id)?.placeholder ?? item),
+        })).filter(turn => turn.items.length || turn.status === 'inProgress') });
+        window.pages = []; window.loaded.clear(); window.loading.clear(); window.olderRead = null;
+        window.nextCursor = window.baselineCursor; window.complete = window.baselineComplete; window.omitted = false;
+        this.publishHistory(project, window);
+      }
+      return { released: true };
+    }
+    if (!this.supportsBoundedHistory(project.client)) return { supported: false, message: '当前 Core 使用完整历史读取，不支持分页；请更新 Core。' };
+    if (!window) { await this.openThread(project, threadId); window = this.historyWindow(project, threadId); }
+    if (!window) throw historyFailure('历史视图尚未就绪，请重新打开聊天。');
+    if (operation === 'acquire') { window.views.add(viewId); return { supported: true, complete: window.complete }; }
+    if (!window.views.has(viewId)) throw historyFailure('历史视图已关闭，请重新打开聊天。');
+    const client = project.client, epoch = window.epoch;
+    const current = () => this.currentConnection(project, client) && this.historyWindow(project, threadId) === window && window.epoch === epoch && window.views.has(viewId);
+    const read = (cursor, maxBytes = historyPageBytes) => client.request('areal/conversation/history', { threadId, view: 'own', cursor, maxBytes }, { maxResponseBytes: maxBytes });
+    if (operation === 'loadOlder') {
+      if (window.olderRead) return window.olderRead;
+      if (!window.nextCursor) return { data: [], complete: true, nextCursor: null };
+      const cursor = window.nextCursor;
+      const loading = Promise.resolve().then(async () => {
+        try {
+          const page = await read(cursor);
+          if (!current()) throw historyFailure('历史视图已变化，请重新加载。');
+          if (page.snapshotId !== window.snapshotId || !Array.isArray(page.data) || page.nextCursor === cursor)
+            throw historyFailure('历史页的版本或游标无效，请重新打开聊天。');
+          if (page.data.some(entry => entry.sourceThreadId !== threadId || entry.fragment || entry.item?.id !== entry.sourceItemId))
+            throw historyFailure('历史页与当前聊天不匹配。');
+          window.pages.push(page); window.nextCursor = page.nextCursor; window.complete = page.complete;
+          let thread = mergeHistory(project.model.state.threads[threadId], page.data);
+          if (window.pages.length > historyPageLimit) {
+            const removed = new Set(window.pages.shift().data.map(entry => entry.sourceItemId));
+            thread = { ...thread, turns: thread.turns.map(turn => ({ ...turn, items: turn.items.filter(item => !removed.has(item.id)) })).filter(turn => turn.items.length || turn.status === 'inProgress') };
+            for (const id of removed) window.loaded.delete(id);
+            window.omitted = true;
+          }
+          project.model.replace(thread); return page;
+        } catch (error) {
+          if (current() && historyReason(error) === 'HISTORY_CURSOR_STALE') await this.openThread(project, threadId);
+          throw error;
+        } finally { if (this.historyWindow(project, threadId) === window) { window.olderRead = null; this.publishHistory(project, window); } }
+      });
+      window.olderRead = loading; this.publishHistory(project, window); return loading;
+    }
+    if (operation !== 'loadItem') throw historyFailure('不支持的历史读取操作。');
+    const placeholder = project.model.state.threads[threadId]?.turns.flatMap(turn => turn.items).find(item => item.id === request.itemId);
+    if (!placeholder || placeholder.type !== 'historyDeferred') return { loaded: true, itemId: request.itemId };
+    if (window.loading.has(placeholder.id)) throw historyFailure('此内容正在加载。');
+    let cursor = placeholder.cursor, version = placeholder.version, totalBytes = placeholder.totalBytes, offset = 0, chunks = [], restarted = false;
+    const reserved = () => [...this.historyWindows.values()].reduce((sum, view) => sum
+      + [...view.loaded.values()].reduce((n, item) => n + item.bytes, 0)
+      + [...view.loading.entries()].reduce((n, [id, item]) => n + (view === window && id === placeholder.id ? 0 : item.totalBytes), 0), 0);
+    const reserve = () => {
+      if (!Number.isSafeInteger(totalBytes) || totalBytes < 1 || totalBytes + reserved() > historyItemBytes)
+        throw historyFailure('完整内容超过当前 128 MiB 阅读缓存，请关闭其他已加载内容后重试。');
+      window.loading.set(placeholder.id, { bytes: offset, totalBytes }); this.publishHistory(project, window);
+    };
+    reserve();
+    try {
+      while (true) {
+        if (!current()) throw historyFailure('历史视图已关闭或变化。');
+        let page;
+        try { page = await read(cursor, historyMaxBytes); }
+        catch (error) {
+          if (historyReason(error) === 'HISTORY_ITEM_CHANGED' && error.data?.restartCursor && !restarted) {
+            cursor = error.data.restartCursor; offset = 0; chunks = []; version = undefined; restarted = true; continue;
+          }
+          if (current() && historyReason(error) === 'HISTORY_CURSOR_STALE') await this.openThread(project, threadId);
+          throw error;
+        }
+        if (!current()) throw historyFailure('历史视图已关闭或变化。');
+        const entry = page.data?.[0], fragment = entry?.fragment;
+        if (page.data?.length !== 1 || entry.sourceThreadId !== threadId || entry.sourceItemId !== placeholder.id || !fragment
+          || fragment.offsetUtf8 !== offset || typeof fragment.text !== 'string' || typeof fragment.version !== 'string'
+          || version !== undefined && fragment.version !== version || offset > 0 && fragment.totalBytes !== totalBytes)
+          throw historyFailure('历史内容分片不连续或版本已变化。');
+        if (version === undefined) { version = fragment.version; totalBytes = fragment.totalBytes; }
+        if (fragment.totalBytes !== totalBytes) throw historyFailure('历史内容长度已变化。');
+        const bytes = Buffer.from(fragment.text, 'utf8'); offset += bytes.length; chunks.push(bytes);
+        if (offset > totalBytes) throw historyFailure('历史内容超过声明长度。');
+        reserve();
+        if (offset === totalBytes) {
+          if (!page.complete || page.nextCursor) throw historyFailure('历史内容终点无效。');
+          const complete = JSON.parse(Buffer.concat(chunks, totalBytes).toString('utf8'));
+          if (complete.sourceThreadId !== threadId || complete.sourceItemId !== placeholder.id || complete.item?.id !== placeholder.id)
+            throw historyFailure('完整历史内容与当前条目不匹配。');
+          const thread = project.model.state.threads[threadId];
+          const stillDeferred = thread.turns.flatMap(turn => turn.items).find(item => item.id === placeholder.id);
+          if (stillDeferred?.type === 'historyDeferred' && stillDeferred.cursor === placeholder.cursor) {
+            window.loaded.set(placeholder.id, { placeholder, bytes: totalBytes });
+            project.model.replace({ ...thread, turns: thread.turns.map(turn => ({ ...turn,
+              items: turn.items.map(item => item.id === placeholder.id ? complete.item : item) })) });
+          }
+          return { loaded: true, itemId: placeholder.id };
+        }
+        if (!page.nextCursor || page.nextCursor === cursor || !bytes.length) throw historyFailure('历史内容游标未推进。');
+        cursor = page.nextCursor;
+      }
+    } finally { window.loading.delete(placeholder.id); this.publishHistory(project, window); }
+  }
+
   async observeThread(project, threadId, { client, current, deadline }) {
     const acceptSnapshot = result => {
       if (!current() || result.thread?.id !== threadId) return;
       delete project.observationErrors?.[threadId];
-      project.model.replace(result.thread);
+      this.installObservation(project, result);
     };
     try {
-      if ((project.summaries ?? []).find(item => item.id === threadId)?.desktop?.archived || project.model.state?.threads?.[threadId]?.desktop?.archived) {
+      if (!this.supportsBoundedHistory(client) && ((project.summaries ?? []).find(item => item.id === threadId)?.desktop?.archived || project.model.state?.threads?.[threadId]?.desktop?.archived)) {
         const result = await client.request('thread/read', { threadId, includeTurns: true }, { onResult: acceptSnapshot, timeoutMs: Math.min(6000, Math.max(1, deadline - Date.now())) });
         this.requireConnection(project, client);
         if (result.thread?.id !== threadId) throw new Error('恢复结果与目标会话不匹配');
@@ -731,9 +989,7 @@ class CoreBackend {
       if (!client.capabilities?.methods?.includes('areal/thread/observe')) {
         throw new Error('当前 Core 不支持安全观察已有聊天；请更新 Core 后重新连接');
       }
-      const resumed = await client.request('areal/thread/observe', { threadId }, {
-        onResult: acceptSnapshot, timeoutMs: Math.min(6000, Math.max(1, deadline - Date.now())),
-      });
+      const resumed = await this.readObservation(project, threadId, { client, current, timeoutMs: Math.min(6000, Math.max(1, deadline - Date.now())) });
       this.requireConnection(project, client);
       if (resumed.thread?.id !== threadId) throw new Error('恢复结果与目标会话不匹配');
       if (resumed.thread?.desktop?.archived) {
@@ -760,7 +1016,7 @@ class CoreBackend {
       if (failure) throw failure.reason;
 
     } catch (error) {
-      if (isObservationSizeFailure(error) && this.currentConnection(project, client) && client.ready) {
+      if (!this.supportsBoundedHistory(client) && isObservationSizeFailure(error) && this.currentConnection(project, client) && client.ready) {
         project.observationErrors ??= {};
         project.observationErrors[threadId] = { connectionGeneration: project.connectionGeneration,
           code: 'RESPONSE_TOO_LARGE', message: '聊天历史超过当前支持的 64 MiB，无法完整加载。', retryable: false };
@@ -787,9 +1043,7 @@ class CoreBackend {
   async ensureBrowserTools(project, threadId) {
     if (!this.supportsBrowser(project)) return;
     const client = project.client;
-    const { thread } = await client.request('areal/thread/observe', { threadId }, {
-      onResult: result => { if (this.currentConnection(project, client)) project.model.replace(result.thread); },
-    });
+    const { thread } = await this.readObservation(project, threadId, { client });
     this.requireConnection(project, client);
     if (thread.desktop?.archived || thread.parentThreadId || thread.conversation?.kind === 'side' || thread.status?.type !== 'idle') return;
     // 固定工具包追加也安全重连原空闲 ToolHost；
@@ -797,9 +1051,7 @@ class CoreBackend {
     await this.submit(project, 'areal/thread/tools/attach', {
       threadId, expectedToolsetRevision: thread.toolsetRevision ?? 0, bundleId: 'areal.browser.v1',
     });
-    await client.request('areal/thread/observe', { threadId }, {
-      onResult: result => { if (this.currentConnection(project, client)) project.model.replace(result.thread); },
-    });
+    await this.readObservation(project, threadId, { client });
     this.requireConnection(project, client);
   }
 
@@ -810,18 +1062,14 @@ class CoreBackend {
     }
     // A local, explicit page claim may rebind an idle host. Read Core's
     // current state first; the Core checks idle state and host ownership again.
-    const observed = await client.request('areal/thread/observe', { threadId }, {
-      onResult: result => { if (this.currentConnection(project, client)) project.model.replace(result.thread); },
-    });
+    const observed = await this.readObservation(project, threadId, { client });
     this.requireConnection(project, client);
     const thread = observed.thread;
     if (!thread?.dynamicTools?.some(tool => tool.name === 'browser_v1')
       || thread.desktop?.archived || thread.status?.type !== 'idle') {
       throw new Error('聊天正在执行或浏览器未启用，请刷新后再认领页面');
     }
-    await client.request('thread/resume', { threadId }, {
-      onResult: result => { if (this.currentConnection(project, client)) project.model.replace(result.thread); },
-    });
+    await this.readObservation(project, threadId, { client, resume: true });
     this.requireConnection(project, client);
   }
 
@@ -884,7 +1132,9 @@ class CoreBackend {
     if (project.model.state.threads[threadId]?.conversation?.kind === 'side') {
       // Side cannot call the ordinary execution inspection route. Its read snapshot
       // supplies the same authoritative configuration and active-turn precondition.
-      const { thread } = await client.request('thread/read', { threadId, includeTurns: true }, { timeoutMs });
+      const { thread } = this.supportsBoundedHistory(client)
+        ? await this.readObservation(project, threadId, { client, timeoutMs, current, install: false })
+        : await client.request('thread/read', { threadId, includeTurns: true }, { timeoutMs });
       if (thread?.id !== threadId || thread.conversation?.kind !== 'side') throw new Error('Side 配置快照与目标会话不匹配');
       result = { configuration: thread.desktop?.configuration,
         activeTurnId: thread.turns?.find(turn => turn.status === 'inProgress')?.id };
@@ -1245,7 +1495,9 @@ class CoreBackend {
   async requestSubmission(project, method, params) {
     if (method === 'areal/blob/release') {
       let current;
-      try { current = await project.client.request('thread/read', { threadId: params.threadId, includeTurns: true }); }
+      try { current = this.supportsBoundedHistory(project.client)
+        ? await this.readObservation(project, params.threadId, { install: false })
+        : await project.client.request('thread/read', { threadId: params.threadId, includeTurns: false }); }
       catch (error) { throw Object.assign(new Error(`无法核对附件所属会话：${error.message}`), { outcome: { kind: 'rejected' } }); }
       if (current.thread.desktop?.archived) throw Object.assign(new Error('归档会话只读，不能释放附件'), { outcome: { kind: 'rejected' } });
     }
@@ -1437,6 +1689,10 @@ class CoreBackend {
 
   async command(name, request, context = {}) {
     const semantics = commandSemantics(name, request);
+    if (name === 'history' && request.operation === 'release') {
+      const project = this.projects.get(request.projectId);
+      return project ? this.historyCommand(project, request) : { released: true };
+    }
     if (semantics.requestId && !request[semantics.requestId]) request = { ...request, [semantics.requestId]: randomUUID() };
     if (name === 'stop') {
       const project = this.projects.get(request.projectId);
@@ -1505,6 +1761,7 @@ class CoreBackend {
         return manage(this, project, request);
       case 'list': await this.listThreads(project); break;
       case 'open': await this.openThread(project, threadId); break;
+      case 'history': return this.historyCommand(project, request);
       case 'attachBrowser': {
         if (!project.client.capabilities?.methods?.includes('areal/thread/tools/attach')
           || project.client.capabilities?.features?.browserToolAttachment !== true

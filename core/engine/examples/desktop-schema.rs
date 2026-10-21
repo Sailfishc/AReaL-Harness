@@ -438,10 +438,7 @@ fn desktop_schema() -> Value {
     methods.insert("initialize".into(),object(json!({"clientInfo":object(json!({"name":string,"version":string,"title":nullable_string}),vec!["name","version"]),"capabilities":object(json!({"optOutNotificationMethods":{"type":"array","items":string},"experimentalApi":{"type":"boolean"}}),vec![])}),vec!["clientInfo"]));
     methods.insert("model/list".into(), empty.clone());
     methods.insert("thread/start".into(),object(json!({"cwd":nullable_string,"model":nullable_string,"dynamicTools":{"type":"array","items":schemars::schema_for!(areal_protocol::ToolDefinition)}}),vec![]));
-    methods.insert(
-        "thread/resume".into(),
-        object(json!({"threadId":string}), vec!["threadId"]),
-    );
+    add!("thread/resume", ObserveThread);
     methods.insert(
         "thread/read".into(),
         object(
@@ -459,7 +456,11 @@ fn desktop_schema() -> Value {
         );
     }
     methods.insert("turn/start".into(),object(json!({"threadId":string,"input":{"type":"array","items":schemars::schema_for!(areal_protocol::Input)}}),vec!["threadId","input"]));
-    methods.insert("areal/conversation/history".into(),object(json!({"threadId":string,"view":{"enum":["inherited","reference"]},"cursor":string,"maxBytes":{"type":"integer","minimum":1,"maximum":262144}}),vec!["threadId","view"]));
+    methods.insert("areal/conversation/history".into(),object(json!({"threadId":string,"view":{"enum":["own","inherited","reference"]},"cursor":string,"maxBytes":{"type":"integer","minimum":1,"maximum":1048576}}),vec!["threadId","view"]));
+    methods.get_mut("areal/conversation/history").unwrap()["allOf"] = json!([{
+        "if":{"properties":{"view":{"enum":["inherited","reference"]}}},
+        "then":{"properties":{"maxBytes":{"maximum":262144}}}
+    }]);
     methods.insert("areal/conversation/list".into(),object(json!({"view":{"enum":["main","side","all"]},"sourceThreadId":string,"includeArchived":{"type":"boolean"},"limit":{"type":"integer","minimum":1,"maximum":100},"cursor":string}),vec![]));
     methods.insert(
         "areal/conversation/unarchive".into(),

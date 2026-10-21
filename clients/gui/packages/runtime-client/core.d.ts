@@ -26,7 +26,7 @@ export class CoreClient {
   ready: boolean;
   capabilities: { apiVersion?: string; methods: string[]; methodSemantics?: Record<string, MethodSemantics>; [key: string]: unknown };
   connect(): Promise<CoreClient['capabilities']>;
-  request<T = unknown>(method: string, params?: object, options?: { onResult?: (result: T) => void; timeoutMs?: number }): Promise<T>;
+  request<T = unknown>(method: string, params?: object, options?: { onResult?: (result: T) => void; timeoutMs?: number; maxResponseBytes?: number }): Promise<T>;
   onNotification(listener: (method: string, params: any) => void): () => void;
   onClose(listener: (failure: CoreRpcError) => void): () => void;
   close(): void;
