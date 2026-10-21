@@ -116,7 +116,7 @@ await settings();await button('核对来源并安装').click();await page.getByR
 await button('审阅并连接').click();await page.getByRole('checkbox',{name:'我信任当前安装快照，并允许启动其 MCP 服务。',exact:true}).check();await button('信任并连接').click();
 await waitEvents(events=>events.some(event=>event.method==='tools/list'),'real MCP transport started');console.log('MCP connected');
 if(resultMode){
-await app.evaluate(({ipcMain})=>{global.resultOpenReceipts=[];const channel='areal-core:mcp-app',original=ipcMain._invokeHandlers.get(channel);ipcMain.removeHandler(channel);ipcMain.handle(channel,async(event,request)=>{const reply=await original(event,request);if(request.operation==='openFromResult')global.resultOpenReceipts.push({request,reply});return reply;});});
+await app.evaluate(({ipcMain})=>{global.resultOpenReceipts=[];global.resultCloseReceipts=[];const channel='areal-core:mcp-app',original=ipcMain._invokeHandlers.get(channel);ipcMain.removeHandler(channel);ipcMain.handle(channel,async(event,request)=>{const reply=await original(event,request);if(request.operation==='openFromResult')global.resultOpenReceipts.push({request,reply});if(request.operation==='close')global.resultCloseReceipts.push({request,reply});return reply;});});
 await page.getByRole('navigation',{name:'应用导航',exact:true}).getByRole('button',{name:'首页',exact:true}).click();
 await page.getByTestId('chat-input').fill('CREATE_SAVED_RESULT');await page.getByTestId('chat-send-button').click();
 const settled=await until(s=>Object.values(s.projects.find(p=>p.id===projectId)?.state?.threads??{}).some(thread=>thread.turns?.some(turn=>turn.status==='completed'&&turn.items?.some(item=>item.type==='dynamicToolCall'&&item.callId==='saved-business-call'))),'normal model MCP business call persisted');
@@ -138,6 +138,15 @@ const original=await fixture(inner),receipt=(await app.evaluate(()=>global.resul
 assert.deepEqual({threadId:receipt.request.threadId,turnId:receipt.request.turnId,itemId:receipt.request.itemId},{threadId:resultOwner.threadId,turnId:turn.id,itemId:item.id});
 assert.match(receipt.request.requestId,/^result-v1\.[0-9a-f-]{36}\.[0-9a-f-]{36}$/);
 await openSavedResult();assert.deepEqual(await fixture(await appFrame(token)),original);
+await app.evaluate(({ipcMain})=>{const channel='areal-core:command',original=ipcMain._invokeHandlers.get(channel);let rejectCatalog=true;ipcMain.removeHandler(channel);ipcMain.handle(channel,async(event,name,params)=>{const reply=await original(event,name,params);if(rejectCatalog&&name==='manage'&&params.operation==='mcpApps'){rejectCatalog=false;return {ok:false,error:{message:'Injected saved-result catalog read unavailable'}};}return reply;});});
+await openSavedResult();await page.getByRole('status').filter({hasText:'打开结果待确认'}).waitFor();
+assert.deepEqual(await fixture(await appFrame(token)),original);
+await button('关闭面板').click();assert.equal(await page.locator(`iframe[src="areal-mcp://${token}/"]`).isVisible(),false);
+await openSavedResult();await page.locator(`iframe[src="areal-mcp://${token}/"]`).waitFor({state:'visible',timeout:5000});
+await button('打开交互结果').waitFor({timeout:5000});
+assert.equal(await page.getByRole('status').filter({hasText:'打开结果待确认'}).count(),0);
+assert.deepEqual(await fixture(await appFrame(token)),original);
+checks.push('one injected catalog response failure preserves the open intent and same iframe, and the next same-epoch click recovers');
 const repeated=await page.evaluate(async request=>Promise.all([window.arealDesktop.mcpApp(request),window.arealDesktop.mcpApp(request)]),receipt.request);
 assert(repeated.every(reply=>reply.status==='open'&&reply.app.token===token&&reply.app.instanceId===receipt.reply.app.instanceId));
 await button('关闭面板').click();assert.equal(await page.locator(`iframe[src="areal-mcp://${token}/"]`).isVisible(),false);
@@ -147,6 +156,7 @@ await page.screenshot({path:join(scratch,'result-retained.png'),animations:'disa
 checks.push('normal model invokes business once; raw private result hydrates once; exact result repeat/concurrency/hide/navigation retains token, boot, edits, selection and scroll');
 await page.getByRole('region',{name:'MCP 应用',exact:true}).getByRole('button',{name:'关闭应用',exact:true}).click();
 await page.waitForFunction(token=>!document.querySelector(`iframe[src="areal-mcp://${token}/"]`),token);
+const closeDeadline=Date.now()+10000;while(!(await app.evaluate(()=>global.resultCloseReceipts)).some(entry=>entry.request.token===token)){assert(Date.now()<closeDeadline,'original close IPC must finish before terminal receipt assertion');await new Promise(resolve=>setTimeout(resolve,50));}
 assert.deepEqual(await page.evaluate(request=>window.arealDesktop.mcpApp(request),receipt.request),{status:'closed'});
 await openSavedResult();const reopened=await appFrame();assert.notEqual(new URL(reopened.url()).hostname,token);assert.notEqual((await fixture(reopened)).bootId,original.bootId);
 assert.equal((await transportEvents()).filter(event=>event.method==='tools/call'&&event.params.name==='fixture.business').length,1);
