@@ -156,6 +156,7 @@ class McpAppsHost {
         } finally { this.pendingOpens--; }
     }
     async adopt(result, params, ownerId, epoch, initialArguments, file, fromResult) {
+        const resultSourceKey = fromResult ? JSON.stringify([ownerId, epoch, params.projectId, params.threadId, params.turnId, params.itemId]) : undefined;
         const closeInvalid = async () => {
             if (fromResult && text(result?.instanceId)) {
                 const instanceKey = JSON.stringify([ownerId, epoch, params.projectId, result.instanceId]);
@@ -164,7 +165,7 @@ class McpAppsHost {
                 if (!retained) {
                     this.instances.set(token, { token, instanceKey, ownerId, projectId: params.projectId, threadId: params.threadId,
                         instanceId: result.instanceId, generation: result.generation, closed: true, invalidResource: true,
-                        resultSourceKey: JSON.stringify([ownerId, epoch, params.projectId, params.threadId, params.turnId, params.itemId]) });
+                        resultSourceKey });
                     this.instanceTokens.set(instanceKey, token);
                 }
                 await this.close(token, ownerId).catch(() => {});
@@ -204,7 +205,9 @@ class McpAppsHost {
         }
         const instanceKey = JSON.stringify([ownerId, epoch, params.projectId, result.instanceId]);
         const retained = this.instances.get(this.instanceTokens.get(instanceKey));
-        if (fromResult && this.instanceTokens.has(instanceKey) && (!retained || retained.closed)) {
+        const closedInstances = this.resultOpens.get(resultSourceKey)?.closedInstances;
+        if (fromResult && (closedInstances === null || closedInstances?.has(JSON.stringify([result.instanceId, result.generation]))
+            || (this.instanceTokens.has(instanceKey) && (!retained || retained.closed)))) {
             await closeInvalid();
             throw Error("App instance was closed");
         }
@@ -213,7 +216,7 @@ class McpAppsHost {
         const app = {
             ...result,
             instanceKey,
-            resultSourceKey: fromResult ? JSON.stringify([ownerId, epoch, params.projectId, params.threadId, params.turnId, params.itemId]) : undefined,
+            resultSourceKey,
             ownerId,
             projectId: params.projectId,
             threadId: params.threadId,
@@ -311,7 +314,8 @@ class McpAppsHost {
             this.pendingOpens--;
             this.resultOpens.delete(sourceKey);
         });
-        this.resultOpens.set(sourceKey, { requestId: params.requestId, promise });
+        this.resultOpens.set(sourceKey, { requestId: params.requestId, promise, ownerId, epoch,
+            projectId: params.projectId, threadId: params.threadId, closedInstances: new Set() });
         return promise;
     }
     async request(token, request, ownerId) {
@@ -485,6 +489,20 @@ class McpAppsHost {
                 else this.notify({ token, notification: event.notification });
                 return true;
             }
+        }
+        if (event.notification.method === "ui/notifications/closed") {
+            let handled = false;
+            for (const pending of this.resultOpens.values()) {
+                if (pending.ownerId !== this.currentOwner() || pending.epoch !== this.epoch
+                    || pending.projectId !== event.projectId || pending.threadId !== event.threadId) continue;
+                const identity = JSON.stringify([event.instanceId, event.generation]);
+                if (pending.closedInstances && !pending.closedInstances.has(identity)) {
+                    if (pending.closedInstances.size === 8) pending.closedInstances = null;
+                    else pending.closedInstances.add(identity);
+                }
+                handled = true;
+            }
+            return handled;
         }
         return false;
     }
