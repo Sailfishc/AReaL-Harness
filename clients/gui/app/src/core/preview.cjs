@@ -1828,7 +1828,8 @@ class CorePreview {
             receipts.push({ stepIndex: index, operation: step.operation, status: 'confirmed', dispatch: result.dispatch,
               verification: result.verification ?? 'not_checked', preparedActionId: result.preparedActionId,
               inputConfirmed: result.inputConfirmed, ...(result.noOp ? { noOp: true } : {}),
-              ...(result.nativeControl ? { nativeControl: result.nativeControl, stateMatched: result.stateMatched } : {}) });
+              ...(result.nativeControl ? { nativeControl: result.nativeControl } : {}),
+              ...(result.stateMatched !== undefined ? { stateMatched: result.stateMatched } : {}) });
             if (result.observationInvalidated) invalidateActionObservation(page);
             page.batchProgress = { callId: request.callId, completed: receipts.length,
               total: request.parameters.steps.length, status: 'running' };
@@ -2227,7 +2228,6 @@ class CorePreview {
             if (receipt.accepted === false) { action.dispatched = false; throw new Error('plan_stale'); }
             noOp = receipt.noOp;
             if (noOp) action.dispatched = false;
-            actualControl = publicNativeControl(page, receipt.control);
             stateMatched = receipt.control?.kind === 'select' && receipt.control.options[receipt.control.selectedIndex]?.value === request.parameters.action.value;
           } else if (scroll) {
             await input({ type: 'mouseWheel', x: target.x, y: target.y, deltaX: request.parameters.action.deltaX,
@@ -2280,7 +2280,8 @@ class CorePreview {
         pageId: page.id, browserHostId: this.browserHostId, hostGeneration: this.hostGeneration,
         pageGeneration: page.pageGeneration, controlEpoch: page.controlEpoch,
         dispatch: action.dispatched || noOp ? 'confirmed' : 'not_sent', inputConfirmed: action.dispatched,
-        ...(noOp ? { noOp: true } : {}), ...(actualControl ? { nativeControl: actualControl, stateMatched } : {}),
+        ...(noOp ? { noOp: true } : {}), ...(actualControl ? { nativeControl: actualControl } : {}),
+        ...(stateMatched !== undefined ? { stateMatched } : {}),
         ...(invalidatesObservation ? { observationInvalidated: true } : {}),
         verification: 'not_checked', ...(waitResult ? { wait: waitResult } : {}),
         preparedActionId: saved.plan.preparedActionId };

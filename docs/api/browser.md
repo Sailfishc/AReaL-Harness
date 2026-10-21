@@ -54,7 +54,7 @@
 
 观察为原生表单控件提供有界 `nativeControl` 事实。checkbox 含 `kind`、`enabled` 和 `checked`。SELECT 含 `kind`、`enabled`、`multiple`、`value`、`optionsComplete` 和 `options`。每个选项含不透明 `optionId`、`value`、`label`、`disabled` 和 `selected`。私有节点身份不会进入工具参数。最多表示 64 个选项，每个 value/label 最多 256 字符，选项文本合计最多 8192 UTF-8 字节。敏感控件或选项文本继续隐藏；不完整或歧义列表不能授权选择。完整观察字节预算仍然生效。
 
-准备把观察时的视口与当前视口分开绑定。精确选择绑定原 SELECT 和完整有序 OPTION 对象。同值替换、重排、类型改变或禁用选项在变更前拒绝。固定 Host 命令使用隔离世界的原生 getter/setter，仅在选择改变时发送语义 `input` 和 `change` 事件。这些事件不承诺 `isTrusted`。页面处理器可能取消或恢复状态；`nativeControl` 和 `stateMatched` 报告实际输入后事实，不代表业务成功。
+准备把观察时的视口与当前视口分开绑定。精确选择绑定原 SELECT 和完整有序 OPTION 对象。同值替换、重排、类型改变或禁用选项在变更前拒绝。固定 Host 命令使用隔离世界的原生 getter/setter，仅在选择改变时发送语义 `input` 和 `change` 事件。这些事件不承诺 `isTrusted`。页面处理器可能取消或恢复状态。动作与批量回执独立报告输入派发、确认、no-op 和 `stateMatched`，不代表业务成功。选择回执不包含输入后的 SELECT 选项值或标签；完整选项事实由带隐私过滤的观察提供。checkbox 回执可包含布尔 `nativeControl` 事实。
 
 已达到目标状态的 checkbox 返回 `dispatch:"confirmed",noOp:true,inputConfirmed:false`，不产生 click 或 change。状态不同时使用原生 click 输入。输入 ACK 丢失仍是 UNKNOWN，包括 set-to-state 操作也不能自动重放。
 
