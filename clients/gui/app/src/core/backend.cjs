@@ -1,5 +1,6 @@
 'use strict';
 const diagnostics = require('./diagnostics.cjs');
+const { commandSemantics, desktopError } = require('@areal/workbench/desktop-contract');
 const { startupTrace } = require('./startup-timing.cjs');
 
 const { connectService } = require('./local-service.cjs');
@@ -32,6 +33,36 @@ const workgroupMutationMethods = new Set(['areal/workgroup/start', 'areal/workgr
 const isObservationSizeFailure = error => error?.code === 'RESPONSE_TOO_LARGE'
   && ['thread/read', 'areal/thread/observe'].includes(error.method) && error.submissionUnknown === false;
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+const reconciliationDelays = [500, 1000, 2000, 4000, 8000];
+const creationTargets = new Map([['areal/thread/start', 'thread'], ['areal/thread/fork', 'thread'], ['areal/side/start', 'thread'], ['areal/task/create', 'task']]);
+const processControls = new Set(['areal/process/write', 'areal/process/closeStdin', 'areal/process/resize', 'areal/process/terminate']);
+const operationOf = (method, params) => ({ method, requestId: params.requestId,
+  target: creationTargets.has(method) ? { kind: 'project' } : params.taskId ? { kind: 'task', taskId: params.taskId }
+    : params.threadId ? { kind: 'thread', threadId: params.threadId } : { kind: 'project' } });
+const explicitRejection = error => ['rejected', 'noMutation'].includes(error?.outcome?.kind);
+const retryableRead = error => error?.recovery?.kind === 'retryRead'
+  || !error?.recovery && ['TIMEOUT', 'DISCONNECTED', 'CONNECTION_LOST', 'RESPONSE_UNKNOWN'].includes(error?.code);
+function matchingReceipt(entry, records, scopedThreadId) {
+  const operation = entry.operation ?? operationOf(entry.method, entry.params);
+  const receiptMethod = processControls.has(entry.method) ? 'areal/process/control' : entry.method;
+  return records?.find(receipt => {
+    const actual = receipt.operation;
+    if ((actual?.requestId ?? receipt.requestId) !== operation.requestId || (actual?.method ?? receipt.method) !== receiptMethod
+      || entry.digest && receipt.digest !== entry.digest) return false;
+    const createdKind = creationTargets.get(entry.method);
+    if (createdKind) {
+      const id = createdKind === 'task' ? receipt.taskId ?? receipt.result?.id : receipt.threadId ?? receipt.result?.threadId ?? receipt.result?.thread?.id;
+      return typeof id === 'string' && (!actual || actual.target?.kind === createdKind && actual.target[`${createdKind}Id`] === id);
+    }
+    if (actual) return isDeepStrictEqual(actual.target, operation.target);
+    if (operation.target.kind === 'thread') return (receipt.threadId ?? scopedThreadId) === operation.target.threadId;
+    if (operation.target.kind === 'task') return receipt.taskId === operation.target.taskId;
+    return !receipt.threadId && !receipt.taskId;
+  });
+}
+const receiptStatus = receipt => receipt.status ?? (receipt.response?.error ? 'failed'
+  : receipt.result !== undefined || receipt.response?.result !== undefined ? 'completed' : 'admitted');
+const receiptResult = receipt => receipt.result ?? receipt.response?.result;
 // 精确 Remote 停止/交互不会重放；保留日志用于核对，不阻塞后续桌面操作。
 const isRemoteControl = entry => entry.method === 'turn/interrupt' && entry.remote?.method === 'turn.stop'
   && entry.remote.capability === 'interrupt' && typeof entry.operationId === 'string'
@@ -172,7 +203,7 @@ class CoreBackend {
         lastAcceptedModel: this.providers.lastAcceptedModel ?? null,
         defaultProfile: live?.resourceProfile ?? this.defaultProfile ?? null, configurations: live?.configurations ?? {},
         summaries: live?.summaries ?? [], summariesLoaded: live?.summariesLoaded === true,
-        observationErrors: live?.observationErrors ?? {}, error: live?.error ?? null };
+        observationErrors: live?.observationErrors ?? {}, refreshErrors: live?.refreshErrors ?? {}, error: live?.error ?? null };
     }) };
   }
 
@@ -387,6 +418,7 @@ class CoreBackend {
           project.reconnectBlocked = ['CORE_STOPPED', 'CORE_INCOMPATIBLE', 'RESPONSE_TOO_LARGE'].includes(error.code)
             || error.reason === 'RESPONSE_TOO_LARGE' || project.client?.closeFailure?.code === 'RESPONSE_TOO_LARGE';
           project.reconnectAttempt = (project.reconnectAttempt ?? 0) + 1;
+          this.stopReconciliation(project);
           project.client?.close();
           project.error = this.providers.redact(error.message);
           project.model.connection(false, project.error);
@@ -424,6 +456,7 @@ class CoreBackend {
     if (this.closing) throw new Error('应用正在退出');
     project.taskNotificationMonitor?.stop();
     const previous = project.client;
+    this.stopReconciliation(project);
     project.client = null;
     previous?.close();
     project.summariesLoaded = false;
@@ -469,8 +502,9 @@ class CoreBackend {
     try {
       client.onNotification((method, params) => {
         if (!this.currentConnection(project, client)) return;
+        if (['thread/started', 'turn/started', 'turn/completed', 'areal/thread/configured', 'areal/task/changed', 'areal/queue/changed'].includes(method)) this.scheduleReconciliation(project);
         const threadId = params?.threadId ?? params?.thread?.id ?? params?.interaction?.threadId;
-        if (threadId && project.observationErrors?.[threadId]) return;
+        if (threadId && project.observationErrors?.[threadId]?.code === 'RESPONSE_TOO_LARGE') return;
         if (method === 'areal/thread/configured' && params?.threadId && params.configuration) {
           project.configurations ??= {};
           const previous = project.configurations[params.threadId];
@@ -498,6 +532,7 @@ class CoreBackend {
       });
       client.onClose(failure => { if (project.client === client) {
         project.taskNotificationMonitor?.stop();
+        this.stopReconciliation(project);
         if (failure.code === 'RESPONSE_TOO_LARGE') {
           project.reconnectBlocked = true;
           clearTimeout(project.reconnectTimer);
@@ -582,6 +617,7 @@ class CoreBackend {
       }
       trace.advance('connected');
       project.model.connection(true);
+      this.scheduleReconciliation(project);
       this.onChange();
       trace.finish('ok');
     } catch (error) { trace.finish('error', error); throw error; }
@@ -615,16 +651,77 @@ class CoreBackend {
     return task;
   }
 
+  observationFailure(project, threadId, error, { refreshPending = false, id = randomUUID() } = {}) {
+    project.observationErrors ??= {};
+    project.observationErrors[threadId] = { id, projectId: project.id, threadId,
+      connectionGeneration: project.connectionGeneration, code: error.code ?? 'OBSERVATION_FAILED',
+      reason: error.reason, message: this.providers.redact(error.message), retryable: retryableRead(error), refreshPending,
+      recovery: { kind: retryableRead(error) ? 'retryRead' : 'none' } };
+    this.onChange();
+  }
+
+  async refreshAfterAdmission(project, threadId, operation) {
+    const client = project.client, generation = project.connectionGeneration;
+    const current = () => this.currentConnection(project, client) && project.connectionGeneration === generation;
+    if (threadId) {
+      try { await this.openThread(project, threadId); }
+      catch (error) { if (current()) this.observationFailure(project, threadId, error); }
+    }
+    if (!current()) return;
+    const key = operation?.requestId ?? 'project';
+    try {
+      await this.listThreads(project);
+      if (current() && project.refreshErrors?.[key]?.scope === 'threadList') delete project.refreshErrors[key];
+    } catch (error) {
+      if (!current()) return;
+      project.refreshErrors ??= {};
+      project.refreshErrors[key] ??= { id: randomUUID(), projectId: project.id, scope: 'threadList',
+        connectionGeneration: generation, operation, message: this.providers.redact(error.message), refreshPending: true };
+      this.onChange();
+    }
+  }
+
   async openThread(project, threadId) {
-    const client = project.client;
+    const client = project.client, generation = project.connectionGeneration;
+    project.observationReads ??= new Map();
+    const existing = project.observationReads.get(threadId);
+    if (existing?.client === client && existing.generation === generation) return existing.promise;
+    const attempt = { client, generation, id: randomUUID() };
+    const current = () => this.currentConnection(project, client) && generation === project.connectionGeneration
+      && project.observationReads.get(threadId) === attempt;
+    const deadline = Date.now() + 30000;
+    const promise = Promise.resolve().then(async () => {
+      for (let retries = 0; ; retries++) {
+        if (!current()) throw Object.assign(new Error('连接已换代，请等待状态恢复'), { code: 'STALE_CONNECTION' });
+        try {
+          await this.observeThread(project, threadId, { client, current, deadline });
+          if (current()) { delete project.observationErrors?.[threadId]; this.onChange(); }
+          return;
+        } catch (error) {
+          if (!current()) throw error;
+          const delay = reconciliationDelays[retries];
+          const retry = retryableRead(error) && client.ready && delay !== undefined && Date.now() + delay < deadline
+            && !this.lifecycleOperations.blocking(project.id, threadId) && !this.lifecycleOperations.activeTargets.has(project.id);
+          this.observationFailure(project, threadId, error, { refreshPending: retry, id: attempt.id });
+          if (!retry) throw error;
+          await sleep(delay);
+        }
+      }
+    }).finally(() => { if (project.observationReads.get(threadId) === attempt) project.observationReads.delete(threadId); });
+    attempt.promise = promise;
+    project.observationReads.set(threadId, attempt);
+    return promise;
+  }
+
+  async observeThread(project, threadId, { client, current, deadline }) {
     const acceptSnapshot = result => {
-      if (!this.currentConnection(project, client) || result.thread?.id !== threadId) return;
-      if (project.observationErrors) delete project.observationErrors[threadId];
+      if (!current() || result.thread?.id !== threadId) return;
+      delete project.observationErrors?.[threadId];
       project.model.replace(result.thread);
     };
     try {
       if ((project.summaries ?? []).find(item => item.id === threadId)?.desktop?.archived || project.model.state?.threads?.[threadId]?.desktop?.archived) {
-        const result = await client.request('thread/read', { threadId, includeTurns: true }, { onResult: acceptSnapshot });
+        const result = await client.request('thread/read', { threadId, includeTurns: true }, { onResult: acceptSnapshot, timeoutMs: Math.min(6000, Math.max(1, deadline - Date.now())) });
         this.requireConnection(project, client);
         if (result.thread?.id !== threadId) throw new Error('恢复结果与目标会话不匹配');
         project.configurations[threadId] = result.thread.desktop.configuration;
@@ -635,7 +732,7 @@ class CoreBackend {
         throw new Error('当前 Core 不支持安全观察已有聊天；请更新 Core 后重新连接');
       }
       const resumed = await client.request('areal/thread/observe', { threadId }, {
-        onResult: acceptSnapshot,
+        onResult: acceptSnapshot, timeoutMs: Math.min(6000, Math.max(1, deadline - Date.now())),
       });
       this.requireConnection(project, client);
       if (resumed.thread?.id !== threadId) throw new Error('恢复结果与目标会话不匹配');
@@ -651,13 +748,17 @@ class CoreBackend {
         this.onChange();
         return;
       }
-      await Promise.all([
+      const timeoutMs = Math.min(6000, Math.max(1, deadline - Date.now()));
+      const results = await Promise.allSettled([
         client.request('areal/interaction/list', { threadId }, {
-          onResult: result => { if (this.currentConnection(project, client)) project.model.setInteractions(threadId, result); },
+          timeoutMs, onResult: result => { if (current()) project.model.setInteractions(threadId, result); },
         }),
-        this.refreshConfiguration(project, threadId),
-        this.refreshQueue(project, threadId),
+        this.refreshConfiguration(project, threadId, { client, timeoutMs, current }),
+        this.refreshQueue(project, threadId, { client, timeoutMs, current }),
       ]);
+      const failure = results.find(result => result.status === 'rejected');
+      if (failure) throw failure.reason;
+
     } catch (error) {
       if (isObservationSizeFailure(error) && this.currentConnection(project, client) && client.ready) {
         project.observationErrors ??= {};
@@ -665,7 +766,7 @@ class CoreBackend {
           code: 'RESPONSE_TOO_LARGE', message: '聊天历史超过当前支持的 64 MiB，无法完整加载。', retryable: false };
         this.onChange();
         if (client.capabilities?.methods?.includes('areal/subscription/remove')) {
-          try { await client.request('areal/subscription/remove', { threadIds: [threadId] }); }
+          try { await client.request('areal/subscription/remove', { threadIds: [threadId] }, { timeoutMs: 2500 }); }
           catch (removeError) {
             if (!this.currentConnection(project, client) || !client.ready) throw removeError;
           }
@@ -724,10 +825,9 @@ class CoreBackend {
     this.requireConnection(project, client);
   }
 
-  async refreshQueue(project, threadId) {
-    const client = project.client;
+  async refreshQueue(project, threadId, { client = project.client, timeoutMs, current = () => this.currentConnection(project, client) } = {}) {
     return client.request('areal/queue/list', { threadId }, {
-      onResult: queue => { if (this.currentConnection(project, client)) project.model.setQueue(threadId, queue); },
+      timeoutMs, onResult: queue => { if (current()) project.model.setQueue(threadId, queue); },
     });
   }
 
@@ -779,21 +879,21 @@ class CoreBackend {
     return [{ type: 'text', text }];
   }
 
-  async refreshConfiguration(project, threadId) {
-    const client = project.client;
+  async refreshConfiguration(project, threadId, { client = project.client, timeoutMs, current = () => this.currentConnection(project, client) } = {}) {
     let result;
     if (project.model.state.threads[threadId]?.conversation?.kind === 'side') {
       // Side cannot call the ordinary execution inspection route. Its read snapshot
       // supplies the same authoritative configuration and active-turn precondition.
-      const { thread } = await client.request('thread/read', { threadId, includeTurns: true });
+      const { thread } = await client.request('thread/read', { threadId, includeTurns: true }, { timeoutMs });
       if (thread?.id !== threadId || thread.conversation?.kind !== 'side') throw new Error('Side 配置快照与目标会话不匹配');
       result = { configuration: thread.desktop?.configuration,
         activeTurnId: thread.turns?.find(turn => turn.status === 'inProgress')?.id };
-    } else result = await client.request('areal/thread/inspect', { threadId });
+    } else result = await client.request('areal/thread/inspect', { threadId }, { timeoutMs });
     this.requireConnection(project, client);
     if (!result?.configuration || !Number.isSafeInteger(result.configuration.revision)) {
       throw new Error('Core 未返回有效的会话配置，请重新打开任务');
     }
+    if (!current()) throw Object.assign(new Error('观察归属已变化'), { code: 'STALE_CONNECTION' });
     project.configurations ??= {};
     project.configurations[threadId] = { ...result.configuration, modelName: result.modelName, resolvedParameters: result.resolvedParameters };
     this.onChange();
@@ -805,7 +905,6 @@ class CoreBackend {
     project.configurationChanges ??= new Map();
     if (project.configurationChanges.has(threadId)) throw new Error('会话配置正在更新，请稍后重试');
     project.configurationChanges.set(threadId, token);
-    let entry;
     try {
       await this.changePending(project, pending => {
         if (pending.some(value => !isRemoteControl(value) && value.params.threadId === threadId)) {
@@ -835,32 +934,16 @@ class CoreBackend {
         // 空数组是公开契约：清除会话覆盖并恢复 Profile，不是“不用任何技能”。
         ...(request.selectedSkills !== undefined ? { selectedSkills: request.selectedSkills.map(skill => ({ id: skill.id, revision: skill.revision })) } : {}),
       };
-      entry = { method: 'areal/thread/configure', localOnly: true, params };
-      this.awaitingResponses.add(entry);
-      await this.changePending(project, pending => [...pending, entry]);
-      if (this.closing) throw new Error('应用正在退出');
       const client = project.client;
-      const configuration = await client.request('areal/thread/configure', params);
-      try {
-        await this.changePending(project, pending => pending.filter(value => value !== entry));
-      } catch {
-        throw Object.assign(new Error('Core 已保存配置，但本机恢复日志更新失败；请核对当前配置'), { submissionUnknown: true });
-      }
+      const configuration = await this.submit(project, 'areal/thread/configure', params, { requestId: request.requestId });
       if (this.currentConnection(project, client)) project.configurations[threadId] = { ...configuration,
         modelName: configuration.defaultModelRevision && configuration.defaultModelRevision === inspection.configuration.defaultModelRevision ? project.configurations[threadId]?.modelName : undefined };
       this.onChange();
     } catch (error) {
-      if (entry && !error.submissionUnknown) {
-        try { await this.changePending(project, pending => pending.filter(value => value !== entry)); }
-        catch {
-          error = Object.assign(new Error('配置请求失败，且本机恢复日志更新失败；请检查当前配置'), { submissionUnknown: true });
-        }
-      }
       try { await this.refreshConfiguration(project, threadId); }
-      catch (refreshError) { error.message += `；刷新权威配置失败：${refreshError.message}`; }
+      catch (refreshError) { this.observationFailure(project, threadId, refreshError); }
       throw error;
     } finally {
-      if (entry) { this.awaitingResponses.delete(entry); this.onChange(); }
       if (project.configurationChanges.get(threadId) === token) {
         project.configurationChanges.delete(threadId);
       }
@@ -883,6 +966,7 @@ class CoreBackend {
   changeOutcomes(project, change) {
     const task = (project.outcomeWrite ?? Promise.resolve()).catch(() => {}).then(async () => {
       const next = change(project.outcomes ?? {});
+      if (next === project.outcomes) return;
       await this.save(`${project.id}-outcomes.json`, next);
       project.outcomes = next; this.onChange();
     });
@@ -919,7 +1003,7 @@ class CoreBackend {
     const entry = project.pending.find(item => item.params.requestId === requestId);
     if (entry && (entry.method !== 'areal/process/start' || entry.params.threadId !== threadId || this.awaitingResponses.has(entry))) return null;
     const value = await project.client.request('areal/request/read', { threadId, requestId });
-    const receipt = value.data.find(item => item.method === 'areal/process/start');
+    const receipt = matchingReceipt(entry ?? { method: 'areal/process/start', params: { threadId, requestId } }, value.data, threadId);
     if (typeof receipt?.result?.id !== 'string') return null;
     const processes = await project.client.request('areal/process/list', { threadId });
     const process = processes.data.find(item => item.id === receipt.result.id);
@@ -1014,11 +1098,12 @@ class CoreBackend {
       const value = await client.request('areal/request/read', { requestId: entry.params.requestId,
         ...(entry.method !== 'areal/thread/start' ? { threadId: entry.params.threadId } : {}) });
       if (project.client !== client || project.service?.generation !== generation) return entry;
-      const receipt = value.data?.find(value => value.method === entry.method);
+      const receipt = matchingReceipt(entry, value.data, entry.method !== 'areal/thread/start' ? entry.params.threadId : undefined);
       const response = entry.method === 'areal/thread/start' && typeof receipt?.threadId === 'string'
         ? { result: { thread: { id: receipt.threadId } } }
         : receipt?.result ? { result: receipt.result }
         : receipt?.state === 'completed' ? receipt.response : undefined;
+      if (response?.error && !explicitRejection(response.error.data ?? response.error)) return entry;
       if (response) return await this.rememberRemoteOutcome(project, entry, response.result, response.error);
     } catch { /* 查询失败或空收据都不能证明未执行。 */ }
     return project.outcomes?.[entry.operationId] ?? entry;
@@ -1059,6 +1144,7 @@ class CoreBackend {
       catch { return entry; }
     } finally {
       this.awaitingResponses.delete(entry);
+      this.scheduleReconciliation(project);
       this.onChange();
     }
   }
@@ -1069,21 +1155,23 @@ class CoreBackend {
       throw Object.assign(new Error(observationError.message), { code: observationError.code, submissionUnknown: false });
     }
     if (remote) return this.submitRemote(project, method, parameters, remote, dispatch);
-    if (requestId !== undefined && (!(workgroupMutationMethods.has(method) || taskMutationMethods.has(method) || managementMethods.has(method) || ['areal/agent/spawn', 'areal/process/start', 'areal/thread/start', 'areal/turn/start', 'areal/turn/enqueue', 'areal/turn/submit', 'areal/thread/fork', 'areal/side/start', 'areal/thread/tools/attach', 'areal/marketplace/add', 'areal/plugin/install', 'areal/plugin/configure', 'areal/plugin/uninstall', 'areal/plugin/setup', ...['update','remove','reorder','pause','resume','steer'].map(name => `areal/queue/${name}`)].includes(method)) || typeof requestId !== 'string' || !/^[0-9a-f-]{36}$/.test(requestId))) throw new Error('无效请求标识');
+    const semantics = project.client?.capabilities?.methodSemantics?.[method];
+    if (semantics && semantics.effect !== 'mutation') throw new Error('此方法不是业务写入');
+    if (requestId !== undefined && (typeof requestId !== 'string' || !/^[0-9a-f-]{36}$/.test(requestId))) throw new Error('无效请求标识');
     const params = { ...parameters, requestId: requestId ?? randomUUID() };
-    const entry = { method, params };
+    const entry = { method, params, operation: operationOf(method, params) };
     // 活跃请求仅保存在内存；重启后仍在恢复日志中的请求应显示为结果未知。
     this.awaitingResponses.add(entry);
     try {
       // 检查与持久化在同一队列中，两个同时到达的发送不能穿透阻塞。
       await this.changePending(project, pending => {
         if (project.outcomes?.[params.requestId] || pending.some(value => value.params.requestId === params.requestId)) throw new Error('请求标识已使用，请核对原提交；不会重复执行。');
-        if (project.configurationChanges?.has(parameters.threadId)) {
+        if (method !== 'areal/thread/configure' && project.configurationChanges?.has(parameters.threadId)) {
           throw new Error('会话配置正在更新，请稍后再发送任务');
         }
         const conflicting = ['areal/thread/fork', 'areal/side/start'].includes(method)
           ? pending.find(value => value.method === method && value.params.sourceThreadId === parameters.sourceThreadId)
-          : pending.find(value => !isRemoteControl(value) && value.params.threadId === parameters.threadId && !(value.remote && project.outcomes?.[value.operationId]?.remote));
+          : pending.find(value => !isRemoteControl(value) && (parameters.taskId ? value.params.taskId === parameters.taskId : parameters.threadId ? value.params.threadId === parameters.threadId : false) && !(value.remote && project.outcomes?.[value.operationId]?.remote));
         if (conflicting) {
           const awaiting = this.awaitingResponses.has(conflicting);
           throw Object.assign(new Error(awaiting
@@ -1105,37 +1193,41 @@ class CoreBackend {
         result = await this.requestSubmission(project, method, params);
       }
       catch (error) {
-        if (!dispatchStarted || !error.submissionUnknown) {
+        if (!dispatchStarted || explicitRejection(error)) {
           try { await this.changePending(project, pending => pending.filter(value => value !== entry)); }
-          catch { throw Object.assign(new Error('提交被拒绝，但恢复日志更新失败；请检查本机存储'), { submissionUnknown: true }); }
+          catch { throw Object.assign(new Error('原请求结果已知，但恢复日志更新失败；请检查本机存储'), { submissionUnknown: true, requestId: params.requestId, outcome: { kind: 'unconfirmed', operation: entry.operation }, recovery: { kind: 'queryOriginal' } }); }
         }
         if (!dispatchStarted && error.submissionUnknown)
           throw new Error('订阅模型目录更新未确认，本条消息尚未发送。请先核对受理结果，再重试。', { cause: error });
-        if (error.submissionUnknown) error.requestId = params.requestId;
+        if (dispatchStarted && !explicitRejection(error)) Object.assign(error, {
+          submissionUnknown: true, outcome: error.outcome ?? { kind: 'unconfirmed', operation: entry.operation },
+          recovery: error.recovery ?? { kind: 'queryOriginal' },
+        });
+        error.requestId = params.requestId;
         throw error;
       }
       try {
-        await this.providers.acceptModelSelection(result?.lastAcceptedModel);
         if (workgroupMutationMethods.has(method)) await this.rememberWorkgroupOutcome(project, entry, result);
-        if (method === 'areal/turn/submit' || (requestId !== undefined && ['areal/turn/start', 'areal/turn/enqueue'].includes(method))) await this.changeOutcomes(project, outcomes => ({ ...outcomes, [params.requestId]: {
-          accepted: true, method, threadId: params.threadId,
-        } }));
-        if (method === 'areal/agent/spawn') {
-          // Core 无 spawn 请求查询；只保存已经收到的明确受理结果，再清除 pending。
-          if (typeof result.threadId !== 'string' || typeof result.turnId !== 'string') throw new Error('子任务受理结果不完整');
-          await this.changeOutcomes(project, outcomes => ({ ...outcomes, [params.requestId]: {
-            accepted: true, method, parentThreadId: params.parentThreadId, threadId: result.threadId, turnId: result.turnId,
-          } }));
-        }
+        else if (requestId !== undefined || ['areal/turn/submit', 'areal/agent/spawn'].includes(method))
+          await this.rememberOutcome(project, entry, { status: 'completed', result });
         await this.changePending(project, pending => pending.filter(value => value !== entry));
+      } catch {
+        project.refreshErrors ??= {};
+        project.refreshErrors[params.requestId] = { id: randomUUID(), projectId: project.id,
+          connectionGeneration: project.connectionGeneration, operation: entry.operation,
+          message: 'Core 已受理，本机恢复记录尚未更新。', refreshPending: true };
       }
-      catch {
-        // Core 已经受理，日志清理失败绝不能作为普通发送失败恢复草稿。
-        throw Object.assign(new Error('Core 已受理，恢复日志更新失败；请查询受理结果'), { submissionUnknown: true, requestId: params.requestId });
+      try { await this.providers.acceptModelSelection(result?.lastAcceptedModel); }
+      catch (error) {
+        project.refreshErrors ??= {};
+        project.refreshErrors[params.requestId] ??= { id: randomUUID(), projectId: project.id, scope: 'modelSelection',
+          connectionGeneration: project.connectionGeneration, operation: entry.operation,
+          message: this.providers.redact(error.message), refreshPending: false };
       }
       return result;
     } finally {
       this.awaitingResponses.delete(entry);
+      this.scheduleReconciliation(project);
       this.onChange();
     }
   }
@@ -1146,221 +1238,206 @@ class CoreBackend {
     catch { throw Object.assign(new Error('无法核对终端执行结果；不会重发输入'), { submissionUnknown: true }); }
     const operation = value.data.find(p => p.id === params.id)?.inputs?.find(op => op.operationId === result.operationId);
     if (operation?.outcome === 'succeeded') return result;
-    // A recorded failed control is known rejection; preserve its concrete Core
-    // reason (for example unsupported PTY EOF) when the original reply exists.
-    if (operation?.outcome === 'failed') throw cause ?? new Error('终端操作执行失败；请检查进程状态');
+    if (operation?.outcome === 'failed') throw Object.assign(cause ?? new Error('终端操作执行失败；请检查进程状态'), { executionFailed: true });
     throw Object.assign(new Error('终端操作执行结果未确认；不会重发输入'), { submissionUnknown: true });
   }
 
   async requestSubmission(project, method, params) {
     if (method === 'areal/blob/release') {
-      // Hold the existing per-thread admission slot while reading this guard.
-      // Shared Desktop clients cannot archive between this read and release.
-      // Archived Core history may be cold, so never release its upload owner.
       let current;
       try { current = await project.client.request('thread/read', { threadId: params.threadId, includeTurns: true }); }
-      catch (error) { throw new Error(`无法核对附件所属会话，未发送释放请求：${error.message}`); }
-      if (current.thread.desktop?.archived) throw new Error('归档会话只读，不能释放附件');
+      catch (error) { throw Object.assign(new Error(`无法核对附件所属会话：${error.message}`), { outcome: { kind: 'rejected' } }); }
+      if (current.thread.desktop?.archived) throw Object.assign(new Error('归档会话只读，不能释放附件'), { outcome: { kind: 'rejected' } });
     }
+    const { requestId, previousItems, ...steer } = params;
+    const { threadId, ...spawn } = steer;
+    const durableSteer = project.client.capabilities?.methods?.includes('areal/plugin/hooks/list');
     try {
-      const { requestId, previousItems, ...steer } = params;
-      const { threadId, ...spawn } = steer;
-      const durableSteer=project.client.capabilities?.methods?.includes('areal/plugin/hooks/list');
-      return await project.client.request(method, method === 'areal/agent/spawn' ? spawn : method === 'turn/steer' ? {...steer,...(durableSteer?{requestId}:{})} : params, ['areal/marketplace/addGit', 'areal/marketplace/update'].includes(method) ? { timeoutMs: 120_000 } : undefined);
-    }
-    catch (error) {
-      if (method === 'areal/turn/submit') {
-        let receipt;
-        try {
-          const value = await project.client.request('areal/request/read', { threadId: params.threadId, requestId: params.requestId });
-          receipt = value.data?.find(item => item.method === method);
-        } catch {
-          throw Object.assign(new Error('提交结果待核对；不会自动重试'), { submissionUnknown: true, requestId: params.requestId });
-        }
-        if (receipt?.result) return receipt.result;
-        if (receipt || error.submissionUnknown || typeof error.code !== 'number' || error.code === -32603) {
-          throw Object.assign(new Error('提交结果待核对；不会自动重试'), { submissionUnknown: true, requestId: params.requestId });
-        }
-        throw error;
-      }
-      if (['areal/thread/fork', 'areal/side/start'].includes(method) && (error.code === -32603 || typeof error.code !== 'number')) {
-        try {
-          const receipts = await project.client.request('areal/request/read', { requestId: params.requestId });
-          const receipt = receipts.data.find(item => item.method === method);
-          if (typeof receipt?.result?.threadId === 'string') {
-            const result = await project.client.request('thread/read', { threadId: receipt.result.threadId, includeTurns: false });
-            return { thread: result.thread, turn: result.thread.turns?.[0], requestId: params.requestId };
-          }
-        } catch { /* 保留原业务键，供用户显式核对。 */ }
-        throw Object.assign(new Error('会话创建结果待核对；不会自动重试'), { submissionUnknown: true, requestId: params.requestId });
-      }
-      // Task receipts and Agent spawn receipts are not publicly queryable. An
-      // internal error may follow a durable write; retain the journal entry.
-      if (taskMutationMethods.has(method) || method === 'areal/agent/spawn' || method.startsWith('areal/workgroup/') || method === 'areal/workflow/start') {
-        if (error.code === -32603) error.submissionUnknown = true;
-        throw error;
-      }
-      if (method === 'turn/steer' && error.code === -32603) throw Object.assign(error, { submissionUnknown: true });
-      const management = managementMethods.has(method);
-      const processMutation = method.startsWith('areal/process/');
-      const receiptMethod = processMutation && method !== 'areal/process/start' ? 'areal/process/control' : method;
-      if ((!management && !threadMutationMethods.has(method) && method !== 'areal/turn/enqueue'
-        && method !== 'areal/thread/tools/attach' && !processMutation)
-        || error.submissionUnknown || typeof error.code !== 'number') throw error;
-      // 入队后的推进或管理日志落盘仍可能返回 RPC 错误；先核对原业务键，不能恢复草稿造成重复入队。
+      return await project.client.request(method, method === 'areal/agent/spawn' ? spawn
+        : method === 'turn/steer' ? { ...steer, ...(durableSteer ? { requestId } : {}) } : params,
+      ['areal/marketplace/addGit', 'areal/marketplace/update'].includes(method) ? { timeoutMs: 120000 } : undefined);
+    } catch (error) {
+      if (explicitRejection(error)) throw error;
+      const entry = { method, params, operation: operationOf(method, params) };
+      if (workgroupMutationMethods.has(method) || method === 'areal/agent/spawn') throw error;
+      const client = project.client;
       let receipt;
-      try {
-        const value = await project.client.request('areal/request/read', {
-          requestId: params.requestId, ...(!management ? { threadId: params.threadId } : {}),
-        });
-        receipt = value.data.find(item => item.method === receiptMethod);
-      } catch {
-        throw Object.assign(new Error(`操作受理结果未确认，请查询受理结果：${error.message}`), { submissionUnknown: true });
+      try { receipt = await this.readReceipt(project, entry, client); } catch {  }
+      if (receipt && receiptStatus(receipt) === 'completed') {
+        const result = receiptResult(receipt);
+        if (processControls.has(method)) return this.processControlOutcome(project, params, result, error);
+        if (creationTargets.get(method) === 'thread' && !result?.thread) {
+          const id = receipt.threadId ?? result?.threadId;
+          if (id) return { thread: { id }, requestId };
+        }
+        return result;
       }
-      if (processMutation && method !== 'areal/process/start' && receipt?.result) return this.processControlOutcome(project, params, receipt.result, error);
-      if (!management && receipt?.result) return receipt.result;
-      if (management && receipt?.state === 'completed' && receipt.response) {
-        if (receipt.response.error) throw Object.assign(new Error(receipt.response.error.message), { code: receipt.response.error.code });
-        if (receipt.response.result !== undefined) return receipt.response.result;
+      if (receipt && receiptStatus(receipt) === 'failed') {
+        const failure = receipt.error ?? receipt.response?.error;
+        Object.assign(error, { message: failure?.message ?? error.message, outcome: { kind: 'admitted', operation: receipt.operation ?? entry.operation } });
       }
-      if (receipt || error.code === -32603) {
-        throw Object.assign(new Error(`操作受理结果未确认，请查询受理结果：${error.message}`), { submissionUnknown: true });
-      }
+      Object.assign(error, { requestId, submissionUnknown: true, outcome: error.outcome ?? { kind: 'unconfirmed', operation: entry.operation },
+        recovery: error.recovery ?? { kind: 'queryOriginal' } });
       throw error;
     }
   }
 
-  async reconcile(project, { observeOnly = false } = {}) {
-    const client = project.client;
-    for (const entry of [...project.pending]) {
-      this.requireConnection(project, client);
-      if (this.awaitingResponses.has(entry)) continue;
-      if (entry.remote) { await this.recoverRemoteSubmission(project, entry); continue; }
-      if (workgroupMutationMethods.has(entry.method)) { await this.recoverWorkgroupSubmission(project, entry.params.requestId); continue; }
-      if (entry.method === 'areal/agent/spawn') { await this.recoverAgentSubmission(project, entry.params.parentThreadId, entry.params.requestId); continue; }
-      if (taskMutationMethods.has(entry.method)) continue; // No public receipt lookup; never infer or replay.
-      if (entry.method === 'turn/steer') {
-        if(project.client.capabilities?.methods?.includes('areal/plugin/hooks/list')) {
-          const result=await client.request('areal/request/read',{requestId:entry.params.requestId});
-          const receipt=result.data.find(item=>item.method==='turn/steer'&&item.state==='completed'&&item.response);
-          if(receipt){await this.changeOutcomes(project,outcomes=>({...outcomes,[entry.params.requestId]:{accepted:!receipt.response.error,threadId:entry.params.threadId,input:entry.params.input,message:receipt.response.error?.message}}));await this.changePending(project,pending=>pending.filter(value=>value!==entry));}
-          continue; // Receipt covers hook side effects and rejection; never replay.
-        }
-        await this.openThread(project, entry.params.threadId);
-        const turn = project.model.state.threads[entry.params.threadId]?.turns.find(item => item.id === entry.params.expectedTurnId);
-        const normalize = input => input.map(part => part.type === 'text' ? { type: 'text', text: part.text } : { type: part.type, url: part.url });
-        const accepted = turn?.items.some(item => item.type === 'userMessage' && !entry.params.previousItems.includes(item.id) && JSON.stringify(normalize(item.content)) === JSON.stringify(normalize(entry.params.input)));
-        if (accepted || (turn && turn.status !== 'inProgress')) {
-          await this.changeOutcomes(project, outcomes => ({ ...outcomes, [entry.params.requestId]: { accepted: !!accepted, threadId: entry.params.threadId, input: entry.params.input, message: accepted ? '追加指令已确认' : '原轮次已结束，历史中没有这条追加指令。内容已保留，请检查后发送。' } }));
-          await this.changePending(project, pending => pending.filter(value => value !== entry));
-        }
-        continue; // 没有收据的追加只核对原轮次，不重放。
-      }
-      if (entry.localOnly) {
-        if (!observeOnly) await this.reconcileConfiguration(project, entry);
-        continue;
-      }
-      const result = await client.request('areal/request/read', {
-        requestId: entry.params.requestId,
-        // 管理命令的收据属于部署日志；带 threadId 只会查询 Turn 收据。
-        ...(entry.params.threadId && !managementMethods.has(entry.method) ? { threadId: entry.params.threadId } : {}),
-      });
-      this.requireConnection(project, client);
-      const management = managementMethods.has(entry.method);
-      const receiptMethod = entry.method.startsWith('areal/process/') && entry.method !== 'areal/process/start' ? 'areal/process/control' : entry.method;
-      const receipt = result.data.find(item => item.method === receiptMethod && (management
-        ? item.state === 'completed' && item.response : item.result));
-      if (!receipt) continue; // 空收据不能证明在途请求未执行，不自动重放或解除阻塞。
-      if (receiptMethod === 'areal/process/control') {
-        try { await this.processControlOutcome(project, entry.params, receipt.result); }
-        catch (error) { if (error.submissionUnknown) continue; await this.changePending(project, pending => pending.filter(value => value !== entry)); throw error; }
-      }
-      if (['areal/thread/start', 'areal/turn/start', 'areal/turn/submit', 'turn/start', 'areal/turn/enqueue'].includes(entry.method)) {
-        await this.changeOutcomes(project, outcomes => ({ ...outcomes, [entry.params.requestId]: { accepted: true, threadId: entry.params.threadId ?? receipt.threadId ?? receipt.result?.thread?.id } }));
-      }
-      await this.providers.acceptModelSelection(receipt.result?.lastAcceptedModel);
-      if (entry.method.startsWith('areal/queue/')) {
-        await this.changeOutcomes(project, outcomes => ({ ...outcomes, [entry.params.requestId]: {
-          accepted: !receipt.response?.error, threadId: entry.params.threadId, method: entry.method,
-          result: management ? receipt.response.result : receipt.result,
-          message: receipt.response?.error?.message,
-        } }));
-      }
-      const threadId = entry.params.threadId ?? receipt.threadId ?? receipt.result?.threadId ?? receipt.result?.thread?.id;
-      if (['areal/thread/fork', 'areal/side/start'].includes(entry.method) && threadId) {
-        // 创建收据属于新目标；保留结果给发起端的显式核对路径。
-        await this.changeOutcomes(project, outcomes => ({ ...outcomes, [entry.params.requestId]: {
-          accepted: true, method: entry.method, sourceThreadId: entry.params.sourceThreadId, threadId,
-        } }));
-      }
-      if (entry.method === 'areal/thread/archive') await this.listThreads(project);
-      await this.changePending(project, pending => pending.filter(value => value !== entry));
-      if (threadId) {
-        try { await this.openThread(project, threadId); }
-        catch (error) {
-          if (!isObservationSizeFailure(error) || !this.currentConnection(project, client) || !client.ready) throw error;
-        }
-      }
-      if (entry.method.startsWith('areal/provider/')) {
-        const models = await client.request('areal/model/list');
-        this.requireConnection(project, client);
-        project.models = models.data ?? [];
-      }
-      if (management && receipt.response.error) throw new Error(`操作未成功：${receipt.response.error.message}`);
-    }
-    await this.listThreads(project);
+  async readReceipt(project, entry, client, timeoutMs = 2500) {
+    const family = client.capabilities?.methodSemantics?.[entry.method]?.receipt;
+    const scopedThreadId = entry.params.threadId && (family ? family === 'thread' : !managementMethods.has(entry.method) && !taskMutationMethods.has(entry.method)) ? entry.params.threadId : undefined;
+    const result = await client.request('areal/request/read', { requestId: entry.params.requestId,
+      ...(scopedThreadId ? { threadId: scopedThreadId } : {}) }, { timeoutMs });
+    this.requireConnection(project, client);
+    return matchingReceipt(entry, result.data, scopedThreadId);
   }
 
-  async reconcileConfiguration(project, entry) {
-    const { threadId, expectedRevision } = entry.params;
-    if (!Number.isSafeInteger(expectedRevision)) throw new Error('未知配置结果缺少有效 revision，仍需人工处理');
-    const token = randomUUID();
-    project.configurationChanges ??= new Map();
-    if (project.configurationChanges.has(threadId)) throw new Error('会话配置正在更新，请稍后恢复');
-    project.configurationChanges.set(threadId, token);
-    try {
-      const inspection = await this.refreshConfiguration(project, threadId);
-      const revision = inspection.configuration.revision;
-      if (revision > expectedRevision) {
-        await this.changePending(project, pending => pending.filter(value => value !== entry));
-        return;
-      }
-      if (revision < expectedRevision || inspection.activeTurnId) {
-        throw new Error('配置 revision 尚未推进或任务正在执行，未知结果仍被阻止；稍后可再次恢复');
-      }
+  async readSubmission(project, method, params) {
+    const client = project.client, generation = project.connectionGeneration;
+    const pending = project.pending.find(entry => entry.method === method && entry.params.requestId === params.requestId);
+    if (pending && this.awaitingResponses.has(pending)) return { confirmed: false, state: 'admitted' };
+    const known = project.outcomes?.[params.requestId];
+    const entry = pending ?? { method, params, ...(known?.method === method && known.operation ? { operation: known.operation } : {}) };
+    const receipt = await this.readReceipt(project, entry, client);
+    const current = () => this.currentConnection(project, client) && project.connectionGeneration === generation;
+    if (!current()) throw Object.assign(new Error('连接已换代'), { code: 'STALE_CONNECTION' });
+    const status = receipt && receiptStatus(receipt);
+    if (!['completed', 'failed'].includes(status)) return { confirmed: false, state: status ?? 'unconfirmed' };
+    if (pending) {
+      await this.rememberOutcome(project, entry, receipt, current);
+      if (current()) await this.changePending(project, entries => current() ? entries.filter(value => value !== pending) : entries);
+    }
+    const failure = receipt.error ?? receipt.response?.error;
+    const error = failure ? desktopError(failure) : undefined;
+    return { confirmed: true, accepted: true, status, operation: receipt.operation ?? entry.operation,
+      ...(error ? { error, message: error.message } : { result: receiptResult(receipt) }) };
+  }
 
-      // Omitted model/profile preserve their current references. Supplying current options
-      // and parameters preserves the rest of EffectiveConfig while the CAS advances revision.
-      const barrier = {
-        threadId,
-        expectedRevision,
-        parameters: inspection.configuration.parameters,
-        options: inspection.configuration.options,
-      };
+  async rememberOutcome(project, entry, receipt, current = () => true) {
+    const result = receiptResult(receipt), failure = receipt.error ?? receipt.response?.error;
+    const status = receiptStatus(receipt);
+    const threadId = entry.method === 'areal/agent/spawn' ? result?.threadId : entry.params.threadId ?? receipt.threadId ?? result?.threadId ?? result?.thread?.id;
+    const taskId = entry.params.taskId ?? receipt.taskId ?? (taskMutationMethods.has(entry.method) ? result?.id : undefined);
+    const operation = receipt.operation ?? { ...(entry.operation ?? operationOf(entry.method, entry.params)),
+      ...(creationTargets.get(entry.method) === 'thread' && threadId ? { target: { kind: 'thread', threadId } }
+        : creationTargets.get(entry.method) === 'task' && taskId ? { target: { kind: 'task', taskId } } : {}) };
+    await this.changeOutcomes(project, outcomes => {
+      if (!current()) return outcomes;
+      return { ...outcomes, [entry.params.requestId]: { accepted: true, status, operation, method: entry.method,
+        ...(threadId ? { threadId } : {}), ...(taskId ? { taskId } : {}),
+        ...(entry.params.sourceThreadId ? { sourceThreadId: entry.params.sourceThreadId } : {}),
+        ...(entry.params.parentThreadId ? { parentThreadId: entry.params.parentThreadId } : {}),
+        ...(result?.turnId ?? result?.turn?.id ? { turnId: result.turnId ?? result.turn.id } : {}),
+        ...(entry.method === 'turn/steer' && entry.params.input ? { input: entry.params.input } : {}),
+        ...(failure ? { message: this.providers.redact(failure.message) } : {}),
+        ...(['areal/queue/update', 'areal/queue/pause', 'areal/queue/resume', 'areal/queue/remove', 'areal/queue/reorder'].includes(entry.method) && Number.isSafeInteger(result?.revision) ? { result: { revision: result.revision } } : {}),
+      } };
+    });
+    return { result, threadId, taskId, status };
+  }
+
+  reconciliationCurrent(project, client, generation) {
+    return this.currentConnection(project, client) && client.ready && project.connectionGeneration === generation
+      && !this.lifecycleOperations?.activeRequestId && !this.lifecycleOperations?.activeTargets.has(project.id)
+      && !this.lifecycleOperations?.blocking(project.id);
+  }
+
+  stopReconciliation(project) {
+    clearTimeout(project.reconciliation?.timer);
+    project.reconciliation = null;
+  }
+
+  scheduleReconciliation(project) {
+    const client = project.client, generation = project.connectionGeneration;
+    if (!project.pending?.length || !this.reconciliationCurrent(project, client, generation)) return;
+    const previous = project.reconciliation;
+    if (previous?.client === client && previous.generation === generation && (previous.timer || previous.running)) return;
+    this.stopReconciliation(project);
+    const worker = project.reconciliation = { client, generation, deadline: Date.now() + 30000, attempt: 0, running: false };
+    const current = () => project.reconciliation === worker && this.reconciliationCurrent(project, client, generation);
+    const schedule = () => {
+      const delay = reconciliationDelays[Math.min(worker.attempt++, reconciliationDelays.length - 1)];
+      if (!current() || !project.pending.length || Date.now() + delay >= worker.deadline) return;
+      worker.timer = setTimeout(async () => {
+        worker.timer = null;
+        if (!current()) return;
+        worker.running = true;
+        try { await this.reconcile(project, { client, generation, deadline: worker.deadline }); }
+        catch {  }
+        finally { worker.running = false; schedule(); }
+      }, delay);
+      worker.timer.unref?.();
+    };
+    schedule();
+  }
+
+  reconcile(project, options = {}) {
+    const client = options.client ?? project.client, generation = options.generation ?? project.connectionGeneration;
+    const previous = project.reconciliationRead;
+    if (previous?.client === client && previous.generation === generation) return previous.promise;
+    const pass = { client, generation };
+    pass.promise = this.reconcileEntries(project, { ...options, client, generation }).finally(() => {
+      if (project.reconciliationRead === pass) project.reconciliationRead = null;
+    });
+    project.reconciliationRead = pass;
+    return pass.promise;
+  }
+
+  async reconcileEntries(project, { client, generation, deadline = Date.now() + 30000 }) {
+    const current = () => this.reconciliationCurrent(project, client, generation);
+    for (const entry of [...project.pending]) {
+      if (!current() || Date.now() >= deadline) break;
+      if (this.awaitingResponses.has(entry)) continue;
       try {
-        const configuration = await project.client.request('areal/thread/configure', barrier);
-        project.configurations[threadId] = configuration;
-        await this.changePending(project, pending => pending.filter(value => value !== entry));
-        this.onChange();
+        if (entry.remote) { await this.recoverRemoteSubmission(project, entry); continue; }
+        if (workgroupMutationMethods.has(entry.method)) { await this.recoverWorkgroupSubmission(project, entry.params.requestId); continue; }
+        if (entry.method === 'areal/agent/spawn') { await this.recoverAgentSubmission(project, entry.params.parentThreadId, entry.params.requestId); continue; }
+        if (entry.method === 'turn/steer' && !client.capabilities?.methods?.includes('areal/plugin/hooks/list')
+          && !client.capabilities?.features?.operationOutcomes) {
+          await this.openThread(project, entry.params.threadId);
+          if (!current()) break;
+          const turn = project.model.state.threads[entry.params.threadId]?.turns.find(item => item.id === entry.params.expectedTurnId);
+          const normalize = input => input.map(part => part.type === 'text' ? { type: 'text', text: part.text } : { type: part.type, url: part.url });
+          const accepted = turn?.items.some(item => item.type === 'userMessage' && !entry.params.previousItems.includes(item.id)
+            && JSON.stringify(normalize(item.content)) === JSON.stringify(normalize(entry.params.input)));
+          if (accepted) {
+            await this.rememberOutcome(project, entry, { status: 'completed', result: { turnId: turn.id } }, current);
+            if (current()) await this.changePending(project, pending => current() ? pending.filter(value => value !== entry) : pending);
+          }
+          continue;
+        }
+        if (entry.localOnly) { await this.refreshConfiguration(project, entry.params.threadId); continue; }
+        let receipt = await this.readReceipt(project, entry, client, Math.min(2500, Math.max(1, deadline - Date.now())));
+        if (!current() || this.awaitingResponses.has(entry) || !project.pending.includes(entry) || !receipt) continue;
+        if (!['completed', 'failed'].includes(receiptStatus(receipt))) continue;
+        if (processControls.has(entry.method) && receiptStatus(receipt) === 'completed') {
+          try { await this.processControlOutcome(project, entry.params, receiptResult(receipt)); }
+          catch (error) { if (!error.executionFailed) throw error; receipt = { ...receipt, status: 'failed', error: { message: error.message } }; }
+        }
+        if (!current()) break;
+        const outcome = await this.rememberOutcome(project, entry, receipt, current);
+        if (!current()) break;
+        await this.changePending(project, pending => current() ? pending.filter(value => value !== entry) : pending);
+        if (!current()) break;
+        delete project.refreshErrors?.[entry.params.requestId];
+        if (outcome.status === 'completed') {
+          if (entry.method === 'areal/thread/configure') project.configurations[entry.params.threadId] = outcome.result;
+          if (taskMutationMethods.has(entry.method) && entry.method !== 'areal/channel/reply') project.model.setTask(outcome.result);
+          await this.providers.acceptModelSelection(outcome.result?.lastAcceptedModel).catch(() => {});
+          void this.refreshAfterAdmission(project, outcome.threadId, receipt.operation ?? entry.operation).catch(() => {});
+        }
       } catch (error) {
-        if (error.submissionUnknown) {
-          throw new Error('恢复屏障结果仍未知；原配置请求未重放，任务继续被阻止，请再次恢复以核对 revision');
-        }
-        const refreshed = await this.refreshConfiguration(project, threadId);
-        if (refreshed.configuration.revision > expectedRevision) {
-          await this.changePending(project, pending => pending.filter(value => value !== entry));
-          return;
-        }
-        throw new Error(`恢复屏障未推进配置 revision；任务继续被阻止：${error.message}`);
-      }
-    } finally {
-      if (project.configurationChanges.get(threadId) === token) {
-        project.configurationChanges.delete(threadId);
+        if (!current()) break;
+        project.refreshErrors ??= {};
+        project.refreshErrors[entry.params.requestId ?? `legacy:${entry.params.threadId}`] = { id: randomUUID(), projectId: project.id,
+          connectionGeneration: generation, operation: entry.operation, message: this.providers.redact(error.message), refreshPending: true };
+        this.onChange();
       }
     }
   }
 
   async command(name, request, context = {}) {
+    const semantics = commandSemantics(name, request);
+    if (semantics.requestId && !request[semantics.requestId]) request = { ...request, [semantics.requestId]: randomUUID() };
     if (name === 'stop') {
       const project = this.projects.get(request.projectId);
       if (!project?.service || !project.client?.ready) throw Object.assign(new Error('原 Core 连接不可用，不能中断轮次'), { code: 'LIFECYCLE_INCOMPLETE' });
@@ -1441,8 +1518,8 @@ class CoreBackend {
         }
         const result = await this.submit(project, 'areal/thread/tools/attach', {
           threadId, expectedToolsetRevision: request.expectedToolsetRevision, bundleId: 'areal.browser.v1',
-        });
-        await this.openThread(project, threadId);
+        }, { requestId: request.requestId });
+        await this.refreshAfterAdmission(project, threadId, operationOf('areal/thread/tools/attach', request));
         return result;
       }
       case 'configure': {
@@ -1457,11 +1534,7 @@ class CoreBackend {
         if (typeof request.requestId !== 'string' || !/^[0-9a-f-]{36}$/.test(request.requestId)
           || !['update','remove','reorder','pause','resume','steer'].includes(request.operation)) throw new Error('无效队列收据查询');
         const method = `areal/queue/${request.operation}`;
-        const records = await project.client.request('areal/request/read', { requestId: request.requestId, ...(request.operation === 'steer' ? { threadId } : {}) });
-        const receipt = records.data.find(record => record.method === method);
-        if (receipt?.result) return { confirmed: true, accepted: true, result: receipt.result };
-        if (receipt?.state === 'completed' && receipt.response) return { confirmed: true, accepted: !receipt.response.error, result: receipt.response.result, message: receipt.response.error?.message };
-        return { confirmed: false };
+        return this.readSubmission(project, method, { requestId: request.requestId, threadId });
       }
       case 'queueEdit': return this.editQueue(project, request);
       case 'create': {
@@ -1475,10 +1548,9 @@ class CoreBackend {
           ...(request.parameters ? { parameters: request.parameters } : {}),
           ...(request.model ? { model: request.model } : {}),
           ...((request.profile ?? project.resourceProfile ?? this.defaultProfile) ? { agentProfile: request.profile ?? project.resourceProfile ?? this.defaultProfile } : {}),
-        });
-        await this.openThread(project, thread.id);
-        await this.listThreads(project);
-        return { threadId: thread.id };
+        }, { requestId: request.requestId });
+        await this.refreshAfterAdmission(project, thread.id, operationOf('areal/thread/start', request));
+        return { threadId: thread.id, requestId: request.requestId };
       }
       case 'fork': {
         if (!project.client.capabilities?.methods?.includes('areal/thread/fork')) throw new Error('当前 Core 不支持从此轮次创建分支');
@@ -1487,8 +1559,7 @@ class CoreBackend {
           ...(request.target ? { target: request.target } : {}),
         }, { requestId: request.requestId });
         // 创建收据已确认受理；后续投影失败不能把已提交的创建显示成可重试错误。
-        try { await this.openThread(project, result.thread.id); await this.listThreads(project); }
-        catch { /* 调用方仍可凭 threadId 打开已提交目标。 */ }
+        await this.refreshAfterAdmission(project, result.thread.id, operationOf('areal/thread/fork', request));
         return { threadId: result.thread.id, requestId: result.requestId };
       }
       case 'side': {
@@ -1520,7 +1591,7 @@ class CoreBackend {
           const current = project.model.state.threads[request.threadId];
           if (current?.conversation?.kind !== 'side') throw new Error('目标不是旁路讨论');
           const result = await this.submit(project, 'areal/turn/start', { threadId: request.threadId,
-            input: [{ type: 'text', text: request.text }] });
+            input: [{ type: 'text', text: request.text }] }, { requestId: request.requestId });
           // 追问已受理；快照读取失败只能通过重新打开恢复，不能重发输入。
           try { await this.openThread(project, request.threadId); } catch { /* 保留明确受理结果。 */ }
           return result;
@@ -1535,8 +1606,7 @@ class CoreBackend {
           ...(request.parameters ? { parameters: request.parameters } : {}),
         }, { requestId: request.requestId });
         // 与 Fork 一样，投影刷新不改变 Core 已确认的创建结果。
-        try { await this.openThread(project, result.thread.id); await this.listThreads(project); }
-        catch { /* 调用方仍可凭 threadId 打开已提交目标。 */ }
+        await this.refreshAfterAdmission(project, result.thread.id, operationOf('areal/side/start', request));
         return { threadId: result.thread.id, turnId: result.turn?.id, requestId: result.requestId };
       }
       case 'send': {
@@ -1583,7 +1653,7 @@ class CoreBackend {
         if (isTaskDraftConfiguration(project.configurations?.[threadId])) throw new Error('请等待当前安排完成后再补充修改要求。');
         const active = project.model.state.threads[threadId]?.turns.find(turn => turn.status === 'inProgress');
         if (!active || active.id !== request.expectedTurnId) throw new Error('原轮次已结束，请作为新消息发送');
-        await this.submit(project, 'turn/steer', { threadId, expectedTurnId: active.id, input: messageInput(this, request), previousItems: active.items.map(item => item.id) });
+        await this.submit(project, 'turn/steer', { threadId, expectedTurnId: active.id, input: messageInput(this, request), previousItems: active.items.map(item => item.id) }, { requestId: request.requestId });
         break;
       }
       case 'respond': {
@@ -1600,7 +1670,7 @@ class CoreBackend {
         }
         break;
       }
-      case 'reconcile': await this.reconcile(project); return { outcomes: project.outcomes };
+      case 'reconcile': await this.reconcile(project); await this.refreshAfterAdmission(project); return { outcomes: project.outcomes };
       default: throw new Error('不支持的操作');
     }
     return this.snapshot();
@@ -1629,6 +1699,7 @@ class CoreBackend {
     for (const project of new Set([...this.projects.values(), ...[...this.ownedEngines.values()].map(entry => entry.project)])) {
       clearTimeout(project.reconnectTimer); project.reconnectTimer = null;
       project.taskNotificationMonitor?.stop();
+      this.stopReconciliation(project);
       project.client?.close();
     }
     await Promise.allSettled([...this.starting.values()]);

@@ -104,7 +104,7 @@ async function manageTask(backend, project, request) {
     return value;
   }
   if (operation === 'taskCreate') return taskCreate(backend, project, request);
-  const value = await backend.submit(project, method, params);
+  const value = await backend.submit(project, method, params, { requestId: request.requestId });
   // Core receipts identify the Run and reply message. Preserve the originating
   // question too, so a delayed Desktop response cannot settle its sibling.
   if (operation === 'taskReply') return { ...value, questionId: params.questionId };

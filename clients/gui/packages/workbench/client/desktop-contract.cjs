@@ -4,7 +4,7 @@
 /** @template T @typedef {{ok:true,value:T}|{ok:false,error:DesktopError}} DesktopResult */
 /** @typedef {{id:string,revision:string}} ResourceRef */
 /** @typedef {{projectId:string,profile?:ResourceRef}} PrepareCreatorRequest */
-/** @typedef {{projectId:string,threadId:string,expectedRevision?:number,model?:{providerId:string,modelId:string}|null,profile?:ResourceRef,options?:Record<string,unknown>,parameters?:Record<string,unknown>,selectedSkills?:ResourceRef[]}} ConfigureRequest */
+/** @typedef {{projectId:string,threadId:string,requestId?:string,expectedRevision?:number,model?:{providerId:string,modelId:string}|null,profile?:ResourceRef,options?:Record<string,unknown>,parameters?:Record<string,unknown>,selectedSkills?:ResourceRef[]}} ConfigureRequest */
 /** @typedef {{projectId:string,operation:'start',sourceThreadId:string,requestId:string,text:string,workspaceAccess:'none'|'readOnly',model?:{providerId:string,modelId:string},resetModel?:boolean,anchor?:Record<string,unknown>|null,selection?:Record<string,unknown>|null,parameters?:Record<string,unknown>}|{projectId:string,operation:'recover',requestId:string}|{projectId:string,operation:'send',threadId:string,text:string}|{projectId:string,operation:'context',threadId:string,cursor?:string,evidenceRef?:string,maxBytes?:number}|{projectId:string,operation:'list',sourceThreadId:string,includeArchived?:boolean,cursor?:string}} SideRequest */
 /** @typedef {{projectId:string,threadId:string,expectedTurnId:string,expectedConfigRevision?:number,requestId?:string}} ContinueRequest */
 /** @typedef {{projectId:string,sourceThreadId:string,requestId?:string,workspaceMode:'sharedCurrent',anchor:{turnId:string,boundary:'before'|'after'},target?:Record<string,unknown>}} ForkRequest */
@@ -14,20 +14,55 @@
 /** @typedef {{scope:'recent_records',record_limit:100,records_considered:number,model_calls:number,total_duration_ms:number|null,mean_duration_ms:number|null,max_duration_ms:number|null}} TrajectoryModelCallSummary */
 /** @typedef {{enabled:boolean,config_revision?:string,capture_apply_pending?:boolean,capture_apply_error?:string|null,state:'disabled'|'ready'|'degraded'|'invalid',endpoint:string,configPath:string|null,spool_dir:string,worker_running:boolean,queue:{pending:number,uploading:number,failed:number,uploaded:number,evicted:number,bytes:number,max_bytes:number,dropped_memory:number,dropped_oversize:number},last_error:string|null,last_success_at:number|null,records:TrajectoryRecord[],model_call_summary?:TrajectoryModelCallSummary,limits:{max_retries:number,upload_interval_ms:number,max_memory_bytes:number}}} TrajectoryStatus */
 
-// 名称、作用域和执行层只维护一份；Main 专属能力不能从后台服务入口调用。
+/** @typedef {{effect:'read'|'subscription'|'mutation',requestId?:'requestId'|'draftId'}} CommandEffect */
+/** @type {CommandEffect} */
+const read = Object.freeze({ effect: 'read' });
+/** @type {CommandEffect} */
+const subscription = Object.freeze({ effect: 'subscription' });
+/** @type {CommandEffect} */
+const mutation = Object.freeze({ effect: 'mutation' });
+/** @type {CommandEffect} */
+const recoverable = Object.freeze({ effect: 'mutation', requestId: 'requestId' });
+/** @param {CommandEffect} semantics @param {string} names */
+const operations = (semantics, names) => Object.fromEntries(names.split(' ').map(name => [name, semantics]));
 const commandDefinitions = Object.freeze({
-  connect: ['service', 'project'], list: ['service', 'project'], open: ['service', 'thread'],
-  create: ['service', 'project'], prepareCreator: ['service', 'project'], fork: ['service', 'project'], side: ['service', 'project'], send: ['service', 'thread'], editMessage: ['service', 'thread'], continue: ['service', 'thread'], stop: ['service', 'thread'],
-  attachBrowser: ['service', 'thread'],
-  respond: ['service', 'thread'], reconcile: ['service', 'project'], configure: ['service', 'thread'],
-  queue: ['service', 'thread'], queueEdit: ['service', 'thread'], library: ['service', 'app'],
-  manage: ['service', 'project'], workspace: ['service', 'project'], media: ['service', 'thread'],
-  steer: ['service', 'thread'], dismissRecovery: ['service', 'project'], providers: ['service', 'app'],
-  chatgpt: ['service', 'app'], analytics: ['service', 'app'], resources: ['service', 'app'],
-  projectless: ['service', 'app'], tasks: ['service', 'app'], trajectory: ['service', 'app'], feedback: ['service', 'app'],
-  serviceLifecycle: ['main', 'app'], serviceStatus: ['main', 'app'], stopService: ['main', 'app'], recoverResources: ['main', 'app'],
-  exportDiagnostics: ['main', 'app'], connectService: ['main', 'app'], export: ['main', 'thread'], remoteControl: ['main', 'app'],
+  connect: ['service', 'project', subscription], list: ['service', 'project', read], open: ['service', 'thread', subscription],
+  create: ['service', 'project', recoverable], prepareCreator: ['service', 'project', mutation], fork: ['service', 'project', recoverable],
+  side: ['service', 'project', { ...operations(read, 'recover context list'), ...operations(recoverable, 'start send') }],
+  send: ['service', 'thread', recoverable], editMessage: ['service', 'thread', recoverable], continue: ['service', 'thread', recoverable], stop: ['service', 'thread', recoverable],
+  attachBrowser: ['service', 'thread', recoverable], respond: ['service', 'thread', mutation], reconcile: ['service', 'project', read], configure: ['service', 'thread', recoverable],
+  queue: ['service', 'thread', read], queueEdit: ['service', 'thread', recoverable],
+  library: ['service', 'app', operations(mutation, 'dropSidebar renameProject renameThread pinThread pinProject createSection renameSection removeSection orderSection moveThread moveProject readThread markAllRead orderSidebarThread hideProject orderProject orderThread settings')],
+  manage: ['service', 'project', {
+    ...operations(read, 'pluginHooks pluginMcp mcpApps mcpForms mcpToolResult plugins plugin providers mcp profile skills skill inspect context inheritedHistory plan processes process processWait goal permissions interactions processOutput executions execution executionArtifact executionWait agents agentWait workflows server workflow workgroupPolicy workgroups workgroup workgroupWait workgroupArtifact workgroupArtifactStatus workgroupCapabilities workgroupSubmission pluginCapabilities pluginSubmission processSubmission agentSubmission mcpFormResourceSubmission tasks task taskInbox taskChannel taskDraftHistory taskDraftRead'),
+    ...operations(subscription, 'taskWatch taskUnwatch'),
+    ...operations(recoverable, 'pluginArchiveImport mcpFormResourceStage pluginHooksConfigure hookAcknowledge marketplaceAdd marketplaceAddGit marketplaceRemove marketplaceUpdate pluginResolve pluginAuthConfigure pluginConnection connectorConfigure connectorCredential pluginInstall pluginConfigure pluginUninstall pluginSetup providerSave providerRemove mcpSave mcpConnect mcpDisconnect archive unarchive processCloseStdin processStart processWrite processResize processTerminate goalCreate goalUpdate goalPause goalResume goalClear workgroupStart workflowStart workgroupRevise agentSpawn taskCreate taskUpdate taskPause taskResume taskStopRun taskResumeRun taskCancel taskReply taskDraftSend'),
+    ...operations(mutation, 'pluginArchivePick pluginAuth pluginAuthCredential mcpAppOpen mcpAppRequest mcpAppClose mcpExtensionCall mcpFormRespond mcpFormPreview mcpFormResourcePrepare mcpFormResourceRelease executionCancel executionApply serverDrain serverGc workgroupApplyArtifact workgroupCancel closeResources planUpdate toolAcknowledge contextCompact permissionsForget providerProbe taskDraftConfirm'),
+    taskDraftStart: { effect: 'mutation', requestId: 'draftId' },
+  }],
+  workspace: ['service', 'project', { ...operations(read, 'worktreeRead list search read review reviewCommits reviewBranches turnReview status info gitState'), ...operations(recoverable, 'worktreeCreate'), ...operations(mutation, 'worktreeOpen save gitStage gitUnstage gitCommit gitPush') }],
+  media: ['service', 'thread', { ...operations(read, 'list read'), upload: mutation, release: recoverable }],
+  steer: ['service', 'thread', recoverable], dismissRecovery: ['service', 'project', mutation],
+  providers: ['service', 'app', { ...operations(read, 'list revealKey discover'), ...operations(mutation, 'probe apply save saveAndApply removeAndApply defaultAndApply remove default') }],
+  chatgpt: ['service', 'app', operations(mutation, 'status login forget logout selectAccount cancel probe')],
+  analytics: ['service', 'app', { ...operations(read, 'read sync') }],
+  resources: ['service', 'app', { ...operations(read, 'hooks builtinSkill skills mcp skillRead'), ...operations(mutation, 'hooksSave skillToggle skillSave mcpSave mcpConnect mcpDisconnect') }],
+  projectless: ['service', 'app', { directory: mutation, prepare: recoverable }], tasks: ['service', 'app', operations(read, 'list inbox')],
+  trajectory: ['service', 'app', { status: read, ...operations(mutation, 'retry setEnabled') }],
+  feedback: ['service', 'app', { ...operations(read, 'status read'), ...operations(mutation, 'preference prepare draft refine submit close') }],
+  serviceLifecycle: ['main', 'app', { check: read, ...operations(mutation, 'update stop recover quitInterface stopAndQuit') }],
+  serviceStatus: ['main', 'app', read], stopService: ['main', 'app', mutation], recoverResources: ['main', 'app', mutation],
+  exportDiagnostics: ['main', 'app', read], connectService: ['main', 'app', subscription], export: ['main', 'thread', read], remoteControl: ['main', 'app', mutation],
 });
+/** @param {string} name @param {Record<string,unknown>} request @returns {CommandEffect} */
+function commandSemantics(name, request) {
+  const definition = commandDefinitions[/** @type {CommandName} */ (name)];
+  if (!definition) invalid();
+  const declared = /** @type {CommandEffect|Record<string,CommandEffect>} */ (definition[2]);
+  const selected = typeof declared.effect === 'string' ? declared : declared[String(request.operation)];
+  if (!selected || !['read', 'subscription', 'mutation'].includes(selected.effect)) invalid();
+  return /** @type {CommandEffect} */ (selected);
+}
 /** @typedef {keyof typeof commandDefinitions} CommandName */
 /** @template {CommandName} N @typedef {N extends 'serviceLifecycle' ? {operation:'update'|'stop'|'check'|'recover'|'quitInterface'|'stopAndQuit'} : N extends 'stop' ? {projectId:string,threadId:string,turnId:string,requestId:string} : N extends 'continue' ? ContinueRequest : N extends 'prepareCreator' ? PrepareCreatorRequest : N extends 'fork' ? ForkRequest : N extends 'configure' ? ConfigureRequest : N extends 'side' ? SideRequest : N extends 'trajectory' ? TrajectoryRequest : Record<string,unknown>} CommandParams */
 /** @typedef {'show'|'navigate'|'back'|'forward'|'reload'|'stop'|'state'|'external'|'devtools'|'openLink'|'release'|'claim'|'takeover'|'captureRegion'|'captureElement'|'selectElement'|'cancelElementSelection'|'checkElement'|'endRegion'|'beginStyleTrial'|'applyStyleTrial'|'undoStyleTrial'|'redoStyleTrial'|'styleTrialState'|'captureStyleTrialAfter'|'clearStyleTrial'|'newPage'|'selectPage'|'subscribe'|'unsubscribe'|'allowNextDownload'|'cancelFileHandoff'|'cancelDownload'|'authorizeFrameOrigin'|'reloadFrameOrigin'|'revokeFrameOrigin'} OwnedPreviewOperation */
@@ -66,6 +101,8 @@ function validateCommand(name, params, { serviceOnly = false } = {}) {
     || Object.keys(params).some(key => !['projectId', 'threadId', 'expectedTurnId', 'expectedConfigRevision', 'requestId'].includes(key))
     || params.requestId !== undefined && (typeof params.requestId !== 'string' || !/^[0-9a-f-]{36}$/.test(params.requestId))
     || params.expectedConfigRevision !== undefined && (!Number.isSafeInteger(params.expectedConfigRevision) || Number(params.expectedConfigRevision) < 0))) invalid();
+  if (['create', 'configure', 'fork', 'attachBrowser'].includes(name) && params.requestId !== undefined
+    && (typeof params.requestId !== 'string' || !/^[0-9a-f-]{36}$/.test(params.requestId))) invalid();
   if (name === 'create' && params.browserEnabled !== undefined && typeof params.browserEnabled !== 'boolean') invalid();
   if (name === 'fork' && (!identifier(params.sourceThreadId) || !record(params.anchor)
     || !identifier(params.anchor.turnId) || !['before', 'after'].includes(String(params.anchor.boundary))
@@ -326,4 +363,4 @@ function validateCommandResponse(name, params, value) {
   if (params.operation === 'context' && (!identifier(value.snapshotId) || !Array.isArray(value.evidence) || !value.evidence.every(record) || value.nextCursor !== undefined && value.nextCursor !== null && typeof value.nextCursor !== 'string')) invalid();
   if (params.operation === 'send' && (!record(value.turn) || !identifier(value.turn.id))) invalid();
 }
-module.exports = { commandDefinitions, validateCommand, validateCommandResponse, validatePreview, desktopError };
+module.exports = { commandDefinitions, commandSemantics, validateCommand, validateCommandResponse, validatePreview, desktopError };

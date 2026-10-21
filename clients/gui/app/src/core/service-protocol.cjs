@@ -7,7 +7,7 @@ const { inspectResources, recoverResource, blocked } = require('./resource-recov
 const { validToolInput, failure: browserFailure, success: browserSuccess } = require('./browser-tool.cjs');
 const { ProjectionEncoder } = require('@areal/workbench/state-projection');
 const PROTOCOL = 'areal.desktop-service.v1';
-const COMMAND_CONTRACT = 'areal.desktop-commands.v1';
+const COMMAND_CONTRACT = 'areal.desktop-commands.v2';
 const browserKey = (projectId, threadId) => JSON.stringify([projectId, threadId]);
 function validateCommand(name, params) {
   validateDesktopCommand(name, params, { serviceOnly: true });

@@ -66,6 +66,12 @@ requestId 是持久业务键，RPC id 只关联响应。相同身份、方法、
 
 `features.atomicConfigureReceipt` 允许 `areal/thread/configure` 携带可选 `requestId`。Core 在 revision CAS 前查同身份、方法、键及请求 digest；同请求返回原配置，不同参数冲突。配置和回执在同一 Thread 快照提交。回执含原始配置结果、请求 digest、`expectedRevision`、`resultingRevision` 和 `configurationHash`。省略 `requestId` 的旧调用方仍可使用原有 CAS 行为。升级前已写入管理日志的配置请求优先按原身份、方法、请求键和移除 `requestId` 后的原始参数 digest 查询；已完成记录返回原配置，未知记录返回已受理且不重放。只有不存在旧记录的新请求写入 Thread 回执。
 
+Desktop 在发送外层命令之前分配可恢复写入的原 `requestId`，复合命令的 `read|subscription|mutation` 效果与子操作声明集中在 `desktop-contract`。Core RPC 的效果和回执家族来自 Core `methodSemantics`。现有 pending 日志保存不可变原操作引用，outcomes 仅保存身份、受理及完成状态；普通会话结果不会复制完整历史。`status:failed` 仍可为 `accepted:true`，表示已经受理后的执行失败，不是未执行证明。创建返回原 `threadId` 和 `requestId`，本机日志或展示刷新故障不能推翻 Core 已确认结果。配置与所有 Task 写入沿用原请求键；旧 `localOnly` 配置记录只观察，不补造请求键或写 revision 屏障。
+
+每个项目和客户端连接代际只有一个只读收据核对任务。按 0.5、1、2、4、8 秒间隔查询原 `areal/request/read`，单轮预算 30 秒；断连、生命周期操作或关闭时停止，重连、新 pending 或相关通知可以重新唤起。原响应仍在途时不抢先结算。缺失收据、单项查询失败或展示刷新失败不删除原 pending，也不阻止其它收据结算；不会重放任何未知写入。只有方法、请求键和已知目标一致的收据可以结算，创建类在同键同方法下绑定返回的新资源身份。
+
+`openThread` 独占观察重试，包括连接仍健康时的读取超时；同一 Thread/连接共用一次有界恢复。权限、认证、大小和游标等确定性失败不自动重试。`observationErrors[threadId]` 使用独立 occurrence `id`、项目/Thread/连接代际、`reason`、`recovery` 与 `refreshPending` 描述读取故障，只在相应观察成功后清除；受理收据与读取故障分别投影。`pnpm --dir clients/gui run test:recovery` 验证真实 Core 上的创建刷新失败、晚到收据、健康连接超时、本机日志落盘失败及配置/Task 回执恢复。
+
 `areal/turn/submit` 是普通会话的原子提交入口，使用 `{requestId,threadId,expectedConfigRevision,intent}`。`intent` 互斥取 `{type:"message",input}`、`{type:"continue",expectedTurnId}` 或 `{type:"edit",expectedTurnId,itemId,input}`，继续分支不接受文本。能力由 `features.ordinaryTurnSubmit=true` 和方法声明共同确认。Core 在 lifecycle、Thread、普通所有权锁内先查收据，再核验配置、归属、归档、压缩、取消结算及 UNKNOWN。Task、Goal、Side 和任务管理会话沿用其既有入口。
 
 Edit 要求 `features.editLastMessage=true`，仅允许编辑空闲普通会话的最后一条用户消息，且队列无 pending/running 项。`expectedTurnId` 必须匹配最新轮次（包括继续轮次），`itemId` 必须匹配最后一条非继续用户消息。Core 展开归档历史，移除该消息及之后的条目/轮次，废弃上下文 checkpoint，并准备替代 Turn；校验、历史和收据一次持久化后才激活，拒绝时原历史保留。同轮追加指令之前的条目保留，已发生的文件和外部操作不回滚。提交后先发送 `areal/thread/edited {threadId,thread}`，明确替换客户端历史基线，再发送 `turn/started`；普通部分 Turn 事件仍按条目合并。掉响应核对原请求收据，不拆成撤回/发送两步，也不自动重发。
@@ -333,6 +339,8 @@ GUI 服务的窄命令 `trajectory` 支持 `{operation:"status"}`、`{operation:
 
 ## Desktop 后台命令兼容
 
-共享 Desktop 的 `areal.desktop-service.v1` 认证快照新增 `service.commandContract: "areal.desktop-commands.v1"`。这项声明来自驻留 Desktop 代码，与 Rust Core 的能力独立。Main 将精确匹配结果投影为顶层及每个项目的 `desktopCapabilities.currentCommands`，不采用旧快照自行声明的同名投影。
+共享 Desktop 的 `areal.desktop-service.v1` 认证快照新增 `service.commandContract: "areal.desktop-commands.v2"`。这项声明来自驻留 Desktop 代码，与 Rust Core 的能力独立。Main 将精确匹配结果投影为顶层及每个项目的 `desktopCapabilities.currentCommands`，不采用旧快照自行声明的同名投影。
 
 缺失或未知命令声明不阻止只读接入；停止原后台另需独立的 lifecycle version 2 能力。Main 对需要当前语义的 `send`、`continue`、`prepareCreator`、`feedback`、携带 MCP 内容的 steer/队列更新、新增插件管理操作、`providers.defaultAndApply` 和 `trajectory.setEnabled` 在发出前返回 `SERVICE_COMMAND_UNSUPPORTED`。这是已知未提交，不带未知提交标记或伪造的请求 ID。兼容的队列操作继续使用原业务请求键；不退回另一种写操作。评价草稿读取、偏好及 MCP Apps/表单轮询按这项可用性降级，保留本地草稿。
+
+命令 version 2 还要求创建、配置和 Task 写入保留原调用者身份及规范化的受理/执行结果。Main 在旧 version 1 上分配业务请求 ID 之前拒绝这些写入；已有只读观察和旧队列/追加指令核查仍保留。
