@@ -30,7 +30,7 @@ const catalogTrace = (kind: "begin" | "response_received" | "epoch_discarded" | 
 
 const statusLabels: Record<string, string> = { queued: "已受理，等待开始", running: "运行中", waitingForInput: "等待回答", waitingForAgents: "等待 worker", paused: "已暂停", blocked: "受阻", completed: "已完成", failed: "失败", cancelled: "已取消" };
 const terminal = (run?: Data) => !!run && ["completed", "failed", "cancelled"].includes(run.status);
-const missedOnce = (task: Data) => task.lastTriggerDecision?.outcome?.kind === "missedWindow" && task.nextRunAt == null;
+const missedOnce = (task: Data) => task.lastTriggerDecision?.outcome?.kind === "missedWindow" && task.nextRunAt == null && !task.runs?.some((run: Data) => !terminal(run));
 const finished = (task: Data) => (terminal(task.runs?.at(-1)) || missedOnce(task)) && task.nextRunAt == null;
 const scheduleZone = (task: Data) => task.scheduleV2?.rule?.timeZone ?? task.schedule?.timeZone;
 const runZone = (run: Data, task: Data) => run.acceptedSchedule ? run.acceptedSchedule.scheduleV2?.rule?.timeZone ?? run.acceptedSchedule.schedule?.timeZone ?? "UTC" : scheduleZone(task);
