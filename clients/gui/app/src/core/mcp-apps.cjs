@@ -1,6 +1,7 @@
 "use strict";
 const { randomUUID, randomBytes } = require("node:crypto");
 const { authorizeFile, fileRequest } = require("./mcp-apps-files.cjs");
+const { validateMcpPageDeclaration, validateMcpPageCall, validateMcpPageReply } = require("@areal/workbench/desktop-contract");
 const METHODS = new Set([
     "tools/call",
     "tools/list",
@@ -103,6 +104,7 @@ class McpAppsHost {
         this.pendingOpens = 0;
         this.resultOpens = new Map();
         this.instanceTokens = new Map();
+        this.pageToolCalls = new Map();
     }
     currentOwner() {
         try { return typeof this.ownerId === "function" ? this.ownerId() : this.ownerId; }
@@ -224,6 +226,8 @@ class McpAppsHost {
             csp,
             file,
             closed: false,
+            hostEpoch: epoch,
+            pageTools: { state: "uninitialized" },
             requests: new Map(),
             abort: new AbortController(),
         };
@@ -317,6 +321,138 @@ class McpAppsHost {
         this.resultOpens.set(sourceKey, { requestId: params.requestId, promise, ownerId, epoch,
             projectId: params.projectId, threadId: params.threadId, closedInstances: new Set() });
         return promise;
+    }
+    pageToolBinding(app) {
+        return { projectId: app.projectId, threadId: app.threadId, instanceId: app.instanceId, generation: app.generation };
+    }
+    async pageToolsReady(token, mountId, declaration, ownerId) {
+        validateMcpPageDeclaration(declaration);
+        const app = this.get(token, ownerId), tools = app.pageTools;
+        if (!text(mountId) || mountId.length > 128) throw Error("Invalid page tool mount");
+        if (tools.state === "revoked") throw Error("Page tool lease was revoked; reopen the app");
+        const fingerprint = JSON.stringify(declaration);
+        if (tools.mountId && (tools.mountId !== mountId || tools.declaration !== fingerprint)) throw Error("Page tool mount or declaration changed");
+        if (tools.ready) return tools.ready;
+        tools.mountId = mountId;
+        tools.declaration = fingerprint;
+        tools.state = "registering";
+        tools.ready = (async () => {
+            const registration = await this.backend.mcpPageTools({ operation: "register", ...this.pageToolBinding(app), declaration });
+            tools.registration = registration;
+            if (!this.pageToolsCurrent(app, mountId) || tools.state !== "registering") {
+                this.revokePageTools(app);
+                throw Error("Page tool mount was revoked");
+            }
+            tools.state = "ready";
+            return registration;
+        })();
+        return tools.ready;
+    }
+    pageToolsCurrent(app, mountId) {
+        return this.instances.get(app.token) === app && !app.closed && app.ownerId === this.currentOwner()
+            && app.hostEpoch === this.epoch && app.pageTools.mountId === mountId
+            && app.pageTools.state !== "revoked" && this.backend.ownsThread(app.projectId, app.threadId);
+    }
+    pageToolsUnmount(token, mountId, ownerId) {
+        const app = this.instances.get(token);
+        if (!app || app.ownerId !== ownerId || ownerId !== this.currentOwner()) throw Error("Invalid page tool owner");
+        if (app.pageTools.mountId && app.pageTools.mountId !== mountId) throw Error("Invalid page tool mount");
+        this.revokePageTools(app);
+        return {};
+    }
+    revokePageTools(app) {
+        const tools = app.pageTools;
+        if (!tools) return;
+        tools.state = "revoked";
+        for (const call of this.pageToolCalls.values()) if (call.app === app) {
+            call.cancelled = app.closed ? "closed" : "unavailable";
+            if (call.phase === "dispatched") this.cancelPageTool(call);
+        }
+        if (tools.registration) void this.backend.mcpPageTools({ operation: "revoke", ...this.pageToolBinding(app),
+            registrationId: tools.registration.registrationId }).catch(() => {});
+    }
+    pageToolsDisconnected(event) {
+        for (const app of this.instances.values()) {
+            if (event && (event.projectId !== app.projectId || event.instanceId !== app.instanceId || event.generation !== app.generation)) continue;
+            this.revokePageTools(app);
+        }
+    }
+    async pageToolNotice(event) {
+        if (!object(event) || !object(event.params)
+            || !["areal/mcp/app/tools/pending", "areal/mcp/app/tools/cancelled"].includes(event.method)) return;
+        const params = event.params;
+        const app = [...this.instances.values()].find(candidate => candidate.projectId === event.projectId
+            && candidate.threadId === params.threadId && candidate.instanceId === event.instanceId
+            && candidate.generation === event.generation && candidate.pageTools?.registration?.registrationId === params.registrationId);
+        const existing = [...this.pageToolCalls.values()].find(call => call.app.projectId === event.projectId
+            && call.app.instanceId === event.instanceId && call.app.generation === event.generation
+            && ["threadId", "turnId", "callId", "registrationId", "ownerId", "schemaDigest"].every(key => call.coordinates[key] === params[key]));
+        if (event.method.endsWith("/cancelled")) {
+            if (existing && (params.claimId === undefined || !existing.claimId || params.claimId === existing.claimId)) {
+                existing.cancelled = "cancelled";
+                if (existing.phase === "dispatched") this.cancelPageTool(existing);
+            }
+            return;
+        }
+        if (!app || existing || app.pageTools.state !== "ready" || !this.pageToolsCurrent(app, app.pageTools.mountId)
+            || !["threadId", "turnId", "callId", "registrationId", "ownerId", "schemaDigest"].every(key => text(params[key]) && params[key].length <= 256)
+            || !app.pageTools.registration.tools.some(tool => tool.schemaDigest === params.schemaDigest)
+            || [...this.pageToolCalls.values()].filter(call => call.app === app).length >= 2) return;
+        const coordinates = Object.fromEntries(["threadId", "turnId", "callId", "registrationId", "ownerId", "schemaDigest"].map(key => [key, params[key]]));
+        const key = JSON.stringify([app.token, params.callId]);
+        if (this.pageToolCalls.has(key)) return;
+        const call = { key, app, coordinates, mountId: app.pageTools.mountId, phase: "claiming" };
+        this.pageToolCalls.set(key, call);
+        try {
+            const grant = await this.backend.mcpPageTools({ operation: "claim", ...this.pageToolBinding(app), ...coordinates });
+            if (grant?.status !== "granted") { this.pageToolCalls.delete(key); return; }
+            call.claimId = grant.claimId;
+            if (call.cancelled || !this.pageToolsCurrent(app, call.mountId)) {
+                await this.settlePageTool(call, { status: "noEffect", reason: call.cancelled ?? "closed" });
+                return;
+            }
+            const request = { callId: coordinates.callId, kind: grant.kind, documentId: grant.documentId, arguments: grant.arguments };
+            validateMcpPageCall(request);
+            if (!text(grant.claimId) || grant.documentId !== app.pageTools.registration.documentId
+                || !app.pageTools.registration.tools.some(tool => tool.kind === grant.kind && tool.schemaDigest === coordinates.schemaDigest)) throw Error("Invalid page tool grant");
+            call.phase = "dispatched";
+            call.timer = setTimeout(() => { void this.settlePageTool(call, { status: "unknown" }).catch(() => {}); }, 32_000);
+            call.timer.unref?.();
+            this.notify({ token: app.token, notification: { jsonrpc: "2.0", method: "areal/notifications/page-tool-call",
+                params: { mountId: call.mountId, ...request } } });
+        } catch {
+            if (call.phase === "dispatched") this.cancelPageTool(call);
+            else if (call.claimId) await this.settlePageTool(call, { status: "noEffect", reason: "unavailable" }).catch(() => {});
+            else this.pageToolCalls.delete(key);
+        }
+    }
+    cancelPageTool(call) {
+        this.notify({ token: call.app.token, notification: { jsonrpc: "2.0", method: "areal/notifications/page-tool-cancelled",
+            params: { mountId: call.mountId, callId: call.coordinates.callId } } });
+        if (call.drain) return;
+        call.drain = setTimeout(() => { void this.settlePageTool(call, { status: "unknown" }).catch(() => {}); }, 1000);
+        call.drain.unref?.();
+    }
+    async pageToolResult(token, mountId, callId, reply, ownerId) {
+        validateMcpPageReply(reply);
+        const call = this.pageToolCalls.get(JSON.stringify([token, callId]));
+        if (!call || call.mountId !== mountId || call.app.ownerId !== ownerId || ownerId !== this.currentOwner()
+            || call.app.hostEpoch !== this.epoch || !["dispatched", "resolving"].includes(call.phase)) throw Error("Page tool result is stale or has another mount");
+        return this.settlePageTool(call, reply);
+    }
+    async settlePageTool(call, reply) {
+        const fingerprint = JSON.stringify(reply);
+        if (call.settlement) {
+            if (call.reply !== fingerprint) throw Error("Conflicting page tool result");
+            return call.settlement;
+        }
+        call.phase = "resolving";
+        call.reply = fingerprint;
+        clearTimeout(call.timer);
+        clearTimeout(call.drain);
+        call.settlement = this.backend.mcpPageTools({ operation: "resolve", ...this.pageToolBinding(call.app), ...call.coordinates,
+            ...(call.claimId ? { claimId: call.claimId } : {}), reply }).finally(() => this.pageToolCalls.delete(call.key));
+        return call.settlement;
     }
     async request(token, request, ownerId) {
         const app = this.get(token, ownerId);
@@ -445,6 +581,7 @@ class McpAppsHost {
         if (app.closePromise) return app.closePromise;
         if (!app.closed) {
             app.closed = true;
+            this.revokePageTools(app);
             app.abort.abort();
             if (ownerId === this.currentOwner()) this.notify({ token, notification: { jsonrpc: "2.0", method: "ui/notifications/closed" } });
             app.file?.watcher?.close();

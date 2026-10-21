@@ -14,6 +14,11 @@ import type {
     ContentBlock,
 } from "@modelcontextprotocol/client";
 import { z } from "zod";
+import { validateMcpPageDeclaration, validateMcpPageCall, validateMcpPageReply } from "@areal/workbench/desktop-contract";
+const pageReplySchema = z.record(z.string(), z.unknown()).superRefine((value, ctx) => {
+    try { validateMcpPageReply(value); }
+    catch { ctx.addIssue({ code: "custom", message: "Invalid page tool reply" }); }
+});
 import { McpAppIcon } from "./McpAppIcon.js";
 
 export type McpAppPlacement = { left: number; top: number; width: number; height: number };
@@ -214,6 +219,8 @@ export function McpAppHost({
         let active = true,
             sequence = 0;
         const mountId = crypto.randomUUID();
+        const pageCalls = new Map<string, AbortController>();
+        let pageToolsEnabled = false;
         const desktop = mcpAppDesktop(),
             transport = new AppTransport(target, target);
         const error = (cause: unknown) => {
@@ -231,6 +238,7 @@ export function McpAppHost({
             sandbox: { permissions: {} },
             experimental: {
                 "openai/files": {},
+                "areal/page-tools": { version: 1 },
                 ...(app.fileResource ? { "openai/resource": {} } : {}),
             },
         };
@@ -335,7 +343,7 @@ export function McpAppHost({
             void bridge.sendSandboxResourceReady({ html: "" }).catch(error);
         };
         bridge.oninitialized = () => {
-            if (initializedRef.current) return;
+            if (!active || initializedRef.current || !transport.ready || !transport.initialized) return;
             initializedRef.current = true;
             clearTimeout(readyTimeout);
             void (async () => {
@@ -355,6 +363,12 @@ export function McpAppHost({
                 bridge.setHostContext(contextRef.current);
                 await bridge.sendToolInput({ arguments: app.initialArguments });
                 if (app.initialResult) await bridge.sendToolResult(app.initialResult);
+                const pageDeclaration = bridge.getAppCapabilities()?.experimental?.["areal/page-tools"];
+                if (pageDeclaration !== undefined) {
+                    validateMcpPageDeclaration(pageDeclaration);
+                    pageToolsEnabled = active;
+                    await desktop.mcpApp({ operation: "pageToolsReady", token: app.token, mountId, declaration: pageDeclaration });
+                }
             })().catch(error);
         };
         bridge.onrequestteardown = () => callbacks.current.onClose();
@@ -374,10 +388,37 @@ export function McpAppHost({
         const readyTimeout = app.resultSource ? setTimeout(() => {
             if (!initializedRef.current) error(new Error("交互结果未能完成初始化"));
         }, 10_000) : undefined;
+        async function executePageTool(params: Record<string, unknown>) {
+            const { mountId: requestedMount, ...request } = params;
+            if (requestedMount !== mountId || !active || !pageToolsEnabled || !transport.initialized) return;
+            validateMcpPageCall(request);
+            const callId = request.callId as string;
+            if (pageCalls.has(callId) || pageCalls.size >= 2) return;
+            const abort = new AbortController();
+            pageCalls.set(callId, abort);
+            let reply: Record<string, unknown>;
+            try {
+                reply = await bridge.request({ method: "areal/page-tools/call", params: request }, pageReplySchema,
+                    { signal: abort.signal, timeout: 30_000 });
+            } catch {
+                // An aborted SDK request does not prove that the page made no edit.
+                reply = { status: "unknown" };
+            }
+            try { await desktop.mcpApp({ operation: "pageToolResult", token: app.token, mountId, callId, reply }); }
+            finally { pageCalls.delete(callId); }
+        }
         const unsubscribe = desktop.onMcpAppEvent((event) => {
-            if (active && event.token === app.token && transport.initialized &&
-                !("method" in event.notification && event.notification.method === "ui/notifications/closed"))
-                void transport.send(event.notification).catch(error);
+            if (!active || event.token !== app.token || !("method" in event.notification)) return;
+            const { method, params } = event.notification;
+            if (method === "areal/notifications/page-tool-call") {
+                void executePageTool(params as Record<string, unknown>).catch(error);
+                return;
+            }
+            if (method === "areal/notifications/page-tool-cancelled") {
+                if (params?.mountId === mountId && typeof params.callId === "string") pageCalls.get(params.callId)?.abort();
+                return;
+            }
+            if (transport.initialized && method !== "ui/notifications/closed") void transport.send(event.notification).catch(error);
         });
         void bridge
             .connect(transport)
@@ -387,6 +428,9 @@ export function McpAppHost({
             .catch(error);
         return () => {
             active = false;
+            pageToolsEnabled = false;
+            for (const abort of pageCalls.values()) abort.abort();
+            void desktop.mcpApp({ operation: "pageToolsUnmount", token: app.token, mountId }).catch(() => {});
             clearTimeout(readyTimeout);
             initializedRef.current = false;
             unsubscribe();

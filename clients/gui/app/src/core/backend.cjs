@@ -464,6 +464,10 @@ class CoreBackend {
             modelName: params.configuration.defaultModelRevision && params.configuration.defaultModelRevision === previous?.defaultModelRevision ? previous.modelName : undefined };
           this.onChange();
         }
+        if (['areal/mcp/app/tools/pending', 'areal/mcp/app/tools/cancelled'].includes(method)) {
+          this.onMcpPageToolNotice?.({ projectId: project.id, client, method, params });
+          return;
+        }
         if (method === 'areal/mcp/app/notification') this.onMcpAppNotification?.({ projectId: project.id, ...params });
         this.analytics.observe(project.id, method, params);
         project.model.event(method, params);
@@ -478,11 +482,14 @@ class CoreBackend {
           void this.listThreads(project).catch(() => {});
         }
       });
-      client.onClose(() => { if (project.client === client) {
-        project.taskNotificationMonitor?.stop();
-        project.model.connection(false, '连接中断，正在恢复任务状态');
-        this.scheduleReconnect(project);
-      } });
+      client.onClose(() => {
+        this.onMcpPageToolsDisconnected?.(client);
+        if (project.client === client) {
+          project.taskNotificationMonitor?.stop();
+          project.model.connection(false, '连接中断，正在恢复任务状态');
+          this.scheduleReconnect(project);
+        }
+      });
       await client.connect();
       this.requireConnection(project, client);
       project.error = null;
@@ -1340,7 +1347,7 @@ class CoreBackend {
       const original = lifecycleBlock?.targets.find(target => target.projectId === request.projectId);
       if (original && (project.service.serviceId !== original.serviceId || project.service.generation !== original.generation))
         throw Object.assign(new Error('原 Core 代际已变化，不能用新实例代替核查'), { code: 'CONFIRMATION_STALE' });
-      if (name === 'manage') return manage(this, project, request);
+      if (name === 'manage') return manage(this, project, request, context);
       if (name === 'open') await this.openThread(project, request.threadId);
       if (name === 'list') await this.listThreads(project);
       return this.snapshot();
@@ -1349,7 +1356,7 @@ class CoreBackend {
     if (this.closing && require('./lifecycle.cjs').isRecoveryCommand(name, request)) {
       const project = this.projects.get(request.projectId);
       if (!project?.service || !project.client?.ready) throw new Error('原 Core 已断开，不能确认核查目标');
-      return manage(this, project, request);
+      return manage(this, project, request, context);
     }
     if (this.closing) throw new Error('应用正在退出');
     if (name === 'analytics') return this.analytics.command(request);
@@ -1388,7 +1395,7 @@ class CoreBackend {
         if (isTaskDraftConfiguration(project.configurations?.[threadId]) && request.operation?.startsWith('goal')) {
           throw new Error('任务管理会话不执行目标；请在会话中描述要调整的定时任务。');
         }
-        return manage(this, project, request);
+        return manage(this, project, request, context);
       case 'list': await this.listThreads(project); break;
       case 'open': await this.openThread(project, threadId); break;
       case 'attachBrowser': {

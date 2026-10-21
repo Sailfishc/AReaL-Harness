@@ -317,6 +317,8 @@ app.whenReady().then(async () => {
     openFile: (request, current) => fileOpen({ backend, shell, home: app.getPath('home'), authorize: current,
       chooseSave: options => dialog.showSaveDialog(window, options) }, request) });
   backend.onMcpAppNotification = event => mcpApps?.notification(event);
+  backend.onMcpPageToolNotice = event => { void mcpApps?.pageToolNotice(event).catch(() => {}); };
+  backend.onMcpPageToolsDisconnected = event => mcpApps?.pageToolsDisconnected(event);
   protocol.handle('areal-mcp', request => mcpApps.resource(request));
   ipcMain.handle('areal-core:mcp-app-deep-link-target', event => { trusted(event); return mcpAppDeepLink; });
   ipcMain.handle('areal-core:mcp-app-deep-link-consumed', (event, id) => { trusted(event); if (mcpAppDeepLink?.id === id) mcpAppDeepLink = null; });
@@ -340,6 +342,9 @@ app.whenReady().then(async () => {
     if (request.operation === 'openFromResult') return mcpApps.openFromResult(request, event.sender.id);
     if (request.operation === 'open') return mcpApps.open(request, event.sender.id).catch(() => { throw new Error('MCP App could not be opened'); });
     if (request.operation === 'request') return mcpApps.request(request.token, request.request, event.sender.id).catch(() => { throw new Error('MCP App request rejected or incomplete'); });
+    if (request.operation === 'pageToolsReady') return mcpApps.pageToolsReady(request.token, request.mountId, request.declaration, event.sender.id);
+    if (request.operation === 'pageToolsUnmount') return mcpApps.pageToolsUnmount(request.token, request.mountId, event.sender.id);
+    if (request.operation === 'pageToolResult') return mcpApps.pageToolResult(request.token, request.mountId, request.callId, request.reply, event.sender.id);
     if (request.operation === 'close') return mcpApps.close(request.token, event.sender.id);
     throw new Error('Unsupported app operation');
   });

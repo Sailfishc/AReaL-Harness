@@ -84,7 +84,7 @@ const reads = {
   workgroupArtifact: ['areal/workgroup/artifact', ['id', 'path', 'offset']],
 };
 const pick = (value, keys) => Object.fromEntries(keys.filter(key => value[key] !== undefined).map(key => [key, value[key]]));
-async function manage(backend, project, request) {
+async function manage(backend, project, request, context = {}) {
   const { operation } = request;
   if (operation === 'mcpFormResourceSubmission') {
     const method = 'areal/mcp/form/resource/stage';
@@ -155,7 +155,13 @@ async function manage(backend, project, request) {
     }[operation];
     const params=pick(request,keys);
     if (operation === 'pluginAuth') params.operation=request.authOperation;
-    try { return await project.client.request(method,params,{timeoutMs:120000}); }
+    try {
+      const client = project.client;
+      const result = await client.request(method,params,{timeoutMs:120000});
+      if (operation === 'mcpAppOpen' || operation === 'mcpAppOpenFromResult')
+        context.onMcpAppOpened?.(project, client, request, result);
+      return result;
+    }
     catch (error) { if (typeof error.code !== 'number' || error.code === -32603) {error.submissionUnknown=true;error.message=`操作结果待核对，不会自动重发。${error.message}`;} throw error; }
   }
   if (operation === 'pluginCapabilities') return { enabled: project.client.capabilities?.methods?.includes('areal/plugin/list') === true };
