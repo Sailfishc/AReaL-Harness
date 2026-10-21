@@ -16,6 +16,7 @@ const binary=process.env.AREAL_CORE_BIN || resolve(gui,'../../target/debug/areal
 const binarySha256=createHash('sha256').update(await readFile(binary)).digest('hex');
 const scratch=await mkdtemp('/private/tmp/areal-schedule-desktop-');
 const calendarRegression=process.env.AREAL_TASK_CALENDAR_REGRESSION==='1';
+const calendarDropGate=join(scratch,'calendar-drop-response'),calendarTrace=join(scratch,'calendar-create-requests.jsonl');
 const manualRegression=process.env.AREAL_TASK_MANUAL_REGRESSION==='1';
 const manualDropGate=join(scratch,'drop-manual-response'),manualTrace=join(scratch,'manual-requests.jsonl');
 const manualPrepareGate=join(scratch,'hold-manual-prepare'),manualPrepareTrace=join(scratch,'manual-prepares.jsonl');
@@ -80,7 +81,9 @@ const model=createServer(async(request,response)=>{
    if(requestText.includes('过去的一次性时间')){finish(JSON.stringify({kind:'proposal',message:'已保存过期的一次性任务。',schedule:{at:pastDailyAnchor,intervalSeconds:null}}));return;}
    if(requestText.includes('旧项目目录验收')){finish(JSON.stringify({kind:'proposal',message:'已保存旧项目任务。',objective:'旧项目目录验收 SCHEDULE_FIXTURE_COMPLETE',interactionMode:'interactive',schedule:{at:changedAnchor}}));return;}
    if(requestText.includes('独立目录验收')){finish(JSON.stringify({kind:'proposal',message:'已保存独立任务。',objective:'独立目录验收 SCHEDULE_FIXTURE_COMPLETE',interactionMode:'interactive',schedule:{at:new Date(Date.now()+4000).toISOString().replace(/\.\d{3}Z$/,'Z'),intervalSeconds:8}}));return;}
+   if(calendarRegression&&requestText.includes('日历重试验收')){finish(JSON.stringify({kind:'proposal',message:'等待保存。',objective:'日历重试验收',scheduleV2:{version:1,rule:{kind:'onceLocal',timeZone:'Asia/Shanghai',localTime:'09:00',date:{kind:'relative',days:2}},misfire:{kind:'skip',maxLatenessSeconds:300},overlap:'skip'}}));return;}
    if(calendarRegression&&requestText.includes('日历验收')){
+    if(requestText.includes('旧格式时刻')){finish(JSON.stringify({kind:'proposal',message:'更改时刻。',schedule:{at:'2040-01-02T10:00:00+08:00'}}));return;}
     const wrong=requestText.includes('误给固定间隔');
     const monthly=requestText.includes('月末');
     const rule=wrong?{kind:'interval',anchorAt:2208988800,intervalSeconds:86400}:{kind:'calendar',timeZone:'Asia/Shanghai',frequency:monthly?'monthly':'weekly',interval:1,localTime:'09:00',anchorDate:'2040-01-01',...(monthly?{monthDays:['last']}:{weekdays:[1,2,3,4,5]})};
@@ -241,7 +244,7 @@ CoreBackend.prototype.executeCommand=async function(name,request,context){
 require(${JSON.stringify(join(gui,'app/src/main.cjs'))});
 `);
 }
-if(manualRegression){
+if(manualRegression||calendarRegression){
  await writeFile(manualMainErrors,'');
  launchApp=join(scratch,'manual-app');await mkdir(launchApp);
  await writeFile(join(launchApp,'package.json'),JSON.stringify({name:'manual-run-fixture',main:'bootstrap.cjs'}));
@@ -266,9 +269,11 @@ CoreBackend.prototype.connect=async function(...args){
   };
   const request=this.request.bind(this);
   this.request=async(method,params,options)=>{
+   if(method==='areal/task/create'&&params.objective==='日历重试验收')fs.appendFileSync(${JSON.stringify(calendarTrace)},JSON.stringify(params)+'\\n');
    if(method==='areal/task/runNow')fs.appendFileSync(${JSON.stringify(manualTrace)},JSON.stringify(params)+'\\n');
    if(method==='areal/request/read'&&params.taskId&&fs.existsSync(${JSON.stringify(manualDropGate)}))throw new Error('receipt read fixture unavailable');
    const result=await request(method,params,options);
+   if(method==='areal/task/create'&&params.objective==='日历重试验收'&&fs.existsSync(${JSON.stringify(calendarDropGate)}))throw Object.assign(new Error('calendar accepted response dropped'),{submissionUnknown:true});
    if(method==='areal/task/runNow'&&fs.existsSync(${JSON.stringify(manualDropGate)}))throw Object.assign(new Error('accepted response fixture dropped'),{submissionUnknown:true});
    return result;
   };
@@ -362,16 +367,48 @@ async function checkCalendarRegression(){
  const created=await until(async()=>(await call('tasks',{operation:'list'})).data.find(t=>t.projectId===pid),'calendar task saved');
  assert.deepEqual(created.scheduleV2.rule.weekdays,[1,2,3,4,5]);assert.deepEqual(created.scheduleV2.misfire,{kind:'skip',maxLatenessSeconds:300});assert.equal(created.schedule,null);
  await page.getByLabel('后续执行预览',{exact:true}).waitFor();await page.getByText('错过 5 分钟后跳过',{exact:false}).first().waitFor();
+ const visible=await page.getByLabel('后续执行预览',{exact:true}).locator('time').allTextContents();
+ assert.deepEqual(visible,['2040-01-02 09:00','2040-01-03 09:00','2040-01-04 09:00','2040-01-05 09:00','2040-01-06 09:00']);
+ const authoritative=await call('manage',{projectId:pid,operation:'taskSchedulePreview',schedule:created.scheduleV2,count:5});
+ assert.deepEqual(authoritative.occurrences.map(o=>o.localTime),['2040-01-02T09:00:00+08:00','2040-01-03T09:00:00+08:00','2040-01-04T09:00:00+08:00','2040-01-05T09:00:00+08:00','2040-01-06T09:00:00+08:00']);
  await page.screenshot({path:join(scratch,'calendar-weekdays.png')});
  const history=await call('manage',{projectId:pid,operation:'taskDraftHistory',taskId:created.id});
+ await page.getByTestId('chat-input').fill('日历验收，旧格式时刻改为10:00。');await page.getByTestId('chat-send-button').click();
+ await page.getByRole('alert').filter({hasText:'完整日历计划'}).first().waitFor();
+ assert.deepEqual((await task(created.id)).scheduleV2,created.scheduleV2,'ambiguous legacy edit cannot turn calendar into once');
  await page.getByTestId('chat-input').fill('日历验收，改为每月月末09:00执行。');await page.getByTestId('chat-send-button').click();
  const edited=await until(async()=>{const t=await task(created.id);return t.scheduleV2?.rule.frequency==='monthly'&&t;},'calendar edit saved');
  assert.deepEqual(edited.scheduleV2.rule.monthDays,['last']);assert.equal(edited.scheduleV2.rule.timeZone,'Asia/Shanghai');
+ await until(async()=>JSON.stringify(await page.getByLabel('后续执行预览',{exact:true}).locator('time').allTextContents())===JSON.stringify(['2040-01-31 09:00','2040-02-29 09:00','2040-03-31 09:00','2040-04-30 09:00','2040-05-31 09:00']),'visible month-end preview agrees with literal dates');
  await page.screenshot({path:join(scratch,'calendar-month-end.png')});
  await page.getByRole('button',{name:'关闭任务详情',exact:true}).click();await page.getByText('日历验收 SCHEDULE_FIXTURE_COMPLETE',{exact:true}).first().click();
  await page.getByLabel('后续执行预览',{exact:true}).waitFor();
  assert.equal((await call('manage',{projectId:pid,operation:'taskDraftHistory',taskId:created.id})).threadId,history.threadId);
- await writeFile(join(scratch,'calendar-manifest.json'),JSON.stringify({binary,binarySha256,created,edited,modelRequests,proxies:[],injections:[],clock:'production Core SystemTime; explicit 2040 anchor'},null,2));
+ await page.getByRole('button',{name:'关闭任务详情',exact:true}).click();
+ const context=await call('manage',{projectId:pid,operation:'taskScheduleContext',timeZone:'Asia/Shanghai'});
+ const missed=await call('manage',{projectId:pid,operation:'taskCreate',mode:'scheduled',objective:'日历错过验收',scheduleV2:{version:1,rule:{kind:'once',at:context.coreNow-301},misfire:{kind:'skip',maxLatenessSeconds:300},overlap:'skip'}});
+ const missedState=await until(async()=>{const t=await task(missed.id);return t.lastTriggerDecision?.outcome.kind==='missedWindow'&&t;},'Core missed once decision');
+ assert.equal(missedState.runs.length,0);
+ await page.getByRole('button',{name:'打开自动化 日历错过验收',exact:true}).click();
+ await page.getByText('已超过允许的延迟，跳过 1 次计划执行。',{exact:true}).first().waitFor();
+ await page.screenshot({path:join(scratch,'calendar-missed-once.png')});
+ await page.getByRole('button',{name:'关闭任务详情',exact:true}).click();
+ await writeFile(calendarDropGate,'drop');
+ await page.getByRole('button',{name:'新建自动化',exact:true}).click();
+ const unknownCreation=await assertGlobalCreation();pid=unknownCreation.owner.id;
+ await page.getByTestId('chat-input').fill('日历重试验收，两天后09:00执行。');await page.getByTestId('chat-send-button').click();
+ const unknown=await until(async()=>{const owner=(await snapshot()).projects.find(p=>p.id===pid);return owner.pending?.find(p=>p.method==='areal/task/create'&&p.params.objective==='日历重试验收');},'original civil intent retained as UNKNOWN');
+ assert.deepEqual(unknown.params.scheduleV2.rule,{kind:'onceLocal',timeZone:'Asia/Shanghai',localTime:'09:00',date:{kind:'relative',days:2}});
+ const acceptedUnknown=(await call('tasks',{operation:'list'})).data.filter(t=>t.projectId===pid&&t.objective==='日历重试验收');assert.equal(acceptedUnknown.length,1);
+ const creates=JSON.parse((await readFile(calendarTrace,'utf8')).trim());assert.deepEqual(creates,unknown.params);
+ await page.screenshot({path:join(scratch,'calendar-unknown.png')});
+ await page.getByRole('button',{name:'关闭创建对话',exact:true}).click();
+ await page.getByRole('button',{name:'新建自动化',exact:true}).click();
+ await until(async()=>!!(await snapshot()).projects.find(p=>p.id===pid).pending?.some(p=>p.params.requestId===unknown.params.requestId),'same UNKNOWN remains after reopening');
+ assert.deepEqual((await snapshot()).projects.find(p=>p.id===pid).pending.find(p=>p.params.requestId===unknown.params.requestId).params,unknown.params);
+ assert.equal((await readFile(calendarTrace,'utf8')).trim().split('\n').length,1,'reopening never re-resolves or repeats UNKNOWN create');
+ await rm(calendarDropGate);
+ await writeFile(join(scratch,'calendar-manifest.json'),JSON.stringify({binary,binarySha256,created,edited,missedState,unknown,acceptedUnknown,modelRequests,proxies:[],injections:["native project-directory chooser returns the isolated fixture workspace", "CoreClient response wrapper drops only the accepted calendar create response; no fake save or clock"],clock:'production Core SystemTime; explicit 2040 anchor'},null,2));
  checks.push('real management conversation rejects weekday-to-interval, saves weekday calendar, edits month-end, shows Core preview/skip300 and reopens same history');
  assert.deepEqual(errors,[]);
 }
@@ -433,6 +470,9 @@ async function checkCreationRegression(){
  checks.push('new scheduled management inherits last admitted model and explicit none; actual model request matches');
  if(inputReadyMs!==undefined)checks.push('editable local draft survives held independent preparation and real Composer handoff');
  const history=await call('manage',{projectId:pid,operation:'taskDraftHistory',taskId:created.id});
+ await page.getByTestId('chat-input').fill('日历验收，旧格式时刻改为10:00。');await page.getByTestId('chat-send-button').click();
+ await page.getByRole('alert').filter({hasText:'完整日历计划'}).first().waitFor();
+ assert.deepEqual((await task(created.id)).scheduleV2,created.scheduleV2,'ambiguous legacy edit cannot turn calendar into once');
  const newer=await call('create',{projectId:workspacePid,model:{providerId:'fixture',modelId:'gpt-6-sol'},parameters:{reasoningEffort:'high'}});
  await call('send',{projectId:workspacePid,threadId:newer.threadId,text:'ORDINARY_TASK_MODEL 第二模型'});
  await until(async()=>(await snapshot()).projects.find(p=>p.id===workspacePid).lastAcceptedModel?.modelId==='gpt-6-sol','newer ordinary preference admitted');
@@ -615,6 +655,9 @@ async function checkInlineRegression(){
  const created=await until(async()=>(await call('tasks',{operation:'list'})).data.find(t=>t.objective===inlineObjective),'UI creates inline task');
  assert.equal(created.projectId,pid);assert.equal(created.scope,'independent');
  const history=await call('manage',{projectId:pid,operation:'taskDraftHistory',taskId:created.id});
+ await page.getByTestId('chat-input').fill('日历验收，旧格式时刻改为10:00。');await page.getByTestId('chat-send-button').click();
+ await page.getByRole('alert').filter({hasText:'完整日历计划'}).first().waitFor();
+ assert.deepEqual((await task(created.id)).scheduleV2,created.scheduleV2,'ambiguous legacy edit cannot turn calendar into once');
  const managementThread=history.threadId;
  assert.equal(managementThread,creation.saved.threadId);
  const readManagement=()=>call('manage',{projectId:pid,operation:'taskDraftRead',threadId:managementThread});
