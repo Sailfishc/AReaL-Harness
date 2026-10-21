@@ -738,6 +738,11 @@ impl Invocation<'_> {
                     .active
                     .as_ref()
                     .and_then(|a| a.tool_meta.clone());
+                let cwd = self.cell.state.lock().await.thread.cwd.clone();
+                let source = self
+                    .engine
+                    .mcp_result_source(tool, self.thread_id, &cwd)
+                    .await;
                 let raw = tool
                     .call_raw_owned(args.clone(), meta, call_cancel, Some(&context))
                     .await;
@@ -781,7 +786,7 @@ impl Invocation<'_> {
                 }
                 let mut value = serde_json::to_value(&response).map_err(unknown)?;
                 value["mcpResult"] = serde_json::to_value(&raw).map_err(unknown)?;
-                value["mcpServer"] = json!({"serverId":tool.server_name(),"generation":tool.generation(),"toolMetadata":tool.metadata()});
+                value["mcpServer"] = json!({"serverId":tool.server_name(),"generation":tool.generation(),"toolMetadata":tool.metadata(),"source":source});
                 if serde_json::to_vec(&value).map_err(unknown)?.len()
                     > areal_protocol::MAX_TOOL_RESULT_BYTES
                 {

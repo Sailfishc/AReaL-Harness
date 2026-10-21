@@ -158,6 +158,7 @@ function validateCommand(name, params, { serviceOnly = false } = {}) {
       }
     }
 
+    if (params.operation === 'mcpAppOpenFromResult' && (Object.keys(params).some(key => !['operation', 'projectId', 'threadId', 'turnId', 'itemId', 'requestId'].includes(key)) || !['threadId', 'turnId', 'itemId', 'requestId'].every(key => identifier(params[key])))) invalid();
     // Main grants file paths; renderer requests cannot supply a saved grant.
     if (params.operation === 'mcpAppOpen' && params.fileResource !== undefined) {
       const grant = params.fileResource;

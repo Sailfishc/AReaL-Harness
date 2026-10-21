@@ -313,7 +313,7 @@ app.whenReady().then(async () => {
   };
   app.on('will-quit', () => mcpApps?.dispose());
   mcpApps = new McpAppsHost({ backend, ownerId: () => window && !window.isDestroyed() && !window.webContents.isDestroyed() ? window.webContents.id : undefined,
-    notify: value => { if (window && !window.isDestroyed()) window.webContents.send('areal-core:mcp-app-event', value); },
+    notify: value => { if (window && !window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send('areal-core:mcp-app-event', value); },
     openFile: (request, current) => fileOpen({ backend, shell, home: app.getPath('home'), authorize: current,
       chooseSave: options => dialog.showSaveDialog(window, options) }, request) });
   backend.onMcpAppNotification = event => mcpApps?.notification(event);
@@ -337,6 +337,7 @@ app.whenReady().then(async () => {
     trusted(event);
     if (!request || typeof request !== 'object') throw new Error('Invalid app request');
     if (request.operation === 'metadataImage') return mcpMetadataImages.load(request.source).catch(() => { throw new Error('Metadata image unavailable'); });
+    if (request.operation === 'openFromResult') return mcpApps.openFromResult(request, event.sender.id);
     if (request.operation === 'open') return mcpApps.open(request, event.sender.id).catch(() => { throw new Error('MCP App could not be opened'); });
     if (request.operation === 'request') return mcpApps.request(request.token, request.request, event.sender.id).catch(() => { throw new Error('MCP App request rejected or incomplete'); });
     if (request.operation === 'close') return mcpApps.close(request.token, event.sender.id);

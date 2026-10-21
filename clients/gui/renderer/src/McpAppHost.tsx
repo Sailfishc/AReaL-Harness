@@ -36,7 +36,12 @@ export type McpAppDescriptor = {
     hostContext: McpUiHostContext;
     resourceMeta?: Record<string, unknown>;
     fileResource?: boolean;
+    resultSource?: McpResultSource;
 };
+export type McpResultSource = { projectId: string; threadId: string; turnId: string; itemId: string };
+export type McpResultState = { opening?: boolean; message?: string };
+export const mcpResultKey = (source: McpResultSource) => JSON.stringify([source.projectId, source.threadId, source.turnId, source.itemId]);
+export type McpResultReply = { status: "open"; app: McpAppDescriptor } | { status: "closed" } | { status: "unavailable"; reason: string };
 export type McpAppMessage = {
     instanceId: string;
     projectId: string;
@@ -89,9 +94,11 @@ class AppTransport extends PostMessageTransport {
     private initializing = false;
     private requests = new Map<string, { fingerprint: string; reply?: JSONRPCMessage }>();
     private receive?: (message: JSONRPCMessage) => void;
+    onPageError?: () => void;
     override async start() {
         this.receive = this.onmessage;
         this.onmessage = (message) => {
+            if ("method" in message && message.method === "areal/notifications/page-error") { this.onPageError?.(); return; }
             if ("method" in message && "id" in message) {
                 const key = JSON.stringify(message.id),
                     fingerprint = JSON.stringify(message),
@@ -217,6 +224,7 @@ export function McpAppHost({
                 );
             }
         };
+        if (app.resultSource) transport.onPageError = () => error(new Error("交互结果页面发生错误"));
         const capabilities: McpUiHostCapabilities = {
             serverTools: {},
             serverResources: {},
@@ -327,7 +335,9 @@ export function McpAppHost({
             void bridge.sendSandboxResourceReady({ html: "" }).catch(error);
         };
         bridge.oninitialized = () => {
+            if (initializedRef.current) return;
             initializedRef.current = true;
+            clearTimeout(readyTimeout);
             void (async () => {
                 const declared = bridge.getAppCapabilities()?.availableDisplayModes;
                 const available = (
@@ -361,6 +371,9 @@ export function McpAppHost({
                     await request(method, { ...params, _meta: extra.mcpReq._meta }),
             );
         }
+        const readyTimeout = app.resultSource ? setTimeout(() => {
+            if (!initializedRef.current) error(new Error("交互结果未能完成初始化"));
+        }, 10_000) : undefined;
         const unsubscribe = desktop.onMcpAppEvent((event) => {
             if (active && event.token === app.token && transport.initialized &&
                 !("method" in event.notification && event.notification.method === "ui/notifications/closed"))
@@ -374,6 +387,7 @@ export function McpAppHost({
             .catch(error);
         return () => {
             active = false;
+            clearTimeout(readyTimeout);
             initializedRef.current = false;
             unsubscribe();
             bridgeRef.current = null;
@@ -435,6 +449,7 @@ export function McpAppHost({
             {failure && <p role="alert">{failure}</p>}
             <iframe
                 ref={frame}
+                onError={app.resultSource ? () => callbacks.current.onError?.("交互结果页面无法载入") : undefined}
                 title={app.toolMetadata?.title ?? "MCP 应用"}
                 sandbox="allow-scripts allow-same-origin"
                 referrerPolicy="no-referrer"

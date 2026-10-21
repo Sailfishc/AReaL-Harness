@@ -1650,6 +1650,8 @@ function AppContent({ services }: { services: PlatformServices }) {
                           project={project}
                           thread={thread}
                           action={action}
+                          onOpenResult={mcpWorkspace.openResult}
+                          resultStates={mcpWorkspace.resultStates}
                           onFork={forkFromTurn}
                           onSideSelection={project.core?.features?.sidePreview === true && !thread.desktop?.archived ? openSideSelection : undefined}
                           dark={dark}

@@ -53,6 +53,39 @@ pub struct Open {
 }
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct OpenFromResult {
+    pub thread_id: String,
+    pub turn_id: String,
+    pub item_id: String,
+    pub request_id: String,
+}
+
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum ResultUnavailable {
+    NotSuccessful,
+    MissingProvenance,
+    CorruptSnapshot,
+    StaleSourceEpoch,
+    PackageChanged,
+    SourceDisabled,
+    SourceUnavailable,
+    ResourceRejected,
+    ResourceReadFailed,
+    PageFailed,
+    CapacityReached,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+#[serde(tag = "status", rename_all = "camelCase", deny_unknown_fields)]
+pub enum ResultOpenReply {
+    Open { instance: Value },
+    Closed,
+    Unavailable { reason: ResultUnavailable },
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AppRequest {
     pub thread_id: String,
     pub instance_id: String,

@@ -12,6 +12,7 @@ pub(crate) const METHODS: &[&str] = &[
     "areal/mcp/tool/result",
     "areal/mcp/apps/list",
     "areal/mcp/app/open",
+    "areal/mcp/app/openFromResult",
     "areal/mcp/app/request",
     "areal/mcp/app/close",
     "areal/mcp/extension/call",
@@ -131,6 +132,10 @@ async fn dispatch_inner(
         "areal/mcp/apps/list" => {
             let p: Apps = parse(params)?;
             engine.mcp_apps_list(p.thread_id).await
+        }
+        "areal/mcp/app/openFromResult" => {
+            let p: OpenFromResult = parse(params)?;
+            engine.mcp_app_open_from_result(identity.into(), p).await
         }
         "areal/mcp/app/open" => {
             let p: Open = parse(params)?;

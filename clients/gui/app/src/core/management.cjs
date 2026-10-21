@@ -142,9 +142,10 @@ async function manage(backend, project, request) {
       return {...result, credentialRef};
     } finally { backend.providerUpdating = false; }
   }
-  if (operation === 'pluginAuth' || ['mcpAppOpen','mcpAppRequest','mcpAppClose','mcpExtensionCall','mcpFormRespond','mcpFormPreview'].includes(operation)) {
+  if (operation === 'pluginAuth' || ['mcpAppOpen','mcpAppOpenFromResult','mcpAppRequest','mcpAppClose','mcpExtensionCall','mcpFormRespond','mcpFormPreview'].includes(operation)) {
     const [method, keys] = {
       pluginAuth:['areal/plugin/auth',['id','server','operation']],
+      mcpAppOpenFromResult:['areal/mcp/app/openFromResult',['threadId','turnId','itemId','requestId']],
       mcpAppOpen:['areal/mcp/app/open',['threadId','serverId','expectedGeneration','toolName','arguments','requestId','fileResource','deepLink']],
       mcpAppRequest:['areal/mcp/app/request',['threadId','instanceId','generation','request','requestId']],
       mcpAppClose:['areal/mcp/app/close',['threadId','instanceId','generation']],

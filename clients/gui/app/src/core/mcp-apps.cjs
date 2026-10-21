@@ -75,9 +75,10 @@ function parseDeepLink(raw) {
         path,
     };
 }
-function proxyHtml() {
+function proxyHtml(observeErrors = false) {
     return `<!doctype html><html><head><meta charset="utf-8"><style>html,body,iframe{margin:0;border:0;width:100%;height:100%;display:block}</style></head><body><iframe id="view" sandbox="allow-scripts allow-same-origin" referrerpolicy="no-referrer"></iframe><script>
 const view=document.getElementById('view'); let loaded=false;
+${observeErrors ? `view.addEventListener('load',()=>{try{const failed=()=>parent.postMessage({jsonrpc:'2.0',method:'areal/notifications/page-error'},'areal-ui://app');view.contentWindow.addEventListener('error',failed);view.contentWindow.addEventListener('unhandledrejection',failed);}catch{}});` : ''}
 addEventListener('message',event=>{
  const message=event.data;
  if(!message||message.jsonrpc!=='2.0')return;
@@ -100,11 +101,17 @@ class McpAppsHost {
         this.instances = new Map();
         this.epoch = 0;
         this.pendingOpens = 0;
+        this.resultOpens = new Map();
+        this.instanceTokens = new Map();
+    }
+    currentOwner() {
+        try { return typeof this.ownerId === "function" ? this.ownerId() : this.ownerId; }
+        catch { return undefined; }
     }
     get(token, ownerId) {
         const app = this.instances.get(token);
         if (
-            ownerId !== (typeof this.ownerId === "function" ? this.ownerId() : this.ownerId) ||
+            ownerId !== this.currentOwner() ||
             !app ||
             ownerId !== app.ownerId ||
             app.closed ||
@@ -115,7 +122,7 @@ class McpAppsHost {
     }
     async open(params, ownerId) {
         if (
-            ownerId !== (typeof this.ownerId === "function" ? this.ownerId() : this.ownerId) ||
+            ownerId !== this.currentOwner() ||
             !object(params) ||
             !["projectId", "threadId", "serverId", "toolName"].every((k) => text(params[k])) ||
             !["string", "number"].includes(typeof params.expectedGeneration) ||
@@ -145,102 +152,167 @@ class McpAppsHost {
                 requestId: randomUUID(),
                 ...(file ? { fileResource: { uri: file.uri, path: file.path } } : {}),
             });
-            const closeInvalid = async () => {
-                if (result?.instanceId)
-                    await this.backend
-                        .command("manage", {
-                            operation: "mcpAppClose",
-                            projectId: params.projectId,
-                            threadId: params.threadId,
-                            instanceId: result.instanceId,
-                            generation: result.generation,
-                        })
-                        .catch(() => {});
-            };
-            if (
-                epoch !== this.epoch ||
-                ownerId !== (typeof this.ownerId === "function" ? this.ownerId() : this.ownerId) ||
-                !this.backend.ownsThread(params.projectId, params.threadId) ||
-                !text(result?.instanceId) ||
-                result.serverId !== params.serverId ||
-                result.generation !== params.expectedGeneration ||
-                typeof result.resource?.html !== "string" ||
-                result.resource.html.length > 8 * 1024 * 1024 ||
-                result.resource.mimeType !== "text/html;profile=mcp-app"
-            ) {
-                await closeInvalid();
-                throw Error("App resource is invalid or stale");
-            }
-            let csp;
-            try {
-                csp = appCsp(result.resource._meta?.ui?.csp ?? {});
-            } catch (error) {
-                await closeInvalid();
-                throw error;
-            }
-            const token = randomBytes(24).toString("hex");
-            const app = {
-                ...result,
-                ownerId,
-                projectId: params.projectId,
-                threadId: params.threadId,
-                token,
-                csp,
-                file,
-                closed: false,
-                requests: new Map(),
-                abort: new AbortController(),
-            };
-            this.instances.set(token, app);
-            const declared = result.resource._meta?.["openai/ui"]?.availableDisplayModes;
-            if (
-                declared !== undefined &&
-                (!Array.isArray(declared) ||
-                    declared.some((mode) => !["inline", "fullscreen", "pip"].includes(mode)))
-            ) {
-                await this.close(token, ownerId);
-                throw Error("Invalid app display modes");
-            }
-            const availableDisplayModes = ["inline", "fullscreen"].filter(
-                (mode) => declared === undefined || declared.includes(mode),
-            );
-            if (!availableDisplayModes.length) {
-                await this.close(token, ownerId);
-                throw Error("No supported app display mode");
-            }
-            const hostContext = {
-                ...result.hostContext,
-                displayMode: availableDisplayModes[0],
-                availableDisplayModes,
-            };
-            if (params.deepLink !== undefined) {
-                if (
-                    !text(params.deepLink) ||
-                    !params.deepLink.startsWith("/") ||
-                    params.deepLink.startsWith("//") ||
-                    /[#\\\x00-\x1f]/.test(params.deepLink)
-                ) {
-                    await this.close(token, ownerId);
-                    throw Error("Invalid deep link");
-                }
-                hostContext["openai/deepLink"] = { url: params.deepLink };
-            }
-            return {
-                token,
-                frameUrl: `areal-mcp://${token}/`,
-                instanceId: app.instanceId,
-                serverId: app.serverId,
-                generation: app.generation,
-                projectId: app.projectId,
-                threadId: app.threadId,
-                toolMetadata: app.toolMetadata,
-                initialArguments: app.initialArguments ?? initialArguments,
-                initialResult: app.initialResult,
-                hostContext,
-                resourceMeta: result.resource._meta ?? {},
-                fileResource: !!file,
-            };
+            return await this.adopt(result, params, ownerId, epoch, initialArguments, file, false);
         } finally { this.pendingOpens--; }
+    }
+    async adopt(result, params, ownerId, epoch, initialArguments, file, fromResult) {
+        const closeInvalid = async () => {
+            if (fromResult && text(result?.instanceId)) {
+                const instanceKey = JSON.stringify([ownerId, epoch, params.projectId, result.instanceId]);
+                const retained = this.instances.get(this.instanceTokens.get(instanceKey));
+                const token = retained?.token ?? randomBytes(24).toString("hex");
+                if (!retained) {
+                    this.instances.set(token, { token, instanceKey, ownerId, projectId: params.projectId, threadId: params.threadId,
+                        instanceId: result.instanceId, generation: result.generation, closed: true, invalidResource: true,
+                        resultSourceKey: JSON.stringify([ownerId, epoch, params.projectId, params.threadId, params.turnId, params.itemId]) });
+                    this.instanceTokens.set(instanceKey, token);
+                }
+                await this.close(token, ownerId).catch(() => {});
+                return;
+            }
+            if (result?.instanceId)
+                await this.backend
+                .command("manage", {
+                    operation: "mcpAppClose",
+                    projectId: params.projectId,
+                    threadId: params.threadId,
+                    instanceId: result.instanceId,
+                    generation: result.generation,
+                })
+                .catch(() => {});
+        };
+        if (
+            epoch !== this.epoch ||
+            ownerId !== this.currentOwner() ||
+            !this.backend.ownsThread(params.projectId, params.threadId) ||
+            !text(result?.instanceId) ||
+            (!fromResult && (result.serverId !== params.serverId || result.generation !== params.expectedGeneration)) ||
+            !text(result.serverId) ||
+            typeof result.resource?.html !== "string" ||
+            (fromResult ? Buffer.byteLength(result.resource.html, "utf8") > 2 * 1024 * 1024 : result.resource.html.length > 8 * 1024 * 1024) ||
+            !(fromResult ? ["text/html;profile=mcp-app", "text/html"] : ["text/html;profile=mcp-app"]).includes(result.resource.mimeType)
+        ) {
+            await closeInvalid();
+            throw Error("App resource is invalid or stale");
+        }
+        let csp;
+        try {
+            csp = appCsp(result.resource._meta?.ui?.csp ?? {});
+        } catch (error) {
+            await closeInvalid();
+            throw error;
+        }
+        const instanceKey = JSON.stringify([ownerId, epoch, params.projectId, result.instanceId]);
+        const retained = this.instances.get(this.instanceTokens.get(instanceKey));
+        if (fromResult && this.instanceTokens.has(instanceKey) && (!retained || retained.closed)) {
+            await closeInvalid();
+            throw Error("App instance was closed");
+        }
+        if (retained && !retained.closed) return retained.descriptor;
+        const token = randomBytes(24).toString("hex");
+        const app = {
+            ...result,
+            instanceKey,
+            resultSourceKey: fromResult ? JSON.stringify([ownerId, epoch, params.projectId, params.threadId, params.turnId, params.itemId]) : undefined,
+            ownerId,
+            projectId: params.projectId,
+            threadId: params.threadId,
+            token,
+            csp,
+            file,
+            closed: false,
+            requests: new Map(),
+            abort: new AbortController(),
+        };
+        this.instances.set(token, app);
+        this.instanceTokens.set(instanceKey, token);
+        const declared = result.resource._meta?.["openai/ui"]?.availableDisplayModes;
+        if (
+            declared !== undefined &&
+            (!Array.isArray(declared) ||
+                declared.some((mode) => !["inline", "fullscreen", "pip"].includes(mode)))
+        ) {
+            await this.close(token, ownerId);
+            throw Error("Invalid app display modes");
+        }
+        const availableDisplayModes = ["inline", "fullscreen"].filter(
+            (mode) => declared === undefined || declared.includes(mode),
+        );
+        if (!availableDisplayModes.length) {
+            await this.close(token, ownerId);
+            throw Error("No supported app display mode");
+        }
+        const hostContext = {
+            ...result.hostContext,
+            displayMode: availableDisplayModes[0],
+            availableDisplayModes,
+        };
+        if (params.deepLink !== undefined) {
+            if (
+                !text(params.deepLink) ||
+                !params.deepLink.startsWith("/") ||
+                params.deepLink.startsWith("//") ||
+                /[#\\\x00-\x1f]/.test(params.deepLink)
+            ) {
+                await this.close(token, ownerId);
+                throw Error("Invalid deep link");
+            }
+            hostContext["openai/deepLink"] = { url: params.deepLink };
+        }
+        app.descriptor = {
+            token,
+            frameUrl: `areal-mcp://${token}/`,
+            instanceId: app.instanceId,
+            serverId: app.serverId,
+            generation: app.generation,
+            projectId: app.projectId,
+            threadId: app.threadId,
+            toolMetadata: app.toolMetadata,
+            initialArguments: app.initialArguments ?? initialArguments,
+            initialResult: app.initialResult,
+            hostContext,
+            resourceMeta: result.resource._meta ?? {},
+            fileResource: !!file,
+        };
+        return app.descriptor;
+    }
+    async openFromResult(params, ownerId) {
+        const allowed = ["operation", "projectId", "threadId", "turnId", "itemId", "requestId"];
+        if (ownerId !== this.currentOwner() || !object(params)
+            || Object.keys(params).some(key => !allowed.includes(key))
+            || !["projectId", "threadId", "turnId", "itemId", "requestId"].every(key => text(params[key]) && params[key].length <= 128)
+            || !this.backend.ownsThread(params.projectId, params.threadId)) throw Error("Invalid result app owner or input");
+        const epoch = this.epoch;
+        const sourceKey = JSON.stringify([ownerId, epoch, params.projectId, params.threadId, params.turnId, params.itemId]);
+        const owned = [...this.instances.values()].find(app => app.resultSourceKey === sourceKey);
+        if (owned?.closed) {
+            if (!owned.invalidResource) throw Error("App closing outcome unknown; reconcile the original close first");
+            await this.close(owned.token, ownerId);
+        }
+        const pending = this.resultOpens.get(sourceKey);
+        if (pending) return pending.requestId === params.requestId ? pending.promise : pending.promise.then(() => this.openFromResult(params, ownerId));
+        if (!owned && this.instances.size + this.pendingOpens >= 8) throw Error("App page limit reached (8)");
+        this.pendingOpens++;
+        const promise = (async () => {
+            const response = await this.backend.command("manage", {
+                operation: "mcpAppOpenFromResult", projectId: params.projectId,
+                threadId: params.threadId, turnId: params.turnId, itemId: params.itemId, requestId: params.requestId,
+            });
+            if (response?.status === "closed") return { status: "closed" };
+            if (response?.status === "unavailable") return { status: "unavailable", reason: response.reason };
+            if (response?.status !== "open") throw Error("Invalid result open reply");
+            try {
+                const app = await this.adopt(response.instance, params, ownerId, epoch, undefined, null, true);
+                return { status: "open", app };
+            } catch (error) {
+                return { status: "unavailable", reason: epoch !== this.epoch || ownerId !== this.currentOwner() ? "sourceUnavailable" : "resourceRejected" };
+            }
+        })().finally(() => {
+            this.pendingOpens--;
+            this.resultOpens.delete(sourceKey);
+        });
+        this.resultOpens.set(sourceKey, { requestId: params.requestId, promise });
+        return promise;
     }
     async request(token, request, ownerId) {
         const app = this.get(token, ownerId);
@@ -366,19 +438,23 @@ class McpAppsHost {
         const app = this.instances.get(token);
         if (!app) return {};
         if (ownerId !== app.ownerId) throw Error("Invalid app owner");
-        app.closed = true;
-        app.abort.abort();
-        this.instances.delete(token);
-        this.notify({ token, notification: { jsonrpc: "2.0", method: "ui/notifications/closed" } });
-        app.file?.watcher?.close();
-        app.requests.clear();
-        return this.backend.command("manage", {
-            operation: "mcpAppClose",
-            projectId: app.projectId,
-            threadId: app.threadId,
-            instanceId: app.instanceId,
-            generation: app.generation,
-        });
+        if (app.closePromise) return app.closePromise;
+        if (!app.closed) {
+            app.closed = true;
+            app.abort.abort();
+            if (ownerId === this.currentOwner()) this.notify({ token, notification: { jsonrpc: "2.0", method: "ui/notifications/closed" } });
+            app.file?.watcher?.close();
+            app.requests.clear();
+        }
+        app.closePromise = this.backend.command("manage", {
+            operation: "mcpAppClose", projectId: app.projectId, threadId: app.threadId,
+            instanceId: app.instanceId, generation: app.generation,
+        }).then(reply => {
+            this.instances.delete(token);
+            if (!app.resultSourceKey && this.instanceTokens.get(app.instanceKey) === token) this.instanceTokens.delete(app.instanceKey);
+            return reply;
+        }).finally(() => { app.closePromise = undefined; });
+        return app.closePromise;
     }
     notification(event) {
         if (
@@ -441,7 +517,7 @@ class McpAppsHost {
         )
             return new Response("Not found", { status: 404 });
         const proxy = url.pathname === "/";
-        return new Response(proxy ? proxyHtml() : app.resource.html, {
+        return new Response(proxy ? proxyHtml(!!app.resultSourceKey) : app.resource.html, {
             headers: {
                 "Content-Type": "text/html; charset=utf-8",
                 "Cache-Control": "no-store",

@@ -986,6 +986,7 @@ impl Engine {
             content_items: None,
             call_id: call.id.clone(),
             execution: Box::new(ToolExecution {
+                interactive_result: None,
                 result_snapshot: None,
                 file_before: None,
                 output_projection: None,
@@ -1250,6 +1251,11 @@ impl Engine {
         {
             custom_content = None;
         }
+        let interactive_result = (success
+            && matches!(outcome, ToolOutcome::Succeeded)
+            && result["mcpServer"]["source"]["version"] == 1
+            && crate::desktop::mcp_apps::tool_uri(&result["mcpServer"]["toolMetadata"]).is_some())
+        .then_some(true);
         let result = bounded_result(serde_json::to_string(&prepared.value)?);
         let projection_ms = projection_started.elapsed().as_secs_f64() * 1000.0;
         let commit_started = std::time::Instant::now();
@@ -1280,6 +1286,8 @@ impl Engine {
             *content_items = Some(
                 custom_content.unwrap_or_else(|| vec![json!({"type":"inputText","text":result})]),
             );
+            execution.interactive_result =
+                interactive_result.filter(|_| execution.backend.as_deref() == Some("mcp"));
             execution.outcome = outcome;
             execution.result_snapshot = prepared.snapshot;
             execution.output_projection = Some(prepared.metrics);

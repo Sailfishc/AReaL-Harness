@@ -281,6 +281,12 @@ Hook 报告复用运行时声明选择与强类型文档解析，`mcp_tool` 是�
 
 `areal/mcp/apps/list {threadId?}` 返回完整工具元信息。`areal/mcp/app/open/request/close` 绑定 `threadId/serverId/instanceId/generation`；工具请求还绑定 `requestId`。`areal/mcp/extension/call` 的 kind 为 `settingsRead/settingsUpdate/settingsAction/mentionsSearch`。`areal/mcp/forms/list`、`areal/mcp/form/respond/preview` 验证完整待回复请求与来源服务器。`areal/mcp/tool/result {threadId,callId}` 读取已持久保存的原始 MCP 结果，模型只用剔除 `_meta` 的投影。
 
+`areal/mcp/app/openFromResult {threadId,turnId,itemId,requestId}` 只接受精确 Core 记录身份，要求无限制 manage 授权。`areal/mcp/apps/list` 的 `requestEpoch` 用于组成 `result-v1.<requestEpoch>.<UUID>`。响应是 `{status:"open",instance}`、`{status:"closed"}` 或 `{status:"unavailable",reason}`；Main 将 open 映射为不透明页面描述符 `app`。Renderer 不提供 HTML、资源 URI、参数或来源证明。
+
+Core 按 turnId 再按 itemId 读取成功完成的 MCP 记录，核对原始快照的长度与 SHA，再使用保存的有效参数和原始 MCP 结果。来源证明在原 MCP 调用时绑定插件摘要、连接世代、Thread、cwd 和 Apps 进程 epoch；发布页面前再次检查当前启用状态与原连接。页面准备只读声明资源，不再次调用原业务工具，也不新增工具 Turn。后续页面调用仍受原有 App 可见性和授权限制。
+
+结果打开回执与实例共同保存在版本化 `mcp-apps.json`，一次原子提交；每个进程 epoch 最多 1024 条、每条最多 1 KiB、整文件最多 8 MiB，回执不逐出。满额后仍可重试旧请求、关闭和撤权。相同请求不同来源冲突，同来源并发共享实例；关闭原子终结全部别名，旧请求只返回 closed。新 UUID 才表示显式重开。旧 epoch 总是失效。UNKNOWN 保留原请求；未知关闭立即撤销页面 token，并保留原关闭意图直至核对完成。
+
 文件授权只来自可信 Main。已认证的非 `desktop-owner` 不能提交 `fileResource` 或私有 `ui/host-file`；App bridge 不暴露这个私有方法。实际写入回执的方法名为 `areal/mcp/app/file/write`，通过既有 `areal/request/read {requestId}` 查询。通知新增 `areal/mcp/app/notification`、`areal/mcp/tool/result`、`areal/mcp/form/requested`；桌面共享服务保留实例和连接版本，旧窗口不得接收其他实例事件。
 
 原生 Main 使用 `areal/mcp/form/resource/prepare {threadId,requestId,fieldName}`、`stage {selectionToken,requestId,paths}` 和 `release {threadId,requestId,fieldName,uri}`。prepare/stage 要求带认证的 desktop-owner，通用 Renderer 命令不能调用；stage 按 UUID/参数进入已有管理账本，UNKNOWN 只查原收据。路径和 selection token 留在 Main/Core，Renderer 只见不透明 URI。现代 discovery 协商 MRTR，逐轮保留参数并将 requestState 留在私有层。

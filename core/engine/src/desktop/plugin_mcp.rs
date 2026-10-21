@@ -386,6 +386,7 @@ impl Engine {
         Ok(())
     }
     async fn revoke_plugin_mcp(&self, id: &str) -> Result<()> {
+        let app_guard = self.desktop.mcp_apps.mutation.lock().await;
         self.desktop.plugin_mcp.live.write().unwrap().remove(id);
         self.desktop
             .plugin_mcp
@@ -408,7 +409,8 @@ impl Engine {
             .flat_map(|owner| owner.view.servers.iter().map(|server| server.generation()))
             .collect();
         self.revoke_plugin_apps_without_mutation_lock(id, &generations)
-            .await;
+            .await?;
+        drop(app_guard);
         // Losing a failed startup/drain handle is not proof of process exit.
         // A later Disconnect must retain the UNKNOWN gate instead of clearing it
         // merely because there are no remaining owners to join.
@@ -1258,6 +1260,32 @@ impl Engine {
             .map_err(invalid)?;
         Ok(json!({"pluginId":id,"connectorId":connector_id,"provider":provider,"state":"mapped"}))
     }
+    pub(crate) async fn mcp_result_source(
+        &self,
+        tool: &McpTool,
+        thread_id: &str,
+        cwd: &str,
+    ) -> Option<super::mcp_apps::ResultProvenance> {
+        let owners = self.desktop.plugin_mcp.owners.lock().await;
+        let owner = owners.iter().find(|owner| {
+            owner.view.tools.iter().any(|original| {
+                original.server_name() == tool.server_name()
+                    && original.generation() == tool.generation()
+                    && original.original_name() == tool.original_name()
+            })
+        })?;
+        Some(super::mcp_apps::ResultProvenance {
+            version: 1,
+            apps_epoch: self.desktop.mcp_apps.runtime_epoch.clone(),
+            thread_id: thread_id.into(),
+            cwd: cwd.into(),
+            plugin_id: owner.view.plugin.clone(),
+            installed_digest: owner.view.digest.clone(),
+            server_id: tool.server_name().into(),
+            generation: tool.generation(),
+            original_tool_name: tool.original_name().into(),
+        })
+    }
     pub(super) async fn plugin_server(
         &self,
         id: &str,
@@ -1275,7 +1303,6 @@ impl Engine {
         }
         .ok_or(Error::NotFound)?;
         if self.plugin_component(&found.0.plugin).await.is_err() {
-            self.revoke_plugin_mcp(&found.0.plugin).await?;
             return Err(invalid("plugin disabled or uninstalled"));
         }
         if found.1.is_revoked() {
