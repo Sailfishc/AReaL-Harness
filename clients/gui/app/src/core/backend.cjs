@@ -29,6 +29,8 @@ const { inspectCoreCapabilities, projectCoreCapabilities } = require('./core-cap
 const { definition: browserTool, failure: browserFailure } = require('./browser-tool.cjs');
 
 const workgroupMutationMethods = new Set(['areal/workgroup/start', 'areal/workgroup/revise', 'areal/workflow/start']);
+const isObservationSizeFailure = error => error?.code === 'RESPONSE_TOO_LARGE'
+  && ['thread/read', 'areal/thread/observe'].includes(error.method) && error.submissionUnknown === false;
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 // 精确 Remote 停止/交互不会重放；保留日志用于核对，不阻塞后续桌面操作。
 const isRemoteControl = entry => entry.method === 'turn/interrupt' && entry.remote?.method === 'turn.stop'
@@ -169,7 +171,8 @@ class CoreBackend {
         pending: (live?.pending ?? []).filter(entry => !isRemoteControl(entry)).map(entry => ({ ...entry, awaitingResponse: this.awaitingResponses.has(entry) })), outcomes: live?.outcomes ?? {}, models: this.providers.catalog(live?.models ?? [], live), profiles: live?.profiles ?? [],
         lastAcceptedModel: this.providers.lastAcceptedModel ?? null,
         defaultProfile: live?.resourceProfile ?? this.defaultProfile ?? null, configurations: live?.configurations ?? {},
-        summaries: live?.summaries ?? [], summariesLoaded: live?.summariesLoaded === true, error: live?.error ?? null };
+        summaries: live?.summaries ?? [], summariesLoaded: live?.summariesLoaded === true,
+        observationErrors: live?.observationErrors ?? {}, error: live?.error ?? null };
     }) };
   }
 
@@ -247,6 +250,7 @@ class CoreBackend {
         // A failed resource import must still allow authenticated status/drain on
         // its running Core. Keep the management connection, while start() retries
         // initialization before admitting any task or project command.
+        if (error.code === 'RESPONSE_TOO_LARGE' || error.reason === 'RESPONSE_TOO_LARGE') project.reconnectBlocked = true;
         if (!project.resourceInitializing || !project.client?.ready) project.client?.close();
         project.error = error.message;
         project.model.connection(false, error.message);
@@ -380,7 +384,8 @@ class CoreBackend {
       if (this.providerUpdating || this.resourcesUpdating || this.starting.has(project.id)) { this.scheduleReconnect(project); return; }
       const task = this.reconnectProject(project).catch(error => {
         if (!this.closing) {
-          project.reconnectBlocked = ['CORE_STOPPED', 'CORE_INCOMPATIBLE'].includes(error.code);
+          project.reconnectBlocked = ['CORE_STOPPED', 'CORE_INCOMPATIBLE', 'RESPONSE_TOO_LARGE'].includes(error.code)
+            || error.reason === 'RESPONSE_TOO_LARGE' || project.client?.closeFailure?.code === 'RESPONSE_TOO_LARGE';
           project.reconnectAttempt = (project.reconnectAttempt ?? 0) + 1;
           project.client?.close();
           project.error = this.providers.redact(error.message);
@@ -415,7 +420,7 @@ class CoreBackend {
   }
 
   async connect(project, { observeOnly = false } = {}) {
-    const { CoreClient } = await import('@areal/runtime-client/core');
+    const { CoreClient, MAX_RESPONSE_BYTES } = await import('@areal/runtime-client/core');
     if (this.closing) throw new Error('应用正在退出');
     project.taskNotificationMonitor?.stop();
     const previous = project.client;
@@ -425,7 +430,7 @@ class CoreBackend {
     const client = new CoreClient({ createSocket: () => {
       const target = Object.freeze({ boundary: 'desktop-core', projectId: project.id, coreGeneration: project.service?.generation,
         connectionGeneration: project.connectionGeneration, hostPid: project.service?.hostPid, corePid: project.service?.corePid, serviceId: project.service?.serviceId });
-      const socket = new WebSocket(project.endpoint, { headers: { Authorization: `Bearer ${project.token}` }, followRedirects: false, maxPayload: 4 * 1024 * 1024 });
+      const socket = new WebSocket(project.endpoint, { headers: { Authorization: `Bearer ${project.token}` }, followRedirects: false, maxPayload: MAX_RESPONSE_BYTES });
       socket.on('open', () => diagnostics.record({ type: 'socket-open', ...target }));
       socket.on('error', error => diagnostics.record({ type: 'socket-error', ...target, code: error.code }));
       socket.on('close', closeCode => diagnostics.record({ type: 'socket-close', ...target, closeCode }));
@@ -464,6 +469,8 @@ class CoreBackend {
     try {
       client.onNotification((method, params) => {
         if (!this.currentConnection(project, client)) return;
+        const threadId = params?.threadId ?? params?.thread?.id ?? params?.interaction?.threadId;
+        if (threadId && project.observationErrors?.[threadId]) return;
         if (method === 'areal/thread/configured' && params?.threadId && params.configuration) {
           project.configurations ??= {};
           const previous = project.configurations[params.threadId];
@@ -489,9 +496,15 @@ class CoreBackend {
         }
         if (method === 'turn/completed') this.providers.requestReconciliation();
       });
-      client.onClose(() => { if (project.client === client) {
+      client.onClose(failure => { if (project.client === client) {
         project.taskNotificationMonitor?.stop();
-        project.model.connection(false, '连接中断，正在恢复任务状态');
+        if (failure.code === 'RESPONSE_TOO_LARGE') {
+          project.reconnectBlocked = true;
+          clearTimeout(project.reconnectTimer);
+          project.reconnectTimer = null;
+          project.error = 'Core 返回内容超过当前支持的 64 MiB，无法完整加载。';
+        }
+        project.model.connection(false, project.reconnectBlocked ? project.error : '连接中断，正在恢复任务状态');
         this.scheduleReconnect(project);
       } });
       await client.connect();
@@ -528,7 +541,12 @@ class CoreBackend {
       if (!observeOnly) void this.analytics.syncProject(project);
       // 重连恢复所有已打开的任务，快照在 socket 消息分派栈内替换。
       trace.advance('restore_views');
-      for (const threadId of Object.keys(project.model.state.threads)) await this.openThread(project, threadId);
+      for (const threadId of Object.keys(project.model.state.threads)) {
+        try { await this.openThread(project, threadId); }
+        catch (error) {
+          if (!isObservationSizeFailure(error) || !this.currentConnection(project, client) || !client.ready) throw error;
+        }
+      }
       trace.advance('task_subscriptions');
       for (const taskId of new Set(project.taskViews?.values() ?? [])) {
         await client.request('areal/task/subscribe', { taskId }, { onResult: task => {
@@ -599,41 +617,62 @@ class CoreBackend {
 
   async openThread(project, threadId) {
     const client = project.client;
-    if ((project.summaries ?? []).find(item => item.id === threadId)?.desktop?.archived || project.model.state?.threads?.[threadId]?.desktop?.archived) {
-      const result = await client.request('thread/read', { threadId, includeTurns: true });
-      this.requireConnection(project, client);
+    const acceptSnapshot = result => {
+      if (!this.currentConnection(project, client) || result.thread?.id !== threadId) return;
+      if (project.observationErrors) delete project.observationErrors[threadId];
       project.model.replace(result.thread);
-      project.configurations[threadId] = result.thread.desktop.configuration;
-      this.onChange();
-      return;
+    };
+    try {
+      if ((project.summaries ?? []).find(item => item.id === threadId)?.desktop?.archived || project.model.state?.threads?.[threadId]?.desktop?.archived) {
+        const result = await client.request('thread/read', { threadId, includeTurns: true }, { onResult: acceptSnapshot });
+        this.requireConnection(project, client);
+        if (result.thread?.id !== threadId) throw new Error('恢复结果与目标会话不匹配');
+        project.configurations[threadId] = result.thread.desktop.configuration;
+        this.onChange();
+        return;
+      }
+      if (!client.capabilities?.methods?.includes('areal/thread/observe')) {
+        throw new Error('当前 Core 不支持安全观察已有聊天；请更新 Core 后重新连接');
+      }
+      const resumed = await client.request('areal/thread/observe', { threadId }, {
+        onResult: acceptSnapshot,
+      });
+      this.requireConnection(project, client);
+      if (resumed.thread?.id !== threadId) throw new Error('恢复结果与目标会话不匹配');
+      if (resumed.thread?.desktop?.archived) {
+        project.configurations[threadId] = resumed.thread.desktop.configuration;
+        project.model.setQueue(threadId, resumed.thread.desktop.queue);
+        project.model.setInteractions(threadId, { revision: resumed.thread.desktop.interactionRevision, data: resumed.thread.desktop.interactions });
+        this.onChange();
+        return;
+      }
+      if (resumed.thread?.conversation?.kind === 'side') {
+        project.configurations[threadId] = resumed.thread.desktop?.configuration;
+        this.onChange();
+        return;
+      }
+      await Promise.all([
+        client.request('areal/interaction/list', { threadId }, {
+          onResult: result => { if (this.currentConnection(project, client)) project.model.setInteractions(threadId, result); },
+        }),
+        this.refreshConfiguration(project, threadId),
+        this.refreshQueue(project, threadId),
+      ]);
+    } catch (error) {
+      if (isObservationSizeFailure(error) && this.currentConnection(project, client) && client.ready) {
+        project.observationErrors ??= {};
+        project.observationErrors[threadId] = { connectionGeneration: project.connectionGeneration,
+          code: 'RESPONSE_TOO_LARGE', message: '聊天历史超过当前支持的 64 MiB，无法完整加载。', retryable: false };
+        this.onChange();
+        if (client.capabilities?.methods?.includes('areal/subscription/remove')) {
+          try { await client.request('areal/subscription/remove', { threadIds: [threadId] }); }
+          catch (removeError) {
+            if (!this.currentConnection(project, client) || !client.ready) throw removeError;
+          }
+        }
+      }
+      throw error;
     }
-    if (!client.capabilities?.methods?.includes('areal/thread/observe')) {
-      throw new Error('当前 Core 不支持安全观察已有聊天；请更新 Core 后重新连接');
-    }
-    const resumed = await client.request('areal/thread/observe', { threadId }, {
-      onResult: result => { if (this.currentConnection(project, client) && result.thread?.id === threadId) project.model.replace(result.thread); },
-    });
-    this.requireConnection(project, client);
-    if (resumed.thread?.id !== threadId) throw new Error('恢复结果与目标会话不匹配');
-    if (resumed.thread?.desktop?.archived) {
-      project.configurations[threadId] = resumed.thread.desktop.configuration;
-      project.model.setQueue(threadId, resumed.thread.desktop.queue);
-      project.model.setInteractions(threadId, { revision: resumed.thread.desktop.interactionRevision, data: resumed.thread.desktop.interactions });
-      this.onChange();
-      return;
-    }
-    if (resumed.thread?.conversation?.kind === 'side') {
-      project.configurations[threadId] = resumed.thread.desktop?.configuration;
-      this.onChange();
-      return;
-    }
-    await Promise.all([
-      client.request('areal/interaction/list', { threadId }, {
-        onResult: result => { if (this.currentConnection(project, client)) project.model.setInteractions(threadId, result); },
-      }),
-      this.refreshConfiguration(project, threadId),
-      this.refreshQueue(project, threadId),
-    ]);
   }
 
   supportsBrowser(project) {
@@ -1025,6 +1064,10 @@ class CoreBackend {
   }
 
   async submit(project, method, parameters, { requestId, remote, dispatch } = {}) {
+    const observationError = project.observationErrors?.[parameters.threadId];
+    if (observationError && ['areal/turn/start', 'areal/turn/enqueue', 'areal/turn/submit', 'turn/start', 'turn/steer', 'areal/queue/resume', 'areal/queue/steer', 'areal/goal/create', 'areal/goal/resume'].includes(method)) {
+      throw Object.assign(new Error(observationError.message), { code: observationError.code, submissionUnknown: false });
+    }
     if (remote) return this.submitRemote(project, method, parameters, remote, dispatch);
     if (requestId !== undefined && (!(workgroupMutationMethods.has(method) || taskMutationMethods.has(method) || managementMethods.has(method) || ['areal/agent/spawn', 'areal/process/start', 'areal/thread/start', 'areal/turn/start', 'areal/turn/enqueue', 'areal/turn/submit', 'areal/thread/fork', 'areal/side/start', 'areal/thread/tools/attach', 'areal/marketplace/add', 'areal/plugin/install', 'areal/plugin/configure', 'areal/plugin/uninstall', 'areal/plugin/setup', ...['update','remove','reorder','pause','resume','steer'].map(name => `areal/queue/${name}`)].includes(method)) || typeof requestId !== 'string' || !/^[0-9a-f-]{36}$/.test(requestId))) throw new Error('无效请求标识');
     const params = { ...parameters, requestId: requestId ?? randomUUID() };
@@ -1251,8 +1294,13 @@ class CoreBackend {
         } }));
       }
       if (entry.method === 'areal/thread/archive') await this.listThreads(project);
-      if (threadId) await this.openThread(project, threadId);
       await this.changePending(project, pending => pending.filter(value => value !== entry));
+      if (threadId) {
+        try { await this.openThread(project, threadId); }
+        catch (error) {
+          if (!isObservationSizeFailure(error) || !this.currentConnection(project, client) || !client.ready) throw error;
+        }
+      }
       if (entry.method.startsWith('areal/provider/')) {
         const models = await client.request('areal/model/list');
         this.requireConnection(project, client);

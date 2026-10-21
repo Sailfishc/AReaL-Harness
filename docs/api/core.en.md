@@ -10,7 +10,11 @@ Optional `Turn.interruption` records `userPause` or `coreRecovery`. Missing fact
 
 ## Transport and sessions
 
-Each WebSocket text frame carries one request, response or notification, up to 4 MiB. Requests are `{id,method,params}` with string/integer id and object params. jsonrpc is optional; responses contain either result or error; batches are unsupported. Request initialize, then send initialized.
+Each WebSocket text message carries one request, response, or notification. Core accepts incoming messages and frames up to 4 MiB. Complete outgoing JSON messages have a 64 MiB limit, measured in encoded UTF-8 bytes. The `areal/capabilities` fields `limits.frameBytes` and `limits.responseBytes` report these respective limits. Requests are `{id,method,params}` with string/integer id and object params. jsonrpc is optional; responses contain either result or error; batches are unsupported. Request initialize, then send initialized.
+
+An oversized response becomes a `-32001` error with the same RPC ID and data `{reason:"RESPONSE_TOO_LARGE",limitBytes:67108864,retryable:false,delivery:"resultUnavailable"}`. The connection stays usable. An oversized `thread/resume` or `areal/thread/observe` baseline stops its subscription, including delivery of subsequent queued events. This error means that the result cannot be delivered. It does not mean that the command did not execute. Mutations retain their original requestId for receipt reconciliation and are not replayed automatically. An oversized notification or server request closes the connection with code 1009 and the fixed reason `RESPONSE_TOO_LARGE`. Core does not discard the message and continue with an incomplete projection. Each send retains its five second deadline.
+
+This limit bounds JSON encoding output. Earlier full-history hydration and JSON Value construction still materialize the complete data. The desktop shared service has an independent 256 MiB limit for aggregate projections, which several large histories can exceed. The protocol does not negotiate chunks or guarantee that older clients can receive messages above their own limits.
 
 | Method | Parameters |
 |---|---|

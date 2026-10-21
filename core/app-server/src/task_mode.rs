@@ -420,6 +420,9 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
+        let Outbound::Event { value: event, .. } = event else {
+            panic!("subscription must deliver an event");
+        };
         assert_eq!(event["params"]["taskId"], ids[0]);
         validate("notifications", "areal/task/updated", &event["params"]);
         let page = conn

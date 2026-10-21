@@ -30,9 +30,10 @@ const config = join(scratch, 'user', '.areal', 'config.toml');
 await writeFile(config, `schema_version=1\n[model]\nprovider="fixture"\nname="fixture"\ncontext_window_tokens=2000000\n[model.providers.fixture]\nprotocol="chat-completions"\nendpoint="http://127.0.0.1:${model.address().port}/v1/chat/completions"\n`);
 const deployment = join(scratch, 'desktop.json');
 await writeFile(deployment, JSON.stringify({ profiles: [{ id: 'fixture', revision: 'v1', displayName: 'Fixture', instructions: 'Complete the task' }] }));
-const backend = new CoreBackend({ binary: process.env.AREAL_CORE_BIN || resolve(gui, '../../target/debug/areal'),
+const backendOptions = { binary: process.env.AREAL_CORE_BIN || resolve(gui, '../../target/debug/areal'),
   home, harnessHome: join(scratch, 'registry'), userHome: join(scratch, 'user'),
-  desktopConfig: deployment, defaultProfile: { id: 'fixture', revision: 'v1' } });
+  desktopConfig: deployment, defaultProfile: { id: 'fixture', revision: 'v1' } };
+let backend = new CoreBackend(backendOptions);
 const checks = [];
 async function until(predicate, label, timeout = 15000) {
   const deadline = Date.now() + timeout;
@@ -54,7 +55,7 @@ try {
       return turns.filter(turn => turn.status === 'completed').length === index + 1;
     }, 'fixture turn completed', 60000);
   }
-  const original = structuredClone(project.model.state.threads[threadId]);
+  const original = JSON.parse(JSON.stringify(project.model.state.threads[threadId]));
   assert.ok(Buffer.byteLength(JSON.stringify(original)) > 6 * 1024 * 1024, 'accumulated history exceeds the old frame ceiling without exceeding the per-response model budget');
   const generation = project.service.generation;
   const modelRequests = requests;
@@ -68,9 +69,42 @@ try {
   await until(() => project.client !== previous && project.model.state.connected && !backend.starting.has(projectId), 'large history reconnect', 60000);
   assert.equal(project.service.generation, generation);
   assert.equal(requests, modelRequests, 'recovery never resubmits model work');
-  assert.deepEqual(project.model.state.threads[threadId].turns, original.turns);
+  assert.deepEqual(JSON.parse(JSON.stringify(project.model.state.threads[threadId].turns)), original.turns);
   checks.push('observer reconnect restores the same complete history without restarting Core or replaying a turn');
+  const {threadId: healthyThreadId} = await backend.command('create', {projectId});
+  const knownRequestId = Object.entries(project.outcomes).find(([, result]) => result.threadId === threadId && result.accepted)?.[0];
+  assert.ok(knownRequestId, 'fixture has an accepted submission receipt');
+  const path = join(project.service.dataDir, `${threadId}.json`);
   await backend.shutdown();
+  await backend.disconnect();
+  const record = JSON.parse(await readFile(path, 'utf8'));
+  const item = record.thread.turns.flatMap(turn => turn.items).find(item => item.type === 'agentMessage');
+  item.text = 'X'.repeat(64 * 1024 * 1024);
+  await writeFile(path, JSON.stringify(record));
+  backend = new CoreBackend(backendOptions);
+  await backend.init();
+  const restored = await backend.loadProjectJournal(projectId);
+  restored.model.replace(original);
+  await backend.changePending(restored, pending => [...pending, { method: 'areal/turn/submit', params: { threadId, requestId: knownRequestId } }]);
+  await backend.start(projectId);
+  assert.equal(restored.client.ready, true, 'one oversized cached view does not disconnect the project');
+  assert.equal(restored.model.state.connected, true);
+  assert.equal(restored.observationErrors[threadId].code, 'RESPONSE_TOO_LARGE');
+  assert.equal(restored.pending.length, 0, 'known accepted receipt is settled even when its history cannot be delivered');
+  assert.equal(restored.outcomes[knownRequestId].accepted, true);
+  await assert.rejects(backend.openThread(restored, threadId), error => error.code === 'RESPONSE_TOO_LARGE' && error.submissionUnknown === false);
+  await backend.openThread(restored, healthyThreadId);
+  assert.equal(restored.client.ready, true);
+  assert.equal(restored.model.state.threads[healthyThreadId].id, healthyThreadId);
+  await assert.rejects(backend.command('send', { projectId, threadId, text: 'must not execute on a stale baseline' }), error => error.code === 'RESPONSE_TOO_LARGE' && error.submissionUnknown === false);
+  for (const method of ['areal/goal/create', 'areal/queue/steer']) {
+    await assert.rejects(backend.submit(restored, method, { threadId }), error => error.code === 'RESPONSE_TOO_LARGE' && error.submissionUnknown === false);
+  }
+  assert.equal(requests, modelRequests, 'size failures and receipt recovery do not replay or start model work');
+  checks.push('over-64MiB synthetic persisted history returns a correlated read error while a healthy chat and known receipt remain usable');
+  checks.push('cached oversized history cannot submit unobservable work');
+  await backend.shutdown();
+  await backend.disconnect();
   passed = true;
 } finally {
   if (!passed) {
@@ -81,6 +115,6 @@ try {
   }
   model.closeAllConnections();
   await new Promise(resolve => model.close(resolve));
-  await writeFile(join(scratch, 'manifest.json'), JSON.stringify({ passed, checks, scope: 'production CoreBackend and Core WebSocket; deterministic 3MiB model responses; no Renderer acceptance' }, null, 2));
+  await writeFile(join(scratch, 'manifest.json'), JSON.stringify({ passed, checks, scope: 'production CoreBackend and Core WebSocket; deterministic 3MiB model responses; over-64MiB store and retained-cache failure injection after owned Core shutdown; no Renderer acceptance' }, null, 2));
   console.log(JSON.stringify({ passed, evidence: scratch, checks }));
 }

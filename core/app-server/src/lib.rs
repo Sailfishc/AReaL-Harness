@@ -10,13 +10,13 @@ mod processes;
 mod workgroups;
 use areal_engine::{Engine, Error};
 mod task_mode;
-use areal_protocol::{Input, MAX_FRAME_BYTES, RpcError, response};
+use areal_protocol::{Input, MAX_FRAME_BYTES, MAX_RESPONSE_BYTES, RpcError, response};
 use axum::{
     Router,
     body::Body,
     extract::{
         DefaultBodyLimit, Extension, Path, Query, State, WebSocketUpgrade,
-        ws::{Message, WebSocket},
+        ws::{CloseFrame, Message, WebSocket},
     },
     http::{HeaderMap, StatusCode, header},
     response::{Html, IntoResponse, Response},
@@ -301,11 +301,55 @@ struct Connection {
     ready: bool,
     subscriptions: HashMap<String, CancellationToken>,
     suppressed: HashSet<String>,
-    tx: mpsc::Sender<Value>,
+    tx: mpsc::Sender<Outbound>,
     stop: CancellationToken,
     tasks: TaskTracker,
     delivery: Arc<Mutex<()>>,
     rpc_permits: Arc<tokio::sync::Semaphore>,
+}
+
+enum Outbound {
+    Message(Value),
+    Observation {
+        value: Value,
+        subscription: CancellationToken,
+    },
+    Event {
+        value: Value,
+        subscription: CancellationToken,
+    },
+}
+
+#[derive(Default)]
+struct BoundedJson {
+    bytes: Vec<u8>,
+}
+
+impl std::io::Write for BoundedJson {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if bytes.len() > MAX_RESPONSE_BYTES - self.bytes.len() {
+            return Err(std::io::Error::other("response exceeds byte limit"));
+        }
+        let length = self.bytes.len() + bytes.len();
+        if length > self.bytes.capacity() {
+            let capacity = length
+                .max(self.bytes.capacity().saturating_mul(2))
+                .min(MAX_RESPONSE_BYTES);
+            self.bytes.reserve_exact(capacity - self.bytes.len());
+        }
+        self.bytes.extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+fn encode_outbound(value: &Value) -> Option<String> {
+    let mut output = BoundedJson::default();
+    serde_json::to_writer(&mut output, value).ok()?;
+    String::from_utf8(output.bytes).ok()
 }
 
 async fn connection(
@@ -323,22 +367,60 @@ async fn connection(
     };
     tokio::pin!(expired);
     let (mut sink, mut stream) = socket.split();
-    let (tx, mut rx) = mpsc::channel::<Value>(256);
+    let (tx, mut rx) = mpsc::channel::<Outbound>(256);
     let stop = CancellationToken::new();
     let writer_stop = stop.clone();
     let writer = tokio::spawn(async move {
         loop {
-            let value = tokio::select! { biased; _ = writer_stop.cancelled() => break, value = rx.recv() => value };
-            let Some(value) = value else {
+            let outbound = tokio::select! { biased; _ = writer_stop.cancelled() => break, value = rx.recv() => value };
+            let Some(outbound) = outbound else {
                 break;
             };
-            match tokio::time::timeout(
-                Duration::from_secs(5),
-                sink.send(Message::Text(value.to_string().into())),
-            )
-            .await
-            {
-                Ok(Ok(())) => {}
+            let (value, observation) = match outbound {
+                Outbound::Message(value) => (value, None),
+                Outbound::Observation {
+                    value,
+                    subscription,
+                } => (value, Some(subscription)),
+                Outbound::Event {
+                    value,
+                    subscription,
+                } => {
+                    if subscription.is_cancelled() {
+                        continue;
+                    }
+                    (value, None)
+                }
+            };
+            let text = encode_outbound(&value).or_else(|| {
+                if let Some(subscription) = observation {
+                    subscription.cancel();
+                }
+                let id = value.get("id").filter(|_| value.get("method").is_none())?;
+                encode_outbound(&response(
+                    id.clone(),
+                    Err(RpcError {
+                        code: -32001,
+                        message: "Core response exceeds the supported loading size".into(),
+                        data: Some(json!({
+                            "reason": "RESPONSE_TOO_LARGE",
+                            "limitBytes": MAX_RESPONSE_BYTES,
+                            "retryable": false,
+                            "delivery": "resultUnavailable",
+                        })),
+                    }),
+                ))
+            });
+            let message = match text {
+                Some(text) => Message::Text(text.into()),
+                None => Message::Close(Some(CloseFrame {
+                    code: 1009,
+                    reason: "RESPONSE_TOO_LARGE".into(),
+                })),
+            };
+            let closing = matches!(&message, Message::Close(_));
+            match tokio::time::timeout(Duration::from_secs(5), sink.send(message)).await {
+                Ok(Ok(())) if !closing => {}
                 _ => {
                     writer_stop.cancel();
                     break;
@@ -637,7 +719,10 @@ async fn connection(
                 } else {
                     tokio::select! { biased; _=stop.cancelled()=>return, value=dispatch=>value }
                 };
-                if tx.try_send(response(id, result)).is_err() {
+                if tx
+                    .try_send(Outbound::Message(response(id, result)))
+                    .is_err()
+                {
                     stop.cancel();
                 }
             });
@@ -657,7 +742,31 @@ async fn connection(
                 rpc.method = method
             ))
             .await;
-        conn.send(response(id.unwrap(), result));
+        let observation = if matches!(method, "thread/resume" | "areal/thread/observe") {
+            result
+                .as_ref()
+                .ok()
+                .and_then(|result| result["thread"]["id"].as_str())
+                .and_then(|id| conn.subscriptions.get(id))
+                .cloned()
+        } else {
+            None
+        };
+        let value = response(id.unwrap(), result);
+        if let Some(subscription) = observation {
+            if conn
+                .tx
+                .try_send(Outbound::Observation {
+                    value,
+                    subscription,
+                })
+                .is_err()
+            {
+                conn.stop.cancel();
+            }
+        } else {
+            conn.send(value);
+        }
     }
     stop.cancel();
     conn.tasks.close();
@@ -827,7 +936,7 @@ impl Connection {
             return;
         }
         // 丢失协议消息后不能继续伪装为完整流；关闭连接，由客户端重新读取历史。
-        if self.tx.try_send(value).is_err() {
+        if self.tx.try_send(Outbound::Message(value)).is_err() {
             self.stop.cancel();
         }
     }
@@ -870,7 +979,7 @@ impl Connection {
                         if event["method"].as_str().is_some_and(|m| suppressed.contains(m)) { continue; }
                         let _delivery = delivery.lock().await;
                         if subscription.is_cancelled() { break; }
-                        if tx.try_send(event).is_err() { stop.cancel(); break; }
+                        if tx.try_send(Outbound::Event { value: event, subscription: subscription.clone() }).is_err() { stop.cancel(); break; }
                     }
                     Err(_) => { stop.cancel(); break; }
                 }
@@ -1106,7 +1215,7 @@ impl Connection {
                         "definition":areal_protocol::desktop::browser_v1_tool()}])} else {json!([])},
                     "features":{"conversationDerivationV1":json!({"preview":false,"methods":["areal/thread/fork","areal/side/start","areal/conversation/list","areal/conversation/history","areal/conversation/unarchive","areal/side/context/read"],"limits":engine.conversation_derivation_limits(),"forkBoundaries":["after","before"],"workspaceModes":["sharedCurrent"],"sideWorkspaceAccess":if engine.side_workspace_read_available() {json!(["none","readOnly"])} else {json!(["none"])},"historyBytes":engine.fork_snapshot_limit()}),"subscriptionRemoval":true,"atomicResume":true,"atomicObserve":true,"atomicObserveOwnership":true,"browserToolAttachment":can_attach_browser,
                         "ordinaryTurnSubmit":true,"editLastMessage":true,"turnStartAdmissionGuard":true,"turnEnqueueAdmissionGuard":true,"turnInterruptAdmissionGuard":true,"threadStartAdmissionGuard":true,"taskPauseRunGuard":true,"taskModes":true,"taskChannels":true,"asyncQuestions":true,"headlessInteractions":true,"goals":true,"dynamicTools":true,"mediaOutput":true,"durableSubmissionDeduplication":true,"profiles":true,"skills":true,"plans":true,"interactions":true,"queue":true,"providerConfiguration":true,"modelReset":true,"toolMedia":true,"blobUpload":true},
-                    "limits":{"frameBytes":MAX_FRAME_BYTES,"subscriptions":128,"sendQueue":256,"threadEventWindow":128},
+                    "limits":{"frameBytes":MAX_FRAME_BYTES,"responseBytes":MAX_RESPONSE_BYTES,"subscriptions":128,"sendQueue":256,"threadEventWindow":128},
                     "runtime":engine.runtime_capabilities()}))
             }
             "areal/subscription/remove" => {

@@ -12,6 +12,7 @@ pub mod desktop;
 
 pub const CODEX_PROTOCOL_VERSION: &str = "0.145.0";
 pub const MAX_FRAME_BYTES: usize = 4 * 1024 * 1024;
+pub const MAX_RESPONSE_BYTES: usize = 64 * 1024 * 1024;
 /// 工具的文本/结构化原文接收上限；模型可见页仍单独限制为 16 KiB。
 pub const MAX_TOOL_RESULT_BYTES: usize = 8 * 1024 * 1024;
 

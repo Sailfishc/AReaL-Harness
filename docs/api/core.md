@@ -10,7 +10,11 @@ Core 提供固定 Codex app-server 0.145.0 的子集与 AReaL 扩展，不代表
 
 ## 传输与会话
 
-每个 WebSocket 文本帧是一条请求/响应/通知，上限 4 MiB。请求 `{id,method,params}`，id 为字符串或整数，params 为对象；可省略 jsonrpc，响应 result/error 二选一，不支持批处理。先请求 initialize，再发送 initialized 通知。
+每个 WebSocket 文本消息承载一条请求、响应或通知。Core 入站消息和帧上限为 4 MiB，出站完整 JSON 消息上限为 64 MiB，按编码后的 UTF-8 字节计量。`areal/capabilities` 的 `limits.frameBytes` 和 `limits.responseBytes` 分别报告这两个上限。请求 `{id,method,params}`，id 为字符串或整数，params 为对象；可省略 jsonrpc，响应 result/error 二选一，不支持批处理。先请求 initialize，再发送 initialized 通知。
+
+响应超限时，Core 返回相同 RPC ID 的 `-32001` 错误，data 为 `{reason:"RESPONSE_TOO_LARGE",limitBytes:67108864,retryable:false,delivery:"resultUnavailable"}`，连接继续可用。`thread/resume` 或 `areal/thread/observe` 的基线超限时，同一订阅停止转发，已排队的后续事件也不送达。该错误只表示结果无法送达，不表示命令未执行；变更请求沿用原 requestId 查询回执，不自动重放。通知或服务端请求超限时，Core 以关闭码 1009 和固定原因 `RESPONSE_TOO_LARGE` 断连，不丢弃消息后继续提供不完整投影。单次发送仍有 5 秒期限。
+
+上述上限约束 JSON 编码输出，不约束此前的完整历史还原和 JSON Value 构造。桌面共享服务的聚合投影另有 256 MiB 上限，多条大历史的合计仍可能超限。协议不协商分块，也不保证旧客户端能接收大于其自身上限的消息。
 
 | 方法 | 参数 |
 |---|---|

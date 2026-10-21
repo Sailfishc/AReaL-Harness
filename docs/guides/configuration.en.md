@@ -175,6 +175,23 @@ Goal shared-budget and unknown-usage constraints take precedence over retry sett
 
 Unknown `AREAL_HARNESS_*` names are errors. Legacy `AREAL_MODEL*` and `RUST_LOG` are lower-priority aliases. Legacy model entry points without a provider file record may use optional `AREAL_API_KEY`; explicit file providers do not inherit it implicitly.
 
+### Desktop loading and execution limits
+
+Transport limits and model execution budgets apply independently. Raising one does not relax another channel. Sizes count encoded bytes; one MiB is 1,048,576 bytes.
+
+| Boundary | Current limit | Behavior at the limit |
+|---|---|---|
+| Core incoming requests / outgoing messages | 4 MiB / 64 MiB | Oversized responses return `RESPONSE_TOO_LARGE` and other chats remain readable. Failed cached views cannot send new work. Oversized notifications close the connection and block passive reconnect. History is not deleted and submissions are not replayed automatically |
+| Desktop shared-service aggregate projections | 256 MiB receive; 32 MiB pre-send buffered-data check | Several large chats can still exceed aggregate transport capacity. A 64 MiB message ceiling does not bound total memory |
+| Core RPC / Desktop background RPC | 30 seconds by default / 150 seconds | A failed wait does not stop background work. Read failures do not imply an unknown submission. Unknown writes require reconciliation by original requestId, without automatic replay |
+| Observation subscriptions per Core connection | 128, shared by chats and Tasks | New subscriptions are rejected at capacity. Restoring all cached chats can still exhaust it. This is not a stored-history count limit |
+| Connection tests / model discovery | 30 seconds, 1 MiB response | A probe failure does not imply Core exited. API discovery returns at most 64 models and ChatGPT discovery 256, currently without a truncation indicator |
+| ChatGPT local-proxy model requests | 16 MiB | The proxy still rejects larger requests even if `model.max_request_bytes` is raised |
+
+Core has a 256-message send queue, a 128-event chat window, and a five-second socket write deadline. Queue overload or a slow consumer disconnects the stream to prevent use of an incomplete projection. Desktop automatic reconnect backs off from 500 ms to 30 seconds. Explicit message-size failures require user action instead of repeated reconnects.
+
+These desktop limits are not controlled by `[budget]`. History loading still materializes the complete history before encoding and does not provide paginated recovery. See the [Core API](../api/core.en.md#transport-and-sessions) for transport and oversized-result semantics. Model output, context, network retries, and Runtime subprocess budgets retain their own configuration.
+
 <a id="proxies"></a>
 ## Outbound network proxies
 

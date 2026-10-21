@@ -1,9 +1,11 @@
+export const MAX_RESPONSE_BYTES: number;
 export class CoreRpcError extends Error {
   code?: string | number;
   method?: string;
-  data?: { reason?: string; requestId?: string; retryable?: boolean; [key: string]: unknown };
+  data?: { reason?: string; requestId?: string; retryable?: boolean; delivery?: 'resultUnavailable'; [key: string]: unknown };
   reason?: string;
   requestId?: string;
+  delivery?: 'resultUnavailable';
   submissionUnknown: boolean;
 }
 export interface CoreSocket {
@@ -19,7 +21,7 @@ export class CoreClient {
   connect(): Promise<CoreClient['capabilities']>;
   request<T = unknown>(method: string, params?: object, options?: { onResult?: (result: T) => void; timeoutMs?: number }): Promise<T>;
   onNotification(listener: (method: string, params: any) => void): () => void;
-  onClose(listener: () => void): () => void;
+  onClose(listener: (failure: CoreRpcError) => void): () => void;
   close(): void;
 }
 

@@ -19,17 +19,17 @@ pub(super) struct ToolHost {
     id: String,
     identity: String,
     next: AtomicU64,
-    tx: mpsc::Sender<Value>,
+    tx: mpsc::Sender<Outbound>,
     stop: CancellationToken,
     pending: StdMutex<HashMap<String, PendingReply>>,
 }
 impl ToolHost {
     #[cfg(test)]
-    pub fn new(tx: mpsc::Sender<Value>, stop: CancellationToken) -> Arc<Self> {
+    pub fn new(tx: mpsc::Sender<Outbound>, stop: CancellationToken) -> Arc<Self> {
         Self::authenticated(tx, stop, "trusted-embedded-host".into())
     }
     pub fn authenticated(
-        tx: mpsc::Sender<Value>,
+        tx: mpsc::Sender<Outbound>,
         stop: CancellationToken,
         identity: String,
     ) -> Arc<Self> {
@@ -77,10 +77,13 @@ impl Drop for Pending<'_> {
     fn drop(&mut self) {
         if self.host.pending.lock().unwrap().remove(&self.id).is_some() {
             // Best effort only: a remote client may already have committed a side effect.
-            let _ = self.host.tx.try_send(areal_protocol::notification(
-                "areal/tool/cancelled",
-                json!({"requestId":self.id}),
-            ));
+            let _ = self
+                .host
+                .tx
+                .try_send(Outbound::Message(areal_protocol::notification(
+                    "areal/tool/cancelled",
+                    json!({"requestId":self.id}),
+                )));
         }
     }
 }
@@ -161,7 +164,9 @@ impl ToolHost {
         };
         if self
             .tx
-            .try_send(json!({"jsonrpc":"2.0","id":id,"method":method,"params":params}))
+            .try_send(Outbound::Message(
+                json!({"jsonrpc":"2.0","id":id,"method":method,"params":params}),
+            ))
             .is_err()
         {
             self.stop.cancel();

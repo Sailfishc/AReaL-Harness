@@ -147,6 +147,13 @@ function projectExecutionBlocked(lifecycle: Snapshot["lifecycle"], projectId: st
     && operation.targets.some(target => target.projectId === projectId && target.phase !== "completed" && target.phase !== "blocked"),
   ) ?? false;
 }
+type RestorationOwner = { projectId: string; threadId: string; connectionGeneration: number };
+type RestorationState = RestorationOwner & { pending: boolean; error: string };
+type RestorationAttempt = RestorationOwner & { operation: "connect" | "open"; pending: boolean; promise: Promise<void> };
+function sameRestorationOwner(left: RestorationOwner | undefined, right: RestorationOwner) {
+  return left?.projectId === right.projectId && left.threadId === right.threadId
+    && left.connectionGeneration === right.connectionGeneration;
+}
 function Usage({ thread }: { thread: Data }) {
   const turns = thread.turns ?? [];
   const known = turns.filter((t: Data) => t.usage);
@@ -225,7 +232,10 @@ function AppContent({ services }: { services: PlatformServices }) {
     snapshot.desktopCapabilities?.currentCommands, snapshot.lifecycle?.phase, snapshot.lifecycle?.message]);
   const [themeReady, setThemeReady] = useState(false);
   const [trajectoryAttention, setTrajectoryAttention] = useState(false);
-  const [restoration, setRestoration] = useState<{ projectId: string; pending: boolean; failed: boolean }>();
+  const [restoration, setRestoration] = useState<RestorationState>();
+  const restorationAttempt = React.useRef<RestorationAttempt | undefined>(undefined);
+  const [selectedProject, setSelectedProject] = useState<string>();
+  useEffect(() => () => { restorationAttempt.current = undefined; }, []);
   // 初始 IPC 读回可能晚于订阅事件；只接受本 GUI 连接中更新的投影。
   const setSnapshot = useCallback((next: Snapshot) => updateSnapshot(previous =>
     next.revision !== undefined && previous.revision !== undefined && next.revision < previous.revision ? previous : next
@@ -394,6 +404,14 @@ function AppContent({ services }: { services: PlatformServices }) {
   // Sidebar visibility must not change the owner of an explicitly opened resource.
   const project = noProject ? undefined : snapshot.projects.find((p) => p.id === projectId) ?? projects.find(p => !p.projectless);
   const thread = project?.state?.threads[threadId];
+  const restorationOwner: RestorationOwner = { projectId: project?.id ?? "", threadId,
+    connectionGeneration: project?.core?.connectionGeneration ?? 0 };
+  const selectedRestoration = React.useRef(restorationOwner);
+  selectedRestoration.current = restorationOwner;
+  const selectionReady = selectedProject === project?.id;
+  const currentRestoration = sameRestorationOwner(restoration, restorationOwner) ? restoration : undefined;
+  const restorationError = project?.observationErrors?.[threadId]?.message || currentRestoration?.error || "";
+  const restorationFailed = !!restorationError || !!(!project?.state?.connected && (project?.error || project?.state?.error));
   const activeConversation = React.useRef("");
   activeConversation.current = `${project?.id ?? ""}:${thread?.id ?? ""}`;
   const recordWorkspaceLocation = useCallback((next: { projectId: string; threadId: string }, replace = false) => {
@@ -537,6 +555,34 @@ function AppContent({ services }: { services: PlatformServices }) {
     (name: import("./services.js").CommandName, params: Data = {}) => call(services, name, params),
     [services],
   );
+  const restoreConversation = useCallback((owner: RestorationOwner, operation: "connect" | "open", options: { connectService?: boolean } = {}) => {
+    const previous = restorationAttempt.current;
+    if (sameRestorationOwner(previous, owner) && previous?.operation === operation && previous.pending) return previous.promise;
+    const attempt: RestorationAttempt = { ...owner, operation, pending: true, promise: Promise.resolve() };
+    restorationAttempt.current = attempt;
+    setRestoration({ ...owner, pending: true, error: "" });
+    const current = () => restorationAttempt.current === attempt && sameRestorationOwner(selectedRestoration.current, owner);
+    attempt.promise = (async () => {
+      try {
+        if (options.connectService) {
+          await resourceAction("connectService");
+          if (!current()) return;
+        }
+        if (operation === "connect") await resourceAction("connect", { projectId: owner.projectId });
+        else if (owner.threadId) {
+          await resourceAction("open", { projectId: owner.projectId, threadId: owner.threadId });
+          if (!current()) return;
+          await resourceAction("library", { operation: "readThread", projectId: owner.projectId, threadId: owner.threadId, read: true });
+        }
+        if (current()) setRestoration({ ...owner, pending: false, error: "" });
+      } catch (cause) {
+        if (current()) setRestoration({ ...owner, pending: false, error: (cause as Error).message });
+      } finally {
+        attempt.pending = false;
+      }
+    })();
+    return attempt.promise;
+  }, [resourceAction]);
   const onTrajectoryStatus = useCallback((status: TrajectoryStatus | null) => {
     setTrajectoryAttention(!status || status.state === "degraded" || status.state === "invalid");
   }, []);
@@ -563,11 +609,9 @@ function AppContent({ services }: { services: PlatformServices }) {
     void action("library", { operation: "readThread", projectId: project.id, threadId, read: true, completionId: selectedCompletion }).catch(() => {});
   }, [project?.id, project?.state?.connected, threadId, thread?.id, selectedCompletion, completionInterruptPending, settingsOpen, taskCenterOpen, action]);
   const reconnectService = async () => {
-    await resourceAction("connectService");
     if (project) {
-      await resourceAction("connect", { projectId: project.id });
-      if (threadId) await resourceAction("open", { projectId: project.id, threadId });
-    }
+      await restoreConversation(restorationOwner, project.state?.connected ? "open" : "connect", { connectService: true });
+    } else await resourceAction("connectService");
   };
   const runBackendAction = async (kind: BackendStatusAction) => {
     if (backendActionInFlight.current) return;
@@ -581,7 +625,7 @@ function AppContent({ services }: { services: PlatformServices }) {
         await resourceAction("serviceLifecycle", { operation: "update" });
       } else if (kind === "recover") {
         const result = await resourceAction("serviceLifecycle", { operation: "recover" });
-        if (result?.recovered) { await reconnectService(); setError(""); }
+        if (result?.recovered) await reconnectService();
       } else if (kind === "check") {
         await resourceAction("serviceLifecycle", { operation: "check" });
       } else {
@@ -620,12 +664,12 @@ function AppContent({ services }: { services: PlatformServices }) {
       setThreadId(id);
       if (matchMedia("(max-width: 640px)").matches) setSidebar(false);
       localStorage.setItem(`areal-gui:thread:${pid}`, id);
-      try {
-        await action("open", { projectId: pid, threadId: id });
-        await action("library", { operation: "readThread", projectId: pid, threadId: id, read: true });
-      } catch {}
+      const target = snapshot.projects.find(item => item.id === pid);
+      const owner = { projectId: pid, threadId: id, connectionGeneration: target?.core?.connectionGeneration ?? 0 };
+      selectedRestoration.current = owner;
+      await restoreConversation(owner, target?.state?.connected ? "open" : "connect");
     },
-    [action, recordWorkspaceLocation],
+    [snapshot.projects, restoreConversation, recordWorkspaceLocation],
   );
   const [mcpMentionsOpen, setMcpMentionsOpen] = useState(false);
   const mcpWorkspace = useMcpAppsWorkspace({ project, threadId, action: resourceAction,
@@ -642,28 +686,24 @@ function AppContent({ services }: { services: PlatformServices }) {
     } else void open(target.projectId, target.threadId);
   })), [services, open, requestNavigation, projectId]);
   useEffect(() => {
-    if (!project?.id || snapshot.connection?.state !== "ready") return;
-    let active = true;
-    setRestoration({ projectId: project.id, pending: true, failed: false });
+    setSelectedProject(project?.id);
+    if (!project?.id) return;
     setProjectId(project.id);
     localStorage.setItem("areal-gui:project", project.id);
     const remembered = localStorage.getItem(`areal-gui:thread:${project.id}`);
     setThreadId(remembered ?? "");
-    void action("connect", { projectId: project.id })
-      .then(() => {
-        if (active && remembered && localStorage.getItem(`areal-gui:thread:${project.id}`) === remembered)
-          return action("open", {
-            projectId: project.id,
-            threadId: remembered,
-          });
-      })
-      .then(() => { if (active) setRestoration({ projectId: project.id, pending: false, failed: false }); })
-      .catch(() => { if (active) setRestoration({ projectId: project.id, pending: false, failed: true }); });
-    return () => { active = false; };
-  }, [project?.id, snapshot.connection?.state, action]);
+  }, [project?.id]);
+  useEffect(() => {
+    if (!selectionReady || !project?.id || snapshot.connection?.state !== "ready") return;
+    const previous = restorationAttempt.current;
+    if (!project.state?.connected && previous?.projectId === project.id && previous?.threadId === threadId) return;
+    if (project.observationErrors?.[threadId]?.connectionGeneration === (project.core?.connectionGeneration ?? 0)) return;
+    void restoreConversation({ projectId: project.id, threadId, connectionGeneration: project.core?.connectionGeneration ?? 0 },
+      project.state?.connected ? "open" : "connect");
+  }, [selectionReady, project?.id, threadId, project?.state?.connected, project?.core?.connectionGeneration, snapshot.connection?.state, restoreConversation]);
   const startupReady = themeReady && snapshot.connection?.state !== "connecting" && (
     snapshot.connection?.state === "unavailable" || !project || (
-      restoration && restoration.projectId === project.id && !restoration.pending && (!threadId || !!thread || restoration.failed)
+      selectionReady && (restorationFailed || (currentRestoration && !currentRestoration.pending && (!threadId || !!thread)))
     )
   );
   const presented = React.useRef(false);
@@ -685,13 +725,8 @@ function AppContent({ services }: { services: PlatformServices }) {
   }, [startupReady, services]);
   const retryRestoration = async () => {
     if (!project) return;
-    const pid = project.id;
-    setError("");
-    setRestoration({ projectId: pid, pending: true, failed: false });
-    let failed = false;
-    try { await reconnectService(); }
-    catch (cause) { failed = true; setError((cause as Error).message); }
-    finally { setRestoration(current => current?.projectId === pid ? { projectId: pid, pending: false, failed } : current); }
+    await restoreConversation(restorationOwner, project.state?.connected ? "open" : "connect",
+      { connectService: snapshot.connection?.state !== "ready" });
   };
   const newTask = (pid = project?.id, record = true) => {
     if (!pid || snapshot.projects.find(p => p.id === pid)?.projectless) { leaveProject(record); return; }
@@ -1519,10 +1554,10 @@ function AppContent({ services }: { services: PlatformServices }) {
           <BackendStatusNotice summary={snapshot.serviceSummary} connection={snapshot.connection} update={snapshot.backendUpdate} lifecycle={snapshot.lifecycle}
             currentCommands={snapshot.desktopCapabilities?.currentCommands ?? project?.desktopCapabilities?.currentCommands}
             pending={backendActionPending} error={backendActionError} onAction={kind => void runBackendAction(kind)} />
-          {(error || project?.error || project?.state?.error) && (
+          {(error || restorationError || project?.error || project?.state?.error) && (
             <div className="error-banner" role="alert">
-              <span>{error || project?.error || project?.state?.error}</span>
-              {thread && restoration?.projectId === project?.id && restoration?.failed && (
+              <span>{error || restorationError || project?.error || project?.state?.error}</span>
+              {thread && restorationFailed && (
                 <button onClick={() => void retryRestoration()}>重试加载对话</button>
               )}
               <button aria-label="关闭提示" onClick={() => setError("")}>
@@ -1536,8 +1571,7 @@ function AppContent({ services }: { services: PlatformServices }) {
               Core 未连接。
               <button
                 onClick={() => {
-                  setError("");
-                  void action("connect", { projectId: project.id }).catch(() => {});
+                  void retryRestoration();
                 }}
               >
                 重新连接
@@ -1699,8 +1733,8 @@ function AppContent({ services }: { services: PlatformServices }) {
                     </>
                   ) : threadId ? (
                     <div className="settings-empty" role="status">
-                      <p>{restoration?.failed ? "暂时无法加载对话，请重试或切换对话。" : "正在加载对话…"}</p>
-                      {restoration?.failed && <Button variant="outline" size="sm" className="mt-3" onClick={() => void retryRestoration()}>重试加载对话</Button>}
+                      <p>{restorationFailed ? "暂时无法加载对话，请重试或切换对话。" : "正在加载对话…"}</p>
+                      {restorationFailed && <Button variant="outline" size="sm" className="mt-3" onClick={() => void retryRestoration()}>重试加载对话</Button>}
                     </div>
                   ) : (
                     <>

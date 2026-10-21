@@ -41,6 +41,8 @@ try {
     localStorage.setItem('areal-gui:project',project.id);
     localStorage.setItem(`areal-gui:thread:${project.id}`,threadId);
     window.recoverProject=()=>{fail=false;project.state.connected=true;project.error=null;snapshot.revision++;listener(structuredClone(snapshot));};
+    window.disconnectDesktop=()=>{delete project.state.threads[threadId];project.state.connected=false;snapshot.connection.state='unavailable';snapshot.revision++;listener(structuredClone(snapshot));};
+    window.recoverDesktop=()=>{project.state.connected=true;snapshot.connection.state='ready';snapshot.revision++;listener(structuredClone(snapshot));};
     window.fixture=()=>structuredClone(snapshot);
     window.arealDesktop={
       snapshot:async()=>structuredClone(snapshot),onProjection:callback=>{projectionListener=callback;listener=value=>callback({frame:{projection:1,stream:'diagnosis-fixture',sequence:++sequence,kind:'full',snapshot:value}});return()=>{};},requestProjection:requestId=>projectionListener({requestId,frame:{projection:1,stream:'diagnosis-fixture',sequence:++sequence,kind:'full',snapshot:structuredClone(snapshot)}}),
@@ -73,6 +75,14 @@ try {
   await page.screenshot({path:join(scratch,'02-project-recovered-history.png'),animations:'disabled'});
   checks.push('Project-only Core recovery restores the selected transcript and clears the matching error.');
   checks.push('Restoration observes history once and never replays a submission.');
+  await page.evaluate(()=>window.disconnectDesktop());
+  await page.getByText('RESTORED_HISTORY_SENTINEL',{exact:true}).waitFor({state:'hidden'});
+  await page.evaluate(()=>window.recoverDesktop());
+  await page.getByText('RESTORED_HISTORY_SENTINEL',{exact:true}).waitFor({timeout:5000});
+  assert.equal((await page.evaluate(()=>window.calls)).filter(call=>call.name==='open').length,2,'outer service recovery re-observes without a Core generation change');
+  assert.equal(await banner.count(),0);
+  checks.push('Desktop reconnect restores the selected history even when the Core connection generation is unchanged.');
+  await page.screenshot({path:join(scratch,'03-desktop-recovered-history.png'),animations:'disabled'});
   assert.deepEqual(errors,[]);passed=true;
 } finally {
   await browser?.close();

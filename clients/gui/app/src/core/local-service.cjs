@@ -109,9 +109,9 @@ async function readOriginalTurn(backend, target, threadId, turnId) {
     backend.hooks.environment(), project, join(backend.home, target.projectId, 'state'));
   if (descriptor.serviceId !== target.serviceId || descriptor.generation !== target.generation)
     throw Object.assign(new Error('原 Core 代际已变化，不能用新实例代替核查'), { code: 'CONFIRMATION_STALE' });
-  const { CoreClient } = await import('@areal/runtime-client/core');
+  const { CoreClient, MAX_RESPONSE_BYTES } = await import('@areal/runtime-client/core');
   const client = new CoreClient({ createSocket: () => new WebSocket(descriptor.endpoint,
-    { headers: { Authorization: `Bearer ${token}` }, followRedirects: false, maxPayload: 4 * 1024 * 1024 }) });
+    { headers: { Authorization: `Bearer ${token}` }, followRedirects: false, maxPayload: MAX_RESPONSE_BYTES }) });
   try {
     await client.connect();
     const { thread } = await client.request('thread/read', { threadId, includeTurns: true });

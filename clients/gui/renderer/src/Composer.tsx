@@ -132,7 +132,7 @@ export function Composer({
     if (hadQuestion.current && !questions.length) api.current?.focus();
     hadQuestion.current = questions.length > 0;
   }, [questions.length]);
-  const baseDisabled = !project.state?.connected || archived || busy || pending || !!unknown || !!reviewDraft.error;
+  const baseDisabled = !project.state?.connected || !!project.observationErrors?.[thread.id] || archived || busy || pending || !!unknown || !!reviewDraft.error;
   const queueEditor = useComposerQueueEdit({ project, threadId: thread.id, draftKey: key, action, readAction, api, draftFiles: attachmentDrafts,
     setText, setFiles, setGoalMode, annotationBlocked: annotationEditing || invalidAnnotation, inFlight: busy, setInFlight: active => markSending(key, active), uploadFiles: selected => uploadComposerFiles(action, project.id, thread.id, selected) });
   const editorDisabled = baseDisabled || queueEditor.busy || queueEditor.locked;
