@@ -98,6 +98,7 @@ impl Fixture {
             .engine
             .mcp_app_open(
                 "owner".into(),
+                None,
                 thread.id.clone(),
                 self.server.clone(),
                 self.generation,

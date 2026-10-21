@@ -2,6 +2,8 @@
 use super::*;
 #[path = "form_resources.rs"]
 mod form_resources;
+#[path = "page_tools.rs"]
+pub(crate) mod page_tools;
 use crate::model::ToolCall;
 use areal_protocol::{
     ToolOutcome, ToolStatus,
@@ -11,6 +13,10 @@ use sha2::{Digest, Sha256};
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Instance {
+    #[serde(default)]
+    tool_host_id: Option<String>,
+    #[serde(skip)]
+    page_tools_retired: bool,
     #[serde(default)]
     runtime_epoch: String,
     instance_id: String,
@@ -156,6 +162,7 @@ struct Subscription {
     instances: std::collections::BTreeSet<String>,
 }
 pub(crate) struct Manager {
+    page_tools: page_tools::Pages,
     pub(super) runtime_epoch: String,
     result_operations: std::sync::RwLock<BTreeMap<String, ResultOperation>>,
     result_changed: tokio::sync::Notify,
@@ -193,6 +200,7 @@ impl Manager {
             BTreeMap::new()
         };
         Ok(Self {
+            page_tools: Default::default(),
             runtime_epoch: uuid::Uuid::new_v4().to_string(),
             instances: std::sync::RwLock::new(instances),
             result_operations: Default::default(),
@@ -582,6 +590,7 @@ impl Engine {
     pub async fn mcp_app_open(
         self: &Arc<Self>,
         identity: String,
+        host: Option<Arc<dyn crate::tools::DynamicToolHost>>,
         thread_id: String,
         server_id: String,
         expected_generation: u64,
@@ -641,6 +650,9 @@ impl Engine {
                     "App belongs to a previous Core session; open a new instance",
                 ));
             }
+            if existing.tool_host_id.as_deref() != host.as_ref().map(|h| h.id()) {
+                return Err(invalid("App original Host mismatch"));
+            }
             if existing.request_digest != hash {
                 return Err(Error::Conflict);
             }
@@ -670,6 +682,8 @@ impl Engine {
                 invalid("App HTML resource missing, invalid MIME or budget exceeded")
             })?;
             let saved = Instance {
+                tool_host_id: host.as_ref().map(|h| h.id().to_owned()),
+                page_tools_retired: false,
                 runtime_epoch: self.desktop.mcp_apps.runtime_epoch.clone(),
                 instance_id: id(),
                 identity: identity.clone(),
@@ -1034,6 +1048,12 @@ impl Engine {
             .filter(|instance| instance.plugin == plugin)
             .cloned()
             .collect();
+        for instance in &closed {
+            self.desktop
+                .mcp_apps
+                .page_tools
+                .revoke_instance(&instance.instance_id);
+        }
         instances.retain(|_, instance| instance.plugin != plugin);
         let mut operations = self
             .desktop
@@ -1139,6 +1159,10 @@ impl Engine {
                 };
             }
         }
+        self.desktop
+            .mcp_apps
+            .page_tools
+            .revoke_instance(&instance_id);
         self.app_commit(instances, operations).await?;
         for owner in self.desktop.mcp_apps.calls.lock().await.values() {
             if owner.identity == identity
@@ -2234,6 +2258,7 @@ impl Engine {
     pub async fn mcp_app_open_from_result(
         self: &Arc<Self>,
         identity: String,
+        host: Option<Arc<dyn crate::tools::DynamicToolHost>>,
         input: OpenFromResult,
     ) -> Result<Value> {
         if identity.is_empty()
@@ -2262,7 +2287,8 @@ impl Engine {
             item_id: input.item_id.clone(),
         };
         let request_key = digest(&json!([identity, input.request_id]))?;
-        let request_digest = digest(&json!([identity, source]))?;
+        let tool_host_id = host.as_ref().map(|h| h.id().to_owned());
+        let request_digest = digest(&json!([identity, source, tool_host_id]))?;
         {
             let _guard = self.desktop.mcp_apps.mutation.lock().await;
             if let Some(record) = self
@@ -2285,7 +2311,7 @@ impl Engine {
         }
         let resolved = self.saved_result(&input).await;
         let source_key = match &resolved {
-            Ok(saved) => digest(&json!([identity, source, saved.snapshot_sha]))?,
+            Ok(saved) => digest(&json!([identity, source, saved.snapshot_sha, tool_host_id]))?,
             Err(_) => request_key.clone(),
         };
         let _guard = self.desktop.mcp_apps.mutation.lock().await;
@@ -2384,7 +2410,13 @@ impl Engine {
                 let work_key = source_key.clone();
                 tokio::spawn(async move {
                     if let Err(error) = engine
-                        .prepare_saved_result(identity, input, work_key.clone(), saved)
+                        .prepare_saved_result(
+                            identity,
+                            tool_host_id,
+                            input,
+                            work_key.clone(),
+                            saved,
+                        )
                         .await
                     {
                         engine
@@ -2462,6 +2494,7 @@ impl Engine {
     async fn prepare_saved_result(
         self: &Arc<Self>,
         identity: String,
+        tool_host_id: Option<String>,
         input: OpenFromResult,
         source_key: String,
         saved: SavedResult,
@@ -2504,6 +2537,8 @@ impl Engine {
             Ok(resource) => {
                 let instance_id = id();
                 let instance = Instance {
+                    tool_host_id,
+                    page_tools_retired: false,
                     runtime_epoch: self.desktop.mcp_apps.runtime_epoch.clone(),
                     instance_id: instance_id.clone(),
                     identity,

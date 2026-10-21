@@ -121,3 +121,107 @@ async fn saved_result_route_is_strict_and_requires_unscoped_manage() {
     server.await.unwrap().unwrap();
     engine.shutdown().await;
 }
+
+#[tokio::test]
+async fn page_tool_routes_are_public_and_require_manage_and_tools() {
+    let state = tempfile::tempdir().unwrap();
+    let model =
+        areal_engine::model::ChatModel::new("http://127.0.0.1:9".into(), "unused".into(), None)
+            .unwrap();
+    let engine = Engine::open(state.path(), Arc::new(model), Limits::default()).unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let stop = CancellationToken::new();
+    let auth = Authentication {
+        version: 1,
+        principals: vec![Principal {
+            id: "page-owner".into(),
+            token: "page-owner-token-12345678901234567890".into(),
+            permissions: [Permission::Observe, Permission::Manage].into(),
+            thread_ids: None,
+        }],
+    };
+    let server = tokio::spawn(areal_app_server::serve_authenticated(
+        listener,
+        engine.clone(),
+        stop.clone(),
+        Some(auth),
+    ));
+    let mut request = format!("ws://{address}").into_client_request().unwrap();
+    request.headers_mut().insert(
+        "Authorization",
+        "Bearer page-owner-token-12345678901234567890"
+            .parse()
+            .unwrap(),
+    );
+    let (mut socket, _) = tokio_tungstenite::connect_async(request).await.unwrap();
+    let mut methods = vec![
+        (
+            "initialize",
+            json!({"clientInfo":{"name":"page-tools-test","version":"1"}}),
+        ),
+        ("areal/capabilities", json!({})),
+    ];
+    for method in [
+        "areal/mcp/app/tools/register",
+        "areal/mcp/app/tools/revoke",
+        "areal/mcp/app/tools/claim",
+        "areal/mcp/app/tools/resolve",
+    ] {
+        methods.push((method, json!({})));
+    }
+    for (id, (method, params)) in methods.into_iter().enumerate() {
+        socket
+            .send(Message::Text(
+                json!({"id":id,"method":method,"params":params})
+                    .to_string()
+                    .into(),
+            ))
+            .await
+            .unwrap();
+        let response = loop {
+            let message = tokio::time::timeout(Duration::from_secs(10), socket.next())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            let value: Value = serde_json::from_str(message.to_text().unwrap()).unwrap();
+            if value["id"] == id {
+                break value;
+            }
+        };
+        if id == 0 {
+            assert!(response["result"].is_object());
+            socket
+                .send(Message::Text(
+                    json!({"method":"initialized"}).to_string().into(),
+                ))
+                .await
+                .unwrap();
+        } else if id == 1 {
+            for route in ["register", "revoke", "claim", "resolve"] {
+                assert!(
+                    response["result"]["methods"]
+                        .as_array()
+                        .unwrap()
+                        .contains(&json!(format!("areal/mcp/app/tools/{route}"))),
+                    "page-tool route absent from public capabilities: {route}"
+                );
+            }
+            assert!(
+                !response["result"]["methods"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&json!("areal/mcp/app/tools/reject"))
+            );
+        } else {
+            assert_eq!(
+                response["error"]["code"], -32003,
+                "Manage without Tools must not operate a page executor: {response}"
+            );
+        }
+    }
+    stop.cancel();
+    server.await.unwrap().unwrap();
+    engine.shutdown().await;
+}

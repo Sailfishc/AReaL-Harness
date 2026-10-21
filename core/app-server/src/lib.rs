@@ -476,9 +476,11 @@ async fn connection(
             || method.starts_with("areal/marketplace/")
             || codex_plugins::METHODS.contains(&method)
             || plugin_runtime::METHODS.contains(&method);
-        if (project_permission
-            && (!conn.principal.allows(auth::Permission::Manage)
-                || conn.principal.thread_ids.is_some()))
+        if (method.starts_with("areal/mcp/app/tools/")
+            && !conn.principal.allows(auth::Permission::Tools))
+            || (project_permission
+                && (!conn.principal.allows(auth::Permission::Manage)
+                    || conn.principal.thread_ids.is_some()))
             || !conn.principal.allows(auth::permission(method))
             || ["threadId", "parentThreadId", "sourceThreadId"]
                 .iter()
@@ -599,6 +601,7 @@ async fn connection(
             };
             let method = method.to_owned();
             let identity = conn.principal.id.clone();
+            let tool_host = conn.tool_host.clone();
             let principal = conn.principal.clone();
             let configuration = conn.configuration.clone();
             let engine = engine.clone();
@@ -618,7 +621,8 @@ async fn connection(
                     } else if method == "turn/steer" {
                         steer_request(&engine, &identity, params).await
                     } else if plugin_runtime::METHODS.contains(&method.as_str()) {
-                        plugin_runtime::dispatch(&engine, &identity, &method, params).await
+                        plugin_runtime::dispatch(&engine, &identity, tool_host, &method, params)
+                            .await
                     } else if codex_plugins::METHODS.contains(&method.as_str()) {
                         codex_plugins::dispatch(&engine, &identity, &method, params).await
                     } else if delegations::METHODS.contains(&method.as_str()) {
@@ -996,7 +1000,25 @@ impl Connection {
             return self.conversation_list(engine, params).await;
         }
         if plugin_runtime::METHODS.contains(&method) {
-            return plugin_runtime::dispatch(engine, &self.principal.id, method, params).await;
+            if method.starts_with("areal/mcp/app/tools/")
+                && (!self.principal.allows(auth::Permission::Manage)
+                    || !self.principal.allows(auth::Permission::Tools)
+                    || self.principal.thread_ids.is_some())
+            {
+                return Err(RpcError {
+                    code: -32003,
+                    message: "unrestricted Manage and Tools permissions required".into(),
+                    data: None,
+                });
+            }
+            return plugin_runtime::dispatch(
+                engine,
+                &self.principal.id,
+                self.tool_host.clone(),
+                method,
+                params,
+            )
+            .await;
         }
         if codex_plugins::METHODS.contains(&method) {
             return codex_plugins::dispatch(engine, &self.principal.id, method, params).await;
@@ -1128,11 +1150,16 @@ impl Connection {
                         "areal/workgroup/artifact",
                     ]);
                 }
+                let mut notifications = NOTIFICATIONS.to_vec();
+                notifications.extend([
+                    "areal/mcp/app/tools/pending",
+                    "areal/mcp/app/tools/cancelled",
+                ]);
                 Ok(json!({"apiVersion": API_VERSION, "methods": methods,
-                    "notifications": NOTIFICATIONS, "serverRequests":["item/tool/call","areal/task/prepare"],
+                    "notifications": notifications, "serverRequests":["item/tool/call","areal/task/prepare"],
                     "browserToolBundles":if can_attach_browser {json!([{"bundleId":areal_protocol::desktop::BROWSER_V1_BUNDLE,
                         "definition":areal_protocol::desktop::browser_v1_tool()}])} else {json!([])},
-                    "features":{"conversationDerivationV1":json!({"preview":false,"methods":["areal/thread/fork","areal/side/start","areal/conversation/list","areal/conversation/history","areal/conversation/unarchive","areal/side/context/read"],"limits":engine.conversation_derivation_limits(),"forkBoundaries":["after","before"],"workspaceModes":["sharedCurrent"],"sideWorkspaceAccess":if engine.side_workspace_read_available() {json!(["none","readOnly"])} else {json!(["none"])},"historyBytes":engine.fork_snapshot_limit()}),"subscriptionRemoval":true,"atomicResume":true,"atomicObserve":true,"atomicObserveOwnership":true,"browserToolAttachment":can_attach_browser,
+                    "features":{"mcpPageToolsV1":{"version":1,"kinds":["getSelection","applyPatch"]},"conversationDerivationV1":json!({"preview":false,"methods":["areal/thread/fork","areal/side/start","areal/conversation/list","areal/conversation/history","areal/conversation/unarchive","areal/side/context/read"],"limits":engine.conversation_derivation_limits(),"forkBoundaries":["after","before"],"workspaceModes":["sharedCurrent"],"sideWorkspaceAccess":if engine.side_workspace_read_available() {json!(["none","readOnly"])} else {json!(["none"])},"historyBytes":engine.fork_snapshot_limit()}),"subscriptionRemoval":true,"atomicResume":true,"atomicObserve":true,"atomicObserveOwnership":true,"browserToolAttachment":can_attach_browser,
                         "ordinaryTurnSubmit":true,"editLastMessage":true,"turnStartAdmissionGuard":true,"turnEnqueueAdmissionGuard":true,"turnInterruptAdmissionGuard":true,"threadStartAdmissionGuard":true,"taskPauseRunGuard":true,"taskModes":true,"taskRunHistory":true,"taskChannels":true,"asyncQuestions":true,"headlessInteractions":true,"goals":true,"dynamicTools":true,"mediaOutput":true,"durableSubmissionDeduplication":true,"profiles":true,"skills":true,"plans":true,"interactions":true,"queue":true,"providerConfiguration":true,"modelReset":true,"toolMedia":true,"blobUpload":true},
                     "limits":{"frameBytes":MAX_FRAME_BYTES,"subscriptions":128,"sendQueue":256,"threadEventWindow":128},
                     "runtime":engine.runtime_capabilities()}))

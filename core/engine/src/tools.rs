@@ -294,6 +294,7 @@ mod file_before;
 mod images;
 mod navigation;
 mod output;
+mod page;
 mod plugin_execution;
 pub mod plugins;
 pub(crate) mod registry;
@@ -986,6 +987,15 @@ impl Engine {
             content_items: None,
             call_id: call.id.clone(),
             execution: Box::new(ToolExecution {
+                page: entry.as_ref().ok().and_then(|t| match &t.backend {
+                    Backend::Page(p) => Some(areal_protocol::plugin_runtime::PageExecution {
+                        binding: p.binding.clone(),
+                        dispatch: areal_protocol::plugin_runtime::PageDispatch::Pending {
+                            arguments_digest: None,
+                        },
+                    }),
+                    _ => None,
+                }),
                 interactive_result: None,
                 result_snapshot: None,
                 file_before: None,
@@ -1001,6 +1011,7 @@ impl Engine {
                             Backend::Core => "core",
                             Backend::Command(_) => "command",
                             Backend::Client => "client",
+                            Backend::Page(_) => "page",
                             Backend::Mcp(_) => "mcp",
                             Backend::Plugin(_) => "plugin",
                         }
@@ -1070,7 +1081,7 @@ impl Engine {
         };
         let invocation_ms = invocation_started.elapsed().as_secs_f64() * 1000.0;
         let projection_started = std::time::Instant::now();
-        let (outcome, success, mut result) = match result {
+        let (mut outcome, mut success, mut result) = match result {
             Ok((success, value)) => (
                 if success {
                     ToolOutcome::Succeeded
@@ -1096,6 +1107,26 @@ impl Engine {
                 (outcome, false, json!({"error":error}))
             }
         };
+        {
+            let state = cell.state.lock().await;
+            if let Some(Item::DynamicToolCall {
+                execution,
+                success: saved_success,
+                ..
+            }) = state
+                .thread
+                .turns
+                .last()
+                .unwrap()
+                .items
+                .iter()
+                .find(|i| i.id() == item_id)
+                && execution.page.as_ref().is_some_and(|p| p.is_terminal())
+            {
+                outcome = execution.outcome.clone();
+                success = saved_success == &Some(true);
+            }
+        }
         if !success {
             tracing::Span::current().record("otel.status_code", "ERROR");
             tracing::Span::current().record(
@@ -1277,20 +1308,23 @@ impl Engine {
             ..
         } = item
         {
-            *status = if success {
-                ToolStatus::Completed
-            } else {
-                ToolStatus::Failed
-            };
-            *saved_success = Some(success);
-            *content_items = Some(
-                custom_content.unwrap_or_else(|| vec![json!({"type":"inputText","text":result})]),
-            );
-            execution.interactive_result =
-                interactive_result.filter(|_| execution.backend.as_deref() == Some("mcp"));
-            execution.outcome = outcome;
-            execution.result_snapshot = prepared.snapshot;
-            execution.output_projection = Some(prepared.metrics);
+            if !execution.page.as_ref().is_some_and(|p| p.is_terminal()) {
+                *status = if success {
+                    ToolStatus::Completed
+                } else {
+                    ToolStatus::Failed
+                };
+                *saved_success = Some(success);
+                *content_items = Some(
+                    custom_content
+                        .unwrap_or_else(|| vec![json!({"type":"inputText","text":result})]),
+                );
+                execution.interactive_result =
+                    interactive_result.filter(|_| execution.backend.as_deref() == Some("mcp"));
+                execution.outcome = outcome;
+                execution.result_snapshot = prepared.snapshot;
+                execution.output_projection = Some(prepared.metrics);
+            }
             execution.duration_ms = Some(started.elapsed().as_millis() as u64);
         }
         let bytes = serde_json::to_vec(item)?.len();

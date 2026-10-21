@@ -83,6 +83,7 @@ async fn mcp_only_discovery_trust_and_revocation() {
     assert!(
         e.mcp_app_open(
             "owner".into(),
+            None,
             thread.id.clone(),
             server.clone(),
             generation + 1,
@@ -99,6 +100,7 @@ async fn mcp_only_discovery_trust_and_revocation() {
     let app = e
         .mcp_app_open(
             "owner".into(),
+            None,
             thread.id.clone(),
             server.clone(),
             generation,
@@ -696,6 +698,7 @@ async fn app_file_receipt_and_close_context_race() {
     let app = e
         .mcp_app_open(
             "owner".into(),
+            None,
             thread.id.clone(),
             server.clone(),
             generation,
@@ -764,6 +767,7 @@ async fn app_file_receipt_and_close_context_race() {
         tokio::spawn(async move {
             e.mcp_app_open(
                 "owner".into(),
+                None,
                 thread,
                 server,
                 generation,
@@ -1149,6 +1153,7 @@ async fn explicit_profile_entrypoint_does_not_expand_model_or_app_visibility() {
     let app = e
         .mcp_app_open(
             "owner".into(),
+            None,
             thread.id.clone(),
             server.clone(),
             generation,
@@ -1188,6 +1193,7 @@ async fn explicit_profile_entrypoint_does_not_expand_model_or_app_visibility() {
     assert!(
         e.mcp_app_open(
             "owner".into(),
+            None,
             restricted.id,
             server,
             generation,
@@ -1315,6 +1321,7 @@ async fn explicit_retry_after_optional_oauth_keeps_old_app_owner() {
     let app = e
         .mcp_app_open(
             "owner".into(),
+            None,
             thread.id.clone(),
             server,
             generation,
@@ -1465,6 +1472,7 @@ async fn mrtr_app_resource_and_tool_share_authoritative_forms() {
         tokio::spawn(async move {
             e.mcp_app_open(
                 "owner".into(),
+                None,
                 thread,
                 server,
                 generation,
@@ -2198,7 +2206,7 @@ impl SavedResultFixture {
         input: &areal_protocol::plugin_runtime::OpenFromResult,
     ) -> serde_json::Value {
         self.engine
-            .mcp_app_open_from_result("owner".into(), input.clone())
+            .mcp_app_open_from_result("owner".into(), None, input.clone())
             .await
             .unwrap()
     }
@@ -2268,7 +2276,7 @@ async fn saved_result_exact_identity_reuses_without_business_replay() {
     assert!(
         fixture
             .engine
-            .mcp_app_open_from_result("owner".into(), conflicting)
+            .mcp_app_open_from_result("owner".into(), None, conflicting)
             .await
             .is_err()
     );
@@ -2282,7 +2290,7 @@ async fn saved_result_exact_identity_reuses_without_business_replay() {
     assert!(
         fixture
             .engine
-            .mcp_app_open_from_result("owner".into(), other_thread)
+            .mcp_app_open_from_result("owner".into(), None, other_thread)
             .await
             .is_err(),
         "one result requestId cannot change its source Thread"
@@ -2504,7 +2512,7 @@ async fn saved_result_failed_corrupt_disabled_updated_and_restarted_sources_are_
     )
     .unwrap();
     assert_eq!(
-        next.mcp_app_open_from_result("owner".into(), input.clone())
+        next.mcp_app_open_from_result("owner".into(), None, input.clone())
             .await
             .unwrap(),
         json!({"status":"unavailable","reason":"staleSourceEpoch"})
@@ -2516,7 +2524,7 @@ async fn saved_result_failed_corrupt_disabled_updated_and_restarted_sources_are_
         .unwrap()
         .id;
     assert_eq!(
-        next.mcp_app_open_from_result("owner".into(), changed_source)
+        next.mcp_app_open_from_result("owner".into(), None, changed_source)
             .await
             .unwrap(),
         json!({"status":"unavailable","reason":"staleSourceEpoch"})
@@ -2587,7 +2595,7 @@ async fn saved_result_old_snapshot_and_recovered_non_success_remain_readable() {
         input.request_id = format!("result-v1.{epoch}.{}", uuid::Uuid::new_v4());
         assert_eq!(
             engine
-                .mcp_app_open_from_result("owner".into(), input)
+                .mcp_app_open_from_result("owner".into(), None, input)
                 .await
                 .unwrap(),
             json!({"status":"unavailable","reason":"notSuccessful"})
@@ -2639,7 +2647,7 @@ async fn saved_result_old_snapshot_and_recovered_non_success_remain_readable() {
     input.request_id = format!("result-v1.{epoch}.{}", uuid::Uuid::new_v4());
     assert_eq!(
         engine
-            .mcp_app_open_from_result("owner".into(), input)
+            .mcp_app_open_from_result("owner".into(), None, input)
             .await
             .unwrap(),
         json!({"status":"unavailable","reason":"missingProvenance"})
@@ -2652,4 +2660,412 @@ async fn saved_result_old_snapshot_and_recovered_non_success_remain_readable() {
         1
     );
     engine.shutdown().await;
+}
+
+struct PageModel;
+#[async_trait]
+impl Model for PageModel {
+    fn name(&self) -> &str {
+        "page-tools-fixture"
+    }
+    async fn stream(&self, _: Vec<Message>) -> anyhow::Result<ModelStream> {
+        unreachable!()
+    }
+    async fn chat(
+        &self,
+        messages: Vec<Message>,
+        tools: Vec<serde_json::Value>,
+    ) -> anyhow::Result<ModelStream> {
+        let event = if messages.last().is_some_and(|m| m.role == "tool") {
+            ModelEvent::text("page complete")
+        } else {
+            let tool = tools
+                .iter()
+                .find(|t| {
+                    t["function"]["name"]
+                        .as_str()
+                        .is_some_and(|s| s.ends_with("_apply_patch"))
+                })
+                .expect("ordinary model inventory must contain the registered page tool");
+            ModelEvent::ToolCall(areal_engine::model::ToolCall {
+                id: "page-call".into(),
+                name: tool["function"]["name"].as_str().unwrap().into(),
+                arguments:
+                    json!({"expectedDocumentRevision":0,"patch":{"from":0,"to":0,"insert":"x"}})
+                        .to_string(),
+            })
+        };
+        Ok(Box::pin(futures_util::stream::iter([Ok(event)])))
+    }
+}
+struct PageHost {
+    id: String,
+    closed: std::sync::atomic::AtomicBool,
+    notices: tokio::sync::mpsc::Sender<areal_protocol::plugin_runtime::PageToolNotice>,
+}
+#[async_trait]
+impl areal_engine::tools::DynamicToolHost for PageHost {
+    fn id(&self) -> &str {
+        &self.id
+    }
+    fn identity(&self) -> &str {
+        "owner"
+    }
+    fn is_closed(&self) -> bool {
+        self.closed.load(std::sync::atomic::Ordering::SeqCst)
+    }
+    async fn call(
+        &self,
+        _: serde_json::Value,
+        _: tokio_util::sync::CancellationToken,
+    ) -> anyhow::Result<areal_protocol::DynamicToolResponse> {
+        anyhow::bail!("page tools must not use generic dynamic requests")
+    }
+    async fn page_tool_notice(
+        &self,
+        notice: areal_protocol::plugin_runtime::PageToolNotice,
+    ) -> anyhow::Result<()> {
+        self.notices.try_send(notice)?;
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn page_claim_is_single_use_and_terminal_receipt_survives_finalization_and_restart() {
+    for mode in [
+        "normal",
+        "feedback",
+        "postFailure",
+        "postCancel",
+        "pendingCancel",
+        "claimedCancel",
+        "revoked",
+        "hostLost",
+    ] {
+        page_lifecycle_case(mode).await;
+    }
+}
+async fn page_lifecycle_case(mode: &str) {
+    use areal_protocol::plugin_runtime::*;
+    let workspace = tempfile::tempdir().unwrap();
+    let state = tempfile::tempdir().unwrap();
+    write(
+        workspace.path(),
+        ".agents/plugins/marketplace.json",
+        r#"{"name":"local","plugins":[{"name":"sample","source":"./pkg"}]}"#,
+    );
+    write(
+        workspace.path(),
+        "pkg/.codex-plugin/plugin.json",
+        &json!({"name":"sample","hooks":{"hooks":{"PostToolUse":[{"matcher":"app_.*","hooks":[{"type":"mcp_tool","server":"fixture","tool":"app","input":{}}]}]}}}).to_string(),
+    );
+    write(
+        workspace.path(),
+        "pkg/server.py",
+        &include_str!("../../mcp/tests/substrate.py").replace("import sys,json,os", "import sys,json,os,time").replace(" elif m==\"tools/call\":out=", " elif m==\"tools/call\" and os.environ.get(\"PAGE_MODE\")==\"postFailure\": os._exit(0)\n elif m==\"tools/call\" and os.environ.get(\"PAGE_MODE\")==\"postCancel\":\n  open(os.environ[\"MARKER\"],\"w\").write(\"entered\");time.sleep(5);out={\"content\":[]}\n elif m==\"tools/call\":out="),
+    );
+    write(workspace.path(), "pkg/.mcp.json", &json!({"mcpServers":{"fixture":{"command":"python3","args":["server.py"],"env":{"LITERAL":"{\"continue\":false,\"stopReason\":\"page-feedback\"}","PAGE_MODE":mode,"MARKER":workspace.path().join("hook-entered")}}}}).to_string());
+    let engine = Engine::open(state.path(), Arc::new(PageModel), Limits::default()).unwrap();
+    let store = Arc::new(
+        Store::open(
+            workspace.path().join("plugins"),
+            workspace.path().into(),
+            None,
+        )
+        .unwrap(),
+    );
+    engine.install_plugin_store(store.clone()).unwrap();
+    let package = store.read("sample@local").unwrap();
+    engine
+        .plugin_install(
+            package.id.clone(),
+            "user".into(),
+            package.revision,
+            package.source,
+            package.source_digest,
+        )
+        .await
+        .unwrap();
+    let package = store.read(&package.id).unwrap();
+    engine
+        .plugin_connection(package.id, package.installed_digest.unwrap(), true)
+        .await
+        .unwrap();
+    if matches!(mode, "feedback" | "postFailure" | "postCancel") {
+        let hook = engine.plugin_hooks_list().await.unwrap()["data"][0].clone();
+        engine.plugin_hooks_configure(serde_json::from_value(json!({"requestId":"trust-page-fixture","id":"sample@local","expectedDigest":hook["installedDigest"],"definitionDigest":hook["definitionDigest"],"enabled":true,"trusted":true})).unwrap()).await.unwrap();
+    }
+    engine
+        .set_permissions(
+            serde_json::from_value(json!({"mode":"YOLO"})).unwrap(),
+            None,
+        )
+        .unwrap();
+    let thread = engine
+        .create(workspace.path().to_str().unwrap().into())
+        .await
+        .unwrap()
+        .id;
+    let apps = engine.mcp_apps_list(None).await.unwrap();
+    let server = apps["data"][0]["serverId"].as_str().unwrap().to_owned();
+    let generation = apps["data"][0]["generation"].as_u64().unwrap();
+    let (tx, mut notices) = tokio::sync::mpsc::channel(8);
+    let host = Arc::new(PageHost {
+        id: "original-host".into(),
+        closed: Default::default(),
+        notices: tx.clone(),
+    });
+    let other = Arc::new(PageHost {
+        id: "sibling-host".into(),
+        closed: Default::default(),
+        notices: tx,
+    });
+    let app = engine
+        .mcp_app_open(
+            "owner".into(),
+            Some(host.clone()),
+            thread.clone(),
+            server.clone(),
+            generation,
+            "app".into(),
+            None,
+            "open-page".into(),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    assert!(
+        engine
+            .mcp_app_open(
+                "owner".into(),
+                Some(other.clone()),
+                thread.clone(),
+                server,
+                generation,
+                "app".into(),
+                None,
+                "open-page".into(),
+                None,
+                None
+            )
+            .await
+            .is_err()
+    );
+    let declaration = PageDeclaration {
+        version: 1,
+        document_id: "00000000-0000-4000-8000-000000000001".into(),
+        tools: vec![PageToolKind::GetSelection, PageToolKind::ApplyPatch],
+    };
+    let input = PageRegister {
+        thread_id: thread.clone(),
+        instance_id: app["instanceId"].as_str().unwrap().into(),
+        generation,
+        owner_id: "00000000-0000-4000-8000-000000000002".into(),
+        declaration,
+    };
+    assert!(
+        engine
+            .mcp_page_tools_register(other.clone(), input.clone())
+            .await
+            .is_err()
+    );
+    let registration = engine
+        .mcp_page_tools_register(host.clone(), input.clone())
+        .await
+        .unwrap();
+    assert_eq!(
+        registration,
+        engine
+            .mcp_page_tools_register(host.clone(), input.clone())
+            .await
+            .unwrap()
+    );
+    let mut changed = input.clone();
+    changed.declaration.document_id = "00000000-0000-4000-8000-000000000003".into();
+    assert!(
+        engine
+            .mcp_page_tools_register(host.clone(), changed)
+            .await
+            .is_err()
+    );
+    engine
+        .start(&thread, vec![areal_protocol::Input::text("edit this page")])
+        .await
+        .unwrap();
+    let notice = tokio::time::timeout(std::time::Duration::from_secs(10), notices.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    let coordinates = match notice {
+        PageToolNotice::Pending(c) => c,
+        _ => panic!("expected pending"),
+    };
+    if matches!(mode, "pendingCancel" | "revoked") {
+        if mode == "revoked" {
+            engine
+                .mcp_page_tools_revoke(
+                    host.clone(),
+                    PageRevoke {
+                        thread_id: thread.clone(),
+                        instance_id: input.instance_id.clone(),
+                        generation,
+                        registration_id: coordinates.registration_id.clone(),
+                        owner_id: input.owner_id.clone(),
+                    },
+                )
+                .await
+                .unwrap();
+            assert!(
+                engine
+                    .mcp_page_tools_register(host.clone(), input)
+                    .await
+                    .is_err()
+            );
+        } else {
+            engine
+                .interrupt(&thread, &coordinates.turn_id)
+                .await
+                .unwrap();
+        }
+        let finished = engine.wait(&thread).await.unwrap();
+        let page = page_terminal(&finished);
+        assert_eq!(page["outcome"], "cancelled", "{mode}: {page}");
+        assert_eq!(page["page"]["dispatch"]["claimId"], serde_json::Value::Null);
+        assert_eq!(
+            engine
+                .mcp_page_tools_claim(host, coordinates)
+                .await
+                .unwrap()["status"],
+            "notGranted"
+        );
+        engine.shutdown().await;
+        return;
+    }
+    assert!(
+        engine
+            .mcp_page_tools_claim(other.clone(), coordinates.clone())
+            .await
+            .is_err()
+    );
+    let grant = engine
+        .mcp_page_tools_claim(host.clone(), coordinates.clone())
+        .await
+        .unwrap();
+    assert_eq!(grant["status"], "granted");
+    let durable_claim = serde_json::to_value(engine.read(&thread, true).await.unwrap()).unwrap();
+    assert!(durable_claim.to_string().contains("claimed"));
+    assert_eq!(
+        engine
+            .mcp_page_tools_claim(host.clone(), coordinates.clone())
+            .await
+            .unwrap()["status"],
+        "notGranted"
+    );
+    let resolve: PageResolve = serde_json::from_value(json!({"threadId":coordinates.thread_id,"turnId":coordinates.turn_id,"callId":coordinates.call_id,"registrationId":coordinates.registration_id,"ownerId":coordinates.owner_id,"schemaDigest":coordinates.schema_digest,"claimId":grant["claimId"],"reply":{"status":"completed","result":{"kind":"applied","documentId":input.declaration.document_id,"previousDocumentRevision":0,"documentRevision":1,"from":0,"to":0,"insertedLength":1,"dirty":true}}})).unwrap();
+    assert!(
+        engine
+            .mcp_page_tools_resolve(other, resolve.clone())
+            .await
+            .is_err()
+    );
+    if matches!(mode, "claimedCancel" | "hostLost") {
+        if mode == "hostLost" {
+            host.closed.store(true, std::sync::atomic::Ordering::SeqCst);
+        } else {
+            engine
+                .interrupt(&thread, &coordinates.turn_id)
+                .await
+                .unwrap();
+        }
+        let finished = engine.wait(&thread).await.unwrap();
+        let page = page_terminal(&finished);
+        assert_eq!(page["outcome"], "unknown", "{mode}: {page}");
+        assert!(engine.mcp_page_tools_resolve(host, resolve).await.is_err());
+        assert!(
+            engine
+                .start(
+                    &thread,
+                    vec![areal_protocol::Input::text("must not replay")]
+                )
+                .await
+                .is_err()
+        );
+        engine.shutdown().await;
+        return;
+    }
+    assert_eq!(
+        engine
+            .mcp_page_tools_resolve(host.clone(), resolve.clone())
+            .await
+            .unwrap(),
+        json!({"status":"accepted"})
+    );
+    let accepted = engine.read(&thread, true).await.unwrap();
+    let expected = page_terminal(&accepted);
+    if mode == "postCancel" {
+        tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            while !workspace.path().join("hook-entered").exists() {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        engine
+            .interrupt(&thread, &coordinates.turn_id)
+            .await
+            .unwrap();
+    }
+    let finished = engine.wait(&thread).await.unwrap();
+    assert_eq!(page_terminal(&finished), expected, "{mode}");
+    if mode == "feedback" {
+        assert!(
+            serde_json::to_value(&finished)
+                .unwrap()
+                .to_string()
+                .contains("page-feedback")
+        );
+    }
+    if matches!(mode, "postFailure" | "postCancel") {
+        assert!(
+            finished
+                .desktop
+                .as_ref()
+                .unwrap()
+                .hook_runs
+                .iter()
+                .any(|h| h.event == "PostToolUse" && h.outcome == "unknown"),
+            "{mode} must exercise a failed post hook"
+        );
+    }
+    assert_eq!(
+        engine
+            .mcp_page_tools_resolve(host.clone(), resolve.clone())
+            .await
+            .unwrap(),
+        json!({"status":"accepted"})
+    );
+    let mut conflicting = resolve;
+    conflicting.reply = PageReply::Unknown;
+    assert!(
+        engine
+            .mcp_page_tools_resolve(host, conflicting)
+            .await
+            .is_err()
+    );
+    engine.shutdown().await;
+    drop(engine);
+    let reopened = Engine::open(state.path(), Arc::new(ModelFixture), Limits::default()).unwrap();
+    assert_eq!(
+        page_terminal(&reopened.read(&thread, true).await.unwrap()),
+        expected
+    );
+    reopened.shutdown().await;
+}
+
+fn page_terminal(thread: &areal_protocol::Thread) -> serde_json::Value {
+    thread.turns.last().unwrap().items.iter().find_map(|item| match item {
+        areal_protocol::Item::DynamicToolCall { execution, content_items, success, .. } if execution.page.is_some() => Some(json!({"page":execution.page,"outcome":execution.outcome,"snapshot":execution.result_snapshot,"content":content_items,"success":success})),
+        _ => None,
+    }).unwrap()
 }
