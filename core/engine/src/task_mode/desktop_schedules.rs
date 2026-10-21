@@ -253,36 +253,8 @@ impl Engine {
             // A trigger and ifIdle drain share admission: either the queued Run is
             // visible to the safety check or drain prevents its creation.
             let _admission = self.desktop.lifecycle.gate.lock().await;
-            if !task.paused
-                && !task.cancelled
-                && self.accepting_work()
-                && task.next_run_at.is_some_and(|at| at <= now())
-            {
-                self.edit_task(task_id, |t| {
-                    if t.paused || t.cancelled {
-                        return;
-                    }
-                    let Some(at) = t.next_run_at.filter(|at| *at <= now()) else {
-                        return;
-                    };
-                    let busy = t.runs.iter().any(|r| !r.status.terminal());
-                    if !busy && host.is_none() {
-                        return;
-                    }
-                    let interval = t.schedule.as_ref().and_then(|s| s.interval_seconds);
-                    let count = interval.map_or(1, |n| ((now() - at) / n as i64 + 1) as u64);
-                    t.next_run_at = interval
-                        .map(|n| at.saturating_add((count as i64).saturating_mul(n as i64)));
-                    if busy {
-                        t.skipped_runs = t.skipped_runs.saturating_add(count);
-                        t.last_skipped_at = Some(at);
-                    } else {
-                        let mut admitted = new_run(None, at);
-                        admitted.objective = Some(t.objective.clone());
-                        t.runs.push(admitted);
-                    }
-                })
-                .await?;
+            if self.accepting_work() {
+                self.admit_schedule_due(task_id, host.is_some(), self.schedule_now()).await?;
             }
         }
         let task = self.task_read(task_id).await?;

@@ -328,53 +328,13 @@ impl Engine {
             }
         }
         if legacy_schedule {
-            self.edit_task(task_id, |task| {
-                if task.paused || task.cancelled {
-                    return;
-                }
-                let Some(at) = task.next_run_at.filter(|at| *at <= now()) else {
-                    return;
-                };
-                let interval = task.schedule.as_ref().and_then(|s| s.interval_seconds);
-                let count = interval.map_or(1, |n| ((now() - at) / n as i64 + 1) as u64);
-                task.next_run_at =
-                    interval.map(|n| at.saturating_add((count as i64).saturating_mul(n as i64)));
-                task.skipped_runs = task.skipped_runs.saturating_add(count);
-                task.last_skipped_at = Some(at);
-            })
-            .await?;
+            let _admission = self.desktop.lifecycle.gate.lock().await;
+            if self.accepting_work() { self.admit_schedule_due(task_id, false, self.schedule_now()).await?; }
             return Ok(());
         }
         let task = self.task_read(task_id).await?;
         if task.cancelled || task.paused || !self.accepting_work() {
             return Ok(());
-        }
-        if task.next_run_at.is_some_and(|at| at <= now()) {
-            self.edit_task(task_id, |task| {
-                // 修改计划或暂停可能发生在上次读取之后，必须在同一状态锁下重新判断。
-                if task.paused || task.cancelled {
-                    return;
-                }
-                let Some(at) = task.next_run_at.filter(|at| *at <= now()) else {
-                    return;
-                };
-                let busy = task.runs.last().is_some_and(|r| !r.status.terminal());
-                task.next_run_at =
-                    task.schedule
-                        .as_ref()
-                        .and_then(|s| s.interval_seconds)
-                        .map(|interval| {
-                            let interval = interval as i64;
-                            at.saturating_add(
-                                ((now() - at) / interval + 1).saturating_mul(interval),
-                            )
-                        });
-                // 周期任务合并错过的时间点；已有 Run 未结束时跳过本次触发。
-                if !busy {
-                    task.runs.push(new_run(task.thread_id.clone(), at));
-                }
-            })
-            .await?;
         }
         let task = self.task_read(task_id).await?;
         let Some(run) = task

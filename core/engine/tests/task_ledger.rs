@@ -537,7 +537,7 @@ async fn missing_committed_task_payload_fails_closed_on_restart() {
     let catalog: Value =
         serde_json::from_slice(&std::fs::read(dir.path().join("desktop/task-mode.json")).unwrap())
             .unwrap();
-    assert_eq!(catalog["version"], 4);
+    assert_eq!(catalog["version"], 5);
     let body = catalog["tasks"]
         .as_object()
         .unwrap()

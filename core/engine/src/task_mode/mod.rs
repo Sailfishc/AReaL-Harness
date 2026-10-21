@@ -10,6 +10,7 @@ mod desktop_schedules_tests;
 
 mod overview;
 mod scheduler;
+mod schedule;
 mod workers;
 use super::*;
 use areal_protocol::{desktop::RequestReceipt, goals::*, tasks::*};
@@ -51,6 +52,8 @@ pub(crate) struct Tasks {
     events: broadcast::Sender<Value>,
     changed: Arc<tokio::sync::Notify>,
     started: AtomicBool,
+    #[cfg(feature = "test-support")]
+    clock: std::sync::atomic::AtomicI64,
     frozen: AtomicBool,
     hosts: Mutex<BTreeMap<String, Arc<dyn tools::DynamicToolHost>>>,
     dispatching: Arc<std::sync::Mutex<HashSet<String>>>,
@@ -67,6 +70,8 @@ impl Tasks {
             events: broadcast::channel(256).0,
             changed: Arc::new(tokio::sync::Notify::new()),
             started: AtomicBool::new(false),
+            #[cfg(feature = "test-support")]
+            clock: std::sync::atomic::AtomicI64::new(-1),
             frozen: AtomicBool::new(false),
         })
     }
@@ -75,7 +80,7 @@ impl Tasks {
 impl Snapshot {
     fn restore_runs(&mut self) {
         let previous_version = self.version;
-        self.version = 4;
+        self.version = 5;
         for task in self.tasks.values_mut() {
             for run in &mut task.runs {
                 if task.mode == TaskMode::Scheduled
@@ -158,6 +163,7 @@ fn run_id(task: &Task) -> Option<&str> {
 fn new_run(thread_id: Option<String>, scheduled_at: i64) -> TaskRun {
     TaskRun {
         trigger: RunTrigger::Schedule,
+        accepted_schedule: None,
         objective: None,
         started_at: None,
         workers: vec![],
@@ -375,7 +381,8 @@ impl Engine {
             if request.mode != TaskMode::Background && request.thread_id.is_none() {
                 return Err(invalid("foreground and scheduled tasks require threadId"));
             }
-            if (request.mode == TaskMode::Scheduled) != request.schedule.is_some()
+            if (request.mode == TaskMode::Scheduled) != (request.schedule.is_some() || request.schedule_v2.is_some())
+                || (request.schedule.is_some() && request.schedule_v2.is_some())
                 || request.schedule.as_ref().is_some_and(|s| s.at < 0 || s.interval_seconds.is_some_and(|n| !(1..=31_536_000).contains(&n))) {
                 return Err(invalid("scheduled tasks require a UTC timestamp and optional intervalSeconds in 1..31536000"));
             }
@@ -389,6 +396,9 @@ impl Engine {
             let hash = desktop::digest(&request)?;
             let mut state = engine.task_modes.state.lock().await;
             if let Some(result) = receipt(&state, &owner, "create", &request.request_id, &hash)? { return Ok(result); }
+            let captured_now = engine.schedule_now();
+            let schedule_v2 = request.schedule_v2.map(|input| schedule::resolve(input, captured_now)).transpose()?;
+            let next_run_at = if let Some(value) = &schedule_v2 { Some(schedule::Plan::versioned(value)?.first(captured_now, false)?) } else { request.schedule.as_ref().map(|s|s.at) };
             if state.tasks.len() >= MAX_TASKS { return Err(Error::Exhausted("task capacity reached".into())); }
             let mut candidate = state.clone();
             let task = Task {
@@ -400,7 +410,7 @@ impl Engine {
                     TaskMode::Background => InteractionMode::Asynchronous,
                     TaskMode::Scheduled => InteractionMode::Interactive,
                 }) }, objective: request.objective, thread_id: request.thread_id.clone(),
-                next_run_at: request.schedule.as_ref().map(|s| s.at), schedule: request.schedule,
+                next_run_at, schedule: request.schedule, schedule_v2, last_trigger_decision: None,
                 paused: false, cancelled: false, token_budget: request.token_budget,
                 max_turns: request.max_turns, max_active_seconds: request.max_active_seconds,
                 runs: if request.mode == TaskMode::Scheduled { vec![] } else { vec![new_run(request.thread_id, now())] },
@@ -449,13 +459,17 @@ impl Engine {
             }
             if authorized_revision.is_some_and(|revision|state.tasks.get(&request.task_id).is_none_or(|task|task.revision!=revision)) {return Err(Error::Conflict);}
             if !engine.accepting_work() { return Err(Error::Closed); }
-            if request.objective.is_none() && request.schedule.is_none() {
+            if request.objective.is_none() && request.schedule.is_none() && request.schedule_v2.is_none() {
                 return Err(invalid("provide an objective or schedule to update"));
             }
             if request.objective.as_ref().is_some_and(|s| s.trim().is_empty() || s.chars().count() > 4000) {
                 return Err(invalid("objective must contain 1..4000 characters"));
             }
-            if request.schedule.as_ref().is_some_and(|s| s.at <= now() || s.interval_seconds.is_some_and(|n| !(1..=31_536_000).contains(&n))) {
+            let captured_now = engine.schedule_now();
+            if request.schedule.is_some() && request.schedule_v2.is_some() { return Err(invalid("provide exactly one schedule")); }
+            let schedule_v2 = request.schedule_v2.map(|input| schedule::resolve(input,captured_now)).transpose()?;
+            let next_v2 = schedule_v2.as_ref().map(|value|schedule::Plan::versioned(value)?.first(captured_now,true)).transpose()?;
+            if request.schedule.as_ref().is_some_and(|s| s.at <= captured_now || s.interval_seconds.is_some_and(|n| !(1..=31_536_000).contains(&n))) {
                 return Err(invalid("schedule requires a future UTC timestamp and optional intervalSeconds in 1..31536000"));
             }
             let mut candidate = state.clone();
@@ -467,7 +481,9 @@ impl Engine {
             if let Some(schedule) = request.schedule {
                 task.next_run_at = Some(schedule.at);
                 task.schedule = Some(schedule);
+                task.schedule_v2 = None;
             }
+            if let Some(schedule) = schedule_v2 {task.schedule_v2 = Some(schedule);task.schedule = None;task.next_run_at=next_v2;}
             task.revision += 1;
             let result = summary(task);
             remember(&mut candidate, owner, "update", request.request_id, hash, result.clone());
@@ -533,8 +549,9 @@ impl Engine {
             if host.as_ref().is_none_or(|host| host.is_closed()) {
                 return Err(invalid("scheduled task Host is unavailable"));
             }
-            let mut run = new_run(None, now());
+            let mut run = new_run(None, engine.schedule_now());
             run.trigger = RunTrigger::Manual;
+            run.accepted_schedule = Some(AcceptedSchedule { task_revision: task.revision, schedule: task.schedule.clone(), schedule_v2: task.schedule_v2.clone(), decision: None });
             run.objective = Some(task.objective.clone());
             task.revision += 1;
             let accepted = TaskRunNowAccepted {
@@ -820,6 +837,8 @@ impl Engine {
                     objective: goal.objective.clone(),
                     thread_id: Some(goal.thread_id.clone()),
                     schedule: None,
+                    schedule_v2: None,
+                    last_trigger_decision: None,
                     next_run_at: None,
                     paused: false,
                     cancelled: false,

@@ -3,6 +3,8 @@ const { createHash, randomUUID } = require('node:crypto');
 const { manageTaskDraft, taskDraftOperations } = require('./task-draft.cjs');
 
 const reads = {
+  taskSchedulePreview: ['areal/task/schedule/preview', ['schedule','from','count']],
+  taskScheduleContext: ['areal/task/schedule/context', ['timeZone']],
   tasks: ['areal/task/list', ['after', 'limit']], task: ['areal/task/read', ['taskId']],
   taskInbox: ['areal/inbox/list', ['after', 'limit']],
   taskChannel: ['areal/channel/read', ['taskId', 'afterSequence', 'limit']],
@@ -10,8 +12,8 @@ const reads = {
   taskRun: ['areal/task/run/read', ['taskId', 'runId']],
 };
 const writes = {
-  taskCreate: ['areal/task/create', ['mode', 'objective', 'threadId', 'interactionMode', 'schedule', 'tokenBudget', 'maxTurns', 'maxActiveSeconds']],
-  taskUpdate: ['areal/task/update', ['taskId', 'expectedRevision', 'objective', 'schedule']],
+  taskCreate: ['areal/task/create', ['mode', 'objective', 'threadId', 'interactionMode', 'schedule', 'scheduleV2', 'tokenBudget', 'maxTurns', 'maxActiveSeconds']],
+  taskUpdate: ['areal/task/update', ['taskId', 'expectedRevision', 'objective', 'schedule', 'scheduleV2']],
   taskRunNow: ['areal/task/runNow', ['taskId', 'expectedRevision']],
   taskPause: ['areal/task/pause', ['taskId', 'expectedRevision']],
   taskResume: ['areal/task/resume', ['taskId', 'expectedRevision']],

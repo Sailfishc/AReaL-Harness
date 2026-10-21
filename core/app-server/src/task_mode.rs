@@ -4,6 +4,8 @@ use areal_protocol::tasks::*;
 
 pub(crate) const METHODS: &[&str] = &[
     "areal/task/create",
+    "areal/task/schedule/preview",
+    "areal/task/schedule/context",
     "areal/task/update",
     "areal/task/runNow",
     "areal/task/list",
@@ -45,6 +47,8 @@ pub(crate) async fn dispatch(
         None
     };
     match method {
+        "areal/task/schedule/preview" => engine.task_schedule_preview(parse(params)?).map(|v|json!(v)).map_err(map_error),
+        "areal/task/schedule/context" => engine.task_schedule_context(parse(params)?).map(|v|json!(v)).map_err(map_error),
         "areal/task/create" => {
             let request: TaskCreate = parse(params)?;
             if (request.mode == TaskMode::Scheduled && principal.thread_ids.is_some())

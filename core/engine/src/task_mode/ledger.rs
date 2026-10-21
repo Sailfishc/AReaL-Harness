@@ -240,10 +240,10 @@ impl Snapshot {
         let path = root.join("desktop/task-mode.json");
         if !path.exists() {
             return Ok(Self {
-                version: 4,
+                version: 5,
                 root: root.into(),
                 catalog: Catalog {
-                    version: 4,
+                    version: 5,
                     index_version: 3,
                     ..Default::default()
                 },
@@ -257,7 +257,9 @@ impl Snapshot {
         );
         let bytes = std::fs::read(&path)?;
         let header: Value = serde_json::from_slice(&bytes)?;
-        if header["version"] == 4 {
+        if header["version"] == 4 || header["version"] == 5 {
+            let upgrading = header["version"] == 4;
+            if upgrading { crate::store::write_immutable(&root.join("desktop/task-legacy"), &bytes)?; }
             anyhow::ensure!(bytes.len() <= ROOT_BYTES, "task catalog exceeds capacity");
             let catalog: Catalog = serde_json::from_slice(&bytes)?;
             anyhow::ensure!(catalog.index_version == 3, "unsupported Task index version");
@@ -268,7 +270,7 @@ impl Snapshot {
                 "task catalog exceeds capacity"
             );
             let mut state = Self {
-                version: 4,
+                version: 5,
                 root: root.into(),
                 catalog,
                 ..Default::default()
@@ -292,7 +294,7 @@ impl Snapshot {
             state.validate_and_sync()?;
             let previous = state.clone();
             state.compact(&state.archiveable_ids(store, None), None)?;
-            if serde_json::to_value(&state.tasks)? != serde_json::to_value(&previous.tasks)?
+            if upgrading || serde_json::to_value(&state.tasks)? != serde_json::to_value(&previous.tasks)?
                 || state.preparations.len() != previous.preparations.len()
             {
                 state.persist(Some(&previous), None)?;
@@ -305,11 +307,11 @@ impl Snapshot {
                 "unsupported task store"
             );
             state.root = root.into();
-            state.catalog.version = 4;
+            state.catalog.version = 5;
             state.catalog.index_version = 3;
             crate::store::write_immutable(&root.join("desktop/task-legacy"), &bytes)?;
             state.restore_runs();
-            state.version = 4;
+            state.version = 5;
             state.compact(&state.archiveable_ids(store, None), None)?;
             state.persist(None, None)?;
             Ok(state)
@@ -1133,7 +1135,7 @@ impl Snapshot {
                 Some(self.write_leaf(&self.preparations)?)
             }
         };
-        self.catalog.version = 4;
+        self.catalog.version = 5;
         let bytes = serde_json::to_vec(&self.catalog).map_err(storage)?;
         if bytes.len() > ROOT_BYTES {
             return Err(storage("task catalog exceeds proven bound"));
@@ -1186,6 +1188,7 @@ fn settlement_only(old: &Task, new: &Task) -> bool {
         "nextRunAt",
         "skippedRuns",
         "lastSkippedAt",
+        "lastTriggerDecision",
         "runCount",
         "archivedRunCount",
         "runsComplete",
@@ -1206,6 +1209,7 @@ fn settlement_only(old: &Task, new: &Task) -> bool {
         };
         if run.thread_id != prior.thread_id
             || run.goal_id != prior.goal_id
+            || serde_json::to_value(&run.accepted_schedule).ok() != serde_json::to_value(&prior.accepted_schedule).ok()
             || run.objective != prior.objective
             || run.scheduled_at != prior.scheduled_at
             || run.workers.len() != prior.workers.len()
