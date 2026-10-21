@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:http';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { assertApplicationStopped } from './application-cleanup.mjs';
 import { selectConversation, captureSmokeFailure } from './smoke-navigation.mjs';
 
 // B-10–B-13: public GUI/Core approval and actual native input against a synthetic site.
@@ -35,13 +36,13 @@ const site = createServer(async (request, response) => {
     <button id="submit" onclick="fetch('/effect',{method:'POST'})">Submit action</button>
     <button id="disabled" disabled>Disabled action</button>
     <form id="form"><label>Draft <input id="draft"></label><button type="submit">Send draft</button></form>
-    ${capacityMode === 'b1' ? `<label>Native choice <select id="choice"><option value="a">Alpha</option><option value="b">Beta</option><option value="c" disabled>Closed</option></select></label>
+    ${capacityMode === 'b1' ? `<label id="choice-label">Native choice <select id="choice"><option value="a">Alpha</option><option value="b">Beta</option><option value="c" disabled>Closed</option></select></label>
     <label>Native check <input id="check" type="checkbox"></label>
     <label>Disabled check <input id="disabled-check" type="checkbox" disabled checked></label>
     <label>Multiple choice <select id="multiple" multiple><option value="a">Alpha</option><option value="b">Beta</option></select></label>
-    <label>Radio check <input id="radio" type="radio"></label>
+    <label>Radio check <input id="radio" type="radio" role="checkbox"></label>
     <button id="hover">Hover menu</button><div id="menu" hidden>Visible hover menu</div>
-    <div style="height:1800px"></div><div id="sentinel">Lower sentinel</div>` : ''}
+    <div style="height:1200px"></div><div id="sentinel">Lower sentinel</div>` : ''}
     <script>window.keyFacts={downs:[],ups:[],submits:0};
     window.controlFacts={click:0,input:0,change:0,hover:0,scroll:0,selectInput:0,selectChange:0};
     const effect=kind=>fetch('/effect?kind='+kind,{method:'POST'});
@@ -50,8 +51,8 @@ const site = createServer(async (request, response) => {
       document.querySelector('#check')?.addEventListener(kind,()=>{controlFacts[kind]++;effect('check'+kind)});
       document.querySelector('#choice')?.addEventListener(kind,()=>{controlFacts[kind==='input'?'selectInput':'selectChange']++;effect('select'+kind)});
     }
-    document.querySelector('#hover')?.addEventListener('mouseenter',()=>{controlFacts.hover++;document.querySelector('#menu').hidden=false;effect('hover')});
-    addEventListener('scroll',()=>{if(!controlFacts.scroll&&scrollY>100){controlFacts.scroll++;effect('scroll')}});
+    document.addEventListener('mouseenter',event=>{if(event.target.id==='hover'){controlFacts.hover++;document.querySelector('#menu').hidden=false;effect('hover')}},true);
+    addEventListener('scroll',()=>{if(!controlFacts.scroll&&document.querySelector('#sentinel')?.getBoundingClientRect().top<innerHeight){controlFacts.scroll++;document.querySelector('#sentinel').insertAdjacentHTML('afterend','<p id=loaded>Loaded next segment</p>');effect('scroll')}});
     document.addEventListener('keydown',event=>window.keyFacts.downs.push({key:event.key,target:event.target.id}));
     document.addEventListener('keyup',event=>window.keyFacts.ups.push({key:event.key,target:event.target.id}));
     document.querySelector('#form').addEventListener('submit',event=>{
@@ -60,9 +61,10 @@ const site = createServer(async (request, response) => {
     });</script>`);
 });
 await new Promise(resolve => site.listen(0, '127.0.0.1', resolve));
-const siteUrl = `http://127.0.0.1:${site.address().port}/`;
-let pageId, mode = capacityMode === 'b1' ? 'scrollDenied' : 'deny';
-let modelStage = 0;
+const siteUrl = `http://${process.env.AREAL_BROWSER_B1_PUBLIC === '1' ? 'browser-synthetic.localhost' : '127.0.0.1'}:${site.address().port}/`;
+const publicB1 = process.env.AREAL_BROWSER_B1_PUBLIC === '1';
+let pageId, mode = capacityMode === 'b1' ? publicB1 ? 'scroll' : 'scrollDenied' : 'deny';
+let modelStage = -1;
 const modelCalls = [];
 const observationFrom = (value, depth = 0) => {
   if (depth > 8 || value == null) return null;
@@ -75,6 +77,7 @@ const observationFrom = (value, depth = 0) => {
   return Object.values(value).map(item => observationFrom(item, depth + 1)).find(Boolean) ?? null;
 };
 const model = createServer(async (request, response) => {
+  try {
   let raw = ''; for await (const chunk of request) raw += chunk;
   const body = JSON.parse(raw), last = body.messages.at(-1);
   modelCalls.push({ mode, lastRole: last?.role, browserToolAvailable: (body.tools ?? []).some(t => t.function?.name === 'browser_v1') });
@@ -84,6 +87,7 @@ const model = createServer(async (request, response) => {
     send({ tool_calls: [{ index: 0, id, type: 'function', function: { name: 'browser_v1', arguments: JSON.stringify(args) } }] });
     send({}, 'tool_calls');
   };
+  if (modelStage === -1) {modelStage=0;tool('describe-entry',{operation:'describe',parameters:{}});response.end('data: [DONE]\n\n');return}
   await until(() => pageId, 'claimed native page');
   if (modelStage === 0) {
     modelStage = 1;
@@ -101,8 +105,9 @@ const model = createServer(async (request, response) => {
     let input;
     if (mode.startsWith('wait')) {
       const condition = mode === 'waitEnabledFalse' ? { kind: 'enabled', ref: ref('disabled'), value: false }
-        : { kind: 'checked', ref: ref(mode === 'waitTransition' || mode === 'waitTimeout' ? 'check' : 'disabled'), value: true };
-      input = { operation: 'wait', parameters: { pageId, timeoutMs: mode === 'waitTimeout' ? 300 : 2000, condition } };
+        : mode === 'waitEnabledTrue' ? { kind: 'enabled', ref: ref('check'), value: true }
+        : { kind: 'checked', ref: ref(['waitTransition', 'waitTimeout', 'waitCheckedFalse', 'waitTakeoverLate'].includes(mode) ? 'check' : 'disabled'), value: mode !== 'waitCheckedFalse' };
+      input = { operation: 'wait', parameters: { pageId, timeoutMs: mode === 'waitTimeout' ? 300 : mode === 'waitTakeoverLate' ? 10000 : 2000, condition } };
     } else {
       const action = mode.startsWith('scroll') ? { kind: 'scroll', target: 'viewport', deltaX: 0, deltaY: 700 }
         : mode.startsWith('hover') ? { kind: 'hover', ref: ref('hover') }
@@ -137,6 +142,10 @@ const model = createServer(async (request, response) => {
     }
   } else { send({ content: `Action ${mode} reviewed` }); send({}, 'stop'); }
   response.end('data: [DONE]\n\n');
+  } catch (error) {
+    errors.push('fixture model: ' + (error.stack ?? error.message));
+    response.end('data: [DONE]\n\n');
+  }
 });
 await new Promise(resolve => model.listen(0, '127.0.0.1', resolve));
 await writeFile(join(userHome, '.areal', 'config.toml'), `schema_version=1\n[model]\nprovider="fixture"\nname="fixture"\n[model.providers.fixture]\nprotocol="chat-completions"\nendpoint="http://127.0.0.1:${model.address().port}/v1/chat/completions"\n`);
@@ -147,7 +156,14 @@ const env = { ...process.env, AREAL_GUI_USER_DATA: join(scratch, 'electron'), AR
   AREAL_CORE_DESKTOP_CONFIG: deployment, AREAL_CORE_BIN: process.env.AREAL_CORE_BIN || resolve(root, 'target/debug/areal') };
 for (const key of ['AREAL_CORE_WORKSPACE', 'AREAL_CORE_CONFIG', 'AREAL_HARNESS_HOME', 'AREAL_HARNESS_CONFIG']) delete env[key];
 const startedAt = new Date().toISOString(), checks = [], events = {}, errors = [];
-let app, page, passed = false, projectId, threadId, nativeId;
+const fixtureApp = join(scratch, 'app'), mainErrorsPath = join(scratch, 'main-errors.jsonl');
+await mkdir(fixtureApp); await writeFile(mainErrorsPath, '');
+await writeFile(join(fixtureApp, 'package.json'), JSON.stringify({name:'browser-actions-fixture',main:'bootstrap.cjs'}));
+await writeFile(join(fixtureApp, 'bootstrap.cjs'), `
+process.on('uncaughtExceptionMonitor',(error,origin)=>require('node:fs').appendFileSync(${JSON.stringify(mainErrorsPath)},JSON.stringify({pid:process.pid,origin,name:error.name,message:error.message,stack:error.stack})+'\\n'));
+require(${JSON.stringify(join(gui,'app/src/main.cjs'))});
+`);
+let app, appProcess, page, passed = false, projectId, threadId, nativeId;
 async function until(predicate, label, timeout = 60000) {
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) { const value = await predicate(); if (value) return value; await new Promise(resolve => setTimeout(resolve, 100)); }
@@ -181,14 +197,16 @@ async function nativeFacts() {
       choice:document.querySelector('#choice')?.value,scrollY,menu:document.querySelector('#menu')?.hidden})`), nativeId);
 }
 try {
-  app = await electron.launch({ executablePath: require('electron'), args: [join(gui, 'app')], env, timeout: 120000 });
+  app = await electron.launch({ executablePath: require('electron'), args: [fixtureApp], env, timeout: 120000 });
+  appProcess = app.process();
   page = await app.firstWindow(); page.setDefaultTimeout(15000);
   page.on('pageerror', error => errors.push(error.message));
   events.runtime = await app.evaluate(({ app }) => ({ product: app.getVersion(), electron: process.versions.electron,
     chromium: process.versions.chrome, node: process.versions.node }));
   await page.getByTestId('areal-workbench').waitFor({ timeout: 120000 });
   await until(async () => (await snapshot()).connection?.state === 'ready', 'desktop ready');
-  await app.evaluate(({ dialog, BrowserWindow }, { path, origin }) => {
+  await app.evaluate(({ app, dialog, BrowserWindow }, { path, origin, publicB1 }) => {
+    if (publicB1) app.commandLine.appendSwitch('host-resolver-rules', 'MAP browser-synthetic.localhost 127.0.0.1');
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] });
     const original = dialog.showMessageBox;
     dialog.showMessageBox = async (...args) => {
@@ -200,7 +218,7 @@ try {
       return original(...args);
     };
     BrowserWindow.getAllWindows()[0].setSize(1440, 960);
-  }, { path: workspace, origin: new URL(siteUrl).origin });
+  }, { path: workspace, origin: new URL(siteUrl).origin, publicB1 });
   await page.evaluate(() => window.arealDesktop.chooseProject());
   const project = await until(async () => (await snapshot()).projects.find(item => item.root === workspace && item.state?.connected), 'project ready');
   projectId = project.id;
@@ -214,11 +232,17 @@ try {
   await page.evaluate(({ projectId, threadId, url }) => window.arealDesktop.preview({ operation: 'navigate', projectId, threadId, url }),
     { projectId, threadId, url: siteUrl });
   events.developmentOriginPrompt = await app.evaluate(() => globalThis.__m1OriginPrompt);
-  assert.equal(events.developmentOriginPrompt?.count, 1, 'exact-Origin Main prompt occurred once');
-  events.developmentOriginPrompt.response = 'fixture-stub-allow-exact-origin';
+  if (!publicB1) {
+    assert.equal(events.developmentOriginPrompt?.count ?? 0, 0, 'ordinary navigation requires no development-Origin prompt');
+    events.developmentOriginPrompt = {count:0,boundary:'current ordinary-navigation policy'};
+  }
   nativeId = await until(() => app.evaluate(({ webContents }, url) =>
     webContents.getAllWebContents().find(c => c.getURL() === url)?.id, siteUrl), 'native page');
-  await page.getByRole('button', { name: '让 Agent 检查当前页' }).click();
+  await command('send',{projectId,threadId,text:'Use the browser to inspect the fixture page and perform the requested action.'});
+  const entryApproval=page.locator('[data-interaction="approval"]');
+  await entryApproval.waitFor({timeout:60000});
+  assert.match(await entryApproval.innerText(),/describe/);
+  await entryApproval.getByRole('button',{name:'允许一次',exact:true}).click();
   pageId = (await until(async () => {
     const value = await page.evaluate(({ projectId, threadId }) =>
       window.arealDesktop.preview({ operation: 'state', projectId, threadId }), { projectId, threadId });
@@ -229,13 +253,20 @@ try {
     const send = debuggerApi.sendCommand.bind(debuggerApi);
     globalThis.__actionInputs = [];
     debuggerApi.sendCommand = (method, params) => {
-      if (['DOM.focus', 'Input.dispatchMouseEvent', 'Input.dispatchKeyEvent'].includes(method))
+      if (['DOM.focus', 'Input.dispatchMouseEvent', 'Input.dispatchKeyEvent'].includes(method)
+        || (method === 'Runtime.callFunctionOn' && params.functionDeclaration?.includes('function (expected, value)')))
         globalThis.__actionInputs.push({ method, type: params?.type, key: params?.key });
       const pending = send(method, params);
       if (globalThis.__holdB1Ack && method === 'Runtime.callFunctionOn'
         && params.functionDeclaration?.includes('function (expected, value)')) {
         globalThis.__holdB1Ack = false;
         return pending.then(value => new Promise(resolve => {globalThis.__releaseB1Ack=()=>resolve(value);globalThis.__heldB1Ack=true}));
+      }
+      if (globalThis.__holdB1Read && method === 'Runtime.callFunctionOn'
+        && params.functionDeclaration?.includes('return globalThis[key].read(this)')) {
+        globalThis.__waitB1Reads++;
+        return pending.then(value => value.result?.value?.checked === true
+          ? new Promise(resolve => {globalThis.__releaseB1Read=()=>resolve(value);globalThis.__heldB1Read=value.result.value}) : value);
       }
       return pending;
     };
@@ -299,9 +330,15 @@ try {
   let completedTurns = 0;
   async function scenario(next, choice = null) {
     mode = next;
-    modelStage = 0;
+    if(completedTurns>0)modelStage = 0;
     console.error(`browser-actions: ${next} starting`);
+    let approvalPath;
     if (completedTurns > 0) await command('send', { projectId, threadId, text: `Check ${next} action` });
+    const readApproval=page.locator('[data-interaction="approval"]');
+    await readApproval.waitFor({timeout:60000});
+    assert.match(await readApproval.innerText(),/observe/);
+    await readApproval.getByRole('button',{name:'允许一次',exact:true}).click();
+    await until(async()=>!(await readApproval.count()) || !(await readApproval.innerText()).includes('操作：observe'),'observation approved');
     if (choice) {
       const panel = page.locator('[data-interaction="approval"]');
       await panel.waitFor({ timeout: 60000 });
@@ -327,20 +364,44 @@ try {
             Object.assign(cover.style,{left:r.left+'px',top:r.top+'px',width:r.width+'px',height:r.height+'px'});
             document.body.append(cover)})()`), { id: nativeId, next });
       if (next === 'unstable') await app.evaluate(() => { globalThis.__unstableActionOnce = true; globalThis.__actionTargetReadPositions = []; });
+      if (['allow','select','checkTrue','hover','scroll'].includes(next)) {
+        approvalPath=join(scratch,`${next}-approval.png`);
+        await panel.screenshot({path:approvalPath});
+      }
+      if (next === 'waitTakeoverLate') await app.evaluate(() => {
+        globalThis.__holdB1Read=true;globalThis.__waitB1Reads=0;
+      });
       await panel.getByRole('button', { name: choice }).click();
     }
     const turn = await terminalTurn(completedTurns);
     completedTurns++;
     const item = toolResult(turn);
-    events[next] = { turnId: turn.id, status: turn.status, item, posts: siteFacts.posts, native: await nativeFacts() };
+    let nativePath;
+    if (approvalPath && item.success) {
+      nativePath=join(scratch,`${next}-native.png`);
+      const png=await app.evaluate(async({webContents},id)=>(await webContents.fromId(id).capturePage()).toPNG().toString('base64'),nativeId);
+      await writeFile(nativePath,Buffer.from(png,'base64'));
+    }
+    const plan=item.execution?.effectiveArguments?.plan;
+    events[next] = { turnId: turn.id, status: turn.status, item, posts: siteFacts.posts, native: await nativeFacts(),
+      ...(approvalPath ? {visualEvidence:{approvalPath,nativePath,callId:item.callId,pageId,
+        ref:plan?.target?.ref ?? null,snapshotId:plan?.snapshotId,preparedActionId:plan?.preparedActionId}} : {}) };
     console.error(`browser-actions: ${next} completed`);
     return item;
   }
-  if (capacityMode === 'b1') {
+  if (capacityMode === 'b1' && publicB1) {
+    for (const next of ['scroll','hover','select','checkTrue']) {
+      const item = await scenario(next);
+      assert.equal(item.success,false); assert.match(JSON.stringify(item.contentItems),/human_takeover_required/);
+      assert.equal(siteFacts.posts,0);
+      assert.equal((await app.evaluate(()=>globalThis.__actionInputs)).length,0);
+    }
+    checks.push('B1 synthetic public Origin refuses undeclared viewport scroll, hover, select and checkbox without native input');
+  } else if (capacityMode === 'b1') {
     const native = code => app.evaluate(({webContents}, {id,code}) => webContents.fromId(id).executeJavaScript(code), {id:nativeId,code});
     const reset = async () => {
       await native(`scrollTo(0,0);document.querySelector('#check').checked=false;document.querySelector('#choice')?.remove();document.querySelector('#choice-label')?.remove();
-        document.querySelector('#multiple').insertAdjacentHTML('beforebegin','<label id="choice-label">Native choice <select id="choice"><option value="a">Alpha</option><option value="b">Beta</option><option value="c" disabled>Closed</option></select></label>');
+        document.querySelector('#multiple').closest('label').insertAdjacentHTML('beforebegin','<label id="choice-label">Native choice <select id="choice"><option value="a">Alpha</option><option value="b">Beta</option><option value="c" disabled>Closed</option></select></label>');
         for(const kind of ['input','change']) document.querySelector('#choice').addEventListener(kind,()=>{controlFacts[kind==='input'?'selectInput':'selectChange']++;effect('select'+kind)});`);
       await new Promise(resolve => setTimeout(resolve,150));
       await app.evaluate(() => {globalThis.__actionInputs=[]});
@@ -371,25 +432,57 @@ try {
     await reset();await scenario('checkTrue','允许一次');await until(()=>siteFacts.effects.checkClick===1,'one checkbox toggle');
     assert.equal((await nativeFacts()).checked,true);
     const again=await scenario('checkAgain','允许一次');assert.equal(again.success,true);
-    assert.match(JSON.stringify(again.contentItems),/"noOp":true/);assert.match(JSON.stringify(again.contentItems),/"inputConfirmed":false/);
-    assert.equal(siteFacts.effects.checkClick,1);
-    await scenario('checkFalse','允许一次');await until(()=>siteFacts.effects.checkClick===2,'checkbox false');assert.equal((await nativeFacts()).checked,false);
-    for(const next of ['waitEnabledFalse','waitCheckedTrue','waitTransition','waitTimeout']) {
+    const noOpReceipt=JSON.parse(again.contentItems.find(item=>item.type==='inputText').text);
+    assert.equal(noOpReceipt.noOp,true);assert.equal(noOpReceipt.inputConfirmed,false);assert.equal(noOpReceipt.dispatch,'confirmed');
+    assert.equal(siteFacts.effects.checkClick,1);assert.equal(siteFacts.effects.checkinput,1);assert.equal(siteFacts.effects.checkchange,1);
+    await scenario('checkFalse','允许一次');await until(()=>siteFacts.effects.checkClick===2,'checkbox false');assert.equal((await nativeFacts()).checked,false);assert.equal(siteFacts.effects.checkinput,2);assert.equal(siteFacts.effects.checkchange,2);
+    for(const next of ['waitEnabledFalse','waitEnabledTrue','waitCheckedTrue','waitCheckedFalse','waitTransition','waitTimeout']) {
       await native(`document.querySelector('#check').checked=false;document.querySelector('#check').disabled=${next==='waitTransition'}`);
       await app.evaluate(()=>{globalThis.__actionInputs=[]});
       const item=await scenario(next,'允许一次');assert.equal(item.success,next!=='waitTimeout');
       assert.equal((await app.evaluate(()=>globalThis.__actionInputs)).length,0);
     }
+    await native(`document.querySelector('#check').checked=false;document.querySelector('#check').disabled=true`);
+    const beforeWaitTakeover={...siteFacts.effects}, lateWait=scenario('waitTakeoverLate','允许一次');
+    await until(()=>app.evaluate(()=>globalThis.__waitB1Reads>=2),'disabled checkbox is polled through native reads');
+    await native(`document.querySelector('#check').checked=true`);
+    await until(()=>app.evaluate(()=>globalThis.__heldB1Read?.checked===true),'matching native state reply withheld');
+    await page.evaluate(({projectId,threadId,pageId})=>window.arealDesktop.preview({operation:'takeover',projectId,threadId,pageId}),{projectId,threadId,pageId});
+    const stoppedWait=await lateWait;
+    assert.equal(stoppedWait.success,false);assert.equal(stoppedWait.execution.outcome,'unknown');
+    const fencedReads=await app.evaluate(()=>globalThis.__waitB1Reads);
+    await app.evaluate(()=>{globalThis.__holdB1Read=false;globalThis.__releaseB1Read()});
+    await new Promise(resolve=>setTimeout(resolve,400));
+    assert.equal(await app.evaluate(()=>globalThis.__waitB1Reads),fencedReads);
+    assert.equal((await app.evaluate(()=>globalThis.__actionInputs)).length,0);
+    assert.deepEqual(siteFacts.effects,beforeWaitTakeover);
+    const historicalWait=(await currentThread()).turns.flatMap(turn=>turn.items).find(item=>item.id===stoppedWait.id);
+    assert.equal(historicalWait.success,false);assert.equal(historicalWait.execution.outcome,'unknown');
+    events.waitTakeoverLate.fencedReads=fencedReads;
+    events.waitTakeoverLate.lateReplySuppressed=true;
+    const inspection='Inspected native checkbox state, read counts and site counters. Takeover stopped polling with zero input or site effects. The matching late reply was suppressed and historical UNKNOWN remains unchanged.';
+    await command('manage',{projectId,threadId,operation:'toolAcknowledge',itemId:stoppedWait.id,inspection});
+    assert.equal((await currentThread()).turns.flatMap(turn=>turn.items).find(item=>item.id===stoppedWait.id).execution.outcome,'unknown');
+    events.waitTakeoverLate.inspection=inspection;
+    await until(async()=>(await page.evaluate(({projectId,threadId})=>window.arealDesktop.preview({operation:'state',projectId,threadId}),{projectId,threadId})).browser.control==='human','read takeover converges to human');
+    await page.evaluate(({projectId,threadId,pageId})=>window.arealDesktop.preview({operation:'claim',projectId,threadId,pageId}),{projectId,threadId,pageId});
     await native(`document.querySelector('#check').disabled=false`);await reset();
     await scenario('hover','允许一次');await until(()=>siteFacts.effects.hover===1,'hover menu');assert.equal((await nativeFacts()).menu,false);
     await reset();await scenario('scroll','允许一次');await until(()=>siteFacts.effects.scroll===1,'scroll sentinel');assert.ok((await nativeFacts()).scrollY>100);
+    const scrollState=await native(`({visible:document.querySelector('#sentinel').getBoundingClientRect().top<innerHeight,loaded:document.querySelector('#loaded')?.textContent})`);
+    assert.deepEqual(scrollState,{visible:true,loaded:'Loaded next segment'});
+    await scenario('waitAfterScroll','允许一次');
+    assert.ok(events.waitAfterScrollObservation.nodes.some(node=>node.name==='Loaded next segment'));
     await reset();const prefix=await scenario('batchPrefix','允许一次');
-    assert.equal(prefix.success,true);assert.match(JSON.stringify(prefix.contentItems),/"failedStep":2/);
-    const batch=JSON.parse(prefix.contentItems.find(i=>i.type==='inputText').text);
-    assert.equal(batch.receipts.length,2);assert.equal(batch.remaining,'not_sent');
+    assert.equal(prefix.success,false);assert.equal(prefix.execution.outcome,'failed');
+    const batch=prefix.contentItems.filter(item=>item.type==='inputText').map(item=>{
+      try{return JSON.parse(item.text)}catch{return null}
+    }).find(value=>Array.isArray(value?.receipts));
+    assert.equal(batch.code,'plan_stale');assert.equal(batch.dispatch,'not_sent');
+    assert.equal(batch.receipts.length,2);assert.equal(batch.failedStep,2);assert.equal(batch.remaining,'not_sent');
     assert.equal(batch.receipts[0].inputConfirmed,true);assert.equal(batch.receipts[1].inputConfirmed,true);
     const dedup=await app.evaluate(()=>globalThis.__batchDedup);
-    assert.deepEqual(dedup.value,dedup.duplicate);assert.equal(dedup.altered,false);
+    assert.deepEqual(dedup.value,dedup.duplicate);assert.deepEqual(dedup.value.receipts,batch.receipts);assert.equal(dedup.altered,false);
     await reset();await app.evaluate(()=>{globalThis.__holdB1Ack=true});
     const beforeUnknown={...siteFacts.effects}, unknownPromise=scenario('batchUnknown','允许一次');
     await until(()=>app.evaluate(()=>globalThis.__heldB1Ack===true),'native SELECT sent with ACK withheld');
@@ -513,7 +606,42 @@ try {
   if (page) await captureSmokeFailure(page, scratch, error);
   throw error;
 } finally {
-  if (app) await app.close();
+  const cleanup = {}, metadata = await readFile(join(scratch,'core/service.json'),'utf8').then(JSON.parse,error=>{
+    if(error.code!=='ENOENT')errors.push('cleanup identity: '+error.message);return null;
+  });
+  if (app) {
+    let timer;
+    try {
+      await Promise.race([app.close(),new Promise((_resolve,reject)=>{timer=setTimeout(()=>reject(Error('owned Electron quit timed out')),15000)})]);
+      if(appProcess.exitCode===null&&appProcess.signalCode===null) await new Promise((resolve,reject)=>{
+        const deadline=setTimeout(()=>reject(Error('owned Electron did not exit')),15000);
+        appProcess.once('exit',()=>{clearTimeout(deadline);resolve()});
+      });
+      assert.equal(appProcess.exitCode,0);assert.equal(appProcess.signalCode,null);cleanup.electronExited=true;
+    } catch(error) {errors.push('natural GUI quit: '+error.message)} finally {clearTimeout(timer)}
+  }
+  if (metadata) {
+    try {await assertApplicationStopped(env.AREAL_CORE_BIN,env,metadata);cleanup.applicationStopped=true}
+    catch(error) {errors.push('application cleanup: '+error.message)}
+  }
+  if(errors.length&&metadata&&!cleanup.applicationStopped) {
+    const {ServiceConnection,waitForServiceProcessExit}=require('../app/src/core/service-client.cjs'), connection=new ServiceConnection();
+    cleanup.assistedServiceStop=true;
+    try {
+      await connection.connect(metadata);const packet=await connection.request('hello',{protocol:metadata.protocol,identity:metadata.identity});
+      try {await connection.request('stopService',{protocol:metadata.protocol,cancel:true,expectedDesktopGeneration:metadata.desktopGeneration,expectedTargets:packet.service.targets},true)}
+      catch(error) {if(!error.message.includes('已请求退出'))throw error}
+      await waitForServiceProcessExit(join(scratch,'core'),metadata);
+    } catch(error) {if(!['ENOENT','ECONNREFUSED','ESRCH'].includes(error.code))errors.push('assisted stop: '+error.message)} finally {connection.close()}
+  }
+  if(appProcess&&appProcess.exitCode===null&&appProcess.signalCode===null) {
+    errors.push('forced Electron cleanup');appProcess.kill('SIGKILL');await new Promise(resolve=>appProcess.once('exit',resolve));cleanup.forcedElectronExit=true;
+  }
+  const mainErrors=(await readFile(mainErrorsPath,'utf8')).trim().split('\n').filter(Boolean).map(JSON.parse);
+  for(const error of mainErrors) errors.push('uncaught Main '+error.origin+': '+error.message);
+  if(errors.length) {passed=false;process.exitCode=1}
+  events.cleanup={...cleanup,metadata:metadata && {protocol:metadata.protocol,identity:metadata.identity,
+    desktopGeneration:metadata.desktopGeneration,pid:metadata.pid,applicationOwner:metadata.applicationOwner,endpoint:metadata.endpoint},mainErrors};
   site.closeAllConnections(); model.closeAllConnections();
   await Promise.all([new Promise(resolve => site.close(resolve)), new Promise(resolve => model.close(resolve))]);
   const files = ['app/src/core/browser-tool.cjs', 'app/src/core/preview.cjs', 'app/src/core/service-protocol.cjs',

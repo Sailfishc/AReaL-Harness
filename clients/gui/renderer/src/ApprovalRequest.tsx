@@ -68,6 +68,9 @@ export function ApprovalRequest({ item, projectId, action }: { item: Data; proje
           {step.action?.kind ?? step.operation}
           {step.target?.ref ? ` · ${step.target.role} ${step.target.name} [${step.target.ref}]` : ""}
           {step.action?.kind === "wait" ? ` · ${step.action.timeoutMs} 毫秒 · ${step.action.condition ? JSON.stringify(step.action.condition) : "固定延时"}` : ""}
+          {step.action?.kind === "scroll" ? ` · 滚动视口：${step.action.deltaX}, ${step.action.deltaY}` : ""}
+          {step.action?.kind === "selectOption" ? ` · 选项值：${step.action.value}` : ""}
+          {step.action?.kind === "setChecked" ? ` · 选中：${step.action.checked ? "是" : "否"}` : ""}
           {step.action?.kind === "fill" ? ` · 填写：${step.action.value}` : ""}
           {["press", "pressAt"].includes(step.action?.kind) ? ` · 按键：${step.action.key}` : ""}
           {["clickAt", "pressAt"].includes(step.action?.kind) ? ` · 截图坐标：${step.action.x}, ${step.action.y}` : ""}
@@ -76,6 +79,9 @@ export function ApprovalRequest({ item, projectId, action }: { item: Data; proje
       </ol>}
       {browserPlan.targetUrl && <p>目标地址：{browserPlan.targetUrl}（{browserPlan.targetOrigin}）</p>}
       {browserPlan.action?.kind === "wait" && <p>等待：{browserPlan.action.timeoutMs} 毫秒 · {browserPlan.action.condition ? JSON.stringify(browserPlan.action.condition) : "固定延时"}</p>}
+      {browserPlan.action?.kind === "scroll" && <p>滚动视口：{browserPlan.action.deltaX}, {browserPlan.action.deltaY}</p>}
+      {browserPlan.action?.kind === "selectOption" && <p>选项值：{browserPlan.action.value}</p>}
+      {browserPlan.action?.kind === "setChecked" && <p>选中：{browserPlan.action.checked ? "是" : "否"}</p>}
       {browserPlan.action?.kind === "fill" && <p>填写：{browserPlan.action.value}</p>}
       {browserPlan.action?.kind === "press" && <p>按键：{browserPlan.action.key}</p>}
       {browserPlan.target?.semantics?.kind === "public_search" && <div>
