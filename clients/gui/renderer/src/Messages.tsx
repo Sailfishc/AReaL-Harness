@@ -1,5 +1,6 @@
 import { useI18n } from "./i18n/IntlProvider.js";
 import { TurnUsage } from "./TurnUsage.js";
+import { mcpResultKey, type McpResultSource, type McpResultState } from "./McpAppHost.js";
 import { McpContentLabel } from "./McpComposerAttachments.js";
 import { useForkHistory } from "./ForkHistory.js";
 import { UnknownToolInspection } from "./UnknownToolInspection.js";
@@ -61,7 +62,11 @@ export function Messages({
   readOnly = false,
   afterTurns,
   reserveResponseSpace = !embedded,
+  onOpenResult,
+  resultStates,
 }: {
+  onOpenResult?: (source: McpResultSource) => Promise<void>;
+  resultStates?: Record<string, McpResultState>;
   embedded?: boolean;
   readOnly?: boolean;
   afterTurns?: ReactNode;
@@ -455,7 +460,7 @@ export function Messages({
               return <TurnExecution key={item.id} items={item.items} turn={turn} project={project} threadId={thread.id}
                 hasTurnSummary={group.progress && turn.status === "completed" && hasReadingSummary}
                 renderItem={(entry: Data, disclosure) => {
-                  if (entry.type === "dynamicToolCall") return <div data-side-item-id={entry.id} key={entry.id}><ToolEvent item={entry} {...disclosure} onFile={onFile} onAgent={isInherited ? undefined : onAgent} agents={isInherited ? undefined : project.state?.threads} turnId={turn.id} action={action} projectId={project.id} threadId={thread.id} readTurnReview={turn.status === "completed" ? readTurnReview : undefined} /></div>;
+                  if (entry.type === "dynamicToolCall") return <div data-side-item-id={entry.id} key={entry.id}><ToolEvent item={entry} {...disclosure} onOpenResult={ordinary && !readOnly && !isInherited && !localThread.desktop?.archived ? onOpenResult : undefined} resultState={resultStates?.[mcpResultKey({ projectId: project.id, threadId: thread.id, turnId: turn.id, itemId: entry.id })]} onFile={onFile} onAgent={isInherited ? undefined : onAgent} agents={isInherited ? undefined : project.state?.threads} turnId={turn.id} action={action} projectId={project.id} threadId={thread.id} readTurnReview={turn.status === "completed" ? readTurnReview : undefined} /></div>;
                   if (entry.type === "modelContext") return null;
                   return <details className="tool-call" key={entry.id}><summary>{entry.type}</summary><pre>{JSON.stringify(entry, null, 2)}</pre></details>;
                 }} />;

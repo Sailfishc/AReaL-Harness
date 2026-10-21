@@ -19,6 +19,9 @@ mod session_name;
 mod sessions;
 mod store;
 mod task_mode;
+#[cfg(feature = "test-support")]
+pub use task_mode::TaskCommitFault;
+pub use task_mode::TaskRunNowAdmission;
 pub mod tools;
 mod trajectory;
 pub use trajectory::{configure_trajectory_capture_budget, record_json as record_trajectory_json};
@@ -594,7 +597,7 @@ impl Engine {
         } else {
             permissions::ProjectGrants::default()
         };
-        let task_modes = task_mode::Tasks::open(root)?;
+        let task_modes = task_mode::Tasks::open(root, &store)?;
         Ok(Arc::new(Self {
             permissions: permissions::Permissions {
                 config: Default::default(),

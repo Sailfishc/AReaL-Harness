@@ -30,6 +30,22 @@ fn desktop_schema() -> Value {
     }
     add!("areal/capabilities", CapabilitiesRequest);
     add!(
+        "areal/mcp/app/tools/register",
+        areal_protocol::plugin_runtime::PageRegister
+    );
+    add!(
+        "areal/mcp/app/tools/revoke",
+        areal_protocol::plugin_runtime::PageRevoke
+    );
+    add!(
+        "areal/mcp/app/tools/claim",
+        areal_protocol::plugin_runtime::PageCoordinates
+    );
+    add!(
+        "areal/mcp/app/tools/resolve",
+        areal_protocol::plugin_runtime::PageResolve
+    );
+    add!(
         "areal/server/modelConfiguration/read",
         ModelConfigurationRead
     );
@@ -85,6 +101,10 @@ fn desktop_schema() -> Value {
     add!("areal/mcp/apps/list", areal_protocol::plugin_runtime::Apps);
     add!("areal/mcp/app/open", areal_protocol::plugin_runtime::Open);
     add!(
+        "areal/mcp/app/openFromResult",
+        areal_protocol::plugin_runtime::OpenFromResult
+    );
+    add!(
         "areal/mcp/app/request",
         areal_protocol::plugin_runtime::AppRequest
     );
@@ -109,6 +129,19 @@ fn desktop_schema() -> Value {
     add!("areal/goal/create", areal_protocol::goals::GoalCreate);
     add!("areal/task/create", areal_protocol::tasks::TaskCreate);
     add!("areal/task/update", areal_protocol::tasks::TaskUpdate);
+    add!(
+        "areal/task/schedule/context",
+        areal_protocol::tasks::ScheduleContextInput
+    );
+    add!(
+        "areal/task/schedule/preview",
+        areal_protocol::tasks::SchedulePreview
+    );
+    add!("areal/task/runNow", areal_protocol::tasks::TaskRunNow);
+    add!("areal/task/runs/list", areal_protocol::tasks::TaskRunsList);
+    methods.get_mut("areal/task/runs/list").unwrap()["properties"]["limit"] =
+        json!({"type":["integer","null"],"minimum":1,"maximum":100});
+    add!("areal/task/run/read", areal_protocol::tasks::TaskRunRead);
     add!("areal/task/pause", areal_protocol::tasks::TaskControl);
     for method in ["areal/task/stopRun", "areal/task/resumeRun"] {
         let mut control =
@@ -315,10 +348,10 @@ fn desktop_schema() -> Value {
     methods.insert("areal/context/read".into(),object(json!({"threadId":string,"offset":integer,"limit":{"type":"integer","minimum":1,"maximum":32}}),vec!["threadId"]));
     methods.insert(
         "areal/request/read".into(),
-        object(
-            json!({"threadId":string,"requestId":string}),
-            vec!["requestId"],
-        ),
+        json!({"oneOf":[
+            object(json!({"threadId":string,"requestId":string}),vec!["requestId"]),
+            schemars::schema_for!(areal_protocol::tasks::TaskRunNow)
+        ]}),
     );
     methods.insert("areal/server/drain".into(),object(json!({"strategy":{"enum":["wait","cancel","ifIdle"]},"timeoutMs":{"type":"integer","minimum":0,"maximum":60000}}),vec!["strategy","timeoutMs"]));
     methods.insert(

@@ -1073,7 +1073,9 @@ impl Engine {
                 continue;
             };
             if let Some(plugin) = &skill.plugin
-                && (!manager.enabled_plugin_ids.contains(&plugin.plugin_id)
+                && (!manager
+                    .eligible_skill_refs
+                    .contains(&(r.id.clone(), r.revision.clone()))
                     || (model
                         && !plugin.allow_implicit_invocation
                         && config.selected_skills.is_none()))

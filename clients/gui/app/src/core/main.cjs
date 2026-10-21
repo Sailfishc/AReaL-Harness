@@ -341,11 +341,13 @@ app.whenReady().then(async () => {
         : /budget exceeded|Sensitive field|viewport changed|content changed during capture|capture guard unavailable/.test(error.message) ? 'evidence_unavailable' : 'page_unavailable' }; }
   };
   app.on('will-quit', () => mcpApps?.dispose());
-  mcpApps = new McpAppsHost({ backend, ownerId: () => window?.webContents.id,
-    notify: value => { if (window && !window.isDestroyed()) window.webContents.send('areal-core:mcp-app-event', value); },
+  mcpApps = new McpAppsHost({ backend, ownerId: () => window && !window.isDestroyed() && !window.webContents.isDestroyed() ? window.webContents.id : undefined,
+    notify: value => { if (window && !window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send('areal-core:mcp-app-event', value); },
     openFile: (request, current) => fileOpen({ backend, shell, home: app.getPath('home'), authorize: current,
       chooseSave: options => dialog.showSaveDialog(window, options) }, request) });
   backend.onMcpAppNotification = event => mcpApps?.notification(event);
+  backend.onMcpPageToolNotice = event => { void mcpApps?.pageToolNotice(event).catch(() => {}); };
+  backend.onMcpPageToolsDisconnected = event => mcpApps?.pageToolsDisconnected(event);
   protocol.handle('areal-mcp', request => mcpApps.resource(request));
   ipcMain.handle('areal-core:mcp-app-deep-link-target', event => { trusted(event); return mcpAppDeepLink; });
   ipcMain.handle('areal-core:mcp-app-deep-link-consumed', (event, id) => { trusted(event); if (mcpAppDeepLink?.id === id) mcpAppDeepLink = null; });
@@ -366,8 +368,12 @@ app.whenReady().then(async () => {
     trusted(event);
     if (!request || typeof request !== 'object') throw new Error('Invalid app request');
     if (request.operation === 'metadataImage') return mcpMetadataImages.load(request.source).catch(() => { throw new Error('Metadata image unavailable'); });
+    if (request.operation === 'openFromResult') return mcpApps.openFromResult(request, event.sender.id);
     if (request.operation === 'open') return mcpApps.open(request, event.sender.id).catch(() => { throw new Error('MCP App could not be opened'); });
     if (request.operation === 'request') return mcpApps.request(request.token, request.request, event.sender.id).catch(() => { throw new Error('MCP App request rejected or incomplete'); });
+    if (request.operation === 'pageToolsReady') return mcpApps.pageToolsReady(request.token, request.mountId, request.declaration, event.sender.id);
+    if (request.operation === 'pageToolsUnmount') return mcpApps.pageToolsUnmount(request.token, request.mountId, event.sender.id);
+    if (request.operation === 'pageToolResult') return mcpApps.pageToolResult(request.token, request.mountId, request.callId, request.reply, event.sender.id);
     if (request.operation === 'close') return mcpApps.close(request.token, event.sender.id);
     throw new Error('Unsupported app operation');
   });

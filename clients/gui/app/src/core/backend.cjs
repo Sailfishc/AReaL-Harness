@@ -478,6 +478,10 @@ class CoreBackend {
             modelName: params.configuration.defaultModelRevision && params.configuration.defaultModelRevision === previous?.defaultModelRevision ? previous.modelName : undefined };
           this.onChange();
         }
+        if (['areal/mcp/app/tools/pending', 'areal/mcp/app/tools/cancelled'].includes(method)) {
+          this.onMcpPageToolNotice?.({ projectId: project.id, client, method, params });
+          return;
+        }
         if (method === 'areal/mcp/app/notification') this.onMcpAppNotification?.({ projectId: project.id, ...params });
         this.analytics.observe(project.id, method, params);
         project.model.event(method, params);
@@ -496,7 +500,9 @@ class CoreBackend {
         }
         if (method === 'turn/completed') this.providers.requestReconciliation();
       });
-      client.onClose(failure => { if (project.client === client) {
+      client.onClose(failure => {
+        this.onMcpPageToolsDisconnected?.(client);
+        if (project.client === client) {
         project.taskNotificationMonitor?.stop();
         if (failure.code === 'RESPONSE_TOO_LARGE') {
           project.reconnectBlocked = true;
@@ -1156,6 +1162,7 @@ class CoreBackend {
   }
 
   async requestSubmission(project, method, params) {
+    const client = project.client;
     if (method === 'areal/blob/release') {
       // Hold the existing per-thread admission slot while reading this guard.
       // Shared Desktop clients cannot archive between this read and release.
@@ -1172,6 +1179,22 @@ class CoreBackend {
       return await project.client.request(method, method === 'areal/agent/spawn' ? spawn : method === 'turn/steer' ? {...steer,...(durableSteer?{requestId}:{})} : params, ['areal/marketplace/addGit', 'areal/marketplace/update'].includes(method) ? { timeoutMs: 120_000 } : undefined);
     }
     catch (error) {
+      if (method === 'areal/task/runNow') {
+        let receipt;
+        try {
+          this.requireConnection(project, client);
+          const value = await client.request('areal/request/read', params);
+          this.requireConnection(project, client);
+          receipt = value.data.find(item => item.method === method);
+        } catch {
+          throw Object.assign(new Error('立即运行的受理结果待核对；不会自动重试'), { submissionUnknown: true, requestId: params.requestId });
+        }
+        if (receipt?.result) return receipt.result;
+        if (receipt || error.submissionUnknown || typeof error.code !== 'number' || error.code === -32603) {
+          throw Object.assign(new Error('立即运行的受理结果待核对；不会自动重试'), { submissionUnknown: true, requestId: params.requestId });
+        }
+        throw error;
+      }
       if (method === 'areal/turn/submit') {
         let receipt;
         try {
@@ -1197,8 +1220,6 @@ class CoreBackend {
         } catch { /* 保留原业务键，供用户显式核对。 */ }
         throw Object.assign(new Error('会话创建结果待核对；不会自动重试'), { submissionUnknown: true, requestId: params.requestId });
       }
-      // Task receipts and Agent spawn receipts are not publicly queryable. An
-      // internal error may follow a durable write; retain the journal entry.
       if (taskMutationMethods.has(method) || method === 'areal/agent/spawn' || method.startsWith('areal/workgroup/') || method === 'areal/workflow/start') {
         if (error.code === -32603) error.submissionUnknown = true;
         throw error;
@@ -1241,7 +1262,22 @@ class CoreBackend {
       if (entry.remote) { await this.recoverRemoteSubmission(project, entry); continue; }
       if (workgroupMutationMethods.has(entry.method)) { await this.recoverWorkgroupSubmission(project, entry.params.requestId); continue; }
       if (entry.method === 'areal/agent/spawn') { await this.recoverAgentSubmission(project, entry.params.parentThreadId, entry.params.requestId); continue; }
-      if (taskMutationMethods.has(entry.method)) continue; // No public receipt lookup; never infer or replay.
+      if (entry.method === 'areal/task/runNow') {
+        const value = await client.request('areal/request/read', entry.params);
+        this.requireConnection(project, client);
+        const receipt = value.data.find(item => item.method === entry.method);
+        if (!receipt?.result) continue;
+        const task = await client.request('areal/task/read', { taskId: entry.params.taskId });
+        this.requireConnection(project, client);
+        project.model.setTask(task);
+        await this.changeOutcomes(project, outcomes => ({ ...outcomes, [entry.params.requestId]: {
+          ...receipt.result, method: entry.method,
+        } }));
+        await this.changePending(project, pending => pending.filter(value => value !== entry));
+        continue;
+      }
+      if (taskMutationMethods.has(entry.method)) continue;
+
       if (entry.method === 'turn/steer') {
         if(project.client.capabilities?.methods?.includes('areal/plugin/hooks/list')) {
           const result=await client.request('areal/request/read',{requestId:entry.params.requestId});
@@ -1380,7 +1416,7 @@ class CoreBackend {
       const original = lifecycleBlock?.targets.find(target => target.projectId === request.projectId);
       if (original && (project.service.serviceId !== original.serviceId || project.service.generation !== original.generation))
         throw Object.assign(new Error('原 Core 代际已变化，不能用新实例代替核查'), { code: 'CONFIRMATION_STALE' });
-      if (name === 'manage') return manage(this, project, request);
+      if (name === 'manage') return manage(this, project, request, context);
       if (name === 'open') await this.openThread(project, request.threadId);
       if (name === 'list') await this.listThreads(project);
       return this.snapshot();
@@ -1389,7 +1425,7 @@ class CoreBackend {
     if (this.closing && require('./lifecycle.cjs').isRecoveryCommand(name, request)) {
       const project = this.projects.get(request.projectId);
       if (!project?.service || !project.client?.ready) throw new Error('原 Core 已断开，不能确认核查目标');
-      return manage(this, project, request);
+      return manage(this, project, request, context);
     }
     if (this.closing) throw new Error('应用正在退出');
     if (name === 'analytics') return this.analytics.command(request);
@@ -1428,7 +1464,7 @@ class CoreBackend {
         if (isTaskDraftConfiguration(project.configurations?.[threadId]) && request.operation?.startsWith('goal')) {
           throw new Error('任务管理会话不执行目标；请在会话中描述要调整的定时任务。');
         }
-        return manage(this, project, request);
+        return manage(this, project, request, context);
       case 'list': await this.listThreads(project); break;
       case 'open': await this.openThread(project, threadId); break;
       case 'attachBrowser': {

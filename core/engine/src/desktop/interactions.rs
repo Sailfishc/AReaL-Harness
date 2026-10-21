@@ -245,7 +245,7 @@ impl Engine {
                 let block_schedule = status == "expired"
                     && resolved.kind == "approval"
                     && if let Some(goal) = &candidate.goals.goal {
-                        self.is_desktop_schedule_goal(&goal.id).await
+                        self.is_desktop_schedule_goal(&goal.id).await?
                     } else {
                         false
                     };

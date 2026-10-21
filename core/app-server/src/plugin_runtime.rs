@@ -12,8 +12,13 @@ pub(crate) const METHODS: &[&str] = &[
     "areal/mcp/tool/result",
     "areal/mcp/apps/list",
     "areal/mcp/app/open",
+    "areal/mcp/app/openFromResult",
     "areal/mcp/app/request",
     "areal/mcp/app/close",
+    "areal/mcp/app/tools/register",
+    "areal/mcp/app/tools/revoke",
+    "areal/mcp/app/tools/claim",
+    "areal/mcp/app/tools/resolve",
     "areal/mcp/extension/call",
     "areal/mcp/forms/list",
     "areal/mcp/form/respond",
@@ -26,6 +31,7 @@ use areal_protocol::plugin_runtime::*;
 pub(crate) async fn dispatch(
     engine: &Arc<Engine>,
     identity: &str,
+    host: Arc<dyn areal_engine::tools::DynamicToolHost>,
     method: &str,
     params: Value,
 ) -> Result<Value, RpcError> {
@@ -53,7 +59,7 @@ pub(crate) async fn dispatch(
                 method.clone(),
                 snapshot,
                 move |engine| async move {
-                    match dispatch_inner(&engine, &owned, &method, params).await {
+                    match dispatch_inner(&engine, &owned, host, &method, params).await {
                         Ok(v) => json!({"result":v}),
                         Err(e) => json!({"error":e}),
                     }
@@ -73,15 +79,30 @@ pub(crate) async fn dispatch(
         };
         return Ok(reply["result"].clone());
     }
-    dispatch_inner(engine, identity, method, params).await
+    dispatch_inner(engine, identity, host, method, params).await
 }
 async fn dispatch_inner(
     engine: &Arc<Engine>,
     identity: &str,
+    host: Arc<dyn areal_engine::tools::DynamicToolHost>,
     method: &str,
     params: Value,
 ) -> Result<Value, RpcError> {
+    if method.starts_with("areal/mcp/app/tools/")
+        && serde_json::to_vec(&params)
+            .map_err(|e| RpcError::invalid(e.to_string()))?
+            .len()
+            > areal_protocol::plugin_runtime::PAGE_BYTES + 2048
+    {
+        return Err(RpcError::invalid("page-tool request exceeds byte budget"));
+    }
     let result = match method {
+        "areal/mcp/app/tools/register" => {
+            engine.mcp_page_tools_register(host, parse(params)?).await
+        }
+        "areal/mcp/app/tools/revoke" => engine.mcp_page_tools_revoke(host, parse(params)?).await,
+        "areal/mcp/app/tools/claim" => engine.mcp_page_tools_claim(host, parse(params)?).await,
+        "areal/mcp/app/tools/resolve" => engine.mcp_page_tools_resolve(host, parse(params)?).await,
         "areal/mcp/tool/result" => {
             let p: ToolResult = parse(params)?;
             engine.mcp_tool_result(p.thread_id, p.call_id).await
@@ -132,11 +153,18 @@ async fn dispatch_inner(
             let p: Apps = parse(params)?;
             engine.mcp_apps_list(p.thread_id).await
         }
+        "areal/mcp/app/openFromResult" => {
+            let p: OpenFromResult = parse(params)?;
+            engine
+                .mcp_app_open_from_result(identity.into(), Some(host), p)
+                .await
+        }
         "areal/mcp/app/open" => {
             let p: Open = parse(params)?;
             engine
                 .mcp_app_open(
                     identity.into(),
+                    Some(host),
                     p.thread_id,
                     p.server_id,
                     p.expected_generation,

@@ -76,6 +76,8 @@ fn tool_journal_projection_preserves_pinned_upstream_item_schemas() {
             execution: Box::new(ToolExecution {
                 permission_review: None,
                 permission_scopes: Vec::new(),
+                page: None,
+                interactive_result: None,
                 result_snapshot: None,
                 file_before: None,
                 output_projection: None,

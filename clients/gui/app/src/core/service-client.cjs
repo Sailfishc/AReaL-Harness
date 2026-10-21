@@ -83,12 +83,14 @@ async function waitForProcessExit(pid) {
 }
 
 class ServiceConnection {
-  constructor(onState = () => {}, onClose = () => {}, onNotification = () => {}, onNotificationOpen = () => {}, onBrowserRequest = null, onBrowserCancel = null, onMcpAppNotification = () => {}) {
+  constructor(onState = () => {}, onClose = () => {}, onNotification = () => {}, onNotificationOpen = () => {}, onBrowserRequest = null, onBrowserCancel = null, onMcpAppNotification = () => {}, onMcpPageToolNotice = () => {}, onMcpPageToolsRevoked = () => {}) {
     this.onNotification = onNotification;
     this.onNotificationOpen = onNotificationOpen;
     this.onBrowserRequest = onBrowserRequest;
     this.onBrowserCancel = onBrowserCancel;
     this.onMcpAppNotification = onMcpAppNotification;
+    this.onMcpPageToolNotice = onMcpPageToolNotice;
+    this.onMcpPageToolsRevoked = onMcpPageToolsRevoked;
     this.onState = onState; this.onClose = onClose; this.pending = new Map(); this.nextId = 0;
   }
   async connect(metadata) {
@@ -113,6 +115,8 @@ class ServiceConnection {
         if (packet?.snapshot && Object.hasOwn(packet.snapshot, 'projection'))
           message[key] = { ...packet, snapshot: projection.read(packet.snapshot) };
       } catch { socket.terminate(); return; }
+      if (message.method === 'mcpPageToolNotice') { this.onMcpPageToolNotice(message.params); return; }
+      if (message.method === 'mcpPageToolsRevoked') { this.onMcpPageToolsRevoked(message.params); return; }
       if (message.method === 'mcpAppNotification') { if (this.socket === socket) this.onMcpAppNotification?.(message.params); return; }
       if (message.method === 'notification') { this.onNotification(message.params); return; }
       if (message.method === 'notificationOpen') { this.onNotificationOpen(message.params); return; }
@@ -209,6 +213,7 @@ class SharedCoreBackend {
   }
   disconnected() {
     this.onBrowserDisconnected?.();
+    this.onMcpPageToolsDisconnected?.();
     const stopped = !!this.connection && this.stoppedConnection === this.connection;
     const message = stopped ? '后台服务已停止，可按需重新连接' : '后台服务已断开，请重新连接';
     this.connectionState = { state: 'unavailable', message };
@@ -263,11 +268,16 @@ class SharedCoreBackend {
       return this.onBrowserRequest?.(request) ?? Promise.reject(new Error('Browser host unavailable'));
     }, request => { if (this.connection === connection) this.onBrowserCancel?.(request); }, event => {
       if (this.connection === connection && !this.disposed) this.onMcpAppNotification?.(event);
+    }, event => {
+      if (this.connection === connection && !this.disposed) this.onMcpPageToolNotice?.(event);
+    }, event => {
+      if (this.connection === connection && !this.disposed) this.onMcpPageToolsDisconnected?.(event);
     });
     try { await connection.connect(metadata); }
     catch (e) { connection.close(); if (e.code === 'DISCONNECTED') return false; throw e; }
     if (this.disposed) { connection.close(); throw new Error('GUI 连接已关闭'); }
     if (passive && !this.canReconnect()) { connection.close(); return false; }
+    if (this.connection) this.onMcpPageToolsDisconnected?.();
     this.connection?.close(); this.connection = connection; this.sequence = -1;
     const helloTrace = startupTrace('service.hello', { servicePid: metadata.pid });
     helloTrace.advance('hello');
@@ -425,6 +435,10 @@ class SharedCoreBackend {
     await this.init();
     this.assertLifecycleScope('addProject');
     return this.connection.request('addProject', { path }, true);
+  }
+  async mcpPageTools(request) {
+    if (!this.status.connected || !this.connection) throw new Error('Page tool owner lease is disconnected');
+    return this.connection.request('mcpPageTools', request, true);
   }
   async browserClaim(identity) {
     this.assertLifecycleScope('browserClaim');

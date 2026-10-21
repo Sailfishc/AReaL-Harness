@@ -97,6 +97,14 @@ pub fn projections() -> (Value, Value) {
         &["work/overview"],
         schema::<areal_protocol::work::OverviewPage>(),
     );
+    insert(
+        &["task/schedule/context"],
+        schema::<areal_protocol::tasks::ScheduleContext>(),
+    );
+    insert(
+        &["task/schedule/preview"],
+        schema::<areal_protocol::tasks::SchedulePreviewed>(),
+    );
     let mut task_view = schema::<areal_protocol::tasks::Task>();
     task_view["properties"]
         .as_object_mut()
@@ -106,6 +114,12 @@ pub fn projections() -> (Value, Value) {
         .as_array_mut()
         .unwrap()
         .retain(|v| v != "messages");
+    for name in ["runCount", "archivedRunCount", "runsComplete"] {
+        task_view["required"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!(name));
+    }
     task_view["properties"]["pendingQuestions"] = number.clone();
     task_view["required"]
         .as_array_mut()
@@ -127,6 +141,19 @@ pub fn projections() -> (Value, Value) {
             "task/resumeRun",
         ],
         task_view.clone(),
+    );
+    let mut run_now = schema::<areal_protocol::tasks::TaskRunNowAccepted>();
+    run_now["properties"]["accepted"] = json!({"const":true});
+    insert(&["task/runNow"], run_now.clone());
+    let mut runs_page = schema::<areal_protocol::tasks::TaskRunsPage>();
+    runs_page["required"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!("nextCursor"));
+    insert(&["task/runs/list"], runs_page);
+    insert(
+        &["task/run/read"],
+        schema::<areal_protocol::tasks::TaskRun>(),
     );
     insert(&["task/host/ready"], object(json!({"ready":boolean})));
     insert(&["task/unsubscribe"], object(json!({"removed":boolean})));
@@ -426,9 +453,10 @@ pub fn projections() -> (Value, Value) {
     );
     insert(
         &["request/read"],
-        object(
-            json!({"data":array(json!({"oneOf":[receipt,object(json!({"identity":string,"requestId":string,"method":string,"digest":string,"state":{"enum":["accepted","completed","unknown"]},"response":{}}))]})),"retention":{"enum":["threadLifetime","deploymentLifetime"]},"capacity":number}),
-        ),
+        json!({"oneOf":[
+            object(json!({"data":array(json!({"oneOf":[receipt,object(json!({"identity":string,"requestId":string,"method":string,"digest":string,"state":{"enum":["accepted","completed","unknown"]},"response":{}}))]})),"retention":{"enum":["threadLifetime","deploymentLifetime"]},"capacity":number})),
+            object(json!({"data":array(object(json!({"identity":string,"requestId":string,"method":{"const":"areal/task/runNow"},"digest":string,"result":run_now}))),"retention":{"const":"taskLifetime"}}))
+        ]}),
     );
     insert(&["tool/acknowledge"], object(json!({})));
     insert(
