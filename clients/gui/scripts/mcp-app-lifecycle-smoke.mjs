@@ -126,7 +126,8 @@ assert.equal(item.execution.interactiveResult,true);assert.equal(item.success,tr
 assert.equal(page.frames().filter(frame=>/^areal-mcp:/.test(frame.url())).length,0,'history does not mount result pages');
 async function openSavedResult(){
  await page.locator(`[data-tool-id="${item.id}"]`).waitFor({state:'attached'});
- if(!await button('打开交互结果').isVisible())await page.locator(`[data-turn-id="${turn.id}"] .turn-progress-summary[aria-expanded="false"]`).first().click();
+ const collapsed=page.locator(`[data-turn-id="${turn.id}"] .turn-progress-summary[aria-expanded="false"]`).first();
+ if(!await button('打开交互结果').isVisible()&&await collapsed.isVisible())await collapsed.click();
  await button('打开交互结果').click();
 }
 await openSavedResult();
