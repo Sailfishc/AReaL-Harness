@@ -15,6 +15,7 @@ const {_electron:electron}=require('playwright-core');
 const binary=process.env.AREAL_CORE_BIN || resolve(gui,'../../target/debug/areal');
 const binarySha256=createHash('sha256').update(await readFile(binary)).digest('hex');
 const scratch=await mkdtemp('/private/tmp/areal-schedule-desktop-');
+const calendarRegression=process.env.AREAL_TASK_CALENDAR_REGRESSION==='1';
 const manualRegression=process.env.AREAL_TASK_MANUAL_REGRESSION==='1';
 const manualDropGate=join(scratch,'drop-manual-response'),manualTrace=join(scratch,'manual-requests.jsonl');
 const manualPrepareGate=join(scratch,'hold-manual-prepare'),manualPrepareTrace=join(scratch,'manual-prepares.jsonl');
@@ -79,6 +80,12 @@ const model=createServer(async(request,response)=>{
    if(requestText.includes('过去的一次性时间')){finish(JSON.stringify({kind:'proposal',message:'已保存过期的一次性任务。',schedule:{at:pastDailyAnchor,intervalSeconds:null}}));return;}
    if(requestText.includes('旧项目目录验收')){finish(JSON.stringify({kind:'proposal',message:'已保存旧项目任务。',objective:'旧项目目录验收 SCHEDULE_FIXTURE_COMPLETE',interactionMode:'interactive',schedule:{at:changedAnchor}}));return;}
    if(requestText.includes('独立目录验收')){finish(JSON.stringify({kind:'proposal',message:'已保存独立任务。',objective:'独立目录验收 SCHEDULE_FIXTURE_COMPLETE',interactionMode:'interactive',schedule:{at:new Date(Date.now()+4000).toISOString().replace(/\.\d{3}Z$/,'Z'),intervalSeconds:8}}));return;}
+   if(calendarRegression&&requestText.includes('日历验收')){
+    const wrong=requestText.includes('误给固定间隔');
+    const monthly=requestText.includes('月末');
+    const rule=wrong?{kind:'interval',anchorAt:2208988800,intervalSeconds:86400}:{kind:'calendar',timeZone:'Asia/Shanghai',frequency:monthly?'monthly':'weekly',interval:1,localTime:'09:00',anchorDate:'2040-01-01',...(monthly?{monthDays:['last']}:{weekdays:[1,2,3,4,5]})};
+    finish(JSON.stringify({kind:'proposal',message:'日历安排已准备。',objective:'日历验收 SCHEDULE_FIXTURE_COMPLETE',scheduleV2:{version:1,rule,misfire:{kind:'skip',maxLatenessSeconds:300},overlap:'skip'}}));return;
+   }
    if(requestText.includes('只修改时刻')){finish(JSON.stringify({kind:'proposal',message:'已更新并保存执行时间。',schedule:{at:changedAnchor}}));return;}
    if(requestText.includes('保存失败')){finish(JSON.stringify({kind:'proposal',message:'已保存修改，已更新执行时间。',schedule:{at:'broken'}}));return;}
    if(requestText.includes('没有时间')){finish(JSON.stringify({kind:'question',message:'你希望什么时候执行？'}));return;}
@@ -342,6 +349,30 @@ async function checkDailyStartRegression(){
   checks.push('daily start '+entry.name+' saves '+entry.expected);
   await page.getByRole('button',{name:'关闭任务详情',exact:true}).click();
  }
+ assert.deepEqual(errors,[]);
+}
+async function checkCalendarRegression(){
+ await page.getByRole('button',{name:'定时任务',exact:true}).click();
+ await page.getByRole('button',{name:'新建自动化',exact:true}).click();
+ const creation=await assertGlobalCreation();pid=creation.owner.id;
+ await page.getByTestId('chat-input').fill('日历验收，工作日早上09:00执行，误给固定间隔。');await page.getByTestId('chat-send-button').click();
+ await page.getByRole('alert').filter({hasText:'工作日'}).first().waitFor();
+ assert.equal((await call('tasks',{operation:'list'})).data.some(t=>t.projectId===pid),false,'weekday intent cannot silently save a fixed interval');
+ await page.getByTestId('chat-input').fill('日历验收，2040年1月1日起工作日早上09:00执行。');await page.getByTestId('chat-send-button').click();
+ const created=await until(async()=>(await call('tasks',{operation:'list'})).data.find(t=>t.projectId===pid),'calendar task saved');
+ assert.deepEqual(created.scheduleV2.rule.weekdays,[1,2,3,4,5]);assert.deepEqual(created.scheduleV2.misfire,{kind:'skip',maxLatenessSeconds:300});assert.equal(created.schedule,null);
+ await page.getByLabel('后续执行预览',{exact:true}).waitFor();await page.getByText('错过 5 分钟后跳过',{exact:false}).first().waitFor();
+ await page.screenshot({path:join(scratch,'calendar-weekdays.png')});
+ const history=await call('manage',{projectId:pid,operation:'taskDraftHistory',taskId:created.id});
+ await page.getByTestId('chat-input').fill('日历验收，改为每月月末09:00执行。');await page.getByTestId('chat-send-button').click();
+ const edited=await until(async()=>{const t=await task(created.id);return t.scheduleV2?.rule.frequency==='monthly'&&t;},'calendar edit saved');
+ assert.deepEqual(edited.scheduleV2.rule.monthDays,['last']);assert.equal(edited.scheduleV2.rule.timeZone,'Asia/Shanghai');
+ await page.screenshot({path:join(scratch,'calendar-month-end.png')});
+ await page.getByRole('button',{name:'关闭任务详情',exact:true}).click();await page.getByText('日历验收 SCHEDULE_FIXTURE_COMPLETE',{exact:true}).first().click();
+ await page.getByLabel('后续执行预览',{exact:true}).waitFor();
+ assert.equal((await call('manage',{projectId:pid,operation:'taskDraftHistory',taskId:created.id})).threadId,history.threadId);
+ await writeFile(join(scratch,'calendar-manifest.json'),JSON.stringify({binary,binarySha256,created,edited,modelRequests,proxies:[],injections:[],clock:'production Core SystemTime; explicit 2040 anchor'},null,2));
+ checks.push('real management conversation rejects weekday-to-interval, saves weekday calendar, edits month-end, shows Core preview/skip300 and reopens same history');
  assert.deepEqual(errors,[]);
 }
 async function checkCreationRegression(){
@@ -779,7 +810,7 @@ try{
  await page.evaluate(()=>window.arealDesktop.chooseProject());
  pid=(await until(async()=>(await snapshot()).projects.find(p=>p.root===workspace&&p.state?.connected),'project ready')).id;
  workspacePid=pid;
- if(manualRegression){await checkManualRegression();passed=true;}else if(creationRegression){await checkCreationRegression();passed=true;}else if(inlineRegression){await checkInlineRegression();passed=true;}else if(dailyStartRegression){await checkDailyStartRegression();passed=true;}else if(loadingRegression){await checkLoadingRegression();passed=true;}else{
+ if(calendarRegression){await checkCalendarRegression();passed=true;}else if(manualRegression){await checkManualRegression();passed=true;}else if(creationRegression){await checkCreationRegression();passed=true;}else if(inlineRegression){await checkInlineRegression();passed=true;}else if(dailyStartRegression){await checkDailyStartRegression();passed=true;}else if(loadingRegression){await checkLoadingRegression();passed=true;}else{
  await page.getByRole('button',{name:'设置',exact:true}).click();
  await page.getByRole('button',{name:'外观',exact:true}).click();
  await page.getByRole('combobox',{name:'界面主题',exact:true}).click();

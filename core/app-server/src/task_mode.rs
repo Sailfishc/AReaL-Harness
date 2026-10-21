@@ -492,3 +492,9 @@ mod tests {
 
 #[cfg(test)]
 mod manual_tests;
+
+#[cfg(test)]
+mod calendar_tests;
+
+#[cfg(test)]
+mod calendar_dispatch_tests;
