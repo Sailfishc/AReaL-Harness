@@ -1,6 +1,6 @@
 export const MAX_RESPONSE_BYTES = 64 * 1024 * 1024;
 
-const READ_METHODS = new Set([
+const LEGACY_READ_METHODS = new Set([
   'initialize', 'areal/capabilities', 'model/list', 'thread/list', 'thread/read',
   'areal/thread/observe', 'areal/thread/inspect', 'areal/conversation/list', 'areal/conversation/history',
   'areal/model/list', 'areal/profile/list', 'areal/profile/read', 'areal/queue/list',
@@ -9,11 +9,16 @@ const READ_METHODS = new Set([
   'areal/task/subscribe', 'areal/inbox/list', 'areal/channel/read', 'areal/side/context/read',
 ]);
 
-function requestFailure(message, request, code, { cause, data } = {}) {
-  const readOnly = READ_METHODS.has(request.method);
-  return new CoreRpcError(message, { code: readOnly ? code : 'RESPONSE_UNKNOWN',
-    method: request.method, cause, submissionUnknown: !readOnly,
-    data: { ...data, ...(request.requestId ? { requestId: request.requestId } : {}) } });
+function requestFailure(message, request, code, { cause, data, received = false } = {}) {
+  const readOnly = request.effect === 'read' || request.effect === 'subscription';
+  const operation = { method: request.method, ...(request.requestId ? { requestId: request.requestId } : {}), target: request.target ?? { kind: 'project' } };
+  const known = ['noMutation', 'rejected', 'admitted', 'unconfirmed'].includes(data?.outcome?.kind);
+  const outcome = known ? data.outcome : readOnly ? { kind: 'noMutation' } : { kind: 'unconfirmed', operation };
+  const retryRead = readOnly && data?.retryable !== false && (!received || data?.retryable === true);
+  const recovery = known && data?.recovery ? data.recovery : { kind: readOnly ? retryRead ? 'retryRead' : 'none' : request.requestId ? 'queryOriginal' : 'needsUser' };
+  return new CoreRpcError(message, { code: received || readOnly ? code : 'RESPONSE_UNKNOWN',
+    method: request.method, cause,
+    data: { ...data, outcome, recovery, ...(request.requestId ? { requestId: request.requestId } : {}) } });
 }
 
 function responseTooLarge() {
@@ -31,9 +36,11 @@ export class CoreRpcError extends Error {
     this.method = method;
     this.data = data;
     this.reason = data?.reason;
-    this.requestId = data?.requestId;
+    this.outcome = data?.outcome;
+    this.recovery = data?.recovery;
+    this.requestId = data?.outcome?.operation?.requestId ?? data?.requestId;
     this.delivery = data?.delivery;
-    this.submissionUnknown = submissionUnknown;
+    this.submissionUnknown = this.outcome ? ['admitted', 'unconfirmed'].includes(this.outcome.kind) : submissionUnknown;
   }
 }
 
@@ -104,21 +111,31 @@ export class CoreClient {
   }
 
   request(method, params = {}, { onResult, timeoutMs = this.timeoutMs } = {}) {
+    const semantics = this.capabilities?.methodSemantics;
+    const bootstrap = method === 'initialize' || method === 'areal/capabilities';
+    const effect = bootstrap ? 'read' : semantics
+      ? this.capabilities.methods?.includes(method) ? semantics[method]?.effect : undefined
+      : LEGACY_READ_METHODS.has(method) ? 'read' : undefined;
+    const request = { method, effect, requestId: params.requestId,
+      target: params.taskId ? { kind: 'task', taskId: params.taskId }
+        : params.threadId ? { kind: 'thread', threadId: params.threadId } : { kind: 'project' } };
     if (this.closed || !this.socket || this.socket.readyState !== 1) {
-      return Promise.reject(new CoreRpcError('Core is disconnected', { code: 'DISCONNECTED', method }));
+      const readOnly = effect === 'read' || effect === 'subscription';
+      return Promise.reject(new CoreRpcError('Core is disconnected', { code: 'DISCONNECTED', method,
+        data: { outcome: { kind: readOnly ? 'noMutation' : 'rejected' }, recovery: { kind: readOnly ? 'retryRead' : 'none' } } }));
     }
     return new Promise((resolve, reject) => {
       const id = ++this.nextId;
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(requestFailure('Core response timed out', { method, requestId: params.requestId }, 'TIMEOUT'));
+        reject(requestFailure('Core response timed out', request, 'TIMEOUT'));
       }, timeoutMs);
-      this.pending.set(id, { resolve, reject, timer, method, requestId: params.requestId, onResult });
+      this.pending.set(id, { resolve, reject, timer, ...request, onResult });
       try { this.socket.send(JSON.stringify({ id, method, params })); }
       catch (cause) {
         clearTimeout(timer);
         this.pending.delete(id);
-        reject(requestFailure('Core request could not be delivered', { method, requestId: params.requestId }, 'DISCONNECTED', { cause }));
+        reject(requestFailure('Core request could not be delivered', request, 'DISCONNECTED', { cause }));
       }
     });
   }
@@ -162,11 +179,9 @@ export class CoreClient {
       this.pending.delete(message.id);
       clearTimeout(entry.timer);
       if (message.error) {
-        if (message.error.data?.reason === 'RESPONSE_TOO_LARGE') {
-          entry.reject(requestFailure(message.error.message, entry, 'RESPONSE_TOO_LARGE', { data: message.error.data }));
-        } else {
-          entry.reject(new CoreRpcError(message.error.message, { code: message.error.code, method: entry.method, data: message.error.data }));
-        }
+        const oversized = message.error.data?.reason === 'RESPONSE_TOO_LARGE';
+        entry.reject(requestFailure(message.error.message, entry, oversized ? 'RESPONSE_TOO_LARGE' : message.error.code,
+          { data: message.error.data, received: !oversized }));
       } else {
         try {
           // 同一 socket 批次可能紧跟增量；快照必须在消息分派栈内先建立。

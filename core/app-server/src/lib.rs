@@ -467,7 +467,7 @@ async fn connection(
                     Err(RpcError {
                         code: -32700,
                         message: "Parse error".into(),
-                        data: None,
+                        data: Some(json!({"reason":"REQUEST_REJECTED","outcome":{"kind":"rejected"},"recovery":{"kind":"none"}})),
                     }),
                 ));
                 continue;
@@ -489,7 +489,7 @@ async fn connection(
                 Err(RpcError {
                     code: -32600,
                     message: "Invalid request".into(),
-                    data: None,
+                    data: Some(json!({"reason":"REQUEST_REJECTED","outcome":{"kind":"rejected"},"recovery":{"kind":"none"}})),
                 }),
             ));
             continue;
@@ -530,7 +530,7 @@ async fn connection(
                 Err(RpcError {
                     code: -32003,
                     message: "authenticated native selection host required".into(),
-                    data: None,
+                    data: Some(json!({"reason":"REQUEST_REJECTED","outcome":{"kind":"rejected"},"recovery":{"kind":"none"}})),
                 }),
             ));
             continue;
@@ -546,7 +546,7 @@ async fn connection(
                 Err(RpcError {
                     code: -32003,
                     message: "trusted desktop file host required".into(),
-                    data: None,
+                    data: Some(json!({"reason":"REQUEST_REJECTED","outcome":{"kind":"rejected"},"recovery":{"kind":"none"}})),
                 }),
             ));
             continue;
@@ -576,7 +576,7 @@ async fn connection(
                 Err(RpcError {
                     code: -32003,
                     message: "permission denied".into(),
-                    data: None,
+                    data: Some(json!({"reason":"REQUEST_REJECTED","outcome":{"kind":"rejected"},"recovery":{"kind":"none"}})),
                 }),
             ));
             continue;
@@ -587,7 +587,7 @@ async fn connection(
                 Err(RpcError {
                     code: -32600,
                     message: "plugin/search requires experimentalApi capability".into(),
-                    data: None,
+                    data: Some(json!({"reason":"REQUEST_REJECTED","outcome":{"kind":"rejected"},"recovery":{"kind":"none"}})),
                 }),
             ));
             continue;
@@ -605,7 +605,7 @@ async fn connection(
                 Err(RpcError {
                     code: -32010,
                     message: "scoped principals cannot create conversations".into(),
-                    data: Some(json!({"reason":"SCOPED_PRINCIPAL_UNSUPPORTED","retryable":false})),
+                    data: Some(json!({"reason":"SCOPED_PRINCIPAL_UNSUPPORTED","retryable":false,"outcome":{"kind":"rejected"},"recovery":{"kind":"none"}})),
                 }),
             ));
             continue;
@@ -804,7 +804,9 @@ async fn check_side_policy(engine: &Engine, method: &str, params: &Value) -> Res
         return Err(RpcError {
             code: -32010,
             message: "Side conversations cannot use this method".into(),
-            data: Some(json!({"reason":"SIDE_POLICY_VIOLATION","retryable":false})),
+            data: Some(
+                json!({"reason":"SIDE_POLICY_VIOLATION","retryable":false,"outcome":{"kind":"rejected"},"recovery":{"kind":"none"}}),
+            ),
         });
     }
     Ok(())
@@ -1015,7 +1017,10 @@ impl Connection {
             );
         }
         if !self.ready {
-            return Err(RpcError::invalid("Not initialized"));
+            return Err(rejected(
+                RpcError::invalid("Not initialized"),
+                "NOT_INITIALIZED",
+            ));
         }
         if method == "areal/work/overview" {
             return engine
@@ -1101,17 +1106,27 @@ impl Connection {
                 let p: areal_protocol::desktop::TurnSubmit = parse(params.clone())?;
                 self.subscribe(engine, &p.thread_id).await?;
             }
-            let scoped_request_search = method == "areal/request/read"
-                && self.principal.thread_ids.is_some()
-                && params.get("threadId").and_then(Value::as_str).is_none();
+            let scoped_request_search =
+                method == "areal/request/read" && self.principal.thread_ids.is_some();
             let mut result = desktop::dispatch(engine, &self.principal.id, method, params).await?;
             if scoped_request_search
                 && let Some(data) = result.get_mut("data").and_then(Value::as_array_mut)
             {
+                let visible_tasks: std::collections::HashSet<String> = engine
+                    .task_list()
+                    .await
+                    .into_iter()
+                    .filter(|task| task_mode::visible(&self.principal, task))
+                    .map(|task| task.id)
+                    .collect();
                 data.retain(|entry| {
-                    entry["threadId"]
-                        .as_str()
-                        .is_some_and(|id| self.principal.sees(id))
+                    if let Some(task_id) = entry["taskId"].as_str() {
+                        visible_tasks.contains(task_id)
+                    } else {
+                        entry["threadId"]
+                            .as_str()
+                            .is_some_and(|id| self.principal.sees(id))
+                    }
                 });
             }
             return Ok(result);
@@ -1192,31 +1207,35 @@ impl Connection {
                 methods.extend_from_slice(codex_plugins::METHODS);
                 methods.extend_from_slice(plugin_runtime::METHODS);
                 methods.extend_from_slice(task_mode::METHODS);
-                methods.push("areal/work/overview");
-                methods.push("areal/task/host/ready");
+                methods.extend_from_slice(&additional_methods::METHODS[..2]);
                 if !engine.runtime_capabilities().is_null() {
                     methods.extend_from_slice(processes::METHODS);
                 }
                 if engine.workgroups().is_ok() {
-                    methods.extend([
-                        "areal/workgroup/policy",
-                        "areal/workgroup/start",
-                        "areal/workgroup/list",
-                        "areal/workgroup/read",
-                        "areal/workgroup/wait",
-                        "areal/workgroup/cancel",
-                        "areal/workgroup/revise",
-                        "areal/workgroup/artifact",
-                    ]);
+                    methods.extend_from_slice(&additional_methods::METHODS[2..]);
                 }
-                Ok(json!({"apiVersion": API_VERSION, "methods": methods,
+                let semantics = methods
+                    .iter()
+                    .map(|method| {
+                        method_semantics(method)
+                            .map(|semantics| ((*method).to_owned(), semantics))
+                            .ok_or_else(|| RpcError {
+                                code: -32603,
+                                message: format!("Missing method semantics for {method}"),
+                                data: None,
+                            })
+                    })
+                    .collect::<Result<std::collections::BTreeMap<_, _>, _>>()?;
+                Ok(
+                    json!({"apiVersion": API_VERSION, "methods": methods, "methodSemantics":semantics,
                     "notifications": NOTIFICATIONS, "serverRequests":["item/tool/call","areal/task/prepare"],
                     "browserToolBundles":if can_attach_browser {json!([{"bundleId":areal_protocol::desktop::BROWSER_V1_BUNDLE,
                         "definition":areal_protocol::desktop::browser_v1_tool()}])} else {json!([])},
-                    "features":{"conversationDerivationV1":json!({"preview":false,"methods":["areal/thread/fork","areal/side/start","areal/conversation/list","areal/conversation/history","areal/conversation/unarchive","areal/side/context/read"],"limits":engine.conversation_derivation_limits(),"forkBoundaries":["after","before"],"workspaceModes":["sharedCurrent"],"sideWorkspaceAccess":if engine.side_workspace_read_available() {json!(["none","readOnly"])} else {json!(["none"])},"historyBytes":engine.fork_snapshot_limit()}),"subscriptionRemoval":true,"atomicResume":true,"atomicObserve":true,"atomicObserveOwnership":true,"browserToolAttachment":can_attach_browser,
+                    "features":{"operationOutcomes":true,"taskRequestReceipts":true,"atomicConfigureReceipt":true,"conversationDerivationV1":json!({"preview":false,"methods":["areal/thread/fork","areal/side/start","areal/conversation/list","areal/conversation/history","areal/conversation/unarchive","areal/side/context/read"],"limits":engine.conversation_derivation_limits(),"forkBoundaries":["after","before"],"workspaceModes":["sharedCurrent"],"sideWorkspaceAccess":if engine.side_workspace_read_available() {json!(["none","readOnly"])} else {json!(["none"])},"historyBytes":engine.fork_snapshot_limit()}),"subscriptionRemoval":true,"atomicResume":true,"atomicObserve":true,"atomicObserveOwnership":true,"browserToolAttachment":can_attach_browser,
                         "ordinaryTurnSubmit":true,"editLastMessage":true,"turnStartAdmissionGuard":true,"turnEnqueueAdmissionGuard":true,"turnInterruptAdmissionGuard":true,"threadStartAdmissionGuard":true,"taskPauseRunGuard":true,"taskModes":true,"taskChannels":true,"asyncQuestions":true,"headlessInteractions":true,"goals":true,"dynamicTools":true,"mediaOutput":true,"durableSubmissionDeduplication":true,"profiles":true,"skills":true,"plans":true,"interactions":true,"queue":true,"providerConfiguration":true,"modelReset":true,"toolMedia":true,"blobUpload":true},
                     "limits":{"frameBytes":MAX_FRAME_BYTES,"responseBytes":MAX_RESPONSE_BYTES,"subscriptions":128,"sendQueue":256,"threadEventWindow":128},
-                    "runtime":engine.runtime_capabilities()}))
+                    "runtime":engine.runtime_capabilities()}),
+                )
             }
             "areal/subscription/remove" => {
                 let p: areal_protocol::desktop::RemoveSubscriptions = parse(params)?;
@@ -1380,14 +1399,77 @@ fn thread_result(engine: &Engine, thread: areal_protocol::Thread) -> Value {
         "approvalPolicy":if engine.permission_config().mode.requires_approval() { "on-request" } else { "never" },"permissionMode":engine.permission_config().mode,"approvalsReviewer":"user","sandbox":engine.sandbox(),"reasoningEffort":null})
 }
 fn parse<T: serde::de::DeserializeOwned>(value: Value) -> Result<T, RpcError> {
-    serde_json::from_value(value).map_err(|e| RpcError::invalid(e.to_string()))
+    serde_json::from_value(value)
+        .map_err(|e| rejected(RpcError::invalid(e.to_string()), "INVALID_REQUEST"))
 }
+fn rejected(mut error: RpcError, reason: &str) -> RpcError {
+    error.data = Some(json!(areal_protocol::desktop::OperationFailure {
+        reason: reason.into(),
+        outcome: areal_protocol::desktop::FailureOutcome::Rejected,
+        recovery: areal_protocol::desktop::Recovery::None,
+    }));
+    error
+}
+
+mod additional_methods {
+    areal_protocol::method_catalog! {
+        "areal/work/overview" => Read;
+        "areal/task/host/ready" => Subscription;
+        "areal/workgroup/policy" => Read;
+        "areal/workgroup/start" => Mutation;
+        "areal/workgroup/list" => Read;
+        "areal/workgroup/read" => Read;
+        "areal/workgroup/wait" => Read;
+        "areal/workgroup/cancel" => Mutation;
+        "areal/workgroup/revise" => Mutation;
+        "areal/workgroup/artifact" => Read;
+    }
+}
+
+fn method_semantics(method: &str) -> Option<areal_protocol::desktop::MethodSemantics> {
+    areal_protocol::desktop::method_semantics(method)
+        .or_else(|| desktop::method_semantics(method))
+        .or_else(|| configuration::method_semantics(method))
+        .or_else(|| task_mode::method_semantics(method))
+        .or_else(|| processes::method_semantics(method))
+        .or_else(|| codex_plugins::method_semantics(method))
+        .or_else(|| plugin_runtime::method_semantics(method))
+        .or_else(|| additional_methods::method_semantics(method))
+}
+
+fn atomic_mutation_error(error: Error) -> Error {
+    match error {
+        Error::Storage(_) | Error::OperationOutcome(_) | Error::Rejected(_) => error,
+        error => Error::Rejected(Box::new(error)),
+    }
+}
+
 fn map_error(error: Error) -> RpcError {
+    if let Error::Rejected(error) = error {
+        return rejected(map_error(*error), "REQUEST_REJECTED");
+    }
+    if let Error::OperationOutcome(failure) = &error {
+        return RpcError {
+            code: -32011,
+            message: "Operation outcome requires reconciliation".into(),
+            data: Some(json!(failure)),
+        };
+    }
+    if let Error::Invalid(reason) = &error {
+        if let Some(code) = ["CREDENTIAL_UNAVAILABLE", "MODEL_CREDENTIAL_UNAVAILABLE"]
+            .into_iter()
+            .find(|code| reason == code || reason.starts_with(&format!("{code}:")))
+        {
+            return rejected(RpcError::invalid(error.to_string()), code);
+        }
+    }
     if matches!(&error, Error::Invalid(reason) if reason == "SIDE_POLICY_VIOLATION") {
         return RpcError {
             code: -32010,
             message: "SIDE_POLICY_VIOLATION".into(),
-            data: Some(json!({"reason":"SIDE_POLICY_VIOLATION","retryable":false})),
+            data: Some(
+                json!({"reason":"SIDE_POLICY_VIOLATION","retryable":false,"outcome":{"kind":"rejected"},"recovery":{"kind":"none"}}),
+            ),
         };
     }
     let code = match &error {
@@ -1396,7 +1478,7 @@ fn map_error(error: Error) -> RpcError {
         Error::Conflict => -32009,
         Error::Exhausted(_) => -32001,
         Error::Closed => -32000,
-        Error::Storage(_) => -32603,
+        Error::Storage(_) | Error::OperationOutcome(_) | Error::Rejected(_) => -32603,
     };
     RpcError {
         code,

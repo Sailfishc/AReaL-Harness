@@ -966,3 +966,21 @@ impl Engine {
         Ok(())
     }
 }
+
+impl Engine {
+    pub async fn task_receipts(&self, identity: &str, request_id: &str) -> Vec<Value> {
+        let state = self.task_modes.state.lock().await;
+        state.receipts.iter().filter(|record| record.identity == identity && record.request_id == request_id).filter_map(|record| {
+            let task_id = record.result.get("taskId").or_else(|| record.result.get("id"))?.as_str()?;
+            let task = state.tasks.get(task_id)?;
+            let method = if record.method == "reply" { "areal/channel/reply".into() } else { format!("areal/task/{}", record.method) };
+            let mut value = json!(record);
+            value["method"] = json!(method);
+            value["taskId"] = json!(task_id);
+            value["threadId"] = json!(task.thread_id);
+            value["operation"] = json!({"requestId":record.request_id,"method":method,"target":{"kind":"task","taskId":task_id}});
+            value["status"] = json!("completed");
+            Some(value)
+        }).collect()
+    }
+}

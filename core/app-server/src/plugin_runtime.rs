@@ -1,27 +1,27 @@
 //! Narrow desktop routes for package-bound MCP connections and App instances.
 use super::*;
-pub(crate) const METHODS: &[&str] = &[
-    "areal/plugin/mcp/list",
-    "areal/plugin/hooks/list",
-    "areal/plugin/hooks/configure",
-    "areal/hook/acknowledge",
-    "areal/plugin/connection",
-    "areal/plugin/auth",
-    "areal/plugin/auth/configure",
-    "areal/plugin/connector/configure",
-    "areal/mcp/tool/result",
-    "areal/mcp/apps/list",
-    "areal/mcp/app/open",
-    "areal/mcp/app/request",
-    "areal/mcp/app/close",
-    "areal/mcp/extension/call",
-    "areal/mcp/forms/list",
-    "areal/mcp/form/respond",
-    "areal/mcp/form/preview",
-    "areal/mcp/form/resource/prepare",
-    "areal/mcp/form/resource/stage",
-    "areal/mcp/form/resource/release",
-];
+areal_protocol::method_catalog! {
+    "areal/plugin/mcp/list" => Read;
+    "areal/plugin/hooks/list" => Read;
+    "areal/plugin/hooks/configure" => Mutation, Management;
+    "areal/hook/acknowledge" => Mutation, Management;
+    "areal/plugin/connection" => Mutation, Management;
+    "areal/plugin/auth" => Mutation;
+    "areal/plugin/auth/configure" => Mutation, Management;
+    "areal/plugin/connector/configure" => Mutation, Management;
+    "areal/mcp/tool/result" => Read;
+    "areal/mcp/apps/list" => Read;
+    "areal/mcp/app/open" => Mutation;
+    "areal/mcp/app/request" => Mutation;
+    "areal/mcp/app/close" => Mutation;
+    "areal/mcp/extension/call" => Mutation;
+    "areal/mcp/forms/list" => Read;
+    "areal/mcp/form/respond" => Mutation;
+    "areal/mcp/form/preview" => Mutation;
+    "areal/mcp/form/resource/prepare" => Mutation;
+    "areal/mcp/form/resource/stage" => Mutation, Management;
+    "areal/mcp/form/resource/release" => Mutation;
+}
 use areal_protocol::plugin_runtime::*;
 pub(crate) async fn dispatch(
     engine: &Arc<Engine>,

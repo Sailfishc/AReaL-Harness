@@ -62,6 +62,10 @@ Cookie 名为 `areal_session_<origin摘要>`，不指定 Domain，使用 `HttpOn
 
 requestId 是持久业务键，RPC id 只关联响应。相同身份、方法、键和规范参数返回原结果；参数不同冲突。Thread 最多 1024 收据，管理日志 4096；容量满拒绝而不遗忘旧键。重启后 accepted 但无结果的管理记录为 UNKNOWN，不重新执行。
 
+`features.taskRequestReceipts` 扩展 `areal/request/read`，统一查询当前身份的 Thread、管理和 Task 回执，仍保留旧字段。每条记录增加 `operation:{method,requestId,target}` 和 `status:admitted|completed|failed|unconfirmed`；完成时提供原始 `result` 或 `error`。Task 方法名统一为公开 RPC 名称，创建结果保留原始 Task ID。查询还检查 Task 及其所有 Run 的 Thread 可见范围。带 `threadId` 时限定 Thread 和 Task 回执，并兼容附带同身份、同请求键的部署管理回执；受限 principal 仍只能取得可见 Thread 的记录。`retention:threadAndDeploymentLifetime` 与 `capacities:{thread:1024,management:4096,task:8192}` 分别说明保留范围与容量。恢复需匹配方法、身份、目标和已有 digest，空结果仍是未确认。归档后的 Thread 仍可查询保留回执。
+
+`features.atomicConfigureReceipt` 允许 `areal/thread/configure` 携带可选 `requestId`。Core 在 revision CAS 前查同身份、方法、键及请求 digest；同请求返回原配置，不同参数冲突。配置和回执在同一 Thread 快照提交。回执含原始配置结果、请求 digest、`expectedRevision`、`resultingRevision` 和 `configurationHash`。省略 `requestId` 的旧调用方仍可使用原有 CAS 行为。升级前已写入管理日志的配置请求优先按原身份、方法、请求键和移除 `requestId` 后的原始参数 digest 查询；已完成记录返回原配置，未知记录返回已受理且不重放。只有不存在旧记录的新请求写入 Thread 回执。
+
 `areal/turn/submit` 是普通会话的原子提交入口，使用 `{requestId,threadId,expectedConfigRevision,intent}`。`intent` 互斥取 `{type:"message",input}`、`{type:"continue",expectedTurnId}` 或 `{type:"edit",expectedTurnId,itemId,input}`，继续分支不接受文本。能力由 `features.ordinaryTurnSubmit=true` 和方法声明共同确认。Core 在 lifecycle、Thread、普通所有权锁内先查收据，再核验配置、归属、归档、压缩、取消结算及 UNKNOWN。Task、Goal、Side 和任务管理会话沿用其既有入口。
 
 Edit 要求 `features.editLastMessage=true`，仅允许编辑空闲普通会话的最后一条用户消息，且队列无 pending/running 项。`expectedTurnId` 必须匹配最新轮次（包括继续轮次），`itemId` 必须匹配最后一条非继续用户消息。Core 展开归档历史，移除该消息及之后的条目/轮次，废弃上下文 checkpoint，并准备替代 Turn；校验、历史和收据一次持久化后才激活，拒绝时原历史保留。同轮追加指令之前的条目保留，已发生的文件和外部操作不回滚。提交后先发送 `areal/thread/edited {threadId,thread}`，明确替换客户端历史基线，再发送 `turn/started`；普通部分 Turn 事件仍按条目合并。掉响应核对原请求收据，不拆成撤回/发送两步，也不自动重发。

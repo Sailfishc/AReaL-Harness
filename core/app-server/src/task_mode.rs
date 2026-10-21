@@ -2,22 +2,22 @@
 use super::*;
 use areal_protocol::tasks::*;
 
-pub(crate) const METHODS: &[&str] = &[
-    "areal/task/create",
-    "areal/task/update",
-    "areal/task/list",
-    "areal/task/read",
-    "areal/task/pause",
-    "areal/task/resume",
-    "areal/task/cancel",
-    "areal/task/stopRun",
-    "areal/task/resumeRun",
-    "areal/task/subscribe",
-    "areal/task/unsubscribe",
-    "areal/channel/read",
-    "areal/channel/reply",
-    "areal/inbox/list",
-];
+areal_protocol::method_catalog! {
+    "areal/task/create" => Mutation, Task;
+    "areal/task/update" => Mutation, Task;
+    "areal/task/list" => Read;
+    "areal/task/read" => Read;
+    "areal/task/pause" => Mutation, Task;
+    "areal/task/resume" => Mutation, Task;
+    "areal/task/cancel" => Mutation, Task;
+    "areal/task/stopRun" => Mutation, Task;
+    "areal/task/resumeRun" => Mutation, Task;
+    "areal/task/subscribe" => Subscription;
+    "areal/task/unsubscribe" => Subscription;
+    "areal/channel/read" => Read;
+    "areal/channel/reply" => Mutation, Task;
+    "areal/inbox/list" => Read;
+}
 
 pub(crate) fn visible(principal: &auth::Principal, task: &Task) -> bool {
     principal.thread_ids.is_none()
@@ -61,7 +61,9 @@ pub(crate) async fn authorize(
         return Err(RpcError {
             code: -32003,
             message: "task permission denied".into(),
-            data: None,
+            data: Some(
+                json!({"reason":"PERMISSION_DENIED","outcome":{"kind":"rejected"},"recovery":{"kind":"none"}}),
+            ),
         });
     }
     Ok(task)
@@ -91,17 +93,21 @@ pub(crate) async fn dispatch(
                 return Err(RpcError {
                     code: -32003,
                     message: "task binding permission denied".into(),
-                    data: None,
+                    data: Some(
+                        json!({"reason":"PERMISSION_DENIED","outcome":{"kind":"rejected"},"recovery":{"kind":"none"}}),
+                    ),
                 });
             }
             engine
                 .task_create(principal.id.clone(), request)
                 .await
+                .map_err(atomic_mutation_error)
                 .map_err(map_error)
         }
         "areal/task/update" => engine
             .task_update(principal.id.clone(), parse(params)?)
             .await
+            .map_err(atomic_mutation_error)
             .map_err(map_error),
         "areal/task/read" => {
             let _: TaskTarget = parse(params)?;
@@ -175,6 +181,7 @@ pub(crate) async fn dispatch(
                 parse(params)?,
             )
             .await
+            .map_err(atomic_mutation_error)
             .map_err(map_error),
         "areal/channel/read" => {
             let request: ChannelRead = parse(params)?;

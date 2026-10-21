@@ -36,8 +36,10 @@ pub fn projections() -> (Value, Value) {
     provider_view["properties"]["credentialState"] =
         json!({"enum":["notRequired","available","unavailable"]});
     provider_view["properties"]["connectionState"] = json!({"const":"unchecked"});
-    let mut receipt = schema::<RequestReceipt>();
-    receipt["additionalProperties"] = json!(true);
+    let receipt = object(json!({
+        "identity":string,"requestId":string,"method":string,"digest":string,
+        "operation":schema::<OperationRef>(),"status":{"enum":["admitted","completed","failed","unconfirmed"]}
+    }));
     let process_target = object(json!({"id":string,"runtimeEpoch":string}));
     let accepted = object(json!({"accepted":boolean,"operationId":string}));
     let group_entry = object(
@@ -174,7 +176,7 @@ pub fn projections() -> (Value, Value) {
     insert(
         &["capabilities"],
         object(
-            json!({"apiVersion":{"const":API_VERSION},"methods":array(string.clone()),"notifications":array(string.clone()),"serverRequests":array(string.clone()),"features":{"type":"object","properties":{"conversationDerivationV1":nullable(object(json!({"preview":{"const":false},"methods":array(string.clone()),"forkBoundaries":array(json!({"enum":["before","after"]})),"workspaceModes":array(json!({"const":"sharedCurrent"})),"sideWorkspaceAccess":array(json!({"enum":["none","readOnly"]})),"historyBytes":number.clone(),"limits":object(json!({"maxThreads":number.clone(),"maxActiveTurns":number.clone(),"maxSideTurnsPerSource":number.clone(),"maxSideTurnsPerDeployment":number.clone(),"maxSideModelRounds":number.clone(),"maxSideToolCalls":number.clone(),"maxSideTurnSeconds":number.clone()}))})))},"additionalProperties":{"type":"boolean"}},"limits":object(json!({"frameBytes":number,"subscriptions":number,"sendQueue":number,"threadEventWindow":number})),"runtime":nullable(any_object.clone())}),
+            json!({"apiVersion":{"const":API_VERSION},"methods":array(string.clone()),"methodSemantics":{"type":"object","additionalProperties":schema::<MethodSemantics>()},"notifications":array(string.clone()),"serverRequests":array(string.clone()),"features":{"type":"object","properties":{"conversationDerivationV1":nullable(object(json!({"preview":{"const":false},"methods":array(string.clone()),"forkBoundaries":array(json!({"enum":["before","after"]})),"workspaceModes":array(json!({"const":"sharedCurrent"})),"sideWorkspaceAccess":array(json!({"enum":["none","readOnly"]})),"historyBytes":number.clone(),"limits":object(json!({"maxThreads":number.clone(),"maxActiveTurns":number.clone(),"maxSideTurnsPerSource":number.clone(),"maxSideTurnsPerDeployment":number.clone(),"maxSideModelRounds":number.clone(),"maxSideToolCalls":number.clone(),"maxSideTurnSeconds":number.clone()}))})))},"additionalProperties":{"type":"boolean"}},"limits":object(json!({"frameBytes":number,"subscriptions":number,"sendQueue":number,"threadEventWindow":number})),"runtime":nullable(any_object.clone())}),
         ),
     );
     insert(
@@ -427,7 +429,7 @@ pub fn projections() -> (Value, Value) {
     insert(
         &["request/read"],
         object(
-            json!({"data":array(json!({"oneOf":[receipt,object(json!({"identity":string,"requestId":string,"method":string,"digest":string,"state":{"enum":["accepted","completed","unknown"]},"response":{}}))]})),"retention":{"enum":["threadLifetime","deploymentLifetime"]},"capacity":number}),
+            json!({"data":array(receipt),"retention":{"enum":["threadLifetime","deploymentLifetime","threadAndDeploymentLifetime"]},"capacity":number}),
         ),
     );
     insert(&["tool/acknowledge"], object(json!({})));

@@ -1,6 +1,6 @@
 'use strict';
 
-/** @typedef {{message:string, code?:string|number, reason?:string, submissionUnknown?:boolean, requestId?:string}} DesktopError */
+/** @typedef {{message:string, code?:string|number, reason?:string, submissionUnknown?:boolean, requestId?:string, delivery?:'resultUnavailable', outcome?:import('../../runtime-client/core.js').FailureOutcome, recovery?:import('../../runtime-client/core.js').Recovery}} DesktopError */
 /** @template T @typedef {{ok:true,value:T}|{ok:false,error:DesktopError}} DesktopResult */
 /** @typedef {{id:string,revision:string}} ResourceRef */
 /** @typedef {{projectId:string,profile?:ResourceRef}} PrepareCreatorRequest */
@@ -247,12 +247,40 @@ function desktopError(error) {
   const reason = 'data' in value && record(value.data) && typeof value.data.reason === 'string'
     ? value.data.reason
     : 'reason' in value && typeof value.reason === 'string' ? value.reason : undefined;
+  const data = 'data' in value && record(value.data) ? value.data : {};
+  const rawOutcome = 'outcome' in value ? value.outcome : data.outcome;
+  const rawRecovery = 'recovery' in value ? value.recovery : data.recovery;
+  /** @type {DesktopError['outcome']} */
+  let outcome;
+  if (record(rawOutcome) && (rawOutcome.kind === 'noMutation' || rawOutcome.kind === 'rejected')) outcome = { kind: rawOutcome.kind };
+  if (record(rawOutcome) && (rawOutcome.kind === 'admitted' || rawOutcome.kind === 'unconfirmed') && record(rawOutcome.operation)) {
+    const op = rawOutcome.operation;
+    const target = op.target;
+    if (typeof op.method === 'string' && /^[A-Za-z][A-Za-z0-9/]*$/.test(op.method) && op.method.length <= 128
+      && (op.requestId === undefined || identifier(op.requestId)) && record(target)) {
+      /** @type {import('../../runtime-client/core.js').OperationTarget | undefined} */
+      let safeTarget;
+      if (target.kind === 'project') safeTarget = { kind: 'project' };
+      if (target.kind === 'thread' && identifier(target.threadId)) safeTarget = { kind: 'thread', threadId: String(target.threadId) };
+      if (target.kind === 'task' && identifier(target.taskId)) safeTarget = { kind: 'task', taskId: String(target.taskId) };
+      if (safeTarget) outcome = { kind: rawOutcome.kind, operation: { method: op.method,
+        ...(typeof op.requestId === 'string' ? { requestId: op.requestId } : {}), target: safeTarget } };
+    }
+  }
+  /** @type {DesktopError['recovery']} */
+  const recovery = record(rawRecovery) && ['retryRead', 'queryOriginal', 'needsUser', 'none'].includes(String(rawRecovery.kind))
+    ? { kind: /** @type {NonNullable<DesktopError['recovery']>['kind']} */ (rawRecovery.kind) } : undefined;
+  const originalId = outcome && 'operation' in outcome ? outcome.operation.requestId : requestId;
+  const unknown = outcome ? outcome.kind === 'admitted' || outcome.kind === 'unconfirmed' : 'submissionUnknown' in value && value.submissionUnknown === true;
   return {
-    message: typeof value.message === 'string' ? value.message : '桌面操作失败',
+    message: typeof value.message === 'string' ? value.message.slice(0, 4096) : '桌面操作失败',
     ...(typeof code === 'string' || typeof code === 'number' ? { code } : {}),
-    ...('submissionUnknown' in value && value.submissionUnknown === true ? { submissionUnknown: true } : {}),
-    ...(typeof requestId === 'string' ? { requestId } : {}),
-    ...(reason ? { reason } : {}),
+    ...(unknown ? { submissionUnknown: true } : {}),
+    ...(typeof originalId === 'string' && identifier(originalId) ? { requestId: originalId } : {}),
+    ...(reason ? { reason: reason.slice(0, 128) } : {}),
+    ...(('delivery' in value ? value.delivery : data.delivery) === 'resultUnavailable' ? { delivery: /** @type {const} */ ('resultUnavailable') } : {}),
+    ...(outcome ? { outcome } : {}),
+    ...(recovery ? { recovery } : {}),
   };
 }
 

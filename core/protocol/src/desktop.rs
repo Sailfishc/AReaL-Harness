@@ -21,31 +21,122 @@ pub fn browser_v1_tool() -> super::ToolDefinition {
     }
 }
 
-pub const METHODS: &[&str] = &[
-    "initialize",
-    "model/list",
-    "thread/start",
-    "thread/list",
-    "thread/read",
-    "thread/resume",
-    "areal/thread/observe",
-    "turn/start",
-    "turn/steer",
-    "turn/interrupt",
-    "areal/capabilities",
-    "areal/subscription/remove",
-    "areal/thread/tools/attach",
-    "areal/agent/spawn",
-    "areal/agent/delegate",
-    "areal/execution/list",
-    "areal/execution/read",
-    "areal/execution/wait",
-    "areal/execution/cancel",
-    "areal/execution/apply",
-    "areal/execution/artifact",
-    "areal/agent/list",
-    "areal/tool/acknowledge",
-];
+#[derive(Clone, Copy, Debug, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum MethodEffect {
+    Read,
+    Subscription,
+    Mutation,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum ReceiptFamily {
+    Thread,
+    Task,
+    Management,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct MethodSemantics {
+    pub effect: MethodEffect,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub receipt: Option<ReceiptFamily>,
+}
+
+/// 方法声明同时产生语义，避免新增路由后客户端误判写入。
+#[macro_export]
+macro_rules! method_catalog {
+    ($($method:literal => $effect:ident $(, $receipt:ident)?;)+) => {
+        pub const METHODS: &[&str] = &[$($method),+];
+        pub fn method_semantics(method: &str) -> Option<$crate::desktop::MethodSemantics> {
+            match method {
+                $($method => Some($crate::desktop::MethodSemantics {
+                    effect: $crate::desktop::MethodEffect::$effect,
+                    receipt: $crate::method_catalog!(@receipt $($receipt)?),
+                }),)+
+                _ => None,
+            }
+        }
+    };
+    (@receipt) => { None };
+    (@receipt $receipt:ident) => { Some($crate::desktop::ReceiptFamily::$receipt) };
+}
+
+crate::method_catalog! {
+    "initialize" => Read;
+    "model/list" => Read;
+    "thread/start" => Mutation;
+    "thread/list" => Read;
+    "thread/read" => Read;
+    "thread/resume" => Subscription;
+    "areal/thread/observe" => Subscription;
+    "turn/start" => Mutation;
+    "turn/steer" => Mutation;
+    "turn/interrupt" => Mutation;
+    "areal/capabilities" => Read;
+    "areal/subscription/remove" => Subscription;
+    "areal/thread/tools/attach" => Mutation, Thread;
+    "areal/agent/spawn" => Mutation;
+    "areal/agent/delegate" => Mutation;
+    "areal/execution/list" => Read;
+    "areal/execution/read" => Read;
+    "areal/execution/wait" => Read;
+    "areal/execution/cancel" => Mutation;
+    "areal/execution/apply" => Mutation;
+    "areal/execution/artifact" => Read;
+    "areal/agent/list" => Read;
+    "areal/tool/acknowledge" => Mutation;
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
+pub enum OperationTarget {
+    Project,
+    Thread {
+        #[serde(rename = "threadId")]
+        thread_id: String,
+    },
+    Task {
+        #[serde(rename = "taskId")]
+        task_id: String,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct OperationRef {
+    pub request_id: String,
+    pub method: String,
+    pub target: OperationTarget,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
+pub enum FailureOutcome {
+    NoMutation,
+    Rejected,
+    Unconfirmed { operation: OperationRef },
+    Admitted { operation: OperationRef },
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
+pub enum Recovery {
+    RetryRead,
+    QueryOriginal,
+    NeedsUser,
+    None,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct OperationFailure {
+    pub reason: String,
+    pub outcome: FailureOutcome,
+    pub recovery: Recovery,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -630,6 +721,8 @@ pub struct QueueSteer {
 #[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ConfigureThread {
+    #[serde(default)]
+    pub request_id: Option<String>,
     pub options: Option<ClientOptions>,
     pub thread_id: String,
     pub expected_revision: u64,

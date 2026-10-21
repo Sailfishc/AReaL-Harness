@@ -31938,6 +31938,49 @@
           ],
           "type": "object"
         },
+        "methodSemantics": {
+          "additionalProperties": {
+            "$defs": {
+              "MethodEffect": {
+                "enum": [
+                  "read",
+                  "subscription",
+                  "mutation"
+                ],
+                "type": "string"
+              },
+              "ReceiptFamily": {
+                "enum": [
+                  "thread",
+                  "task",
+                  "management"
+                ],
+                "type": "string"
+              }
+            },
+            "properties": {
+              "effect": {
+                "$ref": "#/properties/methodSemantics/additionalProperties/$defs/MethodEffect"
+              },
+              "receipt": {
+                "anyOf": [
+                  {
+                    "$ref": "#/properties/methodSemantics/additionalProperties/$defs/ReceiptFamily"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "effect"
+            ],
+            "title": "MethodSemantics",
+            "type": "object"
+          },
+          "type": "object"
+        },
         "methods": {
           "items": {
             "type": "string"
@@ -31971,6 +32014,7 @@
         "apiVersion",
         "features",
         "limits",
+        "methodSemantics",
         "methods",
         "notifications",
         "runtime",
@@ -55917,76 +55961,120 @@
         },
         "data": {
           "items": {
-            "oneOf": [
-              {
-                "additionalProperties": true,
-                "properties": {
-                  "digest": {
-                    "type": "string"
-                  },
-                  "identity": {
-                    "type": "string"
-                  },
-                  "method": {
-                    "type": "string"
-                  },
-                  "requestId": {
-                    "type": "string"
-                  },
-                  "result": true
-                },
-                "required": [
-                  "identity",
-                  "requestId",
-                  "method",
-                  "digest",
-                  "result"
-                ],
-                "title": "RequestReceipt",
-                "type": "object"
+            "additionalProperties": true,
+            "properties": {
+              "digest": {
+                "type": "string"
               },
-              {
-                "additionalProperties": true,
-                "properties": {
-                  "digest": {
-                    "type": "string"
-                  },
-                  "identity": {
-                    "type": "string"
-                  },
-                  "method": {
-                    "type": "string"
-                  },
-                  "requestId": {
-                    "type": "string"
-                  },
-                  "response": {},
-                  "state": {
-                    "enum": [
-                      "accepted",
-                      "completed",
-                      "unknown"
+              "identity": {
+                "type": "string"
+              },
+              "method": {
+                "type": "string"
+              },
+              "operation": {
+                "$defs": {
+                  "OperationTarget": {
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "kind": {
+                            "const": "project",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "kind": {
+                            "const": "thread",
+                            "type": "string"
+                          },
+                          "threadId": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "threadId"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "kind": {
+                            "const": "task",
+                            "type": "string"
+                          },
+                          "taskId": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "taskId"
+                        ],
+                        "type": "object"
+                      }
                     ]
                   }
                 },
+                "additionalProperties": false,
+                "properties": {
+                  "method": {
+                    "type": "string"
+                  },
+                  "requestId": {
+                    "type": "string"
+                  },
+                  "target": {
+                    "$ref": "#/properties/data/items/properties/operation/$defs/OperationTarget"
+                  }
+                },
                 "required": [
-                  "digest",
-                  "identity",
-                  "method",
                   "requestId",
-                  "response",
-                  "state"
+                  "method",
+                  "target"
                 ],
+                "title": "OperationRef",
                 "type": "object"
+              },
+              "requestId": {
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "admitted",
+                  "completed",
+                  "failed",
+                  "unconfirmed"
+                ]
               }
-            ]
+            },
+            "required": [
+              "digest",
+              "identity",
+              "method",
+              "operation",
+              "requestId",
+              "status"
+            ],
+            "type": "object"
           },
           "type": "array"
         },
         "retention": {
           "enum": [
             "threadLifetime",
-            "deploymentLifetime"
+            "deploymentLifetime",
+            "threadAndDeploymentLifetime"
           ]
         }
       },
