@@ -25,8 +25,10 @@ for(const path of new Set(execFileSync('git',['ls-files','--modified','--others'
 if(/^(core\/|clients\/|scripts\/|schemas\/|Cargo\.|upstream\/)/.test(path)){try{sourceFiles[path]=createHash('sha256').update(await readFile(join(sourceRoot,path))).digest('hex');}catch(error){if(error.code!=='ENOENT')throw error;sourceFiles[path]=null;}}}
 const sourceDiffSha256=createHash('sha256').update(execFileSync('git',['diff','--binary','HEAD'],{cwd:sourceRoot,maxBuffer:32*1024*1024})).digest('hex');
 const requests=[],checks=[],errors=[];
-const model=createServer(async(req,res)=>{let body='';for await(const p of req)body+=p;requests.push(JSON.parse(body));res.writeHead(200,{'Content-Type':'text/event-stream'});
-res.end('data: '+JSON.stringify({choices:[{index:0,delta:{content:'GUI_PLUGIN_SETUP_OK'},finish_reason:null}]})+'\n\n'+'data: '+JSON.stringify({choices:[{index:0,delta:{},finish_reason:'stop'}]})+'\n\ndata: [DONE]\n\n');});
+const namingRequest=body=>body.messages?.some(message=>message.role==='system'&&String(message.content).startsWith('Generate a concise semantic session title'));
+const setupRequests=()=>requests.filter(body=>!namingRequest(body));
+const model=createServer(async(req,res)=>{let body='';for await(const p of req)body+=p;const parsed=JSON.parse(body);requests.push(parsed);res.writeHead(200,{'Content-Type':'text/event-stream'});
+res.end('data: '+JSON.stringify({choices:[{index:0,delta:{content:namingRequest(parsed)?'Plugin setup':'GUI_PLUGIN_SETUP_OK'},finish_reason:null}]})+'\n\n'+'data: '+JSON.stringify({choices:[{index:0,delta:{},finish_reason:'stop'}]})+'\n\ndata: [DONE]\n\n');});
 await new Promise(r=>model.listen(0,'127.0.0.1',r));
 await writeFile(join(userHome,'.areal','config.toml'),'schema_version=1\n[model]\nname="fixture"\n[model.providers.default]\nprotocol="chat-completions"\nendpoint="http://127.0.0.1:'+model.address().port+'"\n');
 const env={...process.env,AREAL_GUI_USER_DATA:join(scratch,'electron'),AREAL_CORE_HOME:join(scratch,'core'),AREAL_CORE_USER_HOME:userHome,
@@ -84,7 +86,7 @@ await page.getByRole('heading',{name:'已安装',exact:true}).waitFor();assert.e
   const cliDetail = JSON.parse(
     execFileSync(
       env.AREAL_CORE_BIN,
-      ["plugins", "--workspace", workspace, "read", "hello@gui-p0"],
+      ["plugin", "--workspace", workspace, "read", "hello@gui-p0"],
       { env, encoding: "utf8" },
     ),
   );
@@ -106,11 +108,11 @@ if(lose&&name==='manage'&&params.operation==='pluginSetup'&&result.ok){lose=fals
 await button('运行设置').click();
 await page.getByTestId('plugin-detail-page').getByRole('button',{name:'核对插件提交',exact:true}).click();
 await button('打开设置对话').waitFor();await button('打开设置对话').click();
-await page.getByTestId('chat-input').waitFor();await page.getByText('GUI_PLUGIN_SETUP_OK',{exact:true}).waitFor();
+await page.getByTestId('chat-input').waitFor();await page.getByTestId('chat-view').getByText('GUI_PLUGIN_SETUP_OK',{exact:true}).waitFor();
 const setupThread=await page.getByTestId('areal-workbench').getAttribute('data-thread-id');
 assert(setupThread);await page.getByTestId('task-item-'+setupThread).waitFor();
 assert(requests.some(r=>JSON.stringify(r.messages).includes('GUI_PLUGIN_SETUP_BODY_MARKER')));
-await selectConversation(page,setupThread);assert.equal(requests.length,1,'receipt recovery must not replay setup');
+await selectConversation(page,setupThread);assert.equal(setupRequests().length,1,'receipt recovery must not replay setup');
 checks.push('explicit setup enters ordinary accessible chat with packaged skill body and sidebar navigation');
 checks.push('GUI recovers completed setup after injected Main-to-renderer response loss using real Core receipt without replay');
 await page.screenshot({path:join(scratch,'setup-chat.png'),animations:'disabled'});
@@ -151,6 +153,7 @@ await new Promise(r=>model.close(r));
 if(errors.length){passed=false;process.exitCode=1;}
 const manifest={passed,checks,errors,mainErrors,cleanup,failure,scratch,source:execFileSync('git',['rev-parse','HEAD'],{cwd:gui,encoding:'utf8'}).trim(),
 sourceFiles,sourceDiffSha256,core:{binary:coreBinary,sha256:coreSha256,unchanged:createHash('sha256').update(await readFile(coreBinary)).digest('hex')===coreSha256},
-modelRequests:requests.length,scope:'source Electron/Core P0 plugins; deterministic external model; no packaged/provider acceptance'};
+modelRequests:requests.length,setupModelRequests:setupRequests().length,scope:'source Electron/Core P0 plugins; deterministic external model; no packaged/provider acceptance'};
+await writeFile(join(scratch,'model-requests.json'),JSON.stringify(requests,null,2));
 await writeFile(join(scratch,'manifest.json'),JSON.stringify(manifest,null,2));console.log(JSON.stringify(manifest,null,2));
 }

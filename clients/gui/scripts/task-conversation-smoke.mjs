@@ -96,7 +96,7 @@ const model=createServer(async(request,response)=>{
   if(goal.limitsPending){tool('goal_set_limits',{expectedRevision:goalView.revision,sources:{}});return;}
   if(manualRegression&&goal.objective===manualObjective){
    if(goal.report?.status==='complete'){finish('MANUAL_FIXTURE_DONE');return;}
-   const entry={release:()=>{held.delete(response);tool('goal_update',{expectedRevision:goalView.revision,status:'complete',summary:'MANUAL_FIXTURE_REPORT',evidence:['Manual execution requested by the saved Task button.'],remaining:[]});}};
+   const entry={connected:()=>!response.destroyed&&!response.writableEnded,release:()=>{assert.ok(!response.destroyed,'manual fixture stream remains connected');held.delete(response);tool('goal_update',{expectedRevision:goalView.revision,status:'complete',summary:'MANUAL_FIXTURE_REPORT',evidence:['Manual execution requested by the saved Task button.'],remaining:[]});}};
    manualRuns.set(goal.id,entry);send({content:'MANUAL_FIXTURE_RUNNING'});held.add(response);response.on('close',()=>held.delete(response));return;
   }
   if(inlineRegression&&goal.objective===inlineObjective){
@@ -242,29 +242,33 @@ if(manualRegression){
 process.on('uncaughtExceptionMonitor',(error,origin)=>require('node:fs').appendFileSync(${JSON.stringify(manualMainErrors)},JSON.stringify({pid:process.pid,origin,name:error.name,message:error.message,stack:error.stack})+'\\n'));
 const {CoreBackend}=require(${JSON.stringify(join(gui,'app/src/core/backend.cjs'))});
 const fs=require('node:fs');
-const start=CoreBackend.prototype.start;
-CoreBackend.prototype.start=async function(id){
- const project=await start.call(this,id);
- if(!project.client.manualFixture){
-  project.client.manualFixture=true;
-  const serverRequest=project.client.onServerRequest;
-  project.client.onServerRequest=async(method,params,context)=>{
+const connect=CoreBackend.prototype.connect;
+CoreBackend.prototype.connect=async function(...args){
+ const {CoreClient}=await import(${JSON.stringify(join(gui,'packages/runtime-client/core.js'))});
+ if(!CoreClient.prototype.manualFixture){
+  CoreClient.prototype.manualFixture=true;
+  const clientConnect=CoreClient.prototype.connect;
+  CoreClient.prototype.connect=async function(){
+  const serverRequest=this.onServerRequest;
+  this.onServerRequest=async(method,params,context)=>{
    if(method==='areal/task/prepare'&&fs.existsSync(${JSON.stringify(manualPrepareGate)})){
     fs.appendFileSync(${JSON.stringify(manualPrepareTrace)},JSON.stringify(params)+'\\n');
     while(fs.existsSync(${JSON.stringify(manualPrepareGate)})&&!context.signal.aborted)await new Promise(resolve=>setTimeout(resolve,25));
    }
    return serverRequest(method,params,context);
   };
-  const request=project.client.request.bind(project.client);
-  project.client.request=async(method,params,options)=>{
+  const request=this.request.bind(this);
+  this.request=async(method,params,options)=>{
    if(method==='areal/task/runNow')fs.appendFileSync(${JSON.stringify(manualTrace)},JSON.stringify(params)+'\\n');
    if(method==='areal/request/read'&&params.taskId&&fs.existsSync(${JSON.stringify(manualDropGate)}))throw new Error('receipt read fixture unavailable');
    const result=await request(method,params,options);
    if(method==='areal/task/runNow'&&fs.existsSync(${JSON.stringify(manualDropGate)}))throw Object.assign(new Error('accepted response fixture dropped'),{submissionUnknown:true});
    return result;
   };
+  return clientConnect.call(this);
+  };
  }
- return project;
+ return connect.apply(this,args);
 };
 require(${JSON.stringify(join(gui,'app/src/main.cjs'))});
 `);
@@ -688,6 +692,7 @@ async function checkInlineRegression(){
  await assertRestored('reopen');
 }
 async function closeManualApp(){
+ await app.evaluate(({dialog},trace)=>{const old=dialog.showMessageBox;dialog.showMessageBox=async(...args)=>{const options=args.at(-1);if(options.message==='退出 AReaL Harness？'){require('node:fs').appendFileSync(trace,JSON.stringify({message:options.message,buttons:options.buttons})+'\n');return {response:1};}return old(...args);};},join(scratch,'manual-quit-dialogs.jsonl'));
  const processHandle=app.process();let timer;
  try{
   await Promise.race([app.close(),new Promise((_resolve,reject)=>{timer=setTimeout(()=>reject(Error('owned Electron quit timed out')),15000);})]);
@@ -743,14 +748,29 @@ async function checkManualRegression(){
  manualCleanup.crashTarget={instance,serviceId:service.serviceId,corePid:service.corePid,hostPid:service.hostPid};
  process.kill(service.corePid,'SIGKILL');
  await until(()=>{try{process.kill(service.corePid,0);return false;}catch(error){if(error.code==='ESRCH')return true;throw error;}},'fixture Core exits abruptly during held preparation');
- await rm(manualPrepareGate);await rm(manualDropGate);await closeManualApp();await launch();
+ const adapter=JSON.parse(await readFile(join(scratch,'core/service.json'),'utf8'));
+ const oldGui=app.process();
+ assert.equal(adapter.applicationOwner.profile,env.AREAL_GUI_USER_DATA);
+ assert.ok(Number.isInteger(adapter.pid)&&adapter.pid>0);
+ manualCleanup.intentionalCrash={guiPid:oldGui.pid,adapterPid:adapter.pid,originalCorePid:service.corePid,runId:second.runs[1].id,requestId:pending.params.requestId};
+ const crashPid=pid=>{try{process.kill(pid,'SIGKILL');}catch(error){if(error.code!=='ESRCH')throw error;}};
+ const exited=pid=>{try{process.kill(pid,0);return false;}catch(error){if(error.code==='ESRCH')return true;throw error;}};
+ crashPid(oldGui.pid);await until(()=>oldGui.signalCode==='SIGKILL','intentional old GUI crash exits');
+ crashPid(adapter.pid);await until(()=>exited(adapter.pid),'intentional old adapter crash exits');
+ const replacement=JSON.parse(await readFile(join(env.AREAL_HARNESS_SERVICE_HOME,'services',instance,'service.json'),'utf8'));
+ assert.ok(Number.isInteger(replacement.corePid)&&replacement.corePid>0);
+ Object.assign(manualCleanup.intentionalCrash,{corePid:replacement.corePid,hostPid:replacement.hostPid});
+ crashPid(replacement.corePid);await until(()=>exited(replacement.corePid)&&exited(replacement.hostPid),'intentional replacement Core crash releases its original host');
+ app=null;page=null;
+ await rm(manualPrepareGate);await rm(manualDropGate);await launch();
  await until(async()=>!(await snapshot()).projects.find(project=>project.id===pid)?.pending.some(entry=>entry.method==='areal/task/runNow'),'reopen reconciles original request receipt');
- const secondFixture=await until(()=>[...manualRuns.values()][1],'same Run executes after Core restart');secondFixture.release();
+ const recovered=await until(async()=>{const value=await task(created.id);return value.runs[1]?.goalId&&value;},'same accepted Run acquires its Goal after Core restart');
+ const secondFixture=await until(()=>{const entry=manualRuns.get(recovered.runs[1].goalId);return entry?.connected()&&entry;},'same Run has a connected fixture stream after Core restart');secondFixture.release();
  const restored=await until(async()=>{const value=await task(created.id);return value.runs[1]?.status==='completed'&&value;},'recovered manual Run completes');assert.equal(restored.runCount,2);assert.equal(restored.runs[1].id,second.runs[1].id);assert.deepEqual(plan(restored),plan(before));
  const trace=(await readFile(manualTrace,'utf8')).trim().split('\n').map(line=>JSON.parse(line));assert.equal(trace.filter(entry=>entry.requestId===pending.params.requestId).length,1,'recovery never replays runNow');
  await page.getByRole('button',{name:'定时任务',exact:true}).click();await page.getByRole('button',{name:`打开自动化 ${manualObjective}`,exact:true}).click();await showResources();
  await until(()=>runNow().isEnabled(),'original receipt releases saved Task controls');
- checks.push('dropped accepted response persists UNKNOWN; abrupt Core kill during held preparation recovers the same Run and original receipt without replay');
+ checks.push('dropped accepted response persists UNKNOWN across intentional Core and desktop crashes; the new instance recovers the same Run and original receipt without replay');
  await page.screenshot({path:join(scratch,'manual-recovered.png')});assert.deepEqual(errors,[]);
 }
 try{
@@ -973,7 +993,7 @@ try{
    const rows=await call('tasks',{operation:'list',limit:100});
    for(const entry of rows.data){if(!entry.cancelled)await call('manage',{projectId:entry.projectId,operation:'taskCancel',taskId:entry.id,expectedRevision:entry.revision}).catch(()=>{});}
    await until(async()=>{const state=await call('serviceStatus',{});return !state.busy&&!state.activeCommands;},'fixture cleanup',20000);
-   await app.evaluate(({dialog})=>{const old=dialog.showMessageBox;dialog.showMessageBox=async(...args)=>args.at(-1).message==='停止共享后台服务？'?{response:1}:old(...args);});
+   await app.evaluate(({dialog})=>{const old=dialog.showMessageBox;dialog.showMessageBox=async(...args)=>args.at(-1).message==='退出 AReaL Harness？'?{response:1}:old(...args);});
    if(!manualRegression)await call('stopService',{});
   }catch(error){errors.push(`cleanup: ${error.message}`);}
  }

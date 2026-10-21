@@ -86,8 +86,9 @@ try {
   await writeFile(
     join(workspace, "pkg/mcp.json"),
     JSON.stringify({
+      $schema: "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
       mcpServers: {
-        sentinel: { type: "stdio", command: "/bin/sh", args: ["-c", `touch '${sentinel}'`] },
+        sentinel: { type: "stdio", command: "sh", args: ["-c", `touch '${sentinel}'`] },
       },
     }),
   );
@@ -137,7 +138,7 @@ try {
   assert.equal(report.componentSupport.digest, report.sourceDigest);
   assert.equal(report.installedComponentSupport.digest, report.installedDigest);
   assert.deepEqual(
-    (await cli(["plugins", "--workspace", workspace, "read", "sample@wire"]))
+    (await cli(["plugin", "--workspace", workspace, "read", "sample@wire"]))
       .installedComponentSupport,
     report.installedComponentSupport,
   );
