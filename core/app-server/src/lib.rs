@@ -60,7 +60,7 @@ fn configured_router(
             ([("content-security-policy", "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"), ("x-content-type-options", "nosniff"), ("referrer-policy", "no-referrer")], Html(include_str!("../../../clients/web/index.html")))
         }))
         .route("/ui/app.js", get(|| async { ([("content-type", "text/javascript; charset=utf-8"), ("x-content-type-options", "nosniff")], include_str!("../../../clients/web/app.js")) }))
-        .route("/ui/style.css", get(|| async { ([("content-type", "text/css; charset=utf-8"), ("x-content-type-options", "nosniff")], include_str!("../../../clients/web/style.css")) }))
+        .route("/ui/style.css", get(|| async { ([("content-type", "text/css; charset=utf-8"), ("x-content-type-options", "nosniff")], concat!(include_str!("../../../design/tokens/focus.css"), "\n", include_str!("../../../clients/web/style.css"))) }))
         .route("/areal/auth/session", axum::routing::post(browser_auth::session))
         .route("/areal/auth/bootstrap", axum::routing::post(browser_auth::bootstrap))
         .route("/areal/auth/bootstrap/exchange", axum::routing::post(browser_auth::exchange).layer(DefaultBodyLimit::max(1024)))

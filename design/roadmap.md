@@ -8,7 +8,7 @@ AReaL 已有生产控件、GUI 目录、状态合同和开发预览。当前共�
 | --- | --- | --- |
 | 产品设计语言 | [共享原则](principles/README.md)、[表达角色](foundations/roles.md)、现有图标与主题 | 完整候选的文字层级、表面、密度、形状、状态和动效选择，以及选择理由 |
 | 内容与文案 | [术语](content/terminology.md)、[界面文案](content/interface-copy.md)已区分用词建议与执行事实 | 随真实入口采用并核对翻译、范围和反馈，不做脱离功能的全局替换 |
-| Token | [角色与平台映射](foundations/tokens.md)，GUI、TUI、Web 的现有数值源 | 选定首组需要共享的默认值，明确唯一编辑源、动态偏好优先级与平台输出 |
+| Token | [角色与平台映射](foundations/tokens.md)，[浏览器焦点共享源](tokens/focus.css)已接入 GUI 与本地 Web | 首组焦点已通过真实隔离 Core 的 GUI 与本地 Web 键盘审批路径；下一组按真实消费者选择，动态偏好和终端能力继续由本端拥有 |
 | 组件合同 | [组件选择与职责](components/README.md)已连接首批就近合同，生产控件及平台合同保留原所有者 | 核对合同与真实消费者，补齐实际缺失的行为证据；Props 由类型提供 |
 | 用户任务与组合 | [共享模式](patterns/README.md)、[工作台](products/workbench/README.md)、GUI 组合与 surface 合同 | 用一个完整候选验证工作区、对话、资源和设置能否共同组成连贯体验 |
 | 文档与可运行示例 | [文档与预览入口](README.md#阅读与预览)、现有 catalog 与生成器 | 核对原 Markdown 链接、合同和生产示例的阅读路径；运行结果另行记录，不以构建代替用户路径 |
