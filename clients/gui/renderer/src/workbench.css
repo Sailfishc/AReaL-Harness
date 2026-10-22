@@ -56,6 +56,16 @@ pre {
   border-radius: 20px;
   font-size: var(--text-ui-base);
 }
+.areal-workbench:has(> .startup-screen) { padding: 0; background: var(--color-background); }
+.areal-workbench:has(> .startup-screen)::after { display: none; }
+.startup-screen { position: relative; width: 100%; height: 100%; display: grid; place-items: center; }
+.startup-drag-region { position: absolute; inset: 0 0 auto; height: var(--shell-bar-height); -webkit-app-region: drag; }
+.startup-content { display: flex; flex-direction: column; align-items: center; gap: 16px; max-width: 520px; padding: 32px; text-align: center; }
+.startup-content > img { width: 40px; height: 40px; object-fit: contain; }
+.startup-content > p { margin: 0; color: var(--color-foreground-subtle); }
+.startup-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.startup-content pre { max-height: 160px; overflow: auto; text-align: left; }
+.startup-settings { width: min(900px, 100%); height: 100%; padding: calc(var(--shell-bar-height) + 12px) 24px 24px; overflow: auto; }
 .areal-workbench:has(.sidebar-with-rail) { --page-frame-left: 52px; --page-clip-start: calc(-1 * var(--page-radius)); }
 .areal-workbench:has(.workspace-side-panel[data-open="true"]) { --main-clip-end: calc(-1 * var(--page-radius)); }
 /* One noninteractive outline spans navigation, conversation and workbench.

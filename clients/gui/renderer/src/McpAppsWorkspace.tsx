@@ -58,6 +58,7 @@ function entrypoint(tool: McpAppTool, kind: string) {
 }
 export function useMcpAppsWorkspace({
     project,
+    deepLinksEnabled,
     projects,
     activeTab,
     threadId,
@@ -68,6 +69,7 @@ export function useMcpAppsWorkspace({
     onError,
 }: {
     project?: Data;
+    deepLinksEnabled: boolean;
     projects: Data[];
     activeTab: string;
     threadId: string;
@@ -507,7 +509,7 @@ export function useMcpAppsWorkspace({
     }
     useEffect(() => {
         const desktop = mcpAppDesktop();
-        if (!desktop?.onMcpAppDeepLink) return;
+        if (!deepLinksEnabled || !desktop?.onMcpAppDeepLink) return;
         return desktop.onMcpAppDeepLink(async (link) => {
             const candidates = servers.filter(
                 (server) =>
@@ -525,7 +527,7 @@ export function useMcpAppsWorkspace({
                 deepLink: link.path,
             });
         });
-    }, [servers, project?.id]);
+    }, [servers, project?.id, deepLinksEnabled]);
     useEffect(() => {
         let active = true,
             timer: ReturnType<typeof setTimeout> | undefined;

@@ -163,6 +163,8 @@ Renderer 的 `[composer-skills]` JSON 将 Skills 读取分为 `core` 与可选�
 
 `AREAL_CORE_BIN=/absolute/path/to/areal pnpm --dir clients/gui run test:startup` 使用隔离的真实 Electron、Core 和 Runtime，默认执行五次保留合成历史的进程冷启动，验证模型可用性、历史恢复、无重复提交和退出清理。设置 `AREAL_STARTUP_BASELINE_BIN` 可交替比较两个独立构建；`AREAL_STARTUP_ROUNDS` 控制轮数。脚本保留逐轮日志、截图和 manifest，不清除系统缓存，不使用真实供应商或用户凭据。
 
+首次启动先显示已应用主题的图标与加载提示，再恢复后台和原会话。初始恢复完成前不挂载首页、侧栏、输入框或面板；恢复成功后一次性显示完整工作台。失败时在加载页提供现有恢复与重试入口。等待超过 15 秒时显示进一步操作，但不据此判定后台失败或重放操作。关闭窗口后，迟到的恢复不会重新打开窗口。启动对比可设置 `AREAL_STARTUP_BASELINE_GUI=/absolute/path/to/clients/gui`，交替使用两个已构建的 GUI 和同一 Core；`AREAL_STARTUP_CHECK_HIDE=1` 另验收恢复期间关闭及主动重开。报告分别保留原生首次显示和完整历史恢复时间。
+
 Renderer 仅通过窄 preload IPC 访问桌面适配器。独立适配器使用 `areal service ensure/restart/stop --json` 连接 Core，不直接管理持久 Core 服务的 PID。关闭窗口保留应用与任务；退出应用先结算所有 GUI 引擎和终端，安排停止触发、手机入口断开。再次启动读取 Core 权威历史，不重放提交。
 
 用户可显式停止后台服务。空闲停止不取消工作；有活动轮次、目标、任务或待发输入时，只显示一次取消确认，确认范围绑定原 Desktop 和各 Core 代际。取消保留待发输入、安排、历史与草稿，暂停当前执行并等待资源结算。历史 UNKNOWN 保留原会话核查要求，但不代替活资源结算。结果分为已完成、已拒绝、仍在结算、部分完成或受理未确认；检查只读取原请求，既不重发停止，也不确认工具 UNKNOWN。旧后台未声明持久生命周期能力时保留兼容观察，不通过另一层 Core 连接代为取消。若已知旧 Desktop 留下部分停止记录，可在顶部或设置的“检查与恢复”入口检查原工作空间，再显式选择“恢复后台…”。检查读取原 Host 身份、准入与资源结算；已退出目标还需 Host 清理标记和实例／历史锁释放，不能仅凭 PID 或 socket 消失判断完成。仍未知、正在清理、忙碌或已换代时显示原因并保留记录。确认后只对核对为空闲的原代际发起新的安全停止；本次停止响应未知时只检查，不重发。全部原 Host 确认清理后才退出旧界面后台并启动当前版本；旧界面后台未响应退出时另行确认是否结束该管理进程，不向 Core/Runtime 发信号。模型配置、工作空间、历史与工具 UNKNOWN 保留，旧停止记录存档；恢复中断可重新检查并继续。`pnpm --dir clients/gui run test:legacy-recovery` 使用隔离历史 Desktop、当前 GUI/Core 与本地模型验证恢复；设置 `AREAL_RECOVERY_SCENARIO=exited` 覆盖停止已完成但响应未知的路径。

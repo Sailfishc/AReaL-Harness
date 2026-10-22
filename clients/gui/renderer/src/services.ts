@@ -33,7 +33,7 @@ export interface UpdateState {
 }
 export type NotificationTarget = { projectId: string } & ({ threadId: string; taskId?: never } | { taskId: string; runId?: string; questionId?: string });
 export interface PlatformServices {
-    /** The initial selected view has committed; desktop may reveal its window. */
+    /** The themed initial window has painted; desktop may reveal before backend or history restoration. */
     presentReady?(): Promise<void>;
     onQuitRequested?(listener: () => Promise<boolean>): () => void;
     onNotificationOpen?(listener: (target: NotificationTarget) => void): () => void;

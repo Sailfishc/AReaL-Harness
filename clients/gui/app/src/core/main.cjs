@@ -50,20 +50,21 @@ let window, backend, preview, mcpApps, updates, quitting = false, exitReady = fa
 let browserWindowClosed = false;
 const previewSubscriptions = new Map();
 const projections = new WeakMap();
-let startupPending = true, startupPainted = false, startupReady = false;
+let startupPresentation = 'requested', startupPainted = false, startupReady = false;
 let focusRequested = false, quitAttempt = null, quitRequestSequence = 0;
 let startupShowTrace, startupPaintTrace, startupPresentTrace;
-// The renderer owns first-screen readiness; Main alone owns native visibility.
-// Consume this gate once so late data cannot reopen a window the user hid.
 function presentStartup() {
-  if (!startupPending || quitting || !window || window.isDestroyed()
+  if (startupPresentation !== 'requested' || quitting || !window || window.isDestroyed()
     || !startupPainted || !startupReady) return;
-  startupPending = false;
+  startupPresentation = 'presented';
   window.show();
   if (focusRequested) { focusRequested = false; window.focus(); }
 }
 function revealWindow() {
-  if (startupPending || !window || window.isDestroyed()) { focusRequested = true; return; }
+  if (!window || window.isDestroyed()) { focusRequested = true; return; }
+  if (startupPresentation !== 'presented') {
+    startupPresentation = 'requested'; focusRequested = true; presentStartup(); return;
+  }
   if (window.isMinimized()) window.restore();
   window.show(); window.focus();
 }
@@ -141,14 +142,16 @@ async function exportDiagnostics() {
 }
 const requestStopAndQuit = () => requestQuit('stop');
 const stopAndQuitFromMenu = () => { void requestStopAndQuit().catch(error => { backend?.reportLifecycleError(error); revealWindow(); }); };
-const menuBar = new MenuBar(() => quitting || startupPending ? null : window, stopAndQuitFromMenu);
+const menuBar = new MenuBar(() => quitting || startupPresentation !== 'presented' ? null : window, stopAndQuitFromMenu);
 app.on('will-quit', () => menuBar?.close());
 let notificationTarget = null, notificationSequence = 0;
 function openNotificationTarget(target) {
   notificationTarget = { ...target, id: ++notificationSequence };
   if (!window || window.isDestroyed()) return;
-  if (window.isMinimized()) window.restore();
-  if (!startupPending) { window.show(); window.focus(); }
+  if (startupPresentation === 'presented') {
+    if (window.isMinimized()) window.restore();
+    window.show(); window.focus();
+  }
   window.webContents.send('areal-core:notification-open');
 }
 let mcpAppDeepLink = null, mcpAppDeepLinkSequence = 0;
@@ -217,7 +220,7 @@ async function createWindow() {
     });
     {
       // Native recovery dialogs may reveal their parent before the normal gate.
-      window.once('show', () => { startupPending = false; startupShowTrace.finish('ok'); });
+      window.once('show', () => { startupPresentation = 'presented'; startupShowTrace.finish('ok'); });
       window.once('ready-to-show', () => { startupPainted = true; startupPaintTrace.finish('ok'); presentStartup(); });
     }
     preview = new CorePreview(window, WebContentsView,
@@ -262,6 +265,7 @@ async function createWindow() {
       // A close-to-background still ends this window's Browser ownership. Fence
       // native callbacks before hiding; reopening creates fresh Pages on demand.
       browserWindowClosed = true;
+      if (startupPresentation !== 'presented') { startupPresentation = 'suppressed'; focusRequested = false; }
       preview?.dispose();
       mcpApps?.dispose();
       window.hide();
