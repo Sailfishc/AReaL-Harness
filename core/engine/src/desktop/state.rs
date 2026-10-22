@@ -330,7 +330,8 @@ impl Engine {
         max_bytes: Option<usize>,
     ) -> Result<Value> {
         if view == "own" {
-            let max_bytes = max_bytes.unwrap_or(areal_protocol::desktop::DEFAULT_HISTORY_PAGE_BYTES);
+            let max_bytes =
+                max_bytes.unwrap_or(areal_protocol::desktop::DEFAULT_HISTORY_PAGE_BYTES);
             if !(1..=areal_protocol::desktop::MAX_HISTORY_PAGE_BYTES).contains(&max_bytes) {
                 return Err(invalid("maxBytes must be 1..1048576"));
             }

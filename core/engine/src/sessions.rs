@@ -418,40 +418,75 @@ impl Engine {
 
     /// 有界显示与订阅仍在 Thread → Tasks 同一临界区；传输外壳由调用方提供并一起预算。
     pub async fn snapshot_and_subscribe_bounded(
-        &self, thread_id: &str, identity: &str,
+        &self,
+        thread_id: &str,
+        identity: &str,
         allowed: Option<&std::collections::BTreeSet<String>>,
-        max_bytes: usize, mut envelope: Value,
+        max_bytes: usize,
+        mut envelope: Value,
     ) -> Result<(Value, broadcast::Receiver<Value>)> {
         let cell = self.raw_cell(thread_id).await?;
         let state = cell.state.lock().await;
         let (ownership, _tasks) = self.ownership_and_lock(&state.thread, allowed).await;
         let mut thread = if state.thread.desktop.as_ref().is_some_and(|d| d.archived) {
-            self.store.read_thread_record(thread_id).await.map_err(|e| Error::Storage(e.to_string()))?
-        } else { state.thread.clone() };
+            self.store
+                .read_thread_record(thread_id)
+                .await
+                .map_err(|e| Error::Storage(e.to_string()))?
+        } else {
+            state.thread.clone()
+        };
         project_side_capacity(&mut thread, state.active.as_ref());
         self.refresh_goal_usage(&mut thread);
         let mut metadata = thread.clone();
         metadata.turns.clear();
         metadata.context_checkpoint = None;
-        if let Some(desktop) = metadata.desktop.as_mut() { desktop.receipts.clear(); }
+        if let Some(desktop) = metadata.desktop.as_mut() {
+            desktop.receipts.clear();
+        }
         envelope["cwd"] = json!(metadata.cwd);
         envelope["thread"] = json!(metadata);
         envelope["ownership"] = json!(ownership);
-        let empty_active_turn = thread.turns.last()
+        let empty_active_turn = thread
+            .turns
+            .last()
             .filter(|turn| turn.status == TurnStatus::InProgress && turn.items.is_empty())
             .cloned();
-        let result = self.store.own_history_page(thread, identity.into(), None, max_bytes, Some(envelope), empty_active_turn).await?;
+        let result = self
+            .store
+            .own_history_page(
+                thread,
+                identity.into(),
+                None,
+                max_bytes,
+                Some(envelope),
+                empty_active_turn,
+            )
+            .await?;
         Ok((result, cell.events.subscribe()))
     }
 
     /// 旧页仅构造显示投影；归档会话从持久 Record 读取，不能使用已释放 turns 的驻留副本。
-    pub async fn own_history(&self, identity: &str, thread_id: &str, cursor: Option<String>, max_bytes: usize) -> Result<Value> {
+    pub async fn own_history(
+        &self,
+        identity: &str,
+        thread_id: &str,
+        cursor: Option<String>,
+        max_bytes: usize,
+    ) -> Result<Value> {
         let cell = self.raw_cell(thread_id).await?;
         let state = cell.state.lock().await;
         let thread = if state.thread.desktop.as_ref().is_some_and(|d| d.archived) {
-            self.store.read_thread_record(thread_id).await.map_err(|e| Error::Storage(e.to_string()))?
-        } else { state.thread.clone() };
-        self.store.own_history_page(thread, identity.into(), cursor, max_bytes, None, None).await
+            self.store
+                .read_thread_record(thread_id)
+                .await
+                .map_err(|e| Error::Storage(e.to_string()))?
+        } else {
+            state.thread.clone()
+        };
+        self.store
+            .own_history_page(thread, identity.into(), cursor, max_bytes, None, None)
+            .await
     }
 
     pub async fn spawn_child(

@@ -715,7 +715,14 @@ async fn connection(
                     } else if processes::METHODS.contains(&method.as_str()) {
                         processes::dispatch(&engine, &identity, &method, params).await
                     } else if desktop::METHODS.contains(&method.as_str()) {
-                        desktop::dispatch_with_budget(&engine, &identity, &method, params, response_overhead(&id)).await
+                        desktop::dispatch_with_budget(
+                            &engine,
+                            &identity,
+                            &method,
+                            params,
+                            response_overhead(&id),
+                        )
+                        .await
                     } else {
                         workgroups::dispatch(engine, &identity, &method, params).await
                     }
@@ -742,7 +749,12 @@ async fn connection(
         let delivery = conn.delivery.clone();
         let _delivery = delivery.lock().await;
         let result = conn
-            .dispatch_response(&engine, method, params, response_overhead(id.as_ref().unwrap()))
+            .dispatch_response(
+                &engine,
+                method,
+                params,
+                response_overhead(id.as_ref().unwrap()),
+            )
             .instrument(info_span!(
                 "rpc.request",
                 rpc.system = "jsonrpc",
@@ -1135,7 +1147,9 @@ impl Connection {
                 return Err(RpcError {
                     code: -32003,
                     message: "unrestricted Manage and Tools permissions required".into(),
-                    data: Some(json!({"reason":"PERMISSION_DENIED","outcome":{"kind":"rejected"},"recovery":{"kind":"none"}})),
+                    data: Some(
+                        json!({"reason":"PERMISSION_DENIED","outcome":{"kind":"rejected"},"recovery":{"kind":"none"}}),
+                    ),
                 });
             }
             return plugin_runtime::dispatch(
@@ -1171,7 +1185,14 @@ impl Connection {
             }
             let scoped_request_search =
                 method == "areal/request/read" && self.principal.thread_ids.is_some();
-            let mut result = desktop::dispatch_with_budget(engine, &self.principal.id, method, params, response_overhead).await?;
+            let mut result = desktop::dispatch_with_budget(
+                engine,
+                &self.principal.id,
+                method,
+                params,
+                response_overhead,
+            )
+            .await?;
             if scoped_request_search
                 && let Some(data) = result.get_mut("data").and_then(Value::as_array_mut)
             {
@@ -1302,9 +1323,12 @@ impl Connection {
                         "ordinaryTurnSubmit":true,"editLastMessage":true,"turnStartAdmissionGuard":true,"turnEnqueueAdmissionGuard":true,"turnInterruptAdmissionGuard":true,"threadStartAdmissionGuard":true,"taskPauseRunGuard":true,"taskModes":true,"taskChannels":true,"asyncQuestions":true,"headlessInteractions":true,"goals":true,"dynamicTools":true,"mediaOutput":true,"durableSubmissionDeduplication":true,"profiles":true,"skills":true,"plans":true,"interactions":true,"queue":true,"providerConfiguration":true,"modelReset":true,"toolMedia":true,"blobUpload":true}),
                     "limits":{"frameBytes":MAX_FRAME_BYTES,"responseBytes":MAX_RESPONSE_BYTES,"subscriptions":128,"sendQueue":256,"threadEventWindow":128},
                     "runtime":engine.runtime_capabilities()});
-                capabilities["features"]["mcpPageToolsV1"] = json!({"version":1,"kinds":["getSelection","applyPatch"]});
-                capabilities["features"]["permissionPresets"] = json!(engine.permission_presets_available());
-                capabilities["features"]["permissionFullAccess"] = json!(engine.permission_full_access_available());
+                capabilities["features"]["mcpPageToolsV1"] =
+                    json!({"version":1,"kinds":["getSelection","applyPatch"]});
+                capabilities["features"]["permissionPresets"] =
+                    json!(engine.permission_presets_available());
+                capabilities["features"]["permissionFullAccess"] =
+                    json!(engine.permission_full_access_available());
                 capabilities["features"]["taskRunHistory"] = json!(true);
                 capabilities["features"]["boundedObservation"] = json!(true);
                 capabilities["features"]["boundedResume"] = json!(true);
@@ -1365,8 +1389,12 @@ impl Connection {
             "thread/resume" => {
                 let p: areal_protocol::desktop::ObserveThread = parse(params)?;
                 let budget = match p.mode {
-                    Some(areal_protocol::desktop::ObservationMode::Bounded) => Some(bounded_history_budget(p.max_bytes, response_overhead)?),
-                    None if p.max_bytes.is_some() => return Err(RpcError::invalid("maxBytes requires mode bounded")),
+                    Some(areal_protocol::desktop::ObservationMode::Bounded) => {
+                        Some(bounded_history_budget(p.max_bytes, response_overhead)?)
+                    }
+                    None if p.max_bytes.is_some() => {
+                        return Err(RpcError::invalid("maxBytes requires mode bounded"));
+                    }
                     None => None,
                 };
                 if !self.subscriptions.contains_key(&p.thread_id) && self.subscriptions.len() >= 128
@@ -1384,10 +1412,16 @@ impl Connection {
                         .map_err(map_error)?;
                 }
                 if let Some(budget) = budget {
-                    let (result, events) = engine.snapshot_and_subscribe_bounded(
-                        &p.thread_id, &self.principal.id, self.principal.thread_ids.as_ref(),
-                        budget, thread_metadata(engine, ""),
-                    ).await.map_err(map_error)?;
+                    let (result, events) = engine
+                        .snapshot_and_subscribe_bounded(
+                            &p.thread_id,
+                            &self.principal.id,
+                            self.principal.thread_ids.as_ref(),
+                            budget,
+                            thread_metadata(engine, ""),
+                        )
+                        .await
+                        .map_err(map_error)?;
                     self.forward(&p.thread_id, events);
                     return Ok(result);
                 }
@@ -1410,10 +1444,16 @@ impl Connection {
                 }
                 if p.mode == Some(areal_protocol::desktop::ObservationMode::Bounded) {
                     let budget = bounded_history_budget(p.max_bytes, response_overhead)?;
-                    let (result, events) = engine.snapshot_and_subscribe_bounded(
-                        &p.thread_id, &self.principal.id, self.principal.thread_ids.as_ref(),
-                        budget, thread_metadata(engine, ""),
-                    ).await.map_err(map_error)?;
+                    let (result, events) = engine
+                        .snapshot_and_subscribe_bounded(
+                            &p.thread_id,
+                            &self.principal.id,
+                            self.principal.thread_ids.as_ref(),
+                            budget,
+                            thread_metadata(engine, ""),
+                        )
+                        .await
+                        .map_err(map_error)?;
                     self.forward(&p.thread_id, events);
                     return Ok(result);
                 }
@@ -1494,7 +1534,10 @@ fn validate_model(engine: &Engine, model: Option<&str>) -> Result<(), RpcError> 
     Ok(())
 }
 fn response_overhead(id: &Value) -> usize {
-    serde_json::to_vec(&response(id.clone(), Ok(Value::Null))).unwrap().len() - 4
+    serde_json::to_vec(&response(id.clone(), Ok(Value::Null)))
+        .unwrap()
+        .len()
+        - 4
 }
 fn bounded_history_budget(max_bytes: Option<usize>, overhead: usize) -> Result<usize, RpcError> {
     let requested = max_bytes.unwrap_or(areal_protocol::desktop::DEFAULT_HISTORY_PAGE_BYTES);
@@ -1565,10 +1608,18 @@ fn map_error(error: Error) -> RpcError {
     if let Error::Rejected(error) = error {
         return rejected(map_error(*error), "REQUEST_REJECTED");
     }
-    if let Error::HistoryRead { reason, thread_id, restart_cursor } = &error {
+    if let Error::HistoryRead {
+        reason,
+        thread_id,
+        restart_cursor,
+    } = &error
+    {
         return RpcError {
-            code: -32012, message: "History view requires a fresh bounded read".into(),
-            data: Some(json!({"reason":reason,"threadId":thread_id,"view":"own","reset":*reason == "HISTORY_CURSOR_STALE","restartCursor":restart_cursor,"retryable":false,"outcome":{"kind":"noMutation"},"recovery":{"kind":"none"}})),
+            code: -32012,
+            message: "History view requires a fresh bounded read".into(),
+            data: Some(
+                json!({"reason":reason,"threadId":thread_id,"view":"own","reset":*reason == "HISTORY_CURSOR_STALE","restartCursor":restart_cursor,"retryable":false,"outcome":{"kind":"noMutation"},"recovery":{"kind":"none"}}),
+            ),
         };
     }
     if let Error::OperationOutcome(failure) = &error {
@@ -1590,7 +1641,9 @@ fn map_error(error: Error) -> RpcError {
         return RpcError {
             code: -32003,
             message: "task permission denied".into(),
-            data: Some(json!({"reason":"PERMISSION_DENIED","outcome":{"kind":"rejected"},"recovery":{"kind":"none"}})),
+            data: Some(
+                json!({"reason":"PERMISSION_DENIED","outcome":{"kind":"rejected"},"recovery":{"kind":"none"}}),
+            ),
         };
     }
     if matches!(&error, Error::Invalid(reason) if reason == "SIDE_POLICY_VIOLATION") {
@@ -1622,7 +1675,10 @@ fn map_error(error: Error) -> RpcError {
         Error::Conflict => -32009,
         Error::Exhausted(_) => -32001,
         Error::Closed => -32000,
-        Error::Storage(_) | Error::OperationOutcome(_) | Error::Rejected(_) | Error::HistoryRead { .. } => -32603,
+        Error::Storage(_)
+        | Error::OperationOutcome(_)
+        | Error::Rejected(_)
+        | Error::HistoryRead { .. } => -32603,
     };
     RpcError {
         code,

@@ -153,7 +153,10 @@ fn serialized_entry(
     let serialized: Arc<str> = serde_json::to_string(&entry).unwrap().into();
     let version = format!("{:x}", Sha256::digest(serialized.as_bytes()));
     let encoded = Arc::new(CachedOwnHistoryEntry {
-        scope: scope.into(), entry, serialized, version,
+        scope: scope.into(),
+        entry,
+        serialized,
+        version,
     });
     let retained = (encoded.serialized.len() <= MAX_CACHED_ENTRY_BYTES).then(|| encoded.clone());
     let evicted = {

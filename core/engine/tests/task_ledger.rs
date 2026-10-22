@@ -82,7 +82,10 @@ async fn full_receipt_ledger_stops_cancels_and_replays_original_responses_after_
         (&stop, "stopRun", &stopped),
         (&cancel, "cancel", &cancelled),
     ] {
-        let records = reopened.find_request("owner", &request.request_id).await.unwrap();
+        let records = reopened
+            .find_request("owner", &request.request_id)
+            .await
+            .unwrap();
         let rows = records["data"].as_array().unwrap();
         assert_eq!(rows.len(), 1, "{records}");
         let receipt = &rows[0];
@@ -91,9 +94,21 @@ async fn full_receipt_ledger_stops_cancels_and_replays_original_responses_after_
         assert_eq!(receipt["method"], method);
         assert_eq!(receipt["status"], "completed");
         assert_eq!(receipt["result"], *original);
-        assert_eq!(receipt["digest"], format!("{:x}", Sha256::digest(serde_json::to_vec(request).unwrap())));
-        assert_eq!(receipt["operation"], json!({"requestId":request.request_id,"method":method,"target":{"kind":"task","taskId":"fixture"}}));
-        assert_eq!(reopened.find_request("another-owner", &request.request_id).await.unwrap()["data"], json!([]));
+        assert_eq!(
+            receipt["digest"],
+            format!("{:x}", Sha256::digest(serde_json::to_vec(request).unwrap()))
+        );
+        assert_eq!(
+            receipt["operation"],
+            json!({"requestId":request.request_id,"method":method,"target":{"kind":"task","taskId":"fixture"}})
+        );
+        assert_eq!(
+            reopened
+                .find_request("another-owner", &request.request_id)
+                .await
+                .unwrap()["data"],
+            json!([])
+        );
     }
     assert_eq!(
         reopened

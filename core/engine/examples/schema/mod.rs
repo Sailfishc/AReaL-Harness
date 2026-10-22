@@ -32,7 +32,9 @@ pub fn projections() -> (Value, Value) {
     let mut display_thread = thread.clone();
     let ordinary_item = display_thread["$defs"]["Item"].take();
     display_thread["$defs"]["Item"] = json!({"anyOf":[ordinary_item,deferred]});
-    let history_window = object(json!({"snapshotId":string,"nextCursor":nullable(string.clone()),"complete":boolean}));
+    let history_window = object(
+        json!({"snapshotId":string,"nextCursor":nullable(string.clone()),"complete":boolean}),
+    );
     let provider = schema::<Provider>();
     let profile = schema::<AgentProfile>();
     let config = schema::<EffectiveConfig>();
@@ -218,7 +220,8 @@ pub fn projections() -> (Value, Value) {
         object(json!({"subscriptionCount":number})),
     );
     insert(&["thread/start"], object(json!({"thread":thread})));
-    let mut observation = object(json!({"thread":display_thread,"ownership":schema::<ThreadOwnership>()}));
+    let mut observation =
+        object(json!({"thread":display_thread,"ownership":schema::<ThreadOwnership>()}));
     observation["properties"]["history"] = history_window.clone();
     insert(&["thread/observe"], observation);
     insert(&["thread/configure"], config.clone());
@@ -488,7 +491,9 @@ pub fn projections() -> (Value, Value) {
             "nextCursor":nullable(string.clone()),"complete":boolean
         })),
     );
-    let mut history_fragment = object(json!({"text":string,"offsetUtf8":number,"nextOffsetUtf8":number,"totalBytes":number}));
+    let mut history_fragment = object(
+        json!({"text":string,"offsetUtf8":number,"nextOffsetUtf8":number,"totalBytes":number}),
+    );
     history_fragment["properties"]["version"] = string.clone();
     insert(
         &["conversation/history"],

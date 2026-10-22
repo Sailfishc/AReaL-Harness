@@ -2,13 +2,15 @@
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const { mkdtemp, rm } = require('node:fs/promises');
+const { tmpdir } = require('node:os');
+const { join } = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { CoreBackend } = require('../app/src/core/backend.cjs');
 const { manageTask } = require('../app/src/core/tasks.cjs');
 const contract = require('../packages/workbench/client/desktop-contract.cjs');
 
 async function fixture(t, entries, read) {
-  const home = await mkdtemp('/private/tmp/areal-desktop-receipts-');
+  const home = await mkdtemp(join(tmpdir(), 'areal-desktop-receipts-'));
   const backend = Object.assign(Object.create(CoreBackend.prototype), { home, saves: new Map(), awaitingResponses: new WeakSet(),
     onChange() {}, providers: { redact: value => value, acceptModelSelection: async () => {} },
     lifecycleOperations: { activeTargets: new Set(), blocking: () => false },

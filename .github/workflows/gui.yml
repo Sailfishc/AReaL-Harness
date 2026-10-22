@@ -87,6 +87,8 @@ jobs:
           pnpm --dir clients/gui run verify 2>&1 | tee target/ci/gui/public.log
       - name: Verify native Core process lifecycle
         run: pnpm --dir clients/gui run test:core-process 2>&1 | tee target/ci/gui/core-process.log
+      - name: Verify macOS DMG staging
+        run: pnpm --dir clients/gui run test:macos-dmg 2>&1 | tee target/ci/gui/macos-dmg.log
       - name: Check Browser contracts and evidence
         run: pnpm --dir clients/gui run test:browser-contracts 2>&1 | tee target/ci/gui/browser-contracts.log
       - name: Build Core and GUI

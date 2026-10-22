@@ -11,7 +11,9 @@ use tokio::sync::Semaphore;
 mod archive;
 
 pub(crate) fn fit_history_fragment(
-    remaining: &str, max_bytes: usize, page_for: impl Fn(&str) -> serde_json::Value,
+    remaining: &str,
+    max_bytes: usize,
+    page_for: impl Fn(&str) -> serde_json::Value,
 ) -> Option<serde_json::Value> {
     let mut low = 0;
     let mut high = remaining.len().min(max_bytes);
@@ -19,12 +21,24 @@ pub(crate) fn fit_history_fragment(
     while low <= high {
         let mid = low + (high - low) / 2;
         let mut end = mid;
-        while !remaining.is_char_boundary(end) { end -= 1; }
+        while !remaining.is_char_boundary(end) {
+            end -= 1;
+        }
         let page = page_for(&remaining[..end]);
-        if serde_json::to_vec(&page).expect("history page serializes").len() <= max_bytes {
-            if end > 0 || remaining.is_empty() { best = Some(page); }
+        if serde_json::to_vec(&page)
+            .expect("history page serializes")
+            .len()
+            <= max_bytes
+        {
+            if end > 0 || remaining.is_empty() {
+                best = Some(page);
+            }
             low = mid + 1;
-        } else if mid == 0 { break; } else { high = mid - 1; }
+        } else if mid == 0 {
+            break;
+        } else {
+            high = mid - 1;
+        }
     }
     best
 }

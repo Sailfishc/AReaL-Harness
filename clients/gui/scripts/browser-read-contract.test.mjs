@@ -96,7 +96,7 @@ test('bound client may answer a browser tool request while ordinary clients reje
 test('an authenticated owner claim refuses a request from another Core generation', async () => {
   const pageId = '00000000-0000-4000-8000-000000000001';
   const sent = [];
-  const owner = { readyState: 1, bufferedAmount: 0, send: data => sent.push(JSON.parse(data)) };
+  const owner = { readyState: 1, bufferedAmount: 0, send: (data, done) => { sent.push(JSON.parse(data)); done(); } };
   const project = { client: { closed: false }, service: { serviceId: 'core-1', generation: 'generation-1' },
     model: { state: { threads: { 'thread-1': { dynamicTools: [{ name: 'browser_v1' }] } } } } };
   const backend = { projects: new Map([['project-1', project]]), starting: new Set(),
@@ -121,8 +121,8 @@ test('an authenticated owner claim refuses a request from another Core generatio
 test('revoked or competing claim cannot publish after the Core bind awaits', async () => {
   const pageId = '00000000-0000-4000-8000-000000000001';
   const sent = [];
-  const owner = { readyState: 1, bufferedAmount: 0, send: data => sent.push(JSON.parse(data)) };
-  const other = { readyState: 1, bufferedAmount: 0, send: data => sent.push(JSON.parse(data)) };
+  const owner = { readyState: 1, bufferedAmount: 0, send: (data, done) => { sent.push(JSON.parse(data)); done(); } };
+  const other = { readyState: 1, bufferedAmount: 0, send: (data, done) => { sent.push(JSON.parse(data)); done(); } };
   const project = { client: { closed: false }, service: { serviceId: 'core-1', generation: 'generation-1' },
     model: { state: { threads: { 'thread-1': { dynamicTools: [{ name: 'browser_v1' }] } } } } };
   const binds = [];
@@ -162,8 +162,8 @@ test('revoked or competing claim cannot publish after the Core bind awaits', asy
 test('queued continuation binds to its persisted queue turn and loses entry on removal, takeover or owner loss', async () => {
   const sent = [];
   let service, requestId = 10, queue = { items: [{ id: 'queued-user-message', status: 'pending', turnId: null }] };
-  const owner = { readyState: 1, bufferedAmount: 0, send: data => {
-    const packet = JSON.parse(data); sent.push(packet);
+  const owner = { readyState: 1, bufferedAmount: 0, send: (data, done) => {
+    const packet = JSON.parse(data); sent.push(packet); done();
     if (packet.method === 'browserRequest') queueMicrotask(() => {
       void receive('browserResult', { requestId: packet.params.requestId, result: { claimed: true } });
     });

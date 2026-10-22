@@ -6,6 +6,7 @@ PREFIX ?= /usr/local
 DESTDIR ?=
 
 ARGS ?=
+CI_BASE ?= main
 PYTHON_SOURCES := scripts tests
 WORKGROUP_ENV = AREAL_WORKGROUP_RUNTIME="$(CURDIR)/target/debug/areal-runtime" AREAL_WORKGROUP_HELPER="$(CURDIR)/target/debug/areal-runtime-fs"
 
@@ -19,7 +20,7 @@ endif
 	capacity capacity-primitives capacity-core perf runtime test-runtime runtime-smoke verify-runtime \
 	cordis-pin update-cordis sdk-test harness harness-smoke verify-harness \
 	setup setup-node sdk-build script-test launcher-test workgroup-smoke unified-execution-smoke delegation-permissions-smoke capacity-workgroup local-service-smoke upgrade-smoke tui-upgrade-smoke \
-	verify-native integration-boundaries
+	verify-native integration-boundaries ci-preflight
 
 help: ## 显示常用操作（默认目标）
 	@printf '%s\n' '用法：make <target> [ARGS="..."]' ''
@@ -108,6 +109,17 @@ verify: ## 常规验收：格式、静态检查、Rust/SDK/Python 测试与 TUI 
 	$(MAKE) lint desktop-schema-check
 	$(MAKE) test
 	$(MAKE) launcher-test smoke
+
+ci-preflight: fmt-check ## 推送前快速检查；CI_BASE 指定 PR 目标分支，不替代原生与完整 CI
+	git merge-base "$(CI_BASE)" HEAD
+	python3 scripts/check-docs.py
+	python3 -m unittest scripts.tests.test_ci_contracts
+	pnpm --dir clients/gui typecheck
+	AREAL_DESIGN_BASE="$$(git merge-base "$(CI_BASE)" HEAD)" pnpm --dir clients/gui verify:design
+	AREAL_DESIGN_BASE="$$(git merge-base "$(CI_BASE)" HEAD)" pnpm --dir clients/gui run verify
+	pnpm --dir clients/gui test:regressions
+	pnpm --dir clients/gui test:browser-contracts
+	pnpm --dir clients/gui audit
 
 sdk-build: ## 编译两套 TypeScript SDK
 	npm --prefix runtime/sdk-typescript run build

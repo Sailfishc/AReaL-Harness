@@ -184,7 +184,9 @@ pub struct ObserveThread {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
-pub enum ObservationMode { Bounded }
+pub enum ObservationMode {
+    Bounded,
+}
 
 pub const DEFAULT_HISTORY_PAGE_BYTES: usize = 256 * 1024;
 pub const MAX_HISTORY_PAGE_BYTES: usize = 1024 * 1024;

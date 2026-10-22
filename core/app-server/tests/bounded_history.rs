@@ -40,9 +40,7 @@ impl Running {
             stop.clone(),
         ));
         let url = format!("ws://{addr}");
-        let (socket, _) = tokio_tungstenite::connect_async(&url)
-            .await
-            .unwrap();
+        let (socket, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
         let mut running = Self {
             engine,
             url,
@@ -108,15 +106,19 @@ impl Running {
                             "../../../schemas/areal-core-v1.json"
                         ))
                         .unwrap();
-                        ["areal/thread/observe", "thread/resume", "areal/conversation/history"]
-                            .into_iter()
-                            .map(|name| {
-                                (
-                                    name.into(),
-                                    jsonschema::validator_for(&schema["responses"][name]).unwrap(),
-                                )
-                            })
-                            .collect()
+                        [
+                            "areal/thread/observe",
+                            "thread/resume",
+                            "areal/conversation/history",
+                        ]
+                        .into_iter()
+                        .map(|name| {
+                            (
+                                name.into(),
+                                jsonschema::validator_for(&schema["responses"][name]).unwrap(),
+                            )
+                        })
+                        .collect()
                     });
                     let errors: Vec<_> = schemas[method]
                         .iter_errors(result)
@@ -220,13 +222,21 @@ async fn bounded_observation_and_own_history_reassemble_escaped_oversize_across_
         original[29]["interruption"] = json!("coreRecovery");
         original[29]["continuedFromTurnId"] = json!("turn-28");
         let record_path = dir.path().join(format!("{id}.json"));
-        let mut record: Value = serde_json::from_slice(&std::fs::read(&record_path).unwrap()).unwrap();
+        let mut record: Value =
+            serde_json::from_slice(&std::fs::read(&record_path).unwrap()).unwrap();
         record["thread"]["turns"] = json!(original[20..]);
         std::fs::write(record_path, serde_json::to_vec(&record).unwrap()).unwrap();
         let assert_turn_metadata = |projected: &Value| {
-            let source = original.iter().find(|turn| turn["id"] == projected["id"]).unwrap();
+            let source = original
+                .iter()
+                .find(|turn| turn["id"] == projected["id"])
+                .unwrap();
             for field in ["interruption", "continuedFromTurnId"] {
-                assert_eq!(projected[field], source[field], "{} loses {field}", projected["id"]);
+                assert_eq!(
+                    projected[field], source[field],
+                    "{} loses {field}",
+                    projected["id"]
+                );
             }
         };
         let expected = item_map(&original);
@@ -760,53 +770,117 @@ async fn bounded_resume_binds_host_without_hydration_and_preserves_subscription_
     record["thread"]["dynamicTools"] = json!([tool]);
     std::fs::write(record_path, serde_json::to_vec(&record).unwrap()).unwrap();
     let mut running = Running::open(dir.path()).await;
-    assert!(running.engine.start(&id, vec![areal_protocol::Input::text("before bind")])
-        .await.unwrap_err().to_string().contains("connected owner"));
-    let oldest = std::fs::read_dir(dir.path().join("history")).unwrap()
+    assert!(
+        running
+            .engine
+            .start(&id, vec![areal_protocol::Input::text("before bind")])
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("connected owner")
+    );
+    let oldest = std::fs::read_dir(dir.path().join("history"))
+        .unwrap()
         .map(|entry| entry.unwrap().path())
         .find(|path| {
             let segment: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
             segment["previous"].is_null()
-        }).unwrap();
+        })
+        .unwrap();
     let hidden = oldest.with_extension("temporarily-unavailable");
     std::fs::rename(&oldest, &hidden).unwrap();
     let max = 32 * 1024;
-    let resumed = running.call("thread/resume", json!({"threadId":id,"mode":"bounded","maxBytes":max}), Some(max)).await;
+    let resumed = running
+        .call(
+            "thread/resume",
+            json!({"threadId":id,"mode":"bounded","maxBytes":max}),
+            Some(max),
+        )
+        .await;
     std::fs::rename(hidden, oldest).unwrap();
-    assert!(resumed.get("error").is_none(), "bounded resume must succeed: {resumed}");
+    assert!(
+        resumed.get("error").is_none(),
+        "bounded resume must succeed: {resumed}"
+    );
     assert_eq!(resumed["result"]["thread"]["dynamicTools"], json!([tool]));
-    assert_eq!(resumed["result"]["thread"]["desktop"]["receipts"], json!([]));
+    assert_eq!(
+        resumed["result"]["thread"]["desktop"]["receipts"],
+        json!([])
+    );
     assert_eq!(resumed["result"]["ownership"]["kind"], "ordinary");
     assert_eq!(resumed["result"]["history"]["complete"], false);
-    assert!(resumed["result"]["thread"]["turns"].as_array().unwrap().iter()
-        .flat_map(|turn| turn["items"].as_array().unwrap())
-        .any(|item| item["type"] == "historyDeferred"));
+    assert!(
+        resumed["result"]["thread"]["turns"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|turn| turn["items"].as_array().unwrap())
+            .any(|item| item["type"] == "historyDeferred")
+    );
     let capabilities = running.call("areal/capabilities", json!({}), None).await;
     assert_eq!(capabilities["result"]["features"]["boundedResume"], true);
 
-    let (mut other, _) = tokio_tungstenite::connect_async(&running.url).await.unwrap();
+    let (mut other, _) = tokio_tungstenite::connect_async(&running.url)
+        .await
+        .unwrap();
     other.send(Wire::Text(json!({"id":1,"method":"initialize","params":{"clientInfo":{"name":"other-host","version":"1"}}}).to_string().into())).await.unwrap();
-    let initialized = tokio::time::timeout(Duration::from_secs(5), other.next()).await.unwrap().unwrap().unwrap();
+    let initialized = tokio::time::timeout(Duration::from_secs(5), other.next())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
     let initialized: Value = serde_json::from_str(initialized.to_text().unwrap()).unwrap();
     assert!(initialized.get("result").is_some(), "{initialized}");
-    other.send(Wire::Text(json!({"method":"initialized"}).to_string().into())).await.unwrap();
+    other
+        .send(Wire::Text(
+            json!({"method":"initialized"}).to_string().into(),
+        ))
+        .await
+        .unwrap();
     other.send(Wire::Text(json!({"id":2,"method":"thread/resume","params":{"threadId":id,"mode":"bounded","maxBytes":max}}).to_string().into())).await.unwrap();
-    let conflict = tokio::time::timeout(Duration::from_secs(5), other.next()).await.unwrap().unwrap().unwrap();
+    let conflict = tokio::time::timeout(Duration::from_secs(5), other.next())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
     let conflict: Value = serde_json::from_str(conflict.to_text().unwrap()).unwrap();
     assert_eq!(conflict["error"]["code"], -32009, "{conflict}");
 
-    let turn = running.engine.start(&id, vec![areal_protocol::Input::text("after bind")]).await.unwrap();
+    let turn = running
+        .engine
+        .start(&id, vec![areal_protocol::Input::text("after bind")])
+        .await
+        .unwrap();
     let mut started = false;
     loop {
-        let message = tokio::time::timeout(Duration::from_secs(5), running.socket.next()).await.unwrap().unwrap().unwrap();
+        let message = tokio::time::timeout(Duration::from_secs(5), running.socket.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
         let message: Value = serde_json::from_str(message.to_text().unwrap()).unwrap();
-        if message["params"]["threadId"] != id || message["params"]["turn"]["id"] != turn.id { continue; }
-        if message["method"] == "turn/started" { started = true; }
-        if message["method"] == "turn/completed" { assert!(started); break; }
+        if message["params"]["threadId"] != id || message["params"]["turn"]["id"] != turn.id {
+            continue;
+        }
+        if message["method"] == "turn/started" {
+            started = true;
+        }
+        if message["method"] == "turn/completed" {
+            assert!(started);
+            break;
+        }
     }
-    let legacy = running.call("thread/resume", json!({"threadId":id}), None).await;
+    let legacy = running
+        .call("thread/resume", json!({"threadId":id}), None)
+        .await;
     assert!(legacy.get("error").is_none(), "{legacy}");
-    assert_eq!(legacy["result"]["thread"]["turns"].as_array().unwrap().len(), 31);
+    assert_eq!(
+        legacy["result"]["thread"]["turns"]
+            .as_array()
+            .unwrap()
+            .len(),
+        31
+    );
     assert!(legacy["result"].get("history").is_none());
     other.close(None).await.unwrap();
     running.close().await;

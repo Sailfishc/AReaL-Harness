@@ -1222,10 +1222,23 @@ impl Engine {
 impl Engine {
     pub async fn task_receipts(&self, identity: &str, request_id: &str) -> Result<Vec<Value>> {
         let state = self.task_modes.state.lock().await;
-        let mut receipts: Vec<_> = state.receipts.iter()
+        let mut receipts: Vec<_> = state
+            .receipts
+            .iter()
             .filter(|record| record.identity == identity && record.request_id == request_id)
-            .cloned().collect();
-        for method in ["create", "update", "runNow", "pause", "resume", "cancel", "stopRun", "resumeRun", "reply"] {
+            .cloned()
+            .collect();
+        for method in [
+            "create",
+            "update",
+            "runNow",
+            "pause",
+            "resume",
+            "cancel",
+            "stopRun",
+            "resumeRun",
+            "reply",
+        ] {
             if receipts.iter().any(|record| record.method == method) {
                 continue;
             }

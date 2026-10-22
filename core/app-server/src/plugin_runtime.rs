@@ -94,7 +94,10 @@ async fn dispatch_inner(
             .len()
             > areal_protocol::plugin_runtime::PAGE_BYTES + 2048
     {
-        return Err(rejected(RpcError::invalid("page-tool request exceeds byte budget"), "INVALID_REQUEST"));
+        return Err(rejected(
+            RpcError::invalid("page-tool request exceeds byte budget"),
+            "INVALID_REQUEST",
+        ));
     }
     let result = match method {
         "areal/mcp/app/tools/register" => {

@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import { once } from 'node:events';
 import { mkdtemp, mkdir, writeFile, rm, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { CoreClient } from '../packages/runtime-client/core.js';
 import { CoreTaskModel } from '../packages/workbench/client/core-model.js';
@@ -25,7 +26,7 @@ const entry = (id, status) => ({ sourceThreadId: 'thread', sourceTurnId: id,
 
 // Core RPC 是故障注入边界；生命周期、持久回执、同步显示投影和真实 socket 仍走产品实现。
 async function fixture(t, respond, { bounded = true } = {}) {
-  const scratch = await mkdtemp('/private/tmp/areal-lifecycle-history-');
+  const scratch = await mkdtemp(join(tmpdir(), 'areal-lifecycle-history-'));
   const workspace = join(scratch, 'workspace'), home = join(scratch, 'desktop');
   await mkdir(workspace); await mkdir(join(home, 'project', 'state'), { recursive: true });
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });

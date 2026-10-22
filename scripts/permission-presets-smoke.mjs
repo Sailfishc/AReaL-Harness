@@ -11,7 +11,9 @@ import { connect } from "../examples/desktop-api/client.mjs";
 import { respondToSessionName } from "./model-fixture.mjs";
 
 const repo = fileURLToPath(new URL("../", import.meta.url));
-const evidence = await mkdtemp(join(repo, ".scratch/permission-presets/run-"));
+const evidenceRoot = join(repo, ".scratch/permission-presets");
+await mkdir(evidenceRoot, { recursive: true });
+const evidence = await mkdtemp(join(evidenceRoot, "run-"));
 const root = await mkdtemp(join(tmpdir(), "areal-permission-presets-"));
 const workspace = join(root, "workspace");
 await mkdir(workspace);

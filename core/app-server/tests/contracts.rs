@@ -770,17 +770,20 @@ async fn task_request_lookup_filters_shared_principal_identity_by_thread_visibil
     let other_token = "receipt-other-0000000000000000000000000000";
     let auth = Authentication {
         version: 1,
-        principals: vec![Principal {
-            id: "shared-owner".into(),
-            token: token.into(),
-            permissions: [Permission::Observe].into(),
-            thread_ids: Some([visible.id.clone()].into()),
-        }, Principal {
-            id: "other-owner".into(),
-            token: other_token.into(),
-            permissions: [Permission::Observe].into(),
-            thread_ids: Some([visible.id.clone()].into()),
-        }],
+        principals: vec![
+            Principal {
+                id: "shared-owner".into(),
+                token: token.into(),
+                permissions: [Permission::Observe].into(),
+                thread_ids: Some([visible.id.clone()].into()),
+            },
+            Principal {
+                id: "other-owner".into(),
+                token: other_token.into(),
+                permissions: [Permission::Observe].into(),
+                thread_ids: Some([visible.id.clone()].into()),
+            },
+        ],
     };
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -825,7 +828,10 @@ async fn task_request_lookup_filters_shared_principal_identity_by_thread_visibil
     assert_eq!(receipt["identity"], "shared-owner");
     assert_eq!(receipt["status"], "completed");
     assert_eq!(receipt["result"], *tasks[0].as_ref().unwrap());
-    assert_eq!(receipt["operation"]["target"], json!({"kind":"task","taskId":tasks[0].as_ref().unwrap()["id"]}));
+    assert_eq!(
+        receipt["operation"]["target"],
+        json!({"kind":"task","taskId":tasks[0].as_ref().unwrap()["id"]})
+    );
     let (bound_visible, _) = call(
         &mut socket,
         6,
@@ -859,11 +865,33 @@ async fn task_request_lookup_filters_shared_principal_identity_by_thread_visibil
     .await;
     assert_eq!(project["result"]["data"], json!([]), "{project}");
     let mut other_request = format!("ws://{addr}").into_client_request().unwrap();
-    other_request.headers_mut().insert("Authorization", format!("Bearer {other_token}").parse().unwrap());
-    let (mut other_socket, _) = tokio_tungstenite::connect_async(other_request).await.unwrap();
-    call(&mut other_socket, 1, "initialize", json!({"clientInfo":{"name":"other-receipts","version":"1"}})).await;
-    other_socket.send(Wire::Text(json!({"method":"initialized"}).to_string().into())).await.unwrap();
-    let (other_owner, _) = call(&mut other_socket, 2, "areal/request/read", json!({"requestId":"same-request"})).await;
+    other_request.headers_mut().insert(
+        "Authorization",
+        format!("Bearer {other_token}").parse().unwrap(),
+    );
+    let (mut other_socket, _) = tokio_tungstenite::connect_async(other_request)
+        .await
+        .unwrap();
+    call(
+        &mut other_socket,
+        1,
+        "initialize",
+        json!({"clientInfo":{"name":"other-receipts","version":"1"}}),
+    )
+    .await;
+    other_socket
+        .send(Wire::Text(
+            json!({"method":"initialized"}).to_string().into(),
+        ))
+        .await
+        .unwrap();
+    let (other_owner, _) = call(
+        &mut other_socket,
+        2,
+        "areal/request/read",
+        json!({"requestId":"same-request"}),
+    )
+    .await;
     assert_eq!(other_owner["result"]["data"], json!([]), "{other_owner}");
     other_socket.close(None).await.unwrap();
     socket.close(None).await.unwrap();
@@ -1021,7 +1049,8 @@ async fn configure_preserves_legacy_management_receipts_after_reopen() {
     assert_eq!(conflict["error"]["code"], -32009, "{conflict}");
     assert_eq!(conflict["error"]["data"]["outcome"]["kind"], "rejected");
     assert_eq!(
-        malformed["error"]["data"]["outcome"]["kind"], "rejected", "{malformed}"
+        malformed["error"]["data"]["outcome"]["kind"], "rejected",
+        "{malformed}"
     );
     assert_eq!(
         unknown["error"]["data"]["outcome"]["kind"], "admitted",

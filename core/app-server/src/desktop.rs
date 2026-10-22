@@ -149,16 +149,28 @@ fn plugin_catalog_mutation_result(catalog: Value) -> areal_engine::Result<Value>
 }
 
 pub(crate) async fn dispatch_with_budget(
-    engine: &Arc<Engine>, identity: &str, method: &str, params: Value, overhead: usize,
+    engine: &Arc<Engine>,
+    identity: &str,
+    method: &str,
+    params: Value,
+    overhead: usize,
 ) -> Result<Value, RpcError> {
     if method == "areal/conversation/history" && params["view"] == "own" {
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase", deny_unknown_fields)]
-        struct OwnHistory { thread_id: String, view: String, cursor: Option<String>, max_bytes: Option<usize> }
+        struct OwnHistory {
+            thread_id: String,
+            view: String,
+            cursor: Option<String>,
+            max_bytes: Option<usize>,
+        }
         let request: OwnHistory = parse(params)?;
         debug_assert_eq!(request.view, "own");
         let budget = super::bounded_history_budget(request.max_bytes, overhead)?;
-        return engine.own_history(identity, &request.thread_id, request.cursor, budget).await.map_err(map_error);
+        return engine
+            .own_history(identity, &request.thread_id, request.cursor, budget)
+            .await
+            .map_err(map_error);
     }
     dispatch(engine, identity, method, params).await
 }
@@ -172,11 +184,12 @@ pub(crate) async fn dispatch(
     #[cfg(test)]
     crate::rpc_isolation_tests::pause(&mut params).await;
     if method == "areal/thread/configure" && params.get("requestId").is_some() {
-        let request = params["requestId"]
-            .as_str()
-            .ok_or_else(|| {
-                rejected(RpcError::invalid("requestId must be a string"), "INVALID_REQUEST")
-            })?;
+        let request = params["requestId"].as_str().ok_or_else(|| {
+            rejected(
+                RpcError::invalid("requestId must be a string"),
+                "INVALID_REQUEST",
+            )
+        })?;
         let mut legacy_params = params.clone();
         // 旧日志摘要来自移除 requestId 的原始 JSON，重新序列化配置会改变缺省字段。
         legacy_params.as_object_mut().unwrap().remove("requestId");
