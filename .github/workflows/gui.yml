@@ -114,7 +114,7 @@ jobs:
           git rev-parse HEAD > target/ci/gui/source.sha
           tar -czf target/ci/gui/gui-smoke-inputs.tar.gz \
             target/ci/gui/source.sha target/debug/areal target/debug/areal-runtime \
-            target/debug/areal-runtime-fs target/debug/shells target/debug/tools clients/gui/renderer/dist
+            target/debug/areal-runtime-fs target/debug/shells clients/gui/renderer/dist
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: macos-gui-smoke-inputs
