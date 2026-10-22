@@ -1522,11 +1522,6 @@ class CoreBackend {
       let result, dispatchStarted = false;
       try {
         if (this.closing) throw new Error('应用正在退出');
-        if (['areal/turn/start', 'areal/turn/enqueue', 'areal/turn/submit'].includes(method)
-          && project.configurations?.[params.threadId]?.model?.providerId === 'areal_openai'
-          && this.providers.openaiPromise) {
-          await this.providers.syncSubscription(project, await this.providers.openaiPromise);
-        }
         dispatchStarted = true;
         result = await this.requestSubmission(project, method, params);
       }
@@ -1535,8 +1530,6 @@ class CoreBackend {
           try { await this.changePending(project, pending => pending.filter(value => value !== entry)); }
           catch { throw Object.assign(new Error('原请求结果已知，但恢复日志更新失败；请检查本机存储'), { submissionUnknown: true, requestId: params.requestId, outcome: { kind: 'unconfirmed', operation: entry.operation }, recovery: { kind: 'queryOriginal' } }); }
         }
-        if (!dispatchStarted && error.submissionUnknown)
-          throw new Error('订阅模型目录更新未确认，本条消息尚未发送。请先核对受理结果，再重试。', { cause: error });
         if (dispatchStarted && !explicitRejection(error)) Object.assign(error, {
           submissionUnknown: true, outcome: error.outcome ?? { kind: 'unconfirmed', operation: entry.operation },
           recovery: error.recovery ?? { kind: 'queryOriginal' },

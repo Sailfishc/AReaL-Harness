@@ -241,7 +241,6 @@ for (const method of ['areal/turn/start', 'areal/turn/enqueue']) {
 
 test('subscription refresh unknown retains only its dispatched provider request across journal reload', async t => {
   const f = await journalFixture(t);
-  const requestId = '11111111-1111-1111-1111-111111111111';
   const parameters = { threadId: 't', expectedConfigRevision: 1,
     intent: { type: 'message', input: [{ type: 'text', text: 'keep my draft' }] } };
   const models = [{ id: 'gpt', parameters: { contextWindowTokens: 500000 } }];
@@ -270,18 +269,17 @@ test('subscription refresh unknown retains only its dispatched provider request 
     assert.fail(`unexpected Core request ${method}`);
   };
   f.project.client.request = transport;
-  let failure;
-  await assert.rejects(f.backend.submit(f.project, 'areal/turn/submit', parameters, { requestId }), error => {
-    failure = error;
+  await assert.rejects(f.backend.providers.syncSubscription(f.project, service), error => {
+    assert.equal(error.submissionUnknown, true);
+    assert.equal(error.requestId, providerRequest.params.requestId);
+    assert.deepEqual(error.outcome, { kind: 'unconfirmed', operation: providerRequest.operation });
+    assert.deepEqual(error.recovery, { kind: 'queryOriginal' });
     return true;
   });
-  assert.equal(f.calls.some(call => call.method === 'areal/turn/submit'), false, 'preflight failure never dispatches the turn');
-  assert.deepEqual(f.project.pending, [providerRequest], 'the known-unsent turn must not become an unrecoverable unknown request');
-  assert.notEqual(failure.submissionUnknown, true, 'known-unsent draft must remain editable after nested provider uncertainty');
-  assert.equal(failure.requestId, undefined, 'provider receipt ID must not become the message pending ID');
-  assert.match(failure.message, /尚未发送/);
+  assert.equal(f.calls.some(call => call.method === 'areal/turn/submit'), false, 'explicit refresh never dispatches a turn');
+  assert.deepEqual(f.project.pending, [providerRequest], 'only the dispatched provider request needs recovery');
   assert.deepEqual(JSON.parse(await readFile(join(f.home, 'p-pending.json'), 'utf8')), [providerRequest]);
-  assert.deepEqual(f.project.outcomes, {}, 'a failed preflight cannot fabricate turn acceptance');
+  assert.deepEqual(f.project.outcomes, {}, 'an unknown refresh cannot fabricate acceptance');
 
   recovered = true;
   const restored = await f.reload();
@@ -290,10 +288,44 @@ test('subscription refresh unknown retains only its dispatched provider request 
   assert.deepEqual(restored.project.pending, []);
   assert.deepEqual(JSON.parse(await readFile(join(f.home, 'p-pending.json'), 'utf8')), []);
   assert.equal(f.calls.filter(call => call.method === 'areal/provider/upsert').length, 1, 'recovery reads the original receipt without resubmission');
+  assert.deepEqual(f.calls.filter(call => call.method === 'areal/request/read').map(call => call.params), [
+    { requestId: providerRequest.params.requestId },
+    { requestId: providerRequest.params.requestId },
+  ]);
   assert.equal(f.calls.some(call => call.method === 'areal/turn/submit'), false, 'recovery never sends the preserved draft');
   await restored.backend.submit(restored.project, 'areal/turn/submit', parameters,
     { requestId: '22222222-2222-2222-2222-222222222222' });
   assert.equal(f.calls.filter(call => call.method === 'areal/turn/submit').length, 1, 'the user can explicitly send after provider recovery');
+});
+
+test('subscription-selected turn submission uses its original receipt without refreshing the catalog or provider', async t => {
+  const f = await journalFixture(t);
+  const requestId = '11111111-1111-1111-1111-111111111111';
+  const parameters = { threadId: 't', expectedConfigRevision: 1,
+    intent: { type: 'message', input: [{ type: 'text', text: 'send once' }] } };
+  f.project.configurations.t = { revision: 1, model: { providerId: 'areal_openai', modelId: 'gpt' } };
+  f.backend.providers.openaiPromise = Promise.resolve({
+    account: { revision: 1, lifetime: new AbortController(), track: promise => promise,
+      status: async () => assert.fail('sending a message must not consult the subscription catalog') },
+  });
+  const result = { turn: { id: 'accepted-turn' } };
+  f.project.client.request = async (method, params) => {
+    f.calls.push({ method, params });
+    assert.equal(method, 'areal/turn/submit', 'sending a message must not read or mutate providers');
+    return result;
+  };
+  assert.deepEqual(await f.backend.submit(f.project, 'areal/turn/submit', parameters, { requestId }), result);
+  assert.deepEqual(f.calls, [{ method: 'areal/turn/submit', params: { ...parameters, requestId } }]);
+  assert.deepEqual(f.project.pending, []);
+  assert.deepEqual(JSON.parse(await readFile(join(f.home, 'p-pending.json'), 'utf8')), []);
+  assert.deepEqual(f.project.outcomes[requestId], { accepted: true, status: 'completed', method: 'areal/turn/submit',
+    threadId: 't', turnId: 'accepted-turn',
+    operation: { method: 'areal/turn/submit', requestId, target: { kind: 'thread', threadId: 't' } } });
+  await assert.rejects(f.backend.submit(f.project, 'areal/turn/submit', parameters, { requestId }), error => {
+    assert.notEqual(error.submissionUnknown, true);
+    return true;
+  });
+  assert.equal(f.calls.length, 1, 'reusing a settled request ID never repeats the turn');
 });
 
 test('public command availability comes only from the current service contract', async t => {
