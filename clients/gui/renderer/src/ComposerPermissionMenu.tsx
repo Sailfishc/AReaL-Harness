@@ -65,7 +65,7 @@ export function ComposerPermissionMenu({ value, configuration, permissionsSuppor
                 key={option.id}
                 value={option.id}
                 disabled={lockedReadOnly || !supported || option.id === "fullAccess" && !fullAccess}
-                className="permission-choice items-start gap-2 text-ui-caption"
+                className="permission-choice items-start gap-2 text-ui-caption [&_[data-slot=dropdown-menu-radio-item-indicator]]:top-1/2 [&_[data-slot=dropdown-menu-radio-item-indicator]]:-translate-y-1/2"
               >
                 <ChoiceIcon />
                 <span className="flex min-w-0 flex-col">

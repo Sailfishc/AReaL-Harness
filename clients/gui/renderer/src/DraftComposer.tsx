@@ -1,7 +1,7 @@
 import { imageAnnotationBlocked, useImageAnnotationRevision, type ImageAnnotationTarget } from "./imageAnnotations.js";
 import { resolveDraftProfile } from "./ProfileDetails.js";
 import { resolveNewConversationModel, resolveModelEffort } from "@areal/workbench/model-selection";
-import { useApplicationPreferences } from "./settings/applicationPreferences.js";
+import { setApplicationPreferences, useApplicationPreferences } from "./settings/applicationPreferences.js";
 import { ComposerModelMenu, composerModelOption } from "./ComposerModelMenu.js";
 import { ComposerPermissionMenu } from "./ComposerPermissionMenu.js";
 import { permissionOptions, planModeOptions, type PermissionPreset } from "./permissions.js";
@@ -61,6 +61,8 @@ export function DraftComposer({
 }) {
   const { t } = useI18n();
   const prefs = useApplicationPreferences();
+  const defaultPermissionPreset = useRef(prefs.defaultPermissionPreset);
+  defaultPermissionPreset.current = prefs.defaultPermissionPreset;
   const key = draftKey ?? `areal-gui:draft:${project.id}:new`;
   const reviewKey = reviewCommentKey(project.id, "new");
   const reviewDraft = useReviewComments(reviewKey);
@@ -92,7 +94,7 @@ export function DraftComposer({
   const annotationBlocked = imageAnnotationBlocked(key, input.files);
   const [permission, setPermission] = useState<PermissionPreset>(() => {
     const saved = localStorage.getItem(`${key}:permission`);
-    return saved === "autoReview" || saved === "fullAccess" ? saved : "ask";
+    return saved === "ask" || saved === "autoReview" || saved === "fullAccess" ? saved : prefs.defaultPermissionPreset;
   });
   const [plan, setPlan] = useState(() => localStorage.getItem(`${key}:plan`) === "true");
   const [profileSelection, setProfileSelection] = useState(() => localStorage.getItem(`${key}:profile`) ?? "");
@@ -144,7 +146,7 @@ export function DraftComposer({
     localStorage.removeItem(`${key}:profile`);
     setModel(null);
     setEfforts({});
-    setPermission("ask");
+    setPermission(defaultPermissionPreset.current);
     setPlan(false);
     setProfileSelection("");
     attachmentDrafts.delete(key);
@@ -353,7 +355,7 @@ export function DraftComposer({
             permissionsSupported={project.core?.features?.permissionPresets === true}
             fullAccessAvailable={project.core?.features?.permissionFullAccess === true}
             lockedReadOnly={chosenProfile?.readOnly === true}
-            onChange={value => { setPermission(value); localStorage.setItem(`${key}:permission`, value); }} onClose={() => api.current?.focus()} />}
+            onChange={value => { setPermission(value); localStorage.setItem(`${key}:permission`, value); setApplicationPreferences({ defaultPermissionPreset: value }); }} onClose={() => api.current?.focus()} />}
           {goalMode && <Button type="button" variant="ghost" disabled={editLocked} aria-label="退出目标模式" onClick={() => changeGoalMode(false)}><GoalIcon size={16} />目标</Button>}
           {plan && <ComposerPlanMode disabled={editLocked || chosenProfile?.readOnly === true} onExit={() => setPlanMode(false)} />}</>
         }

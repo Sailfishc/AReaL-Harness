@@ -6,7 +6,11 @@ Core resolves chat permissions, approvals and grant records. Runtime enforces re
 
 ## Chat presets
 
-Optional `ClientOptions.permissionPreset` accepts `ask`, `autoReview` or `fullAccess`. New desktop and Remote chats explicitly select ask. Missing fields in old snapshots retain previous semantics and do not imply a new sandbox or reviewer.
+Optional `ClientOptions.permissionPreset` accepts `ask`, `autoReview` or `fullAccess`. The desktop application's `ApplicationSettings.defaultPermissionPreset` defaults to `autoReview`. An explicit selection in a new-chat draft or an existing chat's permission menu immediately saves that preset as the default for future chats, including `ask`.
+
+A new-chat draft restores a valid saved permission choice before using the application default. Changes to the application default leave an open draft's permission unchanged. Clearing the draft uses the latest default. Existing chats always use Core configuration and never update automatically when the application default changes. If the current chat's update fails or returns UNKNOWN, the menu selection remains the default for new chats, and the current chat retains its existing recovery flow.
+
+New Remote chats continue to select `ask` explicitly. Missing fields in old snapshots retain previous semantics and do not imply a new sandbox or reviewer.
 
 | Preset | Managed execution range | Additional requests |
 | --- | --- | --- |

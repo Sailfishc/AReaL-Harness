@@ -6,7 +6,11 @@ Core 统一解析聊天权限、审批与授权记录。Runtime 强制执行受�
 
 ## 聊天预设
 
-可选的 `ClientOptions.permissionPreset` 接受 `ask`、`autoReview`、`fullAccess`。新桌面与 Remote 聊天显式选择 ask。旧快照缺失字段时保留原语义，不能据此显示具有新沙箱或自动审核器。
+可选的 `ClientOptions.permissionPreset` 接受 `ask`、`autoReview`、`fullAccess`。桌面应用的 `ApplicationSettings.defaultPermissionPreset` 默认是 `autoReview`。在新聊天草稿或现有聊天的权限菜单中明确选择预设后，应用立即将该选择保存为后续新聊天的默认值，包括 `ask`。
+
+新聊天草稿优先恢复已保存的有效权限选择，否则使用应用默认值。应用默认值变化不改写已打开草稿的权限，清空草稿时使用最新默认值。现有聊天始终使用 Core 配置，不因应用默认值变化而自动更新。更新当前聊天失败或结果为 UNKNOWN 时，应用仍保留菜单选择作为新聊天默认值，当前聊天沿用既有恢复流程。
+
+Remote 新聊天继续显式选择 `ask`。旧快照缺失字段时保留原语义，不能据此显示具有新沙箱或自动审核器。
 
 | 预设 | 受管执行范围 | 额外请求 |
 | --- | --- | --- |

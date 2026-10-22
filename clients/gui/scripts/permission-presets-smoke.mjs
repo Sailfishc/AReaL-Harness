@@ -19,6 +19,8 @@ const gui = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const root = resolve(gui, "../..");
 const require = createRequire(join(gui, "app/package.json"));
 const { _electron: electron } = require("playwright-core");
+const { CoreClient } = await import("../packages/runtime-client/core.js");
+const WebSocket = require("ws");
 const { ServiceConnection, waitForServiceExit } = require(
   join(gui, "app/src/core/service-client.cjs"),
 );
@@ -447,15 +449,31 @@ async function choosePreset(preset, capture = false) {
       await page.getByRole("menuitemradio", { name: new RegExp(`^${option.label}`) }).isEnabled(),
       true,
     );
-  if (capture) {
-    assert.equal(
-      await page.getByRole("menuitemradio", { name: /^请求审批/ }).getAttribute("aria-checked"),
-      "true",
-      "fresh GUI draft defaults to ask",
-    );
-    await shot("01-three-presets");
-  }
+  if (capture) await shot("01-three-presets");
   await page.getByRole("menuitemradio", { name: new RegExp(`^${preset.label}`) }).click();
+}
+async function assertSelectedPreset(preset, label, capture = false) {
+  await page.getByRole("button", { name: "更改权限", exact: true }).click();
+  const choice = page.getByRole("menuitemradio", { name: new RegExp(`^${preset.label}`) });
+  assert.equal(await choice.getAttribute("aria-checked"), "true", label);
+  const alignment = await choice.evaluate((element) => {
+    const row = element.getBoundingClientRect();
+    const indicator = element
+      .querySelector('[data-slot="dropdown-menu-radio-item-indicator"] svg')
+      .getBoundingClientRect();
+    return {
+      rowCenter: row.y + row.height / 2,
+      indicatorCenter: indicator.y + indicator.height / 2,
+    };
+  });
+  facts.indicatorAlignment ??= [];
+  facts.indicatorAlignment.push({ label, ...alignment });
+  assert.ok(
+    Math.abs(alignment.rowCenter - alignment.indicatorCenter) <= 1,
+    "permission checkmark is vertically centered in the complete option row",
+  );
+  if (capture) await shot(capture);
+  await page.keyboard.press("Escape");
 }
 async function send(text) {
   const before = new Set(Object.keys(project(await state())?.state?.threads ?? {}));
@@ -478,6 +496,35 @@ async function completed(threadId) {
     const thread = project(snapshot)?.state?.threads?.[threadId];
     return thread?.turns?.at(-1)?.status === "completed" ? thread : null;
   }, `completed Thread ${threadId}`);
+}
+async function readCoreThread(threadId) {
+  const instance = project(await state()).core.instanceId;
+  const descriptor = JSON.parse(
+    execFileSync(binary, ["service", "status", "--instance", instance, "--json"], {
+      env,
+      encoding: "utf8",
+      timeout: 20000,
+    }),
+  );
+  assert.equal(descriptor.state, "ready");
+  assert.equal(descriptor.workspace, workspace);
+  assert.equal(descriptor.serviceId, instance);
+  const auth = JSON.parse(await readFile(descriptor.authFile, "utf8"));
+  const principal = auth.principals.find((item) => item.permissions.includes("observe"));
+  assert.ok(principal?.token);
+  const client = new CoreClient({
+    createSocket: () =>
+      new WebSocket(descriptor.endpoint, {
+        headers: { Authorization: `Bearer ${principal.token}` },
+        followRedirects: false,
+      }),
+  });
+  try {
+    await client.connect();
+    return (await client.request("thread/read", { threadId, includeTurns: true })).thread;
+  } finally {
+    client.close();
+  }
 }
 function assertPreset(configuration, preset) {
   assert.equal(configuration.options.permissionPreset, preset.id);
@@ -503,13 +550,21 @@ try {
   assert.equal(connected.core.features.permissionFullAccess, true);
   for (const [index, preset] of presets.entries()) {
     await createProjectConversation(page, "workspace");
+    await assertSelectedPreset(
+      index === 0 ? presets[1] : presets[index - 1],
+      index === 0
+        ? "fresh GUI draft defaults to autoReview"
+        : "new chat inherits the last explicit permission choice",
+      index === 0 ? "00-default-auto-review" : false,
+    );
     await choosePreset(preset, index === 0);
     const threadId = await send(`permission:${preset.id}`);
     threads.push({ threadId, preset: preset.id });
     const thread = await completed(threadId);
     const snapshot = await state();
     assertPreset(project(snapshot).configurations[threadId], preset);
-    assertPreset(thread.turns[0].configuration, preset);
+    const authoritative = await readCoreThread(threadId);
+    assertPreset(authoritative.turns[0].configuration, preset);
     assert.equal(
       await readFile(join(workspace, `${preset.id}.txt`), "utf8"),
       `PERMISSION_WRITE_${preset.id}`,
@@ -553,6 +608,41 @@ try {
     "All three Core presets and selected menu values survive application quit and reopen without submitting again.",
   );
   await shot("03-reopened-presets");
+  await createProjectConversation(page, "workspace");
+  await assertSelectedPreset(
+    presets[2],
+    "new chat permission preference survives quit and reopen",
+    "04-remembered-full-access",
+  );
+  await selectConversation(page, threads[2].threadId);
+  await choosePreset(presets[0]);
+  await until(
+    async () =>
+      project(await state()).configurations[threads[2].threadId]?.options?.permissionPreset ===
+      "ask",
+    "existing chat accepts explicit permission change",
+  );
+  await createProjectConversation(page, "workspace");
+  await assertSelectedPreset(
+    presets[0],
+    "explicit ask selected in an existing chat becomes the new-chat default",
+  );
+  await closeOwned();
+  await launch();
+  await createProjectConversation(page, "workspace");
+  await assertSelectedPreset(
+    presets[0],
+    "explicit ask preference survives restart",
+    "05-remembered-ask",
+  );
+  assert.equal(
+    requests.length,
+    requestCount,
+    "changing permission preferences never submits a model request",
+  );
+  checks.push(
+    "Fresh chats default to autoReview; all explicit choices become new-chat defaults; fullAccess and explicit ask persist across restarts; checkmarks are vertically centered.",
+  );
 
   await app.evaluate(
     ({ dialog, app, BrowserWindow }, { origin, modulePath }) => {
@@ -605,10 +695,7 @@ try {
     "initial Core browser authorization",
   );
   assert.equal(authorization.tool, "browser_v1");
-  assert.equal(
-    authorization.effectiveArguments.arguments.operation,
-    "describe",
-  );
+  assert.equal(authorization.effectiveArguments.arguments.operation, "describe");
   await page.getByRole("region", { name: "工具审批", exact: true }).waitFor();
   await shot("04-initial-browser-authorization");
   await page.getByRole("button", { name: "允许一次", exact: true }).click();
@@ -761,10 +848,11 @@ try {
       )
       .catch(() => {});
     if (app)
-      await app.evaluate(() => ({
-        calls: globalThis.__permissionMainCalls,
-        originPrompts: globalThis.__permissionOriginPrompts ?? 0,
-      }))
+      await app
+        .evaluate(() => ({
+          calls: globalThis.__permissionMainCalls,
+          originPrompts: globalThis.__permissionOriginPrompts ?? 0,
+        }))
         .then((main) =>
           writeFile(join(evidence, "failure-main-calls.json"), JSON.stringify(main, null, 2)),
         )
@@ -786,6 +874,8 @@ try {
     "clients/gui/scripts/permission-presets-smoke.mjs",
     "clients/gui/renderer/src/ComposerPermissionMenu.tsx",
     "clients/gui/renderer/src/permissions.ts",
+    "clients/gui/renderer/src/settings/applicationSettings.ts",
+    "clients/gui/renderer/src/settings/applicationPreferences.ts",
     "clients/gui/renderer/src/Composer.tsx",
     "clients/gui/renderer/src/DraftComposer.tsx",
     "clients/gui/app/src/core/backend.cjs",

@@ -5,7 +5,7 @@ import { isOrdinaryConversation, interruptedConversationTurn } from "./ordinaryC
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { McpComposerAttachments, useMcpDraft } from "./McpComposerAttachments.js";
 import { readMcpDraft, consumeMcpDraft, clearMcpDraft } from "./mcp-app-draft.js";
-import { useApplicationPreferences } from "./settings/applicationPreferences.js";
+import { setApplicationPreferences, useApplicationPreferences } from "./settings/applicationPreferences.js";
 import { shouldSteer } from "./settings/applicationSettings.js";
 
 import { ComposerPermissionMenu } from "./ComposerPermissionMenu.js";
@@ -503,7 +503,7 @@ export function Composer({
             fullAccessAvailable={project.core?.features?.permissionFullAccess === true}
             disabled={disabled || !!queueEditor.edit || !!running || !config} lockedReadOnly={taskManagement || executionPermission === "readOnly"}
             onClose={() => api.current?.focus()}
-            onChange={mode => configure({ options: planModeOptions(planActive, permissionOptions(mode, config?.options)) })} />
+            onChange={mode => { setApplicationPreferences({ defaultPermissionPreset: mode }); void configure({ options: planModeOptions(planActive, permissionOptions(mode, config?.options)) }); }} />
           {planActive && <ComposerPlanMode disabled={disabled || !!queueEditor.edit || !!running || config?.profile?.readOnly === true}
             onExit={() => { void configure({ options: planModeOptions(false, config?.options) }); }} />}
           {creatingGoal && <div className="flex shrink-0 items-center gap-1">
