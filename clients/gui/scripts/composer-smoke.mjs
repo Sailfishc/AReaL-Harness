@@ -641,6 +641,41 @@ try {
   checks.push(
     "real paged Core Skill read (multibyte >8192 bytes) reaches model request; two-tier real model/effort selection reaches provider",
   );
+  const sentUser = page.locator(".user-message").last();
+  const sentBubble = sentUser.locator(".user-bubble");
+  const sentSkills = sentBubble.locator(".user-message-skill");
+  await sentSkills.first().waitFor();
+  assert.deepEqual(await sentSkills.allTextContents(), ["Fixture Skill", "Fixture Skill"]);
+  assert.equal(await sentSkills.locator("svg").count(), 2);
+  assert.equal(await sentBubble.locator("details, .user-message-skill button").count(), 0);
+  const assertCompactSkillBody = async () => {
+    const visibleText = await sentBubble.textContent();
+    assert.doesNotMatch(visibleText, /PAGED_SKILL_END|SECOND_SKILL_CONTENT|description:|name: fixture-skill|<skill/);
+    assert.match(visibleText, /正文保留/);
+    assert.match(visibleText, /文本附件内容/);
+  };
+  await assertCompactSkillBody();
+  const expandSentBody = sentBubble.getByRole("button", { name: "展开全文", exact: true });
+  if (await expandSentBody.count()) {
+    await expandSentBody.click();
+    await assertCompactSkillBody();
+    await sentBubble.getByRole("button", { name: "收起", exact: true }).click();
+  }
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: {
+      writeText: async text => { window.copiedSkillMessage = text; },
+    } });
+  });
+  await sentUser.getByRole("button", { name: "复制消息", exact: true }).click();
+  await sentUser.getByRole("button", { name: "已复制消息", exact: true }).waitFor();
+  const copiedSkillMessage = await page.evaluate(() => window.copiedSkillMessage);
+  assert.match(copiedSkillMessage, /<skill name="fixture-skill"/);
+  assert.match(copiedSkillMessage, /PAGED_SKILL_END/);
+  assert.match(copiedSkillMessage, /SECOND_SKILL_CONTENT/);
+  await sentBubble.scrollIntoViewIfNeeded();
+  await sentBubble.screenshot({ path: join(scratch, "03-sent-skills.png"), animations: "disabled", scale: "css" });
+  frames.push("03-sent-skills.png");
+  checks.push("sent user Skills show two inline Box labels; bodies and frontmatter stay absent through prose expansion; copying preserves complete original Skill blocks");
   const pasteUploads = (await call("media", {
     projectId: pid, threadId: tid, operation: "list",
   })).uploads;

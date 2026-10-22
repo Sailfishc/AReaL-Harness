@@ -11,6 +11,7 @@ import { TurnProgress } from "./TurnProgress.js";
 import { TurnElapsed } from "./TurnElapsed.js";
 import { ForkIcon } from "./interfaceIcons.js";
 import { UserPromptEdit } from "./UserPromptEdit.js";
+import { UserMessageBody } from "./UserMessageBody.js";
 import { isOrdinaryConversation, interruptionLabel } from "./ordinaryConversation.js";
 import { MessageActions } from "./MessageActions.js";
 import { CollapsibleText } from "./CollapsibleText.js";
@@ -454,7 +455,7 @@ export function Messages({
                           releaseResponseSpace();
                           rememberReading();
                         }}>
-                        <MessageResponse className="conversation-markdown user-message-body" preserveLineBreaks theme={dark ? "dark" : "light"} onOpenExternalUrl={onLink} onOpenFileLink={onFile}>{imageFeedback.text}</MessageResponse>
+                        <UserMessageBody theme={dark ? "dark" : "light"} onOpenExternalUrl={onLink} onOpenFileLink={onFile}>{imageFeedback.text}</UserMessageBody>
                         </CollapsibleText>
                       </div> : null}
                       {(text.trim() || item.id === editable) && <MessageActions text={text}>{item.id === editable && <UserPromptEdit key={`${owner}:${item.id}`} project={project} thread={localThread} item={item} action={action} />}</MessageActions>}
