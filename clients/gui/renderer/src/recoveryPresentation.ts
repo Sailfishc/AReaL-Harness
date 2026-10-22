@@ -63,3 +63,7 @@ export function recoverySettings(failure: RecoveryFailure): RecoveryNotice["sett
   if (/auth|credential|api.?key|unauthorized|鉴权|凭据/i.test(reason)) return "模型服务";
   if (failure.code === -32003 || /permission|forbidden|权限|denied|config|配置/i.test(reason)) return "会话配置";
 }
+
+export function isTechnicalErrorMessage(message: string) {
+  return /Error invoking remote method|\bIPC\b|\b(?:ENOENT|ECONNREFUSED|ECONNRESET|EACCES)\b|control\.sock|service socket path|\n\s*at /i.test(message);
+}

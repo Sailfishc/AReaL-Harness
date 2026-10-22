@@ -252,7 +252,8 @@ class SharedCoreBackend {
           for (const reference of this.lifecycleReferences.values()) await this.readLifecycle(reference);
         }
       })().catch(error => {
-        if (error.code === 'DISCONNECTED') return;
+        if (error.submissionUnknown !== true && (error.code === 'DISCONNECTED'
+          || error.code === 'TIMEOUT' && error.recovery?.kind === 'retryRead')) return;
         this.reconnectBlocked = true;
         this.connectionState = { state: 'unavailable', message: error.message };
         this.onChange();
@@ -442,7 +443,18 @@ class SharedCoreBackend {
   async addProject(path) {
     await this.init();
     this.assertLifecycleScope('addProject');
-    return this.connection.request('addProject', { path }, true);
+    const connection = this.connection;
+    try { return await connection.request('addProject', { path }, true); }
+    catch (error) {
+      if (error.submissionUnknown || ['admitted', 'unconfirmed'].includes(error.outcome?.kind)) throw error;
+      const packet = await connection.request('snapshot').catch(() => null);
+      if (!packet || connection !== this.connection || !this.status.connected) throw error;
+      this.accept(packet);
+      const project = this.value.projects.find(project => project.root === path
+        && !project.state?.connected && project.error && project.error === error.message);
+      if (!project) throw error;
+      return project.id;
+    }
   }
   async mcpPageTools(request) {
     if (!this.status.connected || !this.connection) throw new Error('Page tool owner lease is disconnected');

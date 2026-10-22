@@ -7,18 +7,19 @@ import { ComposerPermissionMenu } from "./ComposerPermissionMenu.js";
 import { permissionOptions, planModeOptions, type PermissionPreset } from "./permissions.js";
 import { ComposerPlanMode } from "./ComposerPlanMode.js";
 import { FileTree, AttachmentIcon, GoalIcon, PlanModeIcon as Lightbulb } from "./interfaceIcons.js";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { ChatPromptEditor } from "./prompt-editor/ChatPromptEditor.js";
 import { ComposerAttachment, composerInput, composerPaste, isComposerFile, type ComposerDraftAttachment } from "./ComposerAttachments.js";
 import { useComposerSkills, transferComposerSkills, clearComposerSkills, readComposerSkills } from "./ComposerSkills.js";
 import { ComposerMcpIcon } from "./ComposerIcons.js";
 import { ComposerMcp } from "./ComposerMcp.js";
 import { useI18n } from "./i18n/IntlProvider.js";
+import { FeedbackNotice } from "./FeedbackNotice.js";
 import { Button } from "./components/ui/button.js";
 import type { LexicalChatInputHandle } from "./LexicalChatInput.js";
 import type { Action, Data } from "./services.js";
 import type { ComposerCatalogEntry } from "./prompt-editor/ComposerCatalog.js";
-import { recoveredOutcome, recoveryMessage, type RecoveryFailure } from "./recoveryPresentation.js";
+import { isTechnicalErrorMessage, recoveredOutcome, recoveryMessage, type RecoveryFailure } from "./recoveryPresentation.js";
 import { attachedReviewComments, detachReviewComments, reviewCommentKey, transferNewReviewComments, useReviewComments } from "./reviewComments.js";
 import { ReviewCommentAttachment } from "./ReviewCommentViews.js";
 import {
@@ -33,6 +34,7 @@ import {
 
 export function DraftComposer({
   project,
+  backendReady = false,
   action,
   readAction = action,
   onOpen,
@@ -40,11 +42,13 @@ export function DraftComposer({
   appEntries = [],
   draftKey,
   prepareProject,
+  preparationStatus,
   onAnnotate,
   surfaceLayout = "default",
 }: {
   surfaceLayout?: "default" | "compact";
   project: Data;
+  backendReady?: boolean;
   action: Action;
   readAction?: Action;
   onOpen: (pid: string, tid: string) => Promise<void>;
@@ -52,6 +56,7 @@ export function DraftComposer({
   appEntries?: readonly ComposerCatalogEntry[];
   draftKey?: string;
   prepareProject?: () => Promise<Data>;
+  preparationStatus?: ReactNode;
   onAnnotate?: (target: ImageAnnotationTarget) => void;
 }) {
   const { t } = useI18n();
@@ -116,14 +121,15 @@ export function DraftComposer({
     : "";
   const [unknown, setUnknown] = useState(() => localStorage.getItem(`${key}:pending-create`));
   const busy = useSyncExternalStore(subscribeSending, () => sending.has(key));
-  const modelSelectionDisabled =
-    busy ||
-    !project.state?.connected ||
-    !!project.pending.length ||
-    !!unknown || !!reviewDraft.error || unavailableProfile;
-  const disabled = modelSelectionDisabled || !currentModel || currentModel.available === false;
+  const editLocked = busy || !!project.pending.length || !!unknown || !!reviewDraft.error;
+  const executionReady = backendReady && !!project.state?.connected;
+  const modelSelectionDisabled = editLocked || !executionReady || unavailableProfile;
+  const submitDisabled = modelSelectionDisabled || !currentModel || currentModel.available === false;
   const desktopUnsupported = project.desktopCapabilities?.currentCommands === false;
-  const skills = useComposerSkills({ project, profile: chosenProfile, draftKey: key, action: readAction, disabled });
+  const skills = useComposerSkills({
+    project: executionReady ? project : { ...project, state: { ...project.state, connected: false } },
+    profile: chosenProfile, draftKey: key, action: readAction, disabled: editLocked || !executionReady,
+  });
   useEffect(() => {
     attachmentDrafts.set(key, files);
     window.dispatchEvent(new CustomEvent("areal-attachments-change", { detail: key }));
@@ -177,7 +183,7 @@ export function DraftComposer({
   }, [unknown, project.pending.length, project.outcomes]);
   const submit = async (value: string) => {
     const submittedInput = composerInput(value, files);
-    if ((desktopUnsupported && !goalMode) || disabled || annotationBlocked || sending.has(key) || (!submittedInput.text.trim() && !submittedInput.files.length && !comments.length && !skills.selected.length) || (goalMode && !submittedInput.text.trim())) return;
+    if ((desktopUnsupported && !goalMode) || submitDisabled || annotationBlocked || sending.has(key) || (!submittedInput.text.trim() && !submittedInput.files.length && !comments.length && !skills.selected.length) || (goalMode && !submittedInput.text.trim())) return;
     markSending(key, true);
     setDraftError("");
     let targetKey: string | undefined;
@@ -272,28 +278,23 @@ export function DraftComposer({
         type="file"
         multiple
         hidden
+        disabled={editLocked}
         onChange={(e) => {
           const selectedFiles = Array.from(e.currentTarget.files ?? []);
-          setFiles((f) => [...f, ...selectedFiles]);
+          if (!editLocked) setFiles((f) => [...f, ...selectedFiles]);
           e.currentTarget.value = "";
         }}
       />
-      {unknown && (
-        <div role="status" className="notice">
-          {t("recovery.createUnconfirmed")}
-          <button
-            onClick={() => void action("reconcile", { projectId: project.id }).catch(() => {})}
-          >
-            {t("recovery.checkOriginal")}
-          </button>
-        </div>
-      )}
-      {unavailableProfile && <div role="alert" className="notice">
-        当前任务配置不可用，输入已保留。
-        <button onClick={() => { setProfileSelection(""); localStorage.removeItem(`${key}:profile`); }}>恢复默认配置</button>
-      </div>}
-      {project.root && !project.state?.connected && (project.error || project.state?.error) && <p role="alert" className="notice">连接不可用，输入已保留。{project.error || project.state?.error}</p>}
-      {draftError && <p role="alert" className="px-3 py-2 text-ui-sm text-destructive">{draftError}</p>}
+      {unknown && <FeedbackNotice tone="warning" message={t("recovery.createUnconfirmed")} requestId={unknown}
+        detail={t("recovery.requestId", { id: unknown })} actions={<Button variant="ghost" size="sm"
+          onClick={() => void action("reconcile", { projectId: project.id }).catch(() => {})}>{t("recovery.checkOriginal")}</Button>} /> }
+      {backendReady && project.state?.connected && unavailableProfile && <FeedbackNotice tone="warning" message={t("recovery.profileUnavailable")}
+        actions={<>
+          {profileSelection && resolveDraftProfile(project) && <Button variant="ghost" size="sm" onClick={() => { setProfileSelection(""); localStorage.removeItem(`${key}:profile`); }}>{t("recovery.resetProfile")}</Button>}
+          <Button variant="ghost" size="sm" onClick={() => onPanel("会话配置")}>{t("recovery.checkSessionSettings")}</Button>
+        </>} />}
+      {draftError && <FeedbackNotice tone="error" message={isTechnicalErrorMessage(draftError) ? t("recovery.operationFailed") : draftError}
+        detail={isTechnicalErrorMessage(draftError) ? draftError : undefined} />}
       {reviewDraft.error && <p role="alert" className="px-3 py-2 text-ui-sm text-destructive">{reviewDraft.error}</p>}
       <div className="composer-input-stack">
       <div ref={setMenuAnchor} className="composer-menu-anchor" />
@@ -308,20 +309,22 @@ export function DraftComposer({
         inputTestId="chat-input"
         submitTestId="chat-send-button"
         placeholder={goalMode ? "描述目标，明确可衡量的结果" : plan ? "描述任务，生成计划…" : "随心输入"}
-        disabled={disabled}
-        submitDisabled={disabled || annotationBlocked || (desktopUnsupported && !goalMode) || (goalMode ? !input.text.trim() : !input.text.trim() && !input.files.length && !comments.length && !skills.selected.length)}
+        disabled={editLocked}
+        submitDisabled={submitDisabled || annotationBlocked || (desktopUnsupported && !goalMode) || (goalMode ? !input.text.trim() : !input.text.trim() && !input.files.length && !comments.length && !skills.selected.length)}
         submitting={busy}
         submitLabel={goalMode ? "开始目标" : "发送"}
         enterSubmits={prefs.sendShortcut === "enter"}
         enableMentionPanel={false}
-        composerCatalog={{ ...skills.catalog, entries: [
-          { value: "upload", label: "上传文件", description: "添加图片、文档或其他文件", group: "功能", icon: <AttachmentIcon />, run: () => upload.current?.click() },
-          ...(project.id !== "projectless" ? [{ value: "mcp", label: "MCP", description: "查看服务器与连接状态", group: "功能" as const, icon: <ComposerMcpIcon />, run: () => setMcpOpen(true) }] : []),
-          ...(project.root ? [{ value: "files", label: "工作区文件", description: "引用当前项目中的文件", group: "功能" as const, icon: <FileTree />, run: () => onPanel("文件") }] : []),
-          { value: "plan", label: "计划模式", description: plan ? "关闭计划模式" : "先规划，再开始执行", group: "功能", icon: <Lightbulb />, disabled: chosenProfile?.readOnly === true, run: () => setPlanMode(!plan) },
-          { value: "goal", label: "设置目标", description: goalMode ? "关闭目标模式" : "设置持续目标与停止条件", group: "功能", icon: <GoalIcon />, run: () => changeGoalMode(!goalMode) },
-          ...appEntries,
-          ...skills.catalog.entries,
+        composerCatalog={{ ...skills.catalog, loading: executionReady && skills.catalog.loading,
+          error: executionReady ? skills.catalog.error : undefined,
+          refresh: () => { if (executionReady && !editLocked) skills.catalog.refresh(); }, entries: [
+          { value: "upload", label: "上传文件", description: "添加图片、文档或其他文件", group: "功能", icon: <AttachmentIcon />, disabled: editLocked, run: () => { if (!editLocked) upload.current?.click(); } },
+          ...(project.id !== "projectless" ? [{ value: "mcp", label: "MCP", description: "查看服务器与连接状态", group: "功能" as const, icon: <ComposerMcpIcon />, disabled: !executionReady, run: () => { if (executionReady) setMcpOpen(true); } }] : []),
+          ...(project.root ? [{ value: "files", label: "工作区文件", description: "引用当前项目中的文件", group: "功能" as const, icon: <FileTree />, disabled: !executionReady, run: () => { if (executionReady) onPanel("文件"); } }] : []),
+          { value: "plan", label: "计划模式", description: plan ? "关闭计划模式" : "先规划，再开始执行", group: "功能", icon: <Lightbulb />, disabled: editLocked || chosenProfile?.readOnly === true, run: () => { if (!editLocked) setPlanMode(!plan); } },
+          { value: "goal", label: "设置目标", description: goalMode ? "关闭目标模式" : "设置持续目标与停止条件", group: "功能", icon: <GoalIcon />, disabled: editLocked, run: () => { if (!editLocked) changeGoalMode(!goalMode); } },
+          ...appEntries.map(entry => ({ ...entry, disabled: entry.disabled || !executionReady })),
+          ...skills.catalog.entries.map(entry => ({ ...entry, disabled: entry.disabled || !executionReady })),
         ] }}
         onChange={(value) => {
           setText(value);
@@ -331,30 +334,30 @@ export function DraftComposer({
           void submit(value);
           return false;
         }}
-        onPaste={event => composerPaste(event, pasted => setFiles(current => [...current, ...pasted]))}
+        onPaste={event => { if (!editLocked) composerPaste(event, pasted => setFiles(current => [...current, ...pasted])); }}
         topContent={
           <>{skills.tags}<div className="composer-attachment-row">
           {files.length ? (
             <div className="composer-attachments" data-testid="composer-attachments">
-              {files.map((file, i) => <ComposerAttachment disabled={disabled} key={isComposerFile(file) ? `${file.name}-${file.lastModified}-${i}` : `pasted-text-${i}`} file={file}
-                onAnnotate={onAnnotate ? file => onAnnotate({ draftKey: key, file, returnFocus: () => api.current?.focus() }) : undefined}
-                onRemove={() => setFiles((current) => current.filter((_, at) => at !== i))}
-                onExpand={content => { api.current?.appendText(`${text.length ? "\n\n" : ""}${content}`); setFiles(current => current.filter(item => item !== file)); }} />)}
+              {files.map((file, i) => <ComposerAttachment disabled={editLocked} key={isComposerFile(file) ? `${file.name}-${file.lastModified}-${i}` : `pasted-text-${i}`} file={file}
+                onAnnotate={onAnnotate ? file => { if (!editLocked) onAnnotate({ draftKey: key, file, returnFocus: () => api.current?.focus() }); } : undefined}
+                onRemove={() => { if (!editLocked) setFiles((current) => current.filter((_, at) => at !== i)); }}
+                onExpand={content => { if (editLocked) return; api.current?.appendText(`${text.length ? "\n\n" : ""}${content}`); setFiles(current => current.filter(item => item !== file)); }} />)}
             </div>
           ) : null}
-          <ReviewCommentAttachment comments={comments} disabled={disabled} onRemove={() => detachReviewComments(reviewKey)} />
+          <ReviewCommentAttachment comments={comments} disabled={editLocked} onRemove={() => detachReviewComments(reviewKey)} />
           </div></>
         }
         leadingActions={
-          <><ComposerPermissionMenu value={chosenProfile?.readOnly ? "readOnly" : permission} disabled={disabled}
+          <>{!executionReady && preparationStatus}{executionReady && <ComposerPermissionMenu value={chosenProfile?.readOnly ? "readOnly" : permission} disabled={submitDisabled}
             permissionsSupported={project.core?.features?.permissionPresets === true}
             fullAccessAvailable={project.core?.features?.permissionFullAccess === true}
             lockedReadOnly={chosenProfile?.readOnly === true}
-            onChange={value => { setPermission(value); localStorage.setItem(`${key}:permission`, value); }} onClose={() => api.current?.focus()} />
-          {goalMode && <Button type="button" variant="ghost" disabled={disabled} aria-label="退出目标模式" onClick={() => changeGoalMode(false)}><GoalIcon size={16} />目标</Button>}
-          {plan && <ComposerPlanMode disabled={disabled || chosenProfile?.readOnly === true} onExit={() => setPlanMode(false)} />}</>
+            onChange={value => { setPermission(value); localStorage.setItem(`${key}:permission`, value); }} onClose={() => api.current?.focus()} />}
+          {goalMode && <Button type="button" variant="ghost" disabled={editLocked} aria-label="退出目标模式" onClick={() => changeGoalMode(false)}><GoalIcon size={16} />目标</Button>}
+          {plan && <ComposerPlanMode disabled={editLocked || chosenProfile?.readOnly === true} onExit={() => setPlanMode(false)} />}</>
         }
-        betweenCancelAndSubmitAction={<ComposerModelMenu
+        betweenCancelAndSubmitAction={executionReady && <ComposerModelMenu
           value={effectiveModel} disabled={modelSelectionDisabled}
           effort={effort} onEffortChange={value => {
             setModel(effectiveModel); localStorage.setItem(`${key}:model`, effectiveModel);
@@ -370,8 +373,8 @@ export function DraftComposer({
         />}
       />
       </div>
-      {preferenceNotice && <p className="composer-preference-notice" role="status">{preferenceNotice}</p>}
-      <ComposerMcp projectId={project.id} action={readAction} open={mcpOpen} anchor={menuAnchor} onClose={() => { setMcpOpen(false); api.current?.focus(); }} />
+      {executionReady && preferenceNotice && <p className="composer-preference-notice" role="status">{preferenceNotice}</p>}
+      <ComposerMcp projectId={project.id} action={readAction} open={executionReady && mcpOpen} anchor={menuAnchor} onClose={() => { setMcpOpen(false); api.current?.focus(); }} />
     </div>
   );
 }

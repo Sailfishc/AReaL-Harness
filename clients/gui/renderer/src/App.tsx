@@ -21,6 +21,7 @@ import { SidePane } from "./app-shell/SidePane.js";
 import { useBrowserWorkspace, browserTabId, browserPageId, isBrowserTab } from "./app-shell/useBrowserWorkspace.js";
 import { Button } from "./components/ui/button.js";
 import { BackendStatusNotice, type BackendStatusAction } from "./BackendStatusNotice.js";
+import { FeedbackNotice } from "./FeedbackNotice.js";
 import { SettingsDisclosure } from "./settings/SettingsDisclosure.js";
 import { Popover, PopoverContent, PopoverTrigger } from "./components/ui/popover.js";
 import { ApplicationRail, SidebarSectionToggle, SidebarWorkspaceHeader } from "./app-shell/ApplicationNavigation.js";
@@ -52,7 +53,7 @@ import { NewTaskButtonGroup } from "./NewTaskButtonGroup.js";
 import { ImageAnnotationPane } from "./ImageAnnotationViews.js";
 import { imageAnnotation, imageAnnotationTitle, setImageAnnotationEditing, useImageAnnotationPending, type ImageAnnotationTarget } from "./imageAnnotations.js";
 import { Composer, attachmentDrafts, sending, subscribeSending } from "./Composer.js";
-import { recoveredOutcome, recoveryMessage, recoverySettings, sameRecoveryOwner, type RecoveryFailure, type RecoveryNotice, type RecoveryOwner } from "./recoveryPresentation.js";
+import { isTechnicalErrorMessage, recoveredOutcome, recoveryMessage, recoverySettings, sameRecoveryOwner, type RecoveryFailure, type RecoveryNotice, type RecoveryOwner } from "./recoveryPresentation.js";
 import { DraftComposer } from "./DraftComposer.js";
 import { ProjectlessDraft } from "./ProjectlessDraft.js";
 import { WorktreeStarter } from "./WorktreeStarter.js";
@@ -314,8 +315,8 @@ function AppContent({ services }: { services: PlatformServices }) {
   const recoverySnapshot = React.useRef(snapshot);
   recoverySnapshot.current = snapshot;
   const setError = useCallback((message: string) => {
-    if (message) setNotices(previous => [...previous, { ...selectedRecoveryOwner.current, id: crypto.randomUUID(), kind: "error", message }]);
-  }, []);
+    if (message) setNotices(previous => [...previous, { ...selectedRecoveryOwner.current, id: crypto.randomUUID(), kind: "error", message: isTechnicalErrorMessage(message) ? t("recovery.operationFailed") : message, detail: isTechnicalErrorMessage(message) ? message : undefined }]);
+  }, [t]);
   const dismissNotice = (id: string) => setDismissedNotices(previous => new Set(previous).add(id));
   const [dark, setDark] = useState(false);
   useAppearance(dark);
@@ -437,10 +438,8 @@ function AppContent({ services }: { services: PlatformServices }) {
   const observationFailure = project?.observationErrors?.[threadId];
   const currentObservationFailure = observationFailure && (observationFailure.connectionGeneration === undefined
     || observationFailure.connectionGeneration === restorationOwner.connectionGeneration) ? observationFailure : undefined;
-  const viewFailure = currentObservationFailure ?? currentRestoration?.failure
-    ?? (!project?.state?.connected && (project?.error || project?.state?.error)
-      ? { message: project.error || project.state.error } : undefined);
-  const restorationError = viewFailure ? recoveryMessage(viewFailure, "view") : currentRestoration?.error || "";
+  const viewFailure = currentObservationFailure ?? (threadId ? currentRestoration?.failure : undefined);
+  const restorationError = viewFailure ? recoveryMessage(viewFailure, "view") : threadId ? currentRestoration?.error || "" : "";
   const reconnectingView = snapshot.connection?.state === "connecting" && !!viewFailure
     && viewFailure.recovery?.kind !== "needsUser" && !recoverySettings(viewFailure)
     && !["HISTORY_BUDGET_TOO_SMALL", "RESPONSE_TOO_LARGE"].includes(String(viewFailure.code))
@@ -1012,7 +1011,7 @@ function AppContent({ services }: { services: PlatformServices }) {
       setPanel("Skills");
       return;
     }
-    if (["设置", "Skills", "MCP", "后台服务"].includes(name)) {
+    if (["设置", "Skills", "MCP", "后台服务", "会话配置"].includes(name)) {
       setSettingsTab(name === "设置" ? "模型服务" : name);
       setSettingsOpen(true);
       return;
@@ -1772,28 +1771,27 @@ function AppContent({ services }: { services: PlatformServices }) {
           </WorkspaceHeader>}
           <BackendStatusNotice summary={snapshot.serviceSummary} connection={snapshot.connection} update={snapshot.backendUpdate} lifecycle={snapshot.lifecycle}
             currentCommands={snapshot.desktopCapabilities?.currentCommands ?? project?.desktopCapabilities?.currentCommands}
-            pending={backendActionPending} error={backendActionError} onAction={kind => void runBackendAction(kind)} />
+            pending={backendActionPending} error={backendActionError} detail={project?.error || project?.state?.error} onAction={kind => void runBackendAction(kind)} />
           {operationNotices.map(notice => (
-            <div key={notice.id} className={notice.kind === "unconfirmed" ? "notice" : "error-banner"}
-              role={notice.kind === "unconfirmed" ? "status" : "alert"} data-recovery-request-id={notice.requestId}>
-              <span>{notice.message}</span>
-              {(notice.requestId || notice.detail) && <SettingsDisclosure title={t("recovery.details")}>
-                {notice.requestId && <small className="break-all text-foreground-subtle">{t("recovery.requestId", { id: notice.requestId })}</small>}
-                {notice.detail && <pre className="whitespace-pre-wrap break-all">{notice.detail}</pre>}
-              </SettingsDisclosure>}
-              {notice.settings && <Button variant="ghost" size="sm" onClick={() => { setSettingsTab(notice.settings!); setSettingsOpen(true); }}>{t(notice.settings === "模型服务" ? "recovery.checkModelSettings" : "recovery.checkSessionSettings")}</Button>}
-              {notice.kind === "unconfirmed" && <button onClick={() => void resourceAction("reconcile", { projectId: notice.projectId }).catch(() => {})}>{t("recovery.checkOriginal")}</button>}
-              <button aria-label={t("recovery.dismiss")} onClick={() => dismissNotice(notice.id)}><X size={14} /></button>
-            </div>
+            <FeedbackNotice key={notice.id} tone={notice.kind === "unconfirmed" ? "warning" : "error"}
+              message={isTechnicalErrorMessage(notice.message) ? t("recovery.operationFailed") : notice.message} requestId={notice.requestId} onDismiss={() => dismissNotice(notice.id)}
+              detail={(notice.requestId || notice.detail || isTechnicalErrorMessage(notice.message)) ? <>
+                {notice.requestId && <div>{t("recovery.requestId", { id: notice.requestId })}</div>}
+                {(notice.detail || isTechnicalErrorMessage(notice.message)) && <pre>{notice.detail || notice.message}</pre>}
+              </> : undefined}
+              actions={<>
+                {notice.settings && <Button variant="ghost" size="sm" onClick={() => { setSettingsTab(notice.settings!); setSettingsOpen(true); }}>{t(notice.settings === "模型服务" ? "recovery.checkModelSettings" : "recovery.checkSessionSettings")}</Button>}
+                {notice.kind === "unconfirmed" && <Button variant="ghost" size="sm" onClick={() => void resourceAction("reconcile", { projectId: notice.projectId }).catch(() => {})}>{t("recovery.checkOriginal")}</Button>}
+              </>} />
           ))}
           {restorationError && (!reconnectingView || viewRecoveryVisible) && !dismissedNotices.has(restorationNoticeId) && (
-            <div className={viewRefreshing || reconnectingView ? "notice" : "error-banner"} role={viewRefreshing || reconnectingView ? "status" : "alert"}>
-              <span>{viewRefreshing || reconnectingView ? t("recovery.loadingView") : restorationError}</span>
-              {viewFailure && viewFailure.message !== restorationError && <SettingsDisclosure title={t("recovery.details")}><pre className="whitespace-pre-wrap break-all">{viewFailure.message}</pre></SettingsDisclosure>}
-              {viewFailure && recoverySettings(viewFailure) && <Button variant="ghost" size="sm" onClick={() => { setSettingsTab(recoverySettings(viewFailure)!); setSettingsOpen(true); }}>{t("recovery.checkSettings")}</Button>}
-              {!viewRefreshing && !reconnectingView && <button onClick={() => void retryRestoration()}>{t("recovery.retryView")}</button>}
-              <button aria-label={t("recovery.dismiss")} onClick={() => dismissNotice(restorationNoticeId)}><X size={14} /></button>
-            </div>
+            <FeedbackNotice tone={viewRefreshing || reconnectingView ? "info" : "error"}
+              message={viewRefreshing || reconnectingView ? t("recovery.loadingView") : restorationError}
+              detail={viewFailure && viewFailure.message !== restorationError ? viewFailure.message : undefined}
+              onDismiss={() => dismissNotice(restorationNoticeId)} actions={<>
+                {viewFailure && recoverySettings(viewFailure) && <Button variant="ghost" size="sm" onClick={() => { setSettingsTab(recoverySettings(viewFailure)!); setSettingsOpen(true); }}>{t("recovery.checkSettings")}</Button>}
+                {!viewRefreshing && !reconnectingView && <Button variant="ghost" size="sm" onClick={() => void retryRestoration()}>{t("recovery.retryView")}</Button>}
+              </>} />
           )}
           {<PluginCenter active={pluginCenterActive} marketRequest={pluginMarketRequest} surface={pluginSettingsOpen ? "settings" : "workspace"}
             initialTab={settingsTab === "Skills" ? "skills" : settingsTab === "MCP" ? "mcp" : "plugins"}
@@ -1859,7 +1857,7 @@ function AppContent({ services }: { services: PlatformServices }) {
                               <ProjectFolderIcon />
                               <span>{library.projects?.[project.id]?.title || project.root.split("/").pop()}</span>
                             </div>
-                            <ComposerWorkspaceContext project={project} action={resourceAction} />
+                            <ComposerWorkspaceContext project={project} action={resourceAction} backendReady={snapshot.connection?.state === "ready"} />
                             </div>
                           </div>
                         )}
@@ -1941,7 +1939,7 @@ function AppContent({ services }: { services: PlatformServices }) {
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
-                          {project && <ComposerWorkspaceContext project={project} action={resourceAction} />}
+                          {project && <ComposerWorkspaceContext project={project} action={resourceAction} backendReady={snapshot.connection?.state === "ready"} />}
                           </div>
                         {project && <WorktreeStarter key={project.id} project={project} action={resourceAction} onOpen={async id => { setSnapshot(await services.snapshot()); newTask(id); }} />}
                       </div>
@@ -1952,6 +1950,7 @@ function AppContent({ services }: { services: PlatformServices }) {
                             onAnnotate={openImageAnnotation}
                             key={project.id}
                             project={project}
+                            backendReady={snapshot.connection?.state === "ready"}
                             action={action}
                             readAction={resourceAction}
                             onOpen={(pid, id) => open(pid, id, "replace")}
