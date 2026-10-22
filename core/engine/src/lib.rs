@@ -68,6 +68,7 @@ pub struct Limits {
     pub max_output_bytes: usize,
     pub max_media_output_bytes: usize,
     pub mailbox_capacity: usize,
+    pub model_request_timeout: Duration,
     pub stream_idle_timeout: Duration,
     pub max_tool_calls: usize,
     /// 单次响应的保护与整轮累计预算独立；累计预算为零表示不限制。
@@ -116,6 +117,7 @@ impl Default for Limits {
             max_output_bytes: 0,
             max_media_output_bytes: 0,
             mailbox_capacity: 32,
+            model_request_timeout: Duration::from_secs(300),
             stream_idle_timeout: Duration::from_secs(30),
             max_tool_calls: 0,
             max_response_tool_calls: 128,
@@ -504,6 +506,7 @@ impl Engine {
                 && limits.max_repeated_tool_failures <= 8
                 && (limits.max_history_bytes == 0
                     || limits.max_output_bytes < limits.max_history_bytes)
+                && !limits.model_request_timeout.is_zero()
                 && !limits.stream_idle_timeout.is_zero(),
             "invalid Core limits"
         );

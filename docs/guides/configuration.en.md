@@ -132,6 +132,7 @@ max_tool_buffer_bytes = 4194304
 
 [network]
 retry_mode = "persistent"
+model_request_timeout_seconds = 300
 stream_idle_timeout_seconds = 30
 [logging]
 filter = "info"
@@ -167,7 +168,9 @@ Goal shared-budget and unknown-usage constraints take precedence over retry sett
 
 `resources.max_tool_buffer_bytes` defaults to 4 MiB and bounds buffered tool IDs, names and arguments per response. Each call permits at most 64 KiB arguments. `resources.max_response_tool_calls` defaults to 128; the effective cap is the minimum of this guard and an explicitly configured remaining Turn budget. `resources.max_response_bytes` defaults to 4 MiB and bounds text, reasoning, provider context and binary model output per response. These guards are independent of cumulative execution budgets. Chat and Responses share tool-buffer enforcement; repeated Responses terminal items are not charged twice. New environment suffixes include `MAX_RESPONSE_TOOL_CALLS`, `MAX_RESPONSE_BYTES`, `CONTEXT_MODE`, `CONTEXT_RECENT_TOKENS`, `CONTEXT_TARGET_TOKENS` and `MODEL_CONTEXT_WINDOW_TOKENS`. Existing environment names remain supported.
 
-`[budget]` fields `max_tool_calls`, `max_output_bytes` and `max_history_bytes` default to 0 (unlimited). Positive values explicitly limit calls/output per Turn and stored history per Thread; compaction does not reset them. History includes the hot snapshot and referenced cold segments. Existing explicit finite values keep their meaning, while omitted values use the new unlimited defaults in both schema versions. Resource capacities remain positive; child/depth limits may be 0. `max_threads=20000` is deployment session capacity, not a conversation length budget. Idle timeout detects stalled requests, not total task duration. `[network] retry_mode` is persistent by default, or bounded (legacy watchdog disabled). `config show` includes the new groups and retains the legacy `limits` diagnostic object; source keys remain normalized legacy names.
+`[budget]` fields `max_tool_calls`, `max_output_bytes` and `max_history_bytes` default to 0 (unlimited). Positive values explicitly limit calls/output per Turn and stored history per Thread; compaction does not reset them. History includes the hot snapshot and referenced cold segments. Existing explicit finite values keep their meaning, while omitted values use the new unlimited defaults in both schema versions. Resource capacities remain positive; child/depth limits may be 0. `max_threads=20000` is deployment session capacity, not a conversation length budget. `[network] retry_mode` is persistent by default, or bounded (legacy watchdog disabled). `config show` includes the new groups and retains the legacy `limits` diagnostic object; source keys remain normalized legacy names.
+
+`network.model_request_timeout_seconds` defaults to 300 and limits each model request until its first successful event, including shared model permit waits, request preparation and HTTP retries. Receiving response headers does not restart this deadline. After the first event, `network.stream_idle_timeout_seconds` defaults to 30 and limits the gap between events. Activity and usage events refresh the idle deadline even without visible text. Both settings accept 1–86400 seconds and apply to solve and compaction summary requests. They also accept the same keys under `[limits]`. A timeout retains the `LLM_RESPONSE_TIMEOUT` classification and existing watchdog recovery. These limits do not bound total Turn duration.
 
 | Environment suffix (prefix `AREAL_HARNESS_`) | Configuration |
 |---|---|
@@ -177,7 +180,7 @@ Goal shared-budget and unknown-usage constraints take precedence over retry sett
 | `CONTEXT_WINDOW_TOKENS`, `CONTEXT_OUTPUT_RESERVE_TOKENS`, `CONTEXT_COMPACTION_ENABLED` | Optional context token budget and compaction switch |
 | `LISTEN`, `DATA_DIR`, `TOOL_EXTENSIONS`, `LOG_FILTER` | Server, extensions file and logging |
 | `MODEL_CONCURRENCY`, `MAX_THREADS`, `MAX_ACTIVE_TURNS`, `MAX_CHILDREN_PER_TURN`, `MAX_AGENT_DEPTH` | Concurrency and task capacity |
-| `STREAM_IDLE_TIMEOUT_SECONDS` | Deadlines |
+| `MODEL_REQUEST_TIMEOUT_SECONDS`, `STREAM_IDLE_TIMEOUT_SECONDS` | First model event deadline and subsequent stream idle deadline |
 | `WATCHDOG_DISABLE` | `limits.watchdog_disable`; `1` disables, default `0` |
 | `MAX_HISTORY_BYTES`, `MAX_OUTPUT_BYTES`, `MAX_TOOL_CALLS`, `MAX_TOOL_BUFFER_BYTES`, `CONTEXT_WINDOW_BYTES`, `CONTEXT_RECENT_BYTES` | History, tools and context budgets |
 

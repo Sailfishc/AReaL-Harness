@@ -132,6 +132,7 @@ max_tool_buffer_bytes = 4194304
 
 [network]
 retry_mode = "persistent"
+model_request_timeout_seconds = 300
 stream_idle_timeout_seconds = 30
 [logging]
 filter = "info"
@@ -167,7 +168,9 @@ Goal 的共享预算与未知用量约束优先于重试配置。Goal 请求禁�
 
 `resources.max_tool_buffer_bytes` 默认 4 MiB，约束每个响应缓冲的工具 id、name、arguments；单调用参数仍最多 64 KiB。`resources.max_response_tool_calls` 默认 128，有效值取该保护与显式 Turn 剩余调用预算的较小者。`resources.max_response_bytes` 默认 4 MiB，约束单响应的文本、推理、provider context 和模型二进制输出。这些保护独立于累计执行预算。Chat/Responses 共用工具缓冲检查，重复的 Responses 终态条目不重复计数。新增环境变量后缀为 `MAX_RESPONSE_TOOL_CALLS`、`MAX_RESPONSE_BYTES`、`CONTEXT_MODE`、`CONTEXT_RECENT_TOKENS`、`CONTEXT_TARGET_TOKENS`、`MODEL_CONTEXT_WINDOW_TOKENS`；旧环境变量保留。
 
-`[budget]` 中 `max_tool_calls`、`max_output_bytes`、`max_history_bytes` 默认 0（无限）；正数分别显式限制每 Turn 调用数/累计输出和每 Thread 存储历史，压缩不会重置这些预算。历史计入热快照和引用的冷分段。旧配置中的显式有限值保持原意，两个 schema 版本中省略字段均采用新的无限默认。资源容量仍需正数，子任务数/深度可为 0。`max_threads=20000` 是部署会话容量，不是单会话长度预算。空闲超时用于检测停滞请求，不是整个任务的运行时长。`[network] retry_mode` 默认 persistent，也可为 bounded（对应关闭旧 watchdog）。`config show` 展示新分组并保留旧 `limits` 诊断对象；来源键仍使用归一化的旧名称。
+`[budget]` 中 `max_tool_calls`、`max_output_bytes`、`max_history_bytes` 默认 0（无限）；正数分别显式限制每 Turn 调用数/累计输出和每 Thread 存储历史，压缩不会重置这些预算。历史计入热快照和引用的冷分段。旧配置中的显式有限值保持原意，两个 schema 版本中省略字段均采用新的无限默认。资源容量仍需正数，子任务数/深度可为 0。`max_threads=20000` 是部署会话容量，不是单会话长度预算。`[network] retry_mode` 默认 persistent，也可为 bounded（对应关闭旧 watchdog）。`config show` 展示新分组并保留旧 `limits` 诊断对象；来源键仍使用归一化的旧名称。
+
+`network.model_request_timeout_seconds` 默认 300，限制每次模型请求到首个成功事件的总等待时间，包括共享模型许可等待、请求准备与 HTTP 重试。收到响应头不会重置该期限。首个事件之后，`network.stream_idle_timeout_seconds` 默认 30，限制相邻事件间的空闲时间。Activity 和用量事件即使没有可见文本也会刷新空闲期限。两项配置均接受 1–86400 秒，对求解与压缩摘要请求生效，也可使用 `[limits]` 下的同名字段。超时保留 `LLM_RESPONSE_TIMEOUT` 分类及现有 watchdog 恢复策略。这些限制不约束整个 Turn 的运行时长。
 
 | 环境变量（前缀 `AREAL_HARNESS_`） | 对应配置 |
 |---|---|
@@ -177,7 +180,7 @@ Goal 的共享预算与未知用量约束优先于重试配置。Goal 请求禁�
 | `CONTEXT_WINDOW_TOKENS`, `CONTEXT_OUTPUT_RESERVE_TOKENS`, `CONTEXT_COMPACTION_ENABLED` | 可选上下文 token 预算与压缩开关 |
 | `LISTEN`, `DATA_DIR`, `TOOL_EXTENSIONS`, `LOG_FILTER` | server、扩展文件与日志 |
 | `MODEL_CONCURRENCY`, `MAX_THREADS`, `MAX_ACTIVE_TURNS`, `MAX_CHILDREN_PER_TURN`, `MAX_AGENT_DEPTH` | 并发与任务容量 |
-| `STREAM_IDLE_TIMEOUT_SECONDS` | 时限 |
+| `MODEL_REQUEST_TIMEOUT_SECONDS`, `STREAM_IDLE_TIMEOUT_SECONDS` | 首个模型事件期限与后续流空闲期限 |
 | `WATCHDOG_DISABLE` | `limits.watchdog_disable`；`1` 关闭，默认 `0` |
 | `MAX_HISTORY_BYTES`, `MAX_OUTPUT_BYTES`, `MAX_TOOL_CALLS`, `MAX_TOOL_BUFFER_BYTES`, `CONTEXT_WINDOW_BYTES`, `CONTEXT_RECENT_BYTES` | 历史、工具与上下文预算 |
 

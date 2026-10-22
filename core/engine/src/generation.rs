@@ -620,9 +620,13 @@ impl Engine {
                     .unwrap()
                     .generation
                     .clone();
+                let mut response_deadline = watchdog::ResponseDeadline::new(
+                    self.limits.model_request_timeout,
+                    self.limits.stream_idle_timeout,
+                );
                 let response = {
-                    let pending_response = tokio::time::timeout(
-                        self.limits.stream_idle_timeout,
+                    let pending_response = tokio::time::timeout_at(
+                        response_deadline.deadline(),
                         model::REQUEST_OWNER
                             .scope((thread_id.clone(), turn_id.clone()), async {
                                 anyhow::ensure!(!cancel.is_cancelled(), "cancelled");
@@ -693,10 +697,10 @@ impl Engine {
                             complete_item(cell, &thread_id, &turn_id, &item_id).await;
                             continue 'restart;
                         },
-                        next = tokio::time::timeout(
-                            self.limits.stream_idle_timeout,
+                        next = tokio::time::timeout_at(
+                            response_deadline.deadline(),
                             stream.next().instrument(model_span.clone()),
-                        ) => match next { Ok(next) => next, Err(_) => Some(Err(watchdog::idle_error("model stream"))) },
+                        ) => match next { Ok(next) => next, Err(_) => Some(Err(response_deadline.idle_error("model"))) },
                     };
                     let Some(delta) = next else {
                         let state = cell.state.lock().await;
@@ -1021,6 +1025,7 @@ impl Engine {
                         response_bytes <= self.limits.max_response_bytes,
                         "model response byte limit exceeded"
                     );
+                    response_deadline.observe_event();
                     operation.observe(&delta);
                     match delta {
                         ModelEvent::Activity => continue,

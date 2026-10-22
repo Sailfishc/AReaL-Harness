@@ -1062,7 +1062,8 @@ impl Engine {
                         let configuration = self.context_configuration(&snapshot, true);
                         self.publish_context_usage(cell, &input, &[], &configuration, model.as_ref()).await?;
                     }
-                    let pending = tokio::time::timeout(self.limits.stream_idle_timeout, model::REQUEST_OWNER.scope((snapshot.id.clone(), snapshot.turns.last().map_or_else(String::new, |t| t.id.clone())), async {
+                    let mut response_deadline = watchdog::ResponseDeadline::new(self.limits.model_request_timeout, self.limits.stream_idle_timeout);
+                    let pending = tokio::time::timeout_at(response_deadline.deadline(), model::REQUEST_OWNER.scope((snapshot.id.clone(), snapshot.turns.last().map_or_else(String::new, |t| t.id.clone())), async {
                         let meter = crate::request_meter::RequestMeter::new(generation.clone());
                         model.chat_with_limits(input.clone(), Vec::new(), model::RequestPurpose::Summary, model::ToolCallLimits { max_calls: 0, max_buffer_bytes: self.limits.max_tool_buffer_bytes }, None).await.map(|stream| meter.wrap(stream))
                     }));
@@ -1082,10 +1083,11 @@ impl Engine {
                                 self.settle_cancelled_model(cell, &mut stream, &mut request).await;
                                 anyhow::bail!("cancelled");
                             },
-                            result = tokio::time::timeout(self.limits.stream_idle_timeout, stream.next()) => result.map_err(|_| watchdog::idle_error("compaction stream"))?,
+                            result = tokio::time::timeout_at(response_deadline.deadline(), stream.next()) => result.map_err(|_| response_deadline.idle_error("compaction"))?,
                         };
                         let Some(event) = event else { break; };
                         let event = event?;
+                        response_deadline.observe_event();
                         request.observe(&event);
                         match event {
                             ModelEvent::TextDelta(text) => {
