@@ -10,6 +10,8 @@ AReaL-Harness follows **Clients → Core → Runtime**. Core exclusively owns se
 
 Renderer language belongs to existing application preferences and accepts zh-CN and en. React Intl derives copy, numbers and dates from bundled messages without changing Core state, configuration or conversation identity. Retained local notices keep message descriptors and raw arguments until render; raw diagnostics and third-party content stay verbatim. See the [GUI language contract](../../clients/gui/README.en.md#interface-language-and-copy-development).
 
+GUI Renderer reads the preload object only in `main.tsx`. `createDesktopServices` injects the existing `PlatformServices` into the application. MCP Apps, native resource selection, and icon loading receive their capabilities through this interface. Missing capabilities do not create desktop subscriptions or native resource entry points. React components do not read the global bridge separately. Main continues to validate IPC senders and own windows, App tokens, and native grants. Core and Runtime retain execution and history authority.
+
 ## Responsibilities
 
 | Module | Responsibility |

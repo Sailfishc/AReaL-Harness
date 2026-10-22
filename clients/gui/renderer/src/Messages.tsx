@@ -1,6 +1,6 @@
 import { useI18n } from "./i18n/IntlProvider.js";
 import { TurnUsage } from "./TurnUsage.js";
-import { mcpResultKey, type McpResultSource, type McpResultState } from "./McpAppHost.js";
+import { mcpResultKey, type McpResultSource, type McpResultState } from "./mcp-app-services.js";
 import { McpContentLabel } from "./McpComposerAttachments.js";
 import { useForkHistory } from "./ForkHistory.js";
 import { DeferredHistoryItem, useConversationHistory } from "./ConversationHistory.js";

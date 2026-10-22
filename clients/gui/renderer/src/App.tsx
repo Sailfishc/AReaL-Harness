@@ -774,7 +774,7 @@ function AppContent({ services }: { services: PlatformServices }) {
     [initialReleased, snapshot.projects, restoreConversation, recordWorkspaceLocation],
   );
   const [mcpMentionsOpen, setMcpMentionsOpen] = useState(false);
-  const mcpWorkspace = useMcpAppsWorkspace({ project, deepLinksEnabled: initialReleased, projects: snapshot.projects, activeTab: !annotationVisible && !pluginsOpen && !settingsOpen && !taskCenterOpen && workspaceView !== "conversation" ? panel : "", threadId, action: resourceAction,
+  const mcpWorkspace = useMcpAppsWorkspace({ services, project, deepLinksEnabled: initialReleased, projects: snapshot.projects, activeTab: !annotationVisible && !pluginsOpen && !settingsOpen && !taskCenterOpen && workspaceView !== "conversation" ? panel : "", threadId, action: resourceAction,
     onOpenThread: async (pid, tid) => { updateSettingsOpen(false); await open(pid, tid); },
     onReveal: (tab, owner) => { if(activePanelOwner.current!==`${owner.projectId}:${owner.threadId}`){mcpPendingReveal.current={tab,owner:`${owner.projectId}:${owner.threadId}`};return;} updateSettingsOpen(false); setWorkspaceView("split"); setPanelTabs(tabs => tabs.includes(tab) ? tabs : [...tabs, tab]); setPanel(tab); },
     onRemoveTab: tab => {
@@ -788,7 +788,7 @@ function AppContent({ services }: { services: PlatformServices }) {
     description: t("chat.composer.openApp"),
     source: server.title ?? server.pluginId,
     keywords: ["app", "应用", "plugin", "插件"],
-    icon: <McpAppIcon icon={tool.icons?.[0] ?? server.icons?.[0]} size={16} />,
+    icon: <McpAppIcon icon={tool.icons?.[0] ?? server.icons?.[0]} size={16} loadMetadataImage={mcpWorkspace.loadMetadataImage} />,
     group: "应用",
     disabled: !project?.state?.connected || project.desktopCapabilities?.currentCommands === false || !!thread?.desktop?.archived,
     run: () => { void mcpWorkspace.openApp(server, tool, { kind: "thread" }).catch(cause => setError(cause.message)); },
@@ -1330,7 +1330,7 @@ function AppContent({ services }: { services: PlatformServices }) {
     if (panel.startsWith("file:"))
       return (
         <div className="flex h-full min-h-0 flex-col">
-        {threadId && <McpAppEntrypoints servers={mcpWorkspace.servers} kind="file" fileName={panel.slice(5)} onOpen={(server, tool) => { if (dirtyFiles[`${project.id}:${panel.slice(5)}`]) { setError("请先保存当前文件，再用应用打开。"); return; } void mcpWorkspace.openApp(server, tool, {kind:"file",filePath:panel.slice(5)}).catch(cause=>setError(cause.message)); }}/>}<WorkspaceFilePane
+        {threadId && <McpAppEntrypoints servers={mcpWorkspace.servers} loadMetadataImage={mcpWorkspace.loadMetadataImage} kind="file" fileName={panel.slice(5)} onOpen={(server, tool) => { if (dirtyFiles[`${project.id}:${panel.slice(5)}`]) { setError("请先保存当前文件，再用应用打开。"); return; } void mcpWorkspace.openApp(server, tool, {kind:"file",filePath:panel.slice(5)}).catch(cause=>setError(cause.message)); }}/>}<WorkspaceFilePane
           key={`${project.id}:${panel}`}
           projectId={project.id}
           root={project.root}
