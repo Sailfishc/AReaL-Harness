@@ -41,7 +41,11 @@ impl Engine {
                 record
             };
             let permissions=engine.active_permissions(&cell).await.map_err(invalid)?;
-            let parent=engine.runtime_task_parent(&cell).await.map_err(invalid)?;
+            let parent=if request.lifetime=="thread" {
+                engine.runtime_thread_process_parent(&cell).await
+            } else {
+                engine.runtime_task_parent(&cell).await
+            }.map_err(invalid)?;
             drop(admission);
             let result=async{
                 let scope=runtime.client.create_scope(rt::CreateScope{operation_id:record.scope_operation_id.clone(),parent_scope_id:parent,owner:rt::Owner{task_id:request.thread_id.clone(),plugin_instance_id:None},permissions,limits:rt::LimitRequest::default()}).await;

@@ -97,7 +97,8 @@ impl Engine {
                     tty: false,
                     cols: None,
                     rows: None,
-                    timeout_ms: args["timeoutMs"].as_u64().or(Some(86_400_000)),
+                    // 缺省继承 Runtime 父 Scope，不用固定一天越过部署上限。
+                    timeout_ms: args["timeoutMs"].as_u64(),
                 };
                 let receipt = match self.process_start(identity.clone(), request).await {
                     Ok(receipt) => receipt,
