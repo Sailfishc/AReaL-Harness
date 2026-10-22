@@ -192,7 +192,7 @@ TUI 与共享服务 PTY 检查共用终端画面解析器，处理增量重绘�
 
 ## CI 门禁与冷启动
 
-推送 GUI/Core 集成分支前，先获取目标远程引用，通过 `make setup` 和 `make gui-install` 准备锁定依赖，再运行 `make ci-preflight CI_BASE=upstream-readonly/main`。`CI_BASE` 指向实际 PR 目标，其 merge-base 驱动与 CI 相同的增量设计和文案检查。该入口复用格式、文档、GUI 类型/公开检查、快速回归、浏览器契约及实时 GUI 依赖审计；不要求产品构建，不替代 Rust 集成、Linux 可移植性、Electron 用户路径或全锁文件审计。可移植 Node fixture 使用 `node:os` 临时目录；WebSocket 替身必须完成真实的 `send(data, callback)` 契约，避免背压静默阻塞后续消息。
+推送 GUI/Core 集成分支前，先获取目标远程引用，通过 `make setup` 和 `make gui-install` 准备锁定依赖，再运行 `make ci-preflight CI_BASE=upstream-readonly/main`。`CI_BASE` 指向实际 PR 目标，其 merge-base 驱动与 CI 相同的增量设计和文案检查。该入口复用格式、Rust/Python 静态检查、文档、GUI 类型/公开检查、快速回归、浏览器契约及实时 GUI 依赖审计；不启动产品，不替代 Rust 集成、Linux 可移植性、Electron 用户路径或全锁文件审计。可移植 Node fixture 使用 `node:os` 临时目录；WebSocket 替身必须完成真实的 `send(data, callback)` 契约，避免背压静默阻塞后续消息。
 
 `pnpm --dir clients/gui test:macos-dmg` 在 macOS 上独立通过真实 `codesign` 和 `hdiutil` 验证签名 framework 暂存。它需要允许磁盘映像设备访问的环境；受限 Agent 沙箱可能返回 `Device not configured`。应记录环境失败，并在允许的宿主环境重跑相同测试，不跳过断言，也不据此宣称安装包验收通过。macOS GUI job 显式执行该检查；可移植 `verify` 不创建磁盘映像。
 

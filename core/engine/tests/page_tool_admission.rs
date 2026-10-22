@@ -29,7 +29,7 @@ impl Model for InventoryModel {
     async fn chat(&self, messages: Vec<Message>, tools: Vec<Value>) -> anyhow::Result<ModelStream> {
         *self.inventory.lock().unwrap() = tools.clone();
         let event = if self.invoke.load(Ordering::SeqCst)
-            && !messages.last().is_some_and(|m| m.role == "tool")
+            && messages.last().is_none_or(|m| m.role != "tool")
         {
             let tool = tools
                 .iter()

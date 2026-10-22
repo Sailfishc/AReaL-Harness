@@ -438,7 +438,7 @@ impl Snapshot {
         } else {
             self.read_leaf_limited(&reference.digest, INDEX_BYTES)?
         };
-        if !node.rows.is_empty() != reference.leaf {
+        if node.rows.is_empty() == reference.leaf {
             return Err(storage("Task index reference kind mismatch"));
         }
         if node.version != 2

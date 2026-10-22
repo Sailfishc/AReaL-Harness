@@ -1629,13 +1629,12 @@ fn map_error(error: Error) -> RpcError {
             data: Some(json!(failure)),
         };
     }
-    if let Error::Invalid(reason) = &error {
-        if let Some(code) = ["CREDENTIAL_UNAVAILABLE", "MODEL_CREDENTIAL_UNAVAILABLE"]
+    if let Error::Invalid(reason) = &error
+        && let Some(code) = ["CREDENTIAL_UNAVAILABLE", "MODEL_CREDENTIAL_UNAVAILABLE"]
             .into_iter()
             .find(|code| reason == code || reason.starts_with(&format!("{code}:")))
-        {
-            return rejected(RpcError::invalid(error.to_string()), code);
-        }
+    {
+        return rejected(RpcError::invalid(error.to_string()), code);
     }
     if matches!(&error,Error::Invalid(reason) if reason=="TASK_PERMISSION_DENIED") {
         return RpcError {

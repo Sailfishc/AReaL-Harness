@@ -970,10 +970,10 @@ impl Invocation<'_> {
         if self.call.name == "browser_v1" && browser_plan.is_some() && response.success {
             let mut contents: Vec<Value> = response.structured_content.iter().cloned().collect();
             for content in &response.content_items {
-                if let areal_protocol::ToolContent::InputText { text } = content {
-                    if let Ok(value) = serde_json::from_str::<Value>(text) {
-                        contents.push(value);
-                    }
+                if let areal_protocol::ToolContent::InputText { text } = content
+                    && let Ok(value) = serde_json::from_str::<Value>(text)
+                {
+                    contents.push(value);
                 }
             }
             for content in contents {

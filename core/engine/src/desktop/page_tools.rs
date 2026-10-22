@@ -177,14 +177,14 @@ impl Engine {
         }
         let state = cell.state.lock().await;
         if host.is_closed()
-            || !self
+            || self
                 .desktop
                 .mcp_apps
                 .instances
                 .read()
                 .unwrap()
                 .get(&input.instance_id)
-                .is_some_and(|i| !i.page_tools_retired)
+                .is_none_or(|i| i.page_tools_retired)
         {
             return Err(Error::NotFound);
         }
@@ -416,11 +416,12 @@ impl Engine {
             .unwrap()
             .get(&key(coordinates))
             .cloned();
-        if let Some(h) = &handle {
-            if h.coordinates != *coordinates || !Arc::ptr_eq(&h.tool.host, host) || host.is_closed()
-            {
-                return Err(invalid("page-call owner or coordinates mismatch"));
-            }
+        if let Some(h) = &handle
+            && (h.coordinates != *coordinates
+                || !Arc::ptr_eq(&h.tool.host, host)
+                || host.is_closed())
+        {
+            return Err(invalid("page-call owner or coordinates mismatch"));
         }
         Ok(handle)
     }

@@ -94,41 +94,40 @@ impl Running {
                     max
                 );
             }
-            if let Some(result) = reply.get("result") {
-                if matches!(
+            if let Some(result) = reply.get("result")
+                && matches!(
                     method,
                     "areal/thread/observe" | "thread/resume" | "areal/conversation/history"
-                ) {
-                    static SCHEMAS: std::sync::OnceLock<BTreeMap<String, jsonschema::Validator>> =
-                        std::sync::OnceLock::new();
-                    let schemas = SCHEMAS.get_or_init(|| {
-                        let schema: Value = serde_json::from_str(include_str!(
-                            "../../../schemas/areal-core-v1.json"
-                        ))
-                        .unwrap();
-                        [
-                            "areal/thread/observe",
-                            "thread/resume",
-                            "areal/conversation/history",
-                        ]
-                        .into_iter()
-                        .map(|name| {
-                            (
-                                name.into(),
-                                jsonschema::validator_for(&schema["responses"][name]).unwrap(),
-                            )
-                        })
-                        .collect()
-                    });
-                    let errors: Vec<_> = schemas[method]
-                        .iter_errors(result)
-                        .map(|error| error.instance_path.to_string())
-                        .collect();
-                    assert!(
-                        errors.is_empty(),
-                        "{method} response violates published schema at {errors:?}"
-                    );
-                }
+                )
+            {
+                static SCHEMAS: std::sync::OnceLock<BTreeMap<String, jsonschema::Validator>> =
+                    std::sync::OnceLock::new();
+                let schemas = SCHEMAS.get_or_init(|| {
+                    let schema: Value =
+                        serde_json::from_str(include_str!("../../../schemas/areal-core-v1.json"))
+                            .unwrap();
+                    [
+                        "areal/thread/observe",
+                        "thread/resume",
+                        "areal/conversation/history",
+                    ]
+                    .into_iter()
+                    .map(|name| {
+                        (
+                            name.into(),
+                            jsonschema::validator_for(&schema["responses"][name]).unwrap(),
+                        )
+                    })
+                    .collect()
+                });
+                let errors: Vec<_> = schemas[method]
+                    .iter_errors(result)
+                    .map(|error| error.instance_path.to_string())
+                    .collect();
+                assert!(
+                    errors.is_empty(),
+                    "{method} response violates published schema at {errors:?}"
+                );
             }
             return reply;
         }

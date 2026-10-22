@@ -81,6 +81,31 @@ const isBackgroundMcpFormsRead = (entry, owner) => entry.command === "manage"
   && entry.parameters?.operation === "mcpForms"
   && Object.keys(entry.parameters).sort().join(",") === "operation,projectId,threadId"
   && entry.parameters.projectId === owner.projectId && entry.parameters.threadId === owner.threadId;
+// ContextUsage 与显式 Side 证据读取必须匹配本次观察的项目/会话及有界参数。
+const isConversationContextRead = (entry, owner) => typeof owner?.projectId === "string" && owner.projectId.length > 0
+  && [owner.sourceThreadId, owner.sideThreadId].every(id => typeof id === "string" && id.length > 0)
+  && entry.parameters?.projectId === owner.projectId && entry.parameters.operation === "context"
+  && (entry.command === "manage"
+    ? [owner.sourceThreadId, owner.sideThreadId].includes(entry.parameters.threadId)
+      && Object.keys(entry.parameters).sort().join(",") === "limit,offset,operation,projectId,threadId"
+      && entry.parameters.offset === 0 && entry.parameters.limit === 1
+    : entry.command === "side" && entry.parameters.threadId === owner.sideThreadId
+      && Object.keys(entry.parameters).sort().join(",") === "maxBytes,operation,projectId,threadId"
+      && entry.parameters.maxBytes === 4096);
+const contextOwner = { projectId: "project", sourceThreadId: "source", sideThreadId: "side" };
+for (const entry of [
+  ...["source", "side"].map(threadId => ({ command: "manage", parameters: { projectId: "project", threadId, operation: "context", offset: 0, limit: 1 } })),
+  { command: "side", parameters: { projectId: "project", threadId: "side", operation: "context", maxBytes: 4096 } },
+]) {
+  assert.ok(isConversationContextRead(entry, contextOwner));
+  for (const change of [{ projectId: "other" }, { threadId: "other" }, { operation: "contextCompact" }, { requestId: "mutation" }])
+    assert.equal(isConversationContextRead({ ...entry, parameters: { ...entry.parameters, ...change } }, contextOwner), false);
+  for (const command of ["send", "configure", "queue", "steer"])
+    assert.equal(isConversationContextRead({ ...entry, command }, contextOwner), false);
+}
+for (const owner of [undefined, {}, { ...contextOwner, projectId: "" }, { ...contextOwner, sourceThreadId: "" }, { ...contextOwner, sideThreadId: "" }])
+  assert.equal(isConversationContextRead({ command: "manage", parameters: { projectId: "project", threadId: "source", operation: "context", offset: 0, limit: 1 } }, owner), false);
+
 for (const command of ["trajectory", "feedback"])
   assert.ok(isBackgroundStatusRead({ command, parameters: { operation: "status" } }));
 for (const entry of [
@@ -699,6 +724,7 @@ try {
   await shot("05-side-answered-frozen.png");
   checks.push("AC30/39: Side answers during a live source Runtime command; Unicode source selection is verified and frozen evidence is visible");
   const bringBackOwner = { projectId, threadId: sourceThreadId };
+  const bringBackContextOwner = { projectId, sourceThreadId, sideThreadId };
   if (sharedWorkspace) {
     const currentModels = project(await state()).configurations;
     const modelOwners = Object.fromEntries([sourceThreadId, sideThreadId].map(id =>
@@ -784,14 +810,14 @@ try {
     "the raw RPC evidence must retain the successful injected trajectory status request");
   assert.ok(insertCommands.some(entry => entry.command === "feedback" && isBackgroundStatusRead(entry) && entry.accepted),
     "the raw RPC evidence must retain the successful injected feedback status request");
-  assert.deepEqual(insertCommands.filter(entry => !isBackgroundStatusRead(entry) && !isBackgroundMcpFormsRead(entry, bringBackOwner)), [],
-    "confirming bring-back may only overlap independent trajectory/feedback status and exact source-owned MCP forms reads, never queue or steer");
+  assert.deepEqual(insertCommands.filter(entry => !isBackgroundStatusRead(entry) && !isBackgroundMcpFormsRead(entry, bringBackOwner) && !isConversationContextRead(entry, bringBackContextOwner)), [],
+    "confirming bring-back may only overlap independent trajectory/feedback status and exact source-owned MCP forms and bounded conversation context reads, never queue or steer");
   assert.ok(bringCommands.slice(beforeBring.commands).every(entry =>
-    isBackgroundStatusRead(entry) || isBackgroundMcpFormsRead(entry, bringBackOwner) || (entry.command === "side" && entry.parameters.operation === "list")),
-  "switching related discussions may only refresh the read-only list alongside independent status and exact source-owned MCP forms reads");
-  events.push({ bringBackCommandWindow: { owner: bringBackOwner, from: beforeBring.commands, insertionFrom: commandsBeforeInsert,
+    isBackgroundStatusRead(entry) || isBackgroundMcpFormsRead(entry, bringBackOwner) || isConversationContextRead(entry, bringBackContextOwner) || (entry.command === "side" && entry.parameters.operation === "list")),
+  "switching related discussions may only refresh the read-only list alongside independent status, exact source-owned MCP forms and bounded conversation context reads");
+  events.push({ bringBackCommandWindow: { owner: bringBackOwner, contextOwner: bringBackContextOwner, from: beforeBring.commands, insertionFrom: commandsBeforeInsert,
     to: bringCommands.length, injectedStatusAccepted: true, injectedFeedbackStatusAccepted: true } });
-  checks.push("bring-back retains raw RPC evidence and tolerates exact background trajectory/status, feedback/status and source-owned MCP forms reads without allowing MCP or feedback mutation, retry, send, configure, queue or steer");
+  checks.push("bring-back retains raw RPC evidence and tolerates exact background trajectory/status, feedback/status, source-owned MCP forms and bounded main/Side context reads without allowing MCP or feedback mutation, retry, send, configure, queue or steer");
   assert.equal(project(await state()).state.threads[sourceThreadId].turns.length, beforeBring.sourceTurns);
   assert.equal(project(await state()).state.threads[sideThreadId].turns.length, beforeBring.sideTurns);
   assert.equal(await hash(fixturePath), beforeBring.workspaceSha256);
@@ -1259,7 +1285,7 @@ try {
       "04-source-tool-running.png": "Core/Runtime command marker exists and source Turn remains inProgress",
       "04a-stale-selection.png": "real Core stale-selection rejection retains the Side question without creating a Side",
       "05-side-answered-frozen.png": "Side first answer completed while source tool remains active; Unicode selection verified",
-      "06-bring-back-draft.png": "preview confirmed; local main draft includes Side text and insertion issues no command beyond independent trajectory/status, feedback/status and exact source-owned MCP forms reads",
+      "06-bring-back-draft.png": "preview confirmed; local main draft includes Side text and insertion issues no command beyond independent trajectory/status, feedback/status and exact source-owned MCP forms and bounded main/Side context reads",
       "07-before-active.png": "before-active Fork has idle bounded inherited history",
       "07a-main-error-isolated.png": "Core refuses unsupported main attachment without sending or losing its draft; Side has no main Composer error",
       "07b-inherited-raw-result.png": "target-owned inherited raw result is displayed and downloaded with no source controls or local execution",

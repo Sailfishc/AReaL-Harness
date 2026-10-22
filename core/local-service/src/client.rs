@@ -242,7 +242,7 @@ async fn launch_unlocked(
             && service.state == State::Ready
             && probe(&service).await.is_ok()
         {
-            check_compatible(spec, &service, &directory)?;
+            check_compatible(spec, &service, directory)?;
             // 后台 wait 回收同进程内退出的子进程；客户端退出不会发送终止信号。
             tokio::spawn(async move {
                 let _ = child.wait().await;

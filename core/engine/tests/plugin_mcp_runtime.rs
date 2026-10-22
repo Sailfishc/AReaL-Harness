@@ -2061,7 +2061,7 @@ impl Model for SavedResultModel {
             .unwrap()
             .push(json!(format!("{messages:?}")));
         let round = self.round.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        let event = if round % 2 == 0 {
+        let event = if round.is_multiple_of(2) {
             let name = tools
                 .iter()
                 .find_map(|tool| {

@@ -72,10 +72,10 @@ fn civil(tz: &str, clock: &str, choice: CivilDate, now: i64) -> Result<i64> {
         let day = day
             .checked_add_days(Days::new(offset))
             .ok_or_else(|| invalid("schedule range exhausted"))?;
-        if let Some((at, _)) = local_instant(tz, day, clock) {
-            if !search || at >= now {
-                return timestamp(at);
-            }
+        if let Some((at, _)) = local_instant(tz, day, clock)
+            && (!search || at >= now)
+        {
+            return timestamp(at);
         }
     }
     Err(invalid(

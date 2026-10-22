@@ -118,10 +118,10 @@ fn projected(
                 .unwrap()
                 .push(entry["item"].clone());
         }
-        if let Some(active) = empty_active_turn {
-            if !turns.iter().any(|turn| turn["id"] == active.id) {
-                turns.push(json!(active));
-            }
+        if let Some(active) = empty_active_turn
+            && !turns.iter().any(|turn| turn["id"] == active.id)
+        {
+            turns.push(json!(active));
         }
         result["thread"]["turns"] = json!(turns);
         result["history"] = window;

@@ -112,6 +112,7 @@ verify: ## 常规验收：格式、静态检查、Rust/SDK/Python 测试与 TUI 
 
 ci-preflight: fmt-check ## 推送前快速检查；CI_BASE 指定 PR 目标分支，不替代原生与完整 CI
 	git merge-base "$(CI_BASE)" HEAD
+	$(MAKE) lint
 	python3 scripts/check-docs.py
 	python3 -m unittest scripts.tests.test_ci_contracts
 	pnpm --dir clients/gui typecheck

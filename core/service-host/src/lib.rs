@@ -192,7 +192,6 @@ async fn run_host(
         &spec,
         identity.clone(),
         &ready,
-        &directory,
         &socket,
         &mut child,
         shutdown.clone(),
@@ -282,12 +281,12 @@ async fn serve(
     spec: &LaunchSpec,
     identity: Identity,
     ready: &std::path::Path,
-    directory: &std::path::Path,
     socket: &std::path::Path,
     child: &mut Child,
     shutdown: CancellationToken,
     stopping: Arc<Mutex<StopState>>,
 ) -> Result<()> {
+    let directory = spec.directory()?;
     let log_file = directory.join("host.log");
     let deadline = Instant::now() + Duration::from_secs(40);
     let service = loop {

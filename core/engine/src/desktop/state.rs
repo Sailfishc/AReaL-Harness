@@ -725,16 +725,16 @@ impl Engine {
             let cell = engine.cell(&request.thread_id).await?;
             let is_side = cell.state.lock().await.thread.is_side();
             let mut state = cell.state.lock().await;
-            if let Some(request_id) = &request_id {
-                if let Some(result) = receipt(
+            if let Some(request_id) = &request_id
+                && let Some(result) = receipt(
                     &desktop(&state.thread),
                     &identity,
                     request_id,
                     "areal/thread/configure",
                     &hash,
-                )? {
-                    return serde_json::from_value(result).map_err(invalid);
-                }
+                )?
+            {
+                return serde_json::from_value(result).map_err(invalid);
             }
             if state.active.is_some() || state.compacting {
                 return Err(Error::Conflict);

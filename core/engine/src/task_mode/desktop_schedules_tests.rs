@@ -139,7 +139,7 @@ async fn settled_schedule_history_does_not_stop_the_129th_trigger() {
                         .and_then(|s| serde_json::from_str(s).ok())
                 })
                 .unwrap();
-            let event = if n % 2 == 0 {
+            let event = if n.is_multiple_of(2) {
                 ModelEvent::ToolCall(ToolCall {id:format!("report-{n}"),name:"goal_update".into(),arguments:json!({"expectedRevision":goal["revision"],"status":"complete","summary":"verified","evidence":["fixture"],"remaining":[]}).to_string()})
             } else {
                 ModelEvent::TextDelta("done".into())

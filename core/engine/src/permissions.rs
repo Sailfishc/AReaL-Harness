@@ -445,65 +445,6 @@ pub(crate) fn matches_tool(pattern: &str, tool: &str) -> bool {
     p == pattern.len()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use areal_protocol::desktop::EffectiveConfig;
-    #[test]
-    fn readonly_preapproval_does_not_approve_hooks_or_external_tool_arguments() {
-        let mut config = EffectiveConfig::default();
-        config.options.approval_tools = vec!["*".into()];
-        config.options.preapproved_tools = vec!["fs_read".into()];
-        assert!(!forced(Some(&config), "fs_read", &json!({"path":"file"})));
-        assert!(forced(Some(&config), "fs_create", &json!({"path":"file"})));
-        assert!(forced(
-            Some(&config),
-            "hook:audit",
-            &json!({"tool":"fs_read"})
-        ));
-        assert!(forced(
-            Some(&config),
-            "external_tool",
-            &json!({"tool":"fs_read"})
-        ));
-        config.options.preapproved_tools.push("hook:audit".into());
-        assert!(!forced(
-            Some(&config),
-            "hook:audit",
-            &json!({"tool":"fs_read"})
-        ));
-    }
-    #[test]
-    fn profile_approval_remains_mandatory() {
-        let mut config = EffectiveConfig::default();
-        config.options.preapproved_tools = vec!["*".into()];
-        config.profile = Some(serde_json::from_value(json!({"id":"test","revision":"1","displayName":"test","instructions":"","approvalTools":["fs_read"]})).unwrap());
-        assert!(forced(Some(&config), "fs_read", &json!({})));
-        assert!(forced(
-            Some(&config),
-            "hook:audit",
-            &json!({"tool":"fs_read"})
-        ));
-    }
-    #[test]
-    fn legacy_and_explicit_defaults_share_grants_but_readonly_does_not() {
-        let mut config = areal_protocol::desktop::EffectiveConfig::default();
-        assert_eq!(restrictions(None), restrictions(Some(&config)));
-        config.revision += 1;
-        assert_eq!(restrictions(None), restrictions(Some(&config)));
-        config.read_only = true;
-        assert_ne!(restrictions(None), restrictions(Some(&config)));
-    }
-
-    #[test]
-    fn tool_patterns_do_not_match_unrelated_tools() {
-        assert!(matches_tool("mcp__*__read*", "mcp__repo__read_file"));
-        assert!(!matches_tool("read*", "fs_write"));
-        assert!(!matches_tool("run_command", "run_command_extra"));
-        assert!(matches_tool("*", "run_command"));
-    }
-}
-
 fn browser_permit_key(plan: &Value) -> Option<String> {
     let page = plan["pageId"].as_str()?;
     let host = plan["browserHostId"].as_str()?;
@@ -562,5 +503,64 @@ fn browser_safe_plan(plan: &Value) -> bool {
                 })
         }),
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use areal_protocol::desktop::EffectiveConfig;
+    #[test]
+    fn readonly_preapproval_does_not_approve_hooks_or_external_tool_arguments() {
+        let mut config = EffectiveConfig::default();
+        config.options.approval_tools = vec!["*".into()];
+        config.options.preapproved_tools = vec!["fs_read".into()];
+        assert!(!forced(Some(&config), "fs_read", &json!({"path":"file"})));
+        assert!(forced(Some(&config), "fs_create", &json!({"path":"file"})));
+        assert!(forced(
+            Some(&config),
+            "hook:audit",
+            &json!({"tool":"fs_read"})
+        ));
+        assert!(forced(
+            Some(&config),
+            "external_tool",
+            &json!({"tool":"fs_read"})
+        ));
+        config.options.preapproved_tools.push("hook:audit".into());
+        assert!(!forced(
+            Some(&config),
+            "hook:audit",
+            &json!({"tool":"fs_read"})
+        ));
+    }
+    #[test]
+    fn profile_approval_remains_mandatory() {
+        let mut config = EffectiveConfig::default();
+        config.options.preapproved_tools = vec!["*".into()];
+        config.profile = Some(serde_json::from_value(json!({"id":"test","revision":"1","displayName":"test","instructions":"","approvalTools":["fs_read"]})).unwrap());
+        assert!(forced(Some(&config), "fs_read", &json!({})));
+        assert!(forced(
+            Some(&config),
+            "hook:audit",
+            &json!({"tool":"fs_read"})
+        ));
+    }
+    #[test]
+    fn legacy_and_explicit_defaults_share_grants_but_readonly_does_not() {
+        let mut config = areal_protocol::desktop::EffectiveConfig::default();
+        assert_eq!(restrictions(None), restrictions(Some(&config)));
+        config.revision += 1;
+        assert_eq!(restrictions(None), restrictions(Some(&config)));
+        config.read_only = true;
+        assert_ne!(restrictions(None), restrictions(Some(&config)));
+    }
+
+    #[test]
+    fn tool_patterns_do_not_match_unrelated_tools() {
+        assert!(matches_tool("mcp__*__read*", "mcp__repo__read_file"));
+        assert!(!matches_tool("read*", "fs_write"));
+        assert!(!matches_tool("run_command", "run_command_extra"));
+        assert!(matches_tool("*", "run_command"));
     }
 }
