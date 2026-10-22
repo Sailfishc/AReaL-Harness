@@ -17,6 +17,7 @@ import { useI18n } from "./i18n/IntlProvider.js";
 import { Button } from "./components/ui/button.js";
 import type { LexicalChatInputHandle } from "./LexicalChatInput.js";
 import type { Action, Data } from "./services.js";
+import type { ComposerCatalogEntry } from "./prompt-editor/ComposerCatalog.js";
 import { recoveredOutcome, recoveryMessage, type RecoveryFailure } from "./recoveryPresentation.js";
 import { attachedReviewComments, detachReviewComments, reviewCommentKey, transferNewReviewComments, useReviewComments } from "./reviewComments.js";
 import { ReviewCommentAttachment } from "./ReviewCommentViews.js";
@@ -36,6 +37,7 @@ export function DraftComposer({
   readAction = action,
   onOpen,
   onPanel,
+  appEntries = [],
   draftKey,
   prepareProject,
   onAnnotate,
@@ -47,6 +49,7 @@ export function DraftComposer({
   readAction?: Action;
   onOpen: (pid: string, tid: string) => Promise<void>;
   onPanel: (panel: string) => void;
+  appEntries?: readonly ComposerCatalogEntry[];
   draftKey?: string;
   prepareProject?: () => Promise<Data>;
   onAnnotate?: (target: ImageAnnotationTarget) => void;
@@ -317,6 +320,7 @@ export function DraftComposer({
           ...(project.root ? [{ value: "files", label: "工作区文件", description: "引用当前项目中的文件", group: "功能" as const, icon: <FileTree />, run: () => onPanel("文件") }] : []),
           { value: "plan", label: "计划模式", description: plan ? "关闭计划模式" : "先规划，再开始执行", group: "功能", icon: <Lightbulb />, disabled: chosenProfile?.readOnly === true, run: () => setPlanMode(!plan) },
           { value: "goal", label: "设置目标", description: goalMode ? "关闭目标模式" : "设置持续目标与停止条件", group: "功能", icon: <GoalIcon />, run: () => changeGoalMode(!goalMode) },
+          ...appEntries,
           ...skills.catalog.entries,
         ] }}
         onChange={(value) => {

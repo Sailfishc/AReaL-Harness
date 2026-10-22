@@ -7,7 +7,9 @@ import type { ResourceDraftSeed } from "./settings/PluginSkillsPage.js";
 import { readComposerSkills, type ComposerSkill } from "./ComposerSkills.js";
 import { profileKey, resolveDraftProfile } from "./ProfileDetails.js";
 import { useMcpAppsWorkspace, McpAppsHub, McpMentionsPicker } from "./McpAppsWorkspace.js";
-import { McpAppEntrypoints } from "./settings/McpAppsSettings.js";
+import { McpAppEntrypoints, mcpAppEntrypoints, toolTitle } from "./settings/McpAppsSettings.js";
+import { McpAppIcon } from "./McpAppIcon.js";
+import type { ComposerCatalogEntry } from "./prompt-editor/ComposerCatalog.js";
 import { UsageDashboard } from "./settings/UsageDashboard.js";
 import { Home, Settings, TerminalSquare, Browser, FileTree, ScheduledIcon as CalendarClock, NavigationBackIcon as ArrowLeft, NavigationForwardIcon as ArrowRight, SearchIcon as Search, MoreOptionsIcon as MoreHorizontal } from "./interfaceIcons.js";
 import { ReviewPanelIcon } from "./app-shell/panelIcons.js";
@@ -762,6 +764,17 @@ function AppContent({ services }: { services: PlatformServices }) {
       if (mcpPendingReveal.current?.tab === tab) mcpPendingReveal.current = null;
       setPanelTabs(tabs => tabs.filter(item => item !== tab)); setPanel(current => current === tab ? "" : current);
     }, onError: setError });
+  const appEntries: ComposerCatalogEntry[] = mcpAppEntrypoints(mcpWorkspace.servers, "thread").map(({ server, tool }) => ({
+    value: `app:${server.serverId}:${tool.name}`,
+    label: toolTitle(tool),
+    description: t("chat.composer.openApp"),
+    source: server.title ?? server.pluginId,
+    keywords: ["app", "应用", "plugin", "插件"],
+    icon: <McpAppIcon icon={tool.icons?.[0] ?? server.icons?.[0]} size={16} />,
+    group: "应用",
+    disabled: !project?.state?.connected || project.desktopCapabilities?.currentCommands === false || !!thread?.desktop?.archived,
+    run: () => { void mcpWorkspace.openApp(server, tool, { kind: "thread" }).catch(cause => setError(cause.message)); },
+  }));
   useEffect(() => services.onNotificationOpen?.(target => requestNavigation(() => {
     updateSettingsOpen(false);
     setSearchOpen(false);
@@ -1544,7 +1557,6 @@ function AppContent({ services }: { services: PlatformServices }) {
               <>
                 <SidebarWorkspaceHeader title="AReaL Harness" onSearch={() => setSearchOpen(true)} />
                 <div className="sidebar-tools">
-                  <McpAppEntrypoints servers={mcpWorkspace.servers} kind="global" onOpen={(server,tool)=>void mcpWorkspace.openApp(server,tool,{kind:"global"}).catch(cause=>setError(cause.message))}/>
                   <NewTaskButtonGroup
                     disabled={false}
                     onCreateTask={() => void newTask()}
@@ -1772,7 +1784,6 @@ function AppContent({ services }: { services: PlatformServices }) {
                             </div>
                           </div>
                         )}
-                        <McpAppEntrypoints servers={mcpWorkspace.servers} kind="thread" onOpen={(server,tool)=>void mcpWorkspace.openApp(server,tool,{kind:"thread"}).catch(cause=>setError(cause.message))}/>
                         {mcpWorkspace.contexts}
                         {mcpWorkspace.formsView}
                         {mcpMentionsOpen && <McpMentionsPicker servers={mcpWorkspace.servers} projectId={project.id} threadId={thread.id} action={resourceAction} onClose={()=>setMcpMentionsOpen(false)}/>}
@@ -1781,6 +1792,7 @@ function AppContent({ services }: { services: PlatformServices }) {
                           onAnnotate={openImageAnnotation}
                           key={`${project.id}:${thread.id}`}
                           onMcpMention={()=>setMcpMentionsOpen(true)}
+                          appEntries={appEntries}
                           project={project}
                           thread={thread}
                           executionBlocked={projectExecutionBlocked(snapshot.lifecycle, project.id)}
@@ -1856,6 +1868,7 @@ function AppContent({ services }: { services: PlatformServices }) {
                       </div>
                       {project ? (
                           <DraftComposer
+                            appEntries={appEntries}
                             surfaceLayout={workspaceView === "panel" ? "compact" : "default"}
                             onAnnotate={openImageAnnotation}
                             key={project.id}

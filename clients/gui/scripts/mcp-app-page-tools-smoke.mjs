@@ -16,6 +16,7 @@ const require = createRequire(join(gui, 'app/package.json'));
 const {_electron: electron} = require('playwright-core');
 const baselineOnly = process.argv.includes('--inventory-baseline');
 const contracts = [
+  ['entrypoints', 'Apps stay out of the sidebar and Composer surface; grouped + and slash entries open the original Thread page.'],
   ['inventory', 'Ordinary inference receives both fixed kinds after initialized registration, with finite schemas and distinct instance names.'],
   ['isolation', 'A named tool edits its original live A page while B and another Thread remain unchanged, including when A is hidden.'],
   ['permission', 'Ordinary denied applyPatch creates no iframe request, no edit, and a durable failed or cancelled no-effect item.'],
@@ -172,9 +173,22 @@ async function openPage(label) {
   await iframe.waitFor();
   return appFrame(new URL(await iframe.getAttribute('src')).hostname);
 }
-async function openThreadPage(label, owner) {
+async function chooseThreadApp(label, owner) {
   await selectOwner(owner.threadId);
-  await page.getByTestId('chat-view').getByRole('button', {name:`Editor ${label}`,exact:true}).click();
+  assert.equal(await page.locator('.sidebar-tools').getByRole('navigation', {name:'应用入口',exact:true}).count(), 0);
+  assert.equal(await page.getByTestId('chat-view').getByRole('navigation', {name:'应用入口',exact:true}).count(), 0);
+  const input = page.getByTestId('chat-input');
+  if (label === 'B') await input.fill('保留正文 /pageB');
+  else await page.getByTestId('chat-view').getByRole('button', {name:'添加功能与 Skills',exact:true}).click();
+  const catalog = page.getByTestId('composer-catalog');
+  const option = catalog.getByRole('group', {name:'应用',exact:true}).getByRole('option').filter({hasText:`Editor ${label}`});
+  await option.waitFor();
+  if (label === 'A' || label === 'B') await page.screenshot({path:join(scratch,label === 'A' ? 'apps-plus-menu.png' : 'apps-slash-menu.png'),animations:'disabled'});
+  if (label === 'B') await input.press('Enter');
+  else await option.click();
+}
+async function openThreadPage(label, owner) {
+  await chooseThreadApp(label, owner);
   const iframe = page.getByRole('region', {name: 'MCP 应用', exact: true}).locator(`iframe[title="Editor ${label}"]`);
   await iframe.waitFor();
   assert.deepEqual(await selected(), owner, 'Thread entrypoint preserves the selected owner');
@@ -353,6 +367,31 @@ try {
   await page.getByRole('checkbox', {name: '我信任当前安装快照，并允许启动其 MCP 服务。', exact: true}).check();
   await button('信任并连接').click();
   await eventually(transportEvents, events => events.some(event => event.method === 'tools/list'), 'static MCP transport');
+  await selectOwner(initialOwner.threadId);
+  const beforeDraft = Object.keys((await state()).projects.find(project => project.id === initialOwner.projectId).state.threads).length;
+  await button('新聊天').click();
+  await page.getByTestId('chat-input').fill('/pageA');
+  await page.getByTestId('composer-catalog').getByRole('group', {name:'应用',exact:true}).getByRole('option').filter({hasText:'Editor A'}).waitFor();
+  assert.equal(Object.keys((await state()).projects.find(project => project.id === initialOwner.projectId).state.threads).length, beforeDraft, 'browsing draft apps does not create a conversation');
+  await page.screenshot({path:join(scratch,'draft-apps-slash-menu.png'),animations:'disabled'});
+  await page.getByTestId('chat-input').press('Escape');
+  await page.getByTestId('chat-input').fill('');
+  await page.getByRole('button', {name:'添加功能与 Skills',exact:true}).click();
+  await page.getByTestId('composer-catalog').getByRole('group', {name:'应用',exact:true}).getByRole('option').filter({hasText:'Editor A'}).click();
+  await button('允许一次').waitFor();
+  assert(!(await transportEvents()).some(event => event.method === 'tools/call'), 'new conversation app waits for its normal approval');
+  let openingApprovals = 0;
+  await eventually(async () => {
+    if (page.frames().some(frame => /^areal-mcp:\/\/[^/]+\/view$/.test(frame.url()))) return true;
+    if (await button('允许一次').isVisible()) {
+      assert(++openingApprovals <= 2, 'only the opening tool and fixture post hook require approval');
+      await button('允许一次').click();
+    }
+    return false;
+  }, Boolean, 'new draft app and its post hook approved through the UI');
+  await appFrame();
+  initialOwner = await selected();
+  await setPermission('完全访问');
   const a = await openThreadPage('A', initialOwner), tokenA = new URL(a.url()).hostname, ownerA = await selected();
   const initialA = await fixture(a);
   assert.deepEqual({text: initialA.text, documentRevision: initialA.documentRevision, undoDepth: initialA.undoDepth, dirty: initialA.dirty}, {text: 'alpha beta\nsecond line\n', documentRevision: 0, undoDepth: 0, dirty: false});
@@ -369,12 +408,16 @@ try {
   if (baselineOnly) assert.fail('Baseline unexpectedly has Page tools; it no longer represents missing capability');
   await setPermission('完全访问');
   const b = await openThreadPage('B', ownerA), tokenB = new URL(b.url()).hostname;
+  assert.equal(await page.getByTestId('chat-input').textContent(), '保留正文 ', 'slash activation consumes only its command and preserves the draft');
+  await page.getByTestId('chat-input').fill('');
+  checks.push('entrypoints');
   const readyB = await registration(tokenB), initialB = await fixture(b);
   assert.notEqual(initialA.documentId, initialB.documentId);
   assert.notEqual(toolName(readyA, 'applyPatch'), toolName(readyB, 'applyPatch'));
   await page.getByRole('tab', {name: 'Editor A', exact: true}).click();
   await inputEvidence(a,'caret-before-focus-' + (await fixture(a)).documentRevision);
   await focusOwnedWindow();
+  await a.getByRole('textbox', {name:'Unsaved CodeMirror document',exact:true}).focus();
   await inputEvidence(a,'caret-before-click-' + (await fixture(a)).documentRevision);
   await a.getByRole('button', {name:'Move caret to end',exact:true}).click();
   await inputEvidence(a,'caret-before-thread-switch');
@@ -417,6 +460,7 @@ try {
   const editor = a.getByRole('textbox', {name: 'Unsaved CodeMirror document', exact: true});
   await inputEvidence(a,'caret-before-focus-' + (await fixture(a)).documentRevision);
   await focusOwnedWindow();
+  await editor.focus();
   await inputEvidence(a,'caret-before-click-' + (await fixture(a)).documentRevision);
   await a.getByRole('button', {name:'Move caret to end',exact:true}).click();
   await inputEvidence(a,'caret-after-thread-restore');
@@ -664,7 +708,7 @@ try {
     const frame = await openThreadPage(label, ownerA), token = new URL(frame.url()).hostname;
     await registration(token); retained.push({label,token,frame,state:await fixture(frame)});
   }
-  await selectOwner(ownerA.threadId); await page.getByTestId('chat-view').getByRole('button',{name:'Editor I',exact:true}).click();
+  await chooseThreadApp('I', ownerA);
   await page.getByText('最多可同时打开 8 个应用页面，请先关闭一个页面。',{exact:true}).waitFor();
   assert(!(await transportEvents()).some(event => event.method === 'tools/call' && event.params.name === 'fixture.pageI'),'ninth rejected page never reaches static opening tool');
   assert.equal(page.frames().filter(frame => /^areal-mcp:\/\/[^/]+\/view$/.test(frame.url())).length, 8);

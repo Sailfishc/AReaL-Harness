@@ -66,6 +66,7 @@ export function Composer({
   onOpenTask,
   onSide,
   onMcpMention,
+  appEntries = [],
   onAnnotate,
   surfaceLayout = "default",
 }: {
@@ -80,6 +81,7 @@ export function Composer({
   onOpenTask?: (target: { projectId: string; taskId: string; runId: string }) => void;
   onSide?: (draft: string) => void;
   onMcpMention?: () => void;
+  appEntries?: readonly ComposerCatalogEntry[];
   onAnnotate?: (target: ImageAnnotationTarget) => void;
 }) {
   const { t } = useI18n();
@@ -438,7 +440,7 @@ export function Composer({
         submitLabel={queueEditor.edit ? "保存排队消息" : creatingGoal ? "开始目标" : canContinue ? "继续执行" : "发送"}
         enterSubmits={prefs.sendShortcut === "enter"}
         enableMentionPanel={false}
-        composerCatalog={{ ...skills.catalog, entries: [...catalogActions, ...skills.catalog.entries].map(entry => ({ ...entry, disabled: entry.disabled || (!!queueEditor.edit && !["upload", "files", "mcp"].includes(entry.value)) })) }}
+        composerCatalog={{ ...skills.catalog, entries: [...catalogActions, ...appEntries, ...skills.catalog.entries].map(entry => ({ ...entry, disabled: entry.disabled || (!!queueEditor.edit && !["upload", "files", "mcp"].includes(entry.value)) })) }}
         onChange={(value) => {
           setText(value);
           if(onMcpMention&&/(^|\s)@$/.test(value)&&!/(^|\s)@$/.test(text))onMcpMention();

@@ -24,6 +24,8 @@ export const commonMessages = {
   "chat.history.deferred": { "zh-CN": "{kind, select, userMessage {这条消息} dynamicToolCall {这条工具记录} other {这段历史内容}}较大（{size, number} MiB），可按需加载完整内容。", en: "{kind, select, userMessage {This message} dynamicToolCall {This tool record} other {This historical content}} is large ({size, number} MiB). Load the full content when needed." },
   "chat.history.omitted": { "zh-CN": "中间部分历史未保留在当前阅读窗口中；下方是最新消息。重新打开聊天可从最新位置加载。", en: "Some history between these messages is outside the reading window. The latest messages are below. Reopen the chat to load from the latest point." },
   "chat.composer.actionMenu": { "zh-CN": "添加上下文", en: "Add context" },
+  "chat.composer.appsGroup": { "zh-CN": "应用", en: "Apps" },
+  "chat.composer.openApp": { "zh-CN": "打开交互应用", en: "Open interactive app" },
   "chat.composer.previousModelUnavailable": { "zh-CN": "上次使用的模型当前不可用，请确认或重新选择模型。", en: "The previously used model is unavailable. Confirm or choose a model before sending." },
   "chat.composer.previousEffortUnsupported": { "zh-CN": "上次使用的思考强度当前不受支持，请确认当前选择。", en: "The previous reasoning effort is unsupported. Check the current selection." },
   "chat.composer.effortUnspecified": { "zh-CN": "未指定", en: "Unspecified" },
