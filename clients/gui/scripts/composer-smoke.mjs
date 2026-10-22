@@ -834,7 +834,7 @@ try {
   await page.getByRole("alert").filter({ hasText: "无法读取技能" }).waitFor();
   assert.equal(received.length, requestCount);
   assert.equal(await tags().count(), 1);
-  assert.equal(await page.locator(".error-banner").count(), 0);
+  assert.equal(await page.locator('[data-testid="feedback-notice"][data-tone="error"]').count(), 0);
   assert.equal(await input().textContent(), "技能失败保留草稿");
   await rename(join(skill, "SKILL.unavailable"), join(skill, "SKILL.md"));
   await sendAndWait();
