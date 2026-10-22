@@ -142,7 +142,9 @@ Desktop 还必须在派发前及发布替代结果前检查自身生命周期意
 - 重连重新发现并比较 generation，然后 initialize/initialized 和 thread/resume。先查 request/read 或权威状态再决定重试，不自动重放已提交操作。
 - 需要跨窗口的动态 ToolHost 应放在稳定 Main/独立宿主连接中。窗口上的动态工具不会自动转移；连接丢失仍按现有 Host generation 与 UNKNOWN 语义处理。
 
-内部控制使用 home/services/INSTANCE_ID/control.sock 上的单行 JSON，目录 0700、登记与凭据 0600；请求 `{method:"status",version:1}` 或 `{method:"stop",version:1,generation,cancel}`，响应 `{result:"ok",service}` 或 `{result:"error",message}`。建议非 Rust 客户端使用 CLI，避免复制锁和恢复逻辑。Unix socket 路径过长时需缩短 AREAL_HARNESS_SERVICE_HOME。
+内部控制使用 Unix socket 上的单行 JSON，目录 0700、登记与凭据 0600。`home/services/INSTANCE_ID/control.sock` 的编码字节长度小于 104 时保留此地址。更长的地址使用 `/tmp/areal-<effective-uid>/<sha256>.sock`，摘要输入为规范化登记目录的完整路径字节。Host 与客户端使用相同的派生规则，并验证 socket 父目录属于当前用户、不是符号链接且无 group/other 权限。登记、锁、历史与操作回执仍保留在原位置。Host 退出只删除本实例 socket，不删除共享的 UID 目录。socket 消失不证明后台已经停止。
+
+请求为 `{method:"status",version:1}` 或 `{method:"stop",version:1,generation,cancel}`，响应为 `{result:"ok",service}` 或 `{result:"error",message}`。建议非 Rust 客户端使用 CLI，避免复制地址派生、锁和恢复逻辑。
 
 认证 GET `/areal/service` 返回描述中的六个身份字段（protocolVersion/serviceId/generation/workspace/dataDir/configFingerprint），需要 observe 权限，拒绝不匹配的 Origin；无托管身份的已认证 Core 返回 404。业务协议仍见 [Core](core.md) 与[桌面 API](desktop.md)，无需另建 Agent loop。
 

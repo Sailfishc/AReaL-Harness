@@ -523,12 +523,11 @@ async fn control_request(root: &Path, id: &str, request: Request) -> Result<Resp
     let directory = storage::registry(root, id)?;
     ensure!(directory.is_dir(), "unknown service instance: {id}");
     storage::private_dir(&directory)?;
-    let connection = timeout(
-        Duration::from_secs(2),
-        UnixStream::connect(directory.join("control.sock")),
-    )
-    .await?
-    .map_err(ControlTransportError)?;
+    let socket = storage::control_socket(&directory)?;
+    storage::private_dir(socket.parent().context("missing socket parent")?)?;
+    let connection = timeout(Duration::from_secs(2), UnixStream::connect(socket))
+        .await?
+        .map_err(ControlTransportError)?;
     let (read, mut write) = connection.into_split();
     let mut bytes = serde_json::to_vec(&request)?;
     bytes.push(b'\n');

@@ -88,6 +88,8 @@ async fn run_host(
         storage::store_available(data)?,
         "previous Core still owns the store"
     );
+    let socket = storage::control_socket(&directory)?;
+    storage::private_dir(socket.parent().context("missing socket parent")?)?;
     retention::generations(&directory)?;
     storage::bind_workspace(data, workspace)?;
     let identity = Identity {
@@ -191,6 +193,7 @@ async fn run_host(
         identity.clone(),
         &ready,
         &directory,
+        &socket,
         &mut child,
         shutdown.clone(),
         stopping.clone(),
@@ -231,7 +234,7 @@ async fn run_host(
             },
         )?;
     }
-    let socket_cleanup = match std::fs::remove_file(directory.join("control.sock")) {
+    let socket_cleanup = match std::fs::remove_file(&socket) {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(error.into()),
@@ -280,6 +283,7 @@ async fn serve(
     identity: Identity,
     ready: &std::path::Path,
     directory: &std::path::Path,
+    socket: &std::path::Path,
     child: &mut Child,
     shutdown: CancellationToken,
     stopping: Arc<Mutex<StopState>>,
@@ -319,11 +323,10 @@ async fn serve(
         tokio::time::sleep(Duration::from_millis(50)).await;
         retention::bound_log(&log_file);
     };
-    let socket = directory.join("control.sock");
     if socket.exists() {
-        std::fs::remove_file(&socket)?;
+        std::fs::remove_file(socket)?;
     }
-    let listener = UnixListener::bind(&socket)?;
+    let listener = UnixListener::bind(socket)?;
     storage::write(&directory.join("components.json"), &spec.components)?;
     storage::write(&directory.join("service.json"), &service)?;
     let service = Arc::new(service);

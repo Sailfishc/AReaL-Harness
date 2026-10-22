@@ -294,10 +294,24 @@ pub fn registry(root: &Path, id: &str) -> Result<PathBuf> {
         id.len() == 24 && id.bytes().all(|b| b.is_ascii_hexdigit()),
         "invalid instance ID"
     );
-    let path = root.join("services").join(id);
+    Ok(root.join("services").join(id))
+}
+
+pub fn control_socket(directory: &Path) -> Result<PathBuf> {
+    let inline = directory.join("control.sock");
+    if inline.as_os_str().as_encoded_bytes().len() < 104 {
+        return Ok(inline);
+    }
+    let path = PathBuf::from("/tmp")
+        .join(format!("areal-{}", unsafe { libc::geteuid() }))
+        .join(format!(
+            "{}.sock",
+            digest(directory.as_os_str().as_encoded_bytes())
+        ));
     ensure!(
-        path.join("control.sock").as_os_str().len() < 104,
-        "service socket path is too long; use a shorter AREAL_HARNESS_SERVICE_HOME"
+        path.as_os_str().as_encoded_bytes().len() < 104,
+        "service socket path is too long: {}",
+        path.display()
     );
     Ok(path)
 }
