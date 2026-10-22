@@ -23,6 +23,8 @@
 
 从仓库根运行 `pnpm --dir clients/gui design:dev` 打开现有预览。文档入口使用 `?docs=design/README.md`，内容和示例仍由各自所有者维护。`pnpm --dir clients/gui design:build` 检查预览构建。组件合同与真实示例从[组件目录](components/README.md)进入，预览证据的边界见[工作台](products/workbench/README.md#预览与真实路径分别核对)。
 
+完整体验从[工作台候选](products/workbench/candidate.md)进入，打开 `/design-system.html?product-candidate` 连续体验提交、过程、审批、资源与设置。
+
 ## 客户端地图
 
 | 客户端 | 现有设计与实现入口 | 平台责任 |

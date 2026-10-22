@@ -33,6 +33,8 @@ App 已有按项目与 Thread 记录面板归属及返回焦点的处理。具�
 
 ## 预览与真实路径分别核对
 
+[完整工作台候选](candidate.md)将提交、过程、审批、资源与设置放在同一条可操作路径中。打开 `/design-system.html?product-candidate` 评价整体体验；它使用本地演示数据，验证范围在候选说明中维护。
+
 从仓库根运行 `pnpm --dir clients/gui design:dev` 查看已有设计预览，运行 `pnpm --dir clients/gui design:build` 检查预览构建。预览入口是 [main.tsx](../../../clients/gui/renderer/src/design-system/main.tsx)。打开[共享工作区示例](../../../clients/gui/renderer/design-system.html?shared-workspace)核对所挂载状态，生产组件接线见 [SharedWorkspacePreview](../../../clients/gui/renderer/src/design-system/SharedWorkspacePreview.tsx)。
 
 共享工作区示例组合生产聊天、输入、侧面板与设置组件，使用本地数据和展示状态。示例可以检查所挂载状态的布局、草稿操作和焦点行为。它不连接 Core，不执行真实提交，也不能证明服务受理、权限、恢复、原生浏览器或终端生命周期。
