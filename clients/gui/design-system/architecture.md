@@ -2,7 +2,7 @@
 
 本文件定义 GUI v1 实现职责与阶段准入。共享设计原则、意图、Token 地图与决策从 [Design Docs](../../../design/README.md)进入；当前 GUI 落地范围见[候选交付](delivery.md)。源码事实、目录原型、计划中的 Base 和题目实验分别标明；不以文档完成代替 Base 或视觉验收。调研依据见 [automation.md](automation.md)。
 
-基于 AReaL Harness 产品任务与当前实现的下一轮方案见[新版设计系统演进提案](../../../design/architecture.md)。该文件是待评审草案，提出先设计整体候选、再迁移真实路径；不替代本文件的现行职责与 Base 准入。
+共享知识与平台职责见[设计系统架构](../../../design/architecture.md)，下一轮产品建设见[建设计划](../../../design/roadmap.md)。整体候选与真实路径迁移仍按各自条件准入，不由文档整理自动通过。
 
 ## 目标与质量场景
 

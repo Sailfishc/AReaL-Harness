@@ -6,7 +6,7 @@
 
 | 信息 | 所有者 | 维护方式 |
 | --- | --- | --- |
-| 语义角色及使用理由 | 本文件及共享原则 | 描述主内容、次内容、状态、焦点和密度的用途 |
+| 语义角色及使用理由 | 本文件及[设计基础](README.md) | 描述主内容、次内容、状态、焦点和密度的用途 |
 | 跨端共享默认值 | 后续经消费者核对后选择的共享数据源 | 当前尚未建立；迁移时只有一处可编辑源，各端产物派生 |
 | 平台映射与动态偏好 | 当前各客户端代码 | CSS 变量、终端颜色、字号偏好及系统能力各自适配 |
 
@@ -22,11 +22,17 @@
 | 空间与密度 | 控件、文字、间距和形状角色 | 终端字符单元及 Ratatui 布局 | 本端 CSS 与响应式布局 |
 | 焦点与动态反馈 | 公共控件、focus 与 reduced motion | 键盘焦点与文字状态 | 浏览器控件与 CSS |
 
-GUI 的数值源是 [styles.css](../clients/gui/renderer/src/styles.css)、[applicationSettings](../clients/gui/renderer/src/settings/applicationSettings.ts)及相关偏好链。UI 字号还有 [App](../clients/gui/renderer/src/App.tsx) 的独立来源。具体控件选择见 [GUI Token 指南](../clients/gui/DESIGN_SYSTEM.md#token-选择)。
+GUI 的数值源是 [styles.css](../../clients/gui/renderer/src/styles.css)、[applicationSettings](../../clients/gui/renderer/src/settings/applicationSettings.ts)及相关偏好链。UI 字号还有 [App](../../clients/gui/renderer/src/App.tsx) 的独立来源。具体控件选择见 [GUI Token 指南](../../clients/gui/DESIGN_SYSTEM.md#token-选择)。
 
-TUI 的 [theme.rs](../clients/tui/src/theme.rs)拥有角色与颜色转换，支持无色、终端色、真彩色及能力相关映射。本地 Web 由 [style.css](../clients/web/style.css)和 [app.js](../clients/web/app.js)拥有样式与主题偏好。Remote Web 的 [RemoteWorkbench](../clients/gui/renderer/src/remote/RemoteWorkbench.tsx)是另一消费路径，不能用本地 Web 的接线代替它。
+TUI 的 [theme.rs](../../clients/tui/src/theme.rs)拥有角色与颜色转换，支持无色、终端色、真彩色及能力相关映射。本地 Web 由 [style.css](../../clients/web/style.css)和 [app.js](../../clients/web/app.js)拥有样式与主题偏好。Remote Web 的 [RemoteWorkbench](../../clients/gui/renderer/src/remote/RemoteWorkbench.tsx)是另一消费路径，不能用本地 Web 的接线代替它。
 
-非交互 CLI 可以共享状态含义和文案层级，但其 JSON、stream-json、退出码与 stdout 内容仍归 [CLI 契约](../docs/api/claude-cli.md)。不用 CSS 或终端颜色角色改写机器协议。
+非交互 CLI 可以共享状态含义和文案层级，但其 JSON、stream-json、退出码与 stdout 内容仍归 [CLI 契约](../../docs/api/claude-cli.md)。不用 CSS 或终端颜色角色改写机器协议。
+
+## 当前偏好边界
+
+GUI 的 UI 字号、内容字号、字体、调色板与动效偏好由不同的现有路径处理。Main 返回的主题 CSS 不能视作已被 App 完整消费；Remote Web 也没有与桌面共享全部选择。源码归属核对于 `17144634`，后续改变这些所有者时重新核对。
+
+迁移时先明确每种偏好的持久化、默认值与应用顺序，再提供本端适配。UI 字号和内容字号是不同角色，不能为收敛来源而合并。跨设备同步范围属于独立产品决定。
 
 ## 何时引入共享数值源
 

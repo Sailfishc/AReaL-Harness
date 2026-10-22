@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-下一轮整体设计方向见[新版设计系统演进提案](../../../design/architecture.md)。该草案基于 AReaL Harness 当前产品任务和生产代码，说明整体候选、所有者及迁移顺序，尚未替代现行规范或扩大 Base 准入。
+下一轮整体设计方向见[设计系统建设计划](../../../design/roadmap.md)。该计划基于 AReaL Harness 当前产品任务和生产代码，明确整体候选、产物及迁移顺序，不扩大当前 Base 准入。
 
 先读[设计系统架构](architecture.md)：架构 → Base → 固定题目 → 比较与改进。当前交付包含 v1 规范、可运行目录、Base候选、已运行的设置/决策探索题和对话动态题；尚未冻结 Base，也未完成盲测。下列规则作为现有生产约束与候选模式的入口，具体准入按架构阶段执行。
 
@@ -30,7 +30,9 @@
 
 | 问题 | 唯一规则位置 |
 | --- | --- |
-| 按用户意图选交互类别、必须/默认/可探索规则、处理例外 | [interactions.md](interactions.md)（[English](interactions.en.md)） |
+| 人、Agent、审批与交接的含义是什么 | [人与 Agent](../../../design/people-and-agents/README.md) |
+| 共享的控件选择、阅读与反馈怎样组织 | [组件](../../../design/components/README.md)、[交互模式](../../../design/patterns/README.md) |
+| 按用户意图选 GUI 交互类别、必须/默认/可探索规则、处理例外 | [interactions.md](interactions.md)（[English](interactions.en.md)） |
 | 字体、色彩、层级、尺寸、密度如何选 | [foundations.md](foundations.md) |
 | 设置、资源列表、对话、审批、详情怎么组成 | [patterns.md](patterns.md) |
 | 已有什么、由谁实现、哪些仍未统一 | [inventory.md](inventory.md) |

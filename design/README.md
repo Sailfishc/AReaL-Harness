@@ -1,30 +1,34 @@
-# AReaL Design Docs
+# AReaL 设计文档
 
-这里是 AReaL 共享设计知识的地图，供设计师、客户端工程师和 Agent 使用。它统一组织设计原则、用户意图、Token 语义、组合模式与决策，再指向 GUI、CLI、TUI 和 Web 的实现及验证位置。
+这里是 AReaL Harness 的共享设计地图，供设计师、客户端工程师和 Agent 使用。从用户任务进入，找到负责该判断的唯一文档，再前往各端实现与验证位置。
 
-本目录只维护中文，不建立英文副本或双语同步要求，服务内部设计协作。面向外部用户的使用与 API 文档继续由 `docs/` 维护。本轮建立共享入口和演进草案，没有迁移产品代码或批准新的视觉基线。
+本目录只维护中文。外部使用与 API 文档由 `docs/` 维护。文档归档不改变产品行为、GUI Base 准入或视觉基线。
 
-## 按问题读取
+## 设计知识地图
 
-| 要解决的问题 | 共享设计所有者 | 实现与平台约束 |
+| 目录 | 回答的问题 | 维护边界 |
 | --- | --- | --- |
-| 为什么这样设计，哪些取舍跨客户端成立 | [设计原则](principles.md) | 平台规范引用原则，保留本端适用条件 |
-| 用户要完成什么，哪些事实必须可理解 | [设计意图](intents.md) | GUI 交互族、TUI 操作、CLI 输出和 Web 页面各自表达 |
-| 文字、状态、颜色和密度的角色是什么 | [Token 与平台映射](tokens.md) | 具体数值和偏好沿当前代码所有者维护 |
-| 共享知识、组件和产品如何依赖 | [设计系统架构草案](architecture.md) | 通用语义与各端实现分开，运行权威沿原有服务 |
-| 已经选择什么，何时重新评估 | [设计决策](decisions.md) | 技术执行架构仍见 [系统架构](../docs/design/architecture.md) |
-| 目前具备什么，下一步建设什么 | [建设顺序与缺口](roadmap.md) | 每步绑定现有所有者、可审查产物和完成条件 |
+| [设计原则](principles/README.md) | 为什么这样设计，怎样取舍 | 跨端设计理由，具体规则指向所属主题 |
+| [设计基础](foundations/README.md) | 内容、文字、空间、图标和动效怎样表达 | [Token 地图](foundations/tokens.md)指向真实数值源，不复制数值 |
+| [人与 Agent](people-and-agents/README.md) | 谁负责工作，人控制什么，结果依据什么 | 身份、控制、审批、委派、交接、上下文与证据的产品含义 |
+| [交互模式](patterns/README.md) | 用户怎样完成一个完整任务 | [意图地图](patterns/intents.md)、过程阅读、深入查看、设置、反馈与恢复 |
+| [组件与组合](components/README.md) | 该选什么组件，谁维护接口与行为 | 控件选择与职责，链接各端真实合同和生产示例 |
+| [设计决策](decisions/README.md) | 已经选择什么，何时重新评估 | 一项重要取舍一篇记录，状态在该记录中维护 |
 
-共享模式先在[设计意图](intents.md)记录需要保持的交互结果。具体布局仍沿已存在的客户端规则。出现已验证的跨端共性时，再将该规则迁入共享所有者，原文改为引用，避免两处维护。
+[设计系统架构](architecture.md)说明知识、实现与验证如何依赖。[建设计划](roadmap.md)维护当前缺口、下一步产物与完成条件。具体工作先选主题，只有改变跨主题职责时才回到架构与决策。
 
 ## 客户端地图
 
-| 客户端 | 现有设计与实现入口 | 本轮边界 |
+| 客户端 | 现有设计与实现入口 | 平台责任 |
 | --- | --- | --- |
 | 桌面 GUI | [GUI 设计入口](../clients/gui/design-system/README.md)、[组件指南](../clients/gui/DESIGN_SYSTEM.md)、[生产目录](../clients/gui/design-system/inventory.md) | React 控件、布局、窗口与原生视图的适配和准入 |
-| Remote Web | [RemoteWorkbench](../clients/gui/renderer/src/remote/RemoteWorkbench.tsx) | 已复用部分 GUI 组件，浏览器权限与偏好仍有独立边界 |
-| 本地 Web | [界面](../clients/web/app.js)、[样式](../clients/web/style.css) | 独立实现，不等同于 Remote Web，也未完成 GUI Token 接线 |
-| TUI | [主题](../clients/tui/src/theme.rs)、[UI](../clients/tui/src/ui.rs)、[设计说明](../docs/design/tui.md) | 终端颜色能力、字符布局、键盘和阅读连续性 |
-| 非交互 CLI | [输出所有者](../clients/cli/src/run.rs)、[CLI 契约](../docs/api/claude-cli.md) | 文字输出、机器输出和退出语义，不能套用桌面组件合同 |
+| Remote Web | [RemoteWorkbench](../clients/gui/renderer/src/remote/RemoteWorkbench.tsx) | 复用的 GUI 组件，以及浏览器权限和偏好边界 |
+| 本地 Web | [界面](../clients/web/app.js)、[样式](../clients/web/style.css) | 独立 Web 实现及主题偏好，不等同于 Remote Web |
+| TUI | [主题](../clients/tui/src/theme.rs)、[UI](../clients/tui/src/ui.rs)、[设计说明](../docs/design/tui.md) | 终端颜色、字符布局、键盘与阅读连续性 |
+| 非交互 CLI | [输出所有者](../clients/cli/src/run.rs)、[CLI 契约](../docs/api/claude-cli.md) | 文字、机器输出及退出语义 |
 
-设计地图提供导航，不生成页面或改变执行语义。目录存在不证明消费者已迁移。具体交互、平台和包的验证仍由相应客户端报告。
+## 唯一维护位置
+
+共同设计含义在本目录维护。平台规则引用这些含义，并拥有组件、数值、规则 ID、布局和准入。Core、Runtime 及已有服务契约仍拥有执行、权限、恢复与历史事实。
+
+新增要求先判断归属。修改共同含义时更新对应主题，平台只补本端映射；移动正文时同步迁移引用并删除旧定义。原始取证与平台运行报告留在原位置，目录存在不证明各端已经实现或验收。
