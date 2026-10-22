@@ -456,7 +456,7 @@ async function connectFixture(t, { catalogFailure = false, replaceOwner = false 
   const catalog = () => providers.flatMap(provider => provider.models);
   Object.setPrototypeOf(f.backend, CoreBackend.prototype);
   Object.assign(f.backend, {
-    providers: f.service, stopReconciliation() {}, scheduleReconciliation() {}, listThreads: async () => {},
+    providers: f.service, starting: new Map(), stopReconciliation() {}, scheduleReconciliation() {}, listThreads: async () => {},
     resources: { syncMcp: async () => { f.calls.push(["mcp-sync"]); } },
     analytics: { syncProject: async () => {} },
     notifications: { publish() {} }, library: { value: { threads: {} } },
