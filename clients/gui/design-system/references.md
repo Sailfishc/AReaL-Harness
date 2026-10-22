@@ -1,5 +1,7 @@
 # 设计依据与参考校正
 
+共享设计研究的 Botiverse Raft 与本地交付来源已移至[Design Docs 来源](../../../design/references.md)。本文件继续维护 GUI 平台参考、观察与采纳。
+
 ## Cindy：分开规则、数值、目录与视觉证据
 
 参考版本 `febe2e5110f5f9ef5b8e0506314f35274a98b524`：
