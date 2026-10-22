@@ -66,7 +66,7 @@ lint: ## Rust / Python 静态检查和 Web 语法检查
 
 test: ## 运行 workspace 测试（不含显式容量测试）
 	python3 scripts/prepare-runtime-shell.py --profile debug
-	cargo test --locked --workspace $(CARGO_TEST_ARGS)
+	cargo test --locked --workspace --no-fail-fast $(CARGO_TEST_ARGS)
 
 test-core: ## 运行 Core 模型、会话和并发测试
 	cargo test --locked -p areal-engine

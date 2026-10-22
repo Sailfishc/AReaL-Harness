@@ -910,8 +910,17 @@ async fn model_uses_one_execution_identity_and_rejected_spawn_is_not_reported_as
             .collect();
         if unavailable {
             assert_eq!(outcomes, [ToolOutcome::Failed]);
+            let parent_scratch = scratch.join(format!("agent-{}", parent.id));
             assert_eq!(
-                std::fs::read_dir(&scratch).unwrap().count(),
+                std::fs::read_dir(&scratch)
+                    .unwrap()
+                    .map(|entry| entry.unwrap().path())
+                    .collect::<Vec<_>>(),
+                std::slice::from_ref(&parent_scratch),
+                "只允许父会话自己的 scratch，不能遗留子会话目录"
+            );
+            assert_eq!(
+                std::fs::read_dir(parent_scratch).unwrap().count(),
                 0,
                 "未准入子任务不能遗留空 scratch"
             );

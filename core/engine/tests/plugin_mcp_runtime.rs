@@ -756,7 +756,7 @@ async fn app_file_receipt_and_close_context_race() {
             Some(key)
         )
         .await,
-        Err(areal_engine::Error::Conflict)
+        Err(areal_engine::Error::Rejected(error)) if matches!(*error, areal_engine::Error::Conflict)
     ));
 
     // Hold App mutation across a real resource request, queue close first, then update.

@@ -384,7 +384,7 @@ try {
       }),
     ),
   );
-  await page.locator(".error-banner").waitFor();
+  await page.locator('[data-testid="feedback-notice"][data-tone="error"]').waitFor();
   await send("检查当前项目");
   await until(
     (s) =>
@@ -393,7 +393,7 @@ try {
       ),
     "first send",
   );
-  await page.waitForFunction(() => !document.querySelector(".error-banner"));
+  await page.waitForFunction(() => !document.querySelector('[data-testid="feedback-notice"][data-tone="error"]'));
   const tid = await page.locator("[data-testid=areal-workbench]").getAttribute("data-thread-id");
   assert.equal(project(await state()).configurations[tid].profile.id, "standard");
   assert.equal(project(await state()).configurations[tid].profile.revision, "v1");
@@ -401,7 +401,7 @@ try {
   assert.ok(tid);
   await shot("02-conversation");
   checks.push("sandboxed Electron; project picker; first send; real Core/Runtime and local SSE");
-  checks.push("new message clears previous error banner after real Core acceptance");
+  checks.push("draft-owned feedback does not leak into the new conversation after real Core acceptance");
   // 子对话只改变侧面板；真实子 Thread、工具记录与停止结果由 Core 提供。
   const reference = await page.evaluate(async ({ pid }) => {
     const response = await window.arealDesktop.command("media", { projectId: pid, threadId: document.querySelector("[data-testid=areal-workbench]").dataset.threadId, operation: "upload", mime: "image/png", bytes: Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aL1sAAAAASUVORK5CYII="), char => char.charCodeAt(0)) });
@@ -577,7 +577,7 @@ try {
     (s) => current(s).turns.at(-1)?.status === "completed",
     "message after clearing goal",
   );
-  assert.equal(await page.locator(".error-banner").count(), 0);
+  assert.equal(await page.locator('[data-testid="feedback-notice"][data-tone="error"]').count(), 0);
   assert.equal(current(await state()).goals.goal, null);
   checks.push(
     "unfinished Goal pause settles before clear; same chat accepts a normal message after clear",

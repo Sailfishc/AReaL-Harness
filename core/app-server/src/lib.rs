@@ -1563,11 +1563,20 @@ fn parse<T: serde::de::DeserializeOwned>(value: Value) -> Result<T, RpcError> {
         .map_err(|e| rejected(RpcError::invalid(e.to_string()), "INVALID_REQUEST"))
 }
 fn rejected(mut error: RpcError, reason: &str) -> RpcError {
-    error.data = Some(json!(areal_protocol::desktop::OperationFailure {
-        reason: reason.into(),
-        outcome: areal_protocol::desktop::FailureOutcome::Rejected,
-        recovery: areal_protocol::desktop::Recovery::None,
-    }));
+    let mut data = match error.data.take() {
+        Some(Value::Object(data)) => data,
+        _ => serde_json::Map::new(),
+    };
+    data.entry("reason").or_insert_with(|| json!(reason));
+    data.insert(
+        "outcome".into(),
+        json!(areal_protocol::desktop::FailureOutcome::Rejected),
+    );
+    data.insert(
+        "recovery".into(),
+        json!(areal_protocol::desktop::Recovery::None),
+    );
+    error.data = Some(Value::Object(data));
     error
 }
 
