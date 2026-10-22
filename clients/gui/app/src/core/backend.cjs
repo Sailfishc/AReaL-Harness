@@ -690,7 +690,7 @@ class CoreBackend {
       project.configurations ??= {};
       project.configurationChanges ??= new Map();
       trace.advance('provider_configuration');
-      await this.providers.reconcileProject(project);
+      await this.providers.reconcileProject(project, { refreshModels: false });
       this.requireConnection(project, client);
       if (!observeOnly) {
         trace.advance('providers');

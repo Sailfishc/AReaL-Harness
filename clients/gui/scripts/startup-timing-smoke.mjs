@@ -8,6 +8,7 @@ import { createServer } from 'node:http';
 import { execFileSync } from 'node:child_process';
 import { assertApplicationStopped } from './application-cleanup.mjs';
 import { applicationFixture } from './application-fixture.mjs';
+import { CoreClient } from '../packages/runtime-client/core.js';
 
 const gui = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const root = resolve(gui, '../..');
@@ -23,6 +24,10 @@ const { _electron: electron } = require('playwright-core');
 const scratch = await mkdtemp('/private/tmp/ast-');
 const rounds = Number(process.env.AREAL_STARTUP_ROUNDS ?? 5);
 assert.ok(Number.isInteger(rounds) && rounds >= 1 && rounds <= 10);
+const modelCount = Number(process.env.AREAL_STARTUP_MODEL_COUNT ?? 9);
+const catalogReads = Number(process.env.AREAL_STARTUP_CATALOG_READS ?? 0);
+assert.ok(Number.isInteger(modelCount) && modelCount >= 1 && modelCount <= 128);
+assert.ok(Number.isInteger(catalogReads) && catalogReads >= 0 && catalogReads <= 20);
 const binary = process.env.AREAL_CORE_BIN || join(root, '.local/dev-bin/areal');
 const variants = [
   ...(process.env.AREAL_STARTUP_BASELINE_BIN || process.env.AREAL_STARTUP_BASELINE_GUI ? [{ label: 'baseline',
@@ -150,8 +155,8 @@ if (!process.argv.includes('--areal-core-service')) {
   }
   const durationMs = Math.round(performance.now() - started);
   const project = snapshot.projects[0];
-  assert.equal(project.models.length, 12, 'default alias, nine executable models, and two missing-credential models are retained');
-  assert.equal(project.models.filter(model => model.available).length, 10);
+  assert.equal(project.models.length, modelCount + 3, 'configured models, default alias, and missing-credential models are retained');
+  assert.equal(project.models.filter(model => model.available).length, modelCount + 1);
   assert.deepEqual(project.models.filter(model => !model.available).map(model => model.modelId).sort(), ['missing-a', 'missing-b']);
   assert.equal(project.error, null);
   const mainLog = (await readFile(launchLog, 'utf8')).split('\n').filter(line => line.includes(`[pid=${pid}]`)).join('\n');
@@ -210,6 +215,42 @@ function timingRecords(text) {
   });
 }
 
+async function measureCatalog(descriptor) {
+  if (!catalogReads) return [];
+  const auth = JSON.parse(await readFile(descriptor.authFile, 'utf8'));
+  const principal = auth.principals.find(item => ['observe', 'interact', 'manage'].every(permission => item.permissions?.includes(permission)));
+  assert.ok(principal?.token);
+  const WebSocket = require('ws');
+  let socket;
+  const client = new CoreClient({ createSocket: () => socket = new WebSocket(descriptor.endpoint, {
+    headers: { Authorization: `Bearer ${principal.token}` }, followRedirects: false,
+  }) });
+  try {
+    await client.connect();
+    const proof = await client.request('areal/server/modelConfiguration/read', { expectedGeneration: descriptor.generation });
+    assert.equal(proof.serviceId, descriptor.serviceId);
+    assert.equal(proof.generation, descriptor.generation);
+    const durations = [];
+    for (let index = 0; index < catalogReads; index++) {
+      const started = performance.now();
+      const result = await client.request('areal/model/list');
+      durations.push(performance.now() - started);
+      assert.equal(result.data.length, modelCount + 3);
+      assert.equal(result.data.filter(model => model.available).length, modelCount + 1);
+      assert.deepEqual(result.data.filter(model => !model.available).map(model => model.modelId).sort(), ['missing-a', 'missing-b']);
+    }
+    return durations;
+  } finally {
+    let timer;
+    const closed = !socket || socket.readyState === WebSocket.CLOSED ? Promise.resolve() : new Promise((resolve, reject) => {
+      socket.once('close', resolve);
+      timer = setTimeout(() => { socket.terminate(); reject(new Error('Catalog observation socket did not close')); }, 10000);
+    });
+    client.close();
+    try { await closed; } finally { clearTimeout(timer); }
+  }
+}
+
 async function removeFixture(directory) {
   await chmod(directory, 0o700);
   for (const entry of await readdir(directory, { withFileTypes: true })) {
@@ -225,7 +266,7 @@ try {
     await mkdir(workspace, { recursive: true }); await mkdir(home); await mkdir(user);
     execFileSync('git', ['init', '-b', 'main'], { cwd: workspace, stdio: 'ignore' });
     const config = join(base, 'config.toml');
-    await writeFile(config, `schema_version=1\n[model]\ncatalog_version=1\nprovider="fixture"\nname="fixture-0"\n[model.providers.fixture]\nprotocol="chat-completions"\nendpoint="http://127.0.0.1:${upstream.address().port}/v1/chat/completions"\nmodels=[${Array.from({ length: 9 }, (_, i) => `{id="fixture-${i}",enabled=true}`).join(',')}]\n[model.providers.missing]\nprotocol="chat-completions"\nendpoint="http://127.0.0.1:${upstream.address().port}/v1/chat/completions"\napi_key_env="AREAL_STARTUP_MISSING_CREDENTIAL"\nmodels=[{id="missing-a",enabled=true},{id="missing-b",enabled=true}]\n`);
+    await writeFile(config, `schema_version=1\n[model]\ncatalog_version=1\nprovider="fixture"\nname="fixture-0"\n[model.providers.fixture]\nprotocol="chat-completions"\nendpoint="http://127.0.0.1:${upstream.address().port}/v1/chat/completions"\nmodels=[${Array.from({ length: modelCount }, (_, i) => `{id="fixture-${i}",enabled=true}`).join(',')}]\n[model.providers.missing]\nprotocol="chat-completions"\nendpoint="http://127.0.0.1:${upstream.address().port}/v1/chat/completions"\napi_key_env="AREAL_STARTUP_MISSING_CREDENTIAL"\nmodels=[{id="missing-a",enabled=true},{id="missing-b",enabled=true}]\n`);
     const projectId = createHash('sha256').update(workspace).digest('hex').slice(0, 24);
     await writeFile(join(home, 'projects.json'), JSON.stringify([{ id: projectId, root: workspace }]));
     const env = { ...process.env, AREAL_CORE_BIN: variant.binary, AREAL_GUI_USER_DATA: join(base, 'electron'), AREAL_CORE_HOME: home,
@@ -279,8 +320,10 @@ try {
     assert.ok(mainRecords.some(record => record.scope === 'service.initialize' && record.kind === 'finish' && record.outcome === 'ok'), 'GUI connection records its completed timing');
     assert.ok(mainRecords.some(record => record.scope === 'gui.startup' && record.kind === 'finish' && record.outcome === 'ok'), 'Main startup is captured before Electron launch completes');
     const stages = [...records, ...mainRecords].filter(record => record.previous).map(record => ({ scope: record.scope, ...record.previous }));
+    const catalogReadMs = await measureCatalog(descriptor);
+    assert.equal(modelRequests.length, initialRequests, 'catalog inspection sends no provider requests');
     if (round === 0 || round === rounds - 1) await page.screenshot({ path: join(evidence, `${label}.png`), animations: 'disabled' });
-    samples.push({ label: fixture.label, round, durationMs, visibleMs, firstView,
+    samples.push({ label: fixture.label, round, durationMs, visibleMs, firstView, catalogReadMs,
       windowTiming: Object.fromEntries(mainRecords.filter(record => ['gui.ready_to_show', 'gui.present_ready', 'gui.first_show'].includes(record.scope) && record.kind === 'finish').map(record => [record.scope, record.elapsedMs])), generation: descriptor.generation, models: project.models.length, restoredHistory: true, stages });
     console.log(JSON.stringify({ label: fixture.label, round, durationMs, visibleMs, stages: stages.filter(stage => stage.durationMs >= 500) }));
     await stop(fixture, label);
@@ -314,7 +357,7 @@ try {
       try { await removeFixture(scratch); await rm(scratch, { recursive: true }); }
       catch (error) { passed = false; process.exitCode = 1; cleanupFailure = { name: error.name, message: error.message }; }
     }
-    await writeFile(join(evidence, 'manifest.json'), JSON.stringify({ passed, rounds, samples, modelRequests, seedModelRequestCount, errors, cleanups, lifecycleChecks, cleanupFailure, failure, binaries, scratch, variants: variants.map(({ label, gui }) => ({ label, gui })),
+    await writeFile(join(evidence, 'manifest.json'), JSON.stringify({ passed, rounds, modelCount, catalogReads, samples, modelRequests, seedModelRequestCount, errors, cleanups, lifecycleChecks, cleanupFailure, failure, binaries, scratch, variants: variants.map(({ label, gui }) => ({ label, gui })),
       revision: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(),
       scope: 'Real source Electron/Core/Runtime, process-cold restart with retained synthetic history. OS and filesystem caches are not cleared. Local deterministic model; no user config or subscription credentials.',
     }, null, 2));

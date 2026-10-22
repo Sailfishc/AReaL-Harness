@@ -161,9 +161,13 @@ Renderer 的 `[composer-skills]` JSON 将 Skills 读取分为 `core` 与可选�
 
 经验证的本机 HTTP 服务探测不加载未使用的 TLS 根证书；远端 HTTPS 的证书验证保持原样。
 
+项目连接在供应商同步完成后统一读取模型目录，配置回执与凭据检查仍先行完成。Core 在单次目录查询内复用 HTTP 客户端，逐模型校验凭据、端点和参数。后续查询与执行模型的构造独立创建客户端；该工厂仅保留本次查询的客户端，不缓存目录、模型或凭据。
+
 `make build` 的开发 profile 单独优化 `sha2` 依赖，减少服务启动时校验大型调试二进制的开销。Core 和 Runtime 仍逐次校验完整文件内容，不以路径或修改时间缓存代替内容指纹。业务代码保留开发构建的调试行为，release profile 不变。
 
 `AREAL_CORE_BIN=/absolute/path/to/areal pnpm --dir clients/gui run test:startup` 使用隔离的真实 Electron、Core 和 Runtime，默认执行五次保留合成历史的进程冷启动，验证模型可用性、历史恢复、无重复提交和退出清理。设置 `AREAL_STARTUP_BASELINE_BIN` 可交替比较两个独立构建；`AREAL_STARTUP_ROUNDS` 控制轮数。脚本保留逐轮日志、截图和 manifest，不清除系统缓存，不使用真实供应商或用户凭据。
+
+`AREAL_STARTUP_MODEL_COUNT` 设置合成配置中的可执行模型数，默认为 9；目录另含默认别名和两个缺凭据模型。`AREAL_STARTUP_CATALOG_READS` 可在完整恢复后采样认证的只读模型目录请求，默认为 0。这些请求单独计时，不计入启动耗时，并验证不会调用模型供应商。
 
 首次启动先显示已应用主题的图标与加载提示，再恢复后台和原会话。初始恢复完成前不挂载首页、侧栏、输入框或面板；恢复成功后一次性显示完整工作台。失败时在加载页提供现有恢复与重试入口。等待超过 15 秒时显示进一步操作，但不据此判定后台失败或重放操作。关闭窗口后，迟到的恢复不会重新打开窗口。启动对比可设置 `AREAL_STARTUP_BASELINE_GUI=/absolute/path/to/clients/gui`，交替使用两个已构建的 GUI 和同一 Core；`AREAL_STARTUP_CHECK_HIDE=1` 另验收恢复期间关闭及主动重开。报告分别保留原生首次显示和完整历史恢复时间。
 

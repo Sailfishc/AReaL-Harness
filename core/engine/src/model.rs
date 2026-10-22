@@ -662,6 +662,53 @@ impl Default for ModelOptions {
 
 pub type ChatModel = HttpModel;
 
+#[derive(Default)]
+pub(crate) struct HttpModelFactory {
+    client: Option<reqwest::Client>,
+}
+
+impl HttpModelFactory {
+    pub(crate) fn build(
+        &mut self,
+        endpoint: String,
+        name: String,
+        key: Option<String>,
+        protocol: ModelProtocol,
+    ) -> Result<HttpModel> {
+        let url = reqwest::Url::parse(&endpoint).context("invalid model endpoint")?;
+        if !matches!(url.scheme(), "http" | "https")
+            || name.trim().is_empty()
+            || !url.username().is_empty()
+            || url.password().is_some()
+            || url.fragment().is_some()
+        {
+            bail!("model endpoint must be HTTP(S) and model name must not be empty");
+        }
+        let client = match &self.client {
+            Some(client) => client.clone(),
+            None => {
+                let client = reqwest::Client::builder()
+                    .connect_timeout(Duration::from_secs(10))
+                    .redirect(reqwest::redirect::Policy::none())
+                    .build()?;
+                self.client = Some(client.clone());
+                client
+            }
+        };
+        Ok(HttpModel {
+            client,
+            endpoint,
+            name,
+            key,
+            protocol,
+            options: ModelOptions::default(),
+            audit_directory: None,
+            temperature: None,
+            websocket_pool: Arc::new(tokio::sync::Mutex::new(websocket::Pool::default())),
+        })
+    }
+}
+
 impl HttpModel {
     pub fn new(endpoint: String, name: String, key: Option<String>) -> Result<Self> {
         Self::with_protocol(endpoint, name, key, ModelProtocol::ChatCompletions)
@@ -673,29 +720,7 @@ impl HttpModel {
         key: Option<String>,
         protocol: ModelProtocol,
     ) -> Result<Self> {
-        let url = reqwest::Url::parse(&endpoint).context("invalid model endpoint")?;
-        if !matches!(url.scheme(), "http" | "https")
-            || name.trim().is_empty()
-            || !url.username().is_empty()
-            || url.password().is_some()
-            || url.fragment().is_some()
-        {
-            bail!("model endpoint must be HTTP(S) and model name must not be empty");
-        }
-        Ok(Self {
-            client: reqwest::Client::builder()
-                .connect_timeout(Duration::from_secs(10))
-                .redirect(reqwest::redirect::Policy::none())
-                .build()?,
-            endpoint,
-            name,
-            key,
-            protocol,
-            options: ModelOptions::default(),
-            audit_directory: None,
-            temperature: None,
-            websocket_pool: Arc::new(tokio::sync::Mutex::new(websocket::Pool::default())),
-        })
+        HttpModelFactory::default().build(endpoint, name, key, protocol)
     }
 
     /// The trusted host selects the audit directory. No headers, URLs or prompts
