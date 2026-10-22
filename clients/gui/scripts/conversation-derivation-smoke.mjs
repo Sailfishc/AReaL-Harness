@@ -10,6 +10,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { captureSmokeFailure, selectConversation } from "./smoke-navigation.mjs";
 import { withSmokeDeadline } from "./smoke-deadline.mjs";
+import { closeSmokeApplication } from "./application-cleanup.mjs";
 
 const sharedWorkspace = process.argv.includes("--shared-workspace");
 const baselineLayout = process.argv.includes("--baseline");
@@ -99,6 +100,14 @@ for (const entry of [
   { ...observationHistory, parameters: { ...observationHistory.parameters, requestId: "mutation" } },
   { command: "manage", parameters: { projectId: "project", threadId: "other", operation: "context", offset: 0, limit: 1 } },
 ]) assert.equal(isNonMutatingObservation(entry, observationOwner), false, JSON.stringify(entry));
+
+// Effective snapshots also contain resolved provider/plugin metadata; model ownership
+// is the durable configuration revision and the user's selected configuration.
+const modelConfiguration = config => {
+  assert.ok(config && Number.isSafeInteger(config.revision), "Core configuration is required");
+  const { revision, model, defaultModelRevision, parameters, profile, options, selectedSkills } = config;
+  return structuredClone({ revision, model, defaultModelRevision, parameters, profile, options, selectedSkills });
+};
 
 async function state() { return page.evaluate(() => window.arealDesktop.snapshot()); }
 const project = (snapshot) =>
@@ -607,7 +616,7 @@ try {
     return configuration?.model?.providerId === "fixture" && configuration.model.modelId === "fixture"
       || configuration?.model === null && typeof configuration.defaultModelRevision === "string" && configuration.defaultModelRevision.length > 0;
   }, "source configured fixture model restored after navigation");
-  const mainConfigBefore = JSON.stringify(project(refreshedSource).configurations[sourceThreadId]);
+  const mainConfigBefore = modelConfiguration(project(refreshedSource).configurations[sourceThreadId]);
   await selectSideExcerpt();
   checks.push("AC55: Side selection uses a separate Turn action button, never floats, and switching the source Thread invalidates its owner");
   await sideTrigger.evaluate(element => { window.__scfSideTrigger = element; });
@@ -624,7 +633,7 @@ try {
   const sideInput = sidePane.getByRole("textbox", { name: "随心输入" });
   assert.equal(await sideInput.getAttribute("contenteditable"), "true", "Side must use the shared Lexical editor");
   assert.ok(await sidePane.locator(".composer-surface").isVisible());
-  const sourceConfigBeforeSideModel = JSON.stringify(project(await state()).configurations[sourceThreadId]);
+  const sourceConfigBeforeSideModel = modelConfiguration(project(await state()).configurations[sourceThreadId]);
   await sidePane.getByRole("button", { name: "模型", exact: true }).click();
   const modelPage = page.getByRole("button", { name: "选择模型", exact: true });
   if (await modelPage.isVisible()) await modelPage.click();
@@ -667,7 +676,7 @@ try {
   assert.ok(await page.locator(`#areal-sidebar [data-thread-id="${targetThreadId}"]`).count(),
     "main navigation must retain independent Fork conversations");
   assert.equal(project(sideStarted).configurations[sideThreadId].model.modelId, "fixture-alternate");
-  assert.equal(JSON.stringify(project(sideStarted).configurations[sourceThreadId]), sourceConfigBeforeSideModel);
+  assert.deepEqual(modelConfiguration(project(sideStarted).configurations[sourceThreadId]), sourceConfigBeforeSideModel);
   assert.ok(requests.slice(sideStartRequests).some(request => request.body.model === "fixture-alternate"), "first Side question uses the selected real Core model");
   checks.push("shared Lexical composer and Core model menu: alternate model applies to Side first question without configuring the source");
   assert.equal(side.conversation.policy?.workspaceAccess, "none", "frozen evidence journey uses session-only Side policy");
@@ -686,7 +695,7 @@ try {
   await page.keyboard.press("Escape");
   await sidePane.getByRole("textbox", { name: "随心输入" }).click();
   await until(s => project(s).configurations[sideThreadId]?.revision > firstSideRevision && project(s).configurations[sideThreadId]?.model?.modelId === "fixture", "Side model update through Core configure");
-  assert.equal(JSON.stringify(project(await state()).configurations[sourceThreadId]), sourceConfigBeforeSideModel);
+  assert.deepEqual(modelConfiguration(project(await state()).configurations[sourceThreadId]), sourceConfigBeforeSideModel);
   assert.equal(project(await state()).state.threads[sideThreadId].conversation.policy.workspaceAccess, "none");
   checks.push("shared model menu configures only an idle Side and preserves its Core read-only policy");
   await openSideContext(sidePane);
@@ -698,7 +707,7 @@ try {
   if (sharedWorkspace) {
     const currentModels = project(await state()).configurations;
     const modelOwners = Object.fromEntries([sourceThreadId, sideThreadId].map(id =>
-      [id, JSON.stringify(currentModels[id])]));
+      [id, modelConfiguration(currentModels[id])]));
     const sample = async name => {
       await page.waitForFunction(() => !document.querySelector('.work-surface')?.hasAttribute('data-panel-transition'));
       await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
@@ -730,7 +739,7 @@ try {
     await page.waitForFunction(el => el === document.activeElement, await settingsButton.elementHandle());
     await showSideConversation();assert.equal(await sidePane.getByTestId('side-chat-input').innerText(),'共享Side草稿：暂不发送');
     const returned = project(await state());
-    for (const id of [sourceThreadId, sideThreadId]) assert.equal(JSON.stringify(returned.configurations[id]), modelOwners[id],
+    for (const id of [sourceThreadId, sideThreadId]) assert.deepEqual(modelConfiguration(returned.configurations[id]), modelOwners[id],
       'navigation preserves each Core model configuration');
     await sample('shared-04-settings-return');
     await writeFile(toolRelease,'release\n');await until(s=>project(s)?.state?.threads?.[sourceThreadId]?.turns?.at(-1)?.status==='completed','source command completes after shared UI inspection');
@@ -796,7 +805,7 @@ try {
   await page.getByTestId("composer-attachments").getByText("main-attachment.txt").waitFor();
   await composeText(page.getByTestId("chat-input"), " 输入法确认🌊汉字", "main IME", true);
   assert.ok((await page.getByTestId("chat-input").innerText()).includes(brought));
-  assert.equal(JSON.stringify(project(await state()).configurations?.[sourceThreadId] ?? null), mainConfigBefore,
+  assert.deepEqual(modelConfiguration(project(await state()).configurations?.[sourceThreadId]), mainConfigBefore,
     "main model configuration must survive Side and bring-back");
   // 关闭面板会记住当前任务的 lastPanel；主窗口的展开按钮恢复同一 Side 标签。
   await page.getByRole("button", { name: "展开侧边面板", exact: true }).click();
@@ -842,7 +851,8 @@ try {
   await page.waitForFunction(id => document.querySelector('[data-testid="areal-workbench"]')?.dataset.threadId !== id, sourceThreadId);
   rawThreadId = await page.getByTestId("areal-workbench").getAttribute("data-thread-id");
   const rawHistory = page.locator(".messages .message-column");
-  await rawHistory.getByRole("button", { name: /^用时 / }).last().click();
+  const rawProgress = rawHistory.locator(`[data-turn-id="${activeTurnId}"]`).getByTestId("turn-elapsed").getByRole("button");
+  if (await rawProgress.getAttribute("aria-expanded") === "false") await rawProgress.click();
   await rawHistory.locator(`[data-turn-id="${activeTurnId}"]`).getByRole("button", { name: "执行过程", exact: true }).click();
   await rawHistory.locator(`[data-tool-id="${completedTool.id}"]`).getByRole("button").first().click();
   const rawDownload = rawHistory.getByRole("button", { name: "下载附件 原始结果", exact: true });
@@ -1066,13 +1076,16 @@ try {
       "GUI-to-Core transport disconnect and disconnected project projection");
     await openSideContext(sidePane);
     await sidePane.getByText(/^来源：.*来源当前状态未知/).waitFor();
-    await page.getByRole("button", { name: "重新连接后台" }).click();
+    await page.getByRole("button", { name: "设置", exact: true }).click();
+    await page.getByRole("button", { name: "后台服务", exact: true }).click();
+    await page.getByRole("button", { name: "重新连接后台", exact: true }).click();
     const reconnected = await until(s => s.connection?.state === "ready" && project(s)?.state?.connected &&
       project(s)?.state?.threads?.[sourceThreadId]?.turns?.length === beforeDisconnect.state.threads[sourceThreadId].turns.length &&
       project(s)?.state?.threads?.[sideThreadId]?.turns?.length === beforeDisconnect.state.threads[sideThreadId].turns.length,
     "GUI-to-Core manual reconnection and authoritative source/Side snapshot");
     assert.equal(project(reconnected).state.threads[sideThreadId].conversation.origin.sourceThreadId, sourceThreadId);
     assert.equal(project(reconnected).state.threads[sourceThreadId].conversation?.kind ?? "main", "main");
+    await page.getByRole("button", { name: "返回应用", exact: true }).click();
   } finally {
     await app.evaluate(() => { globalThis.__scfRestoreReconnect?.(); delete globalThis.__scfRestoreReconnect; });
   }
@@ -1086,7 +1099,8 @@ try {
   assert.ok(forkResults.every(entry => typeof entry.requestId === "string" && entry.requestId.length > 0));
   assert.equal(new Set(forkResults.map(entry => entry.requestId)).size, 4);
   videoPath = await page.video()?.path();
-  await app.close();
+  await closeSmokeApplication(app);
+  app = null;
   await stopService(env);
   // 复用持久状态故障接缝：只在隔离 Core 安全停止后标记既有来源工具为 UNKNOWN。
   const sourceRecordPath = join(scratch, "core", projectId, "state", `${sourceThreadId}.json`);
@@ -1205,15 +1219,20 @@ try {
   if (app) {
     if (!firstMutations.length) try { firstMutations = await withSmokeDeadline("mutation evidence", () => app.evaluate(() => globalThis.__scfMutations ?? [])); } catch (error) { events.push({ requestCaptureError: error.message }); }
     try {
-      await withSmokeDeadline("Electron cleanup", async () => {
-        await app.evaluate(({ dialog }) => { dialog.showMessageBox = async () => ({ response: 1 }); });
-        if (videoPath) restartVideoPath = await page?.video()?.path();
-        else videoPath = await page?.video()?.path();
-        await app.close();
-      }, 20000);
+      await closeSmokeApplication({
+        process: () => app.process(),
+        close: async () => {
+          await app.evaluate(({ dialog }) => { dialog.showMessageBox = async () => ({ response: 1 }); });
+          if (videoPath) restartVideoPath = await page?.video()?.path();
+          else videoPath = await page?.video()?.path();
+          await app.close();
+        },
+      });
     } catch (error) {
-      events.push({ electronCloseError: error.message }); process.exitCode = 1;
-      try { app.process()?.kill("SIGTERM"); } catch {}
+      events.push({ electronCloseError: error.message });
+      failure ??= error.stack ?? String(error);
+      passed = false;
+      process.exitCode = 1;
     }
   }
   try {
@@ -1255,7 +1274,7 @@ try {
       "04-source-tool-running.png": "Core/Runtime command marker exists and source Turn remains inProgress",
       "04a-stale-selection.png": "real Core stale-selection rejection retains the Side question without creating a Side",
       "05-side-answered-frozen.png": "Side first answer completed while source tool remains active; Unicode selection verified",
-      "06-bring-back-draft.png": "preview confirmed; local main draft includes Side text and insertion issues no command beyond independent trajectory/status, feedback/status and exact source-owned MCP forms and bounded main/Side context reads",
+      "06-bring-back-draft.png": "preview confirmed; local main draft includes Side text and all overlapping commands are validated owner-scoped observations with no business mutation",
       "07-before-active.png": "before-active Fork has idle bounded inherited history",
       "07a-main-error-isolated.png": "Core refuses unsupported main attachment without sending or losing its draft; Side has no main Composer error",
       "07b-inherited-raw-result.png": "target-owned inherited raw result is displayed and downloaded with no source controls or local execution",

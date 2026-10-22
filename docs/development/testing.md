@@ -196,13 +196,15 @@ TUI 与共享服务 PTY 检查共用终端画面解析器，处理增量重绘�
 
 `pnpm --dir clients/gui test:macos-dmg` 在 macOS 上独立通过真实 `codesign` 和 `hdiutil` 验证签名 framework 暂存。它需要允许磁盘映像设备访问的环境；受限 Agent 沙箱可能返回 `Device not configured`。应记录环境失败，并在允许的宿主环境重跑相同测试，不跳过断言，也不据此宣称安装包验收通过。macOS GUI job 显式执行该检查；可移植 `verify` 不创建磁盘映像。
 
-GUI 构建成功后，历史兼容、迁移、Composer、模型选择、队列和对话派生 smoke 各自使用隔离 fixture，独立收集结果；一个场景失败不再跳过后续独立场景。失败仍使 GUI job 和 gate 失败，取消或构建失败时不启动这些场景，不使用 `continue-on-error`。这避免修复首个失败后才逐轮发现其它问题。
+GUI CI 只构建一次 Core 和 Renderer，再将历史兼容、迁移、Composer、模型选择、队列和对话派生拆成独立隔离的 matrix job（最多三个并发，`fail-fast: false`）。同轮 artifact 以 tar 保留可执行权限，并记录精确 checkout SHA；smoke 拒绝不匹配的源码。锁定的 pnpm/Electron/FFmpeg 下载使用缓存；构建成功即可保存构建缓存，不再因后续 smoke 失败丢失缓存。使用 `gh run rerun <run-id> --failed` 只重试失败的 smoke 和 gate，复用已通过的构建及场景。缺失产物、失败、取消或意外跳过仍使 gate 失败，不使用 `continue-on-error`。
 
 恢复去重的归属包含项目、聊天和 Core 连接代际；适配器重建后不能复用旧代际的完成/失败尝试。`thread-restoration-ui-smoke.mjs` 使用真实构建的 Renderer 及受控 Desktop 投影复现此边界，同时保持未知提交不重发。
 
 明确拒绝的发送提示由 Composer 持有，并在后续受理后清除；全局提示继续保留真正的未确认或已受理结果。
 
 对话派生 smoke 直接使用 `desktop-contract` 的命令校验和 read/mutation 语义，结合项目/聊天归属验证草稿带回期间的观察；不再维护另一份只读 RPC 白名单。保留全部原始命令及传输 mutation 标记，并继续核对模型请求数、Turn 数和工作区字节不变。
+
+模型保留检查比较 Core 配置版本和选择的模型、参数、Profile、选项与 Skills，不再将包含派生元数据的整个有效快照序列化比较。smoke 为 Electron 退出设置期限；退出失败时只终止该 fixture 启动返回的子进程，保留测试失败，并继续按代际核对 Core 清理，避免 Node 一直等待到 job 超时。
 
 `make test` 使用 Cargo `--no-fail-fast`，先收集 workspace 各测试目标的失败，再返回失败退出码；断言和 job 超时继续生效。大范围 Core/协议/存储集成在推送前除 `ci-preflight` 外，还需完成适用的 Rust 行为测试。可移植 CI 排除 `areal-runtime-exec-native`，专用 native/container 通道仍须通过。
 
