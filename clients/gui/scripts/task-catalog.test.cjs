@@ -32,10 +32,16 @@ function fixture(ids = ["owner"]) {
         saved: ids.map((id) => ({ id, root: `/work/${id}` })),
         library: { value: { projects: {} } },
         providers: { redact: (text) => text.replaceAll("secret", "[redacted]") },
+        projects: new Map(),
+        lifecycleOperations: { assertProject() {} },
         starts: [],
         async start(id) {
             this.starts.push(id);
             return owners[id].project;
+        },
+        async readConnection(id) {
+            const project = await this.start(id);
+            return { project, client: project.client, generation: project.connectionGeneration ?? 0 };
         },
         requireConnection(project, client) {
             if (this.closing || project.client !== client || client.closed)
@@ -44,7 +50,9 @@ function fixture(ids = ["owner"]) {
     };
     for (const [id, owner] of Object.entries(owners)) {
         owner.project = { id, model: { setTask: (task) => owner.tasks.push(task) } };
+        backend.projects.set(id, owner.project);
         owner.project.client = {
+            ready: true,
             request: async (method, params) => {
                 owner.calls.push({ method, params });
                 return owner.read(method, params);

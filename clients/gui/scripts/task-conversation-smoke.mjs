@@ -187,14 +187,14 @@ if(loadingRegression||creationRegression){
 const {CoreBackend}=require(${JSON.stringify(join(gui,'app/src/core/backend.cjs'))});
 const {existsSync,appendFileSync,unlinkSync}=require('node:fs');
 const {join}=require('node:path');
-const start=CoreBackend.prototype.start, execute=CoreBackend.prototype.executeCommand;
-CoreBackend.prototype.start=async function(id){
- const project=this.saved.find(project=>project.id===id);
+const start=CoreBackend.prototype.start, readConnection=CoreBackend.prototype.readConnection, execute=CoreBackend.prototype.executeCommand;
+async function holdProject(project){
  if(project?.root.endsWith('slow-workspace')&&existsSync(${JSON.stringify(loadingGate)})){
   appendFileSync(${JSON.stringify(loadingTrace)},'project pending\\n');
   while(existsSync(${JSON.stringify(loadingGate)}))await new Promise(resolve=>setTimeout(resolve,50));
  }
- const value=await start.call(this,id);
+}
+function instrumentProject(value,project){
  if(${JSON.stringify(loadingRegression)}&&!value.loadingFixture){
   value.loadingFixture=true;
   const setTask=value.model.setTask.bind(value.model);
@@ -216,6 +216,18 @@ CoreBackend.prototype.start=async function(id){
   };
  }
  return value;
+}
+CoreBackend.prototype.start=async function(id){
+ const project=this.saved.find(project=>project.id===id);
+ await holdProject(project);
+ return instrumentProject(await start.call(this,id),project);
+};
+CoreBackend.prototype.readConnection=async function(id,signal){
+ const project=this.saved.find(project=>project.id===id);
+ await holdProject(project);
+ const connection=await readConnection.call(this,id,signal);
+ instrumentProject(connection.project,project);
+ return connection;
 };
 CoreBackend.prototype.executeCommand=async function(name,request,context){
  if(name==='projectless'&&request.operation==='prepare'){

@@ -18,6 +18,7 @@
     "test:recovery": "node --test scripts/desktop-reconciliation.test.cjs && node scripts/recovery-contract-smoke.mjs",
     "test:service-connection": "node --test scripts/service-connection-recovery.test.mjs",
     "test:task-conversation": "node scripts/task-conversation-smoke.mjs",
+    "test:task-catalog-startup": "node scripts/task-catalog-startup-smoke.mjs",
     "test:stop-turn": "node scripts/stop-turn-smoke.mjs",
     "test:service-reopen": "node scripts/service-reopen-smoke.mjs",
     "test:lifecycle": "node scripts/startup-recovery-smoke.mjs && node scripts/lifecycle-smoke.mjs",

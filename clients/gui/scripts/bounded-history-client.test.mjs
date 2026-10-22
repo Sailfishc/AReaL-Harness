@@ -19,7 +19,7 @@ const baseline = (archived = false) => ({ thread: { id: 'thread', status: { type
 function fixture(read, { archived = false, bounded = true, afterResult = () => {} } = {}) {
   const calls = [];
   const project = { id: 'project', model: new CoreTaskModel(), configurations: {}, summaries: [{ id: 'thread', desktop: { archived } }], connectionGeneration: 1 };
-  const backend = Object.assign(Object.create(CoreBackend.prototype), { projects: new Map([['project', project]]),
+  const backend = Object.assign(Object.create(CoreBackend.prototype), { projects: new Map([['project', project]]), starting: new Map(),
     onChange() {}, providers: { redact: value => value }, lifecycleOperations: { activeTargets: new Set(), blocking: () => false },
     start: async () => project });
   project.client = { ready: true, closed: false,

@@ -23,21 +23,21 @@ function ownerRead(backend, saved, inbox, limit, trace, deadline = performance.n
   }
   if (performance.now() >= deadline) return Promise.reject(Object.assign(new Error('任务目录读取超时，请重试。'), { code: 'TASK_CATALOG_TIMEOUT', stage: 'start' }));
   const state = { closed: false, stage: 'start', pages: 0, generation: 0 };
+  const controller = new AbortController();
   const timeout = () => Object.assign(new Error('任务目录读取超时，请重试。后台连接仍由现有启动流程管理。'), { code: 'TASK_CATALOG_TIMEOUT', stage: state.stage, pages: state.pages, connectionGeneration: state.generation });
   const guard = (project, client) => {
     if (state.closed || performance.now() >= deadline) throw timeout();
     if (!backend.saved.some(owner => owner.id === saved.id)) throw new Error('任务所有者已移除');
-    if (project) {
-      backend.requireConnection(project, client);
-      if ((project.connectionGeneration ?? 0) !== state.generation) throw Object.assign(new Error('连接已换代，请重试'), { code: 'STALE_CONNECTION' });
-    }
+    backend.lifecycleOperations.assertProject(saved.id);
+    if (backend.projects.get(saved.id) !== project) throw new Error('任务所有者已移除');
+    backend.requireConnection(project, client);
+    if (!client.ready || (project.connectionGeneration ?? 0) !== state.generation) throw Object.assign(new Error('连接已换代，请重试'), { code: 'STALE_CONNECTION' });
   };
   const work = (async () => {
     trace.advance('start');
-    const project = await backend.start(saved.id);
-    guard();
-    const client = project.client;
-    state.generation = project.connectionGeneration ?? 0;
+    const { project, client, generation } = await backend.readConnection(saved.id, controller.signal);
+    state.generation = generation;
+    guard(project, client);
     state.stage = 'list';
     trace.advance('list', { connectionGeneration: state.generation });
     const data = new Map(), cursors = new Set();
@@ -60,7 +60,7 @@ function ownerRead(backend, saved, inbox, limit, trace, deadline = performance.n
     if (!inbox) for (const task of rows) project.model.setTask(task);
     return { data: rows, hasMore: !!after || data.size > limit, connectionGeneration: state.generation, pages: state.pages };
   })().catch(error => { error.stage ??= state.stage; error.pages ??= state.pages; error.connectionGeneration ??= state.generation; throw error; });
-  const result = bounded(work, deadline, () => { state.closed = true; return timeout(); }).finally(() => { state.closed = true; });
+  const result = bounded(work, deadline, () => { state.closed = true; const error = timeout(); controller.abort(error); return error; }).finally(() => { state.closed = true; });
   const flight = { result, work, state, limit };
   pending.set(key, flight);
   const clear = () => { if (pending.get(key) === flight) pending.delete(key); };

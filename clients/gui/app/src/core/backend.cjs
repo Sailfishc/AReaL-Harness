@@ -121,6 +121,7 @@ class CoreBackend {
     this.onChange = onChange;
     this.projects = new Map();
     this.starting = new Map();
+    this.readWaiters = new WeakMap();
     this.saves = new Map();
     this.closing = false;
     this.library = new CoreLibrary(this);
@@ -235,6 +236,51 @@ class CoreBackend {
     const task = this.startProject(id).finally(() => this.starting.delete(id));
     this.starting.set(id, task);
     return task;
+  }
+
+  readConnection(id, signal) {
+    if (signal?.aborted) return Promise.reject(signal.reason);
+    const startup = this.start(id);
+    let waiters = this.readWaiters.get(startup);
+    if (!waiters) {
+      waiters = new Set();
+      this.readWaiters.set(startup, waiters);
+      startup.then(project => this.settleReadWaiters(startup, null, {
+        project, client: project.client, generation: project.connectionGeneration ?? 0,
+      }), error => this.settleReadWaiters(startup, error));
+    }
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const settle = (error, connection) => {
+        if (settled) return;
+        settled = true;
+        waiters.delete(settle);
+        signal?.removeEventListener('abort', abort);
+        try {
+          if (error) throw error;
+          this.lifecycleOperations.assertProject(id);
+          const { project, client, generation } = connection;
+          if (!this.saved.some(saved => saved.id === id) || this.projects.get(id) !== project)
+            throw new Error('任务所有者已移除');
+          this.requireConnection(project, client);
+          if (!client.ready || (project.connectionGeneration ?? 0) !== generation)
+            throw Object.assign(new Error('连接已换代，请重试'), { code: 'STALE_CONNECTION' });
+          resolve(connection);
+        } catch (failure) { reject(failure); }
+      };
+      const abort = () => settle(signal.reason);
+      waiters.add(settle);
+      signal?.addEventListener('abort', abort, { once: true });
+      if (signal?.aborted) { abort(); return; }
+      const project = this.projects.get(id);
+      if (project?.client?.ready) settle(null, {
+        project, client: project.client, generation: project.connectionGeneration ?? 0,
+      });
+    });
+  }
+
+  settleReadWaiters(startup, error, connection) {
+    for (const settle of this.readWaiters.get(startup) ?? []) settle(error, connection);
   }
 
   // 本地日志加载与连接启动共用同一项目对象；只读收据不启动 Core。
@@ -531,6 +577,7 @@ class CoreBackend {
   }
 
   async connect(project, { observeOnly = false } = {}) {
+    const startup = this.starting.get(project.id);
     const { CoreClient, MAX_RESPONSE_BYTES } = await import('@areal/runtime-client/core');
     if (this.closing) throw new Error('应用正在退出');
     project.taskNotificationMonitor?.stop();
@@ -636,6 +683,9 @@ class CoreBackend {
       } });
       await client.connect();
       this.requireConnection(project, client);
+      if (startup && this.starting.get(project.id) === startup) this.settleReadWaiters(startup, null, {
+        project, client, generation: correlation.connectionGeneration,
+      });
       project.error = null;
       project.configurations ??= {};
       project.configurationChanges ??= new Map();
