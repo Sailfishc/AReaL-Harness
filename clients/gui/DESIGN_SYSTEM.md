@@ -51,16 +51,19 @@
 | 输入与强调文字 | `--text-ui-lg` | 编辑器、较突出标题 |
 | 正文 | `--text-ui-base` | 卡片内容、普通反馈 |
 | 控件标签 | `--text-ui-caption` | 按钮、菜单及紧凑标签 |
+| 过程与结果附注 | `--text-content-caption` | 执行摘要、状态和失败次数，跟随内容字号；不替代按钮的 UI 字号 |
 | 说明 | `--text-ui-sm` | Side 标题、上下文说明、次要反馈 |
 | 辅助信息 | `--text-ui-xs` | 来源细节；不用于主要正文 |
 | 公共行高 | `--line-height-ui`、`--line-height-ui-sm` | 决策正文与紧凑说明，随 UI 字号增长 |
 | 设置说明 | `--color-settings-secondary` | 活跃设置标签的说明；独立于禁用透明度及已完成过程信息，偏好派生归 applicationSettings.ts |
 | 文字层级 | `--color-foreground`、`--color-foreground-subtle/subtlest` | 主内容、说明、低强调信息；不能只用颜色表达状态 |
 | 表面 | `--color-background`、`--color-composer`、`--color-composer-catalog` | 页面、输入区、相关浮层；明暗由主题提供 |
+| 主要动作 | `--color-primary`、`--color-primary-foreground` | 审批主动作与发送动作共用配对；`--color-composer-action` 及其前景是同一配对的别名，强调色继续用于链接与焦点 |
 | 按钮填充 | `--color-button-surface`、`--color-button-hover` | 普通操作与下拉按钮的默认 / 悬停表面 |
 | 边框与错误 | `--color-border`、`--color-destructive` | 边界与错误反馈 |
 | 控件尺寸 | `--spacing-control` 及 `--spacing-control-xs/sm/lg/form`，对应 Tailwind 的 `h-control-*` | 根据控件用途选尺寸，跟随用户字号 |
 | 间距 | `--spacing-inline/field/section/panel` | 相邻内容、内容块、分区与面板；具体组合可以使用这些角色的倍数 |
+| 对话阅读列 | `--reading-width` | 消息列与输入停靠区使用同一宽度上限，内侧留白采用 `--spacing-field`；嵌入式对话保留宿主宽度 |
 | 圆角 | `--radius-button/control/overlay/composer/panel/dialog` | 按表面角色选择，不能为“看起来差不多”任意互换 |
 | 内嵌与动作形状 | `--radius-inset`、`--radius-pill` | 表面内的预览内容、胶囊或圆形动作 |
 | 焦点与动效 | `--focus-width/offset`、`--motion-fast/normal/slow` | 复用 focus-visible、ui-control/ui-popup；遵守 reduced motion |

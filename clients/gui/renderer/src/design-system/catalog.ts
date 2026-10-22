@@ -17,6 +17,10 @@ export const tokenGroups = [
         "控件标签"
       ],
       [
+        "--text-content-caption",
+        "过程与结果附注"
+      ],
+      [
         "--text-ui-sm",
         "说明"
       ],
@@ -44,6 +48,14 @@ export const tokenGroups = [
       [
         "--color-composer",
         "输入表面"
+      ],
+      [
+        "--color-primary",
+        "主要动作背景"
+      ],
+      [
+        "--color-primary-foreground",
+        "主要动作文字"
       ],
       [
         "--color-foreground",
@@ -93,6 +105,10 @@ export const tokenGroups = [
       [
         "--spacing-section",
         "分区"
+      ],
+      [
+        "--reading-width",
+        "对话与输入阅读列"
       ]
     ]
   },

@@ -144,7 +144,6 @@ export function paletteVariables(p: Palette, dark = false): Record<string, strin
   const ink = (percent: number) =>
     `color-mix(in srgb, ${p.foreground} ${percent}%, transparent)`;
   const contrastDelta = p.contrast - (dark ? 60 : 45);
-  const composerAction = dark && p.accent === "#3a83f7" ? "#2c67c5" : p.accent;
   const fileReference = p.accent === "#3a83f7" ? "#2c67c5" : p.accent;
   return {
     "--color-background": p.background,
@@ -165,8 +164,8 @@ export function paletteVariables(p: Palette, dark = false): Record<string, strin
     "--color-history-comment-hover": dark ? `color-mix(in srgb, ${mix(3000 / 231)} 96%, transparent)` : p.background,
     "--color-primary": p.foreground,
     "--color-primary-foreground": dark && p.foreground === "#ffffff" ? "#2d2d2d" : readableForeground(p.foreground),
-    "--color-composer-action": composerAction,
-    "--color-composer-action-foreground": p.accent === "#3a83f7" ? "#ffffff" : readableForeground(composerAction),
+    "--color-composer-action": "var(--color-primary)",
+    "--color-composer-action-foreground": "var(--color-primary-foreground)",
     "--color-accent": mix(6),
     "--color-secondary": ink(5),
     // Captured Codex user-message roles; custom themes retain their own palette.
