@@ -648,6 +648,24 @@ try {
   assert.deepEqual(await sentSkills.allTextContents(), ["Fixture Skill", "Fixture Skill"]);
   assert.equal(await sentSkills.locator("svg").count(), 2);
   assert.equal(await sentBubble.locator("details, .user-message-skill button").count(), 0);
+  const sentSkillAlignment = await sentBubble.evaluate(bubble => {
+    const skillText = [...bubble.querySelector(".user-message-skill").childNodes]
+      .find(node => node.nodeType === Node.TEXT_NODE && node.textContent.trim());
+    const proseText = [...bubble.querySelector("p").childNodes]
+      .find(node => node.nodeType === Node.TEXT_NODE && node.textContent.trim());
+    const skillRange = document.createRange();
+    skillRange.selectNodeContents(skillText);
+    const proseRange = document.createRange();
+    proseRange.selectNodeContents(proseText);
+    const skill = skillRange.getClientRects()[0];
+    const prose = proseRange.getClientRects()[0];
+    return { skillTop: skill.top, skillBottom: skill.bottom, proseTop: prose.top, proseBottom: prose.bottom };
+  });
+  assert.ok(sentSkillAlignment.skillTop < sentSkillAlignment.proseBottom
+    && sentSkillAlignment.proseTop < sentSkillAlignment.skillBottom,
+    `sent Skill label and prose share a row: ${JSON.stringify(sentSkillAlignment)}`);
+  assert.ok(Math.abs(sentSkillAlignment.skillBottom - sentSkillAlignment.proseBottom) <= 1,
+    `sent Skill label and prose text align within 1px: ${JSON.stringify(sentSkillAlignment)}`);
   const assertCompactSkillBody = async () => {
     const visibleText = await sentBubble.textContent();
     assert.doesNotMatch(visibleText, /PAGED_SKILL_END|SECOND_SKILL_CONTENT|description:|name: fixture-skill|<skill/);

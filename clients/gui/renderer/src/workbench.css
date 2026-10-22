@@ -659,8 +659,8 @@ button.composer-project:hover > svg,
 .user-message-body li::marker { color: currentColor; }
 .user-message-with-skills > .user-message-body,
 .user-message-with-skills > .user-message-body > p:first-child { display: inline; }
-.user-message-skill { display: inline-flex; align-items: center; gap: 4px; margin-inline-end: 6px; vertical-align: baseline; color: var(--color-file-reference, var(--color-brand)); }
-.user-message-skill > svg { flex: none; align-self: center; }
+.user-message-skill { display: inline; white-space: nowrap; margin-inline-end: 6px; color: var(--color-file-reference, var(--color-brand)); }
+.user-message-skill > svg { display: inline-block; vertical-align: -0.125em; margin-inline-end: 4px; }
 .conversation-code-block { min-width: 0; width: 100%; overflow: hidden; margin-block: 1.25em; border: 1px solid color-mix(in srgb, var(--color-foreground) 4.7%, transparent); border-radius: 20px; background: color-mix(in srgb, var(--color-foreground) 5.5%, transparent); }
 .dark .conversation-code-block { border-color: color-mix(in srgb, var(--color-foreground) 4.3%, transparent); background: color-mix(in srgb, var(--color-foreground) 8%, transparent); }
 .conversation-markdown > .conversation-code-block:not(:last-child) { margin-bottom: 1.25em; }
