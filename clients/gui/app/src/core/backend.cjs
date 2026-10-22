@@ -893,28 +893,38 @@ class CoreBackend {
 
   installObservation(project, result) {
     const thread = result.thread;
-    if (!result.history) { project.model.replace({ ...thread, displayHistory: { supported: false } }); return; }
-    this.historyWindows ??= new Map();
-    for (const [key, window] of this.historyWindows) {
-      if (this.projects.get(window.project.id) !== window.project) this.historyWindows.delete(key);
+    const previousThread = project.model.state.threads[thread.id];
+    if (!result.history) {
+      project.model.replace({ ...thread, displayHistory: { supported: false } });
+    } else {
+      this.historyWindows ??= new Map();
+      for (const [key, window] of this.historyWindows) {
+        if (this.projects.get(window.project.id) !== window.project) this.historyWindows.delete(key);
+      }
+      const key = `${project.id}:${thread.id}`, previous = this.historyWindows.get(key);
+      if (!previous && this.historyWindows.size >= historyViewLimit) {
+        const victim = [...this.historyWindows.entries()].find(([, window]) => window.views.size === 0);
+        if (!victim) throw historyFailure('同时打开的历史视图已达上限，请先关闭一个视图。');
+        this.historyWindows.delete(victim[0]);
+        const { project: owner, threadId } = victim[1];
+        const { [threadId]: removed, ...threads } = owner.model.state.threads;
+        const { [threadId]: interactions, ...otherInteractions } = owner.model.state.interactions;
+        const { [threadId]: queue, ...queues } = owner.model.state.queues;
+        owner.model.publish({ threads, interactions: otherInteractions, queues });
+      }
+      const window = { project, threadId: thread.id, ...result.history, views: previous?.views ?? new Set(), viewGeneration: randomUUID(),
+        pages: [], loaded: new Map(), loading: new Map(), omitted: false, epoch: 0, baselineCursor: result.history.nextCursor,
+        baselineComplete: result.history.complete, baselineFirstItemId: thread.turns?.flatMap(turn => turn.items ?? [])[0]?.id };
+      this.historyWindows.delete(key); this.historyWindows.set(key, window);
+      project.model.replace({ ...thread, displayHistory: { supported: true, complete: window.complete, omitted: false,
+        baselineFirstItemId: window.baselineFirstItemId, viewGeneration: window.viewGeneration, loadingItems: {} } });
     }
-    const key = `${project.id}:${thread.id}`, previous = this.historyWindows.get(key);
-    if (!previous && this.historyWindows.size >= historyViewLimit) {
-      const victim = [...this.historyWindows.entries()].find(([, window]) => window.views.size === 0);
-      if (!victim) throw historyFailure('同时打开的历史视图已达上限，请先关闭一个视图。');
-      this.historyWindows.delete(victim[0]);
-      const { project: owner, threadId } = victim[1];
-      const { [threadId]: removed, ...threads } = owner.model.state.threads;
-      const { [threadId]: interactions, ...otherInteractions } = owner.model.state.interactions;
-      const { [threadId]: queue, ...queues } = owner.model.state.queues;
-      owner.model.publish({ threads, interactions: otherInteractions, queues });
+    for (const turn of thread.turns ?? []) {
+      if (turn.id && ['completed', 'failed', 'interrupted'].includes(turn.status)
+        && previousThread?.turns?.some(previous => previous.id === turn.id && previous.status === 'inProgress')) {
+        void this.library.recordThreadActivity(project.id, thread.id, turn.id).catch(() => {});
+      }
     }
-    const window = { project, threadId: thread.id, ...result.history, views: previous?.views ?? new Set(), viewGeneration: randomUUID(),
-      pages: [], loaded: new Map(), loading: new Map(), omitted: false, epoch: 0, baselineCursor: result.history.nextCursor,
-      baselineComplete: result.history.complete, baselineFirstItemId: thread.turns?.flatMap(turn => turn.items ?? [])[0]?.id };
-    this.historyWindows.delete(key); this.historyWindows.set(key, window);
-    project.model.replace({ ...thread, displayHistory: { supported: true, complete: window.complete, omitted: false,
-      baselineFirstItemId: window.baselineFirstItemId, viewGeneration: window.viewGeneration, loadingItems: {} } });
   }
 
   async readObservation(project, threadId, { client = project.client, current = () => this.currentConnection(project, client), timeoutMs, install = true, resume = false } = {}) {
@@ -1789,6 +1799,7 @@ class CoreBackend {
       const original = lifecycleBlock?.targets.find(target => target.projectId === request.projectId);
       if (original && (project.service.serviceId !== original.serviceId || project.service.generation !== original.generation))
         throw Object.assign(new Error('原 Core 代际已变化，不能用新实例代替核查'), { code: 'CONFIRMATION_STALE' });
+      if (name === 'history') return this.historyCommand(project, request);
       if (name === 'manage') return manage(this, project, request, context);
       if (name === 'open') await this.openThread(project, request.threadId);
       if (name === 'list') await this.listThreads(project);
@@ -1798,6 +1809,7 @@ class CoreBackend {
     if (this.closing && require('./lifecycle.cjs').isRecoveryCommand(name, request)) {
       const project = this.projects.get(request.projectId);
       if (!project?.service || !project.client?.ready) throw new Error('原 Core 已断开，不能确认核查目标');
+      if (name === 'history') return this.historyCommand(project, request);
       return manage(this, project, request, context);
     }
     if (this.closing) throw new Error('应用正在退出');
