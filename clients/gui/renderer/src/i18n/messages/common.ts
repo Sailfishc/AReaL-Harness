@@ -64,6 +64,7 @@ export const commonMessages = {
   "chat.message.expand": { "zh-CN": "展开消息", en: "Expand message" },
   "chat.message.collapse": { "zh-CN": "收起消息", en: "Collapse message" },
   "chat.history.loadOlder": { "zh-CN": "加载更早的消息", en: "Load older messages" },
+  "chat.history.loadingLatest": { "zh-CN": "正在恢复本轮消息…", en: "Restoring current turn…" },
   "chat.history.loadingOlder": { "zh-CN": "正在加载更早的消息…", en: "Loading older messages…" },
   "chat.history.loadFull": { "zh-CN": "加载完整内容", en: "Load full content" },
   "chat.history.loadingFull": { "zh-CN": "正在加载完整内容… {progress, number}%", en: "Loading full content… {progress, number}%" },

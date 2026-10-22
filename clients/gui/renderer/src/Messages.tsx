@@ -327,11 +327,16 @@ export function Messages({
         {beforeTurns}
         {inherited.loading && <p role="status">正在加载继承历史…</p>}
         {inherited.error && <p role="alert">继承历史读取失败：{inherited.error}</p>}
-        {localThread.displayHistory?.supported && !localThread.displayHistory.complete && <Button type="button" variant="ghost" size="sm"
+        {localThread.displayHistory?.loadingLatest && <p role="status">{t("chat.history.loadingLatest")}</p>}
+        {localThread.displayHistory?.supported && localThread.displayHistory.latestTurnComplete !== false && !localThread.displayHistory.complete && <Button type="button" variant="ghost" size="sm"
           disabled={localThread.displayHistory.loadingOlder} onClick={() => { readHere(); void history.load(); }}>
           {localThread.displayHistory.loadingOlder ? t("chat.history.loadingOlder") : t("chat.history.loadOlder")}
         </Button>}
-        {history.failure && !history.failure.itemId && <p role="alert">{history.failure.message}</p>}
+        {history.failure && !history.failure.itemId && <div>
+          <p role="alert">{history.failure.message}</p>
+          {localThread.displayHistory?.latestTurnComplete === false && <Button type="button" variant="ghost" size="sm"
+            disabled={localThread.displayHistory.loadingLatest} onClick={() => void history.load()}>{t("recovery.retryView")}</Button>}
+        </div>}
         {thread.desktop?.archived && (
           <p role="status" className="notice">
             此任务已归档，历史只读。
