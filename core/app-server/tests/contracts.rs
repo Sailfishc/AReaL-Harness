@@ -649,16 +649,57 @@ async fn ordinary_admission_capabilities_and_rpc_errors_are_explicit() {
     let req = json!({"requestId":"stale","threadId":id,"input":[{"type":"text","text":"hello"}],"admissionGuard":{"configRevision":2,"ordinarySession":true}});
     let (stale, _) = call(&mut socket, 5, "areal/turn/start", req.clone()).await;
     assert_eq!(stale["error"]["code"], -32009, "{stale}");
+    assert_eq!(
+        stale["error"]["data"]["outcome"]["kind"], "rejected",
+        "{stale}"
+    );
     let mut req = req;
     req["admissionGuard"]["configRevision"] = json!(1);
     req["requestId"] = json!("false-send");
     req["admissionGuard"]["ordinarySession"] = json!(false);
     let (invalid, _) = call(&mut socket, 6, "areal/turn/start", req.clone()).await;
     assert_eq!(invalid["error"]["code"], -32602, "{invalid}");
+    assert_eq!(
+        invalid["error"]["data"]["outcome"]["kind"], "rejected",
+        "{invalid}"
+    );
     req["admissionGuard"]["ordinarySession"] = json!(true);
     req["requestId"] = json!("not-enqueue");
     let (invalid, _) = call(&mut socket, 7, "areal/turn/enqueue", req).await;
     assert_eq!(invalid["error"]["code"], -32602, "{invalid}");
+    assert_eq!(
+        invalid["error"]["data"]["outcome"]["kind"], "rejected",
+        "{invalid}"
+    );
+    let (invalid, _) = call(
+        &mut socket,
+        104,
+        "areal/turn/submit",
+        json!({
+            "threadId": id, "requestId": "invalid-input", "expectedConfigRevision": 1,
+            "intent": {"type": "message", "input": []}
+        }),
+    )
+    .await;
+    assert_eq!(invalid["error"]["code"], -32602, "{invalid}");
+    assert_eq!(
+        invalid["error"]["data"]["outcome"]["kind"], "rejected",
+        "{invalid}"
+    );
+    let (receipt, _) = call(
+        &mut socket,
+        105,
+        "areal/request/read",
+        json!({
+            "threadId": id, "requestId": "invalid-input"
+        }),
+    )
+    .await;
+    assert_eq!(
+        receipt["result"]["data"],
+        json!([]),
+        "rejection must not create an admission receipt: {receipt}"
+    );
     assert!(engine.read(id, true).await.unwrap().turns.is_empty());
     let turn = engine
         .start(

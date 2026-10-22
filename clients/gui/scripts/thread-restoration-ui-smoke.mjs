@@ -48,6 +48,8 @@ try {
     window.recoverProject=()=>{fail=false;project.state.connected=true;project.error=null;snapshot.revision++;listener(structuredClone(snapshot));};
     window.disconnectDesktop=()=>{delete project.state.threads[threadId];project.state.connected=false;snapshot.connection.state='unavailable';snapshot.revision++;listener(structuredClone(snapshot));};
     window.recoverDesktop=()=>{project.state.connected=true;snapshot.connection.state='ready';snapshot.revision++;listener(structuredClone(snapshot));};
+    window.setCoreGeneration=generation=>{project.core.connectionGeneration=generation;publish();};
+    window.resetAdapterProjection=()=>{project.core={connectionGeneration:0};project.state.connected=false;project.state.threads={};publish();};
     window.fixture=()=>structuredClone(snapshot);
     window.settleSend=(requestId, target=threadId, method='areal/turn/submit')=>{project.pending=project.pending.filter(item=>item.params.requestId!==requestId);project.outcomes[requestId]={accepted:true,status:'completed',threadId:target,method,operation:{requestId,method,target:{kind:'thread',threadId:target}}};publish();};
     window.failObservation=(id='read-failure-1')=>{project.observationErrors={[threadId]:{id,projectId:project.id,threadId,connectionGeneration:0,message:'HISTORY_FAILURE_SENTINEL',code:'READ_FAILED',recovery:{kind:'none'}}};publish();};
@@ -76,6 +78,7 @@ try {
       command:async(name,params)=>{
         window.calls.push({name,params});
         if(name==='connect'&&fail)return {ok:false,error:{code:'RESPONSE_UNKNOWN',message:'Core disconnected; request outcome may be unknown',submissionUnknown:true}};
+        if(name==='connect'){project.state.connected=true;publish();}
         if(name==='reconcile')return {ok:true,value:{outcomes:structuredClone(project.outcomes)}};
         if(name==='queue')return {ok:true,value:structuredClone(project.state.queues[params.threadId])};
         if(name==='workspace')return {ok:true,value:{git:true,branch:'main'}};
@@ -119,6 +122,14 @@ try {
   assert.equal(await banner.count(),0);
   checks.push('Desktop reconnect restores the selected history even when the Core connection generation is unchanged.');
   await page.screenshot({path:join(scratch,'03-desktop-recovered-history.png'),animations:'disabled'});
+  await page.evaluate(()=>window.setCoreGeneration(1));
+  await page.waitForFunction(()=>window.calls.filter(call=>call.name==='open').length===3);
+  await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+  const beforeAdapterReset=await page.evaluate(()=>window.calls.filter(call=>call.name==='connect').length);
+  await page.evaluate(()=>window.resetAdapterProjection());
+  await page.getByText('RESTORED_HISTORY_SENTINEL',{exact:true}).waitFor({timeout:5000});
+  check((await page.evaluate(()=>window.calls.filter(call=>call.name==='connect').length))===beforeAdapterReset+1,'A fresh adapter generation reconnects the selected Core instead of reusing the previous restoration attempt.');
+  check((await page.evaluate(()=>window.calls.filter(call=>['send','create','steer','enqueue'].includes(call.name)).length))===0,'Adapter generation recovery observes history without replaying mutations.');
   const input=page.getByTestId('chat-input');
   const send=async text=>{await input.fill(text);await page.getByTestId('chat-send-button').click();await writeFile(join(scratch,'send-debug.json'),JSON.stringify(await page.evaluate(()=>({calls:window.calls,body:document.body.innerText})),null,2));await page.locator('.composer-dock [data-composer-recovery-request-id]').waitFor({timeout:5000});};
   const requestId='00000000-0000-4000-8000-000000000001';

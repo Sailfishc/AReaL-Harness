@@ -620,7 +620,10 @@ function AppContent({ services }: { services: PlatformServices }) {
         return await call(services, name, request);
       } catch (cause) {
         const failure = cause as RecoveryFailure;
-        if (!["providers", "chatgpt"].includes(name) && !(name === "respond" && params.answers)
+        // Composer owns confirmed send refusals and clears them on acceptance.
+        // Unconfirmed/admitted sends still keep their global recovery notice.
+        const composerRefusal = name === "send" && failure.outcome?.kind === "rejected";
+        if (!composerRefusal && !["providers", "chatgpt"].includes(name) && !(name === "respond" && params.answers)
           && name !== "media" && name !== "feedback" && !(name === "manage" && params.operation === "goalCreate")) {
           const operation = failure.outcome && "operation" in failure.outcome ? failure.outcome.operation : undefined;
           const requestId = operation?.requestId ?? failure.requestId ?? request.requestId;
@@ -819,10 +822,10 @@ function AppContent({ services }: { services: PlatformServices }) {
   useEffect(() => {
     if (!selectionReady || !project?.id || snapshot.connection?.state !== "ready") return;
     const previous = restorationAttempt.current;
-    if (!project.state?.connected && previous?.projectId === project.id && previous?.threadId === threadId) return;
-    if (project.observationErrors?.[threadId]?.connectionGeneration === (project.core?.connectionGeneration ?? 0)) return;
-    void restoreConversation({ projectId: project.id, threadId, connectionGeneration: project.core?.connectionGeneration ?? 0 },
-      project.state?.connected ? "open" : "connect");
+    const owner = { projectId: project.id, threadId, connectionGeneration: project.core?.connectionGeneration ?? 0 };
+    if (!project.state?.connected && sameRestorationOwner(previous, owner)) return;
+    if (project.observationErrors?.[threadId]?.connectionGeneration === owner.connectionGeneration) return;
+    void restoreConversation(owner, project.state?.connected ? "open" : "connect");
   }, [selectionReady, project?.id, threadId, project?.state?.connected, project?.core?.connectionGeneration, snapshot.connection?.state, restoreConversation]);
   const startupLifecycle = snapshot.lifecycle;
   const startupLifecycleBlocked = !!startupLifecycle?.error || !!startupLifecycle?.recovery

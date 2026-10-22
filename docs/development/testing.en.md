@@ -198,6 +198,10 @@ Before pushing a GUI/Core integration branch, run `make ci-preflight CI_BASE=ups
 
 After a successful GUI build, historical compatibility, migration, Composer, model selection, queue, and conversation derivation smokes collect results independently using isolated fixtures. A failed scenario no longer skips subsequent independent scenarios. Failures still fail the GUI job and gate; cancellation or build failure prevents these scenarios from starting, and no `continue-on-error` is used. This exposes independent failures in one run instead of requiring repeated first-failure repairs.
 
+Restoration deduplication belongs to the project, Thread, and Core connection generation; a rebuilt adapter cannot reuse an old generation's completed or failed attempt. `thread-restoration-ui-smoke.mjs` reproduces this boundary in the built renderer with controlled Desktop projections while preserving unknown submissions without replay.
+
+Confirmed send refusals belong to Composer and clear after later acceptance; global notices still retain genuinely unconfirmed or admitted outcomes.
+
 `make test` uses Cargo `--no-fail-fast` to collect failures across workspace test targets before returning a failing exit code; assertions and job timeouts remain enforced. For broad Core/protocol/storage integrations, complete the applicable Rust behavior suites as well as `ci-preflight` before pushing. The portable CI lane excludes `areal-runtime-exec-native`; the dedicated native/container lanes remain required.
 
 `make script-test` needs no product binary. `make launcher-test` builds the workspace before the real Rust launcher regressions; a missing binary fails direct suite execution. `make verify` runs both. Run the inexpensive privacy and trajectory polling regressions with `pnpm --dir clients/gui test:regressions`; `make gui-install` prepares both Electron and FFmpeg.

@@ -198,6 +198,10 @@ TUI 与共享服务 PTY 检查共用终端画面解析器，处理增量重绘�
 
 GUI 构建成功后，历史兼容、迁移、Composer、模型选择、队列和对话派生 smoke 各自使用隔离 fixture，独立收集结果；一个场景失败不再跳过后续独立场景。失败仍使 GUI job 和 gate 失败，取消或构建失败时不启动这些场景，不使用 `continue-on-error`。这避免修复首个失败后才逐轮发现其它问题。
 
+恢复去重的归属包含项目、聊天和 Core 连接代际；适配器重建后不能复用旧代际的完成/失败尝试。`thread-restoration-ui-smoke.mjs` 使用真实构建的 Renderer 及受控 Desktop 投影复现此边界，同时保持未知提交不重发。
+
+明确拒绝的发送提示由 Composer 持有，并在后续受理后清除；全局提示继续保留真正的未确认或已受理结果。
+
 `make test` 使用 Cargo `--no-fail-fast`，先收集 workspace 各测试目标的失败，再返回失败退出码；断言和 job 超时继续生效。大范围 Core/协议/存储集成在推送前除 `ci-preflight` 外，还需完成适用的 Rust 行为测试。可移植 CI 排除 `areal-runtime-exec-native`，专用 native/container 通道仍须通过。
 
 `make script-test` 不要求产品二进制；`make launcher-test` 先构建整个 workspace，再执行真实 Rust launcher 回归。直接运行 launcher suite 时缺二进制是失败，不是 skip。`make verify` 包含两个入口。GUI 低成本隐私和 trajectory polling 回归通过 `pnpm --dir clients/gui test:regressions` 执行；`make gui-install` 同时准备 Electron 和 FFmpeg。

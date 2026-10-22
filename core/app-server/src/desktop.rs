@@ -317,11 +317,14 @@ async fn dispatch_inner(
                     Ok(json!({"thread":thread,"turn":turn,"requestId":request_id}))
                 }
                 Err(Error::Conflict) => {
-                    return Err(RpcError {
-                        code: -32010,
-                        message: "request key conflicts with an existing Side".into(),
-                        data: Some(json!({"reason":"REQUEST_CONFLICT","retryable":false})),
-                    });
+                    return Err(rejected(
+                        RpcError {
+                            code: -32010,
+                            message: "request key conflicts with an existing Side".into(),
+                            data: Some(json!({"reason":"REQUEST_CONFLICT","retryable":false})),
+                        },
+                        "REQUEST_REJECTED",
+                    ));
                 }
                 Err(Error::Invalid(reason))
                     if matches!(
@@ -337,11 +340,14 @@ async fn dispatch_inner(
                             | "SELECTION_TOO_LARGE"
                     ) =>
                 {
-                    return Err(RpcError {
-                        code: -32010,
-                        message: reason.clone(),
-                        data: Some(json!({"reason":reason,"retryable":false})),
-                    });
+                    return Err(rejected(
+                        RpcError {
+                            code: -32010,
+                            message: reason.clone(),
+                            data: Some(json!({"reason":reason,"retryable":false})),
+                        },
+                        "REQUEST_REJECTED",
+                    ));
                 }
                 Err(error) => return Err(map_error(error)),
             }
@@ -372,11 +378,14 @@ async fn dispatch_inner(
                     Ok(json!({"thread":thread,"requestId":request_id}))
                 }
                 Err(Error::Conflict) => {
-                    return Err(RpcError {
-                        code: -32010,
-                        message: "request key conflicts with an existing Fork".into(),
-                        data: Some(json!({"reason":"REQUEST_CONFLICT","retryable":false})),
-                    });
+                    return Err(rejected(
+                        RpcError {
+                            code: -32010,
+                            message: "request key conflicts with an existing Fork".into(),
+                            data: Some(json!({"reason":"REQUEST_CONFLICT","retryable":false})),
+                        },
+                        "REQUEST_REJECTED",
+                    ));
                 }
                 Err(Error::Invalid(reason))
                     if matches!(
@@ -391,11 +400,14 @@ async fn dispatch_inner(
                             | "MODEL_MODALITY_INCOMPATIBLE"
                     ) =>
                 {
-                    return Err(RpcError {
-                        code: -32010,
-                        message: reason.clone(),
-                        data: Some(json!({"reason":reason,"retryable":false})),
-                    });
+                    return Err(rejected(
+                        RpcError {
+                            code: -32010,
+                            message: reason.clone(),
+                            data: Some(json!({"reason":reason,"retryable":false})),
+                        },
+                        "REQUEST_REJECTED",
+                    ));
                 }
                 Err(Error::Storage(message))
                     if message.contains("fork snapshot exceeds history limit")
@@ -852,16 +864,20 @@ async fn dispatch_inner(
                 .await
                 .map(|()| json!({}))
         }
-        "areal/turn/start" | "areal/turn/enqueue" => {
-            engine
-                .start_durable(
-                    identity.into(),
-                    parse(params)?,
-                    method == "areal/turn/enqueue",
-                )
-                .await
-        }
-        "areal/turn/submit" => engine.submit_turn(identity.into(), parse(params)?).await,
+        // These owners validate before committing the Turn/queue and receipt together.
+        // Storage and admitted outcome errors must retain their uncertainty.
+        "areal/turn/start" | "areal/turn/enqueue" => engine
+            .start_durable(
+                identity.into(),
+                parse(params)?,
+                method == "areal/turn/enqueue",
+            )
+            .await
+            .map_err(atomic_mutation_error),
+        "areal/turn/submit" => engine
+            .submit_turn(identity.into(), parse(params)?)
+            .await
+            .map_err(atomic_mutation_error),
         "areal/queue/steer" => engine.steer_queue(identity.into(), parse(params)?).await,
         "areal/queue/list" => {
             let p: ThreadId = parse(params)?;
