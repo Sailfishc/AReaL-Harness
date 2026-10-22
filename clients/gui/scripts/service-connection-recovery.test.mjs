@@ -74,7 +74,7 @@ async function until(predicate) {
   }
 }
 
-async function fixture(t, { commandContract = COMMAND_CONTRACT, commandResult, service = {}, resources = [], resourceError, onStop, lifecycle = true, replyTransform = value => value } = {}) {
+async function fixture(t, { helloErrors = [], commandContract = COMMAND_CONTRACT, commandResult, service = {}, resources = [], resourceError, onStop, lifecycle = true, replyTransform = value => value } = {}) {
   const home = await realpath(await mkdtemp(join(tmpdir(), 'areal-service-observer-')));
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
   await once(server, 'listening');
@@ -96,6 +96,9 @@ async function fixture(t, { commandContract = COMMAND_CONTRACT, commandResult, s
       if (message.method === 'hello' && message.params.identity !== metadata.identity) {
         socket.send(JSON.stringify({ id: message.id, error: { code: 'SERVICE_INCOMPATIBLE', message: 'fixture identity changed' } }));
         return;
+      }
+      if (message.method === 'hello' && helloErrors.length) {
+        socket.send(JSON.stringify({ id: message.id, error: helloErrors.shift() })); return;
       }
       if (message.method === 'resources' && resourceError) {
         socket.send(JSON.stringify({ id: message.id, error: resourceError })); return;
@@ -452,6 +455,19 @@ test('passive reconnect publishes connecting until the original observer is read
   assert.ok(f.backend.reconnectTimer);
   await until(() => f.backend.status.connected);
   assert.deepEqual([...new Set(states)], ['connecting', 'ready']);
+  assert.equal(f.calls.some(call => call.method === 'command'), false);
+});
+
+test('a read-only hello timeout recovers without a manual reconnect or command replay', async t => {
+  const helloErrors = [];
+  const f = await fixture(t, { helloErrors });
+  await f.publish(); await f.backend.attach();
+  helloErrors.push({ code: 'TIMEOUT', message: 'Injected hello read timeout', submissionUnknown: false, recovery: { kind: 'retryRead' } });
+  f.drop();
+  await until(() => f.calls.filter(call => call.method === 'hello').length >= 2);
+  await until(() => f.backend.status.connected);
+  assert.equal(f.calls.filter(call => call.method === 'hello').length, 3);
+  assert.notEqual(f.backend.reconnectBlocked, true);
   assert.equal(f.calls.some(call => call.method === 'command'), false);
 });
 
