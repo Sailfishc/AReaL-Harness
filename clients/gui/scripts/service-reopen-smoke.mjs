@@ -67,7 +67,13 @@ const records = async () => {
   let names; try { names = await readdir(join(scratch, 'registry/services')); } catch (error) { if (error.code === 'ENOENT') return []; throw error; }
   return (await Promise.all(names.map(name => readFile(join(scratch, 'registry/services', name, 'service.json'), 'utf8').then(JSON.parse).catch(error => { if (error.code === 'ENOENT') return null; throw error; })))).filter(Boolean);
 };
-const metadata = () => readFile(join(scratch, 'core/service.json'), 'utf8').then(JSON.parse);
+const desktopPids = new Set();
+const metadata = async () => {
+  const value = JSON.parse(await readFile(join(scratch, 'core/service.json'), 'utf8'));
+  assert.ok(Number.isSafeInteger(value.pid), 'Desktop metadata identifies its process');
+  desktopPids.add(value.pid);
+  return value;
+};
 const identity = async () => {
   const desktop = await metadata(), services = await records();
   const processes = execFileSync('ps', ['-axo', 'pid=,ppid=,comm='], { encoding: 'utf8' }).trim().split('\n').map(line => {
@@ -103,7 +109,7 @@ const stop = async () => {
 };
 const quiescent = async () => {
   await until(async () => (await records()).every(service => !alive(service.hostPid) && !alive(service.corePid)), 'old engine processes exit');
-  if (originalMetadata) await until(() => !alive(originalMetadata.pid), 'old Desktop exits');
+  await until(() => [...desktopPids].every(pid => !alive(pid)), 'all observed Desktop generations exit');
 };
 const sourcePaths = ['app/src/core/main.cjs', 'app/src/core/service-main.cjs', 'app/src/core/service-client.cjs', 'app/src/core/backend.cjs', 'scripts/service-reopen-smoke.mjs', 'scripts/model-fixture.mjs', 'renderer/dist/index.html'];
 const sourceHashes = Object.fromEntries(await Promise.all(sourcePaths.map(async path => [path, createHash('sha256').update(await readFile(join(gui, path))).digest('hex')])));
@@ -247,6 +253,7 @@ finally {
   for (const response of held) response.destroy(); model.closeAllConnections(); await new Promise(resolve => model.close(resolve));
   for (const [path, hash] of Object.entries(sourceHashes)) if (createHash('sha256').update(await readFile(join(gui, path))).digest('hex') !== hash) errors.push(`source changed during test: ${path}`);
   passed = passed && errors.length === 0;
-  await writeFile(join(scratch, 'manifest.json'), JSON.stringify({ passed, checks, errors, force, generations, attachments, sourceHash, sourceHashes, binary, replacement, originalHash, requests: requests.length, namingRequests: modelRequests.filter(request => request.kind === 'naming').length, modelRequests, scope: 'isolated source Electron/Main/Desktop/Core; Runtime PID presence recorded without requiring tool execution; local model; native dialog/picker responses injected; no installed package' }, null, 2));
+  const desktopCleanup = [...desktopPids].map(pid => ({ pid, exited: !alive(pid) }));
+  await writeFile(join(scratch, 'manifest.json'), JSON.stringify({ passed, checks, errors, force, generations, attachments, desktopCleanup, sourceHash, sourceHashes, binary, replacement, originalHash, requests: requests.length, namingRequests: modelRequests.filter(request => request.kind === 'naming').length, modelRequests, scope: 'isolated source Electron/Main/Desktop/Core; Runtime PID presence recorded without requiring tool execution; local model; native dialog/picker responses injected; no installed package' }, null, 2));
 }
 assert.ok(passed, errors.join('\n')); console.log('PASS', checks);
