@@ -121,6 +121,8 @@ MCP 应用页面在窗口内保留。切换标签、隐藏面板、会话或项�
 
 关闭窗口只隐藏界面，GUI 仍持有单实例锁；再次启动或从 Dock 激活会唤回原窗口。应用菜单、菜单栏和后台设置的“退出 AReaL Harness”（⌘Q / Ctrl+Q）共用安全退出。应用拥有 Desktop、每项目 Host、Core、Runtime 和监督桥，窗口不拥有引擎。有活动任务、已启用的定时安排或手机入口时，原生确认简要提示退出影响，提供“取消”和“退出”。只有原引擎物理清理和 Desktop 退出已确认后才退出 Main。部分停止、结果未知或清理未完成保留恢复入口，不自动重复停止。退出后安排不再触发，手机入口断开；安排定义、历史与草稿保留。CLI 与其他 GUI profile 保持独立。
 
+通过未保存修改检查后，普通退出显示带持续动画的进度弹窗，直到窗口真正退出。弹窗区分检查后台、停止后台与完成退出，不显示百分比或预计时间；等待期间关闭窗口不会隐藏弹窗。取消原生确认或退出失败后恢复界面，原请求与未知结果仍由现有恢复入口核查。原生浏览器视图在等待时暂时隐藏，取消或失败后恢复原页面。`AREAL_CORE_BIN=/absolute/fixed-slot/areal pnpm --dir clients/gui run test:quit-progress` 使用隔离 Electron/Core 验证发送、暂停、退出反馈、取消、失败恢复、重复退出与实际进程清理；原生确认由 fixture 应答，不证明物理快捷键或安装包通过。
+
 `AREAL_CORE_BIN=/absolute/fixed-slot/areal pnpm --dir clients/gui run test:desktop-exit` 在隔离 Electron/Core/Runtime 中核对窗口重开、普通退出的取消与确认、隐藏项目引擎清理、独立 CLI 和其他 GUI profile、Main/Desktop 强退及 runner 清理。目录选择和原生确认由 fixture 应答。指定 `AREAL_GUI_EXECUTABLE` 可使用私有安装包，runner 强退夹具仍限源码入口；这不替代物理快捷键或 Finder 安装验收。
 
 `AREAL_CORE_BIN=/absolute/path/to/private/.local/dev-bin/<slot>/areal node clients/gui/scripts/application-owner-smoke.mjs` 从仓库根验证真实 Host 尚未发布描述时丢失启动响应、原代际恢复、项目投影移除、同/异 profile 旧 owner 的只读边界及原回执清理。测试专用 CLI guard 仅管理隔离 registry 的原实例，runner 结束后通过公共 CLI 回收独立持久服务。
@@ -151,7 +153,7 @@ macOS 桌面适配器通过系统 `/usr/bin/python3` 保留可信 Core 命令的
 
 遇到 `Core disconnected` 时，在设置的“后台服务”页或应用菜单点击“导出诊断包…”，选择保存位置。后台离线或主界面渲染进程退出后，应用菜单仍可导出。界面到 Desktop 的连接和 Desktop 到工作区 Core 的连接分别记录；前者已连接不代表后者可用。
 
-诊断包只包含固定结构的进程身份、连接错误码与关闭码、Electron 进程退出原因、未捕获异常类别，以及启动时和每 60 秒一次的内存与定时器延迟样本。项目与 Core 代际使用本次运行内的别名。不会包含对话、凭据、环境变量、命令参数、原始日志、异常消息或堆栈。记录分别保存在 GUI profile 的 `diagnostics/main` 和 GUI Core home 的 `diagnostics/desktop`；每个角色保留最多 8 次运行，每次最多 4 个 256 KiB 事件文件。导出最多读取 16 MiB，报告记录器健康、合并重复事件和文件缺失等遗漏。旧运行缺少退出记录只标为 `termination-unconfirmed`，不推断崩溃原因；观察到的 Core PID 也不证明进程仍存活。写入失败不会改变任务执行或未知提交状态。
+诊断包只包含固定结构的进程身份、连接错误码与关闭码、Electron 进程退出原因、未捕获异常类别、固定枚举的退出阶段与耗时，以及启动时和每 60 秒一次的内存与定时器延迟样本。项目与 Core 代际使用本次运行内的别名。不会包含对话、凭据、环境变量、命令参数、原始日志、异常消息或堆栈。记录分别保存在 GUI profile 的 `diagnostics/main` 和 GUI Core home 的 `diagnostics/desktop`；每个角色保留最多 8 次运行，每次最多 4 个 256 KiB 事件文件。导出最多读取 16 MiB，报告记录器健康、合并重复事件和文件缺失等遗漏。旧运行缺少退出记录只标为 `termination-unconfirmed`，不推断崩溃原因；观察到的 Core PID 也不证明进程仍存活。写入失败不会改变任务执行或未知提交状态。
 
 Electron Crashpad 在两个主进程中只保存本地转储，禁用上传。默认诊断包仅列转储是否可用和有界计数，不附内存内容；它不捕获 Rust Core 或 Runtime 的原生崩溃。转储目录为各诊断角色目录旁的 `main-crashes` 或 `desktop-crashes`，其磁盘占用不受事件文件上限约束。macOS 源码验收使用仓库 `.local/dev-bin/` 下已部署的固定 Core，运行 `AREAL_CORE_BIN="$PWD/.local/dev-bin/areal" pnpm --dir clients/gui run test:diagnostics` 验证有界存储、隐私筛选、WebSocket 超限以及隔离 Electron 的离线导出与强制退出恢复。
 

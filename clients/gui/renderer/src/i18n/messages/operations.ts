@@ -1,4 +1,20 @@
 export const operationMessages = {
+  "operations.quitting": {
+    "zh-CN": "正在退出 AReaL Harness",
+    "en": "Quitting AReaL Harness"
+  },
+  "operations.quit.checking": {
+    "zh-CN": "正在检查后台状态…",
+    "en": "Checking background status…"
+  },
+  "operations.quit.stopping": {
+    "zh-CN": "正在等待后台退出…",
+    "en": "Waiting for background shutdown…"
+  },
+  "operations.quit.finishing": {
+    "zh-CN": "正在完成退出…",
+    "en": "Finishing shutdown…"
+  },
   "operations.componentIncompatible": {
     "zh-CN": "必需组件不兼容",
     "en": "Required components are incompatible"

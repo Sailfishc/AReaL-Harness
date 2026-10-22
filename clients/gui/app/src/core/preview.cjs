@@ -400,6 +400,7 @@ class CorePreview {
     this.fileReceipts = new Map();
     this.owner = null;
     this.view = null;
+    this.suppressedPresentation = null;
     this.browserHostId = randomUUID();
     this.hostGeneration = randomBytes(4).readUInt32BE(0);
     // A call identity is retained for this host lifetime. Losing a transport
@@ -409,6 +410,7 @@ class CorePreview {
     window.on('blur', () => this.cancelHumanGesture(this.humanMouseGesture?.page));
     // 人工输入来源只在 Main 记录；Renderer 没有通用 sendInputEvent 能力。
     window.webContents.on('before-mouse-event', (event, mouse) => {
+      if (this.suppressedPresentation) return;
       const page = this.pages.get(this.owner);
       if (!page?.view || !window.isFocused()) return;
       const bounds = page.view.getBounds();
@@ -431,12 +433,35 @@ class CorePreview {
       void this.humanInput(page.projectId, page.threadId, page.id, { ...mouse, x, y }).catch(() => {});
     });
     window.webContents.on('before-input-event', (event, input) => {
+      if (this.suppressedPresentation) return;
       const page = this.pages.get(this.owner);
       if (!page?.view || page.id !== this.nativeInputOwner || page.view.getVisible()
         || !page.requestedVisible || !window.isFocused() || !['agent', 'transferring'].includes(page.control)) return;
       event.preventDefault();
       void this.humanKey(page, input).catch(() => {});
     });
+  }
+  setPresentationSuppressed(suppressed) {
+    if (suppressed) {
+      if (this.suppressedPresentation) return;
+      const page = this.pages.get(this.owner), view = this.view;
+      this.suppressedPresentation = { page, view, visible: view?.getVisible() === true };
+      view?.setVisible(false);
+      page?.activeSelection?.cancel();
+      page?.activeRead?.cancel();
+      this.cancelHumanGesture(page);
+      return;
+    }
+    const previous = this.suppressedPresentation;
+    this.suppressedPresentation = null;
+    if (!previous?.visible) return;
+    const { page, view } = previous;
+    if (page && view && this.pageStillOwned(page) && page.view === view && this.view === view
+      && this.owner === pageKey(page.coreInstanceId, page.projectId, page.threadId, page.id)
+      && this.selected.get(workspaceKey(page.coreInstanceId, page.projectId, page.threadId)) === page.id
+      && !page.crashed && !view.webContents.isDestroyed() && page.requestedVisible
+      && page.control !== 'transferring' && !page.activeAction)
+      view.setVisible(true);
   }
   workspacePages(projectId, threadId) {
     return [...this.pages.values()].filter(page => page.coreInstanceId === this.coreIdentity(projectId)
@@ -730,7 +755,7 @@ class CorePreview {
         }
         if (page.control === 'transferring' && page.controlEpoch === epoch) {
           page.control = 'human'; page.transferError = null;
-          page.view?.setVisible(this.pageStillOwned(page) && this.owner === pageKey(page.coreInstanceId, page.projectId, page.threadId, page.id)
+          page.view?.setVisible(!this.suppressedPresentation && this.pageStillOwned(page) && this.owner === pageKey(page.coreInstanceId, page.projectId, page.threadId, page.id)
             && page.requestedVisible === true);
           this.changed(page, 'controlChanged');
         }
@@ -2362,7 +2387,7 @@ class CorePreview {
         && page.inputPending.size === 0
         && page.heldButtons.size === 0 && page.heldKeys.size === 0) {
         if (!c.isDestroyed() && c.debugger.isAttached() && !page.diagnosticsReady) c.debugger.detach();
-        page.view?.setVisible(this.pageStillOwned(page) && this.owner === pageKey(page.coreInstanceId, page.projectId, page.threadId, page.id)
+        page.view?.setVisible(!this.suppressedPresentation && this.pageStillOwned(page) && this.owner === pageKey(page.coreInstanceId, page.projectId, page.threadId, page.id)
           && page.requestedVisible === true);
       } else if (page.control === 'agent' && page.controlEpoch === saved.plan.controlEpoch) {
         // Even a failed action must release native input before local input resumes.
@@ -3315,7 +3340,7 @@ class CorePreview {
         }
         this.owner = key; this.view = page.view;
         page.requestedVisible = request.visible !== false;
-        page.view.setVisible(page.requestedVisible && page.control !== 'transferring' && !page.activeAction);
+        page.view.setVisible(!this.suppressedPresentation && page.requestedVisible && page.control !== 'transferring' && !page.activeAction);
         break;
       case 'navigate':
         page.url = target; page.error = '';

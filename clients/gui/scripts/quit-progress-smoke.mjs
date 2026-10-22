@@ -34,6 +34,7 @@ Object.assign(env, {
 const requests = [], held = new Set(), errors = [], checks = [];
 const server = createServer(async (request, response) => {
   try {
+    if (request.url === '/quit-preview') { response.writeHead(200, { 'Content-Type': 'text/html' }); response.end('<h1>QUIT_PREVIEW_PAGE</h1>'); return; }
     let raw = ''; for await (const chunk of request) raw += chunk;
     const body = JSON.parse(raw);
     if (respondToSessionName(body, response)) return;
@@ -53,6 +54,7 @@ const { appendFileSync, existsSync } = require('node:fs');
 const record = value => appendFileSync(${JSON.stringify(eventsPath)}, JSON.stringify({ time: Date.now(), ...value }) + '\\n');
 globalThis.quitFixtureResponse = 0;
 require('electron').dialog.showMessageBox = async (...args) => {
+  if (args.at(-1).title === '允许本地开发站点') return { response: 1 };
   record({ event: 'native-confirmation', message: args.at(-1).message, response: globalThis.quitFixtureResponse });
   return { response: globalThis.quitFixtureResponse };
 };
@@ -89,6 +91,8 @@ const sourceHashes = Object.fromEntries(await Promise.all(sourceFiles.map(async 
 const coreHashes = Object.fromEntries(await Promise.all(['areal', 'areal-runtime', 'areal-runtime-fs'].map(async name => [name, sha(await readFile(join(dirname(binary), name)))])));
 const source = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
 const diffSha256 = sha(execFileSync('git', ['diff', 'HEAD'], { cwd: root }));
+let nativeId;
+const nativeViews = () => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].contentView.children.map(view => ({ id: view.webContents?.id, visible: view.getVisible(), focused: view.webContents?.isFocused() })));
 let application, app, page, child, metadata, passed = false, failure, cleanup;
 const until = async (read, label, timeout = 60000) => {
   const deadline = Date.now() + timeout;
@@ -121,6 +125,11 @@ const assertProgress = async (locale, capture) => {
   const dialog = progress(locale);
   await until(() => dialog.isVisible(), 'Approved quit displays a visible progress dialog', 10000);
   assert.equal(child.exitCode, null, 'Progress is observed while the application remains alive');
+  if (nativeId) {
+    const view = (await nativeViews()).find(view => view.id === nativeId);
+    if (view || !capture.includes('finishing')) assert.equal(view?.visible, false, 'Existing native preview cannot cover quit progress');
+    if (view) assert.equal(view.focused, false, 'Hidden native preview does not retain keyboard focus');
+  }
   const animation = await dialog.evaluate(element => {
     const animations = element.getAnimations({ subtree: true }).filter(animation => animation.playState === 'running');
     return animations.map(animation => ({ name: animation.animationName, duration: animation.effect?.getTiming().duration }));
@@ -131,7 +140,7 @@ const assertProgress = async (locale, capture) => {
   await page.mouse.click(4, 4);
   assert.equal(await dialog.isVisible(), true, 'Backdrop cannot dismiss approved quit progress');
   await page.screenshot({ path: join(scratch, capture) });
-  await writeFile(join(scratch, capture.replace('.png', '.json')), JSON.stringify({ animation, snapshot: await snapshot() }, null, 2));
+  await writeFile(join(scratch, capture.replace('.png', '.json')), JSON.stringify({ animation, nativeViews: await nativeViews(), body: await page.locator('body').innerText() }, null, 2));
 };
 console.log('Quit progress evidence:', scratch);
 try {
@@ -164,16 +173,24 @@ try {
   await command('manage', { projectId, operation: 'taskCreate', mode: 'scheduled', objective: 'QUIT_PROGRESS_FUTURE_TASK',
     schedule: { at: Math.floor(Date.now() / 1000) + 86400, timeZone: 'Asia/Shanghai' } });
   await writeFile(join(scratch, 'after-pause.json'), JSON.stringify(await snapshot(), null, 2));
+  const threadId = thread(await snapshot()).id;
+  const previewUrl = `http://127.0.0.1:${server.address().port}/quit-preview`;
+  await page.evaluate(request => window.arealDesktop.preview(request), { operation: 'show', projectId, threadId,
+    url: previewUrl, visible: true, bounds: { x: 700, y: 400, width: 300, height: 200 } });
+  nativeId = await until(async () => app.evaluate(({ BrowserWindow }, url) => BrowserWindow.getAllWindows()[0].contentView.children.find(view => view.webContents?.getURL() === url && view.getVisible())?.webContents.id, previewUrl), 'Native preview visible before quit');
+
   await quit();
   await until(async () => await count('native-confirmation') === 1, 'Native quit confirmation canceled');
   await until(async () => (await command('providers', { operation: 'list' })).data, 'IPC usable after native cancellation');
   assert.equal(child.exitCode, null);
-  assert.equal(await progress('zh-CN').isVisible(), false, 'Canceled quit clears progress');
+  await progress('zh-CN').waitFor({ state: 'hidden' });
+  assert.equal((await nativeViews()).find(view => view.id === nativeId)?.visible, true, 'Canceled quit restores the same native page');
   await page.getByTestId('chat-input').fill('Editing still works after cancel');
   assert.match(await page.getByTestId('chat-input').innerText(), /Editing still works after cancel/);
   await page.getByTestId('chat-input').fill('');
   checks.push('UI send and pause close the real model stream; native cancellation leaves editing and Core IPC usable');
 
+  await app.evaluate(({ webContents }, id) => webContents.fromId(id).focus(), nativeId);
   await writeFile(stopGate, 'held');
   await writeFile(failStop, 'known failure before original stop');
   await app.evaluate(() => { globalThis.quitFixtureResponse = 1; });
@@ -185,6 +202,7 @@ try {
   await progress('zh-CN').waitFor({ state: 'hidden' });
   await until(async () => (await command('providers', { operation: 'list' })).data, 'IPC usable after known quit failure');
   assert.equal(child.exitCode, null, 'Known pre-stop failure leaves the application alive');
+  assert.equal((await nativeViews()).find(view => view.id === nativeId)?.visible, true, 'Failed quit restores the same native page');
   checks.push('Approved Chinese progress animates and cannot dismiss; known stop failure clears it and restores Core IPC');
 
   await page.getByRole('button', { name: '设置', exact: true }).click();
@@ -246,7 +264,7 @@ try {
   for (const [name, hash] of Object.entries(coreHashes)) assert.equal(sha(await readFile(join(dirname(binary), name))), hash, `Core stays unchanged: ${name}`);
   await writeFile(join(scratch, 'manifest.json'), JSON.stringify({ passed, source, diffSha256, sourceHashes, coreHashes, binary, checks, failure, cleanup, errors,
     gui: { pid: child?.pid, exitCode: child?.exitCode, signalCode: child?.signalCode },
-    boundaries: 'Isolated source Electron with real fixed Core and deterministic loopback SSE model. UI send and pause; real bridge creates a future scheduled task. Native folder picker and quit confirmation responses injected. Stop gate delays before original stopService, with one known pre-stop failure. Final gate delays real prepareQuit after backend stop. Application-menu quit callback and native window close callback, no physical Command+Q. No packaged app or real provider.' }, null, 2));
+    boundaries: 'Isolated source Electron with real fixed Core and deterministic loopback SSE model. UI send and pause; real bridge creates a future scheduled task and visible native preview. Native WebContentsView identity/visibility observed through Main. Native folder picker and quit confirmation responses injected. Stop gate delays before original stopService, with one known pre-stop failure. Final gate delays real prepareQuit after backend stop. Application-menu quit callback and native window close callback, no physical Command+Q. No packaged app or real provider.' }, null, 2));
   console.log('Quit progress result:', passed ? 'PASS' : 'FAIL', checks);
   if (!passed) process.exitCode = 1;
 }

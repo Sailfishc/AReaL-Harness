@@ -92,40 +92,71 @@ function confirmRendererQuit(attempt) {
     owner.send('areal-core:quit-request', attempt.id);
   });
 }
+function setQuitProgress(attempt, phase) {
+  if (quitAttempt !== attempt || attempt.intent === 'install') return;
+  attempt.phase = phase;
+  if (attempt.owner && !attempt.owner.isDestroyed() && attempt.owner.mainFrame === attempt.frame)
+    attempt.owner.send('areal-core:quit-progress', phase ? { state: 'quitting', phase } : { state: 'idle' });
+}
+function recordQuitStage(attempt, stage) {
+  if (quitAttempt !== attempt) return;
+  diagnostics.record({ type: 'quit-stage', attempt: attempt.id, elapsedMs: Math.floor(performance.now() - attempt.startedAt), stage });
+}
 function requestQuit(intent = 'application') {
   if (quitAttempt) return quitAttempt.promise;
   if (quitting) return Promise.resolve({ canceled: true });
-  const attempt = { id: ++quitRequestSequence, intent, owner: null, frame: null, decide: null, approved: false, promise: null };
+  const attempt = { id: ++quitRequestSequence, intent, owner: null, frame: null, decide: null, approved: false,
+    phase: null, startedAt: performance.now(), promise: null };
   quitAttempt = attempt;
   attempt.promise = (async () => {
     if (!backend) throw new Error('界面仍在准备，请稍后退出');
-    if (!await confirmRendererQuit(attempt)) return { canceled: true };
-    if (quitting) return { canceled: true };
+    if (!await confirmRendererQuit(attempt)) { recordQuitStage(attempt, 'canceled'); return { canceled: true }; }
+    if (quitting) { recordQuitStage(attempt, 'canceled'); return { canceled: true }; }
     attempt.approved = true;
     quitting = true;
+    if (intent !== 'install') preview?.setPresentationSuppressed(true);
+    setQuitProgress(attempt, 'checking');
+    recordQuitStage(attempt, 'checking');
+    recordQuitStage(attempt, 'readiness');
     await backend.waitForApplicationReady();
+    recordQuitStage(attempt, 'reconcile');
     await backend.checkLifecycle();
     if (backend.foreignOwner && (intent === 'install' || backend.desktopLifetimes.size))
       throw Object.assign(new Error('原后台属于其他应用会话，请先从其原入口安全退出，再重试安装'), { code: 'APPLICATION_OWNER_MISMATCH' });
     if (!backend.foreignOwner && !backend.serviceExited && (backend.status.connected || backend.metadata || backend.desktopLifetimes.size)) {
+      setQuitProgress(attempt, 'stopping');
+      recordQuitStage(attempt, 'stop');
       const result = await recoverConnectedService({ backend,
-        notify: options => process.platform === 'darwin' && intent !== 'install' ? dialog.showMessageBox(options) : dialog.showMessageBox(window, options), purpose: intent === 'install' ? 'update' : 'quit', forUpdate: intent === 'install' });
+        notify: async options => {
+          recordQuitStage(attempt, 'native-confirmation');
+          const answer = await (process.platform === 'darwin' && intent !== 'install' ? dialog.showMessageBox(options) : dialog.showMessageBox(window, options));
+          if (answer.response === 1) recordQuitStage(attempt, 'stop');
+          return answer;
+        }, purpose: intent === 'install' ? 'update' : 'quit', forUpdate: intent === 'install' });
       if (result.stopped !== true) {
+        recordQuitStage(attempt, result.canceled ? 'canceled' : 'incomplete');
         if (!result.canceled) backend.reportLifecycleError(new Error('应用后台停止尚未完成，请检查原请求与阻塞事项。'));
         return result;
       }
     }
+    setQuitProgress(attempt, 'finishing');
+    recordQuitStage(attempt, 'terminal');
     await backend.prepareQuit();
     if (intent === 'install') await require('../update/package-users.cjs').assertPackageUsersReleased({ packaged: app.isPackaged });
+    recordQuitStage(attempt, 'finalizing');
     if (!backend.foreignOwner) await backend.completeApplicationQuit();
+    recordQuitStage(attempt, 'disconnect');
     await backend.shutdown();
     preview?.dispose();
     exitReady = true;
+    recordQuitStage(attempt, 'exit-ready');
     if (intent !== 'install') setImmediate(() => app.quit());
     return { stopped: true, quitting: true };
-  })().finally(() => {
+  })().catch(error => { recordQuitStage(attempt, 'failed'); throw error; }).finally(() => {
     if (!exitReady && quitAttempt === attempt) {
       if (attempt.approved) quitting = false;
+      setQuitProgress(attempt, null);
+      if (intent !== 'install') preview?.setPresentationSuppressed(false);
       quitAttempt = null;
     }
   });
@@ -189,10 +220,13 @@ function desktopSnapshot() {
   if (state.connection?.state === 'ready' && state.library && !quitting) menuBar?.sync(state.library.settings?.showInMenuBar !== false);
   return { ...state, menuBar: menuBar?.snapshot() ?? null };
 }
-function trusted(event) {
-  if (quitting) throw new Error('应用正在退出或安装更新');
+function trustedSender(event) {
   if (!window || event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame
     || !event.senderFrame.url.startsWith('areal-ui://app/')) throw new Error('拒绝非主视图请求');
+}
+function trusted(event) {
+  if (quitting) throw new Error('应用正在退出或安装更新');
+  trustedSender(event);
 }
 ipcMain.on('areal-core:quit-decision', (event, decision) => {
   const attempt = quitAttempt;
@@ -262,6 +296,7 @@ async function createWindow() {
     window.on('close', event => {
       if (exitReady) return;
       event.preventDefault();
+      if (quitting) return;
       // A close-to-background still ends this window's Browser ownership. Fence
       // native callbacks before hiding; reopening creates fresh Pages on demand.
       browserWindowClosed = true;
@@ -382,8 +417,12 @@ app.whenReady().then(async () => {
     throw new Error('Unsupported app operation');
   });
   ipcMain.handle('areal-core:preview', async (event, request) => {
-    trusted(event);
+    trustedSender(event);
     validatePreview(request);
+    if (quitting) {
+      if (preview?.suppressedPresentation && request.operation === 'show') return null;
+      throw new Error('应用正在退出或安装更新');
+    }
     if (!preview) throw new Error('预览不可用');
     if (request?.operation === 'subscribe') {
       if (!backend.ownsThread(request.projectId, request.threadId)) throw new Error('请选择有效任务');

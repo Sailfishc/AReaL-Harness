@@ -42,7 +42,8 @@ import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 
 import { DismissIcon as X } from "./interfaceIcons.js";
 import { ComposerPlusIcon, LeaveProjectIcon, NewProjectIcon, ProjectFolderIcon, ProjectNewChatIcon, ProjectOpenFolderIcon, SidePanelIcon, SidebarToggleIcon, TaskSummaryIcon } from "./homeChromeIcons.js";
 import { UpdateIndicator } from "./UpdateIndicator.js";
-import { call, type PlatformServices, type Snapshot, type Data, type Action, type PreparedCreator } from "./services.js";
+import { QuitProgressDialog } from "./QuitProgressDialog.js";
+import { call, type PlatformServices, type Snapshot, type Data, type Action, type PreparedCreator, type QuitProgress } from "./services.js";
 import { MemoTaskItem } from "./TaskListItem.js";
 import { DndContext, DragOverlay } from "@dnd-kit/core";
 import { SidebarDragSurface, useSidebarDrag, type SidebarDragSource } from "./sidebarDrag.js";
@@ -216,7 +217,9 @@ function TaskResourcesPopover({ project, thread, action, selectedAgent, onPanel,
   </Popover>;
 }
 export function App({ services }: { services: PlatformServices }) {
-  return <UnsavedChangesProvider><AppContent services={services} /></UnsavedChangesProvider>;
+  const [quitProgress, setQuitProgress] = useState<QuitProgress>({ state: "idle" });
+  useEffect(() => services.onQuitProgress?.(setQuitProgress), [services]);
+  return <UnsavedChangesProvider><AppContent services={services} /><QuitProgressDialog progress={quitProgress} /></UnsavedChangesProvider>;
 }
 function AppContent({ services }: { services: PlatformServices }) {
   const { t } = useI18n();
