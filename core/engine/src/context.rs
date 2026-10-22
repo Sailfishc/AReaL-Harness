@@ -413,6 +413,9 @@ impl Engine {
         if let Some(instructions) = instructions {
             prefix.push(Message::text("system", instructions));
         }
+        if self.extensions.policy.completion_focus {
+            prefix.push(Message::text("system", agents::COMPLETION_FOCUS));
+        }
         if self.extensions.agents.is_none()
             && !cell.research
             && self.limits.max_children_per_turn > 0
@@ -992,7 +995,6 @@ impl Engine {
             let storage_only = storage_trigger && !token_trigger && !byte_trigger && !force;
             let mut attempt = 0;
             let mut network_retries: usize = 0;
-            let mut request_reserved = false;
             // 只有存储压力时使用已记录证据，不为不可回放的推理再次付费摘要。
             while attempt < 2 && !storage_only {
                 let mut summary = String::new();
@@ -1047,15 +1049,21 @@ impl Engine {
                 };
                 let request_span = request.span.clone();
                 let response: anyhow::Result<()> = async {
+                    // 摘要也使用同一容量；失败后先归还名额再退避。
+                    let permit = tokio::select! {
+                        _ = cancel.cancelled() => anyhow::bail!("cancelled before summary admission"),
+                        permit = self.permits.clone().acquire_owned() => permit?,
+                    };
                     if budget.window > 0 {
                         let output = model.capabilities().summary_output_tokens.unwrap_or(budget.reserve);
                         anyhow::ensure!(output < budget.window, "summary output reserve exceeds model context window");
                         fit_summary_input(&mut input, budget.window - output)?;
                     }
-                    if !request_reserved {
-                        self.reserve_agent_model_request(cell)?;
-                        request_reserved = true;
-                    }
+                    self.reserve_agent_model_request(cell)?;
+                    let engine = self.clone();
+                    let request_cell = cell.clone();
+                    let permit = model::RequestCapacity::new(self.permits.clone(), permit,
+                        Box::new(move || engine.reserve_agent_model_request(&request_cell)), None, Some(cancel.clone()));
                     // 预检可能缩短摘要证据；轨迹必须记录真正提交给模型的消息。
                     trajectory::record_messages(&tracing::Span::current(), "gen_ai.input.messages", &input);
                     if cell.state.lock().await.active.is_some() {
@@ -1063,10 +1071,10 @@ impl Engine {
                         self.publish_context_usage(cell, &input, &[], &configuration, model.as_ref()).await?;
                     }
                     let mut response_deadline = watchdog::ResponseDeadline::new(self.limits.model_request_timeout, self.limits.stream_idle_timeout);
-                    let pending = tokio::time::timeout_at(response_deadline.deadline(), model::REQUEST_OWNER.scope((snapshot.id.clone(), snapshot.turns.last().map_or_else(String::new, |t| t.id.clone())), async {
+                    let pending = tokio::time::timeout_at(response_deadline.deadline(), model::REQUEST_OWNER.scope((snapshot.id.clone(), snapshot.turns.last().map_or_else(String::new, |t| t.id.clone())), permit.scope(async {
                         let meter = crate::request_meter::RequestMeter::new(generation.clone());
                         model.chat_with_limits(input.clone(), Vec::new(), model::RequestPurpose::Summary, model::ToolCallLimits { max_calls: 0, max_buffer_bytes: self.limits.max_tool_buffer_bytes }, None).await.map(|stream| meter.wrap(stream))
-                    }));
+                    })));
                     tokio::pin!(pending);
                     let mut stream = tokio::select! {
                         _ = cancel.cancelled() => {
@@ -1139,7 +1147,7 @@ impl Engine {
                     return Err(error.context(diagnostic));
                 }
                 if let Some(delay) =
-                    watchdog::retry_delay(self.limits.watchdog_disable, &error, network_retries)
+                    watchdog::retry_delay(self.limits.watchdog_disable, self.limits.network_retry_mode, &error, network_retries)
                 {
                     network_retries = network_retries.saturating_add(1);
                     cell.emit("areal/model/watchdogRetry", json!({"threadId":snapshot.id,"turnId":snapshot.turns.last().map(|t| &t.id),"purpose":"summary","retry":network_retries,"delayMs":delay.as_millis() as u64}));
@@ -1154,12 +1162,14 @@ impl Engine {
                     }
                     continue;
                 }
+                if watchdog::exhausted(self.limits.network_retry_mode, &error, network_retries) {
+                    return Err(error.context(CompactionFailure("bounded Core network recovery exhausted after 5 retries")));
+                }
                 if !validation_failed {
                     return Err(error.context(CompactionFailure("summary request failed")));
                 }
                 attempt += 1;
                 network_retries = 0;
-                request_reserved = false;
                 input.push(Message::text("system", "Internal compaction retry, not a user task. The summary was rejected. Return only a shorter checkpoint, without tool calls or executable markup. Use fewer than 500 words and 4000 UTF-8 bytes. Prioritize exact interfaces, remaining work and observed validation over narrative. Keep unfinished work and verification status explicit."));
             }
             let generated_summary_bytes = accepted.as_ref().map(String::len);

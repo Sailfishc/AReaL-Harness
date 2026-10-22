@@ -28,6 +28,7 @@ pub use trajectory::{configure_trajectory_capture_budget, record_json as record_
 mod turns;
 mod watchdog;
 pub mod workgroup;
+mod workspace;
 
 use areal_protocol::{Input, Item, Modality, Thread, ThreadStatus, Turn, TurnStatus, notification};
 use futures_util::{FutureExt, StreamExt};
@@ -42,7 +43,7 @@ use std::{
     path::Path,
     sync::{
         Arc,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -96,6 +97,8 @@ pub struct Limits {
     pub max_completion_retries: usize,
     /// 关闭默认启用的网络 watchdog；有限响应恢复额度仍独立生效。
     pub watchdog_disable: bool,
+    /// 有限模式允许每个当前请求最多五次 Core 网络恢复，不增加既有请求预算。
+    pub network_retry_mode: areal_config::NetworkRetryMode,
 }
 
 impl Default for Limits {
@@ -138,6 +141,7 @@ impl Default for Limits {
             max_empty_completion_retries: 0,
             max_completion_retries: 0,
             watchdog_disable: false,
+            network_retry_mode: areal_config::NetworkRetryMode::Persistent,
         }
     }
 }
@@ -204,6 +208,9 @@ struct Active {
     isolated_children: usize,
     workspace_exclusive: bool,
     deferred_workspace_guard: Option<tokio::sync::OwnedRwLockWriteGuard<()>>,
+    workspace_lease_pinned: bool,
+    workspace_version: Option<workspace::Version>,
+    workspace_conflict_call: Option<String>,
     // Includes queued model work, tool waits and cleanup. Never wait for this
     // permit during admission: waiting parents must not deadlock their children.
     _admission: OwnedSemaphorePermit,
@@ -238,6 +245,8 @@ struct Cell {
     exclusive_writer: bool,
     // 工具投影可能已持有会话锁，原子角色避免为读取 Goal 可见性再次加锁。
     goal_role: AtomicUsize,
+    // 工具投影可能持有会话锁；隔离 worker 的交接角色与递归委派额度分开。
+    handoff_worker: AtomicBool,
     depth: usize,
     research: bool,
     id: String,
@@ -275,6 +284,7 @@ impl Cell {
                 d.execution_policy.exclusive_write || d.execution_policy.deferred_write
             }),
             goal_role: AtomicUsize::new(if thread.goal_owner.is_some() { 2 } else { 0 }),
+            handoff_worker: AtomicBool::new(thread.source == "workgroupWorker"),
             depth,
             research: thread.source == "nativeResearchAgent",
             id: thread.id.clone(),
@@ -582,6 +592,7 @@ impl Engine {
                 extensions.agents.is_none()
                     && limits.max_children_per_turn > 0
                     && limits.max_agent_depth > 0,
+                false,
             )?
             .with_workgroups(limits.max_children_per_turn > 0)?;
         if let Some(runtime) = &runtime {

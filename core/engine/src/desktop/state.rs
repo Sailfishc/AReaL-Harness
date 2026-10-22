@@ -1113,7 +1113,7 @@ impl Engine {
                 // different spawn/wait contracts for the same Turn.
                 && (self.extensions.agents.is_none()
                     || !matches!(name, "agent_spawn_configured" | "agent_wait_all"))
-                && (name != "agent_report" || cell.depth > 0)
+                && (name != "agent_report" || cell.depth > 0 || cell.handoff_worker.load(Ordering::Acquire))
                 // 原文回取属于所有 Core 会话，不依赖桌面扩展状态。
                 && (desktop_enabled || matches!(name, "read_tool_result" | "read_history") || !core_names.iter().any(|n| n == name))
                 && config
@@ -1145,6 +1145,30 @@ impl Engine {
                     definition["function"]["description"] = json!(format!(
                         "{description} Read-only inspection is unavailable in this deployment. Do not use modify to bypass an inspection permission boundary."
                     ));
+                }
+            }
+        }
+        let trusted_checks = self
+            .workgroups
+            .get()
+            .is_some_and(|service| service.is_strict());
+        for definition in &mut definitions {
+            if definition["function"]["name"] == "agent_spawn"
+                && bindings
+                    .registry
+                    .get("agent_spawn")
+                    .is_ok_and(|entry| matches!(entry.backend, crate::tools::Backend::Coordination))
+            {
+                let guarantee =
+                    &mut definition["function"]["parameters"]["properties"]["requireTrustedChecks"];
+                guarantee["description"] = json!(if trusted_checks {
+                    "A host-owned trusted verifier is configured. Set true only when that guarantee is required; child self-checks alone are not trusted verification."
+                } else {
+                    "No host-owned trusted verifier is configured in this deployment. Omit or use false. Child self-checks remain available and are reported without trusted-verification claims."
+                });
+                if !trusted_checks {
+                    // 配置能力是稳定事实；不能暴露一个本部署必然拒绝的创建选项。
+                    guarantee["enum"] = json!([false]);
                 }
             }
         }

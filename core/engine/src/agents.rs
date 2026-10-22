@@ -9,7 +9,20 @@ pub(crate) const INSTRUCTIONS: &str = "Delegation is optional; complete small or
 
 pub(crate) const CHILD_INSTRUCTIONS: &str = "Complete the assigned task within its scope and stopping condition. Save useful findings with agent_report: summarize conclusions, cite evidence or artifact paths, and list remaining work. Checkpoint before further exploration so a failure does not discard the handoff. Finish with verified results and explicitly identify incomplete work.";
 
+// 仅由显式部署策略启用；不给未验证结果发完成证明，也不按题目识别交付物。
+pub(crate) const COMPLETION_FOCUS: &str = "Completion focus (explicit experimental policy): Keep the user's required deliverables, preservation constraints and deadline visible in the plan. Implement and verify the requested contract, including required documentation, before optional exploration. After relevant checks pass on the current source, add or repeat checks only to resolve a specific remaining concern or a later change. When delegating, include the relevant user constraints, explicit deadline and useful stopping evidence in the assignment without widening its scope. A child should verify its assigned boundary and hand off promptly; do not duplicate the parent's integration work unless assigned. State which checks actually ran and any remaining limitation. While independent work remains, do it instead of polling. When only child results are needed, use agent_wait_any with timeoutMs=30000 and after=the previous nextAfter, or agent_wait with timeoutMs=30000; shorter timeouts are useful only when a concrete deadline or other action requires them. Use artifact.available before agent_artifact. If delivery.status=applied, the source is already in this workspace: inspect the changed paths or handoff needed for integration, without rebuilding the child's investigation. Never skip required validation, infer completion from exit zero alone, replay UNKNOWN effects, or manufacture missing deliverables.";
+
 pub(crate) fn model_execution_view(mut value: Value) -> Value {
+    model_execution_view_inner(&mut value, true);
+    value
+}
+
+pub(crate) fn model_execution_view_v1(mut value: Value) -> Value {
+    model_execution_view_inner(&mut value, false);
+    value
+}
+
+fn model_execution_view_inner(value: &mut Value, compact_batch: bool) {
     if value.get("executionId").is_some() {
         // 模型控制只接受 executionId；底层身份仍保存在执行记录和客户端诊断中。
         if let Some(object) = value.as_object_mut() {
@@ -21,11 +34,25 @@ pub(crate) fn model_execution_view(mut value: Value) -> Value {
     for key in ["completed", "pending"] {
         if let Some(rows) = value.get_mut(key).and_then(Value::as_array_mut) {
             for row in rows {
-                *row = model_execution_view(std::mem::take(row));
+                model_execution_view_inner(row, compact_batch);
+                // 批量回执不重复派发时已有的描述与游标副本，避免挤掉真实结论和终态字段。
+                if compact_batch && row.get("executionId").is_some() {
+                    for field in ["title", "reason", "receiptVersion"] {
+                        row.as_object_mut().unwrap().remove(field);
+                    }
+                    if let Some(capabilities) =
+                        row.get_mut("capabilities").and_then(Value::as_object_mut)
+                    {
+                        capabilities.remove("readHandoff");
+                        capabilities.remove("supportsArtifact");
+                    }
+                    if let Some(artifact) = row.get_mut("artifact").and_then(Value::as_object_mut) {
+                        artifact.remove("nextAction");
+                    }
+                }
             }
         }
     }
-    value
 }
 
 // 只读豁免绑定内置后端，关闭委派后注册的同名外部工具不能借此调用宿主。
@@ -38,8 +65,8 @@ pub(crate) fn read_only_tool(name: &str, backend: &Backend) -> bool {
 }
 
 impl tools::Registry {
-    pub(crate) fn with_agents(mut self, enabled: bool) -> anyhow::Result<Self> {
-        if !enabled {
+    pub(crate) fn with_agents(mut self, enabled: bool, reports: bool) -> anyhow::Result<Self> {
+        if !enabled && !reports {
             return Ok(self);
         }
         let target = json!({"type":"string","minLength":1,"maxLength":128});
@@ -47,13 +74,13 @@ impl tools::Registry {
         for (name, description, properties, required) in [
             (
                 "agent_spawn",
-                "Delegate work with explicit intent and expected delivery. Core chooses a compatible workspace and owns permission, budget and lifecycle. Return executionId immediately; never repeat an unknown creation. Provide exact writes for isolated candidates and mark independent only for separable work.",
-                json!({"prompt":prompt,"intent":{"enum":["inspect","modify"]},"delivery":{"enum":["report","changes","patch"]},"writes":{"type":"array","maxItems":256,"items":{"type":"string"}},"independent":{"type":"boolean"},"requiresCurrentEnvironment":{"type":"boolean"},"requireTrustedChecks":{"type":"boolean"},"maxModelRounds":{"type":"integer","minimum":1,"maximum":1024}}),
+                "Delegate work with explicit intent and expected delivery. Core chooses a compatible workspace and owns permission, budget and lifecycle. Return executionId immediately; never repeat an unknown creation. writes lists exact workspace-relative files (e.g. src/api.ts), not directories or paths ending in '/'. Mark independent only for separable work. Inspect returned capabilities: sendInput=false means a frozen isolated contract; include required context at creation or wait for settlement before a revised task.",
+                json!({"prompt":prompt,"intent":{"enum":["inspect","modify"]},"delivery":{"enum":["report","changes","patch"]},"writes":{"type":"array","maxItems":256,"uniqueItems":true,"items":{"type":"string","minLength":1,"description":"Exact workspace-relative file path; no directory trailing slash, absolute path, '.' or '..' component."}},"independent":{"type":"boolean"},"requiresCurrentEnvironment":{"type":"boolean"},"requireTrustedChecks":{"type":"boolean"},"maxModelRounds":{"type":"integer","minimum":1,"maximum":1024}}),
                 vec!["prompt", "intent", "delivery"],
             ),
             (
                 "agent_artifact",
-                "Read an isolated execution's completed candidate changes or a changed file in bounded chunks. Candidate availability is not evidence that tests passed or that changes were applied.",
+                "Read an isolated execution's candidate changes or a changed file in bounded chunks, only when artifact.available=true in its receipt. If not ready, returns readiness and the current receipt without artifact bytes; wait for settlement instead of repeating the read. delivery.status=applied means these changes are already in this workspace. Availability does not certify tests or application.",
                 json!({"executionId":target,"path":{"type":"string"},"offset":{"type":"integer","minimum":0}}),
                 vec!["executionId"],
             ),
@@ -71,8 +98,8 @@ impl tools::Registry {
             ),
             (
                 "agent_wait_any",
-                "Wait until any of the selected direct children settles, then return settled results and pending IDs. Pass only children whose results are still needed; already settled children return immediately. timeoutMs defaults to 10000; 0 polls. Waiting releases model and execution capacity.",
-                json!({"executionIds":{"type":"array","minItems":1,"maxItems":16,"uniqueItems":true,"items":target},"timeoutMs":{"type":"integer","minimum":0,"maximum":60000}}),
+                "Wait for a selected child to settle. Return completed receipts, pending receipts, unchanged settled IDs and nextAfter. Pass nextAfter as after on the next wait to avoid waking again for an unchanged terminal receipt. A new report, cleanup, verification or delivery version still returns. timeoutMs defaults to 10000; 0 polls. Waiting releases model and execution capacity.",
+                json!({"executionIds":{"type":"array","minItems":1,"maxItems":16,"uniqueItems":true,"items":target},"timeoutMs":{"type":"integer","minimum":0,"maximum":60000},"after":{"type":"object","maxProperties":16,"additionalProperties":{"type":"string","minLength":64,"maxLength":64}}}),
                 vec!["executionIds"],
             ),
             (
@@ -83,7 +110,7 @@ impl tools::Registry {
             ),
             (
                 "agent_send_input",
-                "Send additional context or a correction to a running direct child. Core settles the current model request before applying the correction, without executing its stale tool calls; the child may take time to respond. Completed children cannot be resumed: spawn a new task with the needed context.",
+                "Send context or a correction only when the execution receipt has capabilities.sendInput=true and the child is running. Isolated frozen contracts return false: include context at creation, or cancel and wait for settlement before creating a revised task. For supported children Core settles the current model request before applying the correction without executing stale tool calls. Completed children cannot be resumed.",
                 json!({"executionId":target,"prompt":prompt}),
                 vec!["executionId", "prompt"],
             ),
@@ -94,6 +121,9 @@ impl tools::Registry {
                 vec!["executionId"],
             ),
         ] {
+            if !enabled && name != "agent_report" {
+                continue;
+            }
             self.insert(ToolDefinition {
                 name: name.into(), description: description.into(),
                 input_schema: json!({"type":"object","additionalProperties":false,"properties":properties,"required":required}),
@@ -559,6 +589,17 @@ impl Engine {
             );
             let timeout = args["timeoutMs"].as_u64().unwrap_or(10000);
             anyhow::ensure!(timeout <= 60000, "wait exceeds 60000 ms");
+            let after: std::collections::BTreeMap<String, String> = args
+                .get("after")
+                .map(|value| serde_json::from_value(value.clone()))
+                .transpose()?
+                .unwrap_or_default();
+            anyhow::ensure!(
+                after.iter().all(|(id, version)| ids.contains(id)
+                    && version.len() == 64
+                    && version.bytes().all(|b| b.is_ascii_hexdigit())),
+                "after must contain only selected execution IDs and their returned receiptVersion"
+            );
             for id in &ids {
                 let record = self.execution_record(&parent.id, id).await?;
                 self.validate_execution_owner(&record, turn_id).await?;
@@ -567,17 +608,31 @@ impl Engine {
             loop {
                 let mut completed = Vec::new();
                 let mut pending = Vec::new();
+                let mut unchanged = Vec::new();
+                let mut next_after = std::collections::BTreeMap::new();
                 for id in &ids {
                     let value = self.execution_wait_and_deliver(&parent.id, id, 0).await?;
+                    let version = value["receiptVersion"]
+                        .as_str()
+                        .context("execution receipt has no version")?
+                        .to_owned();
+                    next_after.insert(id.clone(), version.clone());
                     if value["settled"] == true {
-                        completed.push(value)
+                        if after.get(id) == Some(&version) {
+                            unchanged.push(id.clone());
+                        } else {
+                            completed.push(value)
+                        }
                     } else {
                         pending.push(value)
                     }
                 }
-                if !completed.is_empty() || tokio::time::Instant::now() >= end {
+                let all_settled = pending.is_empty();
+                if !completed.is_empty() || all_settled || tokio::time::Instant::now() >= end {
                     return Ok(
-                        json!({"completed":completed,"pending":pending,"timedOut":completed.is_empty()}),
+                        json!({"completed":completed,"pending":pending,"unchanged":unchanged,"nextAfter":next_after,
+                            "allSettled":all_settled,"timedOut":completed.is_empty() && !all_settled,
+                            "nextAction":if all_settled {"Selected executions are settled; integrate the receipts already provided and complete remaining deliverables. Do not keep waiting on this set."} else {"Use new completed receipts while pending work continues; retain nextAfter to suppress unchanged terminal receipts."}}),
                     );
                 }
                 tokio::select! {biased;_=cancel.cancelled()=>anyhow::bail!("cancelled"),_=tokio::time::sleep_until(end.min(tokio::time::Instant::now()+Duration::from_millis(100)))=>{}}
@@ -595,8 +650,8 @@ impl Engine {
             );
             let state = parent.state.lock().await;
             anyhow::ensure!(
-                state.thread.parent_thread_id.is_some(),
-                "only child Agents can report"
+                state.thread.parent_thread_id.is_some() || state.thread.source == "workgroupWorker",
+                "only child Agents or trusted isolated workers can report"
             );
             anyhow::ensure!(
                 state
@@ -1044,6 +1099,39 @@ mod tests {
         engine.shutdown().await;
     }
 
+    #[test]
+    fn model_views_preserve_legacy_versions_and_lifecycle_evidence() {
+        let row = json!({"executionId":"owned", "owner":{"threadId":"parent"},"threadId":"child",
+            "title":"assigned task","reason":"isolated compatible scope","receiptVersion":"version",
+            "status":"failed","settled":true,"resourcesReleased":false,"error":"cleanup unknown",
+            "text":"actual finding and limitation","sourceItemId":"report-v1","nextOffset":42,
+            "delivery":{"status":"unknown"},"capabilities":{"readHandoff":true,"supportsArtifact":true,"readArtifact":false}});
+        let original = json!({"completed":[row]});
+        let legacy = model_execution_view_v1(original.clone());
+        let current = model_execution_view(original);
+        assert_eq!(legacy["completed"][0]["title"], "assigned task");
+        assert!(current["completed"][0].get("title").is_none());
+        assert!(current["completed"][0].get("artifact").is_none());
+        for key in [
+            "status",
+            "settled",
+            "resourcesReleased",
+            "error",
+            "text",
+            "sourceItemId",
+            "nextOffset",
+            "delivery",
+        ] {
+            assert_eq!(
+                legacy["completed"][0][key], current["completed"][0][key],
+                "{key}"
+            );
+        }
+        assert!(legacy["completed"][0].get("owner").is_none());
+        assert_eq!(model_execution_view_v1(legacy.clone()), legacy);
+        assert_eq!(model_execution_view(current.clone()), current);
+    }
+
     struct Pending;
     #[async_trait::async_trait]
     impl Model for Pending {
@@ -1053,6 +1141,153 @@ mod tests {
         async fn stream(&self, _: Vec<Message>) -> anyhow::Result<model::ModelStream> {
             Ok(Box::pin(futures_util::stream::pending()))
         }
+    }
+
+    #[tokio::test]
+    async fn execution_wait_cursor_suppresses_only_the_same_settled_receipt() {
+        use areal_protocol::delegation::{Delivery, ExecutionOwner, ExecutionRecord, ExecutionRef};
+        let dir = tempfile::tempdir().unwrap();
+        let engine = Engine::open(dir.path(), Arc::new(Pending), Limits::default()).unwrap();
+        let parent = engine.create("/workspace".into()).await.unwrap();
+        let turn = engine
+            .start(&parent.id, vec![Input::text("parent")])
+            .await
+            .unwrap();
+        let cell = engine.cell(&parent.id).await.unwrap();
+        let mut ids = Vec::new();
+        for n in 0..2 {
+            let (child, child_turn) = engine
+                .spawn_child(&parent.id, vec![Input::text("own")])
+                .await
+                .unwrap();
+            let execution = format!("cursor-execution-{n}");
+            cell.state
+                .lock()
+                .await
+                .thread
+                .desktop
+                .get_or_insert_with(Default::default)
+                .executions
+                .push(ExecutionRecord {
+                    execution_id: execution.clone(),
+                    request_id: format!("cursor-{n}"),
+                    request_hash: format!("hash-{n}"),
+                    owner: ExecutionOwner::Turn {
+                        thread_id: parent.id.clone(),
+                        turn_id: turn.id.clone(),
+                    },
+                    title: "cursor child".into(),
+                    delivery: Delivery::Report,
+                    strategy: "sharedReadOnly".into(),
+                    reason: "fixture".into(),
+                    execution: Some(ExecutionRef::Thread {
+                        thread_id: child.id.clone(),
+                        turn_id: child_turn.id.clone(),
+                    }),
+                    error: None,
+                    cancel_requested: false,
+                });
+            ids.push(execution);
+        }
+        engine
+            .execution_cancel(&parent.id, &ids[0], true)
+            .await
+            .unwrap();
+        engine
+            .execution_wait(&parent.id, &ids[0], 5000)
+            .await
+            .unwrap();
+        let cancel = CancellationToken::new();
+        let first = engine
+            .coordinate_agent(
+                &cell,
+                &turn.id,
+                "agent_wait_any",
+                &json!({"executionIds":ids,"timeoutMs":0}),
+                &cancel,
+            )
+            .await
+            .unwrap();
+        assert_eq!(first["completed"].as_array().unwrap().len(), 1);
+        let started = tokio::time::Instant::now();
+        let second = engine
+            .coordinate_agent(
+                &cell,
+                &turn.id,
+                "agent_wait_any",
+                &json!({"executionIds":ids,"after":first["nextAfter"],"timeoutMs":120}),
+                &cancel,
+            )
+            .await
+            .unwrap();
+        assert!(started.elapsed() >= Duration::from_millis(100));
+        assert_eq!(second["completed"], json!([]));
+        assert_eq!(second["unchanged"], json!([ids[0]]));
+        assert_eq!(second["timedOut"], true);
+        engine
+            .execution_cancel(&parent.id, &ids[1], true)
+            .await
+            .unwrap();
+        engine
+            .execution_wait(&parent.id, &ids[1], 5000)
+            .await
+            .unwrap();
+        let next = engine
+            .coordinate_agent(
+                &cell,
+                &turn.id,
+                "agent_wait_any",
+                &json!({"executionIds":ids,"after":second["nextAfter"],"timeoutMs":0}),
+                &cancel,
+            )
+            .await
+            .unwrap();
+        assert_eq!(next["completed"].as_array().unwrap().len(), 1);
+        assert_eq!(next["completed"][0]["executionId"], ids[1]);
+        assert_eq!(next["completed"][0]["status"], "cancelled");
+        let finished = tokio::time::timeout(
+            Duration::from_secs(1),
+            engine.coordinate_agent(
+                &cell,
+                &turn.id,
+                "agent_wait_any",
+                &json!({"executionIds":ids,"after":next["nextAfter"],"timeoutMs":60000}),
+                &cancel,
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(finished["allSettled"], true);
+        assert_eq!(finished["completed"], json!([]));
+        assert_eq!(finished["timedOut"], false);
+        // 仍保留取消后的完整终态；伪造外部目标不能改变准入或消费状态。
+        assert!(
+            engine
+                .coordinate_agent(
+                    &cell,
+                    &turn.id,
+                    "agent_wait_any",
+                    &json!({"executionIds":ids,"after":{"foreign":"0".repeat(64)},"timeoutMs":0}),
+                    &cancel
+                )
+                .await
+                .is_err()
+        );
+        cancel.cancel();
+        assert!(
+            engine
+                .coordinate_agent(
+                    &cell,
+                    &turn.id,
+                    "agent_wait_any",
+                    &json!({"executionIds":ids,"after":next["nextAfter"],"timeoutMs":60000}),
+                    &cancel
+                )
+                .await
+                .is_err()
+        );
+        engine.shutdown().await;
     }
 
     #[tokio::test]

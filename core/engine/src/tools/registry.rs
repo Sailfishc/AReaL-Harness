@@ -7,6 +7,10 @@ pub const MAX_ARGUMENT_BYTES: usize = crate::model::MAX_TOOL_ARGUMENT_BYTES;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields, default)]
 pub struct ToolPolicy {
+    /// 已知内置只读调用的并发上限；1 保留串行执行。
+    pub parallel_read_calls: usize,
+    /// 显式实验：按交付契约收敛验证与协作；不替模型判定任务已完成。
+    pub completion_focus: bool,
     pub result_views: ResultViewPolicy,
     pub command_wait_ms: u64,
     pub pty_wait_ms: u64,
@@ -22,6 +26,8 @@ pub struct ToolPolicy {
 impl Default for ToolPolicy {
     fn default() -> Self {
         Self {
+            parallel_read_calls: 1,
+            completion_focus: false,
             result_views: ResultViewPolicy::default(),
             command_wait_ms: 120_000,
             pty_wait_ms: 1000,
@@ -180,6 +186,14 @@ pub(crate) struct RegisteredTool {
 }
 
 impl RegisteredTool {
+    pub(crate) fn supports_parallel_reads(&self) -> bool {
+        matches!(self.backend, Backend::Builtin)
+            && matches!(
+                self.definition.name.as_str(),
+                "read_file" | "fs_read" | "fs_list" | "fs_stat" | "search_files"
+            )
+    }
+
     pub fn validate_input(&self, arguments: &Value) -> anyhow::Result<()> {
         // 旧回放参数只兼容内置协调后端；同名外部工具仍严格使用自身 schema。
         if matches!(self.backend, Backend::Coordination)
@@ -279,6 +293,10 @@ impl Registry {
     }
 
     pub fn new(runtime: bool, extensions: &ToolExtensions) -> anyhow::Result<Self> {
+        anyhow::ensure!(
+            (1..=4).contains(&extensions.policy.parallel_read_calls),
+            "parallelReadCalls must be 1..4"
+        );
         anyhow::ensure!(
             (1024..=MAX_ARGUMENT_BYTES / 2).contains(&extensions.policy.output_page_bytes),
             "outputPageBytes must be between 1024 and 32768"
@@ -498,6 +516,10 @@ pub(super) fn validate_command(argv: &[String], timeout_ms: u64) -> anyhow::Resu
 impl ToolExtensions {
     /// Validate configuration without starting Runtime or executing commands.
     pub fn validate(&self) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            (1..=4).contains(&self.policy.parallel_read_calls),
+            "parallelReadCalls must be 1..4"
+        );
         Registry::new(true, self).map(|_| ())
     }
 }
@@ -509,7 +531,7 @@ mod tests {
     fn legacy_coordination_arguments_are_bounded_and_never_relax_external_schemas() {
         let registry = Registry::new(true, &ToolExtensions::default())
             .unwrap()
-            .with_agents(true)
+            .with_agents(true, true)
             .unwrap();
         for (name, args) in [
             (

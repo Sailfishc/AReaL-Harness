@@ -217,13 +217,23 @@ impl Engine {
             || request.request_id.len() > 128
             || request.input.is_empty()
             || request.writes.len() > 256
-            || request
-                .writes
-                .iter()
-                .any(|p| !workgroup::tree::valid_path(p))
-            || request.writes.iter().collect::<HashSet<_>>().len() != request.writes.len()
         {
-            return Err(invalid("invalid delegation request or write scope"));
+            return Err(invalid(
+                "delegation requires a nonempty requestId (at most 128 bytes), input and at most 256 exact write paths",
+            ));
+        }
+        let mut seen = HashSet::new();
+        for (index, path) in request.writes.iter().enumerate() {
+            if !workgroup::tree::valid_path(path) {
+                return Err(invalid(format!(
+                    "writes[{index}]={path:?} must be an exact workspace-relative file path: no directory trailing slash, absolute path, '.' or '..' component"
+                )));
+            }
+            if !seen.insert(path) {
+                return Err(invalid(format!(
+                    "writes[{index}]={path:?} duplicates an earlier exact file path"
+                )));
+            }
         }
         let hash = format!(
             "{:x}",
@@ -327,6 +337,16 @@ impl Engine {
                 turn_id: turn_id.clone(),
             });
         let required = request.delivery == Delivery::Patch || request.require_trusted_checks;
+        if request.require_trusted_checks
+            && !self
+                .workgroups
+                .get()
+                .is_some_and(|service| service.is_strict())
+        {
+            return Err(invalid(
+                "trusted checks require a configured host-owned verifier; child self-checks do not provide this guarantee. No execution was created",
+            ));
+        }
         let wants_isolated = request.intent == Intent::Modify && (required || request.independent);
         let automatic = !request.require_trusted_checks && self.workgroups.get().is_none();
         let mut reason = if request.intent == Intent::Inspect && self.inspection_inherits_permissions() {
@@ -379,7 +399,23 @@ impl Engine {
                 })?;
                 let root = service.workspace().to_owned();
                 // 文件表示能力是硬约束；复制失败不能变成运行中静默降级。
-                tokio::task::spawn_blocking(move || workgroup::tree::snapshot(&root)).await??;
+                let inputs: workgroup::tree::Tree = request
+                    .writes
+                    .iter()
+                    .map(|path| {
+                        (
+                            path.clone(),
+                            workgroup::tree::File {
+                                bytes: Vec::new(),
+                                executable: false,
+                            },
+                        )
+                    })
+                    .collect();
+                tokio::task::spawn_blocking(move || {
+                    workgroup::tree::snapshot_source(&root, &inputs)
+                })
+                .await??;
                 service.probe_availability().await?;
                 Ok(())
             }
@@ -660,14 +696,33 @@ impl Engine {
         record: &ExecutionRecord,
         offset: usize,
     ) -> Result<Value> {
-        if offset != 0 && !matches!(record.execution, Some(ExecutionRef::Thread { .. })) {
-            return Err(invalid(
-                "reply offset is only supported for shared executions; use execution/artifact for isolated files",
-            ));
+        let mut value = self.project_execution_page_inner(record, offset).await?;
+        // 版本只排除轮询瞬时活动与分页位置；来源、交付、清理与错误仍参与版本。
+        let mut version = value.clone();
+        for key in ["activity", "text", "offset", "nextOffset"] {
+            version.as_object_mut().unwrap().remove(key);
         }
+        value["receiptVersion"] = json!(format!(
+            "{:x}",
+            Sha256::digest(serde_json::to_vec(&version).map_err(invalid)?)
+        ));
+        Ok(value)
+    }
+    async fn project_execution_page_inner(
+        &self,
+        record: &ExecutionRecord,
+        offset: usize,
+    ) -> Result<Value> {
         let mut value = json!({"executionId":record.execution_id,"parentThreadId":parent_id(&record.owner),"owner":record.owner,
             "title":record.title,"strategy":record.strategy,"reason":record.reason,"status":"unknown","settled":false,"resourcesReleased":false,
             "text":"","error":record.error,"stopRequested":record.cancel_requested,"verification":{"status":"notRun","kind":"none"},"delivery":{"status":"notRequired"}});
+        value["capabilities"] = json!({
+            "sendInput":matches!(record.execution, Some(ExecutionRef::Thread { .. })),
+            "readHandoff":true,
+            "readArtifact":false,
+            "supportsArtifact":matches!(record.execution, Some(ExecutionRef::Workgroup { .. })),
+            "contract":if matches!(record.execution, Some(ExecutionRef::Workgroup { .. })) { "frozen" } else { "live" },
+        });
         if let Some(error) = &record.error
             && record.execution.is_none()
         {
@@ -752,15 +807,47 @@ impl Engine {
                 value["verification"] = json!({"status":if state["finalCheck"].is_null(){"notRun"}else if state["finalCheck"]["passed"]==true{"passed"}else{"failed"},"kind":if service.is_strict(){"trusted"}else{"none"}});
                 value["delivery"]["status"] = json!(if state["status"] == "completed" {
                     "candidate"
+                } else if state["status"] == "cancelled" && state["cleanupConfirmed"] == true {
+                    "cancelled"
+                } else if state["status"] == "failed" && state["cleanupConfirmed"] == true {
+                    "notRequired"
                 } else {
                     "pending"
                 });
-                value["artifact"] = json!({"head":state["head"],"workgroupId":workgroup_id});
-                value["text"] = json!(format!(
-                    "{}: {}",
-                    record.title,
-                    state["status"].as_str().unwrap_or("unknown")
-                ));
+                let artifact_available = group["artifactAvailable"] == true;
+                value["capabilities"]["readArtifact"] = json!(artifact_available);
+                value["artifact"] = json!({"head":state["head"],"workgroupId":workgroup_id,"available":artifact_available,
+                    "nextAction":if artifact_available {"read candidate artifact if needed; applied changes already exist in the parent workspace"} else {"wait for execution, cleanup and required acceptance; do not read candidate bytes yet"}});
+                if let Some(report) = service
+                    .handoff(workgroup_id, &owner_key(&record.owner), offset)
+                    .await
+                    .map_err(invalid)?
+                {
+                    for key in [
+                        "text",
+                        "source",
+                        "sourceItemId",
+                        "offset",
+                        "nextOffset",
+                        "textBytes",
+                        "activity",
+                    ] {
+                        value[key] = report[key].clone();
+                    }
+                    value["partial"] =
+                        json!(state["status"] != "completed" || report["partial"] == true);
+                } else {
+                    if offset != 0 {
+                        return Err(invalid("execution has no handoff page at this offset"));
+                    }
+                    value["text"] = json!("");
+                    value["source"] = json!("none");
+                    value["sourceItemId"] = json!("");
+                    value["offset"] = json!(0);
+                    value["nextOffset"] = Value::Null;
+                    value["textBytes"] = json!(0);
+                    value["partial"] = json!(true);
+                }
                 // 交付日志属于Core；执行完成与结果应用分别投影。
                 let delivery = match self
                     .workgroup_delivery_status(workgroup_id, *automatic)
@@ -818,6 +905,9 @@ impl Engine {
                     "execution creation has no settled backend receipt; inspect before retrying"
                 )
             }
+        }
+        if value["status"] != "running" || value["stopRequested"] == true {
+            value["capabilities"]["sendInput"] = json!(false);
         }
         Ok(value)
     }
@@ -996,6 +1086,13 @@ impl Engine {
         else {
             return Err(invalid("execution has no isolated artifact"));
         };
+        let receipt = self.project_execution(&record).await?;
+        if receipt["artifact"]["available"] != true {
+            return Ok(
+                json!({"ready":false,"execution":crate::agents::model_execution_view(receipt),
+                "nextAction":"wait for this execution to settle; no candidate bytes have been read"}),
+            );
+        }
         self.execution_workgroups(*automatic)?
             .artifact(workgroup_id, Some(&owner_key(&record.owner)), path, offset)
             .await

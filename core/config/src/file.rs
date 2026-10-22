@@ -228,38 +228,15 @@ fn walk(
             layer,
         );
     }
-    if names.as_slice() == ["network", "retry_mode"] {
-        let value = match item.as_str() {
-            Some("persistent") => "false",
-            Some("bounded") => "true",
-            _ => {
-                return Err(error(
-                    Kind::InvalidValue,
-                    &key,
-                    &at,
-                    "retry mode must be persistent or bounded",
-                ));
-            }
-        };
-        if layer
-            .values
-            .insert(
-                "limits.watchdog_disable".into(),
-                Entry {
-                    value: value.into(),
-                    source: at.clone(),
-                },
-            )
-            .is_some()
-        {
-            return Err(error(
-                Kind::Conflict,
-                &key,
-                &at,
-                "duplicate configuration alias",
-            ));
-        }
-        return Ok(());
+    if names.as_slice() == ["network", "retry_mode"]
+        && !matches!(item.as_str(), Some("persistent" | "bounded"))
+    {
+        return Err(error(
+            Kind::InvalidValue,
+            &key,
+            &at,
+            "retry mode must be persistent or bounded",
+        ));
     }
     // 扩展目录字段由共享模型配置所有者做结构和语义校验。
     if matches!(
@@ -435,7 +412,9 @@ fn walk(
             "temperature" | "top_p" | "min_p" | "presence_penalty" | "repetition_penalty"
         ]
     );
-    let string = string || names.as_slice() == ["limits", "context_mode"];
+    let string = string
+        || names.as_slice() == ["limits", "context_mode"]
+        || names.as_slice() == ["network", "retry_mode"];
     let boolean = matches!(
         names.as_slice(),
         [

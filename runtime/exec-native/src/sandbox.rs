@@ -252,6 +252,16 @@ pub fn command(execution: &Execution, profile: Profile) -> Result<Vec<String>> {
         policy.push_str("(allow network*)\n");
     }
     let mut ancestors = BTreeSet::new();
+    for (index, root) in execution.toolchain_roots.iter().enumerate() {
+        command.push(format!(
+            "-DTOOLCHAIN{index}=^{}(/|$)",
+            escape(absolute_utf8(root)?)
+        ));
+        policy.push_str(&format!("(allow process-exec file-read* file-map-executable (regex (param \"TOOLCHAIN{index}\")))\n"));
+        for ancestor in root.ancestors().skip(1) {
+            ancestors.insert(escape(absolute_utf8(ancestor)?));
+        }
+    }
     for (index, helper) in execution
         .trusted_executable
         .iter()
@@ -399,6 +409,10 @@ fn linux_command(execution: &Execution) -> Result<Vec<String>> {
         if Path::new(path).exists() {
             argv.extend(["--ro-bind".into(), path.into(), path.into()]);
         }
+    }
+    for root in &execution.toolchain_roots {
+        let path = absolute_utf8(root)?.to_owned();
+        argv.extend(["--ro-bind".into(), path.clone(), path]);
     }
     for (roots, option) in [
         (&execution.read_roots, "--ro-bind"),
@@ -637,6 +651,7 @@ mod policy_tests {
             scope_access: ScopeAccess::Restricted,
             trusted_executable: None,
             builtin_executables: Vec::new(),
+            toolchain_roots: Vec::new(),
             tty: false,
             pipe_stdin: false,
             network: areal_runtime_protocol::NetworkRequest::Deny,
@@ -691,6 +706,7 @@ mod policy_tests {
             scope_access: ScopeAccess::Unrestricted,
             trusted_executable: None,
             builtin_executables: Vec::new(),
+            toolchain_roots: Vec::new(),
             tty: false,
             pipe_stdin: false,
             network: areal_runtime_protocol::NetworkRequest::Inherit,

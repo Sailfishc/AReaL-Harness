@@ -2,6 +2,8 @@ mod decoder;
 use decoder::{ChatDecoder, Decoder, ResponsesDecoder};
 
 mod audit;
+mod capacity;
+pub(crate) use capacity::{RequestCapacity, RequestPhase};
 mod context_windows;
 pub(crate) use context_windows::known_context_window;
 mod request_budget;
@@ -1222,7 +1224,13 @@ impl Model for HttpModel {
                     delay_ms = delay.as_millis() as u64,
                     "retrying model request before stream acceptance"
                 );
-                tokio::time::sleep(delay).await;
+                drop(result);
+                capacity::retry_after(delay).await.with_context(|| {
+                    format!(
+                        "HTTP retry after status {} was not admitted",
+                        audit.value["httpStatus"]
+                    )
+                })?;
                 continue;
             }
             break result.map_err(|error| {
@@ -1434,9 +1442,13 @@ async fn responses_items(
     mut message: Message,
     budget: &mut request_budget::MediaBudget,
 ) -> Result<Vec<Value>> {
-    // 内部状态角色不进入供应商协议；Responses 保持原有 system 语义与时序。
+    // 动态状态是请求位置上的数据，不提升为系统指令；与 Chat 的状态投影保持一致。
     if message.role == "areal_context" {
-        message.role = "system".into();
+        let text = message.text_content();
+        message.role = "user".into();
+        message.content = vec![ContentPart::Text(format!(
+            "AReaL runtime context (not a user request):\n{text}"
+        ))];
     }
 
     if let Some(context) = &message.provider_context {

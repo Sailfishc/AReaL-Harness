@@ -20,7 +20,7 @@ use std::{
     },
     task::{Context as TaskContext, Poll},
 };
-use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+use tokio::sync::Semaphore;
 
 #[derive(Clone, Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -63,7 +63,7 @@ impl LoadState {
 /// No request/usage is invented when a waiter is cancelled before admission.
 struct RequestLoad {
     load: Arc<Mutex<LoadState>>,
-    active: bool,
+    phase: crate::model::RequestPhase,
 }
 
 impl RequestLoad {
@@ -75,18 +75,30 @@ impl RequestLoad {
         }
         Self {
             load,
-            active: false,
+            phase: crate::model::RequestPhase::Waiting,
         }
     }
-    fn start(mut self) -> Self {
+    fn phase(&mut self, next: crate::model::RequestPhase) {
+        use crate::model::RequestPhase::{Active, Backoff, Waiting};
+        if self.phase == next {
+            return;
+        }
         let mut state = self.load.lock().unwrap();
         state.update();
-        state.snapshot.waiting -= 1;
-        state.snapshot.in_flight += 1;
-        state.snapshot.started_requests += 1;
-        self.active = true;
-        drop(state);
-        self
+        match self.phase {
+            Active => state.snapshot.in_flight -= 1,
+            Waiting => state.snapshot.waiting -= 1,
+            Backoff => {}
+        }
+        match next {
+            Active => {
+                state.snapshot.in_flight += 1;
+                state.snapshot.started_requests += 1;
+            }
+            Waiting => state.snapshot.waiting += 1,
+            Backoff => {}
+        }
+        self.phase = next;
     }
     fn completed(&self) {
         self.load.lock().unwrap().snapshot.completed_requests += 1;
@@ -95,20 +107,14 @@ impl RequestLoad {
 
 impl Drop for RequestLoad {
     fn drop(&mut self) {
-        let mut state = self.load.lock().unwrap();
-        state.update();
-        if self.active {
-            state.snapshot.in_flight -= 1;
-        } else {
-            state.snapshot.waiting -= 1;
-        }
+        self.phase(crate::model::RequestPhase::Backoff);
     }
 }
 
 struct InFlight {
-    // Drop the load count before releasing the permit to a new caller.
-    load: RequestLoad,
-    _permit: OwnedSemaphorePermit,
+    // 许可释放前更新实际占用；HTTP 退避和重新排队也遵守同一边界。
+    load: Arc<Mutex<RequestLoad>>,
+    _permit: Arc<crate::model::RequestCapacity>,
 }
 
 impl SharedModel {
@@ -182,7 +188,7 @@ impl Stream for MeteredStream {
             this.settled = true;
             // 请求失败仍是失败；池的消费统计不能把已确认的终态消费再次标为未知。
             if !this.failed {
-                this.request.load.completed();
+                this.request.load.lock().unwrap().completed();
             }
             if let Some(last) = &this.last_usage {
                 let mut total = this.usage.lock().unwrap();
@@ -271,24 +277,41 @@ impl Model for SharedModel {
         limits: ToolCallLimits,
         cap: Option<u64>,
     ) -> Result<ModelStream> {
-        let load = RequestLoad::waiting(self.load.clone());
+        let load = Arc::new(Mutex::new(RequestLoad::waiting(self.load.clone())));
         let permit = self.permits.clone().acquire_owned().await?;
-        {
-            let mut usage = self.usage.lock().unwrap();
+        let usage = self.usage.clone();
+        let max_requests = self.max_requests;
+        let reserve = Box::new(move || {
+            let mut usage = usage.lock().unwrap();
             ensure!(
-                self.max_requests == 0 || usage.requests < self.max_requests,
+                max_requests == 0 || usage.requests < max_requests,
                 "root model request budget exhausted"
             );
             usage.requests += 1;
-        }
+            Ok(())
+        });
+        reserve()?;
+        load.lock()
+            .unwrap()
+            .phase(crate::model::RequestPhase::Active);
+        let observer = load.clone();
+        let permit = crate::model::RequestCapacity::new(
+            self.permits.clone(),
+            permit,
+            reserve,
+            Some(Box::new(move |phase| observer.lock().unwrap().phase(phase))),
+            crate::model::RequestCapacity::current_cancel(),
+        );
+        let stream = permit
+            .scope(
+                self.inner
+                    .chat_with_limits(messages, tools, purpose, limits, cap),
+            )
+            .await?;
         let request = InFlight {
-            load: load.start(),
+            load,
             _permit: permit,
         };
-        let stream = self
-            .inner
-            .chat_with_limits(messages, tools, purpose, limits, cap)
-            .await?;
         Ok(Box::pin(MeteredStream {
             inner: stream,
             request,
@@ -576,6 +599,8 @@ impl ProgressModel {
         limits: ToolCallLimits,
         cap: Option<u64>,
     ) -> Result<ModelStream> {
+        // 失败只描述当前调用；已由 Engine 恢复的旧错误不能在最终成功后触发新一代 worker。
+        *self.failure.lock().unwrap() = None;
         let failed = repeated_failure(&messages);
         let unchanged = !failed
             && self
@@ -661,10 +686,15 @@ pub(super) async fn probe_availability(
                 AvailabilityError::CleanupUnknown(error.to_string())
             }
         })?;
+    let environment_available = client.info().capabilities["commandEnvironment"].is_object();
     client
         .shutdown()
         .await
-        .map_err(|error| AvailabilityError::CleanupUnknown(error.to_string()))
+        .map_err(|error| AvailabilityError::CleanupUnknown(error.to_string()))?;
+    if !environment_available {
+        return Err(AvailabilityError::Unavailable("Runtime does not declare its command environment; upgrade the complete bundle or use the current environment".into()));
+    }
+    Ok(())
 }
 
 pub struct NativeExecutor {
@@ -676,6 +706,7 @@ pub struct NativeExecutor {
     pub toolchain: Option<PathBuf>,
     pub root: PathBuf,
     pub runtime_limits: areal_runtime_protocol::Limits,
+    pub network: areal_runtime_protocol::NetworkRequest,
     pub context_bytes: usize,
     pub watchdog_disable: bool,
     pub tool_call_limits: ToolCallLimits,
@@ -729,6 +760,7 @@ impl NativeExecutor {
                 wall_time_ms: 300_000,
                 ..Default::default()
             },
+            network: areal_runtime_protocol::NetworkRequest::Deny,
             context_bytes: 0,
             watchdog_disable: false,
             tool_call_limits: ToolCallLimits::default(),
@@ -776,12 +808,25 @@ impl NativeExecutor {
     }
 
     async fn runtime(&self, workspace: &Path) -> Result<Arc<Client>> {
-        Ok(Client::launch_with_limits(
+        let path = if self.toolchain.is_some() {
+            format!(
+                "{}:/usr/bin:/bin:/usr/sbin:/sbin",
+                workspace.join(".toolchain/bin").display()
+            )
+        } else {
+            areal_runtime_host_tools::command_environment(
+                &std::env::var_os("PATH").unwrap_or_default(),
+            )
+            .path
+        };
+        Ok(Client::launch_with_environment(
             &self.runtime,
             &self.file_helper,
             workspace,
             true,
             &self.runtime_limits,
+            &path,
+            self.network,
         )
         .await?)
     }
@@ -843,11 +888,20 @@ impl Executor for NativeExecutor {
             command_tools_only: self.command_tools_only,
         });
         let result: Result<()> = async {
-            let engine = Engine::open_with_runtime(&root.join("history"), worker_model.clone(),
+            // 隔离引擎只继承纯工具策略；外部工具、hooks、插件和凭据仍不穿透隔离边界。
+            let mut extensions = crate::tools::ToolExtensions::default();
+            if let Some(source) = self.catalog.as_ref().and_then(std::sync::Weak::upgrade) {
+                extensions.policy = source.extensions.policy.clone();
+                if !source.extensions.hooks.is_empty() {
+                    extensions.policy.parallel_read_calls = 1;
+                }
+            }
+            let engine = Engine::open_with_extensions(&root.join("history"), worker_model.clone(),
                 Limits { max_active_turns: 1, max_children_per_turn: 0, max_agent_depth: 0,
                     watchdog_disable: self.watchdog_disable,
                     max_response_tool_calls: self.tool_call_limits.max_calls, max_tool_buffer_bytes: self.tool_call_limits.max_buffer_bytes, ..self.worker_limits.clone() },
-                RuntimeConfig { client: runtime.clone(), workspace: workspace.clone(), writable: true, command_scope: None, command_scratch: Some(workspace.join(".scratch")) })?;
+                Some(RuntimeConfig { client: runtime.clone(), workspace: workspace.clone(), writable: true, command_scope: None, command_scratch: Some(workspace.join(".scratch")) }), extensions)?;
+            engine.prepare_worker_instance().await?;
             let execution: Result<()> = async {
                 let thread = if let Some(configuration)=&task.configuration {
                     let source=self.catalog.as_ref().and_then(std::sync::Weak::upgrade).context("task configuration requires a trusted catalog")?;
@@ -872,10 +926,16 @@ impl Executor for NativeExecutor {
                         engine.persist(&candidate).await?;
                         state.thread = candidate;
                     }
+                    cell.handoff_worker.store(true, Ordering::Release);
                 }
                 let python = if self.toolchain.is_some() { workspace.join(".toolchain/bin/python3").display().to_string() } else { "python3".into() };
                 let mut prompt = format!("Implement this assigned task in the existing repository.\n{}\nAllowed source writes: {:?}. Other files are read-only task inputs. Preserve tests and unrelated code.\nBase artifact: {}. Generation: {}.\nEarlier verification feedback: {}\nWorkspace URI: workspace://repo. Actual working directory: {}. Python executable: {} (use -B). Every command starts in the repository. Commands receive TMPDIR pointing to a private per-thread directory under .scratch automatically. Use it for temporary files. Do not launch background processes. Implement the complete contract, batch independent inspections where practical, run relevant checks and finish when ready for independent integration. Do not repeat a failing command without changing its inputs. Peers may implement dependencies in isolated workspaces; preserve their responsibilities.\nLocal checks: {:?}", task.instruction, task.writes, digest(&base), generation, feedback, workspace.display(), python, task.checks);
                 let mut remaining = 16000;
+                if task.configuration.as_ref().and_then(|config| config.tool_allowlist.as_ref())
+                    .is_none_or(|tools| tools.iter().any(|tool| tool == "agent_report")) {
+                    prompt.push_str(crate::agents::CHILD_INSTRUCTIONS);
+                }
+                prompt.push_str(&format!("\nExecution environment facts (capabilities, not additional authorization): {}\n", serde_json::json!({"commandEnvironment":runtime.info().capabilities["commandEnvironment"],"network":runtime.info().capabilities["rootNetwork"]})));
                 prompt.push_str("\nTool paths: fs_* path and run_command cwd accept workspace-relative paths or workspace://repo URIs. Use . for the root cwd. Inside argv or a shell command, use ordinary relative filesystem paths, never workspace:// URIs. fs_read offset is a byte offset, not a line number; use a single sed command for line ranges. For new files prefer fs_create(path, text), which never overwrites an existing path. fs_write also supports creation with explicit JSON null for expectedSha256; never pass the string \"null\". For an existing file, use its actual full-file SHA-256 when requesting a conditional edit. run_command timeoutMs sets its execution deadline; omit yieldMs to wait for completion or output, or use read_process after an early return. Prefer the exact local-check argv above: it includes the prepared Python and test environment. Use .toolchain/bin/python3 rather than reconstructing a long absolute path. Batch related inspections, then implement and run the relevant checks.");
                 if seed.is_some() {
                     prompt.push_str("\nThe workspace retains your previous unaccepted patch, safely composed onto the latest accepted base. Fix the concrete verification feedback in this current source; preserve working changes. These edits have not yet passed integration.");
@@ -899,15 +959,29 @@ impl Executor for NativeExecutor {
                     "runtimeEpoch":runtime.info().runtime_epoch,"rootScopeId":runtime.info().root_scope_id,
                     "workspace":workspace,"base":digest(&base),"initial":digest(initial),"commandScratch":workspace.join(".scratch")
                 }))?)?;
+                let mut events = engine.subscribe(&thread.id).await?;
                 let turn = engine.start(&thread.id, vec![Input::text(prompt)]).await?;
-                let completed = tokio::select! {
-                    _ = cancel.cancelled() => {
-                        engine.interrupt(&thread.id, &turn.id).await?;
-                        engine.wait(&thread.id).await?
-                    },
-                    thread = engine.wait(&thread.id) => thread?,
+                let handoff = super::handoff::path(&self.root, &task.id, generation);
+                let completed = loop {
+                    tokio::select! {
+                        _ = cancel.cancelled() => {
+                            engine.interrupt(&thread.id, &turn.id).await?;
+                            break engine.wait(&thread.id).await?;
+                        },
+                        thread = engine.wait(&thread.id) => break thread?,
+                        event = events.recv() => {
+                            let relevant = match event {
+                                Ok(event) => event["method"] == "item/completed" &&
+                                    (event["params"]["item"]["type"] == "agentMessage" || event["params"]["item"]["tool"] == "agent_report"),
+                                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => true,
+                                Err(tokio::sync::broadcast::error::RecvError::Closed) => break engine.wait(&thread.id).await?,
+                            };
+                            if relevant { super::handoff::persist(&engine, &thread.id, &turn.id, &handoff).await?; }
+                        }
+                    }
                 };
-                ensure!(!cancel.is_cancelled(), "attempt cancelled");
+                // 取消/失败也先保存已提交交接；报告不证明 Runtime 已清理或候选已应用。
+                super::handoff::persist(&engine, &thread.id, &turn.id, &handoff).await?;
                 let last = completed.turns.last().context("worker has no turn")?;
                 let model_failure = *worker_model.failure.lock().unwrap();
                 let uncertain = completed.turns.iter().flat_map(|t| &t.items).find_map(|item| {
@@ -922,6 +996,7 @@ impl Executor for NativeExecutor {
                 std::fs::write(root.join("worker-result.json"), serde_json::to_vec_pretty(&serde_json::json!({
                     "turnStatus":last.status,"stalled":stalled.load(Ordering::SeqCst),"error":last.error,"modelFailure":model_failure,"uncertainTool":uncertain
                 }))?)?;
+                ensure!(!cancel.is_cancelled(), "attempt cancelled");
                 ensure!(uncertain.is_none(), "worker tool execution remains uncertain: {}", bounded(&uncertain.unwrap().to_string()));
                 ensure!(last.status == TurnStatus::Completed || (last.status == TurnStatus::Failed &&
                     (stalled.load(Ordering::SeqCst) || model_failure.is_some())), "worker failed: {:?}", last.error);
@@ -936,7 +1011,7 @@ impl Executor for NativeExecutor {
             serde_json::to_vec_pretty(&*worker_model.context_audit.lock().unwrap())?,
         )?;
         result?;
-        let artifact = tree::snapshot(&workspace)?;
+        let artifact = tree::snapshot_artifact(&workspace, &base)?;
         compose(&base, &base, &artifact, &task.writes)?;
         let failure = *worker_model.failure.lock().unwrap();
         if let Some(failure) = failure {
@@ -998,7 +1073,8 @@ impl Executor for NativeExecutor {
         let mut check = result?;
         // Recheck after the Runtime cleanup barrier, not just after the foreground
         // command exited. Scratch/cache files are excluded from source artifacts.
-        check.passed &= digest(&tree::snapshot(&workspace)?) == check.tree_hash;
+        check.passed &=
+            digest(&tree::snapshot_artifact(&workspace, &candidate)?) == check.tree_hash;
         std::fs::write(
             root.join("receipt.json"),
             serde_json::to_vec_pretty(&check)?,
@@ -1354,6 +1430,57 @@ mod progress_tests {
 mod request_budget_tests {
     use super::*;
     use crate::model::RequestPurpose;
+
+    struct RecoveredFailure(AtomicUsize);
+    #[async_trait]
+    impl Model for RecoveredFailure {
+        fn name(&self) -> &str {
+            "recovered-failure"
+        }
+        async fn stream(&self, _: Vec<Message>) -> Result<ModelStream> {
+            let event = match self.0.fetch_add(1, Ordering::SeqCst) {
+                0 => Err(ModelFailure::Transport.into()),
+                1 => Ok(ModelEvent::TextDelta("recovered result".into())),
+                _ => Err(ModelFailure::Truncated.into()),
+            };
+            Ok(Box::pin(futures_util::stream::iter([event])))
+        }
+    }
+
+    #[tokio::test]
+    async fn recovered_inference_does_not_retain_a_prior_failure_or_hide_a_new_failure() {
+        let workspace = tempfile::tempdir().unwrap();
+        let worker = ProgressModel {
+            inner: Arc::new(RecoveredFailure(AtomicUsize::new(0))),
+            stalled: Arc::new(AtomicBool::new(false)),
+            failure: Arc::new(Mutex::new(None)),
+            workspace: workspace.path().into(),
+            successful: Mutex::new(SuccessfulTools::default()),
+            context_bytes: 65536,
+            context_audit: Mutex::new(vec![]),
+            progress: Mutex::new(SourceProgress {
+                hash: String::new(),
+                edited: false,
+                unchanged: 0,
+                observed: false,
+            }),
+            max_unchanged_rounds: 0,
+            command_tools_only: false,
+        };
+        for expected in [
+            Some(ModelFailure::Transport),
+            None,
+            Some(ModelFailure::Truncated),
+        ] {
+            let mut stream = worker
+                .stream(vec![Message::text("user", "work")])
+                .await
+                .unwrap();
+            while stream.next().await.is_some() {}
+            assert_eq!(*worker.failure.lock().unwrap(), expected);
+        }
+        assert!(!worker.stalled.load(Ordering::SeqCst));
+    }
 
     struct FailedUsage(bool);
     #[async_trait]
