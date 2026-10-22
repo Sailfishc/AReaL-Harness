@@ -14,3 +14,15 @@
 同一流程的先后步骤不是互斥选项。不能为了对称外观给单向维护操作添加虚假的开启入口。操作中、已选、禁用和键盘焦点分别表达，不用视觉选中冒充已保存。
 
 GUI 的两项与多项设置选择、按钮变体和展开形式继续见[控件映射](../../clients/gui/DESIGN_SYSTEM.md#按交互类型选择控件)。TUI 的选择器与键盘操作见[客户端指南](../../docs/guides/clients.md#tui-操作)。非交互 CLI 按输入输出契约表达选择，不增加不可用的交互入口。
+
+## GUI 就近合同
+
+以下合同维护生产实现的用途、状态、键盘和焦点边界，参数与导出仍从类型读取。
+
+| 查阅目的 | 就近合同 |
+| --- | --- |
+| 选择按钮变体与尺寸 | [Button 合同](../../clients/gui/renderer/src/components/ui/button.md) |
+| 表达工作台内的普通操作与提交中状态 | [ActionButton 合同](../../clients/gui/renderer/src/components/ui/action-button.md) |
+| 从候选中选择一个值 | [Select 合同](../../clients/gui/renderer/src/components/ui/select.md) |
+| 切换持续状态 | [Switch 合同](../../clients/gui/renderer/src/components/ui/switch.md) |
+| 展示所属区域的消息与错误 | [Feedback 合同](../../clients/gui/renderer/src/components/ui/feedback.md) |

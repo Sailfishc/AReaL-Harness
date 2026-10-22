@@ -1,6 +1,6 @@
 # AReaL 共享设计系统架构
 
-[设计地图](README.md)组织共享知识，各客户端拥有具体实现。当前完成的是文档归属与内容整理；整体新版候选、生产迁移及视觉准入仍按[建设计划](roadmap.md)推进。
+[设计地图](README.md)组织共享知识，各客户端拥有具体实现。当前已建立共享主题、首组文案建议与桌面工作台说明；整体新版候选、生产迁移及视觉准入仍按[建设计划](roadmap.md)推进。
 
 ## 知识、实现与执行分开
 
@@ -8,9 +8,11 @@
 | --- | --- | --- |
 | 取舍依据 | [设计原则](principles/README.md) | 平台引用适用理由，不复制定义 |
 | 基础表达 | [设计基础](foundations/README.md)、[Token 地图](foundations/tokens.md) | 各端数值、动态偏好、系统能力与有限变体 |
+| 内容表达 | [内容与文案](content/README.md) | 各端文案键、翻译与真实状态绑定 |
 | 人机关系 | [人与 Agent](people-and-agents/README.md) | 现有服务判断身份、权限、受理、执行和结算 |
 | 任务组织 | [交互模式](patterns/README.md) | 各端布局、阅读、焦点、状态投影和合法动作绑定 |
 | 控件与组合 | [组件目录](components/README.md) | 真实导出、参数、平台交互及生产示例 |
+| 产品组织 | [产品与工作台](products/README.md) | 宿主拥有导航、草稿、焦点、资源归属与业务控制器 |
 | 跨主题取舍 | [设计决策](decisions/README.md) | 决策状态与重审条件在单项记录中维护 |
 
 `design/` 维护产品设计知识。`docs/design/` 和 `docs/api/` 继续维护系统执行机制与公共契约。`clients/*` 维护实现、平台专属规则和准入。设计说明不能改变执行权威。
@@ -27,7 +29,7 @@ GUI 的 `registry.json` 仍是本端索引。I-*、P-* 和 CONV-* 的定义、�
 
 ## 文档整理与产品演进
 
-目录组织的决定见[D-001](decisions/001-shared-design-knowledge.md)。共享默认值的选择见[D-002](decisions/002-shared-semantics.md)，完整候选与路径迁移的取舍见[D-003](decisions/003-whole-candidate-and-migration.md)。具体任务、产物和进入下一阶段的条件只在[建设计划](roadmap.md)维护。
+目录组织的决定见[D-001](decisions/001-shared-design-knowledge.md)。共享默认值的选择见[D-002](decisions/002-shared-semantics.md)，完整候选与路径迁移的取舍见[D-003](decisions/003-whole-candidate-and-migration.md)。具体任务、产物和进入下一阶段的条件只在[建设计划](roadmap.md)维护。日常修改按[作者流程](contributing.md)选择唯一正文所有者。
 
 文档格式版本、输入冻结、组件 API 成熟度、GUI Base 准入和单次运行结果分别记录。一个文档版本不能推出实现、视觉或发布验收已经通过。
 
