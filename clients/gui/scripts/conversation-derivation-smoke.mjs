@@ -72,62 +72,33 @@ const toolSse = (name, args) => [
   { id: "scf-tool", object: "chat.completion.chunk", choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }], usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 } },
 ].map(value => `data: ${JSON.stringify(value)}\n\n`).join("") + "data: [DONE]\n\n";
 
-// 只剔除与草稿动作无关的精确只读轮询，保留原始 RPC 证据与全部变更命令。
-const isBackgroundStatusRead = entry => ["trajectory", "feedback"].includes(entry.command)
-  && entry.parameters?.operation === "status" && Object.keys(entry.parameters).length === 1;
-const isBackgroundMcpFormsRead = (entry, owner) => entry.command === "manage"
-  && typeof owner?.projectId === "string" && owner.projectId.length > 0
-  && typeof owner?.threadId === "string" && owner.threadId.length > 0
-  && entry.parameters?.operation === "mcpForms"
-  && Object.keys(entry.parameters).sort().join(",") === "operation,projectId,threadId"
-  && entry.parameters.projectId === owner.projectId && entry.parameters.threadId === owner.threadId;
-// ContextUsage 与显式 Side 证据读取必须匹配本次观察的项目/会话及有界参数。
-const isConversationContextRead = (entry, owner) => typeof owner?.projectId === "string" && owner.projectId.length > 0
-  && [owner.sourceThreadId, owner.sideThreadId].every(id => typeof id === "string" && id.length > 0)
-  && entry.parameters?.projectId === owner.projectId && entry.parameters.operation === "context"
-  && (entry.command === "manage"
-    ? [owner.sourceThreadId, owner.sideThreadId].includes(entry.parameters.threadId)
-      && Object.keys(entry.parameters).sort().join(",") === "limit,offset,operation,projectId,threadId"
-      && entry.parameters.offset === 0 && entry.parameters.limit === 1
-    : entry.command === "side" && entry.parameters.threadId === owner.sideThreadId
-      && Object.keys(entry.parameters).sort().join(",") === "maxBytes,operation,projectId,threadId"
-      && entry.parameters.maxBytes === 4096);
-const contextOwner = { projectId: "project", sourceThreadId: "source", sideThreadId: "side" };
+// Use the production effect catalog instead of a second, drifting read whitelist.
+const { commandSemantics, validateCommand } = require("@areal/workbench/desktop-contract");
+const isNonMutatingObservation = (entry, owner) => {
+  if (![owner?.projectId, owner?.sourceThreadId, owner?.sideThreadId].every(id => typeof id === "string" && id.length > 0)) return false;
+  try {
+    validateCommand(entry.command, entry.parameters);
+    if (commandSemantics(entry.command, entry.parameters).effect !== "read" || entry.mutation === true) return false;
+    if (entry.parameters.projectId !== undefined && entry.parameters.projectId !== owner.projectId) return false;
+    return [entry.parameters.threadId, entry.parameters.sourceThreadId].every(id =>
+      id === undefined || [owner.sourceThreadId, owner.sideThreadId].includes(id));
+  } catch { return false; }
+};
+const observationOwner = { projectId: "project", sourceThreadId: "source", sideThreadId: "side" };
+const observationHistory = { command: "history", parameters: { projectId: "project", threadId: "side", viewId: "view", operation: "acquire" } };
+assert.ok(isNonMutatingObservation(observationHistory, observationOwner), "history view ownership is observation, not a business mutation");
 for (const entry of [
-  ...["source", "side"].map(threadId => ({ command: "manage", parameters: { projectId: "project", threadId, operation: "context", offset: 0, limit: 1 } })),
-  { command: "side", parameters: { projectId: "project", threadId: "side", operation: "context", maxBytes: 4096 } },
-]) {
-  assert.ok(isConversationContextRead(entry, contextOwner));
-  for (const change of [{ projectId: "other" }, { threadId: "other" }, { operation: "contextCompact" }, { requestId: "mutation" }])
-    assert.equal(isConversationContextRead({ ...entry, parameters: { ...entry.parameters, ...change } }, contextOwner), false);
-  for (const command of ["send", "configure", "queue", "steer"])
-    assert.equal(isConversationContextRead({ ...entry, command }, contextOwner), false);
-}
-for (const owner of [undefined, {}, { ...contextOwner, projectId: "" }, { ...contextOwner, sourceThreadId: "" }, { ...contextOwner, sideThreadId: "" }])
-  assert.equal(isConversationContextRead({ command: "manage", parameters: { projectId: "project", threadId: "source", operation: "context", offset: 0, limit: 1 } }, owner), false);
-
-for (const command of ["trajectory", "feedback"])
-  assert.ok(isBackgroundStatusRead({ command, parameters: { operation: "status" } }));
-for (const entry of [
-  ...["trajectory", "feedback"].flatMap(command => ["retry", "preference", "prepare", "draft", "refine", "submit", "close", "configure", "send", "queue", "steer"].map(operation => ({ command, parameters: { operation } }))),
-  ...["side", "configure", "send", "queue", "steer", "unknown"].map(command => ({ command, parameters: { operation: "status" } })),
-  { command: "trajectory", parameters: { operation: "status", retry: true } },
-  { command: "feedback", parameters: { operation: "status", enabled: true } },
-  { command: "trajectory", parameters: {} },
-]) assert.equal(isBackgroundStatusRead(entry), false, "only exact background trajectory and feedback status reads may be excluded");
-const classifierOwner = { projectId: "classifier-project", threadId: "classifier-source" };
-const classifierForms = { command: "manage", parameters: { operation: "mcpForms", ...classifierOwner } };
-assert.ok(isBackgroundMcpFormsRead(classifierForms, classifierOwner));
-for (const entry of [
-  ...["mcpApps", "mcpFormRespond", "mcpFormPreview", "mcpFormResourceStage", "mcpFormResourceSubmission", "mcpFormResourcePrepare", "mcpFormResourceRelease", "mcpExtensionCall", "mcpSave", "mcpConnect", "mcpDisconnect"].map(operation => ({ command: "manage", parameters: { operation, ...classifierOwner } })),
-  { ...classifierForms, command: "side" },
-  { command: "manage", parameters: { operation: "mcpForms", projectId: "other-project", threadId: classifierOwner.threadId } },
-  { command: "manage", parameters: { operation: "mcpForms", projectId: classifierOwner.projectId, threadId: "other-thread" } },
-  { command: "manage", parameters: { operation: "mcpForms", projectId: classifierOwner.projectId } },
-  ...["requestId", "response", "selectionToken", "retry"].map(key => ({ ...classifierForms, parameters: { ...classifierForms.parameters, [key]: true } })),
-]) assert.equal(isBackgroundMcpFormsRead(entry, classifierOwner), false, "only the exact source-owned MCP forms query may be excluded");
-for (const owner of [undefined, {}, { projectId: "", threadId: classifierOwner.threadId }, { projectId: classifierOwner.projectId, threadId: "" }])
-  assert.equal(isBackgroundMcpFormsRead(classifierForms, owner), false, "background MCP forms queries require a complete owner");
+  ...["send", "configure", "queueEdit", "steer", "fork"].map(command => ({ command, parameters: { projectId: "project", threadId: "source", requestId: "00000000-0000-4000-8000-000000000001" } })),
+  ...["start", "send"].map(operation => ({ command: "side", parameters: { projectId: "project", threadId: "side", sourceThreadId: "source", operation, text: "mutation" } })),
+  ...["mcpFormRespond", "mcpExtensionCall", "mcpConnect", "contextCompact", "processStart"].map(operation => ({ command: "manage", parameters: { projectId: "project", threadId: "source", operation } })),
+  { command: "feedback", parameters: { operation: "preference", enabled: true } },
+  { command: "trajectory", parameters: { operation: "retry" } },
+  { command: "unknown", parameters: {} },
+  { ...observationHistory, parameters: { ...observationHistory.parameters, projectId: "other" } },
+  { ...observationHistory, parameters: { ...observationHistory.parameters, threadId: "other" } },
+  { ...observationHistory, parameters: { ...observationHistory.parameters, requestId: "mutation" } },
+  { command: "manage", parameters: { projectId: "project", threadId: "other", operation: "context", offset: 0, limit: 1 } },
+]) assert.equal(isNonMutatingObservation(entry, observationOwner), false, JSON.stringify(entry));
 
 async function state() { return page.evaluate(() => window.arealDesktop.snapshot()); }
 const project = (snapshot) =>
@@ -473,7 +444,7 @@ try {
         parameters = { ...parameters, request: { ...parameters.request, workspaceAccess: "readOnly" } };
         globalThis.__scfRejectNext = null;
       }
-      const entry = { command: parameters.name, parameters: parameters.request, accepted: false };
+      const entry = { command: parameters.name, parameters: parameters.request, mutation: mutation === true, accepted: false };
       if (fixture && !globalThis.__scfRejectNext) entry.fixture = fixture;
       globalThis.__scfMutations.push(entry);
       try {
@@ -723,7 +694,6 @@ try {
   await sidePane.getByRole("region", { name: "冻结证据" }).locator("pre").filter({ hasText: unicodeExcerpt }).first().waitFor();
   await shot("05-side-answered-frozen.png");
   checks.push("AC30/39: Side answers during a live source Runtime command; Unicode source selection is verified and frozen evidence is visible");
-  const bringBackOwner = { projectId, threadId: sourceThreadId };
   const bringBackContextOwner = { projectId, sourceThreadId, sideThreadId };
   if (sharedWorkspace) {
     const currentModels = project(await state()).configurations;
@@ -806,18 +776,18 @@ try {
   assert.equal(requests.length, beforeBring.requests, "bring-back must not send or steer");
   const bringCommands = await app.evaluate(() => globalThis.__scfMutations);
   const insertCommands = bringCommands.slice(commandsBeforeInsert);
-  assert.ok(insertCommands.some(entry => entry.command === "trajectory" && isBackgroundStatusRead(entry) && entry.accepted),
+  assert.ok(insertCommands.some(entry => entry.command === "trajectory" && entry.parameters.operation === "status" && isNonMutatingObservation(entry, bringBackContextOwner) && entry.accepted),
     "the raw RPC evidence must retain the successful injected trajectory status request");
-  assert.ok(insertCommands.some(entry => entry.command === "feedback" && isBackgroundStatusRead(entry) && entry.accepted),
+  assert.ok(insertCommands.some(entry => entry.command === "feedback" && entry.parameters.operation === "status" && isNonMutatingObservation(entry, bringBackContextOwner) && entry.accepted),
     "the raw RPC evidence must retain the successful injected feedback status request");
-  assert.deepEqual(insertCommands.filter(entry => !isBackgroundStatusRead(entry) && !isBackgroundMcpFormsRead(entry, bringBackOwner) && !isConversationContextRead(entry, bringBackContextOwner)), [],
-    "confirming bring-back may only overlap independent trajectory/feedback status and exact source-owned MCP forms and bounded conversation context reads, never queue or steer");
-  assert.ok(bringCommands.slice(beforeBring.commands).every(entry =>
-    isBackgroundStatusRead(entry) || isBackgroundMcpFormsRead(entry, bringBackOwner) || isConversationContextRead(entry, bringBackContextOwner) || (entry.command === "side" && entry.parameters.operation === "list")),
-  "switching related discussions may only refresh the read-only list alongside independent status, exact source-owned MCP forms and bounded conversation context reads");
-  events.push({ bringBackCommandWindow: { owner: bringBackOwner, contextOwner: bringBackContextOwner, from: beforeBring.commands, insertionFrom: commandsBeforeInsert,
-    to: bringCommands.length, injectedStatusAccepted: true, injectedFeedbackStatusAccepted: true } });
-  checks.push("bring-back retains raw RPC evidence and tolerates exact background trajectory/status, feedback/status, source-owned MCP forms and bounded main/Side context reads without allowing MCP or feedback mutation, retry, send, configure, queue or steer");
+  assert.deepEqual(insertCommands.filter(entry => !isNonMutatingObservation(entry, bringBackContextOwner)), [],
+    "confirming bring-back may overlap validated owner-scoped observations, never business mutations");
+  assert.deepEqual(bringCommands.slice(beforeBring.commands).filter(entry => !isNonMutatingObservation(entry, bringBackContextOwner)), [],
+    "related discussion navigation may observe its owners and manage history views without any business mutation");
+  events.push({ bringBackCommandWindow: { contextOwner: bringBackContextOwner, from: beforeBring.commands, insertionFrom: commandsBeforeInsert,
+    to: bringCommands.length, injectedStatusAccepted: true, injectedFeedbackStatusAccepted: true,
+    effectContract: "@areal/workbench/desktop-contract" } });
+  checks.push("bring-back retains all raw commands and validates their production read semantics and owner scope; no mutation, retry, send, configure, queue or steer occurs");
   assert.equal(project(await state()).state.threads[sourceThreadId].turns.length, beforeBring.sourceTurns);
   assert.equal(project(await state()).state.threads[sideThreadId].turns.length, beforeBring.sideTurns);
   assert.equal(await hash(fixturePath), beforeBring.workspaceSha256);

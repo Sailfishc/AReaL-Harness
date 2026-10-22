@@ -202,6 +202,8 @@ Restoration deduplication belongs to the project, Thread, and Core connection ge
 
 Confirmed send refusals belong to Composer and clear after later acceptance; global notices still retain genuinely unconfirmed or admitted outcomes.
 
+Conversation derivation smoke uses `desktop-contract` command validation and read/mutation semantics with project/Thread ownership to verify observations during draft bring-back, rather than maintaining a separate read-only RPC whitelist. It retains all raw commands and the transport mutation flag, and still checks unchanged model-request counts, Turn counts, and workspace bytes.
+
 `make test` uses Cargo `--no-fail-fast` to collect failures across workspace test targets before returning a failing exit code; assertions and job timeouts remain enforced. For broad Core/protocol/storage integrations, complete the applicable Rust behavior suites as well as `ci-preflight` before pushing. The portable CI lane excludes `areal-runtime-exec-native`; the dedicated native/container lanes remain required.
 
 `make script-test` needs no product binary. `make launcher-test` builds the workspace before the real Rust launcher regressions; a missing binary fails direct suite execution. `make verify` runs both. Run the inexpensive privacy and trajectory polling regressions with `pnpm --dir clients/gui test:regressions`; `make gui-install` prepares both Electron and FFmpeg.
