@@ -600,7 +600,15 @@ try {
   checks.push("native file edit and Git diff panel");
   await openPanel("终端");
   const terminal = page.locator(".xterm-helper-textarea");
-  await terminal.waitFor();
+  await page.locator(".terminal-pane .xterm-screen").waitFor();
+  await terminal.waitFor({ state: "attached" });
+  const terminalProcess = await until(async () => {
+    const records = await call("manage", { projectId: pid, threadId: tid, operation: "processes" });
+    const process = records.data.find(item => item.id !== backgroundProcess.id);
+    if (process?.state === "failed") assert.fail(JSON.stringify(process));
+    return process?.state === "running" && process.processId ? process : null;
+  }, "UI terminal Runtime process running");
+  await terminal.focus();
   await terminal.pressSequentially("printf 'AREAL_TERMINAL_OK\\n'");
   await terminal.press("Enter");
   let output = "";
@@ -615,7 +623,7 @@ try {
         projectId: pid,
         threadId: tid,
         operation: "processOutput",
-        id: processes.data.at(-1).id,
+        id: terminalProcess.id,
         maxBytes: 4096,
       });
       output = (result.chunks ?? [])

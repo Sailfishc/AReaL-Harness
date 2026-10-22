@@ -188,7 +188,7 @@ Clients read the preimage through the existing Thread-authorized Blob GET. Archi
 
 ## Processes and retention
 
-process/start defaults to lifetime=turn. Thread lifetime needs Profile allowThreadProcesses; writable services also need deployment allow-concurrent-writes. Input is attributed to authenticated identity. Output cursors and cleanup reuse Runtime facts. PTY resize uses actual ioctl; pipe EOF closes the FD, canonical PTY uses VEOF, and raw mode is unsupported.
+process/start defaults to lifetime=turn. Thread lifetime needs Profile allowThreadProcesses; writable services also need deployment allow-concurrent-writes. GUI terminals and manually started GUI processes inherit their parent Runtime limits instead of requesting a fixed 24-hour deadline. An explicit `timeoutMs` can only narrow the parent limit. Input is attributed to authenticated identity. Output cursors and cleanup reuse Runtime facts. PTY resize uses actual ioctl; pipe EOF closes the FD, canonical PTY uses VEOF, and raw mode is unsupported.
 
 The GUI terminal uses the account's executable login shell, with `SHELL` as a fallback and `/bin/sh` as the final fallback. The desktop adapter submits concrete argv for an interactive login session and supplies `SHELL`, `USER`, `LOGNAME` and `TERM=xterm-256color` through literal `/usr/bin/env` arguments. Login and interactive startup files establish the user's toolchain environment. Runtime retains its existing environment filtering and permissions. Recovery reads the original managed argv. A running terminal hides routine cleanup diagnostics; exited or uncertain processes retain their exit and cleanup facts.
 
