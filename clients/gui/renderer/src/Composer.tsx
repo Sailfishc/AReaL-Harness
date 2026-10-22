@@ -2,7 +2,7 @@ import { useI18n } from "./i18n/IntlProvider.js";
 import { SettingsDisclosure } from "./settings/SettingsDisclosure.js";
 import { ContextMeter } from "./ContextMeter.js";
 import { isOrdinaryConversation, interruptedConversationTurn } from "./ordinaryConversation.js";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import { McpComposerAttachments, useMcpDraft } from "./McpComposerAttachments.js";
 import { readMcpDraft, consumeMcpDraft, clearMcpDraft } from "./mcp-app-draft.js";
 import { setApplicationPreferences, useApplicationPreferences } from "./settings/applicationPreferences.js";
@@ -13,7 +13,6 @@ import { canExecutePlan, permissionMode, permissionOptions, planModeOptions } fr
 import { ComposerPlanMode } from "./ComposerPlanMode.js";
 import { ControlHintTooltip } from "./ControlHintTooltip.js";
 import { Button } from "./components/ui/button.js";
-import { BACKEND_STATUS_ID } from "./BackendStatusNotice.js";
 import { ComposerQueue } from "./ComposerQueue.js";
 import { useComposerQueueEdit } from "./useComposerQueueEdit.js";
 import { ComposerQueueAttachment } from "./ComposerQueueAttachment.js";
@@ -143,6 +142,7 @@ export function Composer({
     setText, setFiles, setGoalMode, annotationBlocked: annotationEditing || invalidAnnotation, inFlight: busy, setInFlight: active => markSending(key, active), uploadFiles: selected => uploadComposerFiles(action, project.id, thread.id, selected) });
   const editorDisabled = baseDisabled || queueEditor.busy || queueEditor.locked;
   const disabled = editorDisabled || executionBlocked;
+  const compatibilityDescription = useId();
   const desktopUnsupported = project.desktopCapabilities?.currentCommands === false;
   const stop = () => {
     if (executionBlocked) return;
@@ -362,6 +362,7 @@ export function Composer({
   if (thread.source === "nativeTaskAgent" && thread.goalOwner) return <div className="composer-dock" data-v4-composer-dock="true"><p role="status" className="px-3 pt-3 text-ui-sm text-foreground-subtle">此 worker 由原 TaskRun 管理。打开历史不会重新执行已结束的工作。</p>{returnError && <p role="alert" className="px-3 text-ui-sm">{returnError}</p>}<div className="px-3 py-3"><Button size="sm" variant="outline" disabled={returning} onClick={() => void returnToRun()}>{returning ? "正在返回…" : "返回原运行"}</Button></div></div>;
   return (
     <div className="composer-dock" data-v4-composer-dock="true">
+      {desktopUnsupported && <span id={compatibilityDescription} className="sr-only">{t("backend.updateRequired")}</span>}
       <GoalCard project={project} thread={thread} action={action} onEdit={() => onPanel("编辑目标")} />
       <input
         ref={upload}
@@ -390,7 +391,7 @@ export function Composer({
       )}
       {planReady && !queueEditor.edit && <section className="flex items-center justify-between gap-3 px-3 py-2 text-ui-sm" aria-label="计划确认">
         <span className="text-foreground-subtle">计划已完成。批准后将以自动编辑模式执行。</span>
-        <Button size="sm" disabled={disabled || desktopUnsupported || !!input.text.trim() || !!input.files.length || !!comments.length} aria-describedby={desktopUnsupported ? BACKEND_STATUS_ID : undefined} onClick={() => void submit("按上方已确认的计划执行。", false, true)}>批准并执行</Button>
+        <Button size="sm" disabled={disabled || desktopUnsupported || !!input.text.trim() || !!input.files.length || !!comments.length} aria-describedby={desktopUnsupported ? compatibilityDescription : undefined} title={desktopUnsupported ? t("backend.updateRequired") : undefined} onClick={() => void submit("按上方已确认的计划执行。", false, true)}>批准并执行</Button>
       </section>}
       <div className="composer-input-stack">
       <div ref={setMenuAnchor} className="composer-menu-anchor" />
@@ -436,6 +437,7 @@ export function Composer({
         placeholder={archived ? "已归档任务只读" : creatingGoal ? "描述目标，明确可衡量的结果" : planActive ? "描述任务，生成计划…" : "随心输入"}
         disabled={editorDisabled}
         submitDisabled={disabled || (desktopUnsupported && !queueEditor.edit && !creatingGoal) || (taskManagement && !!running) || annotationEditing || invalidAnnotation || (queueEditor.edit ? queueEditor.saveDisabled || (!input.text.trim() && !input.files.length && !queueEditor.edit.attachments.length) : creatingGoal ? !input.text.trim() || !!running : !canContinue && emptyDraft)}
+        submitDisabledReason={desktopUnsupported && !queueEditor.edit && !creatingGoal ? t("backend.updateRequired") : undefined}
         submitting={busy}
         submitLabel={queueEditor.edit ? "保存排队消息" : creatingGoal ? "开始目标" : canContinue ? "继续执行" : "发送"}
         enterSubmits={prefs.sendShortcut === "enter"}
@@ -526,18 +528,18 @@ export function Composer({
             </Button>
           </ControlHintTooltip>
         ) : running ? (
-          <ControlHintTooltip title="发送" shortcut={prefs.sendShortcut === "enter" ? "Enter" : "⌘/Ctrl+Enter"}>
+          <ControlHintTooltip title={desktopUnsupported ? t("backend.updateRequired") : "发送"} shortcut={prefs.sendShortcut === "enter" ? "Enter" : "⌘/Ctrl+Enter"}>
             <Button type="button" variant="composer" size="icon-md" aria-label="发送" data-testid="chat-send-button"
-              aria-describedby={desktopUnsupported ? BACKEND_STATUS_ID : undefined}
+              aria-describedby={desktopUnsupported ? compatibilityDescription : undefined} title={desktopUnsupported ? t("backend.updateRequired") : undefined}
               disabled={disabled || desktopUnsupported || taskManagement || (!input.text.trim() && !input.files.length && !comments.length && !skills.selected.length && !mcpDraft.length)}
               onClick={event => void submit(api.current?.getMarkdown() ?? text, event.metaKey || event.ctrlKey)}>
               <SendMessageIcon className="size-5" />
             </Button>
           </ControlHintTooltip>
         ) : canContinue ? (
-          <ControlHintTooltip title="继续执行">
+          <ControlHintTooltip title={desktopUnsupported ? t("backend.updateRequired") : "继续执行"}>
             <Button type="button" variant="composer" size="icon-md" aria-label="继续执行" data-testid="chat-continue-button"
-              aria-describedby={desktopUnsupported ? BACKEND_STATUS_ID : undefined}
+              aria-describedby={desktopUnsupported ? compatibilityDescription : undefined} title={desktopUnsupported ? t("backend.updateRequired") : undefined}
               disabled={disabled || desktopUnsupported} className="composer-primary-action" onClick={() => void continueExecution()}>
               <ContinueExecutionIcon className="size-5" />
             </Button>

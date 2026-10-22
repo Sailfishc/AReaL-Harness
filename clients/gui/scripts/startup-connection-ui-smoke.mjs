@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 const gui = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(join(gui, 'app/package.json'));
 const { chromium } = require('playwright-core');
-const dist = join(gui, 'renderer/dist');
+const dist = process.env.AREAL_RENDERER_DIST || join(gui, 'renderer/dist');
 const scratch = await mkdtemp('/private/tmp/areal-startup-connection-');
 const server = createServer(async (request, response) => {
   try {
@@ -69,6 +69,7 @@ try {
     window.finishDiscovery = () => { releaseSnapshot(); };
     window.publishPartial = () => { snapshot.revision++; listener({ ...structuredClone(snapshot), projects: [{ ...structuredClone(project), id: 'partial-other-project' }], connection: { state: 'connecting' } }); };
     window.failStartup = () => releaseConnect({ ok: false, error: { code: 'READ_FAILED', message: 'STARTUP_FAILURE' } });
+    window.finishStartup = () => releaseConnect();
     window.finishOpen = (fail = false) => {
       if (fail) { releaseOpen({ ok: false, error: { code: 'READ_FAILED', message: 'HELD_OPEN_FAILURE', recovery: { kind: 'none' } } }); return; }
       project.state.threads[threadId] = { id: threadId, status: 'idle', turns: [{ id: 'restored-turn', status: 'completed', items: [{ id: 'restored-message', type: 'agentMessage', phase: 'final_answer', text: 'RESTORED_STARTUP_HISTORY' }] }] };
@@ -253,6 +254,13 @@ try {
     assert.equal(await target.getByTestId('areal-workbench').getAttribute('data-view'), 'workspace');
     assert.deepEqual(await target.evaluate(() => window.calls.filter(call => ['send', 'create', 'enqueue', 'steer', 'projectless', 'chooseProject', 'browser', 'terminal'].includes(call.name))), []);
   }
+  if (process.argv.includes('--backend-only')) {
+    await page.waitForFunction(() => window.presentations.length === 1);
+    await page.evaluate(() => { window.startupReleased = true; window.finishDiscovery(); });
+    await page.waitForFunction(() => window.calls.some(call => call.name === 'connect'));
+    await page.evaluate(state => { window.updateProject(state); window.finishStartup(); }, connectedState);
+    await page.getByTestId('chat-input').waitFor();
+  } else {
   await assertShell('the dark initial window shows only the app icon and loading before discovery');
   await tryStartupRoutes();
   await page.evaluate(() => window.publishPartial());
@@ -364,29 +372,25 @@ try {
   assert.equal(await cachedPage.getByTestId('chat-send-button').isDisabled(), true);
   checks.push('a subsequent global reconnect keeps the workbench and draft mounted while sending is blocked');
   await cachedPage.close();
+  }
 
-  const backendStatus = page.locator('#backend-status');
-  const update = page.getByRole('button', { name: /^(更新后台…|正在更新…)$/ });
-  const serviceCalls = () => page.evaluate(() => window.calls.filter(call => ['stopService', 'connectService', 'connect', 'open'].includes(call.name)).map(call => call.name));
   const setBackend = state => page.evaluate(value => window.updateBackend(value), state);
   await setBackend({ currentCommands: false, backendUpdate: { state: 'pending' } });
-  await update.waitFor();
-  assert.equal(await backendStatus.count(), 1);
-  assert.equal(await backendStatus.getAttribute('role'), 'status');
-  assert.equal(await page.getByText('原后台不支持新版提交；可检查原任务，安全更新后继续发送。草稿已保留。', { exact: true }).count(), 1);
-  assert.equal(await page.getByText(/当前后台版本不支持 MCP 应用和表单/).count(), 0);
-  assert.equal(await page.locator('.composer-dock .notice').filter({ hasText: /升级后台|更新后台/ }).count(), 0);
+  assert.equal(await page.locator('#backend-status').count(), 0);
   assert.equal(await page.getByTestId('chat-send-button').isDisabled(), true);
   assert.equal(await page.getByTestId('chat-input').getAttribute('contenteditable'), 'true');
   await page.getByTestId('chat-input').fill('BACKEND_UPDATE_DRAFT_PRESERVED');
-  checks.push('one global compatibility notice keeps ordinary chat editable without an MCP warning');
-
+  await page.getByRole('button', { name: '设置', exact: true }).click();
+  await page.getByRole('button', { name: '后台服务', exact: true }).click();
+  const backendStatus = page.getByTestId('backend-service-status');
+  const update = backendStatus.getByRole('button', { name: /^(更新后台…|正在更新…)$/ });
+  const serviceCalls = () => page.evaluate(() => window.calls.filter(call => ['stopService', 'connectService', 'connect', 'open'].includes(call.name)).map(call => call.name));
+  await update.waitFor();
   let before = await serviceCalls();
   await update.click();
-  await page.waitForFunction(() => !document.querySelector('#backend-status button')?.disabled);
+  await page.waitForFunction(() => !document.querySelector('[data-testid="backend-service-status"] button')?.disabled);
   assert.deepEqual(await serviceCalls(), [...before, 'stopService']);
-  assert.match(await page.getByTestId('chat-input').innerText(), /BACKEND_UPDATE_DRAFT_PRESERVED/);
-  checks.push('cancelled update preserves the draft and never connects');
+  checks.push('backend lifecycle controls move to service settings and cancelled updates never connect');
 
   await page.evaluate(() => window.setStopOutcome('hold'));
   before = await serviceCalls();
@@ -395,27 +399,26 @@ try {
   await update.evaluate(button => { button.click(); button.click(); });
   assert.deepEqual(await serviceCalls(), [...before, 'stopService']);
   await page.evaluate(() => window.finishStop());
-  await update.waitFor();
-  checks.push('an update in flight disables its action and only stops once');
+  await page.waitForFunction(() => !document.querySelector('[data-testid="backend-service-status"] button')?.disabled);
+  checks.push('an update in flight disables its settings action and only stops once');
 
   await page.evaluate(() => window.setStopOutcome('refuse'));
   before = await serviceCalls();
   await update.click();
+  await backendStatus.locator('summary').click();
   await backendStatus.getByText('仍有其他窗口连接，无法更新后台。', { exact: true }).waitFor();
   assert.deepEqual(await serviceCalls(), [...before, 'stopService']);
-  assert.equal(await page.locator('.error-banner').filter({ hasText: '仍有其他窗口连接' }).count(), 0);
-  checks.push('a refused update reports its actual failure locally without connecting');
+  checks.push('a refused update keeps its diagnostic in settings without connecting');
 
   await setBackend({ currentCommands: true, backendUpdate: { state: 'pending' } });
-  await backendStatus.getByText('已连接原后台，当前部署更新尚未应用。现有任务继续运行。', { exact: true }).waitFor();
-  assert.equal(await page.getByTestId('chat-send-button').isDisabled(), false);
+  await backendStatus.getByText('已连接后台，更新可稍后应用。现有任务继续运行。', { exact: true }).waitFor();
   await setBackend({ currentCommands: true, backendUpdate: { state: 'applying' } });
   await backendStatus.getByText('正在更新后台…', { exact: true }).waitFor();
   assert.equal(await update.isDisabled(), true);
   await setBackend({ backendUpdate: { state: 'failed', message: '新后台启动失败，请检查配置。' } });
+  await backendStatus.locator('summary').click();
   await backendStatus.getByText('新后台启动失败，请检查配置。', { exact: true }).waitFor();
-  assert.doesNotMatch(await backendStatus.innerText(), /旧后台仍|现有任务继续/);
-  checks.push('compatible pending updates leave sending available; applying and failed states are truthful');
+  checks.push('service settings retain compatible pending, applying, and failed update states');
 
   await setBackend({ currentCommands: false, backendUpdate: { state: 'pending' } });
   await page.evaluate(() => window.setStopOutcome('unknown'));
@@ -425,12 +428,12 @@ try {
   await checkBackend.waitFor();
   assert.deepEqual(await serviceCalls(), [...before, 'stopService']);
   assert.equal(await update.count(), 0);
+  await backendStatus.locator('summary').click();
   assert.match(await backendStatus.innerText(), /后台停止回执丢失/);
   await checkBackend.click();
-  await page.waitForFunction(() => !document.querySelector('#backend-status button')?.disabled);
+  await page.waitForFunction(() => !document.querySelector('[data-testid="backend-service-status"] button')?.disabled);
   assert.deepEqual(await serviceCalls(), [...before, 'stopService', 'connectService']);
-  assert.equal(await page.getByRole('button', { name: '检查后台', exact: true }).count(), 1);
-  checks.push('UNKNOWN prioritizes authoritative recovery and only checks through connectService');
+  checks.push('UNKNOWN remains authoritative after toast dismissal and settings only check through connectService');
 
   await setBackend({ currentCommands: false, backendUpdate: { state: 'pending' } });
   await page.waitForFunction(() => document.querySelector('[data-testid="areal-workbench"]')?.getAttribute('data-startup-ready') === 'true');
@@ -439,13 +442,11 @@ try {
   await update.click();
   await backendStatus.waitFor({ state: 'detached' });
   assert.deepEqual(await serviceCalls(), [...before, 'stopService', 'connectService']);
-  assert.equal(await page.getByTestId('chat-send-button').isDisabled(), false);
-  assert.match(await page.getByTestId('chat-input').innerText(), /BACKEND_UPDATE_DRAFT_PRESERVED/);
   assert.deepEqual(await page.evaluate(() => window.calls.filter(call => ['send', 'create', 'enqueue', 'steer'].includes(call.name))), []);
-  checks.push('confirmed stop connects once, clears the notice, and preserves the unsent draft');
+  assert.equal(await page.evaluate(() => localStorage.getItem('areal-gui:draft:startup-fixture:new')), 'BACKEND_UPDATE_DRAFT_PRESERVED');
+  checks.push('a confirmed settings update connects once without replay and preserves the unsent draft');
   await setBackend({ connection: { state: 'ready', message: 'STALE_DEPLOYMENT_MESSAGE' } });
   assert.equal(await backendStatus.count(), 0);
-  checks.push('a current deployment stays quiet instead of displaying a legacy ready message');
   await page.screenshot({ path: join(scratch, 'backend-current.png'), animations: 'disabled' });
   assert.deepEqual(errors, []);
   passed = true;

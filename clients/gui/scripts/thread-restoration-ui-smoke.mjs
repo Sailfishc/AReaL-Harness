@@ -161,8 +161,7 @@ try {
   await page.evaluate(()=>window.unrelatedError());
   await page.evaluate(()=>window.settleSend('00000000-0000-4000-8000-000000000002'));
   await page.locator('.composer-dock [data-composer-recovery-request-id]').waitFor({state:'hidden'});
-  check(await page.getByText('UNRELATED_ERROR_SENTINEL',{exact:true}).count()===1,'Settling a send preserves an unrelated visible error.');
-  await page.getByTestId('feedback-notice').filter({hasText:'UNRELATED_ERROR_SENTINEL'}).getByRole('button',{name:'关闭提示',exact:true}).click();
+  check(await page.getByTestId('toast').filter({hasText:'UNRELATED_ERROR_SENTINEL'}).count()===1,'Settling a send preserves an unrelated transient notification.');
   await input.fill('UNCLASSIFIED_FAILURE_DRAFT_SENTINEL');await page.getByTestId('chat-send-button').click();
   await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
   check(await page.getByText('暂时无法完成操作，请检查原操作结果后继续。',{exact:true}).count()>0,'A transport failure without typed facts never claims that the operation was not admitted.');

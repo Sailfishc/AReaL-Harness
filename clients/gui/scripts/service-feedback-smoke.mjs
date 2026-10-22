@@ -161,6 +161,19 @@ try {
   assert.equal(await operationNotice.count(), 0);
   assert.equal(await input.textContent(), 'Draft retained after a failed action');
   checks.push('Header action feedback uses the same collapsed details and preserves the editable draft when dismissed');
+  const composerBounds = await input.boundingBox();
+  await page.evaluate(() => document.dispatchEvent(new CustomEvent('areal:toast', { detail: '内容已复制' })));
+  const toast = page.getByTestId('toast');
+  await toast.waitFor();
+  assert.equal(await toast.getAttribute('role'), 'status');
+  assert.equal(await operationNotice.count(), 0, 'Copy feedback does not create a persistent error card');
+  const toastBounds = await toast.boundingBox(), viewport = page.viewportSize() || await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+  assert.ok(Math.abs(toastBounds.x + toastBounds.width / 2 - viewport.width / 2) < 3);
+  assert.deepEqual(await input.boundingBox(), composerBounds, 'The toast does not shift the composer');
+  await page.screenshot({ path: join(scratch, 'top-center-toast.png'), scale: 'css' });
+  await toast.waitFor({ state: 'hidden', timeout: 6500 });
+  assert.equal(await input.textContent(), 'Draft retained after a failed action');
+  checks.push('Native Electron displays a top-center transient toast without a persistent card or composer movement');
   passed = true;
 } catch (error) {
   errors.push(error.message); process.exitCode = 1;

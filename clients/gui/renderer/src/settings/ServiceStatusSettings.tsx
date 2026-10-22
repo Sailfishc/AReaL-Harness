@@ -1,3 +1,4 @@
+import { BackendServiceStatus, type BackendStatusProps } from "../BackendStatusNotice.js";
 import { useI18n, formatUiMessage, type UiMessage } from "../i18n/IntlProvider.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ActionButton } from "../components/ui/action-button.js";
@@ -16,7 +17,8 @@ type Project = { projectId: string; root: string; started: boolean; restartSafe?
   pendingRequests?: { threadId?: string; awaitingResponse: boolean }[] };
 type Status = { canStop?: boolean; connected: boolean; clients: number; busy: boolean; activeCommands: number; starting: number; providerUpdating: boolean; projects: Project[] };
 
-export function ServiceStatusSettings({ connected, runningState, recovery, action, onConnect, onOpen, onTask }: {
+export function ServiceStatusSettings({ connected, runningState, recovery, backendStatus, action, onConnect, onOpen, onTask }: {
+  backendStatus?: BackendStatusProps;
   connected: boolean; runningState?: "running" | "stopped" | "unknown"; action: Action; onConnect: () => Promise<void>;
   recovery?: NonNullable<Snapshot["lifecycle"]>["recovery"];
   onTask?: (projectId: string, taskId: string) => void;
@@ -81,6 +83,7 @@ export function ServiceStatusSettings({ connected, runningState, recovery, actio
   return <div className="settings-sections" aria-label={t("settings.serviceStatusSettings.backgroundServiceManagement")}>
     <SettingsSection title={t("settings.serviceStatusSettings.sharedBackgroundService")}
       action={<ActionButton pending={refreshing} disabled={busy || !connected} onClick={async () => { setRefreshing(true); try { await read(); } finally { setRefreshing(false); } }}>{t("settings.serviceStatusSettings.refreshServiceStatus")}</ActionButton>}>
+      {backendStatus && <BackendServiceStatus {...backendStatus} />}
       <SettingsGroupCard>
         <SettingsRow label={t("settings.serviceStatusSettings.backgroundService")} description={connected ? readError ? t("settings.serviceStatusSettings.theInterfaceIsConnectedWorkspaceStatusNeeds") : status ? t("settings.serviceStatusSettings.connectedSummary", { value0: status.clients, value1: status.activeCommands }) : t("settings.serviceStatusSettings.connected") : t("settings.serviceStatusSettings.disconnected")}
           control={<SettingsSwitch aria-label={t("settings.serviceStatusSettings.backgroundService")} checked={connected} disabled={busy || (connected && !!readError)} onCheckedChange={enabled => void run(enabled ? "connect" : "stopService")} />} />

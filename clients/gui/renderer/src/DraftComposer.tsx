@@ -313,6 +313,7 @@ export function DraftComposer({
         placeholder={goalMode ? "描述目标，明确可衡量的结果" : plan ? "描述任务，生成计划…" : "随心输入"}
         disabled={editLocked}
         submitDisabled={submitDisabled || annotationBlocked || (desktopUnsupported && !goalMode) || (goalMode ? !input.text.trim() : !input.text.trim() && !input.files.length && !comments.length && !skills.selected.length)}
+        submitDisabledReason={desktopUnsupported && !goalMode ? t("backend.updateRequired") : undefined}
         submitting={busy}
         submitLabel={goalMode ? "开始目标" : "发送"}
         enterSubmits={prefs.sendShortcut === "enter"}

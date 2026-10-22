@@ -20,6 +20,7 @@ import { ConversationStatusCard } from "./ConversationStatusCard.js";
 import { SidePane } from "./app-shell/SidePane.js";
 import { useBrowserWorkspace, browserTabId, browserPageId, isBrowserTab } from "./app-shell/useBrowserWorkspace.js";
 import { Button } from "./components/ui/button.js";
+import { ToastHost } from "./ToastHost.js";
 import { BackendStatusNotice, type BackendStatusAction } from "./BackendStatusNotice.js";
 import { FeedbackNotice } from "./FeedbackNotice.js";
 import { SettingsDisclosure } from "./settings/SettingsDisclosure.js";
@@ -409,11 +410,6 @@ function AppContent({ services }: { services: PlatformServices }) {
       .catch((e) => setError(e.message))
       .finally(() => setThemeReady(true));
   }, [theme, services]);
-  useEffect(() => {
-    const onToast = (event: Event) => setError((event as CustomEvent).detail);
-    document.addEventListener("areal:toast", onToast);
-    return () => document.removeEventListener("areal:toast", onToast);
-  }, []);
   const library = snapshot.library ?? {
     projects: {},
     threads: {},
@@ -1601,7 +1597,9 @@ function AppContent({ services }: { services: PlatformServices }) {
       ) : settingsTab === "数据飞轮" ? (
         <TrajectorySettings action={resourceAction} connected={snapshot.connection?.state === "ready"} onStatus={onTrajectoryStatus} />
       ) : settingsTab === "后台服务" ? (
-        <><ServiceStatusSettings recovery={snapshot.lifecycle?.recovery} runningState={snapshot.serviceSummary?.state} connected={snapshot.connection?.state === "ready"} action={resourceAction}
+        <><ServiceStatusSettings backendStatus={{ connection: snapshot.connection, update: snapshot.backendUpdate, lifecycle: snapshot.lifecycle,
+          summary: snapshot.serviceSummary, currentCommands: snapshot.desktopCapabilities?.currentCommands ?? project?.desktopCapabilities?.currentCommands,
+          pending: backendActionPending, error: backendActionError, detail: project?.error || project?.state?.error, onAction: kind => void runBackendAction(kind) }} recovery={snapshot.lifecycle?.recovery} runningState={snapshot.serviceSummary?.state} connected={snapshot.connection?.state === "ready"} action={resourceAction}
           onConnect={reconnectService}
           onTask={initialReleased ? (pid, taskId) => { updateSettingsOpen(false); setTaskScope(undefined); setTaskNotification({ projectId: pid, taskId }); setTaskCenterOpen(true); } : undefined}
           onOpen={initialReleased ? (pid, tid, panelName) => { updateSettingsOpen(false); void open(pid, tid).then(() => { if (panelName) setPanel(panelName); }); } : undefined} />
@@ -1639,6 +1637,10 @@ function AppContent({ services }: { services: PlatformServices }) {
       data-startup-ready={startupReady}
       data-shell-ready={shellReady}
     >
+      <ToastHost />
+      <BackendStatusNotice summary={snapshot.serviceSummary} connection={snapshot.connection} update={snapshot.backendUpdate} lifecycle={snapshot.lifecycle}
+        currentCommands={snapshot.desktopCapabilities?.currentCommands ?? project?.desktopCapabilities?.currentCommands}
+        pending={backendActionPending} error={backendActionError} onAction={kind => void runBackendAction(kind)} />
       {!initialReleased ? <div className="startup-screen" data-testid="startup-loading">
         <div className="startup-drag-region" aria-hidden="true" />
         {settingsOpen ? <div className="startup-settings">
@@ -1772,9 +1774,6 @@ function AppContent({ services }: { services: PlatformServices }) {
               )}
             </div>
           </WorkspaceHeader>}
-          <BackendStatusNotice summary={snapshot.serviceSummary} connection={snapshot.connection} update={snapshot.backendUpdate} lifecycle={snapshot.lifecycle}
-            currentCommands={snapshot.desktopCapabilities?.currentCommands ?? project?.desktopCapabilities?.currentCommands}
-            pending={backendActionPending} error={backendActionError} detail={project?.error || project?.state?.error} onAction={kind => void runBackendAction(kind)} />
           {operationNotices.map(notice => (
             <FeedbackNotice key={notice.id} tone={notice.kind === "unconfirmed" ? "warning" : "error"}
               message={isTechnicalErrorMessage(notice.message) ? t("recovery.operationFailed") : notice.message} requestId={notice.requestId} onDismiss={() => dismissNotice(notice.id)}
