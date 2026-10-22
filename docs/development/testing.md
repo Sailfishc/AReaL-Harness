@@ -196,6 +196,8 @@ TUI 与共享服务 PTY 检查共用终端画面解析器，处理增量重绘�
 
 `pnpm --dir clients/gui test:macos-dmg` 在 macOS 上独立通过真实 `codesign` 和 `hdiutil` 验证签名 framework 暂存。它需要允许磁盘映像设备访问的环境；受限 Agent 沙箱可能返回 `Device not configured`。应记录环境失败，并在允许的宿主环境重跑相同测试，不跳过断言，也不据此宣称安装包验收通过。macOS GUI job 显式执行该检查；可移植 `verify` 不创建磁盘映像。
 
+GUI 构建成功后，历史兼容、迁移、Composer、模型选择、队列和对话派生 smoke 各自使用隔离 fixture，独立收集结果；一个场景失败不再跳过后续独立场景。失败仍使 GUI job 和 gate 失败，取消或构建失败时不启动这些场景，不使用 `continue-on-error`。这避免修复首个失败后才逐轮发现其它问题。
+
 `make test` 使用 Cargo `--no-fail-fast`，先收集 workspace 各测试目标的失败，再返回失败退出码；断言和 job 超时继续生效。大范围 Core/协议/存储集成在推送前除 `ci-preflight` 外，还需完成适用的 Rust 行为测试。可移植 CI 排除 `areal-runtime-exec-native`，专用 native/container 通道仍须通过。
 
 `make script-test` 不要求产品二进制；`make launcher-test` 先构建整个 workspace，再执行真实 Rust launcher 回归。直接运行 launcher suite 时缺二进制是失败，不是 skip。`make verify` 包含两个入口。GUI 低成本隐私和 trajectory polling 回归通过 `pnpm --dir clients/gui test:regressions` 执行；`make gui-install` 同时准备 Electron 和 FFmpeg。

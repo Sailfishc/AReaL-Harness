@@ -92,22 +92,29 @@ jobs:
       - name: Check Browser contracts and evidence
         run: pnpm --dir clients/gui run test:browser-contracts 2>&1 | tee target/ci/gui/browser-contracts.log
       - name: Build Core and GUI
+        id: build
         run: |
           make build 2>&1 | tee target/ci/gui/core-build.log
           make gui-build 2>&1 | tee target/ci/gui/gui-build.log
       - name: Check registered desktop RPC routes
         run: cargo test --locked -p areal-app-server --lib desktop_registered_methods_have_dispatch_routes 2>&1 | tee target/ci/gui/rpc-routes.log
       - name: Verify sanitized historical sessions
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: pnpm --dir clients/gui run test:history-compat 2>&1 | tee target/ci/gui/history-compat.log
       - name: Verify existing GUI workflow
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: make gui-smoke 2>&1 | tee target/ci/gui/migration.log
       - name: Verify Composer workflow
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: pnpm --dir clients/gui run test:composer 2>&1 | tee target/ci/gui/composer.log
       - name: Verify model configuration and selection
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: pnpm --dir clients/gui run test:model-selection 2>&1 | tee target/ci/gui/model-selection.log
       - name: Verify queue workflow
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: pnpm --dir clients/gui run test:queue 2>&1 | tee target/ci/gui/queue.log
       - name: Verify conversation derivation workflow
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         timeout-minutes: 10
         run: pnpm --dir clients/gui run test:conversation-derivation 2>&1 | tee target/ci/gui/conversation-derivation.log
       - name: Collect GUI evidence
