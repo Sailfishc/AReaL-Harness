@@ -209,8 +209,8 @@ async function manageTaskDraft(backend, project, request) {
             maxModelRounds: 1, systemPrompt: instructions(zone, true),
             appendInstructions: `${marker}\nTime zone: ${zone}\n${workspaceContext(project, thread.cwd)}\n${targetPrefix}${JSON.stringify(targetContext(task))}` } });
         }
-        await backend.openThread(project, thread.id);
-        return { threadId: thread.id };
+        await backend.refreshAfterAdmission(project, thread.id);
+        return { threadId: thread.id, requestId: request.draftId };
       }
       if (task?.cancelled) throw new Error('此任务已取消，且没有可恢复的管理会话。');
       const anchor = task ? (await project.client.request('thread/read', { threadId: task.threadId, includeTurns: false })).thread : null;
@@ -244,8 +244,8 @@ async function manageTaskDraft(backend, project, request) {
         await backend.configureThread(project, thread.id, { options: { readOnly: true, toolAllowlist: [],
           maxModelRounds: 1, systemPrompt: instructions(zone, !!task), appendInstructions: `${marker}\nTime zone: ${zone}\n${workspaceContext(project, cwd)}${task ? `\n${targetPrefix}${JSON.stringify(targetContext(task))}` : ''}` } });
       } else await inspect(project, thread.id);
-      await backend.openThread(project, thread.id);
-      return { threadId: thread.id, ...(modelNotice ? { modelNotice } : {}) };
+      await backend.refreshAfterAdmission(project, thread.id);
+      return { threadId: thread.id, requestId: request.draftId, ...(modelNotice ? { modelNotice } : {}) };
     });
   }
   if (operation === 'taskDraftHistory') {

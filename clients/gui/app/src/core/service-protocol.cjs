@@ -8,7 +8,7 @@ const { inspectResources, recoverResource, blocked } = require('./resource-recov
 const { validToolInput, failure: browserFailure, success: browserSuccess } = require('./browser-tool.cjs');
 const { ProjectionEncoder } = require('@areal/workbench/state-projection');
 const PROTOCOL = 'areal.desktop-service.v1';
-const COMMAND_CONTRACT = 'areal.desktop-commands.v1';
+const COMMAND_CONTRACT = 'areal.desktop-commands.v2';
 const browserKey = (projectId, threadId) => JSON.stringify([projectId, threadId]);
 function validateCommand(name, params) {
   validateDesktopCommand(name, params, { serviceOnly: true });
@@ -218,14 +218,86 @@ class DesktopService {
   }
   send(socket, value, full = false) {
     if (socket.readyState !== 1) return;
-    if (socket.bufferedAmount > 32 * 1024 * 1024) { socket.terminate(); return; }
-    if (socket.projection) {
-      const key = value.method === 'state' ? 'params' : 'result';
-      const packet = value[key];
-      if (packet?.snapshot && packet.service && Number.isSafeInteger(packet.sequence))
-        value = { ...value, [key]: { ...packet, snapshot: socket.projection.encode(packet.snapshot, full) } };
+    const outbound = socket.outbound ??= { queue: [], bytes: 0, active: false, state: null, closed: false };
+    if (outbound.closed) return;
+    const entry = { value, full, bytes: 0 };
+    if (outbound.active) {
+      if (value.method === 'state') {
+        if (outbound.state) {
+          const previous = outbound.state;
+          previous.value = value; previous.full = full;
+          outbound.queue.splice(outbound.queue.indexOf(previous), 1); outbound.queue.push(previous);
+          return;
+        }
+        outbound.state = entry;
+      } else {
+        entry.bytes = Buffer.byteLength(JSON.stringify(value));
+        if (outbound.bytes + entry.bytes > 32 * 1024 * 1024) { this.stopSending(socket); socket.terminate(); return; }
+        outbound.bytes += entry.bytes;
+      }
+      outbound.queue.push(entry); return;
     }
-    socket.send(JSON.stringify(value));
+    this.sendFrame(socket, entry);
+  }
+  stopSending(socket) {
+    const outbound = socket.outbound;
+    if (!outbound) return;
+    clearTimeout(outbound.timer);
+    outbound.closed = true; outbound.queue = []; outbound.state = null; outbound.bytes = 0;
+  }
+  sendFrame(socket, { value, full }) {
+    const outbound = socket.outbound;
+    if (outbound.closed || socket.readyState !== 1) { this.stopSending(socket); return; }
+    if (socket.bufferedAmount > 32 * 1024 * 1024) { this.stopSending(socket); socket.terminate(); return; }
+    outbound.active = true;
+    const fail = () => { this.stopSending(socket); socket.terminate(); };
+    outbound.timer = setTimeout(fail, 150000); outbound.timer.unref?.();
+    try {
+      if (socket.projection) {
+        const key = value.method === 'state' ? 'params' : 'result', packet = value[key];
+        if (packet?.snapshot && packet.service && Number.isSafeInteger(packet.sequence))
+          value = { ...value, [key]: { ...packet, snapshot: socket.projection.encode(packet.snapshot, full) } };
+      }
+      const text = JSON.stringify(value);
+      if (Buffer.byteLength(text) > 256 * 1024 * 1024) { fail(); return; }
+      socket.send(text, error => {
+        clearTimeout(outbound.timer);
+        if (error) { fail(); return; }
+        if (outbound.closed) return;
+        outbound.active = false;
+        const next = outbound.queue.shift();
+        if (next) {
+          outbound.bytes -= next.bytes;
+          if (outbound.state === next) outbound.state = null;
+          this.sendFrame(socket, next);
+        }
+      });
+    } catch { fail(); }
+  }
+  async historyCommand(socket, request) {
+    const views = socket.historyViews ??= new Map();
+    const key = JSON.stringify([request.projectId, request.threadId, request.viewId]);
+    let view = views.get(key);
+    if (request.operation === 'release') {
+      views.delete(key);
+      return view ? this.backend.command('history', { ...view, operation: 'release' }) : { released: true };
+    }
+    if (request.operation === 'acquire') {
+      if (!view) { view = { ...request, viewId: randomUUID() }; views.set(key, view); }
+      try { return await this.backend.command('history', { ...view, operation: 'acquire' }); }
+      catch (error) { if (views.get(key) === view) views.delete(key); throw error; }
+      finally {
+        if (socket.readyState !== 1 || views.get(key) !== view)
+          await this.backend.command('history', { ...view, operation: 'release' }).catch(() => {});
+      }
+    }
+    if (!view || socket.readyState !== 1) throw new Error('历史视图已关闭，请重新打开聊天。');
+    return this.backend.command('history', { ...request, viewId: view.viewId });
+  }
+  releaseHistoryViews(socket) {
+    for (const view of socket.historyViews?.values() ?? [])
+      void this.backend.command('history', { ...view, operation: 'release' }).catch(() => {});
+    socket.historyViews?.clear();
   }
   schedule() {
     void this.power?.refresh();
@@ -272,10 +344,11 @@ class DesktopService {
         return !req.headers.origin && actual.length === expected.length && timingSafeEqual(actual, expected);
       } });
     this.server.on('connection', socket => {
-      socket.on('error', () => {});
+      socket.on('error', () => { this.stopSending(socket); socket.terminate(); });
       socket.on('message', bytes => { void this.receive(socket, bytes); });
       socket.on('close', () => {
         this.revokeMcpPageTools(lease => lease.socket === socket);
+        this.stopSending(socket); this.releaseHistoryViews(socket);
         for (const [key, claim] of this.browserClaims) if (claim.socket === socket) this.browserClaims.delete(key);
         for (const [id, record] of this.browserDiscoveryPlans)
           if (record.socket === socket) this.browserDiscoveryPlans.delete(id);
@@ -490,7 +563,8 @@ class DesktopService {
           entries.add(entry); this.browserEntrypoints.set(entryKey, entries);
         }
         let result;
-        try { result = method === 'command' ? await this.backend.command(params.name, params.name === 'media' ? decodeMedia(params.request) : params.request,
+        try { result = method === 'command' && params.name === 'history' ? await this.historyCommand(socket, params.request)
+          : method === 'command' ? await this.backend.command(params.name, params.name === 'media' ? decodeMedia(params.request) : params.request,
           { onMcpAppOpened: (project, client, request, result) => this.bindMcpPageOwner(socket, project, client, request, result),
             onBrowserTurnStarted: turnId => entry?.resolve({ turnId }),
             onBrowserTurnQueued: queueItemId => entry?.resolve({ queueItemId }) }) : await this.backend.addProject(params.path); }
@@ -525,7 +599,7 @@ class DesktopService {
     this.power?.close();
     this.backgroundNotifications?.close(); this.pendingNotificationTarget = null;
     clearTimeout(this.timer); clearInterval(this.activityTimer); clearInterval(this.flushTimer);
-    for (const socket of this.server?.clients ?? []) socket.terminate();
+    for (const socket of this.server?.clients ?? []) { this.stopSending(socket); this.releaseHistoryViews(socket); socket.terminate(); }
     this.server?.close();
   }
   async executeRemote(name, request) {

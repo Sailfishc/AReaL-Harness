@@ -2,27 +2,27 @@
 use super::*;
 use areal_protocol::tasks::*;
 
-pub(crate) const METHODS: &[&str] = &[
-    "areal/task/create",
-    "areal/task/schedule/preview",
-    "areal/task/schedule/context",
-    "areal/task/update",
-    "areal/task/runNow",
-    "areal/task/list",
-    "areal/task/read",
-    "areal/task/runs/list",
-    "areal/task/run/read",
-    "areal/task/pause",
-    "areal/task/resume",
-    "areal/task/cancel",
-    "areal/task/stopRun",
-    "areal/task/resumeRun",
-    "areal/task/subscribe",
-    "areal/task/unsubscribe",
-    "areal/channel/read",
-    "areal/channel/reply",
-    "areal/inbox/list",
-];
+areal_protocol::method_catalog! {
+    "areal/task/create" => Mutation, Task;
+    "areal/task/schedule/preview" => Read;
+    "areal/task/schedule/context" => Read;
+    "areal/task/update" => Mutation, Task;
+    "areal/task/runNow" => Mutation, Task;
+    "areal/task/list" => Read;
+    "areal/task/read" => Read;
+    "areal/task/runs/list" => Read;
+    "areal/task/run/read" => Read;
+    "areal/task/pause" => Mutation, Task;
+    "areal/task/resume" => Mutation, Task;
+    "areal/task/cancel" => Mutation, Task;
+    "areal/task/stopRun" => Mutation, Task;
+    "areal/task/resumeRun" => Mutation, Task;
+    "areal/task/subscribe" => Subscription;
+    "areal/task/unsubscribe" => Subscription;
+    "areal/channel/read" => Read;
+    "areal/channel/reply" => Mutation, Task;
+    "areal/inbox/list" => Read;
+}
 
 pub(crate) async fn authorize(
     engine: &Engine,
@@ -67,12 +67,15 @@ pub(crate) async fn dispatch(
                 return Err(RpcError {
                     code: -32003,
                     message: "task binding permission denied".into(),
-                    data: None,
+                    data: Some(
+                        json!({"reason":"PERMISSION_DENIED","outcome":{"kind":"rejected"},"recovery":{"kind":"none"}}),
+                    ),
                 });
             }
             engine
                 .task_create(principal.id.clone(), request)
                 .await
+                .map_err(atomic_mutation_error)
                 .map_err(map_error)
         }
         "areal/task/update" => engine
@@ -82,6 +85,7 @@ pub(crate) async fn dispatch(
                 principal.thread_ids.as_ref(),
             )
             .await
+            .map_err(atomic_mutation_error)
             .map_err(map_error),
         "areal/task/runNow" => {
             let result = engine
@@ -91,6 +95,7 @@ pub(crate) async fn dispatch(
                     principal.thread_ids.as_ref(),
                 )
                 .await
+                .map_err(atomic_mutation_error)
                 .map_err(map_error)?;
             match result {
                 areal_engine::TaskRunNowAdmission::Accepted(value) => Ok(json!(value)),
@@ -102,7 +107,7 @@ pub(crate) async fn dispatch(
                     code: -32009,
                     message: "task already has an active Run".into(),
                     data: Some(
-                        json!({"reason":"activeRun","taskId":task_id,"runId":run_id,"revision":revision}),
+                        json!({"reason":"activeRun","taskId":task_id,"runId":run_id,"revision":revision,"outcome":{"kind":"rejected"},"recovery":{"kind":"none"}}),
                     ),
                 }),
             }
@@ -194,6 +199,7 @@ pub(crate) async fn dispatch(
                 principal.thread_ids.as_ref(),
             )
             .await
+            .map_err(atomic_mutation_error)
             .map_err(map_error),
         "areal/channel/read" => {
             let request: ChannelRead = parse(params)?;

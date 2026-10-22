@@ -272,7 +272,10 @@ CoreBackend.prototype.connect=async function(...args){
   this.request=async(method,params,options)=>{
    if(method==='areal/task/create'&&params.objective==='日历重试验收')fs.appendFileSync(${JSON.stringify(calendarTrace)},JSON.stringify(params)+'\\n');
    if(method==='areal/task/runNow')fs.appendFileSync(${JSON.stringify(manualTrace)},JSON.stringify(params)+'\\n');
-   if(method==='areal/request/read'&&params.taskId&&fs.existsSync(${JSON.stringify(manualDropGate)}))throw new Error('receipt read fixture unavailable');
+   if(method==='areal/request/read'&&fs.existsSync(${JSON.stringify(manualDropGate)})){
+    const original=fs.readFileSync(${JSON.stringify(manualTrace)},'utf8').trim().split(String.fromCharCode(10)).filter(Boolean).map(line=>JSON.parse(line));
+    if(params.taskId||original.some(entry=>entry.requestId===params.requestId))throw new Error('receipt read fixture unavailable');
+   }
    const result=await request(method,params,options);
    if(method==='areal/task/create'&&params.objective==='日历重试验收'&&fs.existsSync(${JSON.stringify(calendarDropGate)}))throw Object.assign(new Error('calendar accepted response dropped'),{submissionUnknown:true});
    if(method==='areal/task/runNow'&&fs.existsSync(${JSON.stringify(manualDropGate)}))throw Object.assign(new Error('accepted response fixture dropped'),{submissionUnknown:true});

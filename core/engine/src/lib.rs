@@ -156,6 +156,12 @@ impl Limits {
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("{0}")]
+    Rejected(Box<Error>),
+    #[error("operation outcome requires reconciliation: {0:?}")]
+    OperationOutcome(Box<areal_protocol::desktop::OperationFailure>),
+    #[error("history read unavailable: {reason}")]
+    HistoryRead { reason: &'static str, thread_id: String, restart_cursor: Option<String> },
     #[error("thread not found")]
     NotFound,
     #[error("{0}")]

@@ -9,7 +9,7 @@ import { once } from 'node:events';
 const require = createRequire(import.meta.url);
 const { CoreBackend } = require('../app/src/core/backend.cjs');
 const { SharedCoreBackend } = require('../app/src/core/service-client.cjs');
-const { PROTOCOL } = require('../app/src/core/service-protocol.cjs');
+const { PROTOCOL, COMMAND_CONTRACT } = require('../app/src/core/service-protocol.cjs');
 const { serviceIdentity } = require('../app/src/core/service-config.cjs');
 const { WebSocketServer } = require('../app/node_modules/ws');
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -74,7 +74,7 @@ async function until(predicate) {
   }
 }
 
-async function fixture(t, { commandContract = 'areal.desktop-commands.v1', commandResult, service = {}, resources = [], resourceError, onStop, lifecycle = true, replyTransform = value => value } = {}) {
+async function fixture(t, { commandContract = COMMAND_CONTRACT, commandResult, service = {}, resources = [], resourceError, onStop, lifecycle = true, replyTransform = value => value } = {}) {
   const home = await realpath(await mkdtemp(join(tmpdir(), 'areal-service-observer-')));
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
   await once(server, 'listening');
@@ -84,8 +84,8 @@ async function fixture(t, { commandContract = 'areal.desktop-commands.v1', comma
   let connections = 0, stop = 'success', sequence = 0;
   const packet = () => ({ sequence: ++sequence, snapshot: {
     library: { projects: {}, threads: {}, projectOrder: [], settings: {} },
-    desktopCapabilities: { currentCommands: commandContract !== 'areal.desktop-commands.v1' },
-    projects: [{ id: 'p', root: home, state: { threads: {} }, desktopCapabilities: { currentCommands: commandContract !== 'areal.desktop-commands.v1' } }],
+    desktopCapabilities: { currentCommands: commandContract !== COMMAND_CONTRACT },
+    projects: [{ id: 'p', root: home, state: { threads: {} }, desktopCapabilities: { currentCommands: commandContract !== COMMAND_CONTRACT } }],
   }, service: { connected: true, clients: 1, busy: false, providerUpdating: false, activeCommands: 0, starting: 0,
     pid: metadata.pid, lifecycleVersion: 1, targets: [], ...(lifecycle ? { lifecycle: { version: 2, desktopGeneration: metadata.desktopGeneration, capabilities: { request: true, read: true, reconcile: true, kinds: ['stopDesktop', 'updateDesktop', 'stopProject', 'updateProject', 'interruptTurn'] } } } : {}), ...service, ...(commandContract === null ? {} : { commandContract }) } });
   server.on('connection', (socket, request) => {
@@ -189,13 +189,13 @@ for (const method of ['areal/turn/start', 'areal/turn/enqueue']) {
       await f.backend.submit(f.project, method, parameters, { requestId });
       throw Object.assign(Error('outer response lost'), { submissionUnknown: true, requestId });
     }, error => error.submissionUnknown === true && error.requestId === requestId);
-    assert.deepEqual(JSON.parse(await readFile(join(f.home, 'p-outcomes.json'), 'utf8')), {
-      [requestId]: { accepted: true, method, threadId: 't' },
-    });
+    const expectedOutcome = { accepted: true, status: 'completed', method, threadId: 't', turnId: 'accepted-turn',
+      operation: { method, requestId, target: { kind: 'thread', threadId: 't' } } };
+    assert.deepEqual(JSON.parse(await readFile(join(f.home, 'p-outcomes.json'), 'utf8')), { [requestId]: expectedOutcome });
     assert.deepEqual(JSON.parse(await readFile(join(f.home, 'p-pending.json'), 'utf8')), []);
     const recovered = await f.reload();
     assert.deepEqual(await recovered.backend.command('reconcile', { projectId: 'p' }), {
-      outcomes: { [requestId]: { accepted: true, method, threadId: 't' } },
+      outcomes: { [requestId]: expectedOutcome },
     });
     assert.deepEqual(f.calls, [
       { method, params: { ...parameters, requestId } },
@@ -203,24 +203,22 @@ for (const method of ['areal/turn/start', 'areal/turn/enqueue']) {
     ]);
   });
 
-  test(`caller-correlated ${method} keeps its unknown journal when acceptance cannot persist`, async t => {
+  test(`caller-correlated ${method} returns known acceptance and retains its journal when local outcome cannot persist`, async t => {
     const f = await journalFixture(t);
     const requestId = 'f12a0dbc-3375-43f8-a3f1-36f204ed4e8a';
     const parameters = { threadId: 't', input: [{ type: 'text', text: 'send once' }] };
     await mkdir(join(f.home, 'p-outcomes.json'));
-    await assert.rejects(f.backend.submit(f.project, method, parameters, { requestId }), error => {
-      assert.equal(error.submissionUnknown, true);
-      assert.equal(error.requestId, requestId);
-      return true;
-    });
+    assert.deepEqual(await f.backend.submit(f.project, method, parameters, { requestId }), { turn: { id: 'accepted-turn' } });
+    assert.equal(f.project.refreshErrors[requestId].refreshPending, true);
+    assert.equal(f.project.refreshErrors[requestId].operation.requestId, requestId);
     assert.deepEqual(JSON.parse(await readFile(join(f.home, 'p-pending.json'), 'utf8')), [
-      { method, params: { ...parameters, requestId } },
+      { method, params: { ...parameters, requestId }, operation: { method, requestId, target: { kind: 'thread', threadId: 't' } } },
     ]);
     await rm(join(f.home, 'p-outcomes.json'), { recursive: true });
     const recovered = await f.reload();
     assert.deepEqual(await recovered.backend.command('reconcile', { projectId: 'p' }), { outcomes: {} });
     assert.deepEqual(JSON.parse(await readFile(join(f.home, 'p-pending.json'), 'utf8')), [
-      { method, params: { ...parameters, requestId } },
+      { method, params: { ...parameters, requestId }, operation: { method, requestId, target: { kind: 'thread', threadId: 't' } } },
     ]);
     assert.deepEqual(f.calls, [
       { method, params: { ...parameters, requestId } },
@@ -259,13 +257,13 @@ test('subscription refresh unknown retains only its dispatched provider request 
       protocol: 'responses', endpoint: service.endpoint, models: ['gpt'], parameters: {},
       modelParameters: { gpt: { contextWindowTokens: 1000000 } } }] };
     if (method === 'areal/provider/upsert') {
-      providerRequest = { method, params };
+      providerRequest = { method, params, operation: { method, requestId: params.requestId, target: { kind: 'project' } } };
       throw Object.assign(new Error('provider receipt unavailable after write'), { code: -32603 });
     }
     if (method === 'areal/request/read') {
       if (!recovered) throw new Error('Core connection lost during receipt lookup');
       return { data: params.requestId === providerRequest.params.requestId
-        ? [{ method: 'areal/provider/upsert', state: 'completed', response: { result: { applied: true } } }] : [] };
+        ? [{ method: 'areal/provider/upsert', requestId: params.requestId, state: 'completed', response: { result: { applied: true } } }] : [] };
     }
     if (['areal/model/list', 'thread/list'].includes(method)) return { data: [] };
     if (method === 'areal/turn/submit') return { turn: { id: 'accepted-turn' } };
@@ -305,16 +303,31 @@ test('public command availability comes only from the current service contract',
     return [snapshot.desktopCapabilities, snapshot.projects[0].desktopCapabilities];
   };
   assert.deepEqual(capabilities(), [{ currentCommands: false }, { currentCommands: false }]);
-  f.updateContract('areal.desktop-commands.v1');
-  await until(() => f.backend.status.commandContract === 'areal.desktop-commands.v1');
+  f.updateContract(COMMAND_CONTRACT);
+  await until(() => f.backend.status.commandContract === COMMAND_CONTRACT);
   assert.deepEqual(capabilities(), [{ currentCommands: true }, { currentCommands: true }]);
-  f.updateContract('areal.desktop-commands.v2');
-  await until(() => f.backend.status.commandContract === 'areal.desktop-commands.v2');
+  f.updateContract('areal.desktop-commands.v3');
+  await until(() => f.backend.status.commandContract === 'areal.desktop-commands.v3');
   assert.deepEqual(capabilities(), [{ currentCommands: false }, { currentCommands: false }]);
   f.updateContract(null);
   await until(() => f.backend.status.commandContract === undefined);
   assert.deepEqual(capabilities(), [{ currentCommands: false }, { currentCommands: false }]);
   assert.deepEqual(f.calls.map(c => c.method), ['hello']);
+});
+
+test('legacy Desktop contract cannot accept writes requiring original recovery identities', async t => {
+  const f = await fixture(t, { commandContract: 'areal.desktop-commands.v1' });
+  await f.publish(); await f.backend.attach();
+  assert.equal(f.backend.snapshot().desktopCapabilities.currentCommands, false);
+  for (const [name, request] of [
+    ['create', { projectId: 'p' }],
+    ['configure', { projectId: 'p', threadId: 't', parameters: {} }],
+    ['manage', { projectId: 'p', operation: 'taskPause', taskId: 'task', expectedRevision: 1 }],
+  ]) {
+    await assert.rejects(f.backend.command(name, request), error =>
+      error.code === 'SERVICE_COMMAND_UNSUPPORTED' && error.submissionUnknown !== true && error.requestId === undefined);
+  }
+  assert.equal(f.calls.some(call => call.method === 'command'), false);
 });
 
 test('an unadvertised backend rejects current commands before sending or inventing a receipt', async t => {
@@ -362,13 +375,16 @@ test('an unadvertised backend keeps compatible observation and control commands'
     ['list', { projectId: 'p' }], ['open', thread],
     ['reconcile', { projectId: 'p' }], ['queue', thread],
     ['steer', { ...thread, text: 'compatible text', expectedTurnId: 'turn', mcpContent: [] }],
-    ['configure', { ...thread, options: { readOnly: true } }],
     ['providers', { operation: 'save', id: 'provider' }],
     ['trajectory', { operation: 'status' }], ['manage', { ...thread, operation: 'processes' }],
   ];
   for (const [name, request] of requests) assert.deepEqual(await f.backend.command(name, request), { accepted: true });
-  assert.deepEqual(f.calls.filter(c => c.method === 'command').map(c => c.params),
-    requests.map(([name, request]) => ({ name, request })));
+  const commands = f.calls.filter(c => c.method === 'command').map(c => c.params);
+  for (const value of commands.filter(value => ['steer', 'configure'].includes(value.name))) {
+    assert.match(value.request.requestId, /^[0-9a-f-]{36}$/);
+    delete value.request.requestId;
+  }
+  assert.deepEqual(commands, requests.map(([name, request]) => ({ name, request })));
 });
 
 test('legacy queue edits retain the original receipt after disconnect without replay', async t => {
@@ -396,6 +412,26 @@ test('a backend published after startup timeout attaches without launching again
   assert.deepEqual(f.calls.map(c => c.method), ['hello']);
 });
 
+test('passive reconnect publishes connecting until the original observer is ready', async t => {
+  const f = await fixture(t); await f.publish(); await f.backend.attach();
+  const states = []; f.backend.onChange = () => states.push(f.backend.snapshot().connection.state);
+  f.drop(); await until(() => !f.backend.status.connected);
+  assert.equal(f.backend.snapshot().connection.state, 'connecting');
+  assert.ok(f.backend.reconnectTimer);
+  await until(() => f.backend.status.connected);
+  assert.deepEqual([...new Set(states)], ['connecting', 'ready']);
+  assert.equal(f.calls.some(call => call.method === 'command'), false);
+});
+
+test('a persisted user stop discovered during retry ends connecting with an actionable state', async t => {
+  const f = await fixture(t); await f.publish(); await f.backend.attach();
+  await writeFile(f.backend.controlPath, JSON.stringify({ home: f.home, state: 'stopped' }));
+  f.drop(); await until(() => f.backend.reconnectBlocked);
+  assert.equal(f.backend.snapshot().connection.state, 'unavailable');
+  assert.equal(f.backend.snapshot().connection.recovery, 'check');
+  assert.equal(f.connections(), 1);
+});
+
 test('an unknown command is never replayed when its observer reconnects', async t => {
   const f = await fixture(t); await f.publish(); await f.backend.attach();
   const requestId = 'e99d906b-7912-4e95-81dc-a3fd3c967779';
@@ -412,6 +448,7 @@ for (const state of ['stopped', 'unconfirmed']) {
     await f.backend.saveControl(state); f.drop();
     await sleep(700);
     assert.equal(f.backend.status.connected, false);
+    assert.equal(f.backend.snapshot().connection.state, 'unavailable');
     assert.equal(f.connections(), 1);
   });
 }
@@ -423,6 +460,7 @@ test('a changed backend identity needs explicit recovery instead of automatic re
   await sleep(700);
   assert.equal(f.backend.status.connected, false);
   assert.equal(f.connections(), 2);
+  assert.equal(f.backend.snapshot().connection.state, 'unavailable');
   assert.equal(f.calls.filter(c => c.method !== 'hello').length, 0);
 });
 
@@ -432,6 +470,7 @@ for (const forUpdate of [false, true]) {
     assert.equal((await f.backend.stopService(forUpdate)).stopped, true);
     await f.publish(); f.drop(); await sleep(700);
     assert.equal(f.backend.status.connected, false);
+    assert.equal(f.backend.snapshot().connection.state, 'unavailable');
     assert.equal(f.connections(), 1);
     assert.equal(f.calls.filter(c => c.method === 'lifecycleRequest').length, 1);
     assert.equal(f.calls.some(c => c.method === 'stopService'), false);

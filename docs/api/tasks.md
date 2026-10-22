@@ -95,7 +95,7 @@ limit 为 1–100，Task/Inbox 默认 30，Channel 默认 50；Task/Inbox 使用
 
 Core 在同一次原子提交中保存 queued Run、冻结 objective 和原请求收据，之后才准备 Host。`accepted:true` 只确认持久受理；准备、凭据、模型和执行仍可能失败。准备失败将同一 Run 标为 blocked。`task/resumeRun` 使用原身份和预算继续这次执行。
 
-手动执行不改变 `schedule`、`scheduleV2`、`lastTriggerDecision`、`nextRunAt`、`paused` 或 `skippedRuns`。暂停计划和自然完成的一次性计划允许手动执行，cancelled Task 拒绝。任意非终态 Run 都阻止新受理。重放收据和检查 Task 资格后，重叠请求先于普通 revision 检查返回 `-32009`，其 data 为 `{reason:"activeRun",taskId,runId,revision}`。没有重叠时必须匹配当前 `expectedRevision`。修改和到期触发共用同一准入锁；到期触发输给 manual Run 时仍按原忙碌跳过策略推进。
+手动执行不改变 `schedule`、`scheduleV2`、`lastTriggerDecision`、`nextRunAt`、`paused` 或 `skippedRuns`。暂停计划和自然完成的一次性计划允许手动执行，cancelled Task 拒绝。任意非终态 Run 都阻止新受理。重放收据和检查 Task 资格后，重叠请求先于普通 revision 检查返回 `-32009`，其 data 为 `{reason:"activeRun",taskId,runId,revision,outcome:{kind:"rejected"},recovery:{kind:"none"}}`。没有重叠时必须匹配当前 `expectedRevision`。修改和到期触发共用同一准入锁；到期触发输给 manual Run 时仍按原忙碌跳过策略推进。
 
 `TaskRun.trigger` 为 `schedule` 或 `manual`，旧数据默认 `schedule`。manual 的 `scheduledAt` 是逻辑受理时间，客户端显示“手动触发”。Task 总用量包含热记录、已归档 Run 和预留 Token。总预算耗尽时仍可能受理 Run，但随后在 Goal 执行前 blocked。立即运行不增加额度或权限。
 

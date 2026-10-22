@@ -119,13 +119,10 @@ async function manageTask(backend, project, request) {
     return value;
   }
   if (operation === 'taskCreate') return taskCreate(backend, project, request);
-  const client = project.client;
-  const value = await backend.submit(project, method, params);
+  const value = await backend.submit(project, method, params, { requestId: request.requestId });
   if (operation === 'taskRunNow') {
-    backend.requireConnection(project, client);
-    const task = await client.request('areal/task/read', { taskId: params.taskId });
-    backend.requireConnection(project, client);
-    project.model.setTask(task);
+    await backend.refreshAfterAdmission(project, undefined, { method, requestId: request.requestId,
+      target: { kind: 'task', taskId: params.taskId } });
     return value;
   }
   // Core receipts identify the Run and reply message. Preserve the originating

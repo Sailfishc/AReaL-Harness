@@ -1,3 +1,5 @@
+import { useI18n } from "./i18n/IntlProvider.js";
+import { SettingsDisclosure } from "./settings/SettingsDisclosure.js";
 import { ContextMeter } from "./ContextMeter.js";
 import { isOrdinaryConversation, interruptedConversationTurn } from "./ordinaryConversation.js";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
@@ -35,6 +37,7 @@ import { ReviewCommentAttachment } from "./ReviewCommentViews.js";
 import { attachedReviewComments, consumeReviewComments, detachReviewComments, recordUnknownReviewSubmission, reconcileReviewSubmission, readReviewComments, reviewCommentKey, reviewCommentText, useReviewComments } from "./reviewComments.js";
 import type { LexicalChatInputHandle } from "./LexicalChatInput.js";
 import type { Data, Action } from "./services.js";
+import { recoveredOutcome, recoveryMessage, type RecoveryFailure, type RecoveryOperation } from "./recoveryPresentation.js";
 // Draft attachments and in-flight UI admission survive task navigation. These are
 // unsent client inputs only; Core remains authoritative for acceptance/outcomes.
 export const attachmentDrafts = new Map<string, ComposerDraftAttachment[]>();
@@ -79,6 +82,7 @@ export function Composer({
   onMcpMention?: () => void;
   onAnnotate?: (target: ImageAnnotationTarget) => void;
 }) {
+  const { t } = useI18n();
   const prefs = useApplicationPreferences();
   const key = `areal-gui:draft:${project.id}:${thread.id}`;
   const mcpDraft = useMcpDraft(key);
@@ -199,18 +203,27 @@ export function Composer({
     return () => window.removeEventListener("areal-draft-change", refreshDraft);
   }, [key]);
   useEffect(() => {
-    if (!unknown || pending) return;
-    const outcome = project.outcomes?.[unknown];
+    if (!unknown) return;
+    const pendingOperation = project.pending.find((entry: Data) => entry.params?.requestId === unknown)?.operation;
+    if (pendingOperation) localStorage.setItem(`${key}:pending-operation`, JSON.stringify(pendingOperation));
+    if (pending) return;
+    let operation: RecoveryOperation | undefined;
+    try { operation = JSON.parse(localStorage.getItem(`${key}:pending-operation`) ?? "null") ?? undefined; } catch {}
+    const outcome = recoveredOutcome(project, unknown, thread.id, operation);
     if (!outcome) return;
     localStorage.removeItem(`${key}:pending`);
+    localStorage.removeItem(`${key}:pending-operation`);
     setUnknown(null);
     reconcileReviewSubmission(reviewKey, unknown, outcome.accepted !== false);
     const wasGoal = localStorage.getItem(`${key}:pending-goal`) === unknown;
     localStorage.removeItem(`${key}:pending-goal`);
     const wasContinue = localStorage.getItem(`${key}:pending-continue`) === unknown;
     localStorage.removeItem(`${key}:pending-continue`);
-    if (outcome.accepted === false) setDeliveryError(outcome.message || "原轮次已结束，内容已保留，请检查后发送。");
-    else if (wasContinue) setDeliveryError("");
+    const wasConfigure = localStorage.getItem(`${key}:pending-configure`) === unknown;
+    localStorage.removeItem(`${key}:pending-configure`);
+    if (outcome.status === "failed") setDeliveryError(outcome.message || "消息已受理，但执行失败，请检查对话结果。");
+    else if (outcome.accepted === false) setDeliveryError(outcome.message || "原轮次已结束，内容已保留，请检查后发送。");
+    else if (wasContinue || wasConfigure) setDeliveryError("");
     else if (wasGoal) {
       clearText(); changeGoalMode(false);
     } else clear();
@@ -241,6 +254,7 @@ export function Composer({
     markSending(key, true);
     setGoalError("");
     setDeliveryError("");
+    let configurationRequestId: string | undefined;
     try {
       if (creatingGoal) {
         await action("manage", { projectId: project.id, threadId: thread.id, operation: "goalCreate",
@@ -249,7 +263,11 @@ export function Composer({
         changeGoalMode(false);
         return;
       }
-      if (approvePlan) await action("configure", { projectId: project.id, threadId: thread.id, expectedRevision: config?.revision, options: planModeOptions(false, config?.options) });
+      if (approvePlan) {
+        configurationRequestId = crypto.randomUUID();
+        await action("configure", { projectId: project.id, threadId: thread.id, requestId: configurationRequestId, expectedRevision: config?.revision, options: planModeOptions(false, config?.options) });
+        configurationRequestId = undefined;
+      }
       await submitMessage(action, project.id, thread.id, value, files, {
         steer: !taskManagement && !!running && shouldSteer(prefs.followUp, invert),
         expectedTurnId: running?.id,
@@ -266,10 +284,13 @@ export function Composer({
       else if (!(error.submissionUnknown && error.requestId)) {
         // 附件失败留在所属 Composer，切换任务后仍能看到；没有附件的未受理发送/steer 单独显示投递原因。
         if (files.length > 0) setAdmissionError(error.message);
-        else if (!error.submissionUnknown) setDeliveryError(error.message || "发送未受理，输入已保留。");
+        else if (!error.submissionUnknown) setDeliveryError(recoveryMessage(error));
         else setAdmissionError(error.message);
       }
       if (error.submissionUnknown && error.requestId) {
+        const failure = error as RecoveryFailure;
+        if (failure.outcome && "operation" in failure.outcome) localStorage.setItem(`${key}:pending-operation`, JSON.stringify(failure.outcome.operation));
+        if (configurationRequestId) localStorage.setItem(`${key}:pending-configure`, error.requestId);
         if (creatingGoal) localStorage.setItem(`${key}:pending-goal`, error.requestId);
         setUnknown(error.requestId);
         localStorage.setItem(`${key}:pending`, error.requestId);
@@ -285,7 +306,7 @@ export function Composer({
       await action("continue", { projectId: project.id, threadId: thread.id, expectedTurnId: interrupted.id, expectedConfigRevision: config?.revision });
     } catch (cause) {
       const error = cause as Error & { submissionUnknown?: boolean; requestId?: string };
-      setDeliveryError(error.message);
+      if (!error.submissionUnknown) setDeliveryError(recoveryMessage(error));
       if (error.submissionUnknown && error.requestId) {
         localStorage.setItem(`${key}:pending`, error.requestId);
         localStorage.setItem(`${key}:pending-continue`, error.requestId);
@@ -297,9 +318,20 @@ export function Composer({
     if (queueEditor.edit) return;
     if (disabled || running || sending.has(key)) return;
     markSending(key, true);
+    const requestId = crypto.randomUUID();
     try {
-      await action("configure", { projectId: project.id, threadId: thread.id, expectedRevision: config?.revision, ...values });
-    } catch (cause) { setAdmissionError((cause as Error).message); } finally { markSending(key, false); }
+      await action("configure", { projectId: project.id, threadId: thread.id, requestId, expectedRevision: config?.revision, ...values });
+    } catch (cause) {
+      const failure = cause as Error & { submissionUnknown?: boolean; requestId?: string };
+      if (failure.submissionUnknown) {
+        const originalId = failure.requestId ?? requestId;
+        setUnknown(originalId);
+        localStorage.setItem(`${key}:pending`, originalId);
+        localStorage.setItem(`${key}:pending-configure`, originalId);
+        const outcome = (failure as RecoveryFailure).outcome;
+        if (outcome && "operation" in outcome) localStorage.setItem(`${key}:pending-operation`, JSON.stringify(outcome.operation));
+      } else setAdmissionError(recoveryMessage(failure));
+    } finally { markSending(key, false); }
   };
   const catalogActions: ComposerCatalogEntry[] = [
     ...(onMcpMention ? [{value:"app-mention",label:"@ 应用引用",description:"搜索应用中的文件、工单或其他资源",icon:<ComposerMcpIcon/>,group:"功能" as const,run:onMcpMention}] : []),
@@ -342,12 +374,15 @@ export function Composer({
       />
       {deliveryError && <p role="alert" className="notice">{deliveryError}</p>}
       {unknown && (
-        <div role="status" className="notice">
-          提交结果尚未确认。草稿已保留，等待 Core 对账；不会自动重发。
+        <div role="status" className="notice" data-composer-recovery-request-id={unknown}>
+          {t("recovery.sendUnconfirmed")}
+          <SettingsDisclosure title={t("recovery.details")}>
+            <small className="break-all text-foreground-subtle">{t("recovery.requestId", { id: unknown })}</small>
+          </SettingsDisclosure>
           <button
-            onClick={() => void action("reconcile", { projectId: project.id }).catch(() => {})}
+            onClick={() => void readAction("reconcile", { projectId: project.id }).catch(() => {})}
           >
-            刷新受理状态
+            {t("recovery.checkOriginal")}
           </button>
         </div>
       )}

@@ -90,6 +90,7 @@ type PluginReceipt =
   | {
       confirmed: true;
       accepted: boolean;
+      status?: "completed" | "failed";
       result?: Partial<PluginDetail> & {
         thread?: { id: string };
         turn?: { id: string };
@@ -570,7 +571,7 @@ export function PluginCenter({ project: selectedProject, projects, thread, actio
         return;
       }
       setSubmission(null);
-      if (!receipt.accepted) {
+      if (receipt.status === "failed" || !receipt.accepted) {
         setError({
           message: receipt.error?.message ?? { id: "settings.pluginCenter.theOriginalPluginOperationIsConfirmedFailed" },
           code: receipt.error?.code,

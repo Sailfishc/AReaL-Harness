@@ -256,7 +256,7 @@ async fn manual_run_admission_precedes_prepare_and_receipts_survive_restart() {
     assert_eq!(
         overlap.data,
         Some(
-            json!({"reason":"activeRun","taskId":created["id"],"runId":accepted["runId"],"revision":updated["revision"]})
+            json!({"reason":"activeRun","taskId":created["id"],"runId":accepted["runId"],"revision":updated["revision"],"outcome":{"kind":"rejected"},"recovery":{"kind":"none"}})
         )
     );
     let mut altered = original.clone();

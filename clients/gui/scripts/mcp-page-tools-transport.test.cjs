@@ -13,7 +13,7 @@ const grant = { status: 'granted', claimId: 'claim', kind: 'getSelection', docum
 const instance = { instanceId: 'instance', generation: 1, serverId: 'server',
   resource: { html: '<html></html>', mimeType: 'text/html;profile=mcp-app' }, hostContext: {} };
 const tick = () => new Promise(resolve => setImmediate(resolve));
-function socket() { return { readyState: 1, bufferedAmount: 0, packets: [], send(value) { this.packets.push(JSON.parse(value)); } }; }
+function socket() { return { readyState: 1, bufferedAmount: 0, packets: [], send(value, done) { this.packets.push(JSON.parse(value)); done?.(); } }; }
 function serviceFixture() {
   const calls = [];
   const client = { ready: true, async request(method, params) {

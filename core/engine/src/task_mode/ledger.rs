@@ -650,6 +650,24 @@ impl Snapshot {
             children,
         })
     }
+    pub(super) fn stored_receipt(
+        &self,
+        owner: &str,
+        method: &str,
+        request: &str,
+    ) -> Result<Option<RequestReceipt>> {
+        let row = self.index_get::<RequestReceipt>(
+            &self.catalog.receipts,
+            &receipt_key(owner, method, request),
+        )?;
+        if row.as_ref().is_some_and(|row| {
+            row.identity != owner || row.method != method || row.request_id != request
+        }) {
+            return Err(storage("Task receipt identity collision"));
+        }
+        Ok(row)
+    }
+
     pub(super) fn old_receipt(
         &self,
         owner: &str,
@@ -657,16 +675,9 @@ impl Snapshot {
         request: &str,
         hash: &str,
     ) -> Result<Option<Value>> {
-        let Some(row) = self.index_get::<RequestReceipt>(
-            &self.catalog.receipts,
-            &receipt_key(owner, method, request),
-        )?
-        else {
+        let Some(row) = self.stored_receipt(owner, method, request)? else {
             return Ok(None);
         };
-        if row.identity != owner || row.method != method || row.request_id != request {
-            return Err(storage("Task receipt identity collision"));
-        }
         if row.digest != hash {
             return Err(Error::Conflict);
         }

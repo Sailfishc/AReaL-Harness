@@ -10,6 +10,25 @@ use std::{
 use tokio::sync::Semaphore;
 mod archive;
 
+pub(crate) fn fit_history_fragment(
+    remaining: &str, max_bytes: usize, page_for: impl Fn(&str) -> serde_json::Value,
+) -> Option<serde_json::Value> {
+    let mut low = 0;
+    let mut high = remaining.len().min(max_bytes);
+    let mut best = None;
+    while low <= high {
+        let mid = low + (high - low) / 2;
+        let mut end = mid;
+        while !remaining.is_char_boundary(end) { end -= 1; }
+        let page = page_for(&remaining[..end]);
+        if serde_json::to_vec(&page).expect("history page serializes").len() <= max_bytes {
+            if end > 0 || remaining.is_empty() { best = Some(page); }
+            low = mid + 1;
+        } else if mid == 0 { break; } else { high = mid - 1; }
+    }
+    best
+}
+
 // 持久化版本与服务状态必须一致，避免客户端误判可恢复的数据格式。
 pub(crate) const STATE_VERSION: u32 = 15;
 
@@ -17,6 +36,13 @@ pub(crate) const STATE_VERSION: u32 = 15;
 pub struct Record {
     pub version: u32,
     pub thread: Thread,
+}
+
+struct CachedOwnHistoryEntry {
+    scope: String,
+    entry: serde_json::Value,
+    serialized: Arc<str>,
+    version: String,
 }
 
 pub struct Store {
@@ -27,6 +53,7 @@ pub struct Store {
     paused_write: tokio::sync::Notify,
     blob_write: Arc<tokio::sync::Mutex<()>>,
     fork_reads: Arc<Semaphore>,
+    own_history_entry: Arc<std::sync::Mutex<Option<Arc<CachedOwnHistoryEntry>>>>,
     #[cfg(test)]
     fork_fault: std::sync::Mutex<Option<ForkFault>>,
 }
@@ -79,6 +106,7 @@ impl Store {
             blob_write: Arc::new(tokio::sync::Mutex::new(())),
             // 最多同时解析两份 64 MiB 快照；页请求不占满通用 Store 写入容量。
             fork_reads: Arc::new(Semaphore::new(2)),
+            own_history_entry: Arc::new(std::sync::Mutex::new(None)),
             #[cfg(test)]
             fork_fault: std::sync::Mutex::new(None),
         })
@@ -445,6 +473,12 @@ impl Store {
             archive::hydrate(&self.root, &mut thread)?;
         }
         Ok(thread)
+    }
+
+    pub(crate) async fn read_thread_record(&self, id: &str) -> Result<Thread> {
+        anyhow::ensure!(uuid::Uuid::parse_str(id).is_ok(), "invalid thread ID");
+        let bytes = tokio::fs::read(self.root.join(format!("{id}.json"))).await?;
+        Ok(serde_json::from_slice::<Record>(&bytes)?.thread)
     }
 
     pub(crate) async fn read_thread(&self, id: &str) -> Result<Thread> {

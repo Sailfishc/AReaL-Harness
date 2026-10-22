@@ -329,6 +329,13 @@ impl Engine {
         cursor: Option<String>,
         max_bytes: Option<usize>,
     ) -> Result<Value> {
+        if view == "own" {
+            let max_bytes = max_bytes.unwrap_or(areal_protocol::desktop::DEFAULT_HISTORY_PAGE_BYTES);
+            if !(1..=areal_protocol::desktop::MAX_HISTORY_PAGE_BYTES).contains(&max_bytes) {
+                return Err(invalid("maxBytes must be 1..1048576"));
+            }
+            return self.own_history("", thread_id, cursor, max_bytes).await;
+        }
         if !matches!(view, "inherited" | "reference") {
             return Err(invalid("invalid history view"));
         }
@@ -428,30 +435,8 @@ impl Engine {
                         next,
                     )
                 };
-                let mut low = 0;
-                let mut high = remaining.len().min(max_bytes);
-                let mut best = None;
-                while low <= high {
-                    let mid = low + (high - low) / 2;
-                    let mut end = mid;
-                    while !remaining.is_char_boundary(end) {
-                        end -= 1;
-                    }
-                    let page = fragment_page(&remaining[..end]);
-                    if page.to_string().len() <= max_bytes {
-                        best = Some((page, end));
-                        low = mid + 1;
-                    } else if mid == 0 {
-                        break;
-                    } else {
-                        high = mid - 1;
-                    }
-                }
-                let (page, consumed) =
-                    best.ok_or_else(|| invalid("history page budget too small"))?;
-                if consumed == 0 && !remaining.is_empty() {
-                    return Err(invalid("history page budget too small"));
-                }
+                let page = crate::store::fit_history_fragment(remaining, max_bytes, fragment_page)
+                    .ok_or_else(|| invalid("history page budget too small"))?;
                 if data.is_empty() {
                     return Ok(page);
                 }
@@ -725,11 +710,31 @@ impl Engine {
         self: &Arc<Self>,
         request: ConfigureThread,
     ) -> Result<EffectiveConfig> {
+        self.configure_thread_as(String::new(), request).await
+    }
+    pub async fn configure_thread_as(
+        self: &Arc<Self>,
+        identity: String,
+        request: ConfigureThread,
+    ) -> Result<EffectiveConfig> {
         self.refresh_plugins().await?;
         self.mutate(move |engine| async move {
+            let hash = digest(&request)?;
+            let request_id = request.request_id.clone();
             let cell = engine.cell(&request.thread_id).await?;
             let is_side = cell.state.lock().await.thread.is_side();
             let mut state = cell.state.lock().await;
+            if let Some(request_id) = &request_id {
+                if let Some(result) = receipt(
+                    &desktop(&state.thread),
+                    &identity,
+                    request_id,
+                    "areal/thread/configure",
+                    &hash,
+                )? {
+                    return serde_json::from_value(result).map_err(invalid);
+                }
+            }
             if state.active.is_some() || state.compacting {
                 return Err(Error::Conflict);
             }
@@ -787,6 +792,16 @@ impl Engine {
                     .desktop
                     .get_or_insert_with(Default::default)
                     .configuration = configuration.clone();
+                if let Some(request_id) = &request_id {
+                    remember(
+                        candidate.desktop.as_mut().unwrap(),
+                        &identity,
+                        request_id,
+                        "areal/thread/configure",
+                        hash.clone(),
+                        json!(configuration),
+                    );
+                }
                 engine.persist(&candidate).await?;
                 state.thread = candidate;
                 cell.emit(
@@ -949,6 +964,16 @@ impl Engine {
             let registry = engine
                 .managed_registry(&candidate, cell.research)
                 .map_err(invalid)?;
+            if let Some(request_id) = &request_id {
+                remember(
+                    candidate.desktop.as_mut().unwrap(),
+                    &identity,
+                    request_id,
+                    "areal/thread/configure",
+                    hash,
+                    json!(configuration),
+                );
+            }
             engine.persist(&candidate).await?;
             state.thread = candidate;
             cell.bindings.write().await.registry = registry;
@@ -1175,11 +1200,18 @@ impl Engine {
                     if receipt.identity == identity && receipt.request_id == request_id {
                         let mut v = json!(receipt);
                         v["threadId"] = json!(state.thread.id);
+                        normalize_thread_receipt(&mut v, &state.thread.id)?;
                         management["data"].as_array_mut().unwrap().push(v);
                     }
                 }
             }
         }
+        management["data"]
+            .as_array_mut()
+            .unwrap()
+            .extend(self.task_receipts(identity, request_id).await?);
+        management["retention"] = json!("threadAndDeploymentLifetime");
+        management["capacities"] = json!({"thread":1024,"management":4096,"task":8192});
         Ok(management)
     }
     pub async fn request_status(
@@ -1188,17 +1220,16 @@ impl Engine {
         thread_id: &str,
         request_id: &str,
     ) -> Result<Value> {
-        let thread = self.read(thread_id, false).await?;
-        let mut records: Vec<Value> = desktop(&thread)
-            .receipts
-            .into_iter()
-            .filter(|r| r.identity == identity && r.request_id == request_id)
-            .map(|r| json!(r))
-            .collect();
-        let management = self.management_receipts(identity, request_id).await;
-        records.extend(management["data"].as_array().into_iter().flatten().cloned());
-        Ok(json!({"data":records,"retention":"threadAndDeploymentLifetime","capacity":1024}))
+        self.raw_cell(thread_id).await?;
+        let mut records = self.find_request(identity, request_id).await?;
+        records["capacity"] = json!(1024);
+        records["data"]
+            .as_array_mut()
+            .unwrap()
+            .retain(|entry| entry["threadId"] == thread_id || entry["state"].is_string());
+        Ok(records)
     }
+
     pub(crate) async fn active_permissions(
         &self,
         cell: &Cell,
@@ -1308,4 +1339,19 @@ fn profile_workgroup_start(
         workers: None,
         admission: Default::default(),
     }
+}
+
+fn normalize_thread_receipt(value: &mut Value, thread_id: &str) -> Result<()> {
+    value["operation"] = json!({"requestId":value["requestId"],"method":value["method"],"target":{"kind":"thread","threadId":thread_id}});
+    value["status"] = json!("completed");
+    if value["method"] == "areal/thread/configure" {
+        value["configurationHash"] = json!(digest(&value["result"])?);
+        value["expectedRevision"] = json!(
+            value["result"]["revision"]
+                .as_u64()
+                .and_then(|revision| revision.checked_sub(1))
+        );
+        value["resultingRevision"] = value["result"]["revision"].clone();
+    }
+    Ok(())
 }
