@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useI18n } from "./i18n/IntlProvider.js";
 import { MenuChevronIcon, MenuSelectedIcon } from "./interfaceIcons.js";
 import { Button } from "./components/ui/button.js";
 import { Popover, PopoverContent, PopoverTrigger } from "./components/ui/popover.js";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./components/ui/tooltip.js";
 
 const labels: Record<string, string> = {
     none: "无",
@@ -19,6 +20,7 @@ export interface ComposerModelOption {
     efforts?: readonly string[];
     reasoning?: boolean;
     unavailableReason?: string;
+    historical?: boolean;
 }
 /** 可用性直接投影 Core 目录，不在 Renderer 重新判断凭据。 */
 export function composerModelOption(model: {
@@ -62,20 +64,34 @@ export function ComposerModelMenu({
     const unspecified = t("chat.composer.effortUnspecified");
     const [open, setOpen] = useState(false);
     const [page, setPage] = useState<"effort" | "models">("effort");
+    const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+    const [sliderFocused, setSliderFocused] = useState(false);
+    const [pointerIndex, setPointerIndex] = useState<number | null>(null);
+    const pointerActive = useRef(false);
+    const availableOptions = options.filter((option) => !option.unavailableReason && !option.historical);
     const model = options.find((option) => option.value === value);
     const label = model?.label ?? "请选择模型";
     const reasoning = !!model && model.reasoning !== false;
     const efforts = model?.efforts ?? [];
     const selectedEffort = effort && (!model?.efforts || efforts.includes(effort)) ? effort : undefined;
     const index = selectedEffort ? efforts.indexOf(selectedEffort) : -1;
+    const sliderIndex = pointerIndex ?? index;
+    const feedbackIndex = Math.min(hoveredIndex ?? (sliderFocused ? index : -1), efforts.length - 1);
+    const effortLabel = selectedEffort ? labels[selectedEffort] ?? selectedEffort : unspecified;
+    const modelLabel = `${label}${reasoning ? ` ${effortLabel}` : ""}`;
+    const emptyGuidance = `${model ? `${modelLabel}. ` : ""}${t("chat.composer.noModelsGuidance")}`;
     // Native range thumbs travel between half-thumb insets, including both endpoints.
     const sliderPosition = (step: number) => {
         const fraction = Math.max(0, step) / Math.max(1, efforts.length - 1);
         return `calc(${fraction * 100}% + ${14 - fraction * 28}px)`;
     };
-    if (!options.length) return (
-        <span className="composer-model-trigger text-foreground-subtle text-ui-sm">
-            {t("chat.composer.noModelsGuidance")}
+    if (!availableOptions.length && (!model || model.unavailableReason)) return (
+        <span
+            className="composer-model-trigger composer-model-empty text-foreground-subtle text-ui-sm"
+            title={emptyGuidance}
+            aria-label={emptyGuidance}
+        >
+            {t("chat.composer.noModels")}
         </span>
     );
     return (
@@ -83,6 +99,10 @@ export function ComposerModelMenu({
             open={open}
             onOpenChange={(next) => {
                 setOpen(next);
+                setHoveredIndex(null);
+                setSliderFocused(false);
+                setPointerIndex(null);
+                pointerActive.current = false;
                 if (next) setPage(model && !model.unavailableReason && model.reasoning !== false ? "effort" : "models");
             }}
         >
@@ -98,10 +118,7 @@ export function ComposerModelMenu({
                     />
                 }
             >
-                <span>
-                    {label}
-                    {reasoning && ` ${selectedEffort ? labels[selectedEffort] ?? selectedEffort : unspecified}`}
-                </span>
+                <span>{modelLabel}</span>
                 <MenuChevronIcon size={14} aria-hidden="true" />
             </PopoverTrigger>
             <PopoverContent
@@ -119,7 +136,7 @@ export function ComposerModelMenu({
                     <>
                         <div className="composer-effort-center">
                             {reasoning && <strong>
-                                {selectedEffort ? (labels[selectedEffort] ?? selectedEffort) : unspecified}
+                                {effortLabel}
                             </strong>}
                             <button
                                 type="button"
@@ -130,45 +147,72 @@ export function ComposerModelMenu({
                             </button>
                         </div>
                         {reasoning && efforts.length > 0 && onEffortChange ? (
-                            <>
-                            {index >= 0 && <div className="composer-slider-shell">
+                            <div className="composer-slider-shell" role="group" aria-label={t("chat.composer.chooseEffort")}>
                                 <div className="composer-slider-track" aria-hidden="true">
-                                    <div
-                                        style={{
-                                            width: sliderPosition(index),
-                                        }}
-                                    />
+                                    {sliderIndex >= 0 && <div style={{ width: sliderPosition(sliderIndex) }} />}
                                     {efforts.map((item, i) => (
-                                        <i
-                                            key={item}
-                                            data-selected={index >= i}
-                                            style={{
-                                                left: sliderPosition(i),
-                                            }}
-                                        />
+                                        <i key={item} data-selected={sliderIndex >= i} style={{ left: sliderPosition(i) }} />
                                     ))}
                                 </div>
-                                <input
-                                    type="range"
-                                    aria-label="思考强度"
-                                    aria-valuetext={
-                                        selectedEffort ? (labels[selectedEffort] ?? selectedEffort) : unspecified
-                                    }
-                                    min={0}
-                                    max={efforts.length - 1}
-                                    step={1}
-                                    value={Math.max(0, index)}
-                                    onChange={(event) =>
-                                        onEffortChange(efforts[Number(event.target.value)])
-                                    }
-                                />
-                            </div>}
-                            <div role="group" aria-label={t("chat.composer.chooseEffort")} className="mt-2 flex flex-wrap justify-center gap-1">
-                                {efforts.map(item => <Button key={item} type="button" variant="ghost" size="sm"
-                                    aria-pressed={selectedEffort === item}
-                                    onClick={() => onEffortChange(item)}>{labels[item] ?? item}</Button>)}
+                                {index >= 0 ? (
+                                    <Tooltip open={feedbackIndex >= 0}>
+                                        <TooltipTrigger render={<input
+                                            type="range"
+                                            disabled={disabled}
+                                            aria-label="思考强度"
+                                            aria-valuetext={labels[efforts[sliderIndex]] ?? efforts[sliderIndex]}
+                                            min={0}
+                                            max={efforts.length - 1}
+                                            step={1}
+                                            value={sliderIndex}
+                                            onFocus={() => setSliderFocused(true)}
+                                            onBlur={() => { setSliderFocused(false); setHoveredIndex(null); setPointerIndex(null); pointerActive.current = false; }}
+                                            onPointerDown={(event) => {
+                                                pointerActive.current = true;
+                                                setPointerIndex(index);
+                                                event.currentTarget.setPointerCapture(event.pointerId);
+                                            }}
+                                            onPointerUp={(event) => {
+                                                if (!pointerActive.current) return;
+                                                pointerActive.current = false;
+                                                const next = Number(event.currentTarget.value);
+                                                setPointerIndex(null);
+                                                if (next !== index) onEffortChange(efforts[next]);
+                                            }}
+                                            onPointerCancel={() => { pointerActive.current = false; setPointerIndex(null); setHoveredIndex(null); }}
+                                            onLostPointerCapture={() => { pointerActive.current = false; setPointerIndex(null); }}
+                                            onPointerMove={(event) => {
+                                                const bounds = event.currentTarget.getBoundingClientRect();
+                                                const fraction = (event.clientX - bounds.left - 14) / Math.max(1, bounds.width - 28);
+                                                setHoveredIndex(Math.round(Math.max(0, Math.min(1, fraction)) * (efforts.length - 1)));
+                                            }}
+                                            onPointerLeave={() => setHoveredIndex(null)}
+                                            onChange={(event) => {
+                                                const next = Number(event.target.value);
+                                                setHoveredIndex(next);
+                                                if (pointerActive.current) setPointerIndex(next);
+                                                else onEffortChange(efforts[next]);
+                                            }}
+                                        />} />
+                                        <TooltipContent role="tooltip" sideOffset={8}>{labels[efforts[feedbackIndex]] ?? efforts[feedbackIndex]}</TooltipContent>
+                                    </Tooltip>
+                                ) : efforts.map((item, i) => (
+                                    <Tooltip key={item}>
+                                        <TooltipTrigger render={<Button
+                                            type="button"
+                                            disabled={disabled}
+                                            variant="ghost"
+                                            size="icon"
+                                            className="composer-slider-option"
+                                            style={{ left: sliderPosition(i) }}
+                                            aria-label={labels[item] ?? item}
+                                            aria-pressed={false}
+                                            onClick={() => onEffortChange(item)}
+                                        />} />
+                                        <TooltipContent role="tooltip" sideOffset={8}>{labels[item] ?? item}</TooltipContent>
+                                    </Tooltip>
+                                ))}
                             </div>
-                            </>
                         ) : reasoning ? (
                             <p className="composer-effort-unavailable">此模型未提供可选强度</p>
                         ) : null}
@@ -186,25 +230,25 @@ export function ComposerModelMenu({
                             选择模型
                         </div>
                         <div role="radiogroup" aria-label="模型列表">
-                            {options.map((option) => (
+                            {availableOptions.map((option) => (
                                 <button
                                     type="button"
                                     role="radio"
                                     aria-checked={value === option.value}
                                     key={option.value}
                                     data-model-value={option.value}
-                                    disabled={!!option.unavailableReason}
                                     onClick={() => {
                                         onChange(option.value);
                                         if (option.reasoning === false) setOpen(false);
                                         else setPage("effort");
                                     }}
                                 >
-                                    <span>{option.label}{option.unavailableReason && <small>{option.unavailableReason}</small>}</span>
+                                    <span>{option.label}</span>
                                     {value === option.value && <MenuSelectedIcon size={16} />}
                                 </button>
                             ))}
                         </div>
+                        {!availableOptions.length && <p className="composer-effort-unavailable">{t("chat.composer.noModelsGuidance")}</p>}
                     </>
                 )}
             </PopoverContent>

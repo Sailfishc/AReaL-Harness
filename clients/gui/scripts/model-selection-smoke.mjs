@@ -93,7 +93,32 @@ async function captureModelThemes(name, menu = false) {
       await button("返回应用").click();
       await button("模型").click();
       await assertComposerActions();
+      await assertCompactEffort();
+      await page.waitForFunction(() => {
+        const menu = document.querySelector('[aria-label="模型与思考强度"]');
+        return menu && getComputedStyle(menu).opacity === "1";
+      });
       await page.screenshot({ path: join(scratch, `${name}-effort-${theme}.png`), animations: "disabled" });
+      const slider = page.getByRole("slider", { name: "思考强度", exact: true });
+      const selected = await slider.getAttribute("aria-valuetext");
+      await slider.hover({ position: { x: 14, y: 14 } });
+      await page.getByRole("tooltip").filter({ hasText: /^低$/ }).waitFor();
+      await page.waitForFunction(() => {
+        const tooltip = document.querySelector('[role="tooltip"]');
+        return tooltip && getComputedStyle(tooltip).opacity === "1";
+      });
+      assert.equal(await page.locator(".composer-effort-center strong").innerText(), selected, "hover feedback never changes the selected strength");
+      await page.screenshot({ path: join(scratch, `${name}-hover-${theme}.png`), animations: "disabled" });
+      await page.mouse.move(0, 0);
+      await slider.focus();
+      await page.getByRole("tooltip").filter({ hasText: selected }).waitFor();
+      await page.waitForFunction(() => {
+        const tooltip = document.querySelector('[role="tooltip"]');
+        return tooltip && getComputedStyle(tooltip).opacity === "1";
+      });
+      await page.screenshot({ path: join(scratch, `${name}-focus-${theme}.png`), animations: "disabled" });
+      await button("选择模型").focus();
+      await page.getByRole("tooltip").waitFor({ state: "hidden" });
       await button("选择模型").click();
       await assertComposerActions();
       await page.screenshot({ path: join(scratch, `${name}-models-${theme}.png`), animations: "disabled" });
@@ -112,6 +137,40 @@ async function captureModelThemes(name, menu = false) {
 async function assertComposerActions() {
   assert.equal(await button("使用模型默认").count(), 0);
   assert.equal(await button("配置模型").count(), 0);
+}
+async function assertEmptyModelIndicator() {
+  const indicator = page.getByText("暂无可用模型", { exact: true });
+  await indicator.waitFor();
+  assert.match(await indicator.getAttribute("title"), /暂无可用模型，请前往设置 > 模型设置/);
+  const bounds = await indicator.evaluate(element => {
+    const rect = element.getBoundingClientRect();
+    const toolbar = element.closest(".composer-toolbar")?.getBoundingClientRect() ?? element.parentElement.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    const text = document.createRange(); text.selectNodeContents(element);
+    return { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right, textHeight: text.getBoundingClientRect().height, lineHeight: parseFloat(style.lineHeight), toolbarTop: toolbar.top, toolbarBottom: toolbar.bottom };
+  });
+  assert.ok(bounds.textHeight <= bounds.lineHeight + 1, "the empty model indicator stays on one line");
+  assert.ok(bounds.top >= bounds.toolbarTop - 1 && bounds.bottom <= bounds.toolbarBottom + 1, "empty model text stays within the composer toolbar");
+  assert.ok(bounds.left >= 0 && bounds.right <= await page.evaluate(() => innerWidth), "empty model text stays inside the window");
+}
+async function assertCompactEffort() {
+  const menu = page.getByRole("dialog", { name: "模型与思考强度", exact: true });
+  assert.equal(await menu.getByRole("button", { name: /^(无|最少|低|中|高|极高|最高)$/ }).filter({ hasText: /./ }).count(), 0, "strength choices have no permanently visible text row");
+  assert.equal(await page.getByRole("tooltip").count(), 0, "strength feedback stays hidden before interaction");
+}
+async function chooseEffort(name, key) {
+  const slider = page.getByRole("slider", { name: "思考强度", exact: true });
+  if (await slider.count()) await slider.press(key);
+  else {
+    const choice = page.getByRole("group", { name: "选择思考强度", exact: true }).getByRole("button", { name, exact: true });
+    await button("选择模型").focus();
+    await page.keyboard.press("Tab");
+    assert.equal(await choice.evaluate(element => element === document.activeElement), true, "the first unselected strength is keyboard reachable");
+    await page.getByRole("tooltip").filter({ hasText: name }).waitFor();
+    await choice.press("Enter");
+  }
+  await page.waitForFunction(name => document.querySelector('[aria-label="思考强度"]')?.getAttribute("aria-valuetext") === name, name);
+  assert.equal(await page.locator(".composer-effort-center strong").innerText(), name, "top label follows the saved selection");
 }
 async function saveProvider() {
   await button("保存").click();
@@ -260,7 +319,23 @@ async function verifyModelCapabilities() {
   await page.keyboard.press("Escape");
   await send("New reasoning model displays and sends concrete medium", { model: "capability-model", effort: "medium", hasEffort: true });
   await button("模型").click();
-  await page.getByRole("slider", { name: "思考强度", exact: true }).press("End");
+  await chooseEffort("极高", "End");
+  await button("选择模型").focus();
+  await page.getByRole("tooltip").waitFor({ state: "hidden" });
+  const dragSlider = page.getByRole("slider", { name: "思考强度", exact: true });
+  await page.waitForFunction(() => document.querySelector('[aria-label="思考强度"]')?.disabled === false);
+  const dragBounds = await dragSlider.boundingBox();
+  assert.ok(dragBounds);
+  await page.mouse.move(dragBounds.x + dragBounds.width - 14, dragBounds.y + 14);
+  await page.mouse.down();
+  await page.mouse.move(dragBounds.x + 14, dragBounds.y + 14, { steps: 8 });
+  await page.mouse.up();
+  await page.waitForFunction(() => document.querySelector('[aria-label="思考强度"]')?.getAttribute("aria-valuetext") === "低");
+  await page.waitForFunction(() => document.querySelector('[aria-label="思考强度"]')?.disabled === false);
+  await page.mouse.move(dragBounds.x + 14, dragBounds.y + 14);
+  await page.mouse.down();
+  await page.mouse.move(dragBounds.x + dragBounds.width - 14, dragBounds.y + 14, { steps: 8 });
+  await page.mouse.up();
   await page.waitForFunction(() => document.querySelector('[aria-label="思考强度"]')?.getAttribute("aria-valuetext") === "极高");
   await page.keyboard.press("Escape");
   await send("Recommended extra-high effort reaches provider", { model: "capability-model", effort: "xhigh", hasEffort: true });
@@ -297,7 +372,7 @@ async function verifyModelCapabilities() {
   await button("模型").click();
   let slider = page.getByRole("slider", { name: "思考强度", exact: true });
   assert.equal(await slider.count(), 0, "unsupported historical strength has no selected slider");
-  await button("低").click();
+  await chooseEffort("低", "Home");
   await slider.waitFor();
   assert.equal(await slider.getAttribute("max"), "1");
   await slider.press("End");
@@ -392,8 +467,8 @@ async function verifyModelDefaults(projectId) {
     await button("模型").click();
     const threadId = await page.getByTestId("areal-workbench").getAttribute("data-thread-id");
     await assertComposerActions();
-    await button("无").click();
-    await until(snapshot => snapshotProject(snapshot)?.configurations?.[threadId]?.parameters?.reasoningEffort === "none", "labeled first option explicitly selects none");
+    await chooseEffort("无", "Home");
+    await until(snapshot => snapshotProject(snapshot)?.configurations?.[threadId]?.parameters?.reasoningEffort === "none", "keyboard selects the first explicit none option");
     await page.waitForFunction(() => !document.querySelector('button[aria-label="模型"]')?.disabled);
     await page.keyboard.press("Escape");
   };
@@ -448,10 +523,10 @@ async function verifyModelDefaults(projectId) {
   assert.equal(await page.getByRole("slider", { name: "思考强度", exact: true }).count(), 0);
   await page.keyboard.press("Escape");
   assert.deepEqual(snapshotProject(await state()).configurations[beta], historicalConfig, "opening historical unspecified strength does not write configuration");
-  await button("模型").click(); await button("无").click();
+  await button("模型").click(); await chooseEffort("无", "Home");
   await expectModel("Beta", "无");
   await page.keyboard.press("Escape");
-  await until(snapshot => snapshotProject(snapshot)?.configurations?.[beta]?.parameters?.reasoningEffort === "none", "first labeled option explicitly selects none from unspecified history");
+  await until(snapshot => snapshotProject(snapshot)?.configurations?.[beta]?.parameters?.reasoningEffort === "none", "keyboard selects explicit none from unspecified history");
   await call("configure", { projectId, threadId: beta, parameters: { reasoningEffort: null } });
   await expectModel("Beta", "未指定");
   await send("Historical unspecified effort stays omitted until explicitly selected", { model: "beta-default", effort: null, hasEffort: false });
@@ -526,6 +601,11 @@ async function verifyModelDefaults(projectId) {
   await launch();
   await until(snapshot => snapshotProject(snapshot)?.state?.connected && snapshotProject(snapshot)?.models.some(model => model.modelId === "legacy-alpha"), "legacy service default ready");
   await selectConversation(page, alpha); await expectModel("alpha-default", "高");
+  const missingHistoricalConfig = snapshotProject(await state()).configurations[alpha];
+  await button("模型").click();
+  assert.equal(await page.getByRole("radio", { name: "alpha-default", exact: true }).count(), 0, "historical missing identity is retained only in the trigger");
+  await page.keyboard.press("Escape");
+  assert.deepEqual(snapshotProject(await state()).configurations[alpha], missingHistoricalConfig, "opening the catalog never switches a historical model");
   const beforeLegacy = modelRequests.length;
   await createProjectConversation(page, "workspace"); await expectModel("legacy-alpha", "高");
   const implicit = await send("Implicit service default records effective high", { model: "legacy-alpha", effort: "high", hasEffort: true });
@@ -536,7 +616,7 @@ async function verifyModelDefaults(projectId) {
   await expectModel("legacy-alpha", "高");
   await chooseNone(); await expectModel("legacy-alpha", "无");
   await send("Implicit history keeps old identity while configuring effort", { model: "legacy-alpha", effort: "none", hasEffort: true });
-  await button("模型").click(); await assertComposerActions(); await button("高").click(); await page.keyboard.press("Escape");
+  await button("模型").click(); await assertComposerActions(); await chooseEffort("极高", "End"); await page.waitForFunction(() => !document.querySelector('button[aria-label="模型"]')?.disabled); await chooseEffort("高", "ArrowLeft"); await page.keyboard.press("Escape");
   await expectModel("legacy-alpha", "高");
   await send("Implicit explicit high preserves archived model identity", { model: "legacy-alpha", effort: "high", hasEffort: true });
   await closeGui(); app = undefined; await stopService(); await launch();
@@ -558,16 +638,9 @@ try {
   assert.ok(fixtureProject(ready).models.every(m => m.available === false), "the default alias and named entries must all reject unavailable models");
   assert.ok(fixtureProject(ready).models.filter(m => m.providerId).every(m => m.credentialState === "unavailable"));
   assert.equal(await button("发送").isDisabled(), true, "a missing default credential cannot enable sending");
-  assert.equal(await button("模型").isEnabled(), true, "missing credentials must not disable catalog browsing");
-  await button("模型").click();
-  const modelOptions = page.getByRole("radio");
-  assert.ok(await modelOptions.count() >= 2);
-  for (const option of await modelOptions.all()) assert.equal(await option.isDisabled(), true, "every unavailable choice, including the default, stays disabled");
-  for (const id of ["theta", "arena"]) {
-    const option = page.locator(`[role="radio"][data-model-value="${id}/${id}-model"]`);
-    await option.waitFor(); assert.equal(await option.isDisabled(), true);
-    assert.match(await option.innerText(), /缺少 API Key/);
-  }
+  assert.equal(await button("模型").count(), 0, "an unavailable catalog has no meaningless picker");
+  await assertEmptyModelIndicator();
+  assert.equal(await page.getByRole("radio").count(), 0, "missing-credential and disabled models stay out of the picker");
   assert.equal(requests.length, 0, "unavailable entries cannot send a model request");
   await page.screenshot({ path: join(scratch, "unavailable-models.png"), animations: "disabled" });
   await page.keyboard.press("Escape");
@@ -714,7 +787,8 @@ try {
   await call("providers", { operation: "apply", expectedRevision: withoutDefault.revision });
   await until(s => fixtureProject(s).models.length === 2, "explicit default cleared for catalog enablement checks");
   await button("模型").click(); await button("选择模型").click();
-  assert.equal(await page.getByRole("radio", { name: /arena-model/ }).isDisabled(), true);
+  assert.equal(await page.getByRole("radio", { name: /arena-model/ }).count(), 0, "missing credentials stay hidden in a mixed catalog");
+  assert.equal(await page.getByRole("radio", { name: "theta-model", exact: true }).isEnabled(), true);
   await openModelSettings();
   await page.getByRole("heading", { name: "模型设置", exact: true }).waitFor();
   checks.push("single save confirms persistence/Core readiness; user chooses a model in the existing Composer and Core executes it");
@@ -828,15 +902,35 @@ try {
 
   await until(s => fixtureProject(s).models.length === 1, "disabled provider absent from executable Core catalog");
   await page.screenshot({ path: join(scratch, "disabled-provider.png"), animations: "disabled" });
+  await button("返回应用").click();
+  const disabledHistory = fixtureProject(await state()).configurations;
+  await button("模型").click();
+  assert.equal(await page.getByRole("radio", { name: /arena-model|env-model/ }).count(), 0, "disabled providers and historical placeholders stay hidden");
+  assert.equal(await page.getByRole("radio", { name: "theta-model", exact: true }).isEnabled(), true);
+  await page.keyboard.press("Escape");
+  assert.deepEqual(fixtureProject(await state()).configurations, disabledHistory, "browsing available models preserves the disabled historical selection");
+  assert.match(await button("模型").innerText(), /env-model/);
+  await openModelSettings();
   await page.locator(".provider-catalog-row").filter({ hasText: "theta" }).click();
   await page.getByRole("switch", { name: "启用模型 theta-model", exact: true }).click();
   await saveProvider();
   assert.equal(await page.getByRole("switch", { name: "启用模型 theta-model", exact: true }).isChecked(), false);
 
   await until(s => fixtureProject(s).models.length === 0, "disabled model absent from executable Core catalog");
+  await button("返回应用").click();
+  assert.equal(await button("模型").count(), 0, "disabled models and historical entries do not open an empty picker");
+  await assertEmptyModelIndicator();
+  assert.match(await page.getByText("暂无可用模型", { exact: true }).getAttribute("title"), /env-model/, "disabled historical identity remains available");
+  await openModelSettings();
   checks.push("Core credential states and saved enablement remain separate from drafts and pending apply; Composer explicitly selects and executes another available model");
   let providers = await call("providers", { operation: "list" });
-  for (const provider of [...providers.data]) providers = await call("providers", { operation: "removeAndApply", id: provider.id, expectedRevision: providers.revision });
+  for (const provider of [...providers.data]) {
+    await page.waitForFunction(async () => {
+      const reply = await window.arealDesktop.command("serviceStatus", {});
+      return reply.ok && !reply.value.busy && !reply.value.activeCommands && !reply.value.starting && !reply.value.providerUpdating;
+    });
+    providers = await call("providers", { operation: "removeAndApply", id: provider.id, expectedRevision: providers.revision });
+  }
   await button("返回应用").click();
   await createProjectConversation(page, "workspace");
   await until(s => fixtureProject(s).models.length === 0, "empty Core catalog");
@@ -844,22 +938,36 @@ try {
   await fallbackNotice.waitFor();
   assert.doesNotMatch(await fallbackNotice.innerText(), /已显示备用默认模型/);
   assert.equal(await button("发送").isDisabled(), true);
-  for (const width of [1440, 980]) {
-    await app.evaluate(({ BrowserWindow }, width) => BrowserWindow.getAllWindows()[0].setSize(width, 960), width);
-    await page.waitForFunction(width => innerWidth === width, width);
-    await page.waitForFunction(() => {
-      const bar = document.querySelector(".composer-project-bar")?.getBoundingClientRect();
-      const surface = document.querySelector(".draft-composer .composer-surface")?.getBoundingClientRect();
-      return bar && surface && surface.top <= bar.bottom + 1;
-    });
-    const rect = await fallbackNotice.boundingBox();
-    assert.ok(rect && rect.x >= 0 && rect.width > 0 && rect.x + rect.width <= width);
-    await page.screenshot({ path: join(scratch, `fallback-notice-${width}.png`), animations: "disabled" });
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setMinimumSize(640, 620));
+  for (const theme of ["dark", "light"]) {
+    await openModelSettings();
+    await button("外观").click();
+    await page.getByRole("combobox", { name: "界面主题", exact: true }).click();
+    await page.getByRole("option", { name: theme === "dark" ? "深色" : "浅色", exact: true }).click();
+    await page.waitForFunction(theme => document.documentElement.classList.contains(`theme-areal-${theme}`), theme);
+    await button("返回应用").click();
+    for (const width of [1440, 980, 640]) {
+      if (width === 640 && await button("收起侧栏").count()) await button("收起侧栏").click();
+      await app.evaluate(({ BrowserWindow }, width) => BrowserWindow.getAllWindows()[0].setSize(width, 960), width);
+      await page.waitForFunction(width => innerWidth === width, width);
+      await page.waitForFunction(() => {
+        const bar = document.querySelector(".composer-project-bar")?.getBoundingClientRect();
+        const surface = document.querySelector(".draft-composer .composer-surface")?.getBoundingClientRect();
+        return bar && surface && surface.top <= bar.bottom + 1;
+      });
+      const rect = await fallbackNotice.boundingBox();
+      assert.ok(rect && rect.x >= 0 && rect.width > 0 && rect.x + rect.width <= width);
+      await assertEmptyModelIndicator();
+      await page.screenshot({ path: join(scratch, `fallback-notice-${theme}-${width}.png`), animations: "disabled" });
+    }
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 960));
+    if (await button("展开侧栏").count()) await button("展开侧栏").click();
   }
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 960));
-  checks.push("Missing fallback displays truthful text; the project bar stays attached to the composer in normal and narrow windows");
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setMinimumSize(980, 620));
+  checks.push("Empty model guidance stays on one line within the toolbar in dark/light themes at 1440, 980 and 640 pixels; the project bar stays attached to the composer");
   assert.equal(await button("模型").count(), 0, "empty catalog has no clickable model configuration control");
-  await page.getByText("暂无可用模型，请前往设置 > 模型设置", { exact: true }).waitFor();
+  await assertEmptyModelIndicator();
   await assertComposerActions();
   await openModelSettings();
   checks.push("empty catalog provides neutral guidance and Settings > Models remains accessible");

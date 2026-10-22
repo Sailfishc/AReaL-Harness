@@ -29,6 +29,7 @@ export const commonMessages = {
   "chat.composer.previousModelUnavailable": { "zh-CN": "上次使用的模型当前不可用，请确认或重新选择模型。", en: "The previously used model is unavailable. Confirm or choose a model before sending." },
   "chat.composer.previousEffortUnsupported": { "zh-CN": "上次使用的思考强度当前不受支持，请确认当前选择。", en: "The previous reasoning effort is unsupported. Check the current selection." },
   "chat.composer.effortUnspecified": { "zh-CN": "未指定", en: "Unspecified" },
+  "chat.composer.noModels": { "zh-CN": "暂无可用模型", en: "No models available" },
   "chat.composer.noModelsGuidance": { "zh-CN": "暂无可用模型，请前往设置 > 模型设置", en: "No models available. Go to Settings > Model settings." },
   "chat.composer.chooseEffort": { "zh-CN": "选择思考强度", en: "Choose reasoning effort" },
   "chat.composer.workspaceFileDragHint": { "zh-CN": "松开以引用此文件或目录", en: "Release to reference this file or folder" },

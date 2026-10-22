@@ -18,11 +18,15 @@ export function ConversationComposer({ project, modelConfig: config, modelDisabl
   const value = allowModelInheritance && config?.model === undefined ? "__inherit" : config?.model ? `${config.model.providerId}/${config.model.modelId}` : "";
   const options = project.models.filter((item: Data) => item.providerId || !project.models.some((candidate: Data) => candidate.providerId && candidate.isDefault)).map(composerModelOption);
   if (config?.model && !options.some((option: { value: string }) => option.value === value)) {
-    options.push({ value, label: config.model.modelId });
+    options.push({ value, label: config.model.modelId, unavailableReason: "模型不可用" });
   } else if (config?.model === null) {
     const implicit = options.find((option: { value: string }) => option.value === "");
-    const implicitEfforts = project.models.find((item: Data) => !item.providerId)?.reasoningEffortOptions;
-    const historical = { value: "", label: config.modelName || "历史默认模型未知", efforts: implicitEfforts };
+    const implicitModel = project.models.find((item: Data) => !item.providerId);
+    const currentImplicit = !!implicitModel && implicitModel.modelId === config.modelName;
+    const historical = {
+      ...(currentImplicit ? composerModelOption(implicitModel) : { efforts: implicitModel?.reasoningEffortOptions }),
+      value: "", label: config.modelName || "历史默认模型未知", historical: !implicit || !currentImplicit,
+    };
     if (implicit) options.splice(options.indexOf(implicit), 1, historical);
     else options.unshift(historical);
   }
