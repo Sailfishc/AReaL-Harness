@@ -1,3 +1,4 @@
+import startupIcon from "../../app/assets/icon-1024.png";
 import { useI18n } from "./i18n/IntlProvider.js";
 import { WorkspaceFileTree } from "./workspace-file-tree/WorkspaceFileTree.js";
 import { WorkspaceFilePane, confirmCloseFiles } from "./WorkspaceFilePane.js";
@@ -151,6 +152,7 @@ function projectExecutionBlocked(lifecycle: Snapshot["lifecycle"], projectId: st
     && operation.targets.some(target => target.projectId === projectId && target.phase !== "completed" && target.phase !== "blocked"),
   ) ?? false;
 }
+type InitialLocation = { kind: "automatic" | "projectless" } | { kind: "project"; projectId: string; threadId: string };
 type RestorationOwner = RecoveryOwner;
 type RestorationState = RestorationOwner & { pending: boolean; error: string; failureId?: string; failure?: RecoveryFailure };
 type RestorationAttempt = RestorationOwner & { operation: "connect" | "open"; pending: boolean; promise: Promise<void> };
@@ -233,6 +235,10 @@ function AppContent({ services }: { services: PlatformServices }) {
     snapshot.connection?.recovery, snapshot.backendUpdate?.state, snapshot.backendUpdate?.message,
     snapshot.desktopCapabilities?.currentCommands, snapshot.lifecycle?.phase, snapshot.lifecycle?.message]);
   const [themeReady, setThemeReady] = useState(false);
+  const [shellReady, setShellReady] = useState(false);
+  const [initialPresentation, setInitialPresentation] = useState<"pending" | "failed" | "ready">("pending");
+  const initialReleased = initialPresentation === "ready";
+  const [startupDelayed, setStartupDelayed] = useState(false);
   const [trajectoryAttention, setTrajectoryAttention] = useState(false);
   const [restoration, setRestoration] = useState<RestorationState>();
   const restorationAttempt = React.useRef<RestorationAttempt | undefined>(undefined);
@@ -242,10 +248,14 @@ function AppContent({ services }: { services: PlatformServices }) {
   const setSnapshot = useCallback((next: Snapshot) => updateSnapshot(previous =>
     next.revision !== undefined && previous.revision !== undefined && next.revision < previous.revision ? previous : next
   ), []);
-  const [projectId, setProjectId] = useState(() => localStorage.getItem("areal-gui:project") ?? "");
-  // 缺省键仍落到第一个项目；显式空字符串表示用户选了「不在项目中工作」。
-  const [noProject, setNoProject] = useState(() => localStorage.getItem("areal-gui:project") === "");
-  const [threadId, setThreadId] = useState("");
+  const [initialLocation] = useState<InitialLocation>(() => {
+    const saved = localStorage.getItem("areal-gui:project");
+    return saved === null ? { kind: "automatic" } : saved === "" ? { kind: "projectless" }
+      : { kind: "project", projectId: saved, threadId: localStorage.getItem(`areal-gui:thread:${saved}`) ?? "" };
+  });
+  const [projectId, setProjectId] = useState(initialLocation.kind === "project" ? initialLocation.projectId : "");
+  const [noProject, setNoProject] = useState(initialLocation.kind === "projectless");
+  const [threadId, setThreadId] = useState(initialLocation.kind === "project" ? initialLocation.threadId : "");
   // Window-local locations, never Core execution or a persisted recovery log.
   const [workspaceHistory, setWorkspaceHistory] = useState<{ entries: { projectId: string; threadId: string }[]; index: number }>({ entries: [], index: -1 });
   const mcpPendingReveal = React.useRef<{tab:string;owner:string}|null>(null);
@@ -414,14 +424,15 @@ function AppContent({ services }: { services: PlatformServices }) {
       return rank(a.id) - rank(b.id);
     });
   // Sidebar visibility must not change the owner of an explicitly opened resource.
-  const project = noProject ? undefined : snapshot.projects.find((p) => p.id === projectId) ?? projects.find(p => !p.projectless);
+  const project = noProject ? undefined : snapshot.projects.find((p) => p.id === projectId)
+    ?? (snapshot.connection?.state === "ready" ? projects.find(p => !p.projectless) : undefined);
   const thread = project?.state?.threads[threadId];
   const restorationOwner: RestorationOwner = { projectId: project?.id ?? "", threadId,
     connectionGeneration: project?.core?.connectionGeneration ?? 0 };
   const selectedRestoration = React.useRef(restorationOwner);
   selectedRestoration.current = restorationOwner;
   selectedRecoveryOwner.current = restorationOwner;
-  const selectionReady = selectedProject === project?.id;
+  const selectionReady = selectedProject === (project?.id ?? "");
   const currentRestoration = sameRestorationOwner(restoration, restorationOwner) ? restoration : undefined;
   const observationFailure = project?.observationErrors?.[threadId];
   const currentObservationFailure = observationFailure && (observationFailure.connectionGeneration === undefined
@@ -689,10 +700,14 @@ function AppContent({ services }: { services: PlatformServices }) {
   useEffect(() => {
     // A new completion visible in the foreground is read. A manual unread mark
     // does not change completionId, so it survives until the user opens it again.
-    if (!project?.id || !project.state?.connected || !threadId || thread?.id !== threadId || !selectedCompletion || completionInterruptPending || settingsOpen || taskCenterOpen || !document.hasFocus() || document.visibilityState !== "visible") return;
+    if (!initialReleased || !project?.id || !project.state?.connected || !threadId || thread?.id !== threadId || !selectedCompletion || completionInterruptPending || settingsOpen || taskCenterOpen || !document.hasFocus() || document.visibilityState !== "visible") return;
     void action("library", { operation: "readThread", projectId: project.id, threadId, read: true, completionId: selectedCompletion }).catch(() => {});
-  }, [project?.id, project?.state?.connected, threadId, thread?.id, selectedCompletion, completionInterruptPending, settingsOpen, taskCenterOpen, action]);
+  }, [initialReleased, project?.id, project?.state?.connected, threadId, thread?.id, selectedCompletion, completionInterruptPending, settingsOpen, taskCenterOpen, action]);
   const reconnectService = async () => {
+    if (!initialReleased && restorationAttempt.current?.pending) {
+      await restorationAttempt.current.promise;
+      return;
+    }
     if (project) {
       await restoreConversation(restorationOwner, project.state?.connected ? "open" : "connect", { connectService: true });
     } else await resourceAction("connectService");
@@ -723,6 +738,7 @@ function AppContent({ services }: { services: PlatformServices }) {
     }
   };
   const choose = async () => {
+    if (!initialReleased) return;
     try {
       const id = await services.chooseProject();
       if (id) {
@@ -740,6 +756,7 @@ function AppContent({ services }: { services: PlatformServices }) {
   };
   const open = useCallback(
     async (pid: string, id: string, navigation: "push" | "replace" | "restore" = "push") => {
+      if (!initialReleased) return;
       if (navigation !== "restore") recordWorkspaceLocation({ projectId: pid, threadId: id }, navigation === "replace");
       setPluginsOpen(false);
       setTaskCenterOpen(false);
@@ -753,10 +770,10 @@ function AppContent({ services }: { services: PlatformServices }) {
       selectedRestoration.current = owner;
       await restoreConversation(owner, target?.state?.connected ? "open" : "connect");
     },
-    [snapshot.projects, restoreConversation, recordWorkspaceLocation],
+    [initialReleased, snapshot.projects, restoreConversation, recordWorkspaceLocation],
   );
   const [mcpMentionsOpen, setMcpMentionsOpen] = useState(false);
-  const mcpWorkspace = useMcpAppsWorkspace({ project, projects: snapshot.projects, activeTab: !annotationVisible && !pluginsOpen && !settingsOpen && !taskCenterOpen && workspaceView !== "conversation" ? panel : "", threadId, action: resourceAction,
+  const mcpWorkspace = useMcpAppsWorkspace({ project, deepLinksEnabled: initialReleased, projects: snapshot.projects, activeTab: !annotationVisible && !pluginsOpen && !settingsOpen && !taskCenterOpen && workspaceView !== "conversation" ? panel : "", threadId, action: resourceAction,
     onOpenThread: async (pid, tid) => { updateSettingsOpen(false); await open(pid, tid); },
     onReveal: (tab, owner) => { if(activePanelOwner.current!==`${owner.projectId}:${owner.threadId}`){mcpPendingReveal.current={tab,owner:`${owner.projectId}:${owner.threadId}`};return;} updateSettingsOpen(false); setWorkspaceView("split"); setPanelTabs(tabs => tabs.includes(tab) ? tabs : [...tabs, tab]); setPanel(tab); },
     onRemoveTab: tab => {
@@ -775,23 +792,32 @@ function AppContent({ services }: { services: PlatformServices }) {
     disabled: !project?.state?.connected || project.desktopCapabilities?.currentCommands === false || !!thread?.desktop?.archived,
     run: () => { void mcpWorkspace.openApp(server, tool, { kind: "thread" }).catch(cause => setError(cause.message)); },
   }));
-  useEffect(() => services.onNotificationOpen?.(target => requestNavigation(() => {
-    updateSettingsOpen(false);
-    setSearchOpen(false);
-    if (target.taskId !== undefined) {
-      setTaskScope(undefined);
-      setTaskNotification({ projectId: target.projectId, taskId: target.taskId, runId: target.runId, questionId: target.questionId, eventId: crypto.randomUUID() });
-      setTaskCenterOpen(true);
-    } else void open(target.projectId, target.threadId);
-  })), [services, open, requestNavigation, projectId]);
   useEffect(() => {
-    setSelectedProject(project?.id);
-    if (!project?.id) return;
+    if (!initialReleased) return;
+    return services.onNotificationOpen?.(target => requestNavigation(() => {
+      updateSettingsOpen(false);
+      setSearchOpen(false);
+      if (target.taskId !== undefined) {
+        setTaskScope(undefined);
+        setTaskNotification({ projectId: target.projectId, taskId: target.taskId, runId: target.runId, questionId: target.questionId, eventId: crypto.randomUUID() });
+        setTaskCenterOpen(true);
+      } else void open(target.projectId, target.threadId);
+    }));
+  }, [services, open, requestNavigation, projectId, initialReleased]);
+  useEffect(() => {
+    if (snapshot.connection?.state !== "ready" || selectionReady) return;
+    setSelectedProject(project?.id ?? "");
+    if (!project?.id) {
+      setProjectId("");
+      setThreadId("");
+      localStorage.setItem("areal-gui:project", "");
+      return;
+    }
     setProjectId(project.id);
     localStorage.setItem("areal-gui:project", project.id);
     const remembered = localStorage.getItem(`areal-gui:thread:${project.id}`);
     setThreadId(remembered ?? "");
-  }, [project?.id]);
+  }, [project?.id, selectionReady, snapshot.connection?.state]);
   useEffect(() => {
     if (!selectionReady || !project?.id || snapshot.connection?.state !== "ready") return;
     const previous = restorationAttempt.current;
@@ -800,14 +826,25 @@ function AppContent({ services }: { services: PlatformServices }) {
     void restoreConversation({ projectId: project.id, threadId, connectionGeneration: project.core?.connectionGeneration ?? 0 },
       project.state?.connected ? "open" : "connect");
   }, [selectionReady, project?.id, threadId, project?.state?.connected, project?.core?.connectionGeneration, snapshot.connection?.state, restoreConversation]);
-  const startupReady = themeReady && snapshot.connection?.state !== "connecting" && (
-    snapshot.connection?.state === "unavailable" || !project || (
-      selectionReady && (restorationFailed || (currentRestoration && !currentRestoration.pending && (!threadId || !!thread)))
-    )
-  );
+  const startupLifecycle = snapshot.lifecycle;
+  const startupLifecycleBlocked = !!startupLifecycle?.error || !!startupLifecycle?.recovery
+    || ["acceptedPending", "admissionUnconfirmed", "partial", "settlementIncomplete"].includes(startupLifecycle?.phase ?? "");
+  const startupReady = themeReady && snapshot.connection?.state === "ready" && selectionReady
+    && !restorationFailed && !startupLifecycleBlocked
+    && (!project || (currentRestoration && !currentRestoration.pending && (!threadId || !!thread)));
+  useEffect(() => {
+    if (restorationFailed || startupReady)
+      setInitialPresentation(previous => previous === "ready" ? previous : startupReady ? "ready" : "failed");
+  }, [startupReady, restorationFailed]);
+  useEffect(() => {
+    setStartupDelayed(false);
+    if (initialReleased) return;
+    const timer = window.setTimeout(() => setStartupDelayed(true), 15000);
+    return () => window.clearTimeout(timer);
+  }, [initialReleased, restoration, restorationOwner.projectId, restorationOwner.threadId, restorationOwner.connectionGeneration]);
   const presented = React.useRef(false);
   useEffect(() => {
-    if (!startupReady || presented.current || !services.presentReady) return;
+    if (!themeReady || presented.current) return;
     let active = true, frame = 0;
     // Wait for layout/fonts and a painted frame, not just receipt of a snapshot.
     void document.fonts.ready.then(() => {
@@ -816,18 +853,20 @@ function AppContent({ services }: { services: PlatformServices }) {
         frame = requestAnimationFrame(() => {
           if (!active) return;
           presented.current = true;
-          void services.presentReady!().catch(() => {});
+          setShellReady(true);
+          void services.presentReady?.().catch(() => {});
         });
       });
     });
     return () => { active = false; cancelAnimationFrame(frame); };
-  }, [startupReady, services]);
+  }, [themeReady, services]);
   const retryRestoration = async () => {
     if (!project) return;
     await restoreConversation(restorationOwner, project.state?.connected ? "open" : "connect",
       { connectService: snapshot.connection?.state !== "ready" });
   };
   const newTask = (pid = project?.id, record = true) => {
+    if (!initialReleased) return;
     if (!pid || snapshot.projects.find(p => p.id === pid)?.projectless) { leaveProject(record); return; }
     requestNavigation(() => {
       if (record) recordWorkspaceLocation({ projectId: pid, threadId: "" });
@@ -843,6 +882,7 @@ function AppContent({ services }: { services: PlatformServices }) {
     });
   };
   const leaveProject = (record = true) => {
+    if (!initialReleased) return;
     requestNavigation(() => {
       if (record) recordWorkspaceLocation({ projectId: "", threadId: "" });
       setPluginsOpen(false);
@@ -855,7 +895,7 @@ function AppContent({ services }: { services: PlatformServices }) {
     });
   };
   const traverseWorkspaceHistory = (delta: -1 | 1) => {
-    if (settingsOpen || taskCenterOpen) return;
+    if (!initialReleased || settingsOpen || taskCenterOpen) return;
     const index = workspaceHistory.index + delta;
     const next = workspaceHistory.entries[index];
     if (!next) return;
@@ -874,6 +914,7 @@ function AppContent({ services }: { services: PlatformServices }) {
   };
   useEffect(() => {
     const listener = (e: KeyboardEvent) => {
+      if (!initialReleased) return;
       if ((e.metaKey || e.ctrlKey) && ["[", "]"].includes(e.key) && !e.isComposing && !document.querySelector('[data-slot="dialog-content"]')) {
         e.preventDefault();
         traverseWorkspaceHistory(e.key === "[" ? -1 : 1);
@@ -885,7 +926,7 @@ function AppContent({ services }: { services: PlatformServices }) {
     };
     window.addEventListener("keydown", listener);
     return () => window.removeEventListener("keydown", listener);
-  }, [project?.id, snapshot.projects, workspaceHistory, settingsOpen, taskCenterOpen]);
+  }, [initialReleased, project?.id, snapshot.projects, workspaceHistory, settingsOpen, taskCenterOpen]);
   const onLink = useCallback((url: string) => {
     if (!project) return;
     const owner = `${project.id}:${threadId}`;
@@ -955,6 +996,7 @@ function AppContent({ services }: { services: PlatformServices }) {
     return () => query.removeEventListener("change", resize);
   }, [panel, workspaceView]);
   const showPanel = (name: string) => {
+    if (!initialReleased) return;
     if (name === "预览") { void openBrowser(); return; }
     if (name === "旁路讨论" || name.startsWith("agent:")) { if (panel === name) { hidePanel(); return; } rememberSideTrigger(); }
     setWorkspaceView(mode => name === "旁路讨论" && matchMedia("(max-width: 1200px)").matches ? "panel" : mode === "split" ? mode : "panel");
@@ -984,7 +1026,7 @@ function AppContent({ services }: { services: PlatformServices }) {
   };
   useEffect(() => {
     const listener = (event: KeyboardEvent) => {
-      if (event.isComposing) return;
+      if (!initialReleased || event.isComposing) return;
       if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key === ",") {
         event.preventDefault();
         if (!settingsOpen && !document.querySelector('[data-slot="dialog-content"]')) showPanel("设置");
@@ -1021,7 +1063,7 @@ function AppContent({ services }: { services: PlatformServices }) {
     };
     window.addEventListener("keydown", listener);
     return () => window.removeEventListener("keydown", listener);
-  }, [project?.id, settingsOpen, threadId, terminalLocation, openBrowser]);
+  }, [initialReleased, project?.id, settingsOpen, threadId, terminalLocation, openBrowser]);
   const title = (owner: Data, summary: Data) =>
     library.threads?.[`${owner.id}:${summary.id}`]?.title ||
     owner.state?.threads[summary.id]?.name ||
@@ -1262,9 +1304,8 @@ function AppContent({ services }: { services: PlatformServices }) {
   };
   const queue = project?.state?.queues[threadId];
   const pending = project?.pending?.some((p: Data) => p.params?.threadId === threadId);
-  const currentTitle = threadId && project
-    ? (summaries.find((r) => r.owner.id === project.id && r.summary.id === threadId)?.title ??
-      "新对话")
+  const currentTitle = threadId
+    ? (summaries.find((r) => r.owner.id === project?.id && r.summary.id === threadId)?.title ?? t("startup.loadingConversation"))
     : "新对话";
   const workspaceFileTree = filesOpen && project ? <WorkspaceFileTree
     key={project.id} projectId={project.id} root={project.root} action={action}
@@ -1465,6 +1506,7 @@ function AppContent({ services }: { services: PlatformServices }) {
                     </DropdownMenuContent>
                   </DropdownMenu>;
   const startResourceDraft = async (seed: ResourceDraftSeed) => {
+    if (!initialReleased) return;
     const owner = seed.kind === "creator" ? snapshot.projects.find(item => item.id === seed.projectId && !item.projectless)
       : project?.projectless ? undefined : project;
     const key = owner ? `areal-gui:draft:${owner.id}:new` : "areal-gui:draft:projectless:new";
@@ -1529,14 +1571,94 @@ function AppContent({ services }: { services: PlatformServices }) {
     <button className="icon-button" aria-label="前进" title="前进 (⌘])" disabled={taskCenterOpen || workspaceHistory.index >= workspaceHistory.entries.length - 1} onClick={() => traverseWorkspaceHistory(1)}><ArrowRight size={16} /></button>
     <button className="icon-button" aria-label={sidebar ? "收起侧栏" : "展开侧栏"} aria-expanded={sidebar} aria-controls="areal-sidebar" onClick={() => setSidebar(!sidebar)}><SidebarToggleIcon /></button>
   </div>;
+  const settingsPage = (
+    <SettingsPage
+      key={settingsTab}
+      className={["插件", "Skills", "MCP"].includes(settingsTab) ? "plugins-settings-page" : settingsTab === "模型服务" ? "model-settings-page" : undefined}
+      title={settingsLabel(settingsTab)}
+      subtitle={settingsTab === "浏览器" ? t("settings.browser.subtitle") : undefined}>
+      {settingsTab === "外观" ? (
+        <AppearanceSettings
+          theme={theme}
+          setTheme={setTheme}
+          fontSize={uiFontSize}
+          setFontSize={setUiFontSize}
+        />
+      ) : settingsTab === "常规" ? (
+        <GeneralSettings settings={library.settings} power={snapshot.power} menuBar={snapshot.menuBar} projectlessDirectory={snapshot.projectless?.directory} chooseProjectlessDirectory={services.chooseProjectlessDirectory} fileOpen={services.fileOpen} action={resourceAction} connected={snapshot.connection?.state === "ready"} />
+      ) : settingsTab === "浏览器" ? (
+        <BrowserSettings settings={library.settings} action={resourceAction} connected={snapshot.connection?.state === "ready"} />
+      ) : settingsTab === "钩子" ? (
+        <HooksSettings action={resourceAction} connected={snapshot.connection?.state === "ready"} onConnect={reconnectService} />
+      ) : settingsTab === "模型服务" ? (
+        <ModelSettings action={action} onOpenSessionSettings={() => setSettingsTab("会话配置")} />
+      ) : settingsTab === "会话配置" ? (
+        <SessionSettings key={`${project?.id}:${thread?.id}`} project={project} thread={thread} action={resourceAction} />
+      ) : settingsTab === "手机连接" ? (
+        <MobileSettings action={resourceAction} projects={snapshot.projects} />
+      ) : settingsTab === "数据飞轮" ? (
+        <TrajectorySettings action={resourceAction} connected={snapshot.connection?.state === "ready"} onStatus={onTrajectoryStatus} />
+      ) : settingsTab === "后台服务" ? (
+        <><ServiceStatusSettings recovery={snapshot.lifecycle?.recovery} runningState={snapshot.serviceSummary?.state} connected={snapshot.connection?.state === "ready"} action={resourceAction}
+          onConnect={reconnectService}
+          onTask={initialReleased ? (pid, taskId) => { updateSettingsOpen(false); setTaskScope(undefined); setTaskNotification({ projectId: pid, taskId }); setTaskCenterOpen(true); } : undefined}
+          onOpen={initialReleased ? (pid, tid, panelName) => { updateSettingsOpen(false); void open(pid, tid).then(() => { if (panelName) setPanel(panelName); }); } : undefined} />
+        <CoreCapabilitiesSettings projects={snapshot.projects} connected={snapshot.connection?.state === "ready"} /></>
+      ) : settingsTab === "用量" ? (
+        <UsageDashboard action={resourceAction} />
+      ) : !project ? (
+        <div className="settings-empty">
+          <p>{t("settings.chooseProject")}</p>
+          <button onClick={() => void choose()}>{t("settings.openProject")}</button>
+        </div>
+      ) : (
+        panelBody(settingsTab)
+      )}
+    </SettingsPage>
+  );
+  const startupRecovery = restorationFailed || snapshot.connection?.state === "unavailable" || startupLifecycleBlocked || startupDelayed;
+  const startupBusy = backendActionPending || viewRefreshing || snapshot.connection?.state === "connecting";
+  const startupDetails = backendActionError || viewFailure?.message || restorationError || startupLifecycle?.error
+    || startupLifecycle?.recovery?.message || startupLifecycle?.message || snapshot.connection?.message;
+  const quitStartup = async () => {
+    if (backendActionInFlight.current) return;
+    backendActionInFlight.current = true;
+    setBackendActionPending(true);
+    try { await resourceAction("serviceLifecycle", { operation: "quitInterface" }); }
+    catch (cause) { setBackendActionError((cause as Error).message); }
+    finally { backendActionInFlight.current = false; setBackendActionPending(false); }
+  };
   return (
     <WorkbenchShell
       data-view={settingsOpen ? "settings" : pluginsOpen ? "plugins" : taskCenterOpen ? "tasks" : "workspace"}
       data-testid="areal-workbench"
-      data-project-id={project?.id ?? ""}
+      data-project-id={project?.id ?? projectId}
       data-thread-id={threadId}
       data-startup-ready={startupReady}
+      data-shell-ready={shellReady}
     >
+      {!initialReleased ? <div className="startup-screen" data-testid="startup-loading">
+        <div className="startup-drag-region" aria-hidden="true" />
+        {settingsOpen ? <div className="startup-settings">
+          <Button variant="ghost" size="sm" onClick={() => setSettingsOpen(false)}>{t("startup.back")}</Button>
+          {settingsPage}
+        </div> : <div className="startup-content">
+          <img src={startupIcon} alt="AReaL Harness" width={40} height={40} />
+          <p role={restorationFailed || snapshot.connection?.state === "unavailable" || startupLifecycleBlocked ? "alert" : "status"}>
+            {t(startupRecovery ? startupDelayed && !restorationFailed && snapshot.connection?.state !== "unavailable" && !startupLifecycleBlocked ? "startup.delayed" : "startup.failed" : "startup.loading")}
+          </p>
+          {startupRecovery && <>
+            <div className="startup-actions">
+              {restorationFailed && <Button variant="outline" size="sm" disabled={startupBusy} onClick={() => void retryRestoration()}>{t("recovery.retryView")}</Button>}
+              <Button variant="outline" size="sm" disabled={startupBusy} onClick={() => void runBackendAction(snapshot.connection?.state === "unavailable" && snapshot.connection?.recovery !== "check" && !startupLifecycleBlocked ? "reconnect" : "check")}>{t(snapshot.connection?.state === "unavailable" && snapshot.connection?.recovery !== "check" && !startupLifecycleBlocked ? "startup.reconnect" : "startup.check")}</Button>
+              {startupLifecycle?.recovery && <Button variant="outline" size="sm" disabled={startupBusy} onClick={() => void runBackendAction("recover")}>{t("startup.recover")}</Button>}
+              <Button variant="ghost" size="sm" onClick={() => { setSettingsTab((viewFailure && recoverySettings(viewFailure)) || "后台服务"); setSettingsOpen(true); }}>{t("recovery.checkSettings")}</Button>
+              <Button variant="ghost" size="sm" disabled={backendActionPending} onClick={() => void quitStartup()}>{t("startup.quit")}</Button>
+            </div>
+            {startupDetails && <SettingsDisclosure title={t("recovery.details")}><pre>{startupDetails}</pre></SettingsDisclosure>}
+          </>}
+        </div>}
+      </div> : <>
       {!sidebar && !settingsOpen && <div className="areal-update-floating"><UpdateIndicator services={services} /></div>}
       {settingsOpen ? (
         <SettingsNavigation width={sidebarWidth} rail={applicationRail}
@@ -1558,11 +1680,10 @@ function AppContent({ services }: { services: PlatformServices }) {
                 <SidebarWorkspaceHeader title="AReaL Harness" onSearch={() => setSearchOpen(true)} />
                 <div className="sidebar-tools">
                   <NewTaskButtonGroup
-                    disabled={false}
                     onCreateTask={() => void newTask()}
                   />
                 </div>
-                <DndContext {...sidebarDrag.context}>
+                {<DndContext {...sidebarDrag.context}>
                 <div className="sidebar-scroll">
                   {(visibleRows.some((r) => r.pinned) || projects.some(owner => library.projects?.[owner.id]?.pinned) || (sidebarDrag.active && sidebarDrag.active.type !== "section")) && (
                     <section className="project-group" data-sidebar-pinned>
@@ -1611,7 +1732,7 @@ function AppContent({ services }: { services: PlatformServices }) {
                   </section>}
                 </div>
                 <DragOverlay dropAnimation={null}>{dragSource && <div className="sidebar-drag-preview">{dragTitle}</div>}</DragOverlay>
-                </DndContext>
+                </DndContext>}
               </>
           </NavigationSidebar>
       )}
@@ -1674,7 +1795,7 @@ function AppContent({ services }: { services: PlatformServices }) {
               <button aria-label={t("recovery.dismiss")} onClick={() => dismissNotice(restorationNoticeId)}><X size={14} /></button>
             </div>
           )}
-          <PluginCenter active={pluginCenterActive} marketRequest={pluginMarketRequest} surface={pluginSettingsOpen ? "settings" : "workspace"}
+          {<PluginCenter active={pluginCenterActive} marketRequest={pluginMarketRequest} surface={pluginSettingsOpen ? "settings" : "workspace"}
             initialTab={settingsTab === "Skills" ? "skills" : settingsTab === "MCP" ? "mcp" : "plugins"}
             project={project} projects={snapshot.projects} thread={thread} action={resourceAction}
             apps={pluginId => <McpAppsHub key={pluginId} pluginId={pluginId} workspace={mcpWorkspace} project={project} threadId={threadId} action={resourceAction} />}
@@ -1683,51 +1804,9 @@ function AppContent({ services }: { services: PlatformServices }) {
             onMarket={() => { updateSettingsOpen(false); setPluginMarketRequest(value => value + 1); setPluginsOpen(true); }}
             onChooseProject={() => void choose()}
             onSelectProject={id => { setNoProject(false); setProjectId(id); }}
-            onStartDraft={startResourceDraft} />
+            onStartDraft={startResourceDraft} />}
           {pluginCenterActive ? null : settingsOpen ? (
-            <SettingsPage
-              key={settingsTab}
-              className={["插件", "Skills", "MCP"].includes(settingsTab) ? "plugins-settings-page" : settingsTab === "模型服务" ? "model-settings-page" : undefined}
-              title={settingsLabel(settingsTab)}
-              subtitle={settingsTab === "浏览器" ? t("settings.browser.subtitle") : undefined}>
-              {settingsTab === "外观" ? (
-                <AppearanceSettings
-                  theme={theme}
-                  setTheme={setTheme}
-                  fontSize={uiFontSize}
-                  setFontSize={setUiFontSize}
-                />
-              ) : settingsTab === "常规" ? (
-                <GeneralSettings settings={library.settings} power={snapshot.power} menuBar={snapshot.menuBar} projectlessDirectory={snapshot.projectless?.directory} chooseProjectlessDirectory={services.chooseProjectlessDirectory} fileOpen={services.fileOpen} action={resourceAction} connected={snapshot.connection?.state === "ready"} />
-              ) : settingsTab === "浏览器" ? (
-                <BrowserSettings settings={library.settings} action={resourceAction} connected={snapshot.connection?.state === "ready"} />
-              ) : settingsTab === "钩子" ? (
-                <HooksSettings action={resourceAction} connected={snapshot.connection?.state === "ready"} onConnect={reconnectService} />
-              ) : settingsTab === "模型服务" ? (
-                <ModelSettings action={action} onOpenSessionSettings={() => setSettingsTab("会话配置")} />
-              ) : settingsTab === "会话配置" ? (
-                <SessionSettings key={`${project?.id}:${thread?.id}`} project={project} thread={thread} action={resourceAction} />
-              ) : settingsTab === "手机连接" ? (
-                <MobileSettings action={resourceAction} projects={snapshot.projects} />
-              ) : settingsTab === "数据飞轮" ? (
-                <TrajectorySettings action={resourceAction} connected={snapshot.connection?.state === "ready"} onStatus={onTrajectoryStatus} />
-              ) : settingsTab === "后台服务" ? (
-                <><ServiceStatusSettings recovery={snapshot.lifecycle?.recovery} runningState={snapshot.serviceSummary?.state} connected={snapshot.connection?.state === "ready"} action={resourceAction}
-                  onConnect={reconnectService}
-                  onTask={(pid, taskId) => { updateSettingsOpen(false); setTaskScope(undefined); setTaskNotification({ projectId: pid, taskId }); setTaskCenterOpen(true); }}
-                  onOpen={(pid, tid, panelName) => { updateSettingsOpen(false); void open(pid, tid).then(() => { if (panelName) setPanel(panelName); }); }} />
-                <CoreCapabilitiesSettings projects={snapshot.projects} connected={snapshot.connection?.state === "ready"} /></>
-              ) : settingsTab === "用量" ? (
-                <UsageDashboard action={resourceAction} />
-              ) : !project ? (
-                <div className="settings-empty">
-                  <p>{t("settings.chooseProject")}</p>
-                  <button onClick={() => void choose()}>{t("settings.openProject")}</button>
-                </div>
-              ) : (
-                panelBody(settingsTab)
-              )}
-            </SettingsPage>
+            settingsPage
           ) : taskSurface === "inbox" ? (
             <Inbox projects={snapshot.projects} connected={snapshot.connection?.state === "ready"} action={resourceAction} onClose={() => setTaskCenterOpen(false)} />
           ) : taskCenterOpen ? (
@@ -1795,7 +1874,7 @@ function AppContent({ services }: { services: PlatformServices }) {
                           appEntries={appEntries}
                           project={project}
                           thread={thread}
-                          executionBlocked={projectExecutionBlocked(snapshot.lifecycle, project.id)}
+                          executionBlocked={snapshot.connection?.state !== "ready" || viewRefreshing || projectExecutionBlocked(snapshot.lifecycle, project.id)}
                           action={action}
                           readAction={resourceAction}
                           onPanel={showPanel}
@@ -1821,7 +1900,7 @@ function AppContent({ services }: { services: PlatformServices }) {
                     </>
                   ) : threadId ? (
                     <div className="settings-empty" role="status">
-                      <p>{restorationFailed ? "暂时无法加载对话，请重试或切换对话。" : "正在加载对话…"}</p>
+                      <p>{restorationFailed ? "暂时无法加载对话，请重试或切换对话。" : t("startup.loadingConversation")}</p>
                       {restorationFailed && <Button variant="outline" size="sm" className="mt-3" onClick={() => void retryRestoration()}>重试加载对话</Button>}
                     </div>
                   ) : (
@@ -2088,6 +2167,7 @@ function AppContent({ services }: { services: PlatformServices }) {
           forkIntent.resolve(); setForkIntent(current => current === forkIntent ? null : current);
           if (activeConversation.current === forkIntent.route) void open(forkIntent.projectId, result.threadId).catch(cause => setError(cause instanceof Error ? cause.message : String(cause)));
         }} />}
+      </>}
     </WorkbenchShell>
   );
 }

@@ -96,7 +96,7 @@ try {
       },
     };
   });  await page.goto(origin);
-  const failure=page.getByText('暂时无法加载对话，请重试或切换对话。',{exact:true});
+  const failure=page.getByText('暂时无法完成加载，请重试或检查后台。',{exact:true});
   const banner=page.locator('.error-banner');
   await failure.waitFor();
   check(!await page.getByText('Core disconnected; request outcome may be unknown',{exact:true}).isVisible(),'Read restoration uses product recovery copy instead of an unknown-mutation transport message.');
