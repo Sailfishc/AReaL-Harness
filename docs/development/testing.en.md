@@ -204,6 +204,8 @@ Confirmed send refusals belong to Composer and clear after later acceptance; glo
 
 Conversation derivation smoke uses `desktop-contract` command validation and read/mutation semantics with project/Thread ownership to verify observations during draft bring-back, rather than maintaining a separate read-only RPC whitelist. It retains all raw commands and the transport mutation flag, and still checks unchanged model-request counts, Turn counts, and workspace bytes.
 
+Capacity/cancellation fixtures keep deliberately held SSE streams active with protocol comments and clear heartbeat timers on release or disconnect; silent streams remain appropriate for idle-timeout tests.
+
 Model-retention checks compare the Core configuration revision and selected model, parameters, profile, options, and Skills instead of serializing the entire effective snapshot, which also contains derived metadata. Smoke cleanup bounds Electron close; a failed close terminates only the child returned by that fixture launch, keeps the test failed, and proceeds to generation-checked Core cleanup instead of leaving Node alive until the job timeout.
 
 `make test` uses Cargo `--no-fail-fast` to collect failures across workspace test targets before returning a failing exit code; assertions and job timeouts remain enforced. For broad Core/protocol/storage integrations, complete the applicable Rust behavior suites as well as `ci-preflight` before pushing. The portable CI lane excludes `areal-runtime-exec-native`; the dedicated native/container lanes remain required.

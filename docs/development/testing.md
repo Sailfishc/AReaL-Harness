@@ -204,6 +204,8 @@ GUI CI 只构建一次 Core 和 Renderer，再将历史兼容、迁移、Compose
 
 对话派生 smoke 直接使用 `desktop-contract` 的命令校验和 read/mutation 语义，结合项目/聊天归属验证草稿带回期间的观察；不再维护另一份只读 RPC 白名单。保留全部原始命令及传输 mutation 标记，并继续核对模型请求数、Turn 数和工作区字节不变。
 
+容量与取消夹具对刻意挂起的 SSE 流发送协议注释心跳，并在释放或断线时清理定时器；空闲超时测试仍保留无活动的流。
+
 模型保留检查比较 Core 配置版本和选择的模型、参数、Profile、选项与 Skills，不再将包含派生元数据的整个有效快照序列化比较。smoke 为 Electron 退出设置期限；退出失败时只终止该 fixture 启动返回的子进程，保留测试失败，并继续按代际核对 Core 清理，避免 Node 一直等待到 job 超时。
 
 `make test` 使用 Cargo `--no-fail-fast`，先收集 workspace 各测试目标的失败，再返回失败退出码；断言和 job 超时继续生效。大范围 Core/协议/存储集成在推送前除 `ci-preflight` 外，还需完成适用的 Rust 行为测试。可移植 CI 排除 `areal-runtime-exec-native`，专用 native/container 通道仍须通过。

@@ -350,7 +350,14 @@ try {
           res.write(`data: ${JSON.stringify({ id: "scf-held", object: "chat.completion.chunk", choices: [{ index: 0,
             delta: { content: streamExcerpt }, finish_reason: null }] })}\n\n`);
         }
-        heldResponses.set(lastUser.content, () => res.end(sse(answer)));
+        // This fixture holds capacity, not an idle transport. UI/evidence work
+        // may outlast the real stream idle deadline; comments add no model text.
+        const heartbeat = setInterval(() => res.write(": fixture awaiting explicit release\n\n"), 1000);
+        res.once("close", () => clearInterval(heartbeat));
+        heldResponses.set(lastUser.content, () => {
+          clearInterval(heartbeat);
+          res.end(sse(answer));
+        });
         return;
       }
       if (lastUser?.content === sideFileQuestion && !body.messages.some(message => message.role === "tool")) {
