@@ -11,6 +11,8 @@ import { CoreTaskModel } from '../packages/workbench/client/core-model.js';
 const require = createRequire(new URL('../app/package.json', import.meta.url));
 const { WebSocket, WebSocketServer } = require('ws');
 const { CoreBackend } = require('../app/src/core/backend.cjs');
+const { CoreLibrary } = require('../app/src/core/library.cjs');
+const { SharedCoreBackend } = require('../app/src/core/service-client.cjs');
 const { LifecycleOperations } = require('../app/src/core/lifecycle-operations.cjs');
 const { readOriginalTurn } = require('../app/src/core/local-service.cjs');
 const serviceId = 'a'.repeat(24), generation = 'original-generation';
@@ -61,13 +63,15 @@ async function fixture(t, respond, { bounded = true } = {}) {
     configurations: {}, summaries: [], connectionGeneration: 1, client,
     service: { serviceId, generation } };
   const backend = Object.assign(Object.create(CoreBackend.prototype), { home, harnessHome: join(scratch, 'registry'),
-    projects: new Map([['project', project]]), ownedEngines: new Map(), providers: { redact: value => value }, onChange() {},
+    projects: new Map([['project', project]]), ownedEngines: new Map(), saves: new Map(), providers: { redact: value => value }, onChange() {},
     saved: [{ id: project.id, root: workspace }], hooks: { environment: () => ({}) } });
   const lifecycle = backend.lifecycleOperations = new LifecycleOperations(backend);
+  backend.library = new CoreLibrary(backend);
   t.after(async () => {
     client.close();
     for (const socket of server.clients) socket.terminate();
     await new Promise(resolve => server.close(resolve));
+    await backend.library.writes;
     await rm(scratch, { recursive: true, force: true });
     assert.deepEqual(errors, []);
   });
@@ -78,6 +82,46 @@ async function fixture(t, respond, { bounded = true } = {}) {
   const record = { requestId: randomUUID(), kind: 'interruptTurn', mode: 'cancel', threadId: 'thread', turnId: 'original', targets: [target] };
   return { scratch, server, calls, client, project, backend, lifecycle, target, record, closed };
 }
+
+test('history reads execute against the original Core while interruption still blocks writes', async t => {
+  const f = await fixture(t, async () => ({ result: baseline([turn('original', 'inProgress')]) }));
+  await f.backend.readObservation(f.project, 'thread');
+  f.lifecycle.records.set(f.record.requestId, f.record);
+  const request = { projectId: 'project', threadId: 'thread', viewId: 'pending-history' };
+  const shared = Object.assign(Object.create(SharedCoreBackend.prototype), {
+    status: { lifecycle: { version: 2 } }, lifecycleReferences: new Map([[f.record.requestId, f.record]]), lifecycleReceipts: new Map(),
+  });
+  for (const [operation, expected] of [['acquire', 'supported'], ['loadOlder', 'data'], ['loadItem', 'loaded'], ['release', 'released']]) {
+    const params = { ...request, operation, ...(operation === 'loadItem' ? { itemId: 'absent-item' } : {}) };
+    assert.doesNotThrow(() => shared.assertLifecycleScope('history', params));
+    assert.ok(Object.hasOwn(await f.backend.command('history', params), expected));
+  }
+  assert.throws(() => shared.assertLifecycleScope('send', request), { code: 'LIFECYCLE_INCOMPLETE' });
+  await assert.rejects(f.backend.command('send', request), { code: 'LIFECYCLE_INCOMPLETE' });
+  f.project.service = { serviceId, generation: 'replacement' };
+  await assert.rejects(f.backend.command('history', { ...request, operation: 'acquire' }), { code: 'CONFIRMATION_STALE' });
+  shared.foreignOwner = true;
+  assert.throws(() => shared.assertLifecycleScope('history', { ...request, operation: 'acquire' }), { code: 'APPLICATION_OWNER_MISMATCH' });
+});
+
+test('snapshot-only terminal transitions record completion once and preserve explicit read state', async t => {
+  const f = await fixture(t, async () => ({ result: baseline([turn('original', 'interrupted')]) }));
+  f.project.model.replace({ id: 'thread', turns: [turn('original', 'inProgress')] });
+  await f.backend.readObservation(f.project, 'thread');
+  await f.backend.library.writes;
+  const metadata = () => f.backend.library.value.threads['project:thread'];
+  assert.equal(metadata()?.completionId, 'original');
+  assert.equal(metadata().unread, true);
+  await f.backend.library.command({ operation: 'readThread', projectId: 'project', threadId: 'thread', read: true, completionId: 'original' });
+  await f.backend.readObservation(f.project, 'thread');
+  await f.backend.library.writes;
+  assert.equal(metadata().unread, false);
+  f.project.model = new CoreTaskModel();
+  f.backend.library = new CoreLibrary(f.backend);
+  await f.backend.readObservation(f.project, 'thread');
+  await f.backend.library.writes;
+  assert.deepEqual(f.backend.library.value.threads, {}, 'Opening old terminal history does not create completion activity');
+});
 
 test('large-history interrupt and settlement use bounded snapshots and the exact archived turn', async t => {
   let active = true;
