@@ -29,6 +29,7 @@
     "test:interactions": "node scripts/interaction-smoke.mjs",
     "test:permission-presets": "node scripts/permission-presets-smoke.mjs",
     "test:composer": "node scripts/composer-smoke.mjs",
+    "test:send-admission": "node scripts/send-admission-smoke.mjs",
     "test:provider-hot-apply": "node scripts/provider-hot-apply-smoke.mjs",
     "test:context-usage": "node scripts/context-usage-smoke.mjs",
     "test:model-selection": "node scripts/model-selection-smoke.mjs",

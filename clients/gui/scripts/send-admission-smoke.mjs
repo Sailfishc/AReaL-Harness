@@ -16,6 +16,7 @@ const root = resolve(gui, '../..');
 const require = createRequire(join(gui, 'app/package.json'));
 const { _electron: electron } = require('playwright-core');
 const binary = process.env.AREAL_CORE_BIN;
+const failList = process.env.AREAL_SEND_LIST_FAILURE === '1';
 assert.ok(binary && isAbsolute(binary), 'Set AREAL_CORE_BIN to an absolute fixed Core binary');
 const scratch = await mkdtemp('/private/tmp/send-admission-');
 const workspace = join(scratch, 'workspace');
@@ -70,6 +71,7 @@ CoreBackend.prototype.submit = async function(project, method, ...args) {
             await new Promise(resolve => setTimeout(resolve, 10));
           }
           record({ boundary: 'listGate', phase: 'released', method });
+          if (${JSON.stringify(failList)}) throw new Error('Fixture conversation-list failure after accepted create');
         }
         const value = await request(method, ...args);
         if (method === 'areal/thread/start') {
@@ -141,6 +143,12 @@ try {
   await until(async () => (await editorText()).trim() === '', 'Composer clears after send admission');
   await until(async () => Object.values(project(await snapshot())?.state?.threads ?? {}).some(thread => thread.turns.some(turn => turn.items.some(item => item.type === 'agentMessage' && item.text?.includes('SEND_ADMISSION_COMPLETE')))), 'Reply completes');
   await capture('after-release');
+  if (failList) {
+    await until(async () => Object.values(project(await snapshot())?.refreshErrors ?? {}).some(error =>
+      error.scope === 'threadList' && error.operation?.method === 'areal/thread/start'
+      && error.message.includes('Fixture conversation-list failure')), 'Background list failure remains visible');
+    checks.push('Background list failure remains attached to the accepted create operation');
+  }
   assert.equal(requests.length, 1, 'One UI submission reaches the model exactly once');
   const messageText = message => typeof message.content === 'string' ? message.content : (message.content ?? []).map(part => part.text ?? '').join('\n');
   const userMessages = requests[0].messages.filter(message => message.role === 'user' && !messageText(message).startsWith('AReaL runtime context (not a user request):'));
@@ -166,7 +174,7 @@ try {
   catch (error) { cleanup = error.stack; passed = false; }
   if (server.listening) await new Promise(resolve => server.close(resolve));
   assert.equal(await hash(), coreHash, 'Core binary stays unchanged');
-  await writeFile(join(scratch, 'manifest.json'), JSON.stringify({ passed, source, guiDiffHash, binary, coreHash, originalText, checks, heldObservation, failure, cleanup, errors,
+  await writeFile(join(scratch, 'manifest.json'), JSON.stringify({ passed, source, guiDiffHash, binary, coreHash, originalText, failList, checks, heldObservation, failure, cleanup, errors,
     boundaries: 'Source Electron and real Core. Deterministic loopback model. One filesystem barrier holds the first conversation-list RPC after a successful thread-start response. Native folder picker stubbed. Deadline controls fixture completion, not a latency benchmark. No packaged app or physical input.' }, null, 2));
   console.log('Send admission result:', passed ? 'PASS' : 'FAIL');
   if (!passed) process.exitCode = 1;

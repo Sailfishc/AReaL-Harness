@@ -754,7 +754,7 @@ class CoreBackend {
     this.onChange();
   }
 
-  async refreshAfterAdmission(project, threadId, operation) {
+  async refreshAfterAdmission(project, threadId, operation, { backgroundList = false } = {}) {
     const client = project.client, generation = project.connectionGeneration;
     const current = () => this.currentConnection(project, client) && project.connectionGeneration === generation;
     const key = operation?.requestId ?? 'project';
@@ -778,16 +778,20 @@ class CoreBackend {
       catch (error) { if (current()) this.observationFailure(project, threadId, error); }
     }
     if (!current()) return;
-    try {
-      await this.listThreads(project);
-      if (current() && project.refreshErrors?.[key]?.scope === 'threadList') delete project.refreshErrors[key];
-    } catch (error) {
-      if (!current()) return;
-      project.refreshErrors ??= {};
-      project.refreshErrors[key] ??= { id: randomUUID(), projectId: project.id, scope: 'threadList',
-        connectionGeneration: generation, operation, message: this.providers.redact(error.message), refreshPending: true };
-      this.onChange();
-    }
+    const refreshList = async () => {
+      try {
+        await this.listThreads(project);
+        if (current() && project.refreshErrors?.[key]?.scope === 'threadList') delete project.refreshErrors[key];
+      } catch (error) {
+        if (!current()) return;
+        project.refreshErrors ??= {};
+        project.refreshErrors[key] ??= { id: randomUUID(), projectId: project.id, scope: 'threadList',
+          connectionGeneration: generation, operation, message: this.providers.redact(error.message), refreshPending: true };
+        this.onChange();
+      }
+    };
+    if (backgroundList) void refreshList();
+    else await refreshList();
   }
 
   async openThread(project, threadId) {
@@ -1835,7 +1839,7 @@ class CoreBackend {
           ...(request.model ? { model: request.model } : {}),
           ...((request.profile ?? project.resourceProfile ?? this.defaultProfile) ? { agentProfile: request.profile ?? project.resourceProfile ?? this.defaultProfile } : {}),
         }, { requestId: request.requestId });
-        await this.refreshAfterAdmission(project, thread.id, operationOf('areal/thread/start', request));
+        await this.refreshAfterAdmission(project, thread.id, operationOf('areal/thread/start', request), { backgroundList: true });
         return { threadId: thread.id, requestId: request.requestId };
       }
       case 'fork': {
