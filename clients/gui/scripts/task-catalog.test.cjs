@@ -91,7 +91,7 @@ function clock(t) {
 }
 
 for (const phase of ["startup", "RPC"]) {
-    test(`never-settled ${phase} reports timeout while retaining healthy owner data`, async (t) => {
+    test(phase === 'startup' ? 'startup exceeding five seconds stays pending until authentication' : 'never-settled RPC reports timeout while retaining healthy owner data', async (t) => {
         const advance = clock(t);
         const { backend, owners } = fixture(["blocked", "healthy"]);
         const gate = deferred();
@@ -100,8 +100,25 @@ for (const phase of ["startup", "RPC"]) {
             backend.start = (id) =>
                 id === "blocked" ? (backend.starts.push(id), gate.promise) : start(id);
         } else owners.blocked.read = () => gate.promise;
-        const state = observe(taskCatalog(backend, { operation: "list" }));
+        const request = taskCatalog(backend, { operation: "list" });
+        const state = observe(request);
         await flush();
+        if (phase === 'startup') {
+            const largerRequest = taskCatalog(backend, { operation: 'list', projectId: 'blocked', limit: 60 });
+            const larger = observe(largerRequest);
+            advance(6500);
+            await flush();
+            assert.equal(state.settled, false, 'startup must not consume the catalog page deadline');
+            assert.equal(larger.settled, false, 'larger readers share startup without a catalog timeout');
+            const healthy = await taskCatalog(backend, { operation: 'list', projectId: 'healthy' });
+            assert.deepEqual(healthy.data.map(task => task.id), ['healthy']);
+            gate.resolve(owners.blocked.project);
+            const result = await request;
+            assert.deepEqual(result.errors, []);
+            assert.deepEqual(result.data.map(task => task.id), ['blocked', 'healthy']);
+            assert.deepEqual((await largerRequest).errors, []);
+            return;
+        }
         advance(4999);
         await flush();
         assert.equal(state.settled, false);
@@ -191,7 +208,7 @@ for (const outcome of ["resolve", "reject"]) {
     });
 }
 
-test("one deadline spans startup and every page; late startup does not launch an RPC", async (t) => {
+test("one catalog deadline spans every page after startup readiness", async (t) => {
     const advance = clock(t);
     const { backend, owners } = fixture();
     const startup = deferred(),
@@ -204,7 +221,7 @@ test("one deadline spans startup and every page; late startup does not launch an
     startup.resolve(owners.owner.project);
     await flush();
     assert.deepEqual(owners.owner.calls.at(-1).params, { limit: 30, after: "next" });
-    advance(1999);
+    advance(4999);
     await flush();
     assert.equal(state.settled, false);
     assert.equal((await deadline(advance, state, 1)).errors[0].code, "TASK_CATALOG_TIMEOUT");
@@ -214,10 +231,15 @@ test("one deadline spans startup and every page; late startup does not launch an
     const late = fixture();
     const gate = deferred();
     late.backend.start = () => gate.promise;
-    await deadline(advance, observe(taskCatalog(late.backend, { operation: "list" })));
+    const waiting = observe(taskCatalog(late.backend, { operation: 'list' }));
+    await flush();
+    advance(6500);
+    await flush();
+    assert.equal(waiting.settled, false, 'startup remains pending beyond the page deadline');
     gate.resolve(late.owners.owner.project);
     await flush();
-    assert.equal(late.owners.owner.calls.length, 0);
+    assert.equal(late.owners.owner.calls.length, 1);
+    assert.equal(waiting.value.errors.length, 0);
 });
 
 test("concurrent differing limits serialize owner reads with exact filtered results and hasMore", async () => {

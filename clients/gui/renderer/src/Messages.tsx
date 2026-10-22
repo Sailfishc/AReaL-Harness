@@ -322,7 +322,7 @@ export function Messages({
         if (control && event.currentTarget.contains(control) && control.closest(".turn-progress, .turn-execution")) readHere();
       }}
     >
-      <div className={embedded ? "message-embedded-column" : "message-column"}>
+      <div className={embedded ? "message-column message-embedded-column" : "message-column"}>
         {beforeTurns}
         {inherited.loading && <p role="status">正在加载继承历史…</p>}
         {inherited.error && <p role="alert">继承历史读取失败：{inherited.error}</p>}

@@ -609,12 +609,15 @@ button.composer-project:hover > svg,
 .message-column {
   --message-reading-inset: 32px;
   width: 100%;
+  min-width: 0;
   max-width: var(--reading-width, 768px);
   margin: 0 auto;
   padding: var(--message-reading-inset) 16px;
 }
 .message-column > section { display: flex; flex-direction: column; min-width: 0; }
 .message-column > section + section { margin-top: 12px; }
+.messages-embedded, .messages-embedded-content { min-width: 0; max-width: 100%; }
+.message-embedded-column { padding: 0; }
 .message-response-space { height: 0; overflow-anchor: none; }
 .user-message {
   display: flex;

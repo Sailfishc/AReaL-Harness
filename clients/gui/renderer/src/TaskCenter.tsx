@@ -215,6 +215,7 @@ export function TaskCenter({ projects, connected, initialProjectId, defaultProje
   const rows = Object.values(catalog).flatMap(read => ownerRows(read)?.data ?? []);
   const failedProjects = projects.filter(project => catalog[project.id]?.status === "error").map(project => project.id);
   const loading = connected && projects.some(project => !catalog[project.id] || catalog[project.id].status === "pending");
+  const initialLoading = connected && projects.some(project => !catalog[project.id] || catalog[project.id].status === "pending" && !ownerRows(catalog[project.id]));
   const fresh = connected && projects.every(project => catalog[project.id]?.status === "ready");
   const hasMore = Object.values(catalog).some(read => ownerRows(read)?.hasMore);
   const [selected, setSelected] = useState(() => sessionStorage.getItem("areal-gui:selected-global-task") ?? ""), [creating, setCreating] = useState(false);
@@ -521,8 +522,12 @@ export function TaskCenter({ projects, connected, initialProjectId, defaultProje
           return read?.status === "error" && <div key={owner.id}><p role="alert">{projectLabel(owner)}：{read.message}{read.previous && " 当前显示上次读取的任务。"}</p><Button variant="ghost" onClick={() => void refresh(false, owner.id)} disabled={!connected} aria-label={`重试读取 ${projectLabel(owner)}`}>重试读取</Button></div>;
         })}
         {!connected && <p role="status">尚未确认最新状态，当前显示上次读取的任务。请连接后台后重试。</p>}
-        {loading && <p role="status">{listed.length ? "其余任务仍在读取…" : "正在读取任务…"}</p>}
-        <div className="task-list-rows">{visibleRows.map(row => <button key={`${row.projectId}:${row.id}`} type="button" aria-label={`打开自动化 ${row.objective}`} aria-pressed={`${row.projectId}:${row.id}` === selected} disabled={!connected || !projects.find(owner => owner.id === row.projectId)?.state?.connected || failedProjects.includes(row.projectId)} className={`task-list-row ${`${row.projectId}:${row.id}` === selected ? "bg-selected" : ""}`} onClick={() => {setCreating(false);setSelected(`${row.projectId}:${row.id}`);setError("");}}><span>{row.objective}</span><small>{row.scope === "independent" ? "独立任务" : row.projectName} · 定时任务</small><small>{row.paused || row.cancelled || finished(row) ? taskStatus(row) : row.nextRunAt != null ? date(row.nextRunAt, scheduleZone(row)) : taskStatus(row)}</small>{catalog[row.projectId]?.status !== "ready" && <small>{failedProjects.includes(row.projectId) ? "读取失败 · 上次读取" : "读取中 · 上次读取"}</small>}</button>)}</div>
+        {initialLoading && <p role="status">{listed.length ? "其余任务仍在读取…" : "正在读取任务…"}</p>}
+        <div className="task-list-rows">{visibleRows.map(row => {
+          const failed = failedProjects.includes(row.projectId);
+          const disconnected = !connected || !projects.find(owner => owner.id === row.projectId)?.state?.connected;
+          return <button key={`${row.projectId}:${row.id}`} type="button" aria-label={`打开自动化 ${row.objective}`} aria-pressed={`${row.projectId}:${row.id}` === selected} disabled={disconnected || failed} className={`task-list-row ${`${row.projectId}:${row.id}` === selected ? "bg-selected" : ""}`} onClick={() => {setCreating(false);setSelected(`${row.projectId}:${row.id}`);setError("");}}><span>{row.objective}</span><small>{row.scope === "independent" ? "独立任务" : row.projectName} · 定时任务</small><small>{row.paused || row.cancelled || finished(row) ? taskStatus(row) : row.nextRunAt != null ? date(row.nextRunAt, scheduleZone(row)) : taskStatus(row)}</small>{failed && <small>读取失败 · 上次读取</small>}</button>;
+        })}</div>
         {fresh && !visibleRows.length && <p>{moreAvailable ? "已加载任务中没有匹配项，可展开显示更多。" : "没有符合筛选条件的定时任务。"}</p>}
         {moreAvailable && <Button variant="ghost" disabled={!connected || loading} onClick={() => void refresh(true)}>展开显示</Button>}
       </div>

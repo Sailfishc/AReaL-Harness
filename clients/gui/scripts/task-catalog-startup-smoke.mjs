@@ -16,6 +16,7 @@ const scratch = await mkdtemp('/private/tmp/areal-task-catalog-startup-');
 const workspace = join(scratch, 'workspace'), primaryWorkspace = join(scratch, 'primary-workspace'), userHome = join(scratch, 'user');
 const gate = join(scratch, 'hold-provider-sync'), traceFile = join(scratch, 'startup-trace.jsonl');
 const handshakeGate = join(scratch, 'hold-handshake');
+const slowHandshake = process.env.AREAL_TASK_CATALOG_SLOW_HANDSHAKE === '1';
 const launchApp = join(scratch, 'app');
 const objective = 'STARTUP_CATALOG_SAVED_TASK';
 const sourceCommit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: gui, encoding: 'utf8' }).trim();
@@ -27,7 +28,7 @@ const testSha256 = createHash('sha256').update(await readFile(fileURLToPath(impo
 const command = [process.execPath, ...process.argv.slice(1)];
 const startedAt = new Date().toISOString();
 const errors = [], checks = [], catalogEvents = [], cleanup = [];
-let app, page, projectId, primaryProjectId, savedTask, heldObservation, eventualObservation, failure, passed = false;
+let app, page, projectId, primaryProjectId, savedTask, startupObservation, heldObservation, eventualObservation, failure, passed = false;
 await Promise.all([mkdir(workspace), mkdir(primaryWorkspace), mkdir(join(userHome, '.areal'), { recursive: true }), mkdir(launchApp)]);
 execFileSync('git', ['init', '-b', 'main'], { cwd: workspace, stdio: 'ignore' });
 await writeFile(traceFile, '');
@@ -167,6 +168,11 @@ try {
   const openedAt = Date.now();
   await page.getByRole('button', { name: '定时任务', exact: true }).click();
   await until(async () => (await trace()).some(event => event.kind === 'catalog_command_begin' && event.projectId === projectId), 'catalog begins waiting before handshake');
+  if (slowHandshake) {
+    await new Promise(resolve => setTimeout(resolve, 6500));
+    startupObservation = { alerts: await page.getByRole('alert').allTextContents(), events: await trace() };
+    await capture('startup-awaiting-authentication');
+  }
   await rm(handshakeGate);
   const held = await until(async () => (await trace()).find(event => event.kind === 'provider_sync_held' && event.projectId === projectId), 'provider configuration held after handshake');
   assert.equal(held.clientReady, true, 'Barrier follows an authenticated Core client');
@@ -195,6 +201,11 @@ try {
   await capture('startup-ready');
   assert.equal((await call('tasks', { operation: 'list', projectId })).data.filter(task => task.id === savedTask.id).length, 1, 'Restart preserves one authoritative saved task');
   checks.push('Provider release completes startup and enables the saved task management row');
+  if (slowHandshake) {
+    assert.equal(startupObservation.alerts.length, 0, 'Startup exceeding five seconds must stay pending without catalog timeout');
+    assert.equal(startupObservation.events.some(event => event.kind === 'catalog_command_end' && event.projectId === projectId), false, 'Catalog waits for authentication before its page deadline begins');
+    checks.push('Startup exceeding five seconds stays pending and recovers without catalog timeout');
+  }
   assert.equal(heldObservation.visible, true, 'Saved task row must appear before unrelated startup warmup releases');
   assert.equal(heldObservation.disabled, true, 'Task management remains disabled before full owner readiness');
   assert.equal(heldObservation.projectConnected, false, 'Catalog reads must not mark execution ready');
@@ -215,7 +226,7 @@ try {
   try { await closeApplication(); } catch (error) { cleanup.push({ stopped: false, error: error.stack }); passed = false; }
   await writeFile(join(scratch, 'catalog-events.json'), JSON.stringify(catalogEvents, null, 2));
   await writeFile(join(scratch, 'manifest.json'), JSON.stringify({ passed, startedAt, finishedAt: new Date().toISOString(), command, cwd: process.cwd(), testSha256, sourceCommit, sourceDiff, sourceDiffSha256,
-    binary, binarySha256, baselineSource, baselineSha256, primaryProjectId, projectId, savedTask, checks, heldObservation, eventualObservation, failure, cleanup, errors,
+    binary, binarySha256, baselineSource, baselineSha256, primaryProjectId, projectId, savedTask, checks, slowHandshake, startupObservation, heldObservation, eventualObservation, failure, cleanup, errors,
     boundaries: ['Real isolated source Electron, preload, Desktop adapter and Core', 'Production bridge creates one future task; no model response or task list is mocked',
       'Native folder picker selects only the isolated workspace', 'Filesystem barrier holds AppProviders.sync after authenticated Core handshake for at least 6.5 seconds',
       'Controlled startup delay verifies catalog responsiveness and does not predict real-account latency', 'Not an installed app or real provider acceptance'] }, null, 2));

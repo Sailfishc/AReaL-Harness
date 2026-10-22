@@ -33,8 +33,11 @@ const inlineRegression=process.env.AREAL_TASK_INLINE_REGRESSION==='1';
 assert.ok(!inlineRegression||(!loadingRegression&&!dailyStartRegression&&process.env.AREAL_TASK_SCHEDULE_REGRESSION!=='1'),'run inline regression separately from other task scenarios');
 const inlineObjective='定时执行内联验收 INLINE_CONVERSATION';
 const inlineRuns=new Map();
+const inlineLongToken='INLINE_LONG_CONTENT_'+ '0123456789abcdef'.repeat(160);
+const inlineLongMarkdown=`执行过程包含需要正常换行的长段落。${'检查任务输出与主会话阅读列保持一致。'.repeat(35)}\n\n内联代码 \`${inlineLongToken}\`\n\n\`\`\`sh\nprintf '%s\\n' '${inlineLongToken}'\n\`\`\``;
 const dailyClock=join(scratch,'daily-clock');
 const loadingRpcGate=join(scratch,'hold-catalog-page');
+const loadingPollDelay=join(scratch,'delay-catalog-poll');
 const loadingGate=join(scratch,'hold-project'), loadingTrace=join(scratch,'loading-trace.log'), prepareFailureGate=join(scratch,'fail-projectless-prepare');
 const watchGates=[];
 let launchApp=process.env.AREAL_GUI_TEST_APP_DIR || join(gui,'app');
@@ -44,6 +47,7 @@ const taskDirectory=join(workspace,'task-working-directory'), independentDirecto
 await mkdir(taskDirectory);await mkdir(independentDirectory);
 execFileSync('git',['init','-b','main'],{cwd:workspace,stdio:'ignore'});
 const errors=[],checks=[],modelRequests=[],catalogEvents=[],held=new Set();
+const regressionFailures=[];
 const pastDailyAnchor=new Date(Date.now()-86400000).toISOString().replace(/\.\d{3}Z$/,'Z');
 const changedAnchor=new Date(Date.now()+172800000).toISOString().replace(/\.\d{3}Z$/,'Z');
 const blockedOnce=new Set();
@@ -116,12 +120,12 @@ const model=createServer(async(request,response)=>{
     const index=inlineRuns.size+1;
     run={index,progress:`第 ${index} 次执行中：INLINE_PROGRESS_${index}。`,final:`第 ${index} 次执行完成：INLINE_FINAL_${index}。`,release:null};
     inlineRuns.set(goal.id,run);
-    send({content:run.progress});held.add(response);response.on('close',()=>held.delete(response));
+    send({content:run.progress+'\n\n'+inlineLongMarkdown});held.add(response);response.on('close',()=>held.delete(response));
     // 由断言释放流，避免固定延迟让慢机器只能看到完成后的结果。
-    run.release=()=>{assert.ok(!response.destroyed,'inline fixture stream remains connected');held.delete(response);tool('goal_update',{expectedRevision:goalView.revision,status:'complete',summary:`INLINE_REPORT_${index}`,evidence:['内联执行中间响应已由界面验收。'],remaining:[]});};
+    run.release=()=>{assert.ok(!response.destroyed,'inline fixture stream remains connected');held.delete(response);tool('run_command',{argv:['printf','%s\n',inlineLongToken],cwd:'workspace://repo',timeoutMs:5000});};
     return;
    }
-   assert.equal(goal.report?.status,'complete','released inline run reaches its real goal completion');
+   if(goal.report?.status!=='complete'){tool('goal_update',{expectedRevision:goalView.revision,status:'complete',summary:`INLINE_REPORT_${run.index}`,evidence:['内联执行中间响应与真实长命令已由界面验收。'],remaining:[]});return;}
    finish(run.final);return;
   }
   if(goal.objective.includes('READ_RESUME')&&!blockedOnce.has(goal.id)) {
@@ -211,6 +215,13 @@ function instrumentProject(value,project){
     appendFileSync(${JSON.stringify(loadingTrace)},'catalog page released\\n');
     const page=await request(method,{limit:30});
     return {...page,data:page.data.map(row=>({...row,objective:'LATE_CATALOG_TASK'}))};
+   }
+   if(method==='areal/task/list'&&params.limit===30&&existsSync(${JSON.stringify(loadingPollDelay)})){
+    appendFileSync(${JSON.stringify(loadingTrace)},'catalog poll pending\\n');
+    const page=await request(method,params);
+    await new Promise(resolve=>setTimeout(resolve,700));
+    appendFileSync(${JSON.stringify(loadingTrace)},'catalog poll returned\\n');
+    return page;
    }
    return request(method,params);
   };
@@ -563,6 +574,7 @@ async function checkLoadingRegression(){
  }
  const create=objective=>call('manage',{projectId:pid,operation:'taskCreate',mode:'scheduled',objective,interactionMode:'interactive',schedule:{at:Math.floor(Date.now()/1000)+86400,timeZone:'Asia/Shanghai'}});
  const first=await create('READY_TASK_FIRST'), second=await create('READY_TASK_SECOND');
+ for(let index=0;index<6;index++)await create(`READY_TASK_SCROLL_${index}`);
  await call('manage',{projectId:slowProject.id,operation:'taskCreate',mode:'scheduled',objective:'DELAYED_OWNER_TASK',interactionMode:'interactive',schedule:{at:Math.floor(Date.now()/1000)+86400,timeZone:'Asia/Shanghai'}});
  assert.equal((await snapshot()).projects.find(p=>p.id===pid).state.tasks?.[first.id],undefined,'healthy rows must come from catalog response rather than prefilled projection');
  for(const entry of [first,second]){const gate=join(scratch,'watch-'+entry.id);watchGates.push(gate);await writeFile(gate,'hold');}
@@ -570,6 +582,7 @@ async function checkLoadingRegression(){
  await page.getByRole('button',{name:'定时任务',exact:true}).click();
  const traced=async value=>(await readFile(loadingTrace,'utf8').catch(()=>'' )).includes(value);
  await until(()=>traced('project pending'),'global catalog waits on unrelated project');
+ const startupPendingAt=Date.now();
  await page.getByRole('button',{name:'打开自动化 READY_TASK_FIRST',exact:true}).waitFor({timeout:4000});
  for(let index=0;index<3;index++)await page.getByRole('button',{name:`打开自动化 READY_TASK_OWNER_${index}`,exact:true}).waitFor({timeout:4000});
  await page.getByText('其余任务仍在读取…',{exact:true}).waitFor();
@@ -595,18 +608,49 @@ async function checkLoadingRegression(){
  await page.getByText('你希望什么时候执行？',{exact:true}).waitFor();
  const management=await page.evaluate(key=>JSON.parse(localStorage.getItem(key)),`areal-gui:task-edit:${pid}:${second.id}`);
  assert.equal((await call('manage',{projectId:pid,operation:'taskDraftRead',threadId:management.threadId})).thread.cwd,workspace);
- await page.getByRole('alert').filter({hasText:'任务目录读取超时'}).waitFor({timeout:10000});
- assert.equal(await page.getByText('其余任务仍在读取…',{exact:true}).count(),0,'timed-out owner ends global pending');
+ await until(()=>Date.now()-startupPendingAt>=6500,'startup readiness remains pending beyond the catalog RPC deadline',10000);
+ const startupPending={elapsedMs:Date.now()-startupPendingAt,pending:await page.getByText('其余任务仍在读取…',{exact:true}).count(),errors:await page.getByRole('alert').allTextContents()};
+ await writeFile(join(scratch,'catalog-startup-pending.json'),JSON.stringify(startupPending,null,2));
+ if(startupPending.pending!==1||startupPending.errors.some(value=>value.includes('任务目录读取超时')))regressionFailures.push('owner startup readiness produced a false 5 s catalog timeout instead of staying pending');
  await page.screenshot({path:join(scratch,'ready-task-while-catalog-pending.png')});
  checks.push('ready task opens and sends through Composer before unrelated catalog returns; pending and stale subscription receipts do not enable management');
  assert.equal(await page.getByRole('button',{name:'打开自动化 DELAYED_OWNER_TASK',exact:true}).count(),0);
  await rm(loadingGate);
- await page.getByRole('button',{name:'重试读取 slow-workspace',exact:true}).click();
+ const obsoleteRetry=page.getByRole('button',{name:'重试读取 slow-workspace',exact:true});
+ if(await obsoleteRetry.count())await obsoleteRetry.click();
  await page.getByRole('button',{name:'打开自动化 DELAYED_OWNER_TASK',exact:true}).waitFor();
- await until(async()=>await page.getByText('其余任务仍在读取…',{exact:true}).count()===0,'catalog completes after explicit retry');
+ await until(async()=>await page.getByText('其余任务仍在读取…',{exact:true}).count()===0,'catalog completes after startup readiness releases');
  assert.equal((await call('tasks',{operation:'list'})).data.some(row=>row.id===first.id),true,'omitted owner preserves global catalog');
  assert.ok(Array.isArray((await call('tasks',{operation:'inbox'})).data),'omitted owner preserves Inbox catalog');
- checks.push('delayed owner times out explicitly, retains no false empty state and returns on explicit retry; global list and Inbox remain supported');
+ checks.push('owner startup stays pending beyond 6.5 s and recovers after release; healthy owners, global list and Inbox remain supported');
+ await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setBounds({width:1280,height:720}));
+ await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+ await page.locator('.task-list-scroll').evaluate(element=>{element.scrollTop=40;});
+ await page.evaluate(()=>{
+  const capture=()=>{
+   const list=document.querySelector('.task-list-scroll');
+   return {at:performance.now(),scrollTop:list.scrollTop,scrollHeight:list.scrollHeight,clientHeight:list.clientHeight,statuses:[...list.querySelectorAll('[role="status"]')].map(element=>element.textContent),rows:[...list.querySelectorAll('.task-list-row')].map(element=>({label:element.getAttribute('aria-label'),selected:element.getAttribute('aria-pressed'),small:element.querySelectorAll('small').length,rect:element.getBoundingClientRect().toJSON()}))};
+  };
+  window.taskPollGeometry={samples:[capture()],timer:setInterval(()=>window.taskPollGeometry.samples.push(capture()),50)};
+ });
+ await writeFile(loadingPollDelay,'delay');
+ const pollCount=async marker=>(await readFile(loadingTrace,'utf8')).split(marker).length-1;
+ await until(async()=>await pollCount('catalog poll pending')>=1,'background catalog RPC enters its real delayed response');
+ await page.screenshot({path:join(scratch,'catalog-background-refresh-pending.png')});
+ await until(async()=>await pollCount('catalog poll returned')>=3,'three repeated background catalog RPCs return real data',15000);
+ await rm(loadingPollDelay);
+ await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+ const pollGeometry=await page.evaluate(()=>{clearInterval(window.taskPollGeometry.timer);const samples=window.taskPollGeometry.samples;delete window.taskPollGeometry;return samples;});
+ const baseline=pollGeometry[0],changed=pollGeometry.filter(sample=>sample.statuses.length||sample.scrollTop!==baseline.scrollTop||sample.rows.length!==baseline.rows.length||sample.rows.some((row,index)=>{
+  const previous=baseline.rows[index];
+  return row.label!==previous?.label||row.selected!==previous.selected||row.small!==previous.small||['x','y','width','height'].some(key=>Math.abs(row.rect[key]-previous.rect[key])>1);
+ }));
+ const pollEvidence={polls:await pollCount('catalog poll returned'),samples:pollGeometry,changedSamples:changed.length};
+ await writeFile(join(scratch,'catalog-background-refresh-geometry.json'),JSON.stringify(pollEvidence,null,2));
+ assert.ok(baseline.scrollHeight>baseline.clientHeight&&baseline.scrollTop>0,'refresh check preserves a nonzero scroll position in an overflowing real catalog');
+ assert.equal(baseline.rows.filter(row=>row.selected==='true').length,1,'refresh check begins with the current task selected');
+ if(changed.length)regressionFailures.push(`background catalog refresh changes row geometry, status lines, scroll or selection in ${changed.length} observed frames`);
+ checks.push('three delayed real background catalog polls measured against row bounds, metadata line count, selected task and nonzero list scroll');
  await writeFile(loadingRpcGate,'hold');
  await until(()=>traced('catalog page fixture-second'),'second page RPC held');
  await page.getByRole('alert').filter({hasText:'任务目录读取超时'}).waitFor({timeout:10000});
@@ -674,6 +718,7 @@ async function checkLoadingRegression(){
  assert.equal(pending.pending,'start');
  checks.push('admitted pending draft keeps its owner and request identity without automatic replay');
  assert.deepEqual(errors,[]);
+ assert.deepEqual(regressionFailures,[],'catalog startup and background refresh regression failures');
 }
 async function checkInlineRegression(){
  await page.getByRole('button',{name:'定时任务',exact:true}).click();
@@ -711,8 +756,39 @@ async function checkInlineRegression(){
  const main=()=>page.getByRole('main',{name:'定时任务会话',exact:true});
  const inline=()=>main().getByLabel('定时任务执行记录',{exact:true});
  const row=id=>inline().locator(`[data-task-run-id="${id}"]`);
- // 只约定可访问区域、Run 标识及标准消息项，不约束内联组件的布局或订阅实现。
  const message=(scope,value)=>scope.locator('[data-turn-id] .assistant-message .conversation-markdown').getByText(value,{exact:true});
+ const inlineLayout=[];
+ async function recordInlineLayout(runId,label){
+  if(label==='completed'){
+   const progress=row(runId).getByRole('button',{name:/^执行过程/}).first();
+   if(await progress.count()&&await progress.getAttribute('aria-expanded')==='false')await progress.click();
+   await row(runId).locator('.conversation-code-content').first().waitFor();
+  }
+  for(const width of [1488,1040]){
+   await app.evaluate(({BrowserWindow},width)=>BrowserWindow.getAllWindows()[0].setSize(width,1056),width);
+   await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+   const measurement=await row(runId).evaluate((element,{label,width})=>{
+    const column=document.querySelector('.task-chat-pane > .messages-shell > .messages > .message-column');
+    const embedded=element.querySelector('.messages-embedded');
+    const rect=target=>target.getBoundingClientRect().toJSON();
+    const code=embedded.querySelector('.conversation-code-content');
+    const descendants=[];
+    const collect=root=>{for(const node of root.querySelectorAll('*')){descendants.push(node);if(node.shadowRoot)collect(node.shadowRoot);}};
+    if(code)collect(code);
+    const scrollers=descendants.filter(node=>['auto','scroll'].includes(getComputedStyle(node).overflowX)&&node.scrollWidth>node.clientWidth+20);
+    return {label,width,column:rect(column),run:rect(element),embedded:rect(embedded),readingLimit:parseFloat(getComputedStyle(column).maxWidth),
+     turns:[...embedded.querySelectorAll('[data-turn-id]')].map(node=>({rect:rect(node),display:getComputedStyle(node).display,direction:getComputedStyle(node).flexDirection})),
+     codeScrollers:scrollers.map(node=>({clientWidth:node.clientWidth,scrollWidth:node.scrollWidth})),
+     embeddedScroll:getComputedStyle(embedded).overflowY};
+   },{label,width});
+   inlineLayout.push(measurement);
+   await writeFile(join(scratch,'inline-layout.json'),JSON.stringify(inlineLayout,null,2));
+   if(measurement.run.width>measurement.column.width+1||measurement.embedded.right>measurement.column.right+1||measurement.embedded.left<measurement.column.left-1||measurement.turns.some(turn=>turn.rect.right>measurement.column.right+1))regressionFailures.push(`${label} at ${width}px exceeds shared reading-column bounds`);
+   if(!measurement.codeScrollers.length)regressionFailures.push(`${label} at ${width}px lacks internal long-code scrolling`);
+   if(['auto','scroll'].includes(measurement.embeddedScroll))regressionFailures.push(`${label} at ${width}px creates an independent vertical scroll viewport`);
+   await page.screenshot({path:join(scratch,`inline-${label}-${width}.png`)});
+  }
+ }
  async function assertManagement(){
   assert.equal(await main().count(),1);
   assert.equal(await page.getByLabel('任务资源面板',{exact:true}).count(),0,'resources stay closed');
@@ -749,6 +825,7 @@ async function checkInlineRegression(){
   assert.equal(await row(run.id).locator('[data-turn-status="inProgress"]').count(),1);
   assert.equal(await message(row(run.id),fixture.final).count(),0);
   await assertManagement();
+  if(index===1)await recordInlineLayout(run.id,'live');
   await new Promise(resolve=>setTimeout(resolve,1800));
   assert.equal(await live.isVisible(),true,'intermediate reply remains visible before fixture release');
   assert.equal((await task(created.id)).runs.find(entry=>entry.id===run.id).status,'running');
@@ -758,10 +835,12 @@ async function checkInlineRegression(){
   await message(row(run.id),fixture.final).waitFor();
   await until(async()=>(await task(created.id)).runs.find(entry=>entry.id===run.id)?.status==='completed',`run ${index} completes`);
   completed.push(run);
+  if(index===1)await recordInlineLayout(run.id,'completed');
   checks.push(`inline run ${index}: live standard message before completion, exact final reply with resources closed`);
  }
  assert.notEqual(completed[0].id,completed[1].id);
  assert.notEqual(completed[0].threadId,completed[1].threadId);
+ assert.deepEqual(regressionFailures,[],'embedded execution conversation preserves shared reading layout');
  async function assertRestored(label){
   await inline().waitFor();
   for(const [offset,run] of completed.entries()){
@@ -1122,7 +1201,7 @@ try{
  }else if(app)await app.close().catch(()=>{});
  model.closeAllConnections();await new Promise(resolve=>model.close(resolve));
  await writeFile(join(scratch,'catalog-events.json'),JSON.stringify(catalogEvents,null,2));
- await writeFile(join(scratch,'evidence.json'),JSON.stringify({passed,binary,binarySha256,checks,errors,modelRequests:modelRequests.length},null,2));
+ await writeFile(join(scratch,'evidence.json'),JSON.stringify({passed,binary,binarySha256,checks,errors,regressionFailures,modelRequests:modelRequests.length},null,2));
  await writeFile(join(scratch,'model-requests.json'),JSON.stringify(modelRequests,null,2));
  await writeFile(join(scratch,'manifest.json'),JSON.stringify({passed,sourceCommit:execFileSync('git',['rev-parse','HEAD'],{cwd:gui,encoding:'utf8'}).trim(),diff:execFileSync('git',['diff','--stat'],{cwd:gui,encoding:'utf8'}),binary,binarySha256,checks,errors,boundaries:['real isolated Electron, preload, Desktop adapter and Core','synthetic local model replies','native directory dialog result is stubbed','not installed app or real provider']},null,2));
  console.log(JSON.stringify({passed,scratch,checks,errors}));
