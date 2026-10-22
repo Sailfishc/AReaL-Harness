@@ -170,7 +170,7 @@ function Preview() {
       <h2>Composer</h2>
       <div className="composer-dock">
         <ConversationComposer project={project} modelConfig={project.configurations.main} modelDisabled={disabled}
-          onConfigureModel={() => setMessage("模型配置仅作预览。")} onModelSettings={() => setMessage("配置入口仅作预览。")}
+          onConfigureModel={() => setMessage("模型配置仅作预览。")}
           initialValue={text} inputApiRef={api} inputTestId="preview-composer" workspacePath="/preview" taskId="preview-main" placeholder="随心输入"
           disabled={disabled} submitDisabled={disabled || !text.trim()} submitting={state === "busy"} submitLabel="发送"
           enterSubmits enableMentionPanel={false} onChange={setText} onSubmit={() => { setMessage("预览收到输入，草稿保留。"); return false; }} />

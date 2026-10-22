@@ -422,7 +422,6 @@ export function Composer({
         modelConfig={config}
         modelDisabled={disabled || !!queueEditor.edit || !!running || !config}
         onConfigureModel={values => { void configure(values); }}
-        onModelSettings={() => onPanel("设置")}
         triggerPanelContainer={menuAnchor}
         className={!queueEditor.edit ? approvals.length ? "hidden" : questions.length ? "interaction-composer-compact" : undefined : undefined}
         shellClassName="@container/composer"

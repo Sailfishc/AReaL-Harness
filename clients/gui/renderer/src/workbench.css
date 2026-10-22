@@ -2501,8 +2501,6 @@ body { font-family: var(--font-sans); }
 .composer-effort-unavailable { font-size: 12px; color: var(--color-foreground-subtle); margin-top: 8px; text-align: center; }
 .composer-model-heading { padding: 2px 8px 7px; font-size: 13px; color: var(--color-foreground-subtle); }
 .composer-model-heading button { margin-right: 8px; }
-.composer-model-configure { width: 100%; margin-top: 8px; border-top: 1px solid var(--color-border); border-radius: 0; }
-.composer-effort-menu .composer-model-configure { height: 30px; padding-block: 0; color: var(--color-foreground-subtle); font-size: 12px; font-weight: 450; }
 @media (max-width: 760px) {
   .composer-catalog-description { display: none; }
   .composer-catalog-row { font-size: 13px; }

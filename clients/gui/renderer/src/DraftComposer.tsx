@@ -1,6 +1,6 @@
 import { imageAnnotationBlocked, useImageAnnotationRevision, type ImageAnnotationTarget } from "./imageAnnotations.js";
 import { resolveDraftProfile } from "./ProfileDetails.js";
-import { resolveNewConversationModel } from "@areal/workbench/model-selection";
+import { resolveNewConversationModel, resolveModelEffort } from "@areal/workbench/model-selection";
 import { useApplicationPreferences } from "./settings/applicationPreferences.js";
 import { ComposerModelMenu, composerModelOption } from "./ComposerModelMenu.js";
 import { ComposerPermissionMenu } from "./ComposerPermissionMenu.js";
@@ -106,10 +106,7 @@ export function DraftComposer({
     ? `${chosenProfile.model.providerId}/${chosenProfile.model.modelId}` : initialModel ? modelValue(initialModel) : "");
   const currentModel = project.models.find((item: Data) => modelValue(item) === effectiveModel);
   const rememberedEffort = !chosenProfile?.model && model === null ? initialSelection.rememberedEffort : undefined;
-  const preferredEffort = efforts[effectiveModel] ?? rememberedEffort ?? currentModel?.parameters?.reasoningEffort ?? "";
-  const effort = currentModel?.capabilities?.reasoning === false
-    || (currentModel?.reasoningEffortOptions && preferredEffort && !currentModel.reasoningEffortOptions.includes(preferredEffort))
-    ? "" : preferredEffort;
+  const effort = resolveModelEffort(currentModel, efforts[effectiveModel] ?? rememberedEffort);
   const preferenceNotice = model === null && !chosenProfile?.model
     ? initialSelection.notice === "model-unavailable" ? t("chat.composer.previousModelUnavailable")
       : initialSelection.notice === "effort-unsupported" ? t("chat.composer.previousEffortUnsupported") : ""
@@ -357,9 +354,7 @@ export function DraftComposer({
           value={effectiveModel} disabled={modelSelectionDisabled}
           effort={effort} onEffortChange={value => {
             setModel(effectiveModel); localStorage.setItem(`${key}:model`, effectiveModel);
-            const next = { ...efforts };
-            if (value) next[effectiveModel] = value;
-            else delete next[effectiveModel];
+            const next = { ...efforts, [effectiveModel]: value };
             setEfforts(next); localStorage.setItem(`${key}:efforts`, JSON.stringify(next));
           }}
           options={[
@@ -368,7 +363,6 @@ export function DraftComposer({
           ]}
           onChange={value => { setModel(value); localStorage.setItem(`${key}:model`, value); }}
           onClose={() => api.current?.focus()}
-          onConfigure={() => onPanel("设置")}
         />}
       />
       </div>

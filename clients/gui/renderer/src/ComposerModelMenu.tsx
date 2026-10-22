@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useI18n } from "./i18n/IntlProvider.js";
 import { MenuChevronIcon, MenuSelectedIcon } from "./interfaceIcons.js";
 import { Button } from "./components/ui/button.js";
 import { Popover, PopoverContent, PopoverTrigger } from "./components/ui/popover.js";
@@ -48,7 +49,6 @@ export function ComposerModelMenu({
     onEffortChange,
     onChange,
     onClose,
-    onConfigure,
 }: {
     options: ComposerModelOption[];
     value: string;
@@ -57,8 +57,9 @@ export function ComposerModelMenu({
     onEffortChange?: (value: string) => void;
     onChange: (value: string) => void;
     onClose: () => void;
-    onConfigure: () => void;
 }) {
+    const { t } = useI18n();
+    const unspecified = t("chat.composer.effortUnspecified");
     const [open, setOpen] = useState(false);
     const [page, setPage] = useState<"effort" | "models">("effort");
     const model = options.find((option) => option.value === value);
@@ -73,10 +74,9 @@ export function ComposerModelMenu({
         return `calc(${fraction * 100}% + ${14 - fraction * 28}px)`;
     };
     if (!options.length) return (
-        <Button type="button" variant="ghost" aria-label="模型" disabled={disabled}
-            className="composer-model-trigger" onClick={onConfigure}>
-            请先配置模型 <MenuChevronIcon size={14} aria-hidden="true" />
-        </Button>
+        <span className="composer-model-trigger text-foreground-subtle text-ui-sm">
+            {t("chat.composer.noModelsGuidance")}
+        </span>
     );
     return (
         <Popover
@@ -100,7 +100,7 @@ export function ComposerModelMenu({
             >
                 <span>
                     {label}
-                    {reasoning && ` ${selectedEffort ? labels[selectedEffort] ?? selectedEffort : "供应商默认"}`}
+                    {reasoning && ` ${selectedEffort ? labels[selectedEffort] ?? selectedEffort : unspecified}`}
                 </span>
                 <MenuChevronIcon size={14} aria-hidden="true" />
             </PopoverTrigger>
@@ -119,7 +119,7 @@ export function ComposerModelMenu({
                     <>
                         <div className="composer-effort-center">
                             {reasoning && <strong>
-                                {selectedEffort ? (labels[selectedEffort] ?? selectedEffort) : "供应商默认"}
+                                {selectedEffort ? (labels[selectedEffort] ?? selectedEffort) : unspecified}
                             </strong>}
                             <button
                                 type="button"
@@ -130,7 +130,8 @@ export function ComposerModelMenu({
                             </button>
                         </div>
                         {reasoning && efforts.length > 0 && onEffortChange ? (
-                            <div className="composer-slider-shell">
+                            <>
+                            {index >= 0 && <div className="composer-slider-shell">
                                 <div className="composer-slider-track" aria-hidden="true">
                                     <div
                                         style={{
@@ -151,7 +152,7 @@ export function ComposerModelMenu({
                                     type="range"
                                     aria-label="思考强度"
                                     aria-valuetext={
-                                        selectedEffort ? (labels[selectedEffort] ?? selectedEffort) : "供应商默认"
+                                        selectedEffort ? (labels[selectedEffort] ?? selectedEffort) : unspecified
                                     }
                                     min={0}
                                     max={efforts.length - 1}
@@ -161,12 +162,16 @@ export function ComposerModelMenu({
                                         onEffortChange(efforts[Number(event.target.value)])
                                     }
                                 />
+                            </div>}
+                            <div role="group" aria-label={t("chat.composer.chooseEffort")} className="mt-2 flex flex-wrap justify-center gap-1">
+                                {efforts.map(item => <Button key={item} type="button" variant="ghost" size="sm"
+                                    aria-pressed={selectedEffort === item}
+                                    onClick={() => onEffortChange(item)}>{labels[item] ?? item}</Button>)}
                             </div>
+                            </>
                         ) : reasoning ? (
                             <p className="composer-effort-unavailable">此模型未提供可选强度</p>
                         ) : null}
-                        {reasoning && onEffortChange && <Button type="button" variant="ghost" aria-label="使用模型默认"
-                            onClick={() => onEffortChange("")}>使用模型默认</Button>}
                     </>
                 ) : (
                     <>
@@ -202,10 +207,6 @@ export function ComposerModelMenu({
                         </div>
                     </>
                 )}
-                <Button type="button" variant="ghost" className="composer-model-configure"
-                    onClick={() => { setOpen(false); onConfigure(); }}>
-                    配置模型
-                </Button>
             </PopoverContent>
         </Popover>
     );
