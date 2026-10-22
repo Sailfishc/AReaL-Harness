@@ -414,8 +414,11 @@ try {
   const doneChild = children.find(t => t.preview === "子任务完成");
   const liveChild = children.find(t => t.preview === "子任务等待停止");
   assert.ok(doneChild && liveChild);
-  const backgroundProcess = await call("manage", { projectId: pid, threadId: tid, operation: "processStart", requestId: randomUUID(), argv: ["/bin/sh", "-c", "printf 'Resource process ready\\n'; sleep 300"], cwd: "workspace://repo", lifetime: "thread", tty: false, timeoutMs: 600000 });
+  const backgroundProcess = await call("manage", { projectId: pid, threadId: tid, operation: "processStart", requestId: randomUUID(), argv: ["/bin/sh", "-c", "printf 'Resource process ready\\n'; sleep 300"], cwd: "workspace://repo", lifetime: "thread", tty: false });
   assert.ok(backgroundProcess.id);
+  const backgroundState = await call("manage", { projectId: pid, threadId: tid, operation: "process", id: backgroundProcess.id });
+  assert.equal(backgroundState.process.state, "running", JSON.stringify(backgroundState));
+  assert.ok(backgroundState.process.processId, "a start receipt alone does not prove Runtime execution");
   const mainWidth = await page.locator("[data-testid=chat-view]").evaluate(el => el.getBoundingClientRect().width);
   await button("任务资源").click();
   const resources = page.getByRole("region", { name: "任务资源", exact: true });
