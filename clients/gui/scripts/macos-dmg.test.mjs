@@ -250,6 +250,9 @@ test("unsigned DMG compacts identical frameworks without sealing the source and 
   const root = await realpath(await mkdtemp(join(tmpdir(), "areal-dmg-unsigned-")));
   t.after(() => rm(root, { recursive: true, force: true }));
   const app = await fixture(root);
+  // Raw Electron inputs can have no framework signature envelope.
+  for (const framework of [join(app, frameworkRelative), join(app, serviceRelative, frameworkRelative)])
+    await rm(join(framework, "Versions/A/_CodeSignature"), { recursive: true, force: true });
   // An unsealed outer app must still export in the explicit no-new-signatures mode.
   await writeFile(join(app, "Contents/Resources/unsealed"), "local unsigned package");
   const before = await fingerprint(app);

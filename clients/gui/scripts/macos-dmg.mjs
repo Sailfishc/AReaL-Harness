@@ -190,7 +190,7 @@ async function planFramework(app, scratch, verifySignatures = true) {
     pairs.some((pair) => pair.relative === "Versions/A/Electron Framework"),
     "Missing framework executable",
   );
-  assert.ok(
+  if (verifySignatures) assert.ok(
     pairs.some((pair) => pair.relative === envelope),
     "Missing framework signature envelope",
   );
