@@ -26,8 +26,10 @@ Preview remains the only owner of Pages, WebContentsViews, the debugger, control
 
 Upstream generic `fill` and `waitFor` declarations have no executor implementation. Use their Playwright locator operations. Upload, file chooser, `networkidle` and locator `downloadMedia` return explicit unsupported results. Real Electron 44.5 WebContentsView evidence shows `prompt()` throws `prompt() is not supported`; retained schema fields do not establish runtime support.
 
-This package does not provide CLI headless, extension or external CDP backends, shared persistent browser profiles, Chrome credential import or the ZCode JavaScript SDK. Preview retains existing per-workspace ephemeral Sessions and sensitive-page protection.
+This package does not provide CLI headless, extension or external CDP backends, or the ZCode JavaScript SDK. Preview retains sensitive-page protection. Main owns one shared persistent `persist:areal-embedded-browser` Session under the current GUI userData. All projects share cookies and site storage; Pages and control remain scoped to their project and chat. Closing a Page or workspace preserves login state. Explicit cache clearing, all-data clearing and trusted Chrome import first revoke control and close all browser Pages. Chrome import is supplied by the separate browser-data package.
 
 ## Verification
 
 From the GUI root, run `node packages/browser-automation/scripts/build.mjs`. In this package, `npm run check` checks TypeScript and `npm run acceptance` launches real Electron with a temporary profile and local HTTP fixtures. `acceptance/SCENARIOS.md` records the failure scenarios written before implementation. `capture-prototype.cjs` reproduces hidden-page compositor behavior. Package acceptance does not establish Core model calls, installed packages, real providers or physical OS input.
+
+`npm run acceptance:profile` uses three independent Electron processes to verify shared synthetic Cookie/localStorage/IndexedDB, restart persistence, isolation from another userData, download routing, product endpoint protection, cache/all clearing and a trusted synthetic importer. It never reads a personal Chrome profile or credentials.

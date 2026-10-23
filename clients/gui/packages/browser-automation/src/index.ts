@@ -23,7 +23,7 @@ export const unsupportedCapabilities = Object.freeze([
   'playwright.fileChooserSetFiles', 'playwright.waitForEvent.filechooser',
   'playwright.waitForLoadState.networkidle', 'playwright.waitForURL.networkidle',
   'playwright.locator.downloadMedia', 'JavaScript prompt dialogs on Electron WebContentsView',
-  'shared persistent profiles', 'Chrome credential import', 'CLI headless backend',
+  'CLI headless backend',
 ]);
 export function validateBrowserCommand(value: unknown): BrowserCommand {
   const command = browserCommandSchema.parse(value);

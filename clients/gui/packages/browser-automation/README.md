@@ -26,8 +26,10 @@ Preview 保持唯一 Page、WebContentsView、debugger、控制 epoch 和输入�
 
 上游的普通 `fill`、`waitFor` 声明没有执行器实现，应使用 Playwright locator 对应操作。上传、file chooser、`networkidle`、locator `downloadMedia` 返回明确不支持。Electron 44.5 WebContentsView 的 `prompt()` 实测抛出 `prompt() is not supported`，保留的 schema 字段不证明其可用。
 
-本包不提供 CLI 无头、扩展或外部 CDP 后端，也不提供共享持久化浏览器配置、Chrome 凭据导入或 ZCode JavaScript SDK。现有每工作区临时 Session 和敏感页面保护继续由 Preview 管理。
+本包不提供 CLI 无头、扩展或外部 CDP 后端，也不提供 ZCode JavaScript SDK。Preview 保留敏感页面保护。Main 在当前 GUI userData 内拥有一个共享持久 `persist:areal-embedded-browser` Session。所有项目共享 Cookie 与站点存储，页面和控制权仍按项目、聊天隔离。关闭页面或工作区保留登录态。显式清缓存、清全部数据和可信 Chrome 导入都会先撤销控制并关闭全部浏览页。Chrome 导入由独立 browser-data 包提供。
 
 ## 验证
 
 从 GUI 根运行 `node packages/browser-automation/scripts/build.mjs`。包内 `npm run check` 检查 TypeScript。`npm run acceptance` 启动使用临时 profile 和本地 HTTP fixture 的真实 Electron 验收。`acceptance/SCENARIOS.md` 记录实现前失败场景，`capture-prototype.cjs` 可重复验证隐藏页面 compositor 行为。包内验收不证明 Core 模型调用、安装包、真实供应商或操作系统物理输入通过。
+
+`npm run acceptance:profile` 使用三个独立 Electron 进程验证合成 Cookie/localStorage/IndexedDB 共享、重启持久性、另一 userData 隔离、下载路由、产品端点保护、cache/all 清理和可信合成导入器。它不读取个人 Chrome profile 或凭据。

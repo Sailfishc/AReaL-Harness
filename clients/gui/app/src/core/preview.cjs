@@ -8,6 +8,7 @@ const { isDeepStrictEqual } = require('node:util');
 const { basename } = require('node:path');
 const { validatePreview } = require('@areal/workbench/desktop-contract');
 const { WorkspaceNetworkPolicy } = require('./browser-network.cjs');
+const { sharedBrowserProfile } = require('./shared-browser-profile.cjs');
 const { waitAction } = require('./browser-tool.cjs');
 const { validateBrowserCommand, browserCommandResultSchema, executeBrowserCommandOnView, supportedMethods, unsupportedCapabilities,
   recordBrowserVideo, RecordingScenario, waitForDelay, waitForCondition } = require('@areal/browser-automation');
@@ -402,6 +403,8 @@ class CorePreview {
     this.confirmDevelopmentOrigin = confirmDevelopmentOrigin;
     this.pages = new Map();
     this.contexts = new Map();
+    this.profile = sharedBrowserProfile;
+    this.unregisterProfileHost = this.profile.registerHost({ controlEndpoints, quiesce: () => this.quiesceBrowserPages() });
     this.selected = new Map();
     this.eventSequences = new Map();
     this.listeners = new Set();
@@ -489,6 +492,7 @@ class CorePreview {
       documentGeneration: page.documentGeneration, controlEpoch: page.controlEpoch };
   }
   currentDevelopmentPrompt(page, fence) {
+    if (this.profile.status().busy) return false;
     if (!this.pageStillOwned(page) || !page.view || page.view.webContents.isDestroyed()) return false;
     const key = pageKey(page.coreInstanceId, page.projectId, page.threadId, page.id);
     const workspace = workspaceKey(page.coreInstanceId, page.projectId, page.threadId);
@@ -536,10 +540,35 @@ class CorePreview {
     for (const item of this.listeners) if (item.key === event.workspaceId) item.listener(event);
   }
   dispose() {
+    const recordings = [...this.pages.values()].map(page => page.commandRecording?.promise).filter(Boolean);
+    const contents = [...this.pages.values()].map(page => page.view?.webContents).filter(Boolean);
     this.discoveryPlans.clear();
     for (const key of [...this.pages.keys()]) this.release(key);
     this.view = null; this.owner = null;
     this.fileReceipts.clear();
+    this.unregisterProfileHost();
+    return nativeWithin(Promise.allSettled([...recordings,
+      ...contents.filter(c => !c.isDestroyed()).map(c => new Promise(resolve => c.once('destroyed', resolve)))]),
+    performance.now() + 10000).then(() => this.profile.flush());
+  }
+  browserData(operation, options) { return this.profile.browserData(operation, options); }
+  async quiesceBrowserPages() {
+    const pages = [...this.pages.values()];
+    const recordings = pages.map(page => page.commandRecording?.promise).filter(Boolean);
+    const native = pages.map(page => page.view?.webContents).filter(Boolean);
+    this.discoveryPlans.clear();
+    for (const page of pages) {
+      this.cancelHumanGesture(page);
+      page.activeRead?.cancel(); page.activeSelection?.cancel(); page.claiming?.cancel();
+      this.revoke(page);
+    }
+    try {
+      await nativeWithin(Promise.allSettled(pages.map(page => this.convergeInput(page))), performance.now() + 5000);
+    } finally {
+      for (const page of pages) this.release(pageKey(page.coreInstanceId, page.projectId, page.threadId, page.id));
+    }
+    await nativeWithin(Promise.allSettled(recordings), performance.now() + 10000);
+    await nativeWithin(Promise.all(native.filter(c => !c.isDestroyed()).map(c => new Promise(resolve => c.once('destroyed', resolve)))), performance.now() + 5000);
   }
   fileReceipt(page, record) {
     const key = workspaceKey(page.coreInstanceId, page.projectId, page.threadId);
@@ -571,41 +600,17 @@ class CorePreview {
     this.changed(page, 'pageRemoved');
     if (!this.owns(page.projectId, page.threadId) || page.coreInstanceId !== this.coreIdentity(page.projectId))
       this.fileReceipts.delete(workspace);
-    if (!preserveContext && ![...this.pages.values()].some(other => other.partition === page.partition))
+    if (!preserveContext && !this.workspacePages(page.projectId, page.threadId).length)
       this.releaseWorkspaceContext(page);
   }
   releaseWorkspaceContext(page) {
-    const context = this.contexts.get(page.partition);
-    if (!context || context.session !== page.session) return;
-    this.contexts.delete(page.partition);
-    context.policy.close();
-    // The deny-only webRequest listener remains installed while Chromium
-    // closes sockets, unregisters workers and clears this in-memory Session.
-    void (async () => {
-      const results = await Promise.allSettled([
-        context.session.closeAllConnections(), context.session.clearStorageData(),
-        context.session.clearCache(), context.session.clearAuthCache(),
-      ]);
-      if (results.some(result => result.status === 'rejected'))
-        console.warn('Browser Workspace Session cleanup failed');
-    })();
+    this.contexts.delete(workspaceKey(page.coreInstanceId, page.projectId, page.threadId));
   }
   ensureWorkspaceContext(page) {
     const key = workspaceKey(page.coreInstanceId, page.projectId, page.threadId);
-    const existing = this.contexts.get(page.partition);
-    if (existing) {
-      if (existing.workspace !== key || existing.session !== page.session)
-        throw new Error('浏览工作区上下文归属不匹配');
-      return existing.policy;
-    }
-    if (page.session.storagePath !== null) throw new Error('浏览工作区需要临时 Session');
-    const policy = new WorkspaceNetworkPolicy(this.controlEndpoints, webContentsId =>
-      Number.isSafeInteger(webContentsId) && [...this.pages.values()].some(candidate =>
-        candidate.partition === page.partition && this.pageStillOwned(candidate)
-        && (candidate.view?.webContents.devToolsWebContents ?? candidate.openingDevTools)?.id === webContentsId));
-    policy.install(page.session);
-    this.contexts.set(page.partition, { workspace: key, session: page.session, policy });
-    return policy;
+    if (page.session !== this.profile.session) throw new Error('浏览共享 Profile 归属不匹配');
+    if (!this.contexts.has(key)) this.contexts.set(key, { commandName: null });
+    return this.profile.policy;
   }
   releaseInvalidOwners() {
     for (const [key, page] of this.pages) if (!this.owns(page.projectId, page.threadId)
@@ -628,7 +633,7 @@ class CorePreview {
     }
     if (page.openingDevTools && !page.openingDevTools.isDestroyed()) page.openingDevTools.close();
     page.openingDevTools = null;
-    if (page.onDownload) c.session.removeListener('will-download', page.onDownload);
+    page.unregisterProfilePage?.(); page.unregisterProfilePage = null;
     page.diagnosticsReady = false; page.diagnosticRequests?.clear();
     page.claiming?.cancel();
     if (!this.window.isDestroyed()) this.window.contentView.removeChildView(page.view);
@@ -784,6 +789,7 @@ class CorePreview {
   }
   revokeAll() { for (const page of this.pages.values()) this.revoke(page); }
   prepareDiscovery(request) {
+    this.profile.assertAvailable();
     if (!this.owns(request.projectId, request.threadId)
       || this.coreIdentity(request.projectId) !== request.coreInstanceId) throw new Error('plan_stale');
     for (const [id, record] of this.discoveryPlans)
@@ -814,6 +820,7 @@ class CorePreview {
       controlEpoch: plan.controlEpoch, plan };
   }
   consumeDiscovery(request) {
+    this.profile.assertAvailable();
     const approved = request.browserApproval?.plan;
     const saved = approved && this.discoveryPlans.get(approved.preparedActionId);
     if (saved) this.discoveryPlans.delete(approved.preparedActionId);
@@ -838,6 +845,7 @@ class CorePreview {
     return saved;
   }
   controlPermit(projectId, threadId, pageId) {
+    this.profile.assertAvailable();
     const page = this.page(projectId, threadId, pageId);
     const c = page?.view?.webContents;
     if (!page || !this.pageStillOwned(page) || page.control !== 'agent' || !c || c.isDestroyed() || page.crashed)
@@ -846,6 +854,7 @@ class CorePreview {
       pageGeneration: page.pageGeneration, controlEpoch: page.controlEpoch, origin: new URL(c.getURL()).origin };
   }
   async ensureAgentPage(projectId, threadId) {
+    this.profile.assertAvailable();
     // 仅供已通过 Core 权限的工具回调调用；展示页面不会隐式认领。
     if (!this.owns(projectId, threadId) || !this.coreIdentity(projectId)) throw new Error('Browser thread unavailable');
     let page = this.page(projectId, threadId);
@@ -859,6 +868,7 @@ class CorePreview {
     if (!c.getURL()) await c.loadURL('about:blank');
     if (!this.pageStillOwned(page)) throw new Error('Browser page unavailable');
     if (page.control === 'transferring') await this.convergeInput(page);
+    this.profile.assertAvailable();
     if ((page.humanRevision ?? 0) !== humanRevision) throw new Error('Browser authorization was revoked');
     if (page.control === 'agent') return { protocol: 'areal.browser.host.v1',
       operations: ['describe', 'observe', 'capture', 'act', 'wait', 'navigate', 'newPage', 'diagnostics', 'runBatch', 'command'], available: true,
@@ -893,7 +903,7 @@ class CorePreview {
   async humanInput(projectId, threadId, pageId, input) {
     const page = this.page(projectId, threadId, pageId);
     const c = page?.view?.webContents;
-    const current = () => !!c && !c.isDestroyed() && this.pageStillOwned(page)
+    const current = () => !this.profile.status().busy && !!c && !c.isDestroyed() && this.pageStillOwned(page)
       && this.owner === pageKey(page.coreInstanceId, projectId, threadId, pageId)
       && this.selected.get(workspaceKey(page.coreInstanceId, projectId, threadId)) === pageId
       && page.requestedVisible && !page.annotationCaptureId
@@ -941,6 +951,7 @@ class CorePreview {
     } finally { if (page.humanInputPending === pending) page.humanInputPending = null; }
   }
   async claim(projectId, threadId, pageId) {
+    this.profile.assertAvailable();
     const page = this.page(projectId, threadId, pageId);
     if (!page?.view || page.crashed || page.view.webContents.isDestroyed() || page.view.webContents.isDevToolsOpened()
       || !page.view.webContents.getURL()
@@ -951,6 +962,7 @@ class CorePreview {
       throw new Error('浏览页面当前不可认领');
     if (page.styleTrial && !(await this.clearStyleTrial(page)).cleared)
       throw new Error('页面试改已失效，请刷新页面后再交还 Agent');
+    this.profile.assertAvailable();
     const c = page.view.webContents;
     const initial = { pageGeneration: page.pageGeneration, documentEpoch: page.documentGeneration,
       controlEpoch: page.controlEpoch, url: c.getURL() };
@@ -965,6 +977,7 @@ class CorePreview {
       // Any capture guard left by a revoked read observed only a private
       // boolean; discard it before re-enabling Agent observations.
       await Promise.race([readIsolated(c, clearCaptureGuardScript), cancelled]);
+      this.profile.assertAvailable();
       if (!this.pageStillOwned(page) || page.claiming !== claim || page.control !== 'human'
         || page.pageGeneration !== initial.pageGeneration || page.documentGeneration !== initial.documentEpoch
         || page.controlEpoch !== initial.controlEpoch || c.isDestroyed() || c.getURL() !== initial.url
@@ -1602,6 +1615,7 @@ class CorePreview {
       coverage: 'live Electron Console and CDP Network metadata; no bodies or headers' };
   }
   actionPage(request) {
+    this.profile.assertAvailable();
     const { projectId, threadId, pageId, browserHostId, hostGeneration, pageGeneration, controlEpoch } = request;
     const page = this.page(projectId, threadId, pageId);
     if (!page || page.id !== pageId || page.projectId !== projectId || page.threadId !== threadId
@@ -2164,7 +2178,7 @@ class CorePreview {
       case 'capabilities': return done({ ok: true, value: { backend: 'iab', supportedMethods, unsupportedCapabilities } });
       case 'list': return done({ ok: true, tabs: this.workspacePages(page.projectId, page.threadId).map(summary) });
       case 'listUserTabs': return done({ ok: true, userTabs: this.workspacePages(page.projectId, page.threadId).filter(item => item.control === 'human').map(item => ({ id: item.id, title: item.title, url: item.url })) });
-      case 'nameSession': this.contexts.get(page.partition).commandName = command.name; return done({ ok: true });
+      case 'nameSession': this.contexts.get(workspaceKey(page.coreInstanceId, page.projectId, page.threadId)).commandName = command.name; return done({ ok: true });
       case 'browserVisibilityGet': return done({ ok: true, value: { visible: page.requestedVisible } });
       case 'browserVisibilitySet':
         page.requestedVisible = command.visible;
@@ -2440,6 +2454,7 @@ class CorePreview {
     return true;
   }
   async prepare(request) {
+    this.profile.assertAvailable();
     if (request.phase !== 'prepare') throw new Error('not_sent');
     if (request.operation === 'command') return this.prepareCommand(request);
     if (['observe', 'capture', 'diagnostics'].includes(request.operation)) return this.prepareRead(request);
@@ -2537,6 +2552,7 @@ class CorePreview {
     }
   }
   async execute(request) {
+    this.profile.assertAvailable();
     if (request.phase !== 'execute') throw new Error('not_sent');
     if (request.operation === 'command') return this.executeCommand(request);
     if (['observe', 'capture', 'diagnostics'].includes(request.operation)) return this.executeRead(request);
@@ -3059,15 +3075,15 @@ class CorePreview {
     }
   }
   create(owner, projectId, threadId, options = {}) {
+    this.profile.assertAvailable();
     this.reservePageSlot(projectId, threadId, options.replacing === true);
-    const siblings = this.workspacePages(projectId, threadId);
-    const partition = options.partition ?? siblings[0]?.partition ?? `areal-preview-${randomUUID()}`;
+    const partition = this.profile.partition;
     const view = new this.WebContentsView({
       webPreferences: {
         sandbox: true,
         contextIsolation: true,
         nodeIntegration: false,
-        partition,
+        session: this.profile.session,
       },
     });
     const page = { id: options.id ?? randomUUID(), pageGeneration: options.pageGeneration ?? 1, view, partition,
@@ -3154,13 +3170,6 @@ class CorePreview {
       page.needsObservation = true; this.clearDiagnostics(page, 'devtools_closed'); this.changed(page);
     });
     page.onDownload = (event, item, source) => {
-      if (source !== c) {
-        // No page listener owns downloads started by Session APIs or an
-        // already released WebContents; do not let Electron choose a path.
-        if (![...this.pages.values()].some(other => other.session === c.session && other.view?.webContents === source))
-          event.preventDefault();
-        return;
-      }
       if (this.acceptCommandDownload(page, event, item)) return;
       const intent = page.fileHandoff;
       const key = pageKey(page.coreInstanceId, projectId, threadId, page.id);
@@ -3238,7 +3247,10 @@ class CorePreview {
       });
       this.fileReceipt(page, record);
     };
-    c.session.on('will-download', page.onDownload);
+    page.unregisterProfilePage = this.profile.registerPage({ contents: c,
+      current: () => this.pageStillOwned(page) && page.view?.webContents === c && !c.isDestroyed(),
+      devToolsContents: () => c.isDestroyed() ? null : c.devToolsWebContents ?? page.openingDevTools,
+      download: page.onDownload });
     c.setWindowOpenHandler(details => {
       // Electron must never create an unowned BrowserWindow. A local human click
       // may create a sibling only after URL and current ownership checks.
@@ -3271,10 +3283,6 @@ class CorePreview {
       this.changed(child);
       return { action: 'deny' };
     });
-    c.session.setPermissionRequestHandler((_contents, _permission, respond) =>
-      respond(false),
-    );
-    c.session.setPermissionCheckHandler(() => false);
     const navigate = (event, url) => {
       try {
         webUrl(url);
@@ -3393,7 +3401,7 @@ class CorePreview {
       this.changed(page);
     });
     c.on('before-input-event', (event, input) => {
-      if (!this.pageStillOwned(page)) { event.preventDefault(); return; }
+      if (this.profile.status().busy || !this.pageStillOwned(page)) { event.preventDefault(); return; }
       // 仅当前台窗口中当前可见页面由人工控制时，才允许将焦点移回应用。
       if (input.type === 'keyDown' && input.key === 'F6' && !input.isAutoRepeat
         && page.control === 'human' && this.owns(projectId, threadId)
@@ -3413,7 +3421,7 @@ class CorePreview {
       else if (page.control === 'human') this.noteHumanInput(page);
     });
     c.on('before-mouse-event', (event, mouse) => {
-      if (!this.pageStillOwned(page)) { event.preventDefault(); return; }
+      if (this.profile.status().busy || !this.pageStillOwned(page)) { event.preventDefault(); return; }
       if (page.control === 'human' && mouse.type === 'mouseUp' && this.humanMouseGesture?.page === page)
         this.humanMouseGesture = null;
       if (page.control === 'human' && mouse.type === 'mouseDown' && c.isFocused())
@@ -3482,6 +3490,7 @@ class CorePreview {
   }
   async command(request) {
     validatePreview(request);
+    if (!['state', 'subscribe', 'hide', 'stop', 'release', 'endRegion'].includes(request.operation)) this.profile.assertAvailable();
     if (request.operation === 'state' && !this.owns(request.projectId, request.threadId))
       return this.state(null);
     const workspace = workspaceKey(this.coreIdentity(request.projectId), request.projectId, request.threadId);
@@ -3678,6 +3687,7 @@ class CorePreview {
     }
     if (['navigate', 'back', 'forward', 'reload', 'devtools'].includes(request.operation) && page.styleTrial) {
       const cleared = await this.clearStyleTrial(page);
+      this.profile.assertAvailable();
       if (!cleared.cleared && request.operation !== 'reload')
         throw new Error('试改已失效，请刷新页面后继续导航');
     }
@@ -3688,6 +3698,7 @@ class CorePreview {
       this.revoke(page); // Fence old Agent work before waiting on the local native channel.
       const controlEpoch = page.controlEpoch;
       if (page.control === 'transferring') await this.convergeInput(page);
+      this.profile.assertAvailable();
       if (!this.pageStillOwned(page) || page.view !== view || page.pageGeneration !== nativeGeneration
         || page.crashed || c.isDestroyed())
         throw new Error('页面已关闭');
@@ -3764,6 +3775,7 @@ class CorePreview {
       case 'devtools':
         this.revoke(page);
         await this.convergeInput(page);
+        this.profile.assertAvailable();
         if (page.control !== 'human') throw new Error('原生输入尚未收敛，请停止或关闭页面');
         // Electron 在首个文档加载后才公开 devToolsWebContents；
         // 在这次可信调用期间绑定其内部创建的前端。
