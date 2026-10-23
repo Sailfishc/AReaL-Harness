@@ -5543,6 +5543,13 @@
             },
             "ContextCheckpoint": {
               "properties": {
+                "appReferenceSeen": {
+                  "description": "压缩前缀是否包含 App 引用；缺省时从原始历史恢复并保存。",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
                 "compactions": {
                   "format": "uint64",
                   "minimum": 0,
@@ -10538,6 +10545,13 @@
             },
             "ContextCheckpoint": {
               "properties": {
+                "appReferenceSeen": {
+                  "description": "压缩前缀是否包含 App 引用；缺省时从原始历史恢复并保存。",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
                 "compactions": {
                   "format": "uint64",
                   "minimum": 0,
@@ -28375,6 +28389,13 @@
               },
               "ContextCheckpoint": {
                 "properties": {
+                  "appReferenceSeen": {
+                    "description": "压缩前缀是否包含 App 引用；缺省时从原始历史恢复并保存。",
+                    "type": [
+                      "boolean",
+                      "null"
+                    ]
+                  },
                   "compactions": {
                     "format": "uint64",
                     "minimum": 0,
@@ -31705,6 +31726,13 @@
                 },
                 "ContextCheckpoint": {
                   "properties": {
+                    "appReferenceSeen": {
+                      "description": "压缩前缀是否包含 App 引用；缺省时从原始历史恢复并保存。",
+                      "type": [
+                        "boolean",
+                        "null"
+                      ]
+                    },
                     "compactions": {
                       "format": "uint64",
                       "minimum": 0,
@@ -37304,6 +37332,13 @@
                 }
               },
               "properties": {
+                "appReferenceSeen": {
+                  "description": "压缩前缀是否包含 App 引用；缺省时从原始历史恢复并保存。",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
                 "compactions": {
                   "format": "uint64",
                   "minimum": 0,
@@ -37743,6 +37778,13 @@
                 }
               },
               "properties": {
+                "appReferenceSeen": {
+                  "description": "压缩前缀是否包含 App 引用；缺省时从原始历史恢复并保存。",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
                 "compactions": {
                   "format": "uint64",
                   "minimum": 0,
@@ -39069,6 +39111,13 @@
               },
               "ContextCheckpoint": {
                 "properties": {
+                  "appReferenceSeen": {
+                    "description": "压缩前缀是否包含 App 引用；缺省时从原始历史恢复并保存。",
+                    "type": [
+                      "boolean",
+                      "null"
+                    ]
+                  },
                   "compactions": {
                     "format": "uint64",
                     "minimum": 0,
@@ -52789,6 +52838,13 @@
             },
             "ContextCheckpoint": {
               "properties": {
+                "appReferenceSeen": {
+                  "description": "压缩前缀是否包含 App 引用；缺省时从原始历史恢复并保存。",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
                 "compactions": {
                   "format": "uint64",
                   "minimum": 0,
@@ -66126,6 +66182,13 @@
             },
             "ContextCheckpoint": {
               "properties": {
+                "appReferenceSeen": {
+                  "description": "压缩前缀是否包含 App 引用；缺省时从原始历史恢复并保存。",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
                 "compactions": {
                   "format": "uint64",
                   "minimum": 0,
@@ -82371,6 +82434,13 @@
             },
             "ContextCheckpoint": {
               "properties": {
+                "appReferenceSeen": {
+                  "description": "压缩前缀是否包含 App 引用；缺省时从原始历史恢复并保存。",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
                 "compactions": {
                   "format": "uint64",
                   "minimum": 0,
@@ -86230,6 +86300,13 @@
                 }
               },
               "properties": {
+                "appReferenceSeen": {
+                  "description": "压缩前缀是否包含 App 引用；缺省时从原始历史恢复并保存。",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
                 "compactions": {
                   "format": "uint64",
                   "minimum": 0,
@@ -86739,6 +86816,13 @@
             },
             "ContextCheckpoint": {
               "properties": {
+                "appReferenceSeen": {
+                  "description": "压缩前缀是否包含 App 引用；缺省时从原始历史恢复并保存。",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
                 "compactions": {
                   "format": "uint64",
                   "minimum": 0,
@@ -90084,6 +90168,13 @@
             },
             "ContextCheckpoint": {
               "properties": {
+                "appReferenceSeen": {
+                  "description": "压缩前缀是否包含 App 引用；缺省时从原始历史恢复并保存。",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
                 "compactions": {
                   "format": "uint64",
                   "minimum": 0,
@@ -106551,6 +106642,13 @@
               },
               "ContextCheckpoint": {
                 "properties": {
+                  "appReferenceSeen": {
+                    "description": "压缩前缀是否包含 App 引用；缺省时从原始历史恢复并保存。",
+                    "type": [
+                      "boolean",
+                      "null"
+                    ]
+                  },
                   "compactions": {
                     "format": "uint64",
                     "minimum": 0,
@@ -109869,6 +109967,13 @@
             },
             "ContextCheckpoint": {
               "properties": {
+                "appReferenceSeen": {
+                  "description": "压缩前缀是否包含 App 引用；缺省时从原始历史恢复并保存。",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
                 "compactions": {
                   "format": "uint64",
                   "minimum": 0,
@@ -113279,6 +113384,13 @@
             },
             "ContextCheckpoint": {
               "properties": {
+                "appReferenceSeen": {
+                  "description": "压缩前缀是否包含 App 引用；缺省时从原始历史恢复并保存。",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
                 "compactions": {
                   "format": "uint64",
                   "minimum": 0,
@@ -116665,6 +116777,13 @@
             },
             "ContextCheckpoint": {
               "properties": {
+                "appReferenceSeen": {
+                  "description": "压缩前缀是否包含 App 引用；缺省时从原始历史恢复并保存。",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
                 "compactions": {
                   "format": "uint64",
                   "minimum": 0,
@@ -121873,6 +121992,13 @@
       },
       "ContextCheckpoint": {
         "properties": {
+          "appReferenceSeen": {
+            "description": "压缩前缀是否包含 App 引用；缺省时从原始历史恢复并保存。",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
           "compactions": {
             "format": "uint64",
             "minimum": 0,

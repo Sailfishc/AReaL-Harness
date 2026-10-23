@@ -21,6 +21,7 @@
     "test:service-feedback": "node scripts/service-feedback-smoke.mjs",
     "test:backend-toast-ui": "node scripts/backend-toast-ui-smoke.mjs",
     "test:task-conversation": "node scripts/task-conversation-smoke.mjs",
+    "test:execution-artifact-ui": "node scripts/execution-artifact-ui-smoke.mjs",
     "test:task-catalog-startup": "node scripts/task-catalog-startup-smoke.mjs",
     "test:stop-turn": "node scripts/stop-turn-smoke.mjs",
     "test:service-reopen": "node scripts/service-reopen-smoke.mjs",

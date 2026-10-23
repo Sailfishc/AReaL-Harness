@@ -257,6 +257,8 @@ prompt 必须非空，委派输入文本合计最多 32000 字节。inspect 仅�
 
 Core 先检查父权限、Profile、写入授权、执行环境和源码快照能力。独立修改优先隔离；当前宿主环境依赖、紧耦合修改或可选隔离不可用时，选择共享独占作者。patch 或 requireTrustedChecks 不能因能力缺失变成共享写入。共享作者持有工作区独占租约，其他普通工具等待；它不能再次递归委派。隔离执行继承父工具和必须审批边界，采用 Headless，无法获得批准时拒绝执行。隔离源码快照、共享作者启动和交付都检查尚未结算的 Runtime 进程，不能把已返回句柄视作进程结束。
 
+共享作者重新取得租约时若发现工作区版本冲突，同一模型响应的剩余调用均返回未执行的 `CONFLICT` 回执。模型成功观察原冲突回执后才能重新决策；这些准入拒绝不计入重复后端执行失败。隔离作者的制品采集同时保留真实基线文件和显式 `writes` 路径，包含被忽略的新交付文件。不存在的声明路径不会变成空文件，无关忽略产物仍不采集。
+
 `agent_send_input` 可纠正共享子任务；隔离任务契约已经冻结，需要先取消并确认结算，再提交新任务。取消会封闭共享子树准入并传播至后代；force 缩短收尾等待，不保证已发生的副作用回滚。统一执行历史记录中的 `cancelRequested` 持久化后不可撤销（查询投影字段为 `stopRequested`）：已完成但尚未交付的候选返回 `status=cancelled`、`delivery.status=cancelled`，等待、Turn 收尾及重启恢复均不再应用该候选。取消与交付并发时，已经开始的 Runtime 操作等待真实回执，之后不再启动下一项；`partial`、`unknown` 和已完成的 `applied` 回执保留，不伪装成未写入。取消候选仍可读取制品；需要修改或重新交付时提交新的执行。
 
 分析默认 `sharedReadOnly`；可信部署显式配置 `delegation.inspection_permissions="inherit"` 后为 `sharedInherited`。后者仍要求只交付报告，但不承诺源码不可写，不能取消父/Profile 的只读约束。可写继承子任务持久 `desktop.executionPolicy.deferredWrite=true`，首次潜在副作用取得工作区写租约直到该 Turn 资源与持久化结算；纯原生读取可并行，跨 Turn 服务和递归委派拒绝。`exclusiveWrite` 保留旧含义；旧快照缺失 deferredWrite 时按 false 读取。新快照和响应包含新增策略字段，客户端须使用同步 schema；不认识该字段的旧二进制不可降级打开，更不能删除字段以绕过执行策略。旧 sharedReadOnly 与研究 Agent 保持强制只读。TaskRun worker 同样在空 Thread 注册及首个模型请求前执行 scope.check。详见[权限配置](../guides/configuration.md#分析子任务的权限策略)。
@@ -274,7 +276,7 @@ Core 先检查父权限、Profile、写入授权、执行环境和源码快照�
 | `areal/execution/list` | `{parentThreadId,offset?:0,limit?:50}`；limit 为 1–100，返回 data/nextOffset |
 | `areal/execution/read` | `{parentThreadId,executionId,offset?:0}`；读取权威投影，共享与隔离子任务正文均以 offset/nextOffset 分页，保留 source/sourceItemId/textBytes |
 | `areal/execution/wait` | `{parentThreadId,executionId,timeoutMs?:10000}`；只读，settled 或 awaitingDelivery 时提前返回，超时不取消 |
-| `areal/execution/artifact` | `{parentThreadId,executionId,path?,offset?:0}`；读取候选文件列表或分块内容，返回 head 和 verified |
+| `areal/execution/artifact` | `{parentThreadId,executionId,path?,offset?:0}`；读取候选文件列表或分块内容，返回 head 和 verified；未就绪时成功返回 `{ready:false,execution,nextAction}`，不返回文件列表或字节 |
 | `areal/execution/cancel` | 上述定位参数加 `mode?:"graceful"`；请求取消，响应不表示清理已完成 |
 | `areal/execution/apply` | `{parentThreadId,executionId}`；通过 Core 的整组交付流程应用候选，活跃 Turn 承接权限与取消；空闲时返回 requiresActiveTurn |
 
@@ -395,7 +397,7 @@ Task Mode 在 Goal 之上提供 foreground/scheduled/background 任务、TaskRun
 
 普通 Turn 不设组合总时限。`thread/configuration/read` 的 `limits` 仅返回 `historyBytes`、`contextBytes`；已移除 `turnTimeoutMs`。模型、工具及显式任务预算继续独立生效。
 
-模型请求将固定指令与历史放在前缀，将轮次、Goal/Task 当前状态、子任务结果和预算提示以内部 areal_context 角色保存在完整历史之后；Chat/Responses 按原位置将其投影为有来源标记的 user 状态数据，保持工具调用与结果相邻。动态提示在请求前以 `modelContext.value.type=areal_request_context` 持久化，按原顺序保留在对应输出之前；最新快照替代旧快照的状态含义，但不删除旧输入。最后一轮禁用工具或上下文压缩仍可能改变缓存前缀。缓存命中还取决于供应商与路由，不能由消息顺序保证。 App 参考数据使用同一追加上下文通路，不进入 Turn 的系统指令快照。变化的快照在完整历史之后以不可信 `areal_context` 数据追加；不重复未变化的快照，已观察到的清空追加空快照。只比较同类最近记录，保留 A→B→A 的每次变化；对象键顺序变化不增加副本。没有 App 引用的会话不新增消息。旧指令快照和历史不改写。App 快照不证明当前仍然新鲜或已授权；压缩和宿主实时状态仍需既有的新鲜度及权限校验。
+模型请求将固定指令与历史放在前缀，将轮次、Goal/Task 当前状态、子任务结果和预算提示以内部 areal_context 角色保存在完整历史之后；Chat/Responses 按原位置将其投影为有来源标记的 user 状态数据，保持工具调用与结果相邻。动态提示在请求前以 `modelContext.value.type=areal_request_context` 持久化，按原顺序保留在对应输出之前；最新快照替代旧快照的状态含义，但不删除旧输入。最后一轮禁用工具或上下文压缩仍可能改变缓存前缀。缓存命中还取决于供应商与路由，不能由消息顺序保证。 App 参考数据使用同一追加上下文通路，不进入 Turn 的系统指令快照。变化的快照在完整历史之后以不可信 `areal_context` 数据追加；不重复未变化的快照，已观察到的清空追加空快照。只比较同类最近记录，保留 A→B→A 的每次变化；对象键顺序变化不增加副本。没有 App 引用的会话不新增消息。压缩检查点通过 `appReferenceSeen` 记录被压缩历史是否包含 App 引用。App 关闭后，即使旧快照已进入摘要，下一请求仍追加 `[]`。清空活跃 App 的内容则保留该实例及其空内容。旧检查点缺少此字段时，Core 首次从已保存的请求上下文记录解析该事实并持久化；摘要文字不能证明曾有 App 引用。旧指令快照和历史不改写。App 快照不证明当前仍然新鲜或已授权；压缩和宿主实时状态仍需既有的新鲜度及权限校验。
 
 `thread/read {threadId,includeTurns:true}` 返回持久化 Turn/Item 历史；`areal/thread/inspect` 返回执行配置与工具视图；`areal/context/read {threadId,offset,limit}` 返回分页历史投影（limit 为 1–32）与指令快照，并省略不透明 provider context。该投影包含持久化的请求状态快照；旧版本未保存的提示无法恢复。它仍不是过去某次 HTTP 请求的精确重放。每次模型调用在预算预检和摘要裁剪后提交的 Engine 消息通过 `areal::trajectory` 的 `gen_ai.input.messages` 记录；查询已导出的轨迹需使用部署的遥测后端。该字段是协议适配前的逻辑消息；完整适配后的请求使用以下独立字段，不能把两者混用。
 
