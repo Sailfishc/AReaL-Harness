@@ -49,7 +49,7 @@ server 在安装遥测时为 Engine 注入共享采集预算；Engine 用借用�
 
 Skill 发现由 `core/config` 根据可信启动参数执行，只返回元信息和独立告警；其无状态文件头解析器由 Engine 的显式部署登记复用。Engine 不自行查找用户配置。`core/engine/src/desktop/skills.rs` 保存登记目录描述符，异步、有界地读取当前资源，不持有 Skill 内容快照。配置与读取契约见 [Skill 指南](../guides/skills.md)。
 
-Codex 兼容包由 `core/plugins` 持有本地安装与范围选择；Engine 登记不可变插件 Skill 根，并在 Turn 提交时固定引用、读取时检查当前撤权。普通会话可以发现新安装，显式 Profile、Side 和隔离 worker 不自动扩权。onboarding 使用已有普通 Turn 入口；客户端通过现有管理收据恢复 UNKNOWN。独立 Skills 保持动态描述符读取契约。当前支持及限制见[插件指南](../guides/plugins.md)，后续完整兼容任务见[实施计划](../development/codex-plugins-plan.md)。
+Codex 兼容包由 `core/plugins` 持有本地安装与范围选择；Engine 登记不可变插件 Skill 根，并在 Turn 提交时固定引用、读取时检查当前撤权。普通会话可以发现新安装，显式 Profile、旧版只读 Side 和隔离 worker 不自动扩权。onboarding 使用已有普通 Turn 入口；客户端通过现有管理收据恢复 UNKNOWN。独立 Skills 保持动态描述符读取契约。当前支持及限制见[插件指南](../guides/plugins.md)，后续完整兼容任务见[实施计划](../development/codex-plugins-plan.md)。
 
 组件支持报告归同一包解析器，候选与安装报告分别绑定 sourceDigest 与 installedDigest。Store 将当前启用意图与准确包摘要的静态兼容组合为有效选择；历史 Skill 以自身不可变包检查，Engine 按精确 id/revision 投影准入。Hook 声明和 Apps 文档复用原解析所有者，报告读取不执行包代码，认证、连接与信任仍归现有运行所有者。
 
@@ -61,7 +61,7 @@ Codex 兼容包由 `core/plugins` 持有本地安装与范围选择；Engine 登
 
 生成式交互回答复用同一个 MCP Apps 页面宿主，不创建插件或第二套沙箱。Core 的 `gen_ui_publish` 原生工具发布不可变 HTML 制品，`areal/genUi/source` 按已完成的助手消息读取来源与制品。Main 使用移植的 ZCode 指令解析器核对 `::visualize` 引用与 Core 返回的制品，不能凭 Renderer 提供的文件路径打开任意 HTML。页面与 MCP Apps 共用窗口 token、资源代理和 8 页额度。
 
-Core 持有执行、历史与 HTML 来源，Desktop 持有当前用户配置目录下的视图状态。移植的 `packages/gen-ui` 状态存储按项目、Thread 和制品路径隔离，原子保存 `{modelContent,privateContent}`。每项最多 16 KiB，每个会话最多保留 100 项。普通主会话和 Side 提交只将有界 `modelContent` 作为不可信上下文附加到下一次输入，`privateContent` 不进入模型请求。该状态可在同一 Desktop 配置下恢复，不提供跨设备同步。生成页没有 Node、文件、工具或网络访问权，Side 的工作区只读权限保持不变。
+Core 持有执行、历史与 HTML 来源，Desktop 持有当前用户配置目录下的视图状态。移植的 `packages/gen-ui` 状态存储按项目、Thread 和制品路径隔离，原子保存 `{modelContent,privateContent}`。每项最多 16 KiB，每个会话最多保留 100 项。普通主会话和 Side 提交只将有界 `modelContent` 作为不可信上下文附加到下一次输入，`privateContent` 不进入模型请求。该状态可在同一 Desktop 配置下恢复，不提供跨设备同步。生成页没有 Node、文件、工具或网络访问权，生成页不会改变宿主会话权限；旧版只读 Side 保留只读权限。
 
 插件下载与准备不持有 Engine 目录刷新锁；Store 的跨进程锁和 revision CAS 负责提交，随后从同一安装状态快照在刷新锁内发布目录，连接排空在锁外执行。MCP 清理未确认以类型化错误进入 `cleanupUnknown`，不能按普通失败重连；没有清理凭据的后续断开操作也不能清除此状态。跨实例共享启用状态与本实例受审阅定义分开：hook 调用前读取当前启用状态，后台协调取消已停用包的在途 hooks（包括升级后新版已删除定义的旧调用）；固定 Turn 版本不会固定启用权限。显式 Profile 默认排除插件，仅部署定义的 `allowPluginSkills` 可选择加入，且子任务继续受父任务插件范围约束；hook 角色与 matcher 使用已受理 Profile 身份，压缩保留子任务归属。状态轮询只读安装状态，不枚举包。组件解析按包身份、摘要和政策缓存，每次使用通过 NOFOLLOW 描述符检查文件/目录身份、权限、大小、mtime/ctime；变化后重新校验完整摘要。MCP 调用只验证所属包。该缓存不增加对任意同 UID 并发目录替换的隔离承诺。
 
@@ -117,7 +117,7 @@ Workgroup 的 `handoff` 模块投影隔离 worker 已提交的阶段与最终报
 
 Engine 的 `diagnostics` 模块对非权威排障制品执行有界保留，server 装配启动与周期清理；service-host 管理宿主/launcher 日志与握手临时目录的租约回收。诊断回收不改变历史与 Goal 账本的恢复语义，策略见 [Core API](../api/core.md#recovery) 和 [本地服务契约](../api/local-service.md)。
 
-Fork 与 Side 的开发预览复用上述 Core/Runtime 所有权：Engine 创建独立根 Thread/Session，Store 为目标持有不可变继承或参考快照；`conversation.origin` 不承担 Agent 委派、取消或权限继承。Fork 只分支对话，使用当前共享工作区；Side 的持久只读角色在旧执行入口、模型工具和 Runtime Scope 中校验。主会话与 Side 共用 `Messages` 与 `ConversationComposer` 展示边界（Lexical 输入与模型目录菜单）；各自控制器保留草稿、首问回执与配置归属。Renderer 只投影分页历史、相关讨论和草稿回传；关闭面板不结束 Core 工作，回传只追加本地草稿。协议与权限边界见[桌面 API](../api/desktop.md#turn-fork-开发预览)。源码实现与局部验证不等于完整 P0 验收；原生桌面路径、完整组合验收、安装包与真实供应商证据仍需分别完成。
+Fork 与 Side 复用 Core/Runtime 的会话、历史和执行所有者。`conversation.origin` 记录内容来源，不承担 Agent 委派或取消归属。Fork 在当前共享工作区分支对话。新建 Side 保存版本 2 和 `sideExecutableV2` 策略，继承来源当前配置并复用普通会话的提交、工具、权限和压缩路径。稳定来源历史仅供模型参考，活动轮次只复制用户输入，子会话界面与执行账本从空白开始。旧版 `sideReadOnlyV1` 在存储校验、工具目录、指令和 Runtime Scope 中保持只读。Renderer 用完整 `Composer` 与 `Messages` 展示每个子会话，以项目、来源和子会话 ID 管理临时标签、草稿与引用。Core 持有创建及关闭收据；关闭先建立持久准入屏障，再停止并结算资源，UNKNOWN 不重放。隐藏面板和切换来源保留活动会话，关闭标签释放该子会话，重启不恢复新标签。Esc 按面板 DOM 归属路由。接口见[桌面 API](../api/desktop.md#side-chat)。源码、确定性本地模型、真实供应商与安装包分别验证。
 
 提示词预测复用这两个 Composer。只有已显示且开启该功能的 GUI 请求最新成功轮次的候选；Core 保留该轮实际模型实例，独立发送无工具 `promptPrediction` 请求。一个持久化的 `DesktopState.promptPrediction` 标签槽负责来源、去重、恢复与失效；专用通知只更新该槽，Thread 快照负责恢复。待定尝试在重启后不可重试，已有候选原样恢复。预测不创建 Turn/Item、不进入 Solve 上下文。Lexical 在真实文档外显示候选，裸 Tab 仅接受到草稿；新输入暂时隐藏而不删除候选。模型容量、取消和最终发布验证归 Core；设置、需求与呈现归 GUI。详见[Core API](../api/core.md#下一条提示词预测)。
 
@@ -203,13 +203,13 @@ macOS 系统静态代理由 GUI 可信后台适配器读取，转换成标准代
 
 Core 可通过默认关闭的实验配置，在请求投影与检查点证据中有界保留完整文件参考；执行等待仍由 Runtime 管理。参考回取、非交互 stdin 和连续失败上限见[配置指南](../guides/configuration.md#参考保留与有界工具恢复)。
 
-`core/plugins` 持有不可变插件包与当前项目组件选择；稳定 Skill/MCP 关闭身份跨安装更新保留。Engine 统一执行目录、保留 Skill 读取、onboarding 与 MCP 旧代调用检查，组件变更复用管理回执。Renderer 的插件详情、设置与 Composer 只消费投影；插件标签复用精确 Skill 引用和现有发送路径，Side 保留只读意图边界。接口和重连语义见[桌面契约](../api/desktop.md#插件包管理)。
+`core/plugins` 持有不可变插件包与当前项目组件选择；稳定 Skill/MCP 关闭身份跨安装更新保留。Engine 统一执行目录、保留 Skill 读取、onboarding 与 MCP 旧代调用检查，组件变更复用管理回执。Renderer 的插件详情、设置与 Composer 只消费投影；插件标签复用精确 Skill 引用和现有发送路径，旧版只读 Side 保留只读意图边界；可执行 Side 使用继承的普通会话权限。接口和重连语义见[桌面契约](../api/desktop.md#插件包管理)。
 
 ## 插件 Hooks 所有者
 
 `core/plugins/{hooks,hook_sources}` 只解析原包和受控用户/项目来源、matcher、模板与摘要。`core/engine/src/plugin_hooks` 拥有独立定义信任、Session/Turn 布点、持久受理与结果投影；同步任务同时登记在 Session 与当前 Turn，后台任务由 Session 持有。Runtime 沿用路径授权、进程预算、有界任务组写入调度和确认清理，hook 不继承任务 provider 秘密。Main 仅转发管理与恢复收据，Renderer 审阅当前定义；安装和 MCP 信任不能替代 hook 信任。
 
-MCP hook 绑定原工具 generation 与真实 Turn/compaction owner，取消旧 owner 不得移除新 owner。`core/mcp/active_timeout` 在同一逻辑请求的全部 MRTR rounds 中扣减活跃预算，broker 的人工等待守卫暂停该预算；取消/撤权不暂停。管理提交按业务键跨执行去重，日志发布短时串行并为每个在途响应预留空间，因此等待表单不挡住上传或撤销。Core 持有 epoch 绑定的 Session Task Scope；Runtime 校验 Hook 类型参与及有界组 FIFO，不扩大各进程授权。同任务 Hook/Ordinary 可重叠，ordinary/ordinary 与跨任务冲突仍独占；关闭先等待任务再关闭 anchor，UNKNOWN 不重放。普通只读子任务 command hooks 需要另行同意并绑定摘要，准入与实时检查使用同一条件，继承计划也须过滤。Runtime 确认受限隔离，只授予工作区/包读取和私有 scratch/本插件 data 写入，禁止网络和 provider 秘密继承；data 根固定身份，重定向拒绝。Side/研究任务/nativeTaskAgent/受限 Profile/只读根会话/MCP 继续排除，见 [P2 矩阵](../development/codex-plugins-p2-acceptance.md)。
+MCP hook 绑定原工具 generation 与真实 Turn/compaction owner，取消旧 owner 不得移除新 owner。`core/mcp/active_timeout` 在同一逻辑请求的全部 MRTR rounds 中扣减活跃预算，broker 的人工等待守卫暂停该预算；取消/撤权不暂停。管理提交按业务键跨执行去重，日志发布短时串行并为每个在途响应预留空间，因此等待表单不挡住上传或撤销。Core 持有 epoch 绑定的 Session Task Scope；Runtime 校验 Hook 类型参与及有界组 FIFO，不扩大各进程授权。同任务 Hook/Ordinary 可重叠，ordinary/ordinary 与跨任务冲突仍独占；关闭先等待任务再关闭 anchor，UNKNOWN 不重放。普通只读子任务 command hooks 需要另行同意并绑定摘要，准入与实时检查使用同一条件，继承计划也须过滤。Runtime 确认受限隔离，只授予工作区/包读取和私有 scratch/本插件 data 写入，禁止网络和 provider 秘密继承；data 根固定身份，重定向拒绝。旧版只读 Side/研究任务/nativeTaskAgent/受限 Profile/只读根会话/MCP 继续排除，见 [P2 矩阵](../development/codex-plugins-p2-acceptance.md)。
 
 用户评价在 Clients 层冻结公开历史并复用独立 Side；Core Server 仅适配既有轨迹接收端。边界见 [user feedback](../guides/user-feedback.md).
 

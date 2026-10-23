@@ -318,7 +318,7 @@ impl Engine {
                 .last()
                 .and_then(|t| t.configuration.as_ref())
                 .and_then(|c| c.options.max_model_rounds);
-            if state.thread.is_side() {
+            if state.thread.is_read_only_side() {
                 (
                     Some(
                         configured
@@ -369,7 +369,7 @@ impl Engine {
             // 只在模型请求期间持有许可；等待与停止不占其他会话的模型名额。
             let side_thread_id = {
                 let state = cell.state.lock().await;
-                state.thread.is_side().then(|| state.thread.id.clone())
+                state.thread.is_read_only_side().then(|| state.thread.id.clone())
             };
             while steer.try_recv().is_ok() {}
             let (configuration, thread) = {

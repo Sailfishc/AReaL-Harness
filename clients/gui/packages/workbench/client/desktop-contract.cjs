@@ -6,7 +6,7 @@
 /** @typedef {{projectId:string,profile?:ResourceRef}} PrepareCreatorRequest */
 /** @typedef {{sourceRoot?:string,ref?:string,worktreeRoot?:string,branch?:string,branchPrefix?:string}} WorktreeSpec */
 /** @typedef {{projectId:string,threadId:string,requestId?:string,expectedRevision?:number,model?:{providerId:string,modelId:string}|null,profile?:ResourceRef,options?:Record<string,unknown>,parameters?:Record<string,unknown>,selectedSkills?:ResourceRef[]}} ConfigureRequest */
-/** @typedef {{projectId:string,operation:'start',sourceThreadId:string,requestId:string,text:string,workspaceAccess:'none'|'readOnly',model?:{providerId:string,modelId:string},resetModel?:boolean,anchor?:Record<string,unknown>|null,selection?:Record<string,unknown>|null,parameters?:Record<string,unknown>}|{projectId:string,operation:'recover',requestId:string}|{projectId:string,operation:'send',threadId:string,text:string}|{projectId:string,operation:'context',threadId:string,cursor?:string,evidenceRef?:string,maxBytes?:number}|{projectId:string,operation:'list',sourceThreadId:string,includeArchived?:boolean,cursor?:string}} SideRequest */
+/** @typedef {{projectId:string,operation:'start',sourceThreadId:string,requestId:string,text:string,workspaceAccess:'none'|'readOnly',model?:{providerId:string,modelId:string},resetModel?:boolean,anchor?:Record<string,unknown>|null,selection?:Record<string,unknown>|null,parameters?:Record<string,unknown>}|{projectId:string,operation:'create',sourceThreadId:string,requestId:string,firstInput?:{text:string}}|{projectId:string,operation:'close',threadId:string,requestId:string}|{projectId:string,operation:'recover',requestId:string,sourceThreadId?:string,threadId?:string,method?:'areal/side/start'|'areal/side/create'|'areal/side/close'}|{projectId:string,operation:'send',threadId:string,text:string}|{projectId:string,operation:'context',threadId:string,cursor?:string,evidenceRef?:string,maxBytes?:number}|{projectId:string,operation:'list',sourceThreadId:string,includeArchived?:boolean,cursor?:string}} SideRequest */
 /** @typedef {{projectId:string,threadId:string,expectedTurnId:string,expectedConfigRevision?:number,requestId?:string}} ContinueRequest */
 /** @typedef {{projectId:string,sourceThreadId:string,requestId?:string,workspaceMode:'sharedCurrent',anchor:{turnId:string,boundary:'before'|'after'},target?:Record<string,unknown>}} ForkRequest */
 /** @typedef {{projectId:string,threadId:string,viewId:string,operation:'acquire'|'loadOlder'|'release'}|{projectId:string,threadId:string,viewId:string,operation:'loadItem',itemId:string}} HistoryRequest */
@@ -31,7 +31,7 @@ const commandDefinitions = Object.freeze({
   connect: ['service', 'project', subscription], list: ['service', 'project', read], open: ['service', 'thread', subscription],
   history: ['service', 'thread', operations(read, 'acquire loadOlder loadItem release')],
   create: ['service', 'project', recoverable], prepareCreator: ['service', 'project', mutation], fork: ['service', 'project', recoverable],
-  side: ['service', 'project', { ...operations(read, 'recover context list'), ...operations(recoverable, 'start send') }],
+  side: ['service', 'project', { ...operations(read, 'recover context list'), ...operations(recoverable, 'start send create close') }],
   prediction: ['service', 'thread', mutation],
   send: ['service', 'thread', recoverable], editMessage: ['service', 'thread', recoverable], continue: ['service', 'thread', recoverable], stop: ['service', 'thread', recoverable],
   attachBrowser: ['service', 'thread', recoverable], respond: ['service', 'thread', mutation], reconcile: ['service', 'project', read], configure: ['service', 'thread', recoverable],
@@ -100,12 +100,16 @@ function validateCommand(name, params, { serviceOnly = false } = {}) {
     || Object.keys(params).some(key => !['projectId', 'threadId', 'turnId', 'requestId'].includes(key)))) invalid();
   if (name === 'prepareCreator' && (Object.keys(params).some(key => !['projectId', 'profile'].includes(key))
     || params.profile !== undefined && (!record(params.profile) || !resource(params.profile) || Object.keys(params.profile).some(key => !['id', 'revision'].includes(key))))) invalid();
+  if (params.conversationQuotes !== undefined && (!['send', 'editMessage', 'steer', 'queueEdit'].includes(name)
+    || !Array.isArray(params.conversationQuotes) || params.conversationQuotes.length > 8
+    || params.conversationQuotes.some(quote => !record(quote) || Object.keys(quote).some(key => key !== 'text') || typeof quote.text !== 'string' || !quote.text.trim() || quote.text.length > 8000)
+    || params.conversationQuotes.reduce((total, quote) => total + quote.text.length, 0) > 16000)) invalid();
   if (name === 'send' && params.requestId !== undefined && (typeof params.requestId !== 'string' || !/^[0-9a-f-]{36}$/.test(params.requestId))) invalid();
   if (name === 'editMessage' && (!identifier(params.expectedTurnId) || !identifier(params.itemId)
     || typeof params.text !== 'string' || !params.text.trim()
     || !Number.isSafeInteger(params.expectedConfigRevision) || Number(params.expectedConfigRevision) < 0
     || typeof params.requestId !== 'string' || !/^[0-9a-f-]{36}$/.test(params.requestId)
-    || Object.keys(params).some(key => !['projectId', 'threadId', 'expectedTurnId', 'itemId', 'expectedConfigRevision', 'requestId', 'text', 'attachments', 'mcpContent'].includes(key)))) invalid();
+    || Object.keys(params).some(key => !['projectId', 'threadId', 'expectedTurnId', 'itemId', 'expectedConfigRevision', 'requestId', 'text', 'attachments', 'mcpContent', 'conversationQuotes'].includes(key)))) invalid();
   if (name === 'continue' && (!identifier(params.expectedTurnId)
     || Object.keys(params).some(key => !['projectId', 'threadId', 'expectedTurnId', 'expectedConfigRevision', 'requestId'].includes(key))
     || params.requestId !== undefined && (typeof params.requestId !== 'string' || !/^[0-9a-f-]{36}$/.test(params.requestId))
@@ -128,10 +132,15 @@ function validateCommand(name, params, { serviceOnly = false } = {}) {
   if (name === 'fork' && (!identifier(params.sourceThreadId) || !record(params.anchor)
     || !identifier(params.anchor.turnId) || !['before', 'after'].includes(String(params.anchor.boundary))
     || params.workspaceMode !== 'sharedCurrent')) invalid();
-  if (name === 'side' && (!['start', 'recover', 'send', 'context', 'list'].includes(String(params.operation))
+  if (name === 'side' && (!['start', 'create', 'close', 'recover', 'send', 'context', 'list'].includes(String(params.operation))
     || (params.operation === 'start' && (!identifier(params.sourceThreadId) || typeof params.text !== 'string' || !params.text.trim()))
     || (params.operation === 'send' && (!identifier(params.threadId) || typeof params.text !== 'string' || !params.text.trim()))
-    || (params.operation === 'recover' && !identifier(params.requestId))
+    || (params.operation === 'create' && (!identifier(params.sourceThreadId) || !identifier(params.requestId)
+      || params.firstInput !== undefined && (!record(params.firstInput) || typeof params.firstInput.text !== 'string' || !params.firstInput.text.trim() || Object.keys(params.firstInput).some(key => key !== 'text'))
+      || Object.keys(params).some(key => !['operation', 'projectId', 'sourceThreadId', 'requestId', 'firstInput'].includes(key))))
+    || (params.operation === 'close' && (!identifier(params.threadId) || !identifier(params.requestId)
+      || Object.keys(params).some(key => !['operation', 'projectId', 'threadId', 'requestId'].includes(key))))
+    || (params.operation === 'recover' && (!identifier(params.requestId) || params.method !== undefined && !['areal/side/start', 'areal/side/create', 'areal/side/close'].includes(String(params.method))))
     || (params.operation === 'context' && !identifier(params.threadId))
     || (params.operation === 'list' && (!identifier(params.sourceThreadId) || params.includeArchived !== undefined && typeof params.includeArchived !== 'boolean')))) invalid();
   if (name === 'side' && (params.resetModel !== undefined && typeof params.resetModel !== 'boolean' || params.resetModel === true && params.model !== undefined || params.workspaceAccess !== undefined && !['none', 'readOnly'].includes(String(params.workspaceAccess)) || params.model !== undefined && (!record(params.model) || !identifier(params.model.providerId) || !identifier(params.model.modelId)))) invalid();
@@ -381,7 +390,9 @@ function validateCommandResponse(name, params, value) {
   if (name === 'fork' && (!record(value) || !identifier(value.threadId) || !identifier(value.requestId))) invalid();
   if (name !== 'side') return;
   if (!record(value)) invalid();
-  if (params.operation === 'start' && (!identifier(value.threadId) || !identifier(value.requestId))) invalid();
+  if (['start', 'create'].includes(String(params.operation)) && (!identifier(value.threadId) || !identifier(value.requestId))) invalid();
+  if (params.operation === 'create' && value.turnId !== undefined && !identifier(value.turnId)) invalid();
+  if (params.operation === 'close' && (!identifier(value.threadId) || !identifier(value.requestId) || typeof value.accepted !== 'boolean' || typeof value.cleanupConfirmed !== 'boolean')) invalid();
   if (params.operation === 'recover' && (typeof value.confirmed !== 'boolean' || value.confirmed && !identifier(value.threadId))) invalid();
   if (params.operation === 'list' && (!Array.isArray(value.data) || !value.data.every(record) || value.nextCursor !== undefined && value.nextCursor !== null && typeof value.nextCursor !== 'string')) invalid();
   if (params.operation === 'context' && (!identifier(value.snapshotId) || !Array.isArray(value.evidence) || !value.evidence.every(record) || value.nextCursor !== undefined && value.nextCursor !== null && typeof value.nextCursor !== 'string')) invalid();

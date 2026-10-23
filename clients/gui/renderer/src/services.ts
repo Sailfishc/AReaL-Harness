@@ -76,8 +76,9 @@ export type PreparedCreator = {
   provenance: { upstream: string; revision: string; contentDigest: string };
 };
 type SideResult<Operation extends SideRequest["operation"]> =
-  Operation extends "start" ? { threadId: string; requestId: string; turnId?: string } :
-  Operation extends "recover" ? { confirmed: false } | { confirmed: true; threadId: string } :
+  Operation extends "start" | "create" ? { threadId: string; requestId: string; turnId?: string } :
+  Operation extends "close" ? { requestId: string; threadId: string; accepted: boolean; cleanupConfirmed: boolean } :
+  Operation extends "recover" ? { confirmed: false } | { confirmed: true; requestId: string; threadId: string; turnId?: string; accepted?: boolean; cleanupConfirmed?: boolean } :
   Operation extends "list" ? { data: Record<string, unknown>[]; nextCursor?: string | null } :
   Operation extends "context" ? { snapshotId: string; evidence: Record<string, unknown>[]; nextCursor?: string | null } :
   { turn: { id: string } };

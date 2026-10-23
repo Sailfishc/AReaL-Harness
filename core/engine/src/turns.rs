@@ -50,11 +50,14 @@ impl Engine {
         }) {
             return Err(Error::Conflict);
         }
-        if state.thread.is_side() && (input.len() != 1 || !matches!(&input[0], Input::Text { .. }))
+        if state.thread.is_read_only_side()
+            && (input.len() != 1 || !matches!(&input[0], Input::Text { .. }))
         {
             return Err(Error::Invalid("SIDE_POLICY_VIOLATION".into()));
         }
-        if let Some(areal_protocol::Conversation::Side { origin, .. }) = &state.thread.conversation
+        if state.thread.is_read_only_side()
+            && let Some(areal_protocol::Conversation::Side { origin, .. }) =
+                &state.thread.conversation
         {
             self.check_side_capacity(&origin.source_thread_id, Some(&state.thread.id))
                 .await?;
@@ -137,7 +140,7 @@ impl Engine {
             self.select_plugin_attachments(
                 &mut configuration,
                 &input,
-                !thread.is_side()
+                !thread.is_read_only_side()
                     && thread.parent_thread_id.is_none()
                     && thread.source != "nativeTaskAgent",
             )?;
@@ -355,7 +358,7 @@ impl Engine {
     ) -> Result<()> {
         let thread_id = thread_id.to_owned();
         let turn_id = turn_id.to_owned();
-        if self.read(&thread_id, false).await?.is_side() {
+        if self.read(&thread_id, false).await?.is_read_only_side() {
             return Err(Error::Invalid("SIDE_POLICY_VIOLATION".into()));
         }
         self.mutate(move |engine| async move {
@@ -533,7 +536,7 @@ impl Engine {
         } else if state.thread.desktop.is_some() {
             let mut candidate = state.thread.clone();
             if state.active.is_some()
-                && !state.thread.is_side()
+                && !state.thread.is_read_only_side()
                 && state.thread.parent_thread_id.is_none()
                 && state.thread.goal_owner.is_none()
                 && state.thread.source != "nativeTaskAgent"
@@ -581,12 +584,35 @@ impl Engine {
             ));
         }
         self.mutate(move |engine| async move {
-            let cell = engine.cell(&thread_id).await?;
+            let cell = engine.raw_cell(&thread_id).await?;
             let mut state = cell.state.lock().await;
+            if state
+                .thread
+                .desktop
+                .as_ref()
+                .is_some_and(|data| data.archived)
+                && !state.thread.is_executable_side()
+            {
+                return Err(Error::Invalid("THREAD_ARCHIVED".into()));
+            }
             if state.active.is_some() || state.compacting {
                 return Err(Error::Conflict);
             }
-            let mut candidate = state.thread.clone();
+            let mut candidate = if state.thread.is_executable_side()
+                && state
+                    .thread
+                    .desktop
+                    .as_ref()
+                    .is_some_and(|data| data.archived)
+            {
+                engine
+                    .store
+                    .read_thread(&thread_id)
+                    .await
+                    .map_err(|error| Error::Storage(error.to_string()))?
+            } else {
+                state.thread.clone()
+            };
             let item = candidate
                 .turns
                 .iter_mut()
@@ -616,6 +642,7 @@ impl Engine {
             }
             engine.persist(&candidate).await?;
             state.thread = candidate;
+            engine.finish_side_close(&cell, &mut state).await?;
             Ok(())
         })
         .await
@@ -654,7 +681,7 @@ impl Engine {
             .as_ref()
             .filter(|_| cell.research)
             .map(|a| tokio::time::Instant::now() + Duration::from_secs(a.worker_timeout_seconds));
-        let side_deadline = cell.state.lock().await.thread.is_side().then(|| {
+        let side_deadline = cell.state.lock().await.thread.is_read_only_side().then(|| {
             tokio::time::Instant::now() + Duration::from_secs(self.limits.max_side_turn_seconds)
         });
         let goal_budget = {

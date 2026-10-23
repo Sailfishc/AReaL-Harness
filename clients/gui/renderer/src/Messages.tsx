@@ -1,3 +1,4 @@
+import type { ConversationSelectionReference, ConversationSelectionContentType } from "./conversationSelectionReference.js";
 import { projectGenUiReferences } from "@areal/gen-ui/references";
 import { GenUiCard } from "./GenUiWorkspace.js";
 import { submitMessage, sending, markSending } from "./Composer.js";
@@ -39,7 +40,7 @@ import { ScheduledTaskCards } from "./ScheduledTasks.js";
 import { TurnFileSummary } from "./TurnFileSummary.js";
 import type { Data, Action } from "./services.js";
 type TranscriptSelectionSnapshot = {
-  owner: string; text: string; turnId: string; itemId: string; range: Range; rect: DOMRect;
+  owner: string; text: string; turnId: string; itemId: string; contentType: ConversationSelectionContentType; range: Range; rect: DOMRect;
   provenance: { kind: "userQuote" } | { kind: "itemRange"; startUtf8: number; endUtf8: number };
 };
 type ResponseSpace = { turnId: string; height: number; contentHeight: number };
@@ -169,8 +170,8 @@ export function Messages({
   onAgent?: (id: string) => void;
   onFork?: (turnId: string, anchor?: HTMLElement) => Promise<void>;
   responseActions?: (message: Data) => ReactNode;
-  onSideSelection?: (selection: Data, text: string, anchor?: Data) => void;
-  onAddSelection?: (text: string) => void;
+  onSideSelection?: (selection: Data, text: string, anchor?: Data, reference?: ConversationSelectionReference) => void;
+  onAddSelection?: (reference: ConversationSelectionReference) => void;
   project: Data;
   thread: Data;
   action: Action;
@@ -250,7 +251,8 @@ export function Messages({
     const sourceTurn = (thread.turns ?? []).find((turn: Data) => turn.id === turnId);
     const canonical = sourceTurn?.items?.find((item: Data) => item.id === itemId);
     if (!canonical) return;
-    const snapshot = { owner: selectionOwner, text, turnId, itemId, range: range.cloneRange(), rect: range.getBoundingClientRect() };
+    const contentType: ConversationSelectionContentType = canonical.type === "userMessage" ? "user" : canonical.type === "agentMessage" ? "assistant" : canonical.type === "reasoning" ? "reasoning" : "tool";
+    const snapshot = { owner: selectionOwner, text, turnId, itemId, contentType, range: range.cloneRange(), rect: range.getBoundingClientRect() };
     // 流式回复的增量尚未确认持久化；DOM 相等不能证明选区属于冻结证据。
     const streamingReply = sourceTurn?.status === "inProgress" && canonical?.type === "agentMessage";
     const canonicalText = canonical?.type === "agentMessage" ? canonical.text : canonical?.type === "userMessage" && canonical.content?.length === 1 && canonical.content[0].type === "text" ? canonical.content[0].text :
@@ -263,6 +265,9 @@ export function Messages({
       setSelectedSideText({ ...snapshot, provenance: { kind: "itemRange", startUtf8, endUtf8 } });
     } else setSelectedSideText({ ...snapshot, provenance: { kind: "userQuote" } });
   };
+  const referenceFor = (chosen: TranscriptSelectionSnapshot): ConversationSelectionReference => ({
+    id: crypto.randomUUID(), sourceSessionId: thread.id, sourceRowId: `${chosen.turnId}:${chosen.itemId}`, contentType: chosen.contentType, text: chosen.text,
+  });
   const askAboutSelection = async () => {
     const chosen = selectedSideText;
     if (!chosen || !selectionIsCurrent(chosen) || !onSideSelection) return;
@@ -276,7 +281,7 @@ export function Messages({
     // 计算摘要期间也可能切换来源；旧回调不能把选区交给新会话。
     if (!selectionIsCurrent(chosen)) return;
     const turn = (thread.turns ?? []).find((item: Data) => item.id === chosen.turnId);
-    onSideSelection(selection, chosen.text, turn?.status === "completed" ? { kind: "turn", turnId: chosen.turnId, boundary: "after" } : undefined);
+    onSideSelection(selection, chosen.text, turn?.status === "completed" ? { kind: "turn", turnId: chosen.turnId, boundary: "after" } : undefined, referenceFor(chosen));
     setSelectedSideText(null);
   };
   const canFork = !!onFork && project.core?.features?.forkPreview === true
@@ -362,7 +367,7 @@ export function Messages({
   const sendGenUi = async (prompt: string) => {
     if (readOnly || !project.state?.connected || localThread.desktop?.archived) throw Error("Conversation unavailable");
     if (onGenUiFollowUp) return onGenUiFollowUp(prompt);
-    if (localThread.conversation?.kind === "side") throw Error("Side submission unavailable");
+    if (localThread.conversation?.kind === "side" && localThread.conversation.policy?.kind !== "sideExecutableV2") throw Error("Side submission unavailable");
     const key = `areal-gui:draft:${project.id}:${localThread.id}`;
     if (sending.has(key) || project.pending?.some((entry: Data) => entry.params?.threadId === localThread.id)) throw Error("Submission needs confirmation");
     markSending(key, true);
@@ -654,9 +659,9 @@ export function Messages({
               return <TurnExecution key={item.id} items={item.items} turn={turn} project={project} threadId={thread.id}
                 hasTurnSummary={group.progress && turn.status === "completed" && hasReadingSummary}
                 renderItem={(entry: Data, disclosure) => {
-                  if (entry.type === "dynamicToolCall") return <div data-side-item-id={entry.id} key={entry.id}><ToolEvent item={entry} {...disclosure} onOpenResult={ordinary && !readOnly && !isInherited && !localThread.desktop?.archived ? onOpenResult : undefined} resultState={resultStates?.[mcpResultKey({ projectId: project.id, threadId: thread.id, turnId: turn.id, itemId: entry.id })]} onFile={onFile} onAgent={isInherited ? undefined : onAgent} agents={isInherited ? undefined : project.state?.threads} turnId={turn.id} action={action} projectId={project.id} threadId={thread.id} readTurnReview={turn.status === "completed" ? readTurnReview : undefined} /></div>;
+                  if (entry.type === "dynamicToolCall") return <div data-side-item-id={entry.id} key={entry.id}><ToolEvent item={entry} {...disclosure} onOpenResult={(ordinary || localThread.conversation?.policy?.kind === "sideExecutableV2") && !readOnly && !isInherited && !localThread.desktop?.archived ? onOpenResult : undefined} resultState={resultStates?.[mcpResultKey({ projectId: project.id, threadId: thread.id, turnId: turn.id, itemId: entry.id })]} onFile={onFile} onAgent={isInherited ? undefined : onAgent} agents={isInherited ? undefined : project.state?.threads} turnId={turn.id} action={action} projectId={project.id} threadId={thread.id} readTurnReview={turn.status === "completed" ? readTurnReview : undefined} /></div>;
                   if (entry.type === "modelContext") return null;
-                  return <details className="tool-call" key={entry.id}><summary>{entry.type}</summary><pre>{JSON.stringify(entry, null, 2)}</pre></details>;
+                  return <details className="tool-call" data-side-item-id={entry.id} key={entry.id}><summary>{entry.type}</summary><pre>{JSON.stringify(entry, null, 2)}</pre></details>;
                 }} />;
             });
             return <Fragment key={group.id}>
@@ -709,7 +714,7 @@ export function Messages({
         {onAddSelection && <Button type="button" variant="ghost" size="sm" onClick={() => {
           const chosen = selectionSnapshot.current;
           if (!chosen || !selectionIsCurrent(chosen)) return;
-          onAddSelection(chosen.text); setSelectedSideText(null);
+          onAddSelection(referenceFor(chosen)); setSelectedSideText(null);
         }}>{t("chat.selection.addToChat")}</Button>}
         {onSideSelection && <Button type="button" variant="ghost" size="sm" aria-label={t("chat.selection.askInSideChat")}
           onClick={() => void askAboutSelection()}>{t("chat.selection.ask")}</Button>}

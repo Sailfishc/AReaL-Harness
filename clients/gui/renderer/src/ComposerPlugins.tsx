@@ -1,3 +1,4 @@
+import { composerDraftStorage } from "./composerDraftStorage.js";
 import { useEffect, useState } from "react";
 import { Package } from "lucide-react";
 import type { Action, Data } from "./services.js";
@@ -20,17 +21,17 @@ const mentionIds = (text: string) => [...new Set(parseMentionMarkdown(text).flat
 const unavailable = "chat.composer.pluginReferenceUnavailable";
 
 export function readComposerPlugins(key: string): ComposerPluginSelection[] {
-  const value: unknown = JSON.parse(localStorage.getItem(`${key}:plugins`) ?? "[]");
+  const value: unknown = JSON.parse(composerDraftStorage.getItem(`${key}:plugins`) ?? "[]");
   if (!Array.isArray(value) || value.some(row => typeof row?.id !== "string" || typeof row?.digest !== "string" || typeof row?.name !== "string" || !Array.isArray(row?.skills) || !Array.isArray(row?.mcpServers) || row.mcpServers.some((server: unknown) => typeof server !== "string") || row.skills.some((skill: Data) => typeof skill.id !== "string" || typeof skill.revision !== "string"))) throw new Error(unavailable);
   return value;
 }
-export const clearComposerPlugins = (key: string) => localStorage.removeItem(`${key}:plugins`);
+export const clearComposerPlugins = (key: string) => composerDraftStorage.removeItem(`${key}:plugins`);
 export function transferComposerPlugins(from: string, to: string) {
-  const value = localStorage.getItem(`${from}:plugins`);
-  if (value) localStorage.setItem(`${to}:plugins`, value);
+  const value = composerDraftStorage.getItem(`${from}:plugins`);
+  if (value) composerDraftStorage.setItem(`${to}:plugins`, value);
 }
 function writeSelections(key: string, selections: ComposerPluginSelection[]) {
-  localStorage.setItem(`${key}:plugins`, JSON.stringify(selections));
+  composerDraftStorage.setItem(`${key}:plugins`, JSON.stringify(selections));
 }
 function skillScope(context: ComposerPluginContext) {
   if (context.kind === "mainThread") return { threadId: context.threadId };

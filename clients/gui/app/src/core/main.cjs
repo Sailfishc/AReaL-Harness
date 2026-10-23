@@ -48,24 +48,32 @@ protocol.registerSchemesAsPrivileged([{ scheme: 'areal-mcp', privileges: { stand
 const guiRoot = app.isPackaged ? join(process.resourcesPath, 'areal-gui') : resolve(__dirname, '../../../renderer/dist');
 const mime = { '.wasm': 'application/wasm', '.js': 'text/javascript', '.css': 'text/css', '.html': 'text/html', '.json': 'application/json', '.woff2': 'font/woff2', '.woff': 'font/woff', '.svg': 'image/svg+xml', '.png': 'image/png' };
 let window, backend, preview, mcpApps, updates, quitting = false, exitReady = false, themeId = 'system';
-let browserWindowClosed = false;
+let browserWindowClosed = false, windowClosePromise = null;
 const previewSubscriptions = new Map();
 const projections = new WeakMap();
 let startupPresentation = 'requested', startupPainted = false, startupReady = false;
 let focusRequested = false, quitAttempt = null, quitRequestSequence = 0;
 let startupShowTrace, startupPaintTrace, startupPresentTrace;
 function presentStartup() {
-  if (startupPresentation !== 'requested' || quitting || !window || window.isDestroyed()
+  if (startupPresentation !== 'requested' || quitting || windowClosePromise || !window || window.isDestroyed()
     || !startupPainted || !startupReady) return;
   startupPresentation = 'presented';
+  browserWindowClosed = false; backend.guiWindowClosed = false;
   window.show();
   if (focusRequested) { focusRequested = false; window.focus(); }
 }
 function revealWindow() {
+  if (quitting || exitReady) return;
+  if (windowClosePromise) {
+    const owner = window;
+    void windowClosePromise.then(() => { if (window === owner && !owner.isDestroyed()) revealWindow(); });
+    return;
+  }
   if (!window || window.isDestroyed()) { focusRequested = true; return; }
   if (startupPresentation !== 'presented') {
     startupPresentation = 'requested'; focusRequested = true; presentStartup(); return;
   }
+  browserWindowClosed = false; backend.guiWindowClosed = false;
   if (window.isMinimized()) window.restore();
   window.show(); window.focus();
 }
@@ -125,6 +133,7 @@ function requestQuit(intent = 'application') {
     if (!backend) throw new Error(nativeText('lifecycle.preparing'));
     if (!await confirmRendererQuit(attempt)) { recordQuitStage(attempt, 'canceled'); return { canceled: true }; }
     if (quitting) { recordQuitStage(attempt, 'canceled'); return { canceled: true }; }
+    await backend.closeWindowSideChats();
     if (intent === 'install') { beginQuit('checking'); recordQuitStage(attempt, 'checking'); }
     recordQuitStage(attempt, 'readiness');
     await backend.waitForApplicationReady();
@@ -162,6 +171,7 @@ function requestQuit(intent = 'application') {
     return { stopped: true, quitting: true };
   })().catch(error => { recordQuitStage(attempt, 'failed'); throw error; }).finally(() => {
     if (!exitReady && quitAttempt === attempt) {
+      if (backend) backend.guiWindowClosed = false;
       if (attempt.approved) quitting = false;
       setQuitProgress(attempt, null);
       if (intent !== 'install') preview?.setPresentationSuppressed(false);
@@ -181,16 +191,13 @@ async function exportDiagnostics() {
 }
 const requestStopAndQuit = () => requestQuit('stop');
 const stopAndQuitFromMenu = () => { void requestStopAndQuit().catch(error => { backend?.reportLifecycleError(error); revealWindow(); }); };
-const menuBar = new MenuBar(() => quitting || startupPresentation !== 'presented' ? null : window, stopAndQuitFromMenu);
+const menuBar = new MenuBar(() => { if (startupPresentation === 'presented') revealWindow(); }, stopAndQuitFromMenu);
 app.on('will-quit', () => menuBar?.close());
 let notificationTarget = null, notificationSequence = 0;
 function openNotificationTarget(target) {
   notificationTarget = { ...target, id: ++notificationSequence };
   if (!window || window.isDestroyed()) return;
-  if (startupPresentation === 'presented') {
-    if (window.isMinimized()) window.restore();
-    window.show(); window.focus();
-  }
+  if (startupPresentation === 'presented') revealWindow();
   window.webContents.send('areal-core:notification-open');
 }
 let mcpAppDeepLink = null, mcpAppDeepLinkSequence = 0;
@@ -289,7 +296,7 @@ async function createWindow() {
           buttons: [nativeText('common.cancel'), kind === 'frame' ? nativeText('browser.allowFrame') : nativeText('browser.allowWorkspace')], defaultId: 0, cancelId: 0, noLink: true,
         });
         return response === 1 && current();
-      });
+      }, (projectId, threadId) => backend.retainsThreadResources(projectId, threadId));
     preview.onRevoke = identity => { void backend.browserRevoke(identity).catch(() => {}); };
     window.on('unresponsive', () => diagnostics.record({ type: 'renderer-unresponsive' }));
     window.on('responsive', () => diagnostics.record({ type: 'renderer-responsive' }));
@@ -309,18 +316,21 @@ async function createWindow() {
       if (exitReady && quitAttempt?.approved && quitAttempt.owner === window.webContents
         && quitAttempt.frame === window.webContents.mainFrame) event.preventDefault();
     });
-    window.on('show', () => { browserWindowClosed = false; });
+    window.on('show', () => { browserWindowClosed = false; backend.guiWindowClosed = false; });
     window.on('close', event => {
       if (exitReady) return;
       event.preventDefault();
-      if (quitting) return;
+      if (quitting || windowClosePromise) return;
       // A close-to-background still ends this window's Browser ownership. Fence
       // native callbacks before hiding; reopening creates fresh Pages on demand.
       browserWindowClosed = true;
       if (startupPresentation !== 'presented') { startupPresentation = 'suppressed'; focusRequested = false; }
-      preview?.dispose();
-      mcpApps?.dispose();
-      window.hide();
+      const owner = window;
+      windowClosePromise = backend.closeWindowSideChats().then(() => {
+        preview?.dispose();
+        mcpApps?.dispose();
+        if (!owner.isDestroyed()) owner.hide();
+      }).catch(error => { browserWindowClosed = false; backend.guiWindowClosed = false; backend.reportLifecycleError(error); }).finally(() => { windowClosePromise = null; });
     });
     trace.advance('load');
     await window.loadURL('areal-ui://app/');

@@ -1,3 +1,4 @@
+import { composerDraftStorage } from "./composerDraftStorage.js";
 import { useI18n, formatUiMessage, UiMessageError, type UiMessage } from "./i18n/IntlProvider.js";
 import { Button } from "./components/ui/button.js";
 import { SettingsSelect } from "./settings/SettingsPageParts.js";
@@ -909,8 +910,8 @@ export function McpMentionsPicker({
                     command={(request) => action("manage", request)}
                     onSelect={(item) => {
                         const key = `areal-gui:draft:${projectId}:${threadId}`;
-                        const text = localStorage.getItem(key) ?? "";
-                        if (/(^|\s)@$/.test(text)) localStorage.setItem(key, text.slice(0, -1));
+                        const text = composerDraftStorage.getItem(key) ?? "";
+                        if (/(^|\s)@$/.test(text)) composerDraftStorage.setItem(key, text.slice(0, -1));
                         appendMcpDraft(key, [item]);
                         onClose();
                     }}

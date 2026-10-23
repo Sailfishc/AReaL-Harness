@@ -488,7 +488,7 @@ impl Engine {
             }
             let cell = engine.cell(&request.thread_id).await?;
             let mut state = cell.state.lock().await;
-            if state.thread.is_side() { return Err(invalid("SIDE_POLICY_VIOLATION")); }
+            if state.thread.is_read_only_side() { return Err(invalid("SIDE_POLICY_VIOLATION")); }
             let mut data = desktop(&state.thread);
             if let Some(result) = receipt(&data, &identity, &request.request_id, method, &hash)? {
                 return Ok(result);
@@ -720,10 +720,11 @@ impl Engine {
     ) -> Result<EffectiveConfig> {
         self.refresh_plugins().await?;
         self.mutate(move |engine| async move {
+            let _admission = engine.desktop.lifecycle.gate.lock().await;
             let hash = digest(&request)?;
             let request_id = request.request_id.clone();
             let cell = engine.cell(&request.thread_id).await?;
-            let is_side = cell.state.lock().await.thread.is_side();
+            let is_side = cell.state.lock().await.thread.is_read_only_side();
             let mut state = cell.state.lock().await;
             if let Some(request_id) = &request_id
                 && let Some(result) = receipt(
@@ -998,7 +999,7 @@ impl Engine {
             .await
     }
     pub(super) async fn update_plan_inner(&self, request: PlanUpdate) -> Result<Plan> {
-        if self.read(&request.thread_id, false).await?.is_side() {
+        if self.read(&request.thread_id, false).await?.is_read_only_side() {
             return Err(invalid("SIDE_POLICY_VIOLATION"));
         }
         let mut ids = HashSet::new();
@@ -1270,7 +1271,7 @@ impl Engine {
         &self,
         cell: &Cell,
     ) -> anyhow::Result<areal_runtime_protocol::PermissionRequest> {
-        if !cell.state.lock().await.thread.is_side()
+        if !cell.state.lock().await.thread.is_read_only_side()
             && let Some(scratch) = self.command_scratch(cell)
         {
             // 目录由可信 Core 创建，Runtime 再绑定和校验目录身份。
@@ -1287,7 +1288,7 @@ impl Engine {
             .and_then(|c| c.options.permission_preset)
             .is_some_and(|preset| preset != PermissionPreset::FullAccess);
         let readonly = configuration.is_some_and(|c| c.read_only);
-        let side = state.thread.is_side();
+        let side = state.thread.is_read_only_side();
         Ok(areal_runtime_protocol::PermissionRequest {
             read_roots: if side {
                 let configuration = desktop(&state.thread).configuration;

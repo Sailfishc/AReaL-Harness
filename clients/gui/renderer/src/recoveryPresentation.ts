@@ -25,7 +25,7 @@ export function recoveredOutcome(project: Data, requestId: string, threadId: str
   const target = outcome.operation?.target;
   const method = operation?.method ?? outcome.operation?.method;
   const createsThread = method === "areal/thread/start" && !threadId
-    || ["areal/thread/fork", "areal/side/start"].includes(method ?? "") && !!threadId && outcome.sourceThreadId === threadId;
+    || ["areal/thread/fork", "areal/side/start", "areal/side/create"].includes(method ?? "") && !!threadId && outcome.sourceThreadId === threadId;
   const bindsCreatedTarget = operation?.target.kind === "project" && outcome.operation?.method === operation.method
     && outcome.operation.requestId === operation.requestId
     && (createsThread && target?.kind === "thread" || method === "areal/task/create" && !threadId && target?.kind === "task");

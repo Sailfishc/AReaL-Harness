@@ -465,7 +465,7 @@ class HistoryObservation {
         this.host.onChange();
         return;
       }
-      if (resumed.thread?.conversation?.kind === 'side') {
+      if (resumed.thread?.conversation?.policy?.kind === 'sideReadOnlyV1') {
         project.configurations[threadId] = resumed.thread.desktop?.configuration;
         this.host.onChange();
         return;

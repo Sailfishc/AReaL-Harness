@@ -672,7 +672,7 @@ class McpAppsHost {
         const snapshot = this.backend.snapshot();
         if (snapshot.connection?.state && snapshot.connection.state !== "ready") return;
         for (const [token, app] of this.instances) {
-            if (this.backend.ownsThread(app.projectId, app.threadId)) continue;
+            if (this.backend.ownsThread(app.projectId, app.threadId) || this.backend.retainsThreadResources(app.projectId, app.threadId)) continue;
             const owner = snapshot.projects.find(project => project.id === app.projectId);
             if (owner && !owner.state?.connected) continue;
             void this.close(token, app.ownerId).catch(() => {});

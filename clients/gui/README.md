@@ -31,7 +31,7 @@ make gui
 
 `AREAL_CORE_BIN` 可指定可信 Core 的绝对路径；开发默认使用仓库 `target/debug/areal`。默认使用独立的 `AReaL Harness GUI Dev/<工作树摘要>` 数据目录；安装版使用 `AReaL Harness GUI`。不导入或替换旧桌面安装与数据。`AREAL_GUI_USER_DATA`、`AREAL_CORE_HOME`、`AREAL_HARNESS_SERVICE_HOME` 可显式设置隔离目录。模型配置默认与 CLI 共用 `~/.areal/config.toml`，由 Core 统一解析、校验和保存；`AREAL_HARNESS_HOME` 可修改 Core 配置 home，`AREAL_CORE_CONFIG` 可显式选择其他文件。首次读取不创建配置，首次保存由 Core 创建默认文件；旧 GUI 隔离目录中的配置不会自动合并。
 
-启动 GUI 前可显式设置 `AREAL_CORE_SANDBOX_PROFILE=native`，或在 `areal service ensure/restart` 使用 `--sandbox-profile native`，请求原生 Runtime 沙箱。默认仍为 `full-access`。此选择纳入部署兼容性；切换时需先停止活动任务并显式重启服务。只有 Core 验证原生隔离能力后，Side 对话才提供只读访问当前工作区文件的选项。原生隔离不可用时启动失败，不降级为 full-access。
+启动 GUI 前可显式设置 `AREAL_CORE_SANDBOX_PROFILE=native`，或在 `areal service ensure/restart` 使用 `--sandbox-profile native`，请求原生 Runtime 沙箱。默认仍为 `full-access`。此选择纳入部署兼容性；切换时需先停止活动任务并显式重启服务。只有 Core 验证原生隔离能力后，旧版只读 Side 对话才提供只读访问当前工作区文件的选项。原生隔离不可用时启动失败，不降级为 full-access。
 
 配置文件按 `AREAL_CORE_CONFIG`、`AREAL_HARNESS_CONFIG`、Core 配置 home 下的 `config.toml` 顺序选择。配置 home 优先使用 `AREAL_HARNESS_HOME`，否则使用 `AREAL_CORE_USER_HOME` 指定的用户目录（省略时为当前用户 home）下的 `.areal`。显式文件的相对路径在 GUI 启动目录解析；实际配置路径和配置 home 均参与新后台的部署身份。普通重开比较当前部署与后台身份；相同部署静默复用，配置路径或配置 home 变化保留原后台，显示显式更新入口。尚未创建的默认文件首次保存不改变后台身份。同一 GUI 后台的不同项目沿用这份配置，设置页不随项目切换选择另一份上传配置。
 
@@ -113,7 +113,7 @@ MCP 应用页面在窗口内保留。切换标签、隐藏面板、会话或项�
 
 每轮完成回复下方的“分支”直接在窗口中央打开紧凑浮层，仅提供“在当前工作区中创建”，继承当前轮及之前的历史和当前轮的模型配置；点击外部或按 Esc 关闭。创建独立聊天，不提供之前/之后菜单或三个点入口；文件保持当前状态，不提供新工作树选项。未知创建结果先核对受理状态，不重发。
 
-在主输入框使用 `/side` 打开右侧聊天。两侧复用 `Messages` 和 `ConversationComposer`（Lexical 输入框、工具栏、`ComposerModelMenu`），各自保留草稿与提交状态。Side 首问可选择 Core 目录中的模型和思考强度，后续配置只作用于该 Side；文件访问与只读策略继续由 Core/Runtime 约束。相关讨论、冻结证据与草稿恢复仍可通过侧栏入口访问；带回回复先预览，再追加到主草稿，不自动发送。
+主输入框的 `/side` 与 `/btw`、侧栏启动页和 `+` 菜单可创建独立辅助对话标签。裸命令创建空会话，带纯文字参数时立即在新会话发送首问；附件或结构化上下文仍走主会话发送路径。每个辅助对话复用完整 `Composer` 和 `Messages`，支持附件、模型、权限、工具与多轮输入，保留独立草稿和提交状态。来源历史在创建时冻结并仅供模型参考，界面从空白开始；来源正在生成时不复制未完成的助手和工具增量。主、辅会话共享可移除、去重的多段引用。Esc 只停止键盘事件所属对话，侧栏关闭后主会话可接收对话外 Esc。关闭标签会停止并清理该辅助对话；隐藏面板和切换任务保留标签，重启不恢复新标签和草稿。旧的只读 Side 保留原权限、证据与恢复入口。完整契约见[桌面 API](../../docs/api/desktop.md#side-chat)。
 
 ## 子任务与交付
 

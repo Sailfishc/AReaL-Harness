@@ -4,6 +4,8 @@ use areal_protocol::desktop::*;
 
 areal_protocol::method_catalog! {
     "areal/side/start" => Mutation, Thread;
+    "areal/side/create" => Mutation, Thread;
+    "areal/side/close" => Mutation, Thread;
     "areal/side/context/read" => Read;
     "areal/thread/fork" => Mutation, Thread;
     "areal/conversation/history" => Read;
@@ -300,6 +302,27 @@ fn management_reply(reply: Value) -> Result<Value, RpcError> {
     Ok(reply["result"].clone())
 }
 
+pub(crate) async fn create_side(
+    engine: &Arc<Engine>,
+    identity: &str,
+    params: Value,
+    host: Option<Arc<dyn areal_engine::tools::DynamicToolHost>>,
+) -> Result<Value, RpcError> {
+    let request: SideCreate = parse(params)?;
+    let request_id = request.request_id.clone();
+    let (mut thread, mut turn) = engine
+        .side_create(identity.into(), request, host)
+        .await
+        .map_err(map_error)?;
+    thread.turns.clear();
+    thread.context_checkpoint = None;
+    thread.history_archive = None;
+    if let Some(turn) = &mut turn {
+        turn.items.clear();
+    }
+    Ok(json!({"thread":thread,"turn":turn,"requestId":request_id}))
+}
+
 async fn dispatch_inner(
     engine: &Arc<Engine>,
     identity: &str,
@@ -307,6 +330,8 @@ async fn dispatch_inner(
     params: Value,
 ) -> Result<Value, RpcError> {
     let result = match method {
+        "areal/side/create" => return create_side(engine, identity, params, None).await,
+        "areal/side/close" => engine.side_close(identity.into(), parse(params)?).await,
         "areal/side/start" => {
             let request: SideStart = parse(params)?;
             let request_id = request.request_id.clone();

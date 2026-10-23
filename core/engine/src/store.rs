@@ -271,44 +271,34 @@ impl Store {
             }) = &record.thread.conversation
             {
                 anyhow::ensure!(
-                    *version == 1
-                        && record.version >= 14
-                        && policy.kind == "sideReadOnlyV1"
-                        && matches!(policy.workspace_access.as_str(), "none" | "readOnly"),
+                    record.version >= 14 && matches!((version, policy),
+                        (1, areal_protocol::SidePolicy::ReadOnlyV1 { .. })
+                        | (2, areal_protocol::SidePolicy::ExecutableV2)),
                     "unsupported Side policy"
                 );
                 anyhow::ensure!(
                     record.thread.parent_thread_id.is_none()
                         && record.thread.session_id == record.thread.id
                         && record.thread.goal_owner.is_none()
-                        && record.thread.goals.is_empty()
-                        && record.thread.dynamic_tools.is_empty(),
+                        && record.thread.goals.is_empty(),
                     "Side execution authority mismatch"
                 );
-                anyhow::ensure!(
-                    record
-                        .thread
-                        .desktop
-                        .as_ref()
-                        .is_some_and(|d| d.queue.items.is_empty()
-                            && d.processes.is_empty()
-                            && d.configuration.read_only
-                            && d.configuration
-                                .tool_allowlist
-                                .as_ref()
-                                .is_some_and(|tools| {
-                                    tools.iter().any(|name| name == "side_context_read")
-                                        && tools.iter().all(|name| {
-                                            matches!(name.as_str(), "side_context_read" | "gen_ui_publish")
-                                                || (policy.workspace_access == "readOnly"
-                                                    && crate::tools::side_file_tool(
-                                                        name,
-                                                        &crate::tools::registry::Backend::Builtin,
-                                                    ))
-                                        })
-                                })),
-                    "Side configuration authority mismatch"
-                );
+                if let areal_protocol::SidePolicy::ReadOnlyV1 { workspace_access } = policy {
+                    anyhow::ensure!(record.thread.dynamic_tools.is_empty(), "legacy Side dynamic tools mismatch");
+                    anyhow::ensure!(
+                        record.thread.desktop.as_ref().is_some_and(|d| d.queue.items.is_empty()
+                            && d.processes.is_empty() && d.configuration.read_only
+                            && d.configuration.tool_allowlist.as_ref().is_some_and(|tools| {
+                                tools.iter().any(|name| name == "side_context_read")
+                                    && tools.iter().all(|name| {
+                                        matches!(name.as_str(), "side_context_read" | "gen_ui_publish")
+                                            || (*workspace_access == areal_protocol::SideWorkspaceAccess::ReadOnly
+                                                && crate::tools::side_file_tool(name, &crate::tools::registry::Backend::Builtin))
+                                    })
+                            })),
+                        "Side configuration authority mismatch"
+                    );
+                }
                 anyhow::ensure!(
                     origin.snapshot_id == reference_snapshot.snapshot_id,
                     "Side snapshot reference mismatch"

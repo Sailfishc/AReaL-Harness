@@ -423,7 +423,7 @@ fn restore_cells(
         .into_iter()
         .map(|(id, thread)| {
             let bindings = tools::Bindings {
-                registry: if thread.is_side() {
+                registry: if thread.is_read_only_side() {
                     registry.clone().side_only(thread.side_workspace_read())
                 } else if thread.source == "nativeResearchAgent" {
                     registry.clone().research_only()

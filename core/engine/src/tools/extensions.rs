@@ -53,7 +53,7 @@ impl Invocation<'_> {
         self.validate(&arguments)?;
         {
             let state = self.cell.state.lock().await;
-            if state.thread.is_side()
+            if state.thread.is_read_only_side()
                 && !(matches!(self.call.name.as_str(), "side_context_read" | "gen_ui_publish")
                     && matches!(self.entry.backend, Backend::Core))
                 && !(state.thread.side_workspace_read()
@@ -663,7 +663,7 @@ impl Invocation<'_> {
                     arguments: effective.to_string(),
                 };
                 if call.name == "read_file"
-                    || call.name == "search_files" && !state.thread.is_side()
+                    || call.name == "search_files" && !state.thread.is_read_only_side()
                 {
                     drop(state);
                     return navigation::invoke(

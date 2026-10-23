@@ -384,7 +384,7 @@ impl Engine {
         let config = if let Some(id) = &thread_id {
             let cell = self.cell(id).await?;
             let state = cell.state.lock().await;
-            if state.thread.is_side()
+            if state.thread.is_read_only_side()
                 || state.thread.parent_thread_id.is_some()
                 || state.thread.source == "nativeTaskAgent"
             {

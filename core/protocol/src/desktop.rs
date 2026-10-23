@@ -256,6 +256,22 @@ pub struct SideStart {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SideCreate {
+    pub request_id: String,
+    pub source_thread_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_input: Option<Vec<super::Input>>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SideClose {
+    pub request_id: String,
+    pub thread_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
 #[serde(
     tag = "kind",
     rename_all = "camelCase",

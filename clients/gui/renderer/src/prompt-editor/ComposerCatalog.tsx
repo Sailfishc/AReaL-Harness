@@ -4,7 +4,7 @@ import type { AppSlashCommand } from "../slashCommandHelpers.js";
 import { SearchIcon } from "../interfaceIcons.js";
 import { useI18n } from "../i18n/IntlProvider.js";
 
-const CATALOG_GROUPS = ["功能", "会话", "应用", "Skills"] as const;
+const CATALOG_GROUPS = ["commands", "功能", "会话", "应用", "Skills"] as const;
 
 export interface ComposerCatalogEntry extends AppSlashCommand {
     group: typeof CATALOG_GROUPS[number];
@@ -111,11 +111,11 @@ export function ComposerCatalog({
                 aria-label={catalog.label ?? t("chat.composer.catalogLabel")}
                 className="composer-catalog-scroll"
             >
-                {CATALOG_GROUPS.map((group) => (
-                    <div key={group} role="group" aria-label={group === "会话" ? t("chat.composer.conversationsGroup") : group === "应用" ? catalog.appGroupLabel ?? catalog.label ?? t("chat.composer.appsGroup") : group === "功能" ? t("chat.composer.actionsGroup") : group}>
+                {CATALOG_GROUPS.filter(group => group !== "commands" || rows.some(row => row.group === group)).map((group) => (
+                    <div key={group} role="group" aria-label={group === "commands" ? t("chat.composer.commandsGroup") : group === "会话" ? t("chat.composer.conversationsGroup") : group === "应用" ? catalog.appGroupLabel ?? catalog.label ?? t("chat.composer.appsGroup") : group === "功能" ? t("chat.composer.actionsGroup") : group}>
                         {rows.some((row) => row.group === group) && (
                             <div className="composer-catalog-group">
-                                {group === "会话" ? t("chat.composer.conversationsGroup") : group === "应用" ? catalog.appGroupLabel ?? catalog.label ?? t("chat.composer.appsGroup") : group === "功能" ? t("chat.composer.actionsGroup") : group}
+                                {group === "commands" ? t("chat.composer.commandsGroup") : group === "会话" ? t("chat.composer.conversationsGroup") : group === "应用" ? catalog.appGroupLabel ?? catalog.label ?? t("chat.composer.appsGroup") : group === "功能" ? t("chat.composer.actionsGroup") : group}
                                 {group === "Skills" && <span>{t("chat.composer.addToCurrentMessage")}</span>}
                             </div>
                         )}

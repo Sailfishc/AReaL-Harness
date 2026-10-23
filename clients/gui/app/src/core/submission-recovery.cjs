@@ -11,7 +11,7 @@ const { taskMutationMethods } = require('./tasks.cjs');
 // remain UNKNOWN; recovery never resubmits a mutation or creates a new request ID.
 const workgroupMutationMethods = new Set(['areal/workgroup/start', 'areal/workgroup/revise', 'areal/workflow/start']);
 const reconciliationDelays = [500, 1000, 2000, 4000, 8000];
-const creationTargets = new Map([['areal/thread/start', 'thread'], ['areal/thread/fork', 'thread'], ['areal/side/start', 'thread'], ['areal/task/create', 'task']]);
+const creationTargets = new Map([['areal/thread/start', 'thread'], ['areal/thread/fork', 'thread'], ['areal/side/start', 'thread'], ['areal/side/create', 'thread'], ['areal/task/create', 'task']]);
 const processControls = new Set(['areal/process/write', 'areal/process/closeStdin', 'areal/process/resize', 'areal/process/terminate']);
 const operationOf = (method, params) => ({ method, requestId: params.requestId,
   target: creationTargets.has(method) ? { kind: 'project' } : params.taskId ? { kind: 'task', taskId: params.taskId }
@@ -313,7 +313,7 @@ class SubmissionRecovery {
         if (method !== 'areal/thread/configure' && project.configurationChanges?.has(parameters.threadId)) {
           throw new Error('会话配置正在更新，请稍后再发送任务');
         }
-        const conflicting = ['areal/thread/fork', 'areal/side/start'].includes(method)
+        const conflicting = ['areal/thread/fork', 'areal/side/start', 'areal/side/create'].includes(method)
           ? pending.find(value => value.method === method && value.params.sourceThreadId === parameters.sourceThreadId)
           : pending.find(value => !isRemoteControl(value) && (parameters.taskId ? value.params.taskId === parameters.taskId : parameters.threadId ? value.params.threadId === parameters.threadId : false) && !(value.remote && project.outcomes?.[value.operationId]?.remote));
         if (conflicting) {
@@ -469,6 +469,7 @@ class SubmissionRecovery {
         ...(entry.params.parentThreadId ? { parentThreadId: entry.params.parentThreadId } : {}),
         ...(result?.turnId ?? result?.turn?.id ? { turnId: result.turnId ?? result.turn.id } : {}),
         ...(entry.method === 'turn/steer' && entry.params.input ? { input: entry.params.input } : {}),
+        ...(entry.method === 'areal/side/close' ? { cleanupConfirmed: result?.cleanupConfirmed === true } : {}),
         ...(failure ? { message: this.host.providers.redact(failure.message) } : {}),
         ...(['areal/queue/update', 'areal/queue/pause', 'areal/queue/resume', 'areal/queue/remove', 'areal/queue/reorder'].includes(entry.method) && Number.isSafeInteger(result?.revision) ? { result: { revision: result.revision } } : {}),
       } };
