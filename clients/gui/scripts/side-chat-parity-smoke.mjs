@@ -580,7 +580,10 @@ async function normalComposerAndSideCommands() {
   assert.equal(await page.getByRole("option", { name: /侧边聊天|\/(?:side|btw)\b/ }).count(), 0, "app Side commands are absent from child catalog");
   await sideInput().fill("");
   for (const command of ["side", "btw"]) {
-    if (command === "btw") await sendMain("PARITY:STREAM_P5_PARENT", false);
+    if (command === "btw") {
+      await sendMain("PARITY:STREAM_P5_PARENT", false);
+      await until(() => requests.some(item => item.prompt === "PARITY:STREAM_P5_PARENT"), "busy parent reached the model before command request counting");
+    }
     const parentBefore = await readCoreThread(parent);
     const queueBefore = structuredClone(project(await state()).state.queues[parent]);
     const count = requests.length, tabs = await sideTabs().count();
