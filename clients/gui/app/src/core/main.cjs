@@ -108,15 +108,23 @@ function requestQuit(intent = 'application') {
   const attempt = { id: ++quitRequestSequence, intent, owner: null, frame: null, decide: null, approved: false,
     phase: null, startedAt: performance.now(), promise: null };
   quitAttempt = attempt;
+  const beginQuit = phase => {
+    attempt.approved = true;
+    quitting = true;
+    if (intent !== 'install') preview?.setPresentationSuppressed(true);
+    setQuitProgress(attempt, phase);
+  };
+  const notify = async options => {
+    recordQuitStage(attempt, 'native-confirmation');
+    const answer = await (process.platform === 'darwin' && intent !== 'install' ? dialog.showMessageBox(options) : dialog.showMessageBox(window, options));
+    if (answer.response === 1) { beginQuit('stopping'); recordQuitStage(attempt, 'stop'); }
+    return answer;
+  };
   attempt.promise = (async () => {
     if (!backend) throw new Error('界面仍在准备，请稍后退出');
     if (!await confirmRendererQuit(attempt)) { recordQuitStage(attempt, 'canceled'); return { canceled: true }; }
     if (quitting) { recordQuitStage(attempt, 'canceled'); return { canceled: true }; }
-    attempt.approved = true;
-    quitting = true;
-    if (intent !== 'install') preview?.setPresentationSuppressed(true);
-    setQuitProgress(attempt, 'checking');
-    recordQuitStage(attempt, 'checking');
+    if (intent === 'install') { beginQuit('checking'); recordQuitStage(attempt, 'checking'); }
     recordQuitStage(attempt, 'readiness');
     await backend.waitForApplicationReady();
     recordQuitStage(attempt, 'reconcile');
@@ -124,20 +132,19 @@ function requestQuit(intent = 'application') {
     if (backend.foreignOwner && (intent === 'install' || backend.desktopLifetimes.size))
       throw Object.assign(new Error('原后台属于其他应用会话，请先从其原入口安全退出，再重试安装'), { code: 'APPLICATION_OWNER_MISMATCH' });
     if (!backend.foreignOwner && !backend.serviceExited && (backend.status.connected || backend.metadata || backend.desktopLifetimes.size)) {
-      setQuitProgress(attempt, 'stopping');
       recordQuitStage(attempt, 'stop');
-      const result = await recoverConnectedService({ backend,
-        notify: async options => {
-          recordQuitStage(attempt, 'native-confirmation');
-          const answer = await (process.platform === 'darwin' && intent !== 'install' ? dialog.showMessageBox(options) : dialog.showMessageBox(window, options));
-          if (answer.response === 1) recordQuitStage(attempt, 'stop');
-          return answer;
-        }, purpose: intent === 'install' ? 'update' : 'quit', forUpdate: intent === 'install' });
+      const result = await recoverConnectedService({ backend, notify,
+        purpose: intent === 'install' ? 'update' : 'quit', forUpdate: intent === 'install' });
       if (result.stopped !== true) {
         recordQuitStage(attempt, result.canceled ? 'canceled' : 'incomplete');
         if (!result.canceled) backend.reportLifecycleError(new Error('应用后台停止尚未完成，请检查原请求与阻塞事项。'));
         return result;
       }
+    } else if (intent !== 'install') {
+      const answer = await notify({ type: 'question', message: '退出 AReaL Harness？',
+        detail: '退出将关闭当前应用界面。历史与草稿保留。',
+        buttons: ['取消', '退出'], defaultId: 1, cancelId: 0, noLink: true });
+      if (answer.response !== 1) { recordQuitStage(attempt, 'canceled'); return { canceled: true }; }
     }
     setQuitProgress(attempt, 'finishing');
     recordQuitStage(attempt, 'terminal');

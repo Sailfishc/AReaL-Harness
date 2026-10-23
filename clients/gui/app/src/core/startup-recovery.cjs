@@ -21,12 +21,13 @@ async function recoverConnectedService({ backend, notify, purpose = 'stop', forU
   const cancel = !observed.ifIdle;
   const retainedServices = purpose === 'quit' && (observed.service.remote?.enabled
     || observed.projects.some(project => project.tasks?.some(task => task.mode === 'scheduled' && !task.paused)));
-  if (cancel || retainedServices) {
-    if (!notify) throw Object.assign(new Error('取消后台任务需要原生确认'), { code: 'LIFECYCLE_CONFIRMATION_REQUIRED' });
-    const answer = await notify(purpose === 'quit' ? { type: 'warning', message: '退出 AReaL Harness？',
-      detail: (observed.projects.some(project => project.observation === 'unavailable')
+  if (purpose === 'quit' || cancel) {
+    if (!notify) throw Object.assign(new Error('退出应用或取消后台任务需要原生确认'), { code: 'LIFECYCLE_CONFIRMATION_REQUIRED' });
+    const answer = await notify(purpose === 'quit' ? { type: cancel || retainedServices ? 'warning' : 'question', message: '退出 AReaL Harness？',
+      detail: cancel || retainedServices ? (observed.projects.some(project => project.observation === 'unavailable')
         ? '部分工作区的任务状态暂时无法读取，退出可能中断其中的工作。\n\n' : '')
-        + '正在运行的对话和任务将中断。应用关闭期间，定时任务不会运行，手机连接也将断开。',
+        + '正在运行的对话和任务将中断。应用关闭期间，定时任务不会运行，手机连接也将断开。'
+        : '退出后，应用后台将关闭。历史与草稿保留。',
       buttons: ['取消', '退出'], defaultId: 1, cancelId: 0, noLink: true,
     } : { type: 'warning', message: '确认取消后台任务？',
       detail: (cancel ? '将取消所列工作区后台的活动执行，并暂停目标。未完成的资源清理仍可能阻止退出。\n\n' : '')
