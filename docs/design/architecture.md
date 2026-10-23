@@ -143,6 +143,8 @@ Fork 与 Side 的开发预览复用上述 Core/Runtime 所有权：Engine 创建
 
 桌面适配器的项目连接所有者管理退避、连接身份和快照重订；先连接兼容的运行中服务，仅对满足上述正向证明与代际约束的 Core 崩溃请求受控恢复，不重放未知提交。Main 初始化只连接原后台，部署变化展示显式更新入口，不自动换代。Desktop 生命周期 owner 在副作用前持久化绑定目标代际的意图，逐项目通过 Host 回执结算；Main 只保存引用与连接投影并核验原 Desktop 退出。受理未确认只核查原请求，已完成目标不重做；Core 的配置与权限重启边界继续生效。Workbench 共享桌面能力契约，Main 和服务入口校验各自允许的能力并保留结构化错误；Core 仍拥有配置和执行的最终校验。原生预览归 Electron Main，按项目/Thread 释放并有界缓存页面；界面从 Main 的权威快照投影每页一个顶层标签，与文件和终端共用标签栏；页面列表订阅归当前项目/Thread 的窗口投影，标签使用 `pageId` 定位，不建立另一套 Browser 生命周期或执行权限。具体恢复、类型覆盖及页面状态丢失边界见 GUI 指南的生命周期章节。
 
+Desktop 后台在同一进程内按职责装配三个模块：`project-connections.cjs` 管理连接身份、只读等待器、退避与受约束重连；`history-observation.cjs` 管理历史观察、分页、显示窗口和读取恢复，不获得写命令入口；`submission-recovery.cjs` 串行写入 pending/outcomes 并核对原请求收据，空收据和断线继续保持 UNKNOWN，不重发修改。`CoreBackend` 保留项目登记、部署、业务命令编排和既有调用入口，只注入显式依赖；模块共用原项目对象，不复制业务状态。历史窗口归观察模块，连接与核对计时器受原连接身份约束；重试时序、持久文件和 Core/Runtime 所有权不变，不新增进程。
+
 [Remote v2](remote-control.md) 的 Gateway 归现有桌面后台适配器，浏览器只持有受限投影；Core 与 Runtime 继续拥有执行和历史。Direct 与 Relay 共用 RemoteControl 拥有的 session acceptor、观察器和授权预算，传输适配器只提供字节/存活/背压。Direct 使用独立低权限入口，Relay 仅拥有连接路由与登记元数据；两者都不转发高权限本地接口。契约与实施状态见 [Remote API](../api/remote-control.md)，决策见 [Host 所有权](../adr/0008-remote-host-ownership.md)。
 
 Remote 的 React Workbench 直接复用桌面 `Messages`、`ConversationComposer`、模型/权限菜单、`ComposerQueue` 与 `GoalCard`。浏览器控制器仍拥有配对、代际、草稿与 commandId 核对；项目/Session 来自授权 Core 概览，详情使用有界原子订阅。`session.control` 只接收模型/权限、目标与文本队列意图，Gateway 校验后经现有 journal 派发；不提供通用 Core RPC 或凭据访问。普通 Session 的排队提交使用 Core 原子归属/配置准入检查，工具执行与历史权威不迁入浏览器。
