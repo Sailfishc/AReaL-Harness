@@ -51,7 +51,7 @@ macOS GUI 后台自动读取系统静态 HTTP、HTTPS 和 SOCKS 代理，供 Cor
 
 `--task-slice` 仅自动验证任务输入、过程、批准与拒绝以及真实文件副作用，跳过问题、浏览器和 Web 专项。它保存全窗口截图、源码与 Core 身份，并检查明暗主题、宽窄窗口及独立的 14/18 字号条件。偏好通过既有 localStorage 初态注入后重载，不证明设置 UI。原 `--focus-only` 继续验证 GUI 与本地 Web 的键盘审批。以上模式复用相同隔离启动和退出清理，均不替代真实供应商或安装包验收。
 
-`--appearance-slice` 从真实任务进入外观设置，通过控件修改主题、界面字号和内容字号，核对即时效果、偏好持久化及返回原任务后的草稿与阅读段落。它沿用同一隔离 Electron/Core 启动与清理。阅读位置在本次 GUI 进程内保留，字号重排后按段落恢复当前仍可用的正文，不承诺同一字符或跨重启的阅读位置，也不自动重新获取已释放的分页历史或完整内容。`--manual --reading-sample` 在批准写入后的回复中追加阅读样例，供手动修改外观并返回比较；样例不代表写入文件的正文。
+`--appearance-slice` 从真实任务进入外观设置，通过控件修改主题、界面字号和内容字号，核对即时效果、偏好持久化及返回原任务后的草稿与阅读段落。它沿用同一隔离 Electron/Core 启动与清理。本外观专项的阅读证据限于同一 GUI 进程。字号重排后按段落恢复当前仍可用的正文，既有证据不证明同一字符、Renderer 重载或应用重启后的阅读位置，也不证明自动重新获取已释放的分页历史或完整内容。同窗口重载恢复另见 [Messages 阅读合同](renderer/src/Messages.md#同窗口-renderer-恢复阅读)。`--manual --reading-sample` 在批准写入后的回复中追加阅读样例，供手动修改外观并返回比较；样例不代表写入文件的正文。
 
 模型设置采用供应商目录与详情两栏布局，左侧仅显示供应商名称，已启用与未启用分组以间距和分隔线区分，凭据及可用状态保留在右侧详情。详情按协议、名称、Base URL、认证与 API Key、模型排列。连接填写完整后自动获取模型，使用尚未保存的地址与密钥；可勾选添加或手动输入模型 ID，发现失败不会清空草稿。模型行保留启用开关及“更多”菜单，编辑模型使用居中弹窗，修改先保留在供应商草稿中。API Key 已配置时默认在输入框内显示固定掩码；点击眼睛按需查看已保存的明文，再次点击、切换供应商或离开页面后清除。查看不会产生修改，保存只提交新输入的替换值，留空保留现有凭据。保存允许任务继续运行，也允许暂不添加模型；文件保存后，空闲项目自动应用，页面分别显示已保存、等待生效与应用失败。现有任务保留原模型和凭据，Composer 目录在应用确认后更新。ChatGPT 订阅模型目录只读，账号管理与模型在同页。新会话沿用主会话最后一次受理的模型与思考强度，跨项目和重启保留；未发送修改、历史导航、Side 和后台执行不更新偏好。“会话配置”和模型行菜单提供备用默认模型，供没有记录或上次模型不可用时使用；已有会话保持不变。保存操作期间设置导航暂时禁用，等待后台生效不阻止继续编辑。手机访问配置通过“私人网络／公网／组织网络”切换，只展示当前方式的字段；详情、Relay 与恢复操作按需展开。Serve 方案确认、公网双重确认、组织来源确认及设备指纹、项目范围和权限批准均保留。共享配置接口见[配置指南](../../docs/guides/configuration.md#gui-与-cli-共享模型目录)。
 
@@ -224,6 +224,8 @@ macOS 安装包将 Desktop 放在独立应用身份的 `AReaL Harness Service.ap
 运行中的 Desktop 后台通过 `service.commandContract` 声明当前桌面命令契约。未声明的旧后台仍可观察原任务、读取历史和管理兼容队列；生命周期写入另需 version 2 能力，但新版消息提交、评价、插件 Apps/表单、新增默认模型操作及轨迹开关会在 Main 发送前拒绝。输入和评价草稿保持原样，界面提供更新后台入口，停止确认成功后重新连接；不会探测性写入或自动重发。Core 的能力声明不能替代 Desktop 转发层的声明。
 
 `AREAL_CORE_BIN=/absolute/path/to/private/.local/dev-bin/<slot>/areal pnpm --dir clients/gui run test:service-reopen` 验证 Renderer reload、强制崩溃后的显式刷新，以及两次窗口关闭与重开。Renderer 恢复后从权威快照重新挂接，保留 Main、Desktop、Host、Core 的进程身份、owner、代际和同一模型连接。脚本分别追加新的流片段，在生产 App 中检查历史、活动状态、草稿及新增回复，并完成原 Turn。随后用独立活动 Turn 验证应用退出与重启，要求新 owner 和代际、历史与草稿保留，且不重发中断输入。命名请求与用户执行请求分别计数；Runtime PID 按实际出现记录，不要求启动工具。`AREAL_REOPEN_FORCE_GUI=1` 将应用退出替换为 Main SIGKILL。源码 runner 的生命期连接在测试被杀后结束 Main，再由产品 owner 管道回收服务。可选 `AREAL_REOPEN_REPLACEMENT_BIN=/absolute/verified/areal` 用另一份真实 Mach-O 替换私有路径，验证同次应用窗口重开不隐式换代，随后恢复原字节和时间。未指定时验证文件时间变化不触发换代。
+
+同窗口 Renderer 阅读恢复已有隔离真实 Electron/Core 验证，运行与边界见 [E-RECOVERY](design-system/base-evidence.md#e-recovery)。构建匹配的 Core 与 renderer 后，从仓库根运行 `AREAL_CORE_BIN=/absolute/path/to/private/.local/dev-bin/<slot>/areal node clients/gui/scripts/service-reopen-smoke.mjs --reading-slice`。Core 固定路径必须是该 checkout 内的私有普通副本。此模式核对重载、Renderer 崩溃后显式重载的已加载段落与偏移、阅读历史时的新输出、键盘返回最新以及再次重载后的跟随。原任务、草稿、执行身份与模型请求计数同时检查，不重放原提交。脚本使用隔离的源码 Electron/Core 与确定性本地模型，不证明完整应用重启后的阅读恢复、未加载历史获取、展开状态、真实供应商、其他平台或安装包验收。详细边界见 [Messages 阅读合同](renderer/src/Messages.md#同窗口-renderer-恢复阅读)。 加上 `--manual` 后，脚本先完成自动检查，再保留阅读样例与草稿供操作。看到 `Manual ready` 后可在同一窗口刷新、返回最新并比较；关闭该窗口会清理脚本自有服务。
 
 Core 观察连接意外关闭时，项目连接所有者以 500ms 起步、最长 30s 的退避重试，通过 `service status --instance` 发现兼容的运行中实例，并用原子 `areal/thread/observe` 恢复 Thread/Task 快照、订阅和通知基线。观察恢复不重绑工具宿主；用户显式认领原生页时，才读取权威状态并在 Thread 空闲时尝试 `thread/resume` 绑定，仍受 Core 宿主冲突检查约束。恢复不重新提交任务、不同步 Provider/MCP 配置，也不执行配置 revision 屏障。旧连接的消息与异步结果失去投影写入资格。显式停止、适配器关闭、停止中的 Core 或部署指纹不兼容会阻止自动恢复；重新连接需显式操作。
 
