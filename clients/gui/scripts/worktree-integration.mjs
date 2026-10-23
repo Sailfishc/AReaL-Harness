@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { createServer } from "node:http";
 import { execFileSync } from "node:child_process";
 import { randomUUID, createHash } from "node:crypto";
-import { mkdtemp, mkdir, writeFile, readFile } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, realpath } from "node:fs/promises";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 const gui = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -11,7 +11,7 @@ const root = resolve(gui, "../..");
 const creationOnly = process.argv.includes("--creation-only");
 const require = createRequire(join(gui, "app/package.json"));
 const { CoreBackend } = require("../app/src/core/backend.cjs");
-const scratch = await mkdtemp("/tmp/aw-integration-");
+const scratch = await realpath(await mkdtemp("/tmp/aw-integration-"));
 const source = join(scratch, "source"),
   home = join(scratch, "desktop"),
   userHome = join(scratch, "user");
