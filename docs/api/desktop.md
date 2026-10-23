@@ -82,7 +82,7 @@ Desktop 在发送外层命令之前分配可恢复写入的原 `requestId`，复
 
 `openThread` 独占观察重试，包括连接仍健康时的读取超时；同一 Thread/连接共用一次有界恢复。权限、认证、大小和游标等确定性失败不自动重试。`observationErrors[threadId]` 使用独立 occurrence `id`、项目/Thread/连接代际、`reason`、`recovery` 与 `refreshPending` 描述读取故障，只在相应观察成功后清除；受理收据与读取故障分别投影。`pnpm --dir clients/gui run test:recovery` 验证真实 Core 上的创建刷新失败、晚到收据、健康连接超时、本机日志落盘失败及配置/Task 回执恢复。
 
-`areal/turn/submit` 是普通会话的原子提交入口，使用 `{requestId,threadId,expectedConfigRevision,intent}`。`intent` 互斥取 `{type:"message",input}`、`{type:"continue",expectedTurnId}` 或 `{type:"edit",expectedTurnId,itemId,input}`，继续分支不接受文本。能力由 `features.ordinaryTurnSubmit=true` 和方法声明共同确认。Core 在 lifecycle、Thread、普通所有权锁内先查收据，再核验配置、归属、归档、压缩、取消结算及 UNKNOWN。Task、Goal、Side 和任务管理会话沿用其既有入口。
+`areal/turn/submit` 是普通会话的原子提交入口，使用 `{requestId,threadId,expectedConfigRevision,intent}`。`intent` 互斥取 `{type:"message",input}`、`{type:"continue",expectedTurnId}` 或 `{type:"edit",expectedTurnId,itemId,input}`，继续分支不接受文本。能力由 `features.ordinaryTurnSubmit=true` 和方法声明共同确认。Core 在 lifecycle、Thread、普通所有权锁内先查收据，再核验配置、归属、归档、压缩、取消结算及 UNKNOWN。Task、Goal、旧版只读 Side 和任务管理会话沿用其既有入口。可执行 Side v2 的新消息使用普通提交入口，编辑与继续仍受各自契约限制。
 
 Edit 要求 `features.editLastMessage=true`，仅允许编辑空闲普通会话的最后一条用户消息，且队列无 pending/running 项。`expectedTurnId` 必须匹配最新轮次（包括继续轮次），`itemId` 必须匹配最后一条非继续用户消息。Core 展开归档历史，移除该消息及之后的条目/轮次，废弃上下文 checkpoint，并准备替代 Turn；校验、历史和收据一次持久化后才激活，拒绝时原历史保留。同轮追加指令之前的条目保留，已发生的文件和外部操作不回滚。提交后先发送 `areal/thread/edited {threadId,thread}`，明确替换客户端历史基线，再发送 `turn/started`；普通部分 Turn 事件仍按条目合并。掉响应核对原请求收据，不拆成撤回/发送两步，也不自动重发。
 
@@ -247,6 +247,22 @@ GUI 的 `tasks` 只读命令支持 `operation: list | inbox`、可选 `projectId
 <a id="side-chat-开发预览"></a>
 
 ## Side Chat
+
+### 可执行辅助对话
+
+客户端同时确认 `features.sideExecutableV2=true` 与 `areal/side/create`、`areal/side/close` 方法后启用新入口。
+
+新 GUI 使用 `areal/side/create {requestId,sourceThreadId,firstInput?}` 创建辅助对话。`firstInput` 是可选的普通输入数组；省略时创建空会话，不创建用户 Turn，也不请求模型。提供首条输入时，Core 将子会话、冻结历史、首轮和原始请求收据一起持久化，再启动执行。相同身份、请求键和参数返回同一子会话及可选首轮；结果未知时查询原收据，不重建会话或重发首问。Desktop 的 `side` 命令使用 `operation:"create"`，文字命令参数通过 `firstInput:{text}` 传入。
+
+新会话保存 `conversation.kind=side`、`version=2` 和 `policy.kind=sideExecutableV2`。Core 继承来源当前已生效的模型、模式与权限配置，创建独立队列、交互、执行状态和收据。模型使用完整的稳定来源历史，界面只显示子会话自己的消息。来源正在生成时，只保留当前轮已提交的用户输入，排除其后尚未完成的助手与工具增量。来源继续推进不改变该快照，也不自动推进子会话。继承历史不复制 Goal、活动工具、审批或后台任务。后续输入、附件、工具、权限交互和压缩复用普通会话路径与限额。Goal、编辑重试和 fork 仍被拒绝。旧的只读 Side 不自动升级。
+
+每个辅助对话有独立临时标签。划词只追加到同一来源当前激活的辅助标签；其他资源标签激活时创建新的辅助对话。主、辅 Composer 共享结构化引用，按来源与原文去重，单条最多 8,000 个 JavaScript 字符、每份草稿最多 8 条、总计最多 16,000 个字符。超限原子拒绝，已有正文与附件保留。发送只包含 `# userselect:` 和 `userselect` 代码块中的 `{text}` 数组，来源标识留在发送前 UI。裸 `/side` 与 `/btw` 创建空标签，带纯文字参数时创建并发送首问；含附件或结构化上下文时按主会话原路径提交。辅助对话不提供再次创建辅助对话的命令。
+
+`areal/side/close {requestId,threadId}` 关闭可执行辅助对话。Core 在停止前持久阻止后续受理，取消该会话工作并等待结算和资源清理。关闭结果与原收据关联；清理未知不视为成功，也不自动重放。单关、关闭其他和全部关闭复用该入口。隐藏面板或切换来源任务不关闭会话；应用重启不恢复这些临时标签或草稿。历史和收据仍由 Core 保留。Esc 按键盘事件所属会话停止；侧栏打开时对话外 Esc 不停止任务，侧栏关闭后由主会话接收默认停止入口。弹窗、输入建议和已消费的 Esc 优先。
+
+### 旧版只读 Side
+
+下述 `areal/side/start`、`sideReadOnlyV1`、选区锚点及只读额度描述旧版记录和兼容入口。
 
 `areal/side/start` 请求 `{requestId,sourceThreadId,anchor?,selection?,workspaceAccess:"none"|"readOnly",input:[{type:"text",text}]}`；`anchor` 可为 `latestCommitted` 或 `{kind:"turn",turnId,boundary:"before"|"after"}`，省略时选取首问受理时最后一个已提交 Turn。`selection` 可为 `{kind:"itemRange",turnId,itemId,startUtf8,endUtf8,textSha256}`，在冻结前缀的单个文本 Item 上按 UTF-8 字节范围及 SHA-256 摘要验证；重复原文按位置区分，边界、范围或摘要失效返回 `STALE_SELECTION`，首问未提交。对尚未落盘或无法精确映射的文本使用 `{kind:"userQuote",text,claimedTurnId?,claimedItemId?}`，持久标记为未确认用户引文，声明的 ID 不证明来源。`turn/after` 接受完成、失败和中断轮次，活动轮次返回 `TURN_NOT_TERMINAL`。空面板不创建 Thread。首问将目标独立 Session、不可变参考快照、首个 Turn 和业务收据一起提交，然后启动模型；同键重复请求在归档、历史移入冷段或重启后仍返回同一个目标与原首轮，不启动执行或取消归档。创建和同键重试返回 `thread.turns=[]`、`turn.items=[]` 的摘要，保留目标与首轮身份、状态和配置；完整历史从目标的 read/observe 恢复。提交后响应丢失时用 `areal/request/read {requestId}` 查找，不能改键重试。重启时已提交但尚未完成的轮次明确中断，不会重发首问。
 

@@ -142,7 +142,7 @@ const project = snapshot => snapshot.projects.find(item => item.id === projectId
 const threads = snapshot => project(snapshot)?.state?.threads ?? {};
 const currentId = () => page.getByTestId("areal-workbench").getAttribute("data-thread-id");
 const mainComposer = () => page.locator('.composer-dock:not(.side-chat-composer)').filter({ has: page.getByTestId("chat-input") }).first();
-const sidePane = () => page.getByRole("region", { name: "旁路讨论", exact: true });
+const sidePane = () => baseline ? page.getByRole("region", { name: "旁路讨论", exact: true }) : page.getByTestId("side-chat-pane").filter({ visible: true });
 const sideInput = () => sidePane().getByRole("textbox", { name: "随心输入", exact: true });
 const sideTabs = () => page.locator('[data-side-pane-tab-id^="side:"]');
 const mainMessages = () => page.getByTestId("chat-view").locator(".messages").first();

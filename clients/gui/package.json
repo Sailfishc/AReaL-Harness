@@ -103,7 +103,8 @@
     "test:i18n-native": "node scripts/migration-smoke.mjs --native-dialog-i18n",
     "test:core-crash-recovery": "node scripts/core-crash-recovery-smoke.mjs",
     "test:recovery-electron": "node scripts/recovery-electron-smoke.mjs run",
-    "test:gen-ui": "node scripts/gen-ui-smoke.mjs"
+    "test:gen-ui": "node scripts/gen-ui-smoke.mjs",
+    "test:side-chat-parity": "node scripts/side-chat-parity-smoke.mjs"
   },
   "devDependencies": {
     "fake-indexeddb": "6.2.4",
