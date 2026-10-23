@@ -50,11 +50,13 @@ final class InputControl {
     private var generation: UInt64 = 1
     private var lease: String?
     private var leaseDeadline = 0.0
+    private var hasAdmittedOwners = false
     private var active: ActionRun?
     private var keys: [CGKeyCode: CGEventFlags] = [:]
     private var buttons: [UInt32: CGPoint] = [:]
     private var tap: CFMachPort?
     private var monitorStarting = false
+    private let canListen: () -> Bool
     private var reason: String?
     let tag = Int64.random(in: 1...Int64.max)
     let source = CGEventSource(stateID: .privateState)
@@ -68,7 +70,8 @@ final class InputControl {
                 "controlEpoch": generation, "lastStopReason": reason as Any? ?? NSNull(),
                 "heldKeys": keys.count, "heldButtons": buttons.count, "takeoverMonitoring": monitored]
     }
-    init() {
+    init(canListen: @escaping () -> Bool = { CGPreflightListenEventAccess() }) {
+        self.canListen = canListen
         source?.localEventsSuppressionInterval = 0
         let permitted: CGEventFilterMask = [.permitLocalMouseEvents, .permitLocalKeyboardEvents, .permitSystemDefinedEvents]
         source?.setLocalEventsFilterDuringSuppressionState(permitted, state: .eventSuppressionStateSuppressionInterval)
@@ -76,7 +79,7 @@ final class InputControl {
     }
     func startMonitor() {
         lock.lock()
-        guard tap == nil, !monitorStarting, CGPreflightListenEventAccess() else { lock.unlock(); return }
+        guard tap == nil, !monitorStarting, canListen() else { lock.unlock(); return }
         monitorStarting = true; lock.unlock()
         let ready = DispatchSemaphore(value: 0)
         Thread.detachNewThread { [self] in
@@ -106,12 +109,15 @@ final class InputControl {
         if let lease, lease != owner.lease, leaseDeadline > nowMillis() || active != nil { throw ControlError("controller_busy", "Another project or turn owns computer control") }
         lease = owner.lease; leaseDeadline = nowMillis() + 60_000
     }
-    func checkOwner(_ owner: Owner) throws {
+    func admit(_ owner: Owner, epoch: UInt64) throws {
         lock.lock(); defer { lock.unlock() }
+        guard epoch == generation else { throw ControlError("human_control", "The admitted control generation was revoked; a new user turn is required") }
         if let lease, lease != owner.lease, leaseDeadline > nowMillis() || active != nil { throw ControlError("controller_busy", "Another project or turn owns computer control") }
+        hasAdmittedOwners = true
     }
     func begin(_ run: ActionRun) throws {
         lock.lock(); defer { lock.unlock() }
+        guard monitored else { throw ControlError("takeover_unavailable", "All native mutations require a working physical input monitor") }
         try reserve(run.owner, epoch: run.epoch)
         guard active == nil else { throw ControlError("controller_busy", "An action is already running") }
         active = run; reason = nil
@@ -140,6 +146,7 @@ final class InputControl {
         lock.lock(); defer { lock.unlock() }
         try checkLocked(run.epoch)
         guard active === run else { throw ControlError("control_stopped", "Action lease was revoked") }
+        guard monitored else { throw ControlError("takeover_unavailable", "Physical input monitoring is unavailable") }
         run.sent = true
         return try body()
     }
@@ -193,12 +200,12 @@ final class InputControl {
         try perform(run) { post(event) }
     }
     private func physicalInput() {
-        lock.lock(); let controlled = active != nil || (lease != nil && leaseDeadline > nowMillis()); lock.unlock()
+        lock.lock(); let controlled = hasAdmittedOwners || active != nil || (lease != nil && leaseDeadline > nowMillis()); lock.unlock()
         if controlled { stop("Physical user input took over computer control") }
     }
     func stop(_ reason: String) {
         lock.lock(); defer { lock.unlock() }
-        generation &+= 1; self.reason = reason; lease = nil; leaseDeadline = 0
+        generation &+= 1; self.reason = reason; lease = nil; leaseDeadline = 0; hasAdmittedOwners = false
         releaseLocked(); active = nil; activity?(status)
     }
     private func releaseLocked() {

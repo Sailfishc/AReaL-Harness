@@ -66,16 +66,20 @@ DispatchQueue.global(qos: .userInitiated).async {
                 output.sync {}
                 exit(0)
             }
-            if method == "prepare" || method == "execute" {
-                do { try helper.control.checkOwner(Owner(params)) }
-                catch { reply(id) { throw error }; continue }
+            var epoch = helper.control.epoch
+            let isStop = (params["arguments"] as? Object)?["operation"] as? String == Operation.stop.rawValue
+            if (method == "prepare" || method == "execute") && !isStop {
+                do {
+                    guard let admitted = integer(params["admissionEpoch"]), admitted > 0 else { throw ControlError("invalid_request", "Missing private admission generation") }
+                    epoch = UInt64(admitted)
+                    try helper.control.admit(Owner(params), epoch: epoch)
+                } catch { reply(id) { throw error }; continue }
             }
-            let epoch = helper.control.epoch
-            if method == "prepare", (params["arguments"] as? Object)?["operation"] as? String == Operation.stop.rawValue {
+            if method == "prepare", isStop {
                 reply(id) { try helper.prepareStop(params, epoch: epoch) }
                 continue
             }
-            if method == "execute", (params["arguments"] as? Object)?["operation"] as? String == Operation.stop.rawValue {
+            if method == "execute", isStop {
                 reply(id) { helper.executeStop(params, epoch: epoch) }
                 continue
             }

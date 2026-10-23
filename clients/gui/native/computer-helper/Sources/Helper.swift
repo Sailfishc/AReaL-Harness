@@ -40,15 +40,17 @@ final class PreparedPlan {
 }
 
 final class ComputerHelper {
-    let control = InputControl()
+    let control: InputControl
     let generation = UUID().uuidString
     private let windows = WindowRegistry()
     private var observations: [String: Observation] = [:]
     private var plans: [String: PreparedPlan] = [:]
     private let planLock = NSLock()
     var emit: ((Object) -> Void)?
-    init() {
+    init(control: InputControl = InputControl()) {
+        self.control = control
         control.activity = { [weak self] status in self?.emit?(["event": "activity", "status": status]) }
+        control.startMonitor()
     }
     func status() -> Object {
         let accessibility = AXIsProcessTrusted()
@@ -57,7 +59,7 @@ final class ComputerHelper {
         var value: Object = ["available": true, "platform": "darwin", "minimumOS": "14.0", "helperGeneration": generation,
                              "grantOwner": "com.areal.harness.computer-helper", "owner": ["display_name": "AReaL Computer Helper", "bundle_id": Bundle.main.bundleIdentifier ?? "com.areal.harness.computer-helper", "path": Bundle.main.bundlePath],
                              "accessibility": accessibility ? "granted" : "denied", "screenRecording": capture ? "granted" : "denied",
-                             "inputMonitoring": listen ? "granted" : "denied", "ready": accessibility && capture]
+                             "inputMonitoring": listen ? "granted" : "denied", "ready": accessibility && capture && listen && control.monitored]
         value.merge(control.status, uniquingKeysWith: { _, new in new })
         return value
     }
@@ -72,9 +74,12 @@ final class ComputerHelper {
     }
     func prepare(_ request: Object, epoch: UInt64) throws -> Object {
         try control.check(epoch)
+        control.startMonitor()
+        try control.check(epoch)
         let owner = try Owner(request)
         guard let arguments = request["arguments"] as? Object else { throw ControlError("invalid_request", "Missing arguments") }
         let command = try Command(arguments)
+        if command.operation.mutates && !control.monitored { throw ControlError("takeover_unavailable", "All native mutations require a working physical input monitor") }
         planLock.lock()
         plans = plans.filter { ($0.value.publicPlan["expiresAt"] as? Double ?? 0) > nowMillis() && $0.value.epoch == epoch }
         let planCount = plans.count
@@ -213,8 +218,6 @@ final class ComputerHelper {
             default: break
             }
             if action?.usesEvents == true {
-                control.startMonitor()
-                guard control.monitored else { throw ControlError("takeover_unavailable", "A physical input monitor is required for event actions") }
                 guard CGPreflightPostEventAccess() else { throw ControlError("permission_denied", "Accessibility event posting is unavailable") }
                 try window.requireForeground()
             }
@@ -279,7 +282,7 @@ final class ComputerHelper {
             switch command.operation {
             case .describe:
                 return envelope(["platform": "darwin", "minimumOS": "14.0", "methods": Operation.allCases.map(\.rawValue),
-                                 "requires": "Use state_id for AX indices and frame_id for raster coordinates. Observe again after mutations. Event input requires a foreground window and Input Monitoring. request_access is passive; grants are requested in Settings.",
+                                 "requires": "Use state_id for AX indices and frame_id for raster coordinates. Observe again after mutations. All mutations require a working Input Monitoring tap. Event input also requires a foreground window. request_access is passive; grants are requested in Settings.",
                                  "limits": ["planLifetimeMs": 45_000, "observationLifetimeMs": 90_000, "maximumElements": 750, "maximumRasterDimension": 4096, "maximumKeyHoldSeconds": 10, "maximumRepeatedHoldSeconds": 20]])
             case .requestAccess:
                 var value = status(); value["message"] = "Use AReaL Settings to grant access. Model calls never prompt."

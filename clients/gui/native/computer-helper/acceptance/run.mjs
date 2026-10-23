@@ -69,22 +69,30 @@ try {
   pass('owner, exact argument and one-use approval binding');
   const revoked = await prepare('describe');
   await host.stop('Acceptance revocation');
-  assert.equal((await host.execute(revoked)).isError, true);
-  pass('Stop revokes pending approvals');
+  await assert.rejects(() => host.execute(revoked), error => error.code === 'human_control' && error.actionSent === false);
+  await assert.rejects(() => host.prepare(request('get_app_state', { app_ref: { bundle_id: 'com.areal.harness.computer-fixture' } })), error => error.code === 'human_control');
+  pass('Stop revokes pending approvals and fences old-turn observation');
   enabled = false;
   await assert.rejects(async () => host.prepare(request('describe')), error => error.code === 'not_authorized' && error.actionSent === false);
   assert.equal((await host.status()).enabled, false);
   await host.stop('Disabled acceptance');
   assert.equal((await invoke('stop_computer_control', { reason: 'Model Stop remains available while disabled' })).structuredContent.stopped, true);
   enabled = true;
+  await assert.rejects(() => host.prepare(request('describe')), error => error.code === 'human_control');
+  owner.turnId = randomUUID();
   pass('disabled host denies reads while status and Stop remain available');
   if (status.accessibility !== 'granted') {
     await assert.rejects(() => host.prepare(request('get_app_state', { app_ref: { bundle_id: 'com.areal.harness.computer-fixture' } })), error => error.code === 'permission_denied' && error.dispatch_status === 'not_sent');
     pass('AX permission denial sends no action');
   }
   const previous = (await host.status()).helperGeneration;
+  const beforeRestart = request('describe');
+  await host.prepare(beforeRestart);
   assert.notEqual((await host.restart()).helperGeneration, previous);
-  pass('restart changes helper generation');
+  await assert.rejects(() => host.prepare(beforeRestart), error => error.code === 'human_control');
+  owner.turnId = randomUUID();
+  await invoke('describe');
+  pass('restart changes helper generation while preserving old-turn fencing');
   if (!options.actions) {
     evidence.gaps.push('Real AX actions, screenshots, event input, physical takeover, and packaged Core delivery require separate acceptance.');
   } else {
@@ -193,6 +201,8 @@ try {
       const cancelled = await executing;
       assert.equal(cancelled.structuredContent.dispatch_status, 'possibly_sent');
       await until(async () => { const received = (await truth()).events.slice(holdEvents); return received.some(event => event.type === 'keyUp' && event.keyCode === 0) && received.some(event => event.type === 'flagsChanged' && event.keyCode === 56 && event.modifiers === 0); }, 'Fixture did not receive key and modifier release after Stop');
+      await assert.rejects(() => host.prepare(request('get_app_state', { app_ref })), error => error.code === 'human_control');
+      owner.turnId = randomUUID();
       const dragPad = await padTarget();
       const interruptedDrag = await prepare('left_click_drag', { app_ref, state_id: dragPad.state_id, from_target: dragPad.target, to: { ...dragPad.target, x: dragPad.target.x + 60 } });
       const dragEvents = (await truth()).events.length;
@@ -201,7 +211,10 @@ try {
       assert.equal((await host.stop('Acceptance stops drag')).heldButtons, 0);
       assert.equal((await dragging).structuredContent.dispatch_status, 'possibly_sent');
       await until(async () => (await truth()).events.slice(dragEvents).some(event => event.type === 'mouseUp'), 'Fixture did not receive mouse release after Stop');
-      pass('competing project is excluded and both Stop paths release held keys and drag buttons in fixture truth');
+      await assert.rejects(() => host.prepare(request('get_app_state', { app_ref })), error => error.code === 'human_control');
+      owner.turnId = randomUUID();
+      await state();
+      pass('competing project is excluded and both Stop paths release held inputs, fence old turns, and admit new turns');
       evidence.gaps.push('Physical hardware takeover and SIGKILL cleanup require a separate operator run.');
     }
   }
