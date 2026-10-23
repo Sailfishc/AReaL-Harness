@@ -421,7 +421,7 @@ async fn cleanup_continues_after_response_deadline_and_updates_original_receipt(
     let workspace = tempfile::tempdir().unwrap();
     record["thread"]["cwd"] = json!(workspace.path().canonicalize().unwrap().to_str().unwrap());
     record["thread"]["desktop"]["configuration"]["allowPluginSkills"] = json!(true);
-    record["thread"]["desktop"]["processes"] = json!((0..5).map(|n| json!({
+    record["thread"]["desktop"]["processes"] = json!([4,0,1,2,3].into_iter().map(|n| json!({
         "id":format!("process-{n}"),"runtimeEpoch":if n == 4 { "old" } else { "delayed" },"scopeOperationId":format!("scope-op-{n}"),
         "scopeId":format!("scope-{n}"),"operationId":format!("process-op-{n}"),"processId":format!("native-{n}"),
         "lifetime":"thread","turnId":null,"owner":"fixture","argv":["fixture"],"state":"running",
@@ -576,6 +576,27 @@ async fn cleanup_continues_after_response_deadline_and_updates_original_receipt(
     })
     .await
     .unwrap();
+    let closed_processes = engine
+        .read(&child, false)
+        .await
+        .unwrap()
+        .desktop
+        .unwrap()
+        .processes;
+    assert!(
+        closed_processes
+            .iter()
+            .filter(|process| process.runtime_epoch == "delayed")
+            .all(|process| process.cleanup_confirmed),
+        "an earlier old-epoch process must not skip later live scopes"
+    );
+    assert!(
+        !closed_processes
+            .iter()
+            .find(|process| process.id == "process-4")
+            .unwrap()
+            .cleanup_confirmed
+    );
     assert_eq!(
         engine
             .side_close("fixture".into(), request.clone())
@@ -647,6 +668,11 @@ async fn cleanup_continues_after_response_deadline_and_updates_original_receipt(
         8,
         "each process cleanup is sent exactly once"
     );
+    for scope in ["scope-0", "scope-1", "scope-2", "scope-3"] {
+        for method in ["scope.revoke", "scope.waitClosed"] {
+            assert_eq!(observed.lock().unwrap().iter().filter(|(seen_method, seen_scope)| seen_method == method && seen_scope == scope).count(), 1, "{scope} {method} must occur exactly once");
+        }
+    }
     assert_eq!(
         observed
             .lock()

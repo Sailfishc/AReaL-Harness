@@ -502,27 +502,35 @@ impl Engine {
     pub(crate) async fn close_managed(&self, cell: &Cell, turn: Option<&str>) -> Result<()> {
         let _resources = cell.resource_gate.lock().await;
         let processes = desktop(&cell.state.lock().await.thread).processes;
+        let mut failure = None;
         for process in processes.into_iter().filter(|p| {
             !p.cleanup_confirmed
                 && turn
                     .is_none_or(|turn| p.lifetime == "turn" && p.turn_id.as_deref() == Some(turn))
         }) {
-            if let Some(runtime) = &self.runtime {
-                if process.runtime_epoch != runtime.client.info().runtime_epoch {
-                    return Err(invalid("old epoch resource requires inspection"));
+            let result = async {
+                if let Some(runtime) = &self.runtime {
+                    if process.runtime_epoch != runtime.client.info().runtime_epoch {
+                        return Err(invalid("old epoch resource requires inspection"));
+                    }
+                    if let Some(scope) = &process.scope_id {
+                        runtime.client.close_scope(scope).await.map_err(invalid)?;
+                    } else {
+                        return Err(invalid("UNKNOWN process scope requires inspection"));
+                    }
+                    self.edit_process(cell, &process.id, |p| {
+                        p.cleanup_confirmed = true;
+                        p.state = "closed".into();
+                    })
+                    .await?;
                 }
-                if let Some(scope) = &process.scope_id {
-                    runtime.client.close_scope(scope).await.map_err(invalid)?;
-                } else {
-                    return Err(invalid("UNKNOWN process scope requires inspection"));
-                }
-                self.edit_process(cell, &process.id, |p| {
-                    p.cleanup_confirmed = true;
-                    p.state = "closed".into();
-                })
-                .await?;
+                Ok(())
+            }
+            .await;
+            if let Err(error) = result {
+                failure.get_or_insert(error);
             }
         }
-        Ok(())
+        failure.map_or(Ok(()), Err)
     }
 }
