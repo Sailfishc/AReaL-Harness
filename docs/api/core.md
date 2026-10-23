@@ -270,6 +270,8 @@ Core 先检查父权限、Profile、写入授权、执行环境和源码快照�
 
 共享作者重新取得租约时若发现工作区版本冲突，同一模型响应的剩余调用均返回未执行的 `CONFLICT` 回执。模型成功观察原冲突回执后才能重新决策；这些准入拒绝不计入重复后端执行失败。隔离作者的制品采集同时保留真实基线文件和显式 `writes` 路径，包含被忽略的新交付文件。不存在的声明路径不会变成空文件，无关忽略产物仍不采集。
 
+`agent_wait` / `agent_wait_any` 在自动交付受阻时仍返回已确认的子任务结论和当前执行回执；`delivery.attemptError` 记录本次交付错误，`nextAction` 提供处理指引。权威交付状态、UNKNOWN、资源释放和完成门禁保持不变，等待返回成功不代表变更已应用。阻挡解除后复用原候选，不重新执行子任务。
+
 `agent_send_input` 可纠正共享子任务；回执中的 `capabilities.sendInput` 同时检查活动 Turn 是否封闭或已取消。调用返回 `inputAccepted:true` 表示修订已持久化；若读取状态后目标已关闭，则返回 `inputAccepted:false`、当前执行回执及 `nextAction`，不写入修订、不启动新 Turn、不增加重试。该未送达状态不能当作修订已执行。所有权、存储、额度和参数错误仍然报错，旧 threadId 协调入口使用同样语义。隔离任务契约已经冻结，需要先取消并确认结算，再提交新任务。取消会封闭共享子树准入并传播至后代；force 缩短收尾等待，不保证已发生的副作用回滚。统一执行历史记录中的 `cancelRequested` 持久化后不可撤销（查询投影字段为 `stopRequested`）：已完成但尚未交付的候选返回 `status=cancelled`、`delivery.status=cancelled`，等待、Turn 收尾及重启恢复均不再应用该候选。取消与交付并发时，已经开始的 Runtime 操作等待真实回执，之后不再启动下一项；`partial`、`unknown` 和已完成的 `applied` 回执保留，不伪装成未写入。取消候选仍可读取制品；需要修改或重新交付时提交新的执行。
 
 分析默认 `sharedReadOnly`；可信部署显式配置 `delegation.inspection_permissions="inherit"` 后为 `sharedInherited`。后者仍要求只交付报告，但不承诺源码不可写，不能取消父/Profile 的只读约束。可写继承子任务持久 `desktop.executionPolicy.deferredWrite=true`，首次潜在副作用取得工作区写租约直到该 Turn 资源与持久化结算；纯原生读取可并行，跨 Turn 服务和递归委派拒绝。`exclusiveWrite` 保留旧含义；旧快照缺失 deferredWrite 时按 false 读取。新快照和响应包含新增策略字段，客户端须使用同步 schema；不认识该字段的旧二进制不可降级打开，更不能删除字段以绕过执行策略。旧 sharedReadOnly 与研究 Agent 保持强制只读。TaskRun worker 同样在空 Thread 注册及首个模型请求前执行 scope.check。详见[权限配置](../guides/configuration.md#分析子任务的权限策略)。
@@ -491,7 +493,7 @@ Rust `Limits` 与 `ResolvedCoreConfig` 增加上述实验控制字段及 `comman
 
 ## 工具并发与执行进度
 
-工具执行按注册后端分类，`ToolPolicy.parallelReadCalls` 范围 1–4，默认 1 保留串行；并发性能候选须通过部署显式开启。连续的可信内置 `read_file/fs_read/fs_list/fs_stat/search_files` 可并行；写入、进程输入与游标、协调状态及外部同名工具形成顺序屏障。连续安全区段内按空闲槽滚动补位，遇到屏障必须先排空。匹配调用的全局 hook（精确工具名或 `*`）会使该调用串行；不匹配的全局 hooks 不阻塞读取。本 Turn 插件 hooks、有限输出额度或重复失败门禁仍使整段串行。每个调用独立准入、持久化意图和结算，部分失败先收齐在途结果；取消与 UNKNOWN 不自动重放。
+工具执行按注册后端分类，`ToolPolicy.parallelReadCalls` 范围 1–4，默认 1 保留串行；并发性能候选须通过部署显式开启。连续的可信内置 `read_file/fs_read/fs_list/fs_stat/search_files` 可并行；写入、进程输入与游标、协调状态及外部同名工具形成顺序屏障。连续安全区段内按空闲槽滚动补位，遇到屏障必须先排空。匹配调用的全局 hook（精确工具名或 `*`）会使该调用串行；不匹配的全局 hooks 不阻塞读取。本 Turn 插件 hooks 或重复失败门禁仍使整段串行。有限输出额度对可信读取逐调用预留有界收据与参数转义空间，并保留最终交接额度；空闲槽只使用尚未预留的容量，结算后回收未使用部分。余额不足以容纳并行收据时退回串行；不足以执行下一调用时返回未执行交接。收据违反预留约束时停止补位，保留已结算结果。每个调用独立准入、持久化意图和结算，部分失败先收齐在途结果；取消与 UNKNOWN 不自动重放。
 
 隔离 worker 继承父部署的纯 `ToolPolicy`，不复制外部工具、hooks、插件或凭据；父部署存在全局 hooks 时读取宽度保守为 1。订阅适配器保留 Core 的 `parallel_tool_calls` 布尔值，实际执行仍受 Core 屏障约束。
 
