@@ -320,6 +320,7 @@ impl Engine {
                         | "development_service_inspect"
                         | "read_tool_result"
                         | "read_history"
+                        | "read_conversation_context"
                         | "plan_update"
                         | "plan_read"
                         | "task_state"

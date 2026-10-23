@@ -33,6 +33,7 @@ import { ComposerMcpIcon } from "./ComposerIcons.js";
 import { ComposerMcp } from "./ComposerMcp.js";
 import { AttachmentIcon } from "./interfaceIcons.js";
 import type { ComposerCatalogEntry } from "./prompt-editor/ComposerCatalog.js";
+import { conversationReferenceEntries, type ConversationReference } from "./ConversationReferences.js";
 import { imageAnnotationBlocked, snapshotImageAnnotations, serializeImageAnnotations, useImageAnnotationRevision, type ImageAnnotationTarget } from "./imageAnnotations.js";
 import { BrowserAnnotationAttachments } from "./BrowserAnnotationAttachments.js";
 import { browserAnnotation, browserAnnotationText, useBrowserAnnotationEditing } from "./browserAnnotations.js";
@@ -70,6 +71,7 @@ export function Composer({
   onSide,
   onMcpMention,
   appEntries = [],
+  conversationReferences = [],
   onAnnotate,
   surfaceLayout = "default",
 }: {
@@ -85,9 +87,11 @@ export function Composer({
   onSide?: (draft: string) => void;
   onMcpMention?: () => void;
   appEntries?: readonly ComposerCatalogEntry[];
+  conversationReferences?: readonly ConversationReference[];
   onAnnotate?: (target: ImageAnnotationTarget) => void;
 }) {
   const { t } = useI18n();
+  const referenceEntries = conversationReferenceEntries(conversationReferences, t("chat.composer.conversationReference"));
   const prefs = useApplicationPreferences();
   const key = `areal-gui:draft:${project.id}:${thread.id}`;
   const mcpDraft = useMcpDraft(key);
@@ -467,8 +471,9 @@ export function Composer({
         submitLabel={queueEditor.edit ? "保存排队消息" : creatingGoal ? "开始目标" : canContinue ? "继续执行" : "发送"}
         enterSubmits={prefs.sendShortcut === "enter"}
         enableMentionPanel={false}
-        pluginMentionCatalog={queueEditor.edit ? undefined : plugins.catalog}
-        composerCatalog={{ ...skills.catalog, entries: [...catalogActions, ...appEntries, ...skills.catalog.entries].map(entry => ({ ...entry, disabled: entry.disabled || (!!queueEditor.edit && !["upload", "files", "mcp"].includes(entry.value)) })) }}
+        pluginMentionCatalog={{ ...plugins.catalog, entries: [...(queueEditor.edit ? [] : plugins.catalog.entries), ...referenceEntries],
+          searchLabel: t("chat.composer.searchReferences"), label: t("chat.composer.references"), appGroupLabel: plugins.catalog.label }}
+        composerCatalog={{ ...skills.catalog, entries: [...catalogActions, ...referenceEntries, ...appEntries, ...skills.catalog.entries].map(entry => ({ ...entry, disabled: entry.disabled || (!!queueEditor.edit && entry.group !== "会话" && !["upload", "files", "mcp"].includes(entry.value)) })) }}
         onChange={(value) => {
           setText(value);
           localStorage.setItem(key, value);

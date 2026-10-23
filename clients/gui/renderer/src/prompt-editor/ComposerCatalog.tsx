@@ -4,8 +4,10 @@ import type { AppSlashCommand } from "../slashCommandHelpers.js";
 import { SearchIcon } from "../interfaceIcons.js";
 import { useI18n } from "../i18n/IntlProvider.js";
 
+const CATALOG_GROUPS = ["功能", "会话", "应用", "Skills"] as const;
+
 export interface ComposerCatalogEntry extends AppSlashCommand {
-    group: "功能" | "应用" | "Skills";
+    group: typeof CATALOG_GROUPS[number];
     source?: string;
     disabled?: boolean;
     attached?: boolean;
@@ -18,17 +20,22 @@ export interface ComposerCatalogData {
     refresh: () => void;
     searchLabel?: string;
     label?: string;
+    appGroupLabel?: string;
 }
-export const filterCatalog = (entries: readonly ComposerCatalogEntry[], query: string) =>
-    entries.filter((entry) =>
+export const filterCatalog = (entries: readonly ComposerCatalogEntry[], query: string) => {
+    let recentConversations = 0;
+    const normalized = query.trim().toLowerCase();
+    return entries.filter((entry) =>
         [
             entry.value,
             entry.label,
             entry.description,
             entry.source ?? "",
             ...(entry.keywords ?? []),
-        ].some((value) => value.toLowerCase().includes(query.toLowerCase())),
-    );
+        ].some((value) => value.toLowerCase().includes(normalized)),
+    ).filter(entry => normalized.length > 0 || entry.group !== "会话" || recentConversations++ < 20)
+      .sort((a, b) => CATALOG_GROUPS.indexOf(a.group) - CATALOG_GROUPS.indexOf(b.group));
+};
 
 /** + 和斜杠共用视图及筛选；编辑器仍拥有光标和命令片段的删除。 */
 export function ComposerCatalog({
@@ -104,11 +111,11 @@ export function ComposerCatalog({
                 aria-label={catalog.label ?? t("chat.composer.catalogLabel")}
                 className="composer-catalog-scroll"
             >
-                {(["功能", "应用", "Skills"] as const).map((group) => (
-                    <div key={group} role="group" aria-label={group === "应用" ? catalog.label ?? t("chat.composer.appsGroup") : group === "功能" ? t("chat.composer.actionsGroup") : group}>
+                {CATALOG_GROUPS.map((group) => (
+                    <div key={group} role="group" aria-label={group === "会话" ? t("chat.composer.conversationsGroup") : group === "应用" ? catalog.appGroupLabel ?? catalog.label ?? t("chat.composer.appsGroup") : group === "功能" ? t("chat.composer.actionsGroup") : group}>
                         {rows.some((row) => row.group === group) && (
                             <div className="composer-catalog-group">
-                                {group === "应用" ? catalog.label ?? t("chat.composer.appsGroup") : group === "功能" ? t("chat.composer.actionsGroup") : group}
+                                {group === "会话" ? t("chat.composer.conversationsGroup") : group === "应用" ? catalog.appGroupLabel ?? catalog.label ?? t("chat.composer.appsGroup") : group === "功能" ? t("chat.composer.actionsGroup") : group}
                                 {group === "Skills" && <span>{t("chat.composer.addToCurrentMessage")}</span>}
                             </div>
                         )}

@@ -268,6 +268,31 @@ impl Engine {
         (ownership, OrdinaryAdmission { _tasks: tasks })
     }
 
+    pub(crate) async fn conversation_reference_available(&self, thread: &Thread) -> Result<bool> {
+        if thread.is_side() || thread.parent_thread_id.is_some() || thread.goal_owner.is_some()
+            || thread.source == "nativeTaskAgent"
+            || thread.desktop.as_ref().is_some_and(|desktop| desktop.configuration.options.append_instructions.starts_with("AREAL_TASK_DRAFT_V1\n")) {
+            return Ok(false);
+        }
+        let tasks = self.task_modes.state.lock().await;
+        if thread_ownership(thread, &tasks, None) != areal_protocol::desktop::ThreadOwnership::Ordinary {
+            return Ok(false);
+        }
+        if tasks.tasks.values().any(|task| task.mode == TaskMode::Scheduled
+            && (task.thread_id.as_deref() == Some(thread.id.as_str()) || task.runs.iter().any(|run| run.thread_id.as_deref() == Some(thread.id.as_str())))) {
+            return Ok(false);
+        }
+        for task in tasks.tasks.values().filter(|task| task.mode == TaskMode::Scheduled) {
+            let mut scheduled = false;
+            tasks.visit_history(&task.id, |segment| {
+                scheduled |= segment.runs.iter().any(|run| run.thread_id.as_deref() == Some(thread.id.as_str()));
+                Ok(())
+            })?;
+            if scheduled { return Ok(false); }
+        }
+        Ok(true)
+    }
+
     pub(super) async fn ordinary_admission(
         &self,
         thread: &Thread,

@@ -1,4 +1,5 @@
 import { composerFilesResponse, runComposerFilesAcceptance } from "./composer-files-acceptance.mjs";
+import { composerReferencesResponse, runComposerReferencesAcceptance } from "./composer-references-acceptance.mjs";
 import { assertApplicationStopped } from "./application-cleanup.mjs";
 import { respondToSessionName } from "./model-fixture.mjs";
 import { captureSmokeFailure, resizeConversation, selectConversation } from "./smoke-navigation.mjs";
@@ -14,10 +15,12 @@ import { createHash } from "node:crypto";
 const gui = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const desktop = join(gui, "app");
 const filesRegression = process.env.AREAL_COMPOSER_FILES_REGRESSION === "1";
+const referencesRegression = process.env.AREAL_COMPOSER_REFERENCES_REGRESSION === "1";
+const referencesFixture = { held: new Set() };
 const filesFixture = { held: new Set() };
 const skillsRegression = process.env.AREAL_COMPOSER_SKILLS_REGRESSION === "1";
-assert.ok(!(skillsRegression && filesRegression), "Choose one source fixture regression mode");
-assert.ok(!(skillsRegression || filesRegression) || !process.env.AREAL_GUI_EXECUTABLE, "Composer barriers require the source Electron fixture");
+assert.ok([skillsRegression, filesRegression, referencesRegression].filter(Boolean).length <= 1, "Choose one source fixture regression mode");
+assert.ok(!(skillsRegression || filesRegression || referencesRegression) || !process.env.AREAL_GUI_EXECUTABLE, "Composer regression modes require the source Electron fixture");
 let launchApp = desktop;
 const require = createRequire(join(desktop, "package.json"));
 const { _electron: electron } = require("playwright-core");
@@ -108,6 +111,7 @@ const server = createServer(async (req, res) => {
   if (respondToSessionName(body, res)) return;
   received.push(body);
   if (filesRegression) { composerFilesResponse(body, res, filesFixture); return; }
+  if (referencesRegression) { composerReferencesResponse(body, res, referencesFixture); return; }
   res.writeHead(200, { "Content-Type": "text/event-stream" });
   res.end(
     `data: ${JSON.stringify({ id: "fixture", choices: [{ index: 0, delta: { content: "COMPOSER_OK" }, finish_reason: null }] })}\n\ndata: ${JSON.stringify({ id: "fixture", choices: [{ index: 0, delta: {}, finish_reason: "stop" }], usage: { prompt_tokens: 12, completion_tokens: 2, total_tokens: 14 } })}\n\ndata: [DONE]\n\n`,
@@ -355,6 +359,8 @@ try {
   };
   if (filesRegression) {
     await runComposerFilesAcceptance({ app, page, pid, workspace, scratch, endpoint, desktop, call, state, project, until, received, checks, shot, fixture: filesFixture });
+  } else if (referencesRegression) {
+    await runComposerReferencesAcceptance({ app, page, pid, workspace, scratch, endpoint, desktop, call, state, project, until, received, checks, shot, fixture: referencesFixture });
   } else {
   if (skillsRegression) {
     const trace = async () => (await readFile(labelsTrace, "utf8").catch(error => {
@@ -1327,6 +1333,7 @@ try {
         runtime: "real Electron + real Rust Core/Runtime + deterministic local HTTP/SSE model",
         skillsRegression,
         filesRegression,
+        referencesRegression,
         modelRequests: "model-requests.json",
         authoritativeHistory: "authoritative-history.json",
         labelsTrace: skillsRegression ? labelsTrace : undefined,
