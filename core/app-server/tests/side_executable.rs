@@ -280,6 +280,17 @@ async fn closed_side_inspects_only_own_unknown_and_confirms_original_cleanup() {
         "type":"dynamicToolCall","id":"own-unknown","tool":"external_write","arguments":{},
         "status":"failed","success":false,"contentItems":[],"callId":"lost-call",
         "execution":{"runtimeEpoch":"old","scopeId":"old","operationId":"lost","outcome":"unknown"}}));
+    record["thread"]["desktop"]["processes"] = json!([{
+        "id":"own-process","runtimeEpoch":"old","scopeOperationId":"old-scope-op",
+        "scopeId":"old-scope","operationId":"old-process-op","processId":"old-native",
+        "lifetime":"thread","turnId":null,"owner":"fixture","argv":["fixture"],"state":"unknown",
+        "cleanupConfirmed":false,"error":null,"inputs":[]
+    }]);
+    record["thread"]["desktop"]["hookRuns"] = json!([{
+        "id":"own-hook","pluginId":"fixture","packageDigest":"fixture","definitionDigest":"fixture",
+        "event":"SessionEnd","turnId":null,"toolUseId":null,"operationId":"old-hook-op",
+        "outcome":"unknown","asynchronous":false,"delivered":false,"output":null,"inspection":null
+    }]);
     std::fs::write(&path, serde_json::to_vec(&record).unwrap()).unwrap();
     let f = Fixture::open(dir.path()).await;
     let mut socket = f.socket().await;
@@ -309,6 +320,44 @@ async fn closed_side_inspects_only_own_unknown_and_confirms_original_cleanup() {
     assert!(inspected.get("result").is_some(), "{inspected}");
     assert_eq!(
         call(&mut socket, "areal/side/close", close.clone()).await["result"]["cleanupConfirmed"],
+        false,
+        "other retained inspection obligations remain"
+    );
+    assert!(
+        call(
+            &mut socket,
+            "areal/process/acknowledgeCleanup",
+            json!({
+                "threadId":child,"id":"foreign-process","note":"External cleanup verified"
+            })
+        )
+        .await
+        .get("error")
+        .is_some()
+    );
+    let inspected = call(
+        &mut socket,
+        "areal/process/acknowledgeCleanup",
+        json!({
+            "threadId":child,"id":"own-process","note":"External cleanup verified"
+        }),
+    )
+    .await;
+    assert!(inspected.get("result").is_some(), "{inspected}");
+    assert_eq!(
+        call(&mut socket, "areal/side/close", close.clone()).await["result"]["cleanupConfirmed"],
+        false,
+        "unknown hook still requires inspection"
+    );
+    assert!(call(&mut socket, "areal/hook/acknowledge", json!({
+        "threadId":child,"requestId":"foreign-hook-inspection","invocationId":"foreign-hook","inspection":"Checked"
+    })).await.get("error").is_some());
+    let inspected = call(&mut socket, "areal/hook/acknowledge", json!({
+        "threadId":child,"requestId":"own-hook-inspection","invocationId":"own-hook","inspection":"Checked external hook evidence"
+    })).await;
+    assert!(inspected.get("result").is_some(), "{inspected}");
+    assert_eq!(
+        call(&mut socket, "areal/side/close", close.clone()).await["result"]["cleanupConfirmed"],
         true
     );
     assert!(
@@ -332,6 +381,12 @@ async fn closed_side_inspects_only_own_unknown_and_confirms_original_cleanup() {
     };
     assert_eq!(execution.outcome, areal_protocol::ToolOutcome::Unknown);
     assert!(execution.inspection.is_some());
+    let desktop = history.desktop.as_ref().unwrap();
+    assert_eq!(desktop.processes[0].state, "unknown");
+    assert!(desktop.processes[0].cleanup_confirmed);
+    assert!(desktop.processes[0].cleanup_attestation.is_some());
+    assert_eq!(desktop.hook_runs[0].outcome, "unknown");
+    assert!(desktop.hook_runs[0].inspection.is_some());
     assert!(f.model.0.lock().unwrap().is_empty());
     f.close(socket).await;
     let f = Fixture::open(dir.path()).await;
@@ -363,8 +418,11 @@ async fn cleanup_continues_after_response_deadline_and_updates_original_receipt(
     f.close(socket).await;
     let path = dir.path().join(format!("{child}.json"));
     let mut record: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-    record["thread"]["desktop"]["processes"] = json!((0..4).map(|n| json!({
-        "id":format!("process-{n}"),"runtimeEpoch":"delayed","scopeOperationId":format!("scope-op-{n}"),
+    let workspace = tempfile::tempdir().unwrap();
+    record["thread"]["cwd"] = json!(workspace.path().canonicalize().unwrap().to_str().unwrap());
+    record["thread"]["desktop"]["configuration"]["allowPluginSkills"] = json!(true);
+    record["thread"]["desktop"]["processes"] = json!((0..5).map(|n| json!({
+        "id":format!("process-{n}"),"runtimeEpoch":if n == 4 { "old" } else { "delayed" },"scopeOperationId":format!("scope-op-{n}"),
         "scopeId":format!("scope-{n}"),"operationId":format!("process-op-{n}"),"processId":format!("native-{n}"),
         "lifetime":"thread","turnId":null,"owner":"fixture","argv":["fixture"],"state":"running",
         "cleanupConfirmed":false,"error":null,"inputs":[]
@@ -380,16 +438,31 @@ async fn cleanup_continues_after_response_deadline_and_updates_original_receipt(
         while let Some(line) = lines.next_line().await.unwrap() {
             let request: Value = serde_json::from_str(&line).unwrap();
             let method = request["method"].as_str().unwrap();
+            if method == "scope.createParticipant"
+                && request["params"]["participation"]["kind"] == "hook"
+            {
+                peer_observed
+                    .lock()
+                    .unwrap()
+                    .push((method.into(), json!("unknown-hook")));
+                peer_write.write_all(format!("{}\n", json!({"id":request["id"],"error":{"code":"UNAVAILABLE","message":"lost hook scope admission"}})).as_bytes()).await.unwrap();
+                continue;
+            }
             let result = match method {
                 "connection.open" => {
                     json!({"protocolVersion":"areal.runtime.v0","runtimeEpoch":"delayed","connectionId":"fixture","rootScopeId":"root","capabilities":{"methods":["fs.execute"]}})
+                }
+                "scope.get" | "scope.createParticipant" => {
+                    json!({"scopeId":if method == "scope.createParticipant" {json!("hook-task")} else {request["params"]["scopeId"].clone()},"parentScopeId":"root","state":"active",
+                        "owner":{"taskId":"fixture"},"readRoots":["workspace://repo"],"writeRoots":["workspace://repo"],"network":"deny", "limits":{"wallTimeMs":60000,"outputBytes":8388608,"maxProcesses":4},
+                        "activeProcesses":0,"outputBytes":0,"cleanupError":null})
                 }
                 "scope.revoke" | "scope.waitClosed" => {
                     peer_observed
                         .lock()
                         .unwrap()
                         .push((method.to_owned(), request["params"]["scopeId"].clone()));
-                    if method == "scope.waitClosed" {
+                    if method == "scope.waitClosed" && request["params"]["scopeId"] != "hook-task" {
                         tokio::time::sleep(Duration::from_secs(8)).await;
                     }
                     json!({"scopeId":request["params"]["scopeId"],"parentScopeId":"root","state":if method == "scope.waitClosed" {"closed"} else {"revoking"},
@@ -409,7 +482,6 @@ async fn cleanup_continues_after_response_deadline_and_updates_original_receipt(
         }
     });
     let client = Client::connect(read, write).await.unwrap();
-    let workspace = tempfile::tempdir().unwrap();
     let engine = Engine::open_with_runtime(
         dir.path(),
         Arc::new(FixtureModel::default()),
@@ -423,6 +495,46 @@ async fn cleanup_continues_after_response_deadline_and_updates_original_receipt(
         },
     )
     .unwrap();
+    let home = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(workspace.path().join(".codex")).unwrap();
+    std::fs::write(
+        workspace.path().join(".codex/hooks.json"),
+        r#"{"hooks":{"SessionEnd":[{"hooks":[{"type":"command","command":"fixture"}]}]}}"#,
+    )
+    .unwrap();
+    engine
+        .install_hook_configuration(home.path().to_owned(), None)
+        .unwrap();
+    engine
+        .install_plugin_store(Arc::new(
+            areal_plugins::Store::open(home.path().join("plugins"), workspace.path().into(), None)
+                .unwrap(),
+        ))
+        .unwrap();
+    let hooks = engine.plugin_hooks_list().await.unwrap();
+    let hook = hooks["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|hook| hook["pluginId"] == "__hooks_project__")
+        .unwrap();
+    engine.plugin_hooks_configure(serde_json::from_value(json!({"requestId":"trust-side-end","id":"__hooks_project__","expectedDigest":hook["installedDigest"],"definitionDigest":hook["definitionDigest"],"enabled":true,"trusted":true})).unwrap()).await.unwrap();
+    engine
+        .start(&child, vec![areal_protocol::Input::text("child question")])
+        .await
+        .unwrap();
+    engine.wait(&child).await.unwrap();
+    assert_eq!(
+        engine
+            .read(&child, true)
+            .await
+            .unwrap()
+            .turns
+            .last()
+            .unwrap()
+            .status,
+        areal_protocol::TurnStatus::Completed
+    );
     let request: areal_protocol::desktop::SideClose =
         serde_json::from_value(json!({"threadId":child,"requestId":"delayed-close"})).unwrap();
     let first = tokio::time::timeout(
@@ -445,11 +557,18 @@ async fn cleanup_continues_after_response_deadline_and_updates_original_receipt(
     );
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
-            let result = engine
-                .side_close("fixture".into(), request.clone())
-                .await
-                .unwrap();
-            if result["cleanupConfirmed"] == true {
+            let thread = engine.read(&child, false).await.unwrap();
+            if thread
+                .desktop
+                .as_ref()
+                .unwrap()
+                .receipts
+                .iter()
+                .any(|receipt| {
+                    receipt.request_id == request.request_id
+                        && receipt.result["cleanupSettled"] == true
+                })
+            {
                 break;
             }
             tokio::time::sleep(Duration::from_millis(20)).await;
@@ -458,9 +577,85 @@ async fn cleanup_continues_after_response_deadline_and_updates_original_receipt(
     .await
     .unwrap();
     assert_eq!(
-        observed.lock().unwrap().len(),
+        engine
+            .side_close("fixture".into(), request.clone())
+            .await
+            .unwrap()["cleanupConfirmed"],
+        false
+    );
+    assert!(
+        engine
+            .acknowledge_process_cleanup(
+                "fixture".into(),
+                child.clone(),
+                "process-0".into(),
+                "Checked".into()
+            )
+            .await
+            .is_err(),
+        "current-epoch resources require Runtime cleanup"
+    );
+    engine
+        .acknowledge_process_cleanup(
+            "fixture".into(),
+            child.clone(),
+            "process-4".into(),
+            "Old Runtime cleanup verified externally".into(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        engine
+            .side_close("fixture".into(), request.clone())
+            .await
+            .unwrap()["cleanupConfirmed"],
+        false,
+        "hooks: {:?}; calls: {:?}",
+        engine
+            .read(&child, true)
+            .await
+            .unwrap()
+            .desktop
+            .unwrap()
+            .hook_runs,
+        observed.lock().unwrap()
+    );
+    let thread = engine.read(&child, true).await.unwrap();
+    let hook = thread
+        .desktop
+        .as_ref()
+        .unwrap()
+        .hook_runs
+        .iter()
+        .find(|hook| hook.event == "SessionEnd")
+        .unwrap();
+    assert_eq!(hook.outcome, "unknown");
+    engine.hook_acknowledge(serde_json::from_value(json!({"requestId":"inspect-side-end","threadId":child,"invocationId":hook.id,"inspection":"Hook evidence checked; no replay"})).unwrap()).await.unwrap();
+    assert_eq!(
+        engine.side_close("fixture".into(), request).await.unwrap()["cleanupConfirmed"],
+        true
+    );
+    assert_eq!(
+        observed
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(_, scope)| scope
+                .as_str()
+                .is_some_and(|scope| scope.starts_with("scope-")))
+            .count(),
         8,
         "each process cleanup is sent exactly once"
+    );
+    assert_eq!(
+        observed
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(method, _)| method == "scope.createParticipant")
+            .count(),
+        1,
+        "unknown hook admission is never replayed"
     );
     engine.shutdown().await;
     client.shutdown().await.unwrap();

@@ -884,12 +884,13 @@ impl Engine {
                 let cell = cleanup_cell;
                 let settled = settled.wait_for(|done| *done).await.is_ok();
                 while cell.state.lock().await.compacting { tokio::time::sleep(Duration::from_millis(10)).await; }
-                let processes = engine.close_managed(&cell, None).await;
+                // Retained process records gate final confirmation after inspection.
+                let _ = engine.close_managed(&cell, None).await;
                 let hooks = engine.plugin_hooks_end(&cell).await;
                 let apps = engine.close_thread_apps(&cleanup_request.thread_id).await;
                 cell.bindings.write().await.host = None;
                 let mut state = cell.state.lock().await;
-                if settled && processes.is_ok() && hooks.is_ok() && apps.is_ok() {
+                if settled && hooks.is_ok() && apps.is_ok() {
                     let mut candidate = state.thread.clone();
                     let record = candidate.desktop.as_mut().unwrap().receipts.iter_mut()
                         .find(|record| record.method == method && record.request_id == cleanup_request.request_id && record.identity == cleanup_identity).unwrap();

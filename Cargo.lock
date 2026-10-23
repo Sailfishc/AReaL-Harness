@@ -118,6 +118,7 @@ dependencies = [
  "anyhow",
  "areal-engine",
  "areal-local-service",
+ "areal-plugins",
  "areal-protocol",
  "areal-runtime",
  "areal-runtime-client",

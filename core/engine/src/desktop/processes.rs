@@ -233,11 +233,23 @@ impl Engine {
     ) -> Result<Value> {
         self.mutate(move|engine|async move {
             if note.trim().is_empty()||note.len()>4096 {return Err(invalid("external cleanup evidence note required (1..4096 bytes)"));}
-            let cell=engine.cell(&thread_id).await?;
+            let cell=engine.raw_cell(&thread_id).await?;
             let _resources=cell.resource_gate.lock().await;
-            let process=desktop(&cell.state.lock().await.thread).processes.into_iter().find(|p|p.id==id).ok_or(Error::NotFound)?;
+            let mut state=cell.state.lock().await;
+            let archived=state.thread.desktop.as_ref().is_some_and(|data|data.archived);
+            if archived && !state.thread.is_executable_side() {return Err(invalid("THREAD_ARCHIVED"));}
+            let mut candidate=if archived {
+                engine.store.read_thread(&thread_id).await.map_err(invalid)?
+            } else {state.thread.clone()};
+            let process=candidate.desktop.as_mut().ok_or(Error::NotFound)?.processes.iter_mut().find(|p|p.id==id).ok_or(Error::NotFound)?;
             if engine.runtime.as_ref().is_some_and(|r|r.client.info().runtime_epoch==process.runtime_epoch) {return Err(invalid("current epoch resources must be closed through Runtime"));}
-            engine.edit_process(&cell,&id,|p|{p.cleanup_confirmed=true;p.cleanup_attestation=Some(CleanupAttestation{identity,note,recorded_at:now()});}).await?;
+            process.cleanup_confirmed=true;
+            process.cleanup_attestation=Some(CleanupAttestation{identity,note,recorded_at:now()});
+            let result=process.clone();
+            engine.persist(&candidate).await?;
+            state.thread=candidate;
+            cell.emit("areal/process/updated",json!({"threadId":thread_id,"process":result}));
+            engine.finish_side_close(&cell,&mut state).await?;
             Ok(json!({"cleanupConfirmed":true,"source":"operatorAttestation","executionOutcomeUnchanged":true}))
         }).await
     }
