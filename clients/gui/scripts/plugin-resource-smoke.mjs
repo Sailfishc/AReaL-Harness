@@ -124,7 +124,8 @@ export async function verifyPluginResourceSlice({ app, page, state, until, plugi
     await row().focus();
     await page.keyboard.press("Enter");
     await page.getByTestId("plugin-detail-page").waitFor();
-    await page.getByRole("heading", { name: "已安装", exact: true }).waitFor();
+    await page.getByTestId("plugin-detail-page").getByRole("heading", { name: "Hello Plugin", exact: true }).waitFor();
+    await button("管理").waitFor();
     await button("返回插件列表").focus();
     await page.keyboard.press("Enter");
     await row().waitFor();
@@ -134,6 +135,7 @@ export async function verifyPluginResourceSlice({ app, page, state, until, plugi
     assert.ok(Math.abs((await row().boundingBox()).y - position.y) <= 2, "detail return retains plugin list position");
     await shot("resource-plugin-list-return");
     await row().press("Enter");
+    await button("管理").click();
     await button("管理启用范围").click();
     await button("资源范围").click();
     await page.getByRole("menuitemradio", { name: "当前项目", exact: true }).click();
