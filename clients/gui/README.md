@@ -215,6 +215,8 @@ pnpm --dir clients/gui run dist --platform mac --arch arm64 --formats dmg,zip --
 
 `--formats` 可选 `dmg`、`zip` 或 `dmg,zip`；`--output` 指定全新目录，默认生成独立时间戳目录，拒绝覆盖。`none` 不新增签名，保留输入已有签名，不保证应用签名有效或可启动；DMG 仅对字节完全一致的双份 Framework 去重。`adhoc` 是本地签名，不做公证。`developer-id` 复用现有签名、公证及安装包验收，要求两种格式；最终产物位于输出的 `signed/`，Apple 尚在处理时退出 2，使用 `pnpm --dir clients/gui run sign:mac --resume --output /absolute/output/signed` 恢复，不能重新提交未知状态的请求。此命令不发布。
 
+仅需签名、公证和归档时，Developer ID 命令可加 `--skip-tests`；恢复同一公证时也可用 `sign:mac --resume --skip-tests --output ...`。它跳过签名后的桌面 smoke 与模型专项，回执标记为 `skipped-by-request`；签名、Apple 公证、stapling、Gatekeeper、Core 完整性及 DMG 体积检查仍执行。签名前的历史输入预检保留。此模式不能宣称功能验收通过，正式发布整理仍要求测试通过。
+
 当前支持矩阵只有 **macOS arm64 原生构建**；Linux、Windows、x64 和跨平台构建显式报错，待各平台打包及服务所有者实现后接入同一入口。ZIP 不受 DMG 体积预算限制。DMG 在导出、正式发布整理及 GUI CI 中统一检查 **≤250 MiB（262,144,000 字节）**，超出即失败；不得绕过专用导出器临时创建交付镜像。可单独检查现有产物：`node clients/gui/scripts/dmg-size.mjs /absolute/package.dmg`。CI 实际构建 release DMG；候选构建成功不等于安装或 GUI 功能验收通过。
 
 ```sh
