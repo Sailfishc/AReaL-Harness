@@ -1,6 +1,7 @@
 import { captureSmokeFailure, resizeConversation } from "./smoke-navigation.mjs";
 import assert from "node:assert/strict";
 import { appearanceReply, verifyAppearanceSlice } from "./appearance-smoke.mjs";
+import { resourceMarkdown, resourcePath, resourceReply, verifyResourceSlice } from "./resource-smoke.mjs";
 
 import { createRequire } from "node:module";
 import { mkdtemp, mkdir, writeFile, readFile, rename } from "node:fs/promises";
@@ -13,13 +14,14 @@ const gui = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const desktop = join(gui, "app");
 const require = createRequire(join(desktop, "package.json"));
 const { _electron: electron } = require("playwright-core");
-const requestedModes = ["focus-only", "task-slice", "appearance-slice", "manual"].filter(mode => process.argv.includes(`--${mode}`));
+const requestedModes = ["focus-only", "task-slice", "appearance-slice", "resource-slice", "manual"].filter(mode => process.argv.includes(`--${mode}`));
 assert.ok(requestedModes.length <= 1, "Choose one interaction mode");
 const runMode = requestedModes[0] ?? "verify";
 const focusOnly = runMode === "focus-only";
 const taskSlice = runMode === "task-slice";
 const manual = runMode === "manual";
 const appearanceSlice = runMode === "appearance-slice";
+const resourceSlice = runMode === "resource-slice";
 const readingSample = process.argv.includes("--reading-sample");
 assert.ok(!readingSample || manual, "--reading-sample requires --manual");
 const forcedProfile = runMode !== "verify";
@@ -111,12 +113,15 @@ const server = createServer(async (req, res) => {
   const messages = body.messages ?? [];
   const index = messages.findLastIndex(m => m.role === "user" && (manual
     ? !messageText(m).startsWith("AReaL runtime context (not a user request):")
-    : /(?:write:|question:|browser:|appearance:)/.test(messageText(m))));
+    : /(?:write:|question:|browser:|appearance:|resource:)/.test(messageText(m))));
   const text = messageText(messages[index]);
   const responded = messages.slice(index + 1).some(m => m.role === "tool");
   res.writeHead(200, { "Content-Type": "text/event-stream" });
   const send = (delta, finish_reason = null) => res.write(`data: ${JSON.stringify({ id:"fixture", choices:[{ index:0, delta, finish_reason }] })}\n\n`);
-  if (manual) {
+  if (resourceSlice && !messages.some(message => message.role === "user" && messageText(message).startsWith("resource:"))) {
+    send({ content: "项目资源简报" });
+    send({}, "stop");
+  } else if (manual) {
     const tool = messages.slice(index + 1).findLast(message => message.role === "tool" && manualWrites.has(message.tool_call_id));
     if (tool) {
       const write = manualWrites.get(tool.tool_call_id);
@@ -142,6 +147,17 @@ const server = createServer(async (req, res) => {
       send({}, "tool_calls");
     } else {
       send({ content: "本轮没有可确认的写入结果。" });
+      send({}, "stop");
+    }
+  } else if (resourceSlice && text.includes("resource:")) {
+    if (!responded) {
+      send({ tool_calls: [{ index: 0, id: "resource-write", type: "function", function: { name: "fs_create", arguments: JSON.stringify({ path: resourcePath, text: resourceMarkdown }) } }] });
+      send({}, "tool_calls");
+    } else {
+      const receipt = messages.slice(index + 1).findLast(message => message.role === "tool");
+      const result = JSON.parse(messageText(receipt));
+      assert.equal(result.sha256, createHash("sha256").update(resourceMarkdown).digest("hex"), "fixture reply requires genuine Core file receipt");
+      send({ content: resourceReply(workspace) });
       send({}, "stop");
     }
   } else if (appearanceSlice && text.includes("appearance:")) {
@@ -479,7 +495,7 @@ try {
       window.dispatchEvent(new CustomEvent("areal-draft-change", { detail: key }));
     }, pid);
   }
-  if (manual || taskSlice || appearanceSlice) await recordCoreIdentity();
+  if (manual || taskSlice || appearanceSlice || resourceSlice) await recordCoreIdentity();
   if (manual) {
     await page.getByTestId("chat-input").waitFor();
     assert.equal(received.length, 0, "manual startup sends no model request");
@@ -493,8 +509,9 @@ try {
     }, null, 2));
     console.log(`MANUAL READY. 输入普通中文要求，例如“请为项目写一份快速开始说明”。每轮生成独立 Markdown，只有你批准才写入。\n隔离项目 ${workspace}\n关闭窗口或 Ctrl+C 退出并清理本实例。`);
     await manualExit;
-  } else if (appearanceSlice) {
-    await verifyAppearanceSlice({ app, page, state, project, until, received, visualEvidence, checks, fullShot, setThread: id => { tid = id; } });
+  } else if (appearanceSlice || resourceSlice) {
+    const verify = resourceSlice ? verifyResourceSlice : verifyAppearanceSlice;
+    await verify({ app, page, state, project, until, received, visualEvidence, checks, fullShot, workspace, setThread: id => { tid = id; } });
     assert.equal(errors.length, 0, "renderer has no page errors");
     await writeFile(join(scratch, "final-state.json"), JSON.stringify(await state(), null, 2));
     assert.equal(createHash("sha256").update(await readFile(binary)).digest("hex"), binarySha256AtStart, "Core binary stayed frozen during acceptance");

@@ -271,7 +271,7 @@ function AppContent({ services }: { services: PlatformServices }) {
   const [panelTabs, setPanelTabs] = useState<string[]>([]);
   const [previewFileTab, setPreviewFileTab] = useState<string | undefined>();
   const sideNarrow = React.useRef(false);
-  const sideTrigger = React.useRef<{ element: HTMLElement; route: string } | null>(null);
+  const panelReturnTarget = React.useRef<{ element: HTMLElement; route: string } | null>(null);
   const [workspaceView, setWorkspaceView] = useState<"split" | "panel" | "conversation">("split");
   const [filesOpen, setFilesOpen] = useState(false);
   const [revealedFile, setRevealedFile] = useState("");
@@ -506,19 +506,19 @@ function AppContent({ services }: { services: PlatformServices }) {
   const previewOwner = React.useRef("");
   previewOwner.current = `${project?.id ?? ""}:${threadId}`;
   const browserWorkspace = useBrowserWorkspace(services, project?.id ?? "", threadId, browserPageId(panel));
-  const rememberSideTrigger = useCallback(() => {
+  const rememberPanelTrigger = useCallback(() => {
     const focused = document.activeElement;
     const element = focused?.getAttribute("role") === "menuitem"
       ? document.querySelector<HTMLElement>('[aria-haspopup="menu"][aria-expanded="true"]') ?? focused : focused;
-    if (element instanceof HTMLElement && panel !== "旁路讨论") sideTrigger.current = { element, route: `${projectId}:${threadId}` };
-  }, [panel, projectId, threadId]);
+    if (element instanceof HTMLElement && !element.closest(".side-panel")) panelReturnTarget.current = { element, route: `${projectId}:${threadId}` };
+  }, [projectId, threadId]);
   const openingBrowser = React.useRef<string | null>(null);
   const openBrowser = useCallback(async (create = false, url?: string) => {
     if (!project) return;
     const owner = `${project.id}:${threadId}`;
     if (openingBrowser.current === owner) return;
     openingBrowser.current = owner;
-    if (!isBrowserTab(panel)) rememberSideTrigger();
+    if (!isBrowserTab(panel)) rememberPanelTrigger();
     try {
       let value = await browserWorkspace.request("state");
       if (previewOwner.current !== owner) return;
@@ -534,7 +534,7 @@ function AppContent({ services }: { services: PlatformServices }) {
       setPanel(browserTabId(pageId));
     } catch (cause) { if (previewOwner.current === owner) setError((cause as Error).message); }
     finally { if (openingBrowser.current === owner) openingBrowser.current = null; }
-  }, [project?.id, threadId, browserWorkspace.request, panel, rememberSideTrigger]);
+  }, [project?.id, threadId, browserWorkspace.request, panel, rememberPanelTrigger]);
   useEffect(() => services.onPreviewEvent?.(event => {
     // 仅呈现当前聊天已由 Core 批准的页面，不切换后台聊天或重放导航。
     if (event.kind !== 'reveal' || previewOwner.current !== `${event.projectId}:${event.threadId}`) return;
@@ -956,6 +956,7 @@ function AppContent({ services }: { services: PlatformServices }) {
     }).catch(cause => { if (previewOwner.current === owner) setError(cause.message); });
   }, [services, project?.id, threadId, openBrowser]);
   const openFile = (path: string) => {
+    rememberPanelTrigger();
     setWorkspaceView(mode => mode === "split" ? mode : "panel");
     const relative =
       project && path.startsWith(project.root + "/") ? path.slice(project.root.length + 1) : path;
@@ -995,12 +996,13 @@ function AppContent({ services }: { services: PlatformServices }) {
     setPanel(create ? addTerminal(owner) : ensureTerminal(owner));
   };
   const hidePanel = () => {
-    const returning = panel === "旁路讨论" || panel.startsWith("agent:") || isBrowserTab(panel);
+    const returning = panel === "旁路讨论" || panel.startsWith("agent:") || isBrowserTab(panel) || panel.startsWith("file:") || panel === "改动";
+    const owner = `${projectId}:${threadId}`;
+    const trigger = panelReturnTarget.current;
     setWorkspaceView("split"); setPanel("");
     if (returning) requestAnimationFrame(() => {
-      const trigger = sideTrigger.current;
-      if (trigger?.route !== `${projectId}:${threadId}`) return;
-      if (trigger.element.isConnected) trigger.element.focus({ preventScroll: true });
+      if (previewOwner.current !== owner) return;
+      if (trigger?.route === owner && trigger.element.isConnected && trigger.element.getClientRects().length) trigger.element.focus({ preventScroll: true });
       else document.querySelector<HTMLElement>('[data-testid="chat-input"]')?.focus({ preventScroll: true });
     });
   };
@@ -1017,7 +1019,8 @@ function AppContent({ services }: { services: PlatformServices }) {
   const showPanel = (name: string) => {
     if (!initialReleased) return;
     if (name === "预览") { void openBrowser(); return; }
-    if (name === "旁路讨论" || name.startsWith("agent:")) { if (panel === name) { hidePanel(); return; } rememberSideTrigger(); }
+    if (name === "改动") rememberPanelTrigger();
+    if (name === "旁路讨论" || name.startsWith("agent:")) { if (panel === name) { hidePanel(); return; } rememberPanelTrigger(); }
     setWorkspaceView(mode => name === "旁路讨论" && matchMedia("(max-width: 1200px)").matches ? "panel" : mode === "split" ? mode : "panel");
     if (["编辑目标", "执行计划", "上下文", "已保存授权", "进程"].includes(name)) {
       setPanel(name);
@@ -1416,7 +1419,7 @@ function AppContent({ services }: { services: PlatformServices }) {
           fullAddress={library.settings?.browserFullAddress === true}
           thread={thread}
           action={resourceAction}
-          onReview={turnId => { setReviewRequest({ owner: panelOwner, turnId }); setPanel("改动"); }}
+          onReview={turnId => { rememberPanelTrigger(); setReviewRequest({ owner: panelOwner, turnId }); setPanel("改动"); }}
           onTool={itemId => {
             setWorkspaceView("split");
             requestAnimationFrame(() => document.querySelector(`[data-tool-id="${CSS.escape(itemId)}"]`)?.scrollIntoView({ block: "center" }));
@@ -1493,7 +1496,7 @@ function AppContent({ services }: { services: PlatformServices }) {
   };
   const openSideSelection = (selection: Data, excerpt: string, anchor?: Data) => {
     if (!canStageSelection || !project || !thread || project.core?.features?.sidePreview !== true) return;
-    rememberSideTrigger();
+    rememberPanelTrigger();
     const workspace = new SideDraftWorkspace(localStorage, { instanceId: project.core?.instanceId ?? "unknown",
       projectId: project.id, sourceThreadId: thread.id, randomId: () => crypto.randomUUID() });
     const draft = workspace.current();
@@ -1809,8 +1812,10 @@ function AppContent({ services }: { services: PlatformServices }) {
                     aria-pressed={Boolean(panel)}
                     disabled={!project}
                     onClick={() => {
+                      if (panel) { hidePanel(); return; }
+                      rememberPanelTrigger();
                       const last = panelViews.current.get(panelOwner)?.lastPanel;
-                      setPanel(panel ? "" : last && (last === "功能" || panelTabs.includes(last)) ? last : panelTabs.at(-1) ?? "功能");
+                      setPanel(last && (last === "功能" || panelTabs.includes(last)) ? last : panelTabs.at(-1) ?? "功能");
                     }}
                   >
                     <SidePanelIcon />
@@ -1893,7 +1898,7 @@ function AppContent({ services }: { services: PlatformServices }) {
                           dark={dark}
                           onLink={onLink}
                           onFile={openFile}
-                          onReview={turnId => { setReviewRequest({ owner: panelOwner, turnId }); setPanel("改动"); setWorkspaceView(mode => mode === "split" ? mode : "panel"); }}
+                          onReview={turnId => { rememberPanelTrigger(); setReviewRequest({ owner: panelOwner, turnId }); setPanel("改动"); setWorkspaceView(mode => mode === "split" ? mode : "panel"); }}
                           readTurnReview={readTurnReview}
                           onAgent={id => showPanel(`agent:${id}`)}
                         />
@@ -1926,7 +1931,7 @@ function AppContent({ services }: { services: PlatformServices }) {
                           readAction={resourceAction}
                           onPanel={showPanel}
                           onSide={project.core?.features?.sidePreview === true && !thread.desktop?.archived && !thread.parentThreadId && thread.conversation?.kind !== "side" ? draft => {
-                            rememberSideTrigger();
+                            rememberPanelTrigger();
                             const workspace = new SideDraftWorkspace(localStorage, { instanceId: project.core?.instanceId ?? "unknown",
                               projectId: project.id, sourceThreadId: thread.id, randomId: () => crypto.randomUUID() });
                             const current = workspace.current();
