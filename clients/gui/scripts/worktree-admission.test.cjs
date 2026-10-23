@@ -218,6 +218,7 @@ test("cleanup, queue pause and readonly Side discussion remain possible for the 
         "goalPause",
         "closeResources",
         "taskStopRun",
+        "taskDelete",
     ])
         await f.run("manage", { threadId: "second", operation });
     await f.run("queueEdit", { threadId: "second", operation: "pause" });
@@ -228,7 +229,7 @@ test("cleanup, queue pause and readonly Side discussion remain possible for the 
         required,
     );
     await assert.rejects(f.run("workspace", { threadId: "side", operation: "save" }), required);
-    assert.equal(f.dispatched.length, 9);
+    assert.equal(f.dispatched.length, 10);
 });
 
 test("an unowned background process or unresolved cleanup blocks first authorship before dispatch", async (t) => {

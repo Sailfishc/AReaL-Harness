@@ -1354,8 +1354,8 @@ function AppContent({ services }: { services: PlatformServices }) {
             <DropdownMenuContent>
               <DropdownMenuItem onClick={() => requestNavigation(() => {updateSettingsOpen(false);setTaskScope(owner.id);setTaskNotification(undefined);setTaskCenterOpen(true);})}>定时任务</DropdownMenuItem>
               <DropdownMenuItem onClick={() => startRename({ operation: "renameProject", projectId: owner.id }, library.projects?.[owner.id]?.title || owner.root.split("/").pop())}>重命名</DropdownMenuItem>
-              <DropdownMenuItem disabled={!services.fileOpen} onClick={() => void contextualFileOpen?.({ operation: "open", projectId: owner.id, path: "." }).catch(cause => setError(cause.message))}>在默认应用中打开</DropdownMenuItem>
-              <DropdownMenuItem disabled={!services.fileOpen} onClick={() => void contextualFileOpen?.({ operation: "reveal", projectId: owner.id, path: "." }).catch(cause => setError(cause.message))}>在文件管理器中显示</DropdownMenuItem>
+              <DropdownMenuItem disabled={!services.fileOpen} onClick={() => void services.fileOpen?.({ operation: "open", projectId: owner.id, path: "." }).catch(cause => setError(cause.message))}>在默认应用中打开</DropdownMenuItem>
+              <DropdownMenuItem disabled={!services.fileOpen} onClick={() => void services.fileOpen?.({ operation: "reveal", projectId: owner.id, path: "." }).catch(cause => setError(cause.message))}>在文件管理器中显示</DropdownMenuItem>
               <DropdownMenuItem onClick={() => organize({ operation: "pinProject", projectId: owner.id, pinned: !library.projects?.[owner.id]?.pinned })}>{library.projects?.[owner.id]?.pinned ? "取消置顶项目" : "置顶项目"}</DropdownMenuItem>
               {([[-1, "上移"], [1, "下移"]] as const).map(([direction, label]) => {
                 const siblings = projects.filter(candidate => (!!library.projects?.[candidate.id]?.pinned === !!library.projects?.[owner.id]?.pinned));

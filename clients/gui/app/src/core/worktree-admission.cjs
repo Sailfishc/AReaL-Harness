@@ -23,6 +23,7 @@ const cleanup = new Set([
     "executionCancel",
     "workgroupCancel",
     "taskCancel",
+    "taskDelete",
     "taskPause",
     "taskStopRun",
     "goalPause",
