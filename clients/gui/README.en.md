@@ -93,6 +93,14 @@ MCP app pages stay live within a window. Tab switches, panel hiding, conversatio
 
 Supported successful MCP tool records offer **Open interactive result**. Opening reads the saved effective input and result without repeating the business tool. Repeated opening focuses the same page and preserves edits. Explicit close permits a fresh reopen; an old request cannot revive a closed page. Missing old provenance, an invalid package or original connection, and page failures preserve the readable result. Reading history does not automatically mount pages. `AREAL_MCP_RESULT_MODE=1 pnpm --dir clients/gui run test:mcp-app-lifecycle` exercises this path with an ordinary model call and an independent MCP counter.
 
+## Generated interactive answers
+
+Main and Side Chat can display generated interactive pages after an assistant reply completes. The model publishes an HTML fragment of up to 48 KiB through Core's `gen_ui_publish`, then references the protected artifact with `::visualize`. Ordinary file paths, user messages, and code examples cannot open executable pages. Pages share the MCP Apps sandbox and the eight-page limit per window. They have no Node, arbitrary file, tool, or network access.
+
+Saved page state contains `modelContent` and `privateContent`, limited to 16 KiB per entry and 100 entries per conversation. Reopening a page in the same Desktop profile restores saved state. Later main and Side submissions append only bounded `modelContent`, excluding `privateContent` from model requests. Parameter changes and saves do not send messages. Page follow-ups wait for saves, then present an editable host confirmation before using the original conversation's send path. Unknown admission reads the original receipt without automatic resend. State does not synchronize across devices.
+
+`pnpm --dir clients/gui run test:gen-ui` runs the focused checks for this feature. See the [desktop API](../../docs/api/desktop.en.md#generated-interactive-answers) for the contract and limits.
+
 ## Plugin details
 
 Plugin details prioritize the installed package’s current state and next action. Installation requires source resolution and digest review. Authentication, MCP trust for the installed snapshot, and connection are separate steps; installing or enabling a plugin does not authorize hooks. An unknown connection result is checked through the original submission without replaying it. Disconnecting also revokes MCP trust for that snapshot.

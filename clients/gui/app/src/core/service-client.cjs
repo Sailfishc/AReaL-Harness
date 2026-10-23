@@ -10,6 +10,7 @@ const WebSocket = require('ws');
 const { ProjectionReader } = require('@areal/workbench/state-projection');
 const { PROTOCOL, COMMAND_CONTRACT, encodeMedia, decodeMedia } = require('./service-protocol.cjs');
 const { serviceIdentity } = require('./service-config.cjs');
+const { genUiScope, createGenUiState } = require('./gen-ui-state.cjs');
 const { inspectCoreCapabilities } = require('./core-capabilities.cjs');
 const { desktopExecutables } = require('./desktop-executables.cjs');
 const { sameOwner, scrubOwnerEnvironment } = require('./application-owner.cjs');
@@ -176,6 +177,7 @@ class SharedCoreBackend {
     this.onNotification = onNotification;
     this.onNotificationOpen = onNotificationOpen;
     this.onRecoveryAttention = onRecoveryAttention; this.app = app; this.options = options; this.applicationOwner = options.applicationOwner; this.desktopLifetimes = new Set(); this.home = options.home; this.onChange = onChange;
+    this.genUiState = createGenUiState(this.home);
     this.value = { library: { projects: {}, threads: {}, projectOrder: [], settings: {} }, projects: [] };
     this.status = { connected: false }; this.sequence = -1;
     this.connectionState = { state: 'connecting' }; this.revision = 0; this.initializing = false;
@@ -183,6 +185,7 @@ class SharedCoreBackend {
     this.lifecycleReferences = new Map(); this.lifecycleReceipts = new Map();
     this.analytics = { sample: sample => { this.lastActivity = sample; if (this.status.connected) void this.connection.request('activity', sample).catch(() => {}); }, flush: async () => {} };
   }
+  genUiScope(project, threadId) { return genUiScope(this.home, project, threadId); }
   get saved() { return this.value.projects; }
   get activeCommands() { return this.status.activeCommands ?? 0; }
   get providerUpdating() { return this.status.providerUpdating; }
@@ -497,6 +500,10 @@ class SharedCoreBackend {
     // 队列业务键跨 GUI/共享服务连接保留，外层丢失响应后也能只读核对。
     const semantics = commandSemantics(name, params);
     if (semantics.requestId) params[semantics.requestId] ??= randomUUID();
+    if (['send', 'steer', 'editMessage'].includes(name) || name === 'side' && request.operation === 'send') {
+      const project = this.saved.find(project => project.id === request.projectId);
+      if (project) await this.genUiState.list(this.genUiScope(project, request.threadId));
+    }
     const pending = this.connection.request('command', { name, request: name === 'media' ? encodeMedia(params) : params }, semantics.effect === 'mutation').then(value => {
       if (ownedRecovery && value.confirmed) {
         this.guiTerminals.set(value.result.id, { projectId: request.projectId, threadId: request.threadId, id: value.result.id });
@@ -878,6 +885,7 @@ class SharedCoreBackend {
   async shutdown() {
     if (this.shutdownPromise) return this.shutdownPromise;
     this.disposed = true;
+    this.genUiState.dispose();
     this.clearReconnect();
     return this.shutdownPromise = (async () => {
       try {

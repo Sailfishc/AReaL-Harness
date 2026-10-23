@@ -59,6 +59,7 @@ async function serviceIdentity(options) {
   hash.update(readFileSync(require.resolve('@areal/remote')));
   hash.update(readFileSync(require.resolve('../workspace-files')));
   hash.update(readFileSync(require.resolve('@areal/workspace-git')));
+  hash.update(readFileSync(require.resolve('@areal/gen-ui/node')));
   for (const name of executables) {
     const packagedHelper = join(dirname(options.binary), '..', 'libexec', 'areal', name);
     const path = name !== 'areal' && existsSync(packagedHelper)

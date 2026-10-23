@@ -1,3 +1,4 @@
+import { stripGenUiModelContext } from "@areal/gen-ui/contract";
 import { Box } from "lucide-react";
 import { MessageResponse } from "./components/ai-elements/message.js";
 import { formatSkillMentionDisplayLabel } from "./mentions/mentionMarkdown.js";
@@ -57,7 +58,7 @@ export function UserMessageBody({ children, theme, onOpenExternalUrl, onOpenFile
   onOpenExternalUrl?: (url: string) => void;
   onOpenFileLink?: (path: string) => void;
 }) {
-  const { text, skills } = projectUserMessage(children);
+  const { text, skills } = projectUserMessage(stripGenUiModelContext(children));
   const markdown = <MessageResponse className="conversation-markdown user-message-body" preserveLineBreaks theme={theme}
     onOpenExternalUrl={onOpenExternalUrl} onOpenFileLink={onOpenFileLink}>{text}</MessageResponse>;
   if (!skills.length) return markdown;
