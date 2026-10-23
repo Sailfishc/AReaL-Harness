@@ -37,14 +37,12 @@ function reply(response, name, args, text = "final verified handoff", additional
   response.writeHead(200, { "content-type": "text/event-stream" });
   const delta = name
     ? {
-        tool_calls: [{ name, args }, ...additional].map((call, index) => (
-          {
-            index,
-            id: `lease-${++serial}`,
-            type: "function",
-            function: { name: call.name, arguments: JSON.stringify(call.args) },
-          }
-        )),
+        tool_calls: [{ name, args }, ...additional].map((call, index) => ({
+          index,
+          id: `lease-${++serial}`,
+          type: "function",
+          function: { name: call.name, arguments: JSON.stringify(call.args) },
+        })),
       }
     : { content: text };
   response.write(
@@ -68,9 +66,7 @@ const model = createServer(async (request, response) => {
         m.role === "user" && !body(m).startsWith("AReaL runtime context (not a user request):"),
     );
     const text = body(input.messages[taskIndex]);
-    const toolMessages = input.messages
-      .slice(taskIndex + 1)
-      .filter((m) => m.role === "tool");
+    const toolMessages = input.messages.slice(taskIndex + 1).filter((m) => m.role === "tool");
     const results = toolMessages.map((m) => JSON.parse(m.content));
     const worker = text.match(/LEASE_WORKER:([abx])/);
     calls.push({ worker: worker?.[1] ?? "parent", results: results.length, at: Date.now() });
@@ -93,7 +89,11 @@ const model = createServer(async (request, response) => {
           assert.equal(staleCallIds.length, 5);
           for (const id of staleCallIds) {
             const paired = toolMessages.filter((message) => message.tool_call_id === id);
-            assert.equal(paired.length, 1, `missing or duplicate receipt for advertised call ${id}`);
+            assert.equal(
+              paired.length,
+              1,
+              `missing or duplicate receipt for advertised call ${id}`,
+            );
             const result = JSON.parse(paired[0].content);
             assert.equal(result.error?.code, "CONFLICT", JSON.stringify(result));
             assert.match(result.error.message, /WORKSPACE_CHANGED_BEFORE_EXECUTION.*NOT executed/);
@@ -156,16 +156,28 @@ const model = createServer(async (request, response) => {
           }
           for (const key of ["a", "b"]) {
             if (key === "a")
-              staleCallIds = reply(waiting.get(key), "run_command", {
-                argv: ["/bin/sh", "-c", "echo must-not-run > stale-command.txt"],
-                timeoutMs: 5000,
-              }, "", [{ name: "run_command", args: {
-                argv: ["/bin/sh", "-c", "echo must-not-run > stale-followup.txt"],
-                timeoutMs: 5000,
-              } }, ...Array.from({ length: 3 }, () => ({
-                name: "run_command",
-                args: reconsideredCommand,
-              }))]);
+              staleCallIds = reply(
+                waiting.get(key),
+                "run_command",
+                {
+                  argv: ["/bin/sh", "-c", "echo must-not-run > stale-command.txt"],
+                  timeoutMs: 5000,
+                },
+                "",
+                [
+                  {
+                    name: "run_command",
+                    args: {
+                      argv: ["/bin/sh", "-c", "echo must-not-run > stale-followup.txt"],
+                      timeoutMs: 5000,
+                    },
+                  },
+                  ...Array.from({ length: 3 }, () => ({
+                    name: "run_command",
+                    args: reconsideredCommand,
+                  })),
+                ],
+              );
             else reply(waiting.get(key), null);
             waiting.delete(key);
           }
@@ -285,7 +297,10 @@ try {
     "a later write from the same stale response executed after the first conflict",
   );
   assert(staleBatchObserved, "the model never observed all stale call receipts");
-  assert.equal(await readFile(join(workspace, "redecided.txt"), "utf8"), "accepted-after-observation\n");
+  assert.equal(
+    await readFile(join(workspace, "redecided.txt"), "utf8"),
+    "accepted-after-observation\n",
+  );
   const pinned = await start("LEASE_PIN_PARENT");
   const until = Date.now() + 10000;
   while (!waiting.has("x")) {
