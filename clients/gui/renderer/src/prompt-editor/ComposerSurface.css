@@ -29,9 +29,14 @@
   padding-bottom: 8px;
   caret-color: var(--color-foreground);
 }
-.composer-editor :is([contenteditable], textarea, .composer-prediction) {
+.composer-editor :is([contenteditable], textarea) {
   font-size: var(--text-ui-lg);
   line-height: max(22px, calc(var(--ui-font-size) + 8px));
+}
+.composer-editor .composer-prediction {
+  font-size: var(--text-ui-base);
+  font-weight: 400;
+  line-height: var(--line-height-ui);
 }
 .composer-editor :is([contenteditable], textarea):focus-visible { outline: none; }
 @media (forced-colors: active) {

@@ -1302,7 +1302,6 @@ function EditorApiPlugin({
 }
 
 function PromptPredictionPlugin({ text, disabled }: { text?: string; disabled: boolean }) {
-  const { t } = useI18n();
   const [editor] = useLexicalComposerContext();
   const [empty, setEmpty] = useState(false);
   const [composing, setComposing] = useState(false);
@@ -1341,7 +1340,7 @@ function PromptPredictionPlugin({ text, disabled }: { text?: string; disabled: b
   if (!text || disabled || !empty || composing) return null;
   return <div data-testid="composer-prediction" aria-hidden="true"
     className="composer-prediction pointer-events-none col-start-1 row-start-1 min-w-0 self-start whitespace-pre-wrap break-words text-foreground-subtle">
-    {text}<span className="ml-2 inline-block rounded border border-current px-1 text-ui-xs leading-4">{t("composer.prediction.tab")}</span>
+    {text}
   </div>;
 }
 
