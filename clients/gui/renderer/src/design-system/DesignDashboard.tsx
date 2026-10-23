@@ -31,9 +31,9 @@ const phases: readonly Phase[] = [
   },
   {
     id: "base", letter: "B", title: "Base 设计系统", status: "current",
-    summary: "正在收敛真实 GUI 路径。先评价任务与外观两个切片，再补资源查看与返回，形成最小完整 Base。",
+    summary: "两条已有切片的首轮体验未发现明显问题，继续补资源查看与返回，形成最小完整 Base。",
     outcomes: ["提交、过程、审批到结果已接入生产组件与原执行控制器。", "修改外观后立即生效，返回同一任务时保留草稿与当前可用的阅读段落。"],
-    remaining: ["完成用户视觉评价，收敛两个切片的文字层级、密度与状态表达。", "补文件与 Diff 的查看、关闭及返回路径，核对归属、草稿、阅读和焦点。", "核对最小角色与组件的来源、状态合同和证据，处理图片 fixture 回归后再判断相关 Base 稳定性。"],
+    remaining: ["保持现有基准视觉方向；未体验的主题、字号和异常状态继续分别核对。", "补文件与 Diff 的查看、关闭及返回路径，核对归属、草稿、阅读和焦点。", "核对最小角色与组件的来源、状态合同和证据，处理图片 fixture 回归后再判断相关 Base 稳定性。"],
     sources: [{ title: "建设计划", path: "design/roadmap.md" }, { title: "Base 候选与准入", path: "clients/gui/design-system/base.md" }, { title: "深入查看与返回", path: "design/patterns/inspect-and-return.md" }],
   },
   {
@@ -107,10 +107,10 @@ export function DesignDashboard() {
           <p className="design-dashboard-eyebrow">当前 · B 阶段</p>
           <h2 id="dashboard-current-title">真实 GUI 路径收敛</h2>
           <p className="design-dashboard-base">Base 候选 {baseCandidate.version}<span>未冻结</span></p>
-          <p>任务与外观两个切片已有实现和自动化 GUI 路径证据。<strong>用户视觉验收待完成。</strong></p>
+          <p>任务与外观两个切片已有实现和自动化 GUI 路径证据。<strong>首轮反馈未发现明显问题，与现有基准接近。</strong></p>
           <div className="design-dashboard-next">
             <h3>下一步</h3>
-            <p>先收敛两个切片的视觉反馈，再补文件与 Diff 的查看和返回。随后收敛最小 Base，限定冻结范围，再做独立复用验证。</p>
+            <p>保持当前视觉方向，补齐文件与 Diff 的查看和返回。随后收敛最小 Base，限定冻结范围，再做独立复用验证。</p>
           </div>
           <a href={documentUrl("design/roadmap.md")}>查看建设计划 →</a>
         </aside>
@@ -143,7 +143,7 @@ export function DesignDashboard() {
         <div className="design-dashboard-section-heading"><h2 id="dashboard-slices-title">当前已走通的两个切片</h2><p>实现、运行验证与人的评价分别记录。</p></div>
         {slices.map(slice => <article key={slice.title} className="design-dashboard-slice">
           <div><h3>{slice.title}</h3><p className="design-dashboard-slice-path">{slice.path}</p></div>
-          <div><div className="design-dashboard-evidence"><span>已实现</span><span>自动化 GUI 已验证</span><span>用户评价待完成</span></div><p>{slice.result}</p></div>
+          <div><div className="design-dashboard-evidence"><span>已实现</span><span>自动化 GUI 已验证</span><span>用户首轮反馈已记录</span></div><p>{slice.result}</p></div>
           <a href={documentUrl(slice.source)}>阅读来源 ↗</a>
         </article>)}
         <details className="design-dashboard-limits">
@@ -152,7 +152,7 @@ export function DesignDashboard() {
             <p>两个切片的路径证据来自隔离的 Electron、Core 与 Runtime，模型事件由本地确定性服务提供。它们不证明真实供应商、安装包、其他平台或全部主题与状态矩阵已经通过。</p>
             <p>外观返回只验证同一进程中当前可用的阅读段落。完整历史未重新加载时，不能推断尚未取得的内容也能恢复。</p>
             <p>图片 fixture 回归尚未定位完成。需先定位并复验，再判断相关 Base 能否稳定准入。已有探索题也不等于正式冻结后的独立盲测。</p>
-            <p>用户尚未完成整体视觉验收。组件目录和构建通过，不能代替用户路径、原生平台或安装包验收。</p>
+            <p>首轮用户反馈仅对应已体验范围，不等于所有主题、字号与状态均获认可。组件目录和构建通过，不能代替用户路径、原生平台或安装包验收。</p>
             <p className="design-dashboard-technical">本快照参考任务切片 ca349363 与外观切片 47d5d389。候选标识读取现有目录 {baseCandidate.id}。<a href={documentUrl("design/architecture.md#验证边界")}>查看验证边界</a></p>
           </div>
         </details>
