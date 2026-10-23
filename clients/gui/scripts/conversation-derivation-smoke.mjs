@@ -127,8 +127,16 @@ async function showSideConversation() {
   }
 }
 async function selectMessageExcerpt(body, excerpt, keyboard = false) {
-  if (keyboard) await body.evaluate(element => { element.tabIndex = -1; element.focus(); });
-  const selected = await body.evaluate((element, text) => {
+  await body.evaluate(async element => {
+    element.scrollIntoView({ block: "center", behavior: "instant" });
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
+  if (keyboard) {
+    await page.bringToFront();
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].focus());
+    await body.evaluate(element => { element.tabIndex = -1; element.focus({ preventScroll: true }); });
+  }
+  const selected = await body.evaluate((element, { text, keyboard }) => {
     // 流式动画会把文字拆进多个 span；选区按完整正文定位，再映射到原生 Range。
     const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
     const nodes = [];
@@ -151,15 +159,30 @@ async function selectMessageExcerpt(body, excerpt, keyboard = false) {
       }
       offset = next;
     }
+    const selectedText = range.toString();
+    // 非编辑正文的键盘扩选需要已有非空选区；以一个字符为起点保留真实 Shift+方向键验证。
+    if (keyboard) {
+      const initialEnd = start + [...text][0].length;
+      let consumed = 0;
+      for (const node of nodes) {
+        const next = consumed + node.textContent.length;
+        if (initialEnd <= next) { range.setEnd(node, initialEnd - consumed); break; }
+        consumed = next;
+      }
+    }
     const selection = window.getSelection();
     selection.removeAllRanges(); selection.addRange(range);
-    element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
-    return selection.toString();
-  }, excerpt);
+    if (!keyboard) element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    return selectedText;
+  }, { text: excerpt, keyboard });
   assert.equal(selected, excerpt, "native selection preserves the complete source excerpt across text nodes");
   if (keyboard) {
-    await body.evaluate(() => window.getSelection().collapseToStart());
-    for (const character of excerpt) await page.keyboard.press("Shift+ArrowRight");
+    assert.equal(await page.evaluate(() => window.getSelection().toString()), [...excerpt][0], "keyboard extension starts from one selected character");
+    await page.keyboard.down("Shift");
+    try {
+      for (const character of [...excerpt].slice(1)) await page.keyboard.press("ArrowRight");
+      await body.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    } finally { await page.keyboard.up("Shift"); }
     assert.equal(await page.evaluate(() => window.getSelection().toString()), excerpt, "keyboard selection preserves Unicode text");
     await page.getByTestId("transcript-selection-actions").waitFor();
   }
@@ -595,6 +618,10 @@ try {
   checks.push("AC09: inherited Turn menu creates one flattened logical prefix and an empty independent Fork without execution");
   const forkDraftPrefix = "已有主会话文字";
   await page.getByTestId("chat-input").fill(forkDraftPrefix);
+  await page.waitForFunction(() => {
+    const primary = document.querySelector(".composer-dock:not(.side-chat-composer) .composer-primary-action");
+    return primary && !primary.disabled;
+  });
   const requestsBeforeMainQuote = requests.length;
   await selectMessageExcerpt(inherited.locator(`[data-turn-id="${anchorTurnId}"] [data-side-item-id] .conversation-markdown`).first(), unicodeExcerpt, true);
   await page.getByTestId("transcript-selection-actions").getByRole("button", { name: "添加到聊天", exact: true }).click();
@@ -638,10 +665,11 @@ try {
   const selectSideExcerpt = () => selectMessageExcerpt(
     page.locator(`[data-turn-id="${anchorTurnId}"] [data-side-item-id] .conversation-markdown`).first(), unicodeExcerpt);
   await selectSideExcerpt();
-  const sideTrigger = page.getByRole("button", { name: "在旁路中询问所选内容", exact: true });
+  let sideTrigger = page.getByRole("button", { name: "在旁路中询问所选内容", exact: true });
   const selectionActions = page.getByTestId("transcript-selection-actions");
   const addToChat = selectionActions.getByRole("button", { name: "添加到聊天", exact: true });
   await selectionActions.waitFor();
+  await sideTrigger.waitFor();
   assert.equal(await sideTrigger.count(), 1, "选区浮层只显示一个旁路入口");
   assert.equal(await page.locator(".message-actions").getByRole("button", { name: "在旁路中询问所选内容", exact: true }).count(), 0);
   await shot("04a-selection-floating-actions.png");
@@ -680,17 +708,22 @@ try {
       || configuration?.model === null && typeof configuration.defaultModelRevision === "string" && configuration.defaultModelRevision.length > 0;
   }, "source configured fixture model restored after navigation");
   const mainConfigBefore = modelConfiguration(project(refreshedSource).configurations[sourceThreadId]);
+  // 路由身份先于历史恢复发布；等待 Composer 解除恢复阻塞后再建立选区。
+  await page.waitForFunction(() => {
+    const primary = document.querySelector(".composer-dock:not(.side-chat-composer) .composer-primary-action");
+    return primary && !primary.disabled;
+  });
   await selectSideExcerpt();
   checks.push("AC55: floating Add to Chat and Side actions preserve main text/files, remove/readd quotes without sending, dismiss on Escape/collapse/outside/scroll, and invalidate on source navigation");
   await sideTrigger.evaluate(element => { window.__scfSideTrigger = element; });
   await sideTrigger.focus();
   await sideTrigger.press("Enter");
-  const sidePane = page.getByRole("region", { name: "旁路讨论" });
+  let sidePane = page.getByRole("region", { name: "旁路讨论" });
   assert.equal(await sidePane.locator(".side-chat-information").isVisible(), false);
   const stagedSide = sidePane.getByTestId("side-selection-quote");
   await stagedSide.filter({ hasText: unicodeExcerpt }).waitFor();
   assert.match(await stagedSide.innerText(), /已持久化选区/);
-  assert.equal(await sidePane.getByTestId("side-chat-input").innerText(), "");
+  assert.equal(await sidePane.getByTestId("side-chat-input").textContent(), "", "empty Lexical paragraph contains no draft text");
   assert.equal(await sidePane.getByTestId("side-chat-send").isEnabled(), true, "a staged quote can be explicitly sent without extra text");
   const sideDraftBeforeSelection = "已有旁路草稿";
   await sidePane.getByTestId("side-chat-input").fill(sideDraftBeforeSelection);
@@ -1208,6 +1241,8 @@ try {
   page.setDefaultTimeout(15000);
   page.on("pageerror", error => pageErrors.push(error.message));
   forkDialog = page.getByRole("dialog", { name: "从这里创建聊天分支", exact: true });
+  sidePane = page.getByRole("region", { name: "旁路讨论" });
+  sideTrigger = page.getByRole("button", { name: "在旁路中询问所选内容", exact: true });
   await page.getByTestId("areal-workbench").waitFor({ timeout: 120000 });
   await until(s => s.projects.some(project => project.id === projectId && project.state?.connected), "restarted Core connection");
   await selectConversation(page, sourceThreadId);
@@ -1293,9 +1328,13 @@ try {
   await showSideConversation();
   await sidePane.getByRole("button", { name: "新讨论", exact: true }).click();
   await showMainConversation();
+  await page.waitForFunction(() => {
+    const primary = document.querySelector(".composer-dock:not(.side-chat-composer) .composer-primary-action");
+    return primary && !primary.disabled;
+  });
   await selectSideExcerpt();
   await sideTrigger.click();
-  assert.equal(await sidePane.getByTestId("side-chat-input").innerText(), "");
+  assert.equal(await sidePane.getByTestId("side-chat-input").textContent(), "", "empty Lexical paragraph contains no draft text");
   const threadsBeforeQuoteOnly = new Set(Object.keys(project(await state()).state.threads));
   await sidePane.getByTestId("side-chat-send").click();
   const quoteOnlyState = await until(snapshot => Object.values(project(snapshot)?.state?.threads ?? {}).some(thread =>
