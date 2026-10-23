@@ -369,13 +369,13 @@ export function Composer({
     } finally { markSending(key, false); }
   };
   const catalogActions: ComposerCatalogEntry[] = [
-    ...(onMcpMention ? [{value:"app-mention",label:"@ 应用引用",description:"搜索应用中的文件、工单或其他资源",icon:<ComposerMcpIcon/>,group:"功能" as const,run:onMcpMention}] : []),
     ...(onSide && !input.files.length && !sideContextCount && !isSide && !taskManagement && !matchMedia("(max-width: 640px)").matches ? ["side", "btw"].filter(name => !appEntries.some(entry => entry.value.toLowerCase() === name)).map(name => ({
-      value: name, label: t(name === "side" ? "chat.side.title" : "chat.side.btw"), description: t("chat.side.newDescription"), icon: <SideChatIcon />, group: "功能" as const,
+      value: name, label: `/${name}`, keywords: [t(name === "side" ? "chat.side.title" : "chat.side.btw")], description: t("chat.side.newDescription"), icon: <SideChatIcon />, group: "commands" as const,
       preserveInputUntilAccepted: true,
       disabled: disabled || !!queueEditor.edit,
       run: async () => { try { await onSide(""); } catch (cause) { setDeliveryError(recoveryMessage(cause as Error)); throw cause; } },
     })) : []),
+    ...(onMcpMention ? [{value:"app-mention",label:"@ 应用引用",description:"搜索应用中的文件、工单或其他资源",icon:<ComposerMcpIcon/>,group:"功能" as const,run:onMcpMention}] : []),
     { value: "upload", label: "上传文件", description: "添加图片、文档或其他文件", icon: <AttachmentIcon />, group: "功能", run: () => upload.current?.click() },
     { value: "mcp", label: "MCP", description: "查看服务器与连接状态", icon: <ComposerMcpIcon />, group: "功能", run: () => setMcpOpen(true) },
     { value: "files", label: t("chat.composer.workspaceFiles"), description: t("chat.composer.workspaceFilesDescription"), icon: <FileTree />, group: "功能", run: () => onPanel("文件") },
