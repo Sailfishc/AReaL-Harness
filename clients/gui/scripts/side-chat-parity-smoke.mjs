@@ -709,10 +709,8 @@ try {
       await until(async () => !Object.values(threads(await state())).some(thread => thread.turns?.at(-1)?.status === "inProgress"), "scenario streams and tools settled", 20000).catch(error => { row.settlementError = error.message; });
       await page.evaluate(() => window.getSelection()?.removeAllRanges()).catch(() => {});
       await writeFile(join(evidence, `${id}-snapshot.json`), JSON.stringify(await state(), null, 2));
-      for (const tab of await sideTabs().all()) {
-        const id = (await tab.getAttribute("data-side-pane-tab-id"))?.slice(5);
-        if (id) await closeTab(id).catch(() => {});
-      }
+      const childIds = await sideTabs().evaluateAll(tabs => tabs.map(tab => tab.getAttribute("data-side-pane-tab-id")?.slice(5)).filter(Boolean));
+      for (const id of childIds) await closeTab(id).catch(() => {});
       const oldReturn = sidePane().getByRole("button", { name: "返回主会话", exact: true });
       if (await oldReturn.isVisible()) await oldReturn.click();
     }
