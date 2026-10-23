@@ -53,9 +53,11 @@ const { SharedCoreBackend } = require(${JSON.stringify(join(gui, 'app/src/core/s
 const { appendFileSync, existsSync } = require('node:fs');
 const record = value => appendFileSync(${JSON.stringify(eventsPath)}, JSON.stringify({ time: Date.now(), ...value }) + '\\n');
 globalThis.quitFixtureResponse = 0;
+globalThis.quitFixtureHold = true;
 require('electron').dialog.showMessageBox = async (...args) => {
   if (args.at(-1).title === '允许本地开发站点') return { response: 1 };
   record({ event: 'native-confirmation', message: args.at(-1).message, response: globalThis.quitFixtureResponse });
+  while (globalThis.quitFixtureHold) await new Promise(resolve => setTimeout(resolve, 20));
   return { response: globalThis.quitFixtureResponse };
 };
 const stop = SharedCoreBackend.prototype.stopService;
@@ -180,6 +182,11 @@ try {
   nativeId = await until(async () => app.evaluate(({ BrowserWindow }, url) => BrowserWindow.getAllWindows()[0].contentView.children.find(view => view.webContents?.getURL() === url && view.getVisible())?.webContents.id, previewUrl), 'Native preview visible before quit');
 
   await quit();
+  await until(async () => await count('native-confirmation') === 1, 'Native quit confirmation is awaiting a decision');
+  await page.screenshot({ path: join(scratch, 'quit-awaiting-confirmation.png') });
+  assert.equal(await progress('zh-CN').isVisible(), false, 'Quit progress stays hidden while confirmation is pending');
+  assert.equal(await count('stop-held'), 0, 'Backend stop waits for confirmation');
+  await app.evaluate(() => { globalThis.quitFixtureHold = false; });
   await until(async () => await count('native-confirmation') === 1, 'Native quit confirmation canceled');
   await until(async () => (await command('providers', { operation: 'list' })).data, 'IPC usable after native cancellation');
   assert.equal(child.exitCode, null);
@@ -252,7 +259,7 @@ try {
   await rm(finishGate, { force: true });
   await rm(failStop, { force: true });
   if (app) {
-    await app.evaluate(() => { globalThis.quitFixtureResponse = 1; }).catch(() => {});
+    await app.evaluate(() => { globalThis.quitFixtureResponse = 1; globalThis.quitFixtureHold = false; }).catch(() => {});
     await app.evaluate(({ app }) => app.quit()).catch(() => {});
     await until(() => child.exitCode !== null || child.signalCode !== null, 'Owned GUI exits during cleanup').catch(error => { errors.push(error.message); });
   }
