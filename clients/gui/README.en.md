@@ -45,6 +45,8 @@ The macOS GUI backend reads static system HTTP, HTTPS and SOCKS proxies for Core
 
 ## Composer
 
+Next-prompt predictions use smaller, regular-weight text without a Tab hint; Tab still only accepts the prediction into the draft without sending it. Turn file summaries place the file count and total line changes on separate lines, with muted directories and prominent filenames. Closing the last right-panel tab, including Close all tabs, hides the panel and preserves the main draft; a rejected close confirmation leaves it unchanged.
+
 The `+` beside Projects opens an existing project directory without first creating a chat. Canceling the directory picker preserves the current project, chat, panel, and draft. Opening the same directory again keeps one project registration.
 
 Approvals and Ask User share a decision card docked below the conversation. Approvals show Deny and Allow once; task/project scopes appear only when Core permits remembered authorization. Existing permission conditions and reconciliation remain authoritative. Questions support options, custom text and multiple questions. Skip/Close only defer the card, preserving the draft and pending-question entry; they neither submit an empty answer nor stop the turn. The composer is compact during questions and stays mounted but hidden during approval to preserve its draft. Answer bubbles derive from Core’s persisted tool history. `pnpm --dir clients/gui run test:interactions` verifies approvals, answers and history recovery with isolated real Electron/Core/Runtime and a deterministic local model, without certifying real providers or packaged distribution.

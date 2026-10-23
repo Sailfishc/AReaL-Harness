@@ -136,7 +136,8 @@ export function SidePane({
     const remaining = current.current.names.filter((name) => name !== id);
     if (!remaining.length) setTabOverviewOpen(false);
     onChange(remaining);
-    if (current.current.active === id) onSelect(remaining.at(-1) ?? "功能");
+    if (!remaining.length) onHide();
+    else if (current.current.active === id) onSelect(remaining.at(-1)!);
   };
   const closeGroup = async (keep?: string) => {
     const targets = names.filter((name) => name !== keep);
@@ -150,7 +151,8 @@ export function SidePane({
     const remaining = current.current.names.filter(name => !targets.includes(name));
     if (!remaining.length) setTabOverviewOpen(false);
     onChange(remaining);
-    if (targets.includes(current.current.active)) onSelect(keep ?? remaining.at(-1) ?? "功能");
+    if (!remaining.length) onHide();
+    else if (targets.includes(current.current.active)) onSelect(keep ?? remaining.at(-1)!);
   };
   const resize = (event: PointerEvent<HTMLDivElement>) => {
     event.currentTarget.setPointerCapture(event.pointerId);
