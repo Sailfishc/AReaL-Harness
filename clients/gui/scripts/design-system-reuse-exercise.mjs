@@ -42,7 +42,7 @@ export async function runReuseExercise(page, scratch, gui, exercise) {
     id: "artifact-review-reuse", questionId: "Q-BASE-REUSE-01", candidateVersion: registry.baseCandidate.version,
     inputBaseSnapshot: exercise.inputBaseSnapshot ?? registry.baseCandidate.snapshot.revision,
     briefSha256, sourceHashes, sourceAudit: { consumerSource, imports, violations },
-    scope: "independent local renderer consumer of frozen Base; browser behavior and computed layout",
+    scope: exercise.purpose === "migration-regression" ? "existing independent consumer migrated to the current frozen Base; browser regression, not a new blind trial" : "independent local renderer consumer of frozen Base; browser behavior and computed layout",
     verdicts: { behavior: "NOT VERIFIED", sourceReuse: "NOT VERIFIED", visualReview: "NOT VERIFIED" },
     gaps: ["screenshots require independent visual review", "single bounded task does not establish general component or platform coverage", "no Electron, Core, provider, filesystem or package acceptance"],
   });

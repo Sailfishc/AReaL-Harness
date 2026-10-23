@@ -7,7 +7,7 @@
 | ID / 用户任务 | 最小组合 / 生产参考 | 允许变化 | 验收重点 |
 | --- | --- | --- | --- |
 | P-SETTINGS 修改偏好或配置 | SettingsPage + SettingsSection + SettingsGroupCard + SettingsRow；[参考](../renderer/src/settings/DisplaySettings.tsx) | 分组、字段、文案与现有控件类型 | 标签/控件对齐，窄窗换行，值和反馈真实 |
-| P-RESOURCES 查找并管理资源 | SettingsSection + ActionButton + Feedback；[参考](../renderer/src/settings/PluginCenter.tsx) | 搜索、筛选、资源状态与详情 | 安装/连接状态分开；列表和详情职责清楚 |
+| P-RESOURCES 查找并管理资源 | SettingsSearchInput + SettingsSegmentedTabs + Button + Switch + SettingsDisclosure + Feedback；[参考](../renderer/src/settings/PluginCenter.tsx) | 当前市场与资源分类、查询、详情、项目启用状态和局部读取反馈 | 限插件目录/详情及当前项目启停；安装、启用和连接分开；原提交只读核对，返回保留上下文 |
 | P-CONVERSATION 阅读并推进任务 | Messages + TurnProgress + TurnExecution + ToolEvent + ConversationComposer + CommandDetails + AgentConversationPane + SentAttachment + ComposerSurface + SideChatPane + SidePane + Feedback；[参考](../renderer/src/design-system/ConversationFlowExercise.tsx) | 消息类型、工具结果、合法动作与上下文 | 权威状态、内容层级与阅读意图独立；按信息流合同验收完成收敛、人工展开和返回最新；未知提交不重放 |
 | P-DECISION 回答或批准请求 | DecisionCard + ApprovalRequest + Feedback；[参考](../renderer/src/ApprovalRequest.tsx) | 请求正文及已有决策动作 | 关键参数可核对，动作和结果可达 |
 | P-DETAIL 阅读或编辑详情 | SettingsDialog + SettingsDisclosure + Feedback；[参考](../renderer/src/settings/common.tsx) | 表单字段、正文及受控 footer | 返回/关闭路径和焦点恢复；不叠多层弹窗 |
@@ -15,7 +15,7 @@
 
 <!-- END GENERATED: patterns -->
 
-P-RESOURCES 尚无统一公共列表封装；registry 中的组件列表是可复用的最小组合，不表示页面必须或只能导入这些组件。布局槽位、状态及允许变化由本文件继续约束。
+P-RESOURCES 沿现有 PluginCenter 领域布局组合搜索、分类、列表、详情与反馈，不建立通用列表框架。共享意图与状态边界见[插件资源管理](../../../design/patterns/plugin-resources.md)，实际准入范围与运行证据见[Base](base.md)。目录成员仅表示列明的有限复用，不能扩大为完整插件安装、认证或连接生命周期。
 
 ## 控件选择
 

@@ -152,7 +152,7 @@ export const tokenGroups = [
 ] as const;
 export const baseCandidate = {
   "id": "desktop-core",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "foundations": [
     "文字",
     "表面与反馈",
@@ -180,11 +180,13 @@ export const baseCandidate = {
     "Messages",
     "TurnProgress",
     "TurnExecution",
-    "ToolEvent"
+    "ToolEvent",
+    "SettingsSearchInput"
   ],
   "patterns": [
     "P-SETTINGS",
-    "P-DECISION"
+    "P-DECISION",
+    "P-RESOURCES"
   ],
   "acceptance": [
     "角色引用现有生产来源；目录不存数值副本",
@@ -194,17 +196,18 @@ export const baseCandidate = {
     "决策与长文本保留原权威状态、全文和焦点可达性",
     "设置单选沿SettingsSelect公共sm变体；普通设置开关使用default，不由调用方另改尺寸",
     "活跃设置说明保留独立角色、对比度偏好与自定义前景色，不连带修改禁用或过程信息",
-    "对话过程组合在逐步投影中验证接受消息占位、可见阅读锚点、返回最新、完成收敛及人工详情保留；异常不因final默认隐藏"
+    "对话过程组合在逐步投影中验证接受消息占位、可见阅读锚点、返回最新、完成收敛及人工详情保留；异常不因final默认隐藏",
+    "插件资源目录的加载、搜索、空态、局部失败、项目启停、原提交核对与返回有真实 GUI 证据"
   ],
   "limits": [
-    "frozen-beta 仅表示列明 GUI 切片可作为阶段 C 的固定输入，不代表稳定公共 API 或全 GUI 验收",
-    "仅覆盖列明生产renderer组件和本地fixture；Core、真实供应商、安装包、Web、CLI/TUI和完整自定义主题矩阵在范围外",
+    "frozen-beta 仅表示列明 GUI 切片可作为固定输入，不代表稳定公共 API 或全 GUI 验收",
+    "Base 仅准入列明 renderer 组件；真实 GUI 路径沿既有 Core 验证，Core API、真实供应商、安装包、Web、CLI/TUI和完整自定义主题矩阵在范围外",
     "成员状态与变体是有限准入声明，不表示每项笛卡尔组合均已运行；已完成证据以索引记录为准",
-    "完整P-CONVERSATION、P-RESOURCES、SidePane、生产文件宿主、重连与真实执行未准入；命令、图片和子对话fixture仅补充过程/阅读组合证据"
+    "完整P-CONVERSATION、SidePane、原生资源宿主、重连和完整插件安装/认证/连接生命周期未准入；P-RESOURCES仅限列明插件路径"
   ],
   "status": "frozen-beta",
   "snapshot": {
-    "revision": "b648e33127c09a3e2bade90c56bce29f1a0c9845",
+    "revision": "cc6e77380863f792dde67601ab09a01badf7f2e5",
     "owner": "design-system/base.md"
   },
   "admissions": [
@@ -212,7 +215,8 @@ export const baseCandidate = {
       "id": "Button",
       "contract": "renderer/src/components/ui/button.md",
       "consumers": [
-        "renderer/src/ApprovalRequest.tsx"
+        "renderer/src/ApprovalRequest.tsx",
+        "renderer/src/settings/PluginCenter.tsx"
       ],
       "variants": [
         "default/default",
@@ -226,7 +230,8 @@ export const baseCandidate = {
         "keyboard-focus"
       ],
       "evidence": [
-        "E-CONTROLS"
+        "E-CONTROLS",
+        "E-PLUGINS"
       ]
     },
     {
@@ -251,7 +256,8 @@ export const baseCandidate = {
       "id": "Switch",
       "contract": "renderer/src/components/ui/switch.md",
       "consumers": [
-        "renderer/src/settings/SettingsPageParts.tsx"
+        "renderer/src/settings/SettingsPageParts.tsx",
+        "renderer/src/settings/PluginCenter.tsx"
       ],
       "variants": [
         "default"
@@ -263,7 +269,8 @@ export const baseCandidate = {
         "keyboard-focus"
       ],
       "evidence": [
-        "E-CONTROLS"
+        "E-CONTROLS",
+        "E-PLUGINS"
       ]
     },
     {
@@ -297,7 +304,8 @@ export const baseCandidate = {
       "id": "Feedback",
       "contract": "renderer/src/components/ui/feedback.md",
       "consumers": [
-        "renderer/src/DecisionCard.tsx"
+        "renderer/src/DecisionCard.tsx",
+        "renderer/src/settings/PluginCenter.tsx"
       ],
       "variants": [
         "inline"
@@ -309,7 +317,8 @@ export const baseCandidate = {
         "unknown-message"
       ],
       "evidence": [
-        "E-CONTROLS"
+        "E-CONTROLS",
+        "E-PLUGINS"
       ]
     },
     {
@@ -406,7 +415,8 @@ export const baseCandidate = {
       "id": "SettingsSegmentedTabs",
       "contract": "renderer/src/settings/SettingsPageParts.md#settingssegmentedtabs",
       "consumers": [
-        "renderer/src/settings/DisplaySettings.tsx"
+        "renderer/src/settings/DisplaySettings.tsx",
+        "renderer/src/settings/PluginCenter.tsx"
       ],
       "variants": [
         "automatic-activation",
@@ -418,14 +428,16 @@ export const baseCandidate = {
         "keyboard-focus"
       ],
       "evidence": [
-        "E-SETTINGS"
+        "E-SETTINGS",
+        "E-PLUGINS"
       ]
     },
     {
       "id": "SettingsDisclosure",
       "contract": "renderer/src/settings/SettingsPageParts.md#settingsdisclosure",
       "consumers": [
-        "renderer/src/settings/DisplaySettings.tsx"
+        "renderer/src/settings/DisplaySettings.tsx",
+        "renderer/src/settings/PluginCenter.tsx"
       ],
       "variants": [
         "native-details"
@@ -436,7 +448,8 @@ export const baseCandidate = {
         "keyboard-focus"
       ],
       "evidence": [
-        "E-SETTINGS"
+        "E-SETTINGS",
+        "E-PLUGINS"
       ]
     },
     {
@@ -582,6 +595,25 @@ export const baseCandidate = {
       "evidence": [
         "E-CONVERSATION"
       ]
+    },
+    {
+      "id": "SettingsSearchInput",
+      "contract": "renderer/src/settings/SettingsSearchInput.md",
+      "consumers": [
+        "renderer/src/settings/PluginCenter.tsx"
+      ],
+      "variants": [
+        "search-lg"
+      ],
+      "states": [
+        "empty",
+        "query",
+        "clear",
+        "keyboard-focus"
+      ],
+      "evidence": [
+        "E-PLUGINS"
+      ]
     }
   ],
   "evidence": [
@@ -609,6 +641,11 @@ export const baseCandidate = {
       "id": "E-RESOURCES",
       "checker": "scripts/resource-smoke.mjs",
       "report": "design-system/base-evidence.md#e-resources"
+    },
+    {
+      "id": "E-PLUGINS",
+      "checker": "scripts/plugin-resource-smoke.mjs",
+      "report": "design-system/base-evidence.md#e-plugins"
     }
   ]
 } as const;

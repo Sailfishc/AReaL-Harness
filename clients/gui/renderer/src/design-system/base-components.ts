@@ -17,3 +17,4 @@ export { Messages } from "../Messages.js";
 export { TurnProgress } from "../TurnProgress.js";
 export { TurnExecution } from "../TurnExecution.js";
 export { ToolEvent } from "../ToolEvent.js";
+export { SettingsSearchInput } from "../settings/SettingsSearchInput.js";

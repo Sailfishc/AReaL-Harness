@@ -136,7 +136,7 @@ function Preview() {
   const disabled = state === "busy" || state === "unknown";
   return <main className="design-preview" data-width={width} data-view={new URLSearchParams(window.location.search).has("conversation") ? "conversation" : new URLSearchParams(window.location.search).has("settings") ? "settings" : undefined}>
     <header className="design-preview-header">
-      <div><h1>客户端设计系统</h1><p>生产组件与语义 Token · Base {baseCandidate.version}（{baseCandidate.status === "frozen-beta" ? "有限 beta 已冻结" : "候选未冻结"}）</p>
+      <div><h1>客户端设计系统</h1><p>生产组件与语义 Token · Base {baseCandidate.version}（{({ "frozen-beta": "有限 beta 已冻结", candidate: "候选未冻结" })[baseCandidate.status]}）</p>
         <nav className="design-preview-navigation" aria-label="设计预览导航"><a href="?dashboard">建设看板</a><a href="?product-candidate">完整产品候选</a><a href="?reuse-exercise">独立复用题</a><a href="?docs=design/README.md">设计说明</a><a href={`${window.location.pathname}#controls`}>组件示例</a>
           {new URLSearchParams(window.location.search).get("returnTo")?.startsWith("?docs=") && <a href={`${window.location.pathname}${new URLSearchParams(window.location.search).get("returnTo")}`}>返回来源设计说明</a>}
         </nav></div>
@@ -147,7 +147,7 @@ function Preview() {
       <label>减少动态效果<input type="checkbox" checked={reducedMotion} onChange={event => setReducedMotion(event.target.checked)} /></label>
       {exercise && <label>题目内容<select aria-label="题目内容" value={exerciseContent} onChange={event => setExerciseContent(event.target.value)}><option value="reference">参考内容</option><option value="stress">长文案</option></select></label>}
     </header>
-    {reuseExercise ? <section id="artifact-review-exercise" className="design-preview-panel" aria-label="交付物核对"><ArtifactReviewExercise /></section> : sharedWorkspace ? <SharedWorkspacePreview dark={dark} /> : conversationExercise ? <ConversationFlowExercise dark={dark} /> : decisionExercise ? <DecisionTransferExercise key={state} state={state} /> : exercise ? <SettingsReflowExercise key={exerciseContent} stress={exerciseContent === "stress"} state={state} /> : <>
+    {reuseExercise ? <section id="artifact-review-exercise" className="design-preview-panel" aria-label="交付物核对"><ArtifactReviewExercise baseVersion={baseCandidate.version} /></section> : sharedWorkspace ? <SharedWorkspacePreview dark={dark} /> : conversationExercise ? <ConversationFlowExercise dark={dark} /> : decisionExercise ? <DecisionTransferExercise key={state} state={state} /> : exercise ? <SettingsReflowExercise key={exerciseContent} stress={exerciseContent === "stress"} state={state} /> : <>
     <SettingsPreview />
     <section id="controls" className="design-preview-panel" aria-label="公共控件">
       <h2>设置控件 · 按交互选择</h2>

@@ -35,7 +35,7 @@ type ReviewResult =
 
 const filters = ["全部", "文档", "记录", "图片", "其他", "视频"] as const;
 
-export function ArtifactReviewExercise() {
+export function ArtifactReviewExercise({ baseVersion }: { baseVersion: string }) {
   const [filter, setFilter] = useState("全部");
   const [selectedId, setSelectedId] = useState<ArtifactId | null>("guide");
   const [refreshCount, setRefreshCount] = useState(0);
@@ -98,7 +98,7 @@ export function ArtifactReviewExercise() {
   return (
     <SettingsPage
       title="交付物核对"
-      subtitle="Base 0.2.0 · 本地模拟，不连接 Core、文件系统或模型服务，不代表真实交付物已经核对。"
+      subtitle={`Base ${baseVersion} · 本地模拟，不连接 Core、文件系统或模型服务，不代表真实交付物已经核对。`}
     >
       <SettingsSection title="查找交付物">
         <SettingsGroupCard>

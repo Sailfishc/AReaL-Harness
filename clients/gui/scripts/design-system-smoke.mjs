@@ -264,7 +264,11 @@ try {
   assert.equal(await page.evaluate(() => typeof window.arealDesktop), "undefined");
   if (namedExercise) {
     if (reuseExercise) {
-      exercise.inputBaseSnapshot = "c98af14e00faad1b28164f660629b57c4bccea6e";
+      const inputFiles = ["design-system/registry.json", "design-system/base.md", "renderer/src/design-system/base-components.ts"];
+      execFileSync("git", ["diff", "--exit-code", "HEAD", "--", ...inputFiles], { cwd: gui });
+      exercise.inputBaseSnapshot = execFileSync("git", ["log", "-1", "--format=%H", "--", ...inputFiles], { cwd: gui }).toString().trim();
+      exercise.originalInputBaseSnapshot = "c98af14e00faad1b28164f660629b57c4bccea6e";
+      exercise.purpose = "migration-regression";
       await runReuseExercise(page, scratch, gui, exercise);
     } else if (productCandidate) await runProductCandidate(page, scratch, exercise);
     else if (documents) await runDesignDocuments(page, origin, scratch, checks, samples);
