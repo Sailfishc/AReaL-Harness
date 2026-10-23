@@ -1658,7 +1658,7 @@ function AppContent({ services }: { services: PlatformServices }) {
           const observedProject = snapshot.projects?.find((item: Data) => item.id === tab!.projectId);
           const observed = observedProject?.state?.threads?.[tab.childId];
           if (!current || current.closeRequestId || !sourceCurrent()
-            || observedProject?.core?.instanceId !== owner.coreInstanceId || observed?.desktop?.archived
+            || (observed?.executionCore?.instanceId ?? observedProject?.core?.instanceId) !== owner.coreInstanceId || observed?.desktop?.archived
             || observed?.conversation?.origin?.sourceThreadId !== owner.parentId) return;
           tab = current;
         } catch (cause) {
