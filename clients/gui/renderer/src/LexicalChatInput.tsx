@@ -50,6 +50,7 @@ import {
 } from "lexical";
 import { SlashCommandPlugin } from "./SlashCommandPlugin.js";
 import type { ComposerCatalogData } from "./prompt-editor/ComposerCatalog.js";
+import { parsePluginStableId, parseSessionThreadId } from "./mentions/mentionMarkdown.js";
 import type { AppSlashCommand } from "./slashCommandHelpers.js";
 
 
@@ -216,20 +217,24 @@ function replaceEditorText(editor: LexicalEditor, text: string) {
   );
 }
 
-const INLINE_PLUGIN_MENTION_PATTERN =
-  /\[@((?:\\.|[^\]])+)\]\(plugin:\/\/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+)\)/g;
+const INLINE_PROMPT_MENTION_PATTERN =
+  /\[((?:\\.|[^\\\]])*)\]\((plugin:\/\/[a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+|#sess_[a-zA-Z0-9._-]+)\)/g;
 
-function pluginMentionNodes(text: string) {
+function inlineMentionNodes(text: string) {
   const paragraph = $createParagraphNode();
   let cursor = 0;
-  for (const match of text.matchAll(INLINE_PLUGIN_MENTION_PATTERN)) {
+  for (const match of text.matchAll(INLINE_PROMPT_MENTION_PATTERN)) {
+    const destination = match[2] ?? "";
+    const pluginId = parsePluginStableId(destination);
+    const threadId = parseSessionThreadId(destination);
+    if (!pluginId && !threadId) continue;
     const start = match.index ?? 0;
     if (start > cursor) appendPlainTextLines(paragraph, text.slice(cursor, start));
-    const label = match[1]?.replace(/\\(.)/g, "$1") ?? "";
-    const pluginId = match[2] ?? "";
+    const label = (match[1]?.replace(/\\(.)/g, "$1") ?? "").replace(pluginId ? /^@/ : /^#/, "");
     paragraph.append($createPromptMentionNode({
-      id: `plugin:${pluginId}`, category: "plugins", label, value: pluginId,
-      markdown: match[0], data: { pluginId },
+      id: pluginId ? `plugin:${pluginId}` : `session:${threadId}`,
+      category: pluginId ? "plugins" : "sessions", label, value: pluginId ?? threadId!,
+      markdown: match[0], ...(pluginId ? { data: { pluginId } } : {}),
     }));
     cursor = start + match[0].length;
   }
@@ -237,9 +242,9 @@ function pluginMentionNodes(text: string) {
   return paragraph;
 }
 
-function replaceEditorTextWithPluginMentions(editor: LexicalEditor, text: string) {
+function replaceEditorTextWithMentions(editor: LexicalEditor, text: string) {
   editor.update(() => {
-    const paragraph = pluginMentionNodes(text);
+    const paragraph = inlineMentionNodes(text);
     $getRoot().clear().append(paragraph);
     paragraph.selectEnd();
   }, { tag: PROGRAMMATIC_UPDATE_TAG });
@@ -435,7 +440,7 @@ function appendEditorPlainText(editor: LexicalEditor, text: string) {
         paragraph.append($createTextNode(" "));
       }
 
-      paragraph.append(...pluginMentionNodes(text).getChildren());
+      paragraph.append(...inlineMentionNodes(text).getChildren());
       paragraph.selectEnd();
     },
     { tag: PROGRAMMATIC_UPDATE_TAG },
@@ -904,9 +909,9 @@ function E2ELexicalInputBridgePlugin({ inputTestId }: { inputTestId?: string }) 
       focus: () => editor.focus(),
       getEditorState: () => editor.getEditorState(),
       getText: () => getEditorMarkdown(editor.getEditorState()),
-      setText: (text: string) => replaceEditorTextWithPluginMentions(editor, text),
+      setText: (text: string) => replaceEditorTextWithMentions(editor, text),
       setTextWithPluginMentions: (text: string) =>
-        replaceEditorTextWithPluginMentions(editor, text),
+        replaceEditorTextWithMentions(editor, text),
       setEditorStateJson: (editorStateJson: string) =>
         replaceEditorStateJson(editor, editorStateJson),
     };
@@ -1198,12 +1203,12 @@ function PasteCapturePlugin({
         return;
       }
       const text = event.clipboardData?.getData("text/plain") ?? "";
-      if (text.match(INLINE_PLUGIN_MENTION_PATTERN)) {
+      if (text.match(INLINE_PROMPT_MENTION_PATTERN)) {
         event.preventDefault();
         event.stopImmediatePropagation();
         editor.update(() => {
           const selection = $getSelection();
-          if ($isRangeSelection(selection)) selection.insertNodes(pluginMentionNodes(text).getChildren());
+          if ($isRangeSelection(selection)) selection.insertNodes(inlineMentionNodes(text).getChildren());
         });
         return;
       }
@@ -1279,9 +1284,9 @@ function EditorApiPlugin({
       prependMentionIfMissing: (mention) => prependEditorMentionIfMissing(editor, mention),
       setMention: (mention, trailingText) =>
         replaceEditorWithMention(editor, mention, trailingText),
-      setText: (text: string) => replaceEditorTextWithPluginMentions(editor, text),
+      setText: (text: string) => replaceEditorTextWithMentions(editor, text),
       setTextWithPluginMentions: (text: string) =>
-        replaceEditorTextWithPluginMentions(editor, text),
+        replaceEditorTextWithMentions(editor, text),
       setEditorStateJson: (editorStateJson: string) =>
         replaceEditorStateJson(editor, editorStateJson),
       setSkillMention: (skillName: string, markdown = `$${skillName}`, trailingText = " ") =>

@@ -77,12 +77,12 @@ export function buildSubagentMentionMarkdown(label: string): string {
   return `@${label}`;
 }
 
-export function buildSessionMentionMarkdown(sessionId: string, label?: string): string {
-  const trimmedLabel = label?.trim();
-  if (!trimmedLabel || trimmedLabel === sessionId) {
-    return `#${sessionId}`;
-  }
-  return `[${escapeMarkdownLabel(`#${trimmedLabel}`)}](#${escapeMarkdownDestination(sessionId)})`;
+export function buildSessionMentionMarkdown(threadId: string, label = threadId): string {
+  return `[${escapeMarkdownLabel(`#${label}`)}](#sess_${threadId})`;
+}
+
+export function parseSessionThreadId(destination: string): string | undefined {
+  return /^#sess_([a-zA-Z0-9._-]+)$/.exec(destination)?.[1];
 }
 
 // Plugin 引用的 canonical 持久化载体：
@@ -98,7 +98,7 @@ type MentionTextPart =
   | { type: "skill"; label: string }
   | { type: "command"; label: string }
   | { type: "subagent"; label: string }
-  | { type: "session"; label: string }
+  | { type: "session"; label: string; threadId?: string }
   | { type: "plugin"; label: string; pluginId?: string };
 
 const PLUGIN_STABLE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*@[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -187,8 +187,9 @@ export function parseMentionMarkdown(content: string): MentionTextPart[] {
     if (matchStart > cursor) {
       parts.push(...parseInlineMentionTokens(content.slice(cursor, matchStart)));
     }
-    if (/^#sess_[a-zA-Z0-9._-]+$/.test(destination)) {
-      parts.push({ type: "session", label: label.startsWith("#") ? label.slice(1) : label });
+    const threadId = parseSessionThreadId(destination);
+    if (threadId) {
+      parts.push({ type: "session", label: label.startsWith("#") ? label.slice(1) : label, threadId });
     } else if (destination.startsWith("plugin://")) {
       // Plugin 引用链接绝不能落入 file 分支或被当外链处理；
       // 发送后曾只保留 label，消息层失去 stable ID，只能固定显示兜底图标。

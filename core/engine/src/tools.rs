@@ -109,6 +109,7 @@ fn consecutive_matching_failures(items: &[Item], call: &ToolCall) -> usize {
                 | "read_tool_result"
                 | "task_state"
                 | "read_history"
+                | "read_conversation_context"
         ) {
             break;
         }
@@ -330,6 +331,7 @@ mod plugin_execution;
 pub mod plugins;
 pub(crate) mod registry;
 mod results;
+mod conversation_context;
 pub(crate) use registry::Backend;
 mod scheduling;
 mod verification;
@@ -1055,6 +1057,7 @@ impl Engine {
                             | "plan_update"
                             | "task_state"
                             | "read_history"
+                            | "read_conversation_context"
                             | "read_tool_result"
                     )
                 });

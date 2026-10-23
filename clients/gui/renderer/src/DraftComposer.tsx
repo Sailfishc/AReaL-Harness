@@ -21,6 +21,7 @@ import { Button } from "./components/ui/button.js";
 import type { LexicalChatInputHandle } from "./LexicalChatInput.js";
 import type { Action, Data } from "./services.js";
 import type { ComposerCatalogEntry } from "./prompt-editor/ComposerCatalog.js";
+import { conversationReferenceEntries, type ConversationReference } from "./ConversationReferences.js";
 import { isTechnicalErrorMessage, recoveredOutcome, recoveryMessage, type RecoveryFailure } from "./recoveryPresentation.js";
 import { attachedReviewComments, detachReviewComments, reviewCommentKey, transferNewReviewComments, useReviewComments } from "./reviewComments.js";
 import { ReviewCommentAttachment } from "./ReviewCommentViews.js";
@@ -44,6 +45,7 @@ export function DraftComposer({
   onOpen,
   onPanel,
   appEntries = [],
+  conversationReferences = [],
   draftKey,
   prepareProject,
   preparationStatus,
@@ -60,6 +62,7 @@ export function DraftComposer({
   onOpen: (pid: string, tid: string) => Promise<void>;
   onPanel: (panel: string) => void;
   appEntries?: readonly ComposerCatalogEntry[];
+  conversationReferences?: readonly ConversationReference[];
   draftKey?: string;
   prepareProject?: () => Promise<Data>;
   preparationStatus?: ReactNode;
@@ -68,6 +71,7 @@ export function DraftComposer({
   onWorktreeCreated?: () => void;
 }) {
   const { t } = useI18n();
+  const referenceEntries = conversationReferenceEntries(conversationReferences, t("chat.composer.conversationReference"));
   const prefs = useApplicationPreferences();
   const defaultPermissionPreset = useRef(prefs.defaultPermissionPreset);
   defaultPermissionPreset.current = prefs.defaultPermissionPreset;
@@ -391,7 +395,8 @@ export function DraftComposer({
         submitLabel={goalMode ? "开始目标" : "发送"}
         enterSubmits={prefs.sendShortcut === "enter"}
         enableMentionPanel={false}
-        pluginMentionCatalog={plugins.catalog}
+        pluginMentionCatalog={{ ...plugins.catalog, entries: [...plugins.catalog.entries, ...referenceEntries],
+          searchLabel: t("chat.composer.searchReferences"), label: t("chat.composer.references"), appGroupLabel: plugins.catalog.label }}
         composerCatalog={{ ...skills.catalog, loading: executionReady && skills.catalog.loading,
           error: executionReady ? skills.catalog.error : undefined,
           refresh: () => { if (executionReady && !editLocked) skills.catalog.refresh(); }, entries: [
@@ -400,6 +405,7 @@ export function DraftComposer({
           ...(project.root ? [{ value: "files", label: t("chat.composer.workspaceFiles"), description: t("chat.composer.workspaceFilesDescription"), group: "功能" as const, icon: <FileTree />, disabled: !executionReady, run: () => { if (executionReady) onPanel("文件"); } }] : []),
           { value: "plan", label: "计划模式", description: plan ? "关闭计划模式" : "先规划，再开始执行", group: "功能", icon: <Lightbulb />, disabled: editLocked || chosenProfile?.readOnly === true, run: () => { if (!editLocked) setPlanMode(!plan); } },
           { value: "goal", label: "设置目标", description: goalMode ? "关闭目标模式" : "设置持续目标与停止条件", group: "功能", icon: <GoalIcon />, disabled: editLocked, run: () => { if (!editLocked) changeGoalMode(!goalMode); } },
+          ...referenceEntries,
           ...appEntries.map(entry => ({ ...entry, disabled: entry.disabled || !executionReady })),
           ...skills.catalog.entries.map(entry => ({ ...entry, disabled: entry.disabled || !executionReady })),
         ] }}

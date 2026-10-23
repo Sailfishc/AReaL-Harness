@@ -1203,6 +1203,10 @@ function AppContent({ services }: { services: PlatformServices }) {
     setRename(values);
     setRenameText(current);
   };
+  const conversationReferences = summaries
+    .filter(row => row.owner.id === project?.id && row.summary.id !== thread?.id && !row.archived)
+    .sort((a, b) => b.updatedAt - a.updatedAt || a.summary.id.localeCompare(b.summary.id))
+    .map(row => ({ threadId: row.summary.id, title: row.title, updatedAt: row.updatedAt }));
   const sidebarKey = (row: Data) => `${row.owner.id}:${row.summary.id}`;
   const sidebarGroup = (row: Data) => row.pinned ? "pinned" : (row.owner.projectless ? "chats" : row.owner.id);
   const sortMode = (area: "Chats" | "Projects" | "Pinned") => library.settings?.[`sidebarSort${area}`] ?? library.settings?.sidebarSort ?? "updated_at";
@@ -1988,6 +1992,7 @@ function AppContent({ services }: { services: PlatformServices }) {
                           key={`${project.id}:${thread.id}`}
                           onMcpMention={()=>setMcpMentionsOpen(true)}
                           appEntries={appEntries}
+                          conversationReferences={conversationReferences}
                           project={project}
                           thread={thread}
                           executionBlocked={snapshot.connection?.state !== "ready" || viewRefreshing || projectExecutionBlocked(snapshot.lifecycle, project.id)}
@@ -2066,6 +2071,7 @@ function AppContent({ services }: { services: PlatformServices }) {
                             worktree={worktreeSelection}
                             onWorktreeCreated={() => changeWorktreeSelection(project.id, undefined)}
                             appEntries={appEntries}
+                            conversationReferences={conversationReferences}
                             surfaceLayout={workspaceView === "panel" ? "compact" : "default"}
                             onAnnotate={openImageAnnotation}
                             key={project.id}

@@ -395,6 +395,8 @@ impl Engine {
             let task_instructions = self.task_context(cell).await?;
             let goal_instructions = self.goal_instructions(cell).await?;
             let app_context = self.app_model_context(&cell.id).await;
+            let reference_thread = cell.state.lock().await.thread.clone();
+            let conversation_reference = self.conversation_reference_reminder(&reference_thread).await?;
             let (
                 messages,
                 live_context,
@@ -429,6 +431,9 @@ impl Engine {
                     app_reference_message(&messages, &app_context, compacted_reference_seen)?
                 {
                     live_context.push(reference);
+                }
+                if let Some(reference) = &conversation_reference {
+                    live_context.push(Message::text("system", reference.clone()));
                 }
                 if let Some(browser) = browser_instructions {
                     live_context.push(Message::text("system", browser));
@@ -516,6 +521,8 @@ impl Engine {
                     let text = message.text_content();
                     let kind = if text.contains("Current authoritative goal: ") {
                         Some("Current authoritative goal: ")
+                    } else if text.starts_with("Selected conversation references: ") {
+                        Some("Selected conversation references: ")
                     } else if text.starts_with("Built-in Browser guidance: ") {
                         Some("Built-in Browser guidance: ")
                     } else if text.starts_with("Choose checks that can falsify the implementation")

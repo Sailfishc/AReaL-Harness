@@ -183,6 +183,7 @@ export function ChatPromptEditor({
   const toolbarRef = useComposerToolbarFit();
   const internalInputApiRef = useRef<LexicalChatInputHandle | null>(null);
   const resolvedInputApiRef = inputApiRef ?? internalInputApiRef;
+  const catalogSelection = useRef<ReturnType<LexicalChatInputHandle["getEditorState"]> | undefined>(undefined);
   const [internalTriggerPanelContainer, setInternalTriggerPanelContainer] =
     useState<HTMLDivElement | null>(null);
   const resolvedTriggerPanelContainer = triggerPanelContainer ?? internalTriggerPanelContainer;
@@ -473,7 +474,13 @@ export function ChatPromptEditor({
         />}
         toolbar={<ComposerToolbar ref={toolbarRef}
           leading={<>
-              {composerCatalog ? <ComposerCatalogTrigger catalog={composerCatalog} anchor={resolvedTriggerPanelContainer} disabled={disabled} onClose={() => resolvedInputApiRef.current?.focus()} /> : hasActionMenu ? (
+              {composerCatalog ? <ComposerCatalogTrigger catalog={composerCatalog} anchor={resolvedTriggerPanelContainer} disabled={disabled}
+                onOpen={() => { catalogSelection.current = resolvedInputApiRef.current?.getEditorState(); }}
+                onChoose={entry => {
+                  if (entry.mention) resolvedInputApiRef.current?.insertMention(entry.mention, catalogSelection.current);
+                  entry.run();
+                }}
+                onClose={() => { catalogSelection.current = undefined; resolvedInputApiRef.current?.focus(); }} /> : hasActionMenu ? (
                 <ChatPromptActionMenu
                   actionMenuTitle={actionMenuTitle}
                   excludedSlashCommandNames={excludedSlashCommandNames}
