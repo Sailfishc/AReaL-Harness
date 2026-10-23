@@ -98,6 +98,7 @@
     "test:trajectory-native": "node scripts/trajectory-native-smoke.mjs",
     "verify:i18n": "node scripts/verify-i18n.mjs",
     "test:i18n": "node scripts/migration-smoke.mjs --settings-i18n",
+    "test:i18n-native": "node scripts/migration-smoke.mjs --native-dialog-i18n",
     "test:core-crash-recovery": "node scripts/core-crash-recovery-smoke.mjs",
     "test:recovery-electron": "node scripts/recovery-electron-smoke.mjs run"
   },
