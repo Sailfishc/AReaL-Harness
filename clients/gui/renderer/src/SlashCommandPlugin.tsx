@@ -56,6 +56,22 @@ export function SlashCommandPlugin({ appCommands = [], container, disabled, cata
     .some(text => text.toLowerCase().includes(query))) : [];
   const selected = Math.min(index, Math.max(0, rows.length - 1));
   const choose = (command: AppSlashCommand) => {
+    if (command.preserveInputUntilAccepted) {
+      const captured = editor.getEditorState().read(() => {
+        const token = $commandAtCaret();
+        return token ? { key: token.node.getKey(), start: token.start, end: token.end, text: token.node.getTextContent() } : null;
+      });
+      setQuery(null);
+      void Promise.resolve(command.run()).then(() => {
+        if (!captured) return;
+        editor.update(() => {
+          const token = $commandAtCaret();
+          if (token && token.node.getKey() === captured.key && token.node.getTextContent() === captured.text && token.start === captured.start && token.end === captured.end)
+            token.node.select(token.start, token.end).removeText();
+        });
+      }).catch(() => {});
+      return;
+    }
     editor.update(() => {
       const token = $commandAtCaret();
       if (!token || token.query !== query || token.trigger !== trigger) return;
@@ -66,7 +82,7 @@ export function SlashCommandPlugin({ appCommands = [], container, disabled, cata
         selection.insertNodes([$createPromptMentionNode(mention), trailing]);
         trailing.selectEnd();
       } else selection.removeText();
-      command.run();
+      void command.run();
     }, { discrete: true });
     setQuery(null);
   };

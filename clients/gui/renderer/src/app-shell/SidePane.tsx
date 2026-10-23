@@ -1,3 +1,4 @@
+import { useI18n } from "../i18n/IntlProvider.js";
 import { useLayoutEffect, useRef, useState, type ReactNode, type PointerEvent } from "react";
 import { SideChatIcon as MessageCircle, SearchIcon as Search } from "../interfaceIcons.js";
 import { SidePanelIcon } from "../homeChromeIcons.js";
@@ -49,6 +50,8 @@ export function SidePane({
   onKeepTab,
   transient = false,
   hideDisabled = false,
+  onNewSide,
+  retainedPanels = [],
 }: {
   workspaceView?: {
     mode: "split" | "panel" | "conversation";
@@ -65,6 +68,8 @@ export function SidePane({
   onKeepTab?: (id: string) => void;
   transient?: boolean;
   hideDisabled?: boolean;
+  onNewSide?: () => void;
+  retainedPanels?: { id: string; visible: boolean; content: ReactNode }[];
   onSelect: (name: string) => void;
   onChange: (names: string[]) => void;
   onHide: () => void;
@@ -74,6 +79,7 @@ export function SidePane({
   auxiliary?: ReactNode;
   titleFor?: (name: string) => string | undefined;
 }) {
+  const { t } = useI18n();
   const fullView = !!workspaceView && workspaceView.mode !== "split";
   const conversationActive = workspaceView?.mode === "conversation";
   const panel = useRef<HTMLElement>(null);
@@ -130,7 +136,7 @@ export function SidePane({
       closingFocusedTab.current = id;
     }
     const tab = known.current.get(id)!;
-    if (!id.startsWith("terminal:") && !isBrowserTab(id)) setClosed((previous) =>
+    if (!id.startsWith("terminal:") && !isBrowserTab(id) && !id.startsWith("side:") && !id.startsWith("side-resource:")) setClosed((previous) =>
       [{ tab, closedAt: Date.now() }, ...previous.filter((p) => p.tab.id !== id)].slice(0, 20),
     );
     const remaining = current.current.names.filter((name) => name !== id);
@@ -144,7 +150,7 @@ export function SidePane({
     if (!await allowClose(targets) || !mounted.current) return;
     setClosed((previous) =>
       [
-        ...tabs.filter((t) => t.id !== keep && !t.id.startsWith("terminal:") && !isBrowserTab(t.id)).map((tab) => ({ tab, closedAt: Date.now() })),
+        ...tabs.filter((t) => t.id !== keep && !t.id.startsWith("terminal:") && !isBrowserTab(t.id) && !t.id.startsWith("side:") && !t.id.startsWith("side-resource:")).map((tab) => ({ tab, closedAt: Date.now() })),
         ...previous.filter((p) => !names.includes(p.tab.id)),
       ].slice(0, 20),
     );
@@ -159,13 +165,14 @@ export function SidePane({
   };
   const mac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
   const items = [
+    ...(onNewSide ? [{ id: "side", panel: "旁路讨论", label: t("chat.side.title"), shortcut: "", icon: MessageCircle, onOpen: onNewSide }] : []),
     { id: "review", panel: "改动", label: "审查", shortcut: mac ? "⌃⇧G" : "Ctrl+Shift+G", icon: ReviewPanelIcon, onOpen: () => onSelect("改动") },
     ...(ownerTaskId
       ? [{ id: "terminal", panel: "终端", label: "终端", shortcut: mac ? "⌃`" : "Ctrl+`", icon: TerminalPanelIcon, onOpen: () => onSelect("终端") }]
       : []),
     { id: "browser", panel: "预览", label: "浏览器", shortcut: mac ? "⌘T" : "Ctrl+T", icon: BrowserPanelIcon, onOpen: () => onSelect("预览") },
     { id: "files", panel: "文件", label: "文件", shortcut: mac ? "⌘P" : "Ctrl+P", icon: FilesPanelIcon, onOpen: () => onSelect("文件") },
-  ].filter((item) => item.id === "terminal" || item.id === "browser" || !names.includes(item.panel));
+  ].filter((item) => item.id === "side" || item.id === "terminal" || item.id === "browser" || !names.includes(item.panel));
   return (
     <section
       ref={panel}
@@ -320,8 +327,9 @@ export function SidePane({
         </Button>
       </div>
       <div className="panel-resource-layout" data-file-preview={active.startsWith("file:") || undefined}>
-        <div className={`panel-content ${active === "功能" || ["预览", "终端", "改动", "文件", "旁路讨论", "图片标注"].includes(active) || active.startsWith("file:") || active.startsWith("terminal:") || isBrowserTab(active) ? "full-height" : ""}`}>
-          {active === "功能" ? <SidePaneLauncher items={items} /> : render(active)}
+        <div className={`panel-content ${active === "功能" || ["预览", "终端", "改动", "文件", "旁路讨论", "图片标注"].includes(active) || active.startsWith("file:") || active.startsWith("terminal:") || active.startsWith("side:") || active.startsWith("side-resource:") || isBrowserTab(active) ? "full-height" : ""}`}>
+          {retainedPanels.map(pane => <div key={pane.id} className="side-pane-retained-content" style={{ display: pane.visible ? "flex" : "none", flex: 1, minHeight: 0, height: "100%", flexDirection: "column" }}>{pane.content}</div>)}
+          {!retainedPanels.some(pane => pane.visible) && (active === "功能" ? <SidePaneLauncher items={items} /> : render(active))}
         </div>
         {auxiliary && <aside className="panel-resource-tree" aria-label="文件列表">{auxiliary}</aside>}
       </div>

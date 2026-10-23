@@ -21,3 +21,10 @@
 .side-chat-feedback textarea { width:100%; min-height:90px; padding:var(--spacing-inline); background:var(--color-surface); border:var(--border-width-default) solid var(--color-border); border-radius:var(--radius-inset); }
 .side-chat-feedback:empty { display:none; }
 .side-bring-action { font-size:var(--text-ui-xs); color:var(--color-foreground-subtle); }
+
+.conversation-selection-references { display:flex; flex-wrap:wrap; gap:6px; padding:4px 10px; }
+.conversation-selection-reference { display:flex; align-items:flex-start; min-width:0; max-width:100%; border:1px solid var(--color-border); border-radius:var(--radius-inset); padding:4px 8px; font-size:var(--text-ui-xs); background:var(--color-surface); }
+.conversation-selection-reference details { min-width:0; }
+.conversation-selection-reference summary { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:280px; cursor:pointer; }
+.conversation-selection-reference blockquote { white-space:pre-wrap; overflow:auto; max-height:180px; padding:6px 0; }
+.side-chat-resource { display:flex; flex:1; min-height:0; flex-direction:column; }

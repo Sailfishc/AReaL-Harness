@@ -1,3 +1,7 @@
+import { ExecutableSideChatPane } from "./ExecutableSideChatPane.js";
+import { useSideChatTabs, isSideChatTab, sideResourceTab, parseSideResourceTab, type SideChatTab, type SideResourceBinding } from "./useSideChatTabs.js";
+import { addConversationSelection, conversationSelectionScope, selectionLimitMessage, type ConversationSelectionReference } from "./conversationSelectionReference.js";
+import { useConversationEscape } from "./useConversationEscape.js";
 import { GenUiWorkspace } from "./GenUiWorkspace.js";
 import startupIcon from "../../app/assets/icon-1024.png";
 import { useI18n } from "./i18n/IntlProvider.js";
@@ -102,7 +106,6 @@ import { HooksSettings } from "./settings/HooksSettings.js";
 import { ExecutionsPane } from "./ExecutionsPane.js";
 import { AgentConversationPane } from "./AgentConversationPane.js";
 import { SideChatPane } from "./SideChatPane.js";
-import { SideDraftWorkspace } from "./side-draft-owner.js";
 import { agentName, agentAssignment } from "./AgentIdentity.js";
 import { WorkgroupsPane } from "./WorkgroupsPane.js";
 import { ServiceStatusSettings } from "./settings/ServiceStatusSettings.js";
@@ -676,6 +679,67 @@ function AppContent({ services }: { services: PlatformServices }) {
     (name: import("./services.js").CommandName, params: Data = {}) => call(services, name, params),
     [services],
   );
+  const sideChats = useSideChatTabs(resourceAction);
+  const mainPane = React.useRef<HTMLElement>(null);
+  const sideResourceBindings = React.useRef(new Map<string, SideResourceBinding>());
+  useConversationEscape({ pane: mainPane, project, thread, action, onError: setError,
+    enabled: initialReleased && !settingsOpen && !taskCenterOpen && !pluginsOpen && workspaceView !== "panel"
+      && !!project?.state?.connected && !projectExecutionBlocked(snapshot.lifecycle, project?.id ?? ""),
+    outsideFallback: !annotationVisible && (!panel || workspaceView === "conversation") });
+  const canCreateSide = !!project && !!thread && project.core?.features?.sideExecutableV2 === true
+    && !!project.state?.connected && !thread.desktop?.archived && !thread.parentThreadId && thread.conversation?.kind !== "side"
+    && !project.configurations?.[thread.id]?.options?.appendInstructions?.startsWith("AREAL_TASK_DRAFT_V1\n")
+    && !matchMedia("(max-width: 640px)").matches;
+  const revealSide = (tab: SideChatTab) => {
+    const owner = `${tab.projectId}:${tab.parentId}`;
+    if (activePanelOwner.current !== owner) {
+      const view = panelViews.current.get(owner);
+      panelViews.current.set(owner, { panel: tab.id, lastPanel: tab.id, tabs: [...new Set([...(view?.tabs ?? []), tab.id])], filesOpen: view?.filesOpen ?? false, revealedFile: view?.revealedFile ?? "", previewFileTab: view?.previewFileTab });
+      return;
+    }
+    setWorkspaceView(matchMedia("(max-width: 1200px)").matches ? "panel" : "split");
+    setPanelTabs(tabs => tabs.includes(tab.id) ? tabs : [...tabs, tab.id]);
+    setPanel(tab.id);
+  };
+  const openSideResource = (tab: SideChatTab, resource: string) => {
+    if (!sideChats.hasChild(tab.projectId, tab.childId)) return;
+    const owner = `${tab.projectId}:${tab.parentId}`;
+    const id = sideResourceTab(tab.childId, resource);
+    if (activePanelOwner.current !== owner) {
+      const view = panelViews.current.get(owner);
+      if (view) panelViews.current.set(owner, { ...view, tabs: [...new Set([...view.tabs, id])] });
+      return;
+    }
+    setPanelTabs(tabs => tabs.includes(id) ? tabs : [...tabs, id]); setPanel(id);
+  };
+  const removeSideResource = (tab: SideChatTab, resource: string) => {
+    const owner = `${tab.projectId}:${tab.parentId}`;
+    const id = sideResourceTab(tab.childId, resource);
+    const view = panelViews.current.get(owner);
+    if (view) panelViews.current.set(owner, { ...view, tabs: view.tabs.filter(name => name !== id), panel: view.panel === id ? tab.id : view.panel });
+    if (activePanelOwner.current === owner) {
+      setPanelTabs(tabs => tabs.filter(name => name !== id));
+      setPanel(current => current === id ? tab.id : current);
+    }
+  };
+  const createSide = async (text = "") => {
+    if (!canCreateSide || !project || !thread) throw new Error(t("chat.side.unavailable"));
+    rememberPanelTrigger();
+    const tab = await sideChats.create(project.id, thread.id, text);
+    revealSide(tab);
+    return tab;
+  };
+  const newSide = () => { void createSide().catch(cause => setError(cause.message)); };
+  const removeSideTab = (tab: SideChatTab) => {
+    sideChats.forget(tab);
+    const owner = `${tab.projectId}:${tab.parentId}`;
+    const view = panelViews.current.get(owner);
+    if (view) panelViews.current.set(owner, { ...view, tabs: view.tabs.filter(id => id !== tab.id && parseSideResourceTab(id)?.childId !== tab.childId), panel: view.panel === tab.id || parseSideResourceTab(view.panel)?.childId === tab.childId ? "功能" : view.panel });
+    if (activePanelOwner.current === owner) {
+      setPanelTabs(tabs => tabs.filter(id => id !== tab.id && parseSideResourceTab(id)?.childId !== tab.childId));
+      setPanel(current => current === tab.id || parseSideResourceTab(current)?.childId === tab.childId ? "功能" : current);
+    }
+  };
   const restoreConversation = useCallback((owner: RestorationOwner, operation: "connect" | "open", options: { connectService?: boolean } = {}) => {
     const previous = restorationAttempt.current;
     if (sameRestorationOwner(previous, owner) && previous?.operation === operation && previous.pending) return previous.promise;
@@ -1035,7 +1099,7 @@ function AppContent({ services }: { services: PlatformServices }) {
     setPanel(create ? addTerminal(owner) : ensureTerminal(owner));
   };
   const hidePanel = () => {
-    const returning = panel === "旁路讨论" || panel.startsWith("agent:") || isBrowserTab(panel) || panel.startsWith("file:") || panel === "改动";
+    const returning = panel === "旁路讨论" || panel === "历史旁路讨论" || isSideChatTab(panel) || panel.startsWith("agent:") || isBrowserTab(panel) || panel.startsWith("file:") || panel === "改动";
     const owner = `${projectId}:${threadId}`;
     const trigger = panelReturnTarget.current;
     setWorkspaceView("split"); setPanel("");
@@ -1048,7 +1112,7 @@ function AppContent({ services }: { services: PlatformServices }) {
   useEffect(() => {
     const query = matchMedia("(max-width: 1200px)");
     const resize = () => {
-      if (panel !== "旁路讨论") return;
+      if (panel !== "旁路讨论" && !isSideChatTab(panel)) return;
       if (query.matches) { sideNarrow.current = true; if (workspaceView === "split") setWorkspaceView("panel"); }
       else if (sideNarrow.current) { sideNarrow.current = false; setWorkspaceView("split"); }
     };
@@ -1058,6 +1122,7 @@ function AppContent({ services }: { services: PlatformServices }) {
   const showPanel = (name: string) => {
     if (!initialReleased) return;
     if (name === "预览") { void openBrowser(); return; }
+    if (name === "旁路讨论" && canCreateSide) { newSide(); return; }
     if (name === "改动") rememberPanelTrigger();
     if (name === "旁路讨论" || name.startsWith("agent:")) { if (panel === name) { hidePanel(); return; } rememberPanelTrigger(); }
     setWorkspaceView(mode => name === "旁路讨论" && matchMedia("(max-width: 1200px)").matches ? "panel" : mode === "split" ? mode : "panel");
@@ -1378,9 +1443,10 @@ function AppContent({ services }: { services: PlatformServices }) {
     if (!project) return null;
     const props = { project, thread, action };
     if (panel.startsWith("mcp-app:")) return mcpWorkspace.render(panel);
-    if (panel === "旁路讨论" && thread && project.core?.features?.sidePreview === true && !thread.parentThreadId && thread.conversation?.kind !== "side") {
+    if ((panel === "旁路讨论" || panel === "历史旁路讨论") && thread && project.core?.features?.sidePreview === true && !thread.parentThreadId && thread.conversation?.kind !== "side") {
       return <SideChatPane onPanel={showPanel} onReturn={hidePanel} key={`${project.core?.instanceId}:${project.id}:${thread.id}:side`} project={project} source={thread} executionBlocked={projectExecutionBlocked(snapshot.lifecycle, project.id)} action={resourceAction} dark={dark} />;
     }
+    if (isSideChatTab(panel) || parseSideResourceTab(panel)) return null;
     if (panel.startsWith("agent:") && thread) {
       const childId = panel.slice(6);
       return <AgentConversationPane key={`${project.id}:${childId}`} project={project} parentId={project.state?.threads[childId]?.parentThreadId ?? thread.id} childId={childId} action={resourceAction} dark={dark} onLink={onLink} onFile={openFile}
@@ -1525,42 +1591,37 @@ function AppContent({ services }: { services: PlatformServices }) {
   const canStageSelection = !!project && !!thread && !thread.desktop?.archived && !thread.parentThreadId
     && thread.conversation?.kind !== "side" && !!project.state?.connected && !project.observationErrors?.[thread.id]
     && snapshot.connection?.state === "ready" && !viewRefreshing && !projectExecutionBlocked(snapshot.lifecycle, project.id);
-  const addSelectionToChat = (text: string) => {
+  const addSelectionToChat = (reference: ConversationSelectionReference) => {
     if (!canStageSelection || !project || !thread) return;
     const key = `areal-gui:draft:${project.id}:${thread.id}`;
     if (sending.has(key) || localStorage.getItem(`${key}:pending`) || localStorage.getItem(`${key}:queue-edit`)
       || project.pending?.some((request: Data) => request.params?.threadId === thread.id)) return;
-    attachmentDrafts.set(key, [...(attachmentDrafts.get(key) ?? []), { kind: "pasted-text", text }]);
-    window.dispatchEvent(new CustomEvent("areal-draft-change", { detail: key }));
+    const result = addConversationSelection(conversationSelectionScope(project.id, thread.id), reference);
+    if (!result.ok) setError(selectionLimitMessage(t, result.reason));
   };
-  const openSideSelection = (selection: Data, excerpt: string, anchor?: Data) => {
-    if (!canStageSelection || !project || !thread || project.core?.features?.sidePreview !== true) return;
-    rememberPanelTrigger();
-    const workspace = new SideDraftWorkspace(localStorage, { instanceId: project.core?.instanceId ?? "unknown",
-      projectId: project.id, sourceThreadId: thread.id, randomId: () => crypto.randomUUID() });
-    const draft = workspace.current();
-    const owner = workspace.owner(draft);
-    if (localStorage.getItem(workspace.pendingKey(draft))) return;
-    const side = draft.kind === "side" ? project.state?.threads?.[draft.id] : undefined;
-    if (draft.kind === "side" && (!side || side.desktop?.archived || side.conversation?.kind !== "side"
-      || side.conversation.origin?.sourceThreadId !== thread.id
-      || project.pending?.some((request: Data) => request.params?.threadId === draft.id))) return;
-    if (draft.kind === "side" || localStorage.getItem(`${owner}:selection`)) {
-      // 首个冻结来源不被后来选区覆盖；后续引文作为可编辑问题追加。
-      const key = workspace.draftKey(draft);
-      const text = [localStorage.getItem(key) ?? "", excerpt].filter(Boolean).join("\n\n");
-      localStorage.setItem(key, text);
-      window.dispatchEvent(new CustomEvent("areal-side-draft", { detail: { owner, text } }));
-    } else {
-      localStorage.setItem(`${owner}:selection`, JSON.stringify(selection));
-      localStorage.setItem(`${owner}:selection-preview`, excerpt);
-      if (anchor) localStorage.setItem(`${owner}:anchor`, JSON.stringify(anchor));
-      else localStorage.removeItem(`${owner}:anchor`);
-    }
-    setWorkspaceView(mode => matchMedia("(max-width: 1200px)").matches ? "panel" : mode === "split" ? mode : "panel");
-    setPanel("旁路讨论");
-    setPanelTabs(tabs => tabs.includes("旁路讨论") ? tabs : [...tabs, "旁路讨论"]);
-    window.dispatchEvent(new CustomEvent("areal-side-selection", { detail: { owner, excerpt } }));
+  const openSideSelection = (_selection: Data, _excerpt: string, _anchor?: Data, reference?: ConversationSelectionReference) => {
+    if (!canStageSelection || !canCreateSide || !project || !thread || !reference) return;
+    const owner = { projectId: project.id, parentId: thread.id };
+    const active = workspaceView !== "conversation" && !annotationVisible ? sideChats.tabs.find(tab => tab.id === panel && tab.projectId === owner.projectId && tab.parentId === owner.parentId) : undefined;
+    if (active?.closeRequestId) return;
+    void (async () => {
+      let tab = active;
+      if (tab) {
+        try { await resourceAction("open", { projectId: tab.projectId, threadId: tab.childId }); }
+        catch (cause) {
+          const failure = cause as RecoveryFailure;
+          if (failure.code !== -32004 && failure.code !== "THREAD_NOT_FOUND" && failure.reason !== "thread_not_found") throw cause;
+          removeSideTab(tab);
+          tab = undefined;
+        }
+      }
+      tab ??= await createSide();
+      const key = `areal-gui:draft:${tab.projectId}:${tab.childId}`;
+      if (sending.has(key) || project.pending?.some((request: Data) => request.params?.threadId === tab.childId)) return;
+      const result = addConversationSelection(conversationSelectionScope(tab.projectId, tab.childId), reference);
+      if (!result.ok) setError(selectionLimitMessage(t, result.reason));
+      revealSide(tab);
+    })().catch(cause => setError(cause.message));
   };
   const taskActions = <DropdownMenu>
                     <DropdownMenuTrigger
@@ -1571,6 +1632,7 @@ function AppContent({ services }: { services: PlatformServices }) {
                       }
                     />
                     <DropdownMenuContent align="end">
+                      {thread && project?.core?.features?.sidePreview === true && <DropdownMenuItem onClick={() => { setPanel("历史旁路讨论"); setWorkspaceView("split"); }}>{t("chat.side.history")}</DropdownMenuItem>}
                       <DropdownMenuItem onClick={() => { setArchived(!archived); setSidebar(true); }}>
                         <span aria-hidden="true" className="size-4 shrink-0" />
                         {archived ? "返回当前任务" : "查看归档"}
@@ -1916,6 +1978,7 @@ function AppContent({ services }: { services: PlatformServices }) {
             <div className="workspace-content">
               <div className="conversation-column">
                 <section
+                  ref={mainPane}
                   className={`conversation-pane ${empty ? "draft-pane" : ""}`}
                   data-testid="chat-view"
                 >
@@ -1934,7 +1997,7 @@ function AppContent({ services }: { services: PlatformServices }) {
                           resultStates={mcpWorkspace.resultStates}
                           onFork={forkFromTurn}
                           onAddSelection={canStageSelection ? addSelectionToChat : undefined}
-                          onSideSelection={canStageSelection && project.core?.features?.sidePreview === true ? openSideSelection : undefined}
+                          onSideSelection={canStageSelection && canCreateSide ? openSideSelection : undefined}
                           dark={dark}
                           onLink={onLink}
                           onFile={openFile}
@@ -1955,6 +2018,9 @@ function AppContent({ services }: { services: PlatformServices }) {
                             </div>
                           </div>
                         )}
+                        {project && thread && sideChats.hasPendingCreation(project.id, thread.id) && <p role="status" className="notice">{t("chat.side.createUnconfirmed")}
+                          <Button variant="ghost" size="sm" onClick={() => { void sideChats.recoverCreation(project.id, thread.id).then(tab => { if (tab) revealSide(tab); }).catch(cause => setError(cause.message)); }}>{t("chat.side.inspectCreation")}</Button>
+                        </p>}
                         {mcpWorkspace.contexts}
                         {mcpWorkspace.formsView}
                         {mcpMentionsOpen && <McpMentionsPicker servers={mcpWorkspace.servers} projectId={project.id} threadId={thread.id} action={resourceAction} onClose={()=>setMcpMentionsOpen(false)}/>}
@@ -1970,21 +2036,7 @@ function AppContent({ services }: { services: PlatformServices }) {
                           action={action}
                           readAction={resourceAction}
                           onPanel={showPanel}
-                          onSide={project.core?.features?.sidePreview === true && !thread.desktop?.archived && !thread.parentThreadId && thread.conversation?.kind !== "side" ? draft => {
-                            rememberPanelTrigger();
-                            const workspace = new SideDraftWorkspace(localStorage, { instanceId: project.core?.instanceId ?? "unknown",
-                              projectId: project.id, sourceThreadId: thread.id, randomId: () => crypto.randomUUID() });
-                            const current = workspace.current();
-                            const selected = current.kind === "side" || localStorage.getItem(workspace.pendingKey(current)) ? workspace.newDraft() : current;
-                            const owner = workspace.owner(selected);
-                            const key = workspace.draftKey(selected);
-                            const existing = localStorage.getItem(key) ?? "";
-                            if (draft.trim()) localStorage.setItem(key, existing ? `${existing}\n${draft}` : draft);
-                            setWorkspaceView(mode => matchMedia("(max-width: 1200px)").matches ? "panel" : mode === "split" ? mode : "panel");
-                            setPanel("旁路讨论");
-                            setPanelTabs(tabs => tabs.includes("旁路讨论") ? tabs : [...tabs, "旁路讨论"]);
-                            window.dispatchEvent(new CustomEvent("areal-side-draft", { detail: { owner, text: localStorage.getItem(key) ?? "" } }));
-                          } : undefined}
+                          onSide={canCreateSide ? async text => { await createSide(text); } : undefined}
                           onNew={() => void newTask()}
                           onOpenTask={target => { updateSettingsOpen(false); setTaskScope(undefined); setTaskNotification({ ...target, eventId: crypto.randomUUID() }); setTaskCenterOpen(true); }}
                         />
@@ -2098,10 +2150,22 @@ function AppContent({ services }: { services: PlatformServices }) {
             ownerTaskId={threadId || null}
             active={panel}
             names={panelTabs}
+            onNewSide={canCreateSide ? newSide : undefined}
+            retainedPanels={sideChats.tabs.filter(tab => tab.projectId === project.id && tab.parentId === threadId).map(tab => {
+              const resource = parseSideResourceTab(panel);
+              const selected = panel === tab.id || resource?.childId === tab.childId;
+              return { id: tab.id, visible: selected, content: <ExecutableSideChatPane tab={tab} project={project} projects={snapshot.projects} services={services}
+                action={resourceAction} dark={dark} active={selected && workspaceView !== "conversation"} resource={selected ? resource?.resource ?? "" : ""}
+                executionBlocked={snapshot.connection?.state !== "ready" || projectExecutionBlocked(snapshot.lifecycle, project.id)} onNew={newSide}
+                onOpenResource={name => openSideResource(tab, name)} onRemoveResource={name => removeSideResource(tab, name)}
+                onBackToChat={() => { if (activePanelOwner.current === `${tab.projectId}:${tab.parentId}` && sideChats.hasChild(tab.projectId, tab.childId)) setPanel(tab.id); }}
+                onBinding={binding => { if (binding) sideResourceBindings.current.set(tab.childId, binding); else sideResourceBindings.current.delete(tab.childId); }}
+                onInspectClose={() => { void sideChats.close(tab).then(() => removeSideTab(tab)).catch(cause => setError(cause.message)); }} /> };
+            })}
             previewTabId={previewFileTab}
             onKeepTab={id => setPreviewFileTab(current => current === id ? undefined : current)}
             workspaceView={{ mode: workspaceView, title: empty ? "新对话" : currentTitle, onChange: mode => {
-              if (panel === "旁路讨论" && mode === "split" && matchMedia("(max-width: 1200px)").matches) hidePanel();
+              if ((panel === "旁路讨论" || isSideChatTab(panel)) && mode === "split" && matchMedia("(max-width: 1200px)").matches) hidePanel();
               else setWorkspaceView(mode);
             }, actions: taskActions,
               navigation: !sidebar ? <button className="icon-button" aria-label="展开侧栏" aria-expanded={false} aria-controls="areal-sidebar" onClick={() => setSidebar(true)}><SidebarToggleIcon /></button> : undefined }}
@@ -2112,11 +2176,22 @@ function AppContent({ services }: { services: PlatformServices }) {
             )}
             canClose={async (names) => {
               for (const name of names.filter(name => name.startsWith("mcp-app:"))) await mcpWorkspace.close(name);
-              const paths = names
-                .filter((name) => name.startsWith("file:"))
-                .map((name) => name.slice(5));
+              const closingChildren = new Set(names.filter(isSideChatTab).map(name => name.slice(5)));
+              const paths = [...names.filter(name => name.startsWith("file:")).map(name => name.slice(5)),
+                ...panelTabs.flatMap(name => {
+                  const resource = parseSideResourceTab(name);
+                  return resource && (names.includes(name) || closingChildren.has(resource.childId)) && resource.resource.startsWith("file:") ? [resource.resource.slice(5)] : [];
+                })];
               if (!confirmCloseFiles(project.id, paths)) return false;
               try {
+                for (const name of names.filter(isSideChatTab)) {
+                  const tab = sideChats.tabs.find(tab => tab.id === name && tab.projectId === project.id);
+                  if (tab) { await sideChats.close(tab); removeSideTab(tab); }
+                }
+                for (const name of names) {
+                  const resource = parseSideResourceTab(name);
+                  if (resource && !names.includes(`side:${resource.childId}`)) await sideResourceBindings.current.get(resource.childId)?.close(resource.resource);
+                }
                 for (const name of names.filter(isBrowserTab)) {
                   await browserWorkspace.request("release", { pageId: browserPageId(name), userIntent: true });
                 }
@@ -2130,6 +2205,8 @@ function AppContent({ services }: { services: PlatformServices }) {
               return true;
             }}
             onSelect={(name) => {
+              const childId = isSideChatTab(name) ? name.slice(5) : parseSideResourceTab(name)?.childId;
+              if (childId && !sideChats.hasChild(project.id, childId)) { setPanel("功能"); return; }
               if (workspaceView !== "split") setWorkspaceView("panel");
               if (name === "文件") {
                 showFiles();
@@ -2148,14 +2225,20 @@ function AppContent({ services }: { services: PlatformServices }) {
               if (name.startsWith("file:")) setRevealedFile(name.slice(5));
               setPanel(name);
             }}
-            titleFor={name => name.startsWith("mcp-app:") ? mcpWorkspace.titleFor(name) : isBrowserTab(name) ? (() => {
+            titleFor={name => parseSideResourceTab(name) ? (() => {
+              const resource = parseSideResourceTab(name)!.resource;
+              return resource.startsWith("browser:") ? "浏览器" : resource.startsWith("mcp-app:") ? "应用" : resource.startsWith("file:") ? resource.slice(5).split("/").pop() : resource;
+            })() : isSideChatTab(name) ? t("chat.side.numbered", { ordinal: sideChats.tabs.find(tab => tab.id === name)?.ordinal ?? "" }) : name.startsWith("mcp-app:") ? mcpWorkspace.titleFor(name) : isBrowserTab(name) ? (() => {
               const page = browserWorkspace.pages.find(page => page.pageId === browserPageId(name));
               let title = page?.title;
               if (!title && page?.url) { try { title = new URL(page.url).host; } catch { title = page.url; } }
               return (title || "新标签页") + (page?.resource === "suspended" ? " · 已暂停" : "");
             })() : name.startsWith("agent:") ? agentAssignment(thread ?? {}, name.slice(6)) || agentName(name.slice(6)) : isTerminalTab(name) ? terminalTitle(terminalOwner(project.id, threadId), name, project.root) : undefined}
             onChange={tabs => {
-              setPanelTabs(tabs);
+              setPanelTabs(tabs.filter(name => {
+                const childId = isSideChatTab(name) ? name.slice(5) : parseSideResourceTab(name)?.childId;
+                return !childId || sideChats.hasChild(project.id, childId);
+              }));
               setPreviewFileTab(current => current && tabs.includes(current) ? current : undefined);
             }}
             onHide={hidePanel}

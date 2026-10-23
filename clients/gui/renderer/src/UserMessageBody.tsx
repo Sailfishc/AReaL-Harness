@@ -1,3 +1,5 @@
+import { parsePromptConversationSelections } from "./conversationSelectionReference.js";
+import { ConversationSelectionReferences } from "./ConversationSelectionReferences.js";
 import { stripGenUiModelContext } from "@areal/gen-ui/contract";
 import { Box } from "lucide-react";
 import { MessageResponse } from "./components/ai-elements/message.js";
@@ -58,11 +60,13 @@ export function UserMessageBody({ children, theme, onOpenExternalUrl, onOpenFile
   onOpenExternalUrl?: (url: string) => void;
   onOpenFileLink?: (path: string) => void;
 }) {
-  const { text, skills } = projectUserMessage(stripGenUiModelContext(children));
+  const selection = parsePromptConversationSelections(stripGenUiModelContext(children));
+  const { text, skills } = projectUserMessage(selection.visibleContent);
   const markdown = <MessageResponse className="conversation-markdown user-message-body" preserveLineBreaks theme={theme}
     onOpenExternalUrl={onOpenExternalUrl} onOpenFileLink={onOpenFileLink}>{text}</MessageResponse>;
-  if (!skills.length) return markdown;
+  if (!skills.length && !selection.references.length) return markdown;
   return <div className="user-message-with-skills">
+    <ConversationSelectionReferences references={selection.references} />
     {skills.map((skill, index) => <span key={`${skill.source}:${skill.id}:${skill.revision}:${index}`} className="user-message-skill">
       <Box size={16} aria-hidden="true" />{formatSkillMentionDisplayLabel(skill.name)}
     </span>)}

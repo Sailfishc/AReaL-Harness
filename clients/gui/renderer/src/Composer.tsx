@@ -1,3 +1,8 @@
+import { stopConversationTurn, releaseSettledStops } from "./conversationStop.js";
+import { ConversationSelectionReferences } from "./ConversationSelectionReferences.js";
+import { conversationSelectionScope, useConversationSelections, readConversationSelections, consumeConversationSelections } from "./conversationSelectionReference.js";
+import { parseSideSlashCommand } from "./sideSlashCommand.js";
+import { composerDraftStorage } from "./composerDraftStorage.js";
 import { validateWorkspaceFileReference } from "./lib/workspaceFileComposer.js";
 import { stripGenUiModelContext } from "@areal/gen-ui/contract";
 import { useI18n } from "./i18n/IntlProvider.js";
@@ -72,8 +77,12 @@ export function Composer({
   appEntries = [],
   onAnnotate,
   surfaceLayout = "default",
+  inputTestId = "chat-input",
+  submitTestId = "chat-send-button",
 }: {
   surfaceLayout?: "default" | "compact";
+  inputTestId?: string;
+  submitTestId?: string;
   project: Data;
   thread: Data;
   executionBlocked: boolean;
@@ -82,7 +91,7 @@ export function Composer({
   onPanel: (name: string) => void;
   onNew: () => void;
   onOpenTask?: (target: { projectId: string; taskId: string; runId: string }) => void;
-  onSide?: (draft: string) => void;
+  onSide?: (draft: string) => Promise<void>;
   onMcpMention?: () => void;
   appEntries?: readonly ComposerCatalogEntry[];
   onAnnotate?: (target: ImageAnnotationTarget) => void;
@@ -90,6 +99,8 @@ export function Composer({
   const { t } = useI18n();
   const prefs = useApplicationPreferences();
   const key = `areal-gui:draft:${project.id}:${thread.id}`;
+  const selectionScope = conversationSelectionScope(project.id, thread.id);
+  const references = useConversationSelections(selectionScope);
   const mcpDraft = useMcpDraft(key);
   const reviewKey = reviewCommentKey(project.id, thread.id);
   const reviewDraft = useReviewComments(reviewKey);
@@ -98,14 +109,15 @@ export function Composer({
   const [workspaceReferencePending, setWorkspaceReferencePending] = useState(false);
   const upload = useRef<HTMLInputElement>(null);
   const [menuAnchor, setMenuAnchor] = useState<HTMLDivElement | null>(null);
-  const [text, setText] = useState(() => localStorage.getItem(key) ?? "");
-  const [goalMode, setGoalMode] = useState(() => localStorage.getItem(`${key}:goal`) === "true");
+  const [text, setText] = useState(() => composerDraftStorage.getItem(key) ?? "");
+  const [goalMode, setGoalMode] = useState(() => composerDraftStorage.getItem(`${key}:goal`) === "true");
   const [goalError, setGoalError] = useState("");
-  const creatingGoal = goalMode && !thread.goals?.goal;
+  const isSide = thread.conversation?.kind === "side";
+  const creatingGoal = !isSide && goalMode && !thread.goals?.goal;
   const changeGoalMode = (enabled: boolean) => {
     setGoalMode(enabled); setGoalError("");
-    if (enabled) localStorage.setItem(`${key}:goal`, "true");
-    else localStorage.removeItem(`${key}:goal`);
+    if (enabled) composerDraftStorage.setItem(`${key}:goal`, "true");
+    else composerDraftStorage.removeItem(`${key}:goal`);
     api.current?.focus();
   };
   const busy = useSyncExternalStore(subscribeSending, () => sending.has(key));
@@ -125,12 +137,13 @@ export function Composer({
     else attachmentErrors.delete(key);
   }, [key, admissionError]);
   const [unknown, setUnknown] = useState<string | null>(() =>
-    localStorage.getItem(`${key}:pending`),
+    composerDraftStorage.getItem(`${key}:pending`),
   );
   const [deliveryError, setDeliveryError] = useState("");
   const [returnError, setReturnError] = useState("");
   const [returning, setReturning] = useState(false);
   const running = thread.turns?.find((t: Data) => t.status === "inProgress");
+  useEffect(() => { releaseSettledStops(project.id, thread); }, [project.id, thread]);
   const pending = project.pending.some((p: Data) => p.params?.threadId === thread.id);
   const archived = thread.desktop?.archived;
   const questions = (project.state?.interactions?.[thread.id]?.data ?? [])
@@ -151,7 +164,7 @@ export function Composer({
   const desktopUnsupported = project.desktopCapabilities?.currentCommands === false;
   const stop = () => {
     if (executionBlocked) return;
-    if (running) void action("stop", { projectId: project.id, threadId: thread.id, turnId: running.id, requestId: crypto.randomUUID() })
+    if (running) void stopConversationTurn(action, project, thread)
       .catch((cause: Error) => setDeliveryError(cause.message));
   };
   const saveQueueEdit = async () => {
@@ -170,11 +183,11 @@ export function Composer({
   const taskManagement = config?.options?.appendInstructions?.startsWith("AREAL_TASK_DRAFT_V1\n") === true;
   const ordinary = isOrdinaryConversation(thread, config);
   const interrupted = ordinary && project.core?.features?.ordinaryTurnSubmit === true ? interruptedConversationTurn(thread) : undefined;
-  const emptyDraft = !input.text.trim() && !input.files.length && !comments.length && !skills.selected.length && !mcpDraft.length;
+  const emptyDraft = !input.text.trim() && !input.files.length && !comments.length && !skills.selected.length && !mcpDraft.length && !references.length;
   const nextPrompt = useComposerPrediction({ project, thread, action, enabled: prefs.nextPromptSuggestions,
     eligible: ordinary && !disabled && !running && !questions.length && !approvals.length && !creatingGoal && !queueEditor.edit,
   });
-  const predictionVisible = !input.files.length && !comments.length && !skills.selected.length && !mcpDraft.length && !annotationEditing && !mcpOpen;
+  const predictionVisible = !input.files.length && !comments.length && !skills.selected.length && !mcpDraft.length && !references.length && !annotationEditing && !mcpOpen;
   const canContinue = !!interrupted && emptyDraft && !creatingGoal && !queueEditor.edit;
   const planActive = permissionMode(config ?? {}) === "plan";
   const executionPermission = planActive ? permissionMode({ ...config, readOnly: false, options: planModeOptions(false, config?.options) }) : permissionMode(config ?? {});
@@ -185,7 +198,7 @@ export function Composer({
     const remaining = files.filter(isComposerFile);
     setFiles(remaining);
     attachmentDrafts.set(key, remaining);
-    localStorage.removeItem(key);
+    composerDraftStorage.removeItem(key);
   };
   const clear = () => {
     api.current?.clear();
@@ -194,16 +207,17 @@ export function Composer({
     skills.clear();
     plugins.clear();
     clearMcpDraft(key);
+    consumeConversationSelections(selectionScope, references);
     attachmentDrafts.delete(key);
     setAdmissionError("");
-    localStorage.removeItem(key);
+    composerDraftStorage.removeItem(key);
   };
   useEffect(() => { setGoalError(""); }, [key]);
   useEffect(() => {
-    setUnknown(localStorage.getItem(`${key}:pending`));
-    setGoalMode(localStorage.getItem(`${key}:goal`) === "true");
+    setUnknown(composerDraftStorage.getItem(`${key}:pending`));
+    setGoalMode(composerDraftStorage.getItem(`${key}:goal`) === "true");
     if (!busy) {
-      const draft = localStorage.getItem(key) ?? "";
+      const draft = composerDraftStorage.getItem(key) ?? "";
       if (api.current && api.current.getMarkdown() !== draft) api.current.setText(draft);
       setText(draft);
       setFiles(attachmentDrafts.get(key) ?? []);
@@ -213,7 +227,7 @@ export function Composer({
   useEffect(() => {
     const refreshDraft = (event: Event) => {
       if ((event as CustomEvent<string>).detail !== key || sending.has(key)) return;
-      const draft = localStorage.getItem(key) ?? "";
+      const draft = composerDraftStorage.getItem(key) ?? "";
       api.current?.setText(draft); setText(draft); setFiles(attachmentDrafts.get(key) ?? []); api.current?.focus();
     };
     window.addEventListener("areal-draft-change", refreshDraft);
@@ -222,22 +236,22 @@ export function Composer({
   useEffect(() => {
     if (!unknown) return;
     const pendingOperation = project.pending.find((entry: Data) => entry.params?.requestId === unknown)?.operation;
-    if (pendingOperation) localStorage.setItem(`${key}:pending-operation`, JSON.stringify(pendingOperation));
+    if (pendingOperation) composerDraftStorage.setItem(`${key}:pending-operation`, JSON.stringify(pendingOperation));
     if (pending) return;
     let operation: RecoveryOperation | undefined;
-    try { operation = JSON.parse(localStorage.getItem(`${key}:pending-operation`) ?? "null") ?? undefined; } catch {}
+    try { operation = JSON.parse(composerDraftStorage.getItem(`${key}:pending-operation`) ?? "null") ?? undefined; } catch {}
     const outcome = recoveredOutcome(project, unknown, thread.id, operation);
     if (!outcome) return;
-    localStorage.removeItem(`${key}:pending`);
-    localStorage.removeItem(`${key}:pending-operation`);
+    composerDraftStorage.removeItem(`${key}:pending`);
+    composerDraftStorage.removeItem(`${key}:pending-operation`);
     setUnknown(null);
     reconcileReviewSubmission(reviewKey, unknown, outcome.accepted !== false);
-    const wasGoal = localStorage.getItem(`${key}:pending-goal`) === unknown;
-    localStorage.removeItem(`${key}:pending-goal`);
-    const wasContinue = localStorage.getItem(`${key}:pending-continue`) === unknown;
-    localStorage.removeItem(`${key}:pending-continue`);
-    const wasConfigure = localStorage.getItem(`${key}:pending-configure`) === unknown;
-    localStorage.removeItem(`${key}:pending-configure`);
+    const wasGoal = composerDraftStorage.getItem(`${key}:pending-goal`) === unknown;
+    composerDraftStorage.removeItem(`${key}:pending-goal`);
+    const wasContinue = composerDraftStorage.getItem(`${key}:pending-continue`) === unknown;
+    composerDraftStorage.removeItem(`${key}:pending-continue`);
+    const wasConfigure = composerDraftStorage.getItem(`${key}:pending-configure`) === unknown;
+    composerDraftStorage.removeItem(`${key}:pending-configure`);
     if (outcome.status === "failed") setDeliveryError(outcome.message || "消息已受理，但执行失败，请检查对话结果。");
     else if (outcome.accepted === false) setDeliveryError(outcome.message || "原轮次已结束，内容已保留，请检查后发送。");
     else if (wasContinue || wasConfigure) setDeliveryError("");
@@ -252,21 +266,10 @@ export function Composer({
     if (workspaceReferencePending) return;
     if (desktopUnsupported && !creatingGoal && !queueEditor.edit) return;
     const submittedInput = composerInput(value, files);
-    const sideCommand = /^\/side(?:\s|$)/i.exec(submittedInput.text);
-    if (sideCommand && (!onSide || submittedInput.files.length)) {
-      setDeliveryError(submittedInput.files.length ? "旁路首问仅接受文本；附件仍保留在主草稿。" : "当前会话不支持旁路讨论。");
-      return;
-    }
-    if (sideCommand && onSide) {
-      const question = submittedInput.text.slice(sideCommand[0].length);
-      onSide(question);
-      clearText();
-      return;
-    }
     if (disabled || annotationEditing || invalidAnnotation || sending.has(key)) return;
     if (queueEditor.edit) { await saveQueueEdit(); return; }
     if (modelUnavailable && !creatingGoal) return;
-    if (!submittedInput.text.trim() && !submittedInput.files.length && !comments.length && !skills.selected.length && !mcpDraft.length) return;
+    if (!submittedInput.text.trim() && !submittedInput.files.length && !comments.length && !skills.selected.length && !mcpDraft.length && !references.length) return;
     if (approvePlan && (!planReady || input.text.trim() || input.files.length || comments.length)) return;
     if (creatingGoal && (running || thread.parentThreadId || !submittedInput.text.trim())) return;
     setAdmissionError("");
@@ -274,7 +277,16 @@ export function Composer({
     setGoalError("");
     setDeliveryError("");
     let configurationRequestId: string | undefined;
+    const sideCommand = parseSideSlashCommand(submittedInput.text, submittedInput.files,
+      comments.length + skills.selected.length + mcpDraft.length + references.length + (input.text.includes("<plugin") ? 1 : 0),
+      !!onSide && !isSide && !creatingGoal && !taskManagement && !matchMedia("(max-width: 640px)").matches,
+      appEntries.map(entry => entry.value));
     try {
+      if (sideCommand && onSide) {
+        await onSide(sideCommand.text);
+        if (api.current?.getMarkdown() === value) clearText();
+        return;
+      }
       if (creatingGoal) {
         await action("manage", { projectId: project.id, threadId: thread.id, operation: "goalCreate",
           expectedRevision: thread.goals?.revision ?? 0, objective: submittedInput.text, inferLimits: true });
@@ -309,11 +321,11 @@ export function Composer({
       }
       if (error.submissionUnknown && error.requestId) {
         const failure = error as RecoveryFailure;
-        if (failure.outcome && "operation" in failure.outcome) localStorage.setItem(`${key}:pending-operation`, JSON.stringify(failure.outcome.operation));
-        if (configurationRequestId) localStorage.setItem(`${key}:pending-configure`, error.requestId);
-        if (creatingGoal) localStorage.setItem(`${key}:pending-goal`, error.requestId);
+        if (failure.outcome && "operation" in failure.outcome) composerDraftStorage.setItem(`${key}:pending-operation`, JSON.stringify(failure.outcome.operation));
+        if (configurationRequestId) composerDraftStorage.setItem(`${key}:pending-configure`, error.requestId);
+        if (creatingGoal) composerDraftStorage.setItem(`${key}:pending-goal`, error.requestId);
         setUnknown(error.requestId);
-        localStorage.setItem(`${key}:pending`, error.requestId);
+        composerDraftStorage.setItem(`${key}:pending`, error.requestId);
       }
     } finally {
       markSending(key, false);
@@ -328,8 +340,8 @@ export function Composer({
       const error = cause as Error & { submissionUnknown?: boolean; requestId?: string };
       if (!error.submissionUnknown) setDeliveryError(recoveryMessage(error));
       if (error.submissionUnknown && error.requestId) {
-        localStorage.setItem(`${key}:pending`, error.requestId);
-        localStorage.setItem(`${key}:pending-continue`, error.requestId);
+        composerDraftStorage.setItem(`${key}:pending`, error.requestId);
+        composerDraftStorage.setItem(`${key}:pending-continue`, error.requestId);
         setUnknown(error.requestId);
       }
     } finally { markSending(key, false); }
@@ -346,21 +358,26 @@ export function Composer({
       if (failure.submissionUnknown) {
         const originalId = failure.requestId ?? requestId;
         setUnknown(originalId);
-        localStorage.setItem(`${key}:pending`, originalId);
-        localStorage.setItem(`${key}:pending-configure`, originalId);
+        composerDraftStorage.setItem(`${key}:pending`, originalId);
+        composerDraftStorage.setItem(`${key}:pending-configure`, originalId);
         const outcome = (failure as RecoveryFailure).outcome;
-        if (outcome && "operation" in outcome) localStorage.setItem(`${key}:pending-operation`, JSON.stringify(outcome.operation));
+        if (outcome && "operation" in outcome) composerDraftStorage.setItem(`${key}:pending-operation`, JSON.stringify(outcome.operation));
       } else setAdmissionError(recoveryMessage(failure));
     } finally { markSending(key, false); }
   };
   const catalogActions: ComposerCatalogEntry[] = [
     ...(onMcpMention ? [{value:"app-mention",label:"@ 应用引用",description:"搜索应用中的文件、工单或其他资源",icon:<ComposerMcpIcon/>,group:"功能" as const,run:onMcpMention}] : []),
-    ...(onSide ? [{ value: "side", label: "侧边聊天", description: "在右侧讨论，不打断当前聊天", icon: <SideChatIcon />, group: "功能" as const, run: () => onSide("") }] : []),
+    ...(onSide && !isSide && !taskManagement && !matchMedia("(max-width: 640px)").matches ? ["side", "btw"].filter(name => !appEntries.some(entry => entry.value.toLowerCase() === name)).map(name => ({
+      value: name, label: t(name === "side" ? "chat.side.title" : "chat.side.btw"), description: t("chat.side.newDescription"), icon: <SideChatIcon />, group: "功能" as const,
+      preserveInputUntilAccepted: true,
+      disabled: disabled || !!queueEditor.edit,
+      run: async () => { try { await onSide(""); } catch (cause) { setDeliveryError(recoveryMessage(cause as Error)); throw cause; } },
+    })) : []),
     { value: "upload", label: "上传文件", description: "添加图片、文档或其他文件", icon: <AttachmentIcon />, group: "功能", run: () => upload.current?.click() },
     { value: "mcp", label: "MCP", description: "查看服务器与连接状态", icon: <ComposerMcpIcon />, group: "功能", run: () => setMcpOpen(true) },
     { value: "files", label: t("chat.composer.workspaceFiles"), description: t("chat.composer.workspaceFilesDescription"), icon: <FileTree />, group: "功能", run: () => onPanel("文件") },
     { value: "plan", label: "计划模式", description: planActive ? "关闭计划模式" : "先规划，再开始执行", icon: <Lightbulb />, group: "功能", disabled: disabled || taskManagement || !!running || !config || config.profile?.readOnly === true, run: () => { void configure({ options: planModeOptions(!planActive, config?.options) }); } },
-    ...(!thread.goals?.goal ? [{ value: "goal", label: "设置目标", description: creatingGoal ? "关闭目标模式" : "设置持续目标与停止条件", icon: <Target />, group: "功能" as const, disabled: disabled || taskManagement || !!running || !!thread.parentThreadId, run: () => changeGoalMode(!goalMode) }] : []),
+    ...(!isSide && !thread.goals?.goal ? [{ value: "goal", label: "设置目标", description: creatingGoal ? "关闭目标模式" : "设置持续目标与停止条件", icon: <Target />, group: "功能" as const, disabled: disabled || taskManagement || !!running || !!thread.parentThreadId, run: () => changeGoalMode(!goalMode) }] : []),
     { value: "compact", label: "压缩", description: "压缩当前上下文", icon: <ArchiveChatIcon />, group: "功能", disabled: !!running, run: () => { void action("manage", { projectId: project.id, threadId: thread.id, operation: "contextCompact" }).catch(() => {}); } },
   ];
   // TaskRun owns this worker's lifetime; its history is readable, but it is
@@ -381,7 +398,7 @@ export function Composer({
   return (
     <div className="composer-dock" data-v4-composer-dock="true">
       {desktopUnsupported && <span id={compatibilityDescription} className="sr-only">{t("backend.updateRequired")}</span>}
-      <GoalCard project={project} thread={thread} action={action} onEdit={() => onPanel("编辑目标")} />
+      {!isSide && <GoalCard project={project} thread={thread} action={action} onEdit={() => onPanel("编辑目标")} />}
       <input
         ref={upload}
         type="file"
@@ -431,7 +448,7 @@ export function Composer({
       {thread.desktop?.workflowRun && <div className="flex flex-wrap items-center gap-2 px-3 py-1 text-ui-sm text-foreground-subtle">
         <Button type="button" size="sm" variant="ghost" onClick={() => {
           const storageKey = `areal-gui:workgroup:${project.id}`;
-          localStorage.setItem(storageKey, thread.desktop.workflowRun.workgroupId);
+          composerDraftStorage.setItem(storageKey, thread.desktop.workflowRun.workgroupId);
           document.dispatchEvent(new CustomEvent("areal:workgroup-operation", { detail: storageKey }));
           onPanel("工作组");
         }}>查看关联工作流结果</Button>
@@ -457,8 +474,8 @@ export function Composer({
         taskId={thread.id}
         initialValue={text}
         inputApiRef={api}
-        inputTestId="chat-input"
-        submitTestId="chat-send-button"
+        inputTestId={inputTestId}
+        submitTestId={submitTestId}
         placeholder={archived ? "已归档任务只读" : creatingGoal ? "描述目标，明确可衡量的结果" : planActive ? "描述任务，生成计划…" : "随心输入"}
         disabled={editorDisabled}
         submitDisabled={workspaceReferencePending || disabled || (modelUnavailable && !queueEditor.edit && !creatingGoal) || (desktopUnsupported && !queueEditor.edit && !creatingGoal) || (taskManagement && !!running) || annotationEditing || invalidAnnotation || (queueEditor.edit ? queueEditor.saveDisabled || (!input.text.trim() && !input.files.length && !queueEditor.edit.attachments.length) : creatingGoal ? !input.text.trim() || !!running : !canContinue && emptyDraft)}
@@ -471,10 +488,10 @@ export function Composer({
         composerCatalog={{ ...skills.catalog, entries: [...catalogActions, ...appEntries, ...skills.catalog.entries].map(entry => ({ ...entry, disabled: entry.disabled || (!!queueEditor.edit && !["upload", "files", "mcp"].includes(entry.value)) })) }}
         onChange={(value) => {
           setText(value);
-          localStorage.setItem(key, value);
-          localStorage.setItem(`${key}:version`, String(Number(localStorage.getItem(`${key}:version`) ?? 0) + 1));
+          composerDraftStorage.setItem(key, value);
+          composerDraftStorage.setItem(`${key}:version`, String(Number(composerDraftStorage.getItem(`${key}:version`) ?? 0) + 1));
         }}
-        allowSubmitWhenEmpty={canContinue}
+        allowSubmitWhenEmpty={canContinue || !!references.length}
         onSubmit={(value) => {
           if (canContinue) void continueExecution();
           else void submit(value);
@@ -494,6 +511,8 @@ export function Composer({
           </div>}
           {queueEditor.feedback && <p role="alert" className="composer-queue-feedback">{queueEditor.feedback}</p>}
           {queueEditor.edit?.unknown && <Button type="button" size="sm" disabled={queueEditor.busy || !project.state?.connected} onClick={() => void queueEditor.reconcile()}>核对编辑操作</Button>}
+          {!queueEditor.edit && <ConversationSelectionReferences references={references} disabled={editorDisabled}
+            onRemove={id => consumeConversationSelections(selectionScope, references.filter(reference => reference.id === id))} />}
           {!queueEditor.edit && skills.tags}
           <BrowserAnnotationAttachments files={files} disabled={editorDisabled} onChange={setFiles} />
           <div className="composer-attachment-row">
@@ -544,8 +563,8 @@ export function Composer({
           </div>}</>
         }
         onCancel={queueEditor.edit ? () => { if (!executionBlocked) void queueEditor.cancel(); } : running ? stop : undefined}
-        submitControl={queueEditor.edit ? <Button type="button" size="icon-md" aria-label="保存排队消息" data-testid="chat-send-button" disabled={workspaceReferencePending || disabled || queueEditor.saveDisabled || (!input.text.trim() && !input.files.length && !queueEditor.edit.attachments.length)}
-          className="composer-primary-action" onClick={() => void saveQueueEdit()}><SendMessageIcon className="size-5" /></Button> : running && !input.text.trim() && !input.files.length && !comments.length && !skills.selected.length && !mcpDraft.length ? (
+        submitControl={queueEditor.edit ? <Button type="button" size="icon-md" aria-label="保存排队消息" data-testid={submitTestId} disabled={workspaceReferencePending || disabled || queueEditor.saveDisabled || (!input.text.trim() && !input.files.length && !queueEditor.edit.attachments.length)}
+          className="composer-primary-action" onClick={() => void saveQueueEdit()}><SendMessageIcon className="size-5" /></Button> : running && !input.text.trim() && !input.files.length && !comments.length && !skills.selected.length && !mcpDraft.length && !references.length ? (
           <ControlHintTooltip title={ordinary ? "暂停执行" : "停止"} shortcut="Esc">
             <Button type="button" variant="secondary" size="icon-md" className="composer-primary-action composer-stop-action" aria-label={ordinary ? "暂停执行" : "停止"} disabled={executionBlocked}
               onClick={() => { stop(); api.current?.focus(); }}>
@@ -554,9 +573,9 @@ export function Composer({
           </ControlHintTooltip>
         ) : running ? (
           <ControlHintTooltip title={desktopUnsupported ? t("backend.updateRequired") : "发送"} shortcut={prefs.sendShortcut === "enter" ? "Enter" : "⌘/Ctrl+Enter"}>
-            <Button type="button" variant="composer" size="icon-md" aria-label="发送" data-testid="chat-send-button"
+            <Button type="button" variant="composer" size="icon-md" aria-label="发送" data-testid={submitTestId}
               aria-describedby={desktopUnsupported ? compatibilityDescription : undefined} title={desktopUnsupported ? t("backend.updateRequired") : undefined}
-              disabled={disabled || modelUnavailable || desktopUnsupported || taskManagement || (!input.text.trim() && !input.files.length && !comments.length && !skills.selected.length && !mcpDraft.length)}
+              disabled={disabled || modelUnavailable || desktopUnsupported || taskManagement || (!input.text.trim() && !input.files.length && !comments.length && !skills.selected.length && !mcpDraft.length && !references.length)}
               onClick={event => void submit(api.current?.getMarkdown() ?? text, event.metaKey || event.ctrlKey)}>
               <SendMessageIcon className="size-5" />
             </Button>
@@ -593,6 +612,8 @@ export async function submitMessage(
   const reviewKey = reviewCommentKey(projectId, threadId);
   const comments = options.appMessage ? [] : attachedReviewComments(readReviewComments(reviewKey));
   const key = `areal-gui:draft:${projectId}:${threadId}`;
+  const selectionScope = conversationSelectionScope(projectId, threadId);
+  const capturedReferences = options.appMessage ? [] : readConversationSelections(selectionScope);
   const capturedMcp = options.appMessage ? [] : readMcpDraft(key);
   const blocks = options.appMessage ? options.mcpContent ?? [] : capturedMcp.map((entry: Data) => entry.block);
   const imageBlocks = blocks.filter((block: Data) => block.type === "image");
@@ -622,6 +643,7 @@ export async function submitMessage(
         threadId,
         text: feedback ? (input.text ? `${input.text}\n\n${feedback}` : feedback) : input.text,
         attachments,
+        ...(capturedReferences.length ? { conversationQuotes: capturedReferences.map(({ text }) => ({ text })) } : {}),
         ...(blocks.some((block: Data) => block.type !== "image") ? {mcpContent: blocks.filter((block: Data) => block.type !== "image")} : {}),
         expectedTurnId: options.expectedTurnId,
         enqueue: options.enqueue === true,
@@ -637,11 +659,11 @@ export async function submitMessage(
   // Only explicit acceptance consumes the captured records. Unknown submissions
   // retain their exact IDs until the existing Core receipt is reconciled.
   consumeReviewComments(reviewKey, comments);
-  if (!options.appMessage) consumeMcpDraft(key, capturedMcp);
+  if (!options.appMessage) { consumeMcpDraft(key, capturedMcp); consumeConversationSelections(selectionScope, capturedReferences); }
 }
 export function stageThreadDraft(projectId: string, threadId: string, text: string, files: ComposerDraftAttachment[]) {
   const key = `areal-gui:draft:${projectId}:${threadId}`;
-  localStorage.setItem(key, text);
+  composerDraftStorage.setItem(key, text);
   attachmentDrafts.set(key, files);
   return key;
 }

@@ -117,7 +117,7 @@ function SideChatEditor({ project, source, executionBlocked, action, dark, works
   const [bringResult, setBringResult] = useState("");
   const mounted = useRef(true);
   const side = sideId ? project.state?.threads?.[sideId] : undefined;
-  const validSide = side?.conversation?.kind === "side" && side.conversation.origin?.sourceThreadId === source.id;
+  const validSide = side?.conversation?.kind === "side" && side.conversation.policy?.kind === "sideReadOnlyV1" && side.conversation.origin?.sourceThreadId === source.id;
   const active = validSide && side.turns?.some((turn: Data) => turn.status === "inProgress");
   const unsettled = !!sideId && project.pending?.some((request: Data) => request.params?.threadId === sideId);
   const config = validSide ? project.configurations?.[sideId] : draftConfig ?? {};
