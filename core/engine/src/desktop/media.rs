@@ -117,7 +117,7 @@ impl Engine {
         thread: &Thread,
         model: &dyn Model,
     ) -> Result<()> {
-        if let Some(areal_protocol::Conversation::Fork { history_seed, .. }) = &thread.conversation
+        if let Some(history_seed) = thread.model_history_seed()
         {
             let prefix = self
                 .store
@@ -257,6 +257,7 @@ impl Engine {
             if !engine.accepting_work(){return Err(Error::Closed);}
             let cell=engine.cell(&thread_id).await?;
             let mut state=cell.state.lock().await;
+            engine.ensure_hook_session_open(&cell, &state.thread)?;
             if let Some((call_id,generation))=&call {
                 let host=cell.bindings.read().await.host.clone().ok_or(Error::Conflict)?;
                 if host.identity()!=identity || host.id()!=generation || host.is_closed() || state.active.as_ref().is_none_or(|a|a.cancel.is_cancelled()) || !state.thread.turns.last().is_some_and(|turn|turn.items.iter().any(|item|matches!(item,Item::DynamicToolCall{call_id:id,execution,..} if id==call_id && execution.backend.as_deref()==Some("client") && execution.outcome==areal_protocol::ToolOutcome::Running))) { return Err(Error::Conflict); }

@@ -599,6 +599,7 @@ async fn connection(
                 || method == "areal/thread/start"
                 || method == "areal/thread/fork"
                 || method == "areal/side/start"
+                || method == "areal/side/create"
                 || method.starts_with("areal/workgroup/")
                 || method.starts_with("areal/workflow/start"))
         {
@@ -633,9 +634,11 @@ async fn connection(
                     method,
                     "areal/thread/fork"
                         | "areal/side/start"
+                        | "areal/side/create"
+                        | "areal/side/close"
                         | "areal/conversation/history"
                         | "areal/side/context/read"
-            | "areal/genUi/source"
+                        | "areal/genUi/source"
                         | "turn/interrupt"
                         | "turn/steer"
                         | "areal/queue/steer"
@@ -659,6 +662,7 @@ async fn connection(
                     | "areal/mcp/read"
                     | "areal/mcp/disconnect"
                     | "turn/interrupt"
+                    | "areal/side/close"
                     | "areal/mcp/forms/list"
                     | "areal/mcp/form/respond"
                     | "areal/mcp/form/resource/prepare"
@@ -696,8 +700,13 @@ async fn connection(
             let id = id.unwrap();
             conn.tasks.spawn(async move {
                 let _permit = permit;
-                let durable_derivation =
-                    matches!(method.as_str(), "areal/thread/fork" | "areal/side/start");
+                let durable_derivation = matches!(
+                    method.as_str(),
+                    "areal/thread/fork"
+                        | "areal/side/start"
+                        | "areal/side/create"
+                        | "areal/side/close"
+                );
                 let dispatch = async {
                     check_side_policy(&engine, &method, &params).await?;
                     if configuration::METHODS.contains(&method.as_str()) {
@@ -706,6 +715,13 @@ async fn connection(
                         interrupt(&engine, params).await
                     } else if method == "turn/steer" {
                         steer_request(&engine, &identity, params).await
+                    } else if method == "areal/side/create" {
+                        let host = (principal.id == "desktop-owner"
+                            && principal.allows(auth::Permission::Interact)
+                            && principal.allows(auth::Permission::Tools)
+                            && principal.thread_ids.is_none())
+                        .then_some(tool_host as Arc<dyn areal_engine::tools::DynamicToolHost>);
+                        desktop::create_side(&engine, &identity, params, host).await
                     } else if plugin_runtime::METHODS.contains(&method.as_str()) {
                         plugin_runtime::dispatch(&engine, &identity, tool_host, &method, params)
                             .await
@@ -821,7 +837,7 @@ async fn check_side_policy(engine: &Engine, method: &str, params: &Value) -> Res
         && engine
             .read(thread_id, false)
             .await
-            .is_ok_and(|thread| thread.is_side())
+            .is_ok_and(|thread| thread.is_read_only_side())
     {
         return Err(RpcError {
             code: -32010,
@@ -1326,6 +1342,7 @@ impl Connection {
                         "ordinaryTurnSubmit":true,"editLastMessage":true,"turnStartAdmissionGuard":true,"turnEnqueueAdmissionGuard":true,"turnInterruptAdmissionGuard":true,"threadStartAdmissionGuard":true,"taskPauseRunGuard":true,"taskModes":true,"taskChannels":true,"asyncQuestions":true,"headlessInteractions":true,"goals":true,"dynamicTools":true,"mediaOutput":true,"durableSubmissionDeduplication":true,"profiles":true,"skills":true,"plans":true,"interactions":true,"queue":true,"providerConfiguration":true,"modelReset":true,"toolMedia":true,"blobUpload":true}),
                     "limits":{"frameBytes":MAX_FRAME_BYTES,"responseBytes":MAX_RESPONSE_BYTES,"subscriptions":128,"sendQueue":256,"threadEventWindow":128},
                     "runtime":engine.runtime_capabilities()});
+                capabilities["features"]["sideExecutableV2"] = json!(true);
                 capabilities["features"]["mcpPageToolsV1"] =
                     json!({"version":1,"kinds":["getSelection","applyPatch"]});
                 capabilities["features"]["permissionPresets"] =

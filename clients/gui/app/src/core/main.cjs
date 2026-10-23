@@ -125,6 +125,7 @@ function requestQuit(intent = 'application') {
     if (!backend) throw new Error(nativeText('lifecycle.preparing'));
     if (!await confirmRendererQuit(attempt)) { recordQuitStage(attempt, 'canceled'); return { canceled: true }; }
     if (quitting) { recordQuitStage(attempt, 'canceled'); return { canceled: true }; }
+    await backend.closeWindowSideChats();
     if (intent === 'install') { beginQuit('checking'); recordQuitStage(attempt, 'checking'); }
     recordQuitStage(attempt, 'readiness');
     await backend.waitForApplicationReady();
@@ -162,6 +163,7 @@ function requestQuit(intent = 'application') {
     return { stopped: true, quitting: true };
   })().catch(error => { recordQuitStage(attempt, 'failed'); throw error; }).finally(() => {
     if (!exitReady && quitAttempt === attempt) {
+      if (backend) backend.guiWindowClosed = false;
       if (attempt.approved) quitting = false;
       setQuitProgress(attempt, null);
       if (intent !== 'install') preview?.setPresentationSuppressed(false);
@@ -288,7 +290,7 @@ async function createWindow() {
           buttons: [nativeText('common.cancel'), kind === 'frame' ? nativeText('browser.allowFrame') : nativeText('browser.allowWorkspace')], defaultId: 0, cancelId: 0, noLink: true,
         });
         return response === 1 && current();
-      });
+      }, (projectId, threadId) => backend.retainsThreadResources(projectId, threadId));
     preview.onRevoke = identity => { void backend.browserRevoke(identity).catch(() => {}); };
     window.on('unresponsive', () => diagnostics.record({ type: 'renderer-unresponsive' }));
     window.on('responsive', () => diagnostics.record({ type: 'renderer-responsive' }));
@@ -308,7 +310,7 @@ async function createWindow() {
       if (exitReady && quitAttempt?.approved && quitAttempt.owner === window.webContents
         && quitAttempt.frame === window.webContents.mainFrame) event.preventDefault();
     });
-    window.on('show', () => { browserWindowClosed = false; });
+    window.on('show', () => { browserWindowClosed = false; backend.guiWindowClosed = false; });
     window.on('close', event => {
       if (exitReady) return;
       event.preventDefault();
@@ -317,9 +319,11 @@ async function createWindow() {
       // native callbacks before hiding; reopening creates fresh Pages on demand.
       browserWindowClosed = true;
       if (startupPresentation !== 'presented') { startupPresentation = 'suppressed'; focusRequested = false; }
-      preview?.dispose();
-      mcpApps?.dispose();
-      window.hide();
+      void backend.closeWindowSideChats().then(() => {
+        preview?.dispose();
+        mcpApps?.dispose();
+        if (!window.isDestroyed()) window.hide();
+      }).catch(error => { browserWindowClosed = false; backend.guiWindowClosed = false; backend.reportLifecycleError(error); });
     });
     trace.advance('load');
     await window.loadURL('areal-ui://app/');

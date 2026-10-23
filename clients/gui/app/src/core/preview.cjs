@@ -383,10 +383,11 @@ function rendererBoundsWithinWindow(value, window) {
 /** 网页没有 preload/Node/产品 IPC；任务拥有独立内容与导航历史。 */
 class CorePreview {
   constructor(window, WebContentsView, owns, preferences = () => ({}), coreIdentity = () => null,
-    controlEndpoints = () => [], confirmDevelopmentOrigin = async () => false) {
+    controlEndpoints = () => [], confirmDevelopmentOrigin = async () => false, retainsOwner = () => false) {
     this.window = window;
     this.WebContentsView = WebContentsView;
     this.owns = owns;
+    this.retainsOwner = retainsOwner;
     this.preferences = preferences;
     this.coreIdentity = coreIdentity;
     this.controlEndpoints = controlEndpoints;
@@ -599,7 +600,7 @@ class CorePreview {
     return policy;
   }
   releaseInvalidOwners() {
-    for (const [key, page] of this.pages) if (!this.owns(page.projectId, page.threadId)
+    for (const [key, page] of this.pages) if ((!this.owns(page.projectId, page.threadId) && !this.retainsOwner(page.projectId, page.threadId))
       || page.coreInstanceId !== this.coreIdentity(page.projectId)) this.release(key);
   }
   closeNative(page) {

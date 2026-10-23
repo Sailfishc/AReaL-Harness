@@ -372,7 +372,7 @@ pub(super) fn checkpoint_inputs(
 
 pub(super) fn logical_history(thread: &Thread, store: &store::Store) -> anyhow::Result<Thread> {
     let mut logical = thread.clone();
-    if let Some(areal_protocol::Conversation::Fork { history_seed, .. }) = &thread.conversation {
+    if let Some(history_seed) = thread.model_history_seed() {
         logical.conversation = None;
         let mut inherited = store.read_fork_snapshot(&history_seed.snapshot_id)?;
         inherited.extend(std::mem::take(&mut logical.turns));
@@ -439,6 +439,7 @@ pub(super) fn history(thread: &Thread, store: &store::Store) -> anyhow::Result<V
     if let Some(areal_protocol::Conversation::Side {
         reference_snapshot,
         selection,
+        policy: areal_protocol::SidePolicy::ReadOnlyV1 { .. },
         ..
     }) = &thread.conversation
     {
@@ -502,7 +503,7 @@ pub(super) fn history(thread: &Thread, store: &store::Store) -> anyhow::Result<V
         messages.insert(0, Message::text("areal_context", context));
         return Ok(messages);
     }
-    if let Some(areal_protocol::Conversation::Fork { history_seed, .. }) = &thread.conversation {
+    if let Some(history_seed) = thread.model_history_seed() {
         let mut logical = logical_history(thread, store)?;
         // 检查点越过继承块并落在本地冷段时，冷段边界代表整个此前逻辑前缀。
         if thread
@@ -518,7 +519,33 @@ pub(super) fn history(thread: &Thread, store: &store::Store) -> anyhow::Result<V
             let count = history_seed.turn_count.min(logical.turns.len());
             logical.turns.drain(..count);
         }
-        return history(&logical, store);
+        let mut messages = history(&logical, store)?;
+        if thread.is_executable_side() {
+            let inherited = store.read_fork_snapshot(&history_seed.snapshot_id)?;
+            let boundary_in_seed = thread.context_checkpoint.as_ref().is_none_or(|checkpoint| {
+                inherited
+                    .iter()
+                    .flat_map(|turn| &turn.items)
+                    .any(|item| item.id() == checkpoint.through_item_id)
+            });
+            let boundary = if boundary_in_seed {
+                let mut seed = logical.clone();
+                seed.turns = inherited;
+                seed.history_archive = None;
+                history(&seed, store)?.len().min(messages.len())
+            } else {
+                messages
+                    .iter()
+                    .position(|message| {
+                        message
+                            .text_content()
+                            .starts_with("Work summary through item ")
+                    })
+                    .map_or(0, |index| index + 1)
+            };
+            messages.insert(boundary, Message::text("system", "Side conversation boundary. The inherited conversation above is frozen reference history. Do not continue its unfinished work or replay its tools. Only a new user request in this child conversation authorizes action."));
+        }
+        return Ok(messages);
     }
     let mut messages = Vec::new();
     let items: Vec<_> = thread.turns.iter().flat_map(|turn| &turn.items).collect();

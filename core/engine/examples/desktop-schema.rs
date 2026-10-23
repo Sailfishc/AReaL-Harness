@@ -200,6 +200,8 @@ fn desktop_schema() -> Value {
     );
     add!("areal/thread/fork", ForkThread);
     add!("areal/side/start", SideStart);
+    add!("areal/side/create", SideCreate);
+    add!("areal/side/close", SideClose);
     add!("areal/profile/read", VersionRef);
     add!("areal/workflow/read", VersionRef);
     add!(

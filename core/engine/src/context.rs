@@ -500,11 +500,11 @@ impl Engine {
         use areal_protocol::context::ContextPartKind as Kind;
         if let Some(areal_protocol::Conversation::Side {
             reference_snapshot,
-            policy,
+            policy: areal_protocol::SidePolicy::ReadOnlyV1 { workspace_access },
             ..
         }) = &cell.state.lock().await.thread.conversation
         {
-            let workspace = if policy.workspace_access == "readOnly" {
+            let workspace = if *workspace_access == areal_protocol::SideWorkspaceAccess::ReadOnly {
                 "You may read and search only current workspace files with the native file tools. These observations are currentWorkspace data, not the historical version at the source anchor; compare file hashes across pages and report changes."
             } else {
                 "Workspace files are unavailable; use only the Side snapshot."
@@ -535,7 +535,7 @@ impl Engine {
             });
             let network = crate::permissions::base_network_policy(
                 policy_configuration,
-                state.thread.is_side(),
+                state.thread.is_read_only_side(),
             );
             (configuration, network)
         };

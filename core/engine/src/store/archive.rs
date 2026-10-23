@@ -316,7 +316,7 @@ impl Store {
     }
 
     pub(crate) async fn history_item(&self, thread: &Thread, id: &str) -> Result<Option<Item>> {
-        if let Some(areal_protocol::Conversation::Fork { history_seed, .. }) = &thread.conversation
+        if let Some(history_seed) = thread.model_history_seed()
             && let Some(item) = self
                 .read_fork_snapshot(&history_seed.snapshot_id)?
                 .into_iter()

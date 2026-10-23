@@ -1415,7 +1415,7 @@ impl Engine {
         let Some(config) = &turn.configuration else {
             return vec![];
         };
-        if thread.is_side()
+        if thread.is_read_only_side()
             || cell.research
             || thread.parent_thread_id.is_some()
             || thread.source == "nativeTaskAgent"

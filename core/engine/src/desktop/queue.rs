@@ -32,7 +32,7 @@ impl Engine {
             }
             if !engine.accepting_work() { return Err(Error::Closed); }
             let _ordinary = engine.ordinary_admission(&state.thread).await?;
-            if state.thread.is_side() || state.thread.goals.goal.is_some()
+            if state.thread.is_read_only_side() || state.thread.goals.goal.is_some()
                 || state.thread.goal_owner.is_some()
                 || state.poisoned || state.compacting || data.archived
                 || data.configuration.revision != request.expected_config_revision
@@ -42,6 +42,9 @@ impl Engine {
                 || data.configuration.options.append_instructions.starts_with("AREAL_TASK_DRAFT_V1\n")
             { return Err(invalid("ordinary submit requires an ordinary conversation profile")); }
             engine.check_turn_available(&cell, &state).await?;
+            if state.thread.is_side() && !matches!(&request.intent, TurnSubmitIntent::Message { .. }) {
+                return Err(invalid("SIDE_POLICY_VIOLATION"));
+            }
             let pending = data.queue.items.iter().any(|item| item.status == "pending");
             let mut edit_source = None;
             let (input, continued_from) = match request.intent {
@@ -177,7 +180,7 @@ impl Engine {
             let cell = engine.cell(&request.thread_id).await?;
             let mut state = cell.state.lock().await;
             engine.ensure_hook_session_open(&cell,&state.thread)?;
-            if state.thread.is_side() && (enqueue || request.interaction_mode.is_some() || request.input.len() != 1 || !matches!(&request.input[0], Input::Text { .. })) {
+            if state.thread.is_read_only_side() && (enqueue || request.interaction_mode.is_some() || request.input.len() != 1 || !matches!(&request.input[0], Input::Text { .. })) {
                 return Err(invalid("SIDE_POLICY_VIOLATION"));
             }
             let method = if enqueue {"areal/turn/enqueue"} else {"areal/turn/start"};
@@ -206,14 +209,14 @@ impl Engine {
             } else { None };
             let original_configuration = data.configuration.clone();
             if let Some(skill) = &skill {
-                if state.thread.is_side() { return Err(invalid("setup requires an ordinary session")); }
+                if state.thread.is_read_only_side() { return Err(invalid("setup requires an ordinary session")); }
                 let mut scope = data.configuration.clone(); scope.selected_skills = None;
                 if !engine.effective_skill_refs(&scope,false).contains(skill) { return Err(invalid("setup skill is outside the effective profile")); }
                 data.configuration.selected_skills = Some(vec![skill.clone()]);
             }
             let mut configuration = engine.next_request_configuration(data.configuration.clone());
             if skill.is_none() {
-                engine.select_plugin_attachments(&mut configuration, &request.input, !state.thread.is_side() && state.thread.parent_thread_id.is_none() && state.thread.source != "nativeTaskAgent")?;
+                engine.select_plugin_attachments(&mut configuration, &request.input, !state.thread.is_read_only_side() && state.thread.parent_thread_id.is_none() && state.thread.source != "nativeTaskAgent")?;
             }
             let mut configuration = engine.freeze_configuration(configuration);
             if let Some(mode) = request.interaction_mode { configuration.options.interaction_mode = mode; }
@@ -247,7 +250,7 @@ impl Engine {
                 Ok(result)
             } else {
                 if state.active.is_some() || state.compacting { return Err(Error::Conflict); }
-                if let Some(areal_protocol::Conversation::Side { origin, .. }) = &state.thread.conversation {
+                if state.thread.is_read_only_side() && let Some(areal_protocol::Conversation::Side { origin, .. }) = &state.thread.conversation {
                     engine.check_side_capacity(&origin.source_thread_id, Some(&state.thread.id)).await?;
                 }
                 engine.check_turn_available(&cell,&state).await?;
@@ -280,7 +283,7 @@ impl Engine {
         self.mutate(move |engine| async move {
             let cell = engine.cell(&request.thread_id).await?;
             let state = cell.state.lock().await;
-            if state.thread.is_side() { return Err(invalid("SIDE_POLICY_VIOLATION")); }
+            if state.thread.is_read_only_side() { return Err(invalid("SIDE_POLICY_VIOLATION")); }
             let method = "areal/queue/steer";
             let hash = digest(&request)?;
             let data = desktop(&state.thread);
@@ -374,7 +377,8 @@ impl Engine {
         self.mutate(move |engine| async move {
             let cell = engine.cell(&thread_id).await?;
             let mut state = cell.state.lock().await;
-            if state.thread.is_side() {
+            engine.ensure_hook_session_open(&cell, &state.thread)?;
+            if state.thread.is_read_only_side() {
                 return Err(invalid("SIDE_POLICY_VIOLATION"));
             }
             let mut candidate = state.thread.clone();

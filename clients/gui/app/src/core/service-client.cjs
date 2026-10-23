@@ -33,6 +33,7 @@ const lifecycleMessage = phase => ({ acceptedPending: '请求已受理，后台�
 
 function requiresCurrentCommands(name, request) {
   return currentCommands.has(name)
+    || name === 'side' && ['create', 'close'].includes(request.operation)
     || ['steer', 'queueEdit'].includes(name) && request.mcpContent?.length > 0
     || name === 'trajectory' && request.operation === 'setEnabled'
     || name === 'providers' && request.operation === 'defaultAndApply'
@@ -182,6 +183,7 @@ class SharedCoreBackend {
     this.status = { connected: false }; this.sequence = -1;
     this.connectionState = { state: 'connecting' }; this.revision = 0; this.initializing = false;
     this.guiTerminals = new Map(); this.guiTerminalStarts = new Set();
+    this.guiSideChats = new Map(); this.guiSideStarts = new Set(); this.guiWindowClosed = false;
     this.lifecycleReferences = new Map(); this.lifecycleReceipts = new Map();
     this.analytics = { sample: sample => { this.lastActivity = sample; if (this.status.connected) void this.connection.request('activity', sample).catch(() => {}); }, flush: async () => {} };
   }
@@ -195,6 +197,12 @@ class SharedCoreBackend {
     if (this.value.library.projects[projectId]?.hidden) return false;
     const thread = this.saved.find(p => p.id === projectId)?.state?.threads?.[threadId];
     return !!thread && !thread.desktop?.archived;
+  }
+  retainsThreadResources(projectId, threadId) {
+    const project = this.saved.find(project => project.id === projectId);
+    const thread = project?.state?.threads?.[threadId];
+    return thread?.conversation?.policy?.kind === 'sideExecutableV2' && thread.desktop?.archived === true
+      && thread.desktop?.receipts?.some(receipt => receipt.method === 'areal/side/close' && receipt.result?.cleanupConfirmed === false);
   }
   snapshot() {
     const desktopCapabilities = { currentCommands: this.status.commandContract === COMMAND_CONTRACT };
@@ -502,11 +510,23 @@ class SharedCoreBackend {
     // 队列业务键跨 GUI/共享服务连接保留，外层丢失响应后也能只读核对。
     const semantics = commandSemantics(name, params);
     if (semantics.requestId) params[semantics.requestId] ??= randomUUID();
+    const sideCreate = name === 'side' && params.operation === 'create';
+    if (sideCreate && this.guiWindowClosed) throw Object.assign(new Error('窗口正在关闭，请重新打开后创建 Side Chat'), { code: 'WINDOW_CLOSED' });
+    if (sideCreate && !this.guiSideChats.has(params.requestId)) this.guiSideChats.set(params.requestId, {
+      projectId: params.projectId, sourceThreadId: params.sourceThreadId, requestId: params.requestId,
+    });
+    const sideOwner = name === 'side' ? this.guiSideChats.get(params.requestId)
+      ?? [...this.guiSideChats.values()].find(entry => entry.projectId === params.projectId && entry.threadId === params.threadId) : undefined;
+    if (sideOwner && params.operation === 'close') sideOwner.closeRequestId ??= params.requestId;
     if (['send', 'steer', 'editMessage'].includes(name) || name === 'side' && request.operation === 'send') {
       const project = this.saved.find(project => project.id === request.projectId);
       if (project) await this.genUiState.list(this.genUiScope(project, request.threadId));
     }
     const pending = this.connection.request('command', { name, request: name === 'media' ? encodeMedia(params) : params }, semantics.effect === 'mutation').then(value => {
+      if (sideOwner && (sideCreate || params.operation === 'recover' && value.confirmed)) sideOwner.threadId = value.threadId;
+      if (sideOwner && params.operation === 'close' && value.requestId) sideOwner.closeRequestId = value.requestId;
+      if (sideOwner && (params.operation === 'close' || params.method === 'areal/side/close') && value.cleanupConfirmed === true)
+        this.guiSideChats.delete(sideOwner.requestId);
       if (ownedRecovery && value.confirmed) {
         this.guiTerminals.set(value.result.id, { projectId: request.projectId, threadId: request.threadId, id: value.result.id });
       }
@@ -515,9 +535,43 @@ class SharedCoreBackend {
       return name === 'media' ? decodeMedia(value) : value;
     });
     if (ownedStart || ownedRecovery) this.guiTerminalStarts.add(pending);
+    if (sideCreate || sideOwner && params.operation === 'recover') this.guiSideStarts.add(pending);
     try { return await pending; }
-    catch (error) { if (semantics.requestId) error.requestId ??= params[semantics.requestId]; throw error; }
-    finally { this.guiTerminalStarts.delete(pending); }
+    catch (error) {
+      const rejected = error.outcome ? ['noMutation', 'rejected'].includes(error.outcome.kind)
+        : typeof error.code === 'number' && error.code !== -32603;
+      if (sideCreate && rejected) this.guiSideChats.delete(params.requestId);
+      if (sideOwner && params.operation === 'close' && rejected && sideOwner.closeRequestId === params.requestId) delete sideOwner.closeRequestId;
+      if (semantics.requestId) error.requestId ??= params[semantics.requestId]; throw error;
+    }
+    finally { this.guiTerminalStarts.delete(pending); this.guiSideStarts.delete(pending); }
+  }
+  async closeWindowSideChats() {
+    this.guiWindowClosed = true;
+    if (this.guiSideClosing) return this.guiSideClosing;
+    this.guiSideClosing = (async () => {
+      await Promise.allSettled([...this.guiSideStarts]);
+      const failures = [];
+      for (const entry of [...this.guiSideChats.values()]) {
+        try {
+          if (!entry.threadId) {
+            const original = await this.command('side', { operation: 'recover', method: 'areal/side/create',
+              projectId: entry.projectId, sourceThreadId: entry.sourceThreadId, requestId: entry.requestId });
+            if (!original.confirmed) throw new Error('Side Chat 创建结果待核对；原请求不会重发');
+            entry.threadId = original.threadId;
+          }
+          const result = entry.closeRequestId
+            ? await this.command('side', { operation: 'recover', method: 'areal/side/close',
+              projectId: entry.projectId, threadId: entry.threadId, requestId: entry.closeRequestId })
+            : await this.command('side', { operation: 'close', projectId: entry.projectId,
+              threadId: entry.threadId, requestId: randomUUID() });
+          if (result.cleanupConfirmed !== true) throw new Error('Side Chat 已停止受理，资源清理仍待核对；原请求不会重发');
+          this.guiSideChats.delete(entry.requestId);
+        } catch (error) { failures.push(error); }
+      }
+      if (failures.length) throw failures[0];
+    })();
+    try { await this.guiSideClosing; } finally { this.guiSideClosing = null; }
   }
   async resources(request) {
     if (request.operation !== 'inspect') this.assertApplicationWrite();

@@ -514,7 +514,7 @@ class CoreBackend {
     const client = project.client;
     const { thread } = await this.readObservation(project, threadId, { client });
     this.requireConnection(project, client);
-    if (thread.desktop?.archived || thread.parentThreadId || thread.conversation?.kind === 'side' || thread.status?.type !== 'idle') return;
+    if (thread.desktop?.archived || thread.parentThreadId || thread.conversation?.policy?.kind === 'sideReadOnlyV1' || thread.status?.type !== 'idle') return;
     // 固定工具包追加也安全重连原空闲 ToolHost；
     // Core 拒绝不同的在线所有者，并保留全部既有工具定义。
     await this.submit(project, 'areal/thread/tools/attach', {
@@ -598,7 +598,7 @@ class CoreBackend {
 
   async refreshConfiguration(project, threadId, { client = project.client, timeoutMs, current = () => this.currentConnection(project, client) } = {}) {
     let result;
-    if (project.model.state.threads[threadId]?.conversation?.kind === 'side') {
+    if (project.model.state.threads[threadId]?.conversation?.policy?.kind === 'sideReadOnlyV1') {
       // Side cannot call the ordinary execution inspection route. Its read snapshot
       // supplies the same authoritative configuration and active-turn precondition.
       const { thread } = this.supportsBoundedHistory(client)
@@ -778,8 +778,8 @@ class CoreBackend {
     const { projectId, threadId } = request;
     const project = await this.start(projectId);
     if (this.closing) throw new Error('应用正在退出');
-    if (['send', 'editMessage', 'continue', 'steer'].includes(name) || name === 'side' && ['start', 'send'].includes(request.operation)) {
-      const configured = name === 'side' && request.operation === 'start' ? request.model : project.configurations?.[threadId]?.model;
+    if (['send', 'editMessage', 'continue', 'steer'].includes(name) || name === 'side' && (['start', 'send'].includes(request.operation) || request.operation === 'create' && request.firstInput)) {
+      const configured = name === 'side' && request.operation === 'create' ? project.configurations?.[request.sourceThreadId]?.model : name === 'side' && request.operation === 'start' ? request.model : project.configurations?.[threadId]?.model;
       const model = configured?.providerId === 'areal_openai'
         ? project.models?.find(item => item.providerId === configured.providerId && item.modelId === configured.modelId) : null;
       if (configured?.providerId === 'areal_openai' && (!model || model.available === false || !this.providers.subscriptionAvailable(model, project)))
@@ -869,26 +869,42 @@ class CoreBackend {
         if (!project.client.capabilities?.methods?.includes('areal/side/start')) throw new Error('当前 Core 不支持旁路讨论');
         if (request.operation === 'list') {
           if (!project.client.capabilities?.methods?.includes('areal/conversation/list')) throw new Error('当前 Core 不支持相关讨论列表');
-          return project.client.request('areal/conversation/list', { view: 'side', sourceThreadId: request.sourceThreadId,
+          const page = await project.client.request('areal/conversation/list', { view: 'side', sourceThreadId: request.sourceThreadId,
             includeArchived: request.includeArchived === true, limit: 30, ...(request.cursor ? { cursor: request.cursor } : {}) });
+          return { ...page, data: page.data.filter(thread => thread.conversation?.policy?.kind === 'sideReadOnlyV1') };
         }
         if (request.operation === 'context') return project.client.request('areal/side/context/read', {
           threadId: request.threadId, ...(request.cursor ? { cursor: request.cursor } : {}),
           ...(request.evidenceRef ? { evidenceRef: request.evidenceRef } : {}),
           ...(request.maxBytes ? { maxBytes: request.maxBytes } : {}),
         });
+        if (request.operation === 'create' || request.operation === 'close') {
+          if (!projectCoreCapabilities(this.binary, project.client.capabilities).features?.sideExecutableV2) throw new Error('当前 Core 不支持可执行 Side Chat');
+          const method = `areal/side/${request.operation}`;
+          const result = await this.submit(project, method, request.operation === 'create'
+            ? { sourceThreadId: request.sourceThreadId, ...(request.firstInput ? { firstInput: messageInput(this, request.firstInput) } : {}) }
+            : { threadId: request.threadId }, { requestId: request.requestId });
+          const childId = result.thread?.id ?? result.threadId;
+          await this.refreshAfterAdmission(project, childId, operationOf(method, request));
+          return request.operation === 'create' ? { requestId: result.requestId, threadId: childId, ...(result.turn?.id ? { turnId: result.turn.id } : {}) } : result;
+        }
         if (request.operation === 'recover') {
-          const receipts = await project.client.request('areal/request/read', { requestId: request.requestId });
-          const receipt = receipts.data?.find(item => item.method === 'areal/side/start');
-          const id = receipt?.result?.threadId;
+          const method = request.method ?? 'areal/side/start';
+          const receipts = await project.client.request('areal/request/read', { requestId: request.requestId, ...(request.threadId ? { threadId: request.threadId } : {}) });
+          const receipt = receipts.data?.find(item => item.method === method);
+          const result = receipt?.result;
+          const id = result?.threadId;
           if (!id) return { confirmed: false };
           await this.changeOutcomes(project, outcomes => ({ ...outcomes, [request.requestId]: {
-            accepted: true, method: 'areal/side/start', sourceThreadId: request.sourceThreadId, threadId: id,
+            accepted: true, method, sourceThreadId: request.sourceThreadId, threadId: id,
+            ...(result.turnId ? { turnId: result.turnId } : {}),
+            ...(method === 'areal/side/close' ? { cleanupConfirmed: result.cleanupConfirmed === true } : {}),
           } }));
           await this.changePending(project, pending => pending.filter(item => item.params.requestId !== request.requestId));
-          // 收据已确认；恢复投影失败不能推翻受理结果或留下待重发的首问。
-          try { await this.openThread(project, id); } catch { /* 可凭目标身份再次打开。 */ }
-          return { confirmed: true, threadId: id };
+          await this.refreshAfterAdmission(project, id, operationOf(method, request));
+          return { confirmed: true, requestId: request.requestId, threadId: id,
+            ...(result.turnId ? { turnId: result.turnId } : {}),
+            ...(method === 'areal/side/close' ? { accepted: true, cleanupConfirmed: result.cleanupConfirmed === true } : {}) };
         }
         if (request.operation === 'send') {
           const current = project.model.state.threads[request.threadId];
@@ -922,7 +938,7 @@ class CoreBackend {
         const input = messageInput(this, { ...request, text: await this.genUiText(project, threadId, request.text) });
         const current = project.model.state.threads[threadId];
         let submitted;
-        if (current?.goals?.goal || current?.goalOwner || current?.parentThreadId || current?.source === 'nativeTaskAgent' || current?.conversation?.kind === 'side') {
+        if (current?.goals?.goal || current?.goalOwner || current?.parentThreadId || current?.source === 'nativeTaskAgent' || current?.conversation?.policy?.kind === 'sideReadOnlyV1') {
           const enqueue = current.turns?.some(turn => turn.status === 'inProgress');
           submitted = await this.submit(project, enqueue ? 'areal/turn/enqueue' : 'areal/turn/start', { threadId, input }, { requestId: request.requestId });
         } else {
