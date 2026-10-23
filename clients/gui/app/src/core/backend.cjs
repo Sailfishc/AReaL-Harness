@@ -1928,6 +1928,10 @@ class CoreBackend {
     }
     switch (name) {
       case 'connect': return this.snapshot();
+      case 'prediction': {
+        if (!project.client?.capabilities?.methods?.includes('areal/thread/prediction')) return null;
+        return project.client.request('areal/thread/prediction', { threadId, sourceTurnId: request.sourceTurnId, operation: request.operation });
+      }
       case 'prepareCreator': return this.resources.prepareCreator(project, request.profile);
       case 'dismissRecovery': {
         await this.changeOutcomes(project, previous => { const outcomes = { ...previous }; if (!outcomes[request.requestId]?.remote) delete outcomes[request.requestId]; return outcomes; }); break;

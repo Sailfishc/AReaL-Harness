@@ -113,6 +113,8 @@ Engine 的 `diagnostics` 模块对非权威排障制品执行有界保留，serv
 
 Fork 与 Side 的开发预览复用上述 Core/Runtime 所有权：Engine 创建独立根 Thread/Session，Store 为目标持有不可变继承或参考快照；`conversation.origin` 不承担 Agent 委派、取消或权限继承。Fork 只分支对话，使用当前共享工作区；Side 的持久只读角色在旧执行入口、模型工具和 Runtime Scope 中校验。主会话与 Side 共用 `Messages` 与 `ConversationComposer` 展示边界（Lexical 输入与模型目录菜单）；各自控制器保留草稿、首问回执与配置归属。Renderer 只投影分页历史、相关讨论和草稿回传；关闭面板不结束 Core 工作，回传只追加本地草稿。协议与权限边界见[桌面 API](../api/desktop.md#turn-fork-开发预览)。源码实现与局部验证不等于完整 P0 验收；原生桌面路径、完整组合验收、安装包与真实供应商证据仍需分别完成。
 
+提示词预测复用这两个 Composer。只有已显示且开启该功能的 GUI 请求最新成功轮次的候选；Core 保留该轮实际模型实例，独立发送无工具 `promptPrediction` 请求。一个持久化的 `DesktopState.promptPrediction` 标签槽负责来源、去重、恢复与失效；专用通知只更新该槽，Thread 快照负责恢复。待定尝试在重启后不可重试，已有候选原样恢复。预测不创建 Turn/Item、不进入 Solve 上下文。Lexical 在真实文档外显示候选，裸 Tab 仅接受到草稿；新输入暂时隐藏而不删除候选。模型容量、取消和最终发布验证归 Core；设置、需求与呈现归 GUI。详见[Core API](../api/core.md#下一条提示词预测)。
+
 共享 Browser 的普通网络加载使用 Chromium 的系统代理、DNS 与站点策略；Main 只隔离活动控制端口，网页不取得产品 bridge。适配器把用户新发送绑定到确切 Turn 和 GUI 连接，首次经 Core 审批的工具发现才懒绑定当前原生页；不以 `thread/resume` 抢宿主。人工键鼠事件由 Main 在派发前撤销页面读取与动作代次，排空在途输入后交付首个用户事件。Core 的读取和动作许可绑定页面、控制代次及具体计划，UNKNOWN 不重放。产品流程及局限见 [Browser 契约](../api/browser.md)。
 
 客户端设计规则与页面模式归 [`clients/gui/design-system/`](../../clients/gui/design-system/README.md)，数值、公共组件和开发预览沿用现有 renderer 所有者；规则目录不承载业务执行或另一份 Token 数值源。 [设计系统架构草案](../../clients/gui/design-system/architecture.md)明确架构、Base、独立题目与反馈的阶段准入；当前目录生成原型不代表 Base 或视觉验收完成。

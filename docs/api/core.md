@@ -8,6 +8,16 @@ Core 提供固定 Codex app-server 0.145.0 的子集与 AReaL 扩展，不代表
 
 `Turn.interruption` 可选取 `userPause` 或 `coreRecovery`，记录主动暂停或重启修复的事实。旧记录缺省时不猜原因。可选 `continuedFromTurnId` 只标记用户显式继续所创建的新 Turn，不表示旧模型调用或进程恢复。暂停仍结算原 Turn，UNKNOWN 和失败分类保留。打开会话、重连和重启不自动继续；普通会话的提交与继续见[桌面提交契约](desktop.md#submissions)。
 
+## 下一条提示词预测
+
+`areal/thread/prediction {threadId,sourceTurnId,operation:"request"|"cancel"}` 是显式桌面需求驱动的变更方法。Core 只接受普通主会话或 Side 最新成功结算的用户轮次；活动轮次、目标、任务、委派子会话、归档及未确认结果不生成预测。完成时仅保留该轮实际模型实例，后台 CLI 或隐藏会话不会自动请求模型。Core 重启后不重建模型、不补发预测。
+
+每个 `Thread.desktop` 最多保存一个可选 `promptPrediction`。它包含 `status:"pending"|"ready"|"unavailable"`、`sourceTurnId` 和 `configurationRevision`，`ready` 另含 `text`。Core 在请求模型前持久化 `pending`，同源重复请求返回原槽；失败、超时、取消或不确定结果不重试，重启读取 `pending` 时投影为 `unavailable`。`ready` 原样恢复。新轮次、配置变化、手动压缩或归档清除候选并取消旧请求；发布前还要核对源轮次和当前 Cell。槽更新通过 `areal/thread/predictionChanged {threadId,promptPrediction}` 单独投影，不替换消息或使历史视图失效；普通快照仍是恢复依据。
+
+预测使用独立 `promptPrediction` 请求目的、同一模型、空工具及 `max_calls=0`，不复用 Solve continuation。输入只含最近最多四个本地轮次的文本，合计最多 8 KiB，每条消息最多 2 KiB。模型容量忙时直接跳过；新的普通模型请求会抢占在途预测。总期限 20 秒，输出上限 128 tokens、512 UTF-8 bytes，并验证为最多 240 字符的单行文本。无有效建议时保留 `unavailable`。预测指令、未接受候选与用量不写入 Turn、Item、正常模型历史或当前 Turn 用量。
+
+GUI 默认开启，可在“预测下一条提示词”设置中关闭。关闭抑制需求、隐藏候选并取消已观察到的在途请求，已有 `ready` 可保留。候选位于真实编辑器文档外，只有空编辑器及无附件、选择、审批、队列编辑或执行阻塞时显示。自行输入隐藏、删空恢复同一候选；非 IME 的裸 Tab 只填入可编辑草稿，用户明确发送后才成为普通历史。
+
 ## 传输与会话
 
 每个 WebSocket 文本消息承载一条请求、响应或通知。Core 入站消息和帧上限为 4 MiB，出站完整 JSON 消息上限为 64 MiB，按编码后的 UTF-8 字节计量。`areal/capabilities` 的 `limits.frameBytes` 和 `limits.responseBytes` 分别报告这两个上限。请求 `{id,method,params}`，id 为字符串或整数，params 为对象；可省略 jsonrpc，响应 result/error 二选一，不支持批处理。先请求 initialize，再发送 initialized 通知。
@@ -26,6 +36,7 @@ Core 提供固定 Codex app-server 0.145.0 的子集与 AReaL 扩展，不代表
 | `thread/resume` | `{threadId,mode?:"bounded",maxBytes?}` |
 | `turn/start` | `{threadId,input}` |
 | `turn/steer` | `{threadId,expectedTurnId,input}` |
+| `areal/thread/prediction` | `{threadId,sourceTurnId,operation:"request"|"cancel"}` |
 | `turn/interrupt` | `{threadId,turnId,admissionGuard?}` |
 
 Core 拥有 Thread/Turn/Item 的稳定 ID 与历史。read 不订阅，resume 原子读取快照并建立增量边界，先返回基线再发事件。每连接最多 128 订阅，发送队列 256、Thread 事件窗口 128；落后时断连，重连后重新 resume。普通观察断连不取消任务。

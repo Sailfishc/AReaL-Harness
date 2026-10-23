@@ -1,5 +1,6 @@
 import { useI18n } from "./i18n/IntlProvider.js";
 import { SettingsDisclosure } from "./settings/SettingsDisclosure.js";
+import { useComposerPrediction } from "./useComposerPrediction.js";
 import { ContextMeter } from "./ContextMeter.js";
 import { isOrdinaryConversation, interruptedConversationTurn } from "./ordinaryConversation.js";
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
@@ -163,6 +164,10 @@ export function Composer({
   const ordinary = isOrdinaryConversation(thread, config);
   const interrupted = ordinary && project.core?.features?.ordinaryTurnSubmit === true ? interruptedConversationTurn(thread) : undefined;
   const emptyDraft = !input.text.trim() && !input.files.length && !comments.length && !skills.selected.length && !mcpDraft.length;
+  const nextPrompt = useComposerPrediction({ project, thread, action, enabled: prefs.nextPromptSuggestions,
+    eligible: ordinary && !disabled && !running && !questions.length && !approvals.length && !creatingGoal && !queueEditor.edit,
+  });
+  const predictionVisible = !input.files.length && !comments.length && !skills.selected.length && !mcpDraft.length && !annotationEditing && !mcpOpen;
   const canContinue = !!interrupted && emptyDraft && !creatingGoal && !queueEditor.edit;
   const planActive = permissionMode(config ?? {}) === "plan";
   const executionPermission = planActive ? permissionMode({ ...config, readOnly: false, options: planModeOptions(false, config?.options) }) : permissionMode(config ?? {});
@@ -422,6 +427,7 @@ export function Composer({
         }}>查看关联工作流结果</Button>
       </div>}
       <ConversationComposer
+        nextPrompt={predictionVisible ? nextPrompt : undefined}
         surfaceLayout={surfaceLayout}
         project={project}
         contextControl={<ContextMeter key={`${project.id}:${thread.id}`} project={project} thread={thread} action={readAction} anchor={menuAnchor} />}

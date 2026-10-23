@@ -5895,6 +5895,16 @@
                   },
                   "type": "array"
                 },
+                "promptPrediction": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/properties/thread/$defs/PromptPrediction"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "queue": {
                   "$ref": "#/properties/thread/$defs/Queue"
                 },
@@ -7730,6 +7740,83 @@
               ],
               "type": "object"
             },
+            "PromptPrediction": {
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "configurationRevision": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "sourceTurnId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": "pending",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "sourceTurnId",
+                    "configurationRevision"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "configurationRevision": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "sourceTurnId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": "ready",
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "sourceTurnId",
+                    "configurationRevision",
+                    "text"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "configurationRevision": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "sourceTurnId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": "unavailable",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "sourceTurnId",
+                    "configurationRevision"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
             "Provider": {
               "additionalProperties": false,
               "properties": {
@@ -8608,6 +8695,97 @@
       },
       "required": [
         "thread",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    "areal/thread/predictionChanged": {
+      "additionalProperties": true,
+      "properties": {
+        "promptPrediction": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "configurationRevision": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "sourceTurnId": {
+                  "type": "string"
+                },
+                "status": {
+                  "const": "pending",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "status",
+                "sourceTurnId",
+                "configurationRevision"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "configurationRevision": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "sourceTurnId": {
+                  "type": "string"
+                },
+                "status": {
+                  "const": "ready",
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "status",
+                "sourceTurnId",
+                "configurationRevision",
+                "text"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "configurationRevision": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "sourceTurnId": {
+                  "type": "string"
+                },
+                "status": {
+                  "const": "unavailable",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "status",
+                "sourceTurnId",
+                "configurationRevision"
+              ],
+              "type": "object"
+            }
+          ],
+          "title": "PromptPrediction"
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "promptPrediction",
         "threadId"
       ],
       "type": "object"
@@ -10897,6 +11075,16 @@
                   },
                   "type": "array"
                 },
+                "promptPrediction": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/properties/thread/$defs/PromptPrediction"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "queue": {
                   "$ref": "#/properties/thread/$defs/Queue"
                 },
@@ -12731,6 +12919,83 @@
                 "outcome"
               ],
               "type": "object"
+            },
+            "PromptPrediction": {
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "configurationRevision": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "sourceTurnId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": "pending",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "sourceTurnId",
+                    "configurationRevision"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "configurationRevision": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "sourceTurnId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": "ready",
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "sourceTurnId",
+                    "configurationRevision",
+                    "text"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "configurationRevision": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "sourceTurnId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": "unavailable",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "sourceTurnId",
+                    "configurationRevision"
+                  ],
+                  "type": "object"
+                }
+              ]
             },
             "Provider": {
               "additionalProperties": false,
@@ -25159,6 +25424,36 @@
       "title": "ObserveThread",
       "type": "object"
     },
+    "areal/thread/prediction": {
+      "$defs": {
+        "PromptPredictionOperation": {
+          "enum": [
+            "request",
+            "cancel"
+          ],
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "$ref": "#/$defs/PromptPredictionOperation"
+        },
+        "sourceTurnId": {
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "threadId",
+        "sourceTurnId",
+        "operation"
+      ],
+      "title": "PromptPredictionRequest",
+      "type": "object"
+    },
     "areal/thread/start": {
       "$defs": {
         "ClientOptions": {
@@ -28741,6 +29036,16 @@
                     },
                     "type": "array"
                   },
+                  "promptPrediction": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/properties/data/items/$defs/PromptPrediction"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
                   "queue": {
                     "$ref": "#/properties/data/items/$defs/Queue"
                   },
@@ -30576,6 +30881,83 @@
                 ],
                 "type": "object"
               },
+              "PromptPrediction": {
+                "oneOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "configurationRevision": {
+                        "format": "uint64",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "sourceTurnId": {
+                        "type": "string"
+                      },
+                      "status": {
+                        "const": "pending",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "status",
+                      "sourceTurnId",
+                      "configurationRevision"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "configurationRevision": {
+                        "format": "uint64",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "sourceTurnId": {
+                        "type": "string"
+                      },
+                      "status": {
+                        "const": "ready",
+                        "type": "string"
+                      },
+                      "text": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "status",
+                      "sourceTurnId",
+                      "configurationRevision",
+                      "text"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "configurationRevision": {
+                        "format": "uint64",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "sourceTurnId": {
+                        "type": "string"
+                      },
+                      "status": {
+                        "const": "unavailable",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "status",
+                      "sourceTurnId",
+                      "configurationRevision"
+                    ],
+                    "type": "object"
+                  }
+                ]
+              },
               "Provider": {
                 "additionalProperties": false,
                 "properties": {
@@ -32077,6 +32459,16 @@
                         "$ref": "#/oneOf/0/properties/thread/$defs/ManagedProcess"
                       },
                       "type": "array"
+                    },
+                    "promptPrediction": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/oneOf/0/properties/thread/$defs/PromptPrediction"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     },
                     "queue": {
                       "$ref": "#/oneOf/0/properties/thread/$defs/Queue"
@@ -33912,6 +34304,83 @@
                     "outcome"
                   ],
                   "type": "object"
+                },
+                "PromptPrediction": {
+                  "oneOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "configurationRevision": {
+                          "format": "uint64",
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "sourceTurnId": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "const": "pending",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status",
+                        "sourceTurnId",
+                        "configurationRevision"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "configurationRevision": {
+                          "format": "uint64",
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "sourceTurnId": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "const": "ready",
+                          "type": "string"
+                        },
+                        "text": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status",
+                        "sourceTurnId",
+                        "configurationRevision",
+                        "text"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "configurationRevision": {
+                          "format": "uint64",
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "sourceTurnId": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "const": "unavailable",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "status",
+                        "sourceTurnId",
+                        "configurationRevision"
+                      ],
+                      "type": "object"
+                    }
+                  ]
                 },
                 "Provider": {
                   "additionalProperties": false,
@@ -39463,6 +39932,16 @@
                     },
                     "type": "array"
                   },
+                  "promptPrediction": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/properties/data/items/$defs/PromptPrediction"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
                   "queue": {
                     "$ref": "#/properties/data/items/$defs/Queue"
                   },
@@ -41297,6 +41776,83 @@
                   "outcome"
                 ],
                 "type": "object"
+              },
+              "PromptPrediction": {
+                "oneOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "configurationRevision": {
+                        "format": "uint64",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "sourceTurnId": {
+                        "type": "string"
+                      },
+                      "status": {
+                        "const": "pending",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "status",
+                      "sourceTurnId",
+                      "configurationRevision"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "configurationRevision": {
+                        "format": "uint64",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "sourceTurnId": {
+                        "type": "string"
+                      },
+                      "status": {
+                        "const": "ready",
+                        "type": "string"
+                      },
+                      "text": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "status",
+                      "sourceTurnId",
+                      "configurationRevision",
+                      "text"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "configurationRevision": {
+                        "format": "uint64",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "sourceTurnId": {
+                        "type": "string"
+                      },
+                      "status": {
+                        "const": "unavailable",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "status",
+                      "sourceTurnId",
+                      "configurationRevision"
+                    ],
+                    "type": "object"
+                  }
+                ]
               },
               "Provider": {
                 "additionalProperties": false,
@@ -53190,6 +53746,16 @@
                   },
                   "type": "array"
                 },
+                "promptPrediction": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/properties/thread/$defs/PromptPrediction"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "queue": {
                   "$ref": "#/properties/thread/$defs/Queue"
                 },
@@ -55024,6 +55590,83 @@
                 "outcome"
               ],
               "type": "object"
+            },
+            "PromptPrediction": {
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "configurationRevision": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "sourceTurnId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": "pending",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "sourceTurnId",
+                    "configurationRevision"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "configurationRevision": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "sourceTurnId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": "ready",
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "sourceTurnId",
+                    "configurationRevision",
+                    "text"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "configurationRevision": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "sourceTurnId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": "unavailable",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "sourceTurnId",
+                    "configurationRevision"
+                  ],
+                  "type": "object"
+                }
+              ]
             },
             "Provider": {
               "additionalProperties": false,
@@ -66534,6 +67177,16 @@
                   },
                   "type": "array"
                 },
+                "promptPrediction": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/properties/thread/$defs/PromptPrediction"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "queue": {
                   "$ref": "#/properties/thread/$defs/Queue"
                 },
@@ -68368,6 +69021,83 @@
                 "outcome"
               ],
               "type": "object"
+            },
+            "PromptPrediction": {
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "configurationRevision": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "sourceTurnId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": "pending",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "sourceTurnId",
+                    "configurationRevision"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "configurationRevision": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "sourceTurnId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": "ready",
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "sourceTurnId",
+                    "configurationRevision",
+                    "text"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "configurationRevision": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "sourceTurnId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": "unavailable",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "sourceTurnId",
+                    "configurationRevision"
+                  ],
+                  "type": "object"
+                }
+              ]
             },
             "Provider": {
               "additionalProperties": false,
@@ -82786,6 +83516,16 @@
                   },
                   "type": "array"
                 },
+                "promptPrediction": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/properties/thread/$defs/PromptPrediction"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "queue": {
                   "$ref": "#/properties/thread/$defs/Queue"
                 },
@@ -84620,6 +85360,83 @@
                 "outcome"
               ],
               "type": "object"
+            },
+            "PromptPrediction": {
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "configurationRevision": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "sourceTurnId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": "pending",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "sourceTurnId",
+                    "configurationRevision"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "configurationRevision": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "sourceTurnId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": "ready",
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "sourceTurnId",
+                    "configurationRevision",
+                    "text"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "configurationRevision": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "sourceTurnId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": "unavailable",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "sourceTurnId",
+                    "configurationRevision"
+                  ],
+                  "type": "object"
+                }
+              ]
             },
             "Provider": {
               "additionalProperties": false,
@@ -87168,6 +87985,16 @@
                   },
                   "type": "array"
                 },
+                "promptPrediction": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/properties/thread/$defs/PromptPrediction"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "queue": {
                   "$ref": "#/properties/thread/$defs/Queue"
                 },
@@ -89042,6 +89869,83 @@
               ],
               "type": "object"
             },
+            "PromptPrediction": {
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "configurationRevision": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "sourceTurnId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": "pending",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "sourceTurnId",
+                    "configurationRevision"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "configurationRevision": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "sourceTurnId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": "ready",
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "sourceTurnId",
+                    "configurationRevision",
+                    "text"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "configurationRevision": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "sourceTurnId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": "unavailable",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "sourceTurnId",
+                    "configurationRevision"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
             "Provider": {
               "additionalProperties": false,
               "properties": {
@@ -89921,6 +90825,96 @@
       ],
       "type": "object"
     },
+    "areal/thread/prediction": {
+      "$defs": {
+        "PromptPrediction": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "configurationRevision": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "sourceTurnId": {
+                  "type": "string"
+                },
+                "status": {
+                  "const": "pending",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "status",
+                "sourceTurnId",
+                "configurationRevision"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "configurationRevision": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "sourceTurnId": {
+                  "type": "string"
+                },
+                "status": {
+                  "const": "ready",
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "status",
+                "sourceTurnId",
+                "configurationRevision",
+                "text"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "configurationRevision": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "sourceTurnId": {
+                  "type": "string"
+                },
+                "status": {
+                  "const": "unavailable",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "status",
+                "sourceTurnId",
+                "configurationRevision"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PromptPrediction"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Nullable_PromptPrediction"
+    },
     "areal/thread/start": {
       "additionalProperties": true,
       "properties": {
@@ -90519,6 +91513,16 @@
                     "$ref": "#/properties/thread/$defs/ManagedProcess"
                   },
                   "type": "array"
+                },
+                "promptPrediction": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/properties/thread/$defs/PromptPrediction"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 },
                 "queue": {
                   "$ref": "#/properties/thread/$defs/Queue"
@@ -92354,6 +93358,83 @@
                 "outcome"
               ],
               "type": "object"
+            },
+            "PromptPrediction": {
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "configurationRevision": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "sourceTurnId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": "pending",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "sourceTurnId",
+                    "configurationRevision"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "configurationRevision": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "sourceTurnId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": "ready",
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "sourceTurnId",
+                    "configurationRevision",
+                    "text"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "configurationRevision": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "sourceTurnId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": "unavailable",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "sourceTurnId",
+                    "configurationRevision"
+                  ],
+                  "type": "object"
+                }
+              ]
             },
             "Provider": {
               "additionalProperties": false,
@@ -106994,6 +108075,16 @@
                     },
                     "type": "array"
                   },
+                  "promptPrediction": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/properties/data/items/$defs/PromptPrediction"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
                   "queue": {
                     "$ref": "#/properties/data/items/$defs/Queue"
                   },
@@ -108829,6 +109920,83 @@
                 ],
                 "type": "object"
               },
+              "PromptPrediction": {
+                "oneOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "configurationRevision": {
+                        "format": "uint64",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "sourceTurnId": {
+                        "type": "string"
+                      },
+                      "status": {
+                        "const": "pending",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "status",
+                      "sourceTurnId",
+                      "configurationRevision"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "configurationRevision": {
+                        "format": "uint64",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "sourceTurnId": {
+                        "type": "string"
+                      },
+                      "status": {
+                        "const": "ready",
+                        "type": "string"
+                      },
+                      "text": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "status",
+                      "sourceTurnId",
+                      "configurationRevision",
+                      "text"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "configurationRevision": {
+                        "format": "uint64",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "sourceTurnId": {
+                        "type": "string"
+                      },
+                      "status": {
+                        "const": "unavailable",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "status",
+                      "sourceTurnId",
+                      "configurationRevision"
+                    ],
+                    "type": "object"
+                  }
+                ]
+              },
               "Provider": {
                 "additionalProperties": false,
                 "properties": {
@@ -110318,6 +111486,16 @@
                     "$ref": "#/properties/thread/$defs/ManagedProcess"
                   },
                   "type": "array"
+                },
+                "promptPrediction": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/properties/thread/$defs/PromptPrediction"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 },
                 "queue": {
                   "$ref": "#/properties/thread/$defs/Queue"
@@ -112154,6 +113332,83 @@
               ],
               "type": "object"
             },
+            "PromptPrediction": {
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "configurationRevision": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "sourceTurnId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": "pending",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "sourceTurnId",
+                    "configurationRevision"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "configurationRevision": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "sourceTurnId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": "ready",
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "sourceTurnId",
+                    "configurationRevision",
+                    "text"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "configurationRevision": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "sourceTurnId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": "unavailable",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "sourceTurnId",
+                    "configurationRevision"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
             "Provider": {
               "additionalProperties": false,
               "properties": {
@@ -113735,6 +114990,16 @@
                     "$ref": "#/properties/thread/$defs/ManagedProcess"
                   },
                   "type": "array"
+                },
+                "promptPrediction": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/properties/thread/$defs/PromptPrediction"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 },
                 "queue": {
                   "$ref": "#/properties/thread/$defs/Queue"
@@ -115610,6 +116875,83 @@
               ],
               "type": "object"
             },
+            "PromptPrediction": {
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "configurationRevision": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "sourceTurnId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": "pending",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "sourceTurnId",
+                    "configurationRevision"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "configurationRevision": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "sourceTurnId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": "ready",
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "sourceTurnId",
+                    "configurationRevision",
+                    "text"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "configurationRevision": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "sourceTurnId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": "unavailable",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "sourceTurnId",
+                    "configurationRevision"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
             "Provider": {
               "additionalProperties": false,
               "properties": {
@@ -117128,6 +118470,16 @@
                     "$ref": "#/properties/thread/$defs/ManagedProcess"
                   },
                   "type": "array"
+                },
+                "promptPrediction": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/properties/thread/$defs/PromptPrediction"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 },
                 "queue": {
                   "$ref": "#/properties/thread/$defs/Queue"
@@ -118963,6 +120315,83 @@
                 "outcome"
               ],
               "type": "object"
+            },
+            "PromptPrediction": {
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "configurationRevision": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "sourceTurnId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": "pending",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "sourceTurnId",
+                    "configurationRevision"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "configurationRevision": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "sourceTurnId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": "ready",
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "sourceTurnId",
+                    "configurationRevision",
+                    "text"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "configurationRevision": {
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "sourceTurnId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": "unavailable",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "sourceTurnId",
+                    "configurationRevision"
+                  ],
+                  "type": "object"
+                }
+              ]
             },
             "Provider": {
               "additionalProperties": false,
@@ -122344,6 +123773,16 @@
             },
             "type": "array"
           },
+          "promptPrediction": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/PromptPrediction"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "queue": {
             "$ref": "#/$defs/Queue"
           },
@@ -124178,6 +125617,83 @@
           "outcome"
         ],
         "type": "object"
+      },
+      "PromptPrediction": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "configurationRevision": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "sourceTurnId": {
+                "type": "string"
+              },
+              "status": {
+                "const": "pending",
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "sourceTurnId",
+              "configurationRevision"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "configurationRevision": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "sourceTurnId": {
+                "type": "string"
+              },
+              "status": {
+                "const": "ready",
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "sourceTurnId",
+              "configurationRevision",
+              "text"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "configurationRevision": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "sourceTurnId": {
+                "type": "string"
+              },
+              "status": {
+                "const": "unavailable",
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "sourceTurnId",
+              "configurationRevision"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "Provider": {
         "additionalProperties": false,

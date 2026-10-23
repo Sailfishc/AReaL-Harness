@@ -231,7 +231,7 @@ function AppContent({ services }: { services: PlatformServices }) {
   };
   const requestNavigation = useGuardedNavigation();
   useEffect(() => services.onQuitRequested?.(() => requestNavigation(() => {})), [services, requestNavigation]);
-  const { terminalLocation } = useApplicationPreferences();
+  const { terminalLocation, nextPromptSuggestions } = useApplicationPreferences();
   const [snapshot, updateSnapshot] = useState<Snapshot>({ projects: [], connection: { state: "connecting" } });
   const backendActionInFlight = React.useRef(false);
   const [backendActionPending, setBackendActionPending] = useState(false);
@@ -623,7 +623,7 @@ function AppContent({ services }: { services: PlatformServices }) {
         // Composer owns confirmed send refusals and clears them on acceptance.
         // Unconfirmed/admitted sends still keep their global recovery notice.
         const composerRefusal = name === "send" && failure.outcome?.kind === "rejected";
-        if (!composerRefusal && !["providers", "chatgpt"].includes(name) && !(name === "respond" && params.answers)
+        if (!composerRefusal && !["providers", "chatgpt", "prediction"].includes(name) && !(name === "respond" && params.answers)
           && name !== "media" && name !== "feedback" && !(name === "manage" && params.operation === "goalCreate")) {
           const operation = failure.outcome && "operation" in failure.outcome ? failure.outcome.operation : undefined;
           const requestId = operation?.requestId ?? failure.requestId ?? request.requestId;
@@ -642,6 +642,24 @@ function AppContent({ services }: { services: PlatformServices }) {
     },
     [services],
   );
+  const cancelledPredictions = React.useRef(new Set<string>());
+  useEffect(() => {
+    if (nextPromptSuggestions) { cancelledPredictions.current.clear(); return; }
+    const pending = new Set<string>();
+    for (const project of snapshot.projects) {
+      if (!project.state?.connected || !project.core?.features?.promptPrediction) continue;
+      for (const thread of Object.values(project.state.threads ?? {}) as Data[]) {
+        const slot = thread.desktop?.promptPrediction;
+        if (slot?.status !== "pending") continue;
+        const key = `${project.core?.instanceId}:${project.id}:${thread.id}:${slot.sourceTurnId}`;
+        pending.add(key);
+        if (cancelledPredictions.current.has(key)) continue;
+        cancelledPredictions.current.add(key);
+        void action("prediction", { projectId: project.id, threadId: thread.id, sourceTurnId: slot.sourceTurnId, operation: "cancel" }).catch(() => {});
+      }
+    }
+    for (const key of cancelledPredictions.current) if (!pending.has(key)) cancelledPredictions.current.delete(key);
+  }, [nextPromptSuggestions, snapshot.projects, action]);
   // Resource pages own their loading, validation and recovery feedback.
   const resourceAction: Action = useCallback(
     (name: import("./services.js").CommandName, params: Data = {}) => call(services, name, params),

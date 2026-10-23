@@ -8,6 +8,16 @@ Core implements a subset of pinned Codex app-server 0.145.0 plus AReaL extension
 
 Optional `Turn.interruption` records `userPause` or `coreRecovery`. Missing facts in older records remain unknown. Optional `continuedFromTurnId` identifies a new Turn created by explicit continuation. It does not restore a model call or process. Pause still settles the original Turn and preserves UNKNOWN and failure classifications. Opening a conversation, reconnecting, or restarting never continues ordinary work automatically. See the [desktop submission contract](desktop.en.md#submissions).
 
+## Next prompt prediction
+
+`areal/thread/prediction {threadId,sourceTurnId,operation:"request"|"cancel"}` is a mutation driven by explicit desktop demand. Core accepts only the latest successfully settled user turn in an ordinary main or Side conversation. Active turns, goals, tasks, delegated children, archived threads and unresolved outcomes do not generate predictions. Completion only retains the actual model instance from that turn; background CLI and hidden conversations never trigger inference automatically. Core does not reconstruct the model or regenerate a prediction after restarting.
+
+Each `Thread.desktop` stores at most one optional `promptPrediction`. It contains `status:"pending"|"ready"|"unavailable"`, `sourceTurnId` and `configurationRevision`; `ready` also contains `text`. Core persists `pending` before invoking the model, and duplicate requests for the same source return the existing slot. Failure, timeout, cancellation and uncertain outcomes never retry. Restored `pending` projects as `unavailable`, while `ready` restores verbatim. A new turn, configuration change, manual compaction or archive clears the candidate and cancels previous inference. Publication also validates the source and current Cell. Slot updates use `areal/thread/predictionChanged {threadId,promptPrediction}` without replacing messages or invalidating history views. Ordinary snapshots remain authoritative for recovery.
+
+Prediction uses the distinct `promptPrediction` request purpose, the same model, no tools and `max_calls=0`, without reusing a Solve continuation. Input contains text from at most four recent local turns, capped at 8 KiB overall and 2 KiB per message. Prediction skips when model capacity is busy, and a new ordinary model request preempts pending prediction inference. The total deadline is 20 seconds. Output is capped at 128 tokens and 512 UTF-8 bytes, then validated as a single line of at most 240 characters. An invalid or absent suggestion leaves `unavailable`. Instructions, unaccepted candidates and usage never enter Turn, Item, normal model history or the current Turn's usage.
+
+The GUI enables this by default and exposes a “Predict next prompt” setting. Disabling it suppresses demand, hides candidates and cancels observed pending requests; existing `ready` text may remain stored. The candidate lives outside the editor document and appears only in an empty editor without attachments, selection content, approvals, queue editing or execution blockers. Typing hides it and clearing restores the same text. Bare Tab outside IME only inserts an editable draft; it enters ordinary history only after the user explicitly sends it.
+
 ## Transport and sessions
 
 Each WebSocket text message carries one request, response, or notification. Core accepts incoming messages and frames up to 4 MiB. Complete outgoing JSON messages have a 64 MiB limit, measured in encoded UTF-8 bytes. The `areal/capabilities` fields `limits.frameBytes` and `limits.responseBytes` report these respective limits. Requests are `{id,method,params}` with string/integer id and object params. jsonrpc is optional; responses contain either result or error; batches are unsupported. Request initialize, then send initialized.
@@ -26,6 +36,7 @@ This limit bounds JSON encoding output. Earlier full-history hydration and JSON 
 | `thread/resume` | `{threadId,mode?:"bounded",maxBytes?}` |
 | `turn/start` | `{threadId,input}` |
 | `turn/steer` | `{threadId,expectedTurnId,input}` |
+| `areal/thread/prediction` | `{threadId,sourceTurnId,operation:"request"|"cancel"}` |
 | `turn/interrupt` | `{threadId,turnId,admissionGuard?}` |
 
 Core owns stable Thread/Turn/Item IDs and history. read does not subscribe; resume atomically snapshots and subscribes, returning the baseline before subsequent events. Each connection permits 128 subscriptions, a 256-item send queue and 128-event Thread windows. Lag disconnects consumers; reconnect and resume again. Observer disconnection does not cancel tasks.

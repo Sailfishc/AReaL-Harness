@@ -674,6 +674,7 @@ impl Engine {
             .await?;
             let mut network_retries: usize = 0;
             'request: loop {
+                self.prediction_preemption.send_replace(());
                 let permit = match self.permits.clone().try_acquire_owned() {
                     Ok(permit) => permit,
                     Err(_) => {

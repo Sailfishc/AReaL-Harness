@@ -34,6 +34,7 @@
     "test:queue": "node scripts/queue-smoke.mjs",
     "test:interactions": "node scripts/interaction-smoke.mjs",
     "test:permission-presets": "node scripts/permission-presets-smoke.mjs",
+    "test:composer-predictions": "node scripts/composer-predictions-smoke.mjs",
     "test:composer": "node scripts/composer-smoke.mjs",
     "test:send-admission": "node scripts/send-admission-smoke.mjs",
     "test:subscription-send": "node scripts/subscription-send-smoke.mjs",
