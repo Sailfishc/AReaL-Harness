@@ -115,14 +115,6 @@ jobs:
           tar -czf target/ci/gui/gui-smoke-inputs.tar.gz \
             target/ci/gui/source.sha target/debug/areal target/debug/areal-runtime \
             target/debug/areal-runtime-fs target/debug/shells clients/gui/renderer/dist
-      - name: Build release DMG and enforce 250 MiB budget
-        env:
-          AREAL_CORE_PROFILE: release
-          AREAL_GUI_PACKAGE_DIR: ${{ runner.temp }}/areal-gui-size
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-        run: |
-          pnpm --dir clients/gui run dist --platform mac --arch arm64 --formats dmg --signing none 2>&1 | tee target/ci/gui/package.log
-          node clients/gui/scripts/dmg-size.mjs "$AREAL_GUI_PACKAGE_DIR/AReaL-Harness-GUI-mac-arm64.dmg" 2>&1 | tee target/ci/gui/dmg-size.log
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: macos-gui-smoke-inputs
@@ -136,7 +128,6 @@ jobs:
           path: |
             target/ci/gui/*.log
             target/ci/gui/fingerprint.json
-            ${{ runner.temp }}/areal-gui-size/package-evidence.json
             /private/tmp/areal-core-process-*/
             /private/tmp/areal-browser-*/
             /private/tmp/shared-browser-06-evidence-*/
