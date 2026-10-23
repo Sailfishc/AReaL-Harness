@@ -38,7 +38,7 @@ export function ExecutableSideChatPane({ tab, project, projects, services, actio
   const setResource = (name: string) => name ? onOpenResource(name) : onBackToChat();
   const onFile = (path: string) => onOpenResource(`file:${path.startsWith(project.root + "/") ? path.slice(project.root.length + 1) : path}`);
   const [mentions, setMentions] = useState(false);
-  const [reviewTurn, setReviewTurn] = useState<string>();
+  const [review, setReview] = useState<{ threadId: string; turnId: string }>();
   const [annotation, setAnnotation] = useState<ImageAnnotationTarget | null>(null);
   const thread = project.state?.threads?.[tab.childId];
   const owned = thread?.conversation?.kind === "side" && thread.conversation.policy?.kind === "sideExecutableV2"
@@ -94,7 +94,8 @@ export function ExecutableSideChatPane({ tab, project, projects, services, actio
   const readTurnReview = useCallback((turnId: string, itemId?: string) => action("workspace", {
     operation: "turnReview", projectId: project.id, threadId: tab.childId, turnId, itemId,
   }), [action, project.id, tab.childId]);
-  const onReview = (turnId: string) => { setReviewTurn(turnId); setResource("改动"); };
+  const openReview = (threadId: string, turnId: string) => { setReview({ threadId, turnId }); setResource("改动"); };
+  const onReview = (turnId: string) => openReview(tab.childId, turnId);
   useEffect(() => {
     if (!annotation) return;
     setImageAnnotationEditing(annotation.draftKey, true);
@@ -106,16 +107,16 @@ export function ExecutableSideChatPane({ tab, project, projects, services, actio
     if (resource.startsWith("browser:")) return <Preview services={services} projectId={project.id} threadId={tab.childId}
       pageId={browserPageId(resource)!} state={browser.state} requestPage={browser.request} thread={thread} action={action}
       onReview={onReview} onError={setError} onTool={itemId => { setResource(""); requestAnimationFrame(() => pane.current?.querySelector(`[data-tool-id="${CSS.escape(itemId)}"]`)?.scrollIntoView({ block: "center" })); }} />;
-    if (resource === "改动") return <GitPane projectId={project.id} threadId={tab.childId} root={project.root} action={action}
+    if (resource === "改动") return <GitPane projectId={project.id} threadId={review?.threadId ?? tab.childId} root={project.root} action={action}
       turnId={thread?.turns?.findLast((turn: Data) => turn.status !== "inProgress")?.id}
-      reviewRequest={reviewTurn ? { turnId: reviewTurn } : undefined}
-      onReveal={onFile} onFile={onFile} fileOpen={services.fileOpen} commentsDisabled={executionBlocked || !!tab.closeRequestId} />;
+      reviewRequest={review ? { turnId: review.turnId } : undefined}
+      onReveal={onFile} onFile={onFile} fileOpen={services.fileOpen} commentsDisabled={executionBlocked || !!tab.closeRequestId || !!review && review.threadId !== tab.childId} />;
     if (resource.startsWith("file:")) return <WorkspaceFilePane projectId={project.id} root={project.root} path={resource.slice(5)} action={action}
       onDirty={() => {}} onLink={onLink} fileOpen={services.fileOpen} filesOpen={false} onToggleFiles={() => setResource("文件")} />;
     if (resource === "文件") return <WorkspaceFileTree projectId={project.id} root={project.root} action={action} onClose={() => setResource("")} onOpen={onFile} activePath="" />;
     if (resource.startsWith("agent:")) { const childId = resource.slice(6); return <AgentConversationPane project={project}
       parentId={project.state?.threads?.[childId]?.parentThreadId ?? tab.childId} childId={childId} action={action} dark={dark}
-      onLink={onLink} onFile={onFile} onReview={(_id, turnId) => onReview(turnId)} onAgent={id => setResource(`agent:${id}`)} />; }
+      onLink={onLink} onFile={onFile} onReview={openReview} onAgent={id => setResource(`agent:${id}`)} />; }
     const props = { project, thread, action };
     if (resource === "MCP") return <McpSettings {...props} />;
     if (resource === "Skills") return <TaskSkillsSettings {...props} />;

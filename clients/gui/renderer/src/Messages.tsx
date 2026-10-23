@@ -307,7 +307,7 @@ export function Messages({
   const sendGenUi = async (prompt: string) => {
     if (readOnly || !project.state?.connected || localThread.desktop?.archived) throw Error("Conversation unavailable");
     if (onGenUiFollowUp) return onGenUiFollowUp(prompt);
-    if (localThread.conversation?.kind === "side") throw Error("Side submission unavailable");
+    if (localThread.conversation?.kind === "side" && localThread.conversation.policy?.kind !== "sideExecutableV2") throw Error("Side submission unavailable");
     const key = `areal-gui:draft:${project.id}:${localThread.id}`;
     if (sending.has(key) || project.pending?.some((entry: Data) => entry.params?.threadId === localThread.id)) throw Error("Submission needs confirmation");
     markSending(key, true);

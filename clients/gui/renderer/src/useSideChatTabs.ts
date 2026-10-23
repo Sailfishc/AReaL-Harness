@@ -92,5 +92,5 @@ export function useSideChatTabs(action: Action) {
       throw cause;
     }
   };
-  return { tabs, create, close, forget, recoverCreation, hasChild: (projectId: string, childId: string) => tabsRef.current.some(tab => tab.projectId === projectId && tab.childId === childId), hasPendingCreation: (projectId: string, parentId: string) => pending.current.has(`${projectId}:${parentId}`) };
+  return { tabs, create, close, forget, recoverCreation, getTab: (projectId: string, childId: string) => tabsRef.current.find(tab => tab.projectId === projectId && tab.childId === childId), hasChild: (projectId: string, childId: string) => tabsRef.current.some(tab => tab.projectId === projectId && tab.childId === childId), hasPendingCreation: (projectId: string, parentId: string) => pending.current.has(`${projectId}:${parentId}`) };
 }

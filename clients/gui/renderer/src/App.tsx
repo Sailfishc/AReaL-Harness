@@ -680,6 +680,8 @@ function AppContent({ services }: { services: PlatformServices }) {
     [services],
   );
   const sideChats = useSideChatTabs(resourceAction);
+  const sideSource = React.useRef({ owner: panelOwner, instanceId: project?.core?.instanceId });
+  sideSource.current = { owner: panelOwner, instanceId: project?.core?.instanceId };
   const mainPane = React.useRef<HTMLElement>(null);
   const sideResourceBindings = React.useRef(new Map<string, SideResourceBinding>());
   useConversationEscape({ pane: mainPane, project, thread, action, onError: setError,
@@ -691,6 +693,7 @@ function AppContent({ services }: { services: PlatformServices }) {
     && !project.configurations?.[thread.id]?.options?.appendInstructions?.startsWith("AREAL_TASK_DRAFT_V1\n")
     && !matchMedia("(max-width: 640px)").matches;
   const revealSide = (tab: SideChatTab) => {
+    if (!sideChats.hasChild(tab.projectId, tab.childId)) return;
     const owner = `${tab.projectId}:${tab.parentId}`;
     if (activePanelOwner.current !== owner) {
       const view = panelViews.current.get(owner);
@@ -1601,21 +1604,36 @@ function AppContent({ services }: { services: PlatformServices }) {
   };
   const openSideSelection = (_selection: Data, _excerpt: string, _anchor?: Data, reference?: ConversationSelectionReference) => {
     if (!canStageSelection || !canCreateSide || !project || !thread || !reference) return;
-    const owner = { projectId: project.id, parentId: thread.id };
+    const owner = { projectId: project.id, parentId: thread.id, coreInstanceId: project.core?.instanceId };
+    const sourceOwner = `${owner.projectId}:${owner.parentId}`;
+    const sourceCurrent = () => sideSource.current.owner === sourceOwner && sideSource.current.instanceId === owner.coreInstanceId;
     const active = workspaceView !== "conversation" && !annotationVisible ? sideChats.tabs.find(tab => tab.id === panel && tab.projectId === owner.projectId && tab.parentId === owner.parentId) : undefined;
     if (active?.closeRequestId) return;
     void (async () => {
       let tab = active;
       if (tab) {
-        try { await resourceAction("open", { projectId: tab.projectId, threadId: tab.childId }); }
-        catch (cause) {
+        try {
+          const snapshot = await resourceAction("open", { projectId: tab.projectId, threadId: tab.childId });
+          const current = sideChats.getTab(tab.projectId, tab.childId);
+          const observedProject = snapshot.projects?.find((item: Data) => item.id === tab!.projectId);
+          const observed = observedProject?.state?.threads?.[tab.childId];
+          if (!current || current.closeRequestId || !sourceCurrent()
+            || observedProject?.core?.instanceId !== owner.coreInstanceId || observed?.desktop?.archived
+            || observed?.conversation?.origin?.sourceThreadId !== owner.parentId) return;
+          tab = current;
+        } catch (cause) {
           const failure = cause as RecoveryFailure;
           if (failure.code !== -32004 && failure.code !== "THREAD_NOT_FOUND" && failure.reason !== "thread_not_found") throw cause;
-          removeSideTab(tab);
+          const current = sideChats.getTab(tab.projectId, tab.childId);
+          if (!current || current.closeRequestId || !sourceCurrent()) return;
+          removeSideTab(current);
           tab = undefined;
         }
       }
+      if (!sourceCurrent()) return;
       tab ??= await createSide();
+      const current = sideChats.getTab(tab.projectId, tab.childId);
+      if (!current || current.closeRequestId || !sourceCurrent()) return;
       const key = `areal-gui:draft:${tab.projectId}:${tab.childId}`;
       if (sending.has(key) || project.pending?.some((request: Data) => request.params?.threadId === tab.childId)) return;
       const result = addConversationSelection(conversationSelectionScope(tab.projectId, tab.childId), reference);
@@ -2143,24 +2161,26 @@ function AppContent({ services }: { services: PlatformServices }) {
           onSelect={() => {}} onChange={() => {}} onHide={finishImageAnnotation} dirtyFiles={{}} canClose={() => false}
           render={() => <ImageAnnotationPane key={annotationTarget.sessionId} file={annotationTarget.file} onDone={finishImageAnnotation} />}
         />}
-        {project && !annotationVisible && !pluginsOpen && !settingsOpen && !taskCenterOpen && (
+        {(project || sideChats.tabs.length > 0) && (
           <SidePane
-            key={`${project.id}:${threadId}`}
-            workspaceKey={project.root}
+            workspaceKey={project?.root ?? ""}
             ownerTaskId={threadId || null}
-            active={panel}
-            names={panelTabs}
+            active={project && !annotationVisible && !pluginsOpen && !settingsOpen && !taskCenterOpen ? panel : ""}
+            names={project ? panelTabs : []}
             onNewSide={canCreateSide ? newSide : undefined}
-            retainedPanels={sideChats.tabs.filter(tab => tab.projectId === project.id && tab.parentId === threadId).map(tab => {
+            retainedPanels={sideChats.tabs.flatMap(tab => {
+              const ownerProject = snapshot.projects.find(item => item.id === tab.projectId);
+              if (!ownerProject) return [];
               const resource = parseSideResourceTab(panel);
-              const selected = panel === tab.id || resource?.childId === tab.childId;
-              return { id: tab.id, visible: selected, content: <ExecutableSideChatPane tab={tab} project={project} projects={snapshot.projects} services={services}
+              const selected = tab.projectId === project?.id && tab.parentId === threadId && !annotationVisible && !pluginsOpen && !settingsOpen && !taskCenterOpen
+                && (panel === tab.id || resource?.childId === tab.childId);
+              return [{ id: tab.id, visible: selected, content: <ExecutableSideChatPane tab={tab} project={ownerProject} projects={snapshot.projects} services={services}
                 action={resourceAction} dark={dark} active={selected && workspaceView !== "conversation"} resource={selected ? resource?.resource ?? "" : ""}
-                executionBlocked={snapshot.connection?.state !== "ready" || projectExecutionBlocked(snapshot.lifecycle, project.id)} onNew={newSide}
+                executionBlocked={snapshot.connection?.state !== "ready" || projectExecutionBlocked(snapshot.lifecycle, tab.projectId)} onNew={newSide}
                 onOpenResource={name => openSideResource(tab, name)} onRemoveResource={name => removeSideResource(tab, name)}
                 onBackToChat={() => { if (activePanelOwner.current === `${tab.projectId}:${tab.parentId}` && sideChats.hasChild(tab.projectId, tab.childId)) setPanel(tab.id); }}
                 onBinding={binding => { if (binding) sideResourceBindings.current.set(tab.childId, binding); else sideResourceBindings.current.delete(tab.childId); }}
-                onInspectClose={() => { void sideChats.close(tab).then(() => removeSideTab(tab)).catch(cause => setError(cause.message)); }} /> };
+                onInspectClose={() => { void sideChats.close(tab).then(() => removeSideTab(tab)).catch(cause => setError(cause.message)); }} /> }];
             })}
             previewTabId={previewFileTab}
             onKeepTab={id => setPreviewFileTab(current => current === id ? undefined : current)}
@@ -2171,10 +2191,11 @@ function AppContent({ services }: { services: PlatformServices }) {
               navigation: !sidebar ? <button className="icon-button" aria-label="展开侧栏" aria-expanded={false} aria-controls="areal-sidebar" onClick={() => setSidebar(true)}><SidebarToggleIcon /></button> : undefined }}
             dirtyFiles={Object.fromEntries(
               Object.entries(dirtyFiles)
-                .filter(([key]) => key.startsWith(`${project.id}:`))
-                .map(([key, value]) => [key.slice(project.id.length + 1), value]),
+                .filter(([key]) => key.startsWith(`${project?.id}:`))
+                .map(([key, value]) => [key.slice((project?.id.length ?? 0) + 1), value]),
             )}
             canClose={async (names) => {
+              if (!project) return false;
               for (const name of names.filter(name => name.startsWith("mcp-app:"))) await mcpWorkspace.close(name);
               const closingChildren = new Set(names.filter(isSideChatTab).map(name => name.slice(5)));
               const paths = [...names.filter(name => name.startsWith("file:")).map(name => name.slice(5)),
@@ -2205,6 +2226,7 @@ function AppContent({ services }: { services: PlatformServices }) {
               return true;
             }}
             onSelect={(name) => {
+              if (!project) return;
               const childId = isSideChatTab(name) ? name.slice(5) : parseSideResourceTab(name)?.childId;
               if (childId && !sideChats.hasChild(project.id, childId)) { setPanel("功能"); return; }
               if (workspaceView !== "split") setWorkspaceView("panel");
@@ -2233,11 +2255,11 @@ function AppContent({ services }: { services: PlatformServices }) {
               let title = page?.title;
               if (!title && page?.url) { try { title = new URL(page.url).host; } catch { title = page.url; } }
               return (title || "新标签页") + (page?.resource === "suspended" ? " · 已暂停" : "");
-            })() : name.startsWith("agent:") ? agentAssignment(thread ?? {}, name.slice(6)) || agentName(name.slice(6)) : isTerminalTab(name) ? terminalTitle(terminalOwner(project.id, threadId), name, project.root) : undefined}
+            })() : name.startsWith("agent:") ? agentAssignment(thread ?? {}, name.slice(6)) || agentName(name.slice(6)) : isTerminalTab(name) ? terminalTitle(terminalOwner(project?.id ?? "", threadId), name, project?.root ?? "") : undefined}
             onChange={tabs => {
               setPanelTabs(tabs.filter(name => {
                 const childId = isSideChatTab(name) ? name.slice(5) : parseSideResourceTab(name)?.childId;
-                return !childId || sideChats.hasChild(project.id, childId);
+                return !childId || !!project && sideChats.hasChild(project.id, childId);
               }));
               setPreviewFileTab(current => current && tabs.includes(current) ? current : undefined);
             }}

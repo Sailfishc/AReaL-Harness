@@ -101,6 +101,9 @@ export function SidePane({
   const [tabOverviewOpen, setTabOverviewOpen] = useState(false);
   const newTabButton = useRef<HTMLButtonElement>(null);
   const known = useRef(new Map<string, WorkspaceSidePaneTab>());
+  const owner = `${workspaceKey}:${ownerTaskId ?? ""}`;
+  const currentOwner = useRef(owner); currentOwner.current = owner;
+  useLayoutEffect(() => { known.current.clear(); setClosed([]); setTabOverviewOpen(false); closingFocusedTab.current = null; }, [owner]);
   const tabs = names.map((name) => {
     if (!known.current.has(name))
       known.current.set(name, {
@@ -131,7 +134,8 @@ export function SidePane({
     finally { ids.forEach(id => closing.current.delete(id)); }
   };
   const close = async (id: string) => {
-    if (!await allowClose([id]) || !mounted.current) return;
+    const closingOwner = currentOwner.current;
+    if (!await allowClose([id]) || !mounted.current || closingOwner !== currentOwner.current) return;
     if (document.activeElement?.closest("[data-side-pane-tab-id]")?.getAttribute("data-side-pane-tab-id") === id) {
       closingFocusedTab.current = id;
     }
@@ -146,8 +150,9 @@ export function SidePane({
     else if (current.current.active === id) onSelect(remaining.at(-1)!);
   };
   const closeGroup = async (keep?: string) => {
+    const closingOwner = currentOwner.current;
     const targets = names.filter((name) => name !== keep);
-    if (!await allowClose(targets) || !mounted.current) return;
+    if (!await allowClose(targets) || !mounted.current || closingOwner !== currentOwner.current) return;
     setClosed((previous) =>
       [
         ...tabs.filter((t) => t.id !== keep && !t.id.startsWith("terminal:") && !isBrowserTab(t.id) && !t.id.startsWith("side:") && !t.id.startsWith("side-resource:")).map((tab) => ({ tab, closedAt: Date.now() })),
@@ -329,7 +334,7 @@ export function SidePane({
       <div className="panel-resource-layout" data-file-preview={active.startsWith("file:") || undefined}>
         <div className={`panel-content ${active === "功能" || ["预览", "终端", "改动", "文件", "旁路讨论", "图片标注"].includes(active) || active.startsWith("file:") || active.startsWith("terminal:") || active.startsWith("side:") || active.startsWith("side-resource:") || isBrowserTab(active) ? "full-height" : ""}`}>
           {retainedPanels.map(pane => <div key={pane.id} className="side-pane-retained-content" style={{ display: pane.visible ? "flex" : "none", flex: 1, minHeight: 0, height: "100%", flexDirection: "column" }}>{pane.content}</div>)}
-          {!retainedPanels.some(pane => pane.visible) && (active === "功能" ? <SidePaneLauncher items={items} /> : render(active))}
+          {active && !retainedPanels.some(pane => pane.visible) && (active === "功能" ? <SidePaneLauncher items={items} /> : render(active))}
         </div>
         {auxiliary && <aside className="panel-resource-tree" aria-label="文件列表">{auxiliary}</aside>}
       </div>

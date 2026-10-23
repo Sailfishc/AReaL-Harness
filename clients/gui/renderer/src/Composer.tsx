@@ -1,3 +1,4 @@
+import { parseMentionMarkdown } from "./mentions/mentionMarkdown.js";
 import { stopConversationTurn, releaseSettledStops } from "./conversationStop.js";
 import { ConversationSelectionReferences } from "./ConversationSelectionReferences.js";
 import { conversationSelectionScope, useConversationSelections, readConversationSelections, consumeConversationSelections } from "./conversationSelectionReference.js";
@@ -182,10 +183,12 @@ export function Composer({
   const plugins = useComposerPlugins({ project, context: pluginContext, draftKey: key, text: input.text, action: readAction, onMcpMention });
   const taskManagement = config?.options?.appendInstructions?.startsWith("AREAL_TASK_DRAFT_V1\n") === true;
   const ordinary = isOrdinaryConversation(thread, config);
+  const sideContextCount = comments.length + skills.selected.length + mcpDraft.length + references.length
+    + parseMentionMarkdown(input.text).filter(part => part.type !== "text" && part.type !== "command").length;
   const interrupted = ordinary && project.core?.features?.ordinaryTurnSubmit === true ? interruptedConversationTurn(thread) : undefined;
   const emptyDraft = !input.text.trim() && !input.files.length && !comments.length && !skills.selected.length && !mcpDraft.length && !references.length;
   const nextPrompt = useComposerPrediction({ project, thread, action, enabled: prefs.nextPromptSuggestions,
-    eligible: ordinary && !disabled && !running && !questions.length && !approvals.length && !creatingGoal && !queueEditor.edit,
+    eligible: (ordinary || thread.conversation?.policy?.kind === "sideExecutableV2") && !disabled && !running && !questions.length && !approvals.length && !creatingGoal && !queueEditor.edit,
   });
   const predictionVisible = !input.files.length && !comments.length && !skills.selected.length && !mcpDraft.length && !references.length && !annotationEditing && !mcpOpen;
   const canContinue = !!interrupted && emptyDraft && !creatingGoal && !queueEditor.edit;
@@ -278,7 +281,7 @@ export function Composer({
     setDeliveryError("");
     let configurationRequestId: string | undefined;
     const sideCommand = parseSideSlashCommand(submittedInput.text, submittedInput.files,
-      comments.length + skills.selected.length + mcpDraft.length + references.length + (input.text.includes("<plugin") ? 1 : 0),
+      sideContextCount,
       !!onSide && !isSide && !creatingGoal && !taskManagement && !matchMedia("(max-width: 640px)").matches,
       appEntries.map(entry => entry.value));
     try {
@@ -367,7 +370,7 @@ export function Composer({
   };
   const catalogActions: ComposerCatalogEntry[] = [
     ...(onMcpMention ? [{value:"app-mention",label:"@ 应用引用",description:"搜索应用中的文件、工单或其他资源",icon:<ComposerMcpIcon/>,group:"功能" as const,run:onMcpMention}] : []),
-    ...(onSide && !isSide && !taskManagement && !matchMedia("(max-width: 640px)").matches ? ["side", "btw"].filter(name => !appEntries.some(entry => entry.value.toLowerCase() === name)).map(name => ({
+    ...(onSide && !input.files.length && !sideContextCount && !isSide && !taskManagement && !matchMedia("(max-width: 640px)").matches ? ["side", "btw"].filter(name => !appEntries.some(entry => entry.value.toLowerCase() === name)).map(name => ({
       value: name, label: t(name === "side" ? "chat.side.title" : "chat.side.btw"), description: t("chat.side.newDescription"), icon: <SideChatIcon />, group: "功能" as const,
       preserveInputUntilAccepted: true,
       disabled: disabled || !!queueEditor.edit,
