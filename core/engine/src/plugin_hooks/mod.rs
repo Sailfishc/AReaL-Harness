@@ -130,7 +130,7 @@ impl Manager {
     }
 }
 pub(super) struct Session {
-    task_scope: Mutex<Option<task_scope::Anchor>>,
+    task_scope: Mutex<std::collections::BTreeMap<String, task_scope::Anchor>>,
     pub(super) pending: Mutex<Vec<String>>,
     pub(super) ended: std::sync::atomic::AtomicBool,
     pub(super) inherited: std::sync::OnceLock<Vec<BoundHook>>,
@@ -156,7 +156,7 @@ impl Session {
             "resume"
         };
         Self {
-            task_scope: Mutex::new(None),
+            task_scope: Mutex::new(Default::default()),
             closing: Default::default(),
             end_gate: Mutex::new(()),
             inherited: Default::default(),
