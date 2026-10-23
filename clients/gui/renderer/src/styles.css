@@ -116,6 +116,7 @@ body {
 /* === 主题变量 === */
 
 @theme {
+  --reading-width: 768px;
   --spacing-control-xs: max(20px, calc(var(--ui-font-size) + 6px));
   --spacing-control-sm: max(24px, calc(var(--ui-font-size) + 10px));
   --spacing-control: max(28px, calc(var(--ui-font-size) + 14px));
@@ -155,6 +156,7 @@ body {
   --text-ui-lg: calc(var(--ui-font-size) + 2px);
   --text-ui-base: var(--ui-font-size);
   --text-ui-caption: calc(var(--ui-font-size) - 1px);
+  --text-content-caption: max(12px, calc(var(--content-font-size, 14px) - 1px));
   --text-ui-sm: calc(var(--ui-font-size) - 2px);
   --text-ui-xs: max(11px, calc(var(--ui-font-size) - 3px));
   /* 例外刻度：仅限工作流图轴面（刻度标签、通道码、单位后缀），不得用于内容文本。
@@ -257,6 +259,8 @@ body {
   --color-menu-hover: var(--color-neutral-100);
   --color-primary: var(--color-neutral-950);
   --color-primary-foreground: var(--color-neutral-50);
+  --color-composer-action: var(--color-primary);
+  --color-composer-action-foreground: var(--color-primary-foreground);
   --color-secondary: var(--color-neutral-300);
   --color-secondary-hover: color-mix(in srgb, var(--color-foreground) 10%, transparent);
   --color-interaction-ask-surface: var(--color-sky-50);

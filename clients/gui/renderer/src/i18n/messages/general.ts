@@ -388,6 +388,14 @@ export const generalMessages = {
     "zh-CN": "使用 macOS 原生字体抗锯齿",
     "en": "Use native macOS font antialiasing"
   },
+  "settings.displaySettings.reading": {
+    "zh-CN": "阅读",
+    "en": "Reading"
+  },
+  "settings.displaySettings.readingPreview": {
+    "zh-CN": "阅读样例。调整内容字号后，对话正文会立即采用新的大小。返回任务后，可以继续阅读并保留未发送的草稿。",
+    "en": "Reading sample. Content size changes apply to conversation text immediately. Return to your task to keep reading with your unsent draft preserved."
+  },
   "settings.displaySettings.readingAndCode": {
     "zh-CN": "阅读与代码",
     "en": "Reading and code"

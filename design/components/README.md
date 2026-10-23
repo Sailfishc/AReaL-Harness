@@ -24,4 +24,8 @@ GUI 控件选择与后续 Web 复用边界由本目录维护。组件参数、�
 
 新增或改变公共组件时，在原实现附近维护用途、适用与不适用条件、必要状态、键盘和焦点行为，以及生产示例。已有集中合同逐项整理，迁出后原位置改为引用。当前 [GUI registry](../../clients/gui/design-system/registry.json)仍拥有本端组件索引，不能把登记当作实际导出或运行准入证明。
 
-示例使用生产实现。GUI 的[开发预览](../../clients/gui/renderer/src/design-system/main.tsx)与 [Base 候选](../../clients/gui/design-system/base.md)分别记录可查看状态与已准入范围；共享目录不将所有已有组件自动列为稳定设计系统成员。
+示例使用生产实现。GUI 的[开发预览](../../clients/gui/renderer/src/design-system/main.tsx)与 [Base beta](../../clients/gui/design-system/base.md)分别记录可查看状态与已准入范围；共享目录不将所有已有组件自动列为稳定设计系统成员。
+
+## 固定输入的独立复用
+
+[交付物核对题](reuse-exercise.md)固定内容、初态、操作结果、语义与代表条件。实现只消费冻结入口与既有生产组件；评估材料与实现输入分离。[本轮结果与归因](reuse-result.md)记录实际输入、运行与边界；单题不扩大所有组件、主题或平台的准入。

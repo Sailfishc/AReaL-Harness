@@ -762,3 +762,5 @@
   font-size: var(--text-ui-base);
   font-weight: 500;
 }
+
+.appearance-reading-preview { margin: 0; padding: var(--spacing-field); font-family: var(--font-content, var(--font-sans)); font-size: var(--content-font-size); line-height: 1.6; color: var(--color-foreground); }

@@ -40,7 +40,34 @@ type TranscriptSelectionSnapshot = {
   provenance: { kind: "userQuote" } | { kind: "itemRange"; startUtf8: number; endUtf8: number };
 };
 type ResponseSpace = { turnId: string; height: number; contentHeight: number };
-const readingViews = new Map<string, { top: number; following: boolean; atTail: boolean; responseSpace?: ResponseSpace }>();
+type ReadingAnchor = { turnId: string; itemId: string; blockIndex: number | null; offset: number };
+const readingViews = new Map<string, { top: number; following: boolean; atTail: boolean; responseSpace?: ResponseSpace; anchor?: ReadingAnchor }>();
+function readingBlocks(item: HTMLElement) {
+  return [...(item.querySelector<HTMLElement>(".conversation-markdown")?.children ?? [])].filter((element): element is HTMLElement => element instanceof HTMLElement);
+}
+function readingAnchor(element: HTMLElement): ReadingAnchor | undefined {
+  const viewport = element.getBoundingClientRect();
+  for (const item of element.querySelectorAll<HTMLElement>("[data-side-item-id]")) {
+    const turnId = item.closest<HTMLElement>("[data-turn-id]")?.dataset.turnId;
+    if (!turnId || !item.dataset.sideItemId) continue;
+    const blocks = readingBlocks(item);
+    const blockIndex = blocks.findIndex(block => block.getBoundingClientRect().bottom > viewport.top && block.getBoundingClientRect().top < viewport.bottom);
+    const block = blocks[blockIndex] ?? item;
+    const box = block.getBoundingClientRect();
+    if (box.bottom > viewport.top && box.top < viewport.bottom) return { turnId, itemId: item.dataset.sideItemId, blockIndex: blockIndex < 0 ? null : blockIndex, offset: box.top - viewport.top };
+  }
+}
+function restoreReadingAnchor(element: HTMLElement, anchor: ReadingAnchor) {
+  const turn = [...element.querySelectorAll<HTMLElement>("[data-turn-id]")].find(turn => turn.dataset.turnId === anchor.turnId);
+  const item = [...(turn?.querySelectorAll<HTMLElement>("[data-side-item-id]") ?? [])].find(item => item.dataset.sideItemId === anchor.itemId);
+  const block = item && (anchor.blockIndex === null ? item : readingBlocks(item)[anchor.blockIndex]);
+  if (!block) return false;
+  const box = block.getBoundingClientRect();
+  if (box.height <= 0 || element.clientHeight <= 0) return false;
+  const offset = Math.max(1 - box.height, anchor.offset);
+  element.scrollTop += box.top - element.getBoundingClientRect().top - offset;
+  return true;
+}
 // Queue pauseReason "stopped" is Core's stop receipt. It stays separate from the turn status.
 function commandResourceLabel(tool: Data) {
   const outcome = tool.execution?.outcome;
@@ -104,6 +131,8 @@ export function Messages({
   const responseSpace = useRef<HTMLDivElement>(null);
   const container = useRef<HTMLDivElement>(null);
   const follow = useRef(true);
+  const pendingReading = useRef<ReadingAnchor | undefined>(undefined);
+  const disclosureReading = useRef<{ control: HTMLElement; offset: number } | undefined>(undefined);
   const readingViewport = useRef<{ width: number; height: number } | undefined>(undefined);
   const owner = JSON.stringify([project.id, thread.id]);
   const latestTurnId = thread.turns?.at(-1)?.id;
@@ -207,17 +236,22 @@ export function Messages({
   const [readingHistory, setReadingHistory] = useState(false);
   const rememberReading = () => {
     const element = container.current;
-    if (element && activeOwner.current) readingViews.set(activeOwner.current, {
+    if (element && activeOwner.current && !pendingReading.current) readingViews.set(activeOwner.current, {
       top: element.scrollTop, following: follow.current,
       atTail: element.scrollHeight - element.scrollTop - element.clientHeight <= 1,
       responseSpace: reservation.current && { ...reservation.current },
+      anchor: follow.current ? undefined : readingAnchor(element),
     });
   };
   const releaseResponseSpace = () => {
     reservation.current = undefined;
     if (responseSpace.current) responseSpace.current.style.height = "0px";
   };
-  const readHere = () => {
+  const readHere = (control?: HTMLElement) => {
+    pendingReading.current = undefined;
+    disclosureReading.current = control && container.current
+      ? { control, offset: control.getBoundingClientRect().top - container.current.getBoundingClientRect().top }
+      : undefined;
     follow.current = false;
     rememberReading();
   };
@@ -243,12 +277,14 @@ export function Messages({
     if (departed) releaseResponseSpace();
     // Releasing space can clamp this same navigation frame to the new tail.
     // Preserve its departure intent instead of immediately resuming following.
-    follow.current = !departed && element.scrollHeight - element.scrollTop - element.clientHeight < 120 &&
+    follow.current = !disclosureReading.current && !departed && element.scrollHeight - element.scrollTop - element.clientHeight < 120 &&
       (follow.current || !!previous && element.scrollTop > previous.top + 1);
     rememberReading();
     setReadingHistory(!follow.current && element.scrollHeight - element.scrollTop - element.clientHeight >= 120);
   };
   const returnToBottom = () => {
+    pendingReading.current = undefined;
+    disclosureReading.current = undefined;
     releaseResponseSpace();
     follow.current = true;
     // Instant scrolling avoids interpreting smooth-scroll frames as a reader
@@ -280,8 +316,10 @@ export function Messages({
       const column = getComputedStyle(section.parentElement!);
       return Math.max(0, element.clientHeight - parseFloat(column.paddingTop) - parseFloat(column.paddingBottom));
     };
+    if (switched || previous.id !== latestTurnId) disclosureReading.current = undefined;
     if (switched) {
       follow.current = remembered?.following ?? true;
+      pendingReading.current = follow.current ? undefined : remembered?.anchor;
       reservation.current = reserveResponseSpace && remembered?.responseSpace ? { ...remembered.responseSpace } : undefined;
     } else if (previous.id !== latestTurnId) {
       // Reflow may leave all prior history visible while preserving a former
@@ -310,17 +348,20 @@ export function Messages({
         space.contentHeight = contentHeight;
         spacer.style.height = `${space.height}px`;
       } else spacer.style.height = "0px";
-      if (follow.current) element.scrollTop = element.scrollHeight;
+      const disclosure = disclosureReading.current;
+      if (disclosure && element.contains(disclosure.control)) {
+        element.scrollTop += disclosure.control.getBoundingClientRect().top - element.getBoundingClientRect().top - disclosure.offset;
+      } else if (follow.current) element.scrollTop = element.scrollHeight;
+      else if (pendingReading.current && restoreReadingAnchor(element, pendingReading.current)) pendingReading.current = undefined;
       readingViewport.current = { width: element.clientWidth, height: element.clientHeight };
       setReadingHistory(!follow.current && element.scrollHeight - element.scrollTop - element.clientHeight >= 120);
       rememberReading();
     };
+    if (switched && !follow.current) element.scrollTop = remembered?.top ?? 0;
     layout();
-    if (switched && !follow.current) {
-      element.scrollTop = remembered?.top ?? 0;
-      rememberReading();
-    }
+    const cancelPendingReading = () => { pendingReading.current = undefined; disclosureReading.current = undefined; };
     const wheel = (event: WheelEvent) => {
+      cancelPendingReading();
       if (event.deltaY >= 0 || element.scrollHeight <= element.clientHeight) return;
       follow.current = false;
       if (reservation.current) {
@@ -335,6 +376,8 @@ export function Messages({
       }
     };
     element.addEventListener("wheel", wheel, { passive: false });
+    element.addEventListener("pointerdown", cancelPendingReading);
+    element.addEventListener("keydown", cancelPendingReading);
     // File summaries, disclosures and Markdown/media resize independently of
     // Core snapshots. Reuse this reading owner; no new store or execution loop.
     // Resize notifications run before paint; a new frame exposes the old tail.
@@ -344,11 +387,15 @@ export function Messages({
     return () => {
       resize.disconnect();
       element.removeEventListener("wheel", wheel);
+      element.removeEventListener("pointerdown", cancelPendingReading);
+      element.removeEventListener("keydown", cancelPendingReading);
     };
   }, [owner, latestTurnId, reserveResponseSpace]);
   return (
     <div className={embedded ? "messages-embedded" : "messages-shell"}>
     {!embedded && <TurnNavigation key={owner} turns={thread.turns ?? []} container={container} onNavigate={() => {
+      pendingReading.current = undefined;
+      disclosureReading.current = undefined;
       follow.current = false;
       releaseResponseSpace();
       rememberReading();
@@ -360,8 +407,8 @@ export function Messages({
       onMouseUp={captureSideSelection}
       onKeyUp={event => { if (event.key !== "Escape" && event.key !== "Tab" && event.key !== "Enter") captureSideSelection(); }}
       onClickCapture={event => {
-        const control = event.target instanceof Element ? event.target.closest("button[aria-expanded], summary") : null;
-        if (control && event.currentTarget.contains(control) && control.closest(".turn-progress, .turn-execution")) readHere();
+        const control = event.target instanceof Element ? event.target.closest<HTMLElement>("button[aria-expanded], summary") : null;
+        if (control && event.currentTarget.contains(control) && control.closest(".turn-progress, .turn-execution")) readHere(control);
       }}
     >
       <div className={embedded ? "message-column message-embedded-column" : "message-column"}>

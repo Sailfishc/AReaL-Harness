@@ -53,6 +53,10 @@ export function ConversationFlowExercise({ dark }: { dark: boolean }) {
     };
     const action = useCallback(
         (async (name: string, params: Data) => {
+            if (name === "feedback" && params.operation === "status") {
+                setCalls((previous) => [...previous, "feedback:status"]);
+                return { enabled: false, connected: false, opted_in: false };
+            }
             setCalls((previous) => [...previous, `${name}:${params.threadId ?? ""}`]);
             if (name === "media" && params.operation === "read" && params.uri === imageUri)
                 return { bytes: new TextEncoder().encode(imageSvg), mime: "image/svg+xml" };

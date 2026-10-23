@@ -11,7 +11,7 @@ type Destination =
 
 const rootDocuments = import.meta.glob<string>("../../../../../design/**/*.md", { eager: true, query: "?raw", import: "default" });
 const guiDocuments = import.meta.glob<string>(["../../../design-system/**/*.md", "!../../../design-system/**/*.en.md", "!../../../design-system/templates/**"], { eager: true, query: "?raw", import: "default" });
-const contracts = import.meta.glob<string>("../components/ui/*.md", { eager: true, query: "?raw", import: "default" });
+const contracts = import.meta.glob<string>("../**/*.md", { eager: true, query: "?raw", import: "default" });
 const repositoryBase = "https://design.invalid/";
 const modulePath = "clients/gui/renderer/src/design-system/";
 const documents = new Map(Object.entries({ ...rootDocuments, ...guiDocuments, ...contracts }).map(([path, markdown]) => [new URL(path, repositoryBase + modulePath).pathname.slice(1), markdown]));
@@ -99,7 +99,7 @@ export function DesignDocument({ path }: { path: string }) {
   };
   return <main className="design-document">
     <header className="design-document-header">
-      <nav aria-label="设计预览导航"><a href={documentUrl("design/README.md")}>设计地图</a><a href={example()}>组件示例</a></nav>
+      <nav aria-label="设计预览导航"><a href="?dashboard">建设看板</a><a href={documentUrl("design/README.md")}>设计地图</a><a href={example()}>组件示例</a></nav>
       <label>主题<select aria-label="主题" value={dark ? "dark" : "light"} onChange={event => setDark(event.target.value === "dark")}><option value="light">明亮</option><option value="dark">深色</option></select></label>
     </header>
     <p className="design-document-path">{path}</p>

@@ -37,6 +37,7 @@
 | SentAttachment | [SentAttachment](../renderer/src/MessageAttachment.tsx) | 已发送媒体的生产预览与关闭返回 |
 | SettingsNavigation | [SettingsNavigation](../renderer/src/settings/SettingsWorkspace.tsx) | 定位、筛选设置分类并沿原导航守卫返回 |
 | SidePane | [SidePane](../renderer/src/app-shell/SidePane.tsx) | 窗口局部的面板标签、视图切换与关闭焦点；资源生命周期沿原所有者 |
+| SettingsSearchInput | [SettingsSearchInput](../renderer/src/settings/SettingsSearchInput.tsx) | 带可读清除动作的资源搜索输入 |
 
 <!-- END GENERATED: components -->
 

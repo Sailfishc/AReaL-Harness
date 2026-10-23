@@ -1,4 +1,24 @@
 export const pluginMessages = {
+  "settings.pluginCenter.returnToTask": {
+    "zh-CN": "返回原任务",
+    "en": "Return to original task"
+  },
+  "settings.pluginCenter.loadingCatalog": {
+    "zh-CN": "正在加载插件目录…",
+    "en": "Loading plugin catalog…"
+  },
+  "settings.pluginCenter.refreshingCatalog": {
+    "zh-CN": "正在刷新插件目录…",
+    "en": "Refreshing plugin catalog…"
+  },
+  "settings.pluginCenter.connectionsUnavailable": {
+    "zh-CN": "插件 MCP 连接暂不可用。{error}",
+    "en": "Plugin MCP connections are temporarily unavailable. {error}"
+  },
+  "settings.pluginCenter.hooksUnavailable": {
+    "zh-CN": "插件 hooks 暂不可用。{error}",
+    "en": "Plugin hooks are temporarily unavailable. {error}"
+  },
   "settings.pluginCenter.theOriginalAuthenticationSubmissionIsStillUnconfirmed": {
     "zh-CN": "原认证配置提交仍待核对，请先完成核对。",
     "en": "The original authentication submission is still unconfirmed. Check it first."

@@ -156,6 +156,7 @@ function projectExecutionBlocked(lifecycle: Snapshot["lifecycle"], projectId: st
   ) ?? false;
 }
 type InitialLocation = { kind: "automatic" | "projectless" } | { kind: "project"; projectId: string; threadId: string };
+type PluginTaskOrigin = { projectId: string; threadId: string };
 type RestorationOwner = RecoveryOwner;
 type RestorationState = RestorationOwner & { pending: boolean; error: string; failureId?: string; failure?: RecoveryFailure };
 type RestorationAttempt = RestorationOwner & { operation: "connect" | "open"; pending: boolean; promise: Promise<void> };
@@ -271,7 +272,7 @@ function AppContent({ services }: { services: PlatformServices }) {
   const [panelTabs, setPanelTabs] = useState<string[]>([]);
   const [previewFileTab, setPreviewFileTab] = useState<string | undefined>();
   const sideNarrow = React.useRef(false);
-  const sideTrigger = React.useRef<{ element: HTMLElement; route: string } | null>(null);
+  const panelReturnTarget = React.useRef<{ element: HTMLElement; route: string } | null>(null);
   const [workspaceView, setWorkspaceView] = useState<"split" | "panel" | "conversation">("split");
   const [filesOpen, setFilesOpen] = useState(false);
   const [revealedFile, setRevealedFile] = useState("");
@@ -292,11 +293,20 @@ function AppContent({ services }: { services: PlatformServices }) {
   const consumedResourceReveal = React.useRef<string | undefined>(undefined);
   const consumeResourceReveal = useCallback((key: string) => { consumedResourceReveal.current = key; }, []);
   const [pluginsOpen, setPluginsOpen] = useState(false);
+  const [pluginTaskOrigin, setPluginTaskOrigin] = useState<PluginTaskOrigin | null>(null);
+  const pluginTaskFocus = React.useRef<PluginTaskOrigin | null>(null);
   const [pluginMarketRequest, setPluginMarketRequest] = useState(0);
   const [settingsOpen, updateSettingsOpen] = useState(false);
+  const rememberPluginTask = () => {
+    if (!pluginsOpen && !settingsOpen) {
+      setPluginTaskOrigin(!taskCenterOpen && projectId && threadId ? { projectId, threadId } : null);
+      pluginTaskFocus.current = null;
+    }
+  };
   const settingsTrigger = React.useRef<{ element: HTMLElement; route: string } | null>(null);
   const setSettingsOpen = (open: boolean) => {
     if (open) {
+      rememberPluginTask();
       if (!settingsOpen && document.activeElement instanceof HTMLElement)
         settingsTrigger.current = { element: document.activeElement, route: `${projectId}:${threadId}` };
       setPluginsOpen(false); setTaskCenterOpen(false); updateSettingsOpen(true);
@@ -506,19 +516,19 @@ function AppContent({ services }: { services: PlatformServices }) {
   const previewOwner = React.useRef("");
   previewOwner.current = `${project?.id ?? ""}:${threadId}`;
   const browserWorkspace = useBrowserWorkspace(services, project?.id ?? "", threadId, browserPageId(panel));
-  const rememberSideTrigger = useCallback(() => {
+  const rememberPanelTrigger = useCallback(() => {
     const focused = document.activeElement;
     const element = focused?.getAttribute("role") === "menuitem"
       ? document.querySelector<HTMLElement>('[aria-haspopup="menu"][aria-expanded="true"]') ?? focused : focused;
-    if (element instanceof HTMLElement && panel !== "旁路讨论") sideTrigger.current = { element, route: `${projectId}:${threadId}` };
-  }, [panel, projectId, threadId]);
+    if (element instanceof HTMLElement && !element.closest(".side-panel")) panelReturnTarget.current = { element, route: `${projectId}:${threadId}` };
+  }, [projectId, threadId]);
   const openingBrowser = React.useRef<string | null>(null);
   const openBrowser = useCallback(async (create = false, url?: string) => {
     if (!project) return;
     const owner = `${project.id}:${threadId}`;
     if (openingBrowser.current === owner) return;
     openingBrowser.current = owner;
-    if (!isBrowserTab(panel)) rememberSideTrigger();
+    if (!isBrowserTab(panel)) rememberPanelTrigger();
     try {
       let value = await browserWorkspace.request("state");
       if (previewOwner.current !== owner) return;
@@ -534,7 +544,7 @@ function AppContent({ services }: { services: PlatformServices }) {
       setPanel(browserTabId(pageId));
     } catch (cause) { if (previewOwner.current === owner) setError((cause as Error).message); }
     finally { if (openingBrowser.current === owner) openingBrowser.current = null; }
-  }, [project?.id, threadId, browserWorkspace.request, panel, rememberSideTrigger]);
+  }, [project?.id, threadId, browserWorkspace.request, panel, rememberPanelTrigger]);
   useEffect(() => services.onPreviewEvent?.(event => {
     // 仅呈现当前聊天已由 Core 批准的页面，不切换后台聊天或重放导航。
     if (event.kind !== 'reveal' || previewOwner.current !== `${event.projectId}:${event.threadId}`) return;
@@ -791,6 +801,34 @@ function AppContent({ services }: { services: PlatformServices }) {
     },
     [initialReleased, snapshot.projects, restoreConversation, recordWorkspaceLocation],
   );
+  const returnToPluginTask = () => {
+    const origin = pluginTaskOrigin;
+    if (!origin) return;
+    void requestNavigation(() => {
+      pluginTaskFocus.current = origin;
+      updateSettingsOpen(false);
+      if (projectId === origin.projectId && threadId === origin.threadId) {
+        setPluginsOpen(false);
+        setTaskCenterOpen(false);
+      } else void open(origin.projectId, origin.threadId);
+    });
+  };
+  useEffect(() => {
+    const target = pluginTaskFocus.current;
+    if (!target) return;
+    if (pluginsOpen || settingsOpen || taskCenterOpen || projectId !== target.projectId || threadId !== target.threadId) {
+      pluginTaskFocus.current = null;
+      return;
+    }
+    const frame = requestAnimationFrame(() => {
+      const composer = document.querySelector<HTMLElement>('[data-testid="chat-input"]');
+      if (composer) {
+        composer.focus({ preventScroll: true });
+        pluginTaskFocus.current = null;
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [pluginsOpen, settingsOpen, taskCenterOpen, projectId, threadId, thread]);
   const [mcpMentionsOpen, setMcpMentionsOpen] = useState(false);
   const mcpWorkspace = useMcpAppsWorkspace({ services, project, deepLinksEnabled: initialReleased, projects: snapshot.projects, activeTab: !annotationVisible && !pluginsOpen && !settingsOpen && !taskCenterOpen && workspaceView !== "conversation" ? panel : "", threadId, action: resourceAction,
     onOpenThread: async (pid, tid) => { updateSettingsOpen(false); await open(pid, tid); },
@@ -956,6 +994,7 @@ function AppContent({ services }: { services: PlatformServices }) {
     }).catch(cause => { if (previewOwner.current === owner) setError(cause.message); });
   }, [services, project?.id, threadId, openBrowser]);
   const openFile = (path: string) => {
+    rememberPanelTrigger();
     setWorkspaceView(mode => mode === "split" ? mode : "panel");
     const relative =
       project && path.startsWith(project.root + "/") ? path.slice(project.root.length + 1) : path;
@@ -995,12 +1034,13 @@ function AppContent({ services }: { services: PlatformServices }) {
     setPanel(create ? addTerminal(owner) : ensureTerminal(owner));
   };
   const hidePanel = () => {
-    const returning = panel === "旁路讨论" || panel.startsWith("agent:") || isBrowserTab(panel);
+    const returning = panel === "旁路讨论" || panel.startsWith("agent:") || isBrowserTab(panel) || panel.startsWith("file:") || panel === "改动";
+    const owner = `${projectId}:${threadId}`;
+    const trigger = panelReturnTarget.current;
     setWorkspaceView("split"); setPanel("");
     if (returning) requestAnimationFrame(() => {
-      const trigger = sideTrigger.current;
-      if (trigger?.route !== `${projectId}:${threadId}`) return;
-      if (trigger.element.isConnected) trigger.element.focus({ preventScroll: true });
+      if (previewOwner.current !== owner) return;
+      if (trigger?.route === owner && trigger.element.isConnected && trigger.element.getClientRects().length) trigger.element.focus({ preventScroll: true });
       else document.querySelector<HTMLElement>('[data-testid="chat-input"]')?.focus({ preventScroll: true });
     });
   };
@@ -1017,7 +1057,8 @@ function AppContent({ services }: { services: PlatformServices }) {
   const showPanel = (name: string) => {
     if (!initialReleased) return;
     if (name === "预览") { void openBrowser(); return; }
-    if (name === "旁路讨论" || name.startsWith("agent:")) { if (panel === name) { hidePanel(); return; } rememberSideTrigger(); }
+    if (name === "改动") rememberPanelTrigger();
+    if (name === "旁路讨论" || name.startsWith("agent:")) { if (panel === name) { hidePanel(); return; } rememberPanelTrigger(); }
     setWorkspaceView(mode => name === "旁路讨论" && matchMedia("(max-width: 1200px)").matches ? "panel" : mode === "split" ? mode : "panel");
     if (["编辑目标", "执行计划", "上下文", "已保存授权", "进程"].includes(name)) {
       setPanel(name);
@@ -1416,7 +1457,7 @@ function AppContent({ services }: { services: PlatformServices }) {
           fullAddress={library.settings?.browserFullAddress === true}
           thread={thread}
           action={resourceAction}
-          onReview={turnId => { setReviewRequest({ owner: panelOwner, turnId }); setPanel("改动"); }}
+          onReview={turnId => { rememberPanelTrigger(); setReviewRequest({ owner: panelOwner, turnId }); setPanel("改动"); }}
           onTool={itemId => {
             setWorkspaceView("split");
             requestAnimationFrame(() => document.querySelector(`[data-tool-id="${CSS.escape(itemId)}"]`)?.scrollIntoView({ block: "center" }));
@@ -1493,7 +1534,7 @@ function AppContent({ services }: { services: PlatformServices }) {
   };
   const openSideSelection = (selection: Data, excerpt: string, anchor?: Data) => {
     if (!canStageSelection || !project || !thread || project.core?.features?.sidePreview !== true) return;
-    rememberSideTrigger();
+    rememberPanelTrigger();
     const workspace = new SideDraftWorkspace(localStorage, { instanceId: project.core?.instanceId ?? "unknown",
       projectId: project.id, sourceThreadId: thread.id, randomId: () => crypto.randomUUID() });
     const draft = workspace.current();
@@ -1608,7 +1649,7 @@ function AppContent({ services }: { services: PlatformServices }) {
               // 暂时隐藏 Inbox 入口（恢复时同时把 InboxIcon 加回 import）
               // { id: "inbox", label: "Inbox", icon: <InboxIcon />, onSelect: () => requestNavigation(() => { updateSettingsOpen(false); setTaskSurface("inbox"); if (matchMedia("(max-width: 640px)").matches) setSidebar(false); }) },
               { id: "tasks", label: "定时任务", icon: <CalendarClock />, onSelect: () => requestNavigation(() => { setPluginsOpen(false); updateSettingsOpen(false); setTaskScope(undefined); setTaskNotification(undefined); setTaskCenterOpen(true); if (matchMedia("(max-width: 640px)").matches) setSidebar(false); }) },
-              { id: "plugins", label: "插件", icon: <SettingsPluginIcon />, onSelect: () => requestNavigation(() => { updateSettingsOpen(false); setTaskCenterOpen(false); setPluginMarketRequest(value => value + 1); setPluginsOpen(true); }) },
+              { id: "plugins", label: "插件", icon: <SettingsPluginIcon />, onSelect: () => requestNavigation(() => { rememberPluginTask(); updateSettingsOpen(false); setTaskCenterOpen(false); setPluginMarketRequest(value => value + 1); setPluginsOpen(true); }) },
             ]} footer={<><UpdateIndicator services={services} /><Button variant="ghost" size="icon" className="application-rail-button relative" aria-label={t("settings.title")} title={t(trajectoryAttention ? "settings.attention" : "settings.title")} aria-current={settingsOpen ? "page" : undefined} onClick={() => showPanel("设置")}><Settings />{trajectoryAttention && <span aria-label={t("settings.trajectory.attention")} className="absolute top-1 right-1 size-2 rounded-full bg-amber-500" />}</Button></>} />;
   const workspaceNavigation = <div className="workspace-navigation">
     <button className="icon-button" aria-label="后退" title="后退 (⌘[)" disabled={taskCenterOpen || workspaceHistory.index <= 0} onClick={() => traverseWorkspaceHistory(-1)}><ArrowLeft size={16} /></button>
@@ -1809,8 +1850,10 @@ function AppContent({ services }: { services: PlatformServices }) {
                     aria-pressed={Boolean(panel)}
                     disabled={!project}
                     onClick={() => {
+                      if (panel) { hidePanel(); return; }
+                      rememberPanelTrigger();
                       const last = panelViews.current.get(panelOwner)?.lastPanel;
-                      setPanel(panel ? "" : last && (last === "功能" || panelTabs.includes(last)) ? last : panelTabs.at(-1) ?? "功能");
+                      setPanel(last && (last === "功能" || panelTabs.includes(last)) ? last : panelTabs.at(-1) ?? "功能");
                     }}
                   >
                     <SidePanelIcon />
@@ -1850,6 +1893,7 @@ function AppContent({ services }: { services: PlatformServices }) {
             onMarket={preserveDetail => { updateSettingsOpen(false); if (!preserveDetail) setPluginMarketRequest(value => value + 1); setPluginsOpen(true); }}
             onChooseProject={() => void choose()}
             onSelectProject={id => { setNoProject(false); setProjectId(id); }}
+            onReturnToTask={pluginTaskOrigin ? returnToPluginTask : undefined}
             onStartDraft={startResourceDraft} />}
           {pluginCenterActive ? null : settingsOpen ? (
             settingsPage
@@ -1893,7 +1937,7 @@ function AppContent({ services }: { services: PlatformServices }) {
                           dark={dark}
                           onLink={onLink}
                           onFile={openFile}
-                          onReview={turnId => { setReviewRequest({ owner: panelOwner, turnId }); setPanel("改动"); setWorkspaceView(mode => mode === "split" ? mode : "panel"); }}
+                          onReview={turnId => { rememberPanelTrigger(); setReviewRequest({ owner: panelOwner, turnId }); setPanel("改动"); setWorkspaceView(mode => mode === "split" ? mode : "panel"); }}
                           readTurnReview={readTurnReview}
                           onAgent={id => showPanel(`agent:${id}`)}
                         />
@@ -1926,7 +1970,7 @@ function AppContent({ services }: { services: PlatformServices }) {
                           readAction={resourceAction}
                           onPanel={showPanel}
                           onSide={project.core?.features?.sidePreview === true && !thread.desktop?.archived && !thread.parentThreadId && thread.conversation?.kind !== "side" ? draft => {
-                            rememberSideTrigger();
+                            rememberPanelTrigger();
                             const workspace = new SideDraftWorkspace(localStorage, { instanceId: project.core?.instanceId ?? "unknown",
                               projectId: project.id, sourceThreadId: thread.id, randomId: () => crypto.randomUUID() });
                             const current = workspace.current();

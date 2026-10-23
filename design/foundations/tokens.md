@@ -24,6 +24,8 @@ Token 先按 GUI 确立角色及默认值，为后续 Web 复用提供基线。�
 
 GUI 的 [styles.css](../../clients/gui/renderer/src/styles.css)直接导入共享焦点 CSS，Vite 将其合入样式产物。现有 workbench 焦点规则与 DecisionCard 消费这两个变量。其他数值由该文件、[applicationSettings](../../clients/gui/renderer/src/settings/applicationSettings.ts)及相关偏好链拥有。UI 字号还有 [App](../../clients/gui/renderer/src/App.tsx) 的独立来源。具体控件选择见 [GUI Token 指南](../../clients/gui/DESIGN_SYSTEM.md#token-选择)。
 
+任务提交、过程、审批与结果的 GUI 切片沿用这些生产源。主要动作采用同一颜色配对，阅读宽度与内侧留白由消息列和输入区共同消费，过程附注与 UI 控件分别跟随内容字号和界面字号。候选临时主题也消费生产 `paletteVariables`，不写入生产偏好。角色与消费约定只在上述 GUI Token 指南维护，候选不再覆写同职责的颜色与列宽。
+
 本地 Web 由 [style.css](../../clients/web/style.css)和 [app.js](../../clients/web/app.js)拥有样式与主题偏好，表中来源供后续复用时核对。Remote Web 的 [RemoteWorkbench](../../clients/gui/renderer/src/remote/RemoteWorkbench.tsx)是另一消费路径，不能用本地 Web 的接线代替它。
 
 本地 Web 的 `:focus-visible` 消费共享焦点变量。[Core 静态资源入口](../../core/app-server/src/lib.rs)在编译时将共享 CSS 与 Web CSS 拼接到原有 `/ui/style.css` 响应，保留资源头与路由。颜色和选择器保留现有所有者。Remote 构建包含 GUI 样式，不代表已接入审批交互。
