@@ -309,20 +309,24 @@ async function selectText(body, text, keyboard = false) {
   await body.scrollIntoViewIfNeeded();
   if (keyboard) { await page.bringToFront(); await body.evaluate(element => { element.tabIndex = -1; element.focus({ preventScroll: true }); }); }
   const selected = await body.evaluate(async (element, { text, keyboard }) => {
-    const nodes = []; const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
-    let node; while ((node = walker.nextNode())) nodes.push(node);
-    const start = nodes.map(node => node.textContent).join("").indexOf(text);
-    if (start < 0) throw Error("Selection text is absent from the rendered message");
-    const end = start + (keyboard ? [...text][0].length : text.length);
-    const range = document.createRange(); let offset = 0, started = false;
-    for (const node of nodes) {
-      const next = offset + node.textContent.length;
-      if (!started && start < next) { range.setStart(node, start - offset); started = true; }
-      if (started && end <= next) { range.setEnd(node, end - offset); break; }
-      offset = next;
-    }
-    range.startContainer.parentElement?.scrollIntoView({ block: "center", behavior: "instant" });
+    const buildRange = () => {
+      const nodes = []; const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+      let node; while ((node = walker.nextNode())) nodes.push(node);
+      const start = nodes.map(node => node.textContent).join("").indexOf(text);
+      if (start < 0) throw Error("Selection text is absent from the rendered message");
+      const end = start + (keyboard ? [...text][0].length : text.length);
+      const range = document.createRange(); let offset = 0, started = false;
+      for (const node of nodes) {
+        const next = offset + node.textContent.length;
+        if (!started && start < next) { range.setStart(node, start - offset); started = true; }
+        if (started && end <= next) { range.setEnd(node, end - offset); break; }
+        offset = next;
+      }
+      return range;
+    };
+    buildRange().startContainer.parentElement?.scrollIntoView({ block: "center", behavior: "instant" });
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const range = buildRange();
     const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
     if (!keyboard) element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
     return selection.toString();
