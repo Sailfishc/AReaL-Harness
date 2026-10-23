@@ -126,7 +126,8 @@ async function showSideConversation() {
     await input.waitFor();
   }
 }
-async function selectMessageExcerpt(body, excerpt) {
+async function selectMessageExcerpt(body, excerpt, keyboard = false) {
+  if (keyboard) await body.evaluate(element => { element.tabIndex = -1; element.focus(); });
   const selected = await body.evaluate((element, text) => {
     // 流式动画会把文字拆进多个 span；选区按完整正文定位，再映射到原生 Range。
     const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
@@ -156,6 +157,12 @@ async function selectMessageExcerpt(body, excerpt) {
     return selection.toString();
   }, excerpt);
   assert.equal(selected, excerpt, "native selection preserves the complete source excerpt across text nodes");
+  if (keyboard) {
+    await body.evaluate(() => window.getSelection().collapseToStart());
+    for (const character of excerpt) await page.keyboard.press("Shift+ArrowRight");
+    assert.equal(await page.evaluate(() => window.getSelection().toString()), excerpt, "keyboard selection preserves Unicode text");
+    await page.getByTestId("transcript-selection-actions").waitFor();
+  }
 }
 async function until(predicate, label) {
   const end = Date.now() + 45000;
@@ -574,10 +581,21 @@ try {
   assert.equal(requests.length, requestsBeforeNested);
   await selectConversation(page, targetThreadId);
   checks.push("AC09: inherited Turn menu creates one flattened logical prefix and an empty independent Fork without execution");
-  await send(forkQuestion, targetThreadId);
+  const forkDraftPrefix = "已有主会话文字";
+  await page.getByTestId("chat-input").fill(forkDraftPrefix);
+  const requestsBeforeMainQuote = requests.length;
+  await selectMessageExcerpt(inherited.locator(`[data-turn-id="${anchorTurnId}"] [data-side-item-id] .conversation-markdown`).first(), unicodeExcerpt, true);
+  await page.getByTestId("transcript-selection-actions").getByRole("button", { name: "添加到聊天", exact: true }).click();
+  assert.equal(await page.getByTestId("chat-input").innerText(), forkDraftPrefix);
+  await composeText(page.getByTestId("chat-input"), forkQuestion, "main question after selection", true);
+  assert.equal(requests.length, requestsBeforeMainQuote, "selection and further typing must not call the model");
+  await send(await page.getByTestId("chat-input").innerText(), targetThreadId);
   const branchRequest = requests.at(-1)?.body;
   const branchInput = JSON.stringify(branchRequest?.messages ?? []);
-  assert.ok(branchInput.includes(head) && branchInput.includes(forkQuestion), "model input must include selected source prefix and explicit new input");
+  assert.ok(branchInput.includes(head) && branchInput.includes(forkQuestion) && branchInput.includes(forkDraftPrefix), "model input must include selected source prefix and preserved/extended explicit input");
+  const branchUserMessage = project(await state()).state.threads[targetThreadId].turns.at(-1).items.find(item => item.type === "userMessage");
+  const branchUserText = (branchUserMessage.content ?? []).filter(part => part.type === "text").map(part => part.text).join("\n");
+  assert.ok(branchUserText.includes(forkDraftPrefix) && branchUserText.includes(forkQuestion) && branchUserText.includes(unicodeExcerpt), "explicit main send includes staged quote and extra typing in actual accepted user input");
   assert.ok(!branchInput.includes(future), "model input must exclude future source Turn");
   assert.deepEqual(project(await state()).state.threads[sourceThreadId].turns.map(turn => turn.id), sourceTurns);
   assert.equal(await hash(fixturePath), workspaceBefore);
@@ -609,11 +627,37 @@ try {
     page.locator(`[data-turn-id="${anchorTurnId}"] [data-side-item-id] .conversation-markdown`).first(), unicodeExcerpt);
   await selectSideExcerpt();
   const sideTrigger = page.getByRole("button", { name: "在旁路中询问所选内容", exact: true });
-  assert.equal(await page.locator(".side-selection-action").count(), 0, "选中文本后不再展示浮动旁路提示");
-  assert.equal(await sideTrigger.count(), 1, "旁路选区入口是轮次操作行中的独立按钮");
-  assert.equal(await sideTrigger.locator("..").getAttribute("class"), "message-actions", "Side selection shares the turn action row");
-  await page.locator(`[data-turn-id="${anchorTurnId}"] [data-side-item-id] .conversation-markdown`).first().scrollIntoViewIfNeeded();
-  await shot("04a-selection-without-floating-prompt.png");
+  const selectionActions = page.getByTestId("transcript-selection-actions");
+  const addToChat = selectionActions.getByRole("button", { name: "添加到聊天", exact: true });
+  await selectionActions.waitFor();
+  assert.equal(await sideTrigger.count(), 1, "选区浮层只显示一个旁路入口");
+  assert.equal(await page.locator(".message-actions").getByRole("button", { name: "在旁路中询问所选内容", exact: true }).count(), 0);
+  await shot("04a-selection-floating-actions.png");
+  const beforeStaging = requests.length;
+  await addToChat.click();
+  const stagedMain = page.getByTestId("composer-attachment").filter({ hasText: unicodeExcerpt });
+  await stagedMain.waitFor();
+  assert.equal(await page.getByTestId("chat-input").innerText(), mainDraftSentinel);
+  assert.equal(await page.getByTestId("composer-attachment").filter({ hasText: "main-attachment.txt" }).count(), 1);
+  assert.equal(requests.length, beforeStaging, "staging a quote must not send or steer");
+  await stagedMain.getByRole("button", { name: `移除附件 ${unicodeExcerpt}`, exact: true }).click();
+  await selectSideExcerpt();
+  await addToChat.click();
+  await stagedMain.waitFor();
+  await stagedMain.getByRole("button", { name: `移除附件 ${unicodeExcerpt}`, exact: true }).click();
+  await selectSideExcerpt();
+  await page.keyboard.press("Escape");
+  await selectionActions.waitFor({ state: "hidden" });
+  await selectSideExcerpt();
+  await page.evaluate(() => window.getSelection().removeAllRanges());
+  await selectionActions.waitFor({ state: "hidden" });
+  await selectSideExcerpt();
+  await page.getByTestId("chat-input").click();
+  await selectionActions.waitFor({ state: "hidden" });
+  await selectSideExcerpt();
+  await page.locator(".messages").evaluate(element => element.dispatchEvent(new Event("scroll")));
+  await selectionActions.waitFor({ state: "hidden" });
+  await selectSideExcerpt();
   await selectConversation(page, targetThreadId);
   assert.equal(await sideTrigger.count(), 0, "来源 A 的选区不能在切换后的 B 会话显示或提交");
   await selectConversation(page, sourceThreadId);
@@ -625,15 +669,34 @@ try {
   }, "source configured fixture model restored after navigation");
   const mainConfigBefore = modelConfiguration(project(refreshedSource).configurations[sourceThreadId]);
   await selectSideExcerpt();
-  checks.push("AC55: Side selection uses a separate Turn action button, never floats, and switching the source Thread invalidates its owner");
+  checks.push("AC55: floating Add to Chat and Side actions preserve main text/files, remove/readd quotes without sending, dismiss on Escape/collapse/outside/scroll, and invalidate on source navigation");
   await sideTrigger.evaluate(element => { window.__scfSideTrigger = element; });
   await sideTrigger.focus();
   await sideTrigger.press("Enter");
   const sidePane = page.getByRole("region", { name: "旁路讨论" });
   assert.equal(await sidePane.locator(".side-chat-information").isVisible(), false);
-  await openSideContext(sidePane);
-  await sidePane.locator("blockquote.notice").filter({ hasText: unicodeExcerpt }).waitFor();
-  assert.match(await sidePane.innerText(), /已持久化选区/);
+  const stagedSide = sidePane.getByTestId("side-selection-quote");
+  await stagedSide.filter({ hasText: unicodeExcerpt }).waitFor();
+  assert.match(await stagedSide.innerText(), /已持久化选区/);
+  assert.equal(await sidePane.getByTestId("side-chat-input").innerText(), "");
+  assert.equal(await sidePane.getByTestId("side-chat-send").isEnabled(), true, "a staged quote can be explicitly sent without extra text");
+  const sideDraftBeforeSelection = "已有旁路草稿";
+  await sidePane.getByTestId("side-chat-input").fill(sideDraftBeforeSelection);
+  await stagedSide.getByRole("button", { name: "移除所选引文", exact: true }).click();
+  await stagedSide.waitFor({ state: "hidden" });
+  await showMainConversation();
+  await selectSideExcerpt();
+  await sideTrigger.click();
+  await stagedSide.waitFor();
+  assert.equal(await sidePane.getByTestId("side-chat-input").innerText(), sideDraftBeforeSelection, "staging into current Side draft preserves typed text");
+  const sideSelectionOwner = await sidePane.locator("[data-side-owner]").getAttribute("data-side-owner");
+  const firstSelection = await page.evaluate(owner => localStorage.getItem(`${owner}:selection`), sideSelectionOwner);
+  await showMainConversation();
+  await selectSideExcerpt();
+  await sideTrigger.click();
+  assert.equal(await sidePane.getByTestId("side-chat-input").innerText(), `${sideDraftBeforeSelection}\n\n${unicodeExcerpt}`);
+  assert.equal(await page.evaluate(owner => localStorage.getItem(`${owner}:selection`), sideSelectionOwner), firstSelection, "additional selection must not replace first frozen provenance");
+  assert.equal(requests.length, beforeStaging, "Side staging and removal must not call a model");
   await openSideContext(sidePane);
   await sidePane.getByLabel("文件访问范围").selectOption("none");
   assert.equal(await sidePane.getByLabel("文件访问范围").inputValue(), "none");
@@ -905,11 +968,18 @@ try {
   const previousSideTurns = project(await state()).state.threads[sideThreadId].turns.length;
   const followStart = requests.length;
   await sidePane.getByRole("textbox", { name: "随心输入" }).fill(sideFollowUp);
+  await showMainConversation();
+  await selectSideExcerpt();
+  await sideTrigger.click();
+  assert.equal(await sidePane.getByTestId("side-chat-input").innerText(), `${sideFollowUp}\n\n${unicodeExcerpt}`, "existing Side follow-up appends selection to current editable draft");
+  assert.equal(requests.length, followStart, "staging into existing Side never sends automatically");
   await sidePane.getByRole("button", { name: "发送", exact: true }).click();
   await until(s => project(s)?.state?.threads?.[sideThreadId]?.turns?.length > previousSideTurns &&
     project(s).state.threads[sideThreadId].turns.at(-1).status === "completed", "Side follow-up from frozen history");
   const followInput = JSON.stringify(requests.slice(followStart).flatMap(request => request.body.messages ?? []));
   assert.ok(followInput.includes(sideFollowUp) && followInput.includes(sideQuestion));
+  const followUser = project(await state()).state.threads[sideThreadId].turns.at(-1).items.find(item => item.type === "userMessage");
+  assert.ok(followUser.content.some(part => part.type === "text" && part.text.includes(sideFollowUp) && part.text.includes(unicodeExcerpt)), "explicit Side send contains current question and newly staged quote");
   assert.ok(!followInput.includes(lateSentinel), "later source Turn must never enter old Side model context");
   await openSideContext(sidePane);
   await sidePane.getByRole("button", { name: "查看冻结证据" }).click();
@@ -1008,11 +1078,12 @@ try {
   const streamingTurnId = project(await state()).state.threads[sourceThreadId].turns.at(-1).id;
   const streamingBody = page.locator(`[data-turn-id="${streamingTurnId}"] .assistant-message .conversation-markdown`);
   await streamingBody.getByText(streamExcerpt, { exact: true }).waitFor();
+  await showSideConversation();
+  await sidePane.getByRole("button", { name: "新讨论", exact: true }).click();
+  await showMainConversation();
   await selectMessageExcerpt(streamingBody, streamExcerpt);
-  assert.equal(await page.locator(".side-selection-action").count(), 0);
-  await page.locator(`[data-turn-id="${streamingTurnId}"]`).getByRole("button", { name: "在旁路中询问所选内容", exact: true }).click();
-  await openSideContext(sidePane);
-  await sidePane.locator("blockquote.notice").filter({ hasText: "用户引文，来源未确认" }).waitFor();
+  await page.getByTestId("transcript-selection-actions").getByRole("button", { name: "在旁路中询问所选内容", exact: true }).click();
+  await sidePane.getByTestId("side-selection-quote").filter({ hasText: "用户引文，来源未确认" }).waitFor();
   await openSideContext(sidePane);
   await sidePane.getByLabel("文件访问范围").selectOption("none");
   await sidePane.getByRole("textbox", { name: "随心输入" }).fill("等待模型名额的旁路问题");
@@ -1206,6 +1277,26 @@ try {
     processId: originalReceipt.processId, inspection, outcome: inspectedItem.execution.outcome } });
   checks.push("after AC21/AC11 refusals, public inspection preserves the injected UNKNOWN and original completed Runtime receipt without replay or a model request");
   }
+  await selectConversation(page, sourceThreadId);
+  await showSideConversation();
+  await sidePane.getByRole("button", { name: "新讨论", exact: true }).click();
+  await showMainConversation();
+  await selectSideExcerpt();
+  await sideTrigger.click();
+  assert.equal(await sidePane.getByTestId("side-chat-input").innerText(), "");
+  const threadsBeforeQuoteOnly = new Set(Object.keys(project(await state()).state.threads));
+  await sidePane.getByTestId("side-chat-send").click();
+  const quoteOnlyState = await until(snapshot => Object.values(project(snapshot)?.state?.threads ?? {}).some(thread =>
+    !threadsBeforeQuoteOnly.has(thread.id) && thread.conversation?.kind === "side"
+    && thread.conversation.origin?.sourceThreadId === sourceThreadId
+    && thread.turns?.at(-1)?.status === "completed"), "explicit selection-only Side send");
+  const quoteOnlyThread = Object.values(project(quoteOnlyState).state.threads).find(thread =>
+    !threadsBeforeQuoteOnly.has(thread.id) && thread.conversation?.kind === "side"
+    && thread.conversation.origin?.sourceThreadId === sourceThreadId);
+  const quoteOnlyUser = quoteOnlyThread.turns[0].items.find(item => item.type === "userMessage");
+  assert.equal(quoteOnlyUser.content.filter(part => part.type === "text").map(part => part.text).join("\n"), unicodeExcerpt,
+    "selection-only explicit send preserves the original excerpt as accepted input");
+  checks.push("selection-only Side draft sends the exact excerpt only after the send button is activated");
   assert.deepEqual(pageErrors, []);
   passed = true;
 } catch (error) {

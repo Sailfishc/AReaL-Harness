@@ -1462,16 +1462,41 @@ function AppContent({ services }: { services: PlatformServices }) {
     return new Promise(resolve => setForkIntent({ projectId: owner, sourceThreadId, turnId,
       route, anchor: anchor ?? document.querySelector<HTMLElement>(`[data-turn-id="${CSS.escape(turnId)}"] .turn-fork-trigger`) ?? undefined, resolve }));
   };
+  const canStageSelection = !!project && !!thread && !thread.desktop?.archived && !thread.parentThreadId
+    && thread.conversation?.kind !== "side" && !!project.state?.connected && !project.observationErrors?.[thread.id]
+    && snapshot.connection?.state === "ready" && !viewRefreshing && !projectExecutionBlocked(snapshot.lifecycle, project.id);
+  const addSelectionToChat = (text: string) => {
+    if (!canStageSelection || !project || !thread) return;
+    const key = `areal-gui:draft:${project.id}:${thread.id}`;
+    if (sending.has(key) || localStorage.getItem(`${key}:pending`) || localStorage.getItem(`${key}:queue-edit`)
+      || project.pending?.some((request: Data) => request.params?.threadId === thread.id)) return;
+    attachmentDrafts.set(key, [...(attachmentDrafts.get(key) ?? []), { kind: "pasted-text", text }]);
+    window.dispatchEvent(new CustomEvent("areal-draft-change", { detail: key }));
+  };
   const openSideSelection = (selection: Data, excerpt: string, anchor?: Data) => {
-    if (!project || !thread) return;
+    if (!canStageSelection || !project || !thread || project.core?.features?.sidePreview !== true) return;
     rememberSideTrigger();
     const workspace = new SideDraftWorkspace(localStorage, { instanceId: project.core?.instanceId ?? "unknown",
       projectId: project.id, sourceThreadId: thread.id, randomId: () => crypto.randomUUID() });
-    const draft = workspace.newDraft();
+    const draft = workspace.current();
     const owner = workspace.owner(draft);
-    localStorage.setItem(`${owner}:selection`, JSON.stringify(selection));
-    localStorage.setItem(`${owner}:selection-preview`, excerpt);
-    if (anchor) localStorage.setItem(`${owner}:anchor`, JSON.stringify(anchor));
+    if (localStorage.getItem(workspace.pendingKey(draft))) return;
+    const side = draft.kind === "side" ? project.state?.threads?.[draft.id] : undefined;
+    if (draft.kind === "side" && (!side || side.desktop?.archived || side.conversation?.kind !== "side"
+      || side.conversation.origin?.sourceThreadId !== thread.id
+      || project.pending?.some((request: Data) => request.params?.threadId === draft.id))) return;
+    if (draft.kind === "side" || localStorage.getItem(`${owner}:selection`)) {
+      // 首个冻结来源不被后来选区覆盖；后续引文作为可编辑问题追加。
+      const key = workspace.draftKey(draft);
+      const text = [localStorage.getItem(key) ?? "", excerpt].filter(Boolean).join("\n\n");
+      localStorage.setItem(key, text);
+      window.dispatchEvent(new CustomEvent("areal-side-draft", { detail: { owner, text } }));
+    } else {
+      localStorage.setItem(`${owner}:selection`, JSON.stringify(selection));
+      localStorage.setItem(`${owner}:selection-preview`, excerpt);
+      if (anchor) localStorage.setItem(`${owner}:anchor`, JSON.stringify(anchor));
+      else localStorage.removeItem(`${owner}:anchor`);
+    }
     setWorkspaceView(mode => matchMedia("(max-width: 1200px)").matches ? "panel" : mode === "split" ? mode : "panel");
     setPanel("旁路讨论");
     setPanelTabs(tabs => tabs.includes("旁路讨论") ? tabs : [...tabs, "旁路讨论"]);
@@ -1845,7 +1870,8 @@ function AppContent({ services }: { services: PlatformServices }) {
                           onOpenResult={mcpWorkspace.openResult}
                           resultStates={mcpWorkspace.resultStates}
                           onFork={forkFromTurn}
-                          onSideSelection={project.core?.features?.sidePreview === true && !thread.desktop?.archived ? openSideSelection : undefined}
+                          onAddSelection={canStageSelection ? addSelectionToChat : undefined}
+                          onSideSelection={canStageSelection && project.core?.features?.sidePreview === true ? openSideSelection : undefined}
                           dark={dark}
                           onLink={onLink}
                           onFile={openFile}
