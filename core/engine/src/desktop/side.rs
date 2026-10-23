@@ -758,7 +758,19 @@ impl Engine {
                 context_checkpoint: None,
                 dynamic_tools: host
                     .as_ref()
-                    .map(|_| vec![areal_protocol::desktop::browser_v1_tool()])
+                    .map(|_| {
+                        let mut tools = vec![areal_protocol::desktop::browser_v1_tool()];
+                        let computer = areal_protocol::desktop::computer_v1_tool();
+                        if source.dynamic_tools.iter().any(|tool| {
+                            tool.name == computer.name
+                                && tool.description == computer.description
+                                && tool.input_schema == computer.input_schema
+                                && tool.output_schema == computer.output_schema
+                        }) {
+                            tools.push(computer);
+                        }
+                        tools
+                    })
                     .unwrap_or_default(),
                 toolset_revision: u64::from(host.is_some()),
             };

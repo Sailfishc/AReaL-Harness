@@ -745,7 +745,7 @@ class DesktopService {
     const bytes = Buffer.from(image.data, 'base64');
     if (!bytes.length || bytes.length > 8 * 1024 * 1024 || bytes.toString('base64') !== image.data)
       throw new Error('Invalid desktop image encoding');
-    const project = this.backend.projects.get(request.projectId);
+    const project = this.projectForThread(request.projectId, request.threadId);
     if (!current() || request.signal?.aborted || project?.service?.serviceId !== request.coreInstanceId
       || project.service.generation !== request.coreGeneration) throw new Error('Desktop image owner changed');
     const url = new URL(project.endpoint);
@@ -757,7 +757,7 @@ class DesktopService {
       body: bytes, redirect: 'error', signal });
     if (!uploaded.ok) throw new Error(`Desktop image upload failed (${uploaded.status})`);
     const media = await uploaded.json();
-    if (!current() || request.signal?.aborted || project !== this.backend.projects.get(request.projectId)
+    if (!current() || request.signal?.aborted || project !== this.projectForThread(request.projectId, request.threadId)
       || project.service?.serviceId !== request.coreInstanceId || project.service?.generation !== request.coreGeneration)
       throw new Error('Desktop image owner changed');
     return { type: 'arealMedia', modality: 'image', media };
@@ -922,7 +922,7 @@ class DesktopService {
       trace('pending');
       signal?.addEventListener('abort', onAbort, { once: true });
       this.send(claim.socket, { method: 'browserRequest', params: { requestId, coreInstanceId, coreGeneration,
-        projectId, threadId, turnId, callId, workspacePath: this.backend.projects.get(projectId)?.root,
+        projectId, threadId, turnId, callId, workspacePath: this.projectForThread(projectId, threadId)?.root,
         pageId: pageClaim.pageId, browserHostId: claim.browserHostId,
         hostGeneration: claim.hostGeneration, pageGeneration: pageClaim.pageGeneration,
         controlEpoch: pageClaim.controlEpoch, operation: input.operation, parameters: input.parameters,
@@ -996,7 +996,7 @@ class DesktopService {
           ...(image ? [{ type: 'image', data: image.base64, mimeType: image.mimeType }] : [])] },
         () => {
           const source = claim.pages.get(image ? imagePageId : pageClaim.pageId);
-          const project = this.backend.projects.get(projectId);
+          const project = this.projectForThread(projectId, threadId);
           return this.browserClaims.get(key) === claim && claim.socket.readyState === 1
             && (!image && (result.closedPageIds?.includes(pageClaim.pageId) || result.revokedPageIds?.includes(pageClaim.pageId))
               || !claim.revokedPages.has(image ? imagePageId : pageClaim.pageId)

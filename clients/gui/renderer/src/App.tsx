@@ -2228,13 +2228,20 @@ function AppContent({ services }: { services: PlatformServices }) {
             names={project ? panelTabs : []}
             onNewSide={canCreateSide ? newSide : undefined}
             retainedPanels={sideChats.tabs.flatMap(tab => {
-              const ownerProject = snapshot.projects.find(item => item.id === tab.projectId);
-              if (!ownerProject) return [];
+              const owner = snapshot.projects.find(item => item.id === tab.projectId);
+              if (!owner) return [];
+              const execution = owner.state?.threads?.[tab.childId];
+              const ownerProject = execution?.worktree?.directory ? {
+                ...owner, logicalRoot: owner.root, root: execution.worktree.directory,
+                core: { ...owner.core, ...execution.executionCore },
+                state: { ...owner.state, connected: execution.executionConnected ?? owner.state?.connected },
+                error: execution.executionError ?? owner.error,
+              } : owner;
               const resource = parseSideResourceTab(panel);
               const selected = tab.projectId === project?.id && tab.parentId === threadId && !annotationVisible && !pluginsOpen && !settingsOpen && !taskCenterOpen
                 && (panel === tab.id || resource?.childId === tab.childId);
               return [{ id: tab.id, visible: selected, content: <ExecutableSideChatPane tab={tab} project={ownerProject} projects={snapshot.projects} services={services}
-                action={resourceAction} dark={dark} active={selected && workspaceView !== "conversation"} resource={selected ? resource?.resource ?? "" : ""}
+                dark={dark} active={selected && workspaceView !== "conversation"} resource={selected ? resource?.resource ?? "" : ""}
                 executionBlocked={snapshot.connection?.state !== "ready" || projectExecutionBlocked(snapshot.lifecycle, tab.projectId)} onNew={newSide}
                 onOpenResource={name => openSideResource(tab, name)} onRemoveResource={name => removeSideResource(tab, name)}
                 onBackToChat={() => { if (activePanelOwner.current === `${tab.projectId}:${tab.parentId}` && sideChats.hasChild(tab.projectId, tab.childId)) setPanel(tab.id); }}

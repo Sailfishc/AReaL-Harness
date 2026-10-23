@@ -40,6 +40,7 @@ const workspace = join(scratch, 'workspace'), userHome = join(scratch, 'user');
 await mkdir(workspace);
 await mkdir(join(userHome, '.areal'), { recursive: true });
 execFileSync('git', ['init', '-b', 'main'], { cwd: workspace, stdio: 'ignore' });
+execFileSync('git', ['-c', 'user.name=Smoke', '-c', 'user.email=smoke@example.invalid', 'commit', '--allow-empty', '-m', 'fixture'], { cwd: workspace, stdio: 'ignore' });
 const startedAt = new Date().toISOString();
 const checks = [], errors = [], gaps = [], events = { histories: {}, media: [], modelCalls: [], cleanup: {} };
 const failureModes = [
@@ -143,8 +144,11 @@ async function preview(operation, extra = {}) {
 }
 async function readCoreThread(id = threadId) {
   const owner = (await state()).projects.find(item => item.id === projectId);
-  const descriptor = JSON.parse(execFileSync(binary, ['service', 'status', '--instance', owner.core.instanceId, '--json'], { env, encoding: 'utf8', timeout: 20000 }));
-  assert.equal(descriptor.state, 'ready'); assert.equal(descriptor.workspace, workspace);
+  const thread = owner.state?.threads?.[id];
+  const instanceId = thread?.executionCore?.instanceId ?? owner.core.instanceId;
+  const executionRoot = thread?.worktree?.directory ?? workspace;
+  const descriptor = JSON.parse(execFileSync(binary, ['service', 'status', '--instance', instanceId, '--json'], { env, encoding: 'utf8', timeout: 20000 }));
+  assert.equal(descriptor.state, 'ready'); assert.equal(descriptor.workspace, executionRoot);
   const auth = JSON.parse(await readFile(descriptor.authFile, 'utf8'));
   const principal = auth.principals.find(item => item.permissions.includes('observe'));
   assert.ok(principal?.token, 'isolated observer principal exists');

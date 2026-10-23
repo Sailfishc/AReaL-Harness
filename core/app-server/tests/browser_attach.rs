@@ -89,6 +89,10 @@ async fn executable_side_first_input_binds_desktop_browser_before_activation() {
     let source = engine.create("/workspace".into()).await.unwrap();
     let (url, stop, task) = server(engine.clone()).await;
     let mut owner = connected(&url).await;
+    let attached = call(&mut owner, "areal/thread/tools/attach", json!({
+        "threadId":source.id,"requestId":"attach-computer-side","expectedToolsetRevision":0,"bundleId":"areal.computer.v1"
+    })).await;
+    assert!(attached.get("result").is_some(), "{attached}");
     let created = call(
         &mut owner,
         "areal/side/create",
@@ -103,6 +107,14 @@ async fn executable_side_first_input_binds_desktop_browser_before_activation() {
     assert_eq!(
         created["result"]["thread"]["dynamicTools"][0]["name"],
         "browser_v1"
+    );
+    assert!(
+        created["result"]["thread"]["dynamicTools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool["name"] == "computer_v1"),
+        "{created}"
     );
     let interaction = tokio::time::timeout(Duration::from_secs(10), async {
         loop {

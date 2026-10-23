@@ -53,8 +53,8 @@ execFileSync("git", ["add", "."], { cwd: workspace });
 execFileSync("git", ["-c", "user.name=Smoke", "-c", "user.email=smoke@example.invalid", "commit", "-m", "fixture"], { cwd: workspace, stdio: "ignore" });
 const checks = [], requests = [], rows = [], errors = [], coreReads = [];
 const streams = new Map();
-const marker = join(workspace, "parent-tool.txt");
-const release = join(workspace, "release-parent-tool");
+let marker = join(workspace, "parent-tool.txt");
+let release = join(workspace, "release-parent-tool");
 const sourceText = "PARITY_SELECTION_🌊_汉字";
 const longA = "A".repeat(8000), longB = "B".repeat(8000), longC = "C".repeat(8001);
 const sourceReply = `${sourceText}\n\nSHARED_REFERENCE_TEXT\n\n\`\`\`text\nCODE_REFERENCE_TEXT\n\`\`\`\n\n${longA}\n\n${longB}\n\n${longC}\n\n${Array.from({ length: 9 }, (_, i) => `REFERENCE_${i}`).join("\n\n")}`;
@@ -192,10 +192,12 @@ async function shot(name) {
   await writeFile(join(evidence, `${name}.aria.txt`), await page.locator("body").ariaSnapshot());
 }
 async function readCoreThread(threadId) {
-  const instance = project(await state()).core.instanceId;
+  const owner = project(await state());
+  const execution = owner.state?.threads?.[threadId];
+  const instance = execution?.executionCore?.instanceId ?? owner.core.instanceId;
   const descriptor = JSON.parse(execFileSync(binary, ["service", "status", "--instance", instance, "--json"], { env, encoding: "utf8", timeout: 20000 }));
   assert.equal(descriptor.state, "ready");
-  assert.equal(descriptor.workspace, workspace);
+  assert.equal(descriptor.workspace, execution?.worktree?.directory ?? workspace);
   const auth = JSON.parse(await readFile(descriptor.authFile, "utf8"));
   const principal = auth.principals.find(item => item.permissions.includes("observe"));
   assert.ok(principal?.token);
@@ -390,6 +392,9 @@ async function toolAndPermission() {
 async function hiddenStableHistory() {
   await rm(release, { force: true });
   const parent = await newParent("PARITY:P2_SEED");
+  const executionRoot = threads(await state())[parent]?.worktree?.directory ?? workspace;
+  marker = join(executionRoot, "parent-tool.txt");
+  release = join(executionRoot, "release-parent-tool");
   await sendMain("PARITY:P2_ACTIVE", false);
   await until(() => exists(marker), "held Runtime parent tool started");
   const before = requests.length;

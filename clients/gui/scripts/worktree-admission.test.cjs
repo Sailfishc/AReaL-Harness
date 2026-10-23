@@ -796,3 +796,25 @@ test("scheduled execution replies and continuation use verified Run ownership ra
     );
     assert.equal(f.dispatched.length, 4);
 });
+
+
+test("executable Side uses its verified source author for first input, replies and active tools", async (t) => {
+    const f = await fixture(t);
+    Object.assign(f.threads.first, { cwd: f.root });
+    Object.assign(f.threads.second, { cwd: f.root });
+    f.threads.executable = { id: "executable", sessionId: "executable", cwd: f.root,
+        conversation: { kind: "side", version: 2, policy: { kind: "sideExecutableV2" }, origin: { sourceThreadId: "first" } } };
+    f.threads.sideChild = { id: "sideChild", sessionId: "executable", parentThreadId: "executable", cwd: f.root };
+    await f.run("send", { threadId: "first" });
+    await f.run("side", { sourceThreadId: "first", operation: "create", firstInput: { text: "hello" } });
+    await assert.rejects(f.run("side", { sourceThreadId: "second", operation: "create", firstInput: { text: "hello" } }), required);
+    await f.run("send", { threadId: "executable" });
+    await f.run("respond", { threadId: "executable" });
+    await f.run("manage", { threadId: "sideChild", operation: "processStart" });
+    assert.equal(await new WorktreeAdmission(f.backend).session(f.project, { threadId: "executable" }).then(value => value.sessionId), "first");
+    f.threads.executable.cwd = join(f.root, "other");
+    await assert.rejects(f.run("send", { threadId: "executable" }), required);
+    f.threads.executable.cwd = f.root;
+    f.threads.executable.conversation.origin.sourceThreadId = "second";
+    await assert.rejects(f.run("send", { threadId: "executable" }), required);
+});

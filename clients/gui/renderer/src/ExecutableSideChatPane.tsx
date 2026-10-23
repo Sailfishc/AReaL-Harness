@@ -1,5 +1,5 @@
 import { useI18n } from "./i18n/IntlProvider.js";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Composer, sending } from "./Composer.js";
 import { Messages } from "./Messages.js";
 import { useConversationEscape } from "./useConversationEscape.js";
@@ -23,15 +23,21 @@ import { ImageAnnotationPane } from "./ImageAnnotationViews.js";
 import { setImageAnnotationEditing, type ImageAnnotationTarget } from "./imageAnnotations.js";
 import { Button } from "./components/ui/button.js";
 import type { ComposerCatalogEntry } from "./prompt-editor/ComposerCatalog.js";
-import type { Action, Data, PlatformServices } from "./services.js";
+import { call, type Action, type Data, type PlatformServices } from "./services.js";
 import type { SideChatTab, SideResourceBinding } from "./useSideChatTabs.js";
 import "./SideChat.css";
 
-export function ExecutableSideChatPane({ tab, project, projects, services, action, dark, active, resource, executionBlocked, onNew, onOpenResource, onRemoveResource, onBackToChat, onBinding, onInspectClose }: {
-  tab: SideChatTab; project: Data; projects: Data[]; services: PlatformServices; action: Action; dark: boolean;
+export function ExecutableSideChatPane({ tab, project, projects, services, dark, active, resource, executionBlocked, onNew, onOpenResource, onRemoveResource, onBackToChat, onBinding, onInspectClose }: {
+  tab: SideChatTab; project: Data; projects: Data[]; services: PlatformServices; dark: boolean;
   active: boolean; resource: string; executionBlocked: boolean; onNew: () => void; onOpenResource: (resource: string) => void; onRemoveResource: (resource: string) => void; onBackToChat: () => void; onBinding: (binding: SideResourceBinding | null) => void; onInspectClose: () => void;
 }) {
   const { t } = useI18n();
+  const action: Action = useCallback((name: import("./services.js").CommandName, params: Data = {}) => call(services, name,
+    name === "workspace" && params.projectId === project.id && !params.threadId
+      ? { ...params, threadId: tab.childId } : params), [services, project.id, tab.childId]);
+  const fileOpen = useMemo<PlatformServices["fileOpen"]>(() => services.fileOpen ? request =>
+    services.fileOpen!("projectId" in request && request.projectId === project.id
+      ? { ...request, threadId: tab.childId } : request) : undefined, [services.fileOpen, project.id, tab.childId]);
   registerTransientComposer(project.id, tab.childId);
   const pane = useRef<HTMLElement>(null);
   const [error, setError] = useState("");
@@ -110,9 +116,9 @@ export function ExecutableSideChatPane({ tab, project, projects, services, actio
     if (resource === "改动") return <GitPane projectId={project.id} threadId={review?.threadId ?? tab.childId} root={project.root} action={action}
       turnId={thread?.turns?.findLast((turn: Data) => turn.status !== "inProgress")?.id}
       reviewRequest={review ? { turnId: review.turnId } : undefined}
-      onReveal={onFile} onFile={onFile} fileOpen={services.fileOpen} commentsDisabled={executionBlocked || !!tab.closeRequestId || !!review && review.threadId !== tab.childId} />;
+      onReveal={onFile} onFile={onFile} fileOpen={fileOpen} commentsDisabled={executionBlocked || !!tab.closeRequestId || !!review && review.threadId !== tab.childId} />;
     if (resource.startsWith("file:")) return <WorkspaceFilePane projectId={project.id} root={project.root} path={resource.slice(5)} action={action}
-      onDirty={() => {}} onLink={onLink} fileOpen={services.fileOpen} filesOpen={false} onToggleFiles={() => setResource("文件")} />;
+      onDirty={() => {}} onLink={onLink} fileOpen={fileOpen} filesOpen={false} onToggleFiles={() => setResource("文件")} />;
     if (resource === "文件") return <WorkspaceFileTree projectId={project.id} root={project.root} action={action} onClose={() => setResource("")} onOpen={onFile} activePath="" />;
     if (resource.startsWith("agent:")) { const childId = resource.slice(6); return <AgentConversationPane project={project}
       parentId={project.state?.threads?.[childId]?.parentThreadId ?? tab.childId} childId={childId} action={action} dark={dark}

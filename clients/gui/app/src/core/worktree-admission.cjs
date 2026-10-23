@@ -71,7 +71,7 @@ class WorktreeAdmission {
             commandSemantics(name, request).effect !== "mutation" ||
             noWorkspaceEffect.has(name) ||
             name === "stop" ||
-            name === "side"
+            (name === "side" && request.operation !== "create")
         )
             return false;
         if (name === "workspace") return workspaceEffects.has(request.operation);
@@ -93,6 +93,19 @@ class WorktreeAdmission {
             throw reject("会话执行身份尚未确认");
         return thread;
     }
+    async authorSession(project, thread) {
+        const owner = thread.parentThreadId
+            ? await this.thread(project, thread.sessionId) : thread;
+        if (owner.conversation?.kind !== "side" || owner.conversation.policy?.kind !== "sideExecutableV2")
+            return thread.sessionId;
+        const source = await this.thread(project, owner.conversation.origin?.sourceThreadId);
+        if (owner.conversation.version !== 2 || source.conversation?.kind === "side" || source.parentThreadId
+            || typeof owner.cwd !== "string" || typeof source.cwd !== "string"
+            || await realpath(owner.cwd) !== await realpath(source.cwd)
+            || await realpath(owner.cwd) !== await realpath(project.root))
+            throw reject("可执行旁路讨论的来源与执行目录尚未确认");
+        return source.sessionId;
+    }
     async session(project, request) {
         const targets = [
             ...new Set(
@@ -101,12 +114,12 @@ class WorktreeAdmission {
         ];
         if (!targets.length) throw reject("写入需要绑定到具体会话");
         const threads = await Promise.all(targets.map((id) => this.thread(project, id)));
-        const sessions = new Set(threads.map((thread) => thread.sessionId));
+        const sessions = new Set(await Promise.all(threads.map((thread) => this.authorSession(project, thread))));
         if (sessions.size !== 1) throw reject("一次执行不能包含不同会话作者");
         return {
             threads,
-            sessionId: threads[0].sessionId,
-            readOnlySide: threads.every((thread) => thread.conversation?.kind === "side"),
+            sessionId: [...sessions][0],
+            readOnlySide: threads.some((thread) => thread.conversation?.kind === "side" && thread.conversation.policy?.kind !== "sideExecutableV2"),
             readOnlyTaskDraft: threads.every((thread) => {
                 const options = thread.desktop?.configuration?.options;
                 return (
@@ -159,7 +172,7 @@ class WorktreeAdmission {
             ids.add(resource.threadId);
         }
         for (const id of ids)
-            if ((await this.thread(project, id)).sessionId !== sessionId)
+            if (await this.authorSession(project, await this.thread(project, id)) !== sessionId)
                 throw reject("此目录已有其他会话或其后台任务在执行");
     }
     registeredProjects() {
