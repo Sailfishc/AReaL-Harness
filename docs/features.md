@@ -19,7 +19,7 @@
 | 权限模式 | 本地默认 YOLO，可配置 ASK_PERMISSIONS；TUI/Web 审批、会话/项目精确授权与自动 Thread scratch。[配置](guides/configuration.md#permissions) |
 | 桌面接口 | 认证、Profile/Skill/Plan、`--agent id@revision` 选择、Profile 绑定 Workflow 自动启动、审批/追问、提交去重与队列、共享终端、配置 CAS、模型切换、媒体 Blob、归档与 GC。[桌面 API](api/desktop.md) |
 | 桌面 GUI | `clients/gui` 提供 React/Electron、原生文件/差异/终端/浏览器面板、模型与资源设置、手机配对和定时任务界面；普通会话支持暂停后在原会话手动继续，最后一条用户消息可编辑后作为新消息发送并保留原记录。启用 Browser 的聊天可在用户授权后让 Core 读取该聊天当前原生网页的可访问性文本。人工批注支持冻结原生截图、元素/区域选择、多条 Composer 附件与含裁图和说明的消息，不要求启用模型 Browser 工具包。公共服务连接使 GUI 退出不终止 Core 任务；启动恢复支持二次确认后取消活动轮次并重启后台。支持独立公开依赖构建与 macOS arm64 本地包。[GUI](../clients/gui/README.md) |
-| 会话轮次导航 | 启用旁路预览时，选中文本后通过该轮“…”菜单询问所选内容，不自动展示浮动提示。主会话和 Side chat 共用左侧波纹轨道。悬停预览问题与回复，点击定位对应轮次，各面板独立滚动。支持方向键、Home/End、Enter/Space、Esc 和减少动态效果。[GUI](../clients/gui/README.md) |
+| 会话选区与轮次导航 | 在主会话的一条消息内选中文本后，浮动操作可将原文作为可移除的文本附件添加到 Chat 的 Compose；启用旁路预览时，也可加入当前 Side Chat 的 Compose。保留已有草稿与附件，用户可继续补充后手动发送，不自动提交。Side 首问引用在输入框上方显示并可移除；后续选区追加到问题正文，不替换已有冻结来源。主会话和 Side chat 共用左侧波纹轨道。悬停预览问题与回复，点击定位对应轮次，各面板独立滚动。支持方向键、Home/End、Enter/Space、Esc 和减少动态效果。[GUI](../clients/gui/README.md) |
 | 客户端 | 统一 `areal` 命令（默认 TUI、exec、version、upgrade、app-server、config、workgroup、service、web）与本地 Web；TUI 支持 Unicode 光标编辑与常用输入快捷键、持久错误提示、默认分组折叠、鼠标/键盘展开及过程/最终正文分级；CLI 实现选定 Claude Code 非交互参数与消息。[CLI 契约](api/claude-cli.md) |
 | Skills | 自动发现与显式 Profile 共用元信息登记、正文/附件按需读取；单个无效全局 Skill 告警隔离，不创建内容快照。[Skill 指南](guides/skills.md) |
 | Task Mode 与独立频道 | foreground/scheduled/background、持久 TaskRun、独立 Inbox 回复、headless 无人工等待；统一委派的 TaskRun worker 跨协调 Turn 存活并共享预算。Web 提供任务控制、定时创建和独立收件箱。[接口](api/tasks.md) 计划支持显式“立即运行”，创建独立 manual Run，保留暂停和下次计划时间，使用原总预算；响应丢失时只读核对原收据。 |
@@ -35,7 +35,7 @@ Remote 的 Direct 与 Relay 已接入共同 Host 授权和 PWA 协议，Direct �
 
 ## 支持边界
 
-- macOS 受限命令支持系统 Git 的工具链解析、私有 Bash here-document，以及可信启动 PATH 接入的软件只读工具链，保留源码只读、独立 scratch 和禁网边界。完整发行包附带独立 Bash 的许可证和对应源码；嵌套硬编码系统 Bash 不被替换。见 [Runtime 工具边界](api/runtime.md#macos-受限命令的系统工具)。
+- macOS 受限命令支持系统 Git 的工具链解析、私有 Bash here-document，以及可信启动 PATH 和 nvm/mise/fnm/Volta、Python/Rust 版本管理器接入的已安装只读工具链；用户 CLI 与必要公共 TLS 资源也在启动时发现，保留源码只读、独立 scratch 和禁网边界。完整发行包附带独立 Bash 的许可证和对应源码；嵌套硬编码系统 Bash 不被替换。见 [Runtime 工具边界](api/runtime.md#macos-受限命令的系统工具)。
 - macOS 的收窄工具执行使用 Seatbelt，并跟踪清退已观察到的后代；快速孤儿化仍可能漏检。Linux native 使用 Bubblewrap namespace 与 Runtime seccomp，要求部署提供 `/usr/bin/bwrap` 和 user namespace；Linux launcher 的 full-access 支持宿主执行。产品 Rust launcher 与 Linux Runtime 的单次执行回收不依赖 Python；后者使用随包发布的 Rust 二进制 `areal-runtime-reaper` 和可读的 `/proc`。详见 [Runtime 清理边界](api/runtime.md#输出与清理)。受控 Docker `outer-container-perf` 仍用于固定评测流程。Windows native Runtime 未提供。
 - Core、stdio MCP 和插件 Host 是可信宿主，未受 Runtime OS 沙箱隔离；远程工具权限由服务负责。审批不能扩大部署授权。
 - `UNKNOWN` 需要人工检查，不自动重放。没有跨 Runtime epoch 恢复、外部写入者 CAS、跨文件事务或完整逃逸后代树清理保证。
@@ -56,4 +56,4 @@ Remote 的 Direct 与 Relay 已接入共同 Host 授权和 PWA 协议，Direct �
 
 可信原生只读调用支持有界并发，写入、游标和未知后端保持顺序；共享作者可在已确认资源结算的模型等待边界让出租约。隔离源码投影保留已跟踪和未忽略的脏源码，执行依赖单独提供。契约与反例见[Core](api/core.md)和[多 Agent 设计](design/multi-agent.md)。
 
-隔离 worker 继承父纯工具策略，不继承外部工具、hooks、插件和凭据。协作回执区分制品支持与当前就绪，版本化等待跳过未变化的已结算状态，批量回执保留真实结论和原文回取。`completionFocus` 为显式实验策略，默认关闭，不保证消除收尾长尾；协议与兼容边界见[Core](api/core.md)。
+隔离 worker 继承父纯工具策略，不继承外部工具、hooks、插件和凭据。协作回执区分制品支持与当前就绪，版本化等待跳过未变化的已结算状态，批量回执保留结构化状态、有界正文预览、分页与原文回取。App 引用变化追加为任务数据，不回写系统指令快照；Responses HTTP 路由按会话与 Turn 隔离。`completionFocus` 为显式实验策略，默认关闭，不保证消除收尾长尾；协议与兼容边界见[Core](api/core.md)。

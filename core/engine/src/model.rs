@@ -1,6 +1,7 @@
 mod decoder;
 use decoder::{ChatDecoder, Decoder, ResponsesDecoder};
 
+mod affinity;
 mod audit;
 mod capacity;
 pub(crate) use capacity::{RequestCapacity, RequestPhase};
@@ -31,11 +32,12 @@ pub type ModelStream = Pin<Box<dyn Stream<Item = Result<ModelEvent>> + Send>>;
 pub type AgentStream = ModelStream;
 
 /// Request policy belongs to Core; summaries never enable tool interpretation.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum RequestPurpose {
     #[default]
     Solve,
     Summary,
+    PromptPrediction,
     PermissionReview,
 }
 
@@ -615,6 +617,8 @@ pub struct HttpModel {
     audit_directory: Option<std::path::PathBuf>,
     temperature: Option<f64>,
     websocket_pool: Arc<tokio::sync::Mutex<websocket::Pool>>,
+    http_affinity: Arc<affinity::Pool>,
+    routing_scope: uuid::Uuid,
 }
 
 #[derive(Clone, Debug)]
@@ -667,6 +671,7 @@ pub type ChatModel = HttpModel;
 #[derive(Default)]
 pub(crate) struct HttpModelFactory {
     client: Option<reqwest::Client>,
+    affinity: Arc<affinity::Pool>,
 }
 
 impl HttpModelFactory {
@@ -707,6 +712,8 @@ impl HttpModelFactory {
             audit_directory: None,
             temperature: None,
             websocket_pool: Arc::new(tokio::sync::Mutex::new(websocket::Pool::default())),
+            http_affinity: self.affinity.clone(),
+            routing_scope: uuid::Uuid::new_v4(),
         })
     }
 }
@@ -1108,7 +1115,10 @@ impl Model for HttpModel {
         if let Some(summary) = &self.options.reasoning_summary {
             body["reasoning"] = json!({"summary":summary});
         }
-        if let Some(effort) = if purpose == RequestPurpose::Summary {
+        if let Some(effort) = if matches!(
+            purpose,
+            RequestPurpose::Summary | RequestPurpose::PromptPrediction
+        ) {
             self.options
                 .summary_reasoning_effort
                 .as_ref()
@@ -1125,7 +1135,10 @@ impl Model for HttpModel {
             (Some(configured), Some(cap)) => Some(configured.min(cap)),
             (configured, cap) => configured.or(cap),
         };
-        let output_tokens = if purpose == RequestPurpose::Summary {
+        let output_tokens = if matches!(
+            purpose,
+            RequestPurpose::Summary | RequestPurpose::PromptPrediction
+        ) {
             Some(
                 output_tokens
                     .unwrap_or(16384)
@@ -1186,18 +1199,61 @@ impl Model for HttpModel {
         }
         let encoded = self.encode_request(&body, purpose)?;
         let mut audit = audit::Audit::new(self.audit_directory.as_deref(), &body, purpose);
+        let routing = (self.protocol == ModelProtocol::Responses)
+            .then(|| {
+                self.http_affinity.begin(
+                    self.routing_scope,
+                    REQUEST_OWNER.try_with(Clone::clone).ok(),
+                    purpose,
+                )
+            })
+            .flatten();
         let mut attempt = 0;
         let response = loop {
             audit.value["httpAttempts"] = json!(attempt + 1);
+            let routing_headers = routing.as_ref().map(affinity::Lease::headers);
+            let turn_state_sent = routing_headers
+                .as_ref()
+                .is_some_and(|headers| headers.contains_key("x-codex-turn-state"));
             let mut request = self
                 .client
                 .post(&self.endpoint)
                 .header(reqwest::header::CONTENT_TYPE, "application/json")
                 .body(encoded.clone());
+            if let Some(headers) = routing_headers {
+                request = request.headers(headers);
+            }
+            // 由可信 Core 标识请求所有者；订阅适配器据此隔离短期路由状态。
+            // 不插入模型正文，不在无所有者的探测/标题请求之间共享状态。
+            if self.protocol == ModelProtocol::Responses
+                && let Ok((thread, turn)) = REQUEST_OWNER.try_with(Clone::clone)
+            {
+                request = request
+                    .header("x-areal-thread-id", thread)
+                    .header("x-areal-turn-id", turn)
+                    .header(
+                        "x-areal-model-purpose",
+                        match purpose {
+                            RequestPurpose::Solve => "solve",
+                            RequestPurpose::Summary => "summary",
+                            RequestPurpose::PromptPrediction => "promptPrediction",
+                            RequestPurpose::PermissionReview => "permissionReview",
+                        },
+                    );
+            }
             if let Some(key) = &self.key {
                 request = request.bearer_auth(key);
             }
             let result = request.send().await;
+            if let Ok(response) = &result {
+                audit.value["sessionIdentitySent"] = json!(routing.is_some());
+                audit.value["turnStateSent"] = json!(turn_state_sent);
+                audit.value["turnStateReceived"] =
+                    json!(response.headers().contains_key("x-codex-turn-state"));
+                if let Some(routing) = &routing {
+                    routing.capture(response.status(), response.headers());
+                }
+            }
             audit.value["httpStatus"] = result
                 .as_ref()
                 .ok()

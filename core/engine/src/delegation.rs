@@ -722,6 +722,12 @@ impl Engine {
             "readArtifact":false,
             "supportsArtifact":matches!(record.execution, Some(ExecutionRef::Workgroup { .. })),
             "contract":if matches!(record.execution, Some(ExecutionRef::Workgroup { .. })) { "frozen" } else { "live" },
+            "sourceView":match &record.execution {
+                Some(ExecutionRef::Workgroup { .. }) => "snapshotAtCreation",
+                Some(ExecutionRef::Thread { .. }) => "currentShared",
+                None => "unavailable",
+            },
+            "networkPolicy":"unknown",
         });
         if let Some(error) = &record.error
             && record.execution.is_none()
@@ -742,8 +748,16 @@ impl Engine {
                     .iter()
                     .find(|t| &t.id == turn_id)
                     .ok_or(Error::NotFound)?;
+                if let Some(configuration) = turn.configuration.as_ref() {
+                    value["capabilities"]["networkPolicy"] =
+                        json!(crate::permissions::base_network_policy(
+                            Some(configuration),
+                            state.thread.is_side()
+                        ));
+                }
                 let raw =
                     crate::agents::snapshot_turn(&state, turn_id, offset, 8192).map_err(invalid)?;
+                value["capabilities"]["sendInput"] = raw["capabilities"]["sendInput"].clone();
                 value["threadId"] = json!(thread_id);
                 value["turnId"] = json!(turn_id);
                 value["status"] = json!(match turn.status {
@@ -1058,7 +1072,7 @@ impl Engine {
         prompt: String,
     ) -> Result<Value> {
         let record = self.execution_record(parent, execution_id).await?;
-        match record.execution {
+        let accepted = match record.execution {
             Some(ExecutionRef::Thread { thread_id, turn_id }) => {
                 self.steer_child_input(&thread_id, &turn_id, vec![Input::text(prompt)])
                     .await?
@@ -1068,8 +1082,10 @@ impl Engine {
                     "an isolated attempt has a frozen contract; cancel and delegate revised work after settlement",
                 ));
             }
-        }
-        self.execution_read(parent, execution_id).await
+        };
+        let mut receipt = self.execution_read(parent, execution_id).await?;
+        crate::agents::input_receipt(&mut receipt, accepted);
+        Ok(receipt)
     }
     pub async fn execution_artifact(
         &self,

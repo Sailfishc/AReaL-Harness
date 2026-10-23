@@ -64,10 +64,11 @@ await writeFile(
 const conversationStage2 = process.argv.includes("--conversation-stage2");
 const settingsMode = process.argv.includes("--settings-stage1");
 const i18nMode = process.argv.includes("--settings-i18n");
+const nativeI18nMode = process.argv.includes("--native-dialog-i18n");
 const hostMode = process.argv.includes("--conversation-host");
 const motionMode = hostMode || process.argv.includes("--conversation-motion");
-const journeyMode = i18nMode || conversationStage2 || settingsMode || motionMode || process.argv.includes("--conversation-journey");
-const journey = i18nMode ? (await import("./settings-i18n.mjs")).settingsI18n(scratch) : settingsMode ? (await import("./settings-stage1.mjs")).settingsStage1(scratch) : hostMode ? (await import("./conversation-host.mjs")).conversationHost(scratch, workspace) : journeyMode ? (await import("./conversation-journey.mjs")).conversationJourney(scratch, workspace, { motion: motionMode, stage2: conversationStage2 }) : null;
+const journeyMode = nativeI18nMode || i18nMode || conversationStage2 || settingsMode || motionMode || process.argv.includes("--conversation-journey");
+const journey = nativeI18nMode ? (await import("./native-dialog-i18n.mjs")).nativeDialogI18n(scratch) : i18nMode ? (await import("./settings-i18n.mjs")).settingsI18n(scratch) : settingsMode ? (await import("./settings-stage1.mjs")).settingsStage1(scratch) : hostMode ? (await import("./conversation-host.mjs")).conversationHost(scratch, workspace) : journeyMode ? (await import("./conversation-journey.mjs")).conversationJourney(scratch, workspace, { motion: motionMode, stage2: conversationStage2 }) : null;
 const received = [];
 let finishBackground, finishAgentParent;
 const server = createServer(async (req, res) => {
@@ -293,7 +294,11 @@ async function launch() {
   app = await electron.launch({
     ...(journey && !motionMode ? { recordVideo: { dir: join(scratch, "video"), size: { width: 1509, height: 949 } } } : {}),
     executablePath: process.env.AREAL_GUI_EXECUTABLE || require("electron"),
-    args: process.env.AREAL_GUI_EXECUTABLE ? [] : [desktop, ...(hostMode && process.env.AREAL_E3_CDP_PORT ? ["--remote-debugging-port=" + process.env.AREAL_E3_CDP_PORT] : [])],
+    // 原生恢复弹窗使用 bundle 级状态，独立 userData 仍会受之前崩溃影响；只在夹具忽略旧窗口。
+    args: [
+      ...(process.env.AREAL_GUI_EXECUTABLE ? [] : [desktop, ...(hostMode && process.env.AREAL_E3_CDP_PORT ? ["--remote-debugging-port=" + process.env.AREAL_E3_CDP_PORT] : [])]),
+      ...(process.platform === "darwin" ? ["-ApplePersistenceIgnoreState", "YES"] : []),
+    ],
     env,
     timeout: 120000,
   });
@@ -709,6 +714,8 @@ try {
   await button("返回应用").click();
   checks.push("settings navigation and appearance");
   await input().fill("保留未发送草稿");
+  // Turn 可先进入 inProgress；必须等本次请求抵达，不能复用之前 Goal 的完成回调。
+  finishBackground = undefined;
   await call("send", { projectId: pid, threadId: tid, text: "后台持续执行" });
   await waitForSnapshot(
     (s) => current(s).turns.at(-1)?.status === "inProgress" && finishBackground,
@@ -910,11 +917,11 @@ try {
         platform: process.platform,
         arch: process.arch,
         runtime: "real Electron + real Rust Core/Runtime + deterministic local HTTP/SSE model",
-        nativeDialogs: "project picker and archive/quit confirmations injected",
-        scenario: i18nMode ? "settings-i18n" : conversationStage2 ? "conversation-stage2" : settingsMode ? "settings-stage1" : hostMode ? "conversation-host" : motionMode ? "conversation-motion" : journey ? "conversation-journey" : "migration",
+        nativeDialogs: nativeI18nMode ? "initial project picker injected; archive/save/directory dialog options captured and canceled; OS appearance not verified" : "project picker and archive/quit confirmations injected",
+        scenario: nativeI18nMode ? "native-dialog-i18n" : i18nMode ? "settings-i18n" : conversationStage2 ? "conversation-stage2" : settingsMode ? "settings-stage1" : hostMode ? "conversation-host" : motionMode ? "conversation-motion" : journey ? "conversation-journey" : "migration",
         scratch,
         frames: journey ? journey.frames() : frames,
-        journeyEvents: journey ? "journey-events.json" : null,
+        journeyEvents: journey && !nativeI18nMode ? "journey-events.json" : null,
         checks,
         errors,
         failure,
