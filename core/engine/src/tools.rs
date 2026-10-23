@@ -944,11 +944,11 @@ impl Engine {
             && !(call.name == "side_context_read"
                 && entry
                     .as_ref()
-                    .is_ok_and(|e| matches!(e.backend, Backend::Core)))
-            && !(side_read
-                && entry
-                    .as_ref()
-                    .is_ok_and(|e| side_file_tool(&call.name, &e.backend)))
+                    .is_ok_and(|e| matches!(e.backend, Backend::Core))
+                || side_read
+                    && entry
+                        .as_ref()
+                        .is_ok_and(|e| side_file_tool(&call.name, &e.backend)))
         {
             anyhow::bail!("SIDE_POLICY_VIOLATION");
         }
