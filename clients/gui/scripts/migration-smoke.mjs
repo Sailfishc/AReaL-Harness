@@ -709,6 +709,8 @@ try {
   await button("返回应用").click();
   checks.push("settings navigation and appearance");
   await input().fill("保留未发送草稿");
+  // 等待本次请求到达模型，不能复用已暂停 Goal 的旧响应回调。
+  finishBackground = null;
   await call("send", { projectId: pid, threadId: tid, text: "后台持续执行" });
   await waitForSnapshot(
     (s) => current(s).turns.at(-1)?.status === "inProgress" && finishBackground,
