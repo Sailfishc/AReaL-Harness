@@ -1205,8 +1205,6 @@ try {
   checks.push(
     "narrow window catalog within viewport; send control reachable; outside-click dismissal",
   );
-  }
-  assert.deepEqual(errors, []);
   await button("展开侧栏").first().click();
   await selectConversation(page, tid);
   await button("收起侧栏").click();
@@ -1223,6 +1221,8 @@ try {
   await shot("plugin-mention-english-no-matches");
   await input().press("Escape");
   checks.push("English plugin picker localizes action groups and no-match state");
+  }
+  assert.deepEqual(errors, []);
   passed = true;
   console.log(JSON.stringify({ passed, scratch, checks }));
 } catch (error) {
