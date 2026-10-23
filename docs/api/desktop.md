@@ -10,6 +10,42 @@ Web/PWA Remote 使用独立的受限 [areal.remote.v2 契约](remote-control.md)
 
 Thread 快照和 Item 通知支持可选 `agentMessage.phase`，生命周期、示例与旧数据兼容规则见 [Core 消息阶段](core.md#agent-message-phase)。此响应字段为兼容性新增，保持 `areal.core.v1` 版本。
 
+## 桌面宿主 Worktree 契约
+
+本节属于 `clients/gui` 的认证桌面宿主 `command` 合同，不新增 `areal.core.v1` Rust RPC。宿主继续通过现有 Core 方法管理每个执行目录，Core 仍持有线程和执行历史。共享桌面类型与校验位于 `clients/gui/packages/workbench/client/desktop-contract.cjs`。
+
+`create` 接受逻辑 `projectId`、稳定 `requestId`、原模型与配置字段，以及可选 `worktree: {sourceRoot?,ref?,worktreeRoot?,branch?,branchPrefix?}`。Worktree 字段均为字符串。未指定 `worktree` 时，已有根会话的来源 checkout 触发新会话提前隔离。成功返回 `{threadId,requestId}`；逻辑项目 ID 不变。隔离创建将来源 ref 固定成 SHA，独立 Core/Runtime 启动并确认线程绑定后才返回就绪结果。
+
+`workspace` 提供以下宿主操作：
+
+| operation | 请求补充字段 | 返回与作用 |
+|---|---|---|
+| `worktreeOptions` | `sourceRoot?` | `{worktrees:[{root,branch,head}],branches:[string],settings:{worktreeRoot,branchPrefix}}`；来源限定同仓库。 |
+| `worktreeSettings` | `worktreeRoot,branchPrefix` | 保存未来创建的默认值；空根目录使用应用目录，默认前缀 `areal`。 |
+| `worktreeRead` | `requestId` | 读取原创建及绑定记录，可能为 `missing`；结果未知不触发第二次创建。 |
+| `worktreeCreate` | `requestId,source?,sourceRoot?,ref?,worktreeRoot?,branch?,branchPrefix?` | 兼容的显式 checkout 创建入口，共用同一 Git 生命周期。`working-tree` 来源明确拒绝。 |
+| `worktreeOpen` | `requestId` | 为已确认 checkout 恢复或完成线程绑定，返回原逻辑项目和线程，不新增可见侧栏项目。 |
+
+宿主记录 `creating`、`created`、`binding`、`ready`、`failed` 和 `unknown`。项目快照中的 `worktreeOperations` 投影这些记录；线程的 `worktree`、`worktreeEvents` 与 `executionProjectId` 描述实际目录及宿主。线程事件是宿主事实，不加入 Core 消息历史。相同请求标识的参数变化会被拒绝。部分成功保留现有目录，恢复读取原 Git 事实和 Core 收据，不回退来源目录。
+
+已有共享目录的桌面执行请求还经过按规范化 checkout 根登记的持久 Session 作者准入；同 checkout 的子目录别名共用作者，重叠的不同执行根保守拒绝。第二个独立作者在派发前返回 `WORKTREE_REQUIRED`，`submissionUnknown: false`，`outcome: {kind:"noMutation"}`；原会话不自动搬迁，取消和只读检查仍可进行。此宿主登记不扩展为直接 Core/CLI 的权限或跨桌面数据目录互斥。
+
+后续请求继续使用逻辑 `projectId`，由 `threadId`、`sourceThreadId`、`parentThreadId`、任务归属或原请求收据定位执行宿主。跨宿主目标不能混在一次请求中。任务归属索引持久记录实际宿主及可选的 Core 线程锚点；无索引时查询同一逻辑项目的宿主，任何离线、超时或冲突均不能当作任务不存在而回退。宿主注入可信线程锚点，调用者提供不一致的 `threadId` 会被拒绝。无法确认归属时返回 `TASK_WORKSPACE_UNAVAILABLE`；`taskRunNow`、`taskResumeRun`、`taskReply` 和 `taskResume` 缺少锚点也不派发。
+
+`manage.taskCreate` 的 `scheduled` 模式及 `manage.taskDraftConfirm` 使用专用调度准入。一个任务家庭须预约自动分配、非已有的项目外目录，共用目录作者登记；先预约，再创建或核对执行锚点和任务，并绑定原创建收据。只读规划和自动保存确认继续可用。宿主在 `areal/task/prepare` 的 `start` 与 `resume` 回调核对 Task、run、锚点和实际 cwd 后才放行。共享或用户选择的已有目录、没有原预约的旧安排不能启用，返回 `SCHEDULE_WORKSPACE_REQUIRED` 或相应作者错误；暂停与取消保留。可信锚点的 foreground/background 操作继续沿普通准入。原生 Core 及已准备的旧自主调度不因此获得追溯保证。每次目录作者准入均分页读取同 checkout 的权威 Task 目录；未取消的 scheduled 任务即使暂停或休眠也不释放未来执行资格，仅原预约 token、绑定 Task 与锚点可匹配该家庭。读取失败或分页不完整时不派发。
+
+`ScheduleAdmission.authorForSession` 只为 `respond` 和 `continue` 核对当前任务家庭，要求唯一活动 Run、精确 goal/Turn/cwd、已登记 worker 及有界父链。`respond` 还要求精确且未过期的 pending interaction（thread、Turn、requestId、回答种类）；其他 Session、旧请求、取消或暂停 Run 不映射。send、编辑及普通 manage 仍沿普通作者策略，native Task Agent 的研究和工具限制不变，不授权递归委派。
+
+| Run/交互状态 | 桌面行为 |
+|---|---|
+| 当前活动 Run 等待有效问题或审批 | `respond` 核对精确交互后由 Core 自动继续。 |
+| goal 所有的定时线程 | 普通 Core Continue 仍不支持，宿主映射不扩大 Core 合同。 |
+| paused 或 blocked Run | 使用 `taskResumeRun`，保留 Run 与线程，创建新 Turn。 |
+| pending 时 Host 断开 | Run 暂停为 hostUnavailable；拒绝旧 requestId，恢复后回答新问题。 |
+| 取消、已完成、错误 Session/锚点或过期交互 | 拒绝，不消费另一个有效 pending 交互。 |
+
+`node clients/gui/scripts/worktree-schedule-interactions.mjs` 从仓库根验证真实 Core 协议，使用本地确定性模型而不启动 Electron。manifest 区分协议验证和 Runtime payload；原生文件执行未成功时不能据协议通过宣称写入已验证。目录、分支、旧快照兼容性、并发和隔离边界见[Worktree 指南](../guides/worktrees.md)。
+
 ## 认证与连接
 
 产品服务监听 loopback，WebSocket 和 Blob 使用启动器认证。可信 Main 从 ready 元数据的 authFile 读取 Bearer token；Renderer 不持有该文件或模型密钥。内置 Web 使用独立的 HttpOnly、SameSite=Strict 会话 Cookie，并验证 Origin；本地启动自动登录见下文。
@@ -336,7 +372,7 @@ Hook 报告复用运行时声明选择与强类型文档解析，`mcp_tool` 是�
 
 只读方法 `areal/genUi/source {threadId,turnId,itemId,path?}` 返回已完成助手消息的 `{text,artifacts,readOnly}`。不传 `path` 时只读取消息，制品列表为空。Main 使用移植的解析器按指令偏移解码路径，再传入精确 `path` 读取至多一个制品。制品包含身份、来源 Turn 和调用、摘要、路径及 HTML。Core 从该 Thread 的成功发布记录核对来源、托管路径和 SHA-256。用户消息、代码片段、未完成回复或未发布的文件引用不能获得执行权限。
 
-Desktop 在同一配置目录内保存 `{modelContent,privateContent}`，按项目、Thread 和制品隔离。单项序列化状态最多 16 KiB，会话最多保留 100 项，超出时淘汰最早更新的状态。页面通过 `window.zcode.widgetState` 读取初值，`setWidgetState({modelContent,privateContent})` 等待保存确认，`sendFollowUpMessage({prompt,title?})` 提出后续问题。主会话和 Side 的实际发送入口将最多 64 KiB 的 `modelContent` 列表附加为 `<untrusted_gen_ui_state>`，不附加 `privateContent`。状态保存本身不创建模型 Turn。页面后续问题等待状态保存，再交给宿主确认与原会话发送入口。未知受理只核对原收据，不自动重发。
+Desktop 在同一配置目录内保存 `{modelContent,privateContent}`，按真实执行工作区、Thread 和制品隔离；Worktree 的 GUI 保存与 Core 后续读取使用同一物理身份。单项序列化状态最多 16 KiB，会话最多保留 100 项，超出时淘汰最早更新的状态。页面通过 `window.zcode.widgetState` 读取初值，`setWidgetState({modelContent,privateContent})` 等待保存确认，`sendFollowUpMessage({prompt,title?})` 提出后续问题。主会话和 Side 的实际发送入口将最多 64 KiB 的 `modelContent` 列表附加为 `<untrusted_gen_ui_state>`，不附加 `privateContent`。状态保存本身不创建模型 Turn。页面后续问题等待状态保存，再交给宿主确认与原会话发送入口。未知受理只核对原收据，不自动重发。
 
 生成页使用现有 MCP Apps token、代理与每窗口 8 页额度，不能访问 Node、任意文件、工具或网络。状态恢复限于同一 Desktop 配置，不提供跨设备同步。
 

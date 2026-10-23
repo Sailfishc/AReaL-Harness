@@ -24,6 +24,8 @@ import type { ComposerCatalogEntry } from "./prompt-editor/ComposerCatalog.js";
 import { isTechnicalErrorMessage, recoveredOutcome, recoveryMessage, type RecoveryFailure } from "./recoveryPresentation.js";
 import { attachedReviewComments, detachReviewComments, reviewCommentKey, transferNewReviewComments, useReviewComments } from "./reviewComments.js";
 import { ReviewCommentAttachment } from "./ReviewCommentViews.js";
+import type { WorktreeSelection } from "./WorktreeStarter.js";
+import { WorktreeStatus } from "./WorktreeStatus.js";
 import {
   attachmentDrafts,
   attachmentErrors,
@@ -47,6 +49,8 @@ export function DraftComposer({
   preparationStatus,
   onAnnotate,
   surfaceLayout = "default",
+  worktree,
+  onWorktreeCreated,
 }: {
   surfaceLayout?: "default" | "compact";
   project: Data;
@@ -60,6 +64,8 @@ export function DraftComposer({
   prepareProject?: () => Promise<Data>;
   preparationStatus?: ReactNode;
   onAnnotate?: (target: ImageAnnotationTarget) => void;
+  worktree?: WorktreeSelection;
+  onWorktreeCreated?: () => void;
 }) {
   const { t } = useI18n();
   const prefs = useApplicationPreferences();
@@ -125,6 +131,9 @@ export function DraftComposer({
       : initialSelection.notice === "effort-unsupported" ? t("chat.composer.previousEffortUnsupported") : ""
     : "";
   const [unknown, setUnknown] = useState(() => localStorage.getItem(`${key}:pending-create`));
+  const [checkingCreation, setCheckingCreation] = useState(false);
+  const [creationChecked, setCreationChecked] = useState(false);
+  const acceptedRecovery = useRef<string | null>(null);
   const busy = useSyncExternalStore(subscribeSending, () => sending.has(key));
   const editLocked = busy || !!project.pending.length || !!unknown || !!reviewDraft.error;
   const executionReady = backendReady && !!project.state?.connected;
@@ -139,6 +148,50 @@ export function DraftComposer({
     coreInstanceId: project.core?.instanceId, connectionGeneration: project.core?.connectionGeneration,
     ...(chosenProfile ? { profile: { id: chosenProfile.id, revision: chosenProfile.revision } } : {}) };
   const plugins = useComposerPlugins({ project, context: pluginContext, draftKey: key, text: input.text, action: readAction });
+  const finishRecoveredCreation = (id: string) => {
+    if (acceptedRecovery.current === unknown) return;
+    transferNewReviewComments(project.id, id);
+    acceptedRecovery.current = unknown;
+    stageThreadDraft(project.id, id, localStorage.getItem(key) ?? "", attachmentDrafts.get(key) ?? []);
+    transferComposerSkills(key, `areal-gui:draft:${project.id}:${id}`);
+    transferComposerPlugins(key, `areal-gui:draft:${project.id}:${id}`);
+    if (goalMode) localStorage.setItem(`areal-gui:draft:${project.id}:${id}:goal`, "true");
+    localStorage.removeItem(`${key}:pending-create`);
+    localStorage.removeItem(`${key}:pending-create-request`);
+    onWorktreeCreated?.(); setUnknown(null); clear();
+    void onOpen(project.id, id);
+  };
+  const checkCreation = async () => {
+    if (!unknown || checkingCreation) return;
+    setCheckingCreation(true); setDraftError("");
+    try {
+      const frozen = JSON.parse(localStorage.getItem(`${key}:pending-create-request`) ?? "null");
+      if (!frozen) { await action("reconcile", { projectId: project.id }); return; }
+      if (frozen.requestId !== unknown || frozen.projectId !== project.id) throw new Error(t("worktree.recoveryMismatch"));
+      const result = await action("create", frozen);
+      if (!result?.threadId) throw new Error(t("worktree.unknown"));
+      finishRecoveredCreation(result.threadId);
+    } catch (cause) {
+      const failure = cause as RecoveryFailure;
+      setDraftError(recoveryMessage(failure));
+      if (failure.submissionUnknown === true) setCreationChecked(true);
+      if (failure.submissionUnknown === false) {
+        localStorage.removeItem(`${key}:pending-create`);
+        localStorage.removeItem(`${key}:pending-create-request`);
+        setUnknown(null);
+      }
+    } finally { setCheckingCreation(false); }
+  };
+  const leaveCreationForInspection = () => {
+    if (!unknown || checkingCreation || !creationChecked || !window.confirm(t("worktree.leavePendingConfirm"))) return;
+    localStorage.setItem(`${key}:retained-create:${unknown}`, JSON.stringify({
+      requestId: unknown, request: localStorage.getItem(`${key}:pending-create-request`),
+    }));
+    localStorage.removeItem(`${key}:pending-create`);
+    localStorage.removeItem(`${key}:pending-create-request`);
+    setUnknown(null); setCreationChecked(false); setDraftError("");
+    onWorktreeCreated?.();
+  };
   useEffect(() => {
     attachmentDrafts.set(key, files);
     window.dispatchEvent(new CustomEvent("areal-attachments-change", { detail: key }));
@@ -170,27 +223,14 @@ export function DraftComposer({
     if (!outcome || outcome.operation && outcome.operation.method !== "areal/thread/start") return;
     if (outcome.status === "failed" || outcome.accepted === false) {
       localStorage.removeItem(`${key}:pending-create`);
+      localStorage.removeItem(`${key}:pending-create-request`);
       setUnknown(null);
       setDraftError(outcome.message || "创建对话未完成，草稿已保留，请检查后重试。");
       return;
     }
     if (!outcome.threadId || outcome.accepted !== true) return;
-    try { transferNewReviewComments(project.id, outcome.threadId); }
+    try { finishRecoveredCreation(outcome.threadId); }
     catch (cause) { setDraftError((cause as Error).message); return; }
-    // A recovered creation opens the preserved draft; it never sends it automatically.
-    stageThreadDraft(
-      project.id,
-      outcome.threadId,
-      localStorage.getItem(key) ?? "",
-      attachmentDrafts.get(key) ?? [],
-    );
-    transferComposerSkills(key, `areal-gui:draft:${project.id}:${outcome.threadId}`);
-    transferComposerPlugins(key, `areal-gui:draft:${project.id}:${outcome.threadId}`);
-    if (goalMode) localStorage.setItem(`areal-gui:draft:${project.id}:${outcome.threadId}:goal`, "true");
-    localStorage.removeItem(`${key}:pending-create`);
-    setUnknown(null);
-    clear();
-    void onOpen(project.id, outcome.threadId);
   }, [unknown, project.pending.length, project.outcomes]);
   const submit = async (value: string) => {
     if (workspaceReferencePending) return;
@@ -230,7 +270,7 @@ export function DraftComposer({
         if (effort) parameters.reasoningEffort = effort;
       }
       creationAttempted = true;
-      const result = await action("create", {
+      const creationRequest = {
         projectId: owner.id,
         requestId: creationRequestId,
         parameters,
@@ -241,7 +281,12 @@ export function DraftComposer({
         ...(chosenModel.providerId
           ? { model: { providerId: chosenModel.providerId, modelId: chosenModel.modelId } }
           : {}),
-      });
+        ...(worktree ? { worktree: { ...worktree } } : {}),
+      };
+      localStorage.setItem(`${key}:pending-create-request`, JSON.stringify(creationRequest));
+      const result = await action("create", creationRequest);
+      localStorage.removeItem(`${key}:pending-create-request`);
+      onWorktreeCreated?.();
       targetKey = stageThreadDraft(owner.id, result.threadId, value, files);
       transferNewReviewComments(owner.id, result.threadId);
       transferComposerSkills(key, targetKey);
@@ -269,6 +314,7 @@ export function DraftComposer({
     } catch (e) {
       const failure = e as RecoveryFailure;
       if (!failure.submissionUnknown) {
+        localStorage.removeItem(`${key}:pending-create-request`);
         setDraftError(recoveryMessage(failure));
         if (targetKey) attachmentErrors.set(targetKey, recoveryMessage(failure));
       }
@@ -292,6 +338,7 @@ export function DraftComposer({
   };
   return (
     <div className="composer-dock" data-v4-composer-dock="true">
+      {project.worktreeOperations?.at(-1) && project.worktreeOperations.at(-1).state !== "ready" && <WorktreeStatus events={[project.worktreeOperations.at(-1)]} />}
       <input
         ref={upload}
         type="file"
@@ -305,8 +352,12 @@ export function DraftComposer({
         }}
       />
       {unknown && <FeedbackNotice tone="warning" message={t("recovery.createUnconfirmed")} requestId={unknown}
-        detail={t("recovery.requestId", { id: unknown })} actions={<Button variant="ghost" size="sm"
-          onClick={() => void action("reconcile", { projectId: project.id }).catch(() => {})}>{t("recovery.checkOriginal")}</Button>} /> }
+        detail={t("recovery.requestId", { id: unknown })} actions={<>
+          <Button variant="ghost" size="sm" disabled={checkingCreation}
+            onClick={() => void checkCreation()}>{t("recovery.checkOriginal")}</Button>
+          {creationChecked && <Button variant="ghost" size="sm" disabled={checkingCreation}
+            onClick={leaveCreationForInspection}>{t("worktree.leavePending")}</Button>}
+        </>} /> }
       {backendReady && project.state?.connected && unavailableProfile && <FeedbackNotice tone="warning" message={t("recovery.profileUnavailable")}
         actions={<>
           {profileSelection && resolveDraftProfile(project) && <Button variant="ghost" size="sm" onClick={() => { setProfileSelection(""); localStorage.removeItem(`${key}:profile`); }}>{t("recovery.resetProfile")}</Button>}

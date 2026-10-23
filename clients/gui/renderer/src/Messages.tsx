@@ -2,6 +2,7 @@ import { projectGenUiReferences } from "@areal/gen-ui/references";
 import { GenUiCard } from "./GenUiWorkspace.js";
 import { submitMessage, sending, markSending } from "./Composer.js";
 import { useI18n } from "./i18n/IntlProvider.js";
+import { WorktreeStatus } from "./WorktreeStatus.js";
 import { TurnUsage } from "./TurnUsage.js";
 import { mcpResultKey, type McpResultSource, type McpResultState } from "./mcp-app-services.js";
 import { McpContentLabel } from "./McpComposerAttachments.js";
@@ -430,6 +431,7 @@ export function Messages({
       }}
     >
       <div className={embedded ? "message-column message-embedded-column" : "message-column"}>
+        <WorktreeStatus events={localThread.worktreeEvents} current={localThread.worktree} />
         {beforeTurns}
         {inherited.loading && <p role="status">正在加载继承历史…</p>}
         {inherited.error && <p role="alert">继承历史读取失败：{inherited.error}</p>}

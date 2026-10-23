@@ -47,10 +47,10 @@ class HistoryObservation {
       this.host.onChange();
     }
     if (['areal/mcp/app/tools/pending', 'areal/mcp/app/tools/cancelled'].includes(method)) {
-      this.host.onMcpPageToolNotice?.({ projectId: project.id, client, method, params });
+      this.host.onMcpPageToolNotice?.({ projectId: project.logicalProjectId ?? project.id, client, method, params });
       return;
     }
-    if (method === 'areal/mcp/app/notification') this.host.onMcpAppNotification?.({ projectId: project.id, ...params });
+    if (method === 'areal/mcp/app/notification') this.host.onMcpAppNotification?.({ projectId: project.logicalProjectId ?? project.id, ...params });
     this.host.analytics.observe(project.id, method, params);
     if (method === 'areal/thread/edited' && this.supportsBoundedHistory(client)) {
       const window = this.historyWindow(project, threadId);
@@ -59,10 +59,11 @@ class HistoryObservation {
       return;
     }
     project.model.event(method, params);
+    if (params?.task) void this.host.taskWorkspaceOwners.observeProject(project).catch(error => { project.error = error.message; this.host.onChange(); });
     if (method === 'areal/context/compacted' && params?.threadId) {
       void this.openThread(project, params.threadId).catch(() => {});
     }
-    if (!isTaskDraftConfiguration(project.configurations?.[params.threadId])) this.host.notifications.observe(project, method, params, this.host.library.value);
+    if (!isTaskDraftConfiguration(project.configurations?.[params.threadId])) this.host.notifications.observe(project.logicalProjectId ? { ...project, id: project.logicalProjectId } : project, method, params, this.host.library.value);
     if (method === 'thread/started' || method === 'turn/started' || method === 'turn/completed') {
       void this.host.library.recordThreadActivity(project.id, params.threadId ?? params.thread?.id,
         method === 'turn/completed' ? params.turn?.id ?? params.turnId : undefined).catch(() => {});
@@ -79,7 +80,7 @@ class HistoryObservation {
   }
 
   async startTaskMonitor(project, client) {
-    project.taskNotificationMonitor = new TaskNotificationMonitor(client, project.id,
+    project.taskNotificationMonitor = new TaskNotificationMonitor(client, project.logicalProjectId ?? project.id,
       notice => { if (this.host.currentConnection(project, client)) this.host.notifications.publish(notice); }, error => console.warn(this.host.providers.redact(`任务通知读取失败：${error.message}`)),
       async tasks => {
         if (!this.host.currentConnection(project, client)) return;
@@ -123,6 +124,7 @@ class HistoryObservation {
       if (!this.host.currentConnection(project, client)) return project.summaries;
       project.summaries = data;
       project.summariesLoaded = true;
+      await this.host.worktrees.observeProject(project);
       this.host.onChange();
       return data;
     });

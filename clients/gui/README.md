@@ -99,6 +99,10 @@ MCP 应用页面在窗口内保留。切换标签、隐藏面板、会话或项�
 
 `pnpm --dir clients/gui run test:gen-ui` 运行该功能的专项检查。接口和限额见[桌面 API](../../docs/api/desktop.md#生成式交互回答)。
 
+## Worktree 新会话
+
+新会话 Composer 的“自动隔离”可选择同仓库来源 Worktree、起始分支和新分支，并保存未来使用的根目录与 `areal` 前缀。隔离创建在首条消息执行前准备目录和独立 Core/Runtime，线程仍显示在原项目。创建记录、当前分支和实际目录沿宿主持久状态显示；失败或未知不回退来源目录。新目录不复制未提交改动、`.worktreeinclude` 文件或来源项目专有资源。旧 `working-tree` 快照来源明确拒绝，不自动 commit。既有共享目录的第二个独立作者会被阻断，不透明迁移。任务沿实际宿主路由；定时任务可在自动分配、已预约的项目外目录中规划、保存和执行，共享目录与无预约的旧安排不能启用。创建结果不确定时先核对原 UUID，再显式“保留原结果，返回草稿”，不删除资源或自动重发。定时 Run 的有效问题或审批响应会自动继续；暂停执行用 `taskResumeRun`，普通 Continue 仍不支持 goal 线程。从本目录运行 `node scripts/worktree-schedule-interactions.mjs` 可复验真实 Core 交互协议，payload 与协议结果分别报告，不代表 Electron/macOS 或成功文件写入。创建、恢复及 full-access、原生自主任务和外部工具的限制见 [Worktree 指南](../../docs/guides/worktrees.md)。
+
 ## 插件详情
 
 插件详情优先展示当前安装包的状态和下一步操作。安装前先解析并核对来源及内容摘要；认证、当前快照的 MCP 信任与连接分别确认，安装或启用插件不会授权钩子。连接结果未知时只核对原提交，不重复连接；断开操作同时撤销当前快照的 MCP 信任。

@@ -2,7 +2,7 @@ import { GenUiWorkspace } from "./GenUiWorkspace.js";
 import startupIcon from "../../app/assets/icon-1024.png";
 import { useI18n } from "./i18n/IntlProvider.js";
 import { WorkspaceFileTree } from "./workspace-file-tree/WorkspaceFileTree.js";
-import { WorkspaceFilePane, confirmCloseFiles } from "./WorkspaceFilePane.js";
+import { WorkspaceFilePane, confirmCloseFiles, workspaceDocumentOwner } from "./WorkspaceFilePane.js";
 import { GitPane } from "./GitPane.js";
 import { PluginCenter } from "./settings/PluginCenter.js";
 import type { ResourceDraftSeed } from "./settings/PluginSkillsPage.js";
@@ -59,7 +59,7 @@ import { Composer, attachmentDrafts, sending, subscribeSending } from "./Compose
 import { isTechnicalErrorMessage, recoveredOutcome, recoveryMessage, recoverySettings, sameRecoveryOwner, type RecoveryFailure, type RecoveryNotice, type RecoveryOwner } from "./recoveryPresentation.js";
 import { DraftComposer } from "./DraftComposer.js";
 import { ProjectlessDraft } from "./ProjectlessDraft.js";
-import { WorktreeStarter } from "./WorktreeStarter.js";
+import { WorktreeStarter, readWorktreeSelection, worktreeSelectionKey, type WorktreeSelection } from "./WorktreeStarter.js";
 import { ComposerWorkspaceContext } from "./ComposerWorkspaceContext.js";
 import { Queue } from "./Queue.js";
 import { browserAnnotationTitle } from "./browserAnnotations.js";
@@ -235,6 +235,7 @@ function AppContent({ services }: { services: PlatformServices }) {
   useEffect(() => services.onQuitRequested?.(() => requestNavigation(() => {})), [services, requestNavigation]);
   const { terminalLocation, nextPromptSuggestions } = useApplicationPreferences();
   const [snapshot, updateSnapshot] = useState<Snapshot>({ projects: [], connection: { state: "connecting" } });
+  const [worktreeSelections, setWorktreeSelections] = useState<Record<string, WorktreeSelection | undefined>>({});
   const backendActionInFlight = React.useRef(false);
   const [backendActionPending, setBackendActionPending] = useState(false);
   const [backendActionError, setBackendActionError] = useState("");
@@ -435,9 +436,22 @@ function AppContent({ services }: { services: PlatformServices }) {
       return rank(a.id) - rank(b.id);
     });
   // Sidebar visibility must not change the owner of an explicitly opened resource.
-  const project = noProject ? undefined : snapshot.projects.find((p) => p.id === projectId)
+  const logicalProject = noProject ? undefined : snapshot.projects.find((p) => p.id === projectId)
     ?? (snapshot.connection?.state === "ready" ? projects.find(p => !p.projectless) : undefined);
+  const executionThread = logicalProject?.state?.threads[threadId];
+  const project = logicalProject && executionThread?.worktree?.directory ? {
+    ...logicalProject, logicalRoot: logicalProject.root, root: executionThread.worktree.directory,
+    core: { ...logicalProject.core, ...executionThread.executionCore },
+    state: { ...logicalProject.state, connected: executionThread.executionConnected ?? logicalProject.state?.connected },
+    error: executionThread.executionError ?? logicalProject.error,
+  } : logicalProject;
   const thread = project?.state?.threads[threadId];
+  const worktreeSelection = project ? Object.hasOwn(worktreeSelections, project.id) ? worktreeSelections[project.id] : readWorktreeSelection(project.id) : undefined;
+  const changeWorktreeSelection = (pid: string, value: WorktreeSelection | undefined) => {
+    if (value) localStorage.setItem(worktreeSelectionKey(pid), JSON.stringify(value));
+    else localStorage.removeItem(worktreeSelectionKey(pid));
+    setWorktreeSelections(previous => ({ ...previous, [pid]: value }));
+  };
   const restorationOwner: RestorationOwner = { projectId: project?.id ?? "", threadId,
     connectionGeneration: project?.core?.connectionGeneration ?? 0 };
   const selectedRestoration = React.useRef(restorationOwner);
@@ -626,7 +640,9 @@ function AppContent({ services }: { services: PlatformServices }) {
       const target = recoverySnapshot.current.projects.find(item => item.id === (params.projectId ?? selected.projectId));
       const owner = { projectId: params.projectId ?? selected.projectId, threadId: params.threadId ?? selected.threadId,
         connectionGeneration: target?.core?.connectionGeneration ?? selected.connectionGeneration };
-      const request = ["create", "configure"].includes(name) ? { ...params, requestId: params.requestId ?? crypto.randomUUID() } : params;
+      const scoped = name === "workspace" && threadId && params.projectId === project?.id
+        && !params.threadId && !String(params.operation).startsWith("worktree") ? { ...params, threadId } : params;
+      const request = ["create", "configure"].includes(name) ? { ...scoped, requestId: params.requestId ?? crypto.randomUUID() } : scoped;
       try {
         return await call(services, name, request);
       } catch (cause) {
@@ -651,7 +667,7 @@ function AppContent({ services }: { services: PlatformServices }) {
         throw cause;
       }
     },
-    [services],
+    [services, project?.id, threadId],
   );
   const cancelledPredictions = React.useRef(new Set<string>());
   useEffect(() => {
@@ -673,9 +689,16 @@ function AppContent({ services }: { services: PlatformServices }) {
   }, [nextPromptSuggestions, snapshot.projects, action]);
   // Resource pages own their loading, validation and recovery feedback.
   const resourceAction: Action = useCallback(
-    (name: import("./services.js").CommandName, params: Data = {}) => call(services, name, params),
-    [services],
+    (name: import("./services.js").CommandName, params: Data = {}) => {
+      return call(services, name, name === "workspace" && threadId && params.projectId === project?.id
+        && !params.threadId && !String(params.operation).startsWith("worktree") ? { ...params, threadId } : params);
+    },
+    [services, project?.id, threadId],
   );
+  const contextualFileOpen = useMemo<PlatformServices["fileOpen"]>(() => services.fileOpen ? request => {
+    return services.fileOpen!("projectId" in request && request.projectId === project?.id && threadId
+      ? { ...request, threadId } : request);
+  } : undefined, [services.fileOpen, project?.id, threadId]);
   const restoreConversation = useCallback((owner: RestorationOwner, operation: "connect" | "open", options: { connectService?: boolean } = {}) => {
     const previous = restorationAttempt.current;
     if (sameRestorationOwner(previous, owner) && previous?.operation === operation && previous.pending) return previous.promise;
@@ -1004,8 +1027,8 @@ function AppContent({ services }: { services: PlatformServices }) {
       // A temporary view owns one clean document slot. Edited documents retain
       // their existing revision/draft owner and can never be replaced by browsing.
       const replace = previewFileTab && project &&
-        !dirtyFiles[`${project.id}:${previewFileTab.slice(5)}`] &&
-        confirmCloseFiles(project.id, [previewFileTab.slice(5)]);
+        !dirtyFiles[`${workspaceDocumentOwner(project.id, project.root)}:${previewFileTab.slice(5)}`] &&
+        confirmCloseFiles(project.id, [previewFileTab.slice(5)], project.root);
       setPanelTabs(tabs => replace && tabs.includes(previewFileTab)
         ? tabs.map(id => id === previewFileTab ? next : id)
         : [...tabs, next]);
@@ -1222,6 +1245,7 @@ function AppContent({ services }: { services: PlatformServices }) {
       id={row.summary.id}
       nested={!row.owner.projectless && !row.pinned}
       title={row.title}
+      worktree={row.summary.worktree}
       active={project?.id === row.owner.id && threadId === row.summary.id}
       pinned={row.pinned}
       running={row.running}
@@ -1327,8 +1351,8 @@ function AppContent({ services }: { services: PlatformServices }) {
             <DropdownMenuContent>
               <DropdownMenuItem onClick={() => requestNavigation(() => {updateSettingsOpen(false);setTaskScope(owner.id);setTaskNotification(undefined);setTaskCenterOpen(true);})}>定时任务</DropdownMenuItem>
               <DropdownMenuItem onClick={() => startRename({ operation: "renameProject", projectId: owner.id }, library.projects?.[owner.id]?.title || owner.root.split("/").pop())}>重命名</DropdownMenuItem>
-              <DropdownMenuItem disabled={!services.fileOpen} onClick={() => void services.fileOpen?.({ operation: "open", projectId: owner.id, path: "." }).catch(cause => setError(cause.message))}>在默认应用中打开</DropdownMenuItem>
-              <DropdownMenuItem disabled={!services.fileOpen} onClick={() => void services.fileOpen?.({ operation: "reveal", projectId: owner.id, path: "." }).catch(cause => setError(cause.message))}>在文件管理器中显示</DropdownMenuItem>
+              <DropdownMenuItem disabled={!services.fileOpen} onClick={() => void contextualFileOpen?.({ operation: "open", projectId: owner.id, path: "." }).catch(cause => setError(cause.message))}>在默认应用中打开</DropdownMenuItem>
+              <DropdownMenuItem disabled={!services.fileOpen} onClick={() => void contextualFileOpen?.({ operation: "reveal", projectId: owner.id, path: "." }).catch(cause => setError(cause.message))}>在文件管理器中显示</DropdownMenuItem>
               <DropdownMenuItem onClick={() => organize({ operation: "pinProject", projectId: owner.id, pinned: !library.projects?.[owner.id]?.pinned })}>{library.projects?.[owner.id]?.pinned ? "取消置顶项目" : "置顶项目"}</DropdownMenuItem>
               {([[-1, "上移"], [1, "下移"]] as const).map(([direction, label]) => {
                 const siblings = projects.filter(candidate => (!!library.projects?.[candidate.id]?.pinned === !!library.projects?.[owner.id]?.pinned));
@@ -1390,18 +1414,18 @@ function AppContent({ services }: { services: PlatformServices }) {
     if (panel.startsWith("file:"))
       return (
         <div className="flex h-full min-h-0 flex-col">
-        {threadId && <McpAppEntrypoints servers={mcpWorkspace.servers} loadMetadataImage={mcpWorkspace.loadMetadataImage} kind="file" fileName={panel.slice(5)} onOpen={(server, tool) => { if (dirtyFiles[`${project.id}:${panel.slice(5)}`]) { setError("请先保存当前文件，再用应用打开。"); return; } void mcpWorkspace.openApp(server, tool, {kind:"file",filePath:panel.slice(5)}).catch(cause=>setError(cause.message)); }}/>}<WorkspaceFilePane
-          key={`${project.id}:${panel}`}
+        {threadId && <McpAppEntrypoints servers={mcpWorkspace.servers} loadMetadataImage={mcpWorkspace.loadMetadataImage} kind="file" fileName={panel.slice(5)} onOpen={(server, tool) => { if (dirtyFiles[`${workspaceDocumentOwner(project.id, project.root)}:${panel.slice(5)}`]) { setError("请先保存当前文件，再用应用打开。"); return; } void mcpWorkspace.openApp(server, tool, {kind:"file",filePath:panel.slice(5)}).catch(cause=>setError(cause.message)); }}/>}<WorkspaceFilePane
+          key={`${project.id}:${project.root}:${panel}`}
           projectId={project.id}
           root={project.root}
           path={panel.slice(5)}
           action={action}
           onDirty={(path, dirty) => {
-            setDirtyFiles((current) => ({ ...current, [`${project.id}:${path}`]: dirty }));
+            setDirtyFiles((current) => ({ ...current, [`${workspaceDocumentOwner(project.id, project.root)}:${path}`]: dirty }));
             if (dirty) setPreviewFileTab(current => current === `file:${path}` ? undefined : current);
           }}
           onLink={onLink}
-          fileOpen={services.fileOpen}
+          fileOpen={contextualFileOpen}
           preferredFileOpenTarget={library.settings?.fileOpenTarget}
           filesOpen={filesOpen}
           onToggleFiles={() => setFilesOpen(value => !value)}
@@ -1422,7 +1446,7 @@ function AppContent({ services }: { services: PlatformServices }) {
           root={project.root}
           action={resourceAction}
           onFile={openFile}
-          fileOpen={services.fileOpen}
+          fileOpen={contextualFileOpen}
           commentsDisabled={!!(reviewRequest?.owner === panelOwner && reviewRequest.threadId && reviewRequest.threadId !== threadId) || !project.state?.connected || !!thread?.desktop?.archived || !!(thread?.source === "nativeTaskAgent" && thread?.goalOwner) || !!pending || admitting || (!!threadId && !thread)}
           filesOpen={filesOpen}
           onToggleFiles={() => setFilesOpen(value => !value)}
@@ -1671,7 +1695,7 @@ function AppContent({ services }: { services: PlatformServices }) {
           setFontSize={setUiFontSize}
         />
       ) : settingsTab === "常规" ? (
-        <GeneralSettings settings={library.settings} power={snapshot.power} menuBar={snapshot.menuBar} projectlessDirectory={snapshot.projectless?.directory} chooseProjectlessDirectory={services.chooseProjectlessDirectory} fileOpen={services.fileOpen} action={resourceAction} connected={snapshot.connection?.state === "ready"} />
+        <GeneralSettings settings={library.settings} power={snapshot.power} menuBar={snapshot.menuBar} projectlessDirectory={snapshot.projectless?.directory} chooseProjectlessDirectory={services.chooseProjectlessDirectory} fileOpen={contextualFileOpen} action={resourceAction} connected={snapshot.connection?.state === "ready"} />
       ) : settingsTab === "浏览器" ? (
         <BrowserSettings settings={library.settings} action={resourceAction} connected={snapshot.connection?.state === "ready"} />
       ) : settingsTab === "钩子" ? (
@@ -1951,7 +1975,7 @@ function AppContent({ services }: { services: PlatformServices }) {
                               <ProjectFolderIcon />
                               <span>{library.projects?.[project.id]?.title || project.root.split("/").pop()}</span>
                             </div>
-                            <ComposerWorkspaceContext project={project} action={resourceAction} backendReady={snapshot.connection?.state === "ready"} />
+                            <ComposerWorkspaceContext project={project} threadId={thread?.id} action={resourceAction} backendReady={snapshot.connection?.state === "ready"} />
                             </div>
                           </div>
                         )}
@@ -2035,10 +2059,12 @@ function AppContent({ services }: { services: PlatformServices }) {
                         </DropdownMenu>
                           {project && <ComposerWorkspaceContext project={project} action={resourceAction} backendReady={snapshot.connection?.state === "ready"} />}
                           </div>
-                        {project && <WorktreeStarter key={project.id} project={project} action={resourceAction} onOpen={async id => { setSnapshot(await services.snapshot()); newTask(id); }} />}
+                        {project && <WorktreeStarter key={project.id} project={project} action={resourceAction} value={worktreeSelection} onChange={value => changeWorktreeSelection(project.id, value)} disabled={admitting || !!project.pending?.length} />}
                       </div>
                       {project ? (
                           <DraftComposer
+                            worktree={worktreeSelection}
+                            onWorktreeCreated={() => changeWorktreeSelection(project.id, undefined)}
                             appEntries={appEntries}
                             surfaceLayout={workspaceView === "panel" ? "compact" : "default"}
                             onAnnotate={openImageAnnotation}
@@ -2107,15 +2133,15 @@ function AppContent({ services }: { services: PlatformServices }) {
               navigation: !sidebar ? <button className="icon-button" aria-label="展开侧栏" aria-expanded={false} aria-controls="areal-sidebar" onClick={() => setSidebar(true)}><SidebarToggleIcon /></button> : undefined }}
             dirtyFiles={Object.fromEntries(
               Object.entries(dirtyFiles)
-                .filter(([key]) => key.startsWith(`${project.id}:`))
-                .map(([key, value]) => [key.slice(project.id.length + 1), value]),
+                .filter(([key]) => key.startsWith(`${workspaceDocumentOwner(project.id, project.root)}:`))
+                .map(([key, value]) => [key.slice(workspaceDocumentOwner(project.id, project.root).length + 1), value]),
             )}
             canClose={async (names) => {
               for (const name of names.filter(name => name.startsWith("mcp-app:"))) await mcpWorkspace.close(name);
               const paths = names
                 .filter((name) => name.startsWith("file:"))
                 .map((name) => name.slice(5));
-              if (!confirmCloseFiles(project.id, paths)) return false;
+              if (!confirmCloseFiles(project.id, paths, project.root)) return false;
               try {
                 for (const name of names.filter(isBrowserTab)) {
                   await browserWorkspace.request("release", { pageId: browserPageId(name), userIntent: true });
@@ -2124,7 +2150,7 @@ function AppContent({ services }: { services: PlatformServices }) {
               } catch (cause) { setError((cause as Error).message); return false; }
               setDirtyFiles((current) => {
                 const next = { ...current };
-                for (const path of paths) delete next[`${project.id}:${path}`];
+                for (const path of paths) delete next[`${workspaceDocumentOwner(project.id, project.root)}:${path}`];
                 return next;
               });
               return true;

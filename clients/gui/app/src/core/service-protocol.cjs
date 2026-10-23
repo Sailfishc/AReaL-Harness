@@ -71,16 +71,21 @@ class DesktopService {
       for (const socket of this.clients) this.send(socket, { method: 'mcpAppNotification', params });
     };
   }
+  projectForThread(projectId, threadId) {
+    const owner = this.backend.worktrees?.executionProjectId(projectId, threadId) ?? projectId;
+    return this.backend.projects.get(owner);
+  }
   bindMcpPageOwner(socket, project, client, request, response) {
     const instance = request.operation === 'mcpAppOpenFromResult' ? response?.status === 'open' && response.instance : response;
     if (!instance?.instanceId) return;
-    const key = JSON.stringify([request.projectId, instance.instanceId]);
+    const projectId = request.logicalProjectId ?? project.logicalProjectId ?? request.projectId;
+    const key = JSON.stringify([projectId, instance.instanceId]);
     const previous = this.mcpPageOwners.get(key);
     if (this.closed || !this.clients.has(socket) || socket.readyState !== 1 || project.client !== client || !client.ready
       || previous && (previous.socket !== socket || previous.client !== client || previous.revoked)) throw new Error('Page tool opening owner lease is stale');
     if (previous) return;
     if (this.mcpPageOwners.size >= 128) throw new Error('Page tool owner capacity reached');
-    this.mcpPageOwners.set(key, { project, client, socket, ownerId: socket.mcpPageOwnerId ??= randomUUID(), projectId: request.projectId,
+    this.mcpPageOwners.set(key, { project, client, socket, ownerId: socket.mcpPageOwnerId ??= randomUUID(), projectId,
       threadId: request.threadId, instanceId: instance.instanceId, generation: instance.generation, revoked: false });
   }
   async mcpPageTools(socket, params) {
@@ -437,7 +442,7 @@ class DesktopService {
           || JSON.stringify(params?.operations) !== JSON.stringify(['describe', 'observe', 'capture', 'act', 'wait', 'navigate', 'newPage', 'diagnostics', 'runBatch'])) throw new Error('浏览器宿主能力不兼容');
         if (![projectId, threadId, pageId, browserHostId].every(value => typeof value === 'string' && value.length > 0 && value.length <= 256)
           || ![hostGeneration, pageGeneration, controlEpoch].every(Number.isSafeInteger)) throw new Error('无效浏览页面身份');
-        const project = this.backend.projects.get(projectId);
+        const project = this.projectForThread(projectId, threadId);
         const thread = project?.model.state.threads[threadId];
         if (!thread?.dynamicTools?.some(tool => tool.name === 'browser_v1')) throw new Error('当前聊天未启用浏览器');
         const coreInstanceId = project.service?.serviceId, coreGeneration = project.service?.generation;
@@ -459,7 +464,7 @@ class DesktopService {
           } else await this.backend.bindBrowserHostForClaim(project, threadId);
           if (attempt.cancelled || this.browserClaimAttempts.get(key) !== attempt
             || this.browserClaims.get(key) !== previous || !this.clients.has(socket) || this.closed
-            || this.backend.projects.get(projectId) !== project || !this.backend.currentConnection(project, coreClient)
+            || this.projectForThread(projectId, threadId) !== project || !this.backend.currentConnection(project, coreClient)
             || project.service?.serviceId !== coreInstanceId
             || project.service?.generation !== coreGeneration || socket.readyState !== 1) {
             throw new Error('认领期间页面、Core 或桌面连接已换代，请重新操作');
@@ -548,7 +553,7 @@ class DesktopService {
       try {
         const entryKey = method === 'command' && ['send', 'editMessage', 'continue'].includes(params.name)
           ? browserKey(params.request.projectId, params.request.threadId) : null;
-        const entryProject = entryKey && this.backend.projects.get(params.request.projectId);
+        const entryProject = entryKey && this.projectForThread(params.request.projectId, params.request.threadId);
         const entry = entryProject?.model.state.threads[params.request.threadId]
           ? { socket, project: entryProject, client: entryProject.client } : null;
         if (entry) {
@@ -622,7 +627,7 @@ class DesktopService {
     for (const entry of [...this.browserEntrypoints.get(key) ?? []]) {
       const accepted = await entry.ready;
       const current = () => this.browserEntrypoints.get(key)?.has(entry) && entry.socket.readyState === 1
-        && this.backend.projects.get(request.projectId) === entry.project
+        && this.projectForThread(request.projectId, request.threadId) === entry.project
         && this.backend.currentConnection(entry.project, entry.client)
         && entry.project.service?.serviceId === request.coreInstanceId
         && entry.project.service?.generation === request.coreGeneration;
@@ -682,8 +687,8 @@ class DesktopService {
       && claim === this.browserClaims.get(key)
       && (!entry || this.browserEntrypoints.get(key)?.has(entry))
       && (!claim || (claim.coreInstanceId === request.coreInstanceId && claim.coreGeneration === request.coreGeneration))
-      && this.backend.projects.get(request.projectId)?.service?.serviceId === request.coreInstanceId
-      && this.backend.projects.get(request.projectId)?.service?.generation === request.coreGeneration;
+      && this.projectForThread(request.projectId, request.threadId)?.service?.serviceId === request.coreInstanceId
+      && this.projectForThread(request.projectId, request.threadId)?.service?.generation === request.coreGeneration;
     if (!current()) return { error: 'human_control', dispatch: 'not_sent' };
     const result = await this.dispatchBrowserDiscovery(request, key, socket, 'prepare');
     if (!current()) return { error: 'human_control', dispatch: 'not_sent' };
@@ -716,13 +721,13 @@ class DesktopService {
     if (!record || record.key !== key || !isDeepStrictEqual(record.plan, plan)
       || record.plan.expiresAt <= Date.now() || record.socket.readyState !== 1
       || record.claim !== claim || request.signal?.aborted
-      || this.backend.projects.get(request.projectId)?.service?.serviceId !== request.coreInstanceId
-      || this.backend.projects.get(request.projectId)?.service?.generation !== request.coreGeneration
+      || this.projectForThread(request.projectId, request.threadId)?.service?.serviceId !== request.coreInstanceId
+      || this.projectForThread(request.projectId, request.threadId)?.service?.generation !== request.coreGeneration
       || plan.coreInstanceId !== request.coreInstanceId || plan.coreGeneration !== request.coreGeneration
       || plan.projectId !== request.projectId || plan.threadId !== request.threadId
       || plan.turnId !== request.turnId || plan.callId !== request.callId
       || (record.entry && (!this.browserEntrypoints.get(key)?.has(record.entry)
-        || this.backend.projects.get(request.projectId) !== record.entry.project
+        || this.projectForThread(request.projectId, request.threadId) !== record.entry.project
         || !this.backend.currentConnection(record.entry.project, record.entry.client)))
       || (claim && !isDeepStrictEqual(record.pages, [...claim.pages.values()]))) return null;
     return record;
@@ -842,7 +847,7 @@ class DesktopService {
       if (action && phase === 'execute') throw new Error('Browser action outcome unknown after takeover');
       return browserFailure('human_control', 'Browser authorization was revoked');
     }
-    const currentProject = this.backend.projects.get(projectId);
+    const currentProject = this.projectForThread(projectId, threadId);
     if (currentProject?.service?.serviceId !== coreInstanceId || currentProject.service.generation !== coreGeneration) {
       if (input.operation === 'runBatch' && phase === 'execute') return unknownBatch();
       if (action && phase === 'execute') throw new Error('Browser action outcome unknown after deployment change');
@@ -888,7 +893,7 @@ class DesktopService {
       const bytes = Buffer.from(result.imageBase64, 'base64');
       if (!bytes.length || bytes.length > 2 * 1024 * 1024 || bytes.toString('base64') !== result.imageBase64)
         throw new Error('Invalid browser image');
-      const project = this.backend.projects.get(projectId);
+      const project = this.projectForThread(projectId, threadId);
       const url = new URL(project.endpoint);
       url.protocol = url.protocol === 'wss:' ? 'https:' : 'http:';
       url.pathname = '/areal/blobs'; url.search = '';
@@ -901,7 +906,7 @@ class DesktopService {
       const media = await uploaded.json();
       if (signal?.aborted || (this.browserClaims.get(key) !== claim || claim.pages.get(pageClaim.pageId) !== pageClaim) || claim.socket.readyState !== 1)
         return browserFailure('human_control', 'Browser authorization was revoked during capture');
-      const current = this.backend.projects.get(projectId);
+      const current = this.projectForThread(projectId, threadId);
       if (current?.service?.serviceId !== coreInstanceId || current.service.generation !== coreGeneration)
         return browserFailure('host_unavailable', 'Core deployment changed during capture');
       const { imageBase64, ...metadata } = result;

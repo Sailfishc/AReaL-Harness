@@ -198,6 +198,8 @@ class ProjectConnections {
     }, onServerRequest: async (method, params, context) => {
       if (method === 'areal/task/prepare') {
         this.requireConnection(project, client);
+        await this.host.scheduleAdmission.prepare(project, params);
+        this.requireConnection(project, client);
         if (params.intent === 'resume') return {};
         await this.host.resources.beforeCreate(project);
         this.requireConnection(project, client);
@@ -210,7 +212,7 @@ class ProjectConnections {
       const connected = this.currentConnection(project, client);
       // Core invokes only tools bound to this connection. The local Thread
       // projection can lag the committed attachment until its event arrives.
-      const result = connected ? (await this.host.browserRead?.({ projectId: project.id, threadId: params.threadId,
+      const result = connected ? (await this.host.browserRead?.({ projectId: project.logicalProjectId ?? project.id, threadId: params.threadId,
         turnId: params.turnId, callId: params.callId, toolHostGeneration: params.hostGeneration, arguments: params.arguments,
         phase: method === 'areal/browser/prepare' ? 'prepare' : 'execute', browserApproval: params.browserApproval,
         coreInstanceId: project.service?.serviceId, coreGeneration: project.service?.generation,

@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { CoreClient } from '../packages/runtime-client/core.js';
 const require = createRequire(import.meta.url);
 const { CoreBackend } = require('../app/src/core/backend.cjs');
+const { WorktreeAdmission } = require('../app/src/core/worktree-admission.cjs');
 const { validateCommand, commandSemantics } = require('../packages/workbench/client/desktop-contract.cjs');
 const { workspaceCommand } = require('../app/src/core/workspace.cjs');
 
@@ -22,6 +23,7 @@ function fixture(read, { archived = false, bounded = true, afterResult = () => {
   const backend = Object.assign(Object.create(CoreBackend.prototype), { projects: new Map([['project', project]]), starting: new Map(),
     onChange() {}, library: { recordThreadActivity: async () => {} }, providers: { redact: value => value }, lifecycleOperations: { activeTargets: new Set(), blocking: () => false },
     start: async () => project });
+  backend.worktreeAdmission = new WorktreeAdmission(backend);
   project.client = { ready: true, closed: false,
     capabilities: { methods: ['areal/thread/observe', 'areal/conversation/history', 'areal/subscription/remove'], features: { boundedObservation: bounded, boundedHistory: bounded } },
     request: async (method, params, options) => {

@@ -41,6 +41,8 @@ async function workspaceCommand(backend, request) {
   const project = backend.saved.find(item => item.id === request.projectId);
   if (!project) throw new Error('未知工作区');
   switch (request.operation) {
+    case 'worktreeOptions': return backend.worktrees.options(project, request.sourceRoot);
+    case 'worktreeSettings': return backend.worktrees.configure(request);
     case 'worktreeCreate': return backend.worktrees.create(project, request);
     case 'worktreeRead': return backend.worktrees.read(project, request.requestId);
     case 'worktreeOpen': return backend.worktrees.open(project, request.requestId);

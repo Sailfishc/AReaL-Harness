@@ -463,16 +463,16 @@ class CorePreview {
       view.setVisible(true);
   }
   workspacePages(projectId, threadId) {
-    return [...this.pages.values()].filter(page => page.coreInstanceId === this.coreIdentity(projectId)
+    return [...this.pages.values()].filter(page => page.coreInstanceId === this.coreIdentity(projectId, threadId)
       && page.projectId === projectId && page.threadId === threadId);
   }
   page(projectId, threadId, id) {
-    const selected = id ?? this.selected.get(workspaceKey(this.coreIdentity(projectId), projectId, threadId));
-    return selected ? this.pages.get(pageKey(this.coreIdentity(projectId), projectId, threadId, selected)) : null;
+    const selected = id ?? this.selected.get(workspaceKey(this.coreIdentity(projectId, threadId), projectId, threadId));
+    return selected ? this.pages.get(pageKey(this.coreIdentity(projectId, threadId), projectId, threadId, selected)) : null;
   }
   pageStillOwned(page) {
     return this.pages.get(pageKey(page.coreInstanceId, page.projectId, page.threadId, page.id)) === page
-      && page.coreInstanceId === this.coreIdentity(page.projectId)
+      && page.coreInstanceId === this.coreIdentity(page.projectId, page.threadId)
       && this.owns(page.projectId, page.threadId);
   }
   developmentPromptFence(page) {
@@ -506,14 +506,14 @@ class CorePreview {
       operation: page.batchProgress ?? null };
   }
   snapshot(projectId, threadId) {
-    const key = workspaceKey(this.coreIdentity(projectId), projectId, threadId);
+    const key = workspaceKey(this.coreIdentity(projectId, threadId), projectId, threadId);
     return { sequence: this.eventSequences.get(key) ?? 0, workspaceId: key,
       selectedPageId: this.selected.get(key) ?? null,
       pages: this.workspacePages(projectId, threadId).map(page => this.metadata(page)),
       fileReceipts: this.fileReceipts.get(key) ?? [] };
   }
   subscribe(projectId, threadId, listener) {
-    const item = { key: workspaceKey(this.coreIdentity(projectId), projectId, threadId), listener };
+    const item = { key: workspaceKey(this.coreIdentity(projectId, threadId), projectId, threadId), listener };
     this.listeners.add(item);
     return { snapshot: this.snapshot(projectId, threadId), unsubscribe: () => this.listeners.delete(item) };
   }
@@ -560,7 +560,7 @@ class CorePreview {
       if (next) this.selected.set(workspace, next.id); else this.selected.delete(workspace);
     }
     this.changed(page, 'pageRemoved');
-    if (!this.owns(page.projectId, page.threadId) || page.coreInstanceId !== this.coreIdentity(page.projectId))
+    if (!this.owns(page.projectId, page.threadId) || page.coreInstanceId !== this.coreIdentity(page.projectId, page.threadId))
       this.fileReceipts.delete(workspace);
     if (!preserveContext && ![...this.pages.values()].some(other => other.partition === page.partition))
       this.releaseWorkspaceContext(page);
@@ -600,7 +600,7 @@ class CorePreview {
   }
   releaseInvalidOwners() {
     for (const [key, page] of this.pages) if (!this.owns(page.projectId, page.threadId)
-      || page.coreInstanceId !== this.coreIdentity(page.projectId)) this.release(key);
+      || page.coreInstanceId !== this.coreIdentity(page.projectId, page.threadId)) this.release(key);
   }
   closeNative(page) {
     this.cancelHumanGesture(page);
@@ -766,7 +766,7 @@ class CorePreview {
   revokeAll() { for (const page of this.pages.values()) this.revoke(page); }
   prepareDiscovery(request) {
     if (!this.owns(request.projectId, request.threadId)
-      || this.coreIdentity(request.projectId) !== request.coreInstanceId) throw new Error('plan_stale');
+      || this.coreIdentity(request.projectId, request.threadId) !== request.coreInstanceId) throw new Error('plan_stale');
     for (const [id, record] of this.discoveryPlans)
       if (record.plan.expiresAt <= Date.now()) this.discoveryPlans.delete(id);
     if (this.discoveryPlans.size >= 128) throw new Error('not_sent');
@@ -805,7 +805,7 @@ class CorePreview {
       || approved.coreGeneration !== request.coreGeneration || approved.projectId !== request.projectId
       || approved.threadId !== request.threadId || approved.turnId !== request.turnId || approved.callId !== request.callId
       || approved.browserHostId !== this.browserHostId || approved.hostGeneration !== this.hostGeneration
-      || this.coreIdentity(request.projectId) !== request.coreInstanceId || !this.owns(request.projectId, request.threadId)
+      || this.coreIdentity(request.projectId, request.threadId) !== request.coreInstanceId || !this.owns(request.projectId, request.threadId)
       || page !== saved.page || (this.eventSequences.get(workspace) ?? 0) !== saved.sequence)
       throw new Error('plan_stale');
     if (page) {
@@ -828,11 +828,11 @@ class CorePreview {
   }
   async ensureAgentPage(projectId, threadId) {
     // 仅供已通过 Core 权限的工具回调调用；展示页面不会隐式认领。
-    if (!this.owns(projectId, threadId) || !this.coreIdentity(projectId)) throw new Error('Browser thread unavailable');
+    if (!this.owns(projectId, threadId) || !this.coreIdentity(projectId, threadId)) throw new Error('Browser thread unavailable');
     let page = this.page(projectId, threadId);
     if (!page) {
       const id = randomUUID();
-      page = this.create(pageKey(this.coreIdentity(projectId), projectId, threadId, id), projectId, threadId, { id });
+      page = this.create(pageKey(this.coreIdentity(projectId, threadId), projectId, threadId, id), projectId, threadId, { id });
     }
     if (!page.view || page.crashed || page.view.webContents.isDestroyed()) throw new Error('Browser page unavailable');
     const c = page.view.webContents;
@@ -2670,7 +2670,7 @@ class CorePreview {
       },
     });
     const page = { id: options.id ?? randomUUID(), pageGeneration: options.pageGeneration ?? 1, view, partition,
-      session: view.webContents.session, coreInstanceId: this.coreIdentity(projectId), projectId, threadId,
+      session: view.webContents.session, coreInstanceId: this.coreIdentity(projectId, threadId), projectId, threadId,
       openerId: options.openerId ?? null, origin: options.origin ?? 'human', title: '', error: '', url: '', committedUrl: '', crashed: false,
       control: 'human', controlEpoch: 0, documentGeneration: 0, viewportRevision: 0, refs: new Map(), nativeControls: new Map(), optionIds: new Map(), nativeControlKey: randomUUID(), observedViewportKey: null,
       plans: new Map(), lastObservation: null, needsObservation: true, nextRef: 0,
@@ -2835,7 +2835,7 @@ class CorePreview {
       // Electron must never create an unowned BrowserWindow. A local human click
       // may create a sibling only after URL and current ownership checks.
       if (page.control !== 'human' || !this.pageStillOwned(page) || !this.owns(projectId, threadId)
-        || page.coreInstanceId !== this.coreIdentity(projectId)
+        || page.coreInstanceId !== this.coreIdentity(projectId, threadId)
         || Date.now() > (page.userPopupIntentUntil ?? 0))
         return { action: 'deny' };
       page.userPopupIntentUntil = 0;
@@ -3020,7 +3020,7 @@ class CorePreview {
     this.window.contentView.addChildView(view);
     view.setVisible(false);
     this.pages.set(owner, page);
-    const workspace = workspaceKey(this.coreIdentity(projectId), projectId, threadId);
+    const workspace = workspaceKey(this.coreIdentity(projectId, threadId), projectId, threadId);
     if (!this.selected.has(workspace)) this.selected.set(workspace, page.id);
     this.changed(page, 'pageAdded');
     return page;
@@ -3074,7 +3074,7 @@ class CorePreview {
     validatePreview(request);
     if (request.operation === 'state' && !this.owns(request.projectId, request.threadId))
       return this.state(null);
-    const workspace = workspaceKey(this.coreIdentity(request.projectId), request.projectId, request.threadId);
+    const workspace = workspaceKey(this.coreIdentity(request.projectId, request.threadId), request.projectId, request.threadId);
     let page = this.page(request.projectId, request.threadId, request.pageId);
     let key = page && pageKey(page.coreInstanceId, request.projectId, request.threadId, page.id);
     if (!page && request.operation === 'state') {
@@ -3198,7 +3198,7 @@ class CorePreview {
       return this.state(page);
     }
     if (request.operation !== 'state' && (!this.owns(request.projectId, request.threadId)
-      || !this.coreIdentity(request.projectId)))
+      || !this.coreIdentity(request.projectId, request.threadId)))
       throw new Error('请选择已连接 Core 的有效任务');
     if (request.operation === 'openLink') {
       const url = webUrl(request.url), host = new URL(url).hostname;
@@ -3212,7 +3212,7 @@ class CorePreview {
     }
     if (request.operation === 'newPage') {
       const id = randomUUID();
-      const child = this.create(pageKey(this.coreIdentity(request.projectId), request.projectId, request.threadId, id), request.projectId, request.threadId,
+      const child = this.create(pageKey(this.coreIdentity(request.projectId, request.threadId), request.projectId, request.threadId, id), request.projectId, request.threadId,
         { id, openerId: page?.id ?? null, origin: 'human' });
       this.selected.set(workspace, child.id);
       this.changed(child);
@@ -3238,7 +3238,7 @@ class CorePreview {
     }
     if (!page && ['show', 'navigate', 'reload'].includes(request.operation)) {
       const id = randomUUID();
-      key = pageKey(this.coreIdentity(request.projectId), request.projectId, request.threadId, id);
+      key = pageKey(this.coreIdentity(request.projectId, request.threadId), request.projectId, request.threadId, id);
       page = this.create(key, request.projectId, request.threadId, { id });
     }
     if (page && ['show', 'navigate', 'reload'].includes(request.operation)

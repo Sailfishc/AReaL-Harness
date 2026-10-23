@@ -73,7 +73,10 @@ class SubmissionRecovery {
         project = { ...saved, model: new CoreTaskModel(), pending: [], outcomes: {}, configurations: {},
           configurationChanges: new Map(), error: null, summaries: [] };
         this.host.projects.set(id, project);
-        project.model.subscribe(() => this.host.onChange());
+        project.model.subscribe(() => {
+          void this.host.worktrees.observeProject(project).catch(error => { project.error = error.message; this.host.onChange(); });
+          this.host.onChange();
+        });
       }
       if (!project.journalLoaded) {
         try { project.pending = JSON.parse(await readFile(join(this.host.home, `${id}-pending.json`), 'utf8')); }
