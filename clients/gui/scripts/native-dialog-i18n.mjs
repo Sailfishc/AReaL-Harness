@@ -58,6 +58,12 @@ export function nativeDialogI18n(scratch) {
         await page.evaluate(() => window.arealDesktop.setInterfaceLocale('unsupported-fixture-locale'));
         await app().evaluate(({ ipcMain }) => ipcMain.emit('areal-core:interface-locale', { sender: null, senderFrame: null }, 'zh-CN'));
         await checkDialogs('en');
+        await page.reload();
+        await page.getByTestId('areal-workbench').waitFor({ timeout: 120000 });
+        assert.equal(await page.locator('html').getAttribute('lang'), 'en');
+        await checkDialogs('en');
+        if (!await page.locator('.settings-category-navigation').isVisible()) await button('Settings').click();
+        await page.locator('.settings-category-navigation').getByRole('button', { name: 'General', exact: true }).click();
         await selectLocale('en', 'zh-CN');
         await checkDialogs('zh-CN');
         await selectLocale('zh-CN', 'en');

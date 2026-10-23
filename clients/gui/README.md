@@ -255,11 +255,16 @@ pnpm --dir clients/gui typecheck
 pnpm --dir clients/gui verify:i18n
 make gui-build
 AREAL_CORE_BIN=/absolute/path/to/areal pnpm --dir clients/gui test:i18n
+AREAL_CORE_BIN=/absolute/path/to/areal pnpm --dir clients/gui test:i18n-native
 ```
 
 普通 verify 已包含 verify:i18n。它验证双语词条完整、ICU 语法和参数一致，检查设置源码和直接共用控件的裸文案，并相对于 Git 基线阻止其他生产 Renderer 新增可见裸文案。CI 沿用 AREAL_DESIGN_BASE，也可设置 AREAL_I18N_BASE。技术示例、品牌和稳定身份有精确例外。provider-ui-state.js 保留纯数据投影合同，由 React 消费者翻译状态。静态检查不追踪任意动态字符串流，仍需实际界面复核。
 
-test:i18n 复用现有隔离 Electron/Core 迁移 smoke，保留截图、ARIA 和 manifest。覆盖双语切换、英文导航、双语搜索、窄窗大字号、草稿返回和重启持久化。原生系统菜单与对话框、外部应用 iframe、原始诊断，以及设置外尚未迁移的界面不属于本次完整翻译范围。
+test:i18n 复用现有隔离 Electron/Core 迁移 smoke，保留截图、ARIA 和 manifest。覆盖双语切换、英文导航、双语搜索、窄窗大字号、草稿返回和重启持久化。
+
+Main 直接生成的归档、会话与诊断导出、目录选择、浏览器授权、退出及恢复确认文案跟随界面语言。Renderer 启动和偏好更新通过受来源校验的窄 IPC 同步语言，Main 只保留易失投影，不另存偏好或改变 Core 请求。首次同步前的启动提示仍使用默认简体中文。原生菜单、其他服务及插件生成的提示、外部应用 iframe、原始诊断，以及尚未迁移的界面保留原文。
+
+test:i18n-native 使用同一隔离 runner，覆盖双语归档、会话与诊断导出、目录选择、本地错误、取消、语言校验和保存英文后的重启。它截获 Electron dialog API 的参数与取消结果，保留截图、ARIA、原生文案 JSON 和 manifest，不代表系统弹窗外观、安装包或其他操作系统验收。
 
 对话增量文案沿用相同门禁。`test:context-usage` 另验上下文、用量详情和执行过程控件的双语切换、窄窗显示及草稿和 Core 历史保留。旧状态、耗时、上下文分类名和原始输出仍属于未迁移范围。
 

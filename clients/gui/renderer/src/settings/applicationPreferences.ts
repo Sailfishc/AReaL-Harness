@@ -22,16 +22,15 @@ export function setApplicationPreferences(patch: Partial<ApplicationSettings>) {
   value = next;
   listeners.forEach((listener) => listener());
 }
+export function getApplicationPreferences(): ApplicationSettings {
+  return value;
+}
+export function subscribeApplicationPreferences(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
+}
 export function useApplicationPreferences() {
-  return useSyncExternalStore(
-    (listener) => {
-      listeners.add(listener);
-      return () => {
-        listeners.delete(listener);
-      };
-    },
-    () => value,
-  );
+  return useSyncExternalStore(subscribeApplicationPreferences, getApplicationPreferences);
 }
 // One effective motion preference serves CSS and Web Animations/scrolling.
 const motionQuery = typeof window !== "undefined" && typeof window.matchMedia === "function"
