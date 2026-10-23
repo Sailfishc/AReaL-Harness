@@ -273,18 +273,16 @@ impl Cell {
         bindings: tools::Bindings,
         parent_scratch: Option<&Path>,
     ) -> Arc<Self> {
-        if let Some(data) = &mut thread.desktop {
-            if let Some(areal_protocol::desktop::PromptPrediction::Pending {
+        if let Some(data) = &mut thread.desktop
+            && let Some(areal_protocol::desktop::PromptPrediction::Pending {
                 source_turn_id,
                 configuration_revision,
             }) = data.prompt_prediction.clone()
-            {
-                data.prompt_prediction =
-                    Some(areal_protocol::desktop::PromptPrediction::Unavailable {
-                        source_turn_id,
-                        configuration_revision,
-                    });
-            }
+        {
+            data.prompt_prediction = Some(areal_protocol::desktop::PromptPrediction::Unavailable {
+                source_turn_id,
+                configuration_revision,
+            });
         }
         Arc::new(Self {
             scratch_path: parent_scratch

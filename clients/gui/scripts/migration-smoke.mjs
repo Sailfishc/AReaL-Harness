@@ -1,3 +1,5 @@
+import { closeSmokeApplication } from "./application-cleanup.mjs";
+import { withSmokeDeadline } from "./smoke-deadline.mjs";
 import assert from "node:assert/strict";
 
 import { createRequire } from "node:module";
@@ -309,6 +311,18 @@ async function launch() {
   page.setDefaultTimeout(15000);
   page.on("pageerror", (e) => errors.push(e.message));
   await page.locator("[data-testid=areal-workbench]").waitFor({ timeout: 120000 });
+  // 本专项统计执行请求；提示预测由独立专项验收，避免辅助请求混入不重放断言。
+  const preferencesChanged = await page.evaluate(() => {
+    const key = "areal-gui:application-preferences";
+    const preferences = JSON.parse(localStorage.getItem(key) ?? "{}");
+    if (preferences.nextPromptSuggestions === false) return false;
+    localStorage.setItem(key, JSON.stringify({ ...preferences, nextPromptSuggestions: false }));
+    return true;
+  });
+  if (preferencesChanged) {
+    await page.reload();
+    await page.locator("[data-testid=areal-workbench]").waitFor({ timeout: 120000 });
+  }
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 960));
 }
 async function openPanel(name) {
@@ -322,11 +336,17 @@ async function openPanel(name) {
 }
 async function quit() {
   if (!app) return;
-  await app.evaluate(({ dialog }) => {
-    dialog.showMessageBox = async () => ({ response: 1 });
-  });
-  await app.close();
-  app = null;
+  const current = app;
+  try {
+    try {
+      await withSmokeDeadline("quit confirmation fixture", () => current.evaluate(({ dialog }) => {
+        dialog.showMessageBox = async () => ({ response: 1 });
+      }), 5000);
+    } finally {
+      // 退出先等待已受理操作（20s），再核查停服和原进程退出；不能共用单阶段 20s 预算。
+      await closeSmokeApplication(current, 60000);
+    }
+  } finally { app = null; }
 }
 async function hideWindow() {
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
@@ -845,8 +865,8 @@ try {
   if (page) await writeFile(join(scratch, "failure-state.json"), JSON.stringify(await state(), null, 2)).catch(() => {});
   throw error;
 } finally {
-  await quit();
   try {
+    await quit();
     await waitForApplicationStop((await services()).filter(record => record.workspace === workspace));
     const metadata = await readFile(join(scratch, "core/service.json"), "utf8").then(JSON.parse).catch(error => { if (error.code === "ENOENT") return null; throw error; });
     if (metadata) assert.throws(() => process.kill(metadata.pid, 0), error => error.code === "ESRCH", "the GUI adapter exits with its application");
