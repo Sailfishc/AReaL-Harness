@@ -155,7 +155,11 @@ fn desktop_schema() -> Value {
         control["properties"]["expectedRunId"] = json!({"type":"string"});
         methods.insert(method.into(), control);
     }
-    for action in ["areal/task/resume", "areal/task/cancel"] {
+    for action in [
+        "areal/task/resume",
+        "areal/task/cancel",
+        "areal/task/delete",
+    ] {
         let mut control =
             serde_json::to_value(schemars::schema_for!(areal_protocol::tasks::TaskControl))
                 .unwrap();

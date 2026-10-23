@@ -4536,6 +4536,13 @@
               "minimum": 0,
               "type": "integer"
             },
+            "deletedAt": {
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
             "id": {
               "type": "string"
             },
@@ -4645,6 +4652,12 @@
               "format": "uint64",
               "minimum": 0,
               "type": "integer"
+            },
+            "sourceThreadId": {
+              "type": [
+                "string",
+                "null"
+              ]
             },
             "threadId": {
               "type": [
@@ -23939,6 +23952,12 @@
             }
           ]
         },
+        "sourceThreadId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "threadId": {
           "type": [
             "string",
@@ -23960,6 +23979,29 @@
         "objective"
       ],
       "title": "TaskCreate",
+      "type": "object"
+    },
+    "areal/task/delete": {
+      "additionalProperties": false,
+      "properties": {
+        "expectedRevision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "taskId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "taskId",
+        "expectedRevision"
+      ],
+      "title": "TaskControl",
       "type": "object"
     },
     "areal/task/host/ready": {
@@ -73821,6 +73863,13 @@
           "minimum": 0,
           "type": "integer"
         },
+        "deletedAt": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "id": {
           "type": "string"
         },
@@ -73930,6 +73979,12 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "sourceThreadId": {
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "threadId": {
           "type": [
@@ -74713,6 +74768,13 @@
           "minimum": 0,
           "type": "integer"
         },
+        "deletedAt": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "id": {
           "type": "string"
         },
@@ -74822,6 +74884,917 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "sourceThreadId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "threadId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tokenBudget": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "revision",
+        "channelSequence",
+        "owner",
+        "mode",
+        "interactionMode",
+        "objective",
+        "paused",
+        "cancelled",
+        "runs",
+        "runCount",
+        "archivedRunCount",
+        "runsComplete",
+        "pendingQuestions"
+      ],
+      "title": "Task",
+      "type": "object"
+    },
+    "areal/task/delete": {
+      "$defs": {
+        "AcceptedSchedule": {
+          "properties": {
+            "decision": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/TriggerDecision"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "schedule": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Schedule"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "scheduleV2": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ScheduleDefinition"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "taskRevision": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "taskRevision"
+          ],
+          "type": "object"
+        },
+        "ChannelMessage": {
+          "properties": {
+            "answers": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "author": {
+              "type": "string"
+            },
+            "createdAt": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "expiresAt": {
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "inReplyTo": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "type": "string"
+            },
+            "questions": {
+              "items": {
+                "$ref": "#/$defs/Question"
+              },
+              "type": "array"
+            },
+            "required": {
+              "type": "boolean"
+            },
+            "runId": {
+              "type": "string"
+            },
+            "sequence": {
+              "description": "每次新增或状态变化递增；客户端按 id 替换，不重复追加。",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "status": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "sequence",
+            "runId",
+            "author",
+            "kind",
+            "status",
+            "createdAt",
+            "questions",
+            "required",
+            "text"
+          ],
+          "type": "object"
+        },
+        "ExecutionRef": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "thread",
+                  "type": "string"
+                },
+                "threadId": {
+                  "type": "string"
+                },
+                "turnId": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "threadId",
+                "turnId"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "automatic": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "kind": {
+                  "const": "workgroup",
+                  "type": "string"
+                },
+                "workgroupId": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "workgroupId"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "Frequency": {
+          "enum": [
+            "daily",
+            "weekly",
+            "monthly"
+          ],
+          "type": "string"
+        },
+        "GoalUsage": {
+          "additionalProperties": false,
+          "properties": {
+            "accountingComplete": {
+              "type": "boolean"
+            },
+            "cachedInputTokens": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "inputTokens": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "outputTokens": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "reservedTokens": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "timeUsedSeconds": {
+              "format": "double",
+              "type": "number"
+            },
+            "tokensUsed": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "turnsStarted": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "unknownRequests": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "inputTokens",
+            "cachedInputTokens",
+            "outputTokens",
+            "tokensUsed",
+            "reservedTokens",
+            "unknownRequests",
+            "timeUsedSeconds",
+            "turnsStarted",
+            "accountingComplete"
+          ],
+          "type": "object"
+        },
+        "InteractionMode": {
+          "enum": [
+            "interactive",
+            "asynchronous",
+            "headless"
+          ],
+          "type": "string"
+        },
+        "LastDay": {
+          "enum": [
+            "last"
+          ],
+          "type": "string"
+        },
+        "Misfire": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "coalesce",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "skip",
+                  "type": "string"
+                },
+                "maxLatenessSeconds": {
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "kind",
+                "maxLatenessSeconds"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "MonthDay": {
+          "anyOf": [
+            {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "$ref": "#/$defs/LastDay"
+            }
+          ]
+        },
+        "Overlap": {
+          "enum": [
+            "skip"
+          ],
+          "type": "string"
+        },
+        "Question": {
+          "additionalProperties": false,
+          "properties": {
+            "allowFreeText": {
+              "default": true,
+              "type": "boolean"
+            },
+            "id": {
+              "type": "string"
+            },
+            "options": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "title"
+          ],
+          "type": "object"
+        },
+        "RunStatus": {
+          "enum": [
+            "queued",
+            "running",
+            "waitingForInput",
+            "waitingForAgents",
+            "paused",
+            "blocked",
+            "completed",
+            "failed",
+            "cancelled"
+          ],
+          "type": "string"
+        },
+        "RunTrigger": {
+          "enum": [
+            "schedule",
+            "manual"
+          ],
+          "type": "string"
+        },
+        "Schedule": {
+          "additionalProperties": false,
+          "properties": {
+            "at": {
+              "description": "UTC Unix 秒；间隔以该时间为锚点，避免执行耗时导致漂移。",
+              "format": "int64",
+              "type": "integer"
+            },
+            "intervalSeconds": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "timeZone": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "at"
+          ],
+          "type": "object"
+        },
+        "ScheduleDefinition": {
+          "additionalProperties": false,
+          "properties": {
+            "misfire": {
+              "$ref": "#/$defs/Misfire"
+            },
+            "overlap": {
+              "$ref": "#/$defs/Overlap"
+            },
+            "rule": {
+              "$ref": "#/$defs/ScheduleRule"
+            },
+            "version": {
+              "format": "uint8",
+              "maximum": 1,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "version",
+            "rule",
+            "misfire",
+            "overlap"
+          ],
+          "type": "object"
+        },
+        "ScheduleRule": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "at": {
+                  "format": "int64",
+                  "type": "integer"
+                },
+                "kind": {
+                  "const": "once",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "at"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "anchorAt": {
+                  "format": "int64",
+                  "type": "integer"
+                },
+                "intervalSeconds": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "kind": {
+                  "const": "interval",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "anchorAt",
+                "intervalSeconds"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "anchorDate": {
+                  "type": "string"
+                },
+                "frequency": {
+                  "$ref": "#/$defs/Frequency"
+                },
+                "interval": {
+                  "format": "uint16",
+                  "maximum": 65535,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "kind": {
+                  "const": "calendar",
+                  "type": "string"
+                },
+                "localTime": {
+                  "type": "string"
+                },
+                "monthDays": {
+                  "items": {
+                    "$ref": "#/$defs/MonthDay"
+                  },
+                  "type": "array"
+                },
+                "timeZone": {
+                  "type": "string"
+                },
+                "weekdays": {
+                  "items": {
+                    "format": "uint8",
+                    "maximum": 255,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "kind",
+                "timeZone",
+                "frequency",
+                "interval",
+                "localTime",
+                "anchorDate"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "TaskMode": {
+          "enum": [
+            "foreground",
+            "scheduled",
+            "background"
+          ],
+          "type": "string"
+        },
+        "TaskRun": {
+          "properties": {
+            "acceptedSchedule": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/AcceptedSchedule"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "completedAt": {
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "goalId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "objective": {
+              "description": "受理时的任务内容；修改安排只影响之后的 Run。",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "reason": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "scheduledAt": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "startedAt": {
+              "default": null,
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "status": {
+              "$ref": "#/$defs/RunStatus"
+            },
+            "threadId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "trigger": {
+              "$ref": "#/$defs/RunTrigger",
+              "default": "schedule"
+            },
+            "usage": {
+              "$ref": "#/$defs/GoalUsage"
+            },
+            "waitRequested": {
+              "type": "boolean"
+            },
+            "workers": {
+              "default": [],
+              "items": {
+                "$ref": "#/$defs/TaskWorker"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "id",
+            "status",
+            "scheduledAt",
+            "usage",
+            "waitRequested"
+          ],
+          "type": "object"
+        },
+        "TaskWorker": {
+          "properties": {
+            "execution": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ExecutionRef"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "executionId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "settled": {
+              "type": "boolean"
+            },
+            "status": {
+              "type": "string"
+            },
+            "threadId": {
+              "type": "string"
+            },
+            "turnId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "settled"
+          ],
+          "type": "object"
+        },
+        "TriggerDecision": {
+          "properties": {
+            "decidedAt": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "dueCount": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "dueThrough": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "nextRunAt": {
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "originalScheduledAt": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "outcome": {
+              "$ref": "#/$defs/TriggerOutcome"
+            },
+            "planRevision": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "sequence": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "sequence",
+            "decidedAt",
+            "planRevision",
+            "originalScheduledAt",
+            "dueThrough",
+            "dueCount",
+            "outcome"
+          ],
+          "type": "object"
+        },
+        "TriggerOutcome": {
+          "oneOf": [
+            {
+              "properties": {
+                "kind": {
+                  "const": "admitted",
+                  "type": "string"
+                },
+                "runId": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "runId"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "kind": {
+                  "const": "skippedOverlap",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "kind": {
+                  "const": "missedWindow",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "properties": {
+        "archivedRunCount": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cancelled": {
+          "type": "boolean"
+        },
+        "channelSequence": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "deletedAt": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "interactionMode": {
+          "$ref": "#/$defs/InteractionMode"
+        },
+        "lastSkippedAt": {
+          "default": null,
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "lastTriggerDecision": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TriggerDecision"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "maxActiveSeconds": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "maxTurns": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "mode": {
+          "$ref": "#/$defs/TaskMode"
+        },
+        "nextRunAt": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "objective": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string"
+        },
+        "paused": {
+          "type": "boolean"
+        },
+        "pendingQuestions": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "runCount": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "runs": {
+          "items": {
+            "$ref": "#/$defs/TaskRun"
+          },
+          "type": "array"
+        },
+        "runsComplete": {
+          "default": true,
+          "type": "boolean"
+        },
+        "schedule": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Schedule"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "scheduleV2": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ScheduleDefinition"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "skippedRuns": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sourceThreadId": {
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "threadId": {
           "type": [
@@ -75621,6 +76594,13 @@
                 "minimum": 0,
                 "type": "integer"
               },
+              "deletedAt": {
+                "format": "int64",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
               "id": {
                 "type": "string"
               },
@@ -75730,6 +76710,12 @@
                 "format": "uint64",
                 "minimum": 0,
                 "type": "integer"
+              },
+              "sourceThreadId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "threadId": {
                 "type": [
@@ -76532,6 +77518,13 @@
           "minimum": 0,
           "type": "integer"
         },
+        "deletedAt": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "id": {
           "type": "string"
         },
@@ -76641,6 +77634,12 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "sourceThreadId": {
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "threadId": {
           "type": [
@@ -77424,6 +78423,13 @@
           "minimum": 0,
           "type": "integer"
         },
+        "deletedAt": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "id": {
           "type": "string"
         },
@@ -77533,6 +78539,12 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "sourceThreadId": {
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "threadId": {
           "type": [
@@ -78316,6 +79328,13 @@
           "minimum": 0,
           "type": "integer"
         },
+        "deletedAt": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "id": {
           "type": "string"
         },
@@ -78425,6 +79444,12 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "sourceThreadId": {
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "threadId": {
           "type": [
@@ -79208,6 +80233,13 @@
           "minimum": 0,
           "type": "integer"
         },
+        "deletedAt": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "id": {
           "type": "string"
         },
@@ -79317,6 +80349,12 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "sourceThreadId": {
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "threadId": {
           "type": [
@@ -81663,6 +82701,13 @@
           "minimum": 0,
           "type": "integer"
         },
+        "deletedAt": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "id": {
           "type": "string"
         },
@@ -81772,6 +82817,12 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "sourceThreadId": {
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "threadId": {
           "type": [
@@ -82555,6 +83606,13 @@
           "minimum": 0,
           "type": "integer"
         },
+        "deletedAt": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "id": {
           "type": "string"
         },
@@ -82664,6 +83722,12 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "sourceThreadId": {
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "threadId": {
           "type": [
@@ -83459,6 +84523,13 @@
           "minimum": 0,
           "type": "integer"
         },
+        "deletedAt": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "id": {
           "type": "string"
         },
@@ -83568,6 +84639,12 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "sourceThreadId": {
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "threadId": {
           "type": [

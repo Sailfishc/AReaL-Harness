@@ -10,10 +10,10 @@ function bounded(work, deadline, timeout) {
     .finally(() => clearTimeout(timer));
 }
 
-function ownerRead(backend, saved, inbox, limit, trace, deadline) {
+function ownerRead(backend, saved, inbox, limit, trace, sourceThreadId, deadline) {
   let pending = reads.get(backend);
   if (!pending) { pending = new Map(); reads.set(backend, pending); }
-  const key = `${saved.id}:${inbox ? 'inbox' : 'list'}`;
+  const key = `${saved.id}:${inbox ? 'inbox' : 'list'}:${sourceThreadId ?? ''}`;
   const existing = pending.get(key);
   if (existing) {
     trace.advance('shared_wait', { connectionGeneration: existing.state.generation, pages: existing.state.pages });
@@ -21,7 +21,7 @@ function ownerRead(backend, saved, inbox, limit, trace, deadline) {
     return existing.connection.then(() => {
       deadline ??= performance.now() + deadlineMs;
       return bounded(existing.work.catch(() => {}), deadline, () => Object.assign(new Error('任务目录读取超时，请重试。上次读取仍在结束。'), { code: 'TASK_CATALOG_TIMEOUT', stage: existing.state.stage }))
-        .then(() => ownerRead(backend, saved, inbox, limit, trace, deadline));
+        .then(() => ownerRead(backend, saved, inbox, limit, trace, sourceThreadId, deadline));
     });
   }
   if (deadline !== undefined && performance.now() >= deadline) return Promise.reject(Object.assign(new Error('任务目录读取超时，请重试。'), { code: 'TASK_CATALOG_TIMEOUT', stage: 'list' }));
@@ -55,7 +55,8 @@ function ownerRead(backend, saved, inbox, limit, trace, deadline) {
       guard(project, client);
       state.pages++;
       for (const task of page.data) {
-        if (!inbox && task.mode !== 'scheduled') continue;
+        if (!inbox && (task.mode !== 'scheduled' || sourceThreadId !== undefined && task.sourceThreadId !== sourceThreadId
+          || task.deletedAt != null && !(task.runs ?? []).some(run => !['completed', 'failed', 'cancelled', 'skipped'].includes(run.status) || (run.workers ?? []).some(worker => !worker.settled)))) continue;
         data.set(inbox ? `${task.taskId}:${task.message.runId}:${task.message.id}` : task.id, task);
       }
       after = page.nextCursor;
@@ -78,6 +79,7 @@ function ownerRead(backend, saved, inbox, limit, trace, deadline) {
 async function taskCatalog(backend, request) {
   const limit = request.limit ?? 30, inbox = request.operation === 'inbox';
   if ((!inbox && request.operation !== 'list') || !Number.isSafeInteger(limit) || limit < 1 || limit > 1024) throw new Error('无效任务列表请求');
+  if (request.sourceThreadId !== undefined && (inbox || typeof request.projectId !== 'string' || typeof request.sourceThreadId !== 'string' || !request.sourceThreadId || request.sourceThreadId.length > 256 || request.sourceThreadId.includes('\0'))) throw new Error('无效来源会话');
   const selected = request.projectId === undefined ? backend.saved : backend.saved.filter(saved => saved.id === request.projectId);
   if (request.projectId !== undefined && selected.length !== 1) throw new Error('任务所有者不存在');
   const trace = operationTrace('task_catalog', request);
@@ -87,7 +89,7 @@ async function taskCatalog(backend, request) {
     const ownerTrace = operationTrace('task_catalog.owner', { ...request, projectId: saved.id });
     ownerTrace.advance('begin');
     try {
-      const result = await ownerRead(backend, saved, inbox, limit, ownerTrace);
+      const result = await ownerRead(backend, saved, inbox, limit, ownerTrace, request.sourceThreadId);
       const data = result.data.slice(0, limit).map(task => ({ ...task, projectId: saved.id, projectName, scope: saved.projectless ? 'independent' : 'project' }));
       const hasMore = result.hasMore || result.data.length > limit;
       ownerTrace.finish('ready', { connectionGeneration: result.connectionGeneration, pages: result.pages, rows: data.length });

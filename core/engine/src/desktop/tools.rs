@@ -19,7 +19,7 @@ pub(crate) fn definitions() -> Vec<ToolDefinition> {
         ("plan_update","Replace the plan using its current revision. States are pending, inProgress, completed, cancelled.",json!({"expectedRevision":{"type":"integer","minimum":0},"steps":{"type":"array","maxItems":64,"items":{"type":"object","properties":{"id":{"type":"string"},"text":{"type":"string"},"status":{"enum":["pending","inProgress","completed","cancelled"]}},"required":["id","text","status"],"additionalProperties":false}}}),vec!["expectedRevision","steps"]),
         ("skill_list","List available skills with names and descriptions. Attachments are not scanned; read SKILL.md for their paths.",json!({}),vec![]),
         ("skill_read","Read SKILL.md or a referenced resource on demand, up to 8192 bytes per call. Standalone skills read current files; plugin skills read the package revision bound to this Turn. Follow nextOffset to read more.",json!({"skill":reference,"resource":{"type":"string"},"offset":{"type":"integer","minimum":0},"maxBytes":{"type":"integer","minimum":1,"maximum":8192}}),vec!["skill"]),
-    ].into_iter().map(|(name, description, properties, required)|ToolDefinition {name:name.into(),description:description.into(),input_schema:json!({"type":"object","properties":properties,"required":required,"additionalProperties":false}),output_schema:None}).collect()
+    ].into_iter().map(|(name, description, properties, required)|ToolDefinition {name:name.into(),description:description.into(),input_schema:json!({"type":"object","properties":properties,"required":required,"additionalProperties":false}),output_schema:None}).chain(crate::task_mode::schedule_tool_definitions()).collect()
 }
 impl Engine {
     pub(crate) async fn core_tool(
@@ -33,6 +33,9 @@ impl Engine {
     ) -> Result<Value> {
         let thread_id = cell.state.lock().await.thread.id.clone();
         match tool {
+            name if name.starts_with("scheduled_task_") => Ok(self
+                .scheduled_task_tool(cell, turn_id, call_id, tool, args)
+                .await),
             "gen_ui_publish" => self.gen_ui_publish(&thread_id, turn_id, call_id, args).await,
             "task_state" => self
                 .task_state(cell, args["pendingAfter"].as_str())

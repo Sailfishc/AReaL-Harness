@@ -19,7 +19,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const currentCommands = new Set(['send', 'editMessage', 'continue', 'prepareCreator', 'feedback', 'create', 'configure']);
 const currentManagePrefixes = ['plugin', 'marketplace', 'mcpApp', 'mcpForm'];
 const currentManageOperations = new Set(['mcpExtensionCall', 'mcpToolResult', 'connectorConfigure', 'connectorCredential', 'hookAcknowledge',
-  'taskCreate', 'taskUpdate', 'taskPause', 'taskResume', 'taskStopRun', 'taskResumeRun', 'taskCancel', 'taskReply']);
+  'taskCreate', 'taskUpdate', 'taskPause', 'taskResume', 'taskStopRun', 'taskResumeRun', 'taskCancel', 'taskDelete', 'taskReply']);
 const uuid = value => typeof value === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(value);
 const desktopKind = kind => ['stopDesktop', 'updateDesktop'].includes(kind);
 const needsOriginalCheck = operation => operation.phase === 'admissionUnconfirmed'

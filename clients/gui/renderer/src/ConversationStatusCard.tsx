@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { ScheduledTaskControls, ScheduledTaskSummary, ThreadScheduledTasks } from "./ScheduledTasks.js";
 import { processItems, toolPresentation } from "./conversationPresentation.js";
 import { ReviewPanelIcon, TerminalPanelIcon, DocumentPanelIcon } from "./app-shell/panelIcons.js";
 import { AgentsPane } from "./AgentsPane.js";
@@ -9,11 +10,10 @@ import { ActivityIcon } from "./ActivityIcon.js";
 import type { Action, Data } from "./services.js";
 import "./AgentResources.css";
 
-/** 只展示已有权威资源；工具流水仍归对话信息流。 */
-export function ConversationStatusCard({ project, thread, action, onPanel, onAgent, onFile, selectedAgent, scheduledTask, runHistory }: {
+export function ConversationStatusCard({ project, thread, action, onPanel, onAgent, onFile, selectedAgent, scheduledTask, runHistory, onAddSchedule, onOpenSchedule }: {
   project: Data; thread: Data; action: Action; onPanel: (name: string) => void;
   onAgent: (id: string) => void; onFile: (path: string) => void;
-  selectedAgent?: string; scheduledTask?: Data; runHistory?: ReactNode;
+  selectedAgent?: string; scheduledTask?: Data; runHistory?: ReactNode; onAddSchedule?: () => void; onOpenSchedule?: (task: Data) => void;
 }) {
   const [git, setGit] = useState<Data>({ loading: true });
   const [processes, setProcesses] = useState<Data[]>([]);
@@ -57,10 +57,12 @@ export function ConversationStatusCard({ project, thread, action, onPanel, onAge
   const workspaceName = project.projectless ? "独立任务" : project.name || project.root.split(/[\\/]/).pop();
   return <section className="task-resources" role="region" aria-label="任务资源">
     <div className="task-resources-header"><h2 title={project.root}>{workspaceName}</h2><button className="icon-button" aria-label="刷新任务资源" title="刷新任务资源" disabled={!connected || git.loading} onClick={() => refresh(n => n + 1)}><ProjectFolderIcon /></button></div>
-    {scheduledTask && <section className="task-resources-section" aria-label="定时任务安排" data-scheduled-task-card={scheduledTask.id}>
-      <h3 className="task-resources-heading"><span>定时任务</span><span className="scheduled-task-status" data-enabled={scheduledTask.displayStatus === "已开启"}>{scheduledTask.displayStatus ?? (scheduledTask.cancelled ? "已取消" : scheduledTask.paused ? "已暂停" : "已开启")}</span></h3>
+    {scheduledTask ? <section className="task-resources-section" aria-label="定时任务安排" data-scheduled-task-card={scheduledTask.id} data-task-id={scheduledTask.id}>
+      <h3 className="task-resources-heading">定时任务</h3>
       <p className="scheduled-task-description">{scheduledTask.objective}</p>
-    </section>}
+      <ScheduledTaskSummary task={scheduledTask} project={project} />
+      <ScheduledTaskControls task={scheduledTask} project={project} action={action} disabled={scheduledTask.controlDisabled} />
+    </section> : <ThreadScheduledTasks project={project} thread={thread} action={action} onAdd={onAddSchedule} onOpen={onOpenSchedule} />}
     {runHistory && <section className="task-resources-section">{runHistory}</section>}
     {!connected && <p role="status" className="task-resource-note">连接不可用，资源可能已过期。</p>}
     {git.error && <p role="alert" className="task-resource-note">工作区改动读取失败：{git.error}</p>}

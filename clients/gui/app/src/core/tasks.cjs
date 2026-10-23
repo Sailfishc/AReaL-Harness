@@ -12,7 +12,7 @@ const reads = {
   taskRun: ['areal/task/run/read', ['taskId', 'runId']],
 };
 const writes = {
-  taskCreate: ['areal/task/create', ['mode', 'objective', 'threadId', 'interactionMode', 'schedule', 'scheduleV2', 'tokenBudget', 'maxTurns', 'maxActiveSeconds']],
+  taskCreate: ['areal/task/create', ['mode', 'objective', 'threadId', 'sourceThreadId', 'interactionMode', 'schedule', 'scheduleV2', 'tokenBudget', 'maxTurns', 'maxActiveSeconds']],
   taskUpdate: ['areal/task/update', ['taskId', 'expectedRevision', 'objective', 'schedule', 'scheduleV2']],
   taskRunNow: ['areal/task/runNow', ['taskId', 'expectedRevision']],
   taskPause: ['areal/task/pause', ['taskId', 'expectedRevision']],
@@ -20,6 +20,7 @@ const writes = {
   taskStopRun: ['areal/task/stopRun', ['taskId', 'expectedRevision', 'expectedRunId']],
   taskResumeRun: ['areal/task/resumeRun', ['taskId', 'expectedRevision', 'expectedRunId']],
   taskCancel: ['areal/task/cancel', ['taskId', 'expectedRevision']],
+  taskDelete: ['areal/task/delete', ['taskId', 'expectedRevision']],
   taskReply: ['areal/channel/reply', ['taskId', 'runId', 'questionId', 'answers']],
 };
 const taskMutationMethods = new Set(Object.values(writes).map(([method]) => method));

@@ -15,6 +15,7 @@ areal_protocol::method_catalog! {
     "areal/task/pause" => Mutation, Task;
     "areal/task/resume" => Mutation, Task;
     "areal/task/cancel" => Mutation, Task;
+    "areal/task/delete" => Mutation, Task;
     "areal/task/stopRun" => Mutation, Task;
     "areal/task/resumeRun" => Mutation, Task;
     "areal/task/subscribe" => Subscription;
@@ -190,6 +191,7 @@ pub(crate) async fn dispatch(
         "areal/task/pause"
         | "areal/task/resume"
         | "areal/task/cancel"
+        | "areal/task/delete"
         | "areal/task/stopRun"
         | "areal/task/resumeRun" => engine
             .task_control_for_threads(

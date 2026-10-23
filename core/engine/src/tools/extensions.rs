@@ -586,7 +586,13 @@ impl Invocation<'_> {
                         self.cancel,
                     )
                     .await
-                    .map(|value| (true, value))
+                    .map(|value| {
+                        (
+                            !self.call.name.starts_with("scheduled_task_")
+                                || value.get("error").is_none(),
+                            value,
+                        )
+                    })
                     .map_err(|error| {
                         if self.call.name == "development_service_start"
                             && matches!(error, Error::Storage(_))

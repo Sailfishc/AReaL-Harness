@@ -1199,6 +1199,7 @@ fn settlement_only(old: &Task, new: &Task) -> bool {
         "channelSequence",
         "paused",
         "cancelled",
+        "deletedAt",
         "nextRunAt",
         "skippedRuns",
         "lastSkippedAt",
