@@ -100,6 +100,8 @@ turn/start/enqueue 使用 `{requestId,threadId,input,expectedConfigRevision?,int
 
 普通 Turn 的 start/enqueue/submit 在原子提交前已知的参数、配置、容量或输入能力拒绝，返回 `outcome.kind=rejected`、`recovery.kind=none`，不创建受理回执。Fork/Side 已知的来源、锚点、目标 Profile 与请求键拒绝也保留原 `reason` 并标记 rejected。存储失败、已受理失败或传输未知不据数值错误码推断为未受理；客户端继续核对原请求，不自动重发。
 
+停止轮次、同步交互回答和 Task 问题回复在所有者锁内明确校验失败时，也标记 `rejected`。这三种控制的容量与存储失败仍保留不确定性：可能已经取消执行或完成部分持久写入，不能作为未受理或重发依据。
+
 `areal/queue/steer` 使用 `{requestId,threadId,expectedRevision,queueItemId,expectedTurnId}` 将 pending 项原子转为指定活动轮次的引导。Core 在同一 Thread 锁下预留引导容量、校验目标轮次与输入，并将消息、队列状态 `steered` 和请求收据一次持久化后通知执行器；失败保留 pending 项。成功返回 `{queueRevision,queueItemId,turnId,itemId}`。执行沿用活动轮次的模型和模式；队列更新仍保留加入时配置。相同身份、业务键和参数返回原结果，参数变化冲突；`areal/request/read` 带 threadId 查询该收据。未知结果只查询、不自动重发。
 
 Composer 队列在主输入区编辑消息：确认暂停后加载内容，保存更新原位置及附件引用，保留原模型/模式；保存或取消恢复原草稿。只有队列版本与暂停原因仍属于该次编辑时才恢复先前的未暂停状态。外部更新、删除或 UNKNOWN 保留编辑草稿，不自动覆盖或恢复旧状态。现有未发送 File 草稿在当前 GUI 进程内跨任务切换保留，不新增磁盘附件缓存。`pnpm --dir clients/gui run test:queue` 使用隔离 Electron/Core/Runtime 和确定性 HTTP/SSE 模型验证队列路径。

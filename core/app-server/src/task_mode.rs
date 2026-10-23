@@ -217,6 +217,7 @@ pub(crate) async fn dispatch(
                 principal.thread_ids.as_ref(),
             )
             .await
+            .map_err(control_mutation_error)
             .map_err(map_error),
         _ => Err(RpcError::method()),
     }

@@ -838,6 +838,7 @@ async fn interrupt(engine: &Arc<Engine>, params: Value) -> Result<Value, RpcErro
     engine
         .interrupt_guarded(&p.thread_id, &p.turn_id, p.admission_guard)
         .await
+        .map_err(control_mutation_error)
         .map_err(map_error)?;
     Ok(json!({}))
 }
@@ -1616,6 +1617,17 @@ fn atomic_mutation_error(error: Error) -> Error {
     }
 }
 
+// These controls validate under their owner lock before persisting. Capacity or
+// storage failure can follow a partial write (or cancellation), so keep it unknown.
+fn control_mutation_error(error: Error) -> Error {
+    match error {
+        Error::Conflict | Error::NotFound | Error::Invalid(_) | Error::Closed => {
+            Error::Rejected(Box::new(error))
+        }
+        error => error,
+    }
+}
+
 fn map_error(error: Error) -> RpcError {
     if let Error::Rejected(error) = error {
         return rejected(map_error(*error), "REQUEST_REJECTED");
@@ -1642,9 +1654,13 @@ fn map_error(error: Error) -> RpcError {
         };
     }
     if let Error::Invalid(reason) = &error
-        && let Some(code) = ["CREDENTIAL_UNAVAILABLE", "MODEL_CREDENTIAL_UNAVAILABLE"]
-            .into_iter()
-            .find(|code| reason == code || reason.starts_with(&format!("{code}:")))
+        && let Some(code) = [
+            "CREDENTIAL_UNAVAILABLE",
+            "MODEL_CREDENTIAL_UNAVAILABLE",
+            "UNSUPPORTED_PROFILE",
+        ]
+        .into_iter()
+        .find(|code| reason == code || reason.starts_with(&format!("{code}:")))
     {
         return rejected(RpcError::invalid(error.to_string()), code);
     }

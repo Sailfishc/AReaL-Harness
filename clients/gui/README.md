@@ -4,7 +4,7 @@
 
 完整桌面客户端：React renderer、Electron 原生适配器与公开依赖。与 CLI/TUI/Web 同属 Clients 层；Core 持有会话、历史、模型循环和定时任务，Runtime 执行工具。移动端源码后续迁移，桌面侧配对入口保留。
 
-Web/PWA Remote v2 的实施边界见[架构](../../docs/design/remote-control.md)、[API](../../docs/api/remote-control.md)、[连接与部署](../../docs/guides/remote-control.md)及[验收计划](../../docs/development/remote-control-testing.md)。RC-01/RC-02/RC-03 提供默认关闭的本机只读入口、浏览器申请与桌面确认、显式项目范围和设备撤销；有效能力包括 Host/项目观察及有界 Core 工作/待处理概览，覆盖 GUI 从未打开的会话；尚不声明详情和写方法。Relay、手机真机与公网部署仍为后续设计和验收。
+Web/PWA Remote v2 的实施边界见[架构](../../docs/design/remote-control.md)、[API](../../docs/api/remote-control.md)、[连接与部署](../../docs/guides/remote-control.md)及[验收计划](../../docs/development/remote-control-testing.md)。源码已实现默认关闭的入口、浏览器申请与桌面确认、显式项目授权及设备撤销，以及工作概览、会话详情、创建与发送、精确轮次停止、审批和问题回复、任务暂停及结果审查。Direct 与独立 Relay 共用 Host 授权和加密协议；容器部署脚手架见 [Relay 部署](../../services/remote-relay/deploy/README.md)。源码实现不代表真实手机、生产浏览器 TLS、公网网络、系统钥匙串或安装包验收通过，各层仍需独立证据。
 
 新增、修改或评审页面前，Agent 从[设计规则 v1](design-system/README.md)进入[证据驱动设计流程](design-system/structured-flow.md#执行顺序与每步完成条件)：固定合同与参考，视频提名候选，关键帧/日志核查，筛选差异，再复用现有所有者实现、验收并更新规范；Token、交互合同和预览见[客户端设计系统](DESIGN_SYSTEM.md)。
 

@@ -869,7 +869,10 @@ async fn dispatch_inner(
             let p: Forget = parse(params)?;
             engine.permission_forget(p.thread_id, p.project).await
         }
-        "areal/interaction/respond" => engine.respond(parse(params)?).await,
+        "areal/interaction/respond" => engine
+            .respond(parse(params)?)
+            .await
+            .map_err(control_mutation_error),
         "areal/provider/list" => {
             let _: ModelList = parse(params)?;
             Ok(engine.providers())
