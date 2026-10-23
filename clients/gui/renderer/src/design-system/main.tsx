@@ -1,3 +1,4 @@
+import { DesignDashboard } from "./DesignDashboard.js";
 import { ProductCandidate } from "./ProductCandidate.js";
 import { DesignDocument } from "./DesignDocument.js";
 import { ApplicationIntlProvider } from "../i18n/IntlProvider.js";
@@ -134,7 +135,7 @@ function Preview() {
   return <main className="design-preview" data-width={width} data-view={new URLSearchParams(window.location.search).has("conversation") ? "conversation" : new URLSearchParams(window.location.search).has("settings") ? "settings" : undefined}>
     <header className="design-preview-header">
       <div><h1>客户端设计系统</h1><p>生产组件与语义 Token · Base 候选 {baseCandidate.version}（未冻结）</p>
-        <nav className="design-preview-navigation" aria-label="设计预览导航"><a href="?product-candidate">完整产品候选</a><a href="?docs=design/README.md">设计说明</a><a href={`${window.location.pathname}#controls`}>组件示例</a>
+        <nav className="design-preview-navigation" aria-label="设计预览导航"><a href="?dashboard">建设看板</a><a href="?product-candidate">完整产品候选</a><a href="?docs=design/README.md">设计说明</a><a href={`${window.location.pathname}#controls`}>组件示例</a>
           {new URLSearchParams(window.location.search).get("returnTo")?.startsWith("?docs=") && <a href={`${window.location.pathname}${new URLSearchParams(window.location.search).get("returnTo")}`}>返回来源设计说明</a>}
         </nav></div>
       <label>主题<select aria-label="主题" value={dark ? "dark" : "light"} onChange={event => setDark(event.target.value === "dark")}><option value="light">明亮</option><option value="dark">深色</option></select></label>
@@ -208,4 +209,4 @@ function Preview() {
     </>}
   </main>;
 }
-createRoot(document.getElementById("root")!).render(<ApplicationIntlProvider><TooltipProvider>{new URLSearchParams(window.location.search).has("product-candidate") ? <ProductCandidate /> : new URLSearchParams(window.location.search).has("docs") ? <DesignDocument path={new URLSearchParams(window.location.search).get("docs")!} /> : <Preview />}</TooltipProvider></ApplicationIntlProvider>);
+createRoot(document.getElementById("root")!).render(<ApplicationIntlProvider><TooltipProvider>{new URLSearchParams(window.location.search).has("dashboard") ? <DesignDashboard /> : new URLSearchParams(window.location.search).has("product-candidate") ? <ProductCandidate /> : new URLSearchParams(window.location.search).has("docs") ? <DesignDocument path={new URLSearchParams(window.location.search).get("docs")!} /> : <Preview />}</TooltipProvider></ApplicationIntlProvider>);

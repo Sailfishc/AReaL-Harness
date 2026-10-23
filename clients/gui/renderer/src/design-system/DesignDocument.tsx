@@ -99,7 +99,7 @@ export function DesignDocument({ path }: { path: string }) {
   };
   return <main className="design-document">
     <header className="design-document-header">
-      <nav aria-label="设计预览导航"><a href={documentUrl("design/README.md")}>设计地图</a><a href={example()}>组件示例</a></nav>
+      <nav aria-label="设计预览导航"><a href="?dashboard">建设看板</a><a href={documentUrl("design/README.md")}>设计地图</a><a href={example()}>组件示例</a></nav>
       <label>主题<select aria-label="主题" value={dark ? "dark" : "light"} onChange={event => setDark(event.target.value === "dark")}><option value="light">明亮</option><option value="dark">深色</option></select></label>
     </header>
     <p className="design-document-path">{path}</p>
