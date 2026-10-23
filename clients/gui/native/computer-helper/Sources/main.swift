@@ -89,6 +89,7 @@ DispatchQueue.global(qos: .userInitiated).async {
             worker.async {
                 defer { admissionLock.lock(); admitted -= 1; admissionLock.unlock() }
                 reply(id) {
+                    if method == "discard" { return try helper.discard(params) }
                     try helper.control.check(epoch)
                     switch method {
                     case "prepare": return try helper.prepare(params, epoch: epoch)

@@ -23,10 +23,12 @@ final class PreparedPlan {
     let observations: [Observation]
     let bindings: [(AXUIElement, String)]
     let action: NativeAction?
+    let focusedElement: AXUIElement?
     init(owner: Owner, command: Command, app: AppTarget?, window: WindowTarget?, epoch: UInt64,
-         helperGeneration: String, observations: [Observation], bindings: [(AXUIElement, String)], action: NativeAction?) throws {
+         helperGeneration: String, observations: [Observation], bindings: [(AXUIElement, String)], action: NativeAction?, focusedElement: AXUIElement? = nil) throws {
         self.owner = owner; self.command = command; self.app = app; self.window = window; self.epoch = epoch
         self.observations = observations; self.bindings = bindings; self.action = action
+        self.focusedElement = focusedElement
         let target: Object = ["app": app?.json as Any? ?? NSNull(), "window": window?.json as Any? ?? NSNull()]
         let origin = app.map { "computer://\($0.bundle ?? "pid")/\($0.pid)\(window.map { "/\($0.id)" } ?? "")" } ?? "computer://desktop"
         var plan = owner.data
@@ -88,6 +90,7 @@ final class ComputerHelper {
         guard planCount < 64 else { throw ControlError("controller_busy", "Too many pending approvals") }
         var refs: [Observation] = []
         var bindings: [(AXUIElement, String)] = []
+        var focusedElement: AXUIElement?
         var app: AppTarget?
         var window: WindowTarget?
         if command.operation == .getState || command.operation == .listWindows || command.operation.mutates {
@@ -148,6 +151,7 @@ final class ComputerHelper {
                 guard let focus = axElement(ax(app.element, kAXFocusedUIElementAttribute)) else { throw ControlError("element_unavailable", "No focused control is available") }
                 if let target = resolved.first?.0, !CFEqual(target, focus) { throw ControlError("element_unavailable", "The requested typing target is not focused") }
                 bindings.append((focus, try elementSignature(focus)))
+                focusedElement = focus
                 return focus
             }
             switch command.operation {
@@ -219,12 +223,12 @@ final class ComputerHelper {
             }
             if action?.usesEvents == true {
                 guard CGPreflightPostEventAccess() else { throw ControlError("permission_denied", "Accessibility event posting is unavailable") }
-                try window.requireForeground()
+                try window.requireForegroundOrHost(control.trustedHostPID)
             }
         }
         try control.check(epoch)
         let plan = try PreparedPlan(owner: owner, command: command, app: app, window: window, epoch: epoch,
-                                    helperGeneration: generation, observations: refs, bindings: bindings, action: action)
+                                    helperGeneration: generation, observations: refs, bindings: bindings, action: action, focusedElement: focusedElement)
         if command.operation.mutates { try control.reserve(owner, epoch: epoch) }
         planLock.lock(); plans[plan.publicPlan["preparedActionId"] as! String] = plan; planLock.unlock()
         return plan.publicPlan
@@ -239,8 +243,30 @@ final class ComputerHelper {
               let arguments = request["arguments"] as? Object,
               try canonical(arguments) == canonical(["operation": plan.command.operation.rawValue, "parameters": plan.command.parameters]) else { throw ControlError("not_authorized", "Approval identity or arguments changed") }
         plans.removeValue(forKey: id)
-        guard plan.publicPlan["expiresAt"] as! Double > nowMillis(), plan.epoch == epoch else { throw ControlError("not_authorized", "The approval plan expired or was revoked") }
+        guard plan.publicPlan["expiresAt"] as! Double > nowMillis(), plan.epoch == epoch else {
+            releaseUnusedReservation(plan)
+            throw ControlError("not_authorized", "The approval plan expired or was revoked")
+        }
         return plan
+    }
+    private func releaseUnusedReservation(_ plan: PreparedPlan) {
+        if plan.command.operation.mutates && plan.epoch == control.epoch
+            && !plans.values.contains(where: { $0.command.operation.mutates && $0.owner.lease == plan.owner.lease && $0.epoch == plan.epoch && ($0.publicPlan["expiresAt"] as? Double ?? 0) > nowMillis() }) {
+            control.releaseReservation(plan.owner)
+        }
+    }
+    func discard(_ request: Object) throws -> Object {
+        let owner = try Owner(request)
+        planLock.lock(); defer { planLock.unlock() }
+        guard let supplied = (request["computerApproval"] as? Object)?["plan"] as? Object,
+              let id = supplied["preparedActionId"] as? String else { throw ControlError("not_authorized", "A retained single-use approval plan is required") }
+        guard let plan = plans[id] else { return ["discarded": false, "preparedActionId": id, "action_sent": false, "dispatch_status": "not_sent"] }
+        guard plan.owner.identity == owner.identity, try canonical(supplied) == canonical(plan.publicPlan),
+              let arguments = request["arguments"] as? Object,
+              try canonical(arguments) == canonical(["operation": plan.command.operation.rawValue, "parameters": plan.command.parameters]) else { throw ControlError("not_authorized", "Approval identity or arguments changed") }
+        plans.removeValue(forKey: id)
+        releaseUnusedReservation(plan)
+        return ["discarded": true, "preparedActionId": id, "action_sent": false, "dispatch_status": "not_sent"]
     }
     func executeStop(_ request: Object, epoch: UInt64) -> Object {
         do {
@@ -282,7 +308,7 @@ final class ComputerHelper {
             switch command.operation {
             case .describe:
                 return envelope(["platform": "darwin", "minimumOS": "14.0", "methods": Operation.allCases.map(\.rawValue),
-                                 "requires": "Use state_id for AX indices and frame_id for raster coordinates. Observe again after mutations. All mutations require a working Input Monitoring tap. Event input also requires a foreground window. request_access is passive; grants are requested in Settings.",
+                                 "requires": "Use state_id for AX indices and frame_id for raster coordinates. Observe again after mutations. All mutations require a working Input Monitoring tap. Event input requires the target window foreground or an approved handoff from the trusted host to the retained window. request_access is passive; grants are requested in Settings.",
                                  "limits": ["planLifetimeMs": 45_000, "observationLifetimeMs": 90_000, "maximumElements": 750, "maximumRasterDimension": 4096, "maximumKeyHoldSeconds": 10, "maximumRepeatedHoldSeconds": 20]])
             case .requestAccess:
                 var value = status(); value["message"] = "Use AReaL Settings to grant access. Model calls never prompt."
@@ -304,6 +330,17 @@ final class ComputerHelper {
                 guard AXIsProcessTrusted(), let window = plan.window, let action = plan.action else { throw ControlError("permission_denied", "Accessibility permission is required") }
                 let context = ActionRun(id: id, epoch: epoch, owner: owner, window: window, operation: command.operation.rawValue)
                 run = context; try control.begin(context)
+                if action.usesEvents {
+                    try control.handoff(context)
+                    for (element, signature) in plan.bindings {
+                        guard try elementSignature(element) == signature else { throw ControlError("element_unavailable", "The prepared AX target changed during approval handoff") }
+                    }
+                    if let focused = plan.focusedElement {
+                        guard let current = axElement(ax(window.app.element, kAXFocusedUIElementAttribute)), CFEqual(current, focused) else {
+                            throw ControlError("element_unavailable", "The prepared focused control changed during approval handoff")
+                        }
+                    }
+                }
                 try dispatch(action, run: context)
                 try control.check(epoch)
                 let sent = control.wasSent(context)

@@ -45,7 +45,7 @@ await writeFile(helper, `#!${process.execPath}\n(${protocolFixture.toString()})(
 await chmod(helper, 0o700);
 let enabled = true;
 const host = new ComputerControl({ helperPath: helper, getEnabled: () => enabled });
-const identity = { coreInstanceId: randomUUID(), coreGeneration: 1, projectId: randomUUID(), threadId: randomUUID(), toolHostGeneration: 1 };
+const identity = { coreInstanceId: randomUUID(), coreGeneration: randomUUID(), projectId: randomUUID(), threadId: randomUUID(), toolHostGeneration: randomUUID() };
 const request = (turnId, operation = 'get_app_state', extra = {}) => ({ ...identity, turnId, callId: randomUUID(), arguments: { operation, parameters: {} }, ...extra });
 const checks = [];
 const pass = name => { checks.push(name); process.stdout.write(`PASS ${name}\n`); };
@@ -55,7 +55,7 @@ try {
   await host.prepare(first);
   await host.stop('UI Stop');
   await denied(first);
-  await denied({ ...first, callId: randomUUID(), toolHostGeneration: 2 });
+  await denied({ ...first, callId: randomUUID(), toolHostGeneration: randomUUID() });
   assert.equal((await host.status()).available, true);
   await host.prepare(request(first.turnId, 'stop_computer_control'));
   pass('UI Stop fences a turn across calls and tool host generations; status and Stop remain available');

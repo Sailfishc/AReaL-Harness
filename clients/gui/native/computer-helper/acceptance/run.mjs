@@ -23,13 +23,22 @@ await mkdir(options.output, { recursive: true });
 let enabled = true;
 const events = [];
 const host = new ComputerControl({ helperPath: options.helper, getEnabled: () => enabled, onActivity: status => events.push(status) });
-const owner = { coreInstanceId: randomUUID(), coreGeneration: 1, projectId: randomUUID(), threadId: randomUUID(), turnId: randomUUID(), toolHostGeneration: 1 };
+const owner = { coreInstanceId: randomUUID(), coreGeneration: randomUUID(), projectId: randomUUID(), threadId: randomUUID(), turnId: randomUUID(), toolHostGeneration: randomUUID() };
 const evidence = { mode: options.actions ? 'native-actions' : 'passive', checks: [], gaps: [], status: null };
 let fixture;
 let fixtureStderr = '';
 const request = (operation, parameters = {}, extra = {}) => ({ ...owner, callId: randomUUID(), arguments: { operation, parameters }, ...extra });
 const pass = name => { evidence.checks.push(name); process.stdout.write(`PASS ${name}\n`); };
 async function prepare(operation, parameters = {}, extra = {}) {
+  if (fixture && ['left_click', 'left_click_drag', 'scroll', 'type', 'key', 'paste'].includes(operation) && parameters.strategy !== 'a11y') {
+    const before = await truth();
+    if (!before.frontmost) {
+      const nonce = randomUUID();
+      await writeFile(join(options.output, 'fixture.json.activate'), nonce);
+      await until(async () => { const value = await truth(); return value.activationRequest === nonce && value.frontmost; }, 'Dedicated fixture did not establish the event-test foreground precondition');
+      (evidence.fixtureFocusPreparations ??= []).push({ operation, previousForegroundPID: before.frontmostPID });
+    }
+  }
   const call = request(operation, parameters, extra);
   const plan = await host.prepare({ ...call, phase: 'prepare' });
   return { ...call, phase: 'execute', computerApproval: { plan } };

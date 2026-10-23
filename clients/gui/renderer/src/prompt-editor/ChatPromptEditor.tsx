@@ -1,3 +1,4 @@
+import { ComputerControlEntry } from '../ComputerControlEntry.js';
 /* oxlint-disable eslint(max-lines) -- 输入壳同时收口 Lexical 同步、拖拽和工具栏插槽，暂不拆组件。 */
 // 输入展示壳：纯 props 组件、无 store/协议依赖；mention 面板通过 enableMentionPanel 透传。
 import type {
@@ -512,6 +513,7 @@ export function ChatPromptEditor({
                 </Button>
               </ControlHintTooltip>
             ) : null}
+            <ComputerControlEntry />
             {betweenCancelAndSubmitAction}
             {submitControl ?? (
               <ControlHintTooltip title={submitBlockedReason ?? submitLabel} shortcut={submitBlockedReason ? undefined : enterSubmits ? "Enter" : "⌘/Ctrl+Enter"}>

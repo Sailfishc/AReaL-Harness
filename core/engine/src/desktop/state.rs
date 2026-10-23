@@ -467,9 +467,11 @@ impl Engine {
         host: Arc<dyn crate::tools::DynamicToolHost>,
     ) -> Result<Value> {
         self.mutate(move |engine| async move {
-            if request.bundle_id != BROWSER_V1_BUNDLE {
-                return Err(invalid("unsupported browser bundle"));
-            }
+            let tool = match request.bundle_id.as_str() {
+                BROWSER_V1_BUNDLE => areal_protocol::desktop::browser_v1_tool(),
+                areal_protocol::desktop::COMPUTER_V1_BUNDLE => areal_protocol::desktop::computer_v1_tool(),
+                _ => return Err(invalid("unsupported desktop tool bundle")),
+            };
             if host.is_closed() || host.identity() != identity {
                 return Err(Error::Conflict);
             }
@@ -504,13 +506,13 @@ impl Engine {
             if bindings.host.as_ref().is_some_and(|old| old.id() != host.id() && !old.is_closed()) {
                 return Err(Error::Conflict);
             }
-            let tool = areal_protocol::desktop::browser_v1_tool();
             let present = state.thread.dynamic_tools.iter().find(|entry| entry.name == tool.name);
             if present.is_some_and(|entry| digest(entry).ok() != digest(&tool).ok()) {
                 return Err(Error::Conflict);
             }
             // 旧工具仅在原 live ToolHost 当前连接上继续执行；不能改绑给不认识它们的 GUI。
-            if state.thread.dynamic_tools.iter().any(|entry| entry.name != tool.name)
+            let deployed = [areal_protocol::desktop::browser_v1_tool(), areal_protocol::desktop::computer_v1_tool()];
+            if state.thread.dynamic_tools.iter().any(|entry| !deployed.iter().any(|known| digest(entry).ok() == digest(known).ok()))
                 && !bindings.host.as_ref().is_some_and(|old| old.id() == host.id() && !old.is_closed())
             {
                 return Err(invalid("existing client tools require their original live host; browser attachment unavailable"));
@@ -524,7 +526,7 @@ impl Engine {
                     .ok_or(Error::Conflict)?;
             }
             let result = json!({"threadId": candidate.id, "toolsetRevision":candidate.toolset_revision,
-                "bundleId":BROWSER_V1_BUNDLE});
+                "bundleId":request.bundle_id});
             remember(&mut data, &identity, &request.request_id, method, hash, result.clone());
             candidate.desktop = Some(data);
             engine.persist(&candidate).await?;

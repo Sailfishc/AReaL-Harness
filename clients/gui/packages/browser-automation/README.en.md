@@ -24,7 +24,7 @@ Preview remains the only owner of Pages, WebContentsViews, the debugger, control
 
 ## Limitations
 
-Upstream generic `fill` and `waitFor` declarations have no executor implementation. Use their Playwright locator operations. Upload, file chooser, `networkidle` and locator `downloadMedia` return explicit unsupported results. Real Electron 44.5 WebContentsView evidence shows `prompt()` throws `prompt() is not supported`; retained schema fields do not establish runtime support.
+Upstream generic `fill` and `waitFor` declarations have no executor implementation. Use their Playwright locator operations. Upload, file chooser and `networkidle` return explicit unsupported results. Locator `downloadMedia` uses the upstream download-anchor implementation and the same approval and download receipt as other downloads. Real Electron 44.5 WebContentsView evidence shows `prompt()` throws `prompt() is not supported`; retained schema fields do not establish runtime support.
 
 This package does not provide CLI headless, extension or external CDP backends, or the ZCode JavaScript SDK. Preview retains sensitive-page protection. Main owns one shared persistent `persist:areal-embedded-browser` Session under the current GUI userData. All projects share cookies and site storage; Pages and control remain scoped to their project and chat. Closing a Page or workspace preserves login state. Explicit cache clearing, all-data clearing and trusted Chrome import first revoke control and close all browser Pages. Chrome import is supplied by the separate browser-data package.
 

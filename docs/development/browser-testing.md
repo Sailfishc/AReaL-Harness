@@ -6,7 +6,7 @@ B-10–B-13 的原生 fixture 须检查 Core 交互包含实际准备的页面�
 
 B-24–B-26 的原生 fixture 通过公开 GUI/Core 入口验证：跨 Workspace 达到 8 个原生页和单 Workspace 4 个逻辑页，执行/接管/对话框页 pin 时新页被拒绝且原生对象数不增长；空闲驱逐必须显示状态损失。隐藏后核对原生对象、表单和 scroll；崩溃重开后核对 `pageGeneration`、旧 Ref/计划/回执拒绝以及已派发操作的 UNKNOWN。将延迟加载/接管回调与归档、隐藏项目、关闭窗口竞争，核对旧页不复活、共享 Session 在兄弟页存活时不清除，最后页面关闭后无孤儿 WebContents 或下载。各次真实原生验收结果单独记录。
 
-B-21–B-23 须通过公开 Core/GUI 路径，使用两个 Workspace 和合成回环登录服务。在一个 Workspace 设置 HTTPOnly Cookie、localStorage、IndexedDB 及 Service Worker；确认兄弟页在不重建已认领 WebContents 的情况下可见这些状态，第二个 Workspace 不可见。关闭一个兄弟页后第一页面仍保留状态；关闭最后一页后重建，确认临时状态已清除。可信精确 Origin 授权后才能导航。夹具探测另一个未授权的回环 Origin、实际 Core/适配器端点、内网/元数据目标，以及重定向、Frame、Worker fetch 与 WebSocket；禁止目标的服务端副作用计数必须为零。运行清单保留页面/Session 身份、请求及界面截图。各次原生场景的结果单独记录。
+B-21–B-23 须通过公开 Core/GUI 路径，使用两个 Workspace 和合成回环登录服务。在一个 Workspace 设置 HTTPOnly Cookie、localStorage、IndexedDB 及 Service Worker；确认兄弟页在不重建已认领 WebContents 的情况下可见这些状态，第二个 Workspace 也能通过同一共享 Profile 使用这些状态。关闭一个兄弟页、关闭最后一页后重建，以及使用相同隔离 GUI userData 重启后，均确认持久登录和站点数据保留，旧 Page 控制引用失效。显式清缓存保留登录数据，显式全部清理后 Cookie、localStorage 和 IndexedDB 为空。可信精确 Origin 授权后才能导航。夹具探测另一个未授权的回环 Origin、实际 Core/适配器端点、内网/元数据目标，以及重定向、Frame、Worker fetch 与 WebSocket；禁止目标的服务端副作用计数必须为零。运行清单保留页面/Session 身份、请求及界面截图。各次原生场景的结果单独记录。
 
 本文件定义完整 Browser 的测试契约。R0 原生实验已有独立入口，其结果以具体运行证据为准，不表示全部场景已经运行。后续主要测试切口沿用现有桌面 smoke/connection/architecture 的真实 Electron+Core+Runtime+确定性模型形态，参照[GUI指南](../../clients/gui/README.md)。
 
@@ -159,3 +159,5 @@ pnpm --dir clients/gui run test:browser-feasibility
 ## 人工跨源 Frame 切片
 
 `node clients/gui/scripts/browser-frame-origin-smoke.mjs oopif boundaries` 使用真实 Core、独立 adapter、同一 Native 页面、确定性模型和两个本地 Origin。`same-process` 参数覆盖同进程跨源；实际进程身份与 FrameTree 区分 OOPIF，不能只看端口。覆盖显式重载、Main 确认取消与迟到失效、父页面借权拒绝、站点严格策略、全图敏感/瞬时变化/隔离上下文失败拒绝、Agent 截图拒绝、原 Thread 裁图 Blob 与模型 SHA、撤销销毁、标注隐藏保留同一 Native、普通关闭预览及随后切 Thread（不打开新预览）销毁旧授权、无效截图凭据拒绝保留，以及跨 Thread 隔离。Main 对话框由夹具对精确 Origin 回答，不算真人确认。以 `AREAL_CORE_BIN` 指定已冻结 Core；保存 fixture/源码散列、调用身份、图片与停止回执。
+
+共享 Profile 和 Chrome 导入包另外使用合成数据的真实 Electron 验收。记录两个独立进程、相同隔离 userData、不同项目/聊天以及 defaultSession/另一分区的隔离事实。导入验收不得读取个人 Chrome 或真实钥匙串；用受控源资料、数据库和密钥注入验证字节、计数、取消及临时窗口释放。

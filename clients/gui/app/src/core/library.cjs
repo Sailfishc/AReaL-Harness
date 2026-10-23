@@ -186,6 +186,7 @@ class CoreLibrary {
             turnNotifications: ['always', 'unfocused', 'never'], permissionNotifications: [true, false],
             questionNotifications: [true, false], notificationSound: ['default', 'silent'], preventSleep: [true, false], showInMenuBar: [true, false],
             fileOpenTarget: ['system', 'finder', 'zed', 'vscode', 'cursor'],
+            computerControlEnabled: [true, false], computerControlShowEntry: [true, false],
             browserLinkTarget: ['internal', 'external'], browserLocalTarget: ['internal', 'external'], browserFullAddress: [true, false] };
           if (!allowed[request.key]?.includes(request.value)) throw new Error('无效偏好设置');
           if (['sidebarSort', 'sidebarSortChats', 'sidebarSortProjects', 'sidebarSortPinned'].includes(request.key) && request.value === 'manual' && !state.sidebarThreadOrder.length) {

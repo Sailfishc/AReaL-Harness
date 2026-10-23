@@ -106,6 +106,22 @@ final class WindowTarget {
             throw ControlError("foreground_required", "The prepared application and window must already be foreground")
         }
     }
+    func requireForegroundOrHost(_ hostPID: pid_t?) throws {
+        try validate()
+        let foreground = onMain { NSWorkspace.shared.frontmostApplication?.processIdentifier }
+        if let hostPID, foreground == hostPID { return }
+        try requireForeground()
+    }
+    func activateRetainedWindow() throws {
+        try validate()
+        guard app.app.activate(options: []) else {
+            throw ControlError("foreground_required", "The approved application could not be activated")
+        }
+        guard AXUIElementPerformAction(element, kAXRaiseAction as CFString) == .success,
+              AXUIElementSetAttributeValue(element, kAXMainAttribute as CFString, kCFBooleanTrue) == .success else {
+            throw ControlError("foreground_required", "The approved window could not be raised")
+        }
+    }
 }
 
 final class WindowRegistry {

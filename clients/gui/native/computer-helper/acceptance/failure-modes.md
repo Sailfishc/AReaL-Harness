@@ -9,7 +9,10 @@ These cases precede implementation. The fixture is a local AppKit window whose v
 | Wrong Core, generation, project, thread or call | A prepared plan cannot execute and observations cannot cross their owning session. |
 | Changed arguments, reused or expired plan | No action is dispatched. |
 | Changed AX value, removed element, moved window or old raster | No action is dispatched. A new observation is required. |
-| Background target with event strategy | `foreground_required` and no injected event. AX operations may succeed without activation. |
+| Background target with event strategy | Only the helper's direct parent may hand the foreground to the retained, validated window after approval. Any third-party foreground fails without injected input. AX operations may succeed without activation. |
+| Human approval input while idle | An untagged event whose annotated recipient is the helper's direct parent preserves the pending plan and epoch. The exact plan then activates its pinned window and sends the approved event. Unknown or external recipients still revoke the owner. |
+| Host input during a mutation | An untagged host-recipient event revokes the action and releases held input, just like external input. A dispatched activation or event reports `possibly_sent` on failure. |
+| Activation changes the focused control | The retained focused AX identity and element signatures are revalidated after handoff. No key or text reaches a replacement control; the dispatched activation reports `possibly_sent`. |
 | Missing physical input monitor | Every mutation, including AX writes, fails with `takeover_unavailable`; observations remain available and status is not ready. A native fixture injects an unavailable monitor before any app lookup or input. |
 | Physical user input | Active action is cancelled, held keys and buttons are released, and existing plans and observations are revoked. The same trusted turn cannot observe or prepare again. |
 | Competing project during action or pending approval | The global lease rejects the competing project rather than interleaving input. |

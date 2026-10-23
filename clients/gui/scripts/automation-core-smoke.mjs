@@ -81,6 +81,13 @@ const model = createServer(async (request, response) => {
     let raw = ''; for await (const chunk of request) raw += chunk;
     const body = JSON.parse(raw);
     if (respondToSessionName(body, response)) return;
+    if (body.messages?.some(message => message.role === 'system' && typeof message.content === 'string'
+      && message.content.startsWith('Predict the next user prompt from the conversation data.'))) {
+      assert.ok(!body.tools?.length, 'prompt predictions have no tools');
+      response.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      response.end(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: '' }, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`);
+      return;
+    }
     assert.ok(activeScenario, 'every conversation model request belongs to a scenario');
     const names = (body.tools ?? []).map(tool => tool.function?.name);
     const last = body.messages?.at(-1);
@@ -246,6 +253,11 @@ async function setComputerEnabled(value) {
   if ((await control.getAttribute('aria-checked')) !== String(value)) await control.click();
   await until(async () => (await state()).library?.settings?.computerControlEnabled === value, 'computer setting reflected in actual service snapshot');
   await until(async () => JSON.parse(await readFile(join(scratch, 'core/library.json'), 'utf8')).settings.computerControlEnabled === value, 'computer setting persisted on disk');
+  if (value) {
+    await page.evaluate(() => document.fonts.ready);
+    events.settingsScreenshot = join(scratch, 'computer-control-settings.png');
+    await page.screenshot({ path: events.settingsScreenshot });
+  }
   await page.getByRole('button', { name: '返回应用', exact: true }).click();
 }
 async function computerCase(id, operation, parameters = {}, extra = {}) {
@@ -263,6 +275,8 @@ try {
   app = await electron.launch({ executablePath: process.env.AREAL_ELECTRON_EXECUTABLE || require('electron'), args: [join(gui, 'app')], env, timeout: 120000 });
   app.process().stderr.on('data', chunk => void writeFile(join(scratch, 'electron.stderr.log'), chunk, { flag: 'a' }));
   page = await app.firstWindow(); page.setDefaultTimeout(20000);
+  events.driverDialogs = [];
+  app.context().on('page', target => target.on('dialog', dialog => events.driverDialogs.push({ type: dialog.type(), message: dialog.message() })));
   page.on('pageerror', error => errors.push(error.message));
   await page.getByTestId('areal-workbench').waitFor({ timeout: 120000 });
   await until(async () => (await state()).connection?.state === 'ready', 'desktop service ready');
@@ -272,6 +286,18 @@ try {
     globalThis.__automationPermissionRequests = [];
     if (computerModule) {
       const { ComputerControl } = process.getBuiltinModule('node:module').createRequire(computerModule)(computerModule);
+      globalThis.__automationComputerTrace = [];
+      const prepare = ComputerControl.prototype.prepare;
+      ComputerControl.prototype.prepare = async function (request) {
+        try {
+          const result = await prepare.call(this, request);
+          globalThis.__automationComputerTrace.push({ phase: 'prepare', request: { ...request, signal: undefined }, result });
+          return result;
+        } catch (error) {
+          globalThis.__automationComputerTrace.push({ phase: 'prepare', code: error.code, message: error.message });
+          throw error;
+        }
+      };
       ComputerControl.prototype.requestAccess = function (capability) {
         globalThis.__automationPermissionRequests.push({ kind: 'requestAccess', capability });
         throw Error('Acceptance runner forbids OS authorization requests');
@@ -396,7 +422,9 @@ try {
     await runScenario({ id: 'browser-describe', tool: 'browser_v1', arguments: { operation: 'describe', parameters: {} }, assertResult(item) {
       successful(item); assert.match(JSON.stringify(item.contentItems), /command/); assert.match(JSON.stringify(item.contentItems), /playwright/);
     } });
-    await runScenario({ id: 'browser-navigate', tool: 'browser_v1', arguments: { operation: 'navigate', parameters: { pageId, url: `${siteUrl}target` } }, assertEffect: async () => {
+    await runScenario({ id: 'browser-locator-schema', tool: 'browser_v1', approval: 'none', arguments: { operation: 'describe', parameters: { topic: 'command.playwright.locator' } }, assertResult(item) { successful(item); assert.match(JSON.stringify(item.contentItems), /commandSchema/); assert.match(JSON.stringify(item.contentItems), /selectOption/); } });
+    await runScenario({ id: 'browser-observe-before-navigation', tool: 'browser_v1', approval: 'none', arguments: { operation: 'observe', parameters: { pageId } } });
+    await runScenario({ id: 'browser-navigate', tool: 'browser_v1', approval: 'none', arguments: { operation: 'navigate', parameters: { pageId, url: `${siteUrl}target` } }, assertEffect: async () => {
       await until(async () => (await nativeFacts()).url === `${siteUrl}target`, 'actual native navigation');
       assert.equal(siteFacts.gets.filter(path => path === '/target').length, 1);
     } });
@@ -458,8 +486,19 @@ try {
   }
   const metadata = await readFile(join(scratch, 'core/service.json'), 'utf8').then(JSON.parse, error => { if (error.code !== 'ENOENT') errors.push(error.message); return null; });
   if (app) {
+    events.computerTrace = await app.evaluate(() => globalThis.__automationComputerTrace).catch(error => ({ unavailable: error.message }));
     events.permissionRequests ??= await app.evaluate(() => globalThis.__automationPermissionRequests).catch(error => ({ unavailable: error.message }));
-    try { await closeSmokeApplication(app); events.cleanup.electronStopped = true; }
+    try {
+      await app.evaluate(({ dialog }) => {
+        const original = dialog.showMessageBox;
+        dialog.showMessageBox = async (...args) => {
+          const options = args.at(-1);
+          return options?.type === 'question' && /退出|关闭/.test(options.message ?? '')
+            ? { response: 1, checkboxChecked: false } : original(...args);
+        };
+      });
+      await closeSmokeApplication(app); events.cleanup.electronStopped = true;
+    }
     catch (error) { errors.push(`Electron cleanup ${error.message}`); }
   }
   if (metadata) {

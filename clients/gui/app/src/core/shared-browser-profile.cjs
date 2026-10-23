@@ -102,15 +102,18 @@ class SharedBrowserProfile {
           await targetSession.clearAuthCache();
         } else await targetSession.clearStorageData({ storages: ['shadercache', 'serviceworkers', 'cachestorage'] });
       }
-      for (const record of importers) if (!record.contents.isDestroyed()) record.contents.close({ waitForBeforeUnload: false });
       await this.flush();
       return result;
     } finally {
-      for (const record of importers) {
-        this.contents.delete(record.id);
-        if (!record.contents.isDestroyed()) record.contents.close({ waitForBeforeUnload: false });
-      }
-      this.operation = null;
+      try {
+        await Promise.all([...importers].map(record => {
+          if (record.contents.isDestroyed()) return;
+          return new Promise(resolve => {
+            record.contents.once('destroyed', resolve);
+            record.contents.close({ waitForBeforeUnload: false });
+          });
+        }));
+      } finally { this.operation = null; }
     }
   }
 }

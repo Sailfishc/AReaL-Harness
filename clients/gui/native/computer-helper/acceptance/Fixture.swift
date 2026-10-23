@@ -41,6 +41,7 @@ final class Fixture: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     let pad = FixtureView(frame: .zero)
     var presses = 0
     var timer: Timer?
+    var activationRequest = ""
     init(output: URL) { self.output = output }
     func applicationDidFinishLaunching(_ notification: Notification) {
         let menu = NSMenu()
@@ -84,12 +85,25 @@ final class Fixture: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         save()
     }
     @objc func press() { presses += 1; save() }
+    func applicationDidBecomeActive(_ notification: Notification) {
+        if FileManager.default.fileExists(atPath: output.appendingPathExtension("focus-on-activation").path) {
+            window?.makeFirstResponder(editor)
+        }
+    }
     func textDidChange(_ notification: Notification) { save() }
     func save() {
+        let trigger = output.appendingPathExtension("activate")
+        if let request = try? String(contentsOf: trigger, encoding: .utf8) {
+            try? FileManager.default.removeItem(at: trigger)
+            activationRequest = request
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        }
         let range = editor.selectedRange()
         let value: [String: Any] = ["pid": ProcessInfo.processInfo.processIdentifier, "presses": presses,
                                   "text": editor.string, "selection": [range.location, range.length],
                                   "events": pad.events, "frontmost": NSApp.isActive,
+                                  "frontmostPID": NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0, "activationRequest": activationRequest,
                                   "window": [window.frame.minX, window.frame.minY, window.frame.width, window.frame.height],
                                   "pasteboardTypes": NSPasteboard.general.types?.map(\.rawValue) ?? []]
         if let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]) { try? data.write(to: output, options: .atomic) }

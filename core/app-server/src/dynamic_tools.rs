@@ -127,6 +127,22 @@ impl DynamicToolHost for ToolHost {
             })??,
         ))
     }
+    async fn prepare_computer(
+        &self,
+        params: Value,
+        cancel: CancellationToken,
+    ) -> anyhow::Result<Option<Value>> {
+        Ok(Some(
+            tokio::time::timeout(
+                std::time::Duration::from_secs(12),
+                self.request("areal/computer/prepare", params, cancel),
+            )
+            .await
+            .map_err(|_| {
+                anyhow::anyhow!("computer prepare timed out before execution; dispatch is not_sent")
+            })??,
+        ))
+    }
     async fn page_tool_notice(
         &self,
         notice: areal_protocol::plugin_runtime::PageToolNotice,
@@ -167,7 +183,10 @@ impl ToolHost {
             id.clone(),
             PendingReply {
                 sender: tx,
-                prepare: matches!(method, "areal/browser/prepare" | "areal/task/prepare"),
+                prepare: matches!(
+                    method,
+                    "areal/browser/prepare" | "areal/computer/prepare" | "areal/task/prepare"
+                ),
             },
         );
         let _pending = Pending {

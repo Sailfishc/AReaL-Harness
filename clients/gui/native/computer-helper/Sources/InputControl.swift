@@ -57,6 +57,7 @@ final class InputControl {
     private var tap: CFMachPort?
     private var monitorStarting = false
     private let canListen: () -> Bool
+    private let hostPID = getppid()
     private var reason: String?
     let tag = Int64.random(in: 1...Int64.max)
     let source = CGEventSource(stateID: .privateState)
@@ -86,12 +87,12 @@ final class InputControl {
             let events: [CGEventType] = [.keyDown, .keyUp, .flagsChanged, .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp,
                                          .otherMouseDown, .otherMouseUp, .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged, .scrollWheel]
             let mask = events.reduce(CGEventMask(0)) { $0 | (CGEventMask(1) << $1.rawValue) }
-            let created = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .listenOnly,
+            let created = CGEvent.tapCreate(tap: .cgAnnotatedSessionEventTap, place: .headInsertEventTap, options: .listenOnly,
                                            eventsOfInterest: mask, callback: { _, type, event, refcon in
                 guard let refcon else { return Unmanaged.passUnretained(event) }
                 let control = Unmanaged<InputControl>.fromOpaque(refcon).takeUnretainedValue()
                 if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput { control.stop("Input monitoring stopped") }
-                else if event.getIntegerValueField(.eventSourceUserData) != control.tag { control.physicalInput() }
+                else if event.getIntegerValueField(.eventSourceUserData) != control.tag { control.physicalInput(event) }
                 return Unmanaged.passUnretained(event)
             }, userInfo: Unmanaged.passUnretained(self).toOpaque())
             lock.lock(); tap = created; monitorStarting = false; lock.unlock()
@@ -141,6 +142,32 @@ final class InputControl {
         guard AXIsProcessTrusted(), CGPreflightPostEventAccess() else { throw ControlError("permission_denied", "Accessibility event posting is unavailable") }
         guard monitored else { throw ControlError("takeover_unavailable", "Grant Input Monitoring and restart the helper before event actions") }
         try run.window.requireForeground()
+    }
+    var trustedHostPID: pid_t? { hostPID > 1 && getppid() == hostPID ? hostPID : nil }
+    func handoff(_ run: ActionRun) throws {
+        try run.window.requireForegroundOrHost(trustedHostPID)
+        if onMain({ NSWorkspace.shared.frontmostApplication?.processIdentifier }) == run.window.app.pid {
+            try run.window.requireForeground()
+            return
+        }
+        try perform(run) {
+            try onMain {
+                try run.window.requireForegroundOrHost(trustedHostPID)
+                try run.window.activateRetainedWindow()
+            }
+        }
+        let deadline = nowMillis() + 1_000
+        while true {
+            try check(run.epoch)
+            try run.window.validate()
+            let frontmost = onMain { NSWorkspace.shared.frontmostApplication?.processIdentifier }
+            guard frontmost == run.window.app.pid || (trustedHostPID != nil && frontmost == trustedHostPID) else {
+                throw ControlError("foreground_required", "Another application took the foreground during approval handoff")
+            }
+            if (try? run.window.requireForeground()) != nil { return }
+            guard nowMillis() < deadline else { throw ControlError("foreground_required", "The approved window did not become foreground") }
+            Thread.sleep(forTimeInterval: 0.01)
+        }
     }
     func perform<T>(_ run: ActionRun, _ body: () throws -> T) throws -> T {
         lock.lock(); defer { lock.unlock() }
@@ -199,8 +226,11 @@ final class InputControl {
         guard let event = CGEvent(scrollWheelEvent2Source: source, units: .pixel, wheelCount: 2, wheel1: y, wheel2: x, wheel3: 0) else { throw ControlError("internal", "Could not create scroll event") }
         try perform(run) { post(event) }
     }
-    private func physicalInput() {
-        lock.lock(); let controlled = hasAdmittedOwners || active != nil || (lease != nil && leaseDeadline > nowMillis()); lock.unlock()
+    private func physicalInput(_ event: CGEvent) {
+        lock.lock(); defer { lock.unlock() }
+        if active == nil, keys.isEmpty, buttons.isEmpty, let host = trustedHostPID,
+           event.getIntegerValueField(.eventTargetUnixProcessID) == Int64(host) { return }
+        let controlled = hasAdmittedOwners || active != nil || (lease != nil && leaseDeadline > nowMillis())
         if controlled { stop("Physical user input took over computer control") }
     }
     func stop(_ reason: String) {

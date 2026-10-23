@@ -48,12 +48,16 @@ app.whenReady().then(async()=>{
       const result=await call(host,page,{method:'playwright',action:{name:'downloadPath',downloadId:download.value.id,timeoutMs:5000}});
       assert.equal(readFileSync(result.value,'utf8'),'shared profile download');
     }
-    await a.dispose();assertStored(await stored(pb));await pb.view.webContents.loadURL(origin);
-    assert.equal(await pb.view.webContents.executeJavaScript(`fetch(${JSON.stringify(controlOrigin)}).then(()=>true).catch(()=>false)`),false);
-    const unknown=new BrowserWindow({show:false,webPreferences:{session:pb.session,sandbox:true}});windows.push(unknown);
+    await a.dispose();assertStored(await stored(pb));
+    const reopened=await newPage(a,'reopened-project');assertStored(await stored(reopened));
+    await a.browserData('clearCache');assert.equal(a.pages.size,0);assert.equal(b.pages.size,0);
+    const resumed=await newPage(b,'project-b');assertStored(await stored(resumed));await setStored(resumed);
+    await resumed.view.webContents.loadURL(origin);
+    assert.equal(await resumed.view.webContents.executeJavaScript(`fetch(${JSON.stringify(controlOrigin)}).then(()=>true).catch(()=>false)`),false);
+    const unknown=new BrowserWindow({show:false,webPreferences:{session:resumed.session,sandbox:true}});windows.push(unknown);
     await assert.rejects(()=>unknown.loadURL(origin+'/unknown'));unknown.destroy();
-    assert.equal(pb.session.listenerCount('will-download'),1);
-    evidence.push('two hosts share HTTPOnly Cookie, LS, IDB','download routing once per source','host closure retains site data','unknown WebContents and product endpoints denied');
+    assert.equal(resumed.session.listenerCount('will-download'),1);
+    evidence.push('two hosts share HTTPOnly Cookie, LS, IDB','download routing once per source','host closure retains site data and reopened host joins global data quiescence','unknown WebContents and product endpoints denied');
   }else if(phase==='isolated'){
     const p=await newPage(a,'isolated-project');const facts=await stored(p);
     assert.equal(facts.cookie,'');assert.equal(facts.local,null);assert.equal(facts.db,null);
@@ -77,6 +81,12 @@ app.whenReady().then(async()=>{
     await assert.rejects(()=>a.execute({...req,phase:'execute',browserApproval:{plan:prepared.plan}}),/browser_profile_busy/);
     await entering;assert.equal(a.pages.size,0);finishImport();assert.deepEqual(await mutation,{success:true,imported:2});
     await assert.rejects(()=>a.execute({...req,phase:'execute',browserApproval:{plan:prepared.plan}}),/plan_stale/);
+    let abandoned,abandonedContents;
+    await assert.rejects(()=>a.browserData('importChrome',{importChrome:async({targetSession,registerWebContents})=>{
+      abandoned=new BrowserWindow({show:false,webPreferences:{session:targetSession,sandbox:true,contextIsolation:true,nodeIntegration:false}});windows.push(abandoned);
+      abandonedContents=abandoned.webContents;registerWebContents(abandonedContents);await abandoned.loadURL(origin+'/abandoned-import');throw new Error('fixture_import_failed');
+    }}),/fixture_import_failed/);
+    assert.equal(abandonedContents.isDestroyed(),true,'failed importer must be destroyed before releasing the data gate');
     const imported=await newPage(a,'imported-project');assertStored(await stored(imported));assert.equal((await stored(imported)).imported,'synthetic');
     await a.browserData('clearCache');assert.equal(a.pages.size,0);
     const cached=await newPage(a,'cached-project');assertStored(await stored(cached));assert.equal((await stored(cached)).cache,false);

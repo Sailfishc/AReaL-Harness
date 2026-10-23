@@ -41,12 +41,8 @@ struct Owner {
     let identity: String
     init(_ request: Object) throws {
         var fields = Object()
-        for key in ["coreInstanceId", "projectId", "threadId", "turnId", "callId"] {
+        for key in ["coreInstanceId", "projectId", "threadId", "turnId", "callId", "coreGeneration", "toolHostGeneration"] {
             fields[key] = try requiredString(request, key, max: 512)
-        }
-        for key in ["coreGeneration", "toolHostGeneration"] {
-            guard let value = integer(request[key]) else { throw ControlError("invalid_request", "Invalid trusted \(key)") }
-            fields[key] = value
         }
         data = fields
         identity = try digest(fields)

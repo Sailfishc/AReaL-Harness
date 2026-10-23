@@ -25,6 +25,7 @@ const { CoreWorktrees } = require('./worktrees.cjs');
 const { ProjectlessWorkspaces } = require('./projectless.cjs');
 const { inspectCoreCapabilities, projectCoreCapabilities } = require('./core-capabilities.cjs');
 const { definition: browserTool } = require('./browser-tool.cjs');
+const { definition: computerTool } = require('./computer-tool.cjs');
 const { buildGenUiModelContext, stripGenUiModelContext } = require('@areal/gen-ui/node');
 const { genUiScope, createGenUiState } = require('./gen-ui-state.cjs');
 
@@ -89,6 +90,8 @@ class CoreBackend {
         get analytics() { return backend.analytics; },
         get applicationOwner() { return backend.applicationOwner; },
         browserRead: (...args) => backend.browserRead?.(...args),
+        computerRead: (...args) => backend.computerRead?.(...args),
+        desktopTools: (...args) => backend.desktopTools(...args),
         get closing() { return backend.closing; },
         get defaultProfile() { return backend.defaultProfile; },
         get hooks() { return backend.hooks; },
@@ -113,6 +116,7 @@ class CoreBackend {
         get starting() { return backend.starting; },
         stopReconciliation: (...args) => backend.stopReconciliation(...args),
         supportsBrowser: (...args) => backend.supportsBrowser(...args),
+        supportsComputer: (...args) => backend.supportsComputer(...args),
         connectExisting: (project, previous) => connectService(backend, 'status', ['--instance', previous.serviceId],
           backend.hooks.environment(), project, previous.dataDir),
         recoveryStatus: (...args) => require('./local-service.cjs').recoveryStatus(backend, ...args),
@@ -509,17 +513,30 @@ class CoreBackend {
       && capabilities?.browserToolBundles?.some(bundle => bundle.bundleId === 'areal.browser.v1');
   }
 
+  supportsComputer(project) {
+    const capabilities = project.client?.capabilities;
+    return capabilities?.features?.computerToolAttachment === true
+      && capabilities?.features?.computerToolPreparation === true
+      && capabilities?.desktopToolBundles?.some(bundle => bundle.bundleId === 'areal.computer.v1');
+  }
+
+  desktopTools(project) {
+    return [...(this.supportsBrowser(project) ? [browserTool] : []),
+      ...(this.supportsComputer(project) && this.library.value.settings.computerControlEnabled === true ? [computerTool] : [])];
+  }
+
   async ensureBrowserTools(project, threadId) {
-    if (!this.supportsBrowser(project)) return;
+    const bundles = this.desktopTools(project).map(tool => tool.name === 'browser_v1' ? 'areal.browser.v1' : 'areal.computer.v1');
+    if (!bundles.length) return;
     const client = project.client;
-    const { thread } = await this.readObservation(project, threadId, { client });
-    this.requireConnection(project, client);
-    if (thread.desktop?.archived || thread.parentThreadId || thread.conversation?.kind === 'side' || thread.status?.type !== 'idle') return;
-    // 固定工具包追加也安全重连原空闲 ToolHost；
-    // Core 拒绝不同的在线所有者，并保留全部既有工具定义。
-    await this.submit(project, 'areal/thread/tools/attach', {
-      threadId, expectedToolsetRevision: thread.toolsetRevision ?? 0, bundleId: 'areal.browser.v1',
-    });
+    for (const bundleId of bundles) {
+      const { thread } = await this.readObservation(project, threadId, { client });
+      this.requireConnection(project, client);
+      if (thread.desktop?.archived || thread.parentThreadId || thread.conversation?.kind === 'side' || thread.status?.type !== 'idle') return;
+      await this.submit(project, 'areal/thread/tools/attach', {
+        threadId, expectedToolsetRevision: thread.toolsetRevision ?? 0, bundleId,
+      });
+    }
     await this.readObservation(project, threadId, { client });
     this.requireConnection(project, client);
   }
@@ -846,7 +863,7 @@ class CoreBackend {
         }
         await this.resources.beforeCreate(project);
         const { thread } = await this.submit(project, 'areal/thread/start', { cwd: project.root,
-          ...(this.supportsBrowser(project) ? { dynamicTools: [browserTool] } : {}),
+          ...(this.desktopTools(project).length ? { dynamicTools: this.desktopTools(project) } : {}),
           ...(request.parameters ? { parameters: request.parameters } : {}),
           options: { permissionPreset: 'ask', ...request.options },
           ...(request.model ? { model: request.model } : {}),

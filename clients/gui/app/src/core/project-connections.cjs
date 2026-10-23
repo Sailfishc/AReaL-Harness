@@ -2,7 +2,7 @@
 const diagnostics = require('./diagnostics.cjs');
 const { startupTrace } = require('./startup-timing.cjs');
 const WebSocket = require('ws');
-const { definition: browserTool, failure: browserFailure } = require('./browser-tool.cjs');
+const { failure: browserFailure } = require('./browser-tool.cjs');
 const { isObservationSizeFailure } = require('./history-observation.cjs');
 
 // Owns observer connection identity, read waiters and reconnect scheduling.
@@ -204,7 +204,17 @@ class ProjectConnections {
         const model = this.host.providers.value.defaultModel;
         const profile = project.resourceProfile ?? this.host.defaultProfile;
         return { ...(model ? { model } : {}), ...(profile ? { agentProfile: profile } : {}),
-          ...(this.host.supportsBrowser(project) ? { dynamicTools: [browserTool] } : {}) };
+          ...(this.host.desktopTools(project).length ? { dynamicTools: this.host.desktopTools(project) } : {}) };
+      }
+      if (params?.tool === 'computer_v1' && ['item/tool/call', 'areal/computer/prepare'].includes(method)) {
+        this.requireConnection(project, client);
+        if (!this.host.supportsComputer(project)) throw new Error('Computer tool capability unavailable');
+        return this.host.computerRead({ projectId: project.id, threadId: params.threadId,
+          turnId: params.turnId, callId: params.callId, toolHostGeneration: params.hostGeneration,
+          arguments: params.arguments, computerApproval: params.computerApproval,
+          discardPreparedPlan: method === 'areal/computer/prepare' && params.discardPreparedPlan === true,
+          phase: method === 'areal/computer/prepare' ? 'prepare' : 'execute',
+          coreInstanceId: project.service?.serviceId, coreGeneration: project.service?.generation, signal: context.signal });
       }
       if (!['item/tool/call', 'areal/browser/prepare'].includes(method) || params?.tool !== 'browser_v1') throw new Error('Unsupported client tool');
       const connected = this.currentConnection(project, client);

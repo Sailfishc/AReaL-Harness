@@ -1,3 +1,5 @@
+import { ComputerControlContext } from './ComputerControlEntry.js';
+import { ComputerSettings } from './settings/ComputerSettings.js';
 import { GenUiWorkspace } from "./GenUiWorkspace.js";
 import startupIcon from "../../app/assets/icon-1024.png";
 import { useI18n } from "./i18n/IntlProvider.js";
@@ -38,7 +40,7 @@ import {
   SettingsPluginIcon,
   SettingsUsageIcon,
 } from "./settings/settingsNavIcons.js";
-import { Cpu, Server, Smartphone, Database } from "lucide-react"; // 恢复 Inbox 入口时加回 Inbox as InboxIcon
+import { Cpu, Server, Smartphone, Database, Monitor } from "lucide-react"; // 恢复 Inbox 入口时加回 Inbox as InboxIcon
 import * as React from "react";
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { DismissIcon as X } from "./interfaceIcons.js";
@@ -120,6 +122,7 @@ const settingsNavigationGroups = [
   { id: "integrations", label: "settings.navigation.integrations", items: [
     { id: "插件", label: "settings.plugins.title", icon: <SettingsPluginIcon /> },
     { id: "浏览器", label: "settings.browser.title", icon: <SettingsBrowserIcon /> },
+    { id: "电脑控制", label: "settings.computer.title", icon: <Monitor strokeWidth={1.5} /> },
   ] },
   { id: "coding", label: "settings.navigation.coding", items: [
     { id: "钩子", label: "settings.hooks.title", icon: <SettingsHooksIcon /> },
@@ -1674,6 +1677,8 @@ function AppContent({ services }: { services: PlatformServices }) {
         <GeneralSettings settings={library.settings} power={snapshot.power} menuBar={snapshot.menuBar} projectlessDirectory={snapshot.projectless?.directory} chooseProjectlessDirectory={services.chooseProjectlessDirectory} fileOpen={services.fileOpen} action={resourceAction} connected={snapshot.connection?.state === "ready"} />
       ) : settingsTab === "浏览器" ? (
         <BrowserSettings settings={library.settings} action={resourceAction} connected={snapshot.connection?.state === "ready"} />
+      ) : settingsTab === "电脑控制" ? (
+        <ComputerSettings settings={library.settings} action={resourceAction} connected={snapshot.connection?.state === "ready"} />
       ) : settingsTab === "钩子" ? (
         <HooksSettings action={resourceAction} connected={snapshot.connection?.state === "ready"} onConnect={reconnectService} />
       ) : settingsTab === "模型服务" ? (
@@ -1717,6 +1722,7 @@ function AppContent({ services }: { services: PlatformServices }) {
     finally { backendActionInFlight.current = false; setBackendActionPending(false); }
   };
   return (
+    <ComputerControlContext.Provider value={{ visible: library.settings?.computerControlShowEntry === true, open: () => { setSettingsTab("电脑控制"); showPanel("设置"); } }}>
     <WorkbenchShell
       data-view={settingsOpen ? "settings" : pluginsOpen ? "plugins" : taskCenterOpen ? "tasks" : "workspace"}
       data-testid="areal-workbench"
@@ -1726,6 +1732,10 @@ function AppContent({ services }: { services: PlatformServices }) {
       data-shell-ready={shellReady}
     >
       <ToastHost />
+      {snapshot.computerControl?.active === true && <div role="status" className="fixed bottom-4 right-4 z-50 flex items-center justify-between gap-3 rounded-lg border bg-background px-4 py-2 text-ui-sm shadow-lg">
+        <span>{t('settings.computer.working')}{snapshot.computerControl.app?.name ? ` · ${snapshot.computerControl.app.name}` : ''}</span>
+        <Button variant="outline" size="sm" onClick={() => void resourceAction('computerControl', { operation: 'stop' })}>{t('settings.computer.stop')}</Button>
+      </div>}
       <BackendStatusNotice summary={snapshot.serviceSummary} connection={snapshot.connection} update={snapshot.backendUpdate} lifecycle={snapshot.lifecycle}
         currentCommands={snapshot.desktopCapabilities?.currentCommands ?? project?.desktopCapabilities?.currentCommands}
         pending={backendActionPending} error={backendActionError} onAction={kind => void runBackendAction(kind)} />
@@ -2262,5 +2272,6 @@ function AppContent({ services }: { services: PlatformServices }) {
         }} />}
       </>}
     </WorkbenchShell>
+    </ComputerControlContext.Provider>
   );
 }

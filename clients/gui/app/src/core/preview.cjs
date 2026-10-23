@@ -15,7 +15,7 @@ const { validateBrowserCommand, browserCommandResultSchema, executeBrowserComman
 const { createElectronBrowserWebmRecorder, acquireBackgroundSurface } = require('@areal/browser-automation/electron');
 function browserCommandMutates(command) {
   if (command.method === 'playwright') return !['domSnapshot', 'elementInfo', 'elementScreenshot', 'waitForLoadState', 'waitForURL', 'waitForEvent', 'downloadPath', 'fileChooserSetFiles'].includes(command.action.name)
-    && (command.action.name !== 'locator' || !['count', 'allTextContents', 'getAttribute', 'innerText', 'textContent', 'isVisible', 'isEnabled', 'waitFor', 'downloadMedia'].includes(command.action.operation));
+    && (command.action.name !== 'locator' || !['count', 'allTextContents', 'getAttribute', 'innerText', 'textContent', 'isVisible', 'isEnabled', 'waitFor'].includes(command.action.operation));
   return !['getState', 'snapshot', 'screenshot', 'elementInfo', 'fill', 'waitFor'].includes(command.method);
 }
 
@@ -404,7 +404,8 @@ class CorePreview {
     this.pages = new Map();
     this.contexts = new Map();
     this.profile = sharedBrowserProfile;
-    this.unregisterProfileHost = this.profile.registerHost({ controlEndpoints, quiesce: () => this.quiesceBrowserPages() });
+    this.profileHost = { controlEndpoints, quiesce: () => this.quiesceBrowserPages() };
+    this.unregisterProfileHost = this.profile.registerHost(this.profileHost);
     this.selected = new Map();
     this.eventSequences = new Map();
     this.listeners = new Set();
@@ -546,7 +547,7 @@ class CorePreview {
     for (const key of [...this.pages.keys()]) this.release(key);
     this.view = null; this.owner = null;
     this.fileReceipts.clear();
-    this.unregisterProfileHost();
+    this.unregisterProfileHost?.(); this.unregisterProfileHost = null;
     return nativeWithin(Promise.allSettled([...recordings,
       ...contents.filter(c => !c.isDestroyed()).map(c => new Promise(resolve => c.once('destroyed', resolve)))]),
     performance.now() + 10000).then(() => this.profile.flush());
@@ -1563,12 +1564,10 @@ class CorePreview {
   }
   cancelRead({ projectId, threadId, pageId, requestId, hostGeneration }) {
     if (hostGeneration !== this.hostGeneration) return;
-    const batch = this.page(projectId, threadId, pageId)?.activeBatch;
-    if (batch?.requestId === requestId) batch.cancel();
-    const active = this.page(projectId, threadId, pageId)?.activeRead;
-    if (active?.requestId === requestId) active.cancel();
-    const action = this.page(projectId, threadId, pageId)?.activeAction;
-    if (action?.requestId === requestId) action.cancel();
+    for (const page of this.workspacePages(projectId, threadId)) {
+      for (const active of [page.activeBatch, page.activeRead, page.activeAction])
+        if (active?.requestId === requestId) active.cancel();
+    }
   }
   clearDiagnostics(page, reason) {
     page.diagnosticsReady = false;
@@ -2110,9 +2109,11 @@ class CorePreview {
     const targets = this.commandTargets(request, command, page);
     if (command.method === 'navigate' && command.url !== 'about:blank' && !page.networkPolicy.canAuthorize(webUrl(command.url))) throw new Error('not_sent');
     const source = c.getURL() || 'about:blank';
+    const commandPage = targets.find(target => target.id === (command.tabId ?? page.id)) ?? page;
+    const targetSource = commandPage.view.webContents.getURL() || 'about:blank';
     const parameters = structuredClone(request.parameters);
     const plan = { preparedActionId: randomUUID(), operation: 'command', pageId: page.id,
-      origin: new URL(source).origin, url: observationUrl(source), parameters,
+      origin: new URL(targetSource).origin, url: observationUrl(targetSource), parameters,
       ...(command.method === 'navigate' ? { targetUrl: command.url === 'about:blank' ? command.url : webUrl(command.url), targetOrigin: new URL(command.url === 'about:blank' ? command.url : webUrl(command.url)).origin } : {}),
       target: { pages: targets.map(target => this.commandFacts(target)) },
       pageGeneration: page.pageGeneration, documentEpoch: page.documentGeneration, controlEpoch: page.controlEpoch,
@@ -2417,7 +2418,7 @@ class CorePreview {
       const commandResult = await race(executeBrowserCommandOnView(view, command, { signal: controller.signal }));
       live();
       if (pageMethod && commandResult.ok && !browserCommandMutates(command)) await race(this.assertCommandPrivacy(page, send));
-      if (action.dispatched && !commandResult.ok && ['cancelled', 'timeout'].includes(commandResult.error?.code)) throw new Error('outcome_unknown', { cause: new Error(commandResult.error.message) });
+      if (action.dispatched && !commandResult.ok && commandResult.error?.sideEffect !== 'none') throw new Error('outcome_unknown', { cause: new Error(commandResult.error.message) });
       if (browserCommandMutates(command)) invalidateActionObservation(page);
       return { commandResult };
     } catch (error) {
@@ -3075,6 +3076,8 @@ class CorePreview {
     }
   }
   create(owner, projectId, threadId, options = {}) {
+    this.profile.assertAvailable();
+    this.unregisterProfileHost ??= this.profile.registerHost(this.profileHost);
     this.profile.assertAvailable();
     this.reservePageSlot(projectId, threadId, options.replacing === true);
     const partition = this.profile.partition;

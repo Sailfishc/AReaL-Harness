@@ -21,7 +21,7 @@ struct MonitorDeniedAcceptance {
         var checked: [String] = []
         for (operation, parameters) in operations {
             var parameters = parameters; parameters["state_id"] = "unresolved-fixture-state"
-            let request: Object = ["coreInstanceId": "fixture", "coreGeneration": 1, "projectId": "fixture", "threadId": "fixture", "turnId": "fixture", "callId": UUID().uuidString, "toolHostGeneration": 1,
+            let request: Object = ["coreInstanceId": "fixture", "coreGeneration": "fixture-core-generation", "projectId": "fixture", "threadId": "fixture", "turnId": "fixture", "callId": UUID().uuidString, "toolHostGeneration": "fixture-tool-generation",
                                    "arguments": ["operation": operation, "parameters": parameters]]
             do {
                 _ = try helper.prepare(request, epoch: control.epoch)

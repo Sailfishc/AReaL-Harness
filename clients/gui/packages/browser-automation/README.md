@@ -24,7 +24,7 @@ Preview 保持唯一 Page、WebContentsView、debugger、控制 epoch 和输入�
 
 ## 限制
 
-上游的普通 `fill`、`waitFor` 声明没有执行器实现，应使用 Playwright locator 对应操作。上传、file chooser、`networkidle`、locator `downloadMedia` 返回明确不支持。Electron 44.5 WebContentsView 的 `prompt()` 实测抛出 `prompt() is not supported`，保留的 schema 字段不证明其可用。
+上游的普通 `fill`、`waitFor` 声明没有执行器实现，应使用 Playwright locator 对应操作。上传、file chooser、`networkidle` 返回明确不支持。Electron 44.5 WebContentsView 的 `prompt()` 实测抛出 `prompt() is not supported`，保留的 schema 字段不证明其可用。
 
 本包不提供 CLI 无头、扩展或外部 CDP 后端，也不提供 ZCode JavaScript SDK。Preview 保留敏感页面保护。Main 在当前 GUI userData 内拥有一个共享持久 `persist:areal-embedded-browser` Session。所有项目共享 Cookie 与站点存储，页面和控制权仍按项目、聊天隔离。关闭页面或工作区保留登录态。显式清缓存、清全部数据和可信 Chrome 导入都会先撤销控制并关闭全部浏览页。Chrome 导入由独立 browser-data 包提供。
 

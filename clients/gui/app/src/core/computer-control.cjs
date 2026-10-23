@@ -63,6 +63,12 @@ class ComputerControl {
     return this._rpc('prepare', params, { signal: request.signal, timeoutMs: 15_000 });
   }
 
+  async discard(request) {
+    const params = this._request(request);
+    if (!params.computerApproval?.plan) throw controlError('not_authorized', 'A retained computer plan is required');
+    return this._rpc('discard', params, { timeoutMs: 2_000 });
+  }
+
   async execute(request) {
     const operation = request?.arguments?.operation;
     const params = await this._admit(request);
@@ -106,13 +112,11 @@ class ComputerControl {
     const params = this._request(request);
     const stop = params.arguments?.operation === 'stop_computer_control';
     if (!stop && this.stopping) await this.stopping.catch(() => {});
-    const fields = ['coreInstanceId', 'projectId', 'threadId', 'turnId'].map(key => {
+    const fields = ['coreInstanceId', 'projectId', 'threadId', 'turnId', 'coreGeneration'].map(key => {
       const value = params[key];
       if (typeof value !== 'string' || !value.length || Buffer.byteLength(value) > 512) throw controlError('invalid_request', `Invalid trusted ${key}`);
       return value;
     });
-    if (!Number.isInteger(params.coreGeneration) || params.coreGeneration < 0 || params.coreGeneration > 2147483647) throw controlError('invalid_request', 'Invalid trusted coreGeneration');
-    fields.push(params.coreGeneration);
     const key = createHash('sha256').update(JSON.stringify(fields)).digest('hex');
     if (!this.turnOwners.has(key)) {
       if (this.turnOwners.size >= OWNER_LIMIT) {
@@ -230,7 +234,7 @@ class ComputerControl {
         cancellationTimer.unref?.();
       };
       const timer = setTimeout(() => {
-        if (method !== 'stop' && method !== 'status') void this.stop('Computer operation deadline exceeded').catch(() => {});
+        if (!['stop', 'status', 'discard'].includes(method)) void this.stop('Computer operation deadline exceeded').catch(() => {});
         fail('timeout', 'Computer operation deadline exceeded; do not replay an action that may have been sent');
       }, timeoutMs);
       timer.unref?.();

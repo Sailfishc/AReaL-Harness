@@ -635,7 +635,7 @@ async fn connection(
                         | "areal/side/start"
                         | "areal/conversation/history"
                         | "areal/side/context/read"
-            | "areal/genUi/source"
+                        | "areal/genUi/source"
                         | "turn/interrupt"
                         | "turn/steer"
                         | "areal/queue/steer"
@@ -1319,13 +1319,21 @@ impl Connection {
                     "areal/mcp/app/tools/cancelled",
                 ]);
                 let mut capabilities = json!({"apiVersion": API_VERSION, "methods": methods, "methodSemantics":semantics,
-                    "notifications": notifications, "serverRequests":["item/tool/call","areal/task/prepare"],
+                    "notifications": notifications, "serverRequests":["item/tool/call","areal/task/prepare","areal/browser/prepare","areal/computer/prepare"],
                     "browserToolBundles":if can_attach_browser {json!([{"bundleId":areal_protocol::desktop::BROWSER_V1_BUNDLE,
                         "definition":areal_protocol::desktop::browser_v1_tool()}])} else {json!([])},
                     "features":json!({"operationOutcomes":true,"taskRequestReceipts":true,"atomicConfigureReceipt":true,"conversationDerivationV1":json!({"preview":false,"methods":["areal/thread/fork","areal/side/start","areal/conversation/list","areal/conversation/history","areal/conversation/unarchive","areal/side/context/read"],"limits":engine.conversation_derivation_limits(),"forkBoundaries":["after","before"],"workspaceModes":["sharedCurrent"],"sideWorkspaceAccess":if engine.side_workspace_read_available() {json!(["none","readOnly"])} else {json!(["none"])},"historyBytes":engine.fork_snapshot_limit()}),"subscriptionRemoval":true,"atomicResume":true,"atomicObserve":true,"atomicObserveOwnership":true,"browserToolAttachment":can_attach_browser,
                         "ordinaryTurnSubmit":true,"editLastMessage":true,"turnStartAdmissionGuard":true,"turnEnqueueAdmissionGuard":true,"turnInterruptAdmissionGuard":true,"threadStartAdmissionGuard":true,"taskPauseRunGuard":true,"taskModes":true,"taskChannels":true,"asyncQuestions":true,"headlessInteractions":true,"goals":true,"dynamicTools":true,"mediaOutput":true,"durableSubmissionDeduplication":true,"profiles":true,"skills":true,"plans":true,"interactions":true,"queue":true,"providerConfiguration":true,"modelReset":true,"toolMedia":true,"blobUpload":true}),
                     "limits":{"frameBytes":MAX_FRAME_BYTES,"responseBytes":MAX_RESPONSE_BYTES,"subscriptions":128,"sendQueue":256,"threadEventWindow":128},
                     "runtime":engine.runtime_capabilities()});
+                capabilities["desktopToolBundles"] = if can_attach_browser {
+                    json!([{ "bundleId":areal_protocol::desktop::COMPUTER_V1_BUNDLE,
+                        "definition":areal_protocol::desktop::computer_v1_tool() }])
+                } else {
+                    json!([])
+                };
+                capabilities["features"]["computerToolAttachment"] = json!(can_attach_browser);
+                capabilities["features"]["computerToolPreparation"] = json!(can_attach_browser);
                 capabilities["features"]["mcpPageToolsV1"] =
                     json!({"version":1,"kinds":["getSelection","applyPatch"]});
                 capabilities["features"]["permissionPresets"] =

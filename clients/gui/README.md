@@ -219,7 +219,7 @@ GUI Main 与桌面后台的观察连接断开，或首次启动等待超时但�
 
 `pnpm --dir clients/gui run test:mcp-platform` 通过生产 React 组件和注入的 `PlatformServices` 替身，验证 MCP 图标加载、缺少桌面能力时的行为，以及普通重渲染不会重建订阅。脚本使用已安装的 Chrome，或由 `AREAL_GUI_TEST_BROWSER` 指定的 Chromium 可执行文件，并保存截图、源码指纹和报告。该检查不覆盖 Electron IPC、Core 执行或安装包。
 
-原生预览由 Main 按项目/Thread 归属管理，每窗口最多 8 个原生页面、每 Workspace 最多 4 个逻辑页面。空闲 LRU 驱逐排除执行中、控制交接中、可见人工页、准备计划和文件交接页；没有候选时拒绝新页。隐藏面板保留页面；归档任务、隐藏项目和窗口退出释放对应 WebContents，迟到的 show 请求不能复活已失效归属。驱逐保留同一 Page shell 的 URL/标题并报告状态损失，重开提升 pageGeneration；导航历史和页面内存不保证恢复，未知操作不会自动重放。同 Workspace 的兄弟页共享临时 Session，最后引用释放后清除临时状态；不同 Workspace 隔离。上限约束原生页面数量，不是整个 Electron 进程内存配额。预览不暴露 preload、Node 或产品 bridge。
+原生预览由 Main 按项目/Thread 归属管理，每窗口最多 8 个原生页面、每 Workspace 最多 4 个逻辑页面。空闲 LRU 驱逐排除执行中、控制交接中、可见人工页、准备计划和文件交接页；没有候选时拒绝新页。隐藏面板保留页面；归档任务、隐藏项目和窗口退出释放对应 WebContents，迟到的 show 请求不能复活已失效归属。驱逐保留同一 Page shell 的 URL/标题并报告状态损失，重开提升 pageGeneration；导航历史和页面内存不保证恢复，未知操作不会自动重放。所有项目和聊天共用当前 GUI userData 中的持久 Profile，关闭最后一页不删除登录态；页面控制权和审批仍按聊天隔离。浏览器设置提供显式 Chrome Cookie/localStorage 导入、清缓存和确认后的全部数据清理。上限约束原生页面数量，不是整个 Electron 进程内存配额。预览不暴露 preload、Node 或产品 bridge。
 
 `preview-residency.cjs` 根据现有页面记录和 Map 顺序，纯计算 pinned 状态及容量决策。`CorePreview` 继续负责归属校验、原生视图、挂起和释放，不维护第二份 LRU 状态。`test:architecture` 在三个有效会话中验证 4 页拒绝、8 个原生页上限、可见页保护、同一逻辑页的驱逐与崩溃恢复，以及归档和隐藏项目后的资源释放。
 
@@ -317,3 +317,5 @@ test:i18n-native 使用同一隔离 runner，覆盖双语归档、会话与诊�
 升级前备份 GUI 数据（默认 `~/Library/Application Support/AReaL Harness GUI`）、共享配置 `~/.areal` 和自定义项目数据。下载不停止任务；原生校验完成后等待活动任务、队列和后台操作安全结算，再停止后台并交给系统替换/重开。停止受理结果未知时检查原后台资源，不重复提交安装。下载/校验失败可重试；交接系统后未重开时手动打开原安装位置并核对版本。程序回退不等于数据降级，恢复旧程序时可能需要同步恢复备份；凭据继续使用原安全存储，备份目录不代表可跨机器迁移钥匙串。
 
 预览包仅供手动安装，使用 ad-hoc 签名，不执行 Developer ID 分发签名或公证，也不推进正式更新频道。使用隔离数据或先做备份；预览数据格式不保证旧正式版可读，预览转正式需要手动安装并单独验证。不要关闭安全防护或清除隔离标记来绕过系统拦截。
+
+浏览器与电脑自动化的实现边界见 [Browser](../../docs/api/browser.md) 和[电脑控制](../../docs/api/computer.md)。`pnpm --dir clients/gui run test:automation` 使用隔离 Electron/Core 与合成站点；原生输入验收只操作独立测试应用，需已有系统授权。Helper 构建随 GUI build 执行。源码验收不代表安装包、公证或真实供应商验收。

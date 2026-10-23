@@ -69,6 +69,10 @@ app.whenReady().then(async () => {
   await locator('#download','click');
   const download=await call({method:'playwright',action:{name:'waitForEvent',event:'download',timeoutMs:5000}});
   const path=await call({method:'playwright',action:{name:'downloadPath',downloadId:download.value.id,timeoutMs:5000}});assert.equal(readFileSync(path.value,'utf8'),'browser download truth');
+  await locator('#download','downloadMedia');
+  const mediaDownload=await call({method:'playwright',action:{name:'waitForEvent',event:'download',timeoutMs:5000}});
+  const mediaPath=await call({method:'playwright',action:{name:'downloadPath',downloadId:mediaDownload.value.id,timeoutMs:5000}});
+  assert.equal(readFileSync(mediaPath.value,'utf8'),'browser download truth');
   const unsupported=await call({method:'playwright',action:{name:'waitForEvent',event:'filechooser'}},false);assert.equal(unsupported.error.code,'capability_unsupported');
   const recording=await call({method:'recordingStart',options:{maxDurationMs:10000,actions:[{type:'click',selector:'#action'},{type:'wait',durationMs:1200}]}});
   let status;
