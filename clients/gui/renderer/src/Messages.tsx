@@ -36,15 +36,67 @@ import { sentBrowserAnnotations } from "./browserAnnotations.js";
 import { SentReviewComments } from "./ReviewCommentViews.js";
 import { TurnFileSummary } from "./TurnFileSummary.js";
 import type { Data, Action } from "./services.js";
-// Like the existing file/Diff view caches, this is process-local GUI state.
-// It owns no history or execution and intentionally disappears on restart.
 type TranscriptSelectionSnapshot = {
   owner: string; text: string; turnId: string; itemId: string; range: Range; rect: DOMRect;
   provenance: { kind: "userQuote" } | { kind: "itemRange"; startUtf8: number; endUtf8: number };
 };
 type ResponseSpace = { turnId: string; height: number; contentHeight: number };
 type ReadingAnchor = { turnId: string; itemId: string; blockIndex: number | null; offset: number };
-const readingViews = new Map<string, { top: number; following: boolean; atTail: boolean; responseSpace?: ResponseSpace; anchor?: ReadingAnchor }>();
+type ReadingView = { top: number; following: boolean; atTail: boolean; responseSpace?: ResponseSpace; anchor?: ReadingAnchor };
+type ReadingCheckpoint = { owner: string; position: { kind: "latest" } | { kind: "reading"; anchor: ReadingAnchor } };
+const readingCheckpointKey = "areal-gui:reading-views:v1";
+const readingCheckpointLimit = 64 * 1024;
+const readingViews = new Map<string, ReadingView>();
+let readingViewsHydrated = false;
+let savedReadingCheckpoint: string | null = null;
+function checkpointRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function checkpointId(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= 1024;
+}
+function hydrateReadingViews() {
+  if (readingViewsHydrated) return;
+  readingViewsHydrated = true;
+  try {
+    const raw = window.sessionStorage.getItem(readingCheckpointKey);
+    if (!raw || raw.length > readingCheckpointLimit) return;
+    const checkpoint: unknown = JSON.parse(raw);
+    if (!checkpointRecord(checkpoint) || checkpoint.version !== 1 || !Array.isArray(checkpoint.views) || checkpoint.views.length > 32) return;
+    for (const entry of [...checkpoint.views].reverse()) {
+      if (!checkpointRecord(entry) || typeof entry.owner !== "string" || entry.owner.length > 4096 || !checkpointRecord(entry.position)) continue;
+      const identity: unknown = JSON.parse(entry.owner);
+      if (!Array.isArray(identity) || identity.length !== 3 || !checkpointId(identity[0]) || !checkpointId(identity[1]) || identity[2] !== false) continue;
+      const owner = JSON.stringify(identity);
+      const position = entry.position;
+      if (position.kind === "latest") readingViews.set(owner, { top: 0, following: true, atTail: true });
+      else if (position.kind === "reading" && checkpointRecord(position.anchor)) {
+        const { turnId, itemId, blockIndex, offset } = position.anchor;
+        if (!checkpointId(turnId) || !checkpointId(itemId) || typeof offset !== "number" || !Number.isFinite(offset) || Math.abs(offset) > 1_000_000 ||
+          blockIndex !== null && (typeof blockIndex !== "number" || !Number.isInteger(blockIndex) || blockIndex < 0 || blockIndex > 1_000_000)) continue;
+        readingViews.set(owner, { top: 0, following: false, atTail: false, anchor: { turnId, itemId, blockIndex, offset } });
+      }
+    }
+    savedReadingCheckpoint = raw;
+  } catch {}
+}
+function saveReadingViews() {
+  try {
+    const views: ReadingCheckpoint[] = [];
+    for (const [owner, view] of [...readingViews].reverse()) {
+      const position: ReadingCheckpoint["position"] | undefined = view.following ? { kind: "latest" } : view.anchor && { kind: "reading", anchor: view.anchor };
+      if (!position) continue;
+      const entry = { owner, position };
+      if (JSON.stringify({ version: 1, views: [...views, entry] }).length > readingCheckpointLimit) continue;
+      views.push(entry);
+      if (views.length === 32) break;
+    }
+    const serialized = JSON.stringify({ version: 1, views });
+    if (serialized === savedReadingCheckpoint) return;
+    window.sessionStorage.setItem(readingCheckpointKey, serialized);
+    savedReadingCheckpoint = serialized;
+  } catch {}
+}
 function readingBlocks(item: HTMLElement) {
   return [...(item.querySelector<HTMLElement>(".conversation-markdown")?.children ?? [])].filter((element): element is HTMLElement => element instanceof HTMLElement);
 }
@@ -69,7 +121,7 @@ function restoreReadingAnchor(element: HTMLElement, anchor: ReadingAnchor) {
   if (box.height <= 0 || element.clientHeight <= 0) return false;
   const offset = Math.max(1 - box.height, anchor.offset);
   element.scrollTop += box.top - element.getBoundingClientRect().top - offset;
-  return true;
+  return Math.abs(block.getBoundingClientRect().top - element.getBoundingClientRect().top - offset) <= 1;
 }
 // Queue pauseReason "stopped" is Core's stop receipt. It stays separate from the turn status.
 function commandResourceLabel(tool: Data) {
@@ -127,6 +179,7 @@ export function Messages({
   readTurnReview: (turnId: string, itemId?: string) => Promise<Data>;
 }) {
   const { t } = useI18n();
+  hydrateReadingViews();
   const inherited = useForkHistory(project.id, localThread, action);
   const history = useConversationHistory(project.id, localThread, action);
   const thread: Data = { ...localThread, turns: [...inherited.turns, ...(localThread.turns ?? [])] };
@@ -139,7 +192,7 @@ export function Messages({
   const pendingReading = useRef<ReadingAnchor | undefined>(undefined);
   const disclosureReading = useRef<{ control: HTMLElement; offset: number } | undefined>(undefined);
   const readingViewport = useRef<{ width: number; height: number } | undefined>(undefined);
-  const owner = JSON.stringify([project.id, thread.id]);
+  const owner = JSON.stringify([project.id, thread.id, embedded]);
   const latestTurnId = thread.turns?.at(-1)?.id;
   const [forking, setForking] = useState(false);
   const [forkError, setForkError] = useState<{ turnId: string; message: string } | null>(null);
@@ -241,12 +294,15 @@ export function Messages({
   const [readingHistory, setReadingHistory] = useState(false);
   const rememberReading = () => {
     const element = container.current;
-    if (element && activeOwner.current && !pendingReading.current) readingViews.set(activeOwner.current, {
+    if (!element || !activeOwner.current || pendingReading.current) return;
+    readingViews.delete(activeOwner.current);
+    readingViews.set(activeOwner.current, {
       top: element.scrollTop, following: follow.current,
       atTail: element.scrollHeight - element.scrollTop - element.clientHeight <= 1,
       responseSpace: reservation.current && { ...reservation.current },
       anchor: follow.current ? undefined : readingAnchor(element),
     });
+    saveReadingViews();
   };
   const releaseResponseSpace = () => {
     reservation.current = undefined;
@@ -262,7 +318,7 @@ export function Messages({
   };
   const updateReading = () => {
     const element = container.current;
-    if (!element) return;
+    if (!element || pendingReading.current) return;
     const space = reservation.current;
     const section = element.querySelector<HTMLElement>("[data-latest-turn=true]");
     const viewport = readingViewport.current;
@@ -295,6 +351,8 @@ export function Messages({
     // Instant scrolling avoids interpreting smooth-scroll frames as a reader
     // leaving the tail. Reading navigation never submits or restores execution.
     container.current?.scrollTo({ top: container.current.scrollHeight });
+    rememberReading();
+    setReadingHistory(false);
     updateReading();
   };
   const renderImage = useCallback((uri: string, name: string) => /^areal:\/\/blob\/[A-Za-z0-9_-]+$/.test(uri)
@@ -343,7 +401,7 @@ export function Messages({
       // Reflow may leave all prior history visible while preserving a former
       // departure. The next accepted message follows from that actual tail;
       // readers still above an overflowing history retain their position.
-      follow.current ||= remembered?.atTail === true;
+      if (!pendingReading.current) follow.current ||= remembered?.atTail === true;
       // Only a mounted, accepted user follow-up creates space. Cold history,
       // the first turn and Goal continuations retain natural content height.
       // Core may deliver the user and process together or separately. Reserve
@@ -377,7 +435,11 @@ export function Messages({
     };
     if (switched && !follow.current) element.scrollTop = remembered?.top ?? 0;
     layout();
-    const cancelPendingReading = () => { pendingReading.current = undefined; disclosureReading.current = undefined; };
+    const cancelPendingReading = () => {
+      pendingReading.current = undefined;
+      disclosureReading.current = undefined;
+      rememberReading();
+    };
     const wheel = (event: WheelEvent) => {
       cancelPendingReading();
       if (event.deltaY >= 0 || element.scrollHeight <= element.clientHeight) return;
@@ -409,6 +471,15 @@ export function Messages({
       element.removeEventListener("keydown", cancelPendingReading);
     };
   }, [owner, latestTurnId, reserveResponseSpace]);
+  useLayoutEffect(() => {
+    const element = container.current;
+    if (embedded || !element || activeOwner.current !== owner || !pendingReading.current) return;
+    if (restoreReadingAnchor(element, pendingReading.current)) {
+      pendingReading.current = undefined;
+      rememberReading();
+    }
+    setReadingHistory(element.scrollHeight - element.scrollTop - element.clientHeight >= 120);
+  });
   return (
     <div className={embedded ? "messages-embedded" : "messages-shell"}>
     {!embedded && <TurnNavigation key={owner} turns={thread.turns ?? []} container={container} onNavigate={() => {
