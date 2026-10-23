@@ -201,8 +201,9 @@ class SharedCoreBackend {
   retainsThreadResources(projectId, threadId) {
     const project = this.saved.find(project => project.id === projectId);
     const thread = project?.state?.threads?.[threadId];
-    return thread?.conversation?.policy?.kind === 'sideExecutableV2' && thread.desktop?.archived === true
-      && thread.desktop?.receipts?.some(receipt => receipt.method === 'areal/side/close' && receipt.result?.cleanupConfirmed === false);
+    if (thread?.conversation?.policy?.kind !== 'sideExecutableV2' || thread.desktop?.archived !== true) return false;
+    return !Object.values(project.outcomes ?? {}).some(outcome => outcome.method === 'areal/side/close'
+      && outcome.threadId === threadId && outcome.accepted === true && outcome.cleanupConfirmed === true);
   }
   snapshot() {
     const desktopCapabilities = { currentCommands: this.status.commandContract === COMMAND_CONTRACT };
