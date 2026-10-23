@@ -156,6 +156,7 @@ function projectExecutionBlocked(lifecycle: Snapshot["lifecycle"], projectId: st
   ) ?? false;
 }
 type InitialLocation = { kind: "automatic" | "projectless" } | { kind: "project"; projectId: string; threadId: string };
+type PluginTaskOrigin = { projectId: string; threadId: string };
 type RestorationOwner = RecoveryOwner;
 type RestorationState = RestorationOwner & { pending: boolean; error: string; failureId?: string; failure?: RecoveryFailure };
 type RestorationAttempt = RestorationOwner & { operation: "connect" | "open"; pending: boolean; promise: Promise<void> };
@@ -292,11 +293,20 @@ function AppContent({ services }: { services: PlatformServices }) {
   const consumedResourceReveal = React.useRef<string | undefined>(undefined);
   const consumeResourceReveal = useCallback((key: string) => { consumedResourceReveal.current = key; }, []);
   const [pluginsOpen, setPluginsOpen] = useState(false);
+  const [pluginTaskOrigin, setPluginTaskOrigin] = useState<PluginTaskOrigin | null>(null);
+  const pluginTaskFocus = React.useRef<PluginTaskOrigin | null>(null);
   const [pluginMarketRequest, setPluginMarketRequest] = useState(0);
   const [settingsOpen, updateSettingsOpen] = useState(false);
+  const rememberPluginTask = () => {
+    if (!pluginsOpen && !settingsOpen) {
+      setPluginTaskOrigin(!taskCenterOpen && projectId && threadId ? { projectId, threadId } : null);
+      pluginTaskFocus.current = null;
+    }
+  };
   const settingsTrigger = React.useRef<{ element: HTMLElement; route: string } | null>(null);
   const setSettingsOpen = (open: boolean) => {
     if (open) {
+      rememberPluginTask();
       if (!settingsOpen && document.activeElement instanceof HTMLElement)
         settingsTrigger.current = { element: document.activeElement, route: `${projectId}:${threadId}` };
       setPluginsOpen(false); setTaskCenterOpen(false); updateSettingsOpen(true);
@@ -791,6 +801,34 @@ function AppContent({ services }: { services: PlatformServices }) {
     },
     [initialReleased, snapshot.projects, restoreConversation, recordWorkspaceLocation],
   );
+  const returnToPluginTask = () => {
+    const origin = pluginTaskOrigin;
+    if (!origin) return;
+    void requestNavigation(() => {
+      pluginTaskFocus.current = origin;
+      updateSettingsOpen(false);
+      if (projectId === origin.projectId && threadId === origin.threadId) {
+        setPluginsOpen(false);
+        setTaskCenterOpen(false);
+      } else void open(origin.projectId, origin.threadId);
+    });
+  };
+  useEffect(() => {
+    const target = pluginTaskFocus.current;
+    if (!target) return;
+    if (pluginsOpen || settingsOpen || taskCenterOpen || projectId !== target.projectId || threadId !== target.threadId) {
+      pluginTaskFocus.current = null;
+      return;
+    }
+    const frame = requestAnimationFrame(() => {
+      const composer = document.querySelector<HTMLElement>('[data-testid="chat-input"]');
+      if (composer) {
+        composer.focus({ preventScroll: true });
+        pluginTaskFocus.current = null;
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [pluginsOpen, settingsOpen, taskCenterOpen, projectId, threadId, thread]);
   const [mcpMentionsOpen, setMcpMentionsOpen] = useState(false);
   const mcpWorkspace = useMcpAppsWorkspace({ services, project, deepLinksEnabled: initialReleased, projects: snapshot.projects, activeTab: !annotationVisible && !pluginsOpen && !settingsOpen && !taskCenterOpen && workspaceView !== "conversation" ? panel : "", threadId, action: resourceAction,
     onOpenThread: async (pid, tid) => { updateSettingsOpen(false); await open(pid, tid); },
@@ -1611,7 +1649,7 @@ function AppContent({ services }: { services: PlatformServices }) {
               // 暂时隐藏 Inbox 入口（恢复时同时把 InboxIcon 加回 import）
               // { id: "inbox", label: "Inbox", icon: <InboxIcon />, onSelect: () => requestNavigation(() => { updateSettingsOpen(false); setTaskSurface("inbox"); if (matchMedia("(max-width: 640px)").matches) setSidebar(false); }) },
               { id: "tasks", label: "定时任务", icon: <CalendarClock />, onSelect: () => requestNavigation(() => { setPluginsOpen(false); updateSettingsOpen(false); setTaskScope(undefined); setTaskNotification(undefined); setTaskCenterOpen(true); if (matchMedia("(max-width: 640px)").matches) setSidebar(false); }) },
-              { id: "plugins", label: "插件", icon: <SettingsPluginIcon />, onSelect: () => requestNavigation(() => { updateSettingsOpen(false); setTaskCenterOpen(false); setPluginMarketRequest(value => value + 1); setPluginsOpen(true); }) },
+              { id: "plugins", label: "插件", icon: <SettingsPluginIcon />, onSelect: () => requestNavigation(() => { rememberPluginTask(); updateSettingsOpen(false); setTaskCenterOpen(false); setPluginMarketRequest(value => value + 1); setPluginsOpen(true); }) },
             ]} footer={<><UpdateIndicator services={services} /><Button variant="ghost" size="icon" className="application-rail-button relative" aria-label={t("settings.title")} title={t(trajectoryAttention ? "settings.attention" : "settings.title")} aria-current={settingsOpen ? "page" : undefined} onClick={() => showPanel("设置")}><Settings />{trajectoryAttention && <span aria-label={t("settings.trajectory.attention")} className="absolute top-1 right-1 size-2 rounded-full bg-amber-500" />}</Button></>} />;
   const workspaceNavigation = <div className="workspace-navigation">
     <button className="icon-button" aria-label="后退" title="后退 (⌘[)" disabled={taskCenterOpen || workspaceHistory.index <= 0} onClick={() => traverseWorkspaceHistory(-1)}><ArrowLeft size={16} /></button>
@@ -1855,6 +1893,7 @@ function AppContent({ services }: { services: PlatformServices }) {
             onMarket={() => { updateSettingsOpen(false); setPluginMarketRequest(value => value + 1); setPluginsOpen(true); }}
             onChooseProject={() => void choose()}
             onSelectProject={id => { setNoProject(false); setProjectId(id); }}
+            onReturnToTask={pluginTaskOrigin ? returnToPluginTask : undefined}
             onStartDraft={startResourceDraft} />}
           {pluginCenterActive ? null : settingsOpen ? (
             settingsPage

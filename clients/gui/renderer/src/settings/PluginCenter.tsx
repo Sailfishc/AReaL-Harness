@@ -167,6 +167,8 @@ function failureText(error: PluginFailure | null, t: Translate) {
 
 type ListRoute = { kind: "market"; audience: "public" | "personal" } | { kind: "skills" } | { kind: "installed"; tab: "plugins" | "mcp" | "skills" | "markets" };
 type CenterRoute = ListRoute | { kind: "plugin"; id: string; returnTo: ListRoute } | { kind: "skill"; skill: CenterSkill; returnTo: ListRoute };
+type PluginListReturn = { projectId: string; route: ListRoute; pluginId: string; scrollTop: number };
+type OptionalReadErrors = Partial<Record<"connections" | "hooks", UiMessage | string>>;
 export type PluginCenterProps = ScopedProps & {
   active: boolean;
   marketRequest: number;
@@ -180,10 +182,11 @@ export type PluginCenterProps = ScopedProps & {
   onChooseProject: () => void;
   onSelectProject: (id: string) => void;
   onStartDraft: (seed: ResourceDraftSeed) => Promise<void>;
+  onReturnToTask?: () => void;
 };
 const officialMarket = (url?: string) => !!url && /^https:\/\/github\.com\/openai\/plugins(?:\.git)?\/?$/i.test(url);
 export function PluginCenter({ project: selectedProject, projects, thread, action, onOpenThread, apps,
-  active: panelActive, surface, marketRequest, initialTab = "plugins", onSettings, onMarket, onChooseProject, onSelectProject, onStartDraft,
+  active: panelActive, surface, marketRequest, initialTab = "plugins", onSettings, onMarket, onChooseProject, onSelectProject, onStartDraft, onReturnToTask,
 }: PluginCenterProps) {
   const { t } = useI18n();
   const navigate = useGuardedNavigation();
@@ -192,7 +195,12 @@ export function PluginCenter({ project: selectedProject, projects, thread, actio
   const projectId = project?.id;
   const connected = !!project?.state?.connected;
   const [route, setRoute] = useState<CenterRoute>({ kind: "market", audience: "public" });
-  const navigateRoute = (next: CenterRoute) => navigate(() => { setMessage(""); setRoute(next); });
+  const listReturn = useRef<PluginListReturn | null>(null);
+  const restoringList = useRef(false);
+  const scrollRegion = useRef<HTMLDivElement>(null);
+  const searchInput = useRef<HTMLInputElement>(null);
+  const pluginRows = useRef(new Map<string, HTMLButtonElement>());
+  const navigateRoute = (next: CenterRoute) => navigate(() => { listReturn.current = null; restoringList.current = false; setMessage(""); setRoute(next); });
   const listRoute = route.kind === "plugin" || route.kind === "skill" ? route.returnTo : route;
   const [selected, updateSelected] = useState<string | null>(null);
   const selectedRef = useRef(selected);
@@ -200,6 +208,9 @@ export function PluginCenter({ project: selectedProject, projects, thread, actio
   const setSelected = (id: string | null) => {
     if (authPending && id !== selected) { setMessage({ id: "settings.pluginCenter.theOriginalAuthenticationSubmissionIsStillUnconfirmed" }); return; }
     navigate(() => {
+      if (id && route.kind !== "plugin" && route.kind !== "skill" && projectId) {
+        listReturn.current = { projectId, route: listRoute, pluginId: id, scrollTop: scrollRegion.current?.scrollTop ?? 0 };
+      }
       if (id) updateSelected(id);
       setRoute(id ? { kind: "plugin", id, returnTo: listRoute } : listRoute);
     });
@@ -208,6 +219,7 @@ export function PluginCenter({ project: selectedProject, projects, thread, actio
   const [supported, setSupported] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(false);
   const [readError, setReadError] = useState<UiMessage | string>("");
+  const [optionalReadErrors, setOptionalReadErrors] = useState<OptionalReadErrors>({});
   const [error, setError] = useState<PluginFailure | null>(null);
   const [message, setMessage] = useState<UiMessage | string>("");
   const [setupThreadId, setSetupThreadId] = useState<string | null>(null);
@@ -265,8 +277,18 @@ export function PluginCenter({ project: selectedProject, projects, thread, actio
   useEffect(() => {
     if (busy || credentialBusy || authPending || submission || error?.submissionUnknown || project?.pending?.length) return;
     if (selectedProject?.id !== ownerId) {
+      readGeneration.current++;
+      detailGeneration.current++;
+      listReturn.current = null;
+      restoringList.current = false;
       setOwnerId(selectedProject?.id);
       setCatalog(null);
+      setSupported(null);
+      setAllConnections([]);
+      setHookSources([]);
+      setOptionalReadErrors({});
+      setReadError("");
+      setLoading(false);
       setDetail(null);
       updateSelected(null);
       setPreview(null);
@@ -317,30 +339,36 @@ export function PluginCenter({ project: selectedProject, projects, thread, actio
     const generation = ++readGeneration.current;
     setLoading(true);
     setReadError("");
+    setOptionalReadErrors({});
     try {
       const capability = await api("pluginCapabilities");
       if (!mounted.current || generation !== readGeneration.current) return;
       setSupported(capability.enabled);
       if (!capability.enabled) {
         setCatalog(null);
+        setAllConnections([]);
+        setHookSources([]);
         return;
       }
       const result: PluginList = await api("plugins");
-      if (mounted.current && generation === readGeneration.current)
-        setCatalog(result);
-      const pluginConnections = await api("pluginMcp");
-      if (mounted.current && generation === readGeneration.current)
-        setAllConnections(Array.isArray(pluginConnections.data) ? pluginConnections.data : []);
-      const hooks=await api("pluginHooks");
-      if(mounted.current && generation===readGeneration.current){
-        setHookSources(Array.isArray(hooks.data)?hooks.data.flatMap((row:Data)=>
+      if (!mounted.current || generation !== readGeneration.current) return;
+      setCatalog(result);
+      const [pluginConnections, hooks] = await Promise.allSettled([api("pluginMcp"), api("pluginHooks")]);
+      if (!mounted.current || generation !== readGeneration.current) return;
+      setAllConnections(pluginConnections.status === "fulfilled" && Array.isArray(pluginConnections.value.data) ? pluginConnections.value.data : []);
+      setHookSources(hooks.status === "fulfilled" && Array.isArray(hooks.value.data) ? hooks.value.data.flatMap((row:Data)=>
           typeof row.sourceKind==='string' && typeof row.pluginId==='string' && typeof row.installedDigest==='string' && typeof row.origin==='string' && typeof row.enabled==='boolean'
           ?[{id:row.pluginId,digest:row.installedDigest,origin:row.origin,enabled:row.enabled}]:[]):[]);
-      }
+      setOptionalReadErrors({
+        ...(pluginConnections.status === "rejected" ? { connections: failure(pluginConnections.reason).message } : {}),
+        ...(hooks.status === "rejected" ? { hooks: failure(hooks.reason).message } : {}),
+      });
     } catch (cause) {
       if (mounted.current && generation === readGeneration.current) {
         setReadError(failure(cause).message);
         setCatalog(null);
+        setAllConnections([]);
+        setHookSources([]);
       }
     } finally {
       if (mounted.current && generation === readGeneration.current)
@@ -718,7 +746,18 @@ export function PluginCenter({ project: selectedProject, projects, thread, actio
       setCredentialBusy(false);
     }
   };
-  const closeDetail = () => navigateRoute(listRoute);
+  const closeDetail = () => navigate(() => { restoringList.current = true; setMessage(""); setRoute(listRoute); });
+  useEffect(() => {
+    const target = listReturn.current;
+    if (!restoringList.current || !panelActive || !target || target.projectId !== projectId || projectId !== selectedProject?.id || target.route !== route || loading) return;
+    const frame = requestAnimationFrame(() => {
+      if (scrollRegion.current) scrollRegion.current.scrollTop = target.scrollTop;
+      (pluginRows.current.get(target.pluginId) ?? searchInput.current)?.focus({ preventScroll: true });
+      restoringList.current = false;
+      listReturn.current = null;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [panelActive, projectId, selectedProject?.id, route, loading]);
   const installed = (catalog?.data ?? []).filter(item => item.installed);
   const packageSkills: CenterSkill[] = installed.flatMap(item => item.installedSkills.map(skill => ({
     ...skill, key: `${item.id}:${item.installedDigest}:${skill.id}`, enabled: item.enabled && !supportBlocked(item.installedComponentSupport, item.installedDigest),
@@ -783,11 +822,12 @@ export function PluginCenter({ project: selectedProject, projects, thread, actio
         <div className="plugin-installed-shortcuts">{installed.map(item => <button key={item.id} aria-current={route.kind === "plugin" && selected === item.id ? "page" : undefined} onClick={() => setSelected(item.id)}><Package size={16} /><span>{item.displayName || item.name}</span></button>)}</div>
         <button className="plugin-center-manage" onClick={() => navigate(onSettings)}>{t("settings.pluginCenter.manageInstalled")}</button>
       </aside>}
-      <div className="plugin-center-scroll"><div className={`plugin-center-content ${isDetail ? "plugin-center-detail" : ""}`}>
+      <div className="plugin-center-scroll" ref={scrollRegion} aria-busy={loading}><div className={`plugin-center-content ${isDetail ? "plugin-center-detail" : ""}`}>
+        {onReturnToTask && <Button variant="ghost" size="sm" className="mb-4" onClick={onReturnToTask}><ArrowLeft size={15} />{t("settings.pluginCenter.returnToTask")}</Button>}
         {isDetail ? <nav className="plugin-breadcrumb" aria-label={t("settings.pluginCenter.breadcrumb")}><button aria-label={t("settings.pluginCenter.backToPluginList")} onClick={closeDetail}><ArrowLeft size={15} />{listRoute.kind === "installed" ? t("settings.pluginCenter.pluginSettings") : listRoute.kind === "skills" ? "Skills" : t("settings.pluginCenter.pluginMarketplace")}</button><ChevronRight size={13} /><span>{title}</span></nav> : <>
           {!(surface === "workspace" && listRoute.kind === "skills") && <header className="plugin-center-header"><div>{project && <p className="plugin-management-context" title={project.root}>{t("settings.pluginCenter.managedProjectName", { name: project.name || project.root?.split(/[\\/]/).pop() })}</p>}<h1>{title}</h1><p>{listRoute.kind === "market" ? t("settings.pluginCenter.discoverAndInstallPluginsToExtendAReaL") : listRoute.kind === "skills" ? t("settings.pluginCenter.addReusableExpertiseForDifferentTasks") : t("settings.pluginCenter.manageInstalledPluginsMCPServersAndSkills")}</p></div>
             <div className="plugin-center-toolbar">
-              {(showPlugins || listRoute.kind === "installed" && listRoute.tab === "markets") && <SettingsSearchInput containerClassName="plugin-center-search" aria-label={t("settings.pluginCenter.searchPluginPackages")} placeholder={t("settings.pluginCenter.searchPlugins")} value={query} onChange={event => setQuery(event.target.value)} onClear={() => setQuery("")} clearLabel={t("settings.pluginCenter.clearPluginSearch")} />}
+              {(showPlugins || listRoute.kind === "installed" && listRoute.tab === "markets") && <SettingsSearchInput ref={searchInput} containerClassName="plugin-center-search" aria-label={t("settings.pluginCenter.searchPluginPackages")} placeholder={t("settings.pluginCenter.searchPlugins")} value={query} onChange={event => setQuery(event.target.value)} onClear={() => setQuery("")} clearLabel={t("settings.pluginCenter.clearPluginSearch")} />}
               {listRoute.kind === "skills" ? <Button disabled={draftBusy} onClick={() => void createSkill()}>{t("settings.pluginCenter.createSkill")}</Button> : <>
                 {surface === "settings" && <Button variant="outline" onClick={() => navigate(onMarket)}>{t("settings.pluginCenter.browseMarketplace")}</Button>}
                 <Button variant="ghost" size="icon" aria-label={t("settings.pluginCenter.refreshMarketplace")} disabled={!connected || busy || loading} onClick={() => void refresh()}><RefreshCw size={16} /></Button>{addMenu}
@@ -805,6 +845,9 @@ export function PluginCenter({ project: selectedProject, projects, thread, actio
       )}
       {!isDetail && <Feedback error={operationError} message={operationMessage} />}
       <Feedback error={readError} />
+      <Feedback message={loading ? t(catalog ? "settings.pluginCenter.refreshingCatalog" : "settings.pluginCenter.loadingCatalog") : ""} />
+      <Feedback error={optionalReadErrors.connections ? t("settings.pluginCenter.connectionsUnavailable", { error: formatUiMessage(t, optionalReadErrors.connections) }) : ""} />
+      <Feedback error={optionalReadErrors.hooks ? t("settings.pluginCenter.hooksUnavailable", { error: formatUiMessage(t, optionalReadErrors.hooks) }) : ""} />
       {surface === "settings" && !isDetail && listRoute.kind === "installed" && listRoute.tab === "plugins" && hookSources.length > 0 && <SettingsDisclosure title={<> {t("settings.pluginCenter.advancedStandaloneHooks")}</>}>
         {hookSources.map(source=><SettingsDisclosure key={source.id} className="settings-section" title={<> {source.id==='__hooks_user__'?t("settings.pluginCenter.userHooks"):t("settings.pluginCenter.projectHooks")} · {source.enabled?t("settings.pluginCenter.globalToggleEnabled"):t("settings.pluginCenter.globalToggleDisabled")} </>}>
         <p className="text-ui-sm break-all">{source.origin}</p>
@@ -830,7 +873,7 @@ export function PluginCenter({ project: selectedProject, projects, thread, actio
         {(listRoute.kind === "installed" ? [{ key: "installed", value: null, label: t("settings.pluginCenter.installed") }] : [...new Set(items.map(item => audience === "personal" ? marketFor(item)?.name || null : item.interface?.category || null))].map(value => ({ key: JSON.stringify([audience, value]), value, label: value || t(audience === "personal" ? "settings.pluginCenter.importedPluginPackage" : "settings.pluginCenter.plugins") }))).map(group => {
           const rows = listRoute.kind === "installed" ? items : items.filter(item => (audience === "personal" ? marketFor(item)?.name || null : item.interface?.category || null) === group.value);
           return <section className="plugin-market-group" key={group.key}><h2>{group.label}</h2><div className={listRoute.kind === "installed" || audience === "personal" ? "plugin-row-list" : "plugin-catalog-grid"}>{rows.map(item => <article className="plugin-catalog-row" key={item.id} aria-label={t("settings.pluginCenter.valuePluginValue", { value0: item.displayName || item.name, value1: item.id })}>
-            <button className="plugin-row-info" disabled={busy} aria-label={t("settings.pluginCenter.viewPluginValue", { value0: item.id })} onClick={() => setSelected(item.id)}><span className="plugin-resource-icon"><Package size={20} /></span><span><strong>{item.displayName || item.name}</strong><small>{item.description || item.id}</small></span></button>
+            <button className="plugin-row-info" ref={element => { if (element) pluginRows.current.set(item.id, element); else pluginRows.current.delete(item.id); }} disabled={busy} aria-label={t("settings.pluginCenter.viewPluginValue", { value0: item.id })} onClick={() => setSelected(item.id)}><span className="plugin-resource-icon"><Package size={20} /></span><span><strong>{item.displayName || item.name}</strong><small>{item.description || item.id}</small></span></button>
             {listRoute.kind === "installed" ? <Switch aria-label={t("settings.pluginCenter.valuePluginValueInTheCurrentProject", { value0: item.enabled ? t("settings.pluginCenter.disable") : t("settings.pluginCenter.enable"), value1: item.id })} checked={item.enabled} disabled={disabled} onCheckedChange={enabled => void mutate("pluginConfigure", { id: item.id, scope: "project", enabled, expectedRevision: catalog?.revision })} /> : <button className="plugin-row-action" aria-label={t("settings.pluginCenter.valuePluginValue2", { value0: item.installed ? t("settings.pluginCenter.manage") : t("settings.pluginCenter.add"), value1: item.id })} disabled={busy} onClick={() => setSelected(item.id)}>{item.installed ? t("settings.pluginCenter.added") : <Plus size={18} />}</button>}
           </article>)}</div></section>;
         })}
