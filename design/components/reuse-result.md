@@ -4,14 +4,14 @@
 
 ## 固定输入
 
-- Base 为 `0.2.0`，状态为 `frozen-beta`，实际输入提交为 `c98af14e00faad1b28164f660629b57c4bccea6e`。该提交包含合同、入口与[固定任务](reuse-exercise.md)。生产实现来源见 [Base](../../clients/gui/design-system/base.md)。
+- Base 为 `0.2.0`，状态为 `frozen-beta`，实际输入提交为 `c98af14e00faad1b28164f660629b57c4bccea6e`。该提交包含合同、入口与[固定任务](reuse-exercise.md)。原生产实现来源为 `b648e33127c09a3e2bade90c56bce29f1a0c9845`；[Base](../../clients/gui/design-system/base.md)继续维护当前版本，历史来源以固定提交为准。
 - 题目 SHA256 为 `3f85849dbddea7660228995d671658e8652d7289aef48f53bc7de1ebcf3c320d`。题目、语义与私有评分条件先于实现固定。
 - 实现者使用独立上下文，只读取冻结题目、Base、入口、就近合同与所需类型。没有读取评分材料、旧题目实现或参考截图。实现为 [ArtifactReviewExercise.tsx](../../clients/gui/renderer/src/design-system/ArtifactReviewExercise.tsx)。
 - 消费者源码 SHA256 为 `3f029f4074a8bbeee71f918d834c3dcb8e26803d4468d2038c70c6a4223ddfba`。运行期间冻结 Base 文件未改变。
 
 ## 已完成检查
 
-运行 `areal-design-system-QKMxji` 通过 5 组行为检查，保存 13 个截图状态，无页面错误或外部请求。构建 SHA256 为 `b8e37ed8196812a8429a24f2ca9025254141615186c90416171928050f7e24a5`。复验命令为先执行 `pnpm --dir clients/gui design:build`，再执行 `pnpm --dir clients/gui test:design --reuse-exercise`。
+运行 `areal-design-system-QKMxji` 通过 5 组行为检查，保存 13 个截图状态，无页面错误或外部请求。构建 SHA256 为 `b8e37ed8196812a8429a24f2ca9025254141615186c90416171928050f7e24a5`。在当时结果提交 `45c70496b65bbffdbc74ac18f498ee42edfd5a4b` 上复验。复验命令为先执行 `pnpm --dir clients/gui design:build`，再执行 `pnpm --dir clients/gui test:design --reuse-exercise`。
 
 | 观察 | 本轮结论 |
 | --- | --- |
@@ -37,4 +37,11 @@
 
 ## 后续边界
 
-已完成的是最小 Base 的一次独立复用闭环。P-RESOURCES、完整 P-CONVERSATION、完整 SidePane、自定义主题全矩阵、其他平台、真实供应商与安装包仍按各自任务准入。下一轮优先从真实 GUI 的资源管理或异常恢复中选择一个任务，再依据实际缺口扩大成员与状态。Web 在实际接入时独立验证，CLI/TUI 不在目标范围。
+已完成的是最小 Base 的一次独立复用闭环。完整 P-RESOURCES、完整 P-CONVERSATION、完整 SidePane、自定义主题全矩阵、其他平台、真实供应商与安装包仍按各自任务准入。资源管理的后续有限准入见当前 Base；其他扩展继续依据实际任务缺口。Web 在实际接入时独立验证，CLI/TUI 不在目标范围。
+
+
+## 0.3.0 迁移回归
+
+插件资源路径扩展后，既有消费者只将可见版本改为来自宿主的 Base 版本，没有新增组件、Token、页面样式或业务动作。实际输入为 `ca03dcd37a7aab647335f331e769b14cf5b5f6a3`，保留原输入 `c98af14e00faad1b28164f660629b57c4bccea6e`。当前复验器要求 Base 合同、目录和导出均已提交，再记录承载这些文件的精确提交；此运行明确标为迁移回归，不重复宣称独立盲试。
+
+运行 `areal-design-system-2n898T` 的 5 组行为和复用来源检查通过，无页面错误或外部请求。明亮 14 宽、深色 18 窄、减少动画以及原状态归属、失败与未知核对继续通过。迁移原图已保存，未追加独立视觉评价；原 0.2 的视觉判断仅属于原始结果。该浏览器回归不代替插件真实 GUI 验收，后者见 [E-PLUGINS](../../clients/gui/design-system/base-evidence.md#e-plugins)。

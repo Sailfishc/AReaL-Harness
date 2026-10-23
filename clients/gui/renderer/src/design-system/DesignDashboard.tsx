@@ -31,23 +31,23 @@ const phases: readonly Phase[] = [
   },
   {
     id: "base", letter: "B", title: "Base 设计系统", status: "completed",
-    summary: "三条真实 GUI 路径收敛，有限 Base 已冻结为独立复用的固定输入。",
-    outcomes: ["提交、过程、审批到结果复用生产组件与原执行控制器。", "外观修改立即生效；资源文件与 Diff 关闭后返回原任务，保留草稿、阅读和焦点。", "有限成员具有就近合同、来源、变体、状态与证据，目录生成入口并检查漂移。"],
-    remaining: ["冻结仅限 Base 列明范围，不表示稳定公共 API。", "P-RESOURCES、完整对话与 SidePane 等继续按真实需求单独准入。"],
-    sources: [{ title: "Base 与兼容边界", path: "clients/gui/design-system/base.md" }, { title: "运行证据", path: "clients/gui/design-system/base-evidence.md" }, { title: "深入查看与返回", path: "design/patterns/inspect-and-return.md" }],
+    summary: "四条真实 GUI 切片已验证，0.3.0 按 20 个成员、3 个模式的有限范围冻结。",
+    outcomes: ["提交、过程、审批到结果复用生产组件与原执行控制器。", "外观修改立即生效；资源文件与 Diff 关闭后返回原任务，保留草稿、阅读和焦点。", "插件查找、详情、项目启停、失败与 UNKNOWN 原回执核对及返回已通过真实 GUI 验证。"],
+    remaining: ["冻结只限 Base 列明的 GUI 成员、变体与状态，不表示稳定公共 API。", "P-RESOURCES 仅限列明插件路径；完整插件生命周期、P-CONVERSATION、SidePane、恢复与跨平台仍未完成。"],
+    sources: [{ title: "Base 与兼容边界", path: "clients/gui/design-system/base.md" }, { title: "运行证据", path: "clients/gui/design-system/base-evidence.md" }, { title: "插件资源管理", path: "design/patterns/plugin-resources.md" }],
   },
   {
     id: "independent", letter: "C", title: "固定题目与模拟页面", status: "completed",
-    summary: "冻结输入上的交付物核对题已完成，复用已有组件和 Token，没有增加页面 CSS。",
+    summary: "0.2 冻结输入上的交付物核对独立题已完成；0.3 扩展后的同题检查属于迁移回归。",
     outcomes: ["题目与可访问语义先固定，实现者与评估材料分离。", "筛选、处理中换对象、失败、未知结果显式核对、刷新与键盘通过本地检查。"],
-    remaining: ["单个独立任务不证明所有组件、主题或平台的泛化。", "本地模拟不连接 Core、文件系统或供应商。"],
+    remaining: ["0.3 迁移回归已通过，不作为新的盲试；单个独立任务不证明所有组件、主题或平台的泛化。", "本地模拟不连接 Core、文件系统或供应商。"],
     sources: [{ title: "固定题目", path: "design/components/reuse-exercise.md" }, { title: "独立复用结果", path: "design/components/reuse-result.md" }],
   },
   {
-    id: "feedback", letter: "D", title: "归因并改进", status: "completed",
-    summary: "本轮未确认共享规则或实现缺陷；修正评估器后复验，并保留另一条真实 GUI 任务检查。",
-    outcomes: ["评估器的定位、按钮内容假设和时钟问题归回评估器，消费者与冻结 Base 保持不变。", "资源返回保留场景复验通过，未因新增题目提升 Base 版本。"],
-    remaining: ["用户仍拥有整体产品与视觉结果的最终评价权。", "下一轮从真实 GUI 的资源管理或异常恢复需求扩大有限准入。"],
+    id: "feedback", letter: "D", title: "归因并改进", status: "current",
+    summary: "前两条切片已有首轮用户反馈；文件与 Diff、插件切片仍待整体体验评价。",
+    outcomes: ["评估器的定位、按钮内容假设和时钟问题归回评估器，消费者与冻结 Base 保持不变。", "文件与 Diff 返回保留场景已有自动化证据；插件扩展已有真实 GUI 证据，前三条切片也已回归。"],
+    remaining: ["用户仍拥有整体产品与视觉结果的最终评价权。", "下一步以用户整体评价、真实缺口和异常恢复为方向，不为补齐目录扩大范围。"],
     sources: [{ title: "结果与归因", path: "design/components/reuse-result.md" }, { title: "建设计划", path: "design/roadmap.md" }],
   },
 ];
@@ -55,6 +55,7 @@ const slices = [
   { title: "完成一项任务", path: "提交 → 过程 → 审批 → 结果", result: "真实批准、拒绝与文件结果已核对。执行事实继续由 Core 与 Runtime 提供。", feedback: true, source: "design/products/workbench/README.md" },
   { title: "修改外观后继续工作", path: "外观设置 → 立即生效 → 返回原任务", result: "真实设置偏好已核对。返回时保留草稿与当前可用的阅读段落。", feedback: true, source: "design/patterns/settings.md" },
   { title: "查看资源后回到任务", path: "结果 → 文件 / Diff → 返回原任务", result: "真实文件回执、历史轮次 Diff、缺失文件恢复与返回焦点已核对。保留草稿和当前阅读。", feedback: false, source: "design/patterns/inspect-and-return.md" },
+  { title: "查找并管理插件", path: "查找 / 筛选 → 详情 → 项目启停 → 失败 / UNKNOWN 原回执核对 → 原列表 → 原任务", result: "当前项目启停、明确失败、UNKNOWN 原回执核对和上下文返回已验证。完整安装、认证与连接生命周期另行验证。", feedback: false, source: "design/patterns/plugin-resources.md" },
 ] as const;
 
 function documentUrl(path: string) {
@@ -106,13 +107,13 @@ export function DesignDashboard() {
           <a href={documentUrl("design/roadmap.md#首轮完成条件")}>查看完整完成条件 →</a>
         </div>
         <aside className="design-dashboard-current" aria-labelledby="dashboard-current-title">
-          <p className="design-dashboard-eyebrow">当前 · 最小闭环已完成</p>
+          <p className="design-dashboard-eyebrow">当前 · 四条切片已验证</p>
           <h2 id="dashboard-current-title">有限 Base beta</h2>
-          <p className="design-dashboard-base">Base {baseCandidate.version}<span>{baseCandidate.status === "frozen-beta" ? "有限范围已冻结" : "候选未冻结"}</span></p>
-          <p>任务、外观、资源三个切片有真实 GUI 证据，冻结输入上的独立复用题已通过。<strong>首轮反馈未发现明显问题，与现有基准接近。</strong></p>
+          <p className="design-dashboard-base">Base {baseCandidate.version}<span>{({ "frozen-beta": "有限范围已冻结", candidate: "候选未冻结" })[baseCandidate.status]}</span></p>
+          <p>四条切片已有真实 GUI 自动化证据，0.2 冻结输入上的独立题结果保留。<strong>用户对前两条的首轮反馈未发现明显问题，与现有基准接近。</strong> 文件与 Diff、插件仍待用户评价。</p>
           <div className="design-dashboard-next">
             <h3>下一步</h3>
-            <p>先操作交付物核对题并评价整体效果。下一轮按真实 GUI 的资源管理或异常恢复需求扩大准入。</p>
+            <p>评价四条切片的整体效果，单独记录文件与 Diff、插件体验反馈。后续跟随用户评价、真实缺口与异常恢复需求。</p>
           </div>
           <a href={documentUrl("design/roadmap.md")}>查看建设计划 →</a>
         </aside>
@@ -142,7 +143,7 @@ export function DesignDashboard() {
       </section>
 
       <section className="design-dashboard-slices" aria-labelledby="dashboard-slices-title">
-        <div className="design-dashboard-section-heading"><h2 id="dashboard-slices-title">当前已走通的三个切片</h2><p>实现、运行验证与人的评价分别记录。</p></div>
+        <div className="design-dashboard-section-heading"><h2 id="dashboard-slices-title">当前四条任务切片</h2><p>实现、运行验证与人的评价分别记录。</p></div>
         {slices.map(slice => <article key={slice.title} className="design-dashboard-slice">
           <div><h3>{slice.title}</h3><p className="design-dashboard-slice-path">{slice.path}</p></div>
           <div><div className="design-dashboard-evidence"><span>已实现</span><span>自动化 GUI 已验证</span><span>{slice.feedback ? "用户首轮反馈已记录" : "等待用户体验评价"}</span></div><p>{slice.result}</p></div>
@@ -151,11 +152,12 @@ export function DesignDashboard() {
         <details className="design-dashboard-limits">
           <summary>验证范围与已知缺口</summary>
           <div className="design-dashboard-limits-content">
-            <p>三个切片的路径证据来自隔离的 Electron、Core 与 Runtime，模型事件由本地确定性服务提供。它们不证明真实供应商、安装包、其他平台或全部主题与状态矩阵已经通过。</p>
+            <p>四条切片的路径证据来自隔离的 Electron、Core 与 Runtime，模型事件由本地确定性服务提供。完整插件安装、认证、连接、恢复、真实供应商、安装包和跨平台仍未完成。</p>
             <p>外观返回只验证同一进程中当前可用的阅读段落。完整历史未重新加载时，不能推断尚未取得的内容也能恢复。</p>
-            <p>图片题对旧入口的假设和过程展开位置回归均已修复并复验。独立复用限一个固定任务，未扩大为完整组件或平台验收。</p>
-            <p>首轮用户反馈仅对应已体验范围，不等于所有主题、字号与状态均获认可。组件目录和构建通过，不能代替用户路径、原生平台或安装包验收。</p>
-            <p className="design-dashboard-technical">本快照的固定输入为 c98af14e；具体来源与运行见 Base 证据和独立结果。Base 标识读取现有目录 {baseCandidate.id}。<a href={documentUrl("design/architecture.md#验证边界")}>查看验证边界</a></p>
+            <p>插件长列表的非零滚动恢复、切换项目后的迟到结果注入尚无运行证据。</p>
+            <p>0.2 独立题限一个冻结任务；0.3 同题复验用于检查扩展后的迁移兼容，不作为新盲试或完整组件验收。</p>
+            <p>首轮用户反馈仅对应前两条切片；后两条仍待用户评价，不等于所有主题、字号与状态均获认可。组件目录和构建通过，不能代替用户路径、原生平台或安装包验收。</p>
+            <p className="design-dashboard-technical">0.2 独立题的固定输入为 c98af14e；当前有限冻结与具体运行见 Base 证据和独立结果。Base 标识读取现有目录 {baseCandidate.id}。<a href={documentUrl("design/architecture.md#验证边界")}>查看验证边界</a></p>
           </div>
         </details>
       </section>
