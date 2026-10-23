@@ -4,6 +4,7 @@
 /** @template T @typedef {{ok:true,value:T}|{ok:false,error:DesktopError}} DesktopResult */
 /** @typedef {{id:string,revision:string}} ResourceRef */
 /** @typedef {{projectId:string,profile?:ResourceRef}} PrepareCreatorRequest */
+/** @typedef {{sourceRoot?:string,ref?:string,worktreeRoot?:string,branch?:string,branchPrefix?:string}} WorktreeSpec */
 /** @typedef {{projectId:string,threadId:string,requestId?:string,expectedRevision?:number,model?:{providerId:string,modelId:string}|null,profile?:ResourceRef,options?:Record<string,unknown>,parameters?:Record<string,unknown>,selectedSkills?:ResourceRef[]}} ConfigureRequest */
 /** @typedef {{projectId:string,operation:'start',sourceThreadId:string,requestId:string,text:string,workspaceAccess:'none'|'readOnly',model?:{providerId:string,modelId:string},resetModel?:boolean,anchor?:Record<string,unknown>|null,selection?:Record<string,unknown>|null,parameters?:Record<string,unknown>}|{projectId:string,operation:'recover',requestId:string}|{projectId:string,operation:'send',threadId:string,text:string}|{projectId:string,operation:'context',threadId:string,cursor?:string,evidenceRef?:string,maxBytes?:number}|{projectId:string,operation:'list',sourceThreadId:string,includeArchived?:boolean,cursor?:string}} SideRequest */
 /** @typedef {{projectId:string,threadId:string,expectedTurnId:string,expectedConfigRevision?:number,requestId?:string}} ContinueRequest */
@@ -43,7 +44,7 @@ const commandDefinitions = Object.freeze({
     ...operations(mutation, 'pluginArchivePick pluginAuth pluginAuthCredential mcpAppOpen mcpAppOpenFromResult mcpAppRequest mcpAppClose mcpExtensionCall mcpFormRespond mcpFormPreview mcpFormResourcePrepare mcpFormResourceRelease executionCancel executionApply serverDrain serverGc workgroupApplyArtifact workgroupCancel closeResources planUpdate toolAcknowledge contextCompact permissionsForget providerProbe taskDraftConfirm'),
     taskDraftStart: { effect: 'mutation', requestId: 'draftId' },
   }],
-  workspace: ['service', 'project', { ...operations(read, 'worktreeRead list search read review reviewCommits reviewBranches turnReview status info gitState'), ...operations(recoverable, 'worktreeCreate'), ...operations(mutation, 'worktreeOpen save gitStage gitUnstage gitCommit gitPush') }],
+  workspace: ['service', 'project', { ...operations(read, 'worktreeOptions worktreeRead list search read review reviewCommits reviewBranches turnReview status info gitState'), ...operations(recoverable, 'worktreeCreate'), ...operations(mutation, 'worktreeSettings worktreeOpen save gitStage gitUnstage gitCommit gitPush') }],
   media: ['service', 'thread', { ...operations(read, 'list read'), upload: mutation, release: recoverable }],
   steer: ['service', 'thread', recoverable], dismissRecovery: ['service', 'project', mutation],
   providers: ['service', 'app', { ...operations(read, 'list revealKey discover'), ...operations(mutation, 'probe apply save saveAndApply removeAndApply defaultAndApply remove default') }],
@@ -112,6 +113,18 @@ function validateCommand(name, params, { serviceOnly = false } = {}) {
   if (['create', 'configure', 'fork', 'attachBrowser'].includes(name) && params.requestId !== undefined
     && (typeof params.requestId !== 'string' || !/^[0-9a-f-]{36}$/.test(params.requestId))) invalid();
   if (name === 'create' && params.browserEnabled !== undefined && typeof params.browserEnabled !== 'boolean') invalid();
+  if (name === 'create' && params.worktree !== undefined) {
+    const spec = params.worktree;
+    if (!record(spec) || Object.keys(spec).some(key => !['sourceRoot', 'ref', 'worktreeRoot', 'branch', 'branchPrefix'].includes(key))
+      || Object.values(spec).some(value => typeof value !== 'string' || value.length > 4096 || /[\x00-\x1f\x7f]/.test(value))) invalid();
+  }
+  if (name === 'workspace' && params.operation === 'worktreeOptions'
+    && (Object.keys(params).some(key => !['projectId', 'operation', 'sourceRoot'].includes(key))
+      || params.sourceRoot !== undefined && (typeof params.sourceRoot !== 'string' || !params.sourceRoot || params.sourceRoot.length > 4096 || /[\x00-\x1f\x7f]/.test(params.sourceRoot)))) invalid();
+  if (name === 'workspace' && params.operation === 'worktreeSettings'
+    && (Object.keys(params).some(key => !['projectId', 'operation', 'worktreeRoot', 'branchPrefix'].includes(key))
+      || typeof params.worktreeRoot !== 'string' || params.worktreeRoot.length > 4096 || /[\x00-\x1f\x7f]/.test(params.worktreeRoot)
+      || typeof params.branchPrefix !== 'string' || !params.branchPrefix || params.branchPrefix.length > 128 || /[\x00-\x1f\x7f]/.test(params.branchPrefix))) invalid();
   if (name === 'fork' && (!identifier(params.sourceThreadId) || !record(params.anchor)
     || !identifier(params.anchor.turnId) || !['before', 'after'].includes(String(params.anchor.boundary))
     || params.workspaceMode !== 'sharedCurrent')) invalid();

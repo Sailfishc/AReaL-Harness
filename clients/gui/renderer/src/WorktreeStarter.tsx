@@ -1,54 +1,381 @@
-import {useRef,useState} from 'react';
-import {Button} from './components/ui/button.js';
-import {Input} from './components/ui/input.js';
-import {Dialog,DialogContent,DialogHeader,DialogTitle,DialogDescription} from './components/ui/dialog.js';
-import {attachmentDrafts} from './Composer.js';
-import type {Action,Data} from './services.js';
+import { useEffect, useRef, useState } from "react";
+import { GitBranch, GitFork } from "lucide-react";
+import { Button } from "./components/ui/button.js";
+import { Input } from "./components/ui/input.js";
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogDescription,
+} from "./components/ui/dialog.js";
+import { SettingsSelect } from "./settings/SettingsPageParts.js";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "./components/ui/select.js";
+import { SettingsDisclosure } from "./settings/SettingsDisclosure.js";
+import { useI18n } from "./i18n/IntlProvider.js";
+import type { Action, Data } from "./services.js";
 
-type Draft = {source:'head'|'working-tree'|'branch';ref:string;requestId?:string};
-type Receipt = {state:'missing'|'creating'|'created'|'failed';message?:string;record?:{directory:string;branch:string;base:string}};
-export function WorktreeStarter({project,action,onOpen}:{project:Data;action:Action;onOpen:(id:string)=>Promise<void>}) {
-  const key=`areal-gui:worktree:${project.id}`;
-  const [draft,setDraft]=useState<Draft>(()=>{try {const d=JSON.parse(localStorage.getItem(key)??'null');if(d&&['head','working-tree','branch'].includes(d.source)&&typeof d.ref==='string')return d;}catch{}return {source:'head',ref:''};});
-  const [open,setOpen]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[receipt,setReceipt]=useState<Receipt>();
-  const locked=useRef(false);
-  const update=(value:Draft)=>{localStorage.setItem(key,JSON.stringify(value));setDraft(value);};
-  const run=async(work:()=>Promise<void>)=>{if(locked.current)return;locked.current=true;setBusy(true);setError('');try{await work();}catch(e){setError((e as Error).message);}finally{locked.current=false;setBusy(false);}};
-  const accept=(result:Receipt)=>{
-    setReceipt(result);
-    if(result.state==='failed'){update({source:draft.source,ref:draft.ref});setError(result.message??'工作树创建失败');}
-    else if(result.state==='creating'||result.state==='missing')setError('创建结果尚未确认。请稍后核对，不会重复创建工作树。');
-  };
-  const create=()=>run(async()=>{const requestId=crypto.randomUUID();update({...draft,requestId});setReceipt(undefined);accept(await action('workspace',{projectId:project.id,operation:'worktreeCreate',requestId,source:draft.source,ref:draft.ref}));});
-  const recover=()=>run(async()=>accept(await action('workspace',{projectId:project.id,operation:'worktreeRead',requestId:draft.requestId})));
-  const enter=()=>run(async()=>{
-    const result=await action('workspace',{projectId:project.id,operation:'worktreeOpen',requestId:draft.requestId});
-    // Copy the current source draft only into an empty destination. Retain the
-    // original so switching back or an interrupted navigation cannot lose input.
-    const from=`areal-gui:draft:${project.id}:new`,to=`areal-gui:draft:${result.projectId}:new`;
-    if(localStorage.getItem(to)===null){
-      for(const suffix of ['',':permission',':plan']){const value=localStorage.getItem(from+suffix);if(value!==null)localStorage.setItem(to+suffix,value);}
-      if(attachmentDrafts.has(from))attachmentDrafts.set(to,[...attachmentDrafts.get(from)!]);
+export type WorktreeSelection = {
+    sourceRoot: string;
+    ref: string;
+    worktreeRoot: string;
+    branch: string;
+    branchPrefix: string;
+};
+type Options = {
+    worktrees: { root: string; branch?: string; head?: string }[];
+    branches: string[];
+    settings: { worktreeRoot: string; branchPrefix: string };
+};
+
+function WorktreeChoice({
+    label,
+    value,
+    items,
+    disabled,
+    onChange,
+}: {
+    label: string;
+    value: string;
+    items: { value: string; label: string }[];
+    disabled: boolean;
+    onChange: (value: string) => void;
+}) {
+    return (
+        <Select
+            value={value}
+            items={items}
+            disabled={disabled}
+            onValueChange={(next) => {
+                if (next !== null) onChange(next);
+            }}
+        >
+            <SelectTrigger
+                aria-label={label}
+                variant="secondary"
+                size="sm"
+                className="w-full max-w-full"
+            >
+                <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+                {items.map((item) => (
+                    <SelectItem key={item.value} value={item.value}>
+                        {item.label}
+                    </SelectItem>
+                ))}
+            </SelectContent>
+        </Select>
+    );
+}
+
+export function worktreeSelectionKey(projectId: string) {
+    return `areal-gui:worktree-selection:${projectId}`;
+}
+export function readWorktreeSelection(projectId: string): WorktreeSelection | undefined {
+    try {
+        const value: unknown = JSON.parse(
+            localStorage.getItem(worktreeSelectionKey(projectId)) ?? "null",
+        );
+        if (
+            value &&
+            typeof value === "object" &&
+            ["sourceRoot", "ref", "worktreeRoot", "branch", "branchPrefix"].every(
+                (key) => typeof (value as Record<string, unknown>)[key] === "string",
+            )
+        )
+            return value as WorktreeSelection;
+    } catch {
+        /* 无效本地草稿不影响新会话。 */
     }
-    await onOpen(result.projectId);setOpen(false);
-  });
-  return <>
-    <Button variant="ghost" size="sm" disabled={!project.state?.connected} onClick={()=>setOpen(true)} aria-label="创建工作树">工作树</Button>
-    <Dialog open={open} onOpenChange={value=>{if(!busy)setOpen(value);}}>
-      <DialogContent className="max-w-[480px]" showCloseButton={!busy}>
-        <DialogHeader><DialogTitle>创建工作树</DialogTitle><DialogDescription>在独立目录中开始任务。原项目的文件与暂存区保持不变。</DialogDescription></DialogHeader>
-        <label className="grid gap-2">起始状态<select aria-label="起始状态" className="rounded-control border border-control bg-transparent px-3 py-2" disabled={busy||!!draft.requestId} value={draft.source} onChange={e=>update({...draft,source:e.target.value as Draft['source']})}>
-          <option value="head">当前提交（HEAD）</option><option value="working-tree">包含未提交的改动</option><option value="branch">指定分支或提交</option>
-        </select></label>
-        {draft.source==='branch'&&<label className="grid gap-2">分支或提交<Input aria-label="分支或提交" value={draft.ref} disabled={busy||!!draft.requestId} onChange={e=>update({...draft,ref:e.target.value})}/></label>}
-        {draft.source==='working-tree'&&<p className="text-ui-caption text-foreground-subtle">包括已跟踪与未忽略的新文件；忽略文件遵循项目的 .worktreeinclude 配置。</p>}
-        <p className="text-ui-caption text-foreground-subtle">首次打开会复制项目管理的 Skills、启用偏好和 MCP 配置。之后可独立修改，MCP 连接需单独开启。</p>
-        {error&&<p role="alert" className="text-destructive text-ui-caption break-words">{error}</p>}
-        {receipt?.state==='created'&&<div className="grid gap-1 text-ui-caption"><span>工作树已创建</span><code className="break-all">{receipt.record?.directory}</code><span className="text-foreground-subtle">{receipt.record?.branch}</span></div>}
-        <div className="flex justify-end gap-2">
-          {receipt?.state==='created'?<><Button variant="ghost" disabled={busy} onClick={()=>{update({source:draft.source,ref:draft.ref});setReceipt(undefined);setError('');}}>创建另一个工作树</Button><Button disabled={busy} onClick={()=>void enter()}>在工作树中新建任务</Button></>:draft.requestId?<Button disabled={busy} onClick={()=>void recover()}>核对创建结果</Button>:<Button disabled={busy||(draft.source==='branch'&&!draft.ref.trim())} onClick={()=>void create()}>创建</Button>}
-        </div>
-      </DialogContent>
-    </Dialog>
-  </>;
+    return undefined;
+}
+
+export function WorktreeStarter({
+    project,
+    action,
+    value,
+    onChange,
+    disabled = false,
+}: {
+    project: Data;
+    action: Action;
+    value?: WorktreeSelection;
+    onChange: (value: WorktreeSelection | undefined) => void;
+    disabled?: boolean;
+}) {
+    const { t } = useI18n();
+    const sourceRoot = project.logicalRoot ?? project.root;
+    const empty = (): WorktreeSelection => ({
+        sourceRoot,
+        ref: "HEAD",
+        worktreeRoot: "",
+        branch: "",
+        branchPrefix: "areal",
+    });
+    const [open, setOpen] = useState(false);
+    const [mode, setMode] = useState<"automatic" | "worktree">(value ? "worktree" : "automatic");
+    const [draft, setDraft] = useState<WorktreeSelection>(value ?? empty);
+    const [options, setOptions] = useState<Options>();
+    const [loading, setLoading] = useState(false);
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState("");
+    const [saved, setSaved] = useState(false);
+    const request = useRef(action);
+    request.current = action;
+    useEffect(() => {
+        if (!open) return;
+        let active = true;
+        setLoading(true);
+        setError("");
+        void request
+            .current("workspace", {
+                projectId: project.id,
+                operation: "worktreeOptions",
+                sourceRoot: draft.sourceRoot,
+            })
+            .then(
+                (result: Options) => {
+                    if (!active) return;
+                    setOptions(result);
+                    if (!value)
+                        setDraft((previous) => ({
+                            ...previous,
+                            worktreeRoot:
+                                previous.worktreeRoot || result.settings.worktreeRoot || "",
+                            branchPrefix:
+                                previous.branchPrefix === "areal"
+                                    ? result.settings.branchPrefix || "areal"
+                                    : previous.branchPrefix,
+                        }));
+                },
+                (cause) => {
+                    if (active) setError((cause as Error).message);
+                },
+            )
+            .finally(() => {
+                if (active) setLoading(false);
+            });
+        return () => {
+            active = false;
+        };
+    }, [open, project.id, draft.sourceRoot]);
+    const busy = disabled || loading || saving;
+    const saveDefaults = async () => {
+        if (busy) return;
+        setSaving(true);
+        setError("");
+        setSaved(false);
+        try {
+            await action("workspace", {
+                projectId: project.id,
+                operation: "worktreeSettings",
+                worktreeRoot: draft.worktreeRoot,
+                branchPrefix: draft.branchPrefix,
+            });
+            setSaved(true);
+        } catch (cause) {
+            setError((cause as Error).message);
+        } finally {
+            setSaving(false);
+        }
+    };
+    const sources = options?.worktrees ?? [];
+    const branches = [...new Set(["HEAD", ...(options?.branches ?? [])])];
+    return (
+        <>
+            <Button
+                variant="ghost"
+                size="sm"
+                disabled={disabled || !project.state?.connected}
+                onClick={() => {
+                    setDraft(value ?? empty());
+                    setMode(value ? "worktree" : "automatic");
+                    setSaved(false);
+                    setOpen(true);
+                }}
+                aria-label={t("worktree.configure")}
+            >
+                <GitFork className="size-3.5" aria-hidden="true" />
+                {t(value ? "worktree.new" : "worktree.automatic")}
+            </Button>
+            <Dialog
+                open={open}
+                onOpenChange={(next) => {
+                    if (!saving) setOpen(next);
+                }}
+            >
+                <DialogContent className="max-w-lg">
+                    <DialogHeader>
+                        <DialogTitle>{t("worktree.configure")}</DialogTitle>
+                        <DialogDescription>{t("worktree.createOnSend")}</DialogDescription>
+                    </DialogHeader>
+                    <div className="grid min-w-0 gap-3">
+                        <SettingsSelect
+                            aria-label={t("worktree.mode")}
+                            value={mode}
+                            disabled={busy}
+                            onValueChange={(next) => setMode(next as typeof mode)}
+                        >
+                            <option value="automatic">{t("worktree.automatic")}</option>
+                            <option value="worktree">{t("worktree.new")}</option>
+                        </SettingsSelect>
+                        {mode === "automatic" ? (
+                            <p className="text-ui-caption text-foreground-subtle">
+                                {t("worktree.automaticDescription")}
+                            </p>
+                        ) : (
+                            <>
+                                <label className="grid min-w-0 gap-2 text-ui-caption">
+                                    {t("worktree.source")}
+                                    <WorktreeChoice
+                                        label={t("worktree.source")}
+                                        value={draft.sourceRoot}
+                                        disabled={busy || !sources.length}
+                                        items={sources.map((source) => ({
+                                            value: source.root,
+                                            label: [source.branch, source.root]
+                                                .filter(Boolean)
+                                                .join(" · "),
+                                        }))}
+                                        onChange={(next) =>
+                                            setDraft((previous) => ({
+                                                ...previous,
+                                                sourceRoot: next,
+                                                ref: "HEAD",
+                                            }))
+                                        }
+                                    />
+                                </label>
+                                <label className="grid min-w-0 gap-2 text-ui-caption">
+                                    {t("worktree.startBranch")}
+                                    <WorktreeChoice
+                                        label={t("worktree.startBranch")}
+                                        value={draft.ref}
+                                        disabled={busy}
+                                        items={branches.map((branch) => ({
+                                            value: branch,
+                                            label: branch,
+                                        }))}
+                                        onChange={(next) =>
+                                            setDraft((previous) => ({ ...previous, ref: next }))
+                                        }
+                                    />
+                                </label>
+                                <label className="grid gap-2 text-ui-caption">
+                                    {t("worktree.branchName")}
+                                    <Input
+                                        aria-label={t("worktree.branchName")}
+                                        value={draft.branch}
+                                        disabled={busy}
+                                        placeholder={t("worktree.generatedBranch")}
+                                        onChange={(event) =>
+                                            setDraft((previous) => ({
+                                                ...previous,
+                                                branch: event.target.value,
+                                            }))
+                                        }
+                                    />
+                                </label>
+                                <p className="text-ui-caption text-foreground-subtle">
+                                    {t("worktree.commitOnly")}
+                                </p>
+                            </>
+                        )}
+                        <SettingsDisclosure title={t("worktree.defaults")}>
+                            <div className="grid gap-3">
+                                <label className="grid gap-2 text-ui-caption">
+                                    {t("worktree.root")}
+                                    <Input
+                                        aria-label={t("worktree.root")}
+                                        value={draft.worktreeRoot}
+                                        disabled={busy}
+                                        placeholder={t("worktree.defaultRoot")}
+                                        onChange={(event) => {
+                                            setSaved(false);
+                                            setDraft((previous) => ({
+                                                ...previous,
+                                                worktreeRoot: event.target.value,
+                                            }));
+                                        }}
+                                    />
+                                </label>
+                                <label className="grid gap-2 text-ui-caption">
+                                    {t("worktree.prefix")}
+                                    <Input
+                                        aria-label={t("worktree.prefix")}
+                                        value={draft.branchPrefix}
+                                        disabled={busy}
+                                        placeholder={t("worktree.defaultPrefix")}
+                                        onChange={(event) => {
+                                            setSaved(false);
+                                            setDraft((previous) => ({
+                                                ...previous,
+                                                branchPrefix: event.target.value,
+                                            }));
+                                        }}
+                                    />
+                                </label>
+                                <p className="text-ui-caption text-foreground-subtle">
+                                    {t("worktree.futureOnly")}
+                                </p>
+                                <Button
+                                    variant="secondary"
+                                    size="sm"
+                                    disabled={busy}
+                                    onClick={() => void saveDefaults()}
+                                >
+                                    {t(saving ? "worktree.saving" : "worktree.saveDefaults")}
+                                </Button>
+                                {saved && (
+                                    <p
+                                        role="status"
+                                        className="text-ui-caption text-foreground-subtle"
+                                    >
+                                        {t("worktree.defaultsSaved")}
+                                    </p>
+                                )}
+                            </div>
+                        </SettingsDisclosure>
+                        {loading && (
+                            <p role="status" className="text-ui-caption text-foreground-subtle">
+                                {t("worktree.loading")}
+                            </p>
+                        )}
+                        {error && (
+                            <p
+                                role="alert"
+                                className="break-words text-ui-caption text-destructive"
+                            >
+                                {error}
+                            </p>
+                        )}
+                    </div>
+                    <div className="flex justify-end gap-2">
+                        <Button variant="ghost" disabled={saving} onClick={() => setOpen(false)}>
+                            {t("worktree.cancel")}
+                        </Button>
+                        <Button
+                            disabled={
+                                busy || (mode === "worktree" && (!options || !!error || !draft.ref))
+                            }
+                            onClick={() => {
+                                onChange(mode === "worktree" ? { ...draft } : undefined);
+                                setOpen(false);
+                            }}
+                        >
+                            <GitBranch className="size-3.5" aria-hidden="true" />
+                            {t("worktree.useSelection")}
+                        </Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
+        </>
+    );
 }

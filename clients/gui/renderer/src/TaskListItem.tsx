@@ -1,16 +1,18 @@
 /* Adapted from ZCode 872ad960 TaskListItem.tsx: original default row markup,
  * title overflow and action geometry. Core supplies state and callbacks. */
 import { memo, type ReactNode } from 'react';
-import { LoaderIcon, CircleDashed } from 'lucide-react';
+import { useI18n } from './i18n/IntlProvider.js';
+import { LoaderIcon, CircleDashed, GitBranch } from 'lucide-react';
 import { ArchiveChatIcon as Archive, PinChatIcon as Pin, MoreOptionsIcon as MoreHorizontal, EditMessageIcon as PenLine } from './interfaceIcons.js';
 import { SidebarDragSurface, type SidebarSurfaceDragProps } from './sidebarDrag.js';
 import { cn } from './components/lib/utils.js';
 import { TaskTitleOverflowText } from './components/TaskTitleOverflowText.js';
 import { Button } from './components/ui/button.js';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './components/ui/dropdown-menu.js';
-export const MemoTaskItem = memo(function TaskListItem({ id, title, active, pinned, running, attention, archived, disabled, unread = false, statePending = false, nested = true, instanceId, dragProps, organizationActions, onSelect, onRename, onPin, onArchive }: {
+export const MemoTaskItem = memo(function TaskListItem({ id, title, worktree, active, pinned, running, attention, archived, disabled, unread = false, statePending = false, nested = true, instanceId, dragProps, organizationActions, onSelect, onRename, onPin, onArchive }: {
     id: string;
     title: string;
+    worktree?: {branch: string; directory: string};
     active: boolean;
     pinned: boolean;
     running: boolean;
@@ -28,6 +30,7 @@ export const MemoTaskItem = memo(function TaskListItem({ id, title, active, pinn
     onPin: () => void;
     onArchive: () => void;
 }) {
+    const { t } = useI18n();
     return (
       <SidebarDragSurface as="li"
         {...dragProps}
@@ -72,6 +75,9 @@ export const MemoTaskItem = memo(function TaskListItem({ id, title, active, pinn
               <TaskTitleOverflowText className="navigation-task-title" title={title}>
                 {title}
               </TaskTitleOverflowText>
+              {worktree && <span className="flex min-w-0 max-w-full items-center gap-1 text-ui-caption text-foreground-subtle" title={worktree.directory} aria-label={t("worktree.threadWorkspace", { branch: worktree.branch })}>
+                <GitBranch className="size-3 shrink-0" aria-hidden="true" /><span className="truncate">{worktree.branch}</span>
+              </span>}
             </div>
           </div>
         </div>

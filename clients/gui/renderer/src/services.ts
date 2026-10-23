@@ -6,7 +6,7 @@ export type { CommandName };
 export type Data = Record<string, any>;
 export type FileOpenTargets = { targets: { id: string; label: string }[]; preferred: string; preferredLabel: string };
 export type FileOpenRequest = { operation: 'targets' } | { operation: 'setDefault'; target: string }
-    | { operation: 'open' | 'reveal' | 'saveAs'; projectId: string; path: string };
+    | { operation: 'open' | 'reveal' | 'saveAs'; projectId: string; threadId?: string; path: string };
 export interface Snapshot {
     projects: Data[];
     desktopCapabilities?: { currentCommands: boolean };

@@ -414,7 +414,7 @@ export function TaskCenter({ projects: allProjects, connected, initialProjectId,
     void action("manage", { projectId: project.id, operation: "taskWatch", taskId: task.id, viewId })
       .then(() => { if (live) setConfirmedWatch(confirmation); })
       .catch(cause => { if (live) { setConfirmedWatch(null); setError(cause.message); } });
-    return () => { live = false; setConfirmedWatch(null); void action("manage", { projectId: project.id, operation: "taskUnwatch", viewId }).catch(() => {}); };
+    return () => { live = false; setConfirmedWatch(null); void action("manage", { projectId: project.id, operation: "taskUnwatch", taskId: task.id, viewId }).catch(() => {}); };
   }, [action, connected, ownerFailed, project?.id, project?.state?.connected, project?.core?.connectionGeneration, task?.id, viewId]);
   useLayoutEffect(() => {
     const owner = task && project ? `${project.id}:${task.id}` : "";

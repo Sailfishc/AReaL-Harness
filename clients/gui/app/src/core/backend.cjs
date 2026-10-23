@@ -22,6 +22,9 @@ const { isTaskDraftConfiguration, manageTaskDraft, displayTaskDraftThread } = re
 const { mediaCommand, messageInput } = require('./media.cjs');
 const { workspaceCommand } = require('./workspace.cjs');
 const { CoreWorktrees } = require('./worktrees.cjs');
+const { WorktreeAdmission } = require('./worktree-admission.cjs');
+const { TaskWorkspaceOwners } = require('./task-workspace-owners.cjs');
+const { ScheduleAdmission } = require('./schedule-admission.cjs');
 const { ProjectlessWorkspaces } = require('./projectless.cjs');
 const { inspectCoreCapabilities, projectCoreCapabilities } = require('./core-capabilities.cjs');
 const { definition: browserTool } = require('./browser-tool.cjs');
@@ -59,6 +62,9 @@ class CoreBackend {
     this.closing = false;
     this.library = new CoreLibrary(this);
     this.worktrees = new CoreWorktrees(this);
+    this.worktreeAdmission = new WorktreeAdmission(this);
+    this.scheduleAdmission = new ScheduleAdmission(this);
+    this.taskWorkspaceOwners = new TaskWorkspaceOwners(this);
     this.projectless = new ProjectlessWorkspaces(this);
     this.notifications = new CoreNotifications(notice => this.onNotification?.(notice));
     this.analytics = new UsageAnalytics(this);
@@ -106,6 +112,7 @@ class CoreBackend {
         get providers() { return backend.providers; },
         reconcile: (...args) => backend.reconcile(...args),
         get resources() { return backend.resources; },
+        get scheduleAdmission() { return backend.scheduleAdmission; },
         get resourcesUpdating() { return backend.resourcesUpdating; },
         get saved() { return backend.saved; },
         scheduleReconciliation: (...args) => backend.scheduleReconciliation(...args),
@@ -128,6 +135,8 @@ class CoreBackend {
       this._observations = new HistoryObservation({
         get analytics() { return backend.analytics; },
         get notifications() { return backend.notifications; },
+        get worktrees() { return backend.worktrees; },
+        get taskWorkspaceOwners() { return backend.taskWorkspaceOwners; },
         onMcpAppNotification: (...args) => backend.onMcpAppNotification?.(...args),
         onMcpPageToolNotice: (...args) => backend.onMcpPageToolNotice?.(...args),
         scheduleReconciliation: (...args) => backend.scheduleReconciliation(...args),
@@ -153,6 +162,7 @@ class CoreBackend {
         get closing() { return backend.closing; },
         currentConnection: (...args) => backend.currentConnection(...args),
         get home() { return backend.home; },
+        get worktrees() { return backend.worktrees; },
         get lifecycleOperations() { return backend.lifecycleOperations; },
         onChange: () => backend.onChange(),
         openThread: (...args) => backend.openThread(...args),
@@ -184,6 +194,8 @@ class CoreBackend {
       } catch (error) { if (error.code !== 'ENOENT') throw error; this.saved = []; }
       trace.advance('library');
       await this.library.init();
+      await this.worktrees.init();
+      await this.taskWorkspaceOwners.init();
       trace.advance('projectless');
       await this.projectless.init();
       trace.advance('analytics');
@@ -240,7 +252,7 @@ class CoreBackend {
   }
 
   snapshot() {
-    return { library: this.library.value, projectless: this.projectless.snapshot(), power: this.power ?? null, projects: this.saved.map(project => {
+    return { library: this.library.value, projectless: this.projectless.snapshot(), power: this.power ?? null, projects: this.worktrees.aggregate(this.saved.map(project => {
       const live = this.projects.get(project.id);
       const snapshot = live?.model.getSnapshot() ?? null;
       // Management conversations remain hidden from chat navigation, but use the
@@ -256,7 +268,7 @@ class CoreBackend {
         defaultProfile: live?.resourceProfile ?? this.defaultProfile ?? null, configurations: live?.configurations ?? {},
         summaries: live?.summaries ?? [], summariesLoaded: live?.summariesLoaded === true,
         observationErrors: live?.observationErrors ?? {}, refreshErrors: live?.refreshErrors ?? {}, error: live?.error ?? null };
-    }) };
+    })) };
   }
 
   start(...args) { return this.connections.start(...args); }
@@ -718,11 +730,12 @@ class CoreBackend {
 
   async command(name, request, context = {}) {
     const semantics = commandSemantics(name, request);
+    if (semantics.requestId && !request[semantics.requestId]) request = { ...request, [semantics.requestId]: randomUUID() };
+    if (this.worktrees) request = await this.worktrees.resolveRequest(name, request);
     if (name === 'history' && request.operation === 'release') {
       const project = this.projects.get(request.projectId);
       return project ? this.historyCommand(project, request) : { released: true };
     }
-    if (semantics.requestId && !request[semantics.requestId]) request = { ...request, [semantics.requestId]: randomUUID() };
     if (name === 'stop') {
       const project = this.projects.get(request.projectId);
       if (!project?.service || !project.client?.ready) throw Object.assign(new Error('原 Core 连接不可用，不能中断轮次'), { code: 'LIFECYCLE_INCOMPLETE' });
@@ -767,6 +780,31 @@ class CoreBackend {
     finally { this.activeCommands--; }
   }
 
+  assertThreadCreationAvailable(project, request) {
+    if (project.client?.capabilities?.features?.permissionPresets !== true) {
+      throw Object.assign(new Error('当前 Core 不支持权限模式，请更新后台后创建聊天'), {submissionUnknown:false,outcome:{kind:'noMutation'}});
+    }
+    if (request.browserEnabled === true
+      && projectCoreCapabilities(this.binary, project.client?.capabilities).features?.browserToolAttachment !== true) {
+      throw Object.assign(new Error('当前 Core 不支持新聊天启用浏览器'), {submissionUnknown:false,outcome:{kind:'noMutation'}});
+    }
+  }
+
+  async createThreadInProject(project, request) {
+    this.assertThreadCreationAvailable(project, request);
+    try { await this.resources.beforeCreate(project); }
+    catch (error) { throw Object.assign(error, {submissionUnknown:false,outcome:{kind:'noMutation'}}); }
+    const { thread } = await this.submit(project, 'areal/thread/start', { cwd: project.root,
+      ...(this.supportsBrowser(project) ? { dynamicTools: [browserTool] } : {}),
+      ...(request.parameters ? { parameters: request.parameters } : {}),
+      options: { permissionPreset: 'ask', ...request.options },
+      ...(request.model ? { model: request.model } : {}),
+      ...((request.profile ?? project.resourceProfile ?? this.defaultProfile) ? { agentProfile: request.profile ?? project.resourceProfile ?? this.defaultProfile } : {}),
+    }, { requestId: request.requestId });
+    await this.refreshAfterAdmission(project, thread.id, operationOf('areal/thread/start', request), { backgroundList: true });
+    return { threadId: thread.id, requestId: request.requestId };
+  }
+
   async executeCommand(name, request, context = {}) {
     if (this.closing) throw new Error('应用正在退出');
     if (name === 'trajectory') return this.trajectory.command(request);
@@ -774,10 +812,14 @@ class CoreBackend {
     if (name === 'tasks') return taskCatalog(this, request);
     if (name === 'projectless') return this.projectless.command(request);
     if (name === 'library') return this.library.command(request);
-    if (name === 'workspace') return workspaceCommand(this, request);
+    if (name === 'workspace') {
+      if (this.worktreeAdmission.needsAdmission(name, request)) await this.worktreeAdmission.admit(await this.start(request.projectId), name, request);
+      return workspaceCommand(this, request);
+    }
     const { projectId, threadId } = request;
     const project = await this.start(projectId);
     if (this.closing) throw new Error('应用正在退出');
+    await this.worktreeAdmission.admit(project, name, request);
     if (['send', 'editMessage', 'continue', 'steer'].includes(name) || name === 'side' && ['start', 'send'].includes(request.operation)) {
       const configured = name === 'side' && request.operation === 'start' ? request.model : project.configurations?.[threadId]?.model;
       const model = configured?.providerId === 'areal_openai'
@@ -786,7 +828,7 @@ class CoreBackend {
         throw Object.assign(new Error('当前 ChatGPT 模型不可用，请在模型设置中刷新登录状态或选择其他模型'), { submissionUnknown: false });
     }
     switch (name) {
-      case 'connect': return this.snapshot();
+      case 'connect': await this.worktrees.connectExecutions(request.logicalProjectId ?? project.id); return this.snapshot();
       case 'prediction': {
         if (!project.client?.capabilities?.methods?.includes('areal/thread/prediction')) return null;
         return project.client.request('areal/thread/prediction', { threadId, sourceTurnId: request.sourceTurnId, operation: request.operation });
@@ -801,7 +843,7 @@ class CoreBackend {
           throw new Error('任务管理会话不执行目标；请在会话中描述要调整的定时任务。');
         }
         return manage(this, project, request, context);
-      case 'list': await this.listThreads(project); break;
+      case 'list': await this.listThreads(project); await this.worktrees.connectExecutions(request.logicalProjectId ?? project.id); break;
       case 'open': await this.openThread(project, threadId); break;
       case 'history': return this.historyCommand(project, request);
       case 'attachBrowser': {
@@ -836,25 +878,7 @@ class CoreBackend {
         return this.readSubmission(project, method, { requestId: request.requestId, threadId });
       }
       case 'queueEdit': return this.editQueue(project, request);
-      case 'create': {
-        if (project.client?.capabilities?.features?.permissionPresets !== true) {
-          throw new Error('当前 Core 不支持权限模式，请更新后台后创建聊天');
-        }
-        if (request.browserEnabled === true
-          && projectCoreCapabilities(this.binary, project.client?.capabilities).features?.browserToolAttachment !== true) {
-          throw new Error('当前 Core 不支持新聊天启用浏览器');
-        }
-        await this.resources.beforeCreate(project);
-        const { thread } = await this.submit(project, 'areal/thread/start', { cwd: project.root,
-          ...(this.supportsBrowser(project) ? { dynamicTools: [browserTool] } : {}),
-          ...(request.parameters ? { parameters: request.parameters } : {}),
-          options: { permissionPreset: 'ask', ...request.options },
-          ...(request.model ? { model: request.model } : {}),
-          ...((request.profile ?? project.resourceProfile ?? this.defaultProfile) ? { agentProfile: request.profile ?? project.resourceProfile ?? this.defaultProfile } : {}),
-        }, { requestId: request.requestId });
-        await this.refreshAfterAdmission(project, thread.id, operationOf('areal/thread/start', request), { backgroundList: true });
-        return { threadId: thread.id, requestId: request.requestId };
-      }
+      case 'create': return this.worktrees.createThread(project, request);
       case 'fork': {
         if (!project.client.capabilities?.methods?.includes('areal/thread/fork')) throw new Error('当前 Core 不支持从此轮次创建分支');
         const result = await this.submit(project, 'areal/thread/fork', {

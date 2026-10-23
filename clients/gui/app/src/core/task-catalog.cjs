@@ -65,6 +65,7 @@ function ownerRead(backend, saved, inbox, limit, trace, deadline) {
     guard(project, client);
     const rows = [...data.values()].slice(0, limit);
     if (!inbox) for (const task of rows) project.model.setTask(task);
+    await backend.taskWorkspaceOwners?.observeTasks(project, rows);
     return { data: rows, hasMore: !!after || data.size > limit, connectionGeneration: state.generation, pages: state.pages };
   })().catch(failure);
   const result = connection.then(() => bounded(work, deadline, () => { state.closed = true; return timeout(); })).finally(() => { state.closed = true; });
@@ -78,28 +79,41 @@ function ownerRead(backend, saved, inbox, limit, trace, deadline) {
 async function taskCatalog(backend, request) {
   const limit = request.limit ?? 30, inbox = request.operation === 'inbox';
   if ((!inbox && request.operation !== 'list') || !Number.isSafeInteger(limit) || limit < 1 || limit > 1024) throw new Error('无效任务列表请求');
-  const selected = request.projectId === undefined ? backend.saved : backend.saved.filter(saved => saved.id === request.projectId);
-  if (request.projectId !== undefined && selected.length !== 1) throw new Error('任务所有者不存在');
+  const requested = request.projectId === undefined ? null : backend.saved.find(saved => saved.id === request.projectId);
+  if (request.projectId !== undefined && !requested) throw new Error('任务所有者不存在');
+  const logicalId = requested && (requested.logicalProjectId ?? requested.id);
+  const selected = requested ? backend.saved.filter(saved => (saved.logicalProjectId ?? saved.id) === logicalId) : backend.saved;
   const trace = operationTrace('task_catalog', request);
   trace.advance('begin');
   const results = await Promise.all(selected.map(async saved => {
-    const projectName = saved.projectless ? '独立任务' : backend.library.value.projects[saved.id]?.title || saved.root.split(/[\\/]/).pop();
+    const publicId = saved.logicalProjectId ?? saved.id;
+    const logical = backend.saved.find(project => project.id === publicId);
+    const execution = saved.logicalProjectId ? { executionProjectId: saved.id } : {};
+    const projectName = logical?.projectless ? '独立任务' : backend.library.value.projects[publicId]?.title || (logical?.root ?? saved.root).split(/[\\/]/).pop();
     const ownerTrace = operationTrace('task_catalog.owner', { ...request, projectId: saved.id });
     ownerTrace.advance('begin');
     try {
       const result = await ownerRead(backend, saved, inbox, limit, ownerTrace);
-      const data = result.data.slice(0, limit).map(task => ({ ...task, projectId: saved.id, projectName, scope: saved.projectless ? 'independent' : 'project' }));
+      const data = result.data.slice(0, limit).map(task => ({ ...task, projectId: publicId, ...execution, projectName, scope: logical?.projectless ? 'independent' : 'project' }));
       const hasMore = result.hasMore || result.data.length > limit;
       ownerTrace.finish('ready', { connectionGeneration: result.connectionGeneration, pages: result.pages, rows: data.length });
-      return { data, hasMore, owner: { projectId: saved.id, status: 'ready', connectionGeneration: result.connectionGeneration } };
+      return { data, hasMore, owner: { projectId: publicId, ...execution, status: 'ready', connectionGeneration: result.connectionGeneration } };
     } catch (error) {
-      const failure = { projectId: saved.id, projectName, code: error.code === 'TASK_CATALOG_TIMEOUT' ? error.code : 'TASK_CATALOG_READ_FAILED', stage: error.stage === 'start' ? 'start' : 'list', message: backend.providers.redact(error.message) };
+      const failure = { projectId: publicId, ...execution, projectName, code: error.code === 'TASK_CATALOG_TIMEOUT' ? error.code : 'TASK_CATALOG_READ_FAILED', stage: error.stage === 'start' ? 'start' : 'list', message: backend.providers.redact(error.message) };
       ownerTrace.finish(failure.code === 'TASK_CATALOG_TIMEOUT' ? 'timedOut' : 'error', { connectionGeneration: error.connectionGeneration, pages: error.pages, rows: 0 });
-      return { data: [], hasMore: false, error: failure, owner: { projectId: saved.id, status: 'error' } };
+      return { data: [], hasMore: false, error: failure, owner: { projectId: publicId, ...execution, status: 'error' } };
     }
   }));
   trace.finish(results.some(result => result.error) ? 'error' : 'ready', { rows: results.reduce((sum, result) => sum + result.data.length, 0) });
-  return { data: results.flatMap(result => result.data), errors: results.flatMap(result => result.error ? [result.error] : []), hasMore: results.some(result => result.hasMore), owners: results.map(result => result.owner),
+  const owners = new Map();
+  for (const { owner } of results) {
+    const previous = owners.get(owner.projectId);
+    if (!previous) {
+      const { executionProjectId, ...logicalOwner } = owner;
+      owners.set(owner.projectId, logicalOwner);
+    } else if (owner.status === 'error') owners.set(owner.projectId, { projectId: owner.projectId, status: 'error' });
+  }
+  return { data: results.flatMap(result => result.data), errors: results.flatMap(result => result.error ? [result.error] : []), hasMore: results.some(result => result.hasMore), owners: [...owners.values()],
     ...(request.projectId === undefined ? {} : { projectId: request.projectId }), ...(request.requestId === undefined ? {} : { requestId: request.requestId }), ...(request.viewEpoch === undefined ? {} : { viewEpoch: request.viewEpoch }) };
 }
 module.exports = { taskCatalog };

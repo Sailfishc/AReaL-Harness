@@ -20,14 +20,16 @@ import type { Action, PlatformServices, FileOpenTargets } from "./services.js";
 import { useCodePreferences } from "./settings/preferences.js";
 type Document = { text: string; original: string; revision: string; editing: boolean; markdownState?: EditorState; saveError?: string; saving?: Promise<void> };
 const documents = new Map<string, Document>();
-export function confirmCloseFiles(projectId: string, paths: string[]) {
+export const workspaceDocumentOwner = (projectId: string, root: string) => JSON.stringify([projectId, root]);
+export function confirmCloseFiles(projectId: string, paths: string[], root: string) {
+  const owner = workspaceDocumentOwner(projectId, root);
   const dirty = paths.filter((path) => {
-    const doc = documents.get(`${projectId}:${path}`);
+    const doc = documents.get(`${owner}:${path}`);
     return doc && doc.text !== doc.original;
   });
   if (dirty.length && !window.confirm(`放弃以下文件的未保存修改？\n${dirty.join("\n")}`))
     return false;
-  for (const path of paths) documents.delete(`${projectId}:${path}`);
+  for (const path of paths) documents.delete(`${owner}:${path}`);
   return true;
 }
 export function WorkspaceFilePane({
@@ -55,7 +57,7 @@ export function WorkspaceFilePane({
   onToggleFiles: () => void;
   tree?: ReactNode;
 }) {
-  const key = `${projectId}:${path}`;
+  const key = `${workspaceDocumentOwner(projectId, root)}:${path}`;
   const [doc, setDoc] = useState<Document | undefined>(documents.get(key));
   const [message, setMessage] = useState(doc?.saveError ?? "");
   const [busy, setBusy] = useState(!!doc?.saving);

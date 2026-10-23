@@ -32,6 +32,7 @@ class CoreLibrary {
     return task;
   }
   async recordThreadActivity(projectId, threadId, completionId) {
+    projectId = this.backend.saved.find(project => project.id === projectId)?.logicalProjectId ?? projectId;
     if (!threadId) return;
     // Core timestamps have second precision; retain observed order only as a tie-break.
     return this.change(state => {
@@ -47,6 +48,7 @@ class CoreLibrary {
     });
   }
   async recordScheduledCompletion(projectId, run, completionId) {
+    projectId = this.backend.saved.find(project => project.id === projectId)?.logicalProjectId ?? projectId;
     if (!completionId || !run.threadId || run.status !== 'completed' || this.value.threads[`${projectId}:${run.threadId}`]?.scheduledCompletionId===run.id) return;
     return this.change(state => {
       const meta=state.threads[`${projectId}:${run.threadId}`] ??= {};
@@ -57,14 +59,18 @@ class CoreLibrary {
     });
   }
   threadSummaries(projectId) {
-    const live = this.backend.projects.get(projectId);
-    if (live?.summariesLoaded || live?.summaries?.length) return live.summaries;
-    const cached = this.value.projects[projectId]?.navigationSummaries;
-    if (Array.isArray(cached)) return cached;
-    // Older installations know pinned/renamed IDs before their first cache fill.
+    const owners = this.backend.worktrees?.owners(projectId) ?? this.backend.saved.filter(project => project.id === projectId);
+    const data = owners.flatMap(owner => {
+      const live = this.backend.projects.get(owner.id);
+      if (live?.summariesLoaded || live?.summaries?.length) return live.summaries;
+      const cached = this.value.projects[owner.id]?.navigationSummaries;
+      return Array.isArray(cached) ? cached : [];
+    });
+    if (data.length) return data;
     const prefix = `${projectId}:`;
     return Object.keys(this.value.threads).filter(key => key.startsWith(prefix)).map(key => ({ id: key.slice(prefix.length), preview: '未加载的任务' }));
   }
+
   async recordThreadSummaries(projectId, summaries) {
     // Deliberate whitelist: thread/list also carries configuration, permissions,
     // receipts and other execution state, none of which belongs in this cache.
@@ -91,14 +97,16 @@ class CoreLibrary {
       && !(operation === 'readThread' && this.backend.projects.get(projectId)?.model.state.threads?.[threadId])) throw new Error('未知会话');
     if ((operation.startsWith('rename') || operation === 'createSection') && (typeof title !== 'string' || !title.trim() || title.length > 200)) throw new Error('名称需要 1–200 个字符');
     if (operation === 'hideProject' && request.hidden) {
-      const live = await this.backend.start(projectId);
-      // 未打开的历史线程也可能保存暂停队列；不能仅凭当前视图隐藏它们。
-      for (const summary of live.summaries) {
-        const { thread } = await live.client.request('thread/read', { threadId: summary.id, includeTurns: true });
-        if (thread.turns?.some(turn => turn.status === 'inProgress') || thread.desktop?.queue?.items?.some(item => ['pending', 'running'].includes(item.status))) throw new Error('工作区仍有活动任务或排队消息，请先处理后再移出侧边栏');
+      const owners = this.backend.worktrees?.owners(projectId) ?? this.backend.saved.filter(project => project.id === projectId);
+      for (const owner of owners) {
+        const live = await this.backend.start(owner.id);
+        for (const summary of live.summaries) {
+          const { thread } = await live.client.request('thread/read', { threadId: summary.id, includeTurns: true });
+          if (thread.turns?.some(turn => turn.status === 'inProgress') || thread.desktop?.queue?.items?.some(item => ['pending', 'running'].includes(item.status))) throw new Error('工作区仍有活动任务或排队消息，请先处理后再移出侧边栏');
+        }
+        if (live.pending.length || Object.values(live.model.state.threads ?? {}).some(thread => thread.turns?.some(turn => turn.status === 'inProgress'))
+          || Object.values(live.model.state.queues ?? {}).some(queue => queue.items.some(item => ['pending', 'running'].includes(item.status)))) throw new Error('工作区仍有活动任务或排队消息，请先处理后再移出侧边栏');
       }
-      if (live?.pending.length || Object.values(live?.model.state.threads ?? {}).some(thread => thread.turns?.some(turn => turn.status === 'inProgress'))
-        || Object.values(live?.model.state.queues ?? {}).some(queue => queue.items.some(item => ['pending', 'running'].includes(item.status)))) throw new Error('工作区仍有活动任务或排队消息，请先处理后再移出侧边栏');
     }
     return this.change(state => {
       const project = projectId ? (state.projects[projectId] ??= {}) : {};

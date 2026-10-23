@@ -272,7 +272,8 @@ async function createWindow() {
     preview = new CorePreview(window, WebContentsView,
       (projectId, threadId) => backend.ownsThread(projectId, threadId),
       () => backend.snapshot().library?.settings ?? {},
-      projectId => backend.status.browserCore?.[projectId] ?? null,
+      (projectId, threadId) => backend.snapshot().projects.find(project => project.id === projectId)?.state?.threads?.[threadId]?.executionCore?.instanceId
+        ?? backend.status.browserCore?.[projectId] ?? null,
       () => [backend.metadata?.endpoint, ...(backend.status.browserControlEndpoints ?? [])].filter(Boolean),
       async ({ origin, page, fence, kind }) => {
         const current = () => !quitting && !!backend.metadata?.endpoint
