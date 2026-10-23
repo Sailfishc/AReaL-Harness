@@ -95,8 +95,9 @@ const model = createServer((request, response) => {
     if (prompt === "PARITY:P2_SEED") return finish(response, "P2_STABLE_ASSISTANT_HISTORY");
     if (prompt === "PARITY:P4_SOURCE") return finish(response, sourceReply);
     if (prompt === "PARITY:P4_OTHER") return finish(response, "SHARED_REFERENCE_TEXT");
-    if (body.stream === false) return response.end(JSON.stringify({ choices: [{ message: { role: "assistant", content: `DONE ${prompt}` } }] }));
-    finish(response, `DONE ${prompt}`);
+    const reply = prompt.startsWith("PARITY:") ? `DONE ${prompt}` : "DONE";
+    if (body.stream === false) return response.end(JSON.stringify({ choices: [{ message: { role: "assistant", content: reply } }] }));
+    finish(response, reply);
   })().catch(error => { errors.push(`model fixture: ${error.stack}`); response.destroy(error); });
 });
 await new Promise(resolve => model.listen(0, "127.0.0.1", resolve));
@@ -715,7 +716,7 @@ try {
       if (await oldReturn.isVisible()) await oldReturn.click();
     }
   }
-  passed = rows.every(row => row.passed === true && !row.settlementError);
+  passed = rows.every(row => row.passed === true && !row.settlementError) && errors.length === 0;
 } catch (error) {
   facts.error = error.stack ?? String(error);
   if (page) await captureSmokeFailure(page, evidence, error);
