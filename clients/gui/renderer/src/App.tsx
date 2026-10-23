@@ -743,6 +743,14 @@ function AppContent({ services }: { services: PlatformServices }) {
       setPanel(current => current === tab.id || parseSideResourceTab(current)?.childId === tab.childId ? "功能" : current);
     }
   };
+  useEffect(() => {
+    for (const tab of sideChats.tabs) {
+      const observed = snapshot.projects.find(owner => owner.id === tab.projectId)?.state?.threads?.[tab.childId];
+      if (observed?.conversation?.policy?.kind === "sideExecutableV2" && observed.desktop?.archived
+        && observed.desktop.receipts?.some((receipt: Data) => receipt.method === "areal/side/close" && receipt.result?.cleanupConfirmed === true))
+        removeSideTab(tab);
+    }
+  }, [snapshot.projects, sideChats.tabs]);
   const restoreConversation = useCallback((owner: RestorationOwner, operation: "connect" | "open", options: { connectService?: boolean } = {}) => {
     const previous = restorationAttempt.current;
     if (sameRestorationOwner(previous, owner) && previous?.operation === operation && previous.pending) return previous.promise;

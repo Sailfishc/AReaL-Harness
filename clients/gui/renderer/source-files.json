@@ -1247,6 +1247,20 @@
         "sourceSha256": "c2572e432d6cb7b19ee808fdc41c32bdff6ca0702a2749fbbd5cbfb80ea04cbd",
         "status": "adapted",
         "adaptation": "Consumed-event, composition, and dialog stop guards adapted to AReaL."
+      },
+      {
+        "source": "packages/ui/src/v4/composer/ConversationSelectionReferenceChip.tsx",
+        "destination": "src/ConversationSelectionReferences.tsx",
+        "sourceSha256": "f7af403f384073c9d330ad8522d415001eabe6410b13068a9651d5d83cd29934",
+        "status": "adapted",
+        "adaptation": "Count pill, per-reference detail rows, source metadata, individual removal, and captured-reference remove-all adapted to AReaL i18n and existing Popover."
+      },
+      {
+        "source": "packages/ui/src/v4/composer/ContextAttachmentPill.tsx",
+        "destination": "src/ConversationSelectionReferences.tsx",
+        "sourceSha256": "4e450bf999daa8a352a6b71e505f71dba4860598e8e57176e59ef431c46ba27c",
+        "status": "adapted",
+        "adaptation": "Single rounded context pill and portal detail geometry adapted with the existing BaseUI hover/click/keyboard Popover."
       }
     ]
   }

@@ -146,7 +146,22 @@ const sidePane = () => baseline ? page.getByRole("region", { name: "旁路讨论
 const sideInput = () => sidePane().getByRole("textbox", { name: "随心输入", exact: true });
 const sideTabs = () => page.locator('[data-side-pane-tab-id^="side:"]');
 const mainMessages = () => page.getByTestId("chat-view").locator(".messages").first();
-const references = pane => pane.getByTestId("conversation-selection-reference");
+const referenceTrigger = pane => pane.locator("[data-conversation-selection-reference-count]");
+async function referenceCount(pane) {
+  const trigger = referenceTrigger(pane);
+  if (!await trigger.count()) return 0;
+  assert.equal(await trigger.count(), 1, "one visible count pill owns the reference collection");
+  return Number(await trigger.getAttribute("data-conversation-selection-reference-count"));
+}
+async function showReferences(pane) {
+  const details = page.getByTestId("conversation-selection-details").filter({ visible: true });
+  if (!await details.count()) await referenceTrigger(pane).click();
+  await details.waitFor();
+  return details.getByTestId("conversation-selection-reference");
+}
+async function dismissReferences() {
+  if (await page.getByTestId("conversation-selection-details").filter({ visible: true }).count()) await page.keyboard.press("Escape");
+}
 const exists = path => stat(path).then(() => true, error => { if (error.code === "ENOENT") return false; throw error; });
 async function until(predicate, label, timeout = 30000) {
   const deadline = Date.now() + timeout;
@@ -190,9 +205,11 @@ async function launch() {
     const window = BrowserWindow.getAllWindows()[0]; window.setSize(1440, 960); window.focus();
     const preferences = window.webContents.getLastWebPreferences();
     return { pid: process.pid, userData: app.getPath("userData"), electron: process.versions.electron, platform: process.platform,
-      sandbox: preferences.sandbox, contextIsolation: preferences.contextIsolation, nodeIntegration: preferences.nodeIntegration };
+      sandbox: preferences.sandbox, contextIsolation: preferences.contextIsolation, nodeIntegration: preferences.nodeIntegration,
+      bounds: window.getBounds(), contentBounds: window.getContentBounds() };
   }));
   const runtime = facts.launches.at(-1);
+  runtime.viewport = await page.evaluate(() => ({ width: innerWidth, height: innerHeight, devicePixelRatio }));
   assert.equal(runtime.userData, env.AREAL_GUI_USER_DATA);
   assert.deepEqual([runtime.sandbox, runtime.contextIsolation, runtime.nodeIntegration], [true, true, false]);
 }
@@ -240,6 +257,7 @@ async function openSide() {
       await mainComposer().getByTestId("chat-input").fill("/side");
       await mainComposer().getByRole("button", { name: "发送", exact: true }).click();
     } else {
+      await entry.waitFor();
       assert.equal(await entry.count(), 1, "plus menu offers Side Chat");
       await entry.click();
     }
@@ -253,12 +271,17 @@ async function openSide() {
       await launcher.click();
     }
   }
+  if (!baseline) await until(async () => {
+    const id = await sidePane().getAttribute("data-thread-id");
+    return id && !before.has(id);
+  }, "new empty child becomes the active pane");
   await sideInput().waitFor();
   return { before, id: await sidePane().getAttribute("data-thread-id") };
 }
 async function closeTab(id) {
   await page.locator(`[data-side-pane-tab-id="side:${id}"]`).getByRole("tab").click({ button: "right" });
   await page.getByRole("menuitem", { name: "关闭标签页", exact: true }).click();
+  await until(async () => await page.locator(`[data-side-pane-tab-id="side:${id}"]`).count() === 0, "closed child tab removed after authoritative cleanup");
 }
 async function sendSide(text, complete = true) {
   const before = new Map(Object.values(threads(await state())).filter(thread => thread.conversation?.kind === "side").map(thread => [thread.id, thread.turns?.length ?? 0]));
@@ -390,24 +413,27 @@ async function multipleTabs() {
   await sideInput().fill("SECOND_CHILD_DRAFT");
   await page.locator(`[data-side-pane-tab-id="side:${first}"]`).getByRole("tab").click();
   assert.equal(await sideInput().innerText(), "FIRST_CHILD_DRAFT");
-  const body = mainMessages().locator("[data-side-item-id] .conversation-markdown").first();
+  const body = mainMessages().locator("[data-side-item-id] .conversation-markdown").filter({ hasText: "DONE PARITY:P3_PARENT" }).first();
   await addReference(body, "DONE PARITY:P3_PARENT", "side");
+  await until(async () => await referenceCount(sidePane()) === 1, "selection attaches to active child after public read");
   assert.equal(await sideTabs().count(), 2, "active child receives selection without another child");
-  assert.equal(await references(sidePane()).count(), 1);
+  assert.equal(await referenceCount(sidePane()), 1);
   await page.locator(`[data-side-pane-tab-id="side:${second}"]`).getByRole("tab").click();
   assert.equal(await sideInput().innerText(), "SECOND_CHILD_DRAFT");
-  assert.equal(await references(sidePane()).count(), 0, "sibling reference state is independent");
+  assert.equal(await referenceCount(sidePane()), 0, "sibling reference state is independent");
   await page.getByRole("button", { name: "打开侧边面板标签页", exact: true }).click();
   await page.getByRole("menuitem", { name: /^文件/ }).click();
   await addReference(body, "DONE PARITY:P3_PARENT", "side");
+  await until(async () => await sideTabs().count() === 3 && await referenceCount(sidePane()) === 1, "resource-tab selection creates and reveals child");
   assert.equal(await sideTabs().count(), 3, "selection while a non-Side tab is active creates a new child");
   const routed = await sidePane().getAttribute("data-thread-id");
   assert.ok(routed !== first && routed !== second);
-  assert.equal(await references(sidePane()).count(), 1);
+  assert.equal(await referenceCount(sidePane()), 1);
   await closeTab(routed);
   await closeTab(first);
   assert.equal(await sideTabs().count(), 1);
-  assert.equal(await sideInput().innerText(), "SECOND_CHILD_DRAFT", "closing sibling preserves active draft");
+  await page.locator(`[data-side-pane-tab-id="side:${second}"]`).getByRole("tab").click();
+  assert.equal(await sideInput().innerText(), "SECOND_CHILD_DRAFT", "closing sibling preserves its draft");
   const another = await newParent("PARITY:P3_OTHER_PARENT");
   assert.notEqual(another, parent);
   assert.equal(await sideTabs().count(), 0, "another parent has no borrowed tabs");
@@ -416,6 +442,17 @@ async function multipleTabs() {
   assert.equal(await sideInput().innerText(), "SECOND_CHILD_DRAFT");
   assert.equal(await page.getByTestId(`task-item-${second}`).count(), 0, "child never appears as a normal sidebar conversation");
   assert.equal(requests.length, countBefore + 1, "tab entries and drafts make no model requests");
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
+  await until(() => app.evaluate(({ BrowserWindow }) => !BrowserWindow.getAllWindows()[0].isVisible()), "window closes to background");
+  const closed = await readCoreThread(second);
+  assert.equal(closed.desktop.archived, true, "window close fences owned child");
+  assert.ok(closed.desktop.receipts.some(receipt => receipt.method === "areal/side/close" && receipt.result.cleanupConfirmed === true), "window close confirms owned child cleanup");
+  await app.evaluate(({ app }) => app.emit("activate"));
+  await until(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible()), "same window reopens");
+  await until(async () => await sideTabs().count() === 0, "reopening drops authoritatively closed child tabs");
+  await openSide();
+  const beforeRestart = await sidePane().getAttribute("data-thread-id");
+  await sideInput().fill("COLD_RESTART_DRAFT");
   await closeOwned();
   await launch();
   await until(async () => project(await state())?.state?.connected, "project restored after restart");
@@ -423,8 +460,8 @@ async function multipleTabs() {
   assert.equal(await sideTabs().count(), 0, "restart restores no ephemeral child tabs");
   await openSide();
   assert.equal(await sideInput().innerText(), "", "restart restores no child draft");
-  assert.notEqual(await sidePane().getAttribute("data-thread-id"), second, "new entry does not restore old parent-child binding");
-  checks.push("P3 distinct ephemeral tabs, independent drafts/references, close, parent switching and cold restart");
+  assert.notEqual(await sidePane().getAttribute("data-thread-id"), beforeRestart, "new entry does not restore old parent-child binding");
+  checks.push("P3 distinct ephemeral tabs, independent drafts/references, close, parent switching, owning-window close/reopen and cold restart");
 }
 async function selectionReferences() {
   await newParent("PARITY:P4_SOURCE");
@@ -437,13 +474,14 @@ async function selectionReferences() {
   const before = requests.length;
   await addReference(body, sourceText, "main", true);
   await addReference(body, "SHARED_REFERENCE_TEXT");
-  assert.equal(await references(main).count(), 2, "different selections accumulate as separate references");
+  assert.equal(await referenceCount(main), 2, "different selections accumulate as separate references");
   await addReference(body, sourceText);
-  assert.equal(await references(main).count(), 2, "same row, type and text deduplicate");
+  assert.equal(await referenceCount(main), 2, "same row, type and text deduplicate");
   await addReference(other, "SHARED_REFERENCE_TEXT");
-  assert.equal(await references(main).count(), 3, "identical text from another source row remains distinct");
-  await references(main).filter({ hasText: sourceText }).getByRole("button", { name: /移除|删除/ }).click();
-  assert.equal(await references(main).count(), 2, "removing one reference preserves both other source references");
+  assert.equal(await referenceCount(main), 3, "identical text from another source row remains distinct");
+  await (await showReferences(main)).filter({ hasText: sourceText }).getByRole("button", { name: /移除|删除/ }).click();
+  await dismissReferences();
+  assert.equal(await referenceCount(main), 2, "removing one reference preserves both other source references");
   assert.equal(await main.getByTestId("chat-input").innerText(), "P4_DRAFT_SURVIVES");
   assert.ok((await main.getByTestId("composer-attachments").innerText()).includes("attachment.txt"));
   assert.equal(requests.length, before, "selection actions never submit model calls");
@@ -454,32 +492,40 @@ async function selectionReferences() {
   assert.ok(block, "provider input carries the structured userselect array");
   assert.deepEqual(JSON.parse(block[1]), [{ text: "SHARED_REFERENCE_TEXT" }, { text: "SHARED_REFERENCE_TEXT" }], "model receives text only without source identifiers");
   await until(async () => threads(await state())[await currentId()]?.turns.at(-1).status === "completed", "reference turn completed");
-  assert.equal(await mainMessages().getByTestId("conversation-selection-reference").count(), 2, "persisted user input renders timeline reference chips");
-  const clear = async () => { for (const chip of await references(main).all()) await chip.getByRole("button", { name: /移除|删除/ }).click(); };
+  assert.equal(await referenceCount(mainMessages()), 2, "persisted user input renders the timeline reference collection");
+  assert.equal(await (await showReferences(mainMessages())).count(), 2, "both persisted references remain independently inspectable");
+  await dismissReferences();
+  const clear = async () => {
+    if (await referenceCount(main)) await main.getByRole("button", { name: "移除全部引用", exact: true }).click();
+    await until(async () => await referenceCount(main) === 0, "all captured reference rows removed");
+  };
   await sendMain("PARITY:STREAM_SELECTION", false);
   const streamed = mainMessages().locator("[data-side-item-id] .conversation-markdown").filter({ hasText: "STREAM_SELECTION_1" }).last();
   await streamed.waitFor();
   const streamRequests = requests.length;
   await addReference(streamed, "STREAM_SELECTION_1");
   await until(async () => (await streamed.innerText()).includes("STREAM_SELECTION_2"), "stream advances after selection");
-  assert.equal(await references(main).count(), 1);
-  assert.ok(!(await references(main).innerText()).includes("STREAM_SELECTION_2"), "streamed quote freezes at selection action time");
+  assert.equal(await referenceCount(main), 1);
+  assert.ok(!(await (await showReferences(main)).innerText()).includes("STREAM_SELECTION_2"), "streamed quote freezes at selection action time");
+  await dismissReferences();
   assert.equal(requests.length, streamRequests, "stream selection stages a draft without sending");
   streams.get("PARITY:STREAM_SELECTION")?.();
   await until(async () => threads(await state())[await currentId()]?.turns.at(-1).status === "completed", "selection stream settled");
   await clear();
   await main.getByTestId("chat-input").fill("LIMIT_DRAFT_SURVIVES");
   await addReference(body, longC);
-  assert.equal(await references(main).count(), 0, "8001 characters are refused atomically");
+  assert.equal(await referenceCount(main), 0, "8001 characters are refused atomically");
   await addReference(body, longA);
   await addReference(body, longB);
-  assert.equal(await references(main).count(), 2, "two 8000-character references reach the 16000 total limit");
-  const fullReferences = await references(main).evaluateAll(elements => elements.map(element => ({ id: element.dataset.referenceId, text: element.textContent })));
+  assert.equal(await referenceCount(main), 2, "two 8000-character references reach the 16000 total limit");
+  const fullReferences = await (await showReferences(main)).evaluateAll(elements => elements.map(element => ({ id: element.dataset.referenceId, text: element.textContent })));
+  await dismissReferences();
   await addReference(body, "REFERENCE_0");
-  assert.equal(await references(main).count(), 2, "16000 total limit refuses an addition without truncation");
-  assert.deepEqual(await references(main).evaluateAll(elements => elements.map(element => ({ id: element.dataset.referenceId, text: element.textContent }))), fullReferences, "total-limit refusal preserves every existing reference");
-  assert.equal(await references(main).first().getAttribute("data-reference-id") !== null, true);
+  assert.equal(await referenceCount(main), 2, "16000 total limit refuses an addition without truncation");
+  assert.deepEqual(await (await showReferences(main)).evaluateAll(elements => elements.map(element => ({ id: element.dataset.referenceId, text: element.textContent }))), fullReferences, "total-limit refusal preserves every existing reference");
+  assert.equal(await (await showReferences(main)).first().getAttribute("data-reference-id") !== null, true);
   assert.equal(await main.getByTestId("chat-input").innerText(), "LIMIT_DRAFT_SURVIVES");
+  await dismissReferences();
   await sendMain("LIMIT_DRAFT_SURVIVES");
   const limitPayload = textOf(requests.at(-1).body.messages.findLast(message => message.role === "user" && textOf(message.content).includes("LIMIT_DRAFT_SURVIVES"))?.content);
   const limitBlock = limitPayload.match(/# userselect:\s*(?:```(?:userselect|json)?\s*)?(\[[\s\S]*?\])/);
@@ -487,9 +533,9 @@ async function selectionReferences() {
   assert.deepEqual(JSON.parse(limitBlock[1]), [{ text: longA }, { text: longB }], "accepted references reach the model without truncation");
   await main.getByTestId("chat-input").fill("LIMIT_DRAFT_SURVIVES");
   for (let index = 0; index < 8; index++) await addReference(body, `REFERENCE_${index}`);
-  assert.equal(await references(main).count(), 8);
+  assert.equal(await referenceCount(main), 8);
   await addReference(body, "REFERENCE_8");
-  assert.equal(await references(main).count(), 8, "ninth reference is refused atomically");
+  assert.equal(await referenceCount(main), 8, "ninth reference is refused atomically");
   assert.equal(await main.getByTestId("chat-input").innerText(), "LIMIT_DRAFT_SURVIVES");
   await clear();
   await shot("P4-limits");
