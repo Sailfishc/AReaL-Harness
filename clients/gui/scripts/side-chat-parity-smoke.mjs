@@ -173,7 +173,9 @@ async function showReferences(pane) {
   return details.getByTestId("conversation-selection-reference");
 }
 async function dismissReferences() {
-  if (await page.getByTestId("conversation-selection-details").filter({ visible: true }).count()) await page.keyboard.press("Escape");
+  const details = page.getByTestId("conversation-selection-details");
+  if (await details.filter({ visible: true }).count()) await page.keyboard.press("Escape");
+  await details.waitFor({ state: "hidden" });
 }
 const exists = path => stat(path).then(() => true, error => { if (error.code === "ENOENT") return false; throw error; });
 async function until(predicate, label, timeout = 30000) {
