@@ -1,3 +1,4 @@
+import { runReuseExercise } from "./design-system-reuse-exercise.mjs";
 import { runProductCandidate } from "./design-system-product-candidate.mjs";
 import { runDesignDocuments } from "./design-system-documents.mjs";
 import { runSharedWorkspace } from "./design-system-shared-workspace.mjs";
@@ -30,7 +31,8 @@ const settingsExercise = process.argv.includes("--settings-exercise") || setting
 const sharedWorkspace = process.argv.includes("--shared-workspace");
 const documents = process.argv.includes("--documents");
 const productCandidate = process.argv.includes("--product-candidate");
-const namedExercise = productCandidate || documents || sharedWorkspace || conversationExercise || conversationDemo || decisionExercise || settingsExercise;
+const reuseExercise = process.argv.includes("--reuse-exercise");
+const namedExercise = reuseExercise || productCandidate || documents || sharedWorkspace || conversationExercise || conversationDemo || decisionExercise || settingsExercise;
 const exercise = { steps: [], checks: [] };
 const settingsOnly = process.argv.includes("--settings-only");
 const html = await readFile(join(dist, "design-system.html"), "utf8");
@@ -257,11 +259,14 @@ try {
       }
     };
   });
-  await page.goto(`${origin}/design-system.html${productCandidate ? "?product-candidate" : sharedWorkspace ? "?shared-workspace" : conversationExercise ? "?conversation-exercise" : conversationDemo ? "?conversation" : decisionExercise ? "?decision-exercise" : settingsExercise ? "?settings-exercise" : settingsOnly ? "?settings" : ""}`);
+  await page.goto(`${origin}/design-system.html${reuseExercise ? "?reuse-exercise" : productCandidate ? "?product-candidate" : sharedWorkspace ? "?shared-workspace" : conversationExercise ? "?conversation-exercise" : conversationDemo ? "?conversation" : decisionExercise ? "?decision-exercise" : settingsExercise ? "?settings-exercise" : settingsOnly ? "?settings" : ""}`);
   await page.getByRole("heading", { name: productCandidate ? "快速开始指南" : "客户端设计系统", exact: true }).waitFor();
   assert.equal(await page.evaluate(() => typeof window.arealDesktop), "undefined");
   if (namedExercise) {
-    if (productCandidate) await runProductCandidate(page, scratch, exercise);
+    if (reuseExercise) {
+      exercise.inputBaseSnapshot = "c98af14e00faad1b28164f660629b57c4bccea6e";
+      await runReuseExercise(page, scratch, gui, exercise);
+    } else if (productCandidate) await runProductCandidate(page, scratch, exercise);
     else if (documents) await runDesignDocuments(page, origin, scratch, checks, samples);
     else if (sharedWorkspace) await runSharedWorkspace(page, scratch, exercise, baseline);
     else if (conversationExercise) await runConversationExercise(page, scratch, gui, exercise);
