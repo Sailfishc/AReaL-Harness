@@ -77,6 +77,17 @@ const { AppProviders } = require(${JSON.stringify(join(gui, 'app/src/core/provid
 const { CoreBackend } = require(${JSON.stringify(join(gui, 'app/src/core/backend.cjs'))});
 const { appendFileSync, existsSync, readFileSync, unlinkSync } = require('node:fs');
 const stamp = value => appendFileSync(${JSON.stringify(auditPath)}, JSON.stringify({ at: Date.now(), ...value }) + String.fromCharCode(10));
+if (!process.argv.includes('--areal-core-service')) {
+  const { dialog } = require('electron');
+  const showMessageBox = dialog.showMessageBox.bind(dialog);
+  dialog.showMessageBox = (...args) => {
+    if (['退出 AReaL Harness？', 'Quit AReaL Harness?'].includes(args.at(-1).message)) {
+      stamp({ boundary: 'quit.confirmation', injected: true });
+      return Promise.resolve({ response: 1 });
+    }
+    return showMessageBox(...args);
+  };
+}
 let catalogControl;
 const execute = CoreBackend.prototype.executeCommand;
 CoreBackend.prototype.executeCommand = async function(name, ...args) {
@@ -100,7 +111,7 @@ AppProviders.prototype.openai = function() {
       modifyRecord(_key, mutate) { const work = chain.then(async () => { const next = await mutate(structuredClone(record)); if (next !== undefined) record = next; return structuredClone(record); }); chain = work.catch(() => {}); return work; },
       deleteRecord: async () => { record = undefined; } };
     this.openaiStore = store;
-    return new CoreSubscription({ store, token: this.openaiToken, port: this.transport.port, kind: 'openai',
+    return this.openaiService = new CoreSubscription({ store, token: this.openaiToken, port: this.transport.port, kind: 'openai',
       onListen: async port => { this.transport.port = port; await this.backend.save('subscription-transport.json', this.transport); },
       onRequest: value => stamp({ boundary: 'inference.audit', providerId: value.providerId, model: value.model, outcome: value.outcome }),
       fetch: async (url, options) => {
@@ -411,7 +422,7 @@ try {
   if (await hash(binary) !== identity.coreHash) { errors.push('Core binary changed during run'); passed = false; }
   await writeFile(join(scratch, 'manifest.json'), JSON.stringify({ passed, identity, checks, requests, observations: observations.map(item => item.sample), failure, cleanup, errors,
     mode: startupMode ? 'startup' : 'send',
-    boundary: startupMode ? 'Source Electron and two fresh owned restarts with saved project, real Core history and persisted Composer drafts. Normal-provider selection remains sendable during held subscription discovery. Persisted subscription selection stays unavailable with editable draft and normal-model choices until catalog release, then sends without restart. Real AppProviders, CoreSubscription, OpenAIAccount and ModelCatalog. Synthetic in-memory grant and custom external catalog fetch held by independent file-gate samples. Native folder picker stubbed. Inference uses real normal-provider Core HTTP and subscription custom fetch transports.' : 'Source Electron, real isolated Core, AppProviders, CoreSubscription, OpenAIAccount and ModelCatalog. Synthetic in-memory grant and custom external fetch. Native folder picker stubbed. Catalog expiry is injected at the send command boundary. Held case starts a real background catalog discovery. Rejected case arms a rejecting external GET that sending must not consult. Inference replies stay held until UI and authoritative Core admission assertions pass.',
+    boundary: startupMode ? 'Source Electron and two fresh owned restarts with saved project, real Core history and persisted Composer drafts. Normal-provider selection remains sendable during held subscription discovery. Persisted subscription selection stays unavailable with editable draft and normal-model choices until catalog release, then sends without restart. Real AppProviders, CoreSubscription, OpenAIAccount and ModelCatalog. Synthetic in-memory grant and custom external catalog fetch held by independent file-gate samples. Native folder picker and application quit confirmation stubbed. Inference uses real normal-provider Core HTTP and subscription custom fetch transports.' : 'Source Electron, real isolated Core, AppProviders, CoreSubscription, OpenAIAccount and ModelCatalog. Synthetic in-memory grant and custom external fetch. Native folder picker and application quit confirmation stubbed. Catalog expiry is injected at the send command boundary. Held case starts a real background catalog discovery. Rejected case arms a rejecting external GET that sending must not consult. Inference replies stay held until UI and authoritative Core admission assertions pass.',
     limits: 'No real account, OAuth exchange, external network or packaged application acceptance. This is a dependency regression test, not a latency benchmark. Isolated state and evidence are retained; owned services must stop.',
   }, null, 2));
   console.log(`${passed ? 'PASS' : 'FAIL'} subscription send`, scratch);

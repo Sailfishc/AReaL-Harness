@@ -696,7 +696,7 @@ class CoreBackend {
       this.requireConnection(project, client);
       if (!observeOnly) {
         trace.advance('providers');
-        await this.providers.sync(project, correlation);
+        await this.providers.syncLocal(project);
         this.requireConnection(project, client);
         trace.advance('mcp');
         await this.resources.syncMcp(project);
@@ -766,6 +766,7 @@ class CoreBackend {
       this.scheduleReconciliation(project);
       this.onChange();
       trace.finish('ok');
+      void this.providers.refreshSubscription(project, correlation, { observeOnly });
     } catch (error) { trace.finish('error', error); throw error; }
   }
 
@@ -1573,7 +1574,7 @@ class CoreBackend {
     }
   }
 
-  async submit(project, method, parameters, { requestId, remote, dispatch } = {}) {
+  async submit(project, method, parameters, { requestId, remote, dispatch, preDispatch } = {}) {
     const observationError = project.observationErrors?.[parameters.threadId];
     if (observationError && ['areal/turn/start', 'areal/turn/enqueue', 'areal/turn/submit', 'turn/start', 'turn/steer', 'areal/queue/resume', 'areal/queue/steer', 'areal/goal/create', 'areal/goal/resume'].includes(method)) {
       throw Object.assign(new Error(observationError.message), { code: observationError.code, submissionUnknown: false });
@@ -1608,6 +1609,7 @@ class CoreBackend {
       let result, dispatchStarted = false;
       try {
         if (this.closing) throw new Error('应用正在退出');
+        if (preDispatch && !preDispatch()) throw Object.assign(new Error('订阅模型同步目标已变化'), { submissionUnknown: false });
         dispatchStarted = true;
         result = await this.requestSubmission(project, method, params);
       }
@@ -1917,6 +1919,13 @@ class CoreBackend {
     const { projectId, threadId } = request;
     const project = await this.start(projectId);
     if (this.closing) throw new Error('应用正在退出');
+    if (['send', 'editMessage', 'continue', 'steer'].includes(name) || name === 'side' && ['start', 'send'].includes(request.operation)) {
+      const configured = name === 'side' && request.operation === 'start' ? request.model : project.configurations?.[threadId]?.model;
+      const model = configured?.providerId === 'areal_openai'
+        ? project.models?.find(item => item.providerId === configured.providerId && item.modelId === configured.modelId) : null;
+      if (configured?.providerId === 'areal_openai' && (!model || model.available === false || !this.providers.subscriptionAvailable(model, project)))
+        throw Object.assign(new Error('当前 ChatGPT 模型不可用，请在模型设置中刷新登录状态或选择其他模型'), { submissionUnknown: false });
+    }
     switch (name) {
       case 'connect': return this.snapshot();
       case 'prepareCreator': return this.resources.prepareCreator(project, request.profile);

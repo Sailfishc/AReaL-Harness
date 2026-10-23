@@ -115,6 +115,8 @@ function SideChatEditor({ project, source, executionBlocked, action, dark, works
   const active = validSide && side.turns?.some((turn: Data) => turn.status === "inProgress");
   const unsettled = !!sideId && project.pending?.some((request: Data) => request.params?.threadId === sideId);
   const config = validSide ? project.configurations?.[sideId] : draftConfig ?? {};
+  const configuredModel = config?.model && project.models.find((item: Data) => item.providerId === config.model.providerId && item.modelId === config.model.modelId);
+  const modelUnavailable = configuredModel?.available === false || config?.model?.providerId === "areal_openai" && !configuredModel;
   const sourceStatus = !project.state?.connected || !validSide ? "来源当前状态未知" :
     sideSourceAdvanced(source, side) ? "来源已推进；此讨论仍依据创建时快照" :
     !Number.isFinite(source.updatedAt) || !Number.isFinite(side.createdAt) ? "来源当前状态未知" : "依据创建时快照";
@@ -205,7 +207,7 @@ function SideChatEditor({ project, source, executionBlocked, action, dark, works
   useEffect(() => { if (pendingId && project.state?.connected) void recover(); }, [project.state?.connected]);
   const submit = async (value = api.current?.getMarkdown() ?? text) => {
     const question = value.trim() || (!sideId && selection ? (selectionPreview || selection.text || "") : "");
-    if (executionBlocked || !question || busy || pendingId || unsettled || active || !project.state?.connected || sideId && (!validSide || side.desktop?.archived)) return;
+    if (executionBlocked || modelUnavailable || !question || busy || pendingId || unsettled || active || !project.state?.connected || sideId && (!validSide || side.desktop?.archived)) return;
     const token = workspace.capture(generation);
     setBusy(true); setError("");
     try {
@@ -326,7 +328,8 @@ function SideChatEditor({ project, source, executionBlocked, action, dark, works
           }}><CloseIcon /></Button>
         </section> : undefined}
         composerCatalog={{ entries: [], refresh: () => {} }}
-        placeholder="随心输入" disabled={editorDisabled} submitDisabled={disabled || !!active || (!text.trim() && !selection)}
+        placeholder="随心输入" disabled={editorDisabled} submitDisabled={disabled || modelUnavailable || !!active || (!text.trim() && !selection)}
+        submitDisabledReason={modelUnavailable ? t("chat.composer.previousModelUnavailable") : undefined}
         allowSubmitWhenEmpty={!!selection && !sideId}
         submitting={busy} submitLabel="发送" enterSubmits={prefs.sendShortcut === "enter"} enableMentionPanel={false}
         onChange={value => { setText(value); localStorage.setItem(draftKey, value); }}
