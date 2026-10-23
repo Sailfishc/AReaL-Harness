@@ -1,3 +1,4 @@
+import { useI18n } from "./i18n/IntlProvider.js";
 import { useEffect, useState } from "react";
 import type { ChatComposerPasteEvent } from "./LexicalChatInput.js";
 import { ScanText } from "lucide-react";
@@ -38,7 +39,7 @@ export function composerPaste(event: ChatComposerPasteEvent, add: (files: Compos
     }
 }
 const isText = (file: File) =>
-    file.type.startsWith("text/") ||
+    !file.type || file.type === "application/octet-stream" || file.type.startsWith("text/") ||
     /\.(txt|md|json|ya?ml|csv|log|tsx?|jsx?|css|html|py|rs|toml)$/i.test(file.name);
 export function ComposerAttachment({
     file,
@@ -53,6 +54,7 @@ export function ComposerAttachment({
     onExpand: (text: string) => void;
     onAnnotate?: (file: File) => void;
 }) {
+    const { t } = useI18n();
     useImageAnnotationRevision();
     const [previewOpen, setPreviewOpen] = useState(false);
     const [url, setUrl] = useState("");
@@ -101,6 +103,7 @@ export function ComposerAttachment({
                                         const text = isComposerFile(file) ? new TextDecoder("utf-8", {
                                             fatal: true,
                                         }).decode(await file.arrayBuffer()) : file.text;
+                                        if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(text)) throw new Error(t("chat.composer.textFileBinaryControls"));
                                         onExpand(text);
                                     } catch (cause) {
                                         setError(

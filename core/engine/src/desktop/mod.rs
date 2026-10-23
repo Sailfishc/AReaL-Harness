@@ -5,7 +5,7 @@ mod context;
 mod interactions;
 mod mcp;
 pub(crate) mod mcp_apps;
-mod media;
+pub(crate) mod media;
 mod model_configuration;
 mod model_selection;
 mod plugin_mcp;

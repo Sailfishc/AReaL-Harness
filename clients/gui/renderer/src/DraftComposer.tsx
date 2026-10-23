@@ -1,3 +1,4 @@
+import { validateWorkspaceFileReference } from "./lib/workspaceFileComposer.js";
 import { imageAnnotationBlocked, useImageAnnotationRevision, type ImageAnnotationTarget } from "./imageAnnotations.js";
 import { resolveDraftProfile } from "./ProfileDetails.js";
 import { resolveNewConversationModel, resolveModelEffort } from "@areal/workbench/model-selection";
@@ -69,6 +70,7 @@ export function DraftComposer({
   const reviewDraft = useReviewComments(reviewKey);
   const comments = attachedReviewComments(reviewDraft.draft);
   const api = useRef<LexicalChatInputHandle | null>(null);
+  const [workspaceReferencePending, setWorkspaceReferencePending] = useState(false);
   const upload = useRef<HTMLInputElement>(null);
   const mounted = useRef(true);
   useEffect(() => {
@@ -191,6 +193,7 @@ export function DraftComposer({
     void onOpen(project.id, outcome.threadId);
   }, [unknown, project.pending.length, project.outcomes]);
   const submit = async (value: string) => {
+    if (workspaceReferencePending) return;
     const submittedInput = composerInput(value, files);
     if ((desktopUnsupported && !goalMode) || submitDisabled || annotationBlocked || sending.has(key) || (!submittedInput.text.trim() && !submittedInput.files.length && !comments.length && !skills.selected.length) || (goalMode && !submittedInput.text.trim())) return;
     markSending(key, true);
@@ -319,6 +322,11 @@ export function DraftComposer({
         triggerPanelContainer={menuAnchor}
         shellClassName="@container/composer"
         workspacePath={project.root}
+        enableWorkspaceFileDrop={!!project.root && !editLocked}
+        enableExternalFileDrop={!editLocked}
+        validateWorkspaceFile={payload => validateWorkspaceFileReference(readAction, project.id, project.root, payload)}
+        onFileDrop={files => setFiles(current => [...current, ...files])}
+        onWorkspaceReferencePendingChange={setWorkspaceReferencePending}
         taskId={null}
         initialValue={text}
         inputApiRef={api}
@@ -326,7 +334,7 @@ export function DraftComposer({
         submitTestId="chat-send-button"
         placeholder={goalMode ? "描述目标，明确可衡量的结果" : plan ? "描述任务，生成计划…" : "随心输入"}
         disabled={editLocked}
-        submitDisabled={submitDisabled || annotationBlocked || (desktopUnsupported && !goalMode) || (goalMode ? !input.text.trim() : !input.text.trim() && !input.files.length && !comments.length && !skills.selected.length)}
+        submitDisabled={workspaceReferencePending || submitDisabled || annotationBlocked || (desktopUnsupported && !goalMode) || (goalMode ? !input.text.trim() : !input.text.trim() && !input.files.length && !comments.length && !skills.selected.length)}
         submitDisabledReason={desktopUnsupported && !goalMode ? t("backend.updateRequired") : undefined}
         submitting={busy}
         submitLabel={goalMode ? "开始目标" : "发送"}
@@ -338,7 +346,7 @@ export function DraftComposer({
           refresh: () => { if (executionReady && !editLocked) skills.catalog.refresh(); }, entries: [
           { value: "upload", label: "上传文件", description: "添加图片、文档或其他文件", group: "功能", icon: <AttachmentIcon />, disabled: editLocked, run: () => { if (!editLocked) upload.current?.click(); } },
           ...(project.id !== "projectless" ? [{ value: "mcp", label: "MCP", description: "查看服务器与连接状态", group: "功能" as const, icon: <ComposerMcpIcon />, disabled: !executionReady, run: () => { if (executionReady) setMcpOpen(true); } }] : []),
-          ...(project.root ? [{ value: "files", label: "工作区文件", description: "引用当前项目中的文件", group: "功能" as const, icon: <FileTree />, disabled: !executionReady, run: () => { if (executionReady) onPanel("文件"); } }] : []),
+          ...(project.root ? [{ value: "files", label: t("chat.composer.workspaceFiles"), description: t("chat.composer.workspaceFilesDescription"), group: "功能" as const, icon: <FileTree />, disabled: !executionReady, run: () => { if (executionReady) onPanel("文件"); } }] : []),
           { value: "plan", label: "计划模式", description: plan ? "关闭计划模式" : "先规划，再开始执行", group: "功能", icon: <Lightbulb />, disabled: editLocked || chosenProfile?.readOnly === true, run: () => { if (!editLocked) setPlanMode(!plan); } },
           { value: "goal", label: "设置目标", description: goalMode ? "关闭目标模式" : "设置持续目标与停止条件", group: "功能", icon: <GoalIcon />, disabled: editLocked, run: () => { if (!editLocked) changeGoalMode(!goalMode); } },
           ...appEntries.map(entry => ({ ...entry, disabled: entry.disabled || !executionReady })),

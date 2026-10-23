@@ -1,10 +1,11 @@
+import { composerFilesResponse, runComposerFilesAcceptance } from "./composer-files-acceptance.mjs";
 import { assertApplicationStopped } from "./application-cleanup.mjs";
 import { respondToSessionName } from "./model-fixture.mjs";
 import { captureSmokeFailure, resizeConversation, selectConversation } from "./smoke-navigation.mjs";
 import assert from "node:assert/strict";
 
 import { createRequire } from "node:module";
-import { mkdtemp, mkdir, writeFile, readFile, rename, unlink } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, readdir, rename, unlink } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "node:http";
@@ -12,8 +13,11 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 const gui = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const desktop = join(gui, "app");
+const filesRegression = process.env.AREAL_COMPOSER_FILES_REGRESSION === "1";
+const filesFixture = { held: new Set() };
 const skillsRegression = process.env.AREAL_COMPOSER_SKILLS_REGRESSION === "1";
-assert.ok(!skillsRegression || !process.env.AREAL_GUI_EXECUTABLE, "Skills barriers require the source Electron fixture");
+assert.ok(!(skillsRegression && filesRegression), "Choose one source fixture regression mode");
+assert.ok(!(skillsRegression || filesRegression) || !process.env.AREAL_GUI_EXECUTABLE, "Composer barriers require the source Electron fixture");
 let launchApp = desktop;
 const require = createRequire(join(desktop, "package.json"));
 const { _electron: electron } = require("playwright-core");
@@ -103,6 +107,7 @@ const server = createServer(async (req, res) => {
   const body = JSON.parse(raw);
   if (respondToSessionName(body, res)) return;
   received.push(body);
+  if (filesRegression) { composerFilesResponse(body, res, filesFixture); return; }
   res.writeHead(200, { "Content-Type": "text/event-stream" });
   res.end(
     `data: ${JSON.stringify({ id: "fixture", choices: [{ index: 0, delta: { content: "COMPOSER_OK" }, finish_reason: null }] })}\n\ndata: ${JSON.stringify({ id: "fixture", choices: [{ index: 0, delta: {}, finish_reason: "stop" }], usage: { prompt_tokens: 12, completion_tokens: 2, total_tokens: 14 } })}\n\ndata: [DONE]\n\n`,
@@ -159,6 +164,31 @@ CoreBackend.prototype.executeCommand = async function(name, request, context) {
   if (name === "manage" && request.operation === "skills")
     trace({ kind: "core_catalog", projectId: request.projectId, profile: request.agentProfile, rows: result.data.map(row => ({ id: row.id, revision: row.revision, available: row.available })) });
   return result;
+};
+require(${JSON.stringify(join(desktop, "src/main.cjs"))});
+`);
+}
+if (filesRegression) {
+  launchApp = join(scratch, "files-app");
+  await mkdir(launchApp);
+  await writeFile(join(launchApp, "package.json"), JSON.stringify({ name: "composer-files-fixture", main: "bootstrap.cjs" }));
+  await writeFile(join(launchApp, "bootstrap.cjs"), `
+const { ipcMain } = require("electron");
+const handle = ipcMain.handle.bind(ipcMain);
+globalThis.filesHoldList = false;
+globalThis.filesListEntered = false;
+globalThis.filesListCompleted = false;
+ipcMain.handle = function(channel, listener) {
+  if (channel !== "areal-core:command") return handle(channel, listener);
+  return handle(channel, async (event, name, params) => {
+    const held = name === "workspace" && params?.operation === "list" && !params.path && globalThis.filesHoldList;
+    if (!held) return listener(event, name, params);
+    globalThis.filesHoldList = false;
+    globalThis.filesListEntered = true;
+    await new Promise(resolve => { globalThis.filesReleaseList = () => { globalThis.filesReleaseList = null; resolve(); }; });
+    try { return await listener(event, name, params); }
+    finally { globalThis.filesListCompleted = true; }
+  });
 };
 require(${JSON.stringify(join(desktop, "src/main.cjs"))});
 `);
@@ -323,6 +353,9 @@ try {
       "send completed",
     );
   };
+  if (filesRegression) {
+    await runComposerFilesAcceptance({ app, page, pid, workspace, scratch, endpoint, desktop, call, state, project, until, received, checks, shot, fixture: filesFixture });
+  } else {
   if (skillsRegression) {
     const trace = async () => (await readFile(labelsTrace, "utf8").catch(error => {
       if (error.code === "ENOENT") return "";
@@ -796,50 +829,58 @@ try {
     checks.push(`${label}: folded direct UI Send reaches completed Core history and model as exact Text without upload`);
     if (newDraft) await selectConversation(page, tid);
   }
-  const uploadedText = "真正通过文件选择器上传的文本，不是剪贴板正文。";
-  const fileDraft = "真实文件拒绝时保留正文";
+  const uploadedText = "PKG_CONFIG=source\n真正通过文件选择器上传的文本，不是剪贴板正文。\nexport const 中文 = \"完整原文\";\n";
+  const fileDraft = "读取真实文件";
   const beforeFile = {
     requests: received.length,
-    turns: current(await state()).turns.length,
     uploads: (await call("media", { projectId: pid, threadId: tid, operation: "list" })).uploads,
   };
   await input().fill(fileDraft);
   await page.locator("input[type=file]").setInputFiles({
-    name: "粘贴的文本.txt",
-    mimeType: "text/plain",
-    buffer: Buffer.from(uploadedText),
+    name: "中文源文件.ts", mimeType: "application/typescript", buffer: Buffer.from(uploadedText),
   });
-  await button("发送").click();
-  await page.getByText("model does not support File input", { exact: true }).first().waitFor();
-  assert.equal(received.length, beforeFile.requests, "a real text file remains File input");
-  assert.equal(current(await state()).turns.length, beforeFile.turns);
-  assert.equal(await input().textContent(), fileDraft);
-  await button("移除附件 粘贴的文本.txt").waitFor();
-  const uploadedFiles = (await call("media", {
-    projectId: pid, threadId: tid, operation: "list",
-  })).uploads;
-  const uploadedFile = uploadedFiles.find((file) =>
-    !beforeFile.uploads.some((previous) => previous.uri === file.uri),
-  );
+  await sendAndWait();
+  await until((s) => current(s).turns.at(-1)?.status === "completed" && !project(s).pending.length, "text file accepted");
+  const filePart = current(await state()).turns.at(-1).items.find(item => item.type === "userMessage").content.find(part => part.type === "file");
+  assert.equal(filePart.name, "中文源文件.ts");
+  assert.equal(filePart.mime_type, "text/plain");
+  assert.match(filePart.url, /^areal:\/\/blob\//);
+  const uploadedFiles = (await call("media", { projectId: pid, threadId: tid, operation: "list" })).uploads;
+  const uploadedFile = uploadedFiles.find(file => file.uri === filePart.url);
   assert.equal(uploadedFiles.length, beforeFile.uploads.length + 1);
   assert.equal(uploadedFile.mimeType, "text/plain");
   assert.equal(uploadedFile.sizeBytes, Buffer.byteLength(uploadedText));
   const uploadedContent = await page.evaluate(async (params) => {
     const result = await window.arealDesktop.command("media", params);
     if (!result.ok) throw Error(result.error.message);
-    return new TextDecoder().decode(result.value.bytes);
+    return new TextDecoder("utf-8", { fatal: true }).decode(result.value.bytes);
   }, { projectId: pid, threadId: tid, operation: "read", uri: uploadedFile.uri });
   assert.equal(uploadedContent, uploadedText);
-  pasteEvidence.uploadedFile = { ...uploadedFile, text: uploadedText, refusedAs: "File" };
-  await shot("03a-uploaded-text-file-refused");
-  await button("移除附件 粘贴的文本.txt").click();
-  checks.push("real text/plain picker file keeps File modality, uploaded bytes and draft on Core refusal");
-  await sendAndWait();
-  await until((s) => current(s).turns.at(-1)?.status === "completed" && !project(s).pending.length,
-    "explicit text retry after removing the real file");
-  await page.waitForFunction(() => document.querySelector('[data-testid="chat-input"]')?.textContent === "");
-  assert.equal(current(await state()).turns.at(-1).items.find(item => item.type === "userMessage").content[0].text, fileDraft);
-  checks.push("removing the genuine file permits an explicit Text retry and clears the accepted draft");
+  const projected = received.at(-1).messages.filter(message => message.role === "user"
+    && !(typeof message.content === "string" && message.content.startsWith("AReaL runtime context (not a user request):"))).at(-1).content;
+  assert.equal(typeof projected, "string");
+  assert(projected.includes(uploadedText), "actual Chat Completions request contains every source byte as text");
+  assert(projected.includes("中文源文件.ts"));
+  pasteEvidence.uploadedFile = { ...uploadedFile, text: uploadedText, filePart, projected };
+  await shot("03a-uploaded-text-file-accepted");
+  checks.push("named source file retains downloadable original and authoritative File history while Chat Completions receives complete text");
+  const refusedFiles = [
+    { name: "binary.txt", mimeType: "text/plain", buffer: Buffer.from([65, 0, 66]) },
+    { name: "invalid.ts", mimeType: "application/typescript", buffer: Buffer.from([0xff, 0xfe]) },
+    { name: "archive.txt", mimeType: "text/plain", buffer: Buffer.from("PK\x03\x04pretend archive") },
+  ];
+  for (const fixture of refusedFiles) {
+    const requests = received.length;
+    await input().fill("拒绝时保留草稿");
+    await page.locator("input[type=file]").setInputFiles(fixture);
+    await button("发送").click();
+    await page.getByRole("alert").filter({ hasText: /不支持|UTF-8|unsupported|binary/ }).first().waitFor();
+    assert.equal(received.length, requests);
+    assert.equal(await input().textContent(), "拒绝时保留草稿");
+    await button(`移除附件 ${fixture.name}`).click();
+  }
+  await input().fill("");
+  checks.push("binary, malformed UTF-8 and text-labelled archive rejection preserves draft without model request");
   const pluginId = "composer-plugin@composer-fixture";
   let pluginList = await call("manage", { projectId: pid, operation: "plugins" });
   let plugin = pluginList.data.find(row => row.id === pluginId);
@@ -1164,6 +1205,7 @@ try {
   checks.push(
     "narrow window catalog within viewport; send control reachable; outside-click dismissal",
   );
+  }
   assert.deepEqual(errors, []);
   await button("展开侧栏").first().click();
   await selectConversation(page, tid);
@@ -1190,11 +1232,28 @@ try {
   );
   throw error;
 } finally {
+  await writeFile(join(scratch, "model-requests.json"), JSON.stringify(received, null, 2));
+  if (filesRegression && app) await app.evaluate(() => globalThis.filesReleaseList?.());
+  for (const finish of filesFixture.held) finish();
   for (const gate of labelGates) await unlink(gate).catch(error => {
     if (error.code !== "ENOENT") console.error("Source label barrier cleanup:", error.message);
   });
   const stoppingAdapter = await readFile(join(scratch, "core/service.json"), "utf8").then(JSON.parse).catch(error => { if (error.code === "ENOENT") return null; throw error; });
   await quit();
+  const authoritativeHistory = [];
+  for (const entry of await readdir(join(scratch, "core"), { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const directory = join(scratch, "core", entry.name, "state");
+    const names = await readdir(directory).catch(error => {
+      if (error.code === "ENOENT") return [];
+      throw error;
+    });
+    for (const name of names.filter(name => /^[a-f0-9-]{36}\.json$/.test(name))) {
+      const record = JSON.parse(await readFile(join(directory, name), "utf8"));
+      if (record.thread) authoritativeHistory.push({ projectId: entry.name, record });
+    }
+  }
+  await writeFile(join(scratch, "authoritative-history.json"), JSON.stringify(authoritativeHistory, null, 2));
   try {
     await assertApplicationStopped(binary, env, stoppingAdapter);
     checks.push("application quit stops the isolated adapter and all Core generations, including projectless");
@@ -1267,9 +1326,13 @@ try {
         arch: process.arch,
         runtime: "real Electron + real Rust Core/Runtime + deterministic local HTTP/SSE model",
         skillsRegression,
+        filesRegression,
+        modelRequests: "model-requests.json",
+        authoritativeHistory: "authoritative-history.json",
         labelsTrace: skillsRegression ? labelsTrace : undefined,
         skillCatalogEvents,
         nativeDialogs: "project picker and archive/quit confirmations injected",
+        filesBarrier: filesRegression ? "Source Main IPC delivery delay for workspace/list; original handler performs all validation and returns actual results" : undefined,
         scratch,
         frames,
         checks,

@@ -90,11 +90,10 @@ impl Engine {
             if queued {
                 let queue_item = if continued_from.is_none() {
                     if data.queue.items.len() >= 128 { return Err(Error::Exhausted("queue history capacity reached".into())); }
-                    engine.validate_uploads(&state.thread, &input)?;
                     let mut configuration = engine.next_request_configuration(data.configuration.clone());
                     engine.select_plugin_attachments(&mut configuration, &input, true)?;
                     let configuration = engine.freeze_configuration(configuration);
-                    validate_input(&input, &engine.configured_model(&configuration)?.capabilities())?;
+                    engine.validate_thread_input(&state.thread, &input, &engine.configured_model(&configuration)?.capabilities())?;
                     accepted_configuration = Some(configuration.clone());
                     let item = QueueItem { id: id(), input, configuration, submitted_by: identity.clone(), status: "pending".into(), turn_id: None };
                     let item_id = item.id.clone();
@@ -205,7 +204,6 @@ impl Engine {
                 }
                 Some(engine.ordinary_admission(&state.thread).await?)
             } else { None };
-            engine.validate_uploads(&state.thread,&request.input)?;
             let original_configuration = data.configuration.clone();
             if let Some(skill) = &skill {
                 if state.thread.is_side() { return Err(invalid("setup requires an ordinary session")); }
@@ -219,7 +217,7 @@ impl Engine {
             }
             let mut configuration = engine.freeze_configuration(configuration);
             if let Some(mode) = request.interaction_mode { configuration.options.interaction_mode = mode; }
-            validate_input(&request.input,&engine.configured_model(&configuration)?.capabilities())?;
+            engine.validate_thread_input(&state.thread,&request.input,&engine.configured_model(&configuration)?.capabilities())?;
             let accepted_configuration = configuration.clone();
             if enqueue {
                 if data.queue.items.len()>=128 { return Err(Error::Exhausted("queue history capacity reached".into())); }
@@ -408,8 +406,8 @@ impl Engine {
                     } else {
                         let input: Vec<Input> =
                             serde_json::from_value(args["input"].clone()).map_err(invalid)?;
-                        engine.validate_uploads(&state.thread, &input)?;
-                        validate_input(
+                        engine.validate_thread_input(
+                            &state.thread,
                             &input,
                             &engine.configured_model(&item.configuration)?.capabilities(),
                         )?;
