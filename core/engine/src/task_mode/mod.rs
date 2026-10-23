@@ -5,6 +5,8 @@ mod ledger;
 pub use ledger::TaskCommitFault;
 mod delegations;
 mod desktop_schedules;
+mod schedule_tools;
+pub(crate) use schedule_tools::definitions as schedule_tool_definitions;
 #[cfg(test)]
 mod desktop_schedules_tests;
 
@@ -394,6 +396,11 @@ impl Engine {
     ) -> Result<Value> {
         self.mutate(move |engine| async move {
             let _gate = engine.desktop.lifecycle.gate.lock().await;
+            let hash = desktop::digest(&request)?;
+            {
+                let state = engine.task_modes.state.lock().await;
+                if let Some(result) = receipt(&state, &owner, "create", &request.request_id, &hash)? { return Ok(result); }
+            }
             if !engine.accepting_work() { return Err(Error::Closed); }
             if request.objective.trim().is_empty() || request.objective.chars().count() > 4000 {
                 return Err(invalid("objective must contain 1..4000 characters"));
@@ -418,7 +425,7 @@ impl Engine {
                 if request.mode == TaskMode::Background && !state.thread.dynamic_tools.is_empty() { return Err(invalid("detached tasks require server-owned tools")); }
             }
             if request.mode == TaskMode::Background && request.interaction_mode == Some(InteractionMode::Interactive) { return Err(invalid("detached tasks require asynchronous or headless interactions")); }
-            let hash = desktop::digest(&request)?;
+            engine.validate_schedule_source(&owner, &request).await?;
             let mut state = engine.task_modes.state.lock().await;
             if let Some(result) = receipt(&state, &owner, "create", &request.request_id, &hash)? { return Ok(result); }
             let captured_now = engine.schedule_now();
@@ -427,6 +434,7 @@ impl Engine {
             if state.tasks.len() >= MAX_TASKS { return Err(Error::Exhausted("task capacity reached".into())); }
             let mut candidate = state.clone();
             let task = Task {
+                source_thread_id: request.source_thread_id, deleted_at: None,
                 run_count: 0, archived_run_count: 0, runs_complete: true,
                 skipped_runs: 0, last_skipped_at: None,
                 id: id(), revision: 1, channel_sequence: 0, owner: owner.clone(), mode: request.mode,
@@ -689,7 +697,10 @@ impl Engine {
                 .tasks
                 .get_mut(&request.task_id)
                 .ok_or(Error::NotFound)?;
-            if task.revision != request.expected_revision || task.cancelled {
+            if task.revision != request.expected_revision
+                || (task.cancelled && action != "delete")
+                || task.deleted_at.is_some()
+            {
                 return Err(Error::Conflict);
             }
             if request
@@ -752,7 +763,10 @@ impl Engine {
                         );
                     }
                 }
-                "cancel" => {
+                "cancel" | "delete" => {
+                    if action == "delete" {
+                        task.deleted_at = Some(now());
+                    }
                     task.cancelled = true;
                     task.next_run_at = None;
                 }
@@ -853,6 +867,8 @@ impl Engine {
             candidate.tasks.insert(
                 task_id.clone(),
                 Task {
+                    source_thread_id: None,
+                    deleted_at: None,
                     run_count: 0,
                     archived_run_count: 0,
                     runs_complete: true,
@@ -1260,6 +1276,7 @@ impl Engine {
             "pause",
             "resume",
             "cancel",
+            "delete",
             "stopRun",
             "resumeRun",
             "reply",

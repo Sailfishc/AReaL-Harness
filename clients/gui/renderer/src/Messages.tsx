@@ -35,6 +35,7 @@ import { sentImageAnnotations } from "./imageAnnotations.js";
 import { ImageAnnotationList } from "./ImageAnnotationViews.js";
 import { sentBrowserAnnotations } from "./browserAnnotations.js";
 import { SentReviewComments } from "./ReviewCommentViews.js";
+import { ScheduledTaskCards } from "./ScheduledTasks.js";
 import { TurnFileSummary } from "./TurnFileSummary.js";
 import type { Data, Action } from "./services.js";
 // Like the existing file/Diff view caches, this is process-local GUI state.
@@ -604,6 +605,7 @@ export function Messages({
             })}
             {!isInherited && (turn.items ?? []).filter((item: Data) => item.type === "dynamicToolCall").map((item: Data) =>
               <UnknownToolInspection key={`${project.id}:${thread.id}:${item.id}`} item={item} project={readOnly ? { ...project, state: { ...project.state, connected: false } } : project} thread={thread} action={action} />)}
+            <ScheduledTaskCards items={turn.items ?? []} project={project} action={action} />
             <TurnFileSummary turn={turn} readTurnReview={readTurnReview} onFile={onFile} onReview={onReview} />
             {responseMessage && turn.status !== "inProgress" ? <MessageActions text={responseMessage.text}><TurnHookStats turn={turn} /><TurnUsage project={project} thread={localThread} turn={turn} action={action} inherited={isInherited} />{forkControls}{responseActions?.(responseMessage)}{!isInherited && !readOnly && <UserFeedback project={project} thread={localThread} turn={turn} item={responseMessage} action={action} dark={dark} />}</MessageActions>
               : <div className="message-actions"><TurnUsage project={project} thread={localThread} turn={turn} action={action} inherited={isInherited} />{forkControls}</div>}

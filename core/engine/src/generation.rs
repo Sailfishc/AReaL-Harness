@@ -372,7 +372,7 @@ impl Engine {
                 state.thread.is_side().then(|| state.thread.id.clone())
             };
             while steer.try_recv().is_ok() {}
-            let (configuration, desktop_enabled) = {
+            let (configuration, thread) = {
                 let state = cell.state.lock().await;
                 (
                     state
@@ -381,12 +381,12 @@ impl Engine {
                         .last()
                         .and_then(|t| t.configuration.clone())
                         .unwrap_or_default(),
-                    state.thread.desktop.is_some(),
+                    state.thread.clone(),
                 )
             };
             // 工具声明参与缓存前缀；收尾轮仅禁用调用，不移除 schema。
             let tool_definitions = self
-                .visible_tools(cell, &configuration, desktop_enabled)
+                .visible_tools(cell, &configuration, thread.desktop.is_some(), &thread)
                 .await;
             // 使用现有请求上下文提供指引，保持持久工具定义及模型收到的声明不变。
             let browser_instructions = tool_definitions.iter()

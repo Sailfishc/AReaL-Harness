@@ -1,3 +1,4 @@
+import { activeScheduledTask, scheduledTaskStatus, ScheduledTaskControls, ScheduledTaskSummary } from "./ScheduledTasks.js";
 import { scheduleZone, runZone } from "./TaskRunConversations.js";
 import { useI18n } from "./i18n/IntlProvider.js";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
@@ -19,6 +20,7 @@ type RunHistory = { owner: string; enabled: boolean | null; runNow: boolean; dat
 const emptyRunHistory = (owner = ""): RunHistory => ({ owner, enabled: null, runNow: false, data: [], nextCursor: null, runCount: 0, headRunCount: 0, pending: false, error: "", retryMode: "head", needsRefresh: false });
 const mergeRuns = (previous: Data[], next: Data[]) => [...new Map([...previous, ...next].map(run => [run.id, run])).values()];
 
+type ScheduleCreation = { prepareId: string; requestId: string; text: string; projectId?: string; threadId?: string; pending?: boolean };
 type CatalogIdentity = { requestId: string; viewEpoch: number };
 type OwnerRows = { data: Data[]; hasMore: boolean; readAt: number; connectionGeneration: number };
 type OwnerRead =
@@ -182,9 +184,9 @@ export function ChannelQuestion({ row, projectId, action, disabled, onReplied, s
   </article>;
 }
 
-export function TaskCenter({ projects: allProjects, connected, initialProjectId, defaultProjectId, action, onOpenThread, onOpenModelSettings, navigation, target, renderConversation, renderResources }: Props & { navigation: ReactNode; renderConversation: TaskConversationRenderer; renderResources: (project: Data, thread: Data, task: Data, history: ReactNode, revealKey?: string) => ReactNode; target?: { projectId: string; taskId: string; runId?: string; questionId?: string; eventId?: string } }) {
+export function TaskCenter({ projects: allProjects, connected, action, onOpenThread, onOpenModelSettings, navigation, target, renderConversation, renderResources }: Props & { navigation: ReactNode; renderConversation: TaskConversationRenderer; renderResources: (project: Data, thread: Data, task: Data, history: ReactNode, revealKey?: string) => ReactNode; target?: { projectId: string; taskId: string; runId?: string; questionId?: string; eventId?: string } }) {
   const { t } = useI18n();
-  const projects = allProjects.filter(project => project.projectless === true);
+  const projects = allProjects;
   const layout = useRef<HTMLElement>(null);
   const [narrow, setNarrow] = useState(false);
   useLayoutEffect(() => {
@@ -196,8 +198,9 @@ export function TaskCenter({ projects: allProjects, connected, initialProjectId,
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [searching, setSearching] = useState(false), [search, setSearch] = useState("");
   const [filters, setFilters] = useState(["已开启","已暂停","已完成"]);
-  const [draftProjectId, setDraftProjectId] = useState<string>();
-  const [initialText, setInitialText] = useState("");
+  const [creationError, setCreationError] = useState("");
+  const [ownerFilter, setOwnerFilter] = useState("all");
+  const creatingRequest = useRef(false);
   const [catalog, setCatalog] = useState<Record<string, OwnerRead>>({});
   const committedOwners = useRef(new Map<string, string>());
   useLayoutEffect(() => {
@@ -252,7 +255,7 @@ export function TaskCenter({ projects: allProjects, connected, initialProjectId,
     const ordered = [...byId.values()].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
     const limit = Math.min(1024, 30 * pages.current);
     projectedHasMore ||= ordered.length > limit;
-    listed.push(...ordered.filter((row, index) => index < limit || taskKey(row) === selected));
+    listed.push(...ordered.filter(activeScheduledTask).filter((row, index) => index < limit || taskKey(row) === selected));
   }
   const moreAvailable = hasMore || projectedHasMore;
   const listedTask: Data | undefined = listed.find(t => taskKey(t) === selected);
@@ -362,23 +365,25 @@ export function TaskCenter({ projects: allProjects, connected, initialProjectId,
     }
   }, [action]);
   const refresh = useCallback((more = false, retryProjectId?: string) => refreshRead.current(more, retryProjectId), []);
-  const projectIds = projects.map(project => `${project.id}:${!!project.state?.connected}:${project.core?.connectionGeneration ?? 0}`).join(":");
+  const projectIds = projects.map(project => project.id).join(":");
   useEffect(() => {
     const viewEpoch = ++sequence.current;
     const inFlight = new Set<string>(), failed = new Set<string>();
     const batches = new Set<CatalogIdentity>();
-    let active = true;
+    let active = true, reading = false;
     const owners = selection.current.projects;
     setCatalog(previous => Object.fromEntries(owners.flatMap(owner => previous[owner.id] ? [[owner.id, previous[owner.id]]] : [])));
     const read = async (more = false, retryProjectId?: string) => {
-      if (!active || !connected || more && inFlight.size > 0) return;
+      if (!active || !connected || reading) return;
       if (more) pages.current++;
       if (retryProjectId) failed.delete(retryProjectId);
       const available = owners.filter(owner => !inFlight.has(owner.id) && !failed.has(owner.id) && (!retryProjectId || owner.id === retryProjectId));
       if (!available.length) return;
+      reading = true;
       const identity = { requestId: crypto.randomUUID(), viewEpoch };
       batches.add(identity); catalogTrace("begin", identity);
-      await Promise.all(available.map(async owner => {
+      const queue = [...available];
+      const readOwner = async (owner: Data) => {
         inFlight.add(owner.id);
         setCatalog(previous => ({ ...previous, [owner.id]: { status: "pending", identity, previous: ownerRows(previous[owner.id]) } }));
         try {
@@ -394,14 +399,23 @@ export function TaskCenter({ projects: allProjects, connected, initialProjectId,
           failed.add(owner.id);
           setCatalog(previous => ({ ...previous, [owner.id]: { status: "error", identity, message: (cause as Error).message, previous: ownerRows(previous[owner.id]) } }));
         } finally { inFlight.delete(owner.id); }
+      };
+      await Promise.all(Array.from({ length: Math.min(2, queue.length) }, async () => {
+        while (active && queue.length) {
+          const owner = queue.shift();
+          if (owner) await readOwner(owner);
+        }
       }));
+      reading = false;
       if (batches.delete(identity)) catalogTrace("end", identity);
     };
     refreshRead.current = read;
     void read();
+    const listener = (event: Event) => { if (owners.some(owner => owner.id === (event as CustomEvent).detail) && !mutation.current) void read(false, (event as CustomEvent).detail); };
+    window.addEventListener("areal-scheduled-tasks-changed", listener);
     const timer = window.setInterval(() => { if (!mutation.current) void read(); }, 3000);
     return () => {
-      active = false; clearInterval(timer);
+      active = false; clearInterval(timer); window.removeEventListener("areal-scheduled-tasks-changed", listener);
       for (const identity of batches) catalogTrace("abandoned", identity);
       batches.clear();
     };
@@ -476,16 +490,55 @@ export function TaskCenter({ projects: allProjects, connected, initialProjectId,
     catch (cause) { setControlView(null); if (current()) setError((cause as Error).message); await action("manage", { projectId: project.id, operation: "task", taskId: task.id }).catch(() => {}); }
     finally { mutation.current = false; setBusy(false); }
   };
-  const beginCreate = (text = "") => {
-    if (creating) return;
-    setInitialText(text); setDraftProjectId(initialProjectId ?? defaultProjectId); setCreating(true);
+  const beginCreate = async (text = "") => {
+    if (creatingRequest.current || !connected) return;
+    creatingRequest.current = true; setCreating(true); setCreationError("");
+    const storageKey = "areal-gui:ordinary-schedule-creation";
+    let saved: ScheduleCreation | null;
+    try { saved = JSON.parse(localStorage.getItem(storageKey) ?? "null"); } catch { saved = null; }
+    saved ??= { prepareId: crypto.randomUUID(), requestId: crypto.randomUUID(), text: `${t("operations.schedules.creationIntent")}${text}` };
+    const draft = saved;
+    const persist = () => localStorage.setItem(storageKey, JSON.stringify(draft));
+    try {
+      persist();
+      if (!draft.projectId) {
+        const owner = await action("projectless", { operation: "prepare", requestId: draft.prepareId });
+        draft.projectId = owner.projectId; persist();
+      }
+      if (draft.pending) {
+        const result = await action("reconcile", { projectId: draft.projectId });
+        const outcome = result.outcomes?.[draft.requestId];
+        if (outcome?.status === "completed" && outcome.method === "areal/thread/start" && outcome.threadId) draft.threadId = outcome.threadId;
+        else if (outcome?.status === "failed") {
+          draft.pending = false; draft.requestId = crypto.randomUUID(); persist();
+          throw new Error(outcome.message ?? "会话创建已被拒绝，请重试。");
+        } else throw new Error("会话创建结果尚未确认。请核对原请求，不会重复创建。");
+      }
+      if (!draft.threadId) {
+        draft.pending = true; persist();
+        try {
+          const result = await action("create", { projectId: draft.projectId, requestId: draft.requestId });
+          draft.threadId = result.threadId; draft.pending = false; persist();
+        } catch (cause) {
+          if (!(cause as Error & { submissionUnknown?: boolean }).submissionUnknown) { draft.pending = false; draft.requestId = crypto.randomUUID(); persist(); }
+          throw cause;
+        }
+      }
+      if (!draft.projectId || !draft.threadId) throw new Error("会话创建结果缺少身份，请核对原请求。");
+      const key = `areal-gui:draft:${draft.projectId}:${draft.threadId}`;
+      if (localStorage.getItem(key) == null) localStorage.setItem(key, draft.text);
+      onOpenThread(draft.projectId, draft.threadId);
+      localStorage.removeItem(storageKey);
+      setCreating(false);
+      requestAnimationFrame(() => window.dispatchEvent(new CustomEvent("areal-draft-change", { detail: key })));
+    } catch (cause) { setCreationError((cause as Error).message); }
+    finally { creatingRequest.current = false; }
   };
   const activeRun = task?.runs?.find((run: Data) => !terminal(run));
   const detailOpen = creating || !!task && !!project;
-  const createdTask = useCallback((created: Data, projectId: string) => { setCreating(false); setSelected(`${projectId}:${created.id}`);  void refresh(); }, [refresh]);
   const updatedTask = useCallback(() => { void refresh(); }, [refresh]);
   const closeDetails = () => { setCreating(false); setSelected(""); requestAnimationFrame(() => layout.current?.querySelector<HTMLButtonElement>('[aria-label="新建自动化"]')?.focus()); };
-  const visibleRows = listed.filter(row => (row.mode === "scheduled") && row.objective.toLowerCase().includes(search.toLowerCase()) && filters.includes(row.cancelled || finished(row) ? "已完成" : row.paused ? "已暂停" : "已开启"));
+  const visibleRows = listed.filter(row => (ownerFilter === "all" || row.projectId === ownerFilter) && (row.mode === "scheduled") && row.objective.toLowerCase().includes(search.toLowerCase()) && filters.includes(row.cancelled || finished(row) ? "已完成" : row.paused ? "已暂停" : "已开启"));
   const runHistory = task && project && <><div className="flex flex-wrap items-center gap-2">
     <Button size="sm" disabled={disabled || task.cancelled || !!activeRun || history.owner !== selected || !history.runNow} onClick={() => void control("taskRunNow")}>{t("operations.runNow")}</Button>
     {activeRun && <Button size="sm" variant="ghost" disabled={!connected || !project.state?.connected} onClick={() => activeRun.threadId ? onOpenThread(project.id, activeRun.threadId) : setDetailsOpen(true)}>{t("operations.viewCurrentRun")}</Button>}
@@ -512,28 +565,29 @@ export function TaskCenter({ projects: allProjects, connected, initialProjectId,
     <div data-testid="task-center-list" className="task-center-list" hidden={navCollapsed || (narrow && detailOpen)}>
       <header className="task-list-heading"><h1>定时任务</h1><button aria-label="搜索定时任务" onClick={() => setSearching(!searching)}><Search size={16}/></button></header>
       {searching && <input autoFocus className="task-search" aria-label="搜索定时任务" placeholder="搜索" value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => {if(e.key === "Escape") {setSearching(false);setSearch("");}}}/>}
-      <button className="task-new" aria-label="新建自动化" aria-pressed={creating} disabled={!connected} onClick={() => beginCreate()}><Plus size={18}/>新建任务</button>
+      <button className="task-new" aria-label="新建自动化" aria-pressed={creating} disabled={!connected} onClick={() => void beginCreate()}><Plus size={18}/>{t("operations.schedules.newTitle")}</button>
 
       <div className="task-list-subheading"><span>任务目录</span><DropdownMenu><DropdownMenuTrigger aria-label="筛选任务"><ListFilter size={16}/></DropdownMenuTrigger><DropdownMenuContent align="end">{["已开启","已暂停","已完成"].map(label => <DropdownMenuCheckboxItem key={label} checked={filters.includes(label)} onCheckedChange={checked => setFilters(values => checked ? [...values,label] : values.filter(v => v !== label))}>{label}</DropdownMenuCheckboxItem>)}</DropdownMenuContent></DropdownMenu></div>
+      <Select value={ownerFilter} items={[{ value: "all", label: t("operations.schedules.allOwners") }, ...projects.map(owner => ({ value: owner.id, label: projectLabel(owner) }))]} onValueChange={value => { if (value) setOwnerFilter(value); }}><SelectTrigger aria-label={t("operations.schedules.filterProject")} className="mx-2 mb-2"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">{t("operations.schedules.allOwners")}</SelectItem>{projects.map(owner => <SelectItem key={owner.id} value={owner.id}>{projectLabel(owner)}</SelectItem>)}</SelectContent></Select>
       <div className="task-list-scroll">
         {pending.length > 0 && <div><p role="alert">{t("operations.admissionUnknown")}</p>{pending.some((entry: Data) => entry.method === "areal/task/runNow") && <Button size="sm" variant="ghost" disabled={!connected || busy} onClick={() => { setError(""); void action("reconcile", { projectId: project?.id }).catch(cause => setError(cause.message)); }}>{t("operations.checkAdmission")}</Button>}</div>}
         {error && <p role="alert">{error}</p>}
-        {projects.map(owner => {
+        <details className="task-owner-status"><summary>{t("operations.schedules.ownerStates")}</summary>{projects.map(owner => {
           const read = catalog[owner.id];
-          return read?.status === "error" && <div key={owner.id}><p role="alert">{projectLabel(owner)}：{read.message}{read.previous && " 当前显示上次读取的任务。"}</p><Button variant="ghost" onClick={() => void refresh(false, owner.id)} disabled={!connected} aria-label={`重试读取 ${projectLabel(owner)}`}>重试读取</Button></div>;
-        })}
+          return <div key={owner.id} data-task-owner-id={owner.id} data-load-status={read?.status ?? "unloaded"}><p role={read?.status === "error" ? "alert" : "status"}>{projectLabel(owner)} · {!read ? t("operations.schedules.unloaded") : read.status === "pending" ? t("operations.schedules.ownerLoading") : read.status === "ready" ? t("operations.schedules.ownerReady", { count: read.value.data.length }) : `${read.message}${read.previous ? " 当前显示上次读取的任务。" : ""}`}</p>{read?.status === "error" && <Button variant="ghost" onClick={() => void refresh(false, owner.id)} disabled={!connected} aria-label={`重试读取 ${projectLabel(owner)}`}>重试读取</Button>}</div>;
+        })}</details>
         {!connected && <p role="status">尚未确认最新状态，当前显示上次读取的任务。请连接后台后重试。</p>}
         {initialLoading && <p role="status">{listed.length ? "其余任务仍在读取…" : "正在读取任务…"}</p>}
         <div className="task-list-rows">{visibleRows.map(row => {
           const failed = failedProjects.includes(row.projectId);
           const disconnected = !connected || !projects.find(owner => owner.id === row.projectId)?.state?.connected;
-          return <button key={`${row.projectId}:${row.id}`} type="button" aria-label={`打开自动化 ${row.objective}`} aria-pressed={`${row.projectId}:${row.id}` === selected} disabled={disconnected || failed} className={`task-list-row ${`${row.projectId}:${row.id}` === selected ? "bg-selected" : ""}`} onClick={() => {setCreating(false);setSelected(`${row.projectId}:${row.id}`);setError("");}}><span>{row.objective}</span><small>{row.scope === "independent" ? "独立任务" : row.projectName} · 定时任务</small><small>{row.paused || row.cancelled || finished(row) ? taskStatus(row) : row.nextRunAt != null ? date(row.nextRunAt, scheduleZone(row)) : taskStatus(row)}</small>{failed && <small>读取失败 · 上次读取</small>}</button>;
+          return <button key={`${row.projectId}:${row.id}`} data-task-id={row.id} type="button" aria-label={`打开自动化 ${row.objective}`} aria-pressed={`${row.projectId}:${row.id}` === selected} disabled={disconnected || failed} className={`task-list-row ${`${row.projectId}:${row.id}` === selected ? "bg-selected" : ""}`} onClick={() => {setCreating(false);setSelected(`${row.projectId}:${row.id}`);setError("");}}><span>{row.objective}</span><small>{row.scope === "independent" ? "独立任务" : row.projectName} · 定时任务</small><small>{row.deletedAt != null ? scheduledTaskStatus(row, t) : row.paused || row.cancelled || finished(row) ? taskStatus(row) : row.nextRunAt != null ? date(row.nextRunAt, scheduleZone(row)) : taskStatus(row)}</small>{failed && <small>读取失败 · 上次读取</small>}</button>;
         })}</div>
         {fresh && !visibleRows.length && <p>{moreAvailable ? "已加载任务中没有匹配项，可展开显示更多。" : "没有符合筛选条件的定时任务。"}</p>}
         {moreAvailable && <Button variant="ghost" disabled={!connected || loading} onClick={() => void refresh(true)}>展开显示</Button>}
       </div>
     </div>
-    {creating && <TaskDraft key={`new:${draftProjectId ?? "global"}`} projects={projects} initialProjectId={draftProjectId} action={action} initialText={initialText} disabled={!connected} onClose={() => setCreating(false)} onCreated={createdTask} onOpenModelSettings={onOpenModelSettings} renderConversation={renderConversation} />}
+    {creating && <main className="task-conversation" aria-label={t("operations.schedules.newLabel")}><header><h2>{t("operations.schedules.newTitle")}</h2><Button size="sm" variant="ghost" onClick={() => setCreating(false)}>{t("common.close")}</Button></header><div className="task-conversation-pending">{creationError ? <><p role="alert">{creationError}</p><Button variant="ghost" disabled={!connected || creatingRequest.current} onClick={() => void beginCreate()}>{t("operations.schedules.retryCreation")}</Button></> : <p role="status">{t("operations.schedules.opening")}</p>}</div></main>}
     {!detailOpen && <main className="task-welcome"><div className="task-welcome-intro"><span className="task-clock"><CalendarClock size={44}/></span><h2>安排任务</h2><p>AReaL 可以帮你处理持续性任务，让你无需亲力亲为。</p></div><div className="task-examples">{([
       [GitPullRequest,"检查仓库进展","检查我指定仓库的公开提交与 PR，整理进展和待处理事项。"],
       [ListChecks,"整理每日计划","回顾我提供的计划，整理当天待办和需要关注的事项。"],
@@ -541,12 +595,38 @@ export function TaskCenter({ projects: allProjects, connected, initialProjectId,
       [FileSearch,"整理研究线索","回顾研究资料，整理关键发现和待验证的问题。"],
       [BookOpen,"每周知识回顾","回顾我提供的本周记录，总结结论与下一步。"],
       [Activity,"跟踪产品变化","检查我指定产品的公开更新，列出需要关注的变化。"],
-    ] as const).map(([Icon,title,description]) => <button key={title} onClick={() => beginCreate(description)} disabled={!connected}><span><Icon size={24}/></span><div><h3>{title}</h3><p>{description}</p></div></button>)}</div></main>}
+    ] as const).map(([Icon,title,description]) => <button key={title} onClick={() => void beginCreate(description)} disabled={!connected}><span><Icon size={24}/></span><div><h3>{title}</h3><p>{description}</p></div></button>)}</div></main>}
 
-    {task && project && !creating && <TaskDraft key={selected} projects={projects} initialProjectId={project.id} task={task} action={action} disabled={disabled} onClose={closeDetails} onCreated={updatedTask} onOpenModelSettings={onOpenModelSettings} renderConversation={renderConversation} renderResources={(owner, thread) => renderResources(owner, thread, {...task, displayStatus: task.paused || task.cancelled || finished(task) ? taskStatus(task) : "已开启"}, runHistory, revealKey)} />}
+    {task && project && !creating && task.sourceThreadId && <ScheduledTaskConversation task={task} project={project} action={action} disabled={disabled} history={runHistory} onClose={closeDetails} onOpenThread={onOpenThread} renderConversation={renderConversation} renderResources={(owner, thread) => renderResources(owner, thread, { ...task, controlDisabled: disabled }, runHistory, revealKey)} />}
+    {task && project && !creating && !task.sourceThreadId && <TaskDraft key={selected} projects={projects} initialProjectId={project.id} task={task} action={action} disabled={disabled} onClose={closeDetails} onCreated={updatedTask} onOpenModelSettings={onOpenModelSettings} renderConversation={renderConversation} renderResources={(owner, thread) => renderResources(owner, thread, {...task, controlDisabled: disabled, displayStatus: task.paused || task.cancelled || finished(task) ? taskStatus(task) : "已开启"}, runHistory, revealKey)} />}
 
     </div>
 
 
   </section>;
+}
+
+function ScheduledTaskConversation({ task, project, action, disabled, history, onClose, onOpenThread, renderConversation, renderResources }: {
+  task: Data; project: Data; action: Action; disabled: boolean; history: ReactNode; onClose: () => void; onOpenThread: (projectId: string, threadId: string) => void;
+  renderConversation: TaskConversationRenderer; renderResources: (project: Data, thread: Data) => ReactNode;
+}) {
+  const { t } = useI18n();
+  const [read, setRead] = useState<{ status: "pending" | "ready" | "error"; error?: string }>({ status: "pending" });
+  const [retry, setRetry] = useState(0);
+  useEffect(() => {
+    if (!project.state?.connected) return;
+    let live = true;
+    setRead({ status: "pending" });
+    void action("open", { projectId: project.id, threadId: task.sourceThreadId }).then(() => { if (live) setRead({ status: "ready" }); }).catch(cause => { if (live) setRead({ status: "error", error: cause.message }); });
+    return () => { live = false; };
+  }, [action, project.id, project.state?.connected, project.core?.connectionGeneration, task.sourceThreadId, retry]);
+  const thread = project.state?.threads?.[task.sourceThreadId];
+  return <main className="task-conversation" aria-label={t("operations.schedules.conversation")} data-task-id={task.id}>
+    <header><h2>{task.objective}</h2>{thread && renderResources(project, thread)}<Button size="sm" variant="ghost" onClick={onClose}>{t("operations.schedules.closeDetails")}</Button></header>
+    <div className="task-plan-summary"><ScheduledTaskSummary task={task} project={project} /><ScheduledTaskControls task={task} project={project} action={action} disabled={disabled} /><details><summary>{t("operations.schedules.location")}</summary><p className="break-all">{project.root}</p><Button size="sm" variant="ghost" disabled={read.status !== "ready" || !thread} onClick={() => onOpenThread(project.id, task.sourceThreadId)}>{t("operations.schedules.openSource")}</Button></details></div>
+    {read.status === "error" && <p role="alert" className="task-plan-note">{t("operations.schedules.sourceUnavailable")}{read.error}<Button size="sm" variant="ghost" onClick={() => setRetry(value => value + 1)}>{t("operations.schedules.retrySource")}</Button></p>}
+    {read.status === "pending" && <p role="status" className="task-plan-note">{t("operations.schedules.readingSource")}</p>}
+    {thread && read.status === "ready" && <div className="task-conversation-body"><section className="task-chat-pane">{renderConversation(project, thread, undefined, { readOnly: !!thread.desktop?.archived })}</section></div>}
+    {!thread && read.status !== "pending" && <div className="task-plan-note"><p>{t("operations.schedules.sourceMissing")}</p>{history}</div>}
+  </main>;
 }

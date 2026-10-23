@@ -148,6 +148,7 @@ pub fn projections() -> (Value, Value) {
             "task/pause",
             "task/resume",
             "task/cancel",
+            "task/delete",
             "task/stopRun",
             "task/resumeRun",
         ],

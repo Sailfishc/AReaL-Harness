@@ -57,3 +57,6 @@
 .task-center.is-narrow .task-plan-summary { padding:12px; }
 .task-center.is-narrow .task-location-row { flex-wrap:wrap; gap:8px; }
 .task-center.is-narrow .task-work-directory { flex-basis:calc(100% - 76px); }
+
+.task-owner-status { margin: 4px 8px 10px; color: var(--color-foreground-subtle); font-size: var(--text-ui-sm); line-height: 1.5; }
+.task-owner-status > div { padding: 5px 0; }

@@ -1043,6 +1043,7 @@ impl Engine {
         cell: &Cell,
         config: &EffectiveConfig,
         desktop_enabled: bool,
+        thread: &Thread,
     ) -> Vec<Value> {
         let declared = match (&config.model, &config.provider) {
             (Some(model), Some(provider)) => {
@@ -1074,6 +1075,8 @@ impl Engine {
                 .runtime
                 .as_ref()
                 .is_none_or(|runtime| !runtime.writable);
+        let schedules_available =
+            desktop_enabled && self.schedule_tools_available(cell, config, thread).await;
         let bindings = cell.bindings.read().await;
         let mut definitions = bindings.registry.definitions();
         let core_names: Vec<_> = crate::desktop::definitions()
@@ -1099,7 +1102,8 @@ impl Engine {
             {
                 return false;
             }
-            (!matches!(name, "task_spawn" | "task_wait" | "task_channel_read") || goal_enabled)
+            (!name.starts_with("scheduled_task_") || schedules_available)
+                && (!matches!(name, "task_spawn" | "task_wait" | "task_channel_read") || goal_enabled)
                 && (!matches!(name, "task_spawn" | "task_wait")
                     || cell.goal_role.load(Ordering::Acquire) == 1)
                 && (!name.starts_with("goal_")
@@ -1196,8 +1200,11 @@ impl Engine {
             .filter(|_| state.active.is_some())
             .and_then(|t| t.configuration.clone())
             .unwrap_or_else(|| desktop(&state.thread).configuration);
+        let thread = state.thread.clone();
+        let active_turn_id = state.active.as_ref().map(|active| active.id.clone());
+        drop(state);
         let tools = self
-            .visible_tools(&cell, &config, state.thread.desktop.is_some())
+            .visible_tools(&cell, &config, thread.desktop.is_some(), &thread)
             .await;
         let model_metadata = config
             .model
@@ -1210,11 +1217,11 @@ impl Engine {
             })
             .flatten();
         Ok(
-            json!({"modelName":model_metadata.as_ref().map(|(name, _)| name),"resolvedParameters":model_metadata.map(|(_, parameters)| super::catalog::merge_model_parameters(config.parameters.clone(), parameters)),"threadId":thread_id,"sessionId":state.thread.session_id,"parentThreadId":state.thread.parent_thread_id,
-            "activeTurnId":state.active.as_ref().map(|a| &a.id),"configuration":config,
-            "instructionSnapshot":state.thread.turns.last().and_then(|t|t.instruction_snapshot.as_ref()),"instructionSources":["runtime/defaultOrClientSystem","profile","childTask","clientAppend","workspace/AGENTS.md"],"tools":tools,"loadedSkills":state.thread.desktop.as_ref().map(|d| &d.loaded_skills),
-            "contextCheckpoint":state.thread.context_checkpoint,"usage":state.thread.turns.last().and_then(|t| t.usage.as_ref()),
-            "usageKnown":state.thread.turns.last().is_some_and(|t| t.usage.is_some()),
+            json!({"modelName":model_metadata.as_ref().map(|(name, _)| name),"resolvedParameters":model_metadata.map(|(_, parameters)| super::catalog::merge_model_parameters(config.parameters.clone(), parameters)),"threadId":thread_id,"sessionId":thread.session_id,"parentThreadId":thread.parent_thread_id,
+            "activeTurnId":active_turn_id,"configuration":config,
+            "instructionSnapshot":thread.turns.last().and_then(|t|t.instruction_snapshot.as_ref()),"instructionSources":["runtime/defaultOrClientSystem","profile","childTask","clientAppend","workspace/AGENTS.md"],"tools":tools,"loadedSkills":thread.desktop.as_ref().map(|d| &d.loaded_skills),
+            "contextCheckpoint":thread.context_checkpoint,"usage":thread.turns.last().and_then(|t| t.usage.as_ref()),
+            "usageKnown":thread.turns.last().is_some_and(|t| t.usage.is_some()),
             "limits":{"historyBytes":self.limits.max_history_bytes,"contextBytes":self.limits.context_window_bytes},
             "runtime":self.runtime_capabilities()}),
         )

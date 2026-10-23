@@ -449,7 +449,7 @@ impl Engine {
         let active = cell.state.lock().await.active.is_some();
         let configuration = self.context_configuration(thread, active);
         let tools = self
-            .visible_tools(cell, &configuration, thread.desktop.is_some())
+            .visible_tools(cell, &configuration, thread.desktop.is_some(), thread)
             .await;
         let logical = crate::history::logical_history(thread, &self.store)?;
         let instructions = logical
@@ -469,10 +469,17 @@ impl Engine {
         use crate::context_usage::InstructionText;
         use areal_protocol::context::ContextPartKind as Kind;
         let mut instructions = self.project_instruction_text(cell).await?;
-        let configuration = cell.state.lock().await.thread.turns.last().and_then(|turn| turn.configuration.clone());
+        let thread = cell.state.lock().await.thread.clone();
+        let configuration = thread
+            .turns
+            .last()
+            .and_then(|turn| turn.configuration.clone());
         let gen_ui_available = if self.extensions.gen_ui {
             if let Some(configuration) = configuration {
-                self.visible_tools(cell, &configuration, true).await.iter().any(|tool| tool["function"]["name"] == "gen_ui_publish")
+                self.visible_tools(cell, &configuration, true, &thread)
+                    .await
+                    .iter()
+                    .any(|tool| tool["function"]["name"] == "gen_ui_publish")
             } else { false }
         } else { false };
         if gen_ui_available {

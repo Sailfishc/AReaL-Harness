@@ -203,10 +203,9 @@ function Usage({ thread }: { thread: Data }) {
   );
 }
 
-// 浮层只负责资源导航；子任务对话仍由已有侧栏标签持有。
-function TaskResourcesPopover({ project, thread, action, selectedAgent, onPanel, onAgent, onFile, scheduledTask, runHistory, revealKey, onReveal }: {
+function TaskResourcesPopover({ project, thread, action, selectedAgent, onPanel, onAgent, onFile, scheduledTask, runHistory, revealKey, onReveal, onAddSchedule, onOpenSchedule }: {
   project: Data; thread: Data; action: Action; selectedAgent?: string; scheduledTask?: Data; runHistory?: React.ReactNode; revealKey?: string; onReveal?: (key: string) => void;
-  onPanel: (name: string) => void; onAgent: (id: string) => void; onFile: (path: string) => void;
+  onPanel: (name: string) => void; onAgent: (id: string) => void; onFile: (path: string) => void; onAddSchedule?: () => void; onOpenSchedule?: (task: Data) => void;
 }) {
   const [open, setOpen] = useState(false);
   useEffect(() => { if (revealKey) { setOpen(true); onReveal?.(revealKey); } }, [revealKey, onReveal]);
@@ -214,7 +213,7 @@ function TaskResourcesPopover({ project, thread, action, selectedAgent, onPanel,
   return <Popover open={open} onOpenChange={setOpen}>
     <PopoverTrigger render={<button className={`icon-button ${open ? "active" : ""}`} aria-label="任务资源" />}><TaskSummaryIcon /></PopoverTrigger>
     <PopoverContent align="end" sideOffset={8} className="task-resources-popup" aria-label="任务资源面板">
-      <ConversationStatusCard project={project} thread={thread} action={action} selectedAgent={selectedAgent} scheduledTask={scheduledTask} runHistory={runHistory}
+      <ConversationStatusCard project={project} thread={thread} action={action} selectedAgent={selectedAgent} scheduledTask={scheduledTask} runHistory={runHistory} onAddSchedule={onAddSchedule ? () => { setOpen(false); onAddSchedule(); } : undefined} onOpenSchedule={onOpenSchedule ? navigate(onOpenSchedule) : undefined}
         onPanel={navigate(onPanel)} onAgent={navigate(onAgent)} onFile={navigate(onFile)} />
     </PopoverContent>
   </Popover>;
@@ -1870,6 +1869,14 @@ function AppContent({ services }: { services: PlatformServices }) {
                 <>
                   {thread && !empty && (
                     <TaskResourcesPopover key={panelOwner} project={project} thread={thread} action={resourceAction} selectedAgent={panel.startsWith("agent:") ? panel.slice(6) : undefined}
+                      onAddSchedule={() => {
+                        const key = `areal-gui:draft:${project.id}:${thread.id}`;
+                        const text = localStorage.getItem(key) ?? "";
+                        const intent = t("operations.schedules.creationIntent");
+                        localStorage.setItem(key, text.trim() ? `${text}\n${intent}` : intent);
+                        requestAnimationFrame(() => window.dispatchEvent(new CustomEvent("areal-draft-change", { detail: key })));
+                      }}
+                      onOpenSchedule={task => { setTaskNotification({ projectId: project.id, taskId: task.id }); setTaskCenterOpen(true); }}
                       onPanel={name => { if (name === "改动") setReviewRequest({ owner: panelOwner, scope: "unstaged" }); showPanel(name); }}
                       onAgent={id => showPanel(`agent:${id}`)} onFile={openFile} />
                   )}
@@ -1933,7 +1940,7 @@ function AppContent({ services }: { services: PlatformServices }) {
               onFile={path => {void open(owner.id,managementThread.id).then(() => openFile(path));}}
               onReview={turnId => {void open(owner.id,managementThread.id).then(() => {setReviewRequest({owner:`${owner.id}:${managementThread.id}`,turnId});setPanel("改动");});}}
               readTurnReview={(turnId,itemId) => resourceAction("workspace",{projectId:owner.id,threadId:managementThread.id,turnId,itemId,operation:"turnReview"})}/>
-              {!options?.embedded && <Composer key={managementThread.id} project={owner} thread={managementThread} executionBlocked={projectExecutionBlocked(snapshot.lifecycle, owner.id)} action={resourceAction} readAction={resourceAction} onPanel={name => {if(name === "设置") {showPanel("设置");} else {void open(owner.id,managementThread.id).then(() => showPanel(name));}}} onNew={() => void newTask()}/>}</>}
+              {!options?.embedded && !options?.readOnly && <Composer key={managementThread.id} project={owner} thread={managementThread} executionBlocked={projectExecutionBlocked(snapshot.lifecycle, owner.id)} action={resourceAction} readAction={resourceAction} onPanel={name => {if(name === "设置") {showPanel("设置");} else {void open(owner.id,managementThread.id).then(() => showPanel(name));}}} onNew={() => void newTask()}/>}</>}
             renderResources={(owner,managementThread,scheduledTask,runHistory,revealKey?: string) => <TaskResourcesPopover revealKey={revealKey !== consumedResourceReveal.current ? revealKey : undefined} onReveal={consumeResourceReveal} project={owner} thread={managementThread} scheduledTask={scheduledTask} runHistory={runHistory} action={resourceAction} onPanel={name => {void open(owner.id,managementThread.id).then(() => showPanel(name));}} onAgent={id => void open(owner.id,id)} onFile={path => {void open(owner.id,managementThread.id).then(() => openFile(path));}} />}
 
             navigation={<>
