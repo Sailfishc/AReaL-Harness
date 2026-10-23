@@ -1,3 +1,4 @@
+import { GenUiWorkspace } from "./GenUiWorkspace.js";
 import startupIcon from "../../app/assets/icon-1024.png";
 import { useI18n } from "./i18n/IntlProvider.js";
 import { WorkspaceFileTree } from "./workspace-file-tree/WorkspaceFileTree.js";
@@ -220,7 +221,7 @@ function TaskResourcesPopover({ project, thread, action, selectedAgent, onPanel,
 export function App({ services }: { services: PlatformServices }) {
   const [quitProgress, setQuitProgress] = useState<QuitProgress>({ state: "idle" });
   useEffect(() => services.onQuitProgress?.(setQuitProgress), [services]);
-  return <UnsavedChangesProvider><AppContent services={services} /><QuitProgressDialog progress={quitProgress} /></UnsavedChangesProvider>;
+  return <UnsavedChangesProvider><GenUiWorkspace services={services}><AppContent services={services} /></GenUiWorkspace><QuitProgressDialog progress={quitProgress} /></UnsavedChangesProvider>;
 }
 function AppContent({ services }: { services: PlatformServices }) {
   const { t } = useI18n();

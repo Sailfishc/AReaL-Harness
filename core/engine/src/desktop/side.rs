@@ -399,6 +399,7 @@ impl Engine {
             engine.project_permissions(&mut config);
             config.tool_allowlist = Some(
                 std::iter::once("side_context_read".to_owned())
+                    .chain(engine.extensions.gen_ui.then(|| "gen_ui_publish".to_owned()))
                     .chain(
                         ["fs_read", "fs_list", "fs_stat", "search_files"]
                             .into_iter()

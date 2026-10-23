@@ -25,6 +25,8 @@ const { CoreWorktrees } = require('./worktrees.cjs');
 const { ProjectlessWorkspaces } = require('./projectless.cjs');
 const { inspectCoreCapabilities, projectCoreCapabilities } = require('./core-capabilities.cjs');
 const { definition: browserTool } = require('./browser-tool.cjs');
+const { buildGenUiModelContext, stripGenUiModelContext } = require('@areal/gen-ui/node');
+const { genUiScope, createGenUiState } = require('./gen-ui-state.cjs');
 
 const { ProjectConnections } = require('./project-connections.cjs');
 const { HistoryObservation } = require('./history-observation.cjs');
@@ -38,6 +40,7 @@ class CoreBackend {
     this.applicationOwner = applicationOwner;
     this.ownedEngines = new Map();
     this.home = home;
+    this.genUiState = createGenUiState(home);
     this.harnessHome = harnessHome;
     this.config = config;
     this.proxyEnvironment = proxyEnvironment;
@@ -67,6 +70,16 @@ class CoreBackend {
     this.activeCommands = 0;
     this.awaitingResponses = new WeakSet();
     this.lifecycleOperations = new LifecycleOperations(this);
+  }
+
+  genUiScope(project, threadId) {
+    return genUiScope(this.home, project, threadId);
+  }
+
+  async genUiText(project, threadId, text) {
+    text = typeof text === "string" ? stripGenUiModelContext(text) : text;
+    const context = buildGenUiModelContext(await this.genUiState.list(this.genUiScope(project, threadId)));
+    return context ? `${text || ""}\n\n${context}` : text;
   }
 
   get connections() {
@@ -320,7 +333,9 @@ class CoreBackend {
     trace.advance('hooks');
     const hookDeployment = await this.hooks.launch();
     project.hookRevision = null;
-    const environment = { ...this.hooks.environment(), AREAL_HARNESS_TOOL_EXTENSIONS: hookDeployment.path, ...this.providers.environment() };
+    const genUiExtensions = join(directory, 'desktop-tool-extensions.json');
+    await writeFile(genUiExtensions, JSON.stringify({ ...hookDeployment.value, genUi: true }), { mode: 0o600 });
+    const environment = { ...this.hooks.environment(), AREAL_HARNESS_TOOL_EXTENSIONS: genUiExtensions, ...this.providers.environment() };
     return { args, environment, dataDir, hookDeployment };
   }
 
@@ -879,7 +894,7 @@ class CoreBackend {
           const current = project.model.state.threads[request.threadId];
           if (current?.conversation?.kind !== 'side') throw new Error('目标不是旁路讨论');
           const result = await this.submit(project, 'areal/turn/start', { threadId: request.threadId,
-            input: [{ type: 'text', text: request.text }] }, { requestId: request.requestId });
+            input: [{ type: 'text', text: await this.genUiText(project, request.threadId, request.text) }] }, { requestId: request.requestId });
           // 追问已受理；快照读取失败只能通过重新打开恢复，不能重发输入。
           try { await this.openThread(project, request.threadId); } catch { /* 保留明确受理结果。 */ }
           return result;
@@ -904,7 +919,7 @@ class CoreBackend {
             text: request.text, attachments: request.attachments, requestId: request.requestId });
         }
         await this.ensureBrowserTools(project, threadId);
-        const input = messageInput(this, request);
+        const input = messageInput(this, { ...request, text: await this.genUiText(project, threadId, request.text) });
         const current = project.model.state.threads[threadId];
         let submitted;
         if (current?.goals?.goal || current?.goalOwner || current?.parentThreadId || current?.source === 'nativeTaskAgent' || current?.conversation?.kind === 'side') {
@@ -924,7 +939,7 @@ class CoreBackend {
         await this.ensureBrowserTools(project, threadId);
         const submitted = await this.submit(project, 'areal/turn/submit', { threadId,
           expectedConfigRevision: request.expectedConfigRevision,
-          intent: { type: 'edit', expectedTurnId: request.expectedTurnId, itemId: request.itemId, input: messageInput(this, request) } }, { requestId: request.requestId });
+          intent: { type: 'edit', expectedTurnId: request.expectedTurnId, itemId: request.itemId, input: messageInput(this, { ...request, text: await this.genUiText(project, threadId, request.text) }) } }, { requestId: request.requestId });
         if (submitted.turn?.id) context.onBrowserTurnStarted?.(submitted.turn.id);
         return submitted;
       }
@@ -941,7 +956,7 @@ class CoreBackend {
         if (isTaskDraftConfiguration(project.configurations?.[threadId])) throw new Error('请等待当前安排完成后再补充修改要求。');
         const active = project.model.state.threads[threadId]?.turns.find(turn => turn.status === 'inProgress');
         if (!active || active.id !== request.expectedTurnId) throw new Error('原轮次已结束，请作为新消息发送');
-        await this.submit(project, 'turn/steer', { threadId, expectedTurnId: active.id, input: messageInput(this, request), previousItems: active.items.map(item => item.id) }, { requestId: request.requestId });
+        await this.submit(project, 'turn/steer', { threadId, expectedTurnId: active.id, input: messageInput(this, { ...request, text: await this.genUiText(project, threadId, request.text) }), previousItems: active.items.map(item => item.id) }, { requestId: request.requestId });
         break;
       }
       case 'respond': {

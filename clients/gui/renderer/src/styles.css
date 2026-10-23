@@ -2105,3 +2105,8 @@ body {
 .theme-diff-marker { display: inline-block; width: 1ch; margin-right: 1ch; }
 
 @media (max-width: 640px) { .areal-update-floating { display: block; } }
+
+.gen-ui-card { margin-block: var(--spacing-section); min-width: 0; }
+.gen-ui-card > header { justify-content: space-between; gap: var(--spacing-inline); }
+.gen-ui-card > p, .gen-ui-confirmation { padding-block: var(--spacing-field); }
+.gen-ui-confirmation textarea { width: 100%; min-height: 80px; margin-block: var(--spacing-field); }

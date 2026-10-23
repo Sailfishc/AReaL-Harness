@@ -58,7 +58,7 @@ const fields = {
 const reads = {
   mcpFormResourcePrepare: ['areal/mcp/form/resource/prepare', ['threadId', 'requestId', 'fieldName']],
   mcpFormResourceRelease: ['areal/mcp/form/resource/release', ['threadId', 'requestId', 'fieldName', 'uri']],
-  pluginHooks:['areal/plugin/hooks/list',[]], pluginMcp: ['areal/plugin/mcp/list', []], mcpApps: ['areal/mcp/apps/list', ['threadId']], mcpForms: ['areal/mcp/forms/list', ['threadId']], mcpToolResult:['areal/mcp/tool/result',['threadId','callId']], plugins: ['areal/plugin/list', []], plugin: ['areal/plugin/read', ['id']],
+  pluginHooks:['areal/plugin/hooks/list',[]], pluginMcp: ['areal/plugin/mcp/list', []], mcpApps: ['areal/mcp/apps/list', ['threadId']], genUiSource: ['areal/genUi/source', ['threadId','turnId','itemId','path']], mcpForms: ['areal/mcp/forms/list', ['threadId']], mcpToolResult:['areal/mcp/tool/result',['threadId','callId']], plugins: ['areal/plugin/list', []], plugin: ['areal/plugin/read', ['id']],
   providers: ['areal/provider/list', []], mcp: ['areal/mcp/list', []],
   profile: ['areal/profile/read', ['id', 'revision']], skills: ['areal/skill/list', ['threadId', 'agentProfile']],
   skill: ['areal/skill/read', ['threadId', 'agentProfile', 'skill', 'resource', 'offset', 'maxBytes']],

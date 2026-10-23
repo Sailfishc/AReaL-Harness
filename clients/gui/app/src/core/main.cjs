@@ -294,12 +294,16 @@ async function createWindow() {
     window.on('responsive', () => diagnostics.record({ type: 'renderer-responsive' }));
     const owner = window.webContents;
     owner.on('did-start-navigation', (_event, _url, inPlace, mainFrame) => {
-      if (mainFrame && !inPlace) projections.delete(owner);
+      if (mainFrame && !inPlace) { projections.delete(owner); mcpApps?.dispose(); }
     });
     owner.on('destroyed', () => projections.delete(owner));
     owner.on('render-process-gone', () => { projections.delete(owner); mcpApps?.dispose(); });
     window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     window.webContents.on('will-navigate', event => event.preventDefault());
+    window.webContents.on('will-frame-navigate', event => {
+      const from = event.initiator?.url ?? event.frame?.url ?? '';
+      if (from.startsWith('areal-mcp:') && !event.url.startsWith('areal-mcp:')) event.preventDefault();
+    });
     window.webContents.on('will-prevent-unload', event => {
       if (exitReady && quitAttempt?.approved && quitAttempt.owner === window.webContents
         && quitAttempt.frame === window.webContents.mainFrame) event.preventDefault();
@@ -419,6 +423,8 @@ app.whenReady().then(async () => {
     trusted(event);
     if (!request || typeof request !== 'object') throw new Error('Invalid app request');
     if (request.operation === 'metadataImage') return mcpMetadataImages.load(request.source).catch(() => { throw new Error('Metadata image unavailable'); });
+    if (request.operation === 'openGenUi') return mcpApps.openGenUi(request, event.sender.id);
+    if (request.operation === 'genUiVisibility') return mcpApps.genUiVisibility(request, event.sender.id);
     if (request.operation === 'openFromResult') return mcpApps.openFromResult(request, event.sender.id);
     if (request.operation === 'open') return mcpApps.open(request, event.sender.id).catch(() => { throw new Error('MCP App could not be opened'); });
     if (request.operation === 'request') return mcpApps.request(request.token, request.request, event.sender.id).catch(() => { throw new Error('MCP App request rejected or incomplete'); });

@@ -33,6 +33,7 @@ impl Engine {
     ) -> Result<Value> {
         let thread_id = cell.state.lock().await.thread.id.clone();
         match tool {
+            "gen_ui_publish" => self.gen_ui_publish(&thread_id, turn_id, call_id, args).await,
             "task_state" => self
                 .task_state(cell, args["pendingAfter"].as_str())
                 .await

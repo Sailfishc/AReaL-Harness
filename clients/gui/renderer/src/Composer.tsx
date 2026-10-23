@@ -1,3 +1,4 @@
+import { stripGenUiModelContext } from "@areal/gen-ui/contract";
 import { useI18n } from "./i18n/IntlProvider.js";
 import { SettingsDisclosure } from "./settings/SettingsDisclosure.js";
 import { useComposerPrediction } from "./useComposerPrediction.js";
@@ -501,10 +502,10 @@ export function Composer({
           (t.items ?? [])
             .filter((i: Data) => i.type === "userMessage" && !t.continuedFromTurnId && !(goalContinuationLabel(t) && i.id === t.items.find((entry: Data) => entry.type === "userMessage")?.id))
             .map((i: Data) =>
-              (i.content ?? [])
+              stripGenUiModelContext((i.content ?? [])
                 .filter((p: Data) => p.type === "text")
                 .map((p: Data) => p.text)
-                .join("\n"),
+                .join("\n")),
             ),
         )}
         leadingActions={

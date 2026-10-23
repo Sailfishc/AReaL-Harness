@@ -941,7 +941,7 @@ impl Engine {
         let side_read = cell.state.lock().await.thread.side_workspace_read();
         if !blocked_by_workspace_conflict
             && cell.state.lock().await.thread.is_side()
-            && !(call.name == "side_context_read"
+            && !(matches!(call.name.as_str(), "side_context_read" | "gen_ui_publish")
                 && entry
                     .as_ref()
                     .is_ok_and(|e| matches!(e.backend, Backend::Core)))

@@ -233,6 +233,15 @@ function SideChatEditor({ project, source, executionBlocked, action, dark, works
       setError(failure.message);
     } finally { if (mounted.current && workspace.isCurrent(token, generation)) setBusy(false); }
   };
+  const submitGenUi = async (question: string) => {
+    if (executionBlocked || modelUnavailable || busy || pendingId || unsettled || active || !project.state?.connected || !sideId || !validSide || side.desktop?.archived) throw Error("Side conversation is not available");
+    const token = workspace.capture(generation);
+    setBusy(true); setError("");
+    try {
+      if (!mounted.current || !workspace.isCurrent(token, generation)) throw Error("Side conversation changed");
+      await action("side", { projectId: project.id, operation: "send", threadId: sideId, text: question });
+    } finally { if (mounted.current && workspace.isCurrent(token, generation)) setBusy(false); }
+  };
   const configure = async (values: Data) => {
     if (busy || pendingId || unsettled || active || !project.state?.connected || sideId && (!validSide || side.desktop?.archived)) return;
     if (!sideId) {
@@ -289,7 +298,7 @@ function SideChatEditor({ project, source, executionBlocked, action, dark, works
     </div>
     <div className="side-chat-transcript">
       {!sideId && <div className="side-chat-empty"><SideChatIcon size={30} /><h2>侧边聊天</h2><p>岔开一个问题，主聊天留在原处。</p><small>讨论会保留，可从相关讨论中恢复。</small></div>}
-      {validSide && <Messages key={`${owner}:${sideId}`} project={project} thread={side} action={action} dark={dark} reserveResponseSpace={false}
+      {validSide && <Messages onGenUiFollowUp={submitGenUi} key={`${owner}:${sideId}`} project={project} thread={side} action={action} dark={dark} reserveResponseSpace={false}
         onLink={() => setError("旁路不提供链接预览；可复制链接后从主会话打开。")}
         onFile={() => setError(side.conversation.policy?.workspaceAccess === "readOnly" ? "旁路模型可只读查询当前工作区；请在问题中指定文件路径。" : "此旁路仅能读取冻结会话证据。")}
         onReview={() => {}} readTurnReview={async () => ({})} responseActions={answer => <><Button type="button" variant="ghost" size="sm" className="side-bring-action" onClick={() => prepareBringBack(answer.text, true)}>带回整条回复</Button><Button type="button" variant="ghost" size="sm" className="side-bring-action" onClick={() => prepareBringBack(answer.text, false)}>带回选中文字</Button></>} />}

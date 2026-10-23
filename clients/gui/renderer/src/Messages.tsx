@@ -1,3 +1,6 @@
+import { projectGenUiReferences } from "@areal/gen-ui/references";
+import { GenUiCard } from "./GenUiWorkspace.js";
+import { submitMessage, sending, markSending } from "./Composer.js";
 import { useI18n } from "./i18n/IntlProvider.js";
 import { TurnUsage } from "./TurnUsage.js";
 import { mcpResultKey, type McpResultSource, type McpResultState } from "./mcp-app-services.js";
@@ -72,7 +75,9 @@ export function Messages({
   reserveResponseSpace = !embedded,
   onOpenResult,
   resultStates,
+  onGenUiFollowUp,
 }: {
+  onGenUiFollowUp?: (prompt: string) => Promise<void>;
   onOpenResult?: (source: McpResultSource) => Promise<void>;
   resultStates?: Record<string, McpResultState>;
   embedded?: boolean;
@@ -258,8 +263,21 @@ export function Messages({
   };
   const renderImage = useCallback((uri: string, name: string) => /^areal:\/\/blob\/[A-Za-z0-9_-]+$/.test(uri)
     ? <SentAttachment part={{ type: "image", uri, name: name || "回复图片" }} projectId={project.id} threadId={thread.id} action={action} /> : null, [project.id, thread.id, action]);
+  const sendGenUi = async (prompt: string) => {
+    if (readOnly || !project.state?.connected || localThread.desktop?.archived) throw Error("Conversation unavailable");
+    if (onGenUiFollowUp) return onGenUiFollowUp(prompt);
+    if (localThread.conversation?.kind === "side") throw Error("Side submission unavailable");
+    const key = `areal-gui:draft:${project.id}:${localThread.id}`;
+    if (sending.has(key) || project.pending?.some((entry: Data) => entry.params?.threadId === localThread.id)) throw Error("Submission needs confirmation");
+    markSending(key, true);
+    try { await submitMessage(action, project.id, localThread.id, prompt, [], { appMessage: true, enqueue: !!localThread.turns?.some((turn: Data) => turn.status === "inProgress") }); }
+    finally { markSending(key, false); }
+  };
   const renderAgentMessage = (entry: Data, turn: Data, deferActions = false) => !entry.text?.trim() ? null : <div className={`assistant-message${deferActions ? " assistant-message-final" : ""}`} data-message-phase={entry.phase ?? "legacy"} data-side-item-id={entry.id} key={entry.id}>
-    <MessageResponse className="conversation-markdown" preserveLineBreaks streaming={turn.status === "inProgress" && (entry.phase !== "commentary" || entry.id === turn.items?.findLast((item: Data) => ["agentMessage", "dynamicToolCall", "userMessage", "agentMedia"].includes(item.type))?.id)} theme={dark ? "dark" : "light"} onOpenExternalUrl={onLink} onOpenFileLink={onFile} onRenderImage={renderImage} webPreviews>{entry.text}</MessageResponse>
+    {projectGenUiReferences(entry.text, turn.status === "completed").map((part, index) => part.kind === "text" ?
+      <MessageResponse key={index} className="conversation-markdown" preserveLineBreaks streaming={turn.status === "inProgress" && (entry.phase !== "commentary" || entry.id === turn.items?.findLast((item: Data) => ["agentMessage", "dynamicToolCall", "userMessage", "agentMedia"].includes(item.type))?.id)} theme={dark ? "dark" : "light"} onOpenExternalUrl={onLink} onOpenFileLink={onFile} onRenderImage={renderImage} webPreviews>{part.text}</MessageResponse> : part.kind === "ui" && !inheritedIds.has(turn.id) ?
+      <GenUiCard key={`${entry.id}:${part.offset}`} source={{ projectId: project.id, threadId: localThread.id, turnId: turn.id, itemId: entry.id, referenceOffset: part.offset }} title={part.reference.title ?? t("genUi.title")} dark={dark} send={readOnly || localThread.desktop?.archived || !project.state?.connected ? undefined : sendGenUi} /> :
+      <p key={index} role="status">{t(part.kind === "pending" ? "genUi.preparing" : "genUi.unavailable")}</p>)}
     {!deferActions && entry.phase !== "commentary" && turn.status !== "inProgress" && <MessageActions text={entry.text} />}
   </div>;
   useLayoutEffect(() => {
