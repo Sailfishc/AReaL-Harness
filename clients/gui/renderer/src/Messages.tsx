@@ -132,6 +132,7 @@ export function Messages({
   const container = useRef<HTMLDivElement>(null);
   const follow = useRef(true);
   const pendingReading = useRef<ReadingAnchor | undefined>(undefined);
+  const disclosureReading = useRef<{ control: HTMLElement; offset: number } | undefined>(undefined);
   const readingViewport = useRef<{ width: number; height: number } | undefined>(undefined);
   const owner = JSON.stringify([project.id, thread.id]);
   const latestTurnId = thread.turns?.at(-1)?.id;
@@ -246,8 +247,11 @@ export function Messages({
     reservation.current = undefined;
     if (responseSpace.current) responseSpace.current.style.height = "0px";
   };
-  const readHere = () => {
+  const readHere = (control?: HTMLElement) => {
     pendingReading.current = undefined;
+    disclosureReading.current = control && container.current
+      ? { control, offset: control.getBoundingClientRect().top - container.current.getBoundingClientRect().top }
+      : undefined;
     follow.current = false;
     rememberReading();
   };
@@ -273,13 +277,14 @@ export function Messages({
     if (departed) releaseResponseSpace();
     // Releasing space can clamp this same navigation frame to the new tail.
     // Preserve its departure intent instead of immediately resuming following.
-    follow.current = !departed && element.scrollHeight - element.scrollTop - element.clientHeight < 120 &&
+    follow.current = !disclosureReading.current && !departed && element.scrollHeight - element.scrollTop - element.clientHeight < 120 &&
       (follow.current || !!previous && element.scrollTop > previous.top + 1);
     rememberReading();
     setReadingHistory(!follow.current && element.scrollHeight - element.scrollTop - element.clientHeight >= 120);
   };
   const returnToBottom = () => {
     pendingReading.current = undefined;
+    disclosureReading.current = undefined;
     releaseResponseSpace();
     follow.current = true;
     // Instant scrolling avoids interpreting smooth-scroll frames as a reader
@@ -311,6 +316,7 @@ export function Messages({
       const column = getComputedStyle(section.parentElement!);
       return Math.max(0, element.clientHeight - parseFloat(column.paddingTop) - parseFloat(column.paddingBottom));
     };
+    if (switched || previous.id !== latestTurnId) disclosureReading.current = undefined;
     if (switched) {
       follow.current = remembered?.following ?? true;
       pendingReading.current = follow.current ? undefined : remembered?.anchor;
@@ -342,7 +348,10 @@ export function Messages({
         space.contentHeight = contentHeight;
         spacer.style.height = `${space.height}px`;
       } else spacer.style.height = "0px";
-      if (follow.current) element.scrollTop = element.scrollHeight;
+      const disclosure = disclosureReading.current;
+      if (disclosure && element.contains(disclosure.control)) {
+        element.scrollTop += disclosure.control.getBoundingClientRect().top - element.getBoundingClientRect().top - disclosure.offset;
+      } else if (follow.current) element.scrollTop = element.scrollHeight;
       else if (pendingReading.current && restoreReadingAnchor(element, pendingReading.current)) pendingReading.current = undefined;
       readingViewport.current = { width: element.clientWidth, height: element.clientHeight };
       setReadingHistory(!follow.current && element.scrollHeight - element.scrollTop - element.clientHeight >= 120);
@@ -350,7 +359,7 @@ export function Messages({
     };
     if (switched && !follow.current) element.scrollTop = remembered?.top ?? 0;
     layout();
-    const cancelPendingReading = () => { pendingReading.current = undefined; };
+    const cancelPendingReading = () => { pendingReading.current = undefined; disclosureReading.current = undefined; };
     const wheel = (event: WheelEvent) => {
       cancelPendingReading();
       if (event.deltaY >= 0 || element.scrollHeight <= element.clientHeight) return;
@@ -386,6 +395,7 @@ export function Messages({
     <div className={embedded ? "messages-embedded" : "messages-shell"}>
     {!embedded && <TurnNavigation key={owner} turns={thread.turns ?? []} container={container} onNavigate={() => {
       pendingReading.current = undefined;
+      disclosureReading.current = undefined;
       follow.current = false;
       releaseResponseSpace();
       rememberReading();
@@ -397,8 +407,8 @@ export function Messages({
       onMouseUp={captureSideSelection}
       onKeyUp={event => { if (event.key !== "Escape" && event.key !== "Tab" && event.key !== "Enter") captureSideSelection(); }}
       onClickCapture={event => {
-        const control = event.target instanceof Element ? event.target.closest("button[aria-expanded], summary") : null;
-        if (control && event.currentTarget.contains(control) && control.closest(".turn-progress, .turn-execution")) readHere();
+        const control = event.target instanceof Element ? event.target.closest<HTMLElement>("button[aria-expanded], summary") : null;
+        if (control && event.currentTarget.contains(control) && control.closest(".turn-progress, .turn-execution")) readHere(control);
       }}
     >
       <div className={embedded ? "message-column message-embedded-column" : "message-column"}>
