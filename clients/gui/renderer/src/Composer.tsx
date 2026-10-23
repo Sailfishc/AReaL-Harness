@@ -1,3 +1,4 @@
+import { validateWorkspaceFileReference } from "./lib/workspaceFileComposer.js";
 import { useI18n } from "./i18n/IntlProvider.js";
 import { SettingsDisclosure } from "./settings/SettingsDisclosure.js";
 import { useComposerPrediction } from "./useComposerPrediction.js";
@@ -92,6 +93,7 @@ export function Composer({
   const reviewDraft = useReviewComments(reviewKey);
   const comments = attachedReviewComments(reviewDraft.draft);
   const api = useRef<LexicalChatInputHandle | null>(null);
+  const [workspaceReferencePending, setWorkspaceReferencePending] = useState(false);
   const upload = useRef<HTMLInputElement>(null);
   const [menuAnchor, setMenuAnchor] = useState<HTMLDivElement | null>(null);
   const [text, setText] = useState(() => localStorage.getItem(key) ?? "");
@@ -151,7 +153,7 @@ export function Composer({
       .catch((cause: Error) => setDeliveryError(cause.message));
   };
   const saveQueueEdit = async () => {
-    if (disabled || sending.has(key)) return;
+    if (disabled || workspaceReferencePending || sending.has(key)) return;
     await queueEditor.save();
   };
   const config = project.configurations?.[thread.id];
@@ -241,6 +243,7 @@ export function Composer({
     if (thread.goals?.goal && goalMode) changeGoalMode(false);
   }, [thread.goals?.goal?.id]);
   const submit = async (value: string, invert = false, approvePlan = false) => {
+    if (workspaceReferencePending) return;
     if (desktopUnsupported && !creatingGoal && !queueEditor.edit) return;
     const submittedInput = composerInput(value, files);
     const sideCommand = /^\/side(?:\s|$)/i.exec(submittedInput.text);
@@ -348,7 +351,7 @@ export function Composer({
     ...(onSide ? [{ value: "side", label: "侧边聊天", description: "在右侧讨论，不打断当前聊天", icon: <SideChatIcon />, group: "功能" as const, run: () => onSide("") }] : []),
     { value: "upload", label: "上传文件", description: "添加图片、文档或其他文件", icon: <AttachmentIcon />, group: "功能", run: () => upload.current?.click() },
     { value: "mcp", label: "MCP", description: "查看服务器与连接状态", icon: <ComposerMcpIcon />, group: "功能", run: () => setMcpOpen(true) },
-    { value: "files", label: "工作区文件", description: "引用当前项目中的文件", icon: <FileTree />, group: "功能", run: () => onPanel("文件") },
+    { value: "files", label: t("chat.composer.workspaceFiles"), description: t("chat.composer.workspaceFilesDescription"), icon: <FileTree />, group: "功能", run: () => onPanel("文件") },
     { value: "plan", label: "计划模式", description: planActive ? "关闭计划模式" : "先规划，再开始执行", icon: <Lightbulb />, group: "功能", disabled: disabled || taskManagement || !!running || !config || config.profile?.readOnly === true, run: () => { void configure({ options: planModeOptions(!planActive, config?.options) }); } },
     ...(!thread.goals?.goal ? [{ value: "goal", label: "设置目标", description: creatingGoal ? "关闭目标模式" : "设置持续目标与停止条件", icon: <Target />, group: "功能" as const, disabled: disabled || taskManagement || !!running || !!thread.parentThreadId, run: () => changeGoalMode(!goalMode) }] : []),
     { value: "compact", label: "压缩", description: "压缩当前上下文", icon: <ArchiveChatIcon />, group: "功能", disabled: !!running, run: () => { void action("manage", { projectId: project.id, threadId: thread.id, operation: "contextCompact" }).catch(() => {}); } },
@@ -438,6 +441,12 @@ export function Composer({
         className={!queueEditor.edit ? approvals.length ? "hidden" : questions.length ? "interaction-composer-compact" : undefined : undefined}
         shellClassName="@container/composer"
         workspacePath={project.root}
+        referenceScope={queueEditor.edit ? `${queueEditor.edit.id}:${queueEditor.edit.phase}` : "draft"}
+        enableWorkspaceFileDrop={!!project.root && !editorDisabled}
+        enableExternalFileDrop={!editorDisabled}
+        validateWorkspaceFile={payload => validateWorkspaceFileReference(readAction, project.id, project.root, payload)}
+        onFileDrop={files => setFiles(current => [...current, ...files])}
+        onWorkspaceReferencePendingChange={setWorkspaceReferencePending}
         taskId={thread.id}
         initialValue={text}
         inputApiRef={api}
@@ -445,7 +454,7 @@ export function Composer({
         submitTestId="chat-send-button"
         placeholder={archived ? "已归档任务只读" : creatingGoal ? "描述目标，明确可衡量的结果" : planActive ? "描述任务，生成计划…" : "随心输入"}
         disabled={editorDisabled}
-        submitDisabled={disabled || (modelUnavailable && !queueEditor.edit && !creatingGoal) || (desktopUnsupported && !queueEditor.edit && !creatingGoal) || (taskManagement && !!running) || annotationEditing || invalidAnnotation || (queueEditor.edit ? queueEditor.saveDisabled || (!input.text.trim() && !input.files.length && !queueEditor.edit.attachments.length) : creatingGoal ? !input.text.trim() || !!running : !canContinue && emptyDraft)}
+        submitDisabled={workspaceReferencePending || disabled || (modelUnavailable && !queueEditor.edit && !creatingGoal) || (desktopUnsupported && !queueEditor.edit && !creatingGoal) || (taskManagement && !!running) || annotationEditing || invalidAnnotation || (queueEditor.edit ? queueEditor.saveDisabled || (!input.text.trim() && !input.files.length && !queueEditor.edit.attachments.length) : creatingGoal ? !input.text.trim() || !!running : !canContinue && emptyDraft)}
         submitDisabledReason={desktopUnsupported && !queueEditor.edit && !creatingGoal ? t("backend.updateRequired") : modelUnavailable && !queueEditor.edit && !creatingGoal ? t("chat.composer.previousModelUnavailable") : undefined}
         submitting={busy}
         submitLabel={queueEditor.edit ? "保存排队消息" : creatingGoal ? "开始目标" : canContinue ? "继续执行" : "发送"}
@@ -474,7 +483,7 @@ export function Composer({
           <>{queueEditor.edit && <div className="composer-queue-edit-banner" aria-label="编辑排队消息">
             <span>{queueEditor.edit.phase === "opening" ? "等待确认暂停队列" : "编辑排队消息"}</span>
             <Button type="button" size="sm" variant="ghost" disabled={queueEditor.busy || !!queueEditor.edit.unknown || pending || executionBlocked} onClick={() => { if (!executionBlocked) void queueEditor.cancel(); }}>取消</Button>
-            <Button type="button" size="sm" disabled={disabled || queueEditor.saveDisabled || (!input.text.trim() && !input.files.length && !queueEditor.edit.attachments.length)} onClick={() => void saveQueueEdit()}>保存</Button>
+            <Button type="button" size="sm" disabled={workspaceReferencePending || disabled || queueEditor.saveDisabled || (!input.text.trim() && !input.files.length && !queueEditor.edit.attachments.length)} onClick={() => void saveQueueEdit()}>保存</Button>
           </div>}
           {queueEditor.feedback && <p role="alert" className="composer-queue-feedback">{queueEditor.feedback}</p>}
           {queueEditor.edit?.unknown && <Button type="button" size="sm" disabled={queueEditor.busy || !project.state?.connected} onClick={() => void queueEditor.reconcile()}>核对编辑操作</Button>}
@@ -528,7 +537,7 @@ export function Composer({
           </div>}</>
         }
         onCancel={queueEditor.edit ? () => { if (!executionBlocked) void queueEditor.cancel(); } : running ? stop : undefined}
-        submitControl={queueEditor.edit ? <Button type="button" size="icon-md" aria-label="保存排队消息" data-testid="chat-send-button" disabled={disabled || queueEditor.saveDisabled || (!input.text.trim() && !input.files.length && !queueEditor.edit.attachments.length)}
+        submitControl={queueEditor.edit ? <Button type="button" size="icon-md" aria-label="保存排队消息" data-testid="chat-send-button" disabled={workspaceReferencePending || disabled || queueEditor.saveDisabled || (!input.text.trim() && !input.files.length && !queueEditor.edit.attachments.length)}
           className="composer-primary-action" onClick={() => void saveQueueEdit()}><SendMessageIcon className="size-5" /></Button> : running && !input.text.trim() && !input.files.length && !comments.length && !skills.selected.length && !mcpDraft.length ? (
           <ControlHintTooltip title={ordinary ? "暂停执行" : "停止"} shortcut="Esc">
             <Button type="button" variant="secondary" size="icon-md" className="composer-primary-action composer-stop-action" aria-label={ordinary ? "暂停执行" : "停止"} disabled={executionBlocked}
@@ -644,9 +653,9 @@ export async function uploadComposerFiles(action: Action, projectId: string, thr
       bytes,
     });
     attachments.push({
-      type: file.type.startsWith("image/")
+      type: media.mimeType.startsWith("image/")
         ? "image"
-        : file.type.startsWith("audio/")
+        : media.mimeType.startsWith("audio/")
           ? "audio"
           : "file",
       url: media.uri,

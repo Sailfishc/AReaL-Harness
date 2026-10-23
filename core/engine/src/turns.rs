@@ -131,7 +131,6 @@ impl Engine {
         skill: Option<&areal_protocol::desktop::VersionRef>,
         mut configuration: areal_protocol::desktop::EffectiveConfig,
     ) -> Result<(Thread, Turn)> {
-        self.validate_uploads(thread, &input)?;
         if let Some(skill) = skill {
             configuration.selected_skills = Some(vec![skill.clone()]);
         } else {
@@ -146,7 +145,7 @@ impl Engine {
         let configuration = self.freeze_configuration(configuration);
         let model = self.configured_model(&configuration)?;
         self.validate_fork_model_compatibility(thread, model.as_ref())?;
-        validate_input(&input, &model.capabilities())?;
+        self.validate_thread_input(thread, &input, &model.capabilities())?;
         let mut candidate = thread.clone();
         if let Some(data) = &mut candidate.desktop {
             data.prompt_prediction = None;
@@ -429,8 +428,7 @@ impl Engine {
             .as_ref()
             .filter(|a| a.id == turn_id && !a.cancel.is_cancelled() && !a.sealed)
             .ok_or(Error::Conflict)?;
-        validate_input(&input, &active.model.capabilities())?;
-        self.validate_uploads(&state.thread, &input)?;
+        self.validate_thread_input(&state.thread, &input, &active.model.capabilities())?;
         let permit = active
             .steer
             .clone()

@@ -180,6 +180,8 @@ Desktop 首先按相同 generation 查询状态并尝试重连。仅在 `status 
 
 POST `/areal/blobs?threadId=...` 上传原始字节，Content-Type 与签名一致；工具上传另带 callId/hostGeneration 并需 tools 权限。单文件 16 MiB，Thread 上传登记 128 项/64 MiB；不设全局 Blob 累计配额。支持 PNG/JPEG/GIF/WebP、WAV/MP3、PDF、UTF-8 文本。GET 需要认证、threadId 和引用归属；摘要不是令牌。
 
+文本及源码上传使用严格 UTF-8，拒绝 NUL、二进制控制字符与已知容器签名。空 MIME 或 `application/octet-stream` 先识别已支持的媒体签名，再校验文本；常见文本、JSON、YAML、CSV、Markdown 与源码 MIME 规范为 `text/plain`。空文件继续被拒绝。权威 `Input::File` 保留文件名、Blob URI 和原始字节；Core 用上传登记的 MIME 与字节投影为带文件名的文本，不能信任调用方的 `mime_type`。Chat Completions 与 Responses 共用该投影。新提交、steer、排队和队列编辑按投影后的正文及标签共同执行 1 MiB 文本预算与模型能力校验，超过则明确拒绝，不截断。历史回放与 fork 使用相同文本投影和有效输入能力，既有 Blob 仍保留 16 MiB 上限，历史上下文由原有模型预算管理。已受理请求的收据先于新校验返回。
+
 contentItems 按顺序保存 inputText 或 arealMedia，实际字节进入模型。认证 RPC 拒绝宿主 localImage/localAudio 路径，使用上传返回的 areal://blob URI。不支持的模态明确失败。
 
 `DynamicToolCall.execution.fileBefore` 是可选的 `MediaRef`，保存条件写入 `workspace://repo/` 文件之前的完整字节。Core 在 hooks 与文件版本别名解析后，通过 Runtime 每页读取最多 64 KiB，验证各页的完整 SHA-256、文件大小、连续偏移与最终内容摘要。完整前像最多 8 MiB，MIME 为 `application/octet-stream`，允许空文件和二进制。Core 先保存 Blob 和工具记录中的引用，再提交原 CAS 写入。捕获失败返回 `FILE_BEFORE_CAPTURE_FAILED`，并保留 `dispatch:"not_sent"` 与原始原因；捕获中断不表示文件写入结果未知。提交后的 UNKNOWN 继续禁止自动重放。
