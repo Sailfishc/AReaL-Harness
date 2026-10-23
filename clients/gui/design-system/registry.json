@@ -481,7 +481,7 @@
   ],
   "baseCandidate": {
     "id": "desktop-core",
-    "version": "0.3.0",
+    "version": "0.4.0",
     "foundations": [
       "文字",
       "表面与反馈",
@@ -526,17 +526,18 @@
       "设置单选沿SettingsSelect公共sm变体；普通设置开关使用default，不由调用方另改尺寸",
       "活跃设置说明保留独立角色、对比度偏好与自定义前景色，不连带修改禁用或过程信息",
       "对话过程组合在逐步投影中验证接受消息占位、可见阅读锚点、返回最新、完成收敛及人工详情保留；异常不因final默认隐藏",
-      "插件资源目录的加载、搜索、空态、局部失败、项目启停、原提交核对与返回有真实 GUI 证据"
+      "插件资源目录的加载、搜索、空态、局部失败、项目启停、原提交核对与返回有真实 GUI 证据",
+      "同主窗口 Renderer 重载与崩溃后显式重载保留已加载阅读段落、偏移与草稿；原执行继续且不重放，显式返回最新后保持跟随"
     ],
     "limits": [
       "frozen-beta 仅表示列明 GUI 切片可作为固定输入，不代表稳定公共 API 或全 GUI 验收",
       "Base 仅准入列明 renderer 组件；真实 GUI 路径沿既有 Core 验证，Core API、真实供应商、安装包、Web、CLI/TUI和完整自定义主题矩阵在范围外",
       "成员状态与变体是有限准入声明，不表示每项笛卡尔组合均已运行；已完成证据以索引记录为准",
-      "完整P-CONVERSATION、SidePane、原生资源宿主、重连和完整插件安装/认证/连接生命周期未准入；P-RESOURCES仅限列明插件路径"
+      "完整P-CONVERSATION、SidePane、原生资源宿主、列明同窗口Renderer恢复以外的恢复生命周期和完整插件安装/认证/连接生命周期未准入；P-RESOURCES仅限列明插件路径"
     ],
     "status": "frozen-beta",
     "snapshot": {
-      "revision": "cc6e77380863f792dde67601ab09a01badf7f2e5",
+      "revision": "68530d8703a19baf023ff64b1026925545fb3151",
       "owner": "design-system/base.md"
     },
     "admissions": [
@@ -857,10 +858,12 @@
           "reading-history",
           "completed",
           "failed",
-          "unknown"
+          "unknown",
+          "renderer-recovered-reading"
         ],
         "evidence": [
-          "E-CONVERSATION"
+          "E-CONVERSATION",
+          "E-RECOVERY"
         ]
       },
       {
@@ -975,6 +978,11 @@
         "id": "E-PLUGINS",
         "checker": "scripts/plugin-resource-smoke.mjs",
         "report": "design-system/base-evidence.md#e-plugins"
+      },
+      {
+        "id": "E-RECOVERY",
+        "checker": "scripts/service-reopen-smoke.mjs",
+        "report": "design-system/base-evidence.md#e-recovery"
       }
     ]
   },
