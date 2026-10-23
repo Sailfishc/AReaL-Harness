@@ -1,3 +1,4 @@
+import { automationMessages } from './messages/automation.js';
 import { operationMessages } from "./messages/operations.js";
 import { appMessages } from "./messages/apps.js";
 import { commonMessages } from "./messages/common.js";
@@ -9,6 +10,7 @@ import { worktreeMessages } from "./messages/worktrees.js";
 export type AppLocale = "zh-CN" | "en";
 export type MessagePair = Record<AppLocale, string>;
 export const messages = {
+  ...automationMessages,
   ...operationMessages,
   ...commonMessages,
   ...appMessages,

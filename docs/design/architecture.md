@@ -197,7 +197,7 @@ macOS 系统静态代理由 GUI 可信后台适配器读取，转换成标准代
 
 平台公开输入物化与清单属于外部消费端；只读目录身份、文件操作拒绝及 OS 挂载保护属于 Runtime。Core 的媒体工具生成有界派生图与动画视图，模型适配器计量最终请求字节；外部消费端不维护 Core 的模型循环。契约见[工具](../guides/tools.md)、[Runtime](../api/runtime.md)和[评测](../benchmarks/README.md)。
 
-共享 Browser 沿用 Core 会话、审批与历史所有权，独立桌面适配器负责认证工具回调，Electron Main 拥有原生页面，Renderer 投影状态。已实现能力通过 Host 发现；持久 Profile 与云浏览器等延期能力仍属于设计范围之外。契约和限制见[Browser 规格](browser.md)、[Browser API](../api/browser.md)及[所有权决策](../adr/0002-shared-browser-ownership.md)。人工独立 Frame 授权与逐 Frame 截图隐私检查也归 Main，绑定当前 Human Page，不授予 Agent 跨源权限，复用既有 ThreadBlob/MediaRef。源码实现不等于安装版或真人验收通过。
+共享 Browser 沿用 Core 会话、审批与历史所有权，独立桌面适配器负责认证工具回调，Electron Main 拥有原生页面，Renderer 投影状态。已实现能力通过 Host 发现；所有项目共用 Main 拥有的持久 Browser Profile；Page 和控制权继续按聊天隔离。云浏览器仍未提供。契约和限制见[Browser 规格](browser.md)、[Browser API](../api/browser.md)及[所有权决策](../adr/0002-shared-browser-ownership.md)。人工独立 Frame 授权与逐 Frame 截图隐私检查也归 Main，绑定当前 Human Page，不授予 Agent 跨源权限，复用既有 ThreadBlob/MediaRef。源码实现不等于安装版或真人验收通过。
 
 `core/engine/src/observations.rs` 在显式启用实验策略时，于模型历史投影层实施旧工具观察的软预算，原文由 Store 保留，不改变 Runtime 操作。配置与兼容性见[配置指南](../guides/configuration.md)。
 
@@ -214,3 +214,5 @@ MCP hook 绑定原工具 generation 与真实 Turn/compaction owner，取消旧 
 用户评价在 Clients 层冻结公开历史并复用独立 Side；Core Server 仅适配既有轨迹接收端。边界见 [user feedback](../guides/user-feedback.md).
 
 `core/engine/src/workspace.rs` 在已确认的受管副作用结算边界管理共享作者租约；工具调用并发由 `tools/scheduling.rs` 按可信后端和顺序屏障控制。Runtime 仍拥有进程与清理事实，Core 不通过 shell 文本推断只读或资源已释放。
+
+电脑控制采用独立原生 Helper，Main 拥有生命周期、系统授权与停止，Core 保留准备计划、审批与历史权威。设置只发起用户明确点击的系统授权；观察与模型请求不会弹出授权。原生 AX、截图与输入结果经认证桌面通道返回，未知输入不自动重放。边界与构建见[电脑控制](../api/computer.md)。

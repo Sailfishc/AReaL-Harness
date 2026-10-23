@@ -154,6 +154,7 @@ await build({
     extraResources: [
       { from: bundle, to: "areal-core" },
       { from: join(gui, "renderer/dist"), to: "areal-gui" },
+      { from: join(gui, "native/computer-helper/build/AReaL Computer Helper.app"), to: "computer-helper/AReaL Computer Helper.app" },
       ...(release
         ? [
             { from: updateConfig, to: "areal-update.json" },

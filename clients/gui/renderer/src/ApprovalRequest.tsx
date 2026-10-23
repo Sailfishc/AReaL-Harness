@@ -16,6 +16,8 @@ export function ApprovalRequest({ item, projectId, action }: { item: Data; proje
   const [error, setError] = useState("");
   const canRemember = item.effectivePermissions?.rememberAllowed === true;
   const isBrowser = item.tool === "browser_v1";
+  const isComputer = item.tool === "computer_v1";
+  const computerPlan = isComputer ? item.effectiveArguments?.plan : null;
   const browserPlan = isBrowser ? item.effectiveArguments?.plan : null;
   const respond = async (decision: "deny" | "allowOnce" | "allowSession" | "allowProject") => {
     if (inFlight.current || submitted || unknown) return;
@@ -39,7 +41,7 @@ export function ApprovalRequest({ item, projectId, action }: { item: Data; proje
     finally { setBusy(false); }
   };
   const locked = busy || submitted || unknown;
-  return <DecisionCard kind="approval" label={isBrowser ? "浏览器" : item.effectiveArguments?.command ? "终端" : "工具"}
+  return <DecisionCard kind="approval" label={isComputer ? t("chat.approval.computer") : isBrowser ? "浏览器" : item.effectiveArguments?.command ? "终端" : "工具"}
     icon={isBrowser ? <Globe /> : <SquareTerminal />} busy={busy} error={error}
     onKeyDown={(e) => {
       if (e.key !== "Escape" || e.defaultPrevented || locked || !(e.target as HTMLElement).closest(".decision-card")) return;
@@ -61,10 +63,15 @@ export function ApprovalRequest({ item, projectId, action }: { item: Data; proje
         </DropdownMenu>
       </div> : <Button type="button" className="decision-button decision-primary" disabled={locked} onClick={() => void respond("allowOnce")}>{busy ? "提交中…" : "允许一次"}<kbd aria-hidden="true"><CornerDownLeft size={12} /></kbd></Button>}
     </>}>
-    <h3 className="decision-card-title">是否允许{isBrowser ? "执行浏览器操作" : `执行 ${item.tool}`}？</h3>
-    {browserPlan ? <div className="approval-preview approval-browser-preview">
+    <h3 className="decision-card-title">{isComputer ? t("chat.approval.computerQuestion") : `是否允许${isBrowser ? "执行浏览器操作" : `执行 ${item.tool}`}？`}</h3>
+    {computerPlan && <div className="approval-preview">
+      <p>{t('chat.approval.computerTarget')} · {computerPlan.target?.app?.name ?? computerPlan.target?.name ?? computerPlan.origin}</p>
+      <pre>{JSON.stringify({ operation: computerPlan.operation, parameters: computerPlan.parameters }, null, 2)}</pre>
+    </div>}
+    {!isComputer && (browserPlan ? <div className="approval-preview approval-browser-preview">
       <p>页面：{browserPlan.url}{browserPlan.origin ? `（${browserPlan.origin}）` : ""}</p>
       <p>操作：{browserPlan.action?.kind ?? browserPlan.operation}{browserPlan.target ? ` · ${browserPlan.target.role} ${browserPlan.target.name} [${browserPlan.target.ref}]` : ""}</p>
+      {browserPlan.operation === "command" && <pre>{JSON.stringify({ command: browserPlan.parameters?.command, pages: browserPlan.target?.pages }, null, 2)}</pre>}
       {Array.isArray(browserPlan.steps) && <ol aria-label="本次批准的浏览步骤" className="list-decimal pl-5">
         {browserPlan.steps.map((step: Data, index: number) => <li key={index}>
           {step.action?.kind ?? step.operation}
@@ -91,7 +98,7 @@ export function ApprovalRequest({ item, projectId, action }: { item: Data; proje
         <details><summary>本次提交的表单字段</summary><pre>{JSON.stringify(browserPlan.target.semantics.submittedFields, null, 2)}</pre></details>
       </div>}
       <p>目标页面或控件变化后，本次批准会失效。</p>
-    </div> : <pre className="approval-preview">{JSON.stringify(item.effectiveArguments, null, 2)}</pre>}
+    </div> : <pre className="approval-preview">{JSON.stringify(item.effectiveArguments, null, 2)}</pre>)}
     {canRemember && <details className="approval-scope-details"><summary>授权范围说明</summary><p>{browserPlan
       ? browserPlan.targetOrigin
         ? "记住的授权绑定当前页面、控制代次、目标和具体内容；人工接管或内容变化后重新审批。"

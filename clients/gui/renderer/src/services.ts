@@ -22,6 +22,7 @@ export interface Snapshot {
       operations: { requestId: string; kind: string; phase: string; message?: string; threadId?: string; turnId?: string;
         desktopExit?: string; targets: { projectId: string; phase: string; message?: string }[] }[] };
     library?: Data;
+    computerControl?: Data | null;
 }
 export interface UpdateState {
     enabled: boolean;

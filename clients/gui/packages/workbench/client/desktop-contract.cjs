@@ -56,6 +56,8 @@ const commandDefinitions = Object.freeze({
   feedback: ['service', 'app', { ...operations(read, 'status read'), ...operations(mutation, 'preference prepare draft refine submit close') }],
   serviceLifecycle: ['main', 'app', { check: read, ...operations(mutation, 'update stop recover quitInterface stopAndQuit') }],
   serviceStatus: ['main', 'app', read], stopService: ['main', 'app', mutation], recoverResources: ['main', 'app', mutation],
+  browserData: ['main', 'app', { status: read, ...operations(mutation, 'importChrome clearCache clearAll') }],
+  computerControl: ['main', 'app', { status: read, ...operations(mutation, 'requestAccess openSettings restart stop') }],
   exportDiagnostics: ['main', 'app', read], connectService: ['main', 'app', subscription], export: ['main', 'thread', read], remoteControl: ['main', 'app', mutation],
 });
 /** @param {string} name @param {Record<string,unknown>} request @returns {CommandEffect} */
@@ -92,6 +94,11 @@ function validateCommand(name, params, { serviceOnly = false } = {}) {
   if (name === 'history' && (!identifier(params.viewId) || !['acquire', 'loadOlder', 'loadItem', 'release'].includes(String(params.operation))
     || params.operation === 'loadItem' && !identifier(params.itemId)
     || Object.keys(params).some(key => !['projectId', 'threadId', 'viewId', 'operation', ...(params.operation === 'loadItem' ? ['itemId'] : [])].includes(key)))) invalid();
+  if (name === 'browserData' && Object.keys(params).some(key => key !== 'operation')) invalid();
+  if (name === 'computerControl' && (Object.keys(params).some(key => !['operation', 'capability'].includes(key))
+    || (['requestAccess', 'openSettings'].includes(String(params.operation))
+      ? !['accessibility', 'screenRecording', 'inputMonitoring'].includes(String(params.capability))
+      : params.capability !== undefined))) invalid();
   if (name === 'exportDiagnostics' && Object.keys(params).length !== 0) invalid();
   if (name === 'serviceLifecycle' && (!['update', 'stop', 'check', 'recover', 'quitInterface', 'stopAndQuit'].includes(String(params.operation))
     || Object.keys(params).some(key => key !== 'operation'))) invalid();

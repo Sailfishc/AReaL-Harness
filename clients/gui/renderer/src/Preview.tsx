@@ -1,4 +1,5 @@
 import { composerDraftStorage } from "./composerDraftStorage.js";
+import { useI18n } from "./i18n/IntlProvider.js";
 import {
   BrowserToolbar,
   BrowserEmptyState,
@@ -47,6 +48,7 @@ export function Preview({
   onTool: (itemId: string) => void;
   onError: (s: string) => void;
 }) {
+  const { t } = useI18n();
   const owner = `${projectId}:${threadId}:${pageId}`;
   const draftKey = `areal-gui:draft:${projectId}:${threadId}`;
   const stagedAnnotations = (attachmentDrafts.get(draftKey) ?? []).filter(isComposerFile).flatMap(file => { const note = browserAnnotation(file); return note ? [note] : []; });
@@ -674,7 +676,7 @@ export function Preview({
       {batch?.status === 'running' && <div className="sr-only" role="status">正在浏览 · {batch.completed}/{batch.total}</div>}
       {detailsOpen && <div className="browser-details" aria-label="浏览器详情">
         <div className="preview-viewport-toolbar">
-          <span>临时登录仅在当前浏览工作区使用。</span>
+          <span>{t("settings.browserData.sharedShort")}</span>
           <Button type="button" size="sm" variant="ghost" onClick={() => setDetailsOpen(false)}>关闭详情</Button>
         </div>
       {state.url && <div className="preview-viewport-toolbar" role="group" aria-label="网页文件交接">

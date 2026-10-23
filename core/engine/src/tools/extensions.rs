@@ -223,6 +223,7 @@ impl Invocation<'_> {
                             | "observe"
                             | "capture"
                             | "diagnostics"
+                            | "command"
                     )
                 )) {
             let host = self
@@ -259,10 +260,59 @@ impl Invocation<'_> {
         } else {
             None
         };
+        let computer_plan = if self.call.name == "computer_v1"
+            && matches!(self.entry.backend, Backend::Client)
+        {
+            if self
+                .cell
+                .state
+                .lock()
+                .await
+                .thread
+                .parent_thread_id
+                .is_some()
+            {
+                return Err(invalid("computer control is unavailable in child threads"));
+            }
+            let host = self
+                .host
+                .as_ref()
+                .ok_or_else(|| invalid("computer host unavailable"))?;
+            let prepared = host.prepare_computer(json!({"threadId":self.thread_id,"turnId":self.turn_id,
+                "callId":self.call.id,"tool":"computer_v1","arguments":arguments,"hostGeneration":host.id()}),
+                self.cancel.clone()).await.map_err(invalid)?
+                .ok_or_else(|| invalid("computer prepare capability unavailable"))?;
+            if let Some(code) = prepared["error"].as_str() {
+                let mut error = invalid(format!("computer prepare {code}; dispatch is not_sent"));
+                error.details = Some(prepared);
+                return Err(error);
+            }
+            if prepared["preparedActionId"]
+                .as_str()
+                .is_none_or(str::is_empty)
+                || prepared["operation"] != arguments["operation"]
+                || prepared["parameters"] != arguments["parameters"]
+                || prepared["origin"].as_str().is_none()
+                || prepared["fingerprint"].as_str().is_none_or(str::is_empty)
+            {
+                return Err(invalid("computer host returned an invalid plan"));
+            }
+            self.edit(|execution, _| {
+                execution.model_arguments = Some(arguments.clone());
+                execution.effective_arguments =
+                    Some(json!({"arguments":arguments,"plan":prepared}));
+            })
+            .await?;
+            Some(prepared)
+        } else {
+            None
+        };
         let approval_arguments = browser_plan
             .as_ref()
+            .or(computer_plan.as_ref())
             .map(|plan| json!({"arguments":arguments,"plan":plan}));
-        self.engine
+        if let Err(error) = self
+            .engine
             .approval(
                 self.cell,
                 &self.call.id,
@@ -270,8 +320,15 @@ impl Invocation<'_> {
                 approval_arguments.as_ref().unwrap_or(&arguments),
                 self.cancel,
             )
-            .await?;
+            .await
+        {
+            self.discard_computer_plan(&arguments, computer_plan.as_ref())
+                .await;
+            return Err(error);
+        }
         if self.cancel.is_cancelled() {
+            self.discard_computer_plan(&arguments, computer_plan.as_ref())
+                .await;
             return Err(rt::Error::new(
                 rt::ErrorCode::ScopeClosed,
                 "cancelled after approval",
@@ -305,7 +362,7 @@ impl Invocation<'_> {
                     .await?;
             }
         }
-        if browser_plan.is_some() {
+        if browser_plan.is_some() || computer_plan.is_some() {
             let current = self.cell.bindings.read().await.host.clone();
             if self
                 .host
@@ -313,12 +370,16 @@ impl Invocation<'_> {
                 .zip(current.as_ref())
                 .is_none_or(|(prepared, active)| prepared.id() != active.id() || active.is_closed())
             {
+                self.discard_computer_plan(&arguments, computer_plan.as_ref())
+                    .await;
                 return Err(invalid(
-                    "browser host changed after approval; prepare again",
+                    "desktop host changed after approval; prepare again",
                 ));
             }
         }
         if self.cancel.is_cancelled() && !matches!(self.entry.backend, Backend::Page(_)) {
+            self.discard_computer_plan(&arguments, computer_plan.as_ref())
+                .await;
             return Err(rt::Error::new(
                 rt::ErrorCode::ScopeClosed,
                 "cancelled before dispatch",
@@ -329,14 +390,16 @@ impl Invocation<'_> {
             Backend::Mcp(_) | Backend::Plugin(_) | Backend::Page(_)
         ) {
             // These backends own cancellation and cleanup; do not drop their futures first.
-            self.invoke(&arguments, browser_plan.as_ref()).await
+            self.invoke(&arguments, browser_plan.as_ref().or(computer_plan.as_ref()))
+                .await
         } else if matches!(self.entry.backend, Backend::Builtin)
             && matches!(
                 self.call.name.as_str(),
                 "fs_write" | "fs_create" | "fs_apply_patches"
             )
         {
-            self.invoke(&arguments, browser_plan.as_ref()).await
+            self.invoke(&arguments, browser_plan.as_ref().or(computer_plan.as_ref()))
+                .await
         } else if matches!(self.entry.backend, Backend::Builtin)
             && matches!(
                 self.call.name.as_str(),
@@ -348,7 +411,8 @@ impl Invocation<'_> {
                 .runtime
                 .as_ref()
                 .expect("registered Runtime tool");
-            let mut invocation = Box::pin(self.invoke(&arguments, browser_plan.as_ref()));
+            let mut invocation =
+                Box::pin(self.invoke(&arguments, browser_plan.as_ref().or(computer_plan.as_ref())));
             tokio::select! {
                 biased;
                 result = &mut invocation => result,
@@ -369,7 +433,7 @@ impl Invocation<'_> {
             tokio::select! {
                 biased;
                 _ = self.cancel.cancelled() => Err(unknown("interrupted tool invocation; outcome is UNKNOWN")),
-                result = self.invoke(&arguments, browser_plan.as_ref()) => result,
+                result = self.invoke(&arguments, browser_plan.as_ref().or(computer_plan.as_ref())) => result,
             }
         };
         // Known capture failures still run ordinary failure hooks. A cancelled
@@ -448,6 +512,20 @@ impl Invocation<'_> {
             };
         }
         self.codex_post(&hook_arguments, success, value).await
+    }
+
+    async fn discard_computer_plan(&self, arguments: &Value, plan: Option<&Value>) {
+        let (Some(host), Some(plan)) = (&self.host, plan) else {
+            return;
+        };
+        let cancel = CancellationToken::new();
+        let _ = tokio::time::timeout(
+            std::time::Duration::from_secs(3),
+            host.prepare_computer(json!({"threadId":self.thread_id,"turnId":self.turn_id,
+                "callId":self.call.id,"tool":"computer_v1","arguments":arguments,"hostGeneration":host.id(),
+                "discardPreparedPlan":true,"computerApproval":{"plan":plan}}), cancel.clone()),
+        ).await;
+        cancel.cancel();
     }
 
     async fn codex_post(
@@ -560,7 +638,7 @@ impl Invocation<'_> {
     async fn invoke(
         &self,
         args: &Value,
-        browser_plan: Option<&Value>,
+        approval_plan: Option<&Value>,
     ) -> rt::Result<(bool, Value)> {
         trajectory::record_json(
             &tracing::Span::current(),
@@ -954,26 +1032,31 @@ impl Invocation<'_> {
                     .as_ref()
                     .ok_or_else(|| unknown("dynamic tool client is unavailable"))?;
                 let mut request = json!({"threadId":self.thread_id,"turnId":self.turn_id,"callId":self.call.id,"tool":self.call.name,"arguments":args,"hostGeneration":host.id()});
-                if let Some(plan) = browser_plan {
-                    request["browserApproval"] = json!({"plan":plan});
+                if let Some(plan) = approval_plan {
+                    let field = if self.call.name == "computer_v1" {
+                        "computerApproval"
+                    } else {
+                        "browserApproval"
+                    };
+                    request[field] = json!({"plan":plan});
                 }
                 host.call(request, self.cancel.clone())
                     .await
                     .map_err(unknown)?
             }
         };
-        if self.call.name == "browser_v1"
+        if matches!(self.call.name.as_str(), "browser_v1" | "computer_v1")
             && response.structured_content.as_ref().is_some_and(|content| {
                 content["code"] == "outcome_unknown" && content["dispatch"] == "unknown"
             })
         {
             self.cell.browser_permits.lock().await.clear();
             let mut error =
-                unknown("browser batch step outcome is UNKNOWN; inspect the confirmed prefix");
+                unknown("desktop tool outcome is UNKNOWN; inspect before another action");
             error.details = response.structured_content;
             return Err(error);
         }
-        if self.call.name == "browser_v1" && browser_plan.is_some() && response.success {
+        if self.call.name == "browser_v1" && approval_plan.is_some() && response.success {
             let mut contents: Vec<Value> = response.structured_content.iter().cloned().collect();
             for content in &response.content_items {
                 if let areal_protocol::ToolContent::InputText { text } = content

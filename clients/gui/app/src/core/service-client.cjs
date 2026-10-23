@@ -227,6 +227,7 @@ class SharedCoreBackend {
     this.onChange();
   }
   disconnected() {
+    this.computerHostOwned = false;
     this.onBrowserDisconnected?.();
     this.onMcpPageToolsDisconnected?.();
     const stopped = !!this.connection && this.stoppedConnection === this.connection;
@@ -306,8 +307,9 @@ class SharedCoreBackend {
       const deadline = Date.now() + 60000;
       for (;;) {
         try {
-          const packet = await connection.request('hello', { protocol: PROTOCOL, identity, notifications: !!this.onNotification });
+          const packet = await connection.request('hello', { protocol: PROTOCOL, identity, notifications: !!this.onNotification, capabilities: { computerHost: 1 } });
           if (this.connection !== connection) throw Object.assign(new Error('后台服务连接已变化，请重新连接'), { code: 'DISCONNECTED' });
+          this.computerHostOwned = packet.computerHostOwned === true;
           this.accept(packet, metadata); break;
         }
         catch (error) {

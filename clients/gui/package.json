@@ -8,7 +8,7 @@
     "node": ">=22.19.0"
   },
   "scripts": {
-    "build": "pnpm --filter @areal/gen-ui build && pnpm --filter @areal/gui-renderer build",
+    "build": "pnpm --filter @areal/browser-automation build && pnpm --filter @areal/browser-data build && node scripts/build-computer-helper.mjs && pnpm --filter @areal/gen-ui build && pnpm --filter @areal/gui-renderer build",
     "typecheck": "pnpm --filter @areal/gen-ui typecheck && pnpm --filter @areal/gui-renderer typecheck && pnpm --filter @areal/gui-renderer exec tsc --allowJs --checkJs --noEmit --skipLibCheck --target ES2022 --module NodeNext ../packages/workbench/client/desktop-contract.cjs",
     "test:worktree": "node --test scripts/worktree-git.test.cjs scripts/worktree-host.test.cjs scripts/worktree-contract.test.cjs scripts/worktree-admission.test.cjs scripts/worktree-task-routing.test.cjs scripts/schedule-admission.test.cjs scripts/worktree-refactor-integration.test.mjs scripts/worktree-gen-ui-state.test.cjs",
     "test:worktree-ui": "node scripts/worktree-ui-smoke.mjs",
@@ -109,7 +109,8 @@
     "test:core-crash-recovery": "node scripts/core-crash-recovery-smoke.mjs",
     "test:recovery-electron": "node scripts/recovery-electron-smoke.mjs run",
     "test:gen-ui": "node scripts/gen-ui-smoke.mjs",
-    "test:side-chat-parity": "node scripts/side-chat-parity-smoke.mjs"
+    "test:side-chat-parity": "node scripts/side-chat-parity-smoke.mjs",
+    "test:automation": "node scripts/automation-core-smoke.mjs"
   },
   "devDependencies": {
     "fake-indexeddb": "6.2.4",

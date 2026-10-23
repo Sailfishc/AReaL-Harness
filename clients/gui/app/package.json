@@ -20,7 +20,9 @@
     "yaml": "2.9.0",
     "electron-updater": "6.8.9",
     "@areal/provider-config": "workspace:*",
-    "@areal/gen-ui": "workspace:*"
+    "@areal/gen-ui": "workspace:*",
+    "@areal/browser-automation": "workspace:*",
+    "@areal/browser-data": "workspace:*"
   },
   "devDependencies": {
     "electron": "44.5.0",
