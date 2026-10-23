@@ -208,6 +208,18 @@ The registry defaults to `~/.areal/gui/<GUI data directory digest>` to keep macO
 
 ## Candidate builds and package acceptance
 
+Unified entry point (run from the repository root; builds release Core, installs dependencies, builds the GUI, and archives):
+
+```sh
+pnpm --dir clients/gui run dist --platform mac --arch arm64 --formats dmg,zip --signing none
+pnpm --dir clients/gui run dist --platform mac --arch arm64 --formats dmg --signing adhoc
+pnpm --dir clients/gui run dist --platform mac --arch arm64 --formats dmg,zip --signing developer-id --identity "$CSC_NAME" --keychain-profile "$APPLE_KEYCHAIN_PROFILE"
+```
+
+`--formats` accepts `dmg`, `zip`, or `dmg,zip`. `--output` must be a new directory; by default each run gets a timestamped directory. Existing outputs are rejected. `none` adds no signatures and preserves input signatures; application signature validity and launchability are not guaranteed. Its DMG deduplication requires byte-identical Framework copies. `adhoc` signs locally without notarization. `developer-id` reuses signing, notarization and package acceptance, requires both formats, and places final artifacts in `signed/`. Exit 2 means Apple is still processing: resume with `pnpm --dir clients/gui run sign:mac --resume --output /absolute/output/signed`; do not resubmit an unknown request. Nothing is published.
+
+The current support matrix contains **native macOS arm64 only**. Linux, Windows, x64 and cross-compilation fail explicitly until their package and service owners implement support behind this entry point. ZIP has no DMG size budget. DMG export, release assembly and GUI CI enforce **≤250 MiB (262,144,000 bytes)**; exceeding it fails. Do not create delivery images outside the dedicated exporter. Check an existing artifact with `node clients/gui/scripts/dmg-size.mjs /absolute/package.dmg`. CI builds an actual release DMG; candidate build success does not establish installation or GUI acceptance.
+
 ```sh
 make release
 AREAL_CORE_PROFILE=release AREAL_GUI_PACKAGE_DIR=/absolute/new-package make gui-package
