@@ -10,6 +10,7 @@ import { FileTree, AttachmentIcon, GoalIcon, PlanModeIcon as Lightbulb } from ".
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { ChatPromptEditor } from "./prompt-editor/ChatPromptEditor.js";
 import { ComposerAttachment, composerInput, composerPaste, isComposerFile, type ComposerDraftAttachment } from "./ComposerAttachments.js";
+import { useComposerPlugins, revalidateComposerPlugins, clearComposerPlugins, transferComposerPlugins } from "./ComposerPlugins.js";
 import { useComposerSkills, transferComposerSkills, clearComposerSkills, readComposerSkills } from "./ComposerSkills.js";
 import { ComposerMcpIcon } from "./ComposerIcons.js";
 import { ComposerMcp } from "./ComposerMcp.js";
@@ -132,6 +133,10 @@ export function DraftComposer({
     project: executionReady ? project : { ...project, state: { ...project.state, connected: false } },
     profile: chosenProfile, draftKey: key, action: readAction, disabled: editLocked || !executionReady,
   });
+  const pluginContext = { kind: "mainDraft" as const, projectId: project.id,
+    coreInstanceId: project.core?.instanceId, connectionGeneration: project.core?.connectionGeneration,
+    ...(chosenProfile ? { profile: { id: chosenProfile.id, revision: chosenProfile.revision } } : {}) };
+  const plugins = useComposerPlugins({ project, context: pluginContext, draftKey: key, text: input.text, action: readAction });
   useEffect(() => {
     attachmentDrafts.set(key, files);
     window.dispatchEvent(new CustomEvent("areal-attachments-change", { detail: key }));
@@ -151,6 +156,7 @@ export function DraftComposer({
     setProfileSelection("");
     attachmentDrafts.delete(key);
     skills.clear();
+    plugins.clear();
     changeGoalMode(false);
     api.current?.clear();
     setText("");
@@ -177,6 +183,7 @@ export function DraftComposer({
       attachmentDrafts.get(key) ?? [],
     );
     transferComposerSkills(key, `areal-gui:draft:${project.id}:${outcome.threadId}`);
+    transferComposerPlugins(key, `areal-gui:draft:${project.id}:${outcome.threadId}`);
     if (goalMode) localStorage.setItem(`areal-gui:draft:${project.id}:${outcome.threadId}:goal`, "true");
     localStorage.removeItem(`${key}:pending-create`);
     setUnknown(null);
@@ -201,6 +208,9 @@ export function DraftComposer({
       if (!chosenModel || chosenModel.available === false || chosenModel.modelId !== currentModel?.modelId) {
         throw new Error("所选模型已不可用，输入已保留，请重新选择模型。");
       }
+      await revalidateComposerPlugins(readAction, { kind: "mainDraft", projectId: owner.id,
+        coreInstanceId: owner.core?.instanceId, connectionGeneration: owner.core?.connectionGeneration,
+        ...(profile ? { profile: { id: profile.id, revision: profile.revision } } : {}) }, key, submittedInput.text, t("chat.composer.pluginReferenceUnavailable"));
       const selectedSkills = readComposerSkills(key);
       if (selectedSkills.length) {
         if (!profile) throw new Error("当前任务配置不可用，技能草稿已保留。");
@@ -232,6 +242,7 @@ export function DraftComposer({
       targetKey = stageThreadDraft(owner.id, result.threadId, value, files);
       transferNewReviewComments(owner.id, result.threadId);
       transferComposerSkills(key, targetKey);
+      transferComposerPlugins(key, targetKey);
       if (goalMode) localStorage.setItem(`${targetKey}:goal`, "true");
       markSending(targetKey, true);
       clear();
@@ -243,9 +254,12 @@ export function DraftComposer({
         localStorage.removeItem(`${targetKey}:goal`);
         attachmentDrafts.set(targetKey, submittedInput.files);
       } else {
-        await submitMessage(action, owner.id, result.threadId, value, files, { skillAction: readAction });
+        await submitMessage(action, owner.id, result.threadId, value, files, { skillAction: readAction,
+          pluginContext: { kind: "mainThread", projectId: owner.id, threadId: result.threadId, coreInstanceId: owner.core?.instanceId, connectionGeneration: owner.core?.connectionGeneration },
+          pluginMessages: { unavailable: t("chat.composer.pluginReferenceUnavailable"), intent: (name: string) => t("chat.composer.pluginReferenceIntent", { name }) } });
         attachmentDrafts.delete(targetKey);
         clearComposerSkills(targetKey);
+        clearComposerPlugins(targetKey);
       }
       localStorage.removeItem(targetKey);
       window.dispatchEvent(new CustomEvent("areal-draft-change", { detail: targetKey }));
@@ -318,6 +332,7 @@ export function DraftComposer({
         submitLabel={goalMode ? "开始目标" : "发送"}
         enterSubmits={prefs.sendShortcut === "enter"}
         enableMentionPanel={false}
+        pluginMentionCatalog={plugins.catalog}
         composerCatalog={{ ...skills.catalog, loading: executionReady && skills.catalog.loading,
           error: executionReady ? skills.catalog.error : undefined,
           refresh: () => { if (executionReady && !editLocked) skills.catalog.refresh(); }, entries: [

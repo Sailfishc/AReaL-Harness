@@ -20,6 +20,7 @@ mod session_name;
 mod sessions;
 mod store;
 mod task_mode;
+pub use areal_plugins::PluginComponentId;
 #[cfg(feature = "test-support")]
 pub use task_mode::TaskCommitFault;
 pub use task_mode::TaskRunNowAdmission;

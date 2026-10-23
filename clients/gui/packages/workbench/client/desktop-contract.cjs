@@ -39,7 +39,7 @@ const commandDefinitions = Object.freeze({
   manage: ['service', 'project', {
     ...operations(read, 'pluginHooks pluginMcp mcpApps mcpForms mcpToolResult plugins plugin providers mcp profile skills skill inspect context inheritedHistory plan processes process processWait goal permissions interactions processOutput executions execution executionArtifact executionWait agents agentWait workflows server workflow workgroupPolicy workgroups workgroup workgroupWait workgroupArtifact workgroupArtifactStatus workgroupCapabilities workgroupSubmission pluginCapabilities pluginSubmission processSubmission agentSubmission mcpFormResourceSubmission tasks task taskInbox taskChannel taskDraftHistory taskDraftRead taskSchedulePreview taskScheduleContext taskHistoryCapabilities taskRuns taskRun'),
     ...operations(subscription, 'taskWatch taskUnwatch'),
-    ...operations(recoverable, 'pluginArchiveImport mcpFormResourceStage pluginHooksConfigure hookAcknowledge marketplaceAdd marketplaceAddGit marketplaceRemove marketplaceUpdate pluginResolve pluginAuthConfigure pluginConnection connectorConfigure connectorCredential pluginInstall pluginConfigure pluginUninstall pluginSetup providerSave providerRemove mcpSave mcpConnect mcpDisconnect archive unarchive processCloseStdin processStart processWrite processResize processTerminate goalCreate goalUpdate goalPause goalResume goalClear workgroupStart workflowStart workgroupRevise agentSpawn taskCreate taskUpdate taskRunNow taskPause taskResume taskStopRun taskResumeRun taskCancel taskReply taskDraftSend'),
+    ...operations(recoverable, 'pluginArchiveImport mcpFormResourceStage pluginHooksConfigure hookAcknowledge marketplaceAdd marketplaceAddGit marketplaceRemove marketplaceUpdate pluginResolve pluginAuthConfigure pluginConnection connectorConfigure connectorCredential pluginInstall pluginConfigure pluginComponentConfigure pluginUninstall pluginSetup providerSave providerRemove mcpSave mcpConnect mcpDisconnect archive unarchive processCloseStdin processStart processWrite processResize processTerminate goalCreate goalUpdate goalPause goalResume goalClear workgroupStart workflowStart workgroupRevise agentSpawn taskCreate taskUpdate taskRunNow taskPause taskResume taskStopRun taskResumeRun taskCancel taskReply taskDraftSend'),
     ...operations(mutation, 'pluginArchivePick pluginAuth pluginAuthCredential mcpAppOpen mcpAppOpenFromResult mcpAppRequest mcpAppClose mcpExtensionCall mcpFormRespond mcpFormPreview mcpFormResourcePrepare mcpFormResourceRelease executionCancel executionApply serverDrain serverGc workgroupApplyArtifact workgroupCancel closeResources planUpdate toolAcknowledge contextCompact permissionsForget providerProbe taskDraftConfirm'),
     taskDraftStart: { effect: 'mutation', requestId: 'draftId' },
   }],
@@ -174,18 +174,19 @@ function validateCommand(name, params, { serviceOnly = false } = {}) {
       ? typeof params.path !== 'string' || params.path.length > 4096 || params.path.includes('\0') || !params.path.startsWith('/')
       : !identifier(params.selectionToken))) invalid();
   }
-  if (name === 'manage' && ['plugin', 'pluginInstall', 'pluginConfigure', 'pluginUninstall', 'pluginSetup', 'pluginResolve', 'marketplaceAdd', 'marketplaceAddGit', 'marketplaceRemove', 'marketplaceUpdate'].includes(String(params.operation))) {
+  if (name === 'manage' && ['plugin', 'pluginInstall', 'pluginConfigure', 'pluginComponentConfigure', 'pluginUninstall', 'pluginSetup', 'pluginResolve', 'marketplaceAdd', 'marketplaceAddGit', 'marketplaceRemove', 'marketplaceUpdate'].includes(String(params.operation))) {
     if (!String(params.operation).startsWith('marketplace') && !identifier(params.id)) invalid();
     if (params.operation === 'marketplaceAdd' && (typeof params.root !== 'string' || !params.root.trim() || params.root.length > 4096 || params.root.includes('\0'))) invalid();
     if (['pluginInstall', 'pluginConfigure'].includes(String(params.operation)) && !['user', 'project'].includes(String(params.scope))) invalid();
     if (params.operation === 'pluginInstall' && (typeof params.source !== 'string' || !params.source.trim() || params.source.length > 4096 || params.source.includes('\0') || !identifier(params.expectedDigest))) invalid();
     if (params.operation === 'pluginConfigure' && typeof params.enabled !== 'boolean') invalid();
+    if (params.operation === 'pluginComponentConfigure' && (typeof params.enabled !== 'boolean' || !identifier(params.expectedDigest) || !record(params.component) || !['skill', 'mcpServer'].includes(String(params.component.kind)) || !identifier(params.component.id) || Object.keys(params.component).some(key => !['kind', 'id'].includes(key)))) invalid();
     if (params.operation !== 'plugin' && params.operation !== 'pluginSetup' && (!Number.isSafeInteger(params.expectedRevision) || Number(params.expectedRevision) < 0)) invalid();
     if (params.threadId !== undefined && !identifier(params.threadId)) invalid();
     if (params.requestId !== undefined && !identifier(params.requestId)) invalid();
   }
   if (name === 'manage' && params.operation === 'pluginSubmission'
-    && (!identifier(params.requestId) || !['pluginArchiveImport', 'marketplaceAdd', 'marketplaceAddGit', 'marketplaceRemove', 'marketplaceUpdate', 'pluginResolve', 'pluginConnection', 'pluginHooksConfigure', 'hookAcknowledge', 'pluginAuthConfigure', 'connectorConfigure', 'pluginInstall', 'pluginConfigure', 'pluginUninstall', 'pluginSetup'].includes(String(params.mutation)))) invalid();
+    && (!identifier(params.requestId) || !['pluginArchiveImport', 'marketplaceAdd', 'marketplaceAddGit', 'marketplaceRemove', 'marketplaceUpdate', 'pluginResolve', 'pluginConnection', 'pluginHooksConfigure', 'hookAcknowledge', 'pluginAuthConfigure', 'connectorConfigure', 'pluginInstall', 'pluginConfigure', 'pluginComponentConfigure', 'pluginUninstall', 'pluginSetup'].includes(String(params.mutation)))) invalid();
   if (name === 'manage') {
     if (['mcpFormResourcePrepare', 'mcpFormResourceStage', 'mcpFormResourceSubmission', 'mcpFormResourceRelease'].includes(String(params.operation))) {
       const operation = String(params.operation);

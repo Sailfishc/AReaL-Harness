@@ -69,6 +69,8 @@ pub(crate) fn preview(
         installed_version: None,
         installed_digest: None,
         installed_skills: vec![],
+        component_choices: Default::default(),
+        installed_metadata: None,
         component_support: None,
         installed_component_support: None,
         installed_onboarding_skill: None,

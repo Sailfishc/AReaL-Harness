@@ -26,7 +26,7 @@ use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use std::os::unix::fs::PermissionsExt;
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fmt,
     fs::{self, File, OpenOptions},
     io::Write,
@@ -66,6 +66,30 @@ pub struct InstalledSkill {
     pub onboarding: bool,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
+pub enum PluginComponentId {
+    Skill { id: String },
+    McpServer { id: String },
+}
+#[derive(Clone, Debug, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ComponentChoices {
+    #[serde(default)]
+    pub disabled_skills: BTreeSet<String>,
+    #[serde(default)]
+    pub disabled_mcp_servers: BTreeSet<String>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct InstalledMetadata {
+    pub name: String,
+    pub display_name: String,
+    pub description: String,
+    pub version: Option<String>,
+    pub interface: Option<serde_json::Value>,
+    pub components: Vec<String>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginDetail {
     pub revision: u64,
@@ -81,6 +105,10 @@ pub struct PluginDetail {
     pub installed_digest: Option<String>,
     #[serde(default)]
     pub installed_skills: Vec<InstalledSkill>,
+    #[serde(default)]
+    pub component_choices: ComponentChoices,
+    #[serde(default)]
+    pub installed_metadata: Option<InstalledMetadata>,
     #[serde(default)]
     pub component_support: Option<PackageComponentSupport>,
     #[serde(default)]
@@ -168,6 +196,8 @@ struct State {
     user: BTreeMap<String, bool>,
     #[serde(default)]
     projects: BTreeMap<String, BTreeMap<String, bool>>,
+    #[serde(default)]
+    component_choices: BTreeMap<String, BTreeMap<String, ComponentChoices>>,
 }
 pub struct Store {
     component_cache: std::sync::Arc<
@@ -271,6 +301,14 @@ impl Store {
                 state.installed.get(id).context("plugin not installed")?,
             )?
             .allowed())
+    }
+    fn component_choices(&self, state: &State, id: &str) -> ComponentChoices {
+        state
+            .component_choices
+            .get(&self.workspace.to_string_lossy().into_owned())
+            .and_then(|plugins| plugins.get(id))
+            .cloned()
+            .unwrap_or_default()
     }
     fn installed_support(
         &self,
@@ -456,6 +494,14 @@ impl Store {
             detail.installed_digest = Some(installed.source_digest.clone());
             detail.installed_skills = installed.skills.clone();
             detail.installed_onboarding_skill = installed.onboarding_skill.clone();
+            detail.installed_metadata = Some(InstalledMetadata {
+                name: installed.name.clone(),
+                display_name: installed.display_name.clone(),
+                description: installed.description.clone(),
+                version: installed.version.clone(),
+                interface: installed.interface.clone(),
+                components: installed.components.clone(),
+            });
         }
         let data = data
             .into_values()
@@ -463,6 +509,7 @@ impl Store {
                 d.revision = s.revision;
                 d.installed = s.installed.contains_key(&d.id);
                 d.enabled = self.enabled(&s, &d.id);
+                d.component_choices = self.component_choices(&s, &d.id);
                 d
             })
             .collect();
@@ -638,6 +685,9 @@ impl Store {
             for p in s.projects.values_mut() {
                 p.remove(id);
             }
+            for choices in s.component_choices.values_mut() {
+                choices.remove(id);
+            }
             Ok(())
         })?;
         self.list()
@@ -657,11 +707,63 @@ impl Store {
         let state = self.state()?;
         let mut skills = Vec::new();
         for detail in state.installed.values() {
-            if self.effective(&state, &detail.id)? {
-                skills.extend(detail.skills.clone());
+            for skill in &detail.skills {
+                if self.skill_allowed(&state, skill)? {
+                    skills.push(skill.clone());
+                }
             }
         }
         Ok(skills)
+    }
+    fn skill_allowed(&self, state: &State, skill: &InstalledSkill) -> Result<bool> {
+        Ok(self.effective(state, &skill.plugin_id)?
+            && !self
+                .component_choices(state, &skill.plugin_id)
+                .disabled_skills
+                .contains(&skill.id)
+            && self.skill_compatible(state, skill)?)
+    }
+    pub fn configure_component(
+        &self,
+        id: &str,
+        component: &PluginComponentId,
+        enabled: bool,
+        expected_revision: u64,
+        expected_digest: &str,
+    ) -> Result<PluginDetail> {
+        self.transact(expected_revision, |state| {
+            let detail = state
+                .installed
+                .get(id)
+                .ok_or_else(|| StoreError::NotFound(id.into()))?;
+            ensure!(
+                detail.source_digest == expected_digest,
+                "plugin installed digest changed"
+            );
+            if let PluginComponentId::Skill { id } = component {
+                ensure!(
+                    detail.skills.iter().any(|skill| skill.id == *id),
+                    "plugin skill not found"
+                );
+            }
+            let choices = state
+                .component_choices
+                .entry(self.workspace.to_string_lossy().into_owned())
+                .or_default()
+                .entry(id.into())
+                .or_default();
+            let (disabled, id) = match component {
+                PluginComponentId::Skill { id } => (&mut choices.disabled_skills, id),
+                PluginComponentId::McpServer { id } => (&mut choices.disabled_mcp_servers, id),
+            };
+            if enabled {
+                disabled.remove(id);
+            } else {
+                disabled.insert(id.clone());
+            }
+            Ok(())
+        })?;
+        self.read(id)
     }
     fn skill_compatible(&self, state: &State, skill: &InstalledSkill) -> Result<bool> {
         Ok(self
@@ -685,8 +787,7 @@ impl Store {
             .iter()
             .find(|skill| skill.id == id && skill.revision == revision)
         {
-            Some(skill) => Ok(self.effective(&state, &skill.plugin_id)?
-                && self.skill_compatible(&state, skill)?),
+            Some(skill) => self.skill_allowed(&state, skill),
             None => Ok(false),
         }
     }

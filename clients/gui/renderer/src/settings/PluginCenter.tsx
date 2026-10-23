@@ -1,5 +1,5 @@
 import { useI18n, UiMessageError, type UiMessage, type Translate, type MessageId, formatUiMessage } from "../i18n/IntlProvider.js";
-import { SettingsSelect } from "./SettingsPageParts.js";
+import { SettingsGroupCard, SettingsRow, SettingsSelect } from "./SettingsPageParts.js";
 import { SettingsDisclosure } from "./SettingsDisclosure.js";
 import { useGuardedNavigation } from "./UnsavedChanges.js";
 import { PluginHookSettings } from "./PluginHookSettings.js";
@@ -21,6 +21,8 @@ import { SettingsSearchInput } from "./SettingsSearchInput.js";
 import { SettingsSegmentedTabs } from "./SettingsSegmentedTabs.js";
 import { ResourceScope, type ScopedProps } from "./ScopedSkillsSettings.js";
 import type { Data } from "../services.js";
+import { buildPluginMentionMarkdown } from "../mentions/mentionMarkdown.js";
+import { pluginMcpStateLabel } from "./pluginResources.js";
 
 type PluginSkill = {
   id: string;
@@ -29,6 +31,14 @@ type PluginSkill = {
   description: string;
   allowImplicitInvocation: boolean;
   onboarding: boolean;
+};
+type PluginMetadata = {
+  name: string;
+  displayName: string;
+  description: string;
+  version: string | null;
+  interface?: Data | null;
+  components: string[];
 };
 export type PluginDetail = {
   revision: number;
@@ -39,8 +49,10 @@ export type PluginDetail = {
   version: string | null;
   installed: boolean;
   installedVersion: string | null;
+  installedMetadata: PluginMetadata | null;
   installedDigest: string | null;
   installedSkills: PluginSkill[];
+  componentChoices: { disabledSkills: string[]; disabledMcpServers: string[] };
   componentSupport?: PackageComponentSupport | null;
   installedComponentSupport?: PackageComponentSupport | null;
   installedOnboardingSkill: string | null;
@@ -48,7 +60,7 @@ export type PluginDetail = {
   source: string;
   sourceDigest: string;
   catalogSource?: Data;
-  interface?: Data;
+  interface?: Data | null;
   sourceKind?: string;
   resolvedCommit?: string;
   packageVersion?: string;
@@ -69,6 +81,7 @@ type PluginMutation =
   | "marketplaceAdd"
   | "pluginInstall"
   | "pluginConfigure"
+  | "pluginComponentConfigure"
   | "pluginUninstall"
   | "pluginSetup"
   | "pluginResolve"
@@ -104,6 +117,7 @@ const pluginMethods: Record<string, PluginMutation> = {
   "areal/marketplace/add": "marketplaceAdd",
   "areal/plugin/install": "pluginInstall",
   "areal/plugin/configure": "pluginConfigure",
+  "areal/plugin/component/configure": "pluginComponentConfigure",
   "areal/plugin/uninstall": "pluginUninstall",
   "areal/plugin/setup": "pluginSetup",
   "areal/plugin/resolve": "pluginResolve",
@@ -176,7 +190,7 @@ export type PluginCenterProps = ScopedProps & {
   onOpenThread?: (projectId: string, threadId: string) => void;
   apps?: (pluginId: string) => ReactNode;
   onSettings: () => void;
-  onMarket: () => void;
+  onMarket: (preserveDetail?: boolean) => void;
   onChooseProject: () => void;
   onSelectProject: (id: string) => void;
   onStartDraft: (seed: ResourceDraftSeed) => Promise<void>;
@@ -240,10 +254,15 @@ export function PluginCenter({ project: selectedProject, projects, thread, actio
   const [preview, setPreview] = useState<PluginPreview | null>(null);
   const [reviewed, setReviewed] = useState(false);
   const [installReview, setInstallReview] = useState(false);
+  const installReviewPanel = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (installReview) installReviewPanel.current?.focus();
+  }, [installReview, busy]);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [scopeOpen, setScopeOpen] = useState(false);
   const [submissionDetails, setSubmissionDetails] = useState(false);
   const [copiedDigest, setCopiedDigest] = useState(false);
+  const [metadataCopy, setMetadataCopy] = useState<{ kind: "copied" | "failed"; name: string } | null>(null);
   const [connectionLoading, setConnectionLoading] = useState(false);
   const [connectionReadKey, setConnectionReadKey] = useState(0);
   const [connections, setConnections] = useState<Data[]>([]);
@@ -277,6 +296,13 @@ export function PluginCenter({ project: selectedProject, projects, thread, actio
   }, [selectedProject?.id, ownerId, busy, credentialBusy, authPending, submission, error?.submissionUnknown, project?.pending?.length]);
   const savedRoutes = useRef<{ workspace: CenterRoute; settings: CenterRoute }>({ workspace: { kind: "market", audience: "public" }, settings: { kind: "installed", tab: initialTab } });
   const lastSurface = useRef(surface);
+  const openPluginSurface = (nextSurface: "workspace" | "settings") => {
+    if (!selected) return;
+    savedRoutes.current[nextSurface] = { kind: "plugin", id: selected, returnTo: nextSurface === "settings" ? { kind: "installed", tab: "plugins" } : { kind: "market", audience: "public" } };
+    if (nextSurface === surface) setRoute(savedRoutes.current[nextSurface]);
+    else if (nextSurface === "settings") onSettings();
+    else onMarket(true);
+  };
   useEffect(() => {
     if (surface !== lastSurface.current) {
       savedRoutes.current[lastSurface.current] = route;
@@ -391,6 +417,7 @@ export function PluginCenter({ project: selectedProject, projects, thread, actio
     setScopeOpen(false);
     setSubmissionDetails(false);
     setCopiedDigest(false);
+    setMetadataCopy(null);
     setConnections([]);
     setConnectorToken("");
     setCredentialRef("");
@@ -401,6 +428,7 @@ export function PluginCenter({ project: selectedProject, projects, thread, actio
     setScopeOpen(false);
     setSubmissionDetails(false);
     setCopiedDigest(false);
+    setMetadataCopy(null);
   }, [detail?.installedDigest]);
   useEffect(() => {
     if (!detail?.installed) {
@@ -718,11 +746,19 @@ export function PluginCenter({ project: selectedProject, projects, thread, actio
       setCredentialBusy(false);
     }
   };
+  const copyMetadataLink = async (url: string, name: string) => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setMetadataCopy({ kind: "copied", name });
+    } catch {
+      setMetadataCopy({ kind: "failed", name });
+    }
+  };
   const closeDetail = () => navigateRoute(listRoute);
   const installed = (catalog?.data ?? []).filter(item => item.installed);
   const packageSkills: CenterSkill[] = installed.flatMap(item => item.installedSkills.map(skill => ({
-    ...skill, key: `${item.id}:${item.installedDigest}:${skill.id}`, enabled: item.enabled && !supportBlocked(item.installedComponentSupport, item.installedDigest),
-    sourceLabel: { id: "settings.pluginCenter.pluginsValue", values: { value0: item.displayName || item.name } }, pluginId: item.id, projectId, scope: "plugin",
+    ...skill, key: `${item.id}:${item.installedDigest}:${skill.id}`, enabled: item.enabled && !item.componentChoices?.disabledSkills.includes(skill.id) && !supportBlocked(item.installedComponentSupport, item.installedDigest),
+    sourceLabel: { id: "settings.pluginCenter.pluginsValue", values: { value0: item.installedMetadata?.displayName || item.installedMetadata?.name || item.id } }, pluginId: item.id, projectId, scope: "plugin",
   })));
   const pluginServers = allConnections.flatMap(row => {
     const owner = installed.find(item => item.id === row.pluginId && item.installedDigest === row.installedDigest);
@@ -748,9 +784,10 @@ export function PluginCenter({ project: selectedProject, projects, thread, actio
   };
   const startPluginDraft = async (plugin: PluginDetail, text: string) => {
     setDraftBusy(true); setError(null);
-    const skill = plugin.installedSkills.find(item => !item.onboarding) || plugin.installedSkills[0];
     try {
-      await onStartDraft({ text, ...(skill ? { skill: { ...skill, source: t("settings.pluginCenter.pluginsValue", { value0: plugin.displayName || plugin.name }) } } : {}) });
+      const metadata = plugin.installed ? plugin.installedMetadata : plugin;
+      if (!metadata) throw new UiMessageError({ id: "settings.pluginCenter.loadingPluginDetails" });
+      await onStartDraft({ text: `${buildPluginMentionMarkdown(metadata.displayName || metadata.name, plugin.id)} ${text}`, plugin: { id: plugin.id } });
     } catch (cause) { setError(failure(cause)); }
     finally { setDraftBusy(false); }
   };
@@ -771,7 +808,19 @@ export function PluginCenter({ project: selectedProject, projects, thread, actio
   </DropdownMenu>;
   const showPlugins = listRoute.kind === "market" || listRoute.kind === "installed" && listRoute.tab === "plugins";
   const isDetail = route.kind === "plugin" || route.kind === "skill";
-  const title = route.kind === "plugin" ? detail?.displayName || detail?.name || selected : route.kind === "skill" ? route.skill.name : listRoute.kind === "market" ? t("settings.pluginCenter.pluginMarketplace") : listRoute.kind === "skills" ? "Skills" : t("settings.pluginCenter.plugins");
+  const managing = surface === "settings";
+  const detailSnapshot = connections.find(row => row.pluginId === detail?.id && row.installedDigest === detail?.installedDigest);
+  const detailContent = detail?.installed ? detail.installedMetadata : detail;
+  const detailSkills = detail ? detail.installed ? detail.installedSkills : detail.skills : [];
+  const detailSupport = detail?.installed ? detail.installedComponentSupport : detail?.componentSupport;
+  const declaredMcp = detailSupport?.components.some(row => row.kind === "mcp") || detailContent?.components.includes("mcp");
+  const connectionManagement = declaredMcp || !!detailSnapshot?.connectors.length || !!detailSnapshot?.diagnostics?.length;
+  const componentWarning = detailSupport?.components.some(row => row.status !== "supported") || detailSupport?.compatibility.state === "blocked";
+  const configureComponent = (kind: "skill" | "mcpServer", id: string, enabled: boolean) => {
+    if (!detail?.installedDigest) return;
+    void mutate("pluginComponentConfigure", { id: detail.id, component: { kind, id }, enabled, expectedRevision: detail.revision, expectedDigest: detail.installedDigest });
+  };
+  const title = route.kind === "plugin" ? detailContent?.displayName || detailContent?.name || selected : route.kind === "skill" ? route.skill.name : listRoute.kind === "market" ? t("settings.pluginCenter.pluginMarketplace") : listRoute.kind === "skills" ? "Skills" : t("settings.pluginCenter.plugins");
   return (
     <div className={`plugin-center ${surface === "settings" ? "plugin-center-settings" : "plugin-center-workspace"}`} hidden={!panelActive}>
       {surface === "workspace" && <aside className="plugin-center-sidebar" aria-label={t("settings.pluginCenter.pluginNavigation")}>
@@ -780,7 +829,7 @@ export function PluginCenter({ project: selectedProject, projects, thread, actio
         <button aria-current={listRoute.kind === "market" && !isDetail ? "page" : undefined} onClick={() => navigateRoute({ kind: "market", audience: "public" })}><SettingsPluginIcon width={15} height={15} />{t("settings.pluginCenter.pluginMarketplace")}</button>
         <button aria-current={listRoute.kind === "skills" && !isDetail ? "page" : undefined} onClick={() => navigateRoute({ kind: "skills" })}><Box size={15} strokeWidth={1.5} />Skills</button>
         <small className="plugin-nav-label plugin-installed-label">{t("settings.pluginCenter.installed")}</small>
-        <div className="plugin-installed-shortcuts">{installed.map(item => <button key={item.id} aria-current={route.kind === "plugin" && selected === item.id ? "page" : undefined} onClick={() => setSelected(item.id)}><Package size={16} /><span>{item.displayName || item.name}</span></button>)}</div>
+        <div className="plugin-installed-shortcuts">{installed.map(item => <button key={item.id} aria-current={route.kind === "plugin" && selected === item.id ? "page" : undefined} onClick={() => setSelected(item.id)}><Package size={16} /><span>{item.installedMetadata?.displayName || item.installedMetadata?.name || item.id}</span></button>)}</div>
         <button className="plugin-center-manage" onClick={() => navigate(onSettings)}>{t("settings.pluginCenter.manageInstalled")}</button>
       </aside>}
       <div className="plugin-center-scroll"><div className={`plugin-center-content ${isDetail ? "plugin-center-detail" : ""}`}>
@@ -918,23 +967,30 @@ export function PluginCenter({ project: selectedProject, projects, thread, actio
         <article data-testid="plugin-detail-page" className="plugin-detail-page" hidden={route.kind !== "plugin" || !panelActive}>
           <header className="plugin-detail-header">
             <span className="plugin-resource-icon"><Package size={30} /></span>
-            <div><h1>{detail?.displayName || detail?.name || selected}</h1><p>{detail?.description}</p>
+            <div><h1>{detailContent?.displayName || detailContent?.name || selected}</h1>{detailContent?.interface?.developerName && <p>{detailContent?.interface.developerName}</p>}
               {detail && marketFor(detail) && <p className="plugin-source-label">{t("settings.pluginCenter.sourceName", { name: officialMarket(marketFor(detail)?.sourceUrl) ? t("settings.pluginCenter.openaiPluginMarketplace") : marketFor(detail)?.name })}</p>}
             </div>
+            <div className="plugin-detail-actions">
+              {detail && !detail.installed && !installReview && preview?.id !== detail.id && <Button disabled={disabled || detailLoading} onClick={() => { setInstallReview(true); void mutate("pluginResolve", { id: detail.id, expectedRevision: catalog?.revision }); }}>{t("settings.pluginCenter.installPlugin")}</Button>}
+              {detail?.installed && <>
+                <Button variant="outline" onClick={() => openPluginSurface(managing ? "workspace" : "settings")}>{t(managing ? "settings.pluginCenter.viewPluginDetails" : "settings.pluginCenter.manage")}</Button>
+                {managing ? <Button variant="outline" disabled={disabled} onClick={() => void mutate("pluginUninstall", { id: detail.id, expectedRevision: detail.revision })}>{t("settings.pluginCenter.uninstallPlugin")}</Button> : null}
+                <Button disabled={disabled || draftBusy || !detailContent || !detail.enabled || supportBlocked(detail.installedComponentSupport, detail.installedDigest)} onClick={() => void startPluginDraft(detail, t("settings.pluginCenter.pleaseUseValueToHelpMeComplete", { value0: detailContent?.displayName || detailContent?.name || detail.id }))}>{t("settings.pluginCenter.tryPlugin")}</Button>
+              </>}
             <DropdownMenu><DropdownMenuTrigger render={<Button variant="ghost" size="icon" aria-label={t("settings.pluginCenter.morePluginActions")}><MoreHorizontal size={18} /></Button>} />
               <DropdownMenuContent align="end"><DropdownMenuItem onClick={() => void navigator.clipboard.writeText(detail?.id || selected)}>{t("settings.pluginCenter.copyPluginID")}</DropdownMenuItem>
-                {detail?.installed && <DropdownMenuItem disabled={disabled} onClick={() => void mutate("pluginUninstall", { id: detail.id, expectedRevision: catalog?.revision })}>{t("settings.pluginCenter.uninstallPlugin")}</DropdownMenuItem>}
               </DropdownMenuContent>
-            </DropdownMenu>
+            </DropdownMenu></div>
           </header>
           {detailLoading && !detail && <p role="status">{t("settings.pluginCenter.loadingPluginDetails")}</p>}
           <Feedback error={detailError || (pendingKind !== "unknown" ? displayedError?.message : "")} />
           {detailError && <Button variant="outline" onClick={() => void readDetail(selected)}>{t("settings.pluginCenter.retryLoadingDetails")}</Button>}
           {detail && <div className="plugin-detail-body">
+            {managing && detail.installed && !detail.enabled && <section className="plugin-status-panel"><h2>{t("settings.pluginCenter.disabledInCurrentProject")}</h2><p className="plugin-status-description">{t("settings.pluginCenter.manageTheEnabledScopeBeforeUsingThis")}</p></section>}
             {pendingKind === "unknown" ? <section className="plugin-status-panel" aria-label={t("settings.pluginCenter.pluginSubmissionStatus")}>
               <h2>{recoverable?.mutation === "pluginConnection" ? t("settings.pluginCenter.connectionResultUnconfirmed") : t("settings.pluginCenter.operationResultUnconfirmed")}</h2>
               <p className="plugin-status-description">{t("settings.pluginCenter.thePreviousOperationIsNotConfirmedComplete")}</p>
-              <div className="plugin-service-row"><div><strong>{detail.displayName || detail.name}</strong><p>{t("settings.pluginCenter.resultUnconfirmed")}</p></div>
+              <div className="plugin-service-row"><div><strong>{detailContent?.displayName || detailContent?.name || detail.id}</strong><p>{t("settings.pluginCenter.resultUnconfirmed")}</p></div>
                 <div className="plugin-service-actions">{recoveryButton}<Button variant="outline" aria-expanded={submissionDetails} aria-controls="plugin-submission-details" onClick={() => setSubmissionDetails(value => !value)}>{submissionDetails ? t("settings.pluginCenter.hideThisSubmission") : t("settings.pluginCenter.viewThisSubmission")}</Button></div>
               </div>
               <p className="plugin-status-note">{t("settings.pluginCenter.checkTheResultBeforeResubmittingOrChanging")}</p>
@@ -942,12 +998,10 @@ export function PluginCenter({ project: selectedProject, projects, thread, actio
             </section> : busy && activity?.mutation !== "pluginAuth" ? <section className="plugin-status-panel" aria-label={t("settings.pluginCenter.pluginOperationProgress")} aria-busy="true">
               <h2>{checkingSource ? t("settings.pluginCenter.checkingTheOriginalSourceResolution") : resolvingSource ? t("settings.pluginCenter.resolvingSource") : activity?.kind === "check" ? t("settings.pluginCenter.checkingOriginalSubmission") : activity?.mutation === "pluginConnection" ? t("settings.pluginCenter.updatingConnection") : t("settings.pluginCenter.processing")}</h2>
               <p className="plugin-status-description">{t("settings.pluginCenter.pleaseWaitTheSubmissionWillNotBe")}</p>
-            </section> : !detail.installed || installReview ? <section className="plugin-status-panel" aria-label={t("settings.pluginCenter.sourceResolutionAndPreview")}>
+            </section> : installReview || (!detail.installed && preview?.id === detail.id) ? <section ref={installReviewPanel} tabIndex={-1} className="plugin-status-panel" aria-label={t("settings.pluginCenter.sourceResolutionAndPreview")}>
               <h2>{detail.installed ? t("settings.pluginCenter.reviewNewInstallationSnapshot") : t("settings.pluginCenter.notInstalled")}</h2>
               <p className="plugin-status-description">{t("settings.pluginCenter.reviewTheSourceThenChooseAnInstallation")}</p>
-              {!installReview && preview?.id !== detail.id ? <div className="plugin-service-row"><div><strong>{detail.displayName || detail.name} {t("settings.pluginCenter.pluginPackage")}</strong><p>{t("settings.pluginCenter.reviewTheSourceBeforeInstalling")}</p></div>
-                <Button disabled={disabled || detailLoading} onClick={() => { setInstallReview(true); void mutate("pluginResolve", { id: detail.id, expectedRevision: catalog?.revision }); }}>{t("settings.pluginCenter.reviewSourceAndInstall")}</Button>
-              </div> : <div className="plugin-install-review">
+              <div className="plugin-install-review">
                 <Feedback error={sourceError} message={sourceMessage} />
                 {preview?.id === detail.id && <dl className="plugin-metadata">
                   <dt>{t("settings.pluginCenter.source2")}</dt><dd>{marketFor(detail)?.sourceUrl || detail.catalogSource?.url || detail.source}</dd>
@@ -967,49 +1021,68 @@ export function PluginCenter({ project: selectedProject, projects, thread, actio
                     <Button disabled={disabled} onClick={() => void mutate("pluginResolve", { id: detail.id, expectedRevision: catalog?.revision })}>{t("settings.pluginCenter.resolveSourceAgain")}</Button>}
                   <Button variant="outline" disabled={busy} onClick={() => { setInstallReview(false); setPreview(null); setReviewed(false); }}>{t("settings.pluginCenter.cancelInstallation")}</Button>
                 </div>
-              </div>}
-            </section> : !detail.enabled ? <section className="plugin-status-panel"><h2>{t("settings.pluginCenter.disabledInCurrentProject")}</h2><p className="plugin-status-description">{t("settings.pluginCenter.manageTheEnabledScopeBeforeUsingThis")}</p><Button disabled={disabled} onClick={() => setScopeOpen(true)}>{t("settings.pluginCenter.manageEnabledScope")}</Button></section> :
-              <PluginConnectionPanel key={`${projectId}:${detail.id}:${detail.installedDigest}`} detail={detail}
-                snapshot={connections.find(row => row.pluginId === detail.id && row.installedDigest === detail.installedDigest)}
+              </div>
+            </section> : managing && detail.installed && connectionManagement ?
+              <PluginConnectionPanel key={`${projectId}:${detail.id}:${detail.installedDigest}`} detail={{ ...detail, ...detailContent }}
+                snapshot={detailSnapshot}
                 loading={connectionLoading} error={connectionError} disabled={disabled || authPending} command={api}
                 mutate={mutate} onRefresh={() => { setConnectionReadKey(value => value + 1); void refresh(); void readDetail(detail.id); }} onAuthActivity={onAuthActivity}
-                onStart={() => void startPluginDraft(detail, t("settings.pluginCenter.pleaseUseValueToHelpMeComplete", { value0: detail.displayName || detail.name }))} draftBusy={draftBusy}
+                onComponentChange={(id, enabled) => configureComponent("mcpServer", id, enabled)}
                 connectorConfiguration={<SettingsDisclosure title={t("settings.pluginCenter.githubConnectorConfiguration")}>
                   <p>{t("settings.pluginCenter.credentialsAreSavedInProtectedDesktopCredential")}</p>
                   <label>{t("settings.pluginCenter.originalConnectorID")}<SettingsSelect value={connectorId} onValueChange={value => { setConnectorId(value); setCredentialRef(""); }} disabled={disabled || credentialBusy} aria-label={t("settings.pluginCenter.originalConnectorID")}><option value="">{t("settings.pluginCenter.selectADeclaredConnector")}</option>{connections.flatMap(row => (row.connectors ?? []).map((item: Data) => <option key={item.id} value={item.id}>{item.id}</option>))}</SettingsSelect></label>
                   <label>{t("settings.pluginCenter.githubAccessToken")}<Input type="password" autoComplete="new-password" value={connectorToken} onChange={event => setConnectorToken(event.target.value)} disabled={disabled || credentialBusy} /></label>
                   <Button variant="outline" disabled={disabled || credentialBusy || !connectorId || !connectorToken || connections.some(row => row.state === "connected" || row.state === "partial")} onClick={() => void saveConnectorCredential()}>{t("settings.pluginCenter.saveSecurelyAndConfigureGitHub")}</Button>
                   {credentialRef && <p role="status">{t("settings.pluginCenter.protectedCredentialsConfigured")}</p>}
-                </SettingsDisclosure>} />}
-            <PluginComponentSupport report={detail.installed ? detail.installedComponentSupport : detail.componentSupport} digest={detail.installed ? detail.installedDigest : detail.sourceDigest} installed={detail.installed} />
-            {detail.installed && detail.sourceDigest !== detail.installedDigest && <PluginComponentSupport report={detail.componentSupport} digest={detail.sourceDigest} installed={false} />}
+                </SettingsDisclosure>} /> : null}
+            {!managing && <>
+              {(detailContent?.interface?.longDescription || detailContent?.description) && <p className="plugin-long-description">{detailContent?.interface?.longDescription || detailContent?.description}</p>}
+              {Array.isArray(detailContent?.interface?.defaultPrompt) && detailContent?.interface.defaultPrompt.length > 0 && <section className="plugin-detail-resources"><h2>{t("settings.pluginCenter.usageExamples")}</h2><div className="plugin-usage-examples">{detailContent?.interface.defaultPrompt.map((text: string) => <Button key={text} variant="outline" disabled={!detail.installed || disabled || !detail.enabled || draftBusy || supportBlocked(detail.installedComponentSupport, detail.installedDigest)} onClick={() => void startPluginDraft(detail, text)}>{text}</Button>)}</div></section>}
+              {detailSkills.length > 0 && <section aria-label="Skills" className="plugin-detail-resources"><h2>Skills</h2><ul className="plugin-component-list">{detailSkills.map(skill => <li key={skill.id}><strong>{skill.name}</strong><p>{skill.description}</p>{detail.installed && detail.componentChoices?.disabledSkills.includes(skill.id) && <p>{t("settings.pluginCenter.componentOffInProject")}</p>}</li>)}</ul></section>}
+              {declaredMcp && <section className="plugin-detail-resources" aria-label={t("settings.pluginCenter.mcpConnections")}><h2>{t("settings.pluginCenter.mcpConnections")}</h2>{detail.installed && detailSnapshot ? <>{detailSnapshot.servers.map((server: Data) => <div className="plugin-content-connection" key={server.serverId}><strong>{server.config?.title || server.serverId}</strong><p>{pluginMcpStateLabel(server.state, t)}</p>{["required", "optional", "none"].includes(server.authentication) && <p>{t(server.authentication === "required" ? "settings.pluginCenter.declaredAuthenticationRequired" : server.authentication === "optional" ? "settings.pluginCenter.declaredAuthenticationOptional" : "settings.pluginCenter.declaredNoAuthentication")}</p>}</div>)}{!detailSnapshot.servers.length && <p>{t("settings.pluginCenter.mcpDeclarationNeedsReview")}</p>}</> : detail.installed ? <><Feedback error={connectionError} /><p>{t(connectionLoading ? "settings.pluginConnectionPanel.loadingConnectionStatus" : "settings.pluginCenter.mcpDeclarationNeedsReview")}</p></> : <p>{t("settings.pluginCenter.mcpDeclaredInstallToReview")}</p>}<p className="plugin-status-note">{t("settings.pluginCenter.installDoesNotConnect")}</p></section>}
+              {(detailContent?.interface?.developerName || detailContent?.interface?.category || detailContent?.version || detailContent?.interface?.websiteUrl || detailContent?.interface?.privacyPolicyUrl || detailContent?.interface?.termsOfServiceUrl) && <section className="plugin-detail-resources"><h2>{t("settings.pluginCenter.pluginInformation")}</h2><dl className="plugin-metadata">
+                {detailContent?.interface?.developerName && <><dt>{t("settings.pluginCenter.developer")}</dt><dd>{detailContent?.interface.developerName}</dd></>}
+                {detailContent?.interface?.category && <><dt>{t("settings.pluginCenter.category")}</dt><dd>{detailContent?.interface.category}</dd></>}
+                {detailContent?.version && <><dt>{t("settings.pluginCenter.packageVersion")}</dt><dd>{detailContent?.version}</dd></>}
+                {detailContent?.interface?.websiteUrl && <><dt>{t("settings.pluginCenter.website")}</dt><dd className="plugin-metadata-link"><span>{detailContent?.interface.websiteUrl}</span><Button variant="link" aria-label={t("settings.pluginCenter.copyMetadataLink", { name: t("settings.pluginCenter.website") })} onClick={() => void copyMetadataLink(detailContent?.interface?.websiteUrl, t("settings.pluginCenter.website"))}>{t("settings.pluginCenter.copyLink")}</Button></dd></>}
+                {detailContent?.interface?.privacyPolicyUrl && <><dt>{t("settings.pluginCenter.privacyPolicy")}</dt><dd className="plugin-metadata-link"><span>{detailContent?.interface.privacyPolicyUrl}</span><Button variant="link" aria-label={t("settings.pluginCenter.copyMetadataLink", { name: t("settings.pluginCenter.privacyPolicy") })} onClick={() => void copyMetadataLink(detailContent?.interface?.privacyPolicyUrl, t("settings.pluginCenter.privacyPolicy"))}>{t("settings.pluginCenter.copyLink")}</Button></dd></>}
+                {detailContent?.interface?.termsOfServiceUrl && <><dt>{t("settings.pluginCenter.termsOfService")}</dt><dd className="plugin-metadata-link"><span>{detailContent?.interface.termsOfServiceUrl}</span><Button variant="link" aria-label={t("settings.pluginCenter.copyMetadataLink", { name: t("settings.pluginCenter.termsOfService") })} onClick={() => void copyMetadataLink(detailContent?.interface?.termsOfServiceUrl, t("settings.pluginCenter.termsOfService"))}>{t("settings.pluginCenter.copyLink")}</Button></dd></>}
+              </dl>{metadataCopy && <Feedback error={metadataCopy.kind === "failed" ? t("settings.pluginCenter.metadataLinkCopyFailed", { name: metadataCopy.name }) : ""} message={metadataCopy.kind === "copied" ? t("settings.pluginCenter.metadataLinkCopied", { name: metadataCopy.name }) : ""} />}</section>}
+            </>}
+            {componentWarning && <PluginComponentSupport report={detailSupport} digest={detail.installed ? detail.installedDigest : detail.sourceDigest} installed={detail.installed} />}
+            {managing && detail.installed && detail.sourceDigest !== detail.installedDigest && <PluginComponentSupport report={detail.componentSupport} digest={detail.sourceDigest} installed={false} />}
             {operationMessage && pendingKind !== "unknown" && !busy && <Feedback message={operationMessage} />}
             {setupThreadId && onOpenThread && <Button onClick={() => onOpenThread(projectId, setupThreadId)}>{t("settings.pluginCenter.openSetupConversation")}</Button>}
-            {detail.installed && <div className="plugin-detail-setting-row" id="plugin-management">
+            {managing && detail.installed && detail.installedSkills.length > 0 && <section aria-label={t("settings.pluginCenter.installedSkills")} className="plugin-detail-resources"><h2>Skills</h2><p className="plugin-status-note">{t("settings.pluginCenter.componentChoiceExplanation")}</p><SettingsGroupCard>{detail.installedSkills.map(skill => {
+              const requested = !detail.componentChoices?.disabledSkills.includes(skill.id);
+              return <SettingsRow key={skill.id}
+                label={<button disabled={!detail.enabled || !requested || supportBlocked(detail.installedComponentSupport, detail.installedDigest)} className="plugin-skill-link" onClick={() => openSkill({ ...skill, key: `${detail.id}:${skill.id}`, sourceLabel: { id: "settings.pluginCenter.pluginsValue", values: { value0: detailContent?.displayName || detailContent?.name || detail.id } }, scope: "plugin", pluginId: detail.id, projectId, enabled: detail.enabled && requested && !supportBlocked(detail.installedComponentSupport, detail.installedDigest) })}>{skill.name}</button>}
+                description={<><p>{skill.description}</p><p>{t(!requested ? "settings.pluginCenter.componentOffInProject" : !detail.enabled || supportBlocked(detail.installedComponentSupport, detail.installedDigest) ? "settings.pluginCenter.componentOnRestricted" : "settings.pluginCenter.skillChoiceOn")}</p></>}
+                control={<Switch checked={requested} disabled={disabled || detailLoading} aria-label={t("settings.pluginCenter.enableSkillInProject", { name: skill.name })} onCheckedChange={enabled => configureComponent("skill", skill.id, enabled)} />} />;
+            })}</SettingsGroupCard></section>}
+            {managing && detail.installed && <div className="plugin-detail-setting-row" id="plugin-management">
               <div><h3>{t("settings.pluginCenter.enabledStatus")}</h3><p>{t("settings.pluginCenter.projectEnabledState", { enabled: String(detail.enabled) })}</p>{detail.installedVersion && <p>{t("settings.pluginCenter.installedVersionNumber", { version: detail.installedVersion })}</p>}</div>
               <Button variant="outline" disabled={disabled || authPending} aria-expanded={scopeOpen} aria-controls="plugin-scope-settings" onClick={() => setScopeOpen(value => !value)}>{scopeOpen ? t("settings.pluginCenter.hideEnabledScope") : t("settings.pluginCenter.manageEnabledScope")}</Button>
             </div>}
-            {detail.installed && scopeOpen && <div id="plugin-scope-settings" className="plugin-scope-settings">
+            {managing && detail.installed && scopeOpen && <div id="plugin-scope-settings" className="plugin-scope-settings">
               <div className="plugin-scope-field"><span>{t("settings.pluginCenter.changeScope")}</span><ResourceScope value={scope} onChange={setScope} project={project} disabled={disabled} /></div>
               <p>{t("settings.pluginCenter.projectConfigurationCanOverrideUserConfigurationThe")}</p>
               <div className="plugin-service-actions"><Button variant="outline" disabled={disabled} onClick={() => void mutate("pluginConfigure", { id: detail.id, scope, enabled: true, expectedRevision: catalog?.revision })}>{t("settings.pluginCenter.enableForScope", { scope })}</Button>
                 <Button variant="outline" disabled={disabled} onClick={() => void mutate("pluginConfigure", { id: detail.id, scope, enabled: false, expectedRevision: catalog?.revision })}>{t("settings.pluginCenter.disableForScope", { scope })}</Button></div>
             </div>}
-            {detail.installed && detail.installedDigest !== detail.sourceDigest && <div className="plugin-detail-setting-row"><div><h3>{t("settings.pluginCenter.catalogContentsChanged")}</h3><p>{t("settings.pluginCenter.currentExecutionAndSettingsStillUseThe")}</p></div><Button variant="outline" disabled={disabled} onClick={() => { setInstallReview(true); setReviewed(false); void mutate("pluginResolve", { id: detail.id, expectedRevision: catalog?.revision }); }}>{t("settings.pluginCenter.reviewNewSnapshot")}</Button></div>}
+            {managing && detail.installed && detail.installedDigest !== detail.sourceDigest && <div className="plugin-detail-setting-row"><div><h3>{t("settings.pluginCenter.catalogContentsChanged")}</h3><p>{t("settings.pluginCenter.currentExecutionAndSettingsStillUseThe")}</p></div><Button variant="outline" disabled={disabled} onClick={() => { setInstallReview(true); setReviewed(false); void mutate("pluginResolve", { id: detail.id, expectedRevision: catalog?.revision }); }}>{t("settings.pluginCenter.reviewNewSnapshot")}</Button></div>}
             <div className="plugin-detail-setting-row"><div><h3>{t("settings.pluginCenter.sourceAndInstallationDetails")}</h3><p>{t("settings.pluginCenter.viewThePluginSSourceInstallationInformation")}</p></div>
               <Button variant="outline" aria-expanded={detailsOpen} aria-controls="plugin-source-details" onClick={() => setDetailsOpen(value => !value)}>{detailsOpen ? t("settings.pluginCenter.hideDetails") : t("settings.pluginCenter.viewDetails")}</Button>
             </div>
             {detailsOpen && <div id="plugin-source-details" className="plugin-source-details">
               <dl className="plugin-metadata">
                 <dt>{t("settings.pluginCenter.source2")}</dt><dd>{officialMarket(marketFor(detail)?.sourceUrl) ? t("settings.pluginCenter.openaiPluginMarketplace") : marketFor(detail)?.name || detail.sourceKind || t("settings.pluginCenter.localPluginPackage")}</dd>
-                {detail.interface?.developerName && <><dt>{t("settings.pluginCenter.developer")}</dt><dd>{detail.interface.developerName}</dd></>}
                 {detail.installedDigest && <><dt>{t("settings.pluginCenter.currentInstallationSnapshot")}</dt><dd><code>{detail.installedDigest.slice(0, 8)}…{detail.installedDigest.slice(-8)}</code> <Button variant="link" onClick={async () => { try { await navigator.clipboard.writeText(detail.installedDigest!); setCopiedDigest(true); } catch { setError({ message: { id: "settings.pluginCenter.couldNotCopyTheContentDigest" } }); } }}>{copiedDigest ? t("settings.pluginCenter.fullDigestCopied") : t("settings.pluginCenter.copyFullDigest")}</Button></dd></>}
                 {detail.installed && <><dt>{t("settings.pluginCenter.catalogContents")}</dt><dd>{detail.installedDigest === detail.sourceDigest ? t("settings.pluginCenter.matchesInstalledSnapshot") : t("settings.pluginCenter.differsFromInstalledSnapshot")}</dd></>}
                 {detail.version && <><dt>{t("settings.pluginCenter.catalogVersion")}</dt><dd>{detail.version}</dd></>}
-                {detail.interface?.websiteUrl && <><dt>{t("settings.pluginCenter.website")}</dt><dd><a href={detail.interface.websiteUrl} target="_blank" rel="noreferrer">{detail.interface.websiteUrl}</a></dd></>}
               </dl>
-              {detail.interface?.longDescription && <p className="plugin-long-description">{detail.interface.longDescription}</p>}
               {Array.isArray(detail.interface?.capabilities) && detail.interface.capabilities.length > 0 && <><h3>{t("settings.pluginCenter.capabilitiesDeclaredByCatalog")}</h3><ul>{detail.interface.capabilities.map((capability: string) => <li key={capability}>{capability}</li>)}</ul></>}
+              {!componentWarning && <PluginComponentSupport report={detailSupport} digest={detail.installed ? detail.installedDigest : detail.sourceDigest} installed={detail.installed} />}
               <SettingsDisclosure title={t("settings.pluginCenter.technicalDetails")}><dl className="plugin-metadata"><dt>{t("settings.pluginCenter.pluginID")}</dt><dd>{detail.id}</dd><dt>{t("settings.pluginCenter.sourceSnapshotPath")}</dt><dd>{detail.source}</dd><dt>{t("settings.pluginCenter.catalogComponents")}</dt><dd>{detail.components.join("、") || t("settings.pluginCenter.none")}</dd><dt>{t("settings.pluginCenter.catalogContentDigest")}</dt><dd>{detail.sourceDigest}</dd>{detail.installedDigest && <><dt>{t("settings.pluginCenter.installedContentDigest")}</dt><dd>{detail.installedDigest}</dd></>}</dl>
                 {detail.catalogSource !== undefined && <pre>{JSON.stringify(detail.catalogSource, null, 2)}</pre>}
                 {!!detail.diagnostics.length && <><h3>{t("settings.pluginCenter.catalogPackageDiagnostics")}</h3><ul>{detail.diagnostics.map((text, index) => <li key={index}>{text}</li>)}</ul></>}
@@ -1017,10 +1090,9 @@ export function PluginCenter({ project: selectedProject, projects, thread, actio
               </SettingsDisclosure>
               {detail.installed && detail.skills.length > 0 && (detail.installedDigest !== detail.sourceDigest) && <SettingsDisclosure title={t("settings.pluginCenter.catalogPackageSkills")}><ul>{detail.skills.map(skill => <li key={skill.id}><strong>{skill.name}</strong><p>{skill.description}</p></li>)}</ul></SettingsDisclosure>}
             </div>}
-            {(detail.installed ? detail.installedSkills : detail.skills).length > 0 && <section aria-label={detail.installed ? t("settings.pluginCenter.installedSkills") : t("settings.pluginCenter.catalogPackageSkills")} className="plugin-detail-resources"><h3>{detail.installed ? t("settings.pluginCenter.installedSkills") : t("settings.pluginCenter.catalogPackageSkills")}</h3><ul>{(detail.installed ? detail.installedSkills : detail.skills).map(skill => <li key={skill.id}><button disabled={!detail.installed || !detail.enabled || supportBlocked(detail.installedComponentSupport, detail.installedDigest)} className="plugin-skill-link" onClick={() => openSkill({ ...skill, key: `${detail.id}:${skill.id}`, sourceLabel: { id: "settings.pluginCenter.pluginsValue", values: { value0: detail.displayName || detail.name } }, scope: "plugin", pluginId: detail.id, projectId, enabled: detail.enabled && !supportBlocked(detail.installedComponentSupport, detail.installedDigest) })}>{skill.name}</button><p>{skill.description}</p></li>)}</ul></section>}
-            {detail.installed && detail.installedDigest && <PluginHookSettings id={detail.id} installedDigest={detail.installedDigest} disabled={disabled || detailLoading} api={api} onConfigure={async parameters => { await mutate("pluginHooksConfigure", parameters); }} refreshKey={catalog?.revision} />}
-            {detail.installed && apps?.(detail.id)}
-            {detail.installed && detail.installedOnboardingSkill && <section className="plugin-detail-resources"><h3>{t("settings.pluginCenter.pluginSettings")}</h3><p>{t("settings.pluginCenter.runTheSetupSkillInARegular")}</p><Button disabled={disabled || !detail.enabled || supportBlocked(detail.installedComponentSupport, detail.installedDigest)} onClick={() => void mutate("pluginSetup", { id: detail.id, ...(thread?.id ? { threadId: thread.id } : {}) })}>{t("settings.pluginCenter.runSetup")}</Button></section>}
+            {managing && detail.installed && detail.installedDigest && <PluginHookSettings id={detail.id} installedDigest={detail.installedDigest} disabled={disabled || detailLoading} api={api} onConfigure={async parameters => { await mutate("pluginHooksConfigure", parameters); }} refreshKey={catalog?.revision} />}
+            {managing && detail.installed && apps?.(detail.id)}
+            {managing && detail.installed && detail.installedOnboardingSkill && <section className="plugin-detail-resources"><h3>{t("settings.pluginCenter.pluginSettings")}</h3><p>{t("settings.pluginCenter.runTheSetupSkillInARegular")}</p><Button disabled={disabled || !detail.enabled || supportBlocked(detail.installedComponentSupport, detail.installedDigest)} onClick={() => void mutate("pluginSetup", { id: detail.id, ...(thread?.id ? { threadId: thread.id } : {}) })}>{t("settings.pluginCenter.runSetup")}</Button></section>}
           </div>}
         </article>
       )}

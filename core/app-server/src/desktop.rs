@@ -40,6 +40,7 @@ areal_protocol::method_catalog! {
     "areal/plugin/importArchive" => Mutation, Management;
     "areal/plugin/install" => Mutation, Management;
     "areal/plugin/configure" => Mutation, Management;
+    "areal/plugin/component/configure" => Mutation, Management;
     "areal/plugin/uninstall" => Mutation, Management;
     "areal/plugin/setup" => Mutation, Management;
     "areal/marketplace/add" => Mutation, Management;
@@ -213,6 +214,7 @@ pub(crate) async fn dispatch(
             | "areal/plugin/importArchive"
             | "areal/plugin/install"
             | "areal/plugin/configure"
+            | "areal/plugin/component/configure"
             | "areal/plugin/uninstall"
             | "areal/plugin/setup"
             | "areal/marketplace/add"
@@ -715,6 +717,27 @@ async fn dispatch_inner(
             let p: Configure = parse(params)?;
             engine
                 .plugin_configure(p.id, p.scope, p.enabled, p.expected_revision)
+                .await
+        }
+        "areal/plugin/component/configure" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase", deny_unknown_fields)]
+            struct ComponentConfigure {
+                id: String,
+                component: areal_engine::PluginComponentId,
+                enabled: bool,
+                expected_revision: u64,
+                expected_digest: String,
+            }
+            let p: ComponentConfigure = parse(params)?;
+            engine
+                .plugin_component_configure(
+                    p.id,
+                    p.component,
+                    p.enabled,
+                    p.expected_revision,
+                    p.expected_digest,
+                )
                 .await
         }
         "areal/plugin/uninstall" => {

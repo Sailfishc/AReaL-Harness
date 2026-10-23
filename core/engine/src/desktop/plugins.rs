@@ -298,6 +298,60 @@ impl Engine {
         self.plugin_change(move |s| Ok(serde_json::to_value(s.uninstall(&id, expected)?)?))
             .await
     }
+    pub async fn plugin_component_configure(
+        self: &Arc<Self>,
+        id: String,
+        component: areal_plugins::PluginComponentId,
+        enabled: bool,
+        expected: u64,
+        expected_digest: String,
+    ) -> Result<Value> {
+        let store = self.plugin_store()?;
+        self.mutate(move |engine| async move {
+            let changes_mcp = matches!(
+                component,
+                areal_plugins::PluginComponentId::McpServer { .. }
+            );
+            let _connection = if changes_mcp {
+                Some(engine.desktop.plugin_mcp.operation.lock().await)
+            } else {
+                None
+            };
+            if let areal_plugins::PluginComponentId::McpServer { id: server } = &component {
+                let source = store.clone();
+                let plugin = id.clone();
+                let installed = tokio::task::spawn_blocking(move || {
+                    source
+                        .installed_components()?
+                        .into_iter()
+                        .find(|c| c.id == plugin)
+                        .ok_or_else(|| anyhow::anyhow!("plugin not installed"))
+                })
+                .await
+                .map_err(invalid)?
+                .map_err(store_error)?;
+                if installed.digest != expected_digest {
+                    return Err(Error::Conflict);
+                }
+                engine.validate_plugin_server_component(&installed, server)?;
+            }
+            let plugin = id.clone();
+            let result = tokio::task::spawn_blocking(move || {
+                store
+                    .configure_component(&id, &component, enabled, expected, &expected_digest)
+                    .and_then(|detail| Ok(serde_json::to_value(detail)?))
+            })
+            .await
+            .map_err(invalid)?
+            .map_err(store_error)?;
+            if changes_mcp {
+                engine.retire_plugin_component_connections(&plugin).await?;
+            }
+            engine.refresh_plugins().await?;
+            Ok(result)
+        })
+        .await
+    }
     pub async fn plugin_setup(
         self: &Arc<Self>,
         identity: String,
@@ -311,7 +365,7 @@ impl Engine {
         self.refresh_plugins().await?;
         let store = self.plugin_store()?;
         let (detail, installed) = tokio::task::spawn_blocking(move || {
-            Ok::<_, anyhow::Error>((store.read(&id)?, store.installed_skills()?))
+            Ok::<_, anyhow::Error>((store.read(&id)?, store.enabled_skills()?))
         })
         .await
         .map_err(invalid)?

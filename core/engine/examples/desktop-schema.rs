@@ -312,6 +312,9 @@ fn desktop_schema() -> Value {
     methods.insert("areal/plugin/configure".into(), object(
         json!({"id":string,"scope":scope,"enabled":{"type":"boolean"},"expectedRevision":integer,"requestId":string}),
         vec!["id","scope","enabled","expectedRevision","requestId"]));
+    methods.insert("areal/plugin/component/configure".into(), object(
+        json!({"id":string,"component":schemars::schema_for!(areal_plugins::PluginComponentId),"enabled":{"type":"boolean"},"expectedRevision":integer,"expectedDigest":{"type":"string","pattern":"^[0-9a-f]{64}$"},"requestId":string}),
+        vec!["id","component","enabled","expectedRevision","expectedDigest","requestId"]));
     methods.insert(
         "areal/plugin/uninstall".into(),
         object(

@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState } from "react";
+import type { ComposerMentionPrefill } from "../mentions/composerTypes.js";
 import type { AppSlashCommand } from "../slashCommandHelpers.js";
 import { SearchIcon } from "../interfaceIcons.js";
 import { useI18n } from "../i18n/IntlProvider.js";
@@ -8,12 +9,15 @@ export interface ComposerCatalogEntry extends AppSlashCommand {
     source?: string;
     disabled?: boolean;
     attached?: boolean;
+    mention?: ComposerMentionPrefill;
 }
 export interface ComposerCatalogData {
     entries: readonly ComposerCatalogEntry[];
     loading?: boolean;
     error?: string;
     refresh: () => void;
+    searchLabel?: string;
+    label?: string;
 }
 export const filterCatalog = (entries: readonly ComposerCatalogEntry[], query: string) =>
     entries.filter((entry) =>
@@ -80,8 +84,8 @@ export function ComposerCatalog({
                 <SearchIcon />
                 <input
                     ref={search}
-                    aria-label="搜索功能与 Skills"
-                    placeholder="搜索功能与 Skills"
+                    aria-label={catalog.searchLabel ?? t("chat.composer.catalogSearch")}
+                    placeholder={catalog.searchLabel ?? t("chat.composer.catalogSearch")}
                     value={query}
                     readOnly={!onQuery}
                     tabIndex={onQuery ? 0 : -1}
@@ -97,15 +101,15 @@ export function ComposerCatalog({
             <div
                 id={id}
                 role="listbox"
-                aria-label="功能与 Skills"
+                aria-label={catalog.label ?? t("chat.composer.catalogLabel")}
                 className="composer-catalog-scroll"
             >
                 {(["功能", "应用", "Skills"] as const).map((group) => (
-                    <div key={group} role="group" aria-label={group === "应用" ? t("chat.composer.appsGroup") : group}>
+                    <div key={group} role="group" aria-label={group === "应用" ? catalog.label ?? t("chat.composer.appsGroup") : group === "功能" ? t("chat.composer.actionsGroup") : group}>
                         {rows.some((row) => row.group === group) && (
                             <div className="composer-catalog-group">
-                                {group === "应用" ? t("chat.composer.appsGroup") : group}
-                                {group === "Skills" && <span>添加到当前消息</span>}
+                                {group === "应用" ? catalog.label ?? t("chat.composer.appsGroup") : group === "功能" ? t("chat.composer.actionsGroup") : group}
+                                {group === "Skills" && <span>{t("chat.composer.addToCurrentMessage")}</span>}
                             </div>
                         )}
                         {rows.map((row, i) =>
@@ -133,7 +137,7 @@ export function ComposerCatalog({
                                         {row.description}
                                     </span>
                                     <span className="composer-catalog-source">{row.source}</span>
-                                    {row.attached && <span aria-label="已附加">✓</span>}
+                                    {row.attached && <span aria-label={t("chat.composer.attached")}>✓</span>}
                                 </button>
                             ),
                         )}
@@ -141,14 +145,14 @@ export function ComposerCatalog({
                 ))}
                 {!rows.length && (
                     <p className="composer-catalog-empty">
-                        {catalog.loading ? "正在读取技能…" : "无匹配结果"}
+                        {catalog.loading ? t("common.loading") : t("chat.composer.noMatches")}
                     </p>
                 )}
                 {catalog.error && (
                     <p role="alert" className="composer-catalog-empty">
                         {catalog.error}
                         <button type="button" onClick={catalog.refresh}>
-                            重试
+                            {t("chat.composer.retryCatalog")}
                         </button>
                     </p>
                 )}

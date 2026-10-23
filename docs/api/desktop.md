@@ -298,10 +298,15 @@ MCP 清理失败保持 cleanupFailed，并持久保存 cleanupUnconfirmed。无�
 | `areal/plugin/importArchive` | `path, expectedRevision, requestId` | 导入本机 ZIP 为候选来源；返回包详情，不安装或执行 |
 | `areal/plugin/install` | `id, scope, expectedRevision, source, expectedDigest, requestId` | `scope=user/project`；摘要必须匹配用户选中的来源快照 |
 | `areal/plugin/configure` | `id, scope, enabled, expectedRevision, requestId` | 项目明确选择覆盖用户默认；停用撤销后续读取 |
+| `areal/plugin/component/configure` | `id, component, enabled, expectedRevision, expectedDigest, requestId` | 当前项目的独立 Skill/MCP 选择；摘要绑定已安装副本，版本 CAS；返回包详情 |
 | `areal/plugin/uninstall` | `id, expectedRevision, requestId` | 撤权；保留历史缓存 |
 | `areal/plugin/setup` | `id, threadId?, requestId` | `{thread,turn,requestId}`；仅普通会话；显式选择已安装 onboarding Skill |
 
 目录条目的 `version/sourceDigest/skills/onboardingSkill` 描述当前候选；`installedVersion/installedDigest/installedSkills/installedOnboardingSkill` 描述持久安装副本。安装必须同时提交本次选中的 `source` 和 64 位十六进制 `expectedDigest`。范围变更采用目录 `revision` 的 CAS；冲突或来源变化后重新读取，不隐式重试写入。
+
+`component` 是 `{kind:"skill",id}` 或 `{kind:"mcpServer",id}`。Skill 使用现有稳定 ID；MCP 使用 `areal/plugin/mcp/list` 的命名空间 `serverId`。`componentChoices.disabledSkills/disabledMcpServers` 投影当前项目的关闭选择，缺省为空。选择按稳定身份跨更新保留，卸载清除。它们只收窄包声明、插件启用与 Profile 权限，不能授予额外访问。关闭 Skill 同时拒绝目录发现、保留版本读取和 onboarding。
+
+`installedMetadata` 提供安装副本的 `name/displayName/description/version/interface/components`，供详情展示；候选来源审核仍使用候选字段。MCP 行的 `projectEnabled` 是项目选择，`config.enabled` 是结合声明后的有效配置。改变 MCP 选择撤销该插件的全部连接代与自动重连信任，启用的兄弟服务也须显式重连。旧工具与 App/资源请求在调用时检查当前关闭选择；普通包更新仍允许已受理旧代排空。持久关闭与 `cleanupUnknown` 可同时存在，失败回执不表示写入回滚，也不能重放未知写入。
 
 写操作复用现有部署管理提交账本。同身份、同 `requestId`、同方法和参数返回原结果，异参数拒绝；结果未知通过 `areal/request/read {requestId}` 查询对应 `method` 的 completed `response`，不带 `threadId`，不重放。setup 另通过普通 Turn 准入固定权威 Skill 引用；包正文不能制造其他显式 Skill 选择。未支持组件只报告能力诊断，安装不启动 MCP/hooks/apps。AReaL 管理方法与已实现的实验 Codex 管理 wire adapter 共用 Store/Engine；两者保留各自的 wire 契约。
 

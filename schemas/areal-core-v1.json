@@ -20963,6 +20963,76 @@
       "title": "AuthConfigure",
       "type": "object"
     },
+    "areal/plugin/component/configure": {
+      "additionalProperties": false,
+      "properties": {
+        "component": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "const": "skill",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "const": "mcpServer",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ],
+              "type": "object"
+            }
+          ],
+          "title": "PluginComponentId"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "expectedDigest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "expectedRevision": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "id": {
+          "type": "string"
+        },
+        "requestId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "component",
+        "enabled",
+        "expectedRevision",
+        "expectedDigest",
+        "requestId"
+      ],
+      "type": "object"
+    },
     "areal/plugin/configure": {
       "additionalProperties": false,
       "properties": {
@@ -45931,6 +46001,27 @@
               ],
               "type": "string"
             },
+            "ComponentChoices": {
+              "properties": {
+                "disabledMcpServers": {
+                  "default": [],
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "disabledSkills": {
+                  "default": [],
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array",
+                  "uniqueItems": true
+                }
+              },
+              "type": "object"
+            },
             "ComponentCompatibility": {
               "properties": {
                 "reasonCodes": {
@@ -46001,6 +46092,39 @@
                 "reasonCodes",
                 "required",
                 "activationRequirements"
+              ],
+              "type": "object"
+            },
+            "InstalledMetadata": {
+              "properties": {
+                "components": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "displayName": {
+                  "type": "string"
+                },
+                "interface": true,
+                "name": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "name",
+                "displayName",
+                "description",
+                "components"
               ],
               "type": "object"
             },
@@ -46120,6 +46244,13 @@
                 "catalogSource": {
                   "default": null
                 },
+                "componentChoices": {
+                  "$ref": "#/oneOf/0/$defs/ComponentChoices",
+                  "default": {
+                    "disabledMcpServers": [],
+                    "disabledSkills": []
+                  }
+                },
                 "componentSupport": {
                   "anyOf": [
                     {
@@ -46175,6 +46306,17 @@
                     "string",
                     "null"
                   ]
+                },
+                "installedMetadata": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/oneOf/0/$defs/InstalledMetadata"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
                 },
                 "installedOnboardingSkill": {
                   "default": null,
@@ -46376,6 +46518,27 @@
               ],
               "type": "string"
             },
+            "ComponentChoices": {
+              "properties": {
+                "disabledMcpServers": {
+                  "default": [],
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "disabledSkills": {
+                  "default": [],
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array",
+                  "uniqueItems": true
+                }
+              },
+              "type": "object"
+            },
             "ComponentCompatibility": {
               "properties": {
                 "reasonCodes": {
@@ -46446,6 +46609,39 @@
                 "reasonCodes",
                 "required",
                 "activationRequirements"
+              ],
+              "type": "object"
+            },
+            "InstalledMetadata": {
+              "properties": {
+                "components": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "displayName": {
+                  "type": "string"
+                },
+                "interface": true,
+                "name": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "name",
+                "displayName",
+                "description",
+                "components"
               ],
               "type": "object"
             },
@@ -46565,6 +46761,13 @@
                 "catalogSource": {
                   "default": null
                 },
+                "componentChoices": {
+                  "$ref": "#/oneOf/0/$defs/ComponentChoices",
+                  "default": {
+                    "disabledMcpServers": [],
+                    "disabledSkills": []
+                  }
+                },
                 "componentSupport": {
                   "anyOf": [
                     {
@@ -46620,6 +46823,17 @@
                     "string",
                     "null"
                   ]
+                },
+                "installedMetadata": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/oneOf/0/$defs/InstalledMetadata"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
                 },
                 "installedOnboardingSkill": {
                   "default": null,
@@ -46821,6 +47035,27 @@
               ],
               "type": "string"
             },
+            "ComponentChoices": {
+              "properties": {
+                "disabledMcpServers": {
+                  "default": [],
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "disabledSkills": {
+                  "default": [],
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array",
+                  "uniqueItems": true
+                }
+              },
+              "type": "object"
+            },
             "ComponentCompatibility": {
               "properties": {
                 "reasonCodes": {
@@ -46891,6 +47126,39 @@
                 "reasonCodes",
                 "required",
                 "activationRequirements"
+              ],
+              "type": "object"
+            },
+            "InstalledMetadata": {
+              "properties": {
+                "components": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "displayName": {
+                  "type": "string"
+                },
+                "interface": true,
+                "name": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "name",
+                "displayName",
+                "description",
+                "components"
               ],
               "type": "object"
             },
@@ -47010,6 +47278,13 @@
                 "catalogSource": {
                   "default": null
                 },
+                "componentChoices": {
+                  "$ref": "#/oneOf/0/$defs/ComponentChoices",
+                  "default": {
+                    "disabledMcpServers": [],
+                    "disabledSkills": []
+                  }
+                },
                 "componentSupport": {
                   "anyOf": [
                     {
@@ -47065,6 +47340,17 @@
                     "string",
                     "null"
                   ]
+                },
+                "installedMetadata": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/oneOf/0/$defs/InstalledMetadata"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
                 },
                 "installedOnboardingSkill": {
                   "default": null,
@@ -47266,6 +47552,27 @@
               ],
               "type": "string"
             },
+            "ComponentChoices": {
+              "properties": {
+                "disabledMcpServers": {
+                  "default": [],
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "disabledSkills": {
+                  "default": [],
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array",
+                  "uniqueItems": true
+                }
+              },
+              "type": "object"
+            },
             "ComponentCompatibility": {
               "properties": {
                 "reasonCodes": {
@@ -47336,6 +47643,39 @@
                 "reasonCodes",
                 "required",
                 "activationRequirements"
+              ],
+              "type": "object"
+            },
+            "InstalledMetadata": {
+              "properties": {
+                "components": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "displayName": {
+                  "type": "string"
+                },
+                "interface": true,
+                "name": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "name",
+                "displayName",
+                "description",
+                "components"
               ],
               "type": "object"
             },
@@ -47455,6 +47795,13 @@
                 "catalogSource": {
                   "default": null
                 },
+                "componentChoices": {
+                  "$ref": "#/oneOf/0/$defs/ComponentChoices",
+                  "default": {
+                    "disabledMcpServers": [],
+                    "disabledSkills": []
+                  }
+                },
                 "componentSupport": {
                   "anyOf": [
                     {
@@ -47510,6 +47857,17 @@
                     "string",
                     "null"
                   ]
+                },
+                "installedMetadata": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/oneOf/0/$defs/InstalledMetadata"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
                 },
                 "installedOnboardingSkill": {
                   "default": null,
@@ -50048,7 +50406,7 @@
       ],
       "type": "object"
     },
-    "areal/plugin/configure": {
+    "areal/plugin/component/configure": {
       "$defs": {
         "CompatibilityState": {
           "enum": [
@@ -50056,6 +50414,27 @@
             "blocked"
           ],
           "type": "string"
+        },
+        "ComponentChoices": {
+          "properties": {
+            "disabledMcpServers": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            },
+            "disabledSkills": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            }
+          },
+          "type": "object"
         },
         "ComponentCompatibility": {
           "properties": {
@@ -50127,6 +50506,39 @@
             "reasonCodes",
             "required",
             "activationRequirements"
+          ],
+          "type": "object"
+        },
+        "InstalledMetadata": {
+          "properties": {
+            "components": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": {
+              "type": "string"
+            },
+            "displayName": {
+              "type": "string"
+            },
+            "interface": true,
+            "name": {
+              "type": "string"
+            },
+            "version": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "displayName",
+            "description",
+            "components"
           ],
           "type": "object"
         },
@@ -50248,6 +50660,13 @@
         "catalogSource": {
           "default": null
         },
+        "componentChoices": {
+          "$ref": "#/$defs/ComponentChoices",
+          "default": {
+            "disabledMcpServers": [],
+            "disabledSkills": []
+          }
+        },
         "componentSupport": {
           "anyOf": [
             {
@@ -50303,6 +50722,450 @@
             "string",
             "null"
           ]
+        },
+        "installedMetadata": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InstalledMetadata"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "installedOnboardingSkill": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "installedSkills": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/InstalledSkill"
+          },
+          "type": "array"
+        },
+        "installedVersion": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "integrity": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "interface": {
+          "default": null
+        },
+        "name": {
+          "type": "string"
+        },
+        "onboardingSkill": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "packageVersion": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "policy": {
+          "default": null
+        },
+        "resolvedCommit": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "skills": {
+          "items": {
+            "$ref": "#/$defs/InstalledSkill"
+          },
+          "type": "array"
+        },
+        "source": {
+          "type": "string"
+        },
+        "sourceDigest": {
+          "type": "string"
+        },
+        "sourceKind": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "revision",
+        "id",
+        "name",
+        "displayName",
+        "description",
+        "installed",
+        "enabled",
+        "source",
+        "sourceDigest",
+        "components",
+        "diagnostics",
+        "skills"
+      ],
+      "title": "PluginDetail",
+      "type": "object"
+    },
+    "areal/plugin/configure": {
+      "$defs": {
+        "CompatibilityState": {
+          "enum": [
+            "allowed",
+            "blocked"
+          ],
+          "type": "string"
+        },
+        "ComponentChoices": {
+          "properties": {
+            "disabledMcpServers": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            },
+            "disabledSkills": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            }
+          },
+          "type": "object"
+        },
+        "ComponentCompatibility": {
+          "properties": {
+            "reasonCodes": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "state": {
+              "$ref": "#/$defs/CompatibilityState"
+            }
+          },
+          "required": [
+            "state",
+            "reasonCodes"
+          ],
+          "type": "object"
+        },
+        "ComponentKind": {
+          "enum": [
+            "skills",
+            "mcp",
+            "hooks",
+            "apps",
+            "commands",
+            "agents",
+            "uiSurfaces"
+          ],
+          "type": "string"
+        },
+        "ComponentSupport": {
+          "properties": {
+            "activationRequirements": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "$ref": "#/$defs/ComponentKind"
+            },
+            "reasonCodes": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "required": {
+              "type": "boolean"
+            },
+            "sourceField": {
+              "type": "string"
+            },
+            "status": {
+              "$ref": "#/$defs/SupportStatus"
+            },
+            "supportedSchema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "sourceField",
+            "status",
+            "reasonCodes",
+            "required",
+            "activationRequirements"
+          ],
+          "type": "object"
+        },
+        "InstalledMetadata": {
+          "properties": {
+            "components": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": {
+              "type": "string"
+            },
+            "displayName": {
+              "type": "string"
+            },
+            "interface": true,
+            "name": {
+              "type": "string"
+            },
+            "version": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "displayName",
+            "description",
+            "components"
+          ],
+          "type": "object"
+        },
+        "InstalledSkill": {
+          "properties": {
+            "allowImplicitInvocation": {
+              "type": "boolean"
+            },
+            "description": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "onboarding": {
+              "type": "boolean"
+            },
+            "packageRoot": {
+              "type": "string"
+            },
+            "pluginId": {
+              "type": "string"
+            },
+            "revision": {
+              "type": "string"
+            },
+            "root": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "revision",
+            "root",
+            "packageRoot",
+            "pluginId",
+            "name",
+            "description",
+            "allowImplicitInvocation",
+            "onboarding"
+          ],
+          "type": "object"
+        },
+        "ManifestFormat": {
+          "enum": [
+            "portable1",
+            "codex",
+            "claude",
+            "cursor"
+          ],
+          "type": "string"
+        },
+        "PackageComponentSupport": {
+          "properties": {
+            "compatibility": {
+              "$ref": "#/$defs/ComponentCompatibility"
+            },
+            "components": {
+              "items": {
+                "$ref": "#/$defs/ComponentSupport"
+              },
+              "type": "array"
+            },
+            "digest": {
+              "type": "string"
+            },
+            "manifestFormat": {
+              "$ref": "#/$defs/ManifestFormat"
+            },
+            "validation": {
+              "$ref": "#/$defs/SupportValidation"
+            }
+          },
+          "required": [
+            "digest",
+            "manifestFormat",
+            "components",
+            "compatibility",
+            "validation"
+          ],
+          "type": "object"
+        },
+        "SupportStatus": {
+          "enum": [
+            "supported",
+            "partial",
+            "unsupported"
+          ],
+          "type": "string"
+        },
+        "SupportValidation": {
+          "properties": {
+            "distribution": {
+              "type": "string"
+            },
+            "platform": {
+              "type": "string"
+            },
+            "provider": {
+              "type": "string"
+            },
+            "scope": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "scope",
+            "provider",
+            "platform",
+            "distribution"
+          ],
+          "type": "object"
+        }
+      },
+      "properties": {
+        "catalogSource": {
+          "default": null
+        },
+        "componentChoices": {
+          "$ref": "#/$defs/ComponentChoices",
+          "default": {
+            "disabledMcpServers": [],
+            "disabledSkills": []
+          }
+        },
+        "componentSupport": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PackageComponentSupport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "components": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "description": {
+          "type": "string"
+        },
+        "diagnostics": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "displayName": {
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "id": {
+          "type": "string"
+        },
+        "installed": {
+          "type": "boolean"
+        },
+        "installedComponentSupport": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PackageComponentSupport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "installedDigest": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "installedMetadata": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InstalledMetadata"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "installedOnboardingSkill": {
           "default": null,
@@ -50676,6 +51539,9 @@
                       "title": "PluginPolicy",
                       "type": "object"
                     },
+                    "projectEnabled": {
+                      "type": "boolean"
+                    },
                     "serverId": {
                       "type": "string"
                     },
@@ -50688,6 +51554,7 @@
                     "authenticationTiming",
                     "config",
                     "policy",
+                    "projectEnabled",
                     "serverId",
                     "state"
                   ],
@@ -50972,6 +51839,27 @@
           ],
           "type": "string"
         },
+        "ComponentChoices": {
+          "properties": {
+            "disabledMcpServers": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            },
+            "disabledSkills": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            }
+          },
+          "type": "object"
+        },
         "ComponentCompatibility": {
           "properties": {
             "reasonCodes": {
@@ -51042,6 +51930,39 @@
             "reasonCodes",
             "required",
             "activationRequirements"
+          ],
+          "type": "object"
+        },
+        "InstalledMetadata": {
+          "properties": {
+            "components": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": {
+              "type": "string"
+            },
+            "displayName": {
+              "type": "string"
+            },
+            "interface": true,
+            "name": {
+              "type": "string"
+            },
+            "version": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "displayName",
+            "description",
+            "components"
           ],
           "type": "object"
         },
@@ -51163,6 +52084,13 @@
         "catalogSource": {
           "default": null
         },
+        "componentChoices": {
+          "$ref": "#/$defs/ComponentChoices",
+          "default": {
+            "disabledMcpServers": [],
+            "disabledSkills": []
+          }
+        },
         "componentSupport": {
           "anyOf": [
             {
@@ -51218,6 +52146,17 @@
             "string",
             "null"
           ]
+        },
+        "installedMetadata": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InstalledMetadata"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "installedOnboardingSkill": {
           "default": null,
@@ -51333,6 +52272,27 @@
           ],
           "type": "string"
         },
+        "ComponentChoices": {
+          "properties": {
+            "disabledMcpServers": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            },
+            "disabledSkills": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            }
+          },
+          "type": "object"
+        },
         "ComponentCompatibility": {
           "properties": {
             "reasonCodes": {
@@ -51403,6 +52363,39 @@
             "reasonCodes",
             "required",
             "activationRequirements"
+          ],
+          "type": "object"
+        },
+        "InstalledMetadata": {
+          "properties": {
+            "components": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": {
+              "type": "string"
+            },
+            "displayName": {
+              "type": "string"
+            },
+            "interface": true,
+            "name": {
+              "type": "string"
+            },
+            "version": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "displayName",
+            "description",
+            "components"
           ],
           "type": "object"
         },
@@ -51524,6 +52517,13 @@
         "catalogSource": {
           "default": null
         },
+        "componentChoices": {
+          "$ref": "#/$defs/ComponentChoices",
+          "default": {
+            "disabledMcpServers": [],
+            "disabledSkills": []
+          }
+        },
         "componentSupport": {
           "anyOf": [
             {
@@ -51579,6 +52579,17 @@
             "string",
             "null"
           ]
+        },
+        "installedMetadata": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InstalledMetadata"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "installedOnboardingSkill": {
           "default": null,
@@ -51694,6 +52705,27 @@
           ],
           "type": "string"
         },
+        "ComponentChoices": {
+          "properties": {
+            "disabledMcpServers": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            },
+            "disabledSkills": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            }
+          },
+          "type": "object"
+        },
         "ComponentCompatibility": {
           "properties": {
             "reasonCodes": {
@@ -51764,6 +52796,39 @@
             "reasonCodes",
             "required",
             "activationRequirements"
+          ],
+          "type": "object"
+        },
+        "InstalledMetadata": {
+          "properties": {
+            "components": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": {
+              "type": "string"
+            },
+            "displayName": {
+              "type": "string"
+            },
+            "interface": true,
+            "name": {
+              "type": "string"
+            },
+            "version": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "displayName",
+            "description",
+            "components"
           ],
           "type": "object"
         },
@@ -51883,6 +52948,13 @@
             "catalogSource": {
               "default": null
             },
+            "componentChoices": {
+              "$ref": "#/$defs/ComponentChoices",
+              "default": {
+                "disabledMcpServers": [],
+                "disabledSkills": []
+              }
+            },
             "componentSupport": {
               "anyOf": [
                 {
@@ -51938,6 +53010,17 @@
                 "string",
                 "null"
               ]
+            },
+            "installedMetadata": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/InstalledMetadata"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
             },
             "installedOnboardingSkill": {
               "default": null,
@@ -52376,6 +53459,9 @@
                       "title": "PluginPolicy",
                       "type": "object"
                     },
+                    "projectEnabled": {
+                      "type": "boolean"
+                    },
                     "serverId": {
                       "type": "string"
                     },
@@ -52388,6 +53474,7 @@
                     "authenticationTiming",
                     "config",
                     "policy",
+                    "projectEnabled",
                     "serverId",
                     "state"
                   ],
@@ -52430,6 +53517,27 @@
             "blocked"
           ],
           "type": "string"
+        },
+        "ComponentChoices": {
+          "properties": {
+            "disabledMcpServers": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            },
+            "disabledSkills": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            }
+          },
+          "type": "object"
         },
         "ComponentCompatibility": {
           "properties": {
@@ -52501,6 +53609,39 @@
             "reasonCodes",
             "required",
             "activationRequirements"
+          ],
+          "type": "object"
+        },
+        "InstalledMetadata": {
+          "properties": {
+            "components": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": {
+              "type": "string"
+            },
+            "displayName": {
+              "type": "string"
+            },
+            "interface": true,
+            "name": {
+              "type": "string"
+            },
+            "version": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "displayName",
+            "description",
+            "components"
           ],
           "type": "object"
         },
@@ -52622,6 +53763,13 @@
         "catalogSource": {
           "default": null
         },
+        "componentChoices": {
+          "$ref": "#/$defs/ComponentChoices",
+          "default": {
+            "disabledMcpServers": [],
+            "disabledSkills": []
+          }
+        },
         "componentSupport": {
           "anyOf": [
             {
@@ -52677,6 +53825,17 @@
             "string",
             "null"
           ]
+        },
+        "installedMetadata": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InstalledMetadata"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "installedOnboardingSkill": {
           "default": null,
@@ -52792,6 +53951,27 @@
           ],
           "type": "string"
         },
+        "ComponentChoices": {
+          "properties": {
+            "disabledMcpServers": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            },
+            "disabledSkills": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            }
+          },
+          "type": "object"
+        },
         "ComponentCompatibility": {
           "properties": {
             "reasonCodes": {
@@ -52862,6 +54042,39 @@
             "reasonCodes",
             "required",
             "activationRequirements"
+          ],
+          "type": "object"
+        },
+        "InstalledMetadata": {
+          "properties": {
+            "components": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": {
+              "type": "string"
+            },
+            "displayName": {
+              "type": "string"
+            },
+            "interface": true,
+            "name": {
+              "type": "string"
+            },
+            "version": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "displayName",
+            "description",
+            "components"
           ],
           "type": "object"
         },
@@ -52983,6 +54196,13 @@
         "catalogSource": {
           "default": null
         },
+        "componentChoices": {
+          "$ref": "#/$defs/ComponentChoices",
+          "default": {
+            "disabledMcpServers": [],
+            "disabledSkills": []
+          }
+        },
         "componentSupport": {
           "anyOf": [
             {
@@ -53038,6 +54258,17 @@
             "string",
             "null"
           ]
+        },
+        "installedMetadata": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InstalledMetadata"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "installedOnboardingSkill": {
           "default": null,
@@ -58219,6 +59450,27 @@
               ],
               "type": "string"
             },
+            "ComponentChoices": {
+              "properties": {
+                "disabledMcpServers": {
+                  "default": [],
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array",
+                  "uniqueItems": true
+                },
+                "disabledSkills": {
+                  "default": [],
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array",
+                  "uniqueItems": true
+                }
+              },
+              "type": "object"
+            },
             "ComponentCompatibility": {
               "properties": {
                 "reasonCodes": {
@@ -58289,6 +59541,39 @@
                 "reasonCodes",
                 "required",
                 "activationRequirements"
+              ],
+              "type": "object"
+            },
+            "InstalledMetadata": {
+              "properties": {
+                "components": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "displayName": {
+                  "type": "string"
+                },
+                "interface": true,
+                "name": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "name",
+                "displayName",
+                "description",
+                "components"
               ],
               "type": "object"
             },
@@ -58408,6 +59693,13 @@
                 "catalogSource": {
                   "default": null
                 },
+                "componentChoices": {
+                  "$ref": "#/oneOf/0/$defs/ComponentChoices",
+                  "default": {
+                    "disabledMcpServers": [],
+                    "disabledSkills": []
+                  }
+                },
                 "componentSupport": {
                   "anyOf": [
                     {
@@ -58463,6 +59755,17 @@
                     "string",
                     "null"
                   ]
+                },
+                "installedMetadata": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/oneOf/0/$defs/InstalledMetadata"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
                 },
                 "installedOnboardingSkill": {
                   "default": null,

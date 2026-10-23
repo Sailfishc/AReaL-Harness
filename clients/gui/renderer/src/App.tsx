@@ -1847,7 +1847,7 @@ function AppContent({ services }: { services: PlatformServices }) {
             apps={pluginId => <McpAppsHub key={pluginId} pluginId={pluginId} workspace={mcpWorkspace} project={project} threadId={threadId} action={resourceAction} />}
             onOpenThread={(pid, tid) => { setPluginsOpen(false); updateSettingsOpen(false); void open(pid, tid); }}
             onSettings={() => { setPluginsOpen(false); updateSettingsTab("插件"); updateSettingsOpen(true); }}
-            onMarket={() => { updateSettingsOpen(false); setPluginMarketRequest(value => value + 1); setPluginsOpen(true); }}
+            onMarket={preserveDetail => { updateSettingsOpen(false); if (!preserveDetail) setPluginMarketRequest(value => value + 1); setPluginsOpen(true); }}
             onChooseProject={() => void choose()}
             onSelectProject={id => { setNoProject(false); setProjectId(id); }}
             onStartDraft={startResourceDraft} />}

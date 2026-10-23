@@ -72,6 +72,7 @@ export function ChatPromptEditor({
   attachmentAction,
   menuActions,
   composerCatalog,
+  pluginMentionCatalog,
   betweenCancelAndSubmitAction,
   submitControl,
   inputTestId,
@@ -131,6 +132,7 @@ export function ChatPromptEditor({
     menuItemTestId?: string;
   };
   composerCatalog?: ComposerCatalogData;
+  pluginMentionCatalog?: ComposerCatalogData;
   menuActions?: readonly import("./ChatPromptActionMenu.js").ComposerMenuAction[];
   /** 行内编辑专用：固定插在取消与主提交之间的第二动作。 */
   betweenCancelAndSubmitAction?: ReactNode;
@@ -413,6 +415,7 @@ export function ChatPromptEditor({
           excludedSlashCommandNames={excludedSlashCommandNames}
           appSlashCommands={appSlashCommands}
           composerCatalog={composerCatalog}
+          pluginMentionCatalog={pluginMentionCatalog}
           enableMentionPanel={enableMentionPanel}
         />}
         toolbar={<ComposerToolbar ref={toolbarRef}

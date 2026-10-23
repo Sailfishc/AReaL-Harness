@@ -22,6 +22,7 @@ pub struct InstalledComponents {
     pub policy: Value,
     pub diagnostics: Vec<String>,
     pub support: crate::PackageComponentSupport,
+    pub disabled_mcp_servers: std::collections::BTreeSet<String>,
 }
 /// One atomic state-file read for publishing an activation directory. Package
 /// bytes remain immutable; concurrent commits cannot mix selection revisions.
@@ -43,31 +44,22 @@ impl Store {
         }
         let mut eligible_skill_refs = std::collections::BTreeSet::new();
         for skill in &state.history {
-            if enabled_ids.contains(&skill.plugin_id) && self.skill_compatible(&state, skill)? {
+            if self.skill_allowed(&state, skill)? {
                 eligible_skill_refs.insert((skill.id.clone(), skill.revision.clone()));
             }
         }
-        let enabled_skills = state
-            .installed
-            .iter()
-            .filter(|(id, _)| enabled_ids.contains(*id))
-            .flat_map(|(_, detail)| detail.skills.clone())
-            .collect();
+        let mut enabled_skills = Vec::new();
+        for detail in state.installed.values() {
+            for skill in &detail.skills {
+                if self.skill_allowed(&state, skill)? {
+                    enabled_skills.push(skill.clone());
+                }
+            }
+        }
         let components = state
             .installed
             .values()
-            .map(|detail| {
-                self.read_components(
-                    &detail.id,
-                    &detail.source_digest,
-                    self.root.join("cache").join(&detail.source_digest),
-                    state
-                        .installed_policies
-                        .get(&detail.id)
-                        .cloned()
-                        .unwrap_or(Value::Null),
-                )
-            })
+            .map(|detail| self.installed_component(&state, detail))
             .collect::<Result<_>>()?;
         Ok(InstalledSnapshot {
             retained_skills: state.history,
@@ -92,16 +84,27 @@ impl Store {
             "plugin disabled, uninstalled or statically incompatible"
         );
         let detail = state.installed.get(id).context("plugin not installed")?;
-        self.read_components(
+        self.installed_component(&state, detail)
+    }
+    fn installed_component(
+        &self,
+        state: &crate::State,
+        detail: &crate::PluginDetail,
+    ) -> Result<InstalledComponents> {
+        let mut component = self.read_components(
             &detail.id,
             &detail.source_digest,
             self.root.join("cache").join(&detail.source_digest),
             state
                 .installed_policies
-                .get(id)
+                .get(&detail.id)
                 .cloned()
                 .unwrap_or(Value::Null),
-        )
+        )?;
+        component.disabled_mcp_servers = self
+            .component_choices(state, &detail.id)
+            .disabled_mcp_servers;
+        Ok(component)
     }
     fn components(&self, enabled_only: bool) -> Result<Vec<InstalledComponents>> {
         let state = self.state()?;
@@ -110,18 +113,7 @@ impl Store {
             if enabled_only && !self.effective(&state, &detail.id)? {
                 continue;
             }
-            result.push(
-                self.read_components(
-                    &detail.id,
-                    &detail.source_digest,
-                    self.root.join("cache").join(&detail.source_digest),
-                    state
-                        .installed_policies
-                        .get(&detail.id)
-                        .cloned()
-                        .unwrap_or(Value::Null),
-                )?,
-            );
+            result.push(self.installed_component(&state, detail)?);
         }
         Ok(result)
     }
@@ -213,6 +205,7 @@ impl Store {
             app_documents: vec![],
             policy,
             diagnostics: vec![],
+            disabled_mcp_servers: Default::default(),
             support: parsed
                 .component_support
                 .context("validated package support report missing")?,

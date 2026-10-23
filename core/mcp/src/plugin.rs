@@ -100,6 +100,9 @@ impl PluginServerConfig {
     pub fn policy(&self) -> &PluginPolicy {
         &self.policy
     }
+    pub fn restrict_enabled(&mut self, enabled: bool) {
+        self.policy.enabled &= enabled;
+    }
     pub fn auth_policy(&self) -> Option<&AuthPolicy> {
         self.auth.as_ref()
     }

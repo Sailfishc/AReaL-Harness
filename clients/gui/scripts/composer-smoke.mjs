@@ -55,6 +55,18 @@ await writeFile(
   join(skill, "SKILL.md"),
   "---\nname: fixture-skill\ndescription: Deterministic test skill\n---\n" + pagedContent,
 );
+const pluginSource = join(workspace, "packages", "composer-plugin");
+await mkdir(join(pluginSource, "skills", "compose"), { recursive: true });
+await mkdir(join(workspace, ".agents", "plugins"), { recursive: true });
+await writeFile(join(pluginSource, "plugin.json"), JSON.stringify({
+  $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  name: "composer-plugin", version: "1.0.0", description: "Composer plugin fixture",
+}));
+await writeFile(join(pluginSource, "skills", "compose", "SKILL.md"),
+  "---\nname: composer-plugin-skill\ndescription: Exact plugin context\n---\nCOMPOSER_PLUGIN_EXACT_BODY\n");
+await writeFile(join(workspace, ".agents", "plugins", "marketplace.json"), JSON.stringify({
+  name: "composer-fixture", plugins: [{ name: "composer-plugin", source: { source: "local", path: "./packages/composer-plugin" } }],
+}));
 const deployment = join(scratch, "desktop.json");
 await writeFile(
   deployment,
@@ -65,7 +77,7 @@ await writeFile(
     ],
     profiles: [
       ...(skillsRegression ? [{
-        id: "standard", revision: "v2", displayName: "标准二", instructions: "Complete the task",
+        id: "standard", revision: "v2", displayName: "标准二", instructions: "Complete the task", allowPluginSkills: true,
         skills: [{ id: "fixture-two", revision: "v2" }],
       }] : []),
       {
@@ -74,6 +86,7 @@ await writeFile(
         displayName: "标准",
         instructions: "Complete the task",
         allowThreadProcesses: true,
+        allowPluginSkills: true,
         approvalTools: ["fs_create"],
         skills: [
           { id: "fixture-skill", revision: "v1" },
@@ -827,6 +840,177 @@ try {
   await page.waitForFunction(() => document.querySelector('[data-testid="chat-input"]')?.textContent === "");
   assert.equal(current(await state()).turns.at(-1).items.find(item => item.type === "userMessage").content[0].text, fileDraft);
   checks.push("removing the genuine file permits an explicit Text retry and clears the accepted draft");
+  const pluginId = "composer-plugin@composer-fixture";
+  let pluginList = await call("manage", { projectId: pid, operation: "plugins" });
+  let plugin = pluginList.data.find(row => row.id === pluginId);
+  assert.ok(plugin, "project marketplace discovers the real package");
+  plugin = await call("manage", { projectId: pid, operation: "pluginInstall", id: pluginId,
+    scope: "project", expectedRevision: pluginList.revision, source: plugin.source, expectedDigest: plugin.sourceDigest });
+  await page.evaluate(() => window.dispatchEvent(new Event("areal-plugins-changed")));
+  const pluginRequests = received.length;
+  await input().fill("@");
+  await page.getByRole("option", { name: /搜索 MCP 资源/ }).waitFor();
+  await input().press("Escape");
+  await input().fill("before  after");
+  await input().press("Home");
+  for (let i = 0; i < 7; i++) await input().press("ArrowRight");
+  await page.keyboard.type("@composer");
+  await page.getByRole("option", { name: /composer-plugin.*Composer plugin fixture/ }).waitFor();
+  await input().evaluate(element => element.dispatchEvent(new KeyboardEvent("keydown", {
+    key: "Enter", code: "Enter", bubbles: true, cancelable: true, isComposing: true,
+  })));
+  assert.equal(received.length, pluginRequests, "IME confirmation never sends or selects a plugin");
+  assert.equal(await input().locator('[data-mention-category="plugins"]').count(), 0);
+  await shot("plugin-mention-menu");
+  await input().press("Escape");
+  assert.equal(await page.getByRole("option", { name: /composer-plugin.*Composer plugin fixture/ }).count(), 0);
+  await page.keyboard.type("-");
+  await page.getByRole("option", { name: /composer-plugin.*Composer plugin fixture/ }).waitFor();
+  const pluginEnterProbe = () => input().evaluate(element => ({
+    focused: document.activeElement === element,
+    composing: element.__lexicalEditor?.isComposing(),
+    editorState: element.__lexicalEditor?.getEditorState().toJSON(),
+    selection: { anchor: getSelection()?.anchorNode?.textContent, offset: getSelection()?.anchorOffset },
+    catalog: document.querySelector('[data-testid="composer-catalog"]')?.textContent,
+  }));
+  const beforePluginEnter = await pluginEnterProbe();
+  await input().press("Enter");
+  await writeFile(join(scratch, "plugin-enter-probe.json"), JSON.stringify({ before: beforePluginEnter, after: await pluginEnterProbe() }, null, 2));
+  assert.equal(received.length, pluginRequests, "mention selection never sends");
+  await input().locator('[data-mention-category="plugins"]').waitFor();
+  assert.equal(await input().textContent(), "before composer-plugin  after", "caret insertion preserves both sides");
+  await shot("plugin-mention-chip");
+  const pluginDraftKey = `areal-gui:draft:${pid}:${tid}`;
+  const canonical = await page.evaluate(key => localStorage.getItem(key), pluginDraftKey);
+  assert.match(canonical, /before \[@composer-plugin\]\(plugin:\/\/composer-plugin@composer-fixture\)  after/);
+  await button("新聊天").click();
+  await selectConversation(page, tid);
+  await input().locator('[data-mention-category="plugins"]').waitFor();
+  pluginList = await call("manage", { projectId: pid, operation: "plugins" });
+  plugin = pluginList.data.find(row => row.id === pluginId);
+  await call("manage", { projectId: pid, operation: "pluginComponentConfigure", id: pluginId,
+    component: { kind: "skill", id: plugin.installedSkills[0].id }, enabled: false,
+    expectedRevision: pluginList.revision, expectedDigest: plugin.installedDigest });
+  await button("发送").click();
+  await page.getByRole("alert").filter({ hasText: /插件.*草稿已保留/ }).waitFor();
+  assert.equal(received.length, pluginRequests, "disabled retained plugin blocks send");
+  assert.equal(await page.evaluate(key => localStorage.getItem(key), pluginDraftKey), canonical);
+  pluginList = await call("manage", { projectId: pid, operation: "plugins" });
+  plugin = pluginList.data.find(row => row.id === pluginId);
+  await call("manage", { projectId: pid, operation: "pluginComponentConfigure", id: pluginId,
+    component: { kind: "skill", id: plugin.installedSkills[0].id }, enabled: true,
+    expectedRevision: pluginList.revision, expectedDigest: plugin.installedDigest });
+  await sendAndWait();
+  await until(s => current(s).turns.at(-1)?.status === "completed" && !project(s).pending.length, "plugin mention sent");
+  const pluginMessage = received.at(-1).messages.filter(message => message.role === "user"
+    && !(typeof message.content === "string" && message.content.startsWith("AReaL runtime context (not a user request):"))).at(-1).content;
+  assert.match(pluginMessage, /plugin:\/\/composer-plugin@composer-fixture/);
+  assert.equal(pluginMessage.split("COMPOSER_PLUGIN_EXACT_BODY").length - 1, 1, "exact permitted Skill body appears once");
+  const renderedPluginMessage = await page.locator(".user-message-body").filter({ hasText: /before @composer-plugin/ }).last().textContent();
+  assert.ok(renderedPluginMessage?.includes("@composer-plugin") && !renderedPluginMessage.includes("[blocked]"), "sent plugin reference is readable without protocol navigation");
+  checks.push("caret-aware plugin selection preserves surrounding text, Escape, navigation and retained disabled draft; exact Core skill reaches model once");
+  await input().fill("paste boundary");
+  await input().evaluate(element => {
+    const clipboardData = new DataTransfer();
+    clipboardData.setData("text/plain", "[@composer-plugin](plugin://composer-plugin@composer-fixture)");
+    clipboardData.items.add(new File(["file bytes"], "plugin-paste.txt", { type: "text/plain" }));
+    element.dispatchEvent(new ClipboardEvent("paste", { clipboardData, bubbles: true, cancelable: true }));
+  });
+  await button("移除附件 plugin-paste.txt").waitFor();
+  assert.equal(await input().textContent(), "paste boundary", "mixed file paste keeps existing attachment handling before plugin parsing");
+  await button("移除附件 plugin-paste.txt").click();
+  const foldedPluginText = "long plugin paste ".repeat(20) + "[@composer-plugin](plugin://composer-plugin@composer-fixture)";
+  await input().evaluate((element, text) => {
+    const clipboardData = new DataTransfer(); clipboardData.setData("text/plain", text);
+    element.dispatchEvent(new ClipboardEvent("paste", { clipboardData, bubbles: true, cancelable: true }));
+  }, foldedPluginText);
+  await page.getByRole("button", { name: "在文本框中显示 ›" }).waitFor();
+  assert.equal(await input().textContent(), "paste boundary", "long plugin markdown keeps existing folding");
+  await page.getByRole("button", { name: "在文本框中显示 ›" }).click();
+  await input().locator('[data-mention-category="plugins"]').waitFor();
+  await input().fill("");
+  await chooseFirst();
+  await input().fill("manual before ");
+  await input().evaluate((element, text) => {
+    const clipboardData = new DataTransfer(); clipboardData.setData("text/plain", text);
+    element.dispatchEvent(new ClipboardEvent("paste", { clipboardData, bubbles: true, cancelable: true }));
+  }, "[@Old Label](plugin://composer-plugin@composer-fixture)");
+  await input().locator('[data-mention-category="plugins"]').filter({ hasText: "composer-plugin" }).waitFor();
+  await input().fill("manual remains");
+  await page.waitForFunction(key => JSON.parse(localStorage.getItem(`${key}:plugins`) ?? "[]").length === 0, pluginDraftKey);
+  assert.equal(await tags().count(), 1, "removing plugin chip retains manual Skill tags");
+  await page.getByRole("button", { name: /移除技能 fixture-skill/ }).click();
+  await input().fill("");
+  await button("新聊天").click();
+  await selectFixtureProfile();
+  const firstPluginRequests = received.length;
+  await input().fill("new plugin @composer");
+  await page.getByRole("option", { name: /composer-plugin.*Composer plugin fixture/ }).click();
+  assert.equal(received.length, firstPluginRequests, "pointer selection in a new draft never sends");
+  await selectConversation(page, tid);
+  await button("新聊天").click();
+  await input().locator('[data-mention-category="plugins"]').waitFor();
+  await page.reload();
+  await input().locator('[data-mention-category="plugins"]').waitFor();
+  await shot("plugin-mention-new-draft-reloaded");
+  await sendAndWait();
+  let firstPluginTid;
+  await until(async s => {
+    firstPluginTid = await page.getByTestId("areal-workbench").getAttribute("data-thread-id");
+    return firstPluginTid && project(s).state.threads[firstPluginTid]?.turns.at(-1)?.status === "completed" && !project(s).pending.length;
+  }, "first plugin message accepted in created Thread");
+  const firstPluginMessage = received.at(-1).messages.filter(message => message.role === "user"
+    && !(typeof message.content === "string" && message.content.startsWith("AReaL runtime context (not a user request):"))).at(-1).content;
+  assert.equal(firstPluginMessage.split("COMPOSER_PLUGIN_EXACT_BODY").length - 1, 1);
+  await selectConversation(page, tid);
+  await input().fill("/side");
+  await page.getByRole("option", { name: /侧边聊天/ }).waitFor();
+  await input().press("Enter");
+  const sideInput = page.getByTestId("side-chat-input");
+  await sideInput.fill("side plugin @composer");
+  const beforeSidePlugin = received.length;
+  await page.getByRole("option", { name: /composer-plugin.*Composer plugin fixture/ }).waitFor();
+  assert.equal(await page.getByTestId("composer-catalog").evaluate(element => {
+    const box = element.getBoundingClientRect();
+    return box.top >= 0 && box.left >= 0 && box.bottom <= innerHeight && box.right <= innerWidth;
+  }), true, "Side plugin picker remains inside the viewport");
+  await page.getByRole("option", { name: /composer-plugin.*Composer plugin fixture/ }).click();
+  assert.equal(received.length, beforeSidePlugin);
+  await shot("plugin-mention-side-draft");
+  await page.getByTestId("side-chat-send").click();
+  const sideCompleted = await until(s => received.length > beforeSidePlugin && Object.values(project(s).state.threads).some(row => row.conversation?.kind === "side" && row.turns?.at(-1)?.status === "completed") && !project(s).pending.length, "Side plugin intent completed");
+  const sidePluginMessage = received.at(-1).messages.filter(message => message.role === "user"
+    && !(typeof message.content === "string" && message.content.startsWith("AReaL runtime context (not a user request):"))).at(-1).content;
+  assert.match(sidePluginMessage, /plugin:\/\/composer-plugin@composer-fixture/);
+  assert.ok(!sidePluginMessage.includes("COMPOSER_PLUGIN_EXACT_BODY"), "Side mention does not borrow parent Profile Skill body");
+  const sidePluginThread = Object.values(project(sideCompleted).state.threads).find(row => row.conversation?.kind === "side" && row.turns?.at(-1)?.status === "completed");
+  assert.equal(project(sideCompleted).configurations[sidePluginThread.id].readOnly, true);
+  await page.waitForFunction(() => {
+    const editor = document.querySelector('[data-testid="side-chat-input"]');
+    return editor?.getAttribute("contenteditable") === "true" && editor.textContent === "";
+  });
+  const beforeSideFollowUp = received.length;
+  const sideTurnsBefore = sidePluginThread.turns.length;
+  await sideInput.fill("side follow-up @composer");
+  await page.getByRole("option", { name: /composer-plugin.*Composer plugin fixture/ }).waitFor();
+  await sideInput.press("Enter");
+  assert.equal(received.length, beforeSideFollowUp, "existing Side plugin selection never sends");
+  await sideInput.locator('[data-mention-category="plugins"]').waitFor();
+  await page.getByTestId("side-chat-send").click();
+  const sideFollowUpCompleted = await until(s => received.length > beforeSideFollowUp
+    && project(s).state.threads[sidePluginThread.id]?.turns.length === sideTurnsBefore + 1
+    && project(s).state.threads[sidePluginThread.id]?.turns.at(-1)?.status === "completed"
+    && !project(s).pending.length, "existing Side plugin follow-up completed");
+  const sideFollowUpMessage = received.at(-1).messages.filter(message => message.role === "user"
+    && !(typeof message.content === "string" && message.content.startsWith("AReaL runtime context (not a user request):"))).at(-1).content;
+  assert.match(sideFollowUpMessage, /side follow-up/);
+  assert.match(sideFollowUpMessage, /plugin:\/\/composer-plugin@composer-fixture/);
+  assert.match(sideFollowUpMessage, /请在本次请求中使用所选插件 composer-plugin/);
+  assert.ok(!sideFollowUpMessage.includes("COMPOSER_PLUGIN_EXACT_BODY"), "existing Side follow-up retains intent without parent Skill body");
+  assert.equal(project(sideFollowUpCompleted).configurations[sidePluginThread.id].readOnly, true);
+
+  await page.getByRole("region", { name: "旁路讨论" }).getByRole("button", { name: "返回主会话", exact: true }).click();
+  checks.push("canonical paste resolves Core metadata; removing chip preserves manual Skill; first-message plugin draft survives navigation/reload; new and existing Side send reference intent under read-only Core policy");
   await checkComposition(`areal-gui:draft:${pid}:${tid}`, "chat");
   // Use native typing: fill() uses the editor bridge and repairs the selection itself.
   for (const theme of ["dark", "light"]) {
@@ -981,6 +1165,22 @@ try {
     "narrow window catalog within viewport; send control reachable; outside-click dismissal",
   );
   assert.deepEqual(errors, []);
+  await button("展开侧栏").first().click();
+  await selectConversation(page, tid);
+  await button("收起侧栏").click();
+  await page.evaluate(() => {
+    const key = "areal-gui:application-preferences";
+    localStorage.setItem(key, JSON.stringify({ ...JSON.parse(localStorage.getItem(key) || "{}"), locale: "en" }));
+  });
+  await page.reload();
+  await input().fill("@");
+  await page.getByRole("group", { name: "Actions", exact: true }).waitFor();
+  await input().fill("@no-such-plugin-reference");
+  await page.getByTestId("composer-catalog").getByText("No matches", { exact: true }).waitFor();
+  assert.ok(!(await page.getByTestId("composer-catalog").textContent()).match(/[\u4e00-\u9fff]/));
+  await shot("plugin-mention-english-no-matches");
+  await input().press("Escape");
+  checks.push("English plugin picker localizes action groups and no-match state");
   passed = true;
   console.log(JSON.stringify({ passed, scratch, checks }));
 } catch (error) {

@@ -219,42 +219,30 @@ function replaceEditorText(editor: LexicalEditor, text: string) {
 const INLINE_PLUGIN_MENTION_PATTERN =
   /\[@((?:\\.|[^\]])+)\]\(plugin:\/\/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+)\)/g;
 
+function pluginMentionNodes(text: string) {
+  const paragraph = $createParagraphNode();
+  let cursor = 0;
+  for (const match of text.matchAll(INLINE_PLUGIN_MENTION_PATTERN)) {
+    const start = match.index ?? 0;
+    if (start > cursor) appendPlainTextLines(paragraph, text.slice(cursor, start));
+    const label = match[1]?.replace(/\\(.)/g, "$1") ?? "";
+    const pluginId = match[2] ?? "";
+    paragraph.append($createPromptMentionNode({
+      id: `plugin:${pluginId}`, category: "plugins", label, value: pluginId,
+      markdown: match[0], data: { pluginId },
+    }));
+    cursor = start + match[0].length;
+  }
+  if (cursor < text.length) appendPlainTextLines(paragraph, text.slice(cursor));
+  return paragraph;
+}
+
 function replaceEditorTextWithPluginMentions(editor: LexicalEditor, text: string) {
-  editor.update(
-    () => {
-      const root = $getRoot();
-      root.clear();
-      const paragraph = $createParagraphNode();
-      // Retain the existing mention match boundaries while rendering each
-      // canonical paragraph separator as two real line breaks.
-      for (const [index, line] of text.split("\n\n").entries()) {
-        if (index) appendPlainTextLines(paragraph, "\n\n");
-        let cursor = 0;
-        for (const match of line.matchAll(INLINE_PLUGIN_MENTION_PATTERN)) {
-          const start = match.index ?? 0;
-          if (start > cursor) appendPlainTextLines(paragraph, line.slice(cursor, start));
-          const markdown = match[0];
-          const label = match[1]?.replaceAll("\\]", "]").replaceAll("\\[", "[") ?? "";
-          const pluginId = match[2] ?? "";
-          paragraph.append(
-            $createPromptMentionNode({
-              id: `plugin:${pluginId}`,
-              category: "plugins",
-              label,
-              value: pluginId,
-              markdown,
-              data: { pluginId },
-            }),
-          );
-          cursor = start + markdown.length;
-        }
-        if (cursor < line.length) appendPlainTextLines(paragraph, line.slice(cursor));
-      }
-      root.append(paragraph);
-      paragraph.selectEnd();
-    },
-    { tag: PROGRAMMATIC_UPDATE_TAG },
-  );
+  editor.update(() => {
+    const paragraph = pluginMentionNodes(text);
+    $getRoot().clear().append(paragraph);
+    paragraph.selectEnd();
+  }, { tag: PROGRAMMATIC_UPDATE_TAG });
 }
 
 function replaceEditorWithMention(
@@ -447,7 +435,7 @@ function appendEditorPlainText(editor: LexicalEditor, text: string) {
         paragraph.append($createTextNode(" "));
       }
 
-      appendPlainTextLines(paragraph, text);
+      paragraph.append(...pluginMentionNodes(text).getChildren());
       paragraph.selectEnd();
     },
     { tag: PROGRAMMATIC_UPDATE_TAG },
@@ -872,6 +860,21 @@ function TextContentPlugin({ onChange }: { onChange?: (text: string) => void }) 
   return null;
 }
 
+function PluginMentionMetadataPlugin({ catalog }: { catalog?: ComposerCatalogData }) {
+  const [editor] = useLexicalComposerContext();
+  useEffect(() => {
+    if (!catalog) return;
+    editor.update(() => {
+      for (const node of $getRoot().getAllTextNodes()) {
+        if (!$isPromptMentionNode(node) || node.getMention().category !== "plugins") continue;
+        const mention = catalog.entries.find(entry => entry.mention?.value === node.getMention().value)?.mention;
+        if (mention && (node.getMarkdown() !== mention.markdown || (node.getMention().description ?? "") !== (mention.description ?? ""))) node.replace($createPromptMentionNode(mention));
+      }
+    }, { tag: PROGRAMMATIC_UPDATE_TAG });
+  }, [editor, catalog?.entries]);
+  return null;
+}
+
 /** 编辑器可编辑状态控制插件 */
 function EditablePlugin({ editable }: { editable: boolean }) {
   const [editor] = useLexicalComposerContext();
@@ -901,7 +904,7 @@ function E2ELexicalInputBridgePlugin({ inputTestId }: { inputTestId?: string }) 
       focus: () => editor.focus(),
       getEditorState: () => editor.getEditorState(),
       getText: () => getEditorMarkdown(editor.getEditorState()),
-      setText: (text: string) => replaceEditorText(editor, text),
+      setText: (text: string) => replaceEditorTextWithPluginMentions(editor, text),
       setTextWithPluginMentions: (text: string) =>
         replaceEditorTextWithPluginMentions(editor, text),
       setEditorStateJson: (editorStateJson: string) =>
@@ -1183,21 +1186,26 @@ function PasteCapturePlugin({
   const [editor] = useLexicalComposerContext();
 
   useEffect(() => {
-    if (!onPaste) {
-      return;
-    }
-
     const handlePaste = (event: ClipboardEvent) => {
       if (disabled) {
         return;
       }
 
       const wasDefaultPrevented = event.defaultPrevented;
-      onPaste(event);
-      if (event.defaultPrevented && !wasDefaultPrevented) {
-        // 长文本已经被转成附件后，必须阻断 Lexical 后续 paste command，
-        // 否则会出现“附件有了，正文也被插入”的双份内容。
+      onPaste?.(event);
+      if (event.defaultPrevented) {
+        if (!wasDefaultPrevented) event.stopImmediatePropagation();
+        return;
+      }
+      const text = event.clipboardData?.getData("text/plain") ?? "";
+      if (text.match(INLINE_PLUGIN_MENTION_PATTERN)) {
+        event.preventDefault();
         event.stopImmediatePropagation();
+        editor.update(() => {
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) selection.insertNodes(pluginMentionNodes(text).getChildren());
+        });
+        return;
       }
     };
 
@@ -1271,7 +1279,7 @@ function EditorApiPlugin({
       prependMentionIfMissing: (mention) => prependEditorMentionIfMissing(editor, mention),
       setMention: (mention, trailingText) =>
         replaceEditorWithMention(editor, mention, trailingText),
-      setText: (text: string) => replaceEditorText(editor, text),
+      setText: (text: string) => replaceEditorTextWithPluginMentions(editor, text),
       setTextWithPluginMentions: (text: string) =>
         replaceEditorTextWithPluginMentions(editor, text),
       setEditorStateJson: (editorStateJson: string) =>
@@ -1362,6 +1370,7 @@ interface LexicalChatInputProps {
   onPaste?: (event: ChatComposerPasteEvent) => void;
   excludedSlashCommandNames?: readonly string[];
   composerCatalog?: ComposerCatalogData;
+  pluginMentionCatalog?: ComposerCatalogData;
   /** App 层本地斜杠命令（如 `/side`），选中即执行 UI 行为，不发送。 */
   appSlashCommands?: readonly AppSlashCommand[];
   /** mention（@/#）面板开关。v4 数据面未就绪时显式关闭，入口保留。 */
@@ -1397,6 +1406,7 @@ export function LexicalChatInput({
   excludedSlashCommandNames,
   appSlashCommands,
   composerCatalog,
+  pluginMentionCatalog,
   enableMentionPanel = true,
 }: LexicalChatInputProps) {
   const activeTaskProvider = "areal";
@@ -1463,6 +1473,7 @@ export function LexicalChatInput({
           <PromptPredictionPlugin text={nextPrompt} disabled={disabled} />
           <HistoryPlugin />
           <PromptClipboardPlugin />
+          <PluginMentionMetadataPlugin catalog={pluginMentionCatalog} />
           <TextContentPlugin onChange={onChange} />
           <KeyboardPlugin
             onSubmit={handleSubmit}
@@ -1489,6 +1500,7 @@ export function LexicalChatInput({
           excludedCommandNames={excludedSlashCommandNames}
           appCommands={appSlashCommands}
           catalog={composerCatalog}
+          mentionCatalog={pluginMentionCatalog}
         />
 
       </LexicalComposer>

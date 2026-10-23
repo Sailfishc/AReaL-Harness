@@ -103,7 +103,7 @@ type MentionTextPart =
 
 const PLUGIN_STABLE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*@[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
-function parsePluginStableId(destination: string): string | undefined {
+export function parsePluginStableId(destination: string): string | undefined {
   if (!destination.startsWith("plugin://")) return undefined;
   const candidate = destination.slice("plugin://".length);
   return candidate.length <= 256 && PLUGIN_STABLE_ID_PATTERN.test(candidate)

@@ -2138,5 +2138,148 @@ export const pluginMessages = {
   "settings.resourceSettings.toolCount": {
     "zh-CN": "工具 · {count, number}",
     "en": "Tools · {count, number}"
-  }
+  },
+  "settings.pluginCenter.installPlugin": {
+    "zh-CN": "安装",
+    "en": "Install"
+  },
+  "settings.pluginCenter.viewPluginDetails": {
+    "zh-CN": "查看插件详情",
+    "en": "View plugin details"
+  },
+  "settings.pluginCenter.tryPlugin": {
+    "zh-CN": "试用",
+    "en": "Try"
+  },
+  "settings.pluginCenter.usageExamples": {
+    "zh-CN": "使用示例",
+    "en": "Usage examples"
+  },
+  "settings.pluginCenter.mcpConnections": {
+    "zh-CN": "MCP 连接",
+    "en": "MCP connections"
+  },
+  "settings.pluginCenter.mcpDeclarationNeedsReview": {
+    "zh-CN": "MCP 声明需要检查，请在连接设置中查看诊断。",
+    "en": "The MCP declaration needs review. Check diagnostics in connection settings."
+  },
+  "settings.pluginCenter.mcpDeclaredInstallToReview": {
+    "zh-CN": "此插件声明了 MCP 服务。安装后可查看各项服务及其认证要求。",
+    "en": "This plugin declares MCP services. Install to review each service and its authentication requirements."
+  },
+  "settings.pluginCenter.installDoesNotConnect": {
+    "zh-CN": "安装不会启动服务或授权账户。请在管理中核对要求并明确连接。",
+    "en": "Installation does not start services or authorize an account. Review requirements and explicitly connect in Manage."
+  },
+  "settings.pluginCenter.declaredAuthenticationRequired": {
+    "zh-CN": "此服务要求认证。",
+    "en": "This service requires authentication."
+  },
+  "settings.pluginCenter.declaredAuthenticationOptional": {
+    "zh-CN": "此服务支持按需认证。",
+    "en": "This service supports optional authentication."
+  },
+  "settings.pluginCenter.declaredNoAuthentication": {
+    "zh-CN": "此服务未要求账户认证。",
+    "en": "This service does not require account authentication."
+  },
+  "settings.pluginCenter.pluginInformation": {
+    "zh-CN": "插件信息",
+    "en": "Plugin information"
+  },
+  "settings.pluginCenter.category": {
+    "zh-CN": "类别",
+    "en": "Category"
+  },
+  "settings.pluginCenter.privacyPolicy": {
+    "zh-CN": "隐私政策",
+    "en": "Privacy policy"
+  },
+  "settings.pluginCenter.termsOfService": {
+    "zh-CN": "服务条款",
+    "en": "Terms of service"
+  },
+  "settings.pluginCenter.enableSkillInProject": {
+    "zh-CN": "在当前项目启用 Skill {name}",
+    "en": "Enable Skill {name} in this project"
+  },
+  "settings.pluginCenter.enableMcpInProject": {
+    "zh-CN": "在当前项目启用 MCP {name}",
+    "en": "Enable MCP {name} in this project"
+  },
+  "settings.pluginCenter.componentOffInProject": {
+    "zh-CN": "已在当前项目关闭。",
+    "en": "Off in this project."
+  },
+  "settings.pluginCenter.componentOnRestricted": {
+    "zh-CN": "已选择开启，当前受插件或策略限制。",
+    "en": "Selected on, but currently restricted by the plugin or policy."
+  },
+  "settings.pluginCenter.skillChoiceOn": {
+    "zh-CN": "已选择开启，实际准入由会话的 Profile 决定。",
+    "en": "Selected on. The conversation Profile determines actual availability."
+  },
+  "settings.pluginCenter.componentChoiceExplanation": {
+    "zh-CN": "开关只影响当前项目。插件启用状态和当前任务配置仍会限制可用能力。",
+    "en": "Switches affect only this project. Plugin enablement and the current task configuration still limit available capabilities."
+  },
+  "settings.pluginConnectionPanel.connectedServicesSubjectToProfile": {
+    "zh-CN": "已连接的 MCP 服务可按当前会话的 Profile 使用；其他组件请查看各自状态。",
+    "en": "Connected MCP services are subject to the current conversation Profile. Check other components for their status."
+  },
+  "settings.pluginConnectionPanel.componentReconnectRequired": {
+    "zh-CN": "更改服务开关会断开此插件的全部 MCP 连接。已开启的服务需要重新确认并连接；清理结果待核对时请先核对状态。",
+    "en": "Changing a service switch disconnects all MCP connections for this plugin. Enabled services require explicit reconnection. Check status first if cleanup is unconfirmed."
+  },
+  "chat.composer.pluginReferences": {
+    "zh-CN": "插件",
+    "en": "Plugins"
+  },
+  "chat.composer.catalogSearch": { "zh-CN": "搜索功能与 Skills", "en": "Search actions and Skills" },
+  "chat.composer.catalogLabel": { "zh-CN": "功能与 Skills", "en": "Actions and Skills" },
+  "chat.composer.actionsGroup": { "zh-CN": "功能", "en": "Actions" },
+  "chat.composer.addToCurrentMessage": { "zh-CN": "添加到当前消息", "en": "Add to this message" },
+  "chat.composer.attached": { "zh-CN": "已附加", "en": "Attached" },
+  "chat.composer.noMatches": { "zh-CN": "无匹配结果", "en": "No matches" },
+  "chat.composer.retryCatalog": { "zh-CN": "重试", "en": "Retry" },
+  "chat.composer.searchPluginReferences": {
+    "zh-CN": "搜索插件",
+    "en": "Search plugins"
+  },
+  "chat.composer.mcpResourceReference": {
+    "zh-CN": "搜索 MCP 资源",
+    "en": "Search MCP resources"
+  },
+  "chat.composer.mcpResourceReferenceDescription": {
+    "zh-CN": "引用应用中的文件、工单或其他资源",
+    "en": "Reference files, tickets, or other application resources"
+  },
+  "chat.composer.pluginReferenceUnavailable": {
+    "zh-CN": "所选插件已变化或不可用。草稿已保留，请移除引用后重新选择。",
+    "en": "A selected plugin changed or is unavailable. The draft is preserved. Remove its mention and select it again."
+  },
+  "chat.composer.pluginReferenceIntent": {
+    "zh-CN": "请在本次请求中使用所选插件 {name}。",
+    "en": "Use the selected plugin {name} for this request."
+  },
+  "chat.composer.pluginReferenceOnly": {
+    "zh-CN": "仅作引用",
+    "en": "Reference only"
+  },
+  "settings.pluginCenter.copyLink": {
+    "zh-CN": "复制链接",
+    "en": "Copy link"
+  },
+  "settings.pluginCenter.copyMetadataLink": {
+    "zh-CN": "复制{name}链接",
+    "en": "Copy {name} link"
+  },
+  "settings.pluginCenter.metadataLinkCopied": {
+    "zh-CN": "已复制{name}链接。",
+    "en": "Copied {name} link."
+  },
+  "settings.pluginCenter.metadataLinkCopyFailed": {
+    "zh-CN": "无法复制{name}链接，请选择网址并手动复制。",
+    "en": "Could not copy {name} link. Select the URL and copy it manually."
+  },
 } as const;

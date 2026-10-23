@@ -21,12 +21,27 @@ import { MarkdownBlockquote } from './markdown-blockquote.js';
 import { MarkdownListItem, MarkdownOrderedList, MarkdownUnorderedList } from './markdown-list.js';
 import { MarkdownTable, MarkdownTableBody, MarkdownTableCell, MarkdownTableHead, MarkdownTableHeader, MarkdownTableRow } from './markdown-table.js';
 import { STREAMDOWN_CONTROLS } from './streamdown-controls.js';
+import { parsePluginStableId } from '../../mentions/mentionMarkdown.js';
 // Markdown file resources often contain bare relative links; make their URL kind explicit
 // before Streamdown's URL hardening. Only resource readers opt in.
 function relativeFileLinks() {
     return (tree: { type?: string; url?: string; children?: any[] }) => {
         const visit = (node: typeof tree) => {
             if (node.type === 'link' && node.url && !/^(?:[a-z][a-z\d+.-]*:|[/.#])/i.test(node.url)) node.url = `./${node.url}`;
+            node.children?.forEach(visit);
+        };
+        visit(tree);
+    };
+}
+function pluginReferenceLabels() {
+    return (tree: { type?: string; url?: string; value?: string; children?: any[] }) => {
+        const visit = (node: typeof tree) => {
+            if (node.type === 'link' && node.url && parsePluginStableId(node.url)) {
+                node.type = 'text';
+                node.value = node.children?.map(child => child.value ?? '').join('') ?? '';
+                delete node.url;
+                delete node.children;
+            }
             node.children?.forEach(visit);
         };
         visit(tree);
@@ -71,7 +86,7 @@ export const MessageResponse = memo(function MessageResponse({ children, streami
         return [plugin[0], { ...schema, protocols: { ...schema.protocols, src: [...(schema.protocols?.src ?? []), 'areal'] } }];
     }) : undefined, [Boolean(onRenderImage), fileLinkBase]);
     const remarkPlugins = useMemo(() => preserveLineBreaks
-        ? [...Object.values(defaultRemarkPlugins), ...(fileLinks ? [relativeFileLinks] : []), remarkBreaks]
+        ? [...Object.values(defaultRemarkPlugins), pluginReferenceLabels, ...(fileLinks ? [relativeFileLinks] : []), remarkBreaks]
         : fileLinks ? [...Object.values(defaultRemarkPlugins), relativeFileLinks] : undefined, [fileLinks, preserveLineBreaks]);
     const components = useMemo(() => ({
         a: ({ children, href, node: _node, ...props }: ComponentProps<'a'> & {

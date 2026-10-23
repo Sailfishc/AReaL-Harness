@@ -195,6 +195,8 @@ macOS 系统静态代理由 GUI 可信后台适配器读取，转换成标准代
 
 Core 可通过默认关闭的实验配置，在请求投影与检查点证据中有界保留完整文件参考；执行等待仍由 Runtime 管理。参考回取、非交互 stdin 和连续失败上限见[配置指南](../guides/configuration.md#参考保留与有界工具恢复)。
 
+`core/plugins` 持有不可变插件包与当前项目组件选择；稳定 Skill/MCP 关闭身份跨安装更新保留。Engine 统一执行目录、保留 Skill 读取、onboarding 与 MCP 旧代调用检查，组件变更复用管理回执。Renderer 的插件详情、设置与 Composer 只消费投影；插件标签复用精确 Skill 引用和现有发送路径，Side 保留只读意图边界。接口和重连语义见[桌面契约](../api/desktop.md#插件包管理)。
+
 ## 插件 Hooks 所有者
 
 `core/plugins/{hooks,hook_sources}` 只解析原包和受控用户/项目来源、matcher、模板与摘要。`core/engine/src/plugin_hooks` 拥有独立定义信任、Session/Turn 布点、持久受理与结果投影；同步任务同时登记在 Session 与当前 Turn，后台任务由 Session 持有。Runtime 沿用路径授权、进程预算、有界任务组写入调度和确认清理，hook 不继承任务 provider 秘密。Main 仅转发管理与恢复收据，Renderer 审阅当前定义；安装和 MCP 信任不能替代 hook 信任。

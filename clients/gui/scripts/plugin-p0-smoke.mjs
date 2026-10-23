@@ -59,14 +59,14 @@ await app.evaluate(({dialog,BrowserWindow},path)=>{dialog.showOpenDialog=async()
 await page.evaluate(()=>window.arealDesktop.chooseProject());await createProjectConversation(page,'workspace');
 const ready=await until(s=>s.projects.find(p=>p.root===workspace)?.state?.connected,'project connected'),projectId=ready.projects.find(p=>p.root===workspace).id;
 await settings();
-await page.getByRole('heading',{name:'尚未安装',exact:true}).waitFor();
+await button('安装').waitFor();
 assert.equal(await page.getByText('已安装 Skills（0）',{exact:true}).count(),0);
 await button('查看详情').focus();await page.keyboard.press('Enter');await button('收起详情').waitFor();await page.keyboard.press('Enter');assert.equal(await button('查看详情').evaluate(el=>el===document.activeElement),true);
 await page.screenshot({path:join(scratch,'uninstalled-plugin.png'),animations:'disabled'});
-await button('核对来源并安装').click();
+await button('安装').click();
 await page.getByRole('checkbox',{name:'我已核对以上来源、版本和内容摘要',exact:true}).check();
 await button('安装到用户').click();
-await page.getByRole('heading',{name:'已安装',exact:true}).waitFor();assert.equal(requests.length,0,'installation cannot run setup/model');
+await button('管理').waitFor();assert.equal(requests.length,0,'installation cannot run setup/model');
   const supportDetail = await call("manage", {
     projectId,
     operation: "plugin",
@@ -101,6 +101,7 @@ await page.getByRole('heading',{name:'已安装',exact:true}).waitFor();assert.e
   );
 checks.push('GUI discovers unmodified package and installs through Core without model execution');
 await page.screenshot({path:join(scratch,'installed-plugin.png'),animations:'disabled'});
+await button('管理').click();
 // Lose a completed response only at the Main-to-renderer boundary. Core executes unchanged.
 await app.evaluate(({ipcMain})=>{const channel='areal-core:command',original=ipcMain._invokeHandlers.get(channel);let lose=true;
 ipcMain.removeHandler(channel);ipcMain.handle(channel,async(event,name,params)=>{const result=await original(event,name,params);
@@ -117,12 +118,25 @@ checks.push('explicit setup enters ordinary accessible chat with packaged skill 
 checks.push('GUI recovers completed setup after injected Main-to-renderer response loss using real Core receipt without replay');
 await page.screenshot({path:join(scratch,'setup-chat.png'),animations:'disabled'});
 await settings();
+await button('管理').click();
+const setupSkill=supportDetail.installedSkills.find(skill=>skill.name==='setup');assert(setupSkill);
+const skillSwitch=()=>page.getByRole('switch',{name:'在当前项目启用 Skill setup',exact:true});
+await skillSwitch().click();
+const componentOff=await pluginState(row=>row?.componentChoices?.disabledSkills.includes(setupSkill.id),'component disabled');
+const blockedSkill=await page.evaluate(({projectId,threadId,skill})=>window.arealDesktop.command('manage',{projectId,operation:'skill',threadId,skill}),{projectId,threadId:setupThread,skill:{id:setupSkill.id,revision:setupSkill.revision}});
+assert.equal(blockedSkill.ok,false,'disabled retained Skill read must fail in Core');
+const available=await call('manage',{projectId,operation:'skills',threadId:setupThread});assert(!available.data.some(skill=>skill.id===setupSkill.id));
+await button('查看插件详情').click();await button('管理').click();assert.equal(await skillSwitch().getAttribute('aria-checked'),'false');
+const stale=await page.evaluate(({projectId,id,skill,revision,digest})=>window.arealDesktop.command('manage',{projectId,operation:'pluginComponentConfigure',id,component:{kind:'skill',id:skill},enabled:true,expectedRevision:revision,expectedDigest:digest,requestId:crypto.randomUUID()}),{projectId,id:componentOff.id,skill:setupSkill.id,revision:componentOff.revision-1,digest:componentOff.installedDigest});
+assert.equal(stale.ok,false,'stale component revision must be rejected');
+await skillSwitch().click();await pluginState(row=>!row?.componentChoices?.disabledSkills.includes(setupSkill.id),'component enabled');
+checks.push('project Skill switch persists across detail/settings navigation; Core denies retained reads and discovery while off and rejects stale CAS');
 await button('管理启用范围').click();await button('在用户范围停用').click();await pluginState(r=>r?.enabled===false,'disable committed');
 const current=await call('manage',{projectId,operation:'plugins'});
 assert.equal(current.data.find(x=>x.id==='hello@gui-p0').enabled,false);
 checks.push('GUI disable reaches same Core state');
 await button('在用户范围启用').click();await pluginState(r=>r?.enabled===true,'enable committed');
-await button('更多插件操作').click();await page.getByRole('menuitem',{name:'卸载插件',exact:true}).click();await pluginState(r=>!r?.installed,'uninstall committed');
+await button('卸载插件').click();await pluginState(r=>!r?.installed,'uninstall committed');
 const removed=await call('manage',{projectId,operation:'plugins'});assert.equal(removed.data.some(x=>x.id==='hello@gui-p0'&&x.installed),false);
 checks.push('GUI enable/uninstall completes through management receipts');
 assert.deepEqual(errors,[]);passed=true;

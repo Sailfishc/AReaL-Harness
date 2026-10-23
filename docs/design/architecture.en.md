@@ -195,6 +195,8 @@ Shared Browser keeps sessions, approval and history in Core, authenticated tool 
 
 An experimental setting, disabled by default, enables bounded whole-file references in Core request projection and checkpoint evidence; Runtime owns execution waits. See the [configuration guide](../guides/configuration.en.md#reference-retention-and-bounded-tool-recovery) for retrieval, noninteractive stdin and failure limits.
 
+`core/plugins` owns immutable packages and current-project component choices. Stable disabled Skill/MCP identities survive installation updates. Engine applies discovery, retained Skill reads, onboarding, and captured MCP invocation checks through the same management receipts. Renderer detail, settings, and Composer consume projections. Plugin chips reuse exact Skill references and the existing send path; Side retains its read-only intent boundary. See the [desktop contract](../api/desktop.en.md#plugin-package-management) for interfaces and reconnection semantics.
+
 ## Plugin hook ownership
 
 `core/plugins/{hooks,hook_sources}` only parses original packages and controlled user/project sources, matchers, templates and digests. `core/engine/src/plugin_hooks` owns independent definition trust, Session/Turn events, durable admissions and projections. Synchronous tasks register with both the Session and current Turn; background tasks belong to the Session. Runtime retains path grants, process budgets, bounded task-group write scheduling and confirmed cleanup, without inheriting provider secrets into hooks. Main forwards management/receipt recovery; Renderer reviews current definitions. Installation and MCP trust cannot substitute for hook trust.

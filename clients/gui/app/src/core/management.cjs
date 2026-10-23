@@ -30,7 +30,7 @@ const mutations = {
   pluginArchiveImport: 'areal/plugin/importArchive',
   mcpFormResourceStage: 'areal/mcp/form/resource/stage',
   pluginHooksConfigure:'areal/plugin/hooks/configure', hookAcknowledge:'areal/hook/acknowledge', marketplaceAdd: 'areal/marketplace/add', marketplaceAddGit: 'areal/marketplace/addGit', marketplaceRemove: 'areal/marketplace/remove', marketplaceUpdate: 'areal/marketplace/update', pluginResolve: 'areal/plugin/resolve', pluginAuthConfigure:'areal/plugin/auth/configure', pluginConnection: 'areal/plugin/connection', connectorConfigure: 'areal/plugin/connector/configure', pluginInstall: 'areal/plugin/install',
-  pluginConfigure: 'areal/plugin/configure', pluginUninstall: 'areal/plugin/uninstall', pluginSetup: 'areal/plugin/setup',
+  pluginConfigure: 'areal/plugin/configure', pluginComponentConfigure: 'areal/plugin/component/configure', pluginUninstall: 'areal/plugin/uninstall', pluginSetup: 'areal/plugin/setup',
   providerSave: 'areal/provider/upsert', providerRemove: 'areal/provider/remove',
   mcpSave: 'areal/mcp/configure', mcpConnect: 'areal/mcp/connect', mcpDisconnect: 'areal/mcp/disconnect',
   archive: 'areal/thread/archive', unarchive: 'areal/conversation/unarchive',
@@ -44,7 +44,7 @@ const fields = {
   pluginArchiveImport: ['path', 'expectedRevision'],
   mcpFormResourceStage: ['selectionToken', 'paths'],
   pluginHooksConfigure:['id','expectedDigest','definitionDigest','enabled','trusted','allowReadOnlyCommands'], hookAcknowledge:['threadId','invocationId','inspection'], marketplaceAdd: ['root', 'expectedRevision'], marketplaceAddGit: ['url', 'refName', 'sparsePaths', 'expectedRevision'], marketplaceRemove: ['root', 'expectedRevision'], marketplaceUpdate: ['expectedRevision'], pluginResolve: ['id', 'expectedRevision'], pluginAuthConfigure:['id','server','expectedDigest','configuration'], pluginConnection: ['id', 'expectedDigest', 'connect'], connectorConfigure: ['id', 'connectorId', 'provider', 'credentialRef', 'expectedDigest'], pluginInstall: ['id', 'scope', 'expectedRevision', 'source', 'expectedDigest'],
-  pluginConfigure: ['id', 'scope', 'enabled', 'expectedRevision'], pluginUninstall: ['id', 'expectedRevision'],
+  pluginConfigure: ['id', 'scope', 'enabled', 'expectedRevision'], pluginComponentConfigure: ['id', 'component', 'enabled', 'expectedRevision', 'expectedDigest'], pluginUninstall: ['id', 'expectedRevision'],
   pluginSetup: ['id', 'threadId'],
   providerSave: ['provider', 'expectedRevision'], providerRemove: ['id', 'expectedRevision'],
   mcpSave: ['id', 'expectedRevision', 'config'], mcpConnect: ['id', 'expectedRevision'], mcpDisconnect: ['id', 'expectedRevision'],
@@ -93,7 +93,7 @@ async function manage(backend, project, request, context = {}) {
   }
   if (operation === 'pluginSubmission') {
     const method = mutations[request.mutation];
-    if (!['pluginArchiveImport', 'marketplaceAdd', 'marketplaceAddGit', 'marketplaceRemove', 'marketplaceUpdate', 'pluginResolve', 'pluginConnection', 'pluginHooksConfigure', 'hookAcknowledge', 'pluginAuthConfigure', 'connectorConfigure', 'pluginInstall', 'pluginConfigure', 'pluginUninstall', 'pluginSetup'].includes(request.mutation)
+    if (!['pluginArchiveImport', 'marketplaceAdd', 'marketplaceAddGit', 'marketplaceRemove', 'marketplaceUpdate', 'pluginResolve', 'pluginConnection', 'pluginHooksConfigure', 'hookAcknowledge', 'pluginAuthConfigure', 'connectorConfigure', 'pluginInstall', 'pluginConfigure', 'pluginComponentConfigure', 'pluginUninstall', 'pluginSetup'].includes(request.mutation)
       || typeof request.requestId !== 'string' || !request.requestId.trim()) throw new Error('缺少原插件提交标识');
     const receipt = await backend.readSubmission(project, method, { requestId: request.requestId, ...(request.threadId ? { threadId: request.threadId } : {}) });
     if (!receipt.confirmed) return receipt;

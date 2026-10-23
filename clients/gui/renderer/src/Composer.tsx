@@ -25,6 +25,7 @@ import { GoalIcon as Target, PlanModeIcon as Lightbulb } from "./interfaceIcons.
 import { FileTree, ArchiveChatIcon, SendMessageIcon, StopIcon, ContinueExecutionIcon, SideChatIcon } from "./interfaceIcons.js";
 import { ConversationComposer } from "./ConversationComposer.js";
 import { ComposerAttachment, composerInput, composerPaste, isComposerFile, type ComposerDraftAttachment } from "./ComposerAttachments.js";
+import { useComposerPlugins, revalidateComposerPlugins, mergeComposerPluginSkills, composerPluginIntent } from "./ComposerPlugins.js";
 import { useComposerSkills, composerSkillContent, readComposerSkills } from "./ComposerSkills.js";
 import { ComposerMcpIcon } from "./ComposerIcons.js";
 import { ComposerMcp } from "./ComposerMcp.js";
@@ -160,6 +161,9 @@ export function Composer({
   const [mcpOpen, setMcpOpen] = useState(false);
 
   const skills = useComposerSkills({ project, threadId: thread.id, draftKey: key, action: readAction, disabled: editorDisabled });
+  const pluginContext = { kind: "mainThread" as const, projectId: project.id, threadId: thread.id,
+    coreInstanceId: project.core?.instanceId, connectionGeneration: project.core?.connectionGeneration, configurationRevision: config?.revision };
+  const plugins = useComposerPlugins({ project, context: pluginContext, draftKey: key, text: input.text, action: readAction, onMcpMention });
   const taskManagement = config?.options?.appendInstructions?.startsWith("AREAL_TASK_DRAFT_V1\n") === true;
   const ordinary = isOrdinaryConversation(thread, config);
   const interrupted = ordinary && project.core?.features?.ordinaryTurnSubmit === true ? interruptedConversationTurn(thread) : undefined;
@@ -185,6 +189,7 @@ export function Composer({
     setText("");
     setFiles([]);
     skills.clear();
+    plugins.clear();
     clearMcpDraft(key);
     attachmentDrafts.delete(key);
     setAdmissionError("");
@@ -283,6 +288,7 @@ export function Composer({
         expectedTurnId: running?.id,
         enqueue: !taskManagement && !!running,
         skillAction: readAction,
+        pluginContext, pluginMessages: { unavailable: t("chat.composer.pluginReferenceUnavailable"), intent: (name: string) => t("chat.composer.pluginReferenceIntent", { name }) },
       });
       clear();
     } catch (e) {
@@ -451,10 +457,10 @@ export function Composer({
         submitLabel={queueEditor.edit ? "保存排队消息" : creatingGoal ? "开始目标" : canContinue ? "继续执行" : "发送"}
         enterSubmits={prefs.sendShortcut === "enter"}
         enableMentionPanel={false}
+        pluginMentionCatalog={queueEditor.edit ? undefined : plugins.catalog}
         composerCatalog={{ ...skills.catalog, entries: [...catalogActions, ...appEntries, ...skills.catalog.entries].map(entry => ({ ...entry, disabled: entry.disabled || (!!queueEditor.edit && !["upload", "files", "mcp"].includes(entry.value)) })) }}
         onChange={(value) => {
           setText(value);
-          if(onMcpMention&&/(^|\s)@$/.test(value)&&!/(^|\s)@$/.test(text))onMcpMention();
           localStorage.setItem(key, value);
           localStorage.setItem(`${key}:version`, String(Number(localStorage.getItem(`${key}:version`) ?? 0) + 1));
         }}
@@ -585,16 +591,21 @@ export async function submitMessage(
     const bytes = Uint8Array.from(atob(block.data), character => character.charCodeAt(0));
     return new File([bytes], typeof block._meta?.["openai/title"] === "string" ? block._meta["openai/title"] : "应用图片", {type:block.mimeType});
   });
-  const imageSnapshot = snapshotImageAnnotations(composerInput(text, files).files);
-  const skillContent = options.appMessage ? "" : await composerSkillContent(options.skillAction ?? action, projectId, threadId, readComposerSkills(`areal-gui:draft:${projectId}:${threadId}`));
   const input = composerInput(text, files);
+  const imageSnapshot = snapshotImageAnnotations(input.files);
+  const plugins = options.appMessage ? [] : await revalidateComposerPlugins(options.skillAction ?? action,
+    options.pluginContext ?? { kind: "mainThread", projectId, threadId }, key, input.text,
+    options.pluginMessages?.unavailable ?? "chat.composer.pluginReferenceUnavailable");
+  const pluginIntent = composerPluginIntent(plugins, options.pluginMessages?.intent ?? ((name: string) => `Use the selected plugin ${name} for this request.`));
+  const skillContent = options.appMessage ? "" : await composerSkillContent(options.skillAction ?? action, projectId, threadId,
+    mergeComposerPluginSkills(readComposerSkills(key), plugins));
   const attachments: Data[] = await uploadComposerFiles(action, projectId, threadId, [...input.files, ...imageFiles]);
   imageBlocks.forEach((block: Data, index: number) => { if (block._meta) attachments[input.files.length + index]._meta = block._meta; });
   const annotationFeedback = input.files.flatMap((file, index) => {
     const note = browserAnnotation(file);
     return note ? [browserAnnotationText(note, attachments[index].url)] : [];
   }).join("\n\n");
-  const feedback = [annotationFeedback, serializeImageAnnotations(imageSnapshot, attachments), comments.map(reviewCommentText).join("\n\n"), skillContent].filter(Boolean).join("\n\n");
+  const feedback = [annotationFeedback, serializeImageAnnotations(imageSnapshot, attachments), comments.map(reviewCommentText).join("\n\n"), pluginIntent, skillContent].filter(Boolean).join("\n\n");
   try {
     await action(options.steer ? "steer" : "send", {
         projectId,
