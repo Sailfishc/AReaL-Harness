@@ -1,0 +1,22 @@
+# Native acceptance boundaries
+
+These cases precede implementation. The fixture is a local AppKit window whose values and received input are written to a caller-selected JSON evidence file. It does not use other applications or network services. The action driver requires an explicit `--actions` switch and existing macOS grants. Its passive mode never requests access.
+
+| Failure | Observable expectation |
+| --- | --- |
+| Accessibility or capture permission denied | The helper reports its own grant status. AX or capture requests return `permission_denied` and `not_sent`. |
+| Disabled host | All model requests fail before helper admission. Settings status remains readable and Stop remains available. |
+| Wrong Core, generation, project, thread or call | A prepared plan cannot execute and observations cannot cross their owning session. |
+| Changed arguments, reused or expired plan | No action is dispatched. |
+| Changed AX value, removed element, moved window or old raster | No action is dispatched. A new observation is required. |
+| Background target with event strategy | `foreground_required` and no injected event. AX operations may succeed without activation. |
+| Missing physical input monitor | Event actions fail explicitly. The backend does not claim takeover detection. |
+| Physical user input | Active action is cancelled, held keys and buttons are released, and existing plans and observations are revoked. |
+| Competing project during action or pending approval | The global lease rejects the competing project rather than interleaving input. |
+| Stop, disable, cancellation or stdin closure during key hold or drag | The independent control lane releases held input immediately. A dispatched action reports `possibly_sent`. |
+| Helper exit after execution submission | The host reports `possibly_sent` for a mutation and never retries. |
+| Unsupported strategy, clipboard format or AX action | Honest error, with no fallback that changes the approved operation. |
+| Unicode selection | UTF-16 offsets select the expected range. |
+| Screenshot coordinates | The raster's exact dimensions map to the captured window bounds, with pid, window and geometry revalidated. |
+
+The full acceptance driver observes fixture truth for AX press, value, selection, focused Unicode typing, keyboard repeat and hold, clipboard text/Markdown/HTML, scrolling, drag, right/middle/multiple clicks and modifiers. Screenshot pixels and state travel through the real helper transport. GUI/Core Blob delivery and packaged permission identity belong to the integration acceptance run.
