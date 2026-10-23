@@ -114,9 +114,20 @@ const commandLog = join(evidence, "commands.jsonl");
 const fixture = await applicationFixture(gui, join(stateRoot, "app"), `
 const { appendFileSync } = require('node:fs');
 const { SharedCoreBackend } = require(${JSON.stringify(join(gui, "app/src/core/service-client.cjs"))});
+const closeWindow = SharedCoreBackend.prototype.closeWindowSideChats;
+SharedCoreBackend.prototype.closeWindowSideChats = async function(...args) {
+  appendFileSync(${JSON.stringify(commandLog)}, JSON.stringify({ observed: 'windowSideClose', stack: new Error().stack }) + '\\n');
+  return closeWindow.apply(this, args);
+};
+require('electron').app.on('browser-window-created', (_event, window) => {
+  for (const event of ['show', 'hide', 'close']) window.on(event, () => {
+    appendFileSync(${JSON.stringify(commandLog)}, JSON.stringify({ observed: event, at: Date.now() }) + '\\n');
+  });
+});
 const original = SharedCoreBackend.prototype.command;
 SharedCoreBackend.prototype.command = async function(name, request) {
   try {
+    if (name === 'side' && request.operation === 'create') appendFileSync(${JSON.stringify(commandLog)}, JSON.stringify({ observed: 'sideCreateGate', closed: this.guiWindowClosed, at: Date.now() }) + '\\n');
     const value = await original.call(this, name, request);
     appendFileSync(${JSON.stringify(commandLog)}, JSON.stringify({ name, request, ok: true }) + '\\n');
     return value;
@@ -460,7 +471,7 @@ async function multipleTabs() {
   await selectConversation(page, parent);
   assert.equal(await sideTabs().count(), 0, "restart restores no ephemeral child tabs");
   await openSide();
-  assert.equal(await sideInput().innerText(), "", "restart restores no child draft");
+  assert.equal(await sideInput().textContent(), "", "restart restores no child draft");
   assert.notEqual(await sidePane().getAttribute("data-thread-id"), beforeRestart, "new entry does not restore old parent-child binding");
   checks.push("P3 distinct ephemeral tabs, independent drafts/references, close, parent switching, owning-window close/reopen and cold restart");
 }
@@ -570,14 +581,14 @@ async function normalComposerAndSideCommands() {
     await mainComposer().getByTestId("chat-input").fill(`/${command}`);
     await mainComposer().getByRole("button", { name: "发送", exact: true }).click();
     await until(async () => await sideTabs().count() === tabs + 1, `bare /${command} creates empty child`);
-    assert.equal(await mainComposer().getByTestId("chat-input").innerText(), "");
+    assert.equal(await mainComposer().getByTestId("chat-input").textContent(), "");
     assert.equal(requests.length, count, "bare app command does not send");
     await mainComposer().getByTestId("chat-input").fill(`/${command} PARITY:P5_${command.toUpperCase()}`);
     await mainComposer().getByRole("button", { name: "发送", exact: true }).click();
     await until(() => requests.length === count + 1, `/${command} text sends exactly one child request`);
     const sent = requests.at(-1);
     assert.equal(sent.prompt, `PARITY:P5_${command.toUpperCase()}`);
-    assert.equal(await mainComposer().getByTestId("chat-input").innerText(), "");
+    assert.equal(await mainComposer().getByTestId("chat-input").textContent(), "");
     const parentAfter = await readCoreThread(parent);
     assert.deepEqual(parentAfter.turns.map(turn => turn.id), parentBefore.turns.map(turn => turn.id), "app command creates no parent turn");
     assert.deepEqual(project(await state()).state.queues[parent], queueBefore, "app command never queues or steers the running parent");
