@@ -13,6 +13,7 @@ const gui = resolve(import.meta.dirname, '..');
 const root = resolve(gui, '../..');
 const require = createRequire(join(gui, 'app/package.json'));
 const { _electron: electron } = require('playwright-core');
+const startupMode = process.argv.includes('--startup');
 const binary = process.env.AREAL_CORE_BIN;
 assert.ok(binary && isAbsolute(binary), 'Set AREAL_CORE_BIN to an absolute fixed Core binary');
 const scratch = await mkdtemp('/private/tmp/subscription-send-');
@@ -57,12 +58,15 @@ const server = createServer(async (request, response) => {
     const text = users.at(-1), entry = expected.get(text);
     assert.ok(entry, 'Inference carries an expected exact user input');
     assert.equal(request.method, 'POST', 'Inference uses one model POST');
-    assert.equal(request.headers['x-subscription-send-fixture'], 'synthetic-grant', 'Inference traverses the real subscription custom fetch');
-    assert.equal(body.model, 'gpt-6.1-sol', 'Inference uses the selected subscription model');
+    if (entry.subscription !== false) {
+      assert.equal(request.headers['x-subscription-send-fixture'], 'synthetic-grant', 'Inference traverses the real subscription custom fetch');
+      assert.equal(body.model, 'gpt-6.1-sol', 'Inference uses the selected subscription model');
+    } else assert.equal(body.model, 'fixture', 'Inference uses the selected non-subscription model');
     assert.deepEqual(users, entry.history, 'Inference receives exact user input and conversation history');
     assert.equal(requests.filter(item => item.text === text).length, 0, 'A UI send is never replayed');
     requests.push({ text, users, model: body.model, at: Date.now() });
-    heldResponses.set(text, response);
+    if (entry.subscription === false) respond(response, entry.reply);
+    else heldResponses.set(text, response);
   } catch (error) { errors.push(error.stack); response.destroy(); }
 });
 const auditPath = join(scratch, 'subscription.jsonl');
@@ -146,6 +150,70 @@ const turnFor = (project, text) => {
     if (turn) return { thread, turn };
   }
 };
+async function startup() {
+  const historyText = 'Startup history remains available while the subscription catalog waits.';
+  const draftText = 'Startup draft survives the held subscription catalog.';
+  const historyReply = 'STARTUP_HISTORY_RESTORED';
+  const draftReply = 'STARTUP_NORMAL_SEND_COMPLETE';
+  expected.set(historyText, { subscription: false, history: [historyText], reply: historyReply });
+  await page.getByTestId('chat-input').fill(historyText);
+  await page.getByTestId('chat-send-button').click();
+  const seeded = await until(async () => {
+    const result = turnFor(projectOf(await snapshot()), historyText);
+    return result?.turn.status === 'completed' && result.thread.status?.type === 'idle' ? result : false;
+  }, 'First launch persists real Core history');
+  const projectId = projectOf(await snapshot()).id;
+  const threadId = seeded.thread.id;
+  const draftKey = `areal-gui:draft:${projectId}:${threadId}`;
+  await page.getByTestId('chat-input').fill(draftText);
+  await until(() => page.evaluate(({ key, text }) => localStorage.getItem(key) === text, { key: draftKey, text: draftText }), 'Composer persists the exact draft');
+  await page.screenshot({ path: join(scratch, 'startup-seeded.png') });
+  await writeFile(join(scratch, 'startup-seeded.json'), JSON.stringify(await snapshot(), null, 2));
+  await app.close(); app = null; page = null;
+  await assertApplicationStopped(binary, env, metadata);
+  await writeFile(catalogGate, 'held');
+  await writeFile(controlPath, JSON.stringify({ sample: 'startup-held', mode: 'held' }));
+  const requestsBeforeRestart = requests.length;
+  app = await electron.launch({ executablePath: require('electron'), args: [application.path], env, timeout: 120000 });
+  app.process().stderr.on('data', chunk => { void writeFile(join(scratch, 'electron-restart.log'), chunk, { flag: 'a' }); });
+  page = await app.firstWindow(); page.setDefaultTimeout(20000);
+  page.on('pageerror', error => errors.push(error.stack));
+  await until(async () => (await audit()).some(item => item.boundary === 'catalog.gate' && item.sample === 'startup-held'), 'Restart reaches the real external subscription catalog gate');
+  try {
+    await until(async () => {
+      const state = await snapshot();
+      const project = projectOf(state);
+      const visible = await page.locator('body').innerText();
+      return state.connection?.state === 'ready' && project?.state?.connected
+        && project.state.threads[threadId]?.turns?.some(turn => turn.items?.some(item => item.type === 'agentMessage' && item.text === historyReply))
+        && visible.includes(historyText) && visible.includes(historyReply)
+        && await page.getByTestId('chat-input').count() === 1
+        && await page.getByTestId('chat-input').innerText() === draftText
+        && await page.getByTestId('chat-input').isEditable()
+        && await page.getByTestId('chat-send-button').isEnabled();
+    }, 'Saved history and draft are usable while subscription catalog remains held', 15000);
+  } finally {
+    const evidence = { snapshot: await snapshot(), body: await page.locator('body').innerText(), audit: await audit(), requests };
+    await writeFile(join(scratch, 'startup-held.json'), JSON.stringify(evidence, null, 2));
+    await page.screenshot({ path: join(scratch, 'startup-held.png') });
+  }
+  assert.equal(requests.length, requestsBeforeRestart, 'Restart never replays historical inference');
+  assert.ok(!(await audit()).some(item => item.boundary === 'catalog.fetch' && item.phase === 'finish' && item.sample === 'startup-held'), 'Catalog remains held during restored history and draft assertions');
+  expected.set(draftText, { subscription: false, history: [historyText, draftText], reply: draftReply });
+  await page.getByTestId('chat-send-button').click();
+  await until(async () => {
+    const result = turnFor(projectOf(await snapshot()), draftText);
+    return result?.turn.status === 'completed' && result.thread.status?.type === 'idle'
+      && result.turn.items?.some(item => item.type === 'agentMessage' && item.text === draftReply);
+  }, 'Restored non-subscription conversation sends and completes while catalog remains held', 8000);
+  assert.equal(requests.filter(item => item.text === draftText).length, 1, 'Normal-provider draft is sent exactly once');
+  assert.ok(!(await audit()).some(item => item.boundary === 'catalog.fetch' && item.phase === 'finish' && item.sample === 'startup-held'), 'Normal-provider inference completes before catalog release');
+  checks.push('Fresh owned restart restores saved project, exact Core history and editable persisted draft while subscription catalog is held; normal-provider send completes exactly once before release');
+  await rm(catalogGate);
+  await until(async () => projectOf(await snapshot())?.models?.some(model => model.providerId === 'areal_openai' && model.modelId === 'gpt-6.1-sol' && model.available !== false), 'Released subscription catalog eventually publishes available models');
+  assert.ok((await audit()).some(item => item.boundary === 'catalog.fetch' && item.phase === 'finish' && item.sample === 'startup-held'), 'Subscription model publication follows released external discovery');
+  checks.push('Releasing the external catalog publishes the subscription model without restarting or discarding history');
+}
 async function send(mode, kind, history) {
   const sample = `${mode}-${kind}`;
   const text = `Exact subscription send ${sample}.`;
@@ -218,6 +286,8 @@ try {
   await page.getByRole('menuitem', { name: '新建项目', exact: true }).click();
   await until(async () => projectOf(await snapshot())?.state?.connected, 'Project connected');
   await until(async () => projectOf(await snapshot())?.models?.some(model => model.providerId === 'areal_openai' && model.modelId === 'gpt-6.1-sol' && model.available !== false), 'Startup publishes the real subscription catalog');
+  if (startupMode) await startup();
+  else {
   await page.getByRole('button', { name: '模型', exact: true }).click();
   const picker = page.getByRole('button', { name: '选择模型', exact: true });
   if (await picker.isVisible()) await picker.click();
@@ -248,6 +318,7 @@ try {
   checks.push('Explicit catalog failure clears models and the existing status refresh recovers account readiness and model publication');
   await send('ready', 'existing', finalHistory);
   assert.equal(requests.length, 5, 'Recovery also admits exactly one subscription inference request');
+  }
   assert.deepEqual(errors, [], 'No renderer or model fixture errors');
   await writeFile(join(scratch, 'final-snapshot.json'), JSON.stringify(await snapshot(), null, 2));
   await page.screenshot({ path: join(scratch, 'final.png') });
@@ -269,7 +340,8 @@ try {
   if (server.listening) { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
   if (await hash(binary) !== identity.coreHash) { errors.push('Core binary changed during run'); passed = false; }
   await writeFile(join(scratch, 'manifest.json'), JSON.stringify({ passed, identity, checks, requests, observations: observations.map(item => item.sample), failure, cleanup, errors,
-    boundary: 'Source Electron, real isolated Core, AppProviders, CoreSubscription, OpenAIAccount and ModelCatalog. Synthetic in-memory grant and custom external fetch. Native folder picker stubbed. Catalog expiry is injected at the send command boundary. Held case starts a real background catalog discovery. Rejected case arms a rejecting external GET that sending must not consult. Inference replies stay held until UI and authoritative Core admission assertions pass.',
+    mode: startupMode ? 'startup' : 'send',
+    boundary: startupMode ? 'Source Electron and fresh owned restart with saved project, real Core history and persisted Composer draft. Real AppProviders, CoreSubscription, OpenAIAccount and ModelCatalog. Synthetic in-memory grant and custom external catalog fetch held by a file gate. Native folder picker stubbed. Local normal-provider inference uses real Core HTTP transport.' : 'Source Electron, real isolated Core, AppProviders, CoreSubscription, OpenAIAccount and ModelCatalog. Synthetic in-memory grant and custom external fetch. Native folder picker stubbed. Catalog expiry is injected at the send command boundary. Held case starts a real background catalog discovery. Rejected case arms a rejecting external GET that sending must not consult. Inference replies stay held until UI and authoritative Core admission assertions pass.',
     limits: 'No real account, OAuth exchange, external network or packaged application acceptance. This is a dependency regression test, not a latency benchmark. Isolated state and evidence are retained; owned services must stop.',
   }, null, 2));
   console.log(`${passed ? 'PASS' : 'FAIL'} subscription send`, scratch);
