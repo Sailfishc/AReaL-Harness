@@ -508,6 +508,7 @@ async function selectionReferences() {
   await until(async () => threads(await state())[await currentId()]?.turns.at(-1).status === "completed", "reference turn completed");
   assert.equal(await referenceCount(mainMessages()), 2, "persisted user input renders the timeline reference collection");
   assert.equal(await (await showReferences(mainMessages())).count(), 2, "both persisted references remain independently inspectable");
+  await shot("P4-reference-details");
   await dismissReferences();
   const clear = async () => {
     if (await referenceCount(main)) await main.getByRole("button", { name: "移除全部引用", exact: true }).click();
@@ -579,6 +580,12 @@ async function normalComposerAndSideCommands() {
     const parentBefore = await readCoreThread(parent);
     const queueBefore = structuredClone(project(await state()).state.queues[parent]);
     const count = requests.length, tabs = await sideTabs().count();
+    if (command === "side") {
+      await mainComposer().getByTestId("chat-input").fill("/");
+      await page.getByRole("option").filter({ hasText: "/side" }).waitFor();
+      await page.getByRole("option").filter({ hasText: "/btw" }).waitFor();
+      await shot("P5-main-slash-menu");
+    }
     await mainComposer().getByTestId("chat-input").fill(`/${command}`);
     await mainComposer().getByRole("button", { name: "发送", exact: true }).click();
     await until(async () => await sideTabs().count() === tabs + 1, `bare /${command} creates empty child`);
@@ -624,6 +631,7 @@ async function escapeOwnership() {
       const snapshot = await state();
       return threads(snapshot)[parent]?.turns.at(-1)?.status === "inProgress" && threads(snapshot)[child]?.turns.at(-1)?.status === "inProgress" && snapshot;
     }, "both independent streams active");
+    await shot(`P6-concurrent-${order}`);
     const parentTurn = threads(both)[parent].turns.at(-1).id, childTurn = threads(both)[child].turns.at(-1).id;
     const beforeStops = (await commandRecords()).filter(item => item.name === "stop").length;
     await sideInput().focus(); await page.keyboard.press("Escape");
