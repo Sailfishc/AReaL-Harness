@@ -1,5 +1,6 @@
 import { captureSmokeFailure, resizeConversation } from "./smoke-navigation.mjs";
 import assert from "node:assert/strict";
+import { appearanceReply, verifyAppearanceSlice } from "./appearance-smoke.mjs";
 
 import { createRequire } from "node:module";
 import { mkdtemp, mkdir, writeFile, readFile, rename } from "node:fs/promises";
@@ -12,12 +13,15 @@ const gui = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const desktop = join(gui, "app");
 const require = createRequire(join(desktop, "package.json"));
 const { _electron: electron } = require("playwright-core");
-const requestedModes = ["focus-only", "task-slice", "manual"].filter(mode => process.argv.includes(`--${mode}`));
+const requestedModes = ["focus-only", "task-slice", "appearance-slice", "manual"].filter(mode => process.argv.includes(`--${mode}`));
 assert.ok(requestedModes.length <= 1, "Choose one interaction mode");
 const runMode = requestedModes[0] ?? "verify";
 const focusOnly = runMode === "focus-only";
 const taskSlice = runMode === "task-slice";
 const manual = runMode === "manual";
+const appearanceSlice = runMode === "appearance-slice";
+const readingSample = process.argv.includes("--reading-sample");
+assert.ok(!readingSample || manual, "--reading-sample requires --manual");
 const forcedProfile = runMode !== "verify";
 let manualExitReason;
 let finishManual;
@@ -107,7 +111,7 @@ const server = createServer(async (req, res) => {
   const messages = body.messages ?? [];
   const index = messages.findLastIndex(m => m.role === "user" && (manual
     ? !messageText(m).startsWith("AReaL runtime context (not a user request):")
-    : /(?:write:|question:|browser:)/.test(messageText(m))));
+    : /(?:write:|question:|browser:|appearance:)/.test(messageText(m))));
   const text = messageText(messages[index]);
   const responded = messages.slice(index + 1).some(m => m.role === "tool");
   res.writeHead(200, { "Content-Type": "text/event-stream" });
@@ -125,7 +129,7 @@ const server = createServer(async (req, res) => {
         ? `已根据你的批准写入 \`${write.path}\`。可从下方文件结果查看内容。`
         : denied ? "你已拒绝本次写入。没有创建本轮需求文件。"
         : "本次写入未获成功确认。请查看真实工具结果，不能将它视为已完成。";
-      send({ content: reply });
+      send({ content: reply + (confirmed && readingSample ? "\n\n# 阅读样例\n\n以下为对话阅读样例，不是已写入文件的全文。\n\n" + appearanceReply : "") });
       send({}, "stop");
     } else if (!responded && text.trim()) {
       const id = `manual-write-${++manualSequence}-${randomUUID()}`;
@@ -140,6 +144,9 @@ const server = createServer(async (req, res) => {
       send({ content: "本轮没有可确认的写入结果。" });
       send({}, "stop");
     }
+  } else if (appearanceSlice && text.includes("appearance:")) {
+    send({ content: appearanceReply });
+    send({}, "stop");
   } else if (!responded && text.includes("write:")) {
     const path = text.match(/write:([a-z.-]+)/)[1];
     if (path === "draft.txt") await new Promise(resolve => { releaseWrite = resolve; });
@@ -453,8 +460,10 @@ const interaction = (snapshot, kind) => project(snapshot).state.interactions[tid
 const current = snapshot => project(snapshot).state.threads[tid];
 try {
   await launch();
-  await page.evaluate(() => localStorage.setItem("areal-gui:theme", "data-dense"));
-  await page.reload();
+  if (!appearanceSlice) {
+    await page.evaluate(() => localStorage.setItem("areal-gui:theme", "data-dense"));
+    await page.reload();
+  }
   await page.getByTestId("areal-workbench").waitFor();
   await app.evaluate(({ dialog }, workspace) => { dialog.showOpenDialog = async () => ({canceled:false,filePaths:[workspace]}); }, workspace);
   await button("不在项目中工作").click();
@@ -470,7 +479,7 @@ try {
       window.dispatchEvent(new CustomEvent("areal-draft-change", { detail: key }));
     }, pid);
   }
-  if (manual || taskSlice) await recordCoreIdentity();
+  if (manual || taskSlice || appearanceSlice) await recordCoreIdentity();
   if (manual) {
     await page.getByTestId("chat-input").waitFor();
     assert.equal(received.length, 0, "manual startup sends no model request");
@@ -484,6 +493,13 @@ try {
     }, null, 2));
     console.log(`MANUAL READY. 输入普通中文要求，例如“请为项目写一份快速开始说明”。每轮生成独立 Markdown，只有你批准才写入。\n隔离项目 ${workspace}\n关闭窗口或 Ctrl+C 退出并清理本实例。`);
     await manualExit;
+  } else if (appearanceSlice) {
+    await verifyAppearanceSlice({ app, page, state, project, until, received, visualEvidence, checks, fullShot, setThread: id => { tid = id; } });
+    assert.equal(errors.length, 0, "renderer has no page errors");
+    await writeFile(join(scratch, "final-state.json"), JSON.stringify(await state(), null, 2));
+    assert.equal(createHash("sha256").update(await readFile(binary)).digest("hex"), binarySha256AtStart, "Core binary stayed frozen during acceptance");
+    passed = true;
+    console.log("PASS:", checks);
   } else {
   let sliceRequest = 0;
   const input=()=>page.getByTestId("chat-input");

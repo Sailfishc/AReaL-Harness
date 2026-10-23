@@ -10,7 +10,7 @@ AReaL 已有生产控件、GUI 目录、状态合同和开发预览。当前共�
 | 内容与文案 | [术语](content/terminology.md)、[界面文案](content/interface-copy.md)已区分用词建议与执行事实 | 随真实入口采用并核对翻译、范围和反馈，不做脱离功能的全局替换 |
 | Token | [角色与平台映射](foundations/tokens.md)，[浏览器焦点共享源](tokens/focus.css)已接入 GUI 与本地 Web | 首组焦点已通过真实隔离 Core 的 GUI 与本地 Web 键盘审批路径；任务切片已统一主要动作颜色、阅读宽度、间距和过程附注字号；其余角色按后续 GUI 任务收敛，保留动态偏好边界，Web 后续按需复用 |
 | 组件合同 | [组件选择与职责](components/README.md)已连接首批就近合同，生产控件及平台合同保留原所有者 | 核对合同与真实消费者，补齐实际缺失的行为证据；Props 由类型提供 |
-| 用户任务与组合 | [共享模式](patterns/README.md)、[完整候选](products/workbench/candidate.md)已串联任务、过程、审批、资源与设置 | 首条任务切片沿既有控制器验证真实批准、拒绝与文件结果；资源、设置和其他异常路径继续分别采用与验收 |
+| 用户任务与组合 | [共享模式](patterns/README.md)、[完整候选](products/workbench/candidate.md)已串联任务、过程、审批、资源与设置 | 首条任务切片沿既有控制器验证真实批准、拒绝与文件结果；外观切片通过真实设置修改偏好并返回原任务，保留草稿与阅读段落；资源整体组织和其他异常路径继续分别采用与验收 |
 | 文档与可运行示例 | [文档与预览入口](README.md#阅读与预览)、现有 catalog 与生成器 | 核对原 Markdown 链接、合同和生产示例的阅读路径；运行结果另行记录，不以构建代替用户路径 |
 | 变更约束与准入 | [目录检查](../clients/gui/scripts/design-system-catalog.mjs)、[增量审计](../clients/gui/scripts/design-system-changes.mjs)、GUI Base 候选 | 补足目录所声明接口与实际导出的核对，明确 GUI 覆盖、版本兼容与准入；用真实任务验证行为与视觉，Web 接入时另行验证 |
 
