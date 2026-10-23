@@ -169,6 +169,7 @@ async function showReferences(pane) {
   const details = page.getByTestId("conversation-selection-details").filter({ visible: true });
   if (!await details.count()) await referenceTrigger(pane).click();
   await details.waitFor();
+  await until(() => details.evaluate(element => getComputedStyle(element).opacity === "1" && !element.hasAttribute("data-starting-style")), "reference details finished their open transition");
   return details.getByTestId("conversation-selection-reference");
 }
 async function dismissReferences() {
