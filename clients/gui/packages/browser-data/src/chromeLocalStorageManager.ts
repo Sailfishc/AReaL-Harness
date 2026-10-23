@@ -600,6 +600,7 @@ export async function writeElectronLocalStorage(
       backgroundThrottling: false,
     },
   });
+  const contents = window.webContents;
   let unregister: (() => void) | undefined;
   let transport: CdpTransport | undefined;
   let unsubscribe = () => {};
@@ -607,10 +608,10 @@ export async function writeElectronLocalStorage(
   let importedEntries = 0;
   let failedOrigins = 0;
   try {
-    unregister = registerWebContents(window.webContents);
-    window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+    unregister = registerWebContents(contents);
+    contents.setWindowOpenHandler(() => ({ action: "deny" }));
     await window.loadURL("about:blank");
-    transport = createElectronCdpTransport(window.webContents);
+    transport = createElectronCdpTransport(contents);
     unsubscribe = await initializeLocalStoragePage(transport);
     for (const record of records) {
       try {
@@ -643,6 +644,13 @@ export async function writeElectronLocalStorage(
         unregister?.();
       } finally {
         if (!window.isDestroyed()) window.destroy();
+        if (!contents.isDestroyed()) {
+          await withTimeout(
+            new Promise<void>((resolve) => contents.once("destroyed", () => resolve())),
+            5_000,
+            "local_storage_window_destroy",
+          );
+        }
       }
     }
   }

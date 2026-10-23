@@ -49,9 +49,10 @@
         "Use local result types.",
         "Register target WebContents before navigation.",
         "Deny target popups and always unregister and destroy target windows, including initialization failures.",
-        "Export the writer internally for synthetic Electron acceptance."
+        "Export the writer internally for synthetic Electron acceptance.",
+        "Wait for WebContents destruction before resolving the writer, as verified in Electron 44.5."
       ],
-      "localSha256": "ea8ba242f7b80db41b82e1267657dcde1cd26433e9fca0d0e08e3875b0446a8f"
+      "localSha256": "4e777d9570a486f65b44d9fc232022116f5bbb5009595b1263dd15d52794115b"
     },
     {
       "source": "packages/desktop/src/main/chromeProfileDiscovery.ts",
