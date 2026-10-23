@@ -231,7 +231,7 @@ async function newParent(prompt) {
 }
 async function openSide() {
   const before = new Set(Object.keys(threads(await state())));
-  const launcher = page.locator('[data-side-pane-open-tab-item="旁路讨论"]');
+  const launcher = page.locator(baseline ? '[data-side-pane-open-tab-item="旁路讨论"]' : '[data-side-pane-open-tab-item="side"]');
   if (await page.getByRole("button", { name: "打开侧边面板标签页", exact: true }).isVisible()) {
     await page.getByRole("button", { name: "打开侧边面板标签页", exact: true }).click();
     const entry = page.getByRole("menuitem", { name: /侧边聊天/ });
