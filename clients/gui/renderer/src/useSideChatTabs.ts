@@ -77,12 +77,13 @@ export function useSideChatTabs(action: Action) {
   const close = async (tab: SideChatTab) => {
     const current = tabsRef.current.find(item => item.id === tab.id);
     if (!current) return;
-    const requestId = current.closeRequestId ?? crypto.randomUUID();
+    let requestId = current.closeRequestId ?? crypto.randomUUID();
     setTabs(tabsRef.current.map(item => item.id === current.id ? { ...item, closeRequestId: requestId, closeError: undefined } : item));
     try {
       const result: Data = await action("side", current.closeRequestId
         ? { operation: "recover", method: "areal/side/close", projectId: current.projectId, threadId: current.childId, requestId }
         : { operation: "close", projectId: current.projectId, threadId: current.childId, requestId });
+      if (typeof result.requestId === "string") requestId = result.requestId;
       if (!result.cleanupConfirmed) throw new Error(t("chat.side.closeUnconfirmed"));
       forget(current);
     } catch (cause) {

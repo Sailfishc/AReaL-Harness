@@ -426,6 +426,7 @@ async function multipleTabs() {
   await addReference(body, "DONE PARITY:P3_PARENT", "side");
   await until(async () => await sideTabs().count() === 3 && await referenceCount(sidePane()) === 1, "resource-tab selection creates and reveals child");
   assert.equal(await sideTabs().count(), 3, "selection while a non-Side tab is active creates a new child");
+  await shot("P3-multiple-tabs-references");
   const routed = await sidePane().getAttribute("data-thread-id");
   assert.ok(routed !== first && routed !== second);
   assert.equal(await referenceCount(sidePane()), 1);
@@ -485,6 +486,7 @@ async function selectionReferences() {
   assert.equal(await main.getByTestId("chat-input").innerText(), "P4_DRAFT_SURVIVES");
   assert.ok((await main.getByTestId("composer-attachments").innerText()).includes("attachment.txt"));
   assert.equal(requests.length, before, "selection actions never submit model calls");
+  await shot("P4-reference-collection");
   await main.getByRole("button", { name: "发送", exact: true }).click();
   await until(() => requests.length > before, "reference-bearing provider request");
   const payload = textOf(requests.at(-1).body.messages.findLast(message => message.role === "user" && textOf(message.content).includes("P4_DRAFT_SURVIVES"))?.content);

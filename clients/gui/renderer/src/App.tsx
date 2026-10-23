@@ -745,9 +745,11 @@ function AppContent({ services }: { services: PlatformServices }) {
   };
   useEffect(() => {
     for (const tab of sideChats.tabs) {
-      const observed = snapshot.projects.find(owner => owner.id === tab.projectId)?.state?.threads?.[tab.childId];
+      const owner = snapshot.projects.find(project => project.id === tab.projectId);
+      const observed = owner?.state?.threads?.[tab.childId];
       if (observed?.conversation?.policy?.kind === "sideExecutableV2" && observed.desktop?.archived
-        && observed.desktop.receipts?.some((receipt: Data) => receipt.method === "areal/side/close" && receipt.result?.cleanupConfirmed === true))
+        && Object.values<Data>(owner?.outcomes ?? {}).some((outcome) => outcome.method === "areal/side/close"
+          && outcome.threadId === tab.childId && outcome.accepted === true && outcome.cleanupConfirmed === true))
         removeSideTab(tab);
     }
   }, [snapshot.projects, sideChats.tabs]);
