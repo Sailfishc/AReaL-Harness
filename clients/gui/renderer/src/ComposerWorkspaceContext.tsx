@@ -13,11 +13,13 @@ export function ComposerWorkspaceContext({
     threadId,
     action,
     backendReady = false,
+    showBranch = true,
 }: {
     project: Data;
     threadId?: string;
     action: Action;
     backendReady?: boolean;
+    showBranch?: boolean;
 }) {
     const { t } = useI18n();
     const connected = backendReady && !!project.state?.connected;
@@ -89,7 +91,7 @@ export function ComposerWorkspaceContext({
                         )}
                         {t(current.info.target ? "workspace.worktree" : "workspace.local")}
                     </span>
-                    {current.info.git !== false && current.info.branch && (
+                    {showBranch && current.info.git !== false && current.info.branch && (
                         <span
                             className="composer-workspace-branch"
                             aria-label={t("workspace.currentBranch")}

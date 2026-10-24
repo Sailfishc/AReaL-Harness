@@ -12,7 +12,7 @@
   ],
   "reference": {
     "kind": "screenshot",
-    "visualTarget": "WT-R09 主菜单、WT-R08 分支子页；规则正文：design-system/worktrees.md。用户原图留本地，未完成同状态视觉对照。"
+    "visualTarget": "WT-R09 主菜单、WT-R08 分支子页；规则正文：design-system/worktrees.md。用户原图留本地，代表状态对照见 design-system/exercises/worktrees.md。"
   },
   "slots": {
     "body": [
@@ -85,17 +85,39 @@
     ]
   },
   "invariants": [
-    "遵循 WT-PICKER-01～03 与 WT-VISUAL-01，目标形态尚未实现",
+    "遵循 WT-PICKER-01～03 与 WT-VISUAL-01，仅列明代表状态已复验",
     "主菜单与子页共用锚点和宽度，不堆叠弹窗",
     "打开、搜索、选择、返回和关闭不创建目录或改变原目录分支",
     "选项与迟到响应只属于原项目，关闭恢复合理焦点"
   ],
   "evidence": {
-    "status": "pending",
-    "artifacts": [],
+    "status": "compared",
+    "artifacts": [
+      {
+        "path": ".scratch/worktree-ui-20261024/renderer-4/picker-off.png",
+        "sha256": "3e50c24f044fe5e445a925ca01ad00f929c7e2a11191bb35e808dc6a7f712cfd",
+        "state": "picker-off"
+      },
+      {
+        "path": ".scratch/worktree-ui-20261024/renderer-4/picker-branches.png",
+        "sha256": "e2507a2862afc14b1d45d30044dda08b1be61903396d22ee681bbf9cd17fcf6c",
+        "state": "picker-branches"
+      },
+      {
+        "path": ".scratch/worktree-ui-20261024/renderer-4/picker-configured.png",
+        "sha256": "94871a7de9fd3dc274912d70f9297fda9fe6afb8795b0ffe83e40b70bc3c177c",
+        "state": "picker-configured"
+      },
+      {
+        "path": ".scratch/worktree-ui-20261024/renderer-4/picker-dark-18-wide.png",
+        "sha256": "8bfaa1654c24ec21d033a3273014317aee956614b002d7a21dba865c2abce9a7",
+        "state": "picker-dark-18-wide"
+      }
+    ],
     "gaps": [
-      "生产当前仍有纵向表单及子浮层，待按规范迁移",
-      "未进行明暗、大字号、键盘、窄窗或同状态视觉验收；合同校验不代表通过"
+      "参考缺少 viewport/DPR，保留 AReaL 主题与尺寸，不声明像素相等",
+      "分支类型元数据未暴露，不猜本地/远端分组；非 Git、加载中等未采集瞬态不计为完整覆盖",
+      "原生目录选择器与物理输入未验收"
     ]
   }
 }

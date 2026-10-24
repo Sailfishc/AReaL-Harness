@@ -1801,7 +1801,7 @@ function AppContent({ services }: { services: PlatformServices }) {
       ) : settingsTab === "电脑控制" ? (
         <ComputerSettings settings={library.settings} action={resourceAction} connected={snapshot.connection?.state === "ready"} />
       ) : settingsTab === "Worktrees" ? (
-        <WorktreesSettings action={resourceAction} projects={projects} initialProjectId={worktreeSettingsTarget.projectId} initialTab={worktreeSettingsTarget.tab} />
+        <WorktreesSettings onAddProject={async () => { const id = await services.chooseProject(); if (id) setSnapshot(await services.snapshot()); return id || undefined; }} action={resourceAction} projects={projects} initialProjectId={worktreeSettingsTarget.projectId} initialTab={worktreeSettingsTarget.tab} />
       ) : settingsTab === "钩子" ? (
         <HooksSettings action={resourceAction} connected={snapshot.connection?.state === "ready"} onConnect={reconnectService} />
       ) : settingsTab === "模型服务" ? (
@@ -2166,7 +2166,7 @@ function AppContent({ services }: { services: PlatformServices }) {
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
-                          {project && <ComposerWorkspaceContext project={project} action={resourceAction} backendReady={snapshot.connection?.state === "ready"} />}
+                          {project && <ComposerWorkspaceContext project={project} showBranch={false} action={resourceAction} backendReady={snapshot.connection?.state === "ready"} />}
                           </div>
                         {project && <WorktreeStarter key={project.id} project={project} action={resourceAction} value={worktreeSelection} onChange={value => changeWorktreeSelection(project.id, value)} onConfigureEnvironments={() => { setWorktreeSettingsTarget({ projectId: project.id, tab: "environments" }); setSettingsTab("Worktrees"); setSettingsOpen(true); }} disabled={admitting || !!project.pending?.length} />}
                       </div>

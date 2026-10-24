@@ -14,7 +14,7 @@ GUI 设计知识与后续 Web 复用边界从[设计文档](../../../design/READ
 
 两张用户标注图对应的[对话流设计候选](conversation-flow.md)定义活动行、默认折叠、纵向滚动及右侧 Changes、关联项目、Subagents、Sources。[独立交互预览](../renderer/design-system.html?conversation-system)支持运行/完成/待关注、来源数量、图片查看和窄窗返回；沿现有系统与 Raft 分层组织，尚未修改生产页面或 Base 范围。
 
-九张用户参考图对应的[Worktree 设计规范](worktrees.md)定义 Composer 配置菜单、准备过程、侧栏身份，以及 General / Environments 的布局与状态。规范及三个页面合同均为候选，尚未迁移生产 UI 或扩大 Base。
+九张用户参考图对应的[Worktree 设计规范](worktrees.md)定义 Composer 配置菜单、准备过程、侧栏身份，以及 General / Environments 的布局与状态。生产组合已迁移，代表状态的[视觉对照与交互验收](exercises/worktrees.md)分别记录 renderer 与真实桌面范围；不扩大 Base。
 
 后续从 renderer 题推进到真实桌面的覆盖、顺序和停止条件见[Electron 旅程推进计划](roadmap.md)；该计划与已通过证据分别维护。
 

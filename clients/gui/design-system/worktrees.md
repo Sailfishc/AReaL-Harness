@@ -1,6 +1,6 @@
 # Worktree 设计系统：配置、准备与管理
 
-状态：设计候选，供后续 UI 实现和视觉评审使用。本文定义目标，不表示现有页面已经符合；不修改生产 UI、Token、执行合同或 Base 准入。适用桌面项目模式，首期脚本平台为 macOS、Linux。产品名称统一为 **Worktree**，设置导航使用 **Worktrees**。
+状态：生产 UI 已按本文迁移，代表状态的视觉对照与交互覆盖见[Worktree 验收题](exercises/worktrees.md)。本文继续拥有目标规则；实现与验证限于列明范围，不扩大全局 Token、执行合同或 Base 准入。适用桌面项目模式，首期脚本平台为 macOS、Linux。产品名称统一为 **Worktree**，设置导航使用 **Worktrees**。
 
 目标是让用户在发送前选清工作位置，发送后看懂准备过程，进入聊天后保留轻量的工作区身份，并在设置中管理目录与项目环境。视觉以用户提供的九张 Codex 截图为参照，沿用 AReaL 的字体、语义色、图标与公共控件。
 
@@ -183,7 +183,7 @@ Variables 入口打开小型只读说明，列出 `AREAL_WORKTREE_PATH`、`AREAL
 
 ## 有限例外与共享规则
 
-下面是对[控件选择](patterns.md#控件选择)的**本领域候选例外**，只限所列用途；未迁移前不宣称公共组件已经支持这些变体。
+下面是对[控件选择](patterns.md#控件选择)的**本领域有限例外**，只限所列用途；由 Worktree 组合承担，不增加公共控件的新默认值。
 
 | 例外 | 为什么需要 | 限制 |
 | --- | --- | --- |
@@ -220,23 +220,23 @@ Variables 入口打开小型只读说明，列出 `AREAL_WORKTREE_PATH`、`AREAL
 - 窄窗优先保住名称、当前值、尾部动作及返回；必要时设置行上下排列，不缩小字体。日志、代码与详情路径可读全，页面无横向溢出。
 - 沿原动效与 reduced motion；静态截图不提供新时长。减少动态效果时保留状态文本与静态图标，不以停止旋转表示执行结束。
 
-## 当前差距与实现所有者
+## 实现落点与保留差异
 
-这里记录本次源码核对结果，是后续迁移范围，不是重新实现后台的理由。
+下表记录生产落点。精确参数与状态投影以源码为准，已实现的展示不代表所有宿主和平台均经过验收。
 
-| 优先级 / 目标 | 当前差距 | 原所有者 |
+| 目标 | 当前落点与边界 | 原所有者 |
 | --- | --- | --- |
-| 1 配置行与单浮层子页 | 纵向表单与说明占位过大，分支子浮层 / 环境 Select 未形成参考的统一导航结构 | [WorktreeStarter](../renderer/src/WorktreeStarter.tsx)、[DraftComposer](../renderer/src/DraftComposer.tsx) |
-| 1 准备 / 完成层级 | 状态使用常驻边框组；需按首条 Prompt 顺序组织，并使完成事实轻量化 | [WorktreeStatus](../renderer/src/WorktreeStatus.tsx)、[Messages](../renderer/src/Messages.tsx) |
-| 1 侧栏单标识 | 分支文字常驻第二行，抢占会话标题 | [TaskListItem](../renderer/src/TaskListItem.tsx) |
-| 1 设置导航层级 | 项目选择、环境列表与编辑混在一页；General 目录按项目叠组 | [WorktreesSettings](../renderer/src/settings/WorktreesSettings.tsx)、[SettingsWorkspace](../renderer/src/settings/SettingsWorkspace.tsx) |
-| 2 脚本与 Actions | 全编辑区共用平台状态；Variables 与紧凑 Action 编辑形态待补 | [WorktreesSettings](../renderer/src/settings/WorktreesSettings.tsx)、原 Settings 控件 |
+| 配置行与单浮层子页 | 三行主菜单、同浮层分支 / 环境子页、搜索和焦点返回。宿主只提供分支字符串，因此使用真实分支列表，不伪造本地 / 远端元数据分组 | [WorktreeStarter](../renderer/src/WorktreeStarter.tsx)、[DraftComposer](../renderer/src/DraftComposer.tsx) |
+| 准备 / 完成层级 | 默认关闭日志，取消控制同排，ready 收敛为轻量事实。创建记录只绑定完整本地历史的首轮 Prompt，不挂在继承或分页后的其他消息下 | [WorktreeStatus](../renderer/src/WorktreeStatus.tsx)、[Messages](../renderer/src/Messages.tsx) |
+| 侧栏单标识 | 名称为主，尾部分叉图标与具名状态，不显示 UUID 第二行 | [TaskListItem](../renderer/src/TaskListItem.tsx) |
+| 设置导航层级 | General 一个主设置组与紧凑目录；项目列表、环境列表、独立编辑页分开。高级前缀与安全删除提示保留 AReaL 能力边界 | [WorktreesSettings](../renderer/src/settings/WorktreesSettings.tsx)、[SettingsWorkspace](../renderer/src/settings/SettingsWorkspace.tsx) |
+| 脚本与 Actions | 独立平台标签、只读 Variables、单行 Action 展开编辑；语义表面与边框使用既有角色 | [WorktreesSettings](../renderer/src/settings/WorktreesSettings.tsx)、原 Settings 控件 |
 
-几何与样式后续落在上述所有者及其受控 CSS；状态仍从已有服务读取。本文不登记尚不存在的生产组件 API，也不把已有行为验收当作以上视觉缺口已关闭。
+局部几何与样式落在 [Worktree.css](../renderer/src/Worktree.css) 和 [WorktreesSettings.css](../renderer/src/settings/WorktreesSettings.css)；状态从已有服务读取。Dirty 刷新保留原 revision，版本冲突后需放弃再重新编辑，不能静默推进 revision 覆盖其他配置。
 
 ## 固定样例与后续验收
 
-页面合同拆为[配置选择](surfaces/worktree-picker.json)、[准备过程](surfaces/worktree-preparation.json)、[设置管理](surfaces/worktree-settings.json)，均为 pending。它们引用已有模式及控件，只固定待验证内容、状态和不变量，不证明源码已经采用新形态。
+页面合同拆为[配置选择](surfaces/worktree-picker.json)、[准备过程](surfaces/worktree-preparation.json)、[设置管理](surfaces/worktree-settings.json)。它们引用已有模式及控件，分别登记代表截图的对照状态与未覆盖范围；不把部分截图提升为所有状态通过。
 
 | 题目 | 固定输入 / 操作 | 视觉与交互通过条件 |
 | --- | --- | --- |
@@ -252,4 +252,4 @@ Variables 入口打开小型只读说明，列出 `AREAL_WORKTREE_PATH`、`AREAL
 | Action | 零项、三项、长命令、运行/失败/未知 | 空态安静，列表可识别；设置只配置；会话入口沿真实状态显示结果 |
 | 边界组合 | 明暗主题，UI 字号 14 / 18，宽 / 窄，键盘与 reduced motion | 不靠缩字体通过；当前值、返回、取消、保存和删除均可达；无页面横向溢出 |
 
-后续实现先用相同内容逐状态对照 WT-R01～09，保留 AReaL 品牌与安全语义差异；截图缺失状态按本稿目标验证并明确标注。视觉评审、键盘/阅读行为、真实 Core 路径和安装包分别报告。本轮仅定义规范与校验合同，不声明以上运行验收通过。
+逐状态对照 WT-R01～09 时保留 AReaL 品牌与安全语义差异；截图缺失状态按本稿目标验证并明确标注。当前 [renderer 与 Electron 验收范围](exercises/worktrees.md)分别报告视觉、交互和真实 Core 路径；尚未验收安装包、物理输入或 Linux 实机，不声明逐像素一致。

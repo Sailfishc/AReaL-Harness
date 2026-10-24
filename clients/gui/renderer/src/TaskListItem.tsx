@@ -12,7 +12,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 export const MemoTaskItem = memo(function TaskListItem({ id, title, worktree, active, pinned, running, attention, archived, disabled, unread = false, statePending = false, nested = true, instanceId, dragProps, organizationActions, onSelect, onRename, onPin, onArchive }: {
     id: string;
     title: string;
-    worktree?: {branch: string; directory: string};
+    worktree?: {branch: string; directory: string; state?: string};
     active: boolean;
     pinned: boolean;
     running: boolean;
@@ -71,16 +71,19 @@ export const MemoTaskItem = memo(function TaskListItem({ id, title, worktree, ac
         </div>}
         <div className="task-row-title flex min-w-0 flex-1 flex-col">
           <div className="flex min-w-0 items-center gap-2">
-            <div className="relative min-w-0 flex flex-1 flex-wrap items-center gap-1.5">
+            <div className="relative min-w-0 flex flex-1 items-center gap-1.5">
               <TaskTitleOverflowText className="navigation-task-title" title={title}>
                 {title}
               </TaskTitleOverflowText>
-              {worktree && <span data-testid="task-worktree-badge" className="flex min-w-0 max-w-full items-center gap-1 text-ui-caption text-foreground-subtle" title={worktree.directory} aria-label={t("worktree.threadWorkspace", { branch: worktree.branch })}>
-                <GitFork className="size-3 shrink-0" aria-hidden="true" /><span className="truncate">{worktree.branch}</span>
-              </span>}
+
             </div>
           </div>
         </div>
+        {worktree && <span data-testid="task-worktree-badge" className="task-worktree-badge shrink-0 text-foreground-subtle"
+          title={`${t("worktree.threadWorkspace", { branch: worktree.branch })} · ${worktree.directory}`}
+          aria-label={`${t("worktree.threadWorkspace", { branch: worktree.branch })}${worktree.state ? ` · ${t(worktree.state === "ready" ? "worktree.ready" : worktree.state === "failed" ? "worktree.failed" : worktree.state === "unknown" ? "worktree.unknown" : worktree.state === "cancelled" ? "worktree.cancelled" : worktree.state === "cancelling" ? "worktree.cancelling" : "worktree.creating")}` : ""}`}>
+          <GitFork className="size-3.5" aria-hidden="true" />
+        </span>}
         <span
           onClick={(e) => e.stopPropagation()}
           onPointerDown={(e) => e.stopPropagation()}

@@ -17,7 +17,7 @@
 
 右侧任务上下文的候选组织见[对话流设计草案](../../../clients/gui/design-system/conversation-flow.md#右侧任务上下文)：Changes、当前 Worktree 关联项目、Subagents 与可折叠的 Sources。概览与深入阅读共用原宿主，不能从参考图推断跨项目数据能力；该草案尚未迁移生产页面。
 
-Worktree 从 Composer 配置、准备过程到侧栏身份与设置管理的候选布局见[Worktree 设计规范](../../../clients/gui/design-system/worktrees.md)。它沿原工作台区域组织，不迁移已有会话或新增工作区执行所有者；当前规范尚待生产 UI 实现与视觉验收。
+Worktree 从 Composer 配置、准备过程到侧栏身份与设置管理的布局见[Worktree 设计规范](../../../clients/gui/design-system/worktrees.md)。它沿原工作台区域组织，不迁移已有会话或新增工作区执行所有者；生产组合与代表状态已迁移，验收范围见 [Worktree 验收题](../../../clients/gui/design-system/exercises/worktrees.md)。
 
 ## 进入、深入查看与返回
 

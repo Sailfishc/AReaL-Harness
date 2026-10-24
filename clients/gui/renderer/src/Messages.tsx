@@ -187,6 +187,7 @@ export function Messages({
   const history = useConversationHistory(project.id, localThread, action);
   const thread: Data = { ...localThread, turns: [...inherited.turns, ...(localThread.turns ?? [])] };
   const inheritedIds = new Set(inherited.turns.map(turn => turn.id));
+  const creationAnchor = localThread.displayHistory?.complete === false ? undefined : localThread.turns?.[0]?.id;
   const ordinary = isOrdinaryConversation(localThread, project.configurations?.[localThread.id]);
   const editable = ordinary && !readOnly ? (localThread.turns ?? []).flatMap((turn: Data) => turn.continuedFromTurnId || goalContinuationLabel(turn) ? [] : (turn.items ?? []).filter((item: Data) => item.type === "userMessage")).at(-1)?.id : undefined;
   const responseSpace = useRef<HTMLDivElement>(null);
@@ -508,7 +509,7 @@ export function Messages({
       }}
     >
       <div className={embedded ? "message-column message-embedded-column" : "message-column"}>
-        <WorktreeStatus events={localThread.worktreeEvents} current={localThread.worktree} />
+        {localThread.displayHistory?.complete !== false && !(localThread.turns ?? []).some((turn: Data) => (turn.items ?? []).some((item: Data) => item.type === "userMessage")) && <WorktreeStatus events={localThread.worktreeEvents} current={localThread.worktree} />}
         {beforeTurns}
         {inherited.loading && <p role="status">正在加载继承历史…</p>}
         {inherited.error && <p role="alert">继承历史读取失败：{inherited.error}</p>}
@@ -624,7 +625,7 @@ export function Messages({
                 const imageFeedback = sentImageAnnotations(browserFeedback.text, attachments);
                 const ordinaryAttachments = attachments.map((part: Data, index: number) => ({ part, index })).filter(({ part }) => !browserFeedback.notes.some(note => note.imageUri === (part.url ?? part.uri)));
                 return (
-                  <div className="user-message" data-side-item-id={item.id} key={item.id}>
+                  <Fragment key={item.id}><div className="user-message" data-side-item-id={item.id}>
                     <div className="user-message-content">
                       <SentReviewComments comments={feedback.comments} />
                       {appContent.length>0&&<div className="user-attachments" aria-label="应用内容">{appContent.map((part:Data,index:number)=><McpContentLabel key={index} block={part.mcpContent}/>)}</div>}
@@ -648,6 +649,7 @@ export function Messages({
                       {(text.trim() || item.id === editable) && <MessageActions text={text}>{item.id === editable && <UserPromptEdit key={`${owner}:${item.id}`} project={project} thread={localThread} item={item} action={action} />}</MessageActions>}
                     </div>
                   </div>
+                  {turn.id === creationAnchor && item.id === initialUser?.id && <WorktreeStatus events={localThread.worktreeEvents} current={localThread.worktree} />}</Fragment>
                 );
               }
               if (item.type === "agentMessage") return renderAgentMessage(item, turn, item.id === finalMessage?.id);

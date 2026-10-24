@@ -13,7 +13,7 @@
   ],
   "reference": {
     "kind": "screenshot",
-    "visualTarget": "WT-R03 General、WT-R01 项目列表、WT-R02 / WT-R07 环境编辑；规则正文：design-system/worktrees.md。用户原图留本地，未完成同状态视觉对照。"
+    "visualTarget": "WT-R03 General、WT-R01 项目列表、WT-R02 / WT-R07 环境编辑；规则正文：design-system/worktrees.md。用户原图留本地，代表状态对照见 design-system/exercises/worktrees.md。"
   },
   "slots": {
     "label": [
@@ -118,11 +118,33 @@
     "Default / macOS / Linux；只解释当前 AREAL 三个变量；不新增 Windows、凭据或快照能力"
   ],
   "evidence": {
-    "status": "pending",
-    "artifacts": [],
+    "status": "compared",
+    "artifacts": [
+      {
+        "path": ".scratch/worktree-ui-20261024/renderer-4/settings-general.png",
+        "sha256": "defe8bf758e5ed367b23a98099228fbc1c11fa1381ae591a4c2d7ab7f57777ed",
+        "state": "settings-general"
+      },
+      {
+        "path": ".scratch/worktree-ui-20261024/renderer-4/settings-environment-projects.png",
+        "sha256": "e8a44ee414805ff588bddcc75332ec54b8b9a7eeddeabec17d8e5f69cc22ea6f",
+        "state": "settings-environment-projects"
+      },
+      {
+        "path": ".scratch/worktree-ui-20261024/renderer-4/settings-platform-independent.png",
+        "sha256": "6621a85275b67072f3dedb4b8f19a57accd0c527f7188ca7af6c4172c8a39a45",
+        "state": "settings-platform-independent"
+      },
+      {
+        "path": ".scratch/worktree-ui-20261024/renderer-4/settings-dark-18-wide.png",
+        "sha256": "a0b1cb7f33d1002ebeff92b825b9859dc2f28743bf57b7d913de3dece7e4b4a5",
+        "state": "settings-dark-18-wide"
+      }
+    ],
     "gaps": [
-      "当前项目选择与编辑仍混排，平台状态共用，目录按项目叠组，待迁移",
-      "未执行目录、脚本、保存、删除和返回的本稿视觉 / 可访问性验收；合同为 pending"
+      "组件保存/删除使用服务 fixture；真实配置重载与脏目录拒删另见桌面验收题",
+      "原生目录窗口、Linux 实机、自动保留清理和成功删除前 Cleanup 未覆盖",
+      "只采用 Default/macOS/Linux 与现有安全删除；没有 Windows、脏文件复制或恢复快照承诺"
     ]
   }
 }

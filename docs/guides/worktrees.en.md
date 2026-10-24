@@ -2,7 +2,7 @@
 
 # Desktop worktrees
 
-A new desktop conversation can select a source worktree, starting branch, and new branch name within one Git repository. Each isolated checkout has its own Core and Runtime. The sidebar continues to show threads under the original logical project. Workspace preparation happens before the first message executes. Existing conversations are not moved transparently.
+A new desktop conversation can select a starting branch and project environment to create a worktree within the same Git repository. Each isolated checkout has its own Core and Runtime. The sidebar continues to show threads under the original logical project. Workspace preparation happens before the first message executes. Existing conversations are not moved transparently.
 
 ## Workspace selection for a new conversation
 
@@ -21,6 +21,8 @@ The management list groups registered worktrees by project. Deletion verifies th
 ## Project environments
 
 **Environments** stores a name, setup script, cleanup script, and custom actions per project. Scripts have **Default**, **macOS**, and **Linux** tabs. A nonempty platform script replaces Default. An empty override uses Default. Creation freezes the selected environment. Later edits do not change existing worktrees.
+
+Choose a project, then open its environment list to add or edit an environment. Setup, cleanup, and each action have independent platform tabs. Switching tabs preserves unsaved scripts for other platforms. Variables explains the supported variables. Expand an action row to edit it. Saving configuration does not run scripts. Returning preserves project context and protects unsaved changes.
 
 Setup runs in the new worktree's project root. The first prompt is sent only after setup succeeds. An empty bound thread can exist during preparation. Cleanup runs before deletion. Run an action explicitly from the current worktree to build, test, or run another project command. Scripts use Core managed processes and their existing permission, timeout, output, and cleanup rules.
 

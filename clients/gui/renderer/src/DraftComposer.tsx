@@ -138,7 +138,7 @@ export function DraftComposer({
   const [checkingCreation, setCheckingCreation] = useState(false);
   const [creationChecked, setCreationChecked] = useState(false);
   const acceptedRecovery = useRef<string | null>(null);
-  const [activeCreation, setActiveCreation] = useState<{ requestId: string; text: string }>();
+  const [activeCreation, setActiveCreation] = useState<{ requestId: string; text: string; worktree: boolean }>();
   const stoppedCreation = useRef(new Set<string>());
   const [cancellingCreation, setCancellingCreation] = useState(false);
   const [sourceRetry, setSourceRetry] = useState<string>();
@@ -302,7 +302,7 @@ export function DraftComposer({
         ...(selection ? { worktree: { ...selection } } : {}),
       };
       localStorage.setItem(`${key}:pending-create-request`, JSON.stringify(creationRequest));
-      setActiveCreation({ requestId: creationRequestId, text: value });
+      setActiveCreation({ requestId: creationRequestId, text: value, worktree: selection?.mode !== "source" });
       const result = await action("create", creationRequest);
       if (stoppedCreation.current.has(creationRequestId)) return;
       localStorage.removeItem(`${key}:pending-create-request`);
@@ -392,13 +392,13 @@ export function DraftComposer({
   const creationStatus = activeCreation && project.worktreeOperations?.findLast((item: Data) => item.requestId === activeCreation.requestId);
   return (
     <div className="composer-dock" data-v4-composer-dock="true">
-      {activeCreation && (busy || creationStatus) && <div className="grid gap-2" data-testid="worktree-creation-progress">
-        <p className="ml-auto max-w-[85%] whitespace-pre-wrap break-words rounded-xl bg-surface px-3 py-2 text-ui-sm">{activeCreation.text}</p>
-        <WorktreeStatus current={{ ...(creationStatus ?? { requestId: activeCreation.requestId, state: "creating" }), ...(cancellingCreation ? { state: "cancelling" } : {}) }} />
-        {busy && <div className="flex items-center gap-2 pb-2">
-          <Button variant="ghost" size="sm" disabled={cancellingCreation} onClick={() => void cancelCreation(false)}>{t("worktree.cancelCreation")}</Button>
-          <Button variant="ghost" size="sm" disabled={cancellingCreation} onClick={() => void cancelCreation(true)}>{t("worktree.useOriginal")}</Button>
-        </div>}
+      {activeCreation?.worktree && (busy || creationStatus) && <div className="worktree-creation-preview" data-testid="worktree-creation-progress">
+        <div className="user-message"><div className="user-message-content"><div className="user-bubble">{activeCreation.text}</div></div></div>
+        <WorktreeStatus current={{ ...(creationStatus ?? { requestId: activeCreation.requestId, state: "creating" }), ...(cancellingCreation ? { state: "cancelling" } : {}) }}
+            controls={busy ? <>
+                <Button variant="ghost" size="sm" disabled={cancellingCreation} onClick={() => void cancelCreation(true)}>{t("worktree.useOriginal")}</Button>
+                <Button variant="ghost" size="sm" disabled={cancellingCreation} onClick={() => void cancelCreation(false)}>{t("worktree.cancelCreation")}</Button>
+            </> : undefined} />
       </div>}
       <input
         ref={upload}
@@ -430,6 +430,7 @@ export function DraftComposer({
       <div className="composer-input-stack">
       <div ref={setMenuAnchor} className="composer-menu-anchor" />
       <ChatPromptEditor
+        key={activeCreation?.worktree && busy ? "worktree-waiting" : "draft"}
         surfaceLayout={surfaceLayout}
         triggerPanelContainer={menuAnchor}
         shellClassName="@container/composer"
@@ -440,11 +441,11 @@ export function DraftComposer({
         onFileDrop={files => setFiles(current => [...current, ...files])}
         onWorkspaceReferencePendingChange={setWorkspaceReferencePending}
         taskId={null}
-        initialValue={text}
+        initialValue={activeCreation?.worktree && busy ? "" : text}
         inputApiRef={api}
         inputTestId="chat-input"
         submitTestId="chat-send-button"
-        placeholder={goalMode ? "描述目标，明确可衡量的结果" : plan ? "描述任务，生成计划…" : "随心输入"}
+        placeholder={activeCreation?.worktree && busy ? t("worktree.waitSetup") : goalMode ? "描述目标，明确可衡量的结果" : plan ? "描述任务，生成计划…" : "随心输入"}
         disabled={editLocked}
         submitDisabled={workspaceReferencePending || submitDisabled || annotationBlocked || (desktopUnsupported && !goalMode) || (goalMode ? !input.text.trim() : !input.text.trim() && !input.files.length && !comments.length && !skills.selected.length)}
         submitDisabledReason={desktopUnsupported && !goalMode ? t("backend.updateRequired") : undefined}
@@ -467,6 +468,7 @@ export function DraftComposer({
           ...skills.catalog.entries.map(entry => ({ ...entry, disabled: entry.disabled || !executionReady })),
         ] }}
         onChange={(value) => {
+          if (activeCreation?.worktree && busy) return;
           setText(value);
           localStorage.setItem(key, value);
         }}

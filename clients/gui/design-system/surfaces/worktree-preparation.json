@@ -11,7 +11,7 @@
   ],
   "reference": {
     "kind": "screenshot",
-    "visualTarget": "WT-R05 创建详情、WT-R04 已创建、WT-R06 正常聊天；规则正文：design-system/worktrees.md。用户原图留本地，未完成同状态视觉对照。"
+    "visualTarget": "WT-R05 创建详情、WT-R04 已创建、WT-R06 正常聊天；规则正文：design-system/worktrees.md。用户原图留本地，代表状态对照见 design-system/exercises/worktrees.md。"
   },
   "slots": {
     "status": [
@@ -100,11 +100,38 @@
     "侧栏身份遵循 WT-IDENTITY-01，准备、绑定与取消明确区分"
   ],
   "evidence": {
-    "status": "pending",
-    "artifacts": [],
+    "status": "compared",
+    "artifacts": [
+      {
+        "path": ".scratch/worktree-ui-20261024/renderer-4/state-creating-log-details.png",
+        "sha256": "ba2ef784886421d06f4592689def3f074e8e5016b126e4c6a494df899cd4e306",
+        "state": "state-creating-log-details"
+      },
+      {
+        "path": ".scratch/worktree-ui-20261024/renderer-4/state-created.png",
+        "sha256": "de8f73f359a75c16e2173322a7f9e35ddfd7cde6406b76cd578bd1d6fb571345",
+        "state": "state-created"
+      },
+      {
+        "path": ".scratch/worktree-ui-20261024/renderer-4/state-ready.png",
+        "sha256": "c0da8462719713ddfb9bf89cd910f7b74c24a128a65e713a5b3e42b9e2ee12ba",
+        "state": "state-ready"
+      },
+      {
+        "path": ".scratch/worktree-ui-20261024/renderer-4/state-unknown.png",
+        "sha256": "b221f5ad7d655470a42816cd7d2f68557606b7f107f4bea6735043708f9e9867",
+        "state": "state-unknown"
+      },
+      {
+        "path": ".scratch/worktree-ui-20261024/renderer-4/messages-inherited-first-own.png",
+        "sha256": "37b4da63f85aae953ffef230c3b6020506ed0479dab49f75d25476b00e7c87fa",
+        "state": "messages-inherited-first-own"
+      }
+    ],
     "gaps": [
-      "现有状态卡与侧栏仍待视觉迁移，本文不修改消息投影或执行",
-      "静态参考不证明时序、取消或焦点行为；后续需分别验证真实路径和视觉"
+      "组件异常状态使用声明的初始投影与服务 fixture；真实首次发送/取消另见桌面验收题",
+      "静态参考不证明完整时序；没有视频级瞬态无遗漏或跨平台结论",
+      "不完整本地历史只保留工作区身份入口，不把创建记录挂到后续可见 Prompt"
     ]
   }
 }

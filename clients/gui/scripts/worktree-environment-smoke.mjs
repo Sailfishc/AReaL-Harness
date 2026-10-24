@@ -84,7 +84,7 @@ const binary = process.env.AREAL_GUI_EXECUTABLE
   : process.env.AREAL_CORE_BIN || join(root, "target/debug/areal");
 const sha256 = data => createHash("sha256").update(data).digest("hex");
 const binaryHash = sha256(await readFile(binary));
-const sourceFiles = ["scripts/worktree-environment-smoke.mjs", "app/src/core/worktrees.cjs", "app/src/core/worktree-environment.cjs", "packages/workspace-git/worktrees.js", "renderer/src/WorktreeStarter.tsx", "renderer/src/WorktreeStatus.tsx", "renderer/src/DraftComposer.tsx", "renderer/src/TaskListItem.tsx", "renderer/src/settings/WorktreesSettings.tsx", "renderer/src/App.tsx", "renderer/src/i18n/messages/worktrees.ts"];
+const sourceFiles = ["scripts/worktree-environment-smoke.mjs", "app/src/core/worktrees.cjs", "app/src/core/worktree-environment.cjs", "packages/workspace-git/worktrees.js", "renderer/src/WorktreeStarter.tsx", "renderer/src/WorktreeStatus.tsx", "renderer/src/DraftComposer.tsx", "renderer/src/TaskListItem.tsx", "renderer/src/settings/WorktreesSettings.tsx", "renderer/src/App.tsx", "renderer/src/i18n/messages/worktrees.ts", "renderer/src/Worktree.css", "renderer/src/settings/WorktreesSettings.css", "renderer/src/Messages.tsx"];
 const hashSources = async () => Object.fromEntries(await Promise.all(sourceFiles.map(async file => [file, sha256(await readFile(join(gui, file)))])));
 const source = {
   commit: execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim(),
@@ -124,23 +124,30 @@ async function openWorktreeSettings(tab = "环境") {
   await button("Worktrees").click();
   await page.getByRole("tab", { name: tab, exact: true }).click();
 }
-async function platform(name) {
-  await page.getByRole("tab", { name, exact: true }).click();
+async function platform(name, script = "设置脚本") {
+  await page.getByRole("tablist", { name: `${script}平台`, exact: true }).getByRole("tab", { name, exact: true }).click();
 }
+async function projectEnvironments() {
+  const entry = button("配置环境 repo");
+  if (await entry.isVisible()) await entry.click();
+  await button("添加环境").waitFor();
+}
+const scriptInput = (label, platformName) => page.getByRole("tabpanel", { name: platformName, exact: true }).getByRole("textbox", { name: label, exact: true });
 async function addEnvironment({ name, setup, cleanup = "", action, overrides }) {
+  await projectEnvironments();
   await button("添加环境").click();
   await page.getByRole("textbox", { name: "环境名称", exact: true }).fill(name);
   await platform("默认");
-  await page.getByRole("textbox", { name: "设置脚本", exact: true }).fill(setup);
+  await scriptInput("设置脚本", "默认").fill(setup);
   await page.getByRole("textbox", { name: "清理脚本", exact: true }).fill(cleanup);
   if (action) {
     await button("添加操作").click();
     await page.getByRole("textbox", { name: "操作名称", exact: true }).fill(action.name);
-    await page.getByRole("textbox", { name: "操作脚本", exact: true }).fill(action.script);
+    await page.getByRole("textbox", { name: `操作脚本 ${action.name}`, exact: true }).fill(action.script);
   }
   for (const [name, script] of Object.entries(overrides ?? {})) {
     await platform(name);
-    await page.getByRole("textbox", { name: "设置脚本", exact: true }).fill(script);
+    await scriptInput("设置脚本", name).fill(script);
   }
   await platform("默认");
   await button("保存").click();
@@ -209,19 +216,22 @@ try {
   await page.reload();
   await page.getByTestId("areal-workbench").waitFor({ timeout: 120000 });
   await openWorktreeSettings();
-  await page.locator(".settings-field-row").filter({ hasText: "Acceptance" }).getByRole("button", { name: "配置环境", exact: true }).click();
+  await projectEnvironments();
+  await button("编辑环境 Acceptance").click();
   assert.equal(await page.getByRole("textbox", { name: "环境名称", exact: true }).inputValue(), "Acceptance");
   await platform("默认");
-  assert.equal(await page.getByRole("textbox", { name: "设置脚本", exact: true }).inputValue(), platformSetups["默认"]);
+  assert.equal(await scriptInput("设置脚本", "默认").inputValue(), platformSetups["默认"]);
   assert.match(await page.getByRole("textbox", { name: "清理脚本", exact: true }).inputValue(), /cleanup.txt/);
+  await button("编辑操作 Write acceptance marker").click();
   assert.equal(await page.getByRole("textbox", { name: "操作名称", exact: true }).inputValue(), "Write acceptance marker");
   for (const name of ["macOS", "Linux"]) {
     await platform(name);
-    assert.equal(await page.getByRole("textbox", { name: "设置脚本", exact: true }).inputValue(), platformSetups[name]);
+    assert.equal(await scriptInput("设置脚本", name).inputValue(), platformSetups[name]);
+    assert.match(await scriptInput("清理脚本", "默认").inputValue(), /cleanup.txt/, "cleanup platform remains independent");
   }
   await platform("默认");
   await shot("environment-platforms-restored");
-  await button("取消").click();
+  await button("放弃").click();
   checks.push("Environment name, Default/macOS/Linux setup scripts, cleanup and custom action persist through a renderer reload using real settings IPC and disk persistence");
   await addEnvironment({ name: "Failure", setup: 'printf SETUP_FAILED >&2\nexit 17' });
   await addEnvironment({ name: "Slow", setup: slowScript });
@@ -236,7 +246,12 @@ try {
   await page.locator('[data-worktree-state="settingUp"]').waitFor();
   assert.equal(requests.length, 0, "first prompt is held while the real setup subprocess waits");
   assert.equal(await textFile(join(happyPath, "branch.txt")), "RELEASE_BRANCH\n", "selected branch provides the worktree contents");
+  const preview = page.getByTestId("worktree-creation-progress");
+  assert.equal(await preview.locator(".user-bubble").count(), 1);
+  assert.equal((await page.getByTestId("chat-input").innerText()).trim(), "", "waiting composer does not duplicate submitted intent");
   await shot("setup-progress");
+  await button("查看创建详情").click();
+  await shot("setup-progress-details");
   await writeFile(join(happyPath, ".acceptance-release"), "release\n");
   record("setup-released", { happyPath });
   await page.getByText("WORKTREE_ACCEPTANCE_COMPLETE", { exact: true }).waitFor({ timeout: 120000 });
@@ -250,6 +265,11 @@ try {
   const threadId = await page.getByTestId("areal-workbench").getAttribute("data-thread-id");
   assert.ok(threadId);
   await page.getByTestId(`task-item-${threadId}`).getByTestId("task-worktree-badge").waitFor();
+  const readyStatus = page.locator('[data-worktree-state="ready"]');
+  const firstUser = page.locator(".messages .user-message").first();
+  assert.ok(await firstUser.evaluate((element, status) => !!(element.compareDocumentPosition(status) & Node.DOCUMENT_POSITION_FOLLOWING), await readyStatus.elementHandle()), "creation fact follows the submitted user message");
+  assert.equal(await readyStatus.locator("pre:visible").count(), 0, "ready logs stay collapsed");
+  assert.equal(await page.getByTestId(`task-item-${threadId}`).getByTestId("task-worktree-badge").innerText(), "", "sidebar badge has no UUID branch line");
   await shot("ready-with-sidebar-badge");
   checks.push("Selected branch creates on first Send, real shell setup gates submission, Core reads the resulting marker and the ready conversation shows a GitFork sidebar badge");
   await page.getByRole("button", { name: /^Worktree 分支 / }).click();
@@ -295,7 +315,7 @@ try {
   await sendDraft(sourceDraft);
   const retainedPath = await markerPath("original-started.txt");
   await page.locator('[data-worktree-state="settingUp"]').waitFor();
-  await button("使用原目录").click();
+  await button("不使用 Worktree").click();
   await until(() => requests.some(request => request.prompt.includes("WORKTREE_ACCEPTANCE_SOURCE")), "explicit source prompt after cancellation", 90000);
   const sourceState = await until(async () => {
     const current = project(await state());
@@ -309,11 +329,12 @@ try {
   await shot("explicit-original-checkout");
   checks.push("Use original directory confirms cancellation before a fresh source request, sends the draft once, and retains the cancelled worktree");
   await openWorktreeSettings("常规");
-  const dirtyWorktree = page.locator(".settings-field-row").filter({ hasText: cancelledPath });
+  const cancelledBranch = git("-C", cancelledPath, "branch", "--show-current");
+  const dirtyWorktree = page.locator(".worktrees-directory-item").filter({ has: button(`查看详情 ${cancelledBranch}`) });
   await dirtyWorktree.waitFor();
   page.once("dialog", dialog => dialog.accept());
   await dirtyWorktree.getByRole("button", { name: /^删除 / }).click();
-  await page.getByTestId("worktrees-settings").getByRole("alert").waitFor();
+  await dirtyWorktree.getByRole("alert").waitFor();
   assert.ok(worktrees().includes(cancelledPath), "deleting a dirty cancelled worktree is rejected and retains the Git worktree");
   assert.equal(await textFile(join(cancelledPath, "slow-started.txt")), "started");
   await shot("dirty-worktree-delete-rejected");
