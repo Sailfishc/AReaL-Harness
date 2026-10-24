@@ -1,4 +1,8 @@
 export const pluginMessages = {
+  "settings.pluginCenter.previousCreationRecords": {
+    "zh-CN": "历史会话创建记录（待核对）",
+    "en": "Previous conversation creation records (awaiting review)"
+  },
   "settings.pluginCenter.unrelatedCreationUnconfirmed": {
     "zh-CN": "另一个对话创建结果待核对。你可以继续管理插件，原请求会保留且不会自动重发。",
     "en": "Another conversation creation is unconfirmed. You can manage plugins. The original request is retained and will not be resent automatically."

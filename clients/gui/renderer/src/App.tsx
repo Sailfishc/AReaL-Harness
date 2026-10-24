@@ -62,7 +62,7 @@ import { NewTaskButtonGroup } from "./NewTaskButtonGroup.js";
 import { ImageAnnotationPane } from "./ImageAnnotationViews.js";
 import { imageAnnotation, imageAnnotationTitle, setImageAnnotationEditing, useImageAnnotationPending, type ImageAnnotationTarget } from "./imageAnnotations.js";
 import { Composer, attachmentDrafts, sending, subscribeSending } from "./Composer.js";
-import { isTechnicalErrorMessage, recoveredOutcome, recoveryMessage, recoverySettings, sameRecoveryOwner, type RecoveryFailure, type RecoveryNotice, type RecoveryOwner } from "./recoveryPresentation.js";
+import { isIndependentCreation, isTechnicalErrorMessage, recoveredOutcome, recoveryMessage, recoverySettings, sameRecoveryOwner, type RecoveryFailure, type RecoveryNotice, type RecoveryOwner } from "./recoveryPresentation.js";
 import { DraftComposer } from "./DraftComposer.js";
 import { ProjectlessDraft } from "./ProjectlessDraft.js";
 import { WorktreesSettings } from "./settings/WorktreesSettings.js";
@@ -2182,7 +2182,7 @@ function AppContent({ services }: { services: PlatformServices }) {
                         </DropdownMenu>
                           {project && <ComposerWorkspaceContext project={project} showBranch={false} action={resourceAction} backendReady={snapshot.connection?.state === "ready"} />}
                           </div>
-                        {project && <WorktreeStarter key={project.id} project={project} action={resourceAction} value={worktreeSelection} onChange={value => changeWorktreeSelection(project.id, value)} onConfigureEnvironments={() => { setWorktreeSettingsTarget({ projectId: project.id, tab: "environments" }); setSettingsTab("Worktrees"); setSettingsOpen(true); }} disabled={admitting || !!project.pending?.length} />}
+                        {project && <WorktreeStarter key={project.id} project={project} action={resourceAction} value={worktreeSelection} onChange={value => changeWorktreeSelection(project.id, value)} onConfigureEnvironments={() => { setWorktreeSettingsTarget({ projectId: project.id, tab: "environments" }); setSettingsTab("Worktrees"); setSettingsOpen(true); }} disabled={admitting || project.pending?.some((entry: Data) => !isIndependentCreation(entry, []))} />}
                       </div>
                       {project ? (
                           <DraftComposer

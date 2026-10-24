@@ -100,7 +100,7 @@ const manifest = { red, passed: false, checks, errors, scratch, evidence, reques
   commit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(),
   helperSHA256: sha(await readFile(fileURLToPath(import.meta.url))),
   diffSHA256: sha(execFileSync('git', ['diff', '--binary', 'HEAD'], { cwd: root })), binary, coreSHA256: sha(await readFile(binary)),
-  fixtureBoundary: 'Synthetic legacy pending journal, registered linked worktree owner, and binding seeded before startup; no original mutation was executed. Native project picker and quit confirmation injected. Core request tracer forwards every real response unchanged.',
+  fixtureBoundary: 'Synthetic legacy pending journal, registered linked worktree owner, and binding seeded before startup; no original mutation was executed. Native project picker, retention confirmation and quit confirmation injected. Core request tracer forwards every real response unchanged.',
   scope: 'Source Electron Renderer → preload/Main → Desktop → real Core with deterministic local model; no real provider, package, physical input or native picker acceptance' };
 const assets = (await readdir(join(gui, 'renderer/dist/assets'))).filter(name => /\.(js|css)$/.test(name));
 manifest.rendererSHA256 = Object.fromEntries(await Promise.all(assets.map(async name => [name, sha(await readFile(join(gui, 'renderer/dist/assets', name)))])));
@@ -152,7 +152,7 @@ try {
     const leave = button('保留原记录，返回任务列表');
     await leave.waitFor();
     await capture('schedule-unknown');
-    page.once('dialog', dialog => dialog.accept());
+    await page.evaluate(() => { window.confirm = message => { window.__retainedCreationPrompt = message; return true; }; });
     await leave.click();
     const retained = await page.evaluate(id => ({ active: localStorage.getItem('areal-gui:ordinary-schedule-creation'), retained: JSON.parse(localStorage.getItem(`areal-gui:retained-schedule-creation:${id}`) ?? 'null') }), requestId);
     assert.equal(retained.active, null, 'Leaving recovery releases only the active draft slot');
