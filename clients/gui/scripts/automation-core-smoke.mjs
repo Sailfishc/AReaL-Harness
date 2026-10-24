@@ -155,7 +155,8 @@ const model = createServer(async (request, response) => {
   }
 });
 await new Promise(resolve => model.listen(0, '127.0.0.1', resolve));
-await writeFile(join(userHome, '.areal/config.toml'), `schema_version=1\n[model]\nprovider="fixture"\nname="fixture"\n[model.providers.fixture]\nprotocol="chat-completions"\nendpoint="http://127.0.0.1:${model.address().port}/v1/chat/completions"\n`);
+// This bounded multi-turn fixture keeps compaction outside the dialog/automation acceptance surface.
+await writeFile(join(userHome, '.areal/config.toml'), `schema_version=1\n[limits]\ncontext_window_tokens=1000000\ncontext_mode="manual"\n[model]\nprovider="fixture"\nname="fixture"\ncontext_window_tokens=1000000\n[model.providers.fixture]\nprotocol="chat-completions"\nendpoint="http://127.0.0.1:${model.address().port}/v1/chat/completions"\n`);
 const deployment = join(scratch, 'desktop.json');
 await writeFile(deployment, JSON.stringify({ profiles: [{ id: 'fixture', revision: 'v1', displayName: 'Fixture', instructions: 'Use the requested tool and report the result.', allowPluginSkills: options.ecosystem === true }] }));
 const env = { ...process.env, AREAL_GUI_USER_DATA: join(scratch, 'electron'), AREAL_CORE_HOME: join(scratch, 'core'),
@@ -208,14 +209,16 @@ function successful(item) { assert.equal(item.success, true, JSON.stringify(item
 async function runScenario(scenario) {
   activeScenario = { approval: 'allow', ...scenario, sent: false };
   console.error(`automation-core ${scenario.id}`);
-  const previous = (await readCoreThread()).turns?.length ?? 0;
+  const previous = (await readCoreThread()).turns?.at(-1)?.id;
   await command('send', { projectId, threadId, text: `automation acceptance ${scenario.id}` });
   let approvals = 0;
   await until(async () => {
     const snapshot = await state();
     const owner = snapshot.projects.find(item => item.id === projectId);
     const thread = owner?.state?.threads?.[threadId];
-    if ((thread?.turns?.length ?? 0) > previous && ['completed', 'failed', 'interrupted'].includes(thread.turns.at(-1)?.status)) return true;
+    // GUI history is bounded: a new completed turn need not increase its projected count.
+    const latest = thread?.turns?.at(-1);
+    if (latest && latest.id !== previous && ['completed', 'failed', 'interrupted'].includes(latest.status)) return true;
     const panel = page.locator('[data-interaction="approval"]');
     if (!approvals && await panel.count() && await panel.isVisible()) {
       assert.notEqual(activeScenario.approval, 'none', 'prepare-time refusal must not request approval');
@@ -400,16 +403,64 @@ async function launch() {
   await page.getByTestId('areal-workbench').waitFor({ timeout: 120000 });
   await until(async () => (await state()).connection?.state === 'ready', 'desktop service ready');
   events.startup = await checkBrowserStartup(app, { binary, userHome, scratch });
-  events.runtime = await app.evaluate(({ app, BrowserWindow, dialog, shell }, { workspace, computerModule }) => {
+  events.runtime = await app.evaluate(({ app, BrowserWindow, dialog, shell, webContents }, { workspace, computerModule }) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [workspace] });
     globalThis.__automationPermissionRequests = [];
     globalThis.__automationDialogs = [];
-    app.on('web-contents-created', (_event, contents) => {
-      contents.debugger.on('message', (_event, method, params) => {
-        if (method === 'Page.javascriptDialogOpening' || method === 'Page.javascriptDialogClosed')
-          globalThis.__automationDialogs.push({ at: Date.now(), webContentsId: contents.id, method, params });
+    globalThis.__automationDialogTrace = [];
+    const trace = entry => globalThis.__automationDialogTrace.push({ at: Date.now(), monotonicMs: performance.now(), ...entry });
+    const parentWindowId = contents => {
+      try { return BrowserWindow.fromWebContents(contents)?.id ?? null; }
+      catch { return null; }
+    };
+    const traceContents = contents => {
+      const webContentsId = contents.id;
+      trace({ kind: 'contents-created', webContentsId, parentWindowId: parentWindowId(contents) });
+      contents.debugger.on('message', (_event, method, params, sessionId) => {
+        if (method !== 'Page.javascriptDialogOpening' && method !== 'Page.javascriptDialogClosed') return;
+        const entry = { webContentsId, parentWindowId: parentWindowId(contents), method, params, sessionId };
+        globalThis.__automationDialogs.push({ at: Date.now(), ...entry });
+        trace({ kind: 'dialog-event', ...entry });
       });
-    });
+      const sendCommand = contents.debugger.sendCommand.bind(contents.debugger);
+      contents.debugger.sendCommand = (method, ...args) => {
+        if (method === 'Page.handleJavaScriptDialog') trace({ kind: 'dialog-command', webContentsId,
+          parentWindowId: parentWindowId(contents), method, params: args[0], sessionId: args[1], stack: new Error().stack });
+        return sendCommand(method, ...args);
+      };
+      contents.on('before-input-event', (_event, input) => {
+        if (input.key === 'Escape' || input.key === 'Enter') trace({ kind: 'native-key', webContentsId,
+          parentWindowId: parentWindowId(contents), type: input.type, key: input.key, isAutoRepeat: input.isAutoRepeat });
+      });
+      contents.on('destroyed', () => trace({ kind: 'contents-destroyed', webContentsId }));
+    };
+    const traceWindow = (window, kind) => {
+      const windowId = window.id;
+      trace({ kind, windowId, webContentsId: window.webContents.id });
+      for (const method of ['close', 'destroy']) {
+        const original = window[method].bind(window);
+        window[method] = (...args) => {
+          trace({ kind: 'window-call', windowId, method, stack: new Error().stack });
+          return original(...args);
+        };
+      }
+      window.on('close', () => trace({ kind: 'window-close', windowId }));
+      window.on('closed', () => trace({ kind: 'window-closed', windowId }));
+    };
+    app.on('web-contents-created', (_event, contents) => traceContents(contents));
+    app.on('browser-window-created', (_event, window) => traceWindow(window, 'window-created'));
+    for (const contents of webContents.getAllWebContents()) traceContents(contents);
+    for (const window of BrowserWindow.getAllWindows()) traceWindow(window, 'window-existing');
+    const showMessageBox = dialog.showMessageBox.bind(dialog);
+    dialog.showMessageBox = (...args) => {
+      const options = args.at(-1), windowId = args.length > 1 ? args[0]?.id ?? null : null;
+      trace({ kind: 'message-box-open', windowId, type: options?.type, message: options?.message,
+        buttons: options?.buttons, defaultId: options?.defaultId, cancelId: options?.cancelId, stack: new Error().stack });
+      const pending = showMessageBox(...args);
+      void pending.then(result => trace({ kind: 'message-box-result', windowId, result }),
+        error => trace({ kind: 'message-box-error', windowId, message: error.message }));
+      return pending;
+    };
     if (computerModule) {
       const { ComputerControl } = process.getBuiltinModule('node:module').createRequire(computerModule)(computerModule);
       globalThis.__automationComputerTrace = [];
@@ -614,9 +665,21 @@ try {
     await browserCase('hide', { method: 'browserVisibilitySet', visible: false });
     await browserCase('background-capture', { method: 'screenshot' }, { assertResult: imageResult, assertEffect: async () => assert.equal((await nativeFacts()).clicks, 1) });
     await browserCase('show', { method: 'browserVisibilitySet', visible: true });
-    await browserCase('open-dialog', { method: 'evaluate', expression: '(() => { window.openFixtureDialog(); return true; })()' });
-    await browserCase('get-dialog', { method: 'getDialog' }, { assertResult(item) { successful(item); const result = resultObject(item, value => value.dialog?.message === 'Fixture confirm'); assert.equal(result.dialog.type, 'confirm'); } });
-    await browserCase('handle-dialog', { method: 'handleDialog', accept: true }, { assertEffect: () => until(async () => (await nativeFacts()).dialogResult === true, 'actual confirm response') });
+    const assertConfirm = item => { successful(item); const result = resultObject(item, value => value.dialog?.message === 'Fixture confirm'); assert.equal(result.dialog.type, 'confirm'); };
+    for (const [suffix, accept] of [['', true], ['-cancel', false]]) {
+      await browserCase(`open-dialog${suffix}`, { method: 'evaluate', expression: '(() => { window.openFixtureDialog(); return true; })()' });
+      // Exceed the independently reproduced native auto-accept interval. This is a held-dialog assertion, not a retry.
+      await new Promise(resolve => setTimeout(resolve, 4000));
+      await browserCase(`get-dialog${suffix}`, { method: 'getDialog' }, { assertResult: assertConfirm });
+      if (accept) {
+        await browserCase('denied-handle-dialog', { method: 'handleDialog', accept: true }, { approval: 'deny' });
+        await browserCase('dialog-after-denial', { method: 'getDialog' }, { assertResult: assertConfirm });
+      }
+      await browserCase(`handle-dialog${suffix}`, { method: 'handleDialog', accept }, { assertEffect: () => until(async () => (await nativeFacts()).dialogResult === accept, 'actual confirm response') });
+    }
+    const dialogTrace = await app.evaluate(() => globalThis.__automationDialogTrace);
+    assert.equal(dialogTrace.filter(item => item.kind === 'message-box-open' && item.message === 'Fixture confirm').length, 0, 'Agent-owned dialogs never enter native human presentation');
+    assert.deepEqual(dialogTrace.filter(item => item.kind === 'dialog-event' && item.method === 'Page.javascriptDialogClosed').map(item => item.params.result), [true, false], 'only the two approved CDP answers close the actual confirms');
     const recording = await browserCase('recording-start', { method: 'recordingStart', options: { actions: [{ type: 'wait', durationMs: 1000 }], maxDurationMs: 5000 } });
     const recordingId = resultObject(recording, value => typeof value.recording?.id === 'string').recording.id;
     let job;
@@ -632,6 +695,14 @@ try {
     const bytes = await readFile(recordingPath);
     assert.equal(bytes.subarray(0, 4).toString('hex'), '1a45dfa3', 'recording artifact is a WebM container');
     events.recording = { job, path: recordingPath, bytes: bytes.length, sha256: sha(bytes) };
+    await browserCase('open-dialog-stop', { method: 'evaluate', expression: '(() => { window.openFixtureDialog(); return true; })()' });
+    await browserCase('get-dialog-stop', { method: 'getDialog' }, { assertResult: assertConfirm });
+    await preview('stop', { pageId });
+    await until(async () => (await preview('state', { pageId })).browser?.control === 'human', 'pending dialog cancellation converges before human control');
+    assert.equal((await nativeFacts()).dialogResult, false, 'Stop cancels the actual pending dialog without accepting it');
+    const stoppedDialogs = await app.evaluate(() => globalThis.__automationDialogTrace.filter(item => item.kind === 'dialog-event' && item.method === 'Page.javascriptDialogClosed').map(item => item.params.result));
+    assert.deepEqual(stoppedDialogs, [true, false, false], 'Stop terminates its one dialog without duplicate completion');
+    checks.push('browser-pending-dialog-stop');
     await page.reload();
     await page.getByTestId('areal-workbench').waitFor();
     await until(async () => (await state()).connection?.state === 'ready', 'renderer reconnection after denial');
@@ -641,7 +712,7 @@ try {
     for (const id of ['browser-denied-click', 'browser-full-page', 'browser-recording-start']) assert.ok(durable.turns.some(turn => turn.items.some(item => item.callId === id)), `Core retains ${id} after renderer reload`);
     checks.push('browser-durable-results-no-replay');
     gaps.push('The runner covers representative browser commands. It does not establish every ZCode command, arbitrary public sites, real-provider behavior, or packaged application parity.');
-    gaps.push('The browser dialog case covers confirm. Electron prompt support is not established by this runner.');
+    gaps.push('The browser dialog cases cover held confirm accept/cancel and denied approval without native human presentation. Electron prompt support and physical human dialog handling are not established by this runner.');
   }
   if (ecosystem) gaps.push('Selected-plugin browser/computer paths do not cover stale-reference mutation rejection, UNKNOWN receipt loss, physical Stop/takeover, real providers, or packaged apps. Those scenarios require separate acceptance and cannot be inferred from this runner.');
   events.permissionRequests = await app.evaluate(() => globalThis.__automationPermissionRequests);
@@ -661,6 +732,7 @@ try {
   const metadata = await readFile(join(scratch, 'core/service.json'), 'utf8').then(JSON.parse, error => { if (error.code !== 'ENOENT') errors.push(error.message); return null; });
   if (app) {
     events.nativeDialogs = await app.evaluate(() => globalThis.__automationDialogs).catch(error => ({ unavailable: error.message }));
+    events.nativeDialogTrace = await app.evaluate(() => globalThis.__automationDialogTrace).catch(error => ({ unavailable: error.message }));
     events.computerTrace = await app.evaluate(() => globalThis.__automationComputerTrace).catch(error => ({ unavailable: error.message }));
     events.permissionRequests ??= await app.evaluate(() => globalThis.__automationPermissionRequests).catch(error => ({ unavailable: error.message }));
     try {
@@ -696,7 +768,7 @@ try {
   await Promise.all([new Promise(resolve => site.close(resolve)), new Promise(resolve => model.close(resolve))]);
   passed = passed && errors.length === 0;
   if (!passed) process.exitCode ||= 1;
-  const files = ['scripts/automation-core-smoke.mjs', 'app/src/core/browser-tool.cjs', 'app/src/core/computer-control.cjs', 'app/src/core/preview.cjs', 'renderer/dist/index.html'];
+  const files = ['scripts/automation-core-smoke.mjs', 'app/src/core/browser-tool.cjs', 'app/src/core/computer-control.cjs', 'app/src/core/preview.cjs', 'app/src/core/agent-dialog-presentation.cjs', 'renderer/dist/index.html'];
   const hashes = Object.fromEntries(await Promise.all(files.map(async file => [file, await readFile(join(gui, file)).then(sha, error => `unavailable ${error.code}`)])));
   const manifest = { passed, options, startedAt, endedAt: new Date().toISOString(), checks, errors, gaps, failureModes, events, siteFacts,
     sourceHead: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(),

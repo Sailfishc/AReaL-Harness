@@ -137,8 +137,13 @@ async function manage(backend, project, request, context = {}) {
     }[operation];
     const params=pick(request,keys);
     if (operation === 'pluginAuth') params.operation=request.authOperation;
+    const client = project.client;
+    if (operation === 'mcpAppOpen') {
+      // Manual opens execute a tool turn, so bind the existing tools before submitting it.
+      await backend.readObservation(project, request.threadId, { client, resume: true });
+      backend.requireConnection(project, client);
+    }
     try {
-      const client = project.client;
       const result = await client.request(method,params,{timeoutMs:120000});
       if (operation === 'mcpAppOpen' || operation === 'mcpAppOpenFromResult')
         context.onMcpAppOpened?.(project, client, request, result);

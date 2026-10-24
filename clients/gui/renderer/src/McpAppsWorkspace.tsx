@@ -26,6 +26,7 @@ import {
 } from "./settings/McpAppsSettings.js";
 import type { Action, Data, PlatformServices } from "./services.js";
 export type McpWorkspaceServer = McpAppServer & { pluginId?: string; marketplace?: string; installedDigest?: string };
+type AppThreadIntent = "reuse-or-create" | "require-current" | "new";
 type FormRequest = {
     requestId: string;
     threadId: string;
@@ -242,17 +243,17 @@ export function useMcpAppsWorkspace({
         },
         [mcpApp],
     );
-    async function ensureThread(forceNew = false) {
+    async function ensureThread(intent: AppThreadIntent = "reuse-or-create") {
         const { project, threadId, action, onOpenThread } = current.current;
         if (!project?.state?.connected) throw Error(t("settings.mcpAppsWorkspace.connectTheProjectFirst"));
         if (!hostSupported || project.desktopCapabilities?.currentCommands === false) throw Error(t(compatibilityHint.id));
-        if (
-            !forceNew &&
-            threadId &&
-            project.state?.threads[threadId] &&
-            !project.state.threads[threadId].desktop?.archived
-        )
+        if (intent !== "new" && threadId) {
+            if (!project.state.threads[threadId] || project.state.threads[threadId].desktop?.archived)
+                throw Error(t("settings.mcpAppsWorkspace.theAppConversationIsNoLongerAvailable"));
             return { projectId: project.id, threadId };
+        }
+        if (intent === "require-current")
+            throw Error(t("settings.mcpAppsWorkspace.chooseAnAppConversationFirst"));
         const result = await action("create", { projectId: project.id });
         if (typeof result.threadId !== "string") throw Error(t("settings.mcpAppsWorkspace.couldNotCreateAnAppConversation"));
         await onOpenThread(project.id, result.threadId);
@@ -283,6 +284,9 @@ export function useMcpAppsWorkspace({
                 (global || (app.threadId === current.current.threadId && !options.filePath)),
         );
         if (existing) {
+            if (!project.state?.connected) throw Error(t("settings.mcpAppsWorkspace.connectTheProjectFirst"));
+            if (!project.state.threads[existing.threadId] || project.state.threads[existing.threadId].desktop?.archived)
+                throw Error(t("settings.mcpAppsWorkspace.theAppConversationIsNoLongerAvailable"));
             if (options.deepLink)
                 setApps((items) =>
                     items.map((app) =>
@@ -305,7 +309,7 @@ export function useMcpAppsWorkspace({
             throw Error("最多可同时打开 8 个应用页面，请先关闭一个页面。");
         pendingOpens.current++;
         try {
-            const owner = await ensureThread(global);
+            const owner = await ensureThread(global ? "require-current" : "reuse-or-create");
             const directory = await current.current.action("manage", {
                 operation: "mcpApps",
                 projectId: owner.projectId,
@@ -322,6 +326,16 @@ export function useMcpAppsWorkspace({
             const connectedTool = connectedServer?.tools.find((candidate) => candidate.name === tool.name);
             if (!connectedServer || !connectedTool)
                 throw Error(t("settings.mcpAppsWorkspace.theAppConnectionOrPluginVersionHas"));
+            // The initial tool can wait for ordinary approval in its owning conversation.
+            await current.current.onOpenThread(owner.projectId, owner.threadId);
+            const selectedProject = current.current.project;
+            if (!selectedProject || selectedProject.id !== owner.projectId)
+                throw Error(t("settings.mcpAppsWorkspace.theAppSProjectHasChangedOpen"));
+            if (!selectedProject.state?.connected)
+                throw Error(t("settings.mcpAppsWorkspace.connectTheProjectFirst"));
+            if (selectedProject.desktopCapabilities?.currentCommands === false) throw Error(t(compatibilityHint.id));
+            if (current.current.threadId !== owner.threadId || !selectedProject.state.threads[owner.threadId] || selectedProject.state.threads[owner.threadId].desktop?.archived)
+                throw Error(t("settings.mcpAppsWorkspace.theAppConversationIsNoLongerAvailable"));
             const app = await mcpApp({
                 operation: "open",
                 ...owner,
@@ -427,7 +441,7 @@ export function useMcpAppsWorkspace({
             throw Error(t("settings.mcpAppsWorkspace.theAppConversationIsNoLongerAvailable"));
         const owner =
             value.target === "new"
-                ? await ensureThread(true)
+                ? await ensureThread("new")
                 : { projectId: value.projectId, threadId: value.threadId };
         const key = `areal-gui:draft:${owner.projectId}:${owner.threadId}`;
         if (

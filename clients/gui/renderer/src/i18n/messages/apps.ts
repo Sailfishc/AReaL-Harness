@@ -117,8 +117,8 @@ export const appMessages = {
     "en": "Text preview is unavailable for this binary resource."
   },
   "settings.mcpAppsWorkspace.chooseAnAppConversationFirst": {
-    "zh-CN": "请先选择应用会话",
-    "en": "Choose an app conversation first"
+    "zh-CN": "请先在侧栏选择已有会话，再打开应用。",
+    "en": "Select an existing conversation in the sidebar, then open the app."
   },
   "settings.mcpAppsWorkspace.theAppActionDidNotComplete": {
     "zh-CN": "应用操作未完成",

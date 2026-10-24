@@ -27,6 +27,16 @@ Set `AREAL_BROWSER_B1_PRIVACY=1` with the same B1 command to focus on action rec
 
 Fixtures include separate-origin sites, simulated HTTPOnly-cookie login, cross-origin frames, Shadow DOM, duplicate names, DOM replacement, Canvas, popups, blocking dialogs, downloads/chooser, failed APIs, synthetic secrets in logs, delayed submissions and HMR/style pages. No personal Profiles. Endpoint-denial tests use test services, not scans of user services.
 
+## Agent JavaScript dialog ownership
+
+Main's [`agent-dialog-presentation.cjs`](../../clients/gui/app/src/core/agent-dialog-presentation.cjs) controls presentation only for Preview WebContents it creates. Human control forwards Electron's original handler unchanged and refuses Agent claims until its Promise settles. Agent control retains the real `alert`/`confirm` callback without showing a native message box. Normal answers still use Core approval, Main `dispatchInput`, and CDP `Page.handleJavaScriptDialog`; CDP Opening/Closed events remain the observation source. Main privately binds the prepared decision to the observed dialog identity so an old approval cannot answer a replacement dialog in the same document. No public protocol fields are added. `prompt()` remains unsupported and `beforeunload` keeps its existing path.
+
+This relies on the exact [Electron 44.5.0 private event implementation](https://github.com/electron/electron/blob/v44.5.0/lib/browser/api/web-contents.ts#L768). Installation and claims check the expected single default `-run-dialog`/`-cancel-dialogs` listener shapes; event arguments are checked at runtime. An incompatible version or contract preserves human browsing and refuses Agent claims. Electron upgrades require source review plus real pending, accept/reject and lifecycle acceptance. Updating the version guard or counting listeners alone cannot establish compatibility.
+
+Revocation fences the old control epoch before cancelling the retained callback. Main-frame document replacement, close and disposal also take the reference before invoking `callback(false, '')` at most once. Same-document and child-frame navigation do not actively cancel the main page's dialog. CDP Closed, platform cancellation and destruction only release it. Ordinary Core `turnEnded` preserves pending dialogs for a later get/handle Turn. Lost CDP receipts remain UNKNOWN; cleanup callbacks cannot substitute a success receipt or replay an answer.
+
+Dialog acceptance in `pnpm --dir clients/gui run test:automation` should retain real page results, independent effect counts, CDP Opening/Closed and native presentation calls: get/handle across Turns and denied approval must remain pending; approval must produce the corresponding real JavaScript accept/reject boolean exactly once. Also exercise pending revoke, navigation, close, platform cancellation/destruction, handle/takeover races, human handler forwarding and incompatible-contract refusal. An Electron/CDP probe does not establish the full Core approval path, physical human input or packaged-app acceptance. Native presentation tracing must only observe; it must not replace the handler or decide the result.
+
 ## Scenario matrix
 
 | Scenario | Behavior | Required evidence | Ticket |

@@ -27,6 +27,16 @@ B1 原生控件验收入口为 `node clients/gui/scripts/browser-actions-smoke.m
 
 Fixture 至少含：不同端口的A/B站点、HTTPOnly Cookie登录模拟、跨源iframe、Shadow DOM、重复同名元素、动态替换、Canvas、popup、阻塞dialog、下载/chooser、失败API、含测试令牌日志、延迟表单提交、HMR样式页。测试仅用合成数据，不导入真实Profile。访问Core/adapter控制端口的测试使用测试服务，不探测用户现有服务。
 
+## Agent JavaScript 对话框归属
+
+Main 的 [`agent-dialog-presentation.cjs`](../../clients/gui/app/src/core/agent-dialog-presentation.cjs) 只接管自己创建的 Preview WebContents 的展示。人工控制时原样调用 Electron 的原 handler，并在其 Promise 完成前拒绝 Agent 认领；Agent 控制时保留真实 `alert`/`confirm` callback，不展示原生消息框。正常回答仍通过原有 Core 审批、Main `dispatchInput` 和 CDP `Page.handleJavaScriptDialog`，CDP Opening/Closed 仍是对话框观察来源。批准计划只在 Main 本地绑定当时的对话框身份，旧批准不能回答同文档中新开的替代对话框；公共协议不增加字段。`prompt()` 继续不支持，`beforeunload` 保持原路径。
+
+这里依赖精确固定的 [Electron 44.5.0 私有事件实现](https://github.com/electron/electron/blob/v44.5.0/lib/browser/api/web-contents.ts#L768)：安装和认领检查唯一默认 `-run-dialog`/`-cancel-dialogs` listener 的形态，运行时检查事件参数。版本或契约不符时保留人工浏览，并拒绝 Agent 认领。升级 Electron 必须重新检查该实现并执行真实 pending、accept/reject 和生命周期验收，不能仅更新版本 guard 或用 listener 数量推断语义兼容。
+
+撤销控制先 fence 旧 epoch，再取消保留的 callback；主 Frame 文档替换、关闭和 dispose 同样先取走引用，再至多调用一次 `callback(false, '')`。同文档或子 Frame 导航不主动取消主页面对话框。CDP Closed、平台取消和销毁只释放引用，不再次回答。普通 Core `turnEnded` 不取消对话框，允许后续 Turn 调用 get/handle。CDP 回执丢失仍为 UNKNOWN，不以清理 callback 补报成功或重放回答。
+
+`pnpm --dir clients/gui run test:automation` 的对话框验收应记录真实网页结果、独立副作用计数、CDP Opening/Closed 和原生展示调用：在跨 Turn 的 get/handle 与拒绝审批期间保持 pending，批准后真实 JS 布尔值与 accept/reject 对应且完成一次。另验 pending 时撤销、导航、关闭、平台取消/销毁、回答与接管竞态、人工 handler 转交和不兼容契约拒绝。探针若只证明 Electron/CDP 闭环，不能据此宣称完整 Core 审批、人工输入或安装包验收通过；原生展示日志只能观察，不能替换 handler 或决定测试结果。
+
 ## 场景矩阵
 
 | 场景 | 行为 | 必须证明的事实 | Ticket |
