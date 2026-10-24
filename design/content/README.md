@@ -6,5 +6,6 @@
 | --- | --- |
 | 区分聊天、任务、执行和目标 | [术语](terminology.md) |
 | 命名动作，表达等待、审批和未知结果 | [界面文案](interface-copy.md) |
+| Markdown渲染采用开源能力还是自有组件 | [开源复用调研与建议](markdown-reuse-review.md) |
 
 对象的职责与授权含义由[人与 Agent](../people-and-agents/README.md)维护。反馈位置与恢复动作由[反馈与恢复](../patterns/feedback-and-recovery.md)维护。GUI 及实际接入的 Web 文案键、翻译与展示归原实现，不在本目录复制字符串清单。
