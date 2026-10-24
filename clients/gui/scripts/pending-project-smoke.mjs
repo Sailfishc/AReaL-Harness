@@ -213,6 +213,7 @@ try {
       localStorage.setItem(`${key}:pending-create-request`, JSON.stringify({ projectId, requestId, worktree: { mode: 'worktree' } }));
     }, { projectId, requestId });
     await page.reload();
+    await until(async () => (await state()).connection?.state === 'ready' && logical(await state())?.state?.connected, 'own UNKNOWN reconnects to ready Core');
     await page.getByTestId('chat-input').waitFor();
     assert.equal(await button('发送').isEnabled(), false, 'Own UNKNOWN cannot send again');
     assert.equal(await page.getByTestId('chat-input').getAttribute('contenteditable'), 'false', 'Own UNKNOWN preserves editing lock');
