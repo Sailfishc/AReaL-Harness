@@ -145,6 +145,7 @@ impl Engine {
                     && thread.source != "nativeTaskAgent",
             )?;
         }
+        self.check_selected_plugin_tools(thread, &configuration)?;
         let configuration = self.freeze_configuration(configuration);
         let model = self.configured_model(&configuration)?;
         self.validate_fork_model_compatibility(thread, model.as_ref())?;

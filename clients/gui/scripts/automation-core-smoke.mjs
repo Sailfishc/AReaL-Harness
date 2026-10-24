@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { cp, mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:http';
@@ -15,12 +15,17 @@ const options = { suite: 'all', native: false };
 for (let index = 2; index < process.argv.length; index++) {
   const flag = process.argv[index];
   if (flag === '--native') options.native = true;
+  else if (flag === '--ecosystem') options.ecosystem = true;
   else if (['--suite', '--native-bundle-id', '--native-fixture-app'].includes(flag)) {
     assert.ok(process.argv[index + 1] && !process.argv[index + 1].startsWith('--'), `${flag} needs a value`);
     options[{ '--suite': 'suite', '--native-bundle-id': 'bundleId', '--native-fixture-app': 'fixtureApp' }[flag]] = process.argv[++index];
   } else throw Error(`Unknown flag ${flag}`);
 }
 assert.ok(['all', 'browser', 'computer'].includes(options.suite), '--suite must be all, browser, or computer');
+if (options.ecosystem) {
+  assert.notEqual(options.suite, 'all', '--ecosystem requires one explicit --suite');
+  assert.ok(process.env.AREAL_CORE_BIN, '--ecosystem requires an explicit AREAL_CORE_BIN');
+}
 if (options.native) {
   assert.notEqual(options.suite, 'browser', '--native requires the computer suite');
   assert.equal(options.bundleId, 'com.areal.harness.computer-fixture', 'native actions accept only the dedicated harmless AReaL fixture');
@@ -38,6 +43,11 @@ assert.ok(isAbsolute(binary), 'AREAL_CORE_BIN must be absolute');
 const scratch = await mkdtemp('/private/tmp/areal-automation-core-');
 const workspace = join(scratch, 'workspace'), userHome = join(scratch, 'user');
 await mkdir(workspace);
+const ecosystem = options.ecosystem ? { pluginId: `${options.suite}-control@areal-adapters`, skillName: `${options.suite}-control`, tool: `${options.suite}_v1`, selections: [] } : null;
+if (ecosystem) {
+  await cp(join(root, 'examples/plugin-marketplace'), workspace, { recursive: true });
+  ecosystem.body = await readFile(join(workspace, ecosystem.skillName, 'skills', ecosystem.skillName, 'SKILL.md'), 'utf8');
+}
 await mkdir(join(userHome, '.areal'), { recursive: true });
 execFileSync('git', ['init', '-b', 'main'], { cwd: workspace, stdio: 'ignore' });
 execFileSync('git', ['-c', 'user.name=Smoke', '-c', 'user.email=smoke@example.invalid', 'commit', '--allow-empty', '-m', 'fixture'], { cwd: workspace, stdio: 'ignore' });
@@ -53,6 +63,14 @@ const failureModes = [
   'Settings enablement does not persist, a fresh disabled session advertises computer_v1, or disabled native admission executes.',
   'Passive computer status requests OS authorization or native actions run without existing grants.',
 ];
+if (ecosystem) failureModes.push(
+  'GUI source review installs the wrong package or restart loses the installed digest or selected Skill reference.',
+  'Try creates a thread or submits to the model before Send.',
+  'The model never receives the exact installed Skill body and Core reference before native tool execution.',
+  'Missing host tools or disabled computer control report available readiness.',
+  'Creator replaces the existing official builtin source or skips its real Runtime initialization and validation.',
+  'Stale, denied or UNKNOWN mutations execute again. Only denied mutation replay is covered by this combined runner.',
+);
 const siteFacts = { gets: [], effects: [] };
 const sentinel = 'AUTOMATION_REAL_NATIVE_PAGE_23';
 const site = createServer(async (request, response) => {
@@ -89,6 +107,17 @@ const model = createServer(async (request, response) => {
       response.end(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: '' }, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`);
       return;
     }
+    if (body.messages?.some(message => message.role === 'system' && typeof message.content === 'string'
+      && message.content.startsWith('AReaL permission review.'))) {
+      assert.ok(!body.tools?.length, 'permission review has no tools');
+      const packet = JSON.parse(body.messages.findLast(message => message.role === 'user').content);
+      assert.ok(['browser_v1', 'computer_v1'].includes(packet.tool));
+      assert.match(packet.digest, /^[a-f0-9]{64}$/);
+      (events.permissionReviews ??= []).push({ tool: packet.tool, digest: packet.digest });
+      response.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      response.end(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: JSON.stringify({ decision: 'ask', reason: 'The fixture requires explicit user approval.', digest: packet.digest }) }, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`);
+      return;
+    }
     assert.ok(activeScenario, 'every conversation model request belongs to a scenario');
     const names = (body.tools ?? []).map(tool => tool.function?.name);
     const last = body.messages?.at(-1);
@@ -98,6 +127,13 @@ const model = createServer(async (request, response) => {
         const url = part.image_url?.url;
         if (typeof url === 'string' && url.startsWith('data:image/')) imageUrls.push(createHash('sha256').update(Buffer.from(url.split(',')[1], 'base64')).digest('hex'));
       }
+    }
+    if (ecosystem?.currentSelected) {
+      const userText = (body.messages ?? []).filter(message => message.role === 'user').map(message => typeof message.content === 'string' ? message.content : (message.content ?? []).map(part => part.text ?? '').join('\n')).join('\n');
+      assert.ok(userText.includes(ecosystem.body), 'actual model request carries the installed AReaL Skill body');
+      assert.ok(userText.includes(`id="${ecosystem.skill.id}" revision="${ecosystem.skill.revision}"`), 'actual model request carries the selected exact Core Skill reference');
+      events.ecosystem ??= ecosystem;
+      await writeFile(join(scratch, `${activeScenario.id}-model-request.json`), JSON.stringify(body, null, 2));
     }
     events.modelCalls.push({ scenario: activeScenario.id, toolNames: names, lastRole: last?.role, imageSHA256: imageUrls });
     response.writeHead(200, { 'Content-Type': 'text/event-stream' });
@@ -119,9 +155,10 @@ const model = createServer(async (request, response) => {
   }
 });
 await new Promise(resolve => model.listen(0, '127.0.0.1', resolve));
-await writeFile(join(userHome, '.areal/config.toml'), `schema_version=1\n[model]\nprovider="fixture"\nname="fixture"\n[model.providers.fixture]\nprotocol="chat-completions"\nendpoint="http://127.0.0.1:${model.address().port}/v1/chat/completions"\n`);
+// This bounded multi-turn fixture keeps compaction outside the dialog/automation acceptance surface.
+await writeFile(join(userHome, '.areal/config.toml'), `schema_version=1\n[limits]\ncontext_window_tokens=1000000\ncontext_mode="manual"\n[model]\nprovider="fixture"\nname="fixture"\ncontext_window_tokens=1000000\n[model.providers.fixture]\nprotocol="chat-completions"\nendpoint="http://127.0.0.1:${model.address().port}/v1/chat/completions"\n`);
 const deployment = join(scratch, 'desktop.json');
-await writeFile(deployment, JSON.stringify({ profiles: [{ id: 'fixture', revision: 'v1', displayName: 'Fixture', instructions: 'Use the requested tool and report the result.' }] }));
+await writeFile(deployment, JSON.stringify({ profiles: [{ id: 'fixture', revision: 'v1', displayName: 'Fixture', instructions: 'Use the requested tool and report the result.', allowPluginSkills: options.ecosystem === true }] }));
 const env = { ...process.env, AREAL_GUI_USER_DATA: join(scratch, 'electron'), AREAL_CORE_HOME: join(scratch, 'core'),
   AREAL_CORE_USER_HOME: userHome, AREAL_HARNESS_SERVICE_HOME: join(scratch, 'registry'), AREAL_CORE_DESKTOP_CONFIG: deployment, AREAL_CORE_BIN: binary };
 for (const key of ['AREAL_CORE_WORKSPACE', 'AREAL_CORE_CONFIG', 'AREAL_HARNESS_HOME', 'AREAL_HARNESS_CONFIG']) delete env[key];
@@ -172,14 +209,16 @@ function successful(item) { assert.equal(item.success, true, JSON.stringify(item
 async function runScenario(scenario) {
   activeScenario = { approval: 'allow', ...scenario, sent: false };
   console.error(`automation-core ${scenario.id}`);
-  const previous = (await readCoreThread()).turns?.length ?? 0;
+  const previous = (await readCoreThread()).turns?.at(-1)?.id;
   await command('send', { projectId, threadId, text: `automation acceptance ${scenario.id}` });
   let approvals = 0;
   await until(async () => {
     const snapshot = await state();
     const owner = snapshot.projects.find(item => item.id === projectId);
     const thread = owner?.state?.threads?.[threadId];
-    if ((thread?.turns?.length ?? 0) > previous && ['completed', 'failed', 'interrupted'].includes(thread.turns.at(-1)?.status)) return true;
+    // GUI history is bounded: a new completed turn need not increase its projected count.
+    const latest = thread?.turns?.at(-1);
+    if (latest && latest.id !== previous && ['completed', 'failed', 'interrupted'].includes(latest.status)) return true;
     const panel = page.locator('[data-interaction="approval"]');
     if (!approvals && await panel.count() && await panel.isVisible()) {
       assert.notEqual(activeScenario.approval, 'none', 'prepare-time refusal must not request approval');
@@ -234,7 +273,21 @@ async function imageResult(item) {
   await writeFile(join(scratch, `${item.callId}.png`), bytes);
   return info;
 }
-async function newThread() {
+async function newThread(selectSkill = true) {
+  if (ecosystem) ecosystem.currentSelected = selectSkill;
+  if (ecosystem && selectSkill) {
+    await prepareEcosystemDraft();
+    const id = `ecosystem-selection-${ecosystem.selections.length}`;
+    activeScenario = { id, sent: false };
+    await page.getByRole('button', { name: '发送', exact: true }).click();
+    threadId = await until(async () => await page.getByTestId('areal-workbench').getAttribute('data-thread-id'), 'GUI Send creates selected Skill conversation');
+    await until(async () => (await readCoreThread()).turns?.at(-1)?.status === 'completed', 'selected Skill reaches model through GUI Send');
+    const inspection = await command('manage', { projectId, threadId, operation: 'inspect' });
+    await command('configure', { projectId, threadId, expectedRevision: inspection.configuration.revision, selectedSkills: [{ id: ecosystem.skill.id, revision: ecosystem.skill.revision }] });
+    ecosystem.selections.push({ threadId, skill: ecosystem.skill });
+    checks.push(id);
+    return threadId;
+  }
   const created = await command('create', { projectId, browserEnabled: true, options: { permissionPreset: 'ask' }, profile: { id: 'fixture', revision: 'v1' } });
   threadId = created.threadId;
   await selectConversation(page, threadId);
@@ -273,9 +326,74 @@ function assertComputerCatalog(id, enabled) {
   assert.ok(requests.every(call => call.toolNames.includes('computer_v1') === enabled), 'fresh-session catalog follows computer enablement');
 }
 
-let passed = false;
-console.log(`Automation Core evidence ${scratch}`);
-try {
+async function ecosystemDetail() {
+  await page.getByRole('navigation', { name: '应用导航', exact: true }).getByRole('button', { name: '插件', exact: true }).click();
+  await page.getByRole('tablist', { name: '市场范围', exact: true }).getByRole('tab', { name: '个人', exact: true }).click();
+  await page.getByRole('button', { name: `查看插件 ${ecosystem.pluginId}`, exact: true }).click();
+  const detail = page.getByTestId('plugin-detail-page');
+  await detail.waitFor();
+  return detail;
+}
+async function prepareEcosystemDraft() {
+  const before = (await state()).projects.find(project => project.id === projectId);
+  const threadIds = Object.keys(before.state?.threads ?? {}).sort();
+  const requests = events.modelCalls.length;
+  const detail = await ecosystemDetail();
+  await detail.getByRole('button', { name: '管理', exact: true }).click();
+  await page.getByTestId('plugin-detail-page').getByRole('button', { name: ecosystem.skillName, exact: true }).click();
+  await page.getByTestId('skill-detail-page').getByRole('button', { name: '试用', exact: true }).click();
+  await page.getByRole('button', { name: new RegExp(`^查看技能 ${ecosystem.skillName}`) }).waitFor();
+  assert.deepEqual(Object.keys((await state()).projects.find(project => project.id === projectId).state?.threads ?? {}).sort(), threadIds, 'Try stages only a draft');
+  assert.equal(events.modelCalls.length, requests, 'Try does not submit to the model');
+  const selected = await page.evaluate(id => JSON.parse(localStorage.getItem(`areal-gui:draft:${id}:new:skills`) ?? '[]'), projectId);
+  assert.equal(selected.length, 1);
+  assert.deepEqual({ id: selected[0].id, revision: selected[0].revision }, ecosystem.skill);
+}
+async function readiness(expectedAvailable) {
+  const value = await command('manage', { projectId, operation: 'pluginReadiness', id: ecosystem.pluginId, expectedDigest: ecosystem.installedDigest });
+  assert.equal(value.pluginId, ecosystem.pluginId);
+  assert.equal(value.installedDigest, ecosystem.installedDigest);
+  assert.deepEqual(value.requiredTools, [ecosystem.tool]);
+  assert.equal(value.available, expectedAvailable);
+  assert.deepEqual(value.missingTools, expectedAvailable ? [] : [ecosystem.tool]);
+  ecosystem.readiness ??= [];
+  ecosystem.readiness.push(value);
+}
+async function installEcosystem() {
+  const detail = await ecosystemDetail();
+  await detail.getByRole('button', { name: '安装', exact: true }).click();
+  await detail.getByRole('checkbox', { name: '我已核对以上来源、版本和摘要', exact: true }).waitFor();
+  await detail.getByRole('button', { name: '资源范围', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: '当前项目', exact: true }).click();
+  assert.equal(await detail.getByRole('button', { name: '安装到当前项目', exact: true }).isEnabled(), false, 'source review is required');
+  await detail.getByRole('checkbox', { name: '我已核对以上来源、版本和摘要', exact: true }).check();
+  await detail.getByRole('button', { name: '安装到当前项目', exact: true }).click();
+  const installed = await until(async () => (await command('manage', { projectId, operation: 'plugins' })).data.find(plugin => plugin.id === ecosystem.pluginId && plugin.installed), 'reviewed package installed by GUI');
+  assert.equal(installed.enabled, true);
+  assert.equal(installed.installedVersion, '1.0.0');
+  assert.equal(installed.installedSkills.length, 1);
+  ecosystem.installedDigest = installed.installedDigest;
+  ecosystem.skill = { id: installed.installedSkills[0].id, revision: installed.installedSkills[0].revision };
+  assert.ok(ecosystem.skill.id && ecosystem.skill.revision);
+  assert.equal(events.modelCalls.length, 0, 'installation cannot invoke inference');
+  await prepareEcosystemDraft();
+  const saved = await page.evaluate(id => localStorage.getItem(`areal-gui:draft:${id}:new:skills`), projectId);
+  const metadata = JSON.parse(await readFile(join(scratch, 'core/service.json'), 'utf8'));
+  await app.evaluate(({ dialog }) => { dialog.showMessageBox = async () => ({ response: 1 }); });
+  await closeSmokeApplication(app);
+  app = undefined;
+  await assertApplicationStopped(binary, env, metadata);
+  await launch();
+  const restored = (await command('manage', { projectId, operation: 'plugins' })).data.find(plugin => plugin.id === ecosystem.pluginId);
+  assert.equal(restored.installedDigest, ecosystem.installedDigest, 'cold restart preserves reviewed package identity');
+  assert.equal(restored.installedSkills.length, 1);
+  assert.deepEqual({ id: restored.installedSkills[0].id, revision: restored.installedSkills[0].revision }, ecosystem.skill, 'cold restart preserves exact Skill selection');
+  assert.equal(await page.evaluate(id => localStorage.getItem(`areal-gui:draft:${id}:new:skills`), projectId), saved, 'cold restart preserves unsent Skill reference');
+  assert.equal(events.modelCalls.length, 0, 'restart cannot execute Try');
+  checks.push('ecosystem-gui-install-try-restart');
+}
+
+async function launch() {
   app = await electron.launch({ executablePath: process.env.AREAL_ELECTRON_EXECUTABLE || require('electron'), args: [join(gui, 'app')], env, timeout: 120000 });
   app.process().stderr.on('data', chunk => void writeFile(join(scratch, 'electron.stderr.log'), chunk, { flag: 'a' }));
   page = await app.firstWindow(); page.setDefaultTimeout(20000);
@@ -285,9 +403,64 @@ try {
   await page.getByTestId('areal-workbench').waitFor({ timeout: 120000 });
   await until(async () => (await state()).connection?.state === 'ready', 'desktop service ready');
   events.startup = await checkBrowserStartup(app, { binary, userHome, scratch });
-  events.runtime = await app.evaluate(({ app, BrowserWindow, dialog, shell }, { workspace, computerModule }) => {
+  events.runtime = await app.evaluate(({ app, BrowserWindow, dialog, shell, webContents }, { workspace, computerModule }) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [workspace] });
     globalThis.__automationPermissionRequests = [];
+    globalThis.__automationDialogs = [];
+    globalThis.__automationDialogTrace = [];
+    const trace = entry => globalThis.__automationDialogTrace.push({ at: Date.now(), monotonicMs: performance.now(), ...entry });
+    const parentWindowId = contents => {
+      try { return BrowserWindow.fromWebContents(contents)?.id ?? null; }
+      catch { return null; }
+    };
+    const traceContents = contents => {
+      const webContentsId = contents.id;
+      trace({ kind: 'contents-created', webContentsId, parentWindowId: parentWindowId(contents) });
+      contents.debugger.on('message', (_event, method, params, sessionId) => {
+        if (method !== 'Page.javascriptDialogOpening' && method !== 'Page.javascriptDialogClosed') return;
+        const entry = { webContentsId, parentWindowId: parentWindowId(contents), method, params, sessionId };
+        globalThis.__automationDialogs.push({ at: Date.now(), ...entry });
+        trace({ kind: 'dialog-event', ...entry });
+      });
+      const sendCommand = contents.debugger.sendCommand.bind(contents.debugger);
+      contents.debugger.sendCommand = (method, ...args) => {
+        if (method === 'Page.handleJavaScriptDialog') trace({ kind: 'dialog-command', webContentsId,
+          parentWindowId: parentWindowId(contents), method, params: args[0], sessionId: args[1], stack: new Error().stack });
+        return sendCommand(method, ...args);
+      };
+      contents.on('before-input-event', (_event, input) => {
+        if (input.key === 'Escape' || input.key === 'Enter') trace({ kind: 'native-key', webContentsId,
+          parentWindowId: parentWindowId(contents), type: input.type, key: input.key, isAutoRepeat: input.isAutoRepeat });
+      });
+      contents.on('destroyed', () => trace({ kind: 'contents-destroyed', webContentsId }));
+    };
+    const traceWindow = (window, kind) => {
+      const windowId = window.id;
+      trace({ kind, windowId, webContentsId: window.webContents.id });
+      for (const method of ['close', 'destroy']) {
+        const original = window[method].bind(window);
+        window[method] = (...args) => {
+          trace({ kind: 'window-call', windowId, method, stack: new Error().stack });
+          return original(...args);
+        };
+      }
+      window.on('close', () => trace({ kind: 'window-close', windowId }));
+      window.on('closed', () => trace({ kind: 'window-closed', windowId }));
+    };
+    app.on('web-contents-created', (_event, contents) => traceContents(contents));
+    app.on('browser-window-created', (_event, window) => traceWindow(window, 'window-created'));
+    for (const contents of webContents.getAllWebContents()) traceContents(contents);
+    for (const window of BrowserWindow.getAllWindows()) traceWindow(window, 'window-existing');
+    const showMessageBox = dialog.showMessageBox.bind(dialog);
+    dialog.showMessageBox = (...args) => {
+      const options = args.at(-1), windowId = args.length > 1 ? args[0]?.id ?? null : null;
+      trace({ kind: 'message-box-open', windowId, type: options?.type, message: options?.message,
+        buttons: options?.buttons, defaultId: options?.defaultId, cancelId: options?.cancelId, stack: new Error().stack });
+      const pending = showMessageBox(...args);
+      void pending.then(result => trace({ kind: 'message-box-result', windowId, result }),
+        error => trace({ kind: 'message-box-error', windowId, message: error.message }));
+      return pending;
+    };
     if (computerModule) {
       const { ComputerControl } = process.getBuiltinModule('node:module').createRequire(computerModule)(computerModule);
       globalThis.__automationComputerTrace = [];
@@ -325,19 +498,65 @@ try {
   await page.evaluate(() => window.arealDesktop.chooseProject());
   const owner = await until(async () => (await state()).projects.find(item => item.root === workspace && item.state?.connected), 'isolated project ready');
   projectId = owner.id;
+  if (ecosystem) {
+    ecosystem.fixtureProfile = { id: 'fixture', revision: 'v1' };
+    await page.evaluate(({ key, profile }) => {
+      if (localStorage.getItem(key) === null) localStorage.setItem(key, JSON.stringify(profile));
+    }, { key: `areal-gui:draft:${projectId}:new:profile`, profile: ecosystem.fixtureProfile });
+  }
+}
+let passed = false;
+console.log(`Automation Core evidence ${scratch}`);
+try {
+  await launch();
+  if (ecosystem) {
+    if (options.suite === 'computer') await setComputerEnabled(true);
+    await installEcosystem();
+  }
   if (options.suite !== 'browser') {
+    let selectedThread;
+    if (ecosystem) { await newThread(); selectedThread = threadId; }
     await setComputerEnabled(false);
+    if (ecosystem) {
+      await readiness(false);
+      const requests = events.modelCalls.length;
+      const before = (await state()).projects.find(project => project.id === projectId).state;
+      const draft = await page.evaluate(id => ({ text: localStorage.getItem(`areal-gui:draft:${id}:new`), skills: localStorage.getItem(`areal-gui:draft:${id}:new:skills`) }), projectId);
+      const detail = await ecosystemDetail();
+      await until(async () => !(await detail.getByRole('button', { name: '试用', exact: true }).isEnabled()), 'disabled native provider blocks Try');
+      await until(async () => /computer_v1/.test(await detail.innerText()), 'unavailable readiness identifies missing native host tool');
+      assert.deepEqual(await page.evaluate(id => ({ text: localStorage.getItem(`areal-gui:draft:${id}:new`), skills: localStorage.getItem(`areal-gui:draft:${id}:new:skills`) }), projectId), draft, 'unavailable Try preserves the draft and selected Skill reference');
+      assert.equal(events.modelCalls.length, requests);
+      assert.deepEqual(Object.keys((await state()).projects.find(project => project.id === projectId).state.threads).sort(), Object.keys(before.threads).sort(), 'unavailable adapter does not create a thread');
+      await detail.getByRole('button', { name: '管理', exact: true }).click();
+      await page.getByTestId('plugin-detail-page').getByRole('button', { name: ecosystem.skillName, exact: true }).click();
+      const skillDetail = page.getByTestId('skill-detail-page');
+      await skillDetail.getByRole('button', { name: '试用', exact: true }).click();
+      await until(async () => /computer_v1/.test(await skillDetail.innerText()), 'Skill detail Try reports the same missing deployment');
+      assert.deepEqual(await page.evaluate(id => ({ text: localStorage.getItem(`areal-gui:draft:${id}:new`), skills: localStorage.getItem(`areal-gui:draft:${id}:new:skills`) }), projectId), draft, 'Skill detail blocked Try preserves draft');
+      assert.equal(events.modelCalls.length, requests, 'Skill detail cannot bypass disabled native deployment');
+      checks.push('ecosystem-disabled-computer-try-blocked');
+      await page.getByRole('navigation', { name: '应用导航', exact: true }).getByRole('button', { name: '首页', exact: true }).click();
+    }
     const before = await command('computerControl', { operation: 'status' });
     const after = await command('computerControl', { operation: 'status' });
     events.passiveStatus = { before, after };
     assert.equal(before.enabled, false); assert.equal(after.enabled, false);
     for (const capability of ['accessibility', 'screenRecording', 'inputMonitoring']) assert.equal(after[capability], before[capability], 'passive status leaves OS grants unchanged');
-    await newThread();
+    await newThread(false);
     await runScenario({ id: 'computer-disabled-tool-catalog' });
     assertComputerCatalog('computer-disabled-tool-catalog', false);
     checks.push('computer-disabled-tool-catalog');
     await setComputerEnabled(true);
-    await newThread();
+    if (ecosystem) {
+      const status = await command('computerControl', { operation: 'status' });
+      await readiness(status.available === true);
+    }
+    if (ecosystem) {
+      threadId = selectedThread;
+      ecosystem.currentSelected = true;
+      await selectConversation(page, threadId);
+    } else await newThread();
     await computerCase('describe', 'describe', {}, { assertResult(item) {
       successful(item); const text = JSON.stringify(item.contentItems);
       for (const name of ['get_app_state', 'left_click', 'set_value', 'request_access', 'stop_computer_control']) assert.ok(text.includes(name), `describe lists ${name}`);
@@ -410,12 +629,13 @@ try {
       assert.equal(denial.dispatch_status, 'not_sent');
     } });
     events.computerRegistrationContract = 'Existing threads may retain their saved tool definition. Disabled Main admission rejects before approval. Fresh disabled threads omit computer_v1.';
-    await newThread();
+    await newThread(false);
     await runScenario({ id: 'computer-disabled-again' });
     assertComputerCatalog('computer-disabled-again', false);
     checks.push('computer-disabled-again');
   }
   if (options.suite !== 'computer') {
+    if (ecosystem) await readiness(true);
     await newThread();
     await page.keyboard.press('Meta+t');
     await page.locator('.preview-panel').waitFor();
@@ -445,9 +665,21 @@ try {
     await browserCase('hide', { method: 'browserVisibilitySet', visible: false });
     await browserCase('background-capture', { method: 'screenshot' }, { assertResult: imageResult, assertEffect: async () => assert.equal((await nativeFacts()).clicks, 1) });
     await browserCase('show', { method: 'browserVisibilitySet', visible: true });
-    await browserCase('open-dialog', { method: 'evaluate', expression: '(() => { window.openFixtureDialog(); return true; })()' });
-    await browserCase('get-dialog', { method: 'getDialog' }, { assertResult(item) { successful(item); const result = resultObject(item, value => value.dialog?.message === 'Fixture confirm'); assert.equal(result.dialog.type, 'confirm'); } });
-    await browserCase('handle-dialog', { method: 'handleDialog', accept: true }, { assertEffect: () => until(async () => (await nativeFacts()).dialogResult === true, 'actual confirm response') });
+    const assertConfirm = item => { successful(item); const result = resultObject(item, value => value.dialog?.message === 'Fixture confirm'); assert.equal(result.dialog.type, 'confirm'); };
+    for (const [suffix, accept] of [['', true], ['-cancel', false]]) {
+      await browserCase(`open-dialog${suffix}`, { method: 'evaluate', expression: '(() => { window.openFixtureDialog(); return true; })()' });
+      // Exceed the independently reproduced native auto-accept interval. This is a held-dialog assertion, not a retry.
+      await new Promise(resolve => setTimeout(resolve, 4000));
+      await browserCase(`get-dialog${suffix}`, { method: 'getDialog' }, { assertResult: assertConfirm });
+      if (accept) {
+        await browserCase('denied-handle-dialog', { method: 'handleDialog', accept: true }, { approval: 'deny' });
+        await browserCase('dialog-after-denial', { method: 'getDialog' }, { assertResult: assertConfirm });
+      }
+      await browserCase(`handle-dialog${suffix}`, { method: 'handleDialog', accept }, { assertEffect: () => until(async () => (await nativeFacts()).dialogResult === accept, 'actual confirm response') });
+    }
+    const dialogTrace = await app.evaluate(() => globalThis.__automationDialogTrace);
+    assert.equal(dialogTrace.filter(item => item.kind === 'message-box-open' && item.message === 'Fixture confirm').length, 0, 'Agent-owned dialogs never enter native human presentation');
+    assert.deepEqual(dialogTrace.filter(item => item.kind === 'dialog-event' && item.method === 'Page.javascriptDialogClosed').map(item => item.params.result), [true, false], 'only the two approved CDP answers close the actual confirms');
     const recording = await browserCase('recording-start', { method: 'recordingStart', options: { actions: [{ type: 'wait', durationMs: 1000 }], maxDurationMs: 5000 } });
     const recordingId = resultObject(recording, value => typeof value.recording?.id === 'string').recording.id;
     let job;
@@ -463,6 +695,14 @@ try {
     const bytes = await readFile(recordingPath);
     assert.equal(bytes.subarray(0, 4).toString('hex'), '1a45dfa3', 'recording artifact is a WebM container');
     events.recording = { job, path: recordingPath, bytes: bytes.length, sha256: sha(bytes) };
+    await browserCase('open-dialog-stop', { method: 'evaluate', expression: '(() => { window.openFixtureDialog(); return true; })()' });
+    await browserCase('get-dialog-stop', { method: 'getDialog' }, { assertResult: assertConfirm });
+    await preview('stop', { pageId });
+    await until(async () => (await preview('state', { pageId })).browser?.control === 'human', 'pending dialog cancellation converges before human control');
+    assert.equal((await nativeFacts()).dialogResult, false, 'Stop cancels the actual pending dialog without accepting it');
+    const stoppedDialogs = await app.evaluate(() => globalThis.__automationDialogTrace.filter(item => item.kind === 'dialog-event' && item.method === 'Page.javascriptDialogClosed').map(item => item.params.result));
+    assert.deepEqual(stoppedDialogs, [true, false, false], 'Stop terminates its one dialog without duplicate completion');
+    checks.push('browser-pending-dialog-stop');
     await page.reload();
     await page.getByTestId('areal-workbench').waitFor();
     await until(async () => (await state()).connection?.state === 'ready', 'renderer reconnection after denial');
@@ -472,8 +712,9 @@ try {
     for (const id of ['browser-denied-click', 'browser-full-page', 'browser-recording-start']) assert.ok(durable.turns.some(turn => turn.items.some(item => item.callId === id)), `Core retains ${id} after renderer reload`);
     checks.push('browser-durable-results-no-replay');
     gaps.push('The runner covers representative browser commands. It does not establish every ZCode command, arbitrary public sites, real-provider behavior, or packaged application parity.');
-    gaps.push('The browser dialog case covers confirm. Electron prompt support is not established by this runner.');
+    gaps.push('The browser dialog cases cover held confirm accept/cancel and denied approval without native human presentation. Electron prompt support and physical human dialog handling are not established by this runner.');
   }
+  if (ecosystem) gaps.push('Selected-plugin browser/computer paths do not cover stale-reference mutation rejection, UNKNOWN receipt loss, physical Stop/takeover, real providers, or packaged apps. Those scenarios require separate acceptance and cannot be inferred from this runner.');
   events.permissionRequests = await app.evaluate(() => globalThis.__automationPermissionRequests);
   assert.deepEqual(events.permissionRequests, [], 'passive settings/model access queries never call explicit authorization or open System Settings');
   checks.push(options.suite === 'browser' ? 'browser-no-authorization-request' : 'passive-status-no-authorization-request');
@@ -490,6 +731,8 @@ try {
   }
   const metadata = await readFile(join(scratch, 'core/service.json'), 'utf8').then(JSON.parse, error => { if (error.code !== 'ENOENT') errors.push(error.message); return null; });
   if (app) {
+    events.nativeDialogs = await app.evaluate(() => globalThis.__automationDialogs).catch(error => ({ unavailable: error.message }));
+    events.nativeDialogTrace = await app.evaluate(() => globalThis.__automationDialogTrace).catch(error => ({ unavailable: error.message }));
     events.computerTrace = await app.evaluate(() => globalThis.__automationComputerTrace).catch(error => ({ unavailable: error.message }));
     events.permissionRequests ??= await app.evaluate(() => globalThis.__automationPermissionRequests).catch(error => ({ unavailable: error.message }));
     try {
@@ -525,13 +768,13 @@ try {
   await Promise.all([new Promise(resolve => site.close(resolve)), new Promise(resolve => model.close(resolve))]);
   passed = passed && errors.length === 0;
   if (!passed) process.exitCode ||= 1;
-  const files = ['scripts/automation-core-smoke.mjs', 'app/src/core/browser-tool.cjs', 'app/src/core/computer-control.cjs', 'app/src/core/preview.cjs', 'renderer/dist/index.html'];
+  const files = ['scripts/automation-core-smoke.mjs', 'app/src/core/browser-tool.cjs', 'app/src/core/computer-control.cjs', 'app/src/core/preview.cjs', 'app/src/core/agent-dialog-presentation.cjs', 'renderer/dist/index.html'];
   const hashes = Object.fromEntries(await Promise.all(files.map(async file => [file, await readFile(join(gui, file)).then(sha, error => `unavailable ${error.code}`)])));
   const manifest = { passed, options, startedAt, endedAt: new Date().toISOString(), checks, errors, gaps, failureModes, events, siteFacts,
     sourceHead: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(),
     diffSHA256: sha(execFileSync('git', ['diff', 'HEAD'], { cwd: root })), hashes, coreBinary: binary,
     coreBinarySHA256: await readFile(binary).then(sha, error => `unavailable ${error.code}`),
-    scope: 'Real isolated source Electron, independent desktop service, Core and native browser executor. Loopback model/site and directory chooser are fixtures. Explicit OS authorization and System Settings opening are guarded to fail and recorded. Native OS actions require explicit mode and pre-existing grants.' };
+    scope: 'Real isolated source Electron, independent desktop service, Core and native browser executor. Loopback model/site, directory chooser, explicit plugin-enabled Profile and its saved draft selection are fixtures. Explicit OS authorization and System Settings opening are guarded to fail and recorded. Native OS actions require explicit mode and pre-existing grants.' };
   await writeFile(join(scratch, 'run-manifest.json'), JSON.stringify(manifest, null, 2));
   console.log(JSON.stringify({ passed, evidence: scratch, checks, errors, gaps }));
 }

@@ -1,4 +1,12 @@
 export const operationMessages = {
+  "operations.outputStyles": { "zh-CN": "输出样式", "en": "Output styles" },
+  "operations.themes": { "zh-CN": "主题", "en": "Themes" },
+  "operations.languageServers": { "zh-CN": "语言服务器", "en": "Language servers" },
+  "operations.hostRuntimeUnsupported": { "zh-CN": "此组件依赖当前宿主未提供的运行时或 SDK。", "en": "This component requires a runtime or SDK this host does not provide." },
+  "operations.packageDependenciesUnsupported": { "zh-CN": "当前宿主不安装或执行此包声明的依赖。", "en": "This host does not install or execute this package's declared dependencies." },
+  "operations.userConfigUnsupported": { "zh-CN": "当前宿主不提供此包声明的用户配置接口。", "en": "This host does not provide this package's declared user configuration interface." },
+  "operations.declaredHostTools": { "zh-CN": "会话已部署并允许声明的宿主工具", "en": "Declared host tools deployed and allowed in the session" },
+
   "operations.quitting": {
     "zh-CN": "正在退出 AReaL Harness",
     "en": "Quitting AReaL Harness"

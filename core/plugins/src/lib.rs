@@ -64,6 +64,8 @@ pub struct InstalledSkill {
     pub description: String,
     pub allow_implicit_invocation: bool,
     pub onboarding: bool,
+    #[serde(default)]
+    pub required_tools: Vec<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
@@ -104,6 +106,12 @@ pub struct PluginDetail {
     #[serde(default)]
     pub installed_digest: Option<String>,
     #[serde(default)]
+    pub installed_source_digest: Option<String>,
+    #[serde(default)]
+    pub admission_digest: Option<String>,
+    #[serde(skip)]
+    pub(crate) definition: Option<package::Definition>,
+    #[serde(default)]
     pub installed_skills: Vec<InstalledSkill>,
     #[serde(default)]
     pub component_choices: ComponentChoices,
@@ -135,7 +143,16 @@ pub struct PluginDetail {
     pub components: Vec<String>,
     pub diagnostics: Vec<String>,
     pub skills: Vec<InstalledSkill>,
+    #[serde(default)]
+    pub required_tools: Vec<String>,
     pub onboarding_skill: Option<String>,
+}
+impl PluginDetail {
+    pub fn review_digest(&self) -> &str {
+        self.admission_digest
+            .as_deref()
+            .unwrap_or(&self.source_digest)
+    }
 }
 #[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -186,6 +203,8 @@ struct State {
     installed: BTreeMap<String, PluginDetail>,
     #[serde(default)]
     history: Vec<InstalledSkill>,
+    #[serde(default)]
+    definitions: BTreeMap<String, package::Definition>,
     #[serde(default)]
     candidates: BTreeMap<String, remote::Candidate>,
     #[serde(default)]
@@ -238,7 +257,7 @@ impl Store {
         let mut revisions = BTreeMap::new();
         for (id, detail) in &state.installed {
             if self.effective(&state, id)? {
-                revisions.insert(id.clone(), detail.source_digest.clone());
+                revisions.insert(id.clone(), detail.review_digest().into());
             }
         }
         Ok(revisions)
@@ -310,6 +329,29 @@ impl Store {
             .cloned()
             .unwrap_or_default()
     }
+    fn definition<'a>(
+        &self,
+        state: &'a State,
+        id: &str,
+        revision: &str,
+        package_digest: &str,
+    ) -> Result<Option<&'a package::Definition>> {
+        let definition = state.definitions.get(revision);
+        if revision != package_digest {
+            let definition = definition.context("installed plugin definition receipt missing")?;
+            definition.validate(id, revision)?;
+            ensure!(
+                definition.package_digest == package_digest,
+                "definition package digest mismatch"
+            );
+        } else {
+            ensure!(
+                definition.is_none(),
+                "legacy revision has unexpected definition receipt"
+            );
+        }
+        Ok(definition)
+    }
     fn installed_support(
         &self,
         state: &State,
@@ -318,8 +360,14 @@ impl Store {
         Ok(self
             .read_components(
                 &detail.id,
-                &detail.source_digest,
+                detail.review_digest(),
                 self.root.join("cache").join(&detail.source_digest),
+                self.definition(
+                    state,
+                    &detail.id,
+                    detail.review_digest(),
+                    &detail.source_digest,
+                )?,
                 state
                     .installed_policies
                     .get(&detail.id)
@@ -412,7 +460,14 @@ impl Store {
                 resolved_commit: s.git_marketplaces.get(&root).map(|pin| pin.commit.clone()),
             });
             let mut seen = std::collections::BTreeSet::new();
-            for entry in entries {
+            for (index, entry) in entries.into_iter().enumerate() {
+                let context = package::CatalogContext {
+                    entry: entry.clone(),
+                    origin: format!(
+                        "{}#/plugins/{index}",
+                        path.strip_prefix(&root).unwrap().display()
+                    ),
+                };
                 let loaded = (|| -> Result<PluginDetail> {
                     let n = entry["name"].as_str().context("entry name missing")?;
                     let id = format!("{n}@{name}");
@@ -432,8 +487,11 @@ impl Store {
                     } else {
                         let src = &entry["source"];
                         ensure!(
-                            src["source"].as_str().or(src["type"].as_str()) == Some("local"),
-                            "only local marketplace sources supported"
+                            matches!(
+                                src["source"].as_str().or(src["type"].as_str()),
+                                Some("local" | "directory")
+                            ),
+                            "sourceUnsupported: unsupported marketplace source type"
                         );
                         src["path"].as_str().context("local source path missing")?
                     };
@@ -444,7 +502,8 @@ impl Store {
                     };
                     let files = package::snapshot(&source)?;
                     let cache = self.root.join("cache").join(package::digest(&files));
-                    let mut detail = package::parse(&files, &id, &source, &cache)?;
+                    let (mut detail, _) =
+                        package::parse_context(&files, &id, &source, &cache, Some(&context))?;
                     detail.catalog_source = metadata::source(&entry, &root, Some(&source))?;
                     detail.policy = metadata::policy(&entry)?;
                     detail.interface = metadata::catalog_interface(detail.interface, &entry);
@@ -491,7 +550,8 @@ impl Store {
             });
             detail.installed_component_support = Some(report);
             detail.installed_version = installed.version.clone();
-            detail.installed_digest = Some(installed.source_digest.clone());
+            detail.installed_digest = Some(installed.review_digest().into());
+            detail.installed_source_digest = Some(installed.source_digest.clone());
             detail.installed_skills = installed.skills.clone();
             detail.installed_onboarding_skill = installed.onboarding_skill.clone();
             detail.installed_metadata = Some(InstalledMetadata {
@@ -581,8 +641,15 @@ impl Store {
         let candidate = discovered.into_iter().find(|d| d.id == id).ok_or_else(|| {
             anyhow::anyhow!("plugin source unavailable {id}: {}", errors.join("; "))
         })?;
-        if candidate.source != expected_source || candidate.source_digest != expected_digest {
+        if candidate.source != expected_source || candidate.review_digest() != expected_digest {
             return Err(StoreError::SourceChanged { id: id.into() }.into());
+        }
+        if let Some(revision) = &candidate.admission_digest {
+            candidate
+                .definition
+                .as_ref()
+                .context("candidate definition receipt missing")?
+                .validate(id, revision)?;
         }
         let content_root = state
             .candidates
@@ -593,14 +660,31 @@ impl Store {
             })
             .map(|c| c.root.as_path())
             .unwrap_or(&candidate.source);
-        let policy = self.catalog_policy(&state, id)?;
+        let policy = candidate.policy.clone();
         let files = package::snapshot(content_root)?;
         let digest = package::digest(&files);
-        if digest != expected_digest {
+        if digest != candidate.source_digest {
             return Err(StoreError::SourceChanged { id: id.into() }.into());
         }
         let cache = self.root.join("cache").join(&digest);
-        let mut detail = package::parse(&files, id, &candidate.source, &cache)?;
+        let (mut detail, _) = package::parse_context(
+            &files,
+            id,
+            &candidate.source,
+            &cache,
+            candidate.definition.as_ref().map(|d| &d.context),
+        )?;
+        if let Some(definition) = &candidate.definition {
+            definition.validate(id, expected_digest)?;
+            detail.definition = Some(definition.clone());
+            detail.admission_digest = candidate.admission_digest.clone();
+            for skill in &mut detail.skills {
+                skill.revision = expected_digest.into();
+            }
+            if let Some(support) = &mut detail.component_support {
+                support.digest = expected_digest.into();
+            }
+        }
         ensure!(
             detail.name == candidate.name,
             "plugin identity changed during installation"
@@ -631,7 +715,8 @@ impl Store {
             ensure!(
                 current.iter().any(|d| d.id == id
                     && d.source == candidate.source
-                    && d.source_digest == digest),
+                    && d.source_digest == digest
+                    && d.review_digest() == expected_digest),
                 "plugin source changed during installation"
             );
             if cache.exists() {
@@ -652,6 +737,10 @@ impl Store {
                 {
                     s.history.push(skill.clone());
                 }
+            }
+            if let Some(definition) = &detail.definition {
+                s.definitions
+                    .insert(detail.review_digest().into(), definition.clone());
             }
             s.installed.insert(id.into(), detail.clone());
             s.installed_policies.insert(id.into(), policy);
@@ -737,7 +826,7 @@ impl Store {
                 .get(id)
                 .ok_or_else(|| StoreError::NotFound(id.into()))?;
             ensure!(
-                detail.source_digest == expected_digest,
+                detail.review_digest() == expected_digest,
                 "plugin installed digest changed"
             );
             if let PluginComponentId::Skill { id } = component {
@@ -766,11 +855,26 @@ impl Store {
         self.read(id)
     }
     fn skill_compatible(&self, state: &State, skill: &InstalledSkill) -> Result<bool> {
+        let package_digest = skill
+            .package_root
+            .file_name()
+            .and_then(|name| name.to_str())
+            .context("skill package digest missing")?;
+        let definition =
+            self.definition(state, &skill.plugin_id, &skill.revision, package_digest)?;
+        let raw_digest = definition
+            .map(|d| d.package_digest.as_str())
+            .unwrap_or(&skill.revision);
+        ensure!(
+            skill.package_root == self.root.join("cache").join(raw_digest),
+            "skill package root does not match admitted revision"
+        );
         Ok(self
             .read_components(
                 &skill.plugin_id,
                 &skill.revision,
                 skill.package_root.clone(),
+                definition,
                 state
                     .installed_policies
                     .get(&skill.plugin_id)

@@ -149,6 +149,87 @@ impl Engine {
         }
         Ok(())
     }
+    pub(super) fn check_plugin_skill_tools(
+        &self,
+        skill: &Skill,
+        config: &EffectiveConfig,
+        registry: &crate::tools::Registry,
+    ) -> Result<()> {
+        let Some(plugin) = &skill.plugin else {
+            return Ok(());
+        };
+        let missing: Vec<_> = plugin
+            .required_tools
+            .iter()
+            .filter(|name| {
+                if config
+                    .tool_allowlist
+                    .as_ref()
+                    .is_some_and(|allow| !allow.contains(name))
+                {
+                    return true;
+                }
+                registry.get(name).map_or(true, |entry| {
+                    config.read_only
+                        && matches!(
+                            entry.backend,
+                            crate::tools::Backend::Client
+                                | crate::tools::Backend::Page(_)
+                                | crate::tools::Backend::Mcp(_)
+                                | crate::tools::Backend::Plugin(_)
+                                | crate::tools::Backend::Coordination
+                        )
+                        && !crate::agents::read_only_tool(name, &entry.backend)
+                })
+            })
+            .cloned()
+            .collect();
+        if !missing.is_empty() {
+            return Err(invalid(format!(
+                "PLUGIN_HOST_REQUIREMENTS_UNAVAILABLE: {} requires tools admitted to this session: {}",
+                skill.metadata.name,
+                missing.join(", ")
+            )));
+        }
+        Ok(())
+    }
+    pub(crate) fn check_selected_plugin_tools(
+        &self,
+        thread: &Thread,
+        config: &EffectiveConfig,
+    ) -> Result<()> {
+        let Some(selected) = &config.selected_skills else {
+            return Ok(());
+        };
+        let skills: Vec<_> = {
+            let catalog = self.desktop.catalog.read().unwrap();
+            selected
+                .iter()
+                .filter_map(|r| catalog.skills.get(&format!("{}/{}", r.id, r.revision)))
+                .filter(|s| {
+                    s.plugin
+                        .as_ref()
+                        .is_some_and(|p| !p.required_tools.is_empty())
+                })
+                .cloned()
+                .collect()
+        };
+        if skills.is_empty() {
+            return Ok(());
+        }
+        let mut scoped = thread.clone();
+        scoped
+            .desktop
+            .get_or_insert_with(Default::default)
+            .configuration = config.clone();
+        let registry = self
+            .managed_registry(&scoped, thread.source == "nativeResearchAgent")
+            .map_err(invalid)?;
+        for skill in skills {
+            self.check_plugin_skill_tools(&skill, config, &registry)?;
+        }
+        Ok(())
+    }
     pub async fn plugin_list(&self) -> Result<Value> {
         self.refresh_plugins().await?;
         let store = self.plugin_store()?;
@@ -426,6 +507,23 @@ impl Engine {
             .map_err(invalid)?
             .map_err(invalid)?;
         self.check_plugin_skill(&skill).await?;
+        if skill
+            .plugin
+            .as_ref()
+            .is_some_and(|p| !p.required_tools.is_empty())
+        {
+            let registry = if let Some(id) = &thread_id {
+                let thread = self.read(id, false).await?;
+                self.managed_registry(&thread, false).map_err(invalid)?
+            } else {
+                let mut tools = self.desktop.mcp.tools();
+                if config.allow_plugin_skills && !config.read_only {
+                    tools.extend(self.desktop.plugin_mcp.tools());
+                }
+                self.registry.clone().with_mcp(tools).map_err(invalid)?
+            };
+            self.check_plugin_skill_tools(&skill, &config, &registry)?;
+        }
         let body = skill
             .read("SKILL.md", 0, 64 * 1024)
             .await

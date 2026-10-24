@@ -9,6 +9,7 @@ const { basename } = require('node:path');
 const { validatePreview } = require('@areal/workbench/desktop-contract');
 const { WorkspaceNetworkPolicy } = require('./browser-network.cjs');
 const { sharedBrowserProfile } = require('./shared-browser-profile.cjs');
+const { attachAgentDialogPresentation } = require('./agent-dialog-presentation.cjs');
 const { waitAction } = require('./browser-tool.cjs');
 const { validateBrowserCommand, browserCommandResultSchema, executeBrowserCommandOnView, supportedMethods, unsupportedCapabilities,
   recordBrowserVideo, RecordingScenario, waitForDelay, waitForCondition } = require('@areal/browser-automation');
@@ -620,6 +621,8 @@ class CorePreview {
   }
   closeNative(page) {
     this.cancelHumanGesture(page);
+    page.dialogPresentation?.dispose();
+    page.dialogPresentation = null;
     if (!page.view) return;
     page.styleTrial = null;
     const c = page.view.webContents;
@@ -703,6 +706,7 @@ class CorePreview {
     if (page.control !== 'agent') return;
     // This local fence runs before any Core request and before awaiting native input.
     page.control = 'transferring'; page.controlEpoch++; page.refs.clear(); page.plans.clear();
+    page.dialogPresentation?.cancel();
     page.approvedActionNavigation = null;
     this.clearDiagnostics(page, 'control_changed');
     page.lastObservation = null; page.lastCapture = null; page.needsObservation = true;
@@ -962,6 +966,7 @@ class CorePreview {
     if (page.control !== 'human' || this.humanMouseGesture?.page === page || page.claiming || page.activeSelection || page.annotationCaptureId
       || page.activeRead || page.activePrepare || page.activeAction || page.fileHandoff || page.downloads.size)
       throw new Error('浏览页面当前不可认领');
+    page.dialogPresentation.assertClaimable();
     if (page.styleTrial && !(await this.clearStyleTrial(page)).cleared)
       throw new Error('页面试改已失效，请刷新页面后再交还 Agent');
     this.profile.assertAvailable();
@@ -984,6 +989,7 @@ class CorePreview {
         || page.pageGeneration !== initial.pageGeneration || page.documentGeneration !== initial.documentEpoch
         || page.controlEpoch !== initial.controlEpoch || c.isDestroyed() || c.getURL() !== initial.url
         || c.isDevToolsOpened()) throw new Error('Browser claim was revoked');
+      page.dialogPresentation.assertClaimable();
       page.control = 'agent'; grantedEpoch = ++page.controlEpoch; page.refs.clear(); page.plans.clear(); page.batchProgress = null;
       page.lastObservation = null; page.needsObservation = true;
       this.clearDiagnostics(page, 'new_control_epoch');
@@ -2121,7 +2127,8 @@ class CorePreview {
       browserHostId: this.browserHostId, hostGeneration: this.hostGeneration,
       threadId: request.threadId, turnId: request.turnId, callId: request.callId, expiresAt: Date.now() + 300000 };
     plan.fingerprint = createHash('sha256').update(JSON.stringify(plan)).digest('hex');
-    page.plans.set(plan.preparedActionId, { plan: structuredClone(plan), pageUrl: source, targets });
+    page.plans.set(plan.preparedActionId, { plan: structuredClone(plan), pageUrl: source, targets,
+      dialog: command.method === 'handleDialog' ? commandPage.commandDialog : undefined });
     return { ...this.commandIdentity(request, page), plan };
   }
   async assertCommandPrivacy(page, send) {
@@ -2159,6 +2166,7 @@ class CorePreview {
     page.plans.delete(approved.preparedActionId);
     const command = validateBrowserCommand(request.parameters.command);
     const target = saved.targets.find(item => item.id === (command.tabId ?? page.id)) ?? page;
+    if (command.method === 'handleDialog' && saved.dialog !== target.commandDialog) throw new Error('plan_stale');
     const identity = this.commandIdentity(request, page);
     const result = await this.runBrowserCommand(request, target, command, approved, saved.targets);
     return { ...identity, commandResult: browserCommandResultSchema.parse(result.commandResult),
@@ -3105,6 +3113,10 @@ class CorePreview {
       c = view.webContents;
     try { page.networkPolicy = this.ensureWorkspaceContext(page); }
     catch (error) { if (!c.isDestroyed()) c.close(); throw error; }
+    page.dialogPresentation = attachAgentDialogPresentation(c, {
+      ownership: () => ({ control: page.control }),
+      onFault: error => { page.error = error.message; this.revoke(page); },
+    });
     c.on('console-message', details => {
       if (page.control !== 'agent' || !page.diagnosticsReady) return;
       const value = details && typeof details === 'object' ? details : {};
@@ -3308,6 +3320,7 @@ class CorePreview {
     });
     c.on("did-start-navigation", (_event, url, inPlace, main) => {
       if (!this.pageStillOwned(page)) return;
+      if (main && !inPlace) page.dialogPresentation?.cancel();
       page.dialogPending = false;
       page.activeSelection?.cancel();
       if (main) {
