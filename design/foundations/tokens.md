@@ -4,6 +4,8 @@ Token 先按 GUI 确立角色及默认值，为后续 Web 复用提供基线。�
 
 ## 三类信息分开维护
 
+首批 GUI 基础角色与默认主题输入已按 [D-004](../decisions/004-local-ui-package.md)移至私有 UI 包的 tokens.json，并生成 CSS、Tailwind 映射与主题输入；纯调色板算法归包内 theme.ts。原 styles.css 保留未迁入的产品/命名主题别名，applicationSettings/applicationPreferences 保留字体选择、规范化、保存和应用。下表的 GUI 来源应按此有限迁移范围读取，焦点的共享源不变。
+
 | 信息 | 所有者 | 维护方式 |
 | --- | --- | --- |
 | 语义角色及使用理由 | [基础表达角色](roles.md)及[设计基础](README.md) | 描述主内容、次内容、状态、焦点和密度的用途 |

@@ -66,6 +66,7 @@ export async function verifyDesignCatalog({ write = false, root = guiRoot } = {}
   for (const component of registry.components) {
     assert.ok(/^[A-Z]\w*$/.test(component.id) && text(component.purpose), `invalid component: ${component.id}`);
     await source(root, component.source);
+    if (component.importFrom !== undefined) assert.ok(/^@areal\/[a-z-]+$/.test(component.importFrom), `invalid package import: ${component.id}`);
   }
   list(registry.patterns, "patterns");
   unique(registry.patterns.map(item => item.id), "pattern ids");
@@ -205,7 +206,7 @@ export async function verifyDesignCatalog({ write = false, root = guiRoot } = {}
   const sourceEntry = base.admissions.map(item => {
     const component = registry.components.find(component => component.id === item.id);
     const path = relative("renderer/src/design-system", component.source).replace(/\.tsx?$/, ".js");
-    return `export { ${(item.exports ?? [item.id]).join(", ")} } from "${path.startsWith(".") ? path : `./${path}`}";`;
+    return `export { ${(item.exports ?? [item.id]).join(", ")} } from "${component.importFrom ?? (path.startsWith(".") ? path : `./${path}`)}";`;
   }).join("\n") + "\n";
   outputs.set("renderer/src/design-system/base-components.ts", sourceEntry);
   const admissionTable = "| 成员 | 合同 / 生产消费者 | 有限变体 | 状态 | 证据ID |\n| --- | --- | --- | --- | --- |\n" + base.admissions.map(item => `| ${item.id} | [合同](../${item.contract})；${item.consumers.map(path => `[消费者](../${path})`).join("、")} | ${item.variants.join(", ")} | ${item.states.join(", ")} | ${item.evidence.join(", ")} |`).join("\n");

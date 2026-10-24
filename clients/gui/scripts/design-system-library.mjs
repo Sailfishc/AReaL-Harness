@@ -1,0 +1,40 @@
+import assert from "node:assert/strict";
+import { join } from "node:path";
+
+export async function runUiLibrary(page, scratch, checks) {
+  const library = page.getByRole("region", { name: "UI包设计系统", exact: true });
+  await library.waitFor();
+  const manifest = await page.evaluate(async () => (await fetch("/components.json")).json());
+  assert.equal(manifest.name, "@areal/ui");
+  assert.equal(manifest.private, true);
+  assert.deepEqual(manifest.components.map(({ title, status, entry }) => [title, status, entry]), [["Button", "stable", "index"], ["Disclosure", "experimental", "wip"]]);
+  assert.ok(manifest.components[0].api.includes("declare function Button"));
+  const llms = await page.evaluate(async () => (await fetch("/llms.txt")).text());
+  assert.ok(llms.includes("@areal/ui/wip"));
+  const guide = await page.evaluate(async () => (await fetch("/docs/ui/agent-guide.md")).text());
+  assert.ok(guide.includes("Agent 使用入口"));
+  const frame = page.frameLocator('iframe[title="独立UI包示例"]');
+  await frame.getByRole("button", { name: "执行示例", exact: true }).click();
+  await frame.getByRole("status").filter({ hasText: "已触发 1 次本地动作" }).waitFor();
+  const control = frame.getByRole("button", { name: "执行示例", exact: true });
+  assert.equal(await control.evaluate(element => element.getBoundingClientRect().height), 28);
+  const disclosure = frame.getByRole("button", { name: "查看组件职责", exact: true });
+  assert.equal(await disclosure.getAttribute("aria-expanded"), "false");
+  await disclosure.press("Enter");
+  await frame.getByText("基础交互与外观由包内实现负责。业务状态、执行与持久化由宿主提供。", { exact: true }).waitFor();
+  assert.equal(await control.evaluate(() => typeof window.arealDesktop), "undefined");
+  assert.equal(await control.evaluate(() => [...document.styleSheets].some(sheet => [...sheet.cssRules].some(rule => rule.cssText.includes(".areal-workbench")))), false);
+  await page.screenshot({ path: join(scratch, "ui-library-light.png"), fullPage: true });
+  await page.getByLabel("主题", { exact: true }).selectOption("dark");
+  await page.getByLabel("字号", { exact: true }).selectOption("18");
+  await frame.locator("html.dark").waitFor();
+  await page.waitForFunction(() => document.querySelector("iframe").contentDocument?.documentElement.style.getPropertyValue("--ui-font-size") === "18px");
+  assert.equal(await control.evaluate(element => element.getBoundingClientRect().height), 32);
+  assert.equal(await control.evaluate(() => getComputedStyle(document.body).backgroundColor), "rgb(24, 24, 24)");
+  await page.setViewportSize({ width: 420, height: 900 });
+  await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth);
+  assert.equal(await control.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  await page.screenshot({ path: join(scratch, "ui-library-dark-narrow.png"), fullPage: true });
+  checks.push("组件索引、API、llms与Agent原文由包构建输出；稳定/实验入口一致");
+  checks.push("独立iframe仅消费包与Tailwind，未加载renderer工作台样式；按钮动作、28/32px字号响应、Disclosure键盘、明暗默认主题与420px布局通过");
+}

@@ -1,4 +1,4 @@
-export { Button } from "../components/ui/button.js";
+export { Button } from "@areal/ui";
 export { ActionButton } from "../components/ui/action-button.js";
 export { Switch } from "../components/ui/switch.js";
 export { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../components/ui/select.js";

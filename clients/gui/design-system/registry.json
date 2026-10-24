@@ -3,7 +3,10 @@
   "tokenSources": [
     "renderer/src/styles.css",
     "renderer/src/settings/applicationSettings.ts",
-    "renderer/src/settings/applicationPreferences.ts"
+    "renderer/src/settings/applicationPreferences.ts",
+    "packages/ui/src/generated/foundation.css",
+    "packages/ui/src/generated/tailwind.css",
+    "packages/ui/src/theme.ts"
   ],
   "tokenGroups": [
     {
@@ -158,8 +161,9 @@
   "components": [
     {
       "id": "Button",
-      "source": "renderer/src/components/ui/button.tsx",
-      "purpose": "基础按钮与有限变体"
+      "source": "packages/ui/src/components/button/button.tsx",
+      "purpose": "基础按钮与有限变体",
+      "importFrom": "@areal/ui"
     },
     {
       "id": "ActionButton",
@@ -543,7 +547,7 @@
     "admissions": [
       {
         "id": "Button",
-        "contract": "renderer/src/components/ui/button.md",
+        "contract": "packages/ui/src/components/button/button.md",
         "consumers": [
           "renderer/src/ApprovalRequest.tsx",
           "renderer/src/settings/PluginCenter.tsx"

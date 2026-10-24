@@ -4,6 +4,8 @@ GUI 设计知识与后续 Web 复用边界从[设计文档](../../../design/READ
 
 ## 当前阶段
 
+[UI 包与架构](../renderer/design-system.html?ui-library)展示首批私有 workspace 包、生成基础值、真实组件合同、类型与 Agent 索引。采用或修改包内基础能力前读 [Agent 指南](../packages/ui/agent-guide.md)；边界与取舍见 [D-004](../../../design/decisions/004-local-ui-package.md)。其余模式、组件和 Base 沿本目录继续维护。
+
 下一轮整体设计方向见[设计系统建设计划](../../../design/roadmap.md)。该计划基于 AReaL Harness 当前产品任务和生产代码，明确整体候选、产物及迁移顺序，不扩大当前 Base 准入。
 
 先读[设计系统架构](architecture.md)：架构 → Base → 固定题目 → 比较与改进。当前交付包含规范、可运行目录、有限 Base 和固定输入的独立复用结果。版本、冻结状态与具体范围以 Base 为准，不把早期探索题等同于独立验证。下列规则作为现有生产约束与候选模式的入口，具体准入按架构阶段执行。

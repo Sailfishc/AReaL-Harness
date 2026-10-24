@@ -214,7 +214,7 @@ export const baseCandidate = {
   "admissions": [
     {
       "id": "Button",
-      "contract": "renderer/src/components/ui/button.md",
+      "contract": "packages/ui/src/components/button/button.md",
       "consumers": [
         "renderer/src/ApprovalRequest.tsx",
         "renderer/src/settings/PluginCenter.tsx"

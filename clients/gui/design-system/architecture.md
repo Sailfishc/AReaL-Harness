@@ -4,6 +4,8 @@
 
 共享知识与平台职责见[设计系统架构](../../../design/architecture.md)，下一轮产品建设见[建设计划](../../../design/roadmap.md)。整体候选与真实路径迁移仍按各自条件准入，不由文档整理自动通过。
 
+2026-10-24 按 [D-004](../../../design/decisions/004-local-ui-package.md)采用私有 @areal/ui 包的首批闭环：源、生成 CSS/主题、控件、类型/文档与 Agent 索引、独立示例及守卫。以下未迁入的所有者继续保留；本文件的阶段不代表全部控件均已包化。
+
 ## 目标与质量场景
 
 目标是让 Agent 把页面需求映射为已有设计决策，而不是为每页重新决定字体、颜色、控件、分组和状态反馈。架构先固定决策的所有者，再由 Base 提供可用实现，最后用独立题目检验规则是否足够。
@@ -36,7 +38,8 @@
 
 | 架构责任 | 当前所有者 | 接线状态 |
 | --- | --- | --- |
-| renderer 默认样式与语义变量 | [styles.css](../renderer/src/styles.css) | 已有生产源，继续保留 |
+| 基础值与默认主题输入 | [tokens.json](../packages/ui/tokens.json)、[theme.ts](../packages/ui/src/theme.ts) | 首批迁入单源包；生成产物由包检查，未迁入别名继续归 styles.css |
+| renderer 产品与命名主题别名 | [styles.css](../renderer/src/styles.css) | 导入包内基础层，保留当前平台/产品适配 |
 | 调色板/字体默认、规范化及派生 | [applicationSettings.ts](../renderer/src/settings/applicationSettings.ts) | 已有生产源；派生值不转成截图抄来的常量 |
 | 用户偏好、外观应用、reduced motion | [applicationPreferences.ts](../renderer/src/settings/applicationPreferences.ts) | `useAppearance` 将合法偏好写入 CSS 变量；消费端尊重这条链 |
 | 宿主题与面板主题适配 | [Main](../app/src/core/main.cjs)、[themes](../app/src/themes/index.js) | Main 调用现有 theme adapter；不能宣称 registry 已统一这些数值 |
@@ -52,7 +55,7 @@
 
 | 数据 | 可编辑的真源 | 派生物 / 消费者 | 维护规则 |
 | --- | --- | --- | --- |
-| 精确设计值与动态派生 | 既有 CSS、主题和偏好所有者 | 生产控件及 computed style | 现阶段不引入第二份 JSON 数值总表 |
+| 精确设计值与动态派生 | 首批包内 tokens.json/theme.ts；未迁入 CSS、主题和偏好所有者 | 生成 CSS、默认主题输入、生产控件及 computed style | 迁移时删除旧可编辑定义，保留宿主偏好和未迁入边界；不从生成物反写源 |
 | 角色/组件/模式目录 | registry.json | catalog.ts、inventory/patterns 的生成区块 | 同源生成，check 拒绝过期/手改；不从生成物反写源 |
 | 模式的使用原则与准入 | foundations / patterns / governance 中的人工区块 | Agent、实现与评审 | 结构事实放 registry，使用理由放规则；同义规则只保留一份 |
 | 页面实现合同 | surfaces 中的数据 | 具体实现与状态验收 | 引用模式、组件、来源、状态和条件；不是执行 DSL |
@@ -88,7 +91,7 @@
 | 方案 | 收益 | 代价 / 结论 |
 | --- | --- | --- |
 | 只扩写规范 | 上手快 | 实现可绕过，目录/示例会漂移；不足以单独达成目标 |
-| 替换为独立设计包、DTCG 全生成或通用页面 DSL | 来源集中、可跨端转译 | 当前会新增第二条数值/运行链，迁移用户主题和业务边界风险高；本阶段不选 |
+| 全量替换为独立设计包、DTCG 全生成或通用页面 DSL | 来源集中、可跨端转译 | 不做全量替换；D-004 仅将列明基础能力迁入同源私有包，移除旧默认定义，用户偏好与业务边界保留 |
 | 复用生产所有者，补职责分层、单源目录、有限组合及独立验证 | 可增量落地，已有公共控件立即受益 | JSX 依从与视觉质量仍需单独检查；作为当前方案 |
 
 若未来出现多个独立运行端必须消费同一设计源，再复审 Token 编译与跨端 recipe；不能仅因参考项目采用就提前迁移。

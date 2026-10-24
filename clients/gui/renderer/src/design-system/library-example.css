@@ -1,0 +1,10 @@
+@import "tailwindcss";
+@import "@areal/ui/styles.css";
+@import "@areal/ui/themes.css";
+@custom-variant dark (&:where(.dark, .dark *));
+body { margin: 0; padding: var(--spacing-field); color: var(--color-foreground); background: var(--color-background); font: var(--text-ui-base)/1.6 var(--font-sans); }
+.library-example { max-width: var(--reading-width); margin-inline: auto; }
+.library-example h1 { font-size: var(--text-ui-lg); font-weight: var(--ui-font-weight); }
+.library-example-actions { display: flex; flex-wrap: wrap; gap: var(--spacing-inline); margin-block: var(--spacing-field); }
+.library-example code { font-family: var(--font-mono); }
+.library-example-result { margin-block: var(--spacing-field); color: var(--color-foreground-subtle); }

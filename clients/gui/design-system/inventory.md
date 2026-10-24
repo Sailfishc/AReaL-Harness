@@ -8,7 +8,7 @@
 
 | ID | 生产所有者 | 用途 |
 | --- | --- | --- |
-| Button | [Button](../renderer/src/components/ui/button.tsx) | 基础按钮与有限变体 |
+| Button | [Button](../packages/ui/src/components/button/button.tsx) | 基础按钮与有限变体 |
 | ActionButton | [ActionButton](../renderer/src/components/ui/action-button.tsx) | 普通紧凑操作与 pending |
 | Switch | [Switch](../renderer/src/components/ui/switch.tsx) | 双向布尔值 |
 | Select | [Select](../renderer/src/components/ui/select.tsx) | 多个候选中的单选 |

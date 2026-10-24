@@ -29,6 +29,8 @@ GUI 的 `registry.json` 仍是本端索引。I-*、P-* 和 CONV-* 的定义、�
 
 组件参数从类型和实现读取，结构索引由原 registry 维护，生产预览使用真实组件。规则、数值、接口和示例各有一个来源，派生文档或检索格式不反向编辑它们。
 
+按 [D-004](decisions/004-local-ui-package.md)，首批基础值、原纯调色板函数和控件实现由私有 [@areal/ui](../clients/gui/packages/ui/README.md)承接，原 GUI registry 继续拥有模式与 Base。包生成 CSS、类型、组件索引和 Agent 入口，原设计站提供独立包示例；[UI 包与架构](../clients/gui/renderer/design-system.html?ui-library)可核对实际来源与产物。其余 renderer 控件和领域组合尚未迁入，不把首批链路写成全量迁移。
+
 ## 文档整理与产品演进
 
 目录组织的决定见[D-001](decisions/001-shared-design-knowledge.md)。共享默认值的选择见[D-002](decisions/002-shared-semantics.md)，完整候选与路径迁移的取舍见[D-003](decisions/003-whole-candidate-and-migration.md)。具体任务、产物和进入下一阶段的条件只在[建设计划](roadmap.md)维护。日常修改按[作者流程](contributing.md)选择唯一正文所有者。

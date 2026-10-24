@@ -104,7 +104,7 @@ export async function runConversationSystem(page, scratch, checks) {
   await page.setViewportSize({ width: 1440, height: 1100 });
   await page.getByLabel("字号", { exact: true }).selectOption("14");
   await page.getByLabel("减少动态效果", { exact: true }).check();
-  assert.equal(await activity.locator("svg").last().evaluate(element => getComputedStyle(element).transitionDuration), "0s");
+  assert.equal(await activity.locator(".areal-disclosure-indicator").evaluate(element => getComputedStyle(element).transitionDuration), "0s");
   await preview.getByRole("tab", { name: "运行中", exact: true }).click();
   if (await activity.getAttribute("aria-expanded") === "true") await activity.click();
   if (await image.getAttribute("aria-expanded") === "true") await image.click();

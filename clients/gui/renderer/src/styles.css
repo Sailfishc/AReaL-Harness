@@ -2,6 +2,7 @@
 @import "tailwindcss" source(".");
 @import "tw-animate-css";
 @import "streamdown/styles.css";
+@import "@areal/ui/styles.css";
 @import "../../../../design/tokens/focus.css";
 
 
@@ -39,6 +40,7 @@
  * 这里显式补一条 @source，让 Tailwind 始终扫描 UI 包源码，避免下拉框、菜单这类组件渲染成半残状态。
  */
 @source "./**/*.{ts,tsx}";
+@source "../../packages/ui/dist/**/*.{js,ts}";
 /* 云端模板常用样式的构建保障，不是运行时 class 白名单。 */
 @source inline("text-center text-ui-base/relaxed text-foreground-subtle font-semibold font-normal text-foreground whitespace-nowrap underline decoration-foreground-subtle decoration-dashed underline-offset-4");
 
@@ -54,26 +56,14 @@ body,
 }
 
 :root {
-  --ui-font-size: 14px;
-  --ui-font-weight: 400;
   --composer-shadow-light: 0 0 0 1px #0000000a, 0 2px 8px 0 #0000000a, 0 4px 80px 8px #00000006;
   --composer-shadow-dark: inset 0 0 1px 0 #fff3;
   --color-composer-action-bar: #f6f6f6;
   /* Interaction, layer and layout roles shared by production UI and Storybook. */
-  --motion-fast: 100ms;
-  --motion-normal: 160ms;
-  --motion-slow: 240ms;
-  --ease-standard: cubic-bezier(.2, 0, 0, 1);
-  --layer-dialog: 50;
-  --layer-popover: 60;
-  --layer-tooltip: 70;
-  --border-width-default: 1px;
 }
 
-.ui-control { transition-duration: var(--motion-fast); transition-timing-function: var(--ease-standard); }
 .ui-popup { transform-origin: var(--transform-origin); transition: opacity var(--motion-normal) var(--ease-standard), scale var(--motion-normal) var(--ease-standard); }
 .ui-popup[data-starting-style], .ui-popup[data-ending-style] { opacity: 0; scale: .98; }
-:root[data-reduced-motion="true"] { --motion-fast: 0ms; --motion-normal: 0ms; --motion-slow: 0ms; }
 :root[data-reduced-motion="true"] .ui-popup { transition: none; }
 
 body {
@@ -116,56 +106,7 @@ body {
 /* === 主题变量 === */
 
 @theme {
-  --reading-width: 768px;
-  --spacing-control-xs: max(20px, calc(var(--ui-font-size) + 6px));
-  --spacing-control-sm: max(24px, calc(var(--ui-font-size) + 10px));
-  --spacing-control: max(28px, calc(var(--ui-font-size) + 14px));
-  --spacing-control-lg: max(32px, calc(var(--ui-font-size) + 18px));
-  --spacing-control-form: max(38px, calc(var(--ui-font-size) + 24px));
-  --spacing-inline: 8px;
-  --spacing-field: 16px;
-  --spacing-section: 24px;
-  --spacing-panel: 16px;
-  --radius-control: 10px;
-  --radius-button: 8px;
-  --color-button-surface: color-mix(in srgb, var(--color-foreground) 10%, var(--color-card));
-  --color-button-hover: color-mix(in srgb, var(--color-foreground) 14%, var(--color-card));
-  --radius-inset: 8px;
-  --radius-pill: 999px;
-  --radius-overlay: 20px;
-  --radius-navigation: 12.5px;
-  --radius-composer: 22px;
-  --radius-panel: 12px;
-  --radius-dialog: 16px;
-  --shadow-menu: 0 0 0 0.5px var(--color-menu-border, var(--color-border)), 0 8px 16px -4px rgb(0 0 0 / 12%);
-  --shadow-overlay: 0 4px 12px rgb(0 0 0 / 10%), 0 14px 40px rgb(0 0 0 / 8%);
-  --shadow-composer: var(--composer-shadow-light);
-  --shadow-dialog: 0 12px 32px rgb(0 0 0 / 20%);
-
-  --font-sans: -apple-system, system-ui, "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Noto Sans CJK SC", sans-serif;
-  /* Windows 的 Consolas 不含中文字形，Tailwind 默认栈最终会让中文落到宋体。
-   * 保留各平台西文等宽字体，并在通用 monospace 前显式加入各平台 CJK 无衬线字体。 */
-  --font-mono:
-    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
-    "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", monospace;
-  /* 公共控件与决策内容随界面字号一起增长，默认保留原行高。 */
-  --line-height-ui: max(20px, calc(var(--ui-font-size) + 6px));
-  --line-height-ui-sm: max(18px, calc(var(--ui-font-size) + 4px));
-  --text-ui-xl: calc(var(--ui-font-size) + 4px);
-  --text-page-title: calc(var(--ui-font-size) + 8px);
-  --text-ui-lg: calc(var(--ui-font-size) + 2px);
-  --text-ui-base: var(--ui-font-size);
-  --text-ui-caption: calc(var(--ui-font-size) - 1px);
-  --text-content-caption: max(12px, calc(var(--content-font-size, 14px) - 1px));
-  --text-ui-sm: calc(var(--ui-font-size) - 2px);
-  --text-ui-xs: max(11px, calc(var(--ui-font-size) - 3px));
-  /* 例外刻度：仅限工作流图轴面（刻度标签、通道码、单位后缀），不得用于内容文本。
-   * 见 DESIGN.md「UI font tokens」。 */
-  --text-ui-2xs: calc(var(--ui-font-size) - 5px);
-  /* 大写等宽微标签（CAUSALITY GRAPH / TIMEBASE / KEY）在 9-10px 需要加宽字距。 */
-  --tracking-wf-label: 0.09em;
-  /* iOS Safari 会缩放小于 16px 的聚焦输入；该平台下限不能跟随界面字号降低。 */
-  --text-mobile-input-safe: 16px;
+  /* Adopted foundations are provided by @areal/ui; product theme aliases remain here. */
   --animated-gradient-text-strong: rgba(10, 10, 10, 1);
   --animated-gradient-text-soft: rgba(10, 10, 10, 0.22);
   --color-background: var(--color-neutral-50);
@@ -271,16 +212,12 @@ body {
   --color-foreground: var(--color-neutral-700);
   --color-foreground-subtle: color-mix(in oklab, var(--color-neutral-700) 60%, transparent);
   --color-foreground-subtlest: color-mix(in oklab, var(--color-neutral-700) 40%, transparent);
-  --color-foreground-inverse: var(--color-white);
   /* 底座控件（shadcn Tabs／Textarea／InputGroup／Attachments）与历史 CSS 使用
    * muted／ring 语义名。它们此前只被引用、从未定义，于是 `text-muted-foreground`
    * 与 `bg-muted` 不生成任何规则，`ring-ring`／`border-ring` 和 `color-mix(… var(--color-ring) …)`
    * 静默退化。这里显式映射到既有语义角色，而不是新增一档色值；四个主题都覆盖了下层的
    * surface／foreground-subtle／input-border-focused，因此别名跟随主题切换。
    * 注意：这不是纯重构——之前渲染成全前景色的说明文字和 currentcolor 焦点环从此变成设计系统取值。 */
-  --color-muted: var(--color-surface);
-  --color-muted-foreground: var(--color-foreground-subtle);
-  --color-ring: var(--color-input-border-focused);
   /* accent 在四个主题里都是浅色底（sky-50 系），shadcn 惯例下 accent-foreground
    * 取前景色；仅 `Attachments` 的 `hover:text-accent-foreground` 用到，之前同样静默失效。 */
   --color-accent-foreground: var(--color-foreground);
@@ -288,11 +225,7 @@ body {
   --color-success-foreground: var(--color-foreground-inverse);
   --color-idle-task: var(--color-violet-600);
   --color-idle-task-surface: var(--color-violet-50);
-  --color-destructive: var(--color-red-600);
-  --color-destructive-foreground: var(--color-foreground-inverse);
-  --color-warning: var(--color-yellow-600);
   --color-feedback-privacy-hint: var(--color-yellow-600);
-  --color-warning-foreground: var(--color-foreground-inverse);
   --color-diff-added: var(--color-green-600);
   --color-diff-added-foreground: var(--color-foreground-inverse);
   --color-diff-removed: var(--color-red-600);
@@ -438,16 +371,11 @@ body {
   --color-foreground: var(--color-neutral-200);
   --color-foreground-subtle: color-mix(in oklab, var(--color-neutral-200) 60%, transparent);
   --color-foreground-subtlest: color-mix(in oklab, var(--color-neutral-200) 30%, transparent);
-  --color-foreground-inverse: var(--color-white);
   --color-success: var(--color-green-500);
   --color-success-foreground: var(--color-foreground-inverse);
   --color-idle-task: var(--color-violet-400);
   --color-idle-task-surface: color-mix(in oklab, var(--color-violet-950) 50%, transparent);
-  --color-destructive: var(--color-red-500);
-  --color-destructive-foreground: var(--color-foreground-inverse);
-  --color-warning: var(--color-yellow-500);
   --color-feedback-privacy-hint: var(--color-yellow-300);
-  --color-warning-foreground: var(--color-foreground-inverse);
   --color-diff-added: var(--color-green-500);
   --color-diff-added-foreground: var(--color-foreground-inverse);
   --color-diff-removed: var(--color-red-500);

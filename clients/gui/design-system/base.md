@@ -19,7 +19,7 @@
 
 | 成员 | 合同 / 生产消费者 | 有限变体 | 状态 | 证据ID |
 | --- | --- | --- | --- | --- |
-| Button | [合同](../renderer/src/components/ui/button.md)；[消费者](../renderer/src/ApprovalRequest.tsx)、[消费者](../renderer/src/settings/PluginCenter.tsx) | default/default, secondary/sm, outline/default, ghost/sm | default, disabled, keyboard-focus | E-CONTROLS, E-PLUGINS |
+| Button | [合同](../packages/ui/src/components/button/button.md)；[消费者](../renderer/src/ApprovalRequest.tsx)、[消费者](../renderer/src/settings/PluginCenter.tsx) | default/default, secondary/sm, outline/default, ghost/sm | default, disabled, keyboard-focus | E-CONTROLS, E-PLUGINS |
 | ActionButton | [合同](../renderer/src/components/ui/action-button.md)；[消费者](../renderer/src/settings/DisplaySettings.tsx) | secondary/sm | default, disabled, pending | E-CONTROLS |
 | Switch | [合同](../renderer/src/components/ui/switch.md)；[消费者](../renderer/src/settings/SettingsPageParts.tsx)、[消费者](../renderer/src/settings/PluginCenter.tsx) | default | checked, unchecked, disabled, keyboard-focus | E-CONTROLS, E-PLUGINS |
 | Select | [合同](../renderer/src/components/ui/select.md)；[消费者](../renderer/src/settings/SettingsPageParts.tsx) | secondary/sm | closed, open, selected, disabled, keyboard-focus | E-CONTROLS |

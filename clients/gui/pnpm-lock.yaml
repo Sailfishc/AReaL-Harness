@@ -182,6 +182,40 @@ importers:
 
   packages/runtime-client: {}
 
+  packages/ui:
+    dependencies:
+      '@base-ui/react':
+        specifier: 1.8.0
+        version: 1.8.0(@types/react@19.3.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      class-variance-authority:
+        specifier: 0.7.1
+        version: 0.7.1
+      clsx:
+        specifier: 2.1.1
+        version: 2.1.1
+      lucide-react:
+        specifier: 1.47.0
+        version: 1.47.0(react@19.2.8)
+      react:
+        specifier: ^19.2.8
+        version: 19.2.8
+      react-dom:
+        specifier: ^19.2.8
+        version: 19.2.8(react@19.2.8)
+      tailwind-merge:
+        specifier: 3.7.0
+        version: 3.7.0
+    devDependencies:
+      '@types/react':
+        specifier: 19.3.0
+        version: 19.3.0
+      '@types/react-dom':
+        specifier: 19.3.0
+        version: 19.3.0(@types/react@19.3.0)
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+
   packages/workbench: {}
 
   packages/workspace-git:
@@ -201,6 +235,9 @@ importers:
       '@areal/provider-config':
         specifier: workspace:*
         version: link:../packages/provider-config
+      '@areal/ui':
+        specifier: workspace:*
+        version: link:../packages/ui
       '@areal/workbench':
         specifier: workspace:*
         version: link:../packages/workbench

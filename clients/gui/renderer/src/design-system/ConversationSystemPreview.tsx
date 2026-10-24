@@ -1,3 +1,4 @@
+import { Disclosure } from "@areal/ui/wip";
 import { useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Collapsible } from "@base-ui/react/collapsible";
 import { FileTextIcon, GlobeIcon, ImageIcon, PlusIcon, ArrowLeftIcon } from "lucide-react";
@@ -13,21 +14,6 @@ import { Feedback } from "../components/ui/feedback.js";
 import { SettingsSegmentedTabs } from "../settings/SettingsSegmentedTabs.js";
 import { editedActivity, editReview, previewMedia, previewProject, previewSources, readActivity, systemActivities, verificationActivity, type PreviewSource, type SystemPhase } from "./conversationSystemScenario.js";
 import "./conversation-system.css";
-
-function Disclosure({ label, displayLabel, children, icon, initialOpen = false, keepMounted = false, className = "" }: {
-  label: string; displayLabel?: string; children: ReactNode; icon?: ReactNode; initialOpen?: boolean; keepMounted?: boolean; className?: string;
-}) {
-  const [open, setOpen] = useState(initialOpen);
-  const id = useId();
-  return <Collapsible.Root open={open} onOpenChange={setOpen} className={`cs-disclosure ${className}`}>
-    <div className="cs-disclosure-heading">
-      <Collapsible.Trigger render={<Button variant="ghost" className="cs-disclosure-trigger" />} aria-controls={id} aria-label={label}>
-        {icon}<span>{displayLabel ?? label}</span><ActivityIcon kind="chevron" size={14} className={open ? "cs-chevron open" : "cs-chevron"} />
-      </Collapsible.Trigger>
-    </div>
-    <Collapsible.Panel id={id} keepMounted={keepMounted} className="cs-disclosure-panel">{children}</Collapsible.Panel>
-  </Collapsible.Root>;
-}
 
 function SourceIcon({ kind }: { kind: PreviewSource["kind"] }) {
   return kind === "image" ? <ImageIcon size={16} /> : kind === "web" ? <GlobeIcon size={16} /> : <FileTextIcon size={16} />;
@@ -99,7 +85,7 @@ export function ConversationSystemPreview({ dark }: { dark: boolean }) {
           <div className="cs-reading-column">
             <p className="cs-user-message">把活动分组、图片和任务上下文整理为统一的对话流，保留按需展开与返回阅读。</p>
             <p>我会先读取现有规范与组件，再整理活动的展示层级。命令、图片与子任务分别保留自己的入口。</p>
-            <Disclosure label="读取文件、运行命令 · 30 项活动" icon={<ActivityIcon kind="command" />} keepMounted>
+            <Disclosure indicator={<ActivityIcon kind="chevron" size={14} />} label="读取文件、运行命令 · 30 项活动" icon={<ActivityIcon kind="command" />} keepMounted>
               <div className="cs-activity-list" role="region" aria-label="分组活动列表" tabIndex={0}>
                 {activities.map(item => <ToolEvent key={item.id} item={item} projectId={previewProject.id} threadId="system-main"
                   onFile={path => inspect({ kind: "file", path })} />)}
@@ -108,7 +94,7 @@ export function ConversationSystemPreview({ dark }: { dark: boolean }) {
             {phase === "attention" ? <div className="cs-attention"><Feedback message="结果待核对 · 连接中断，命令是否退出尚未确认。" />
               <Button variant="outline" size="sm" onClick={() => inspect({ kind: "unknown" })}>查看待核对记录</Button></div>
               : <p className="cs-current" role="status">{phase === "running" ? `正在检查组件 · 已收集 ${5 + revision * 3} 段输出` : "命令已退出 · 退出码 0"}</p>}
-            <Disclosure label="已查看图片 · 界面参考.png" icon={<ImageIcon size={16} />} keepMounted>
+            <Disclosure indicator={<ActivityIcon kind="chevron" size={14} />} label="已查看图片 · 界面参考.png" icon={<ImageIcon size={16} />} keepMounted>
               <div className="cs-image-content"><SentAttachment part={{ type: "image", uri: "areal://blob/system-image", name: "界面参考.png" }}
                 projectId={previewProject.id} threadId="system-main" action={previewMedia} /></div>
             </Disclosure>
@@ -116,7 +102,7 @@ export function ConversationSystemPreview({ dark }: { dark: boolean }) {
             <Button variant="ghost" className="cs-agent-activity" onClick={() => inspect({ kind: "agent", id: "layout", name: "对话布局检查" })}>
               <AgentAvatar id="layout" size={16} /><span>对话布局检查</span><small>{childState}</small><span className="cs-row-action">查看</span>
             </Button>
-            <Disclosure label="已编辑文件、运行命令" icon={<ActivityIcon kind="edit" />}>
+            <Disclosure indicator={<ActivityIcon kind="chevron" size={14} />} label="已编辑文件、运行命令" icon={<ActivityIcon kind="edit" />}>
               <ToolEvent item={editedActivity} turnId="system-turn" readTurnReview={editReview} onFile={path => inspect({ kind: "file", path })} />
               <ToolEvent item={verificationActivity} />
               <p className="cs-detail-note">本次示例修改一行默认值；文件差异与命令输出分别查看。</p>
@@ -141,13 +127,13 @@ export function ConversationSystemPreview({ dark }: { dark: boolean }) {
               <Button variant="ghost" className="cs-resource-row" onClick={() => inspect({ kind: "changes" })}><ReviewPanelIcon /><span className="cs-row-body"><span>Changes</span><small>未暂存 · 2 个文件</small></span><span className="diff-count"><b>+24</b><em>−8</em></span></Button>
             </section>
             <section className="cs-context-section" aria-label="关联项目">
-              {["ZCode", "Classic-skills", "magpie"].map(name => <Disclosure key={name} label={`展开关联项目 ${name}`} displayLabel={name} className="cs-project" icon={<ActivityIcon kind="list" />}>
+              {["ZCode", "Classic-skills", "magpie"].map(name => <Disclosure indicator={<ActivityIcon kind="chevron" size={14} />} key={name} label={`展开关联项目 ${name}`} displayLabel={name} textRole="interface" className="cs-project" icon={<ActivityIcon kind="list" />}>
                 <p className="cs-detail-note">同一工作上下文的关联项目</p><p className="cs-path">/preview/workspace/{name}</p>
                 <Button variant="ghost" size="sm" onClick={() => inspect({ kind: "file", path: `${name}/README.md` })}>查看项目说明</Button>
               </Disclosure>)}
             </section>
             <section className="cs-context-section" aria-label="子代理列表">
-              <Disclosure label="Subagents · 3 个子任务">
+              <Disclosure indicator={<ActivityIcon kind="chevron" size={14} />} label="Subagents · 3 个子任务" textRole="interface">
                 {[{ id: "layout", name: "对话布局检查", status: childState }, { id: "contract", name: "活动合同核对", status: "已完成" }, { id: "review", name: "资源归属检查", status: "已完成" }].map(agent => <Button key={agent.id} variant="ghost" className="cs-resource-row" onClick={() => inspect({ kind: "agent", ...agent })}>
                   <AgentAvatar id={agent.id} size={18} /><span className="cs-row-body"><span>{agent.name}</span><small>{agent.status}</small></span>
                 </Button>)}

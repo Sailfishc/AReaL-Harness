@@ -44,6 +44,8 @@
 
 ## Token 选择
 
+首批基础值与纯调色板已移入私有 [@areal/ui](packages/ui/README.md)。修改包内 Token/控件前读 [Agent 指南](packages/ui/agent-guide.md)；实际成员、生成 API 与独立示例见 [UI 包与架构](renderer/design-system.html?ui-library)。以下角色表继续描述用途，已迁入值以包内源为准，旧路径仅转接同一实现。
+
 基础定义见 [styles.css](renderer/src/styles.css)，用户外观覆盖由 [applicationSettings.ts](renderer/src/settings/applicationSettings.ts) 和 [applicationPreferences.ts](renderer/src/settings/applicationPreferences.ts) 提供。以下目录描述用途，不复制数值；预览使用同一外观路径并显示当前计算值。
 
 | 角色 | Token | 使用约定 |

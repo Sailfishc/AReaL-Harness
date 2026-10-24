@@ -84,6 +84,7 @@ export function DesignDashboard() {
         <nav aria-label="设计预览导航">
           <a href={documentUrl("design/README.md")}>设计地图</a>
           <a href="?conversation-system">对话流设计</a>
+          <a href="?ui-library">UI 包与架构</a>
           <a href={`${window.location.pathname}#controls`}>组件示例</a>
           <a href="?product-candidate">完整产品候选</a>
           <a href="?reuse-exercise">操作独立复用题</a>

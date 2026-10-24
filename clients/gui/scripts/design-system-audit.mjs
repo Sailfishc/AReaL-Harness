@@ -32,6 +32,7 @@ for (const source of [
 
 const sources = await Promise.all(files.map(file => readFile(join(root, file), "utf8")));
 const owners = await Promise.all(["styles.css", "settings/applicationSettings.ts", "settings/applicationPreferences.ts"].map(file => readFile(join(root, file), "utf8")));
+const uiSources = await Promise.all(["generated/foundation.css", "generated/tailwind.css", "theme.ts"].map(file => readFile(new URL(`../packages/ui/src/${file}`, import.meta.url), "utf8")));
 const sharedFocus = await readFile(new URL("../../../design/tokens/focus.css", import.meta.url), "utf8");
 const webStyle = await readFile(new URL("../../web/style.css", import.meta.url), "utf8");
 const coreServer = await readFile(new URL("../../../core/app-server/src/lib.rs", import.meta.url), "utf8");
@@ -45,7 +46,7 @@ for (const token of ["--focus-width", "--focus-offset"]) {
   }
   assert.ok(webStyle.includes(`var(${token})`), `Web consumes ${token}`);
 }
-const definitions = new Set([...(sharedFocus + owners.join("\n") + sources.join("\n")).matchAll(/(--[\w-]+)["']?\s*:/g)].map(match => match[1]));
+const definitions = new Set([...(sharedFocus + owners.join("\n") + uiSources.join("\n") + sources.join("\n")).matchAll(/(--[\w-]+)["']?\s*:/g)].map(match => match[1]));
 const violations = [];
 sources.forEach((source, index) => {
   violations.push(...(files[index].endsWith(".css") ? cssFindings(source) : tsxFindings(source)).map(value => `${files[index]}: ${value}`));
