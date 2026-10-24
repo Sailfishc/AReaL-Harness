@@ -49,7 +49,7 @@ export async function buildDocuments(check = false) {
     }
   }
   const components = [];
-  for (const path of srcFiles.filter(path => path.endsWith(".md"))) {
+  for (const path of srcFiles.filter(path => path.endsWith(".md") && !path.includes("/src/generated/"))) {
     const markdown = await readFile(path, "utf8");
     const data = parseComponentMetadata(markdown, path);
     assert.ok(/^[a-z][a-z-]+$/.test(data.id));
@@ -72,10 +72,11 @@ export async function buildDocuments(check = false) {
     if (/^[A-Z]/.test(name)) assert.ok(components.filter(component => component.exports.includes(name) && component.entry === entry).length === 1, `missing contract for export ${name}`);
   }
   await writeOrCheck(resolve(root, "dist/components.json"), JSON.stringify({ schemaVersion: 1, name: pkg.name, version: pkg.version, private: pkg.private, components }, null, 2) + "\n", check);
-  const index = `# ${pkg.name} ${pkg.version}\n\nLocal workspace package; private, not published.\n\n- [Agent guide](docs/ui/agent-guide.md): adoption order, source owners and verification.\n` +
+  const index = `# ${pkg.name} ${pkg.version}\n\nLocal workspace package; private, not published.\n\n- [Agent guide](docs/ui/agent-guide.md): adoption order, source owners and verification.\n- [Token reference](docs/ui/tokens.md): every CSS variable with default value and purpose.\n` +
     components.map(component => `- [${component.title}](docs/ui/${component.id}.md): ${component.summary} (${component.status}, @areal/ui${component.entry === "wip" ? "/wip" : ""}).`).join("\n") + "\n";
   await writeOrCheck(resolve(root, "dist/llms.txt"), index, check);
   await writeOrCheck(resolve(root, "dist/docs/agent-guide.md"), await readFile(resolve(root, "agent-guide.md"), "utf8"), check);
+  await writeOrCheck(resolve(root, "dist/docs/tokens.md"), await readFile(resolve(root, "src/generated/tokens.md"), "utf8"), check);
   if (!check) for (const path of srcFiles.filter(path => path.endsWith(".css"))) {
     const output = resolve(root, "dist", relative(resolve(root, "src"), path));
     await mkdir(dirname(output), { recursive: true }); await copyFile(path, output);

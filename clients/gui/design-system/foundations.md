@@ -10,7 +10,7 @@
 
 | 决策 | 必须采用的来源与约束 |
 | --- | --- |
-| 颜色 | `styles.css` 的语义变量及现有主题链；主文字、次文字、页面、输入、边界、危险各按角色取值；禁止在新消费者写裸颜色或复制参考截图色值 |
+| 颜色 | @areal/ui 生成的语义变量（[tokens.json](../packages/ui/tokens.json) + theme.ts）及 `styles.css` 的产品别名；主文字、次文字、页面、输入、边界、危险各按角色取值；禁止在新消费者写裸颜色或复制参考截图色值 |
 | 字体 | UI 使用生产 `--font-sans`、`--text-ui-*`、`--ui-font-weight` 与公共行高；普通任务标题、项目标签和对话正文使用常规字重，强调内容沿用已有标题与强调角色；代码使用 `--font-mono`。排印方向见[文字与空间密度](../../../design/foundations/roles.md#文字与空间密度)，不引入新字体或任意字号修补页面 |
 | 字号偏好 | 尊重 `applicationSettings.ts` / `applicationPreferences.ts`；检查字号变化后的行高、换行、操作可达性，不用缩小文字解决溢出 |
 | 间距与密度 | 优先 `--spacing-inline/field/section/panel` 及既有组合；同行控件、同类设置使用相同密度。空间不足时重排，不逐页压缩 padding |

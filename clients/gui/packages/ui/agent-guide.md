@@ -5,7 +5,7 @@
 ## 使用组件
 
 1. 从 [GUI 设计入口](../../design-system/README.md)确定用户意图与所属模式；在 `@areal/ui/components.json` 索引里选择已有组件，读取就近 Markdown 合同。完成条件是用途、必要状态和返回行为明确。
-2. 稳定组件从 `@areal/ui` 导入；实验组件从 `@areal/ui/wip` 导入。类型由实际源码和生成的 `.d.ts` 提供，目录示例消费相同导出。
+2. 稳定组件从 `@areal/ui` 导入；实验组件从 `@areal/ui/wip` 导入。类型由实际源码和生成的 `.d.ts` 提供，目录示例消费相同导出。样式里的字号、颜色、圆角、间距从 [Token 速查](src/generated/tokens.md) 选变量，不写字面量。
 3. 用内容、children 和已有有限变体完成组合。调用方提供真实值与合法动作，通用控件只负责呈现与交互。业务执行、凭据、历史和权限继续归原服务。
 4. 先验证所选状态，再接生产。主题、字号、键盘和窄容器按实际风险检查；预览结果与真实桌面、Core、安装包分别报告。
 
@@ -14,7 +14,8 @@
 1. 默认基础值编辑 tokens.json；动态调色板派生编辑 src/theme.ts；用户偏好的读取、保存与应用仍在 renderer 的 applicationSettings/applicationPreferences。
 2. 修改组件时同改旁边的用途、理由、状态与可访问性合同。Props 从 TypeScript 读取，语义值使用既有角色；组件的基础外观由其 recipe/CSS 自身完成。
 3. 运行包的 generate、build 和 check，再运行 GUI 的 verify:design、typecheck 与受影响浏览器专项。生成漂移必须修源后重建；保留失败证据。
-4. 改变边界、主题语义或公共规则时更新原设计文档/决策。稳定 API 的调整检查旧消费者；实验组件提升前需要真实消费者和验收依据。
+4. 改变边界、主题语义或公共规则时更新原设计文档/决策。稳定 API 的调整检查旧消费者。core 组件有 3 个及以上生产消费者时升级为稳定（或在合同写 `hold: <原因>`），规则见[成熟度](../../../../design/components/README.md#成熟度)。
+5. 某个区域专用的外观放进该区域的层（如 conversation 的 ComposerActionButton），不加到 core 组件的变体里。
 
 ## 容易带入的错误假设
 

@@ -4,7 +4,13 @@
 
 ## GUI 设计入口
 
-新增或修改 GUI 页面、组件、布局、样式、动效或 UI 文案时，编辑前先读 [设计系统开工顺序](clients/gui/design-system/README.md#开工顺序)，选择交互分类、既有组件和验收状态；交付按 [完成条件](clients/gui/design-system/governance.md#完成条件)说明例外与实际证据。静态审计使用 [增量检查](clients/gui/design-system/automation.md#增量设计检查)；只有目录检查通过不能代替真实交互和视觉审查。
+`design/` 是 GUI 设计规则的源头，`@areal/ui`（`clients/gui/packages/ui`）是它的实现。
+
+- 改变外观（颜色、字号、圆角、间距、组件变体或新组件）的 PR，同时更新它遵循的规则与理由：基础值改 [tokens.json](clients/gui/packages/ui/tokens.json) 并按需更新 [基础表达角色](design/foundations/roles.md)，组件改同目录的合同 MD。
+- 代码与规则不一致时，其中一个是错的：修改代码或修改规则，不让两者并存。
+- 写样式前查 [Token 速查](clients/gui/packages/ui/src/generated/tokens.md)；写死的字号、颜色、圆角由 [字面量基线](design/foundations/tokens.md#自动守卫)拦截。
+- 选组件前读 [@areal/ui Agent 指南](clients/gui/packages/ui/agent-guide.md)；新增页面或交互时按 [设计系统开工顺序](clients/gui/design-system/README.md#开工顺序)选择交互分类与验收状态，交付按 [完成条件](clients/gui/design-system/governance.md#完成条件)说明例外与证据。
+- 提交前运行 `node clients/gui/scripts/design-system-audit.mjs`（Token 单源、字面量基线、组件成熟度、目录与增量检查）。静态检查通过不能代替真实交互和视觉审查。
 
 ## 开发规范
 
