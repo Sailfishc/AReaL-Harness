@@ -1,5 +1,6 @@
+import { toast } from "../components/ui/toast.js";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { ChevronDown, ChevronRight, Folder, LoaderCircle, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { LoaderCircle, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { Button } from "../components/ui/button.js";
 import { Input } from "../components/ui/input.js";
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "../components/ui/popover.js";
@@ -11,6 +12,7 @@ import { SettingsDisclosure } from "./SettingsDisclosure.js";
 import { SettingsGroupCard, SettingsRow, SettingsSection, SettingsSwitch } from "./SettingsPageParts.js";
 import { SettingsSegmentedTabs } from "./SettingsSegmentedTabs.js";
 import { useDraftBlocker, useGuardedNavigation } from "./UnsavedChanges.js";
+import { WorktreeDirectory, WorktreeSettings } from "@areal/ui/wip";
 import "./WorktreesSettings.css";
 
 type Platform = "default" | "macos" | "linux";
@@ -42,9 +44,7 @@ function ScriptField({ label, description, script, platform, onPlatformChange, o
 }) {
     const { t } = useI18n();
     const labels = { default: t("worktree.platformDefault"), macos: t("worktree.platformMacos"), linux: t("worktree.platformLinux") };
-    return <section className="worktrees-script-field">
-        <div className="worktrees-section-heading"><h2>{label}</h2>{action}</div>
-        {description && <p className="settings-section-desc">{description}</p>}
+    return <WorktreeSettings.Script label={label} description={description} action={action} hint={platform !== "default" ? t("worktree.overrideHint") : undefined}>
         <Tabs value={platform} onValueChange={value => onPlatformChange(value as Platform)} className="settings-segmented-tabs worktrees-script-tabs">
             <TabsList aria-label={`${t("worktree.settings.scriptPlatform", { script: label })}${suffix}`}>
                 {platforms.map(value => <TabsTrigger key={value} value={value} disabled={disabled}>{labels[value]}</TabsTrigger>)}
@@ -54,8 +54,7 @@ function ScriptField({ label, description, script, platform, onPlatformChange, o
                     value={script[value] ?? ""} onChange={event => onChange({ ...script, [value]: event.target.value })} />
             </TabsContent>)}
         </Tabs>
-        {platform !== "default" && <p className="settings-section-desc worktrees-override-hint">{t("worktree.overrideHint")}</p>}
-    </section>;
+    </WorktreeSettings.Script>;
 }
 
 export function WorktreesSettings({ action, projects, initialProjectId, initialTab = "general", onAddProject }: {
@@ -73,6 +72,8 @@ export function WorktreesSettings({ action, projects, initialProjectId, initialT
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
     const [notice, setNotice] = useState("");
+    useEffect(() => { if (error) toast(error, "error"); }, [error]);
+    useEffect(() => { if (notice) toast(notice, "success"); }, [notice]);
     const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
     const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
     const root = useRef<HTMLDivElement>(null);
@@ -173,7 +174,7 @@ export function WorktreesSettings({ action, projects, initialProjectId, initialT
             setListing(previous => previous && ({ ...previous, worktrees: previous.worktrees.filter(value => value.requestId !== item.requestId) }));
             setNotice(t("worktree.settings.directoryDeleted", { name }));
             await refreshAfterWrite();
-        } catch (cause) { setRowErrors(previous => ({ ...previous, [item.requestId]: (cause as Error).message })); }
+        } catch (cause) { const message = (cause as Error).message; setRowErrors(previous => ({ ...previous, [item.requestId]: message })); toast(message, "error"); }
         finally { locked.current = false; setOperation(undefined); }
     };
     const deleteEnvironment = async () => {
@@ -208,13 +209,13 @@ export function WorktreesSettings({ action, projects, initialProjectId, initialT
     const groups = listing ? [...listing.projects.map(project => ({ id: project.id, name: projectName(project), items: directories.filter(item => item.projectId === project.id) })),
         { id: "unknown", name: t("worktree.settings.unknownProject"), items: directories.filter(item => !listing.projects.some(project => project.id === item.projectId)) }].filter(group => group.items.length) : [];
 
-    return <div ref={root} className="worktrees-settings" data-testid="worktrees-settings" data-view={tab === "general" ? "general" : page.view}>
+    return <WorktreeSettings ref={root} data-testid="worktrees-settings" view={tab === "general" ? "general" : page.view}>
         {editor && tab === "environments" ? <>
-            <nav className="worktrees-breadcrumb" aria-label={t("worktree.settings.environmentNavigation")}>
-                <Button variant="ghost" size="sm" disabled={busy} onClick={() => moveTo({ view: "projects" })}>{t("worktree.environments")}</Button><ChevronRight aria-hidden="true" />
-                <Button variant="ghost" size="sm" disabled={busy} onClick={() => moveTo({ view: "project", projectId: editor.projectId })}>{currentProject ? projectName(currentProject) : t("worktree.project")}</Button><ChevronRight aria-hidden="true" />
-                <span aria-current="page">{editor.draft.name || t("worktree.newEnvironment")}</span>
-            </nav>
+            <WorktreeSettings.Breadcrumb label={t("worktree.settings.environmentNavigation")} disabled={busy} items={[
+                { id: "projects", label: t("worktree.environments"), onSelect: () => moveTo({ view: "projects" }) },
+                { id: editor.projectId, label: currentProject ? projectName(currentProject) : t("worktree.project"), onSelect: () => moveTo({ view: "project", projectId: editor.projectId }) },
+                { id: "editor", label: editor.draft.name || t("worktree.newEnvironment") },
+            ]} />
             <h1 className="settings-page-title worktrees-editor-title">{t(editor.original ? "worktree.settings.editEnvironment" : "worktree.newEnvironment")}</h1>
         </> : <div className="worktrees-overview">
             <p className="settings-section-desc">{t("worktree.settings.description")}</p>
@@ -225,8 +226,9 @@ export function WorktreesSettings({ action, projects, initialProjectId, initialT
         <Button variant="ghost" size="icon" className="worktrees-refresh" aria-label={t("worktree.settings.refresh")} title={t("worktree.settings.refresh")} disabled={loading || busy || !routeId} onClick={refreshListing}>
             {loading ? <LoaderCircle className="animate-spin" /> : <RefreshCw />}
         </Button>
-        {error && <p role="alert" className="worktrees-feedback worktrees-error">{error}</p>}
-        {notice && <p role="status" className="worktrees-feedback">{notice}</p>}
+
+
+        {error && <details className="worktrees-feedback"><summary>{t("recovery.details")}</summary><p>{error}</p></details>}
         {loading && <p role="status" className="settings-section-desc">{t("worktree.loading")}</p>}
         {!routeId ? <SettingsSection description={t("worktree.noProjects")} action={onAddProject && <Button variant="secondary" disabled={busy} onClick={() => { void perform({ kind: "add-project" }, async () => {
             const id = await onAddProject(); if (id) { setTab("environments"); setPage({ view: "project", projectId: id }); }
@@ -251,46 +253,40 @@ export function WorktreesSettings({ action, projects, initialProjectId, initialT
                 </div>}
             </SettingsSection>
             <SettingsSection title={t("worktree.managed")}>
-                <div className="worktrees-directory-list">{groups.map(group => <div key={group.id} className="worktrees-directory-project">
-                    <div className="worktrees-directory-project-heading"><Folder aria-hidden="true" /><span>{group.name}</span></div>
+                <WorktreeDirectory>{groups.map(group => <WorktreeDirectory.Group key={group.id} title={group.name}>
                     {group.items.map(item => {
                         const name = worktreeName(item);
                         const open = expanded.has(item.requestId);
                         const deleting = operation?.kind === "delete-worktree" && operation.requestId === item.requestId || item.deletion?.status === "running";
                         const rowError = rowErrors[item.requestId] || (item.deletion?.status === "unknown" ? item.deletion.message || t("worktree.unknown") : "");
-                        return <div key={item.requestId} className="worktrees-directory-item">
-                            <div className="worktrees-directory-row">
-                                <Button variant="ghost" className="worktrees-directory-toggle" aria-label={`${t("worktree.settings.details")} ${name}`} aria-expanded={open} aria-controls={`worktree-details-${item.requestId}`} onClick={() => setExpanded(previous => {
-                                    const next = new Set(previous); if (next.has(item.requestId)) next.delete(item.requestId); else next.add(item.requestId); return next;
-                                })}>{open ? <ChevronDown /> : <ChevronRight />}<span>{name}</span></Button>
-                                <Button variant="ghost" size="icon" className="worktrees-directory-delete" disabled={busy || deleting} aria-label={`${t("worktree.delete")} ${name}`} title={`${t("worktree.delete")} ${name}`} onClick={() => { void deleteWorktree(item, name); }}>{deleting ? <LoaderCircle className="animate-spin" /> : <Trash2 />}</Button>
-                            </div>
-                            {deleting && <p role="status" className="worktrees-directory-feedback">{t("worktree.settings.deletingDirectory")}</p>}
-                            {rowError && <p role="alert" className="worktrees-directory-feedback worktrees-error">{rowError}</p>}
-                            {open && <dl id={`worktree-details-${item.requestId}`} className="worktrees-directory-details">
+                        return <WorktreeDirectory.Item key={item.requestId} name={name} open={open} disabled={busy} deleting={deleting} error={rowError}
+                            labels={{ details: t("worktree.settings.details"), delete: t("worktree.delete"), deleting: t("worktree.settings.deletingDirectory"), result: t("worktree.settings.status") }}
+                            onToggle={() => setExpanded(previous => { const next = new Set(previous); if (next.has(item.requestId)) next.delete(item.requestId); else next.add(item.requestId); return next; })}
+                            onDelete={() => { void deleteWorktree(item, name); }}>
                                 <div><dt>{t("worktree.settings.directory")}</dt><dd><code>{item.directory}</code></dd></div>
                                 <div><dt>{t("worktree.settings.branch")}</dt><dd><code>{item.branch}</code></dd></div>
                                 <div><dt>{t("worktree.environment")}</dt><dd>{item.environment?.name || t("worktree.noEnvironment")}</dd></div>
                                 <div><dt>{t("worktree.settings.status")}</dt><dd>{t(stateMessages[item.state as keyof typeof stateMessages] ?? "worktree.unknown")}</dd></div>
                                 <div><dt>{t("worktree.settings.request")}</dt><dd><code>{item.requestId}</code></dd></div>
-                            </dl>}
-                        </div>;
+                        </WorktreeDirectory.Item>;
                     })}
-                </div>)}</div>
+                </WorktreeDirectory.Group>)}</WorktreeDirectory>
                 {listing && !directories.length && <p className="worktrees-empty">{t("worktree.empty")}</p>}
             </SettingsSection>
         </> : page.view === "projects" ? <SettingsSection title={t("worktree.settings.selectProject")} action={onAddProject && <Button variant="secondary" size="sm" disabled={busy} onClick={() => { void perform({ kind: "add-project" }, async () => {
             const id = await onAddProject(); await refresh(); if (id) setPage({ view: "project", projectId: id });
         }).catch(() => {}); }}><Plus />{t("worktree.settings.addProject")}</Button>}>
-            <div className="worktrees-project-list">{listing?.projects.map(project => <div key={project.id} className="worktrees-project-row">
-                <Button variant="ghost" className="worktrees-project-open" disabled={disabled} aria-label={t("worktree.settings.configureProject", { name: projectName(project) })} onClick={() => moveTo({ view: "project", projectId: project.id })}><Folder /><span><span>{projectName(project)}</span><small>{project.root}</small></span></Button>
-                <Button variant="ghost" size="icon" disabled={disabled} aria-label={t("worktree.settings.addProjectEnvironment", { name: projectName(project) })} onClick={() => edit(project)}><Plus /></Button>
-            </div>)}</div>
+            <div className="worktrees-project-list">{listing?.projects.map(project => <WorktreeSettings.Project key={project.id} name={projectName(project)} root={project.root} disabled={disabled}
+                openLabel={t("worktree.settings.configureProject", { name: projectName(project) })} addLabel={t("worktree.settings.addProjectEnvironment", { name: projectName(project) })}
+                onOpen={() => moveTo({ view: "project", projectId: project.id })} onAdd={() => edit(project)} />)}</div>
             {listing && !listing.projects.length && <p className="worktrees-empty">{t("worktree.noProjects")}</p>}
         </SettingsSection> : !editor ? <>
-            <nav className="worktrees-breadcrumb" aria-label={t("worktree.settings.environmentNavigation")}><Button variant="ghost" size="sm" disabled={busy} onClick={() => moveTo({ view: "projects" })}>{t("worktree.environments")}</Button><ChevronRight aria-hidden="true" /><span aria-current="page">{currentProject ? projectName(currentProject) : t("worktree.project")}</span></nav>
+            <WorktreeSettings.Breadcrumb label={t("worktree.settings.environmentNavigation")} disabled={busy} items={[
+                { id: "projects", label: t("worktree.environments"), onSelect: () => moveTo({ view: "projects" }) },
+                { id: "project", label: currentProject ? projectName(currentProject) : t("worktree.project") },
+            ]} />
             <SettingsSection title={currentProject ? projectName(currentProject) : t("worktree.environments")} action={<Button variant="secondary" size="sm" disabled={disabled || !currentProject} onClick={() => { if (currentProject) edit(currentProject); }}><Plus />{t("worktree.addEnvironment")}</Button>}>
-                <div className="worktrees-environment-list">{currentProject?.environments.map(item => <Button key={item.id} variant="ghost" className="worktrees-environment-open" disabled={disabled} aria-label={t("worktree.settings.editNamedEnvironment", { name: item.name })} onClick={() => edit(currentProject, item)}><span>{item.name}</span><ChevronRight /></Button>)}</div>
+                <div className="worktrees-environment-list">{currentProject?.environments.map(item => <WorktreeSettings.Environment key={item.id} name={item.name} label={t("worktree.settings.editNamedEnvironment", { name: item.name })} disabled={disabled} onOpen={() => edit(currentProject, item)} />)}</div>
                 {currentProject && !currentProject.environments.length && <p className="worktrees-empty">{t("worktree.settings.noEnvironments")}</p>}
             </SettingsSection>
         </> : <>
@@ -303,17 +299,16 @@ export function WorktreesSettings({ action, projects, initialProjectId, initialT
                 const id = crypto.randomUUID(); updateEditor(value => ({ ...value, editingActionId: id, draft: { ...value.draft, actions: [...value.draft.actions, { id, name: "", script: { default: "" } }] } }));
             }}><Plus />{t("worktree.addAction")}</Button>}>
                 {!editor.draft.actions.length && <p className="worktrees-empty">{t("worktree.settings.noActions")}</p>}
-                <div className="worktrees-action-list">{editor.draft.actions.map(item => <div key={item.id} className="worktrees-action-item">
-                    <div className="worktrees-action-row"><div className="worktrees-action-summary"><span>{item.name || t("worktree.settings.unnamedAction")}</span><code>{item.script.default.split("\n").find(line => line.trim())}</code></div>
+                <div className="worktrees-action-list">{editor.draft.actions.map(item => <WorktreeSettings.Action key={item.id} name={item.name || t("worktree.settings.unnamedAction")} summary={item.script.default.split("\n").find(line => line.trim())} editorId={`worktree-action-${item.id}`} controls={<>
                         <Button variant="ghost" size="sm" disabled={busy} aria-label={t("worktree.settings.editNamedAction", { name: item.name || t("worktree.settings.unnamedAction") })} aria-expanded={editor.editingActionId === item.id} aria-controls={`worktree-action-${item.id}`} onClick={() => updateEditor(value => ({ ...value, editingActionId: value.editingActionId === item.id ? undefined : item.id }))}>{t(editor.editingActionId === item.id ? "worktree.settings.doneEditing" : "worktree.settings.edit")}</Button>
                         <Button variant="ghost" size="icon" disabled={busy} aria-label={`${t("worktree.removeAction")} ${item.name || t("worktree.settings.unnamedAction")}`} onClick={() => updateEditor(value => ({ ...value, editingActionId: value.editingActionId === item.id ? undefined : value.editingActionId, draft: { ...value.draft, actions: value.draft.actions.filter(action => action.id !== item.id) } }))}><Trash2 /></Button>
-                    </div>
-                    {editor.editingActionId === item.id && <div id={`worktree-action-${item.id}`} className="worktrees-action-editor"><label>{t("worktree.actionName")}<Input aria-label={t("worktree.actionName")} value={item.name} disabled={busy} onChange={event => updateEditor(value => ({ ...value, draft: { ...value.draft, actions: value.draft.actions.map(action => action.id === item.id ? { ...action, name: event.target.value } : action) } }))} /></label>
+                    </>}>
+                    {editor.editingActionId === item.id && <><label>{t("worktree.actionName")}<Input aria-label={t("worktree.actionName")} value={item.name} disabled={busy} onChange={event => updateEditor(value => ({ ...value, draft: { ...value.draft, actions: value.draft.actions.map(action => action.id === item.id ? { ...action, name: event.target.value } : action) } }))} /></label>
                         <ScriptField label={t("worktree.actionScript")} suffix={` ${item.name || t("worktree.settings.unnamedAction")}`} script={item.script} platform={editor.platforms.actions[item.id] ?? "default"} disabled={busy}
                             onPlatformChange={platform => updateEditor(value => ({ ...value, platforms: { ...value.platforms, actions: { ...value.platforms.actions, [item.id]: platform } } }))}
                             onChange={script => updateEditor(value => ({ ...value, draft: { ...value.draft, actions: value.draft.actions.map(action => action.id === item.id ? { ...action, script } : action) } }))} />
-                    </div>}
-                </div>)}</div>
+                    </>}
+                </WorktreeSettings.Action>)}</div>
             </SettingsSection>
             <div className="worktrees-save-row">
                 {editor.original && <Button variant="ghost" className="worktrees-delete-environment" disabled={busy} onClick={() => { void deleteEnvironment().catch(() => {}); }}>{t(operation?.kind === "delete-environment" ? "worktree.settings.deletingEnvironment" : "worktree.deleteEnvironment")}</Button>}
@@ -322,5 +317,5 @@ export function WorktreesSettings({ action, projects, initialProjectId, initialT
                 <Button disabled={disabled || !validEnvironment || !environmentDirty} onClick={() => { void save().catch(() => {}); }}>{t(operation?.kind === "save" ? "worktree.saving" : "worktree.save")}</Button>
             </div>
         </>}
-    </div>;
+    </WorktreeSettings>;
 }

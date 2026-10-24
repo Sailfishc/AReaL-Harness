@@ -176,7 +176,7 @@ async function settingsChecks() {
     const save = host("states").getByRole("button", { name: "保存", exact: true });
     assert.equal(await save.isDisabled(), state !== "failed");
     if (state === "pending") assert.equal(await save.getAttribute("aria-busy"), "true");
-    if (state === "failed") { await save.click(); assert.equal(await host("states").getByRole("alert").innerText(), "示例操作明确失败，草稿已保留。"); }
+    if (state === "failed") { await save.click(); assert.equal(await page.getByTestId("toast").getByRole("alert").innerText(), "示例操作明确失败，草稿已保留。"); }
     if (state === "unknown") assert.equal(await host("states").getByRole("status").innerText(), "结果待确认，保留当前值；不重复提交。");
   }
   checks.push("external presentation fixtures preserve draft values across unavailable/pending/known failure/unknown states without reporting a successful save");
@@ -702,7 +702,7 @@ try {
   await page.getByLabel("状态", { exact: true }).selectOption("failed");
   const card = page.getByRole("region", { name: "工具审批", exact: true });
   await card.getByRole("button", { name: "允许一次", exact: true }).click();
-  await card.getByRole("alert").waitFor();
+  await page.getByTestId("toast").getByRole("alert").waitFor();
   await page.getByLabel("状态", { exact: true }).selectOption("unknown");
   await card.getByRole("button", { name: "允许一次", exact: true }).click();
   await card.getByRole("button", { name: "核对待审批状态", exact: true }).waitFor();

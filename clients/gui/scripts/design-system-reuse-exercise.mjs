@@ -180,6 +180,7 @@ export async function runReuseExercise(page, scratch, gui, exercise) {
   await action().click();
   await page.clock.runFor(700);
   await hasResult(detail, "明确失败");
+  if (!await detail.getByText("明确失败，文件已移走。", { exact: true }).isVisible()) await detail.getByRole("button", { name: "查看详情", exact: true }).click();
   assert.match(await detail.innerText(), /文件已移走/);
   await frame("trace-failed", "Space selects trace; review and complete timer", "explicit failure retains complete long name and cause");
   await row("remote").click();
@@ -189,6 +190,7 @@ export async function runReuseExercise(page, scratch, gui, exercise) {
   await frame("remote-unavailable", "select remote", "disabled review with visible local-unavailable reason");
   await row("trace").click();
   await hasResult(detail, "明确失败");
+  if (!await detail.getByText("明确失败，文件已移走。", { exact: true }).isVisible()) await detail.getByRole("button", { name: "查看详情", exact: true }).click();
   assert.match(await detail.innerText(), /文件已移走/);
   await row("draft").click();
   await selected("draft");

@@ -35,3 +35,5 @@
 组件MD须与实现同目录，含用途、组成、状态、行为、内容、可访问性、规则及可操作示例链接；category/aliases/related供人和Agent检索。数组使用行内JSON，关联使用已有组件id。MD、TS声明与独立示例各自拥有事实，生成的索引/原文站点不反向编辑。文档阅读器可检查元数据和实际示例；仅有MD文件不等于文档完整或体验已通过。
 
 输入区采用[ComposerSurface合同](src/conversation/composer-surface/composer-surface.md)和[工具栏合同](src/conversation/composer-toolbar/composer-toolbar.md)；设置布局从[SettingsPage合同](src/components/settings-page/settings-page.md)进入，并沿related查找分区、组与行。各合同说明样式入口、宿主职责及可操作实例；实际编辑、提交、保存回执和导航守卫沿原业务所有者。
+
+Worktree界面从[选择合同](src/worktree/worktree-picker/worktree-picker.md)与related进入；业务适配仍归原Worktree模块。短时提示采用[NotificationToast合同](src/components/notification-toast/notification-toast.md)，通过原ToastHost发送；任务状态与恢复动作按原权威记录提供。

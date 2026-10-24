@@ -48,6 +48,7 @@
   --color-ring: var(--color-input-border-focused);
   --color-muted: var(--color-surface);
   --color-muted-foreground: var(--color-foreground-subtle);
+  --color-success: var(--color-green-600);
 }
 @theme {
   --color-background: #ffffff;

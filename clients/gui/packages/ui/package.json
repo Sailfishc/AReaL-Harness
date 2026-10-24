@@ -41,7 +41,9 @@
     "./components.json": "./dist/components.json",
     "./llms.txt": "./dist/llms.txt",
     "./agent-guide.md": "./agent-guide.md",
-    "./settings.css": "./dist/settings.css"
+    "./settings.css": "./dist/settings.css",
+    "./worktree.css": "./dist/worktree.css",
+    "./notifications.css": "./dist/notifications.css"
   },
   "scripts": {
     "generate": "node scripts/foundations.mjs",

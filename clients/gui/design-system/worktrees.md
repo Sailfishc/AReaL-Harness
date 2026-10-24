@@ -36,7 +36,7 @@
 | --- | --- | --- |
 | Foundations | 表面、字号、字重、间距、图标、焦点、动效 | [foundations](foundations.md)、[Token 指南](../DESIGN_SYSTEM.md#token-选择)、生产 CSS 与外观偏好 |
 | 通用控件 | Button、Switch、搜索、Tabs、Popover、详情、输入与反馈 | 原 UI / Settings 控件；不在控件中认识项目、分支或创建请求 |
-| 领域组合 | 配置行、分支条目、准备摘要、目录行、脚本字段、Action 条目 | 本文定义有限组成；后续合同落在原 Worktree 所有者旁，Props 以源码为准 |
+| 领域组合 | 配置行、分支条目、准备摘要、目录行、脚本字段、Action 条目 | [UI包Worktree层](../packages/ui/src/worktree)承接有限组合与就近MD，原Worktree所有者保留数据/操作适配，Props由真实TS生成 |
 | 交互模式 | 选择、观察、管理、返回与恢复 | 复用 P-DETAIL、P-STATUS、P-SETTINGS；对话顺序沿 P-CONVERSATION |
 | 产品布局 | Composer 上下文条、时间线、侧栏、设置导航 | 原 App / Messages / TaskListItem / SettingsWorkspace |
 
@@ -253,3 +253,9 @@ Variables 入口打开小型只读说明，列出 `AREAL_WORKTREE_PATH`、`AREAL
 | 边界组合 | 明暗主题，UI 字号 14 / 18，宽 / 窄，键盘与 reduced motion | 不靠缩字体通过；当前值、返回、取消、保存和删除均可达；无页面横向溢出 |
 
 逐状态对照 WT-R01～09 时保留 AReaL 品牌与安全语义差异；截图缺失状态按本稿目标验证并明确标注。当前 [renderer 与 Electron 验收范围](exercises/worktrees.md)分别报告视觉、交互和真实 Core 路径；尚未验收安装包、物理输入或 Linux 实机，不声明逐像素一致。
+
+## UI包采用
+
+WorktreePicker、WorktreeStatus、WorktreeDirectory、WorktreeSettings、WorktreeWorkspace从私有@areal/ui/wip消费，样式入口为worktree.css，各自有同目录MD及独立可操作实例。原WorktreeStarter、WorktreeStatus/Actions与WorktreesSettings仍拥有选项读取、事件投影、草稿、版本校验、确认及实际执行。包内不请求服务、不保存配置、不自动重放未知请求。
+
+操作失败/成功通知采用统一NotificationToast；提示自动消失不清除原记录或目录详情中的受阻原因。

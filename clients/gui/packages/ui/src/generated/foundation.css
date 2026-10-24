@@ -58,9 +58,11 @@
   --color-ring: var(--color-input-border-focused);
   --color-muted: var(--color-surface);
   --color-muted-foreground: var(--color-foreground-subtle);
+  --color-success: var(--color-green-600);
 }
 .dark {
   --color-destructive: var(--color-red-500);
   --color-warning: var(--color-yellow-500);
+  --color-success: var(--color-green-500);
 }
 :root[data-reduced-motion="true"] { --motion-fast: 0ms; --motion-normal: 0ms; --motion-slow: 0ms; }

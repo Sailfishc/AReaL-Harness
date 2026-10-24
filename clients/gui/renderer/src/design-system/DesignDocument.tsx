@@ -16,7 +16,7 @@ type Destination =
 const rootDocuments = import.meta.glob<string>("../../../../../design/**/*.md", { eager: true, query: "?raw", import: "default" });
 const guiDocuments = import.meta.glob<string>(["../../../design-system/**/*.md", "!../../../design-system/**/*.en.md", "!../../../design-system/templates/**"], { eager: true, query: "?raw", import: "default" });
 const contracts = import.meta.glob<string>("../**/*.md", { eager: true, query: "?raw", import: "default" });
-const uiDocuments = import.meta.glob<string>(["../../../packages/ui/src/components/**/*.md", "../../../packages/ui/src/conversation/**/*.md", "../../../packages/ui/agent-guide.md", "../../../packages/ui/README*.md"], { eager: true, query: "?raw", import: "default" });
+const uiDocuments = import.meta.glob<string>(["../../../packages/ui/src/**/*.md", "../../../packages/ui/agent-guide.md", "../../../packages/ui/README*.md"], { eager: true, query: "?raw", import: "default" });
 const repositoryBase = "https://design.invalid/";
 const modulePath = "clients/gui/renderer/src/design-system/";
 const documents = new Map(Object.entries({ ...rootDocuments, ...guiDocuments, ...contracts, ...uiDocuments }).map(([path, markdown]) => [new URL(path, repositoryBase + modulePath).pathname.slice(1), markdown.replace(/^---\n[\s\S]*?\n---\n/, "")]));

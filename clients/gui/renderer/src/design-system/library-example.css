@@ -2,6 +2,8 @@
 @import "@areal/ui/styles.css";
 @import "@areal/ui/conversation.css";
 @import "@areal/ui/settings.css";
+@import "@areal/ui/worktree.css";
+@import "@areal/ui/notifications.css";
 @import "@areal/ui/themes.css";
 @custom-variant dark (&:where(.dark, .dark *));
 body { margin: 0; padding: var(--spacing-field); color: var(--color-foreground); background: var(--color-background); font: var(--text-ui-base)/1.6 var(--font-sans); }
@@ -31,3 +33,8 @@ body { margin: 0; padding: var(--spacing-field); color: var(--color-foreground);
 .library-settings-viewport { height: 460px; min-width: 0; border: 1px solid var(--color-border); border-radius: var(--radius-overlay); overflow: hidden; }
 .library-settings-feedback { margin: 0; color: var(--color-foreground-subtle); overflow-wrap: anywhere; }
 .library-settings-feedback[role="alert"] { color: var(--color-foreground); }
+
+.library-worktree-example { min-width: 0; margin-block: var(--spacing-section); }
+.library-worktree-picker { max-width: 20rem; padding: var(--spacing-inline); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-overlay); }
+.library-worktree-example input:not([type="checkbox"]), .library-worktree-example select { max-width: 100%; min-width: 0; color: var(--color-foreground); background: var(--color-background); border: 1px solid var(--color-border); border-radius: var(--radius-control); }
+.library-toast-example { padding-top: 80px; }

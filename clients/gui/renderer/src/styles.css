@@ -221,7 +221,6 @@ body {
   /* accent 在四个主题里都是浅色底（sky-50 系），shadcn 惯例下 accent-foreground
    * 取前景色；仅 `Attachments` 的 `hover:text-accent-foreground` 用到，之前同样静默失效。 */
   --color-accent-foreground: var(--color-foreground);
-  --color-success: var(--color-green-600);
   --color-success-foreground: var(--color-foreground-inverse);
   --color-idle-task: var(--color-violet-600);
   --color-idle-task-surface: var(--color-violet-50);
@@ -371,7 +370,6 @@ body {
   --color-foreground: var(--color-neutral-200);
   --color-foreground-subtle: color-mix(in oklab, var(--color-neutral-200) 60%, transparent);
   --color-foreground-subtlest: color-mix(in oklab, var(--color-neutral-200) 30%, transparent);
-  --color-success: var(--color-green-500);
   --color-success-foreground: var(--color-foreground-inverse);
   --color-idle-task: var(--color-violet-400);
   --color-idle-task-surface: color-mix(in oklab, var(--color-violet-950) 50%, transparent);

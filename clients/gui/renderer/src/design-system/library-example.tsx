@@ -1,3 +1,4 @@
+import { WorktreeExamples } from "./package-worktree-examples.js";
 import { ComposerSurfaceExample, SettingsLayoutExample } from "./package-surface-examples.js";
 import { createRoot } from "react-dom/client";
 import { useState } from "react";
@@ -31,6 +32,7 @@ function Example() {
     {show("disclosure") && <Disclosure label="查看组件职责" textRole="interface"><p>基础交互与外观由包内实现负责。业务状态、执行与持久化由宿主提供。</p></Disclosure>}
     {(show("composer-surface") || show("composer-toolbar")) && <ComposerSurfaceExample />}
     {["settings-page", "settings-section", "settings-group-card", "settings-row"].some(show) && <SettingsLayoutExample />}
+    <WorktreeExamples only={only} />
     <section className="library-conversation" aria-label="独立对话组件">
       {["activity-group", "image-disclosure", "thinking-status"].some(show) && <div>{!only && <><h2>对话活动</h2><p>示例状态由本页提供，组件不连接执行服务。</p></>}
         <div className="library-example-actions">{show("activity-group") && <Button variant="outline" onClick={() => setAttention(value => !value)}>显示待核对状态</Button>}{show("image-disclosure") && <Button variant="outline" onClick={() => setImageAvailable(value => !value)}>切换图片可用性</Button>}{!only && <Button variant="outline" onClick={() => setAgentsOpen(true)}>查看子代理</Button>}

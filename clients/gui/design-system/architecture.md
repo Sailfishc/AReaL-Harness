@@ -32,6 +32,8 @@
 | Product surfaces | 任务内容、业务状态映射、真实动作绑定 | Patterns + 原业务所有者 → 用户页面 | 不重定公共颜色/字号/控件样式，不复制提交和恢复权威 |
 | Validation / evidence | 声明检查、生成一致性、交互结果与视觉证据 | 固定来源/状态/条件 → 可追溯报告和待修项 | 不反向生成生产数值，不自动接受新视觉基线 |
 
+包内Worktree领域组合位于`packages/ui/src/worktree`，与conversation并列，依赖core控件；core不可反向依赖领域层。五个组合通过原Worktree业务适配接入，状态与操作权威保持原位。短时通知采用core层NotificationToast及原ToastHost通道，等级颜色来自既有语义角色。
+
 系统级目录 `registry.json` 是上述角色、组件与模式的索引。它只引用数值源和实现，不是新增的数值层，也不承担渲染引擎职责。
 
 ## 与现有所有者的映射

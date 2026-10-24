@@ -1,4 +1,4 @@
-export type ToastTone = "info" | "warning" | "error";
+export type ToastTone = "info" | "success" | "warning" | "error";
 export type ToastMessage = { message: string; tone: ToastTone };
 
 export function toast(message: string, tone: ToastTone = "info") {

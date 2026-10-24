@@ -21,3 +21,5 @@ SubagentPanel 提供入口后的完整列表、按独立状态分区、完成组
 ThinkingStatus 的 label 消费公开模型过程摘要并在变化时局部过渡，无摘要才回退 Thinking。任务上下文卡片由产品顶部按钮控制，与资源阅读器分开；具体优化依据见原对话流规范和参考记录。
 
 ComposerSurface/ComposerToolbar 提供主聊、Side与草稿共享的输入布局，导入 conversation.css。SettingsPage/Section/GroupCard/Row 提供已有设置布局，导入 settings.css；两组均从wip导入，各自维护就近MD与可操作状态实例。旧renderer路径转接同一实现。编辑器、模型权限、提交、配置值、保存回执与导航守卫仍归原宿主，不因布局提取而迁入UI包。
+
+Worktree领域组合位于src/worktree，从wip导入并使用worktree.css；配置、准备、目录、环境设置和工作区详情拥有就近MD与独立实例。NotificationToast从core层提供四级短时通知，使用notifications.css，默认5秒，悬停/焦点暂停；原ToastHost保持应用通知通道。

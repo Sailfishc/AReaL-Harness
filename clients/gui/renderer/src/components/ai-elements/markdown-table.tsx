@@ -1105,20 +1105,20 @@ export function MarkdownTable({ className, children, node: _node, ...props }: Ma
   const handleCopyMarkdown = useCallback(async () => {
     if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
       toast(
-        intl.formatMessage({ id: "markdownTable.copyFailed" }, { error: "clipboard-unavailable" }),
+        intl.formatMessage({ id: "markdownTable.copyFailed" }, { error: "clipboard-unavailable" }), "error",
       );
       return;
     }
 
     try {
       await navigator.clipboard.writeText(buildMarkdownTableText(getRows()));
-      toast(intl.formatMessage({ id: "markdownTable.copySucceeded" }));
+      toast(intl.formatMessage({ id: "markdownTable.copySucceeded" }), "success");
     } catch (error) {
       toast(
         intl.formatMessage(
           { id: "markdownTable.copyFailed" },
           { error: error instanceof Error ? error.message : String(error) },
-        ),
+        ), "error",
       );
     }
   }, [getRows, intl]);
@@ -1130,7 +1130,7 @@ export function MarkdownTable({ className, children, node: _node, ...props }: Ma
       typeof URL === "undefined" ||
       typeof URL.createObjectURL !== "function"
     ) {
-      toast(intl.formatMessage({ id: "markdownTable.downloadFailed" }));
+      toast(intl.formatMessage({ id: "markdownTable.downloadFailed" }), "error");
       return;
     }
 

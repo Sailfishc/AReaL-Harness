@@ -42,7 +42,7 @@ export async function buildDocuments(check = false) {
         const target = resolve(dirname(path), name);
         assert.ok(target.startsWith(resolve(root, "src") + "/"), `import escapes UI: ${name}`);
         if (path.startsWith(resolve(root, "src/components") + "/") || path === resolve(root, "src/index.ts"))
-          assert.ok(!target.startsWith(resolve(root, "src/conversation") + "/"), `core imports conversation: ${relative(root, path)} -> ${name}`);
+          assert.ok(!["conversation", "worktree"].some(layer => target.startsWith(resolve(root, `src/${layer}`) + "/")), `core imports domain: ${relative(root, path)} -> ${name}`);
       }
     }
   }
@@ -51,9 +51,9 @@ export async function buildDocuments(check = false) {
     const markdown = await readFile(path, "utf8");
     const data = parseComponentMetadata(markdown, path);
     assert.ok(/^[a-z][a-z-]+$/.test(data.id));
-    assert.ok(["core", "conversation"].includes(data.layer), `unknown layer: ${path}`);
-    assert.equal(data.layer, path.includes("/src/conversation/") ? "conversation" : "core", `layer/source mismatch: ${path}`);
-    if (data.layer === "conversation") assert.equal(data.entry, "wip", "conversation components remain experimental");
+    assert.ok(["core", "conversation", "worktree"].includes(data.layer), `unknown layer: ${path}`);
+    assert.equal(data.layer, path.includes("/src/conversation/") ? "conversation" : path.includes("/src/worktree/") ? "worktree" : "core", `layer/source mismatch: ${path}`);
+    if (data.layer !== "core") assert.equal(data.entry, "wip", "domain components remain experimental");
     assert.equal(data.status, data.entry === "index" ? "stable" : "experimental", `status/entry mismatch: ${path}`);
     assert.ok(entries[data.entry]?.has(data.title), `documented export does not exist: ${data.title}`);
     const source = relative(root, path).replace(/\.md$/, ".tsx");

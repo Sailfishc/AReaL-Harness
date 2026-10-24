@@ -17,6 +17,7 @@ await mkdir(evidence, { recursive: true });
 const entry = String.raw`
 import React,{useState} from 'react';
 import {createRoot} from 'react-dom/client';
+import {ToastHost} from '/src/ToastHost.tsx';
 import {ApplicationIntlProvider} from '/src/i18n/IntlProvider.tsx';
 import {useAppearance,setApplicationPreferences} from '/src/settings/applicationPreferences.ts';
 import {WorktreeStarter} from '/src/WorktreeStarter.tsx';
@@ -64,7 +65,7 @@ function Fixture(){
  if(params.has('actions'))return <main className='p-6'><WorktreeActions projectId='logical' threadId='bound' worktree={{branch:'areal/gui-proof',directory:'/fixture/new-trees/task-proof'}} action={action}/></main>;
  return <main className='mx-auto flex h-full w-full max-w-2xl flex-col bg-background p-6 text-foreground'><div style={{marginTop:events.length?undefined:'auto'}} className='flex min-w-0 items-center justify-between gap-2'><span className='min-w-0 truncate text-ui-sm'>{project.name} · 此电脑</span><WorktreeStarter project={project} action={action} value={selection} onChange={value=>{window.fixtureSelection=value;setSelection(value);}} onConfigureEnvironments={()=>window.fixtureCalls.push({name:'configureEnvironments',params:{projectId:project.id}})}/></div><WorktreeStatus events={events} current={current}/></main>;
 }
-createRoot(document.getElementById('root')).render(<ApplicationIntlProvider><Fixture/></ApplicationIntlProvider>);
+createRoot(document.getElementById('root')).render(<ApplicationIntlProvider><ToastHost/><Fixture/></ApplicationIntlProvider>);
 `;
 const virtual = "\0worktree-fixture.tsx";
 const vite = await createServer({
@@ -168,6 +169,7 @@ try {
   const subpage = await page.getByRole("dialog").boundingBox();
   assert.ok(Math.abs(anchor.x + anchor.width - subpage.x - subpage.width) < 2, "submenu keeps the same anchor edge");
   await capture("picker-branches");
+  assert.equal(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight + 1), true, "picker composition preserves the overlay viewport without adding page scroll");
   await page.getByRole("searchbox", { name: "搜索分支", exact: true }).fill("no-branch-matches");
   await page.getByText("没有匹配的分支", { exact: true }).waitFor();
   await capture("picker-branch-search-empty");
@@ -242,7 +244,7 @@ try {
   const deleteButton = settings.getByRole("button", { name: /^删除 / }).first();
   page.once("dialog", dialog => dialog.accept());
   await deleteButton.click();
-  await page.getByText("Fixture blocker: uncommitted changes remain in this directory", { exact: true }).waitFor();
+  await settings.getByText("Fixture blocker: uncommitted changes remain in this directory", { exact: true }).waitFor();
   await deleteButton.waitFor();
   await capture("settings-delete-blocked");
   assert.equal(await settings.getByRole("button", { name: /^删除 / }).count(), 2);
@@ -343,7 +345,11 @@ try {
     await capture("workspace-action-running-" + result);
     await page.evaluate(() => window.resolveFixtureAction());
     await page.getByLabel("操作输出", { exact: true }).waitFor();
-    if (result !== "succeeded") await page.getByRole("alert").waitFor();
+    if (result !== "succeeded") {
+      const notice = page.getByTestId("toast");
+      await notice.getByRole(result === "unknown" ? "status" : "alert").waitFor();
+      assert.equal(await notice.getAttribute("data-tone"), result === "unknown" ? "warning" : "error");
+    }
     await capture("workspace-action-" + result);
   }
   checks.push("production workspace details expose only saved actions and distinguish running, succeeded, failed and unknown service results without duplicate submission");

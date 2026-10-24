@@ -1,3 +1,4 @@
+import { ToastHost } from "../ToastHost.js";
 import { ArtifactReviewExercise } from "./ArtifactReviewExercise.js";
 import { DesignDashboard } from "./DesignDashboard.js";
 import { ProductCandidate } from "./ProductCandidate.js";
@@ -215,4 +216,4 @@ function Preview() {
     </>}
   </main>;
 }
-createRoot(document.getElementById("root")!).render(<ApplicationIntlProvider><TooltipProvider>{new URLSearchParams(window.location.search).has("dashboard") ? <DesignDashboard /> : new URLSearchParams(window.location.search).has("product-candidate") ? <ProductCandidate /> : new URLSearchParams(window.location.search).has("docs") ? <DesignDocument path={new URLSearchParams(window.location.search).get("docs")!} /> : <Preview />}</TooltipProvider></ApplicationIntlProvider>);
+createRoot(document.getElementById("root")!).render(<ApplicationIntlProvider><ToastHost /><TooltipProvider>{new URLSearchParams(window.location.search).has("dashboard") ? <DesignDashboard /> : new URLSearchParams(window.location.search).has("product-candidate") ? <ProductCandidate /> : new URLSearchParams(window.location.search).has("docs") ? <DesignDocument path={new URLSearchParams(window.location.search).get("docs")!} /> : <Preview />}</TooltipProvider></ApplicationIntlProvider>);
