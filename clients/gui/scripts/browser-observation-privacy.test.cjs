@@ -1,6 +1,7 @@
 'use strict';
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
+const { EventEmitter } = require('node:events');
 const { CorePreview } = require('../app/src/core/preview.cjs');
 const query='AI Agent';
 function field(id,name,value=query,role='textbox') { return {nodeId:id,parentId:'root',backendDOMNodeId:Number(id),role:{value:role},name:{value:name},value:{value}}; }
@@ -12,9 +13,8 @@ async function observe(options={}) {
  const form={method:'get',action:'https://search.example/search',target:'',acceptCharset:'UTF-8',getAttribute:name=>name==='role'?'search':null};
  const elements=[1,6].map(id=>({tagName:'INPUT',type:'text',name:id===1?'q':'notes',id:String(id),value:query,autocomplete:'',form,
   getAttribute:()=>null,hasAttribute:()=>false,matches:()=>false,closest:selector=>selector==='form'?form:null}));form.elements=elements;
- const c={id:42,getURL:()=>url,getTitle:()=> 'Search results',getZoomFactor:()=>1,isDestroyed:()=>false,isDevToolsOpened:()=>false,
-  executeJavaScriptInIsolatedWorld:async()=>({width:800,height:600,scrollX:0,scrollY:0,deviceScaleFactor:1}),
-  debugger:{isAttached:()=>true,detach:()=>{},sendCommand:async(method,params)=>{if(options.realClassification){if(method==='Page.createIsolatedWorld')return{executionContextId:7};if(method==='DOM.resolveNode')return{object:{objectId:String(params.backendNodeId)}};if(method==='Runtime.callFunctionOn'){const fn=Function('document','return ('+params.functionDeclaration+')')({characterSet:'UTF-8'});return{result:{value:fn.call(elements.find(e=>e.id===params.objectId),...params.arguments.map(a=>a.value))}};}if(method==='Runtime.releaseObject')return{};}return method==='Accessibility.getFullAXTree'?{nodes}:method==='Page.getFrameTree'?{frameTree:{frame:{id:'main',url}}}:Promise.reject(Error(method));}}};
+ const c=Object.assign(new EventEmitter(),{id:42,getURL:()=>url,getTitle:()=> 'Search results',getZoomFactor:()=>1,isDestroyed:()=>false,isDevToolsOpened:()=>false,
+  debugger:Object.assign(new EventEmitter(),{isAttached:()=>true,detach:()=>{},sendCommand:async(method,params)=>{if(method==='Page.createIsolatedWorld')return{executionContextId:7};if(method==='Runtime.evaluate')return{result:{value:{width:800,height:600,scrollX:0,scrollY:0,deviceScaleFactor:1}}};if(options.realClassification){if(method==='DOM.resolveNode')return{object:{objectId:String(params.backendNodeId)}};if(method==='Runtime.callFunctionOn'){const fn=Function('document','return ('+params.functionDeclaration+')')({characterSet:'UTF-8'});return{result:{value:fn.call(elements.find(e=>e.id===params.objectId),...params.arguments.map(a=>a.value))}};}if(method==='Runtime.releaseObject')return{};}return method==='Accessibility.getFullAXTree'?{nodes}:method==='Page.getFrameTree'?{frameTree:{frame:{id:'main',url}}}:Promise.reject(Error(method));}})});
  const page={id:'page',projectId:'project',threadId:'thread',coreInstanceId:'core',pageGeneration:1,documentGeneration:1,controlEpoch:2,control:'agent',refs:new Map(),nativeControls:new Map(),optionIds:new Map(),plans:new Map(),nextRef:0,viewportRevision:0,view:{webContents:c,getBounds:()=>({x:0,y:0,width:800,height:600})},networkPolicy:{canAuthorize:()=>true},approvedActionNavigation:options.noIntent?null:intent};
  let classificationCalls=0;
  const ctx={browserHostId:'host',hostGeneration:1,page:()=>page,owns:()=>true,pageStillOwned:()=>true,window:{webContents:{getZoomFactor:()=>1}},

@@ -97,11 +97,11 @@ const until = async (read, label) => {
   throw Error(`Timeout: ${label}`);
 };
 const state = () => page.evaluate(() => window.arealDesktop.snapshot());
-const settlePopup = async () => {
+const settlePopup = async (name = '待发送的标注') => {
   await until(
     () =>
       page
-        .locator('[data-slot="popover-content"]')
+        .getByRole('dialog', { name, exact: true })
         .evaluate(
           (popup) =>
             !popup.hasAttribute("data-starting-style") && getComputedStyle(popup).opacity === "1",
@@ -388,7 +388,7 @@ try {
   assert.equal(posts, 0, "annotation never clicks the page button");
   await page.getByRole("button", { name: "已发送 2 条标注", exact: true }).click();
   await page.getByText("ANNOTATION_COMMENT_2_EDITED", { exact: true }).waitFor();
-  await settlePopup();
+  await settlePopup('已发送的标注');
   await page.screenshot({ path: join(scratch, "sent-annotations.png") });
   checks.push(
     "Upload refusal preserves notes; explicit retry sends two images plus comments through Core and clears only accepted draft",

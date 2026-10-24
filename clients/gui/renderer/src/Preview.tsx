@@ -62,6 +62,8 @@ export function Preview({
   const annotating = annotationState.owner === owner ? annotationState.draft : regionDrafts.get(owner) ?? null;
   const [annotationBusyOwner, setAnnotationBusyOwner] = useState<string | null>(null);
   const annotationBusy = annotationBusyOwner === owner;
+  const [annotationErrorState, setAnnotationErrorState] = useState<{ owner: string; message: string } | null>(null);
+  const annotationError = annotationErrorState?.owner === owner ? annotationErrorState.message : '';
   useEffect(() => {
     setBrowserAnnotationEditing(draftKey, !!annotating?.region);
     return () => setBrowserAnnotationEditing(draftKey, false);
@@ -401,7 +403,6 @@ export function Preview({
   const startAnnotation = async () => {
         if (annotationBusy || annotating) return;
         setAnnotationBusyOwner(owner);
-        setError("");
         let captured: RegionDraft["capture"] | null = null;
         try {
             const pageId = stateRef.current.browser?.pageId;
@@ -453,6 +454,7 @@ export function Preview({
                 });
                 return;
             }
+            setAnnotationErrorState(null);
             updateAnnotation({
                 capture: captured,
                 comment: "",
@@ -475,7 +477,7 @@ export function Preview({
                     })
                     .catch(() => {});
             if (mounted.current && current.current === owner)
-                setError(e instanceof Error ? e.message : String(e));
+                setAnnotationErrorState({ owner, message: e instanceof Error ? e.message : String(e) });
         } finally {
             setAnnotationBusyOwner((value) => (value === owner ? null : value));
         }
@@ -666,6 +668,10 @@ export function Preview({
           void request("navigate", { url });
         }}
       />
+      {annotationError && <div className="preview-viewport-toolbar" role="alert">
+        <span>{annotationError}</span>
+        <Button type="button" size="sm" variant="ghost" onClick={() => setAnnotationErrorState(null)}>{t('common.close')}</Button>
+      </div>}
       {state.browser?.control === 'transferring' && <div className="preview-viewport-toolbar browser-transfer-status" role="status">
         <span>{state.browser.transferError || '正在停止浏览器动作…'}</span>
         <Button type="button" size="sm" onClick={() => void request('stop')}>停止加载</Button>

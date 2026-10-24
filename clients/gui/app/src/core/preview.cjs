@@ -47,11 +47,56 @@ function observationUrl(value) {
 }
 const sensitive = /password|passcode|secret|token|api.?key|credit.?card|cvv|authorization|one.?time.?code|\botp\b|credential/i;
 const diagnosticSensitive = /password|passcode|secret|token|api.?key|credit.?card|cvv|authorization|bearer|cookie|session.?id|one.?time.?code|\botp\b|credential/i;
-const BROWSER_READ_WORLD = 1001;
+const browserReadSessions = new WeakMap();
 async function readIsolated(contents, code) {
-  const result = await contents.executeJavaScriptInIsolatedWorld(BROWSER_READ_WORLD, [{ code }]);
-  if (result === undefined) throw new Error('Browser isolated read failed');
-  return result;
+  const debuggerApi = contents.debugger;
+  let session = browserReadSessions.get(contents);
+  if (!session || session.detached) {
+    session = { readers: 0, ownsAttachment: !debuggerApi.isAttached(), detached: false };
+    const current = session;
+    session.onDetach = () => { current.detached = true; };
+    debuggerApi.on('detach', session.onDetach);
+    try { if (session.ownsAttachment) debuggerApi.attach('1.3'); }
+    catch (error) { debuggerApi.removeListener('detach', session.onDetach); throw error; }
+    browserReadSessions.set(contents, session);
+  }
+  session.readers++;
+  let invalidated = false;
+  const onNavigation = (_event, _url, _inPlace, main) => { if (main) invalidated = true; };
+  const onDestroyed = () => { invalidated = true; };
+  contents.on('did-start-navigation', onNavigation);
+  contents.on('destroyed', onDestroyed);
+  const assertCurrent = () => {
+    if (invalidated || session.detached || contents.isDestroyed() || !debuggerApi.isAttached())
+      throw new Error('Browser isolated read failed');
+  };
+  const send = async (method, parameters) => {
+    assertCurrent();
+    const result = await debuggerApi.sendCommand(method, parameters);
+    assertCurrent();
+    return result;
+  };
+  try {
+    // Electron script injection waits for load completion, including pending subresources.
+    const frames = await send('Page.getFrameTree');
+    const world = await send('Page.createIsolatedWorld', {
+      frameId: frames.frameTree.frame.id, worldName: 'areal-browser-read',
+    });
+    if (!Number.isInteger(world.executionContextId)) throw new Error('Browser isolated read failed');
+    const result = await send('Runtime.evaluate', {
+      expression: code, contextId: world.executionContextId, returnByValue: true, awaitPromise: true,
+    });
+    if (result.exceptionDetails || result.result?.value === undefined) throw new Error('Browser isolated read failed');
+    return result.result.value;
+  } finally {
+    contents.removeListener('did-start-navigation', onNavigation);
+    contents.removeListener('destroyed', onDestroyed);
+    if (--session.readers === 0) {
+      if (browserReadSessions.get(contents) === session) browserReadSessions.delete(contents);
+      if (session.ownsAttachment && !session.detached && !contents.isDestroyed() && debuggerApi.isAttached()) debuggerApi.detach();
+      debuggerApi.removeListener('detach', session.onDetach);
+    }
+  }
 }
 async function nativeWithin(promise, deadline) {
   const remaining = deadline - performance.now();
@@ -990,6 +1035,8 @@ class CorePreview {
         || page.controlEpoch !== initial.controlEpoch || c.isDestroyed() || c.getURL() !== initial.url
         || c.isDevToolsOpened()) throw new Error('Browser claim was revoked');
       page.dialogPresentation.assertClaimable();
+      const readSession = browserReadSessions.get(c);
+      if (readSession) readSession.ownsAttachment = false;
       page.control = 'agent'; grantedEpoch = ++page.controlEpoch; page.refs.clear(); page.plans.clear(); page.batchProgress = null;
       page.lastObservation = null; page.needsObservation = true;
       this.clearDiagnostics(page, 'new_control_epoch');

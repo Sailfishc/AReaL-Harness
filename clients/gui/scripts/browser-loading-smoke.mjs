@@ -3,6 +3,7 @@ import { createRequire } from 'node:module';
 import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { selectConversation, captureSmokeFailure } from './smoke-navigation.mjs';
@@ -20,6 +21,9 @@ await mkdir(workspace); await mkdir(join(userHome, '.areal'), { recursive: true 
 execFileSync('git', ['init', '-b', 'main'], { cwd: workspace, stdio: 'ignore' });
 let pendingImage, app, page, projectId, threadId, pageId, observation, stage = 0;
 const facts = { checks: [], errors: [], scope: 'source Electron + Core + synthetic loading page + deterministic inference' };
+facts.source = { commit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(), files: {} };
+for (const file of ['app/src/core/preview.cjs', 'renderer/src/Preview.tsx', 'scripts/browser-loading-smoke.mjs'])
+  facts.source.files[file] = createHash('sha256').update(await readFile(join(gui, file))).digest('hex');
 const site = createServer((request, response) => {
   const url = new URL(request.url, 'http://127.0.0.1');
   if (url.pathname === '/pending.png') { pendingImage = response; return; }
@@ -72,7 +76,7 @@ await new Promise(resolve => model.listen(0, '127.0.0.1', resolve));
 await writeFile(join(userHome, '.areal/config.toml'), `schema_version=1\n[model]\nprovider="fixture"\nname="fixture"\n[model.providers.fixture]\nprotocol="chat-completions"\nendpoint="http://127.0.0.1:${model.address().port}/v1/chat/completions"\n`);
 const deployment = join(scratch, 'desktop.json');
 await writeFile(deployment, JSON.stringify({ profiles: [{ id: 'fixture', revision: 'v1', displayName: 'Fixture', instructions: 'Use the built-in browser for the requested search.' }] }));
-const binary = process.env.AREAL_CORE_BIN || join(root, '.local/dev-bin/cold-catalog-candidate/areal');
+const binary = process.env.AREAL_CORE_BIN || join(root, 'target/debug/areal');
 const env = { ...process.env, AREAL_GUI_USER_DATA: join(scratch, 'electron'), AREAL_CORE_HOME: join(scratch, 'core'),
   AREAL_CORE_USER_HOME: userHome, AREAL_CORE_CONFIG: join(userHome, '.areal/config.toml'),
   AREAL_HARNESS_SERVICE_HOME: join(scratch, 'registry'), AREAL_CORE_DESKTOP_CONFIG: deployment, AREAL_CORE_BIN: binary };
@@ -106,6 +110,7 @@ try {
     };
     const create = CorePreview.prototype.create;
     CorePreview.prototype.create = function (...args) {
+      globalThis.__loadingHost = this;
       const page = create.apply(this, args), c = page.view.webContents;
       for (const name of ['did-start-navigation', 'did-navigate', 'did-navigate-in-page', 'did-finish-load']) c.on(name, (_event, ...args) => globalThis.__loadingEvidence.push({ kind: name, args: args.slice(0, 4), epoch: page.controlEpoch }));
       const read = c.executeJavaScriptInIsolatedWorld.bind(c);
@@ -134,6 +139,8 @@ try {
   facts.nativeBeforeAnnotation = await nativeFact();
   const finalRead = facts.turn.items.filter(item => item.type === 'dynamicToolCall').at(-1);
   facts.read = { success: finalRead.success, result: finalRead.contentItems, durationMs: finalRead.execution?.durationMs };
+  assert.equal(facts.nativeBeforeAnnotation.loading, true, 'The subresource keeps the actual native document loading');
+  assert.equal(new URL(facts.nativeBeforeAnnotation.url).searchParams.get('q'), 'Agent');
   await page.getByRole('button', { name: '批注', exact: true }).click();
   await until(async () => await page.locator('.browser-region-annotation').count() || await page.getByText(/页面截图已取消或超时/).count(), 'Annotation settles', 20000);
   facts.nativeAfterAnnotation = await nativeFact();
@@ -142,8 +149,102 @@ try {
   await page.screenshot({ path: join(scratch, 'annotation-result.png') });
   const errors = [];
   if (!facts.read.success) errors.push('Agent observe cannot read the committed document while a subresource is loading');
+  else if (!JSON.stringify(facts.read.result).includes('Agent results available before load completes')) errors.push('Observe must return the committed search result content');
   if (facts.annotationError.length) errors.push('Human annotation cannot capture the committed document while a subresource is loading');
   if (!facts.nativeVisible && facts.annotationError.length) errors.push('An annotation failure hides the original native page');
+  if (await page.locator('.browser-region-annotation').count()) await page.getByRole('button', { name: '退出标注', exact: true }).click();
+  pendingImage?.end();
+  await page.getByLabel('预览地址').fill(searchUrl);
+  await page.getByLabel('预览地址').press('Enter');
+  await until(async () => (await nativeFact())?.url === searchUrl, 'Return to loaded fixture');
+  await app.evaluate(({ webContents }, id) => {
+    const c = webContents.fromId(id), send = c.debugger.sendCommand.bind(c.debugger);
+    const delay = globalThis.__loadingDelay = { phase: 'first' };
+    c.debugger.sendCommand = async (method, parameters, ...rest) => {
+      const result = await send(method, parameters, ...rest);
+      if (method === 'Runtime.evaluate' && parameters.expression.startsWith('({width:innerWidth')) {
+        if (delay.phase === 'first') {
+          delay.phase = 'firstHeld';
+          return new Promise(resolve => { delay.releaseFirst = () => resolve(result); });
+        }
+        if (delay.phase === 'retry') {
+          delay.phase = 'retryHeld';
+          return new Promise(resolve => { delay.releaseRetry = () => resolve(result); });
+        }
+      }
+      return result;
+    };
+    delay.restore = () => { c.debugger.sendCommand = send; delay.releaseFirst?.(); delay.releaseRetry?.(); };
+  }, facts.nativeBeforeAnnotation.id);
+  await page.getByRole('button', { name: '批注', exact: true }).click();
+  await page.getByRole('alert').filter({ hasText: '页面截图已取消或超时' }).waitFor({ timeout: 15000 });
+  facts.timeoutLocal = await page.getByTestId('browser-load-error').count() === 0;
+  await app.evaluate(() => { globalThis.__loadingDelay.phase = 'retry'; });
+  await page.getByRole('button', { name: '批注', exact: true }).click();
+  await until(() => app.evaluate(() => globalThis.__loadingDelay.phase === 'retryHeld'), 'Retry reaches an isolated read');
+  facts.retrySessionRetained = await app.evaluate(async ({ webContents }, id) => {
+    globalThis.__loadingDelay.releaseFirst();
+    await new Promise(resolve => setImmediate(resolve));
+    const retained = webContents.fromId(id).debugger.isAttached();
+    globalThis.__loadingDelay.releaseRetry();
+    return retained;
+  }, facts.nativeBeforeAnnotation.id);
+  await page.locator('.browser-region-annotation').waitFor();
+  await app.evaluate(() => globalThis.__loadingDelay.restore());
+  if (!facts.timeoutLocal || !facts.retrySessionRetained) errors.push('A timed-out read must not release the debugger session borrowed by its retry');
+  assert.equal(await page.getByText(/页面截图已取消或超时/).count(), 0, 'Retry clears the page-owned annotation error');
+  await page.getByRole('button', { name: '退出标注', exact: true }).click();
+  await app.evaluate((_electron, module) => {
+    const { CorePreview } = process.getBuiltinModule('module').createRequire(module)(module);
+    const captureRegion = CorePreview.prototype.captureRegion;
+    CorePreview.prototype.captureRegion = async function (...args) {
+      CorePreview.prototype.captureRegion = captureRegion;
+      throw new Error('Fixture annotation capture refused');
+    };
+  }, join(gui, 'app/src/core/preview.cjs'));
+  await page.getByRole('button', { name: '批注', exact: true }).click();
+  await page.getByText(/Fixture annotation capture refused/).waitFor();
+  facts.refusal = {
+    fullPageError: await page.getByTestId('browser-load-error').count(),
+    native: await nativeFact(),
+    visible: await app.evaluate(({ BrowserWindow }, id) => BrowserWindow.getAllWindows()[0].contentView.children.find(view => view.webContents?.id === id)?.getVisible(), facts.nativeBeforeAnnotation.id),
+  };
+  if (facts.refusal.fullPageError || !facts.refusal.visible) errors.push('A refused annotation must report a local error and preserve the native page');
+  await page.screenshot({ path: join(scratch, 'annotation-refusal.png') });
+  const nativeImage = await app.evaluate(async ({ webContents }, id) =>
+    (await webContents.fromId(id).capturePage()).toPNG().toString('base64'), facts.nativeBeforeAnnotation.id);
+  await writeFile(join(scratch, 'annotation-refusal-native.png'), Buffer.from(nativeImage, 'base64'));
+  await page.getByRole('button', { name: '批注', exact: true }).click();
+  await page.locator('.browser-region-annotation').waitFor();
+  assert.equal(await page.getByText(/Fixture annotation capture refused/).count(), 0, 'Explicit retry clears the local annotation refusal');
+  await app.evaluate(({ webContents }, id) => {
+    const c = webContents.fromId(id), send = c.debugger.sendCommand.bind(c.debugger);
+    const cleanup = globalThis.__loadingCleanup = {};
+    c.debugger.sendCommand = async (method, parameters, ...rest) => {
+      const result = await send(method, parameters, ...rest);
+      if (!cleanup.held && method === 'Runtime.evaluate' && parameters.expression.includes('globalThis.__arealCaptureGuardSequence = Math.max')) {
+        cleanup.held = true;
+        return new Promise(resolve => { cleanup.release = () => resolve(result); });
+      }
+      return result;
+    };
+    cleanup.restore = () => { c.debugger.sendCommand = send; cleanup.release?.(); };
+  }, facts.nativeBeforeAnnotation.id);
+  await page.getByRole('button', { name: '退出标注', exact: true }).click();
+  await page.locator('.browser-region-annotation').waitFor({ state: 'detached' });
+  assert.equal(await app.evaluate(() => globalThis.__loadingCleanup.held), true, 'Annotation cleanup remains pending after its bounded caller settled');
+  await page.evaluate(identity => window.arealDesktop.preview({ operation: 'claim', ...identity }), { projectId, threadId, pageId });
+  facts.cleanupClaim = await app.evaluate(async ({ webContents }, { id, identity }) => {
+    const host = globalThis.__loadingHost;
+    const before = host.page(identity.projectId, identity.threadId, identity.pageId).control;
+    globalThis.__loadingCleanup.release();
+    await new Promise(resolve => setImmediate(resolve));
+    return { before, after: host.page(identity.projectId, identity.threadId, identity.pageId).control, attached: webContents.fromId(id).debugger.isAttached() };
+  }, { id: facts.nativeBeforeAnnotation.id, identity: { projectId, threadId, pageId } });
+  await app.evaluate(() => globalThis.__loadingCleanup.restore());
+  if (facts.cleanupClaim.before !== 'agent' || facts.cleanupClaim.after !== 'agent' || !facts.cleanupClaim.attached)
+    errors.push('A completed annotation cleanup must not detach a session adopted by a new Agent claim');
+  await page.evaluate(identity => window.arealDesktop.preview({ operation: 'takeover', ...identity }), { projectId, threadId, pageId });
   facts.errors.push(...errors);
   assert.deepEqual(errors, []);
   facts.checks.push('Agent observe and human annotation work while an unrelated subresource is pending');
@@ -152,7 +253,7 @@ try {
   if (page) await captureSmokeFailure(page, scratch, error);
   process.exitCode = 1;
 } finally {
-  if (app) facts.nativeEvents = await app.evaluate(() => globalThis.__loadingEvidence).catch(() => []);
+  if (app) facts.nativeEvents = await app.evaluate(() => { globalThis.__loadingDelay?.restore(); globalThis.__loadingCleanup?.restore(); return globalThis.__loadingEvidence; }).catch(() => []);
   pendingImage?.end();
   const home = join(scratch, 'core');
   const metadata = await readFile(join(home, 'service.json'), 'utf8').then(JSON.parse).catch(() => null);
