@@ -222,6 +222,9 @@ async function runScenario(scenario) {
     const panel = page.locator('[data-interaction="approval"]');
     if (!approvals && await panel.count() && await panel.isVisible()) {
       assert.notEqual(activeScenario.approval, 'none', 'prepare-time refusal must not request approval');
+      // 紧凑审批卡默认折叠完整请求，先展开再核对本次授权的具体操作。
+      const details = panel.locator('details.decision-card-details');
+      if (await details.count() && await details.getAttribute('open') === null) await details.locator(':scope > summary').click();
       const text = await panel.innerText();
       if (scenario.tool) assert.ok(text.includes(scenario.tool) || text.includes(scenario.arguments.operation), 'approval identifies this tool operation');
       await panel.getByRole('button', { name: activeScenario.approval === 'deny' ? '拒绝' : '允许一次', exact: true }).click();
