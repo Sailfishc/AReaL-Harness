@@ -19,6 +19,8 @@ Use `--conversation-host` for actual window sizes/125% zoom, child/settings focu
 
 The existing conversation catalog is available at `design-system.html?conversation`, composing production messages, a draft composer and resource panels with return paths. Run `pnpm --dir clients/gui test:design --conversation-demo` for this sample. See the [catalog migration](design-system/exercises/conversation-flow.md#现有对话目录迁移样板) for matched before/after evidence and limits.
 
+The production UI package adoption scenario is `node clients/gui/scripts/migration-smoke.mjs --conversation-production`. It covers the top task card, three-source/all-source navigation, subagent list and real history return, manual activity/tool-image expansion, a narrow desktop window, pause, conditional UNKNOWN inspection, and renderer history reload without replay. It uses the same isolated Electron/Core/Runtime and deterministic local model. It does not replace the full journey's separate active-quit/background-completion contract or establish installed-package or real-provider acceptance.
+
 ## Development
 
 Run from the repository root with Node.js 22.19+, pnpm 11.7.0 and the repository Rust toolchain. Use the same Node.js 22 LTS version as CI for both packaging and validation:

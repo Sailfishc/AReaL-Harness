@@ -26,6 +26,8 @@ Root、具名 Trigger、指示箭头、Panel。textRole 区分内容附注和界
 
 ## 行为
 
+presentation=inline隐藏入口并展开同一Panel；切换为collapsible时沿本实例的人工选择。用于连续活动从单条增长成分组，保持子详情身份。
+
 Enter/Space 切换 expanded；折叠只改变阅读，不停止执行。切换不同对象使用原身份 key，不把完成/运行状态作为 key。
 
 ## 内容

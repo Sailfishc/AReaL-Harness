@@ -108,7 +108,7 @@ import {
 import { BrowserSettings } from "./settings/BrowserSettings.js";
 import { HooksSettings } from "./settings/HooksSettings.js";
 import { ExecutionsPane } from "./ExecutionsPane.js";
-import { AgentConversationPane } from "./AgentConversationPane.js";
+import { AgentHistoryPane } from "./AgentHistoryPane.js";
 import { SideChatPane } from "./SideChatPane.js";
 import { agentName, agentAssignment } from "./AgentIdentity.js";
 import { WorkgroupsPane } from "./WorkgroupsPane.js";
@@ -212,18 +212,25 @@ function Usage({ thread }: { thread: Data }) {
   );
 }
 
-function TaskResourcesPopover({ project, thread, action, selectedAgent, onPanel, onAgent, onFile, scheduledTask, runHistory, revealKey, onReveal, onAddSchedule, onOpenSchedule }: {
-  project: Data; thread: Data; action: Action; selectedAgent?: string; scheduledTask?: Data; runHistory?: React.ReactNode; revealKey?: string; onReveal?: (key: string) => void;
+function TaskResourcesPopover({ project, thread, action, onPanel, onAgent, onFile, scheduledTask, runHistory, revealKey, onReveal, onAddSchedule, onOpenSchedule, onReadAgents, onAddSource, onLink }: {
+  onAddSource?: () => void; onLink?: (url: string) => void; onReadAgents?: (restore: () => void) => void; project: Data; thread: Data; action: Action; scheduledTask?: Data; runHistory?: React.ReactNode; revealKey?: string; onReveal?: (key: string) => void;
   onPanel: (name: string) => void; onAgent: (id: string) => void; onFile: (path: string) => void; onAddSchedule?: () => void; onOpenSchedule?: (task: Data) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const trigger = React.useRef<HTMLButtonElement>(null);
   useEffect(() => { if (revealKey) { setOpen(true); onReveal?.(revealKey); } }, [revealKey, onReveal]);
   const navigate = <T,>(callback: (value: T) => void) => (value: T) => { setOpen(false); callback(value); };
-  return <Popover open={open} onOpenChange={setOpen}>
-    <PopoverTrigger render={<button className={`icon-button ${open ? "active" : ""}`} aria-label="任务资源" />}><TaskSummaryIcon /></PopoverTrigger>
-    <PopoverContent align="end" sideOffset={8} className="task-resources-popup" aria-label="任务资源面板">
-      <ConversationStatusCard project={project} thread={thread} action={action} selectedAgent={selectedAgent} scheduledTask={scheduledTask} runHistory={runHistory} onAddSchedule={onAddSchedule ? () => { setOpen(false); onAddSchedule(); } : undefined} onOpenSchedule={onOpenSchedule ? navigate(onOpenSchedule) : undefined}
+  return <Popover open={open} onOpenChange={(next, details) => {
+    if (!next && ["outside-press", "focus-out"].includes(details.reason)) return;
+    setOpen(next);
+  }}>
+    <PopoverTrigger render={<button ref={trigger} className={`icon-button ${open ? "active" : ""}`} aria-label="任务资源" />}><TaskSummaryIcon /></PopoverTrigger>
+    <PopoverContent keepMounted finalFocus={trigger} align="end" sideOffset={8} className="task-resources-popup" aria-label="任务资源面板">
+      <React.Activity mode={open ? "visible" : "hidden"}>
+      <ConversationStatusCard onLink={onLink} onAddSource={onAddSource ? () => { setOpen(false); onAddSource(); } : undefined} project={project} thread={thread} action={action} scheduledTask={scheduledTask} runHistory={runHistory} onAddSchedule={onAddSchedule ? () => { setOpen(false); onAddSchedule(); } : undefined} onOpenSchedule={onOpenSchedule ? navigate(onOpenSchedule) : undefined}
+        onAgents={() => { setOpen(false); if (onReadAgents) onReadAgents(() => setOpen(true)); else onPanel("子代理"); }}
         onPanel={navigate(onPanel)} onAgent={navigate(onAgent)} onFile={navigate(onFile)} />
+      </React.Activity>
     </PopoverContent>
   </Popover>;
 }
@@ -283,6 +290,7 @@ function AppContent({ services }: { services: PlatformServices }) {
   const [panelTabs, setPanelTabs] = useState<string[]>([]);
   const [previewFileTab, setPreviewFileTab] = useState<string | undefined>();
   const sideNarrow = React.useRef(false);
+  const contextReturn = React.useRef<(() => void) | null>(null);
   const panelReturnTarget = React.useRef<{ element: HTMLElement; route: string } | null>(null);
   const [workspaceView, setWorkspaceView] = useState<"split" | "panel" | "conversation">("split");
   const [filesOpen, setFilesOpen] = useState(false);
@@ -577,6 +585,7 @@ function AppContent({ services }: { services: PlatformServices }) {
   }), [services]);
   const terminalState = useTerminalWorkspace(terminalOwner(project?.id ?? "", threadId));
   const panelOwner = `${project?.id ?? ""}:${threadId}`;
+  useEffect(() => { contextReturn.current = null; }, [panelOwner]);
   const annotationVisible = annotationTarget?.owner === panelOwner;
   const openImageAnnotation = (target: ImageAnnotationTarget) => {
     setAnnotationTarget({ ...target, owner: panelOwner, previousView: workspaceView, previousPanel: panel, sessionId: crypto.randomUUID() });
@@ -1141,10 +1150,14 @@ function AppContent({ services }: { services: PlatformServices }) {
     setPanel(create ? addTerminal(owner) : ensureTerminal(owner));
   };
   const hidePanel = () => {
-    const returning = panel === "旁路讨论" || panel === "历史旁路讨论" || isSideChatTab(panel) || panel.startsWith("agent:") || isBrowserTab(panel) || panel.startsWith("file:") || panel === "改动";
+    const returning = panel === "旁路讨论" || panel === "历史旁路讨论" || isSideChatTab(panel) || (panel === "子代理" || panel.startsWith("agent:")) || isBrowserTab(panel) || panel.startsWith("file:") || panel === "改动";
     const owner = `${projectId}:${threadId}`;
     const trigger = panelReturnTarget.current;
     setWorkspaceView("split"); setPanel("");
+    if (contextReturn.current && (panel === "子代理" || panel.startsWith("agent:"))) {
+      const restore = contextReturn.current; contextReturn.current = null;
+      requestAnimationFrame(restore); return;
+    }
     if (returning) requestAnimationFrame(() => {
       if (previewOwner.current !== owner) return;
       if (trigger?.route === owner && trigger.element.isConnected && trigger.element.getClientRects().length) trigger.element.focus({ preventScroll: true });
@@ -1166,7 +1179,7 @@ function AppContent({ services }: { services: PlatformServices }) {
     if (name === "预览") { void openBrowser(); return; }
     if (name === "旁路讨论" && canCreateSide) { newSide(); return; }
     if (name === "改动") rememberPanelTrigger();
-    if (name === "旁路讨论" || name.startsWith("agent:")) { if (panel === name) { hidePanel(); return; } rememberPanelTrigger(); }
+    if (name === "旁路讨论" || name === "子代理" || name.startsWith("agent:")) { if (panel === name) { hidePanel(); return; } rememberPanelTrigger(); }
     setWorkspaceView(mode => name === "旁路讨论" && matchMedia("(max-width: 1200px)").matches ? "panel" : mode === "split" ? mode : "panel");
     if (["编辑目标", "执行计划", "上下文", "已保存授权", "进程"].includes(name)) {
       setPanel(name);
@@ -1494,10 +1507,12 @@ function AppContent({ services }: { services: PlatformServices }) {
       return <SideChatPane onPanel={showPanel} onReturn={hidePanel} key={`${project.core?.instanceId}:${project.id}:${thread.id}:side`} project={project} source={thread} executionBlocked={projectExecutionBlocked(snapshot.lifecycle, project.id)} action={resourceAction} dark={dark} />;
     }
     if (isSideChatTab(panel) || parseSideResourceTab(panel)) return null;
-    if (panel.startsWith("agent:") && thread) {
-      const childId = panel.slice(6);
-      return <AgentConversationPane key={`${project.id}:${childId}`} project={project} parentId={project.state?.threads[childId]?.parentThreadId ?? thread.id} childId={childId} action={resourceAction} dark={dark} onLink={onLink} onFile={openFile}
-        onAgent={id => showPanel(`agent:${id}`)} onReview={(id, turnId) => { setReviewRequest({ owner: panelOwner, threadId: id, turnId }); showPanel("改动"); }} />;
+    if ((panel === "子代理" || panel.startsWith("agent:")) && thread) {
+      const childId = panel.startsWith("agent:") ? panel.slice(6) : undefined;
+      const parent = childId && project.state?.threads[childId]?.parentThreadId;
+      const ownerThread = parent && project.state?.threads[parent] || thread;
+      return <AgentHistoryPane key={`${panelOwner}:${panel}`} project={project} thread={ownerThread} initialId={childId} action={resourceAction} dark={dark} onLink={onLink} onFile={openFile}
+        onClose={hidePanel} onAgent={id => showPanel(`agent:${id}`)} onReview={(id, turnId) => { setReviewRequest({ owner: panelOwner, threadId: id, turnId }); showPanel("改动"); }} />;
     }
     if (panel === "编辑目标" && thread) return <GoalEditor key={`${project.id}:${thread.id}:${thread.goals?.goal?.id ?? "new"}`} project={project} thread={thread} action={resourceAction} />;
     if (panel.startsWith("file:"))
@@ -1974,7 +1989,7 @@ function AppContent({ services }: { services: PlatformServices }) {
               {!pluginsOpen && !settingsOpen && !taskCenterOpen && (
                 <>
                   {thread && !empty && (
-                    <TaskResourcesPopover key={panelOwner} project={project} thread={thread} action={resourceAction} selectedAgent={panel.startsWith("agent:") ? panel.slice(6) : undefined}
+                    <TaskResourcesPopover key={panelOwner} onLink={onLink} onAddSource={() => mainPane.current?.querySelector<HTMLInputElement>('input[type="file"]')?.click()} onReadAgents={restore => { contextReturn.current = restore; showPanel("子代理"); }} project={project} thread={thread} action={resourceAction}
                       onAddSchedule={() => {
                         const key = `areal-gui:draft:${project.id}:${thread.id}`;
                         const text = localStorage.getItem(key) ?? "";

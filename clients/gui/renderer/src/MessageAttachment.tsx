@@ -140,8 +140,8 @@ export function DraftAttachment({ file, onRemove }: { file: File; onRemove: () =
   return <AttachmentTile name={file.name} mime={file.type} url={url} onRemove={onRemove} />;
 }
 
-export function SentAttachment({ part, projectId, threadId, action, compact = false, annotation }: {
-  part: Data; projectId: string; threadId: string; action: Action; compact?: boolean; annotation?: SentImageAnnotation;
+export function SentAttachment({ part, projectId, threadId, action, compact = false, annotation, onError }: {
+  part: Data; projectId: string; threadId: string; action: Action; compact?: boolean; annotation?: SentImageAnnotation; onError?: (message: string) => void;
 }) {
   const [media, setMedia] = useState<{ url: string; mime: string } | null>(null);
   const [failure, setFailure] = useState("");
@@ -158,12 +158,15 @@ export function SentAttachment({ part, projectId, threadId, action, compact = fa
         objectUrl = URL.createObjectURL(new Blob([value.bytes], { type: blobMime }));
         setMedia({ url: objectUrl, mime: displayMime });
       })
-      .catch((cause) => { if (active) setFailure(cause instanceof Error ? cause.message : "读取附件失败"); });
+      .catch((cause) => { if (active) {
+        const message = cause instanceof Error ? cause.message : "读取附件失败";
+        setFailure(message); onError?.(message);
+      } });
     return () => {
       active = false;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [part.url, part.uri, projectId, threadId, action]);
+  }, [part.url, part.uri, projectId, threadId, action, onError]);
   const name = annotation?.name ?? part.name ?? (part.type === "image" ? "消息图片" : "附件");
   if (failure) return <span role="status" className="text-ui-sm text-foreground-subtle">{failure}</span>;
   if (!media) return <span className="text-ui-sm text-foreground-subtle">读取附件…</span>;

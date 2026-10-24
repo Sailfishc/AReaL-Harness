@@ -18,6 +18,7 @@ function PopoverContent({
   sideOffset = 4,
   anchor,
   variant = "default",
+  keepMounted = false,
   ...props
 }: StyledProps<typeof PopoverPrimitive.Popup> &
   Pick<
@@ -25,9 +26,10 @@ function PopoverContent({
     "align" | "side" | "sideOffset" | "anchor"
   > & {
     variant?: "default" | "menu";
+    keepMounted?: boolean;
   }) {
   return (
-    <PopoverPrimitive.Portal>
+    <PopoverPrimitive.Portal keepMounted={keepMounted}>
       <PopoverPrimitive.Positioner
         anchor={anchor}
         align={align}

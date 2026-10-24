@@ -330,7 +330,7 @@ try {
   await reading.getByLabel("活动形状", { exact: true }).selectOption("empty");
   await reading.getByLabel("活动形状", { exact: true }).selectOption("multiple");
   await settleLayout();
-  const readingGroup = reading.getByRole("button", { name: "执行过程", exact: true });
+  const readingGroup = reading.locator(".areal-activity-group > .areal-disclosure > button");
   await toggleHere(readingGroup, undefined, "activity group mouse expansion");
   await toggleHere(readingGroup, "Enter", "activity group keyboard collapse");
   await toggleHere(readingGroup, "Space", "activity group keyboard expansion");
@@ -377,16 +377,19 @@ try {
   assert.ok(await transcript.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight <= 1), "new output follows after return to bottom");
   await reading.screenshot({ path: join(scratch, "activity-reading.png"), animations: "disabled" });
   checks.push("mouse and native keyboard disclosures retain reading position across group, nested tool, full command, raw record, reasoning and turn history; delayed output respects reading and explicit bottom resumes following");
-  for (const [shape, expected] of [["multiple", "正在运行命令…"], ["single", "正在运行命令…"], ["reasoning", "正在思考…"], ["empty", "等待模型响应…"]]) {
+  for (const [shape, expected] of [["multiple", "正在运行命令…"], ["single", "正在运行命令…"], ["reasoning", "阅读思考过程时"], ["empty", "Thinking"]]) {
     await reading.getByLabel("活动形状", { exact: true }).selectOption(shape);
     const status = liveTurn.getByTestId("turn-activity");
     assert.equal(await status.count(), 1, `${shape} has exactly one live turn status`);
     assert.equal(await liveTurn.getByTestId("turn-usage").count(), 0, `${shape} has no duplicate usage status`);
-    assert.equal(await status.getAttribute("role"), "status");
+    assert.equal(await status.getByRole("status").count(), 1);
     assert.equal(await status.evaluate(el => !!el.closest("button, summary, .turn-progress, .turn-execution")), false, `${shape} status is outside every disclosure`);
     assert.ok((await status.innerText()).startsWith(expected), `${shape} status describes the whole turn`);
     assert.equal(await status.evaluate(el => el === el.closest("[data-turn-id]").lastElementChild), true, `${shape} status is the turn tail`);
-    assert.ok(await status.evaluate(el => el.getAnimations().length > 0), `${shape} status animates while connected`);
+    await status.scrollIntoViewIfNeeded();
+    await settleLayout();
+    const animations = await status.evaluate(el => el.getAnimations({ subtree: true }).filter(animation => animation.playState === "running").length);
+    assert.equal(animations > 0, shape === "reasoning" || shape === "empty", `${shape} animates only model progress while visible`);
     if (shape === "multiple" || shape === "single") assert.ok((await status.innerText()).includes("command line 1"), "current tool target stays visible in the tail status");
     if (shape === "multiple") {
       await processToggle.click();
@@ -402,14 +405,14 @@ try {
     const status = liveTurn.getByTestId("turn-activity");
     assert.equal(await status.innerText(), expected);
     assert.equal(await liveTurn.getByTestId("turn-usage").count(), 0, `${state} has no conflicting usage status`);
-    assert.equal(await status.evaluate(el => el.getAnimations().length), 0, `${state} status does not animate`);
+    assert.equal(await status.evaluate(el => el.getAnimations({ subtree: true }).length), 0, `${state} status does not animate`);
   }
   await reading.getByLabel("活动状态", { exact: true }).selectOption("running");
-  checks.push("single tool, grouped tools, reasoning and empty turns share one independent animated tail status; input, retry and disconnect retain their canonical static labels");
+  checks.push("tools retain a static execution label; public model progress animates only while visible; input, retry and disconnect retain canonical static labels");
   const progressToggle = updating.locator(".turn-progress-summary");
   await progressToggle.click();
   await progressToggle.click();
-  const updatingGroup = updating.getByRole("button", { name: "执行过程", exact: true });
+  const updatingGroup = updating.locator(".areal-activity-group > .areal-disclosure > button");
   await updatingGroup.click();
   const updatingTool = updating.locator('[data-tool-id="disclosure-skill"]');
   await updatingTool.getByRole("button").click();
@@ -449,18 +452,20 @@ try {
   assert.equal(await longProgress.getByRole("button", { name: "展开全文", exact: true }).count(), 0);
   assert.ok((await longProgress.innerText()).includes("检查记录 10"));
   await longProgress.screenshot({ path: join(scratch, "full-commentary.png"), animations: "disabled" });
-  const activity = timeline.getByRole("region", { name: "工具活动", exact: true }).first();
-  const activityToggle = timeline.getByRole("button", { name: "执行过程", exact: true }).first();
+  const activity = timeline.getByRole("region", { name: "分组活动列表", exact: true }).first();
+  const activityToggle = timeline.locator(".areal-activity-group > .areal-disclosure > button").first();
   assert.equal(await activityToggle.getAttribute("aria-expanded"), "false");
   assert.equal(await activity.isVisible(), false);
   await activityToggle.click();
   const activitySize = await activity.evaluate(el => ({ height: el.clientHeight, full: el.scrollHeight, overflow: getComputedStyle(el).overflowY }));
   assert.equal(activitySize.overflow, "auto");
-  assert.ok(activitySize.height <= 224 && activitySize.full > activitySize.height);
+  assert.ok(activitySize.height <= 240 && activitySize.full > activitySize.height);
   await activity.press("End");
-  await page.waitForFunction(() => document.querySelector('#conversation-timeline [aria-label="工具活动"]').scrollTop > 0);
+  await page.waitForFunction(() => document.querySelector('#conversation-timeline [aria-label="分组活动列表"]').scrollTop > 0);
   assert.equal(await activity.evaluate(el => el.clientHeight), activitySize.height);
-  assert.equal(await timeline.getByRole("button", { name: "已查看 1 张图片", exact: true }).count(), 0, "tool images render directly after expanding their group");
+  const imageDisclosure = timeline.getByRole("button", { name: "已查看 1 张图片", exact: true });
+  assert.equal(await imageDisclosure.getAttribute("aria-expanded"), "false", "tool images remain collapsed after expanding their activity group");
+  await imageDisclosure.click();
   await timeline.getByRole("button", { name: "预览图片 工具图片", exact: true }).waitFor();
   await timeline.getByRole("button", { name: "预览图片 工具图片", exact: true }).click();
   await page.getByRole("button", { name: "关闭图片预览", exact: true }).waitFor();
@@ -477,10 +482,10 @@ try {
   assert.ok((await command.getByLabel("工具结果", { exact: true }).innerText()).includes("类型检查通过"));
   const scrollOwners = await command.locator(".command-card").evaluate(el => ({
     output: getComputedStyle(el.querySelector(".command-output")).overflowY,
-    group: getComputedStyle(el.closest(".execution-details")).overflowY,
+    group: getComputedStyle(el.closest(".areal-activity-list")).overflowY,
   }));
   assert.equal(scrollOwners.output, "auto");
-  assert.equal(scrollOwners.group, "visible", "expanded tools use transcript scrolling rather than a second activity scrollbar");
+  assert.equal(scrollOwners.group, "auto", "expanded groups retain the approved bounded vertical activity list");
   const fileList = timeline.getByRole("region", { name: "本轮文件", exact: true });
   assert.equal(await fileList.isVisible(), true);
   assert.equal(await fileList.getByRole("button").count(), 5);

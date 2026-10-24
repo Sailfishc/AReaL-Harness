@@ -14,7 +14,7 @@ related: ["disclosure", "image-disclosure", "thinking-status"]
 
 ## 何时使用
 
-同一轮、同一项目内连续工具活动的按需阅读；单条活动直接呈现。不要跨用户消息、助手说明或最终回答合并。
+同一轮、同一项目内连续工具活动的按需阅读；单条活动用presentation=inline直接呈现；数量增长后切回collapsible，保持同一实例和子记录身份。不要跨用户消息、助手说明或最终回答合并。
 
 ## 组成
 

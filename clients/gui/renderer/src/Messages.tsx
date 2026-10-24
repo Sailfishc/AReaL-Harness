@@ -659,7 +659,6 @@ export function Messages({
                   projectId={project.id} threadId={thread.id} action={action} />
               </div>;
               return <TurnExecution key={item.id} items={item.items} turn={turn} project={project} threadId={thread.id}
-                hasTurnSummary={group.progress && turn.status === "completed" && hasReadingSummary}
                 renderItem={(entry: Data, disclosure) => {
                   if (entry.type === "dynamicToolCall") return <div data-side-item-id={entry.id} key={entry.id}><ToolEvent item={entry} {...disclosure} onOpenResult={(ordinary || localThread.conversation?.policy?.kind === "sideExecutableV2") && !readOnly && !isInherited && !localThread.desktop?.archived ? onOpenResult : undefined} resultState={resultStates?.[mcpResultKey({ projectId: project.id, threadId: thread.id, turnId: turn.id, itemId: entry.id })]} onFile={onFile} onAgent={isInherited ? undefined : onAgent} agents={isInherited ? undefined : project.state?.threads} turnId={turn.id} action={action} projectId={project.id} threadId={thread.id} readTurnReview={turn.status === "completed" ? readTurnReview : undefined} /></div>;
                   if (entry.type === "modelContext") return null;

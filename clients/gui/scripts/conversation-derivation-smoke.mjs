@@ -968,7 +968,7 @@ try {
   const rawHistory = page.locator(".messages .message-column");
   const rawProgress = rawHistory.locator(`[data-turn-id="${activeTurnId}"]`).getByTestId("turn-elapsed").getByRole("button");
   if (await rawProgress.getAttribute("aria-expanded") === "false") await rawProgress.click();
-  await rawHistory.locator(`[data-turn-id="${activeTurnId}"]`).getByRole("button", { name: "执行过程", exact: true }).click();
+  await rawHistory.locator(`[data-turn-id="${activeTurnId}"]`).locator(".areal-activity-group > .areal-disclosure > button").click();
   await rawHistory.locator(`[data-tool-id="${completedTool.id}"]`).getByRole("button").first().click();
   const rawDownload = rawHistory.getByRole("button", { name: "下载附件 原始结果", exact: true });
   await rawDownload.waitFor();

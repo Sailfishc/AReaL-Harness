@@ -28,7 +28,7 @@
 
 本包覆盖 Button、实验 Disclosure、首批基础值和默认主题输入；实验对话层提供 ActivityGroup、ImageDisclosure、TaskContext（Section/Item/Sources）。对话组件从 wip 导入，样式另导入 conversation.css。基础层不能反向导入对话层；对话层不能导入 renderer、Core、Node 或 Electron。
 
-对话组件先在设计预览实践：ActivityGroup 的 status 放在折叠外，ImageDisclosure 接受宿主确认的可用性，TaskContext.Sources 只展示三项并触发宿主的查看全部/添加动作。同一对象更新保留组件 key；对象切换按原 id 重建。宿主负责窄窗、真实资源阅读、焦点返回及草稿；当前不接生产对话。其他控件及领域组合沿原目录查找，不创建同名替代品。包设置 private，分发边界是本地 workspace，发布需另行授权。
+对话组件由设计预览与生产对话共同消费：ActivityGroup 的 status 放在折叠外，ImageDisclosure 接受宿主确认的可用性，TaskContext.Sources 只展示三项并触发宿主的查看全部/添加动作。同一对象更新保留组件 key；对象切换按原 id 重建。宿主负责窄窗、真实资源阅读、焦点返回及草稿。生产适配归TurnExecution、ToolEvent、ConversationStatusCard及AgentsPane/AgentHistoryPane，继续使用原Core投影、资源读取和SidePane导航。其他控件及领域组合沿原目录查找，不创建同名替代品。包设置 private，分发边界是本地 workspace，发布需另行授权。
 
 子代理入口使用 SubagentPanel 的列表→历史→返回动线，读取原子任务状态，不使用父任务完成状态生成Done。列表展开和焦点归组件，历史与区域布局归宿主。ThinkingStatus 的 label 用于公开模型过程摘要；无摘要回退Thinking，完成/未确认时移除，不把等待审批或未知结果写成Thinking。卡片从产品顶部入口开关，不作为永久资源侧栏。
 

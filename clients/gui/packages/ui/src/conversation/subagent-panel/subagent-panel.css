@@ -19,3 +19,5 @@
 .areal-subagent-history li + li { margin-top: var(--spacing-inline); }
 .areal-subagent-history > :first-child { margin-top: 0; }
 @media (max-width: 500px) { .areal-subagent-row { flex-wrap: wrap; } .areal-subagent-name { flex-basis: 55%; white-space: normal; } }
+
+.areal-subagent-header h2 > span { min-width: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }

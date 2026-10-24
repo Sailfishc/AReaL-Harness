@@ -59,3 +59,10 @@
 .scheduled-task-message-card { display: grid; gap: 6px; margin: 12px 0; padding: 14px 16px; border: 1px solid var(--color-border); border-radius: var(--radius-control); font-size: var(--text-ui-caption); line-height: 1.5; }
 .scheduled-task-message-card h3 { font-size: var(--text-ui-base); font-weight: 500; overflow-wrap: anywhere; }
 .scheduled-task-message-card .scheduled-task-summary { margin: 0; }
+
+/* Production hosts compose the same package card and history reader as the catalog. */
+.task-resources-popup > .areal-task-context { border: 0; border-radius: inherit; max-height: min(75dvh, var(--available-height)); }
+.agent-history-reader { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.agent-history-reader > .areal-subagent-panel { flex: 1; min-height: 0; border: 0; }
+.agent-history-reader .areal-subagent-history:has(> .agent-conversation-pane) { padding: 0; overflow: hidden; }
+.agent-history-reader .areal-subagent-name { white-space: nowrap; }

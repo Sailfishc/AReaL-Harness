@@ -19,7 +19,7 @@
 
 这是首个完整产出链，尚非全部 UI 迁移。首批稳定组件为原 Button，Disclosure 走实验入口；其他通用控件与领域组合继续由原 renderer 所有。稳定入口不扩大 Base 准入或安装包接受范围。
 
-后续对话预览按用户授权增加实验 conversation 层：ActivityGroup、ImageDisclosure 和 TaskContext（Section/Item/Sources）复用基础控件，基础层不能反向导入它。其基本外观放在单独 conversation.css，仅设计预览导入。包内合同/类型/组件与 Agent 索引沿原生成链；场景数据、原资源阅读器、窄窗导航与焦点归预览宿主。生产对话页面保持原接线；该步骤不表示全部领域组合迁移或稳定性提升。
+后续对话预览按用户授权增加实验 conversation 层：ActivityGroup、ImageDisclosure 和 TaskContext（Section/Item/Sources）复用基础控件，基础层不能反向导入它。其基本外观放在单独conversation.css，最初由设计预览消费，现按用户确认接入生产对话。包内合同/类型/组件与 Agent 索引沿原生成链；场景数据、原资源阅读器、窄窗导航与焦点归宿主。生产接线沿TurnExecution、ToolEvent、ConversationStatusCard与原AgentsPane/AgentConversationPane，AgentHistoryPane只组合列表和历史导航；Core/Runtime权威不迁入包。源码消费不表示全部领域组合迁移、实验API稳定性提升或安装包接受。
 
 ## 单源与兼容
 

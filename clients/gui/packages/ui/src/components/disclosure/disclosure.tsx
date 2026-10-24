@@ -6,6 +6,7 @@ import { cn } from "../../lib/utils.js";
 
 export type DisclosureProps = {
   label: string;
+  presentation?: "collapsible" | "inline";
   displayLabel?: string;
   children: ReactNode;
   icon?: ReactNode;
@@ -16,10 +17,10 @@ export type DisclosureProps = {
 };
 
 /** Reading state only. Execution state and attention content belong to the caller. */
-export function Disclosure({ label, displayLabel, children, icon, indicator, keepMounted = false, className, textRole = "content" }: DisclosureProps) {
+export function Disclosure({ label, displayLabel, children, icon, indicator, keepMounted = false, className, textRole = "content", presentation = "collapsible" }: DisclosureProps) {
   const [open, setOpen] = useState(false);
   const id = useId();
-  return <Collapsible.Root open={open} onOpenChange={setOpen} className={cn("areal-disclosure", className)} data-text-role={textRole}>
+  return <Collapsible.Root open={presentation === "inline" || open} onOpenChange={setOpen} className={cn("areal-disclosure", className)} data-text-role={textRole} data-presentation={presentation}>
     <Collapsible.Trigger render={<Button variant="ghost" className="areal-disclosure-trigger" />} aria-controls={id} aria-label={label}>
       {icon}<span>{displayLabel ?? label}</span><span className="areal-disclosure-indicator">{indicator ?? <ChevronRightIcon size={14} />}</span>
     </Collapsible.Trigger>

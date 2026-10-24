@@ -9,6 +9,8 @@ Web/PWA Remote v2 的实施边界见[架构](../../docs/design/remote-control.md
 新增、修改或评审页面前，Agent 从[设计规则 v1](design-system/README.md)进入[证据驱动设计流程](design-system/structured-flow.md#执行顺序与每步完成条件)：固定合同与参考，视频提名候选，关键帧/日志核查，筛选差异，再复用现有所有者实现、验收并更新规范；Token、交互合同和预览见[客户端设计系统](DESIGN_SYSTEM.md)。
 
 真实Electron对话专项从仓库根运行 `node clients/gui/scripts/migration-smoke.mjs --conversation-journey`；先构建并核对Core/Runtime及renderer。覆盖命令、子代理、图片、阅读/收敛、暂停UNKNOWN核查与GUI历史恢复；外部模型为本地确定性SSE。证据与注入边界见[真实Electron专项](design-system/exercises/conversation-flow.md#真实-electron-专项-e1)。
+生产UI包接入专项为 `node clients/gui/scripts/migration-smoke.mjs --conversation-production`：覆盖顶部任务卡片、Sources三项/全部、子代理列表与真实历史返回、工具图片/活动人工展开、窄桌面、暂停、Core返回UNKNOWN时的核查及Renderer历史重载不重放。沿相同隔离Electron/Core/Runtime与本地模型；它不代替完整专项末尾的活动任务退出后后台完成合同，也不代表安装包或真实供应商验收。
+
 连续动效专项沿用同一入口的 `--conversation-motion`，保留原始 CDP 帧、RAF/输入/阅读观测并验证展开反向、资源进退和减少动态效果；边界与复验要求见[E2 专项](design-system/exercises/conversation-flow.md#真实-electron-连续动效专项-e2)。
 
 宿主与新内容专项使用 `--conversation-host`，验证真实窗口尺寸/125%缩放、子代理与设置焦点返回、草稿和快捷键；原生中文输入法通过独立操作步骤取证。见[E3专项](design-system/exercises/conversation-flow.md#真实-electron-宿主与新内容专项-e3)，[E4补充](design-system/exercises/conversation-flow.md#原生宿主补充-e4)通过 `AREAL_E4_NATIVE=1 AREAL_E4_OPERATOR=0` 复验同应用窗口往返、独立原生网页交互/隐藏与焦点返回。人工阶段需省略 `AREAL_E4_OPERATOR=0` 并保留实际操作证据；未触发的候选浮窗不计通过。

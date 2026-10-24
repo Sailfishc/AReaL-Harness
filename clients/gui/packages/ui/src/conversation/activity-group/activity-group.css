@@ -5,3 +5,5 @@
 .areal-activity-status { min-width: 0; font-size: var(--text-content-caption); line-height: 1.6; color: var(--color-foreground-subtle); }
 .areal-activity-status p { margin-block: var(--spacing-inline); }
 .areal-activity-list:focus-visible { outline: var(--focus-width, 2px) solid var(--color-foreground); outline-offset: var(--focus-offset, 2px); }
+
+.areal-activity-group[data-presentation="inline"] .areal-activity-list { max-height: none; overflow: visible; padding: 0; }

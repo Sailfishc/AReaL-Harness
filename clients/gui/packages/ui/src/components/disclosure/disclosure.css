@@ -8,3 +8,5 @@
 .areal-disclosure-panel { min-width: 0; }
 @media (prefers-reduced-motion: reduce) { .areal-disclosure-indicator { transition: none; } }
 @scope (:root[data-reduced-motion="true"]) { .areal-disclosure-indicator { transition: none; } }
+
+.areal-disclosure[data-presentation="inline"] > .areal-disclosure-trigger { display: none; }

@@ -43,7 +43,7 @@ export async function runConversationExercise(page, scratch, gui, report) {
   };
   const expandActivities = async () => {
     for (const button of await latest()
-      .getByRole("button", { name: "执行过程", exact: true })
+      .locator(".areal-activity-group > .areal-disclosure > button")
       .all())
       if ((await button.getAttribute("aria-expanded")) === "false") await button.click();
   };
@@ -150,6 +150,9 @@ export async function runConversationExercise(page, scratch, gui, report) {
   await advance(4);
   await region.getByRole("button", { name: "返回主对话", exact: true }).click();
   assert.equal(await image().getByText("已查看 1 张图片", { exact: true }).isVisible(), true);
+  const imageToggle = image().getByRole("button", { name: "已查看 1 张图片", exact: true });
+  assert.equal(await imageToggle.getAttribute("aria-expanded"), "false", "tool image starts collapsed independently of its group");
+  await imageToggle.click();
   const imagePreview = image().getByRole("button", { name: "预览图片 工具图片", exact: true });
   await imagePreview.waitFor();
   const imageRecord = image().getByRole("button", { name: "查看工具原始记录", exact: true });
@@ -369,6 +372,8 @@ export async function runConversationExercise(page, scratch, gui, report) {
       scenario === "失败" ? "失败" : "结果待确认",
     );
     assert.equal(await latest().locator(".turn-progress-body").isVisible(), true);
+    assert.equal(await latest().locator(".areal-activity-status").filter({ hasText: scenario === "失败" ? "工具失败" : "结果待确认" }).first().isVisible(), true, "exception remains discoverable outside the collapsed group");
+    await expandActivities();
     await command().scrollIntoViewIfNeeded();
     await snapshot(`12-${scenario}`, "independent exception does not silently converge");
   }
