@@ -21,6 +21,7 @@ import { SettingsSearchInput } from "./SettingsSearchInput.js";
 import { SettingsSegmentedTabs } from "./SettingsSegmentedTabs.js";
 import { ResourceScope, type ScopedProps } from "./ScopedSkillsSettings.js";
 import type { Data } from "../services.js";
+import { isIndependentCreation, recoveredOutcome } from "../recoveryPresentation.js";
 import { buildPluginMentionMarkdown } from "../mentions/mentionMarkdown.js";
 import { pluginMcpStateLabel } from "./pluginResources.js";
 
@@ -254,7 +255,10 @@ export function PluginCenter({ project: selectedProject, projects, thread, actio
   const [submission, setSubmission] = useState<PluginOperation | null>(null);
   const [activity, setActivity] = useState<PluginActivity | null>(null);
   const [checkingProjectOperation, setCheckingProjectOperation] = useState(false);
-  const [projectCheckError, setProjectCheckError] = useState<UiMessage | string>("");
+  const [projectCheckMessages, setProjectCheckMessages] = useState<Record<string, UiMessage | string>>({});
+  const pendingEntries: Data[] = project?.pending ?? [];
+  const blockingPending = pendingEntries.filter(entry => !isIndependentCreation(entry, [submission?.requestId, error?.requestId]));
+  const pending = !!blockingPending.length;
   const busy = activity !== null || checkingProjectOperation;
   const [query, setQuery] = useState("");
   const [scope, setScope] = useState("user");
@@ -316,7 +320,7 @@ export function PluginCenter({ project: selectedProject, projects, thread, actio
   const actionRef = useRef(action);
   actionRef.current = action;
   useEffect(() => {
-    if (busy || credentialBusy || authPending || submission || error?.submissionUnknown || project?.pending?.length) return;
+    if (busy || credentialBusy || authPending || submission || error?.submissionUnknown || pending) return;
     if (selectedProject?.id !== ownerId) {
       readGeneration.current++;
       detailGeneration.current++;
@@ -334,11 +338,11 @@ export function PluginCenter({ project: selectedProject, projects, thread, actio
       updateSelected(null);
       setPreview(null);
       setError(null);
-      setProjectCheckError("");
+      setProjectCheckMessages({});
       setSubmission(null);
       setRoute(current => current.kind === "plugin" || current.kind === "skill" ? current.returnTo : current);
     }
-  }, [selectedProject?.id, ownerId, busy, credentialBusy, authPending, submission, error?.submissionUnknown, project?.pending?.length]);
+  }, [selectedProject?.id, ownerId, busy, credentialBusy, authPending, submission, error?.submissionUnknown, pending]);
   const savedRoutes = useRef<{ workspace: CenterRoute; settings: CenterRoute }>({ workspace: { kind: "market", audience: "public" }, settings: { kind: "installed", tab: initialTab } });
   const lastSurface = useRef(surface);
   const openPluginSurface = (nextSurface: "workspace" | "settings") => {
@@ -535,8 +539,6 @@ export function PluginCenter({ project: selectedProject, projects, thread, actio
     busy,
     connectionReadKey,
   ]);
-  const pendingEntries: Data[] = project?.pending ?? [];
-  const pending = !!pendingEntries.length;
   const disabled =
     !connected ||
     busy ||
@@ -628,10 +630,10 @@ export function PluginCenter({ project: selectedProject, projects, thread, actio
       active.current = false;
     }
   };
-  const submissionAwaiting = !!submission && submission.projectId === projectId && pendingEntries.some(
+  const submissionAwaiting = !!submission && submission.projectId === projectId && blockingPending.some(
     entry => entry.awaitingResponse === true && entry.params?.requestId === submission.requestId && pluginMethods[entry.method] === submission.mutation,
   );
-  const pendingPlugin = pendingEntries.find(
+  const pendingPlugin = blockingPending.find(
     (entry: Data) =>
       !entry.awaitingResponse &&
       pluginMethods[entry.method] &&
@@ -648,27 +650,52 @@ export function PluginCenter({ project: selectedProject, projects, thread, actio
         }
       : null);
   const projectPendingEntries = pendingEntries.filter(entry => !pluginMethods[entry.method] || typeof entry.params?.requestId !== "string");
+  const projectCheckOwner = useRef({ projectId, selectedProjectId: selectedProject?.id });
+  projectCheckOwner.current = { projectId, selectedProjectId: selectedProject?.id };
   const checkProjectOperation = async () => {
     if (!projectId || active.current || !connected) return;
+    const owner = projectCheckOwner.current;
+    const generation = panelGeneration.current;
+    const current = () => mounted.current && projectCheckOwner.current.projectId === owner.projectId
+      && projectCheckOwner.current.selectedProjectId === owner.selectedProjectId && panelGeneration.current === generation;
+    const entries = [...projectPendingEntries];
     active.current = true;
     setCheckingProjectOperation(true);
-    setProjectCheckError("");
+    setProjectCheckMessages({});
     try {
-      await actionRef.current("reconcile", { projectId });
-      if (mounted.current) await refresh();
-    } catch (cause) {
-      if (mounted.current) setProjectCheckError(failure(cause).message);
+      for (const [index, entry] of entries.entries()) {
+        const requestId = entry.params?.requestId;
+        const key = requestId ?? String(index);
+        let resultMessage: UiMessage | string;
+        if (typeof requestId !== "string" || !requestId) {
+          resultMessage = { id: "settings.pluginCenter.originalRequestIdUnavailable" };
+        } else {
+          try {
+            const result = await actionRef.current("reconcile", { projectId, requestId });
+            const outcome = recoveredOutcome(result ?? {}, requestId, entry.params?.threadId ?? "", entry.operation);
+            resultMessage = { id: outcome?.status === "failed"
+              ? "settings.pluginCenter.projectOperationConfirmedFailed"
+              : outcome?.status === "completed" ? "settings.pluginCenter.projectOperationConfirmedComplete" : "settings.pluginCenter.projectOperationStillUnconfirmed" };
+          } catch (cause) {
+            resultMessage = { id: "settings.pluginCenter.couldNotCheckTheOriginalSubmissionValue", values: { value0: failureText(failure(cause), t) } };
+          }
+        }
+        if (!current()) return;
+        setProjectCheckMessages(previous => ({ ...previous, [key]: resultMessage }));
+      }
+      if (current()) await refresh();
     } finally {
       if (mounted.current) setCheckingProjectOperation(false);
       active.current = false;
     }
   };
   const projectRecovery = projectPendingEntries.length > 0 && <div className="grid gap-2">
-    <Feedback error={projectCheckError} />
+    {pendingEntries.some(entry => isIndependentCreation(entry, [submission?.requestId, error?.requestId])) && <Feedback message={t("settings.pluginCenter.unrelatedCreationUnconfirmed")} />}
     {projectPendingEntries.map((entry, index) => {
       const threadId = entry.params?.threadId ?? entry.operation?.threadId;
       return <div key={entry.params?.requestId ?? index}>
         <p className="break-all text-ui-sm">{entry.method}{entry.params?.requestId && <> · {t("settings.pluginCenter.requestId", { value0: entry.params.requestId })}</>}</p>
+        <Feedback message={projectCheckMessages[entry.params?.requestId ?? String(index)]} />
         {threadId && project?.state?.threads?.[threadId] && onOpenThread && <Button variant="ghost" onClick={() => onOpenThread(projectId!, threadId)}>{t("settings.pluginCenter.openOperationConversation")}</Button>}
       </div>;
     })}
@@ -767,15 +794,15 @@ export function PluginCenter({ project: selectedProject, projects, thread, actio
     preview.sourceDigest === detail.sourceDigest &&
     reviewDigest(preview) === reviewDigest(detail) &&
     preview.revision === catalog?.revision;
-  const pendingKind = pendingEntries.some(entry => entry.awaitingResponse !== true) ||
+  const pendingKind = blockingPending.some(entry => entry.awaitingResponse !== true) ||
     (submission && !submissionAwaiting) || (error?.submissionUnknown && !submissionAwaiting)
     ? "unknown" : pending || busy || submissionAwaiting ? "active" : "none";
   const pendingMessage = pendingKind === "unknown"
-    ? pendingEntries.some(entry => entry.awaitingResponse !== true && (!pluginMethods[entry.method] || typeof entry.params?.requestId !== "string")) || !recoverable
+    ? blockingPending.some(entry => entry.awaitingResponse !== true && (!pluginMethods[entry.method] || typeof entry.params?.requestId !== "string")) || !recoverable
       ? t("settings.pluginCenter.aProjectOperationHasAnUnconfirmedResult")
       : t("settings.pluginCenter.theOriginalPluginSubmissionResultIsUnconfirmed")
     : pendingKind === "active"
-      ? activity?.kind === "submit" && activity.mutation === "marketplaceAddGit" || pendingEntries.some(entry => entry.awaitingResponse === true && entry.method === "areal/marketplace/addGit")
+      ? activity?.kind === "submit" && activity.mutation === "marketplaceAddGit" || blockingPending.some(entry => entry.awaitingResponse === true && entry.method === "areal/marketplace/addGit")
         ? t("settings.pluginCenter.addingPluginMarketplace")
         : t("settings.pluginCenter.aProjectOperationIsProcessingPleaseWait")
       : "";
@@ -785,7 +812,7 @@ export function PluginCenter({ project: selectedProject, projects, thread, actio
   const sourceRecovery = isSourceOperation(recoverable, projectId, detail?.id);
   const checkingSource = activity?.kind === "check" && isSourceOperation(activity, projectId, detail?.id);
   const resolvingSource = activity?.kind === "submit" && isSourceOperation(activity, projectId, detail?.id) ||
-    submissionAwaiting && isSourceOperation(submission, projectId, detail?.id) || pendingEntries.some(
+    submissionAwaiting && isSourceOperation(submission, projectId, detail?.id) || blockingPending.some(
     entry => entry.awaitingResponse === true && entry.method === "areal/plugin/resolve" && entry.params?.id === detail?.id,
   );
   const sourceFailure = isSourceOperation(displayedError?.operation, projectId, detail?.id) ? displayedError : null;

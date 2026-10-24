@@ -9,6 +9,18 @@ export type RecoveryNotice = RecoveryOwner & {
   settings?: "模型服务" | "会话配置";
   detail?: string;
 };
+type PendingOperation = {
+  method?: string;
+  params?: { requestId?: string; threadId?: string; taskId?: string };
+  operation?: RecoveryOperation;
+};
+export function isIndependentCreation(entry: PendingOperation, ownRequestIds: readonly (string | null | undefined)[]) {
+  const requestId = entry.params?.requestId;
+  return entry.method === "areal/thread/start" && typeof requestId === "string"
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(requestId)
+    && !ownRequestIds.includes(requestId) && !entry.params?.threadId && !entry.params?.taskId
+    && (!entry.operation || entry.operation.requestId === requestId && entry.operation.method === entry.method && entry.operation.target?.kind === "project");
+}
 export function sameRecoveryOwner(left: RecoveryOwner | undefined, right: RecoveryOwner) {
   return left?.projectId === right.projectId && left.threadId === right.threadId
     && left.connectionGeneration === right.connectionGeneration;

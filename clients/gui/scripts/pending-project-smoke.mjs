@@ -176,6 +176,7 @@ try {
     assert.equal(explicitCheck.request.requestId, undefined, 'Baseline GUI check omits original request identity');
     checks.push('RED reproduced draft and Skill project-wide locks on real Electron/Core');
   } else {
+    await page.getByText('已核对，原操作仍未确认。未重新提交。', { exact: true }).waitFor();
     assert.equal(draftEnabled, true, 'Independent fresh draft can send despite legacy pending');
     assert.equal(manifest.skillEnabled, true, 'Skill setting can change despite unrelated creation');
     assert.equal(explicitCheck.request.requestId, requestId, 'GUI reconciliation carries original request identity');
@@ -190,6 +191,9 @@ try {
     detail = await call('manage', { projectId, operation: 'plugin', id: pluginId });
     assert.deepEqual(detail.componentChoices.disabledSkills, [], 'Core readback confirms enabled Skill');
     checks.push('GUI Skill disable and enable persist through real Core with legacy UNKNOWN retained');
+    await button('返回应用').click();
+    const expandSidebar = button('展开侧栏');
+    if (await expandSidebar.isVisible()) await expandSidebar.click();
     await createProjectConversation(page, 'workspace');
     await page.getByTestId('chat-input').fill('Independent fresh draft with selected skill');
     await button('添加功能与 Skills').click();

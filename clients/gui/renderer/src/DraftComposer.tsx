@@ -24,7 +24,7 @@ import type { LexicalChatInputHandle } from "./LexicalChatInput.js";
 import type { Action, Data } from "./services.js";
 import type { ComposerCatalogEntry } from "./prompt-editor/ComposerCatalog.js";
 import { conversationReferenceEntries, type ConversationReference } from "./ConversationReferences.js";
-import { isTechnicalErrorMessage, recoveredOutcome, recoveryMessage, type RecoveryFailure } from "./recoveryPresentation.js";
+import { isIndependentCreation, isTechnicalErrorMessage, recoveredOutcome, recoveryMessage, type RecoveryFailure } from "./recoveryPresentation.js";
 import { attachedReviewComments, detachReviewComments, reviewCommentKey, transferNewReviewComments, useReviewComments } from "./reviewComments.js";
 import { ReviewCommentAttachment } from "./ReviewCommentViews.js";
 import type { WorktreeSelection } from "./WorktreeStarter.js";
@@ -148,7 +148,8 @@ export function DraftComposer({
   const editLocked = busy || !!unknown || !!reviewDraft.error;
   const executionReady = backendReady && !!project.state?.connected;
   const modelSelectionDisabled = editLocked || !executionReady || unavailableProfile;
-  const submitDisabled = modelSelectionDisabled || !!project.pending.length || !currentModel || currentModel.available === false;
+  const blockingPending = project.pending.filter((entry: Data) => !isIndependentCreation(entry, [unknown, activeCreation?.requestId]));
+  const submitDisabled = modelSelectionDisabled || !!blockingPending.length || !currentModel || currentModel.available === false;
   const desktopUnsupported = project.desktopCapabilities?.currentCommands === false;
   const skills = useComposerSkills({
     project: executionReady ? project : { ...project, state: { ...project.state, connected: false } },
@@ -176,7 +177,7 @@ export function DraftComposer({
     setCheckingCreation(true); setDraftError("");
     try {
       const frozen = JSON.parse(localStorage.getItem(`${key}:pending-create-request`) ?? "null");
-      if (!frozen) { await action("reconcile", { projectId: project.id }); return; }
+      if (!frozen) { await action("reconcile", { projectId: project.id, requestId: unknown }); return; }
       if (frozen.requestId !== unknown || frozen.projectId !== project.id) throw new Error(t("worktree.recoveryMismatch"));
       const worktreeRecord = await readAction("workspace", { projectId: project.id, operation: "worktreeRead", requestId: unknown });
       if (worktreeRecord) {

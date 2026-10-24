@@ -1,4 +1,24 @@
 export const pluginMessages = {
+  "settings.pluginCenter.unrelatedCreationUnconfirmed": {
+    "zh-CN": "另一个对话创建结果待核对。你可以继续管理插件，原请求会保留且不会自动重发。",
+    "en": "Another conversation creation is unconfirmed. You can manage plugins. The original request is retained and will not be resent automatically."
+  },
+  "settings.pluginCenter.projectOperationStillUnconfirmed": {
+    "zh-CN": "已核对，原操作仍未确认。未重新提交。",
+    "en": "Checked. The original operation is still unconfirmed. It was not resubmitted."
+  },
+  "settings.pluginCenter.projectOperationConfirmedComplete": {
+    "zh-CN": "原操作已确认完成。未重新提交。",
+    "en": "The original operation is confirmed complete. It was not resubmitted."
+  },
+  "settings.pluginCenter.projectOperationConfirmedFailed": {
+    "zh-CN": "原操作已确认失败。未重新提交。",
+    "en": "The original operation is confirmed failed. It was not resubmitted."
+  },
+  "settings.pluginCenter.originalRequestIdUnavailable": {
+    "zh-CN": "原请求 ID 缺失，无法定位并核对原操作。原记录已保留。",
+    "en": "The original request ID is unavailable, so the original operation could not be located and checked. Its record is retained."
+  },
   "settings.pluginCenter.requiredHostToolsUnavailable": {
     "zh-CN": "当前宿主未提供所需工具：{tools}。",
     "en": "Required tools are unavailable in this host: {tools}."

@@ -43,6 +43,7 @@ if(params.has('unrelated-pending')){
  project.models=[{providerId:'fixture',modelId:'fixture-model',name:'Fixture model',available:true,isDefault:true,parameters:{}}];
  project.pending=[{method:'areal/thread/start',params:{requestId:params.get('unrelated-pending')==='invalid'?'invalid-request':'00000000-0000-4000-a000-000000000111'},awaitingResponse:false}];
  window.fixturePending=project.pending;
+ if(params.get('unrelated-pending')==='own')localStorage.setItem('fixture-draft:pending-create',project.pending[0].params.requestId);
  localStorage.setItem('fixture-draft','[111](#sess_existing-source) 这个会话记录是什么');
 }
 
@@ -182,7 +183,12 @@ try {
   await page.goto(base + "?unrelated-pending=invalid");
   await page.getByTestId("chat-input").waitFor();
   assert.equal(await page.getByTestId("chat-send-button").isEnabled(), false, "unrecognized original request remains blocking");
-  checks.push("a fresh modeled draft creates and sends once despite unrelated valid creation, retains original pending, and blocks malformed identity");
+  await page.goto(base + "?unrelated-pending=own");
+  await page.getByTestId("chat-input").waitFor();
+  assert.equal(await page.getByTestId("chat-input").getAttribute("contenteditable"), "false", "the draft's own UNKNOWN remains locked with a connected model");
+  assert.equal(await page.getByTestId("chat-send-button").isEnabled(), false);
+  assert.deepEqual(await page.evaluate(() => window.fixtureCalls.filter(call => ["create", "send"].includes(call.name))), []);
+  checks.push("a fresh modeled draft creates and sends once despite unrelated valid creation, retains original pending, and blocks malformed or own identity");
   await messagesAcceptance();
   if (process.env.AREAL_WORKTREE_UI_MESSAGES_ONLY === "1") {
     assert.deepEqual(errors, []); passed = true;

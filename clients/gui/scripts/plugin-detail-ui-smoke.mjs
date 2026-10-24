@@ -17,6 +17,7 @@ const fixture = join(evidence, 'fixture.tsx');
 await writeFile(fixture, `import React,{useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {PluginCenter} from '${join(gui, 'renderer/src/settings/PluginCenter.tsx')}';
+import {ToastHost} from '${join(gui, 'renderer/src/ToastHost.tsx')}';
 import {ApplicationIntlProvider} from '${join(gui, 'renderer/src/i18n/IntlProvider.tsx')}';
 import {UnsavedChangesProvider} from '${join(gui, 'renderer/src/settings/UnsavedChanges.tsx')}';
 import {setApplicationPreferences} from '${join(gui, 'renderer/src/settings/applicationPreferences.ts')}';
@@ -45,7 +46,7 @@ case'pluginSubmission':return receipt;default:throw Error('Unexpected fixture op
 function assertComponent(p){if(p.expectedRevision!==revision||p.expectedDigest!==digest)throw Error('STALE_COMPONENT_GUARD');}
 function App(){const [epoch,setEpoch]=useState(0),[surface,setSurface]=useState('workspace');window.pluginFixture={calls,reset(next){mode=next;disabledSkills=[];disabledMcpServers=[];setSurface('workspace');installed=next!=='uninstalled';auth=next==='pending'?'pending':next==='ready'||next==='connected'||next==='unknown'||next==='failed'?'ready':'notStarted';state=next==='connected'?'connected':'disconnected';lose=next==='unknown'||next==='failed';revision++;setEpoch(x=>x+1);},swapDigest(){digest='b'.repeat(64);revision++;window.dispatchEvent(new Event('areal-plugins-changed'));},setReady(){auth='ready';mode='ready';},changeCatalog(){mode='catalog-changed';revision++;window.dispatchEvent(new Event('areal-plugins-changed'));},language(locale){setApplicationPreferences({locale});},};
 const project={id:'fixture',name:'workspace',root:'/fixture',state:{connected:true},profiles:[{id:'standard',revision:1}],pending:mode==='project-unknown'?[{method:'areal/thread/start',params:{requestId:'00000000-0000-4000-a000-000000000111'},awaitingResponse:false}]:[]};window.pluginFixture.pending=project.pending;return <UnsavedChangesProvider><div style={{height:'100vh',display:'flex',background:'var(--color-background)'}}><PluginCenter key={epoch} project={project} projects={[project]} action={action} active surface={surface} marketRequest={0} onSettings={()=>setSurface("settings")} onMarket={()=>setSurface("workspace")} onChooseProject={()=>{}} onSelectProject={()=>{}} onStartDraft={async()=>{calls.push({operation:'startDraft'});}} /></div></UnsavedChangesProvider>;}
-createRoot(document.getElementById('root')).render(<ApplicationIntlProvider><App/></ApplicationIntlProvider>);`);
+createRoot(document.getElementById('root')).render(<ApplicationIntlProvider><ToastHost/><App/></ApplicationIntlProvider>);`);
 const server = await createServer({ root: join(gui, 'renderer'), configFile: join(gui, 'renderer/vite.config.ts'), mode: 'design-system', appType: 'custom', server: { host: '127.0.0.1', port: 0, fs: { allow: [root] } } });
 server.middlewares.use(async (req, res, next) => {
   if (req.url !== '/plugin-detail-acceptance.html') return next();
@@ -110,7 +111,7 @@ try {
   } else {
   await page.getByRole('tablist', { name: '市场范围', exact: true }).waitFor();await button('添加资源').click();
   await page.getByRole('menuitem', { name: '上传插件包', exact: true }).click();await button('导入并预览').click();
-  await page.getByRole('checkbox', { name: '我已核对以上来源、版本和内容摘要', exact: true }).waitFor();
+  await page.getByRole('checkbox', { name: '我已核对以上来源、版本和摘要', exact: true }).waitFor();
   assert.equal(await button('安装到用户').isEnabled(), false);await button('取消安装').click();await button('安装').waitFor();
   checks.push('archive preview survives detail navigation and still requires explicit review');
   await open('uninstalled');await button('安装').waitFor();
@@ -121,13 +122,13 @@ try {
   await button('查看详情').focus();await page.keyboard.press('Enter');await button('收起详情').waitFor();await page.keyboard.press('Enter');
   assert.equal(await button('查看详情').evaluate(el => el === document.activeElement), true);
   await capture('01-uninstalled');await button('安装').click();
-  await page.getByRole('checkbox', { name: '我已核对以上来源、版本和内容摘要', exact: true }).waitFor();
+  await page.getByRole('checkbox', { name: '我已核对以上来源、版本和摘要', exact: true }).waitFor();
   const reviewPanel = page.getByRole('region', { name: '来源解析与预览', exact: true });
   await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === '来源解析与预览');
   assert.equal(await reviewPanel.evaluate(el => { const box = el.getBoundingClientRect(); return box.top >= 0 && box.top < innerHeight - 80; }), true);
   await capture('01-install-review');
   assert.equal(await button('安装到用户').isEnabled(), false);
-  await page.getByRole('checkbox', { name: '我已核对以上来源、版本和内容摘要', exact: true }).check();
+  await page.getByRole('checkbox', { name: '我已核对以上来源、版本和摘要', exact: true }).check();
   await button('安装到用户').click();await button('管理').click();await page.getByRole('heading', { name: '需要认证', exact: true }).waitFor();
   assert.equal(await page.getByRole('region', { name: '插件钩子', exact: true }).count(), 0);
   checks.push('source review gates install; empty hooks/skills hidden; details keyboard/focus');
