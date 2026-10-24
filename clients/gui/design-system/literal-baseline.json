@@ -108,13 +108,13 @@
     "packages/ui/src/components/dialog/dialog.tsx": {
       "color": 1
     },
-    "packages/ui/src/components/settings-page/settings-page.css": {
+    "packages/ui/src/settings/settings-page/settings-page.css": {
       "typography": 1
     },
-    "packages/ui/src/components/settings-row/settings-row.css": {
+    "packages/ui/src/settings/settings-row/settings-row.css": {
       "radius": 1
     },
-    "packages/ui/src/components/settings-segmented-tabs/settings-segmented-tabs.css": {
+    "packages/ui/src/settings/settings-segmented-tabs/settings-segmented-tabs.css": {
       "radius": 2
     },
     "packages/ui/src/components/switch/switch.tsx": {

@@ -2,8 +2,8 @@
 id: textarea
 title: Textarea
 summary: 多行输入，沿用现有生产实现与交互。
-status: experimental
-entry: wip
+status: stable
+entry: index
 layer: core
 category: control
 aliases: ["多行输入"]

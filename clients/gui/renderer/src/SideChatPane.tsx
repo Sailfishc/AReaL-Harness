@@ -359,7 +359,7 @@ function SideChatEditor({ project, source, executionBlocked, action, dark, works
         onChange={value => { setText(value); localStorage.setItem(draftKey, value); }}
         onSubmit={value => { void submit(value); return false; }} onCancel={active ? stop : undefined}
         promptHistory={(side?.turns ?? []).flatMap((turn: Data) => (turn.items ?? []).filter((item: Data) => item.type === "userMessage").map((item: Data) => (item.content ?? []).filter((part: Data) => part.type === "text").map((part: Data) => part.text).join("\n")))}
-        submitControl={active && !text.trim() ? <Button type="button" variant="secondary" size="icon-md" className="composer-primary-action composer-stop-action" aria-label="停止旁路" disabled={executionBlocked} onClick={stop}><StopIcon className="size-4" /></Button> : undefined}
+        submitControl={active && !text.trim() ? <Button type="button" variant="secondary" size="icon" className="composer-primary-action composer-stop-action" aria-label="停止旁路" disabled={executionBlocked} onClick={stop}><StopIcon className="size-4" /></Button> : undefined}
       />
       </div>
     </div>

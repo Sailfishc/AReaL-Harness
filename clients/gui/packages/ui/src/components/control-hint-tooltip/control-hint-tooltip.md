@@ -2,8 +2,8 @@
 id: control-hint-tooltip
 title: ControlHintTooltip
 summary: 带描述与快捷键的操作提示。
-status: experimental
-entry: wip
+status: stable
+entry: index
 layer: core
 category: composition
 aliases: ["带描述与快捷键的操作提示"]

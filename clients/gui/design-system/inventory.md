@@ -12,16 +12,16 @@
 | ActionButton | [ActionButton](../packages/ui/src/components/action-button/action-button.tsx) | 普通紧凑操作与 pending |
 | Switch | [Switch](../packages/ui/src/components/switch/switch.tsx) | 双向布尔值 |
 | Select | [Select](../packages/ui/src/components/select/select.tsx) | 多个候选中的单选 |
-| SettingsPage | [SettingsPage](../packages/ui/src/components/settings-page/settings-page.tsx) | 设置页面的生产表面、列宽与滚动边界 |
-| SettingsSection | [SettingsSection](../packages/ui/src/components/settings-section/settings-section.tsx) | 功能分区 |
-| SettingsGroupCard | [SettingsGroupCard](../packages/ui/src/components/settings-group-card/settings-group-card.tsx) | 相关行的公共外框 |
-| SettingsRow | [SettingsRow](../packages/ui/src/components/settings-row/settings-row.tsx) | 名称、说明与行内控件 |
-| SettingsSelect | [SettingsSelect](../packages/ui/src/components/settings-select/settings-select.tsx) | 二值分段或多值菜单 |
-| SettingsSegmentedTabs | [SettingsSegmentedTabs](../packages/ui/src/components/settings-segmented-tabs/settings-segmented-tabs.tsx) | 两个互斥设置值 |
+| SettingsPage | [SettingsPage](../packages/ui/src/settings/settings-page/settings-page.tsx) | 设置页面的生产表面、列宽与滚动边界 |
+| SettingsSection | [SettingsSection](../packages/ui/src/settings/settings-section/settings-section.tsx) | 功能分区 |
+| SettingsGroupCard | [SettingsGroupCard](../packages/ui/src/settings/settings-group-card/settings-group-card.tsx) | 相关行的公共外框 |
+| SettingsRow | [SettingsRow](../packages/ui/src/settings/settings-row/settings-row.tsx) | 名称、说明与行内控件 |
+| SettingsSelect | [SettingsSelect](../packages/ui/src/settings/settings-select/settings-select.tsx) | 二值分段或多值菜单 |
+| SettingsSegmentedTabs | [SettingsSegmentedTabs](../packages/ui/src/settings/settings-segmented-tabs/settings-segmented-tabs.tsx) | 两个互斥设置值 |
 | SettingsDisclosure | [SettingsDisclosure](../packages/ui/src/components/settings-disclosure/settings-disclosure.tsx) | 显式展开/收起详情 |
-| SettingsDialog | [SettingsDialog](../packages/ui/src/components/settings-dialog/settings-dialog.tsx) | 设置编辑与确认详情 |
+| SettingsDialog | [SettingsDialog](../packages/ui/src/settings/settings-dialog/settings-dialog.tsx) | 设置编辑与确认详情 |
 | Feedback | [Feedback](../renderer/src/components/ui/feedback.tsx) | 错误与状态反馈 |
-| EmptySettings | [EmptySettings](../packages/ui/src/components/settings-dialog/settings-dialog.tsx) | 设置空态 |
+| EmptySettings | [EmptySettings](../packages/ui/src/settings/settings-dialog/settings-dialog.tsx) | 设置空态 |
 | ConversationComposer | [ConversationComposer](../renderer/src/ConversationComposer.tsx) | 主与 Side 的输入组合 |
 | ComposerSurface | [ComposerSurface](../packages/ui/src/conversation/composer-surface/composer-surface.tsx) | 输入区布局插槽 |
 | DecisionCard | [DecisionCard](../packages/ui/src/conversation/decision-card/decision-card.tsx) | 决策布局插槽 |
@@ -37,7 +37,7 @@
 | SentAttachment | [SentAttachment](../renderer/src/MessageAttachment.tsx) | 已发送媒体的生产预览与关闭返回 |
 | SettingsNavigation | [SettingsNavigation](../packages/ui/src/workbench/settings-navigation/settings-navigation.tsx) | 定位、筛选设置分类并沿原导航守卫返回 |
 | SidePane | [SidePane](../renderer/src/app-shell/SidePane.tsx) | 窗口局部的面板标签、视图切换与关闭焦点；资源生命周期沿原所有者 |
-| SettingsSearchInput | [SettingsSearchInput](../packages/ui/src/components/settings-search-input/settings-search-input.tsx) | 带可读清除动作的资源搜索输入 |
+| SettingsSearchInput | [SettingsSearchInput](../packages/ui/src/settings/settings-search-input/settings-search-input.tsx) | 带可读清除动作的资源搜索输入 |
 
 <!-- END GENERATED: components -->
 

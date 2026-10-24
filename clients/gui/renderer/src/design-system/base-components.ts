@@ -1,7 +1,7 @@
 export { Button } from "@areal/ui";
-export { ActionButton } from "@areal/ui/wip";
-export { Switch } from "@areal/ui/wip";
-export { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@areal/ui/wip";
+export { ActionButton } from "@areal/ui";
+export { Switch } from "@areal/ui";
+export { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@areal/ui";
 export { Feedback } from "../components/ui/feedback.js";
 export { SettingsPage } from "@areal/ui/wip";
 export { SettingsSection } from "@areal/ui/wip";

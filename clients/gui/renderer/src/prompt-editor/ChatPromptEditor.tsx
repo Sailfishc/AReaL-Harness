@@ -1,3 +1,4 @@
+import { ComposerActionButton } from "@areal/ui/wip";
 import { ComputerControlEntry } from '../ComputerControlEntry.js';
 /* oxlint-disable eslint(max-lines) -- 输入壳同时收口 Lexical 同步、拖拽和工具栏插槽，暂不拆组件。 */
 // 输入展示壳：纯 props 组件、无 store/协议依赖；mention 面板通过 enableMentionPanel 透传。
@@ -525,10 +526,9 @@ export function ChatPromptEditor({
             {submitControl ?? (
               <ControlHintTooltip title={submitBlockedReason ?? submitLabel} shortcut={submitBlockedReason ? undefined : enterSubmits ? "Enter" : "⌘/Ctrl+Enter"}>
                 <span className="inline-flex">
-                  <Button
+                  <ComposerActionButton
                     type="submit"
-                    variant="composer"
-                    size="icon-md"
+                    size="icon"
                     disabled={submitDisabled || pendingReferences > 0}
                     data-testid={submitTestId ?? TID_CHAT_SEND_BUTTON}
                     aria-label={submitLabel}
@@ -536,7 +536,7 @@ export function ChatPromptEditor({
                   >
                     {submitting ? <Spinner className="size-4" /> : <SendMessageIcon className="size-5" />}
                     <span className="sr-only">{submitLabel}</span>
-                  </Button>
+                  </ComposerActionButton>
                 </span>
               </ControlHintTooltip>
             )}

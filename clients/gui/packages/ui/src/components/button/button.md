@@ -42,7 +42,11 @@ Tab 进入可用按钮，Enter/Space 触发；disabled 不执行。调用方处�
 
 ## 规则
 
-沿包内语义 Token，保留既有视觉。内部稳定入口不扩大 Base 准入，不代表所有变体已经完成安装包验收。
+沿包内语义 Token，保留既有视觉。
+
+变体只表达通用动作层级：`default`、`secondary`、`outline`、`ghost`、`link`、`destructive`、`destructive-subtle`、`warning`。某个产品区域专用的外观放在所属组合里，例如输入区主动作用 conversation 层的 `ComposerActionButton`，不新增 Button 变体。
+
+尺寸：文字按钮 `xs`/`sm`/`default`/`lg`；纯图标按钮 `icon-xs`/`icon-sm`/`icon`/`icon-lg`。一个尺寸只对应一种高度，不增加同高的别名。
 
 ## 示例
 

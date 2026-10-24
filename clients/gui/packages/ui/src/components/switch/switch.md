@@ -2,8 +2,8 @@
 id: switch
 title: Switch
 summary: 布尔开关，沿用现有生产实现与交互。
-status: experimental
-entry: wip
+status: stable
+entry: index
 layer: core
 category: control
 aliases: ["布尔开关"]

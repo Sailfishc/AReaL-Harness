@@ -16,7 +16,7 @@ export function UiLibraryPreview({ dark, fontSize }: { dark: boolean; fontSize: 
       <iframe key={`${dark}-${fontSize}`} title="独立UI包示例" src={`./ui-library.html?theme=${dark ? "dark" : "light"}&font=${fontSize}`} />
     </section>
     <section className="ui-library-section" aria-label="包内组件目录"><h3>组件与合同</h3>{manifest.components.map(component => <article id={`component-${component.id}`} className="ui-library-component" key={component.id}>
-      <div><h4>{component.title}</h4><span>{component.layer === "conversation" ? "对话组合" : component.layer === "worktree" ? "Worktree组合" : component.layer === "workbench" ? "工作台组合" : "基础控件"} · {component.status === "stable" ? "稳定入口" : "实验入口"} · {component.entry === "wip" ? "@areal/ui/wip" : "@areal/ui"}</span></div><p>{component.summary}</p><a href={url(component.document)}>阅读组件合同</a><small className="ui-library-source">{component.document}</small>
+      <div><h4>{component.title}</h4><span>{component.layer === "conversation" ? "对话组合" : component.layer === "settings" ? "设置组合" : component.layer === "worktree" ? "Worktree组合" : component.layer === "workbench" ? "工作台组合" : "基础控件"} · {component.status === "stable" ? "稳定入口" : "实验入口"} · {component.entry === "wip" ? "@areal/ui/wip" : "@areal/ui"}</span></div><p>{component.summary}</p><a href={url(component.document)}>阅读组件合同</a><small className="ui-library-source">{component.document}</small>
       <details><summary>查看 TypeScript 生成的 API</summary><pre>{component.api}</pre></details>
     </article>)}</section>
     <section className="ui-library-section" aria-label="设计源与产物"><h3>设计源与生成链</h3><table><thead><tr><th>来源</th><th>生成/实现</th><th>消费者与检查</th></tr></thead><tbody>

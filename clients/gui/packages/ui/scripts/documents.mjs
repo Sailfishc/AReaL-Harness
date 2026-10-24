@@ -44,7 +44,7 @@ export async function buildDocuments(check = false) {
         const target = resolve(dirname(path), name);
         assert.ok(target.startsWith(resolve(root, "src") + "/"), `import escapes UI: ${name}`);
         if (path.startsWith(resolve(root, "src/components") + "/") || path === resolve(root, "src/index.ts"))
-          assert.ok(!["conversation", "worktree", "workbench"].some(layer => target.startsWith(resolve(root, `src/${layer}`) + "/")), `core imports domain: ${relative(root, path)} -> ${name}`);
+          assert.ok(!["conversation", "settings", "worktree", "workbench"].some(layer => target.startsWith(resolve(root, `src/${layer}`) + "/")), `core imports domain: ${relative(root, path)} -> ${name}`);
       }
     }
   }
@@ -53,8 +53,8 @@ export async function buildDocuments(check = false) {
     const markdown = await readFile(path, "utf8");
     const data = parseComponentMetadata(markdown, path);
     assert.ok(/^[a-z][a-z-]+$/.test(data.id));
-    assert.ok(["core", "conversation", "worktree", "workbench"].includes(data.layer), `unknown layer: ${path}`);
-    assert.equal(data.layer, path.includes("/src/conversation/") ? "conversation" : path.includes("/src/worktree/") ? "worktree" : path.includes("/src/workbench/") ? "workbench" : "core", `layer/source mismatch: ${path}`);
+    assert.ok(["core", "conversation", "settings", "worktree", "workbench"].includes(data.layer), `unknown layer: ${path}`);
+    assert.equal(data.layer, path.includes("/src/conversation/") ? "conversation" : path.includes("/src/settings/") ? "settings" : path.includes("/src/worktree/") ? "worktree" : path.includes("/src/workbench/") ? "workbench" : "core", `layer/source mismatch: ${path}`);
     if (data.layer !== "core") assert.equal(data.entry, "wip", "domain components remain experimental");
     assert.equal(data.status, data.entry === "index" ? "stable" : "experimental", `status/entry mismatch: ${path}`);
     for (const name of data.exports) assert.ok(entries[data.entry]?.has(name), `documented export does not exist: ${name}`);

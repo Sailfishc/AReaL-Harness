@@ -2,8 +2,8 @@
 id: tabs
 title: Tabs
 summary: 标签切换，沿用现有生产实现与交互。
-status: experimental
-entry: wip
+status: stable
+entry: index
 layer: core
 category: control
 aliases: ["标签切换"]

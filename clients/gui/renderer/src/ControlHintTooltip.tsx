@@ -1,1 +1,1 @@
-export { ControlHintTooltip } from "@areal/ui/wip";
+export { ControlHintTooltip } from "@areal/ui";

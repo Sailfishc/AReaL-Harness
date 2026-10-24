@@ -1,8 +1,8 @@
 import { Children, isValidElement, Fragment, type ReactNode, type ReactElement } from "react";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../select/select.js";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/select/select.js";
 import { SettingsSegmentedTabs } from "../settings-segmented-tabs/settings-segmented-tabs.js";
-import { Switch } from "../switch/switch.js";
-import { Button } from "../button/button.js";
+import { Switch } from "../../components/switch/switch.js";
+import { Button } from "../../components/button/button.js";
 
 
 export function SettingsLockedValue({ label, value }: { label: string; value: string }) {

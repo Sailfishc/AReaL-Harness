@@ -29,6 +29,15 @@ async function reference(root, value) {
     assert.equal(headings.filter(value => value === anchor).length, 1, `missing/duplicate document anchor: ${value}`);
   }
 }
+const entryExports = new Map();
+async function uiEntryExports(root) {
+  if (!entryExports.has(root)) {
+    const read = async name => new Set([...(await readFile(join(root, `packages/ui/src/${name}.ts`), "utf8")).matchAll(/export\s*\{([^}]+)\}/g)]
+      .flatMap(match => match[1].split(",").map(item => item.trim().replace(/^type\s+/, "").split(/\s+as\s+/).at(-1))).filter(Boolean));
+    entryExports.set(root, { index: await read("index"), wip: await read("wip") });
+  }
+  return entryExports.get(root);
+}
 function block(document, name, body) {
   const start = `<!-- BEGIN GENERATED: ${name} -->`;
   const end = `<!-- END GENERATED: ${name} -->`;
@@ -67,6 +76,11 @@ export async function verifyDesignCatalog({ write = false, root = guiRoot } = {}
     assert.ok(/^[A-Z]\w*$/.test(component.id) && text(component.purpose), `invalid component: ${component.id}`);
     await source(root, component.source);
     if (component.importFrom !== undefined) assert.ok(/^@areal\/[a-z-]+$/.test(component.importFrom) || component.importFrom === "@areal/ui/wip", `invalid package import: ${component.id}`);
+    // 成熟度只由包入口决定：目录里的 importFrom 必须与组件实际所在的入口一致。
+    if (component.importFrom === "@areal/ui" || component.importFrom === "@areal/ui/wip") {
+      const entry = component.importFrom === "@areal/ui" ? "index" : "wip";
+      assert.ok((await uiEntryExports(root))[entry].has(component.id), `${component.id} is not exported by ${component.importFrom}; update registry.json importFrom`);
+    }
   }
   list(registry.patterns, "patterns");
   unique(registry.patterns.map(item => item.id), "pattern ids");

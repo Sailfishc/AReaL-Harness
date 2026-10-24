@@ -1,4 +1,4 @@
-import { Tabs, TabsList, TabsTrigger } from "../tabs/tabs.js";
+import { Tabs, TabsList, TabsTrigger } from "../../components/tabs/tabs.js";
 
 interface SettingsSegmentedTabItem<TValue extends string> {
   label: string;

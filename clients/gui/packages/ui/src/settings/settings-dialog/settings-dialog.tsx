@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { RefreshCw } from "lucide-react";
-import { Button } from "../button/button.js";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "../dialog/dialog.js";
+import { Button } from "../../components/button/button.js";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "../../components/dialog/dialog.js";
 export function SettingsToolbar({
   description,
   loading,
@@ -30,7 +30,7 @@ export function SettingsToolbar({
         {onRefresh && (
           <Button
             variant="ghost"
-            size="icon-md"
+            size="icon"
             aria-label={refreshLabel}
             disabled={disabled || loading}
             onClick={onRefresh}
