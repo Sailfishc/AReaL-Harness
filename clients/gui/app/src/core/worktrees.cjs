@@ -450,7 +450,7 @@ class CoreWorktrees {
     }
     async createThread(project, request) {
         if (project.logicalProjectId) throw new Error("请从逻辑项目创建会话");
-        const queueId = (await git.checkoutRoot(project.root)) ?? (await realpath(project.root));
+        const queueId = await realpath(project.root);
         const key = this.key(request.requestId),
             previous = this.queues.get(queueId) ?? Promise.resolve();
         const task = previous
@@ -501,42 +501,9 @@ class CoreWorktrees {
         const live = await b.start(project.id);
         b.assertThreadCreationAvailable(live, request);
         await b.listThreads(live);
-        const checkout = await git.checkoutRoot(project.root);
-        const aliases =
-            checkout &&
-            (
-                await Promise.all(
-                    b.saved
-                        .filter(
-                            (saved) =>
-                                saved.id !== project.id &&
-                                ![...this.records.values()].some(
-                                    (value) =>
-                                        value.executionProjectId === saved.id && value.deleted,
-                                ),
-                        )
-                        .map(async (saved) => (await git.checkoutRoot(saved.root)) === checkout),
-                )
-            ).some(Boolean);
-        const occupied =
-            aliases ||
-            live.summaries.some((thread) => !thread.parentThreadId) ||
-            [...this.records.values()].some(
-                (record) =>
-                    record.projectId === project.id &&
-                    record.kind === "thread" &&
-                    record.usesSource &&
-                    record.state !== "failed",
-            );
-        if (request.worktree?.mode === "source" && occupied)
-            throw Object.assign(new Error("来源目录已被其他会话占用，不能使用原目录"), {
-                submissionUnknown: false,
-                code: "WORKTREE_SOURCE_OCCUPIED",
-            });
-        if (request.worktree?.mode === "source" && request.worktree.environmentId)
+        const isolate = request.worktree?.mode === "worktree";
+        if (!isolate && request.worktree?.environmentId)
             throw new Error("环境脚本只能用于独立工作树");
-        const isolate =
-            request.worktree?.mode === "source" ? false : !!request.worktree || occupied;
         const store = this.environmentStore(project);
         if (
             request.worktree?.environmentRevision !== undefined &&
@@ -574,7 +541,7 @@ class CoreWorktrees {
             },
             intent: "continue",
             createdAt: new Date().toISOString(),
-            automatic: !request.worktree && isolate,
+            automatic: false,
             usesSource: !isolate,
             state: "creating",
             events: [],

@@ -253,7 +253,9 @@ export function PluginCenter({ project: selectedProject, projects, thread, actio
   const [setupThreadId, setSetupThreadId] = useState<string | null>(null);
   const [submission, setSubmission] = useState<PluginOperation | null>(null);
   const [activity, setActivity] = useState<PluginActivity | null>(null);
-  const busy = activity !== null;
+  const [checkingProjectOperation, setCheckingProjectOperation] = useState(false);
+  const [projectCheckError, setProjectCheckError] = useState<UiMessage | string>("");
+  const busy = activity !== null || checkingProjectOperation;
   const [query, setQuery] = useState("");
   const [scope, setScope] = useState("user");
   const [adding, setAdding] = useState(false);
@@ -332,6 +334,7 @@ export function PluginCenter({ project: selectedProject, projects, thread, actio
       updateSelected(null);
       setPreview(null);
       setError(null);
+      setProjectCheckError("");
       setSubmission(null);
       setRoute(current => current.kind === "plugin" || current.kind === "skill" ? current.returnTo : current);
     }
@@ -644,6 +647,33 @@ export function PluginCenter({ project: selectedProject, projects, thread, actio
           ...(typeof pendingPlugin.params.id === "string" ? { pluginId: pendingPlugin.params.id } : {}),
         }
       : null);
+  const projectPendingEntries = pendingEntries.filter(entry => !pluginMethods[entry.method] || typeof entry.params?.requestId !== "string");
+  const checkProjectOperation = async () => {
+    if (!projectId || active.current || !connected) return;
+    active.current = true;
+    setCheckingProjectOperation(true);
+    setProjectCheckError("");
+    try {
+      await actionRef.current("reconcile", { projectId });
+      if (mounted.current) await refresh();
+    } catch (cause) {
+      if (mounted.current) setProjectCheckError(failure(cause).message);
+    } finally {
+      if (mounted.current) setCheckingProjectOperation(false);
+      active.current = false;
+    }
+  };
+  const projectRecovery = projectPendingEntries.length > 0 && <div className="grid gap-2">
+    <Feedback error={projectCheckError} />
+    {projectPendingEntries.map((entry, index) => {
+      const threadId = entry.params?.threadId ?? entry.operation?.threadId;
+      return <div key={entry.params?.requestId ?? index}>
+        <p className="break-all text-ui-sm">{entry.method}{entry.params?.requestId && <> · {t("settings.pluginCenter.requestId", { value0: entry.params.requestId })}</>}</p>
+        {threadId && project?.state?.threads?.[threadId] && onOpenThread && <Button variant="ghost" onClick={() => onOpenThread(projectId!, threadId)}>{t("settings.pluginCenter.openOperationConversation")}</Button>}
+      </div>;
+    })}
+    <Button variant="outline" disabled={!connected || busy || loading} onClick={() => void checkProjectOperation()}>{t(checkingProjectOperation ? "settings.pluginCenter.checkingProjectOperation" : "settings.pluginCenter.checkProjectOperation")}</Button>
+  </div>;
   const recoverSubmission = async () => {
     if (!recoverable || active.current || !connected) return;
     active.current = true;
@@ -969,6 +999,7 @@ export function PluginCenter({ project: selectedProject, projects, thread, actio
           {t("settings.pluginCenter.openSetupConversation")}</Button>
       )}
       {!isDetail && <Feedback message={pendingMessage} />}
+      {!isDetail && projectRecovery}
       {!!catalog?.errors.length && (
         <div role="status">
           {catalog.errors.map((text, index) => (
@@ -1085,12 +1116,13 @@ export function PluginCenter({ project: selectedProject, projects, thread, actio
           </header>
           {detailLoading && !detail && <p role="status">{t("settings.pluginCenter.loadingPluginDetails")}</p>}
           <Feedback error={detailError || (pendingKind !== "unknown" ? displayedError?.message : "")} />
+          {isDetail && projectRecovery}
           {detailError && <Button variant="outline" onClick={() => void readDetail(selected)}>{t("settings.pluginCenter.retryLoadingDetails")}</Button>}
           {detail && <div className="plugin-detail-body">
             {managing && detail.installed && !detail.enabled && <section className="plugin-status-panel"><h2>{t("settings.pluginCenter.disabledInCurrentProject")}</h2><p className="plugin-status-description">{t("settings.pluginCenter.manageTheEnabledScopeBeforeUsingThis")}</p></section>}
             {pendingKind === "unknown" ? <section className="plugin-status-panel" aria-label={t("settings.pluginCenter.pluginSubmissionStatus")}>
               <h2>{recoverable?.mutation === "pluginConnection" ? t("settings.pluginCenter.connectionResultUnconfirmed") : t("settings.pluginCenter.operationResultUnconfirmed")}</h2>
-              <p className="plugin-status-description">{t("settings.pluginCenter.thePreviousOperationIsNotConfirmedComplete")}</p>
+              <p className="plugin-status-description">{projectPendingEntries.length ? pendingMessage : t("settings.pluginCenter.thePreviousOperationIsNotConfirmedComplete")}</p>
               <div className="plugin-service-row"><div><strong>{detailContent?.displayName || detailContent?.name || detail.id}</strong><p>{t("settings.pluginCenter.resultUnconfirmed")}</p></div>
                 <div className="plugin-service-actions">{recoveryButton}<Button variant="outline" aria-expanded={submissionDetails} aria-controls="plugin-submission-details" onClick={() => setSubmissionDetails(value => !value)}>{submissionDetails ? t("settings.pluginCenter.hideThisSubmission") : t("settings.pluginCenter.viewThisSubmission")}</Button></div>
               </div>

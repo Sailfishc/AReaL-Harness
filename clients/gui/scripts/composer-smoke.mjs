@@ -104,11 +104,20 @@ await writeFile(
   }),
 );
 const received = [];
+let predictionRequests = 0;
 const server = createServer(async (req, res) => {
   let raw = "";
   for await (const chunk of req) raw += chunk;
   const body = JSON.parse(raw);
   if (respondToSessionName(body, res)) return;
+  if (referencesRegression && body.messages?.some(message => message.role === "system"
+    && typeof message.content === "string" && message.content.startsWith("Predict the next user prompt from the conversation data."))) {
+    assert.ok(!body.tools?.length, "prompt prediction must not receive conversation tools");
+    predictionRequests++;
+    res.writeHead(200, { "Content-Type": "text/event-stream" });
+    res.end(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: "" }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`);
+    return;
+  }
   received.push(body);
   if (filesRegression) { composerFilesResponse(body, res, filesFixture); return; }
   if (referencesRegression) { composerReferencesResponse(body, res, referencesFixture); return; }
@@ -1334,6 +1343,7 @@ try {
         skillsRegression,
         filesRegression,
         referencesRegression,
+        predictionRequests,
         modelRequests: "model-requests.json",
         authoritativeHistory: "authoritative-history.json",
         labelsTrace: skillsRegression ? labelsTrace : undefined,

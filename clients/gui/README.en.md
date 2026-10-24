@@ -107,9 +107,13 @@ Saved page state contains `modelContent` and `privateContent`, limited to 16 KiB
 
 ## New worktree conversations
 
-The gear above the new-conversation Composer enables a worktree, searches starting branches, and selects a project environment. The first prompt is sent only after checkout creation, empty-thread binding, and setup succeed. Request cancellation during preparation, then explicitly choose the original checkout only after cancellation is confirmed. Author admission still applies. **Settings > Worktrees** provides General root and retention preferences, project-grouped checkout management, and named environments with Default/macOS/Linux setup, cleanup, and actions. The default root is `~/.areal/worktrees`. Settings affect future creations. Deletion preserves branches and history; active, dirty, or unknown state blocks it. Automatic cleanup is off by default. See the [worktree guide](../../docs/guides/worktrees.en.md) for creation, recovery, isolation, and task-admission boundaries.
+Other unconfirmed project operations leave new-conversation drafts editable and preserve restored references. Sending still waits for project operations to settle. The current draft remains protected while sending, while its own creation is unconfirmed, or after a review-comment draft read failure.
+
+Ordinary new conversations use the current directory and branch. Explicitly enable a worktree with the gear above the Composer for that creation to choose a starting branch and project environment. The first prompt is sent only after checkout creation, empty-thread binding, and setup succeed. Request cancellation during preparation, then explicitly choose the original checkout only after cancellation is confirmed. Dedicated schedule-directory reservations still apply. **Settings > Worktrees** provides General root and retention preferences, project-grouped checkout management, and named environments with Default/macOS/Linux setup, cleanup, and actions. The default root is `~/.areal/worktrees`. Settings affect future creations. Deletion preserves branches and history; active, dirty, or unknown state blocks it. Automatic cleanup is off by default. See the [worktree guide](../../docs/guides/worktrees.en.md) for creation, recovery, isolation, and task-admission boundaries.
 
 ## Plugin details
+
+“A project operation is processing” means the original request still awaits a response. “An unconfirmed result” means completion remains unknown. Both pause plugin changes. Other project requests show their original method and request ID. Use **Check project operation** to read the original result, or open its conversation when already loaded. Checking never resubmits the request.
 
 Plugin details prioritize the installed package’s current state and next action. Installation requires source resolution and digest review. Authentication, MCP trust for the installed snapshot, and connection are separate steps; installing or enabling a plugin does not authorize hooks. An unknown connection result is checked through the original submission without replaying it. Disconnecting also revokes MCP trust for that snapshot.
 
@@ -158,6 +162,8 @@ Saved scheduled tasks offer **Run now** in the task resource popover. It starts 
 The default `pnpm --dir clients/gui run test:task-conversation` scenario retains legacy TaskDraft history-management acceptance. `AREAL_TASK_SCHEDULE_REGRESSION=1` and `AREAL_TASK_CALENDAR_REGRESSION=1` remain supported with that command, each run separately. The old `AREAL_TASK_CREATION_REGRESSION`, `AREAL_TASK_LOADING_REGRESSION`, `AREAL_TASK_DAILY_START_REGRESSION`, `AREAL_TASK_INLINE_REGRESSION`, and `AREAL_TASK_MANUAL_REGRESSION` modes depend on the removed creation entry and still require migration. The script explicitly rejects these modes. They cannot be reported as passed or skipped, and their former coverage claims no longer apply.
 
 Legacy marked configuration conversations retain their draft preparation, composition handoff, and model inheritance behavior. New ordinary-conversation entry points use the existing Composer and conversation-creation command. An unknown creation checks the original request without creating another owner or conversation.
+
+When an ordinary schedule creation has no worktree record, a confirmed completed conversation-creation receipt for the same request opens the original conversation. Binding and setup continue waiting for the original operation. A conversation receipt alone does not establish worktree readiness.
 
 ## Lifecycle
 

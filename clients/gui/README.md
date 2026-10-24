@@ -103,9 +103,13 @@ MCP 应用页面在窗口内保留。切换标签、隐藏面板、会话或项�
 
 ## Worktree 新会话
 
-新会话 Composer 上方右侧的齿轮可启用 Worktree，搜索起始分支并选择项目环境。首条 Prompt 在目录创建、空线程绑定与所选 setup 成功后才发送。创建过程中可请求取消，确认取消后可明确改用原目录，原目录仍须满足作者准入。设置中的 Worktrees 提供 General 根目录与保留策略、按项目目录管理，以及环境名称、Default/macOS/Linux setup/cleanup 和 Actions。默认根目录为 `~/.areal/worktrees`，设置只影响未来创建。删除保留分支与历史，活动、脏或未知状态会阻止删除；自动清理默认关闭。创建、恢复、执行隔离与现有任务准入边界见 [Worktree 指南](../../docs/guides/worktrees.md)。
+项目中的其他待核对操作不会锁住新会话草稿的编辑与引用恢复。发送仍需等待项目操作结算；当前草稿自身创建结果未知、正在发送或评论草稿读取失败时仍保留编辑保护。
+
+普通新会话默认使用当前目录和分支。只有在本次创建时通过 Composer 上方右侧的齿轮启用 Worktree，才创建独立目录，并可搜索起始分支和选择项目环境。首条 Prompt 在目录创建、空线程绑定与所选 setup 成功后才发送。创建过程中可请求取消，确认取消后可明确改用原目录；定时任务目录仍须满足其专用预约。设置中的 Worktrees 提供 General 根目录与保留策略、按项目目录管理，以及环境名称、Default/macOS/Linux setup/cleanup 和 Actions。默认根目录为 `~/.areal/worktrees`，设置只影响未来创建。删除保留分支与历史，活动、脏或未知状态会阻止删除；自动清理默认关闭。创建、恢复、执行隔离与现有任务准入边界见 [Worktree 指南](../../docs/guides/worktrees.md)。
 
 ## 插件详情
+
+“项目操作正在处理中”表示原请求仍在等待响应；“结果待核对”表示原请求是否完成尚未确认。两者都会暂停插件修改。非插件请求显示原方法与请求 ID，可通过“核对项目操作”读取原结果；原会话已加载时也可打开。核对不会重发原请求。
 
 插件详情优先展示当前安装包的状态和下一步操作。安装前先解析并核对来源及内容摘要；认证、当前快照的 MCP 信任与连接分别确认，安装或启用插件不会授权钩子。连接结果未知时只核对原提交，不重复连接；断开操作同时撤销当前快照的 MCP 信任。
 
@@ -154,6 +158,8 @@ MCP 应用页面在窗口内保留。切换标签、隐藏面板、会话或项�
 `pnpm --dir clients/gui run test:task-conversation` 的默认场景保留旧版 TaskDraft 历史管理验收。`AREAL_TASK_SCHEDULE_REGRESSION=1` 和 `AREAL_TASK_CALENDAR_REGRESSION=1` 仍可分别配合该命令运行。旧 `AREAL_TASK_CREATION_REGRESSION`、`AREAL_TASK_LOADING_REGRESSION`、`AREAL_TASK_DAILY_START_REGRESSION`、`AREAL_TASK_INLINE_REGRESSION` 和 `AREAL_TASK_MANUAL_REGRESSION` 依赖已移除的新建入口，仍待迁移。脚本明确拒绝这些模式，不能将它们报告为通过或跳过，也不能沿用其旧验收覆盖声明。
 
 旧版专用任务配置会话保留原有准备草稿、组词交接和模型继承行为。普通会话新入口使用现有 Composer 与普通会话创建命令，创建结果未知时核对原请求，不重新创建 owner 或会话。
+
+普通计划创建在没有 Worktree 记录时，可通过同一请求已确认完成的会话创建收据打开原会话。工作树仍在绑定或 setup 时继续等待原操作，不把会话创建收据当作工作树就绪。
 
 ## 生命周期
 

@@ -67,7 +67,7 @@ import { DraftComposer } from "./DraftComposer.js";
 import { ProjectlessDraft } from "./ProjectlessDraft.js";
 import { WorktreesSettings } from "./settings/WorktreesSettings.js";
 import { WorktreeActions } from "./WorktreeStatus.js";
-import { WorktreeStarter, readWorktreeSelection, worktreeSelectionKey, type WorktreeSelection } from "./WorktreeStarter.js";
+import { WorktreeStarter, type WorktreeSelection } from "./WorktreeStarter.js";
 import { ComposerWorkspaceContext } from "./ComposerWorkspaceContext.js";
 import { Queue } from "./Queue.js";
 import { browserAnnotationTitle } from "./browserAnnotations.js";
@@ -463,10 +463,8 @@ function AppContent({ services }: { services: PlatformServices }) {
     error: executionThread.executionError ?? logicalProject.error,
   } : logicalProject;
   const thread = project?.state?.threads[threadId];
-  const worktreeSelection = project ? Object.hasOwn(worktreeSelections, project.id) ? worktreeSelections[project.id] : readWorktreeSelection(project.id) : undefined;
+  const worktreeSelection = project ? worktreeSelections[project.id] : undefined;
   const changeWorktreeSelection = (pid: string, value: WorktreeSelection | undefined) => {
-    if (value) localStorage.setItem(worktreeSelectionKey(pid), JSON.stringify(value));
-    else localStorage.removeItem(worktreeSelectionKey(pid));
     setWorktreeSelections(previous => ({ ...previous, [pid]: value }));
   };
   const restorationOwner: RestorationOwner = { projectId: project?.id ?? "", threadId,

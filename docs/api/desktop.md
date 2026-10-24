@@ -14,7 +14,7 @@ Thread 快照和 Item 通知支持可选 `agentMessage.phase`，生命周期、�
 
 本节属于 `clients/gui` 的认证桌面宿主 `command` 合同，不新增 `areal.core.v1` Rust RPC。宿主继续通过现有 Core 方法管理每个执行目录，Core 仍持有线程和执行历史。共享桌面类型与校验位于 `clients/gui/packages/workbench/client/desktop-contract.cjs`。
 
-`create` 接受逻辑 `projectId`、稳定 `requestId`、原模型与配置，以及可选 `worktree: {sourceRoot?,ref?,worktreeRoot?,branch?,branchPrefix?,mode?,environmentId?,environmentRevision?}`。`mode` 为 `source` 或 `worktree`，`environmentRevision` 为非负整数，其余字段为字符串。未指定 Worktree 时保留自动隔离；明确 `source` 在原目录被占用时拒绝，不回退自动创建。成功返回 `{threadId,requestId}`，逻辑项目 ID 不变。隔离创建固定来源 SHA，确认独立 Core/Runtime、空线程绑定及所选 setup 成功后才就绪。
+`create` 接受逻辑 `projectId`、稳定 `requestId`、原模型与配置，以及可选 `worktree: {sourceRoot?,ref?,worktreeRoot?,branch?,branchPrefix?,mode?,environmentId?,environmentRevision?}`。`mode` 为 `source` 或 `worktree`，`environmentRevision` 为非负整数，其余字段为字符串。普通创建使用当前项目目录、分支和 Core；只有 `mode: "worktree"` 才创建独立 checkout。省略 `worktree`、省略 `mode` 或明确 `source` 均不自动隔离，已有会话不会触发新目录。成功返回 `{threadId,requestId}`，逻辑项目 ID 不变。隔离创建固定来源 SHA，确认独立 Core/Runtime、空线程绑定及所选 setup 成功后才就绪。
 
 `workspace` 提供以下宿主操作。新增管理操作均通过原窄 `command` 边界，并核对逻辑项目归属。
 
@@ -36,13 +36,13 @@ Thread 快照和 Item 通知支持可选 `agentMessage.phase`，生命周期、�
 
 宿主状态包括 `creating`、`created`、`binding`、`settingUp`、`cancelled`、`ready`、`failed` 和 `unknown`。取消期间保留原阶段和 `intent: "cancel"`，界面显示正在取消。空线程绑定不是发送门槛；环境就绪才允许普通执行。项目快照通过 `worktreeOperations` 投影原日志；线程 `worktree`、`worktreeEvents` 和 `executionProjectId` 描述实际目录及宿主。事件不加入 Core 消息历史。同一请求的参数变化拒绝，未知写入不重放，部分成功不回退来源。删除后的原归属保留，不允许重连创建空目录或改用来源。
 
-已有共享目录的桌面执行请求还经过按规范化 checkout 根登记的持久 Session 作者准入；同 checkout 的子目录别名共用作者，重叠的不同执行根保守拒绝。第二个独立作者在派发前返回 `WORKTREE_REQUIRED`，`submissionUnknown: false`，`outcome: {kind:"noMutation"}`；原会话不自动搬迁，取消和只读检查仍可进行。此宿主登记不扩展为直接 Core/CLI 的权限或跨桌面数据目录互斥。
+普通会话和 Fork 可共享当前目录，不再保留单一 Session 的永久独占作者。桌面仍核对线程身份、Side 只读限制和同 checkout 的定时任务目录；已预约的调度目录只允许原任务家庭执行。旧普通作者记录保留，不作为新会话自动创建 Worktree 或拒绝第二会话的依据。
 
 后续请求继续使用逻辑 `projectId`，由 `threadId`、`sourceThreadId`、`parentThreadId`、任务归属或原请求收据定位执行宿主。跨宿主目标不能混在一次请求中。任务归属索引持久记录实际宿主及可选的 Core 线程锚点；无索引时查询同一逻辑项目的宿主，任何离线、超时或冲突均不能当作任务不存在而回退。宿主注入可信线程锚点，调用者提供不一致的 `threadId` 会被拒绝。无法确认归属时返回 `TASK_WORKSPACE_UNAVAILABLE`；`taskRunNow`、`taskResumeRun`、`taskReply` 和 `taskResume` 缺少锚点也不派发。
 
 `manage.taskCreate` 的 `scheduled` 模式及 `manage.taskDraftConfirm` 使用专用调度准入。一个任务家庭须预约自动分配、非已有的项目外目录，共用目录作者登记；先预约，再创建或核对执行锚点和任务，并绑定原创建收据。只读规划和自动保存确认继续可用。宿主在 `areal/task/prepare` 的 `start` 与 `resume` 回调核对 Task、run、锚点和实际 cwd 后才放行。共享或用户选择的已有目录、没有原预约的旧安排不能启用，返回 `SCHEDULE_WORKSPACE_REQUIRED` 或相应作者错误；暂停与取消保留。可信锚点的 foreground/background 操作继续沿普通准入。原生 Core 及已准备的旧自主调度不因此获得追溯保证。每次目录作者准入均分页读取同 checkout 的权威 Task 目录；未取消的 scheduled 任务即使暂停或休眠也不释放未来执行资格，仅原预约 token、绑定 Task 与锚点可匹配该家庭。读取失败或分页不完整时不派发。
 
-`ScheduleAdmission.authorForSession` 只为 `respond` 和 `continue` 核对当前任务家庭，要求唯一活动 Run、精确 goal/Turn/cwd、已登记 worker 及有界父链。`respond` 还要求精确且未过期的 pending interaction（thread、Turn、requestId、回答种类）；其他 Session、旧请求、取消或暂停 Run 不映射。send、编辑及普通 manage 仍沿普通作者策略，native Task Agent 的研究和工具限制不变，不授权递归委派。
+`ScheduleAdmission.authorForSession` 只为 `respond` 和 `continue` 核对当前任务家庭，要求唯一活动 Run、精确 goal/Turn/cwd、已登记 worker 及有界父链。`respond` 还要求精确且未过期的 pending interaction（thread、Turn、requestId、回答种类）；其他 Session、旧请求、取消或暂停 Run 不映射。send、编辑及普通 manage 不能使用调度家庭作者映射，native Task Agent 的研究和工具限制不变，不授权递归委派。
 
 | Run/交互状态 | 桌面行为 |
 |---|---|
@@ -145,6 +145,8 @@ turn/start/enqueue 使用 `{requestId,threadId,input,expectedConfigRevision?,int
 普通 Turn 的 start/enqueue/submit 在原子提交前已知的参数、配置、容量或输入能力拒绝，返回 `outcome.kind=rejected`、`recovery.kind=none`，不创建受理回执。Fork/Side 已知的来源、锚点、目标 Profile 与请求键拒绝也保留原 `reason` 并标记 rejected。存储失败、已受理失败或传输未知不据数值错误码推断为未受理；客户端继续核对原请求，不自动重发。
 
 停止轮次、同步交互回答和 Task 问题回复在所有者锁内明确校验失败时，也标记 `rejected`。这三种控制的容量与存储失败仍保留不确定性：可能已经取消执行或完成部分持久写入，不能作为未受理或重发依据。
+
+新建 `areal/thread/start` 的配置解析在创建线程前被明确拒绝时，同样返回 `outcome.kind=rejected`，不创建线程或受理收据。线程写入开始后的失败仍按原请求核对。
 
 `areal/queue/steer` 使用 `{requestId,threadId,expectedRevision,queueItemId,expectedTurnId}` 将 pending 项原子转为指定活动轮次的引导。Core 在同一 Thread 锁下预留引导容量、校验目标轮次与输入，并将消息、队列状态 `steered` 和请求收据一次持久化后通知执行器；失败保留 pending 项。成功返回 `{queueRevision,queueItemId,turnId,itemId}`。执行沿用活动轮次的模型和模式；队列更新仍保留加入时配置。相同身份、业务键和参数返回原结果，参数变化冲突；`areal/request/read` 带 threadId 查询该收据。未知结果只查询、不自动重发。
 

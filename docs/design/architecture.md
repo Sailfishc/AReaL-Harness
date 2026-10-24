@@ -145,7 +145,7 @@ Fork 与 Side 复用 Core/Runtime 的会话、历史和执行所有者。`conver
 
 服务崩溃后的自动换代必须经过现有本地服务所有者：原 Host 对意外 Core 退出和 Runtime 清理发布正向证明，在启动锁内复核原代际、同一 GUI owner、存活期、部署配置和二进制，并排除已受理或结算未知的显式停止。恢复预留与原代际到后继代际的回执只允许一个后继，丢失回复也不能启动第二个。缺少证明、Host 丢失、配置变化或明确停止均不自动换代。换代后只恢复观察和原请求核查，Core 的启动恢复负责将未完成执行标为 UNKNOWN，不重放未完成任务的模型请求、工具或外部效果；已授权且尚未开始的定时安排沿用其原有规则。详细保证见 [本地服务契约](../api/local-service.md)。
 
-桌面 Worktree 由 `clients/gui/app/src/core/worktrees.cjs` 持有创建与线程绑定日志，`worktree-admission.cjs` 持有目录的持久 Session 作者准入，`task-workspace-owners.cjs` 持久记录任务的实际宿主及可信线程锚点，`schedule-admission.cjs` 持有自动分配项目外目录的任务家庭预约、执行准备和精确交互作者映射核查，`packages/workspace-git` 持有受控 Git 创建与事实核查。逻辑项目和物理执行目录分别登记；每个隔离 checkout 通过原服务入口启动独立 Core/Runtime，客户端仅聚合线程投影，不迁移 Core 历史。线程、子线程及请求收据定位原执行宿主，文件、进程和浏览器回调沿同一归属路由。接口和保证范围见[桌面宿主契约](../api/desktop.md#桌面宿主-worktree-契约)及[Worktree 指南](../guides/worktrees.md)。 环境配置归现有 library 的逻辑项目元数据，创建时冻结脚本；`worktree-environment.cjs` 仅适配 Core 受管进程回执。空线程绑定不代表环境就绪，首条 Prompt 需等待 setup 成功。取消和删除保留原创建身份，删除 tombstone 阻止旧 owner 重连或回退来源。
+桌面 Worktree 由 `clients/gui/app/src/core/worktrees.cjs` 持有创建与线程绑定日志，`worktree-admission.cjs` 核对线程身份与定时任务目录的持久作者预约，`task-workspace-owners.cjs` 持久记录任务的实际宿主及可信线程锚点，`schedule-admission.cjs` 持有自动分配项目外目录的任务家庭预约、执行准备和精确交互作者映射核查，`packages/workspace-git` 持有受控 Git 创建与事实核查。逻辑项目和物理执行目录分别登记。普通新会话使用当前目录与 Core；只有当前创建明确选择 Worktree 才分配新 checkout，不根据会话数量或旧偏好自动隔离。每个隔离 checkout 通过原服务入口启动独立 Core/Runtime，客户端仅聚合线程投影，不迁移 Core 历史。线程、子线程及请求收据定位原执行宿主，文件、进程和浏览器回调沿同一归属路由。接口和保证范围见[桌面宿主契约](../api/desktop.md#桌面宿主-worktree-契约)及[Worktree 指南](../guides/worktrees.md)。 环境配置归现有 library 的逻辑项目元数据，创建时冻结脚本；`worktree-environment.cjs` 仅适配 Core 受管进程回执。空线程绑定不代表环境就绪，首条 Prompt 需等待 setup 成功。取消和删除保留原创建身份，删除 tombstone 阻止旧 owner 重连或回退来源。
 
 ## 仓库目录
 

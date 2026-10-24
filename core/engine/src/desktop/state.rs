@@ -578,14 +578,16 @@ impl Engine {
             }
             let allow_plugin_skills = request.agent_profile.is_none();
             let mut data = DesktopState {
-                configuration: engine.resolve_config(
-                    request
-                        .agent_profile
-                        .or_else(|| engine.desktop.default_profile.read().unwrap().clone()),
-                    request.model,
-                    request.parameters,
-                    1,
-                )?,
+                configuration: engine
+                    .resolve_config(
+                        request
+                            .agent_profile
+                            .or_else(|| engine.desktop.default_profile.read().unwrap().clone()),
+                        request.model,
+                        request.parameters,
+                        1,
+                    )
+                    .map_err(|error| Error::Rejected(Box::new(error)))?,
                 ..Default::default()
             };
             data.configuration.options = request.options.unwrap_or_default();

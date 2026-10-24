@@ -75,7 +75,6 @@ class WorktreeAdmission {
         )
             return false;
         if (name === "workspace") return workspaceEffects.has(request.operation);
-        // 后台和定时任务可能自行创建执行会话；先要求明确作者，禁止绕过隔离入口。
         if (name === "manage" && request.operation === "taskCreate") return true;
         if (name === "queueEdit" && ["pause", "remove"].includes(request.operation)) return false;
         if (name === "manage" && cleanup.has(request.operation)) return false;
@@ -280,7 +279,9 @@ class WorktreeAdmission {
         }
         if (
             record?.version !== 1 ||
-            record.root !== root ||
+            typeof record.root !== "string" ||
+            !isAbsolute(record.root) ||
+            (root !== undefined && record.root !== root) ||
             typeof record.projectId !== "string" ||
             !record.projectId ||
             typeof record.sessionId !== "string" ||
@@ -303,21 +304,16 @@ class WorktreeAdmission {
         }
         return root;
     }
-    async checkOverlappingRecords(directory, root) {
+    async checkOverlappingRecords(directory, root, schedulesOnly = false) {
         for (const name of await readdir(directory)) {
             if (!name.endsWith(".json")) continue;
-            const file = join(directory, name);
-            let record;
-            try {
-                record = JSON.parse(await readFile(file, "utf8"));
-            } catch {
-                throw reject("已有目录作者记录无法核对");
-            }
-            if (typeof record?.root !== "string" || !isAbsolute(record.root))
-                throw reject("已有目录作者记录缺少执行目录身份");
+            const record = await this.read(join(directory, name));
+            if (!record) throw reject("已有目录作者记录无法核对");
+            if (schedulesOnly && !record.sessionId.startsWith("schedule:")) continue;
             if (
-                record.root !== root &&
-                (contains(root, record.root) || contains(record.root, root))
+                (schedulesOnly && record.root === root) ||
+                (record.root !== root &&
+                    (contains(root, record.root) || contains(record.root, root)))
             )
                 throw reject("重叠目录已有作者记录，须核查旧执行身份，未覆盖或迁移记录");
         }
@@ -348,8 +344,6 @@ class WorktreeAdmission {
         await this.checkOverlappingRecords(directory, root);
         let current = await this.read(file, root);
         if (!current) {
-            await this.checkExistingEffects(project, sessionId);
-            await this.checkPeerEffects(project, root, sessionId);
             const release = await this.claimLock(directory);
             try {
                 await this.checkOverlappingRecords(directory, root);
@@ -359,6 +353,8 @@ class WorktreeAdmission {
                         throw reject("此执行目录已保留给另一个会话及其后台任务");
                     return;
                 }
+                await this.checkExistingEffects(project, sessionId);
+                await this.checkPeerEffects(project, root, sessionId);
                 const temporary = file + "." + randomUUID() + ".tmp";
                 const handle = await open(temporary, "wx", 0o600);
                 try {
@@ -447,7 +443,6 @@ class WorktreeAdmission {
                 )
                     return;
                 if (readOnlySide) throw reject("旁路讨论不能作为工作区作者执行写入");
-                let author = sessionId;
                 if (typeof this.backend.scheduleAdmission?.authorForSession === "function") {
                     const verified = await this.backend.scheduleAdmission.authorForSession(
                         project,
@@ -459,10 +454,27 @@ class WorktreeAdmission {
                             !/^schedule:[a-f0-9]{64}$/.test(verified)
                         )
                             throw reject("调度执行作者映射尚未确认");
-                        author = verified;
+                        await this.claim(project, verified);
+                        return;
                     }
                 }
-                await this.claim(project, author);
+                const cwd = await realpath(project.root),
+                    root = (await checkoutRoot(cwd)) ?? cwd,
+                    directory = join(this.backend.home, "workspace-authors");
+                await this.checkCheckoutTasks(project, root, sessionId);
+                let release;
+                try {
+                    release = await this.claimLock(directory);
+                } catch (error) {
+                    if (error.code !== "ENOENT") throw error;
+                }
+                try {
+                    if (release) await this.checkOverlappingRecords(directory, root, true);
+                    if (await this.backend.scheduleAdmission?.read?.(project))
+                        throw reject("此目录已保留给独立定时任务家庭");
+                } finally {
+                    await release?.();
+                }
             });
         this.queues.set(project.id, task);
         try {

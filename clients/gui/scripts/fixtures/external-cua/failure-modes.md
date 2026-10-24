@@ -7,7 +7,7 @@ This fixture is an executable MCP subprocess. It does not operate the desktop or
 - Each chat owns its JavaScript state. Normal turns reuse that chat's client.
 - Native consent preserves accept, decline and cancel. Stale replies and unsupported forms cancel. No automatic grants.
 - Mixed images, structured content and known errors retain the upstream result. Core materializes images for history and subsequent model input.
-- Interrupt from the logical project must resolve the automatic worktree execution owner; a repeated request keeps its original logical identity and actual Core generation.
+- Interrupt from the logical project must resolve the explicitly selected worktree execution owner; a repeated request keeps its original logical identity and actual Core generation.
 - Normal completion sends Stop. Interrupt sends Interrupt. Explicit Stop queries actual active applications and calls host control.
 - Disconnect after a recorded effect is UNKNOWN and must never cause automatic replay. Cleanup failure remains unresolved and blocks admission.
 - Disabled or switched providers reject stale tools. Selecting LCU excludes native computer_v1 while Preview/browser_v1 remains available.

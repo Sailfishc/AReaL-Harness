@@ -145,10 +145,10 @@ export function DraftComposer({
   const [cancellingCreation, setCancellingCreation] = useState(false);
   const [sourceRetry, setSourceRetry] = useState<string>();
   const busy = useSyncExternalStore(subscribeSending, () => sending.has(key));
-  const editLocked = busy || !!project.pending.length || !!unknown || !!reviewDraft.error;
+  const editLocked = busy || !!unknown || !!reviewDraft.error;
   const executionReady = backendReady && !!project.state?.connected;
   const modelSelectionDisabled = editLocked || !executionReady || unavailableProfile;
-  const submitDisabled = modelSelectionDisabled || !currentModel || currentModel.available === false;
+  const submitDisabled = modelSelectionDisabled || !!project.pending.length || !currentModel || currentModel.available === false;
   const desktopUnsupported = project.desktopCapabilities?.currentCommands === false;
   const skills = useComposerSkills({
     project: executionReady ? project : { ...project, state: { ...project.state, connected: false } },
@@ -304,7 +304,7 @@ export function DraftComposer({
         ...(selection ? { worktree: { ...selection } } : {}),
       };
       localStorage.setItem(`${key}:pending-create-request`, JSON.stringify(creationRequest));
-      setActiveCreation({ requestId: creationRequestId, text: value, worktree: selection?.mode !== "source" });
+      setActiveCreation({ requestId: creationRequestId, text: value, worktree: selection?.mode === "worktree" });
       const result = await action("create", creationRequest);
       if (stoppedCreation.current.has(creationRequestId)) return;
       localStorage.removeItem(`${key}:pending-create-request`);

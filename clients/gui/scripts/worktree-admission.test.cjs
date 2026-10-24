@@ -102,111 +102,154 @@ const required = (error) =>
     error.submissionUnknown === false &&
     error.outcome.kind === "noMutation";
 
-test("barrier submissions grant the original checkout to one root session before either dispatches", async (t) => {
+test("ordinary independent sessions share the current directory without reserving a workspace author", async (t) => {
     const f = await fixture(t);
-    const results = await Promise.allSettled([
-        f.run("send", { threadId: "first" }),
-        f.run("send", { threadId: "second" }),
-    ]);
-    assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
-    assert.equal(
-        results.filter((result) => result.status === "rejected" && required(result.reason)).length,
-        1,
-    );
-    assert.deepEqual(f.dispatched, [{ name: "send", threadId: "first" }]);
-    const files = await readdir(join(f.backend.home, "workspace-authors"));
-    assert.equal(files.length, 1);
-    const author = JSON.parse(
-        await readFile(join(f.backend.home, "workspace-authors", files[0]), "utf8"),
-    );
-    assert.equal(author.sessionId, "first");
-    assert.equal(author.root, f.root);
+    await Promise.all([f.run("send", { threadId: "first" }), f.run("send", { threadId: "second" })]);
+    await f.run("send", { threadId: "fork" });
+    await f.run("send", { threadId: "child" });
+    assert.equal(f.dispatched.length, 4);
+    await assert.rejects(readdir(join(f.backend.home, "workspace-authors")), { code: "ENOENT" });
+    assert.ok(!f.reads.some(read => read.method === "areal/server/status"));
 });
 
-test("ownership survives idle, disconnect, manager restart and an owner's background processes", async (t) => {
+test("a pending task catalog in one root does not block ordinary admission in an unrelated root", async (t) => {
+    const f = await fixture(t), gate = f.gate(), otherRoot = join(dirname(f.root), "unrelated");
+    await mkdir(otherRoot);
+    await mkdir(join(f.backend.home, "workspace-authors"), { recursive: true });
+    let entered, resume;
+    const checking = new Promise(resolve => { entered = resolve; }),
+        pending = new Promise(resolve => { resume = resolve; }),
+        request = f.project.client.request;
+    f.project.client.request = async (method, params) => {
+        if (method === "areal/task/list") {
+            entered();
+            await pending;
+        }
+        return request(method, params);
+    };
+    const other = { ...f.project, id: "unrelated", root: otherRoot, client: { ready: true, request } },
+        ordinary = f.run("send", { threadId: "first" });
+    await checking;
+    try {
+        await assert.doesNotReject(gate.admit(other, "send", { threadId: "second" }));
+        assert.deepEqual(f.dispatched, []);
+    } finally {
+        resume();
+        await ordinary;
+    }
+});
+
+test("legacy ordinary author records are preserved without forcing later sessions into Worktree", async (t) => {
     const f = await fixture(t);
-    await f.run("send", { threadId: "first" });
-    f.project.client.ready = false;
+    await f.gate().claim(f.project, "first");
+    const directory = join(f.backend.home, "workspace-authors");
+    const [file] = await readdir(directory), before = await readFile(join(directory, file), "utf8");
     f.restart();
-    await assert.rejects(f.run("continue", { threadId: "second" }), required);
-    f.project.client.ready = true;
-    f.status.resources = [
-        { threadId: "first", state: "running", id: "background" },
-        { kind: "runtime", activeProcesses: 1, state: "running" },
-    ];
-    await assert.rejects(
-        f.run("manage", { threadId: "second", operation: "processStart" }),
-        required,
-    );
-    await f.run("manage", { threadId: "first", operation: "processWrite" });
+    await f.run("send", { threadId: "second" });
+    await f.run("continue", { threadId: "first" });
+    assert.equal(await readFile(join(directory, file), "utf8"), before);
     assert.equal(f.dispatched.length, 2);
 });
 
-test("independent service gate instances race to one immutable author record", async (t) => {
+test("durable scheduled claims block ordinary writes before schedule binding and survive restart", async (t) => {
     const f = await fixture(t);
-    const first = new WorktreeAdmission(f.backend),
-        second = new WorktreeAdmission(f.backend);
-    let waiting = 0,
-        release;
-    const barrier = new Promise((resolve) => {
-        release = resolve;
-    });
-    const request = f.project.client.request;
+    f.backend.scheduleAdmission = { read: async () => null };
+    await f.gate().claim(f.project, "schedule:" + "a".repeat(64));
+    const directory = join(f.backend.home, "workspace-authors"),
+        [file] = await readdir(directory),
+        before = await readFile(join(directory, file), "utf8");
+    f.restart();
+    await assert.rejects(f.run("send", { threadId: "first" }), required);
+    await assert.rejects(f.run("workspace", { operation: "save", threadId: "second" }), required);
+    assert.deepEqual(f.dispatched, []);
+    assert.equal(await readFile(join(directory, file), "utf8"), before);
+});
+
+test("durable scheduled claims protect overlapping non-Git roots across project identities", async (t) => {
+    for (const scheduledParent of [true, false]) {
+        const f = await fixture(t), nested = join(f.root, "nested");
+        await mkdir(nested);
+        const scheduled = { ...f.project, root: scheduledParent ? f.root : nested },
+            ordinary = { ...f.project, id: "ordinary", root: scheduledParent ? nested : f.root };
+        f.backend.scheduleAdmission = { read: async (project) => project.id === scheduled.id ? { reserved: true } : null };
+        await f.gate().claim(scheduled, "schedule:" + "b".repeat(64));
+        await assert.rejects(f.gate().admit(ordinary, "send", { threadId: "first" }), required);
+    }
+});
+
+test("legacy ordinary claims do not reserve physically overlapping non-Git roots", async (t) => {
+    const f = await fixture(t), nested = join(f.root, "nested");
+    await mkdir(nested);
+    await f.gate().claim(f.project, "first");
+    const directory = join(f.backend.home, "workspace-authors"),
+        [file] = await readdir(directory),
+        before = await readFile(join(directory, file), "utf8");
+    await f.gate().admit({ ...f.project, root: nested }, "send", { threadId: "second" });
+    assert.equal(await readFile(join(directory, file), "utf8"), before);
+});
+
+test("unknown durable author records fail closed before ordinary dispatch", async (t) => {
+    const f = await fixture(t), directory = join(f.backend.home, "workspace-authors");
+    await mkdir(directory, { recursive: true });
+    for (const value of [
+        "{",
+        JSON.stringify({ version: 1, root: f.root, projectId: "physical" }),
+        JSON.stringify({ version: 2, root: f.root, projectId: "physical", sessionId: "first" }),
+        JSON.stringify({ version: 1, root: "relative", projectId: "physical", sessionId: "first" }),
+    ]) {
+        await writeFile(join(directory, "unknown.json"), value);
+        await assert.rejects(f.run("send", { threadId: "first" }), required);
+    }
+    assert.deepEqual(f.dispatched, []);
+});
+
+test("ordinary admission rejects a durable schedule published while its task catalog was pending", async (t) => {
+    const f = await fixture(t), gate = f.gate();
+    await mkdir(join(f.backend.home, "workspace-authors"), { recursive: true });
+    f.backend.scheduleAdmission = { read: async () => null };
+    let entered, resume, first = true;
+    const checking = new Promise(resolve => { entered = resolve; }),
+        pending = new Promise(resolve => { resume = resolve; }),
+        request = f.project.client.request;
     f.project.client.request = async (method, params) => {
-        const value = await request(method, params);
-        if (method === "areal/server/status") {
-            if (++waiting === 2) release();
-            await barrier;
+        const result = await request(method, params);
+        if (method === "areal/task/list" && first) {
+            first = false;
+            entered();
+            await pending;
         }
-        return value;
+        return result;
     };
-    const results = await Promise.allSettled([
-        first.admit(f.project, "send", { threadId: "first" }),
-        second.admit(f.project, "send", { threadId: "second" }),
-    ]);
-    assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
-    assert.equal(
-        results.filter((result) => result.status === "rejected" && required(result.reason)).length,
-        1,
-    );
-    assert.equal((await readdir(join(f.backend.home, "workspace-authors"))).length, 1);
+    const ordinary = f.run("send", { threadId: "first" });
+    await checking;
+    try {
+        await gate.claim(f.project, "schedule:" + "c".repeat(64));
+    } finally {
+        const rejected = assert.rejects(ordinary, required);
+        resume();
+        await rejected;
+    }
+    assert.deepEqual(f.dispatched, []);
 });
 
-test("child Agents keep the parent's session author while independent Fork execution is blocked", async (t) => {
-    const f = await fixture(t);
-    await f.run("send", { threadId: "first" });
-    await f.run("send", { threadId: "child" });
-    await f.run("manage", { parentThreadId: "first", operation: "agentSpawn" });
-    await assert.rejects(f.run("send", { threadId: "fork" }), required);
-    await assert.rejects(
-        f.run("manage", { parentThreadId: "fork", operation: "agentSpawn" }),
-        required,
-    );
-    assert.equal(f.dispatched.length, 3);
-});
-
-test("every opaque thread mutation enters admission while reads and configuration do not reserve an author", async (t) => {
-    const f = await fixture(t);
-    await f.run("configure", { threadId: "second" });
-    await f.run("open", { threadId: "second" });
-    await f.run("manage", { operation: "processes", threadId: "second" });
-    assert.equal(f.reads.length, 0);
-    await f.run("send", { threadId: "first" });
-    for (const [name, request] of [
-        ["editMessage", { threadId: "second" }],
-        ["continue", { threadId: "second" }],
-        ["steer", { threadId: "second" }],
-        ["respond", { threadId: "second" }],
-        ["queueEdit", { threadId: "second", operation: "resume" }],
-        ["manage", { threadId: "second", operation: "goalResume" }],
-        ["manage", { threadId: "second", operation: "processStart" }],
-        ["manage", { parentThreadId: "second", operation: "workgroupStart" }],
-        ["manage", { threadId: "second", operation: "mcpExtensionCall" }],
-        ["workspace", { threadId: "second", operation: "save" }],
-        ["workspace", { threadId: "second", operation: "gitCommit" }],
-    ])
-        await assert.rejects(f.run(name, request), required, name + " " + request.operation);
-    assert.equal(f.dispatched.length, 4);
+test("a scheduled claim checks ordinary activity after waiting for its admission lock", async (t) => {
+    const f = await fixture(t), gate = f.gate(), directory = join(f.backend.home, "workspace-authors");
+    await mkdir(directory, { recursive: true });
+    f.backend.scheduleAdmission = { read: async () => null };
+    const release = await gate.claimLock(directory), claimLock = gate.claimLock.bind(gate);
+    let waiting;
+    const scheduledWaiting = new Promise(resolve => { waiting = resolve; });
+    gate.claimLock = (path) => {
+        waiting();
+        return claimLock(path);
+    };
+    const scheduled = gate.claim(f.project, "schedule:" + "d".repeat(64)),
+        rejected = assert.rejects(scheduled, required);
+    await scheduledWaiting;
+    f.status.activeTurns.push({ threadId: "first" });
+    await release();
+    await rejected;
+    assert.deepEqual(await readdir(directory), []);
 });
 
 test("cleanup, queue pause and readonly Side discussion remain possible for the non-owner", async (t) => {
@@ -230,43 +273,6 @@ test("cleanup, queue pause and readonly Side discussion remain possible for the 
     );
     await assert.rejects(f.run("workspace", { threadId: "side", operation: "save" }), required);
     assert.equal(f.dispatched.length, 10);
-});
-
-test("an unowned background process or unresolved cleanup blocks first authorship before dispatch", async (t) => {
-    for (const resource of [
-        { kind: "runtime", state: "running", activeProcesses: 1 },
-        { threadId: "first", state: "cleanupUnknown" },
-    ]) {
-        const f = await fixture(t, { ...idle(), resources: [resource] });
-        await assert.rejects(f.run("send", { threadId: "first" }), required);
-        assert.deepEqual(f.dispatched, []);
-    }
-});
-
-test("foreign active roots, queued work, tasks and uncertain effects block a new claim", async (t) => {
-    for (const patch of [
-        { activeTurns: [{ threadId: "second" }] },
-        { resources: [{ threadId: "second", state: "running" }] },
-        { pendingQueueItems: 1 },
-        { activeTasks: 1 },
-        { unresolvedTools: [{ threadId: "first" }] },
-        { workgroups: [{ status: "running", cleanupConfirmed: false }] },
-    ]) {
-        const f = await fixture(t, { ...idle(), ...patch });
-        await assert.rejects(f.run("send", { threadId: "first" }), required);
-        assert.deepEqual(f.dispatched, []);
-    }
-});
-
-test("matching active descendants can claim their existing root without changing files or their execution identity", async (t) => {
-    const f = await fixture(t, {
-        ...idle(),
-        activeTurns: [{ threadId: "child" }],
-        activeGoals: ["first"],
-    });
-    await f.run("send", { threadId: "first" });
-    assert.equal(f.dispatched.length, 1);
-    assert.equal(f.threads.child.sessionId, "first");
 });
 
 test("project-only writes, mixed-session targets and unavailable identity never fall back to the source", async (t) => {
@@ -327,18 +333,15 @@ test("scheduled tasks use the dedicated admission boundary and authoritative mod
     assert.equal(f.dispatched.length, 3);
 });
 
-test("background task creation keeps the explicit anchored author", async (t) => {
+test("background task creation requires an anchor and allows either ordinary session", async (t) => {
     const f = await fixture(t);
     await assert.rejects(
         f.run("manage", { operation: "taskCreate", mode: "background" }),
         required,
     );
     await f.run("manage", { operation: "taskCreate", mode: "background", threadId: "first" });
-    await assert.rejects(
-        f.run("manage", { operation: "taskCreate", mode: "background", threadId: "second" }),
-        required,
-    );
-    assert.equal(f.dispatched.length, 1);
+    await f.run("manage", { operation: "taskCreate", mode: "background", threadId: "second" });
+    assert.equal(f.dispatched.length, 2);
 });
 
 test("Core-verified readonly task draft sends do not claim an ordinary writer", async (t) => {
@@ -356,173 +359,7 @@ test("Core-verified readonly task draft sends do not claim an ordinary writer", 
     await f.run("manage", { operation: "taskDraftSend", threadId: "first" });
     await f.run("send", { threadId: "second" });
     f.threads.first.desktop.configuration.options.toolAllowlist = ["exec_command"];
-    await assert.rejects(f.run("send", { threadId: "first" }), required);
-});
-
-test("checkout root and subdirectory projects race for one Git checkout author without changing cwd", async (t) => {
-    const f = await fixture(t);
-    await repository(f.root);
-    const sub = join(f.root, "src");
-    await mkdir(sub);
-    const child = { ...f.project, id: "subproject", root: sub };
-    let waiting = 0,
-        release;
-    const barrier = new Promise((resolve) => {
-        release = resolve;
-    });
-    const request = f.project.client.request;
-    f.project.client.request = async (method, params) => {
-        const value = await request(method, params);
-        if (method === "areal/server/status") {
-            if (++waiting === 2) release();
-            await barrier;
-        }
-        return value;
-    };
-    const results = await Promise.allSettled([
-        new WorktreeAdmission(f.backend).admit(f.project, "send", { threadId: "first" }),
-        new WorktreeAdmission(f.backend).admit(child, "send", { threadId: "second" }),
-    ]);
-    assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
-    assert.equal(
-        results.filter((result) => result.status === "rejected" && required(result.reason)).length,
-        1,
-    );
-    assert.equal(child.root, sub);
-    assert.equal((await readdir(join(f.backend.home, "workspace-authors"))).length, 1);
-});
-
-test("same checkout session may use another project cwd while linked Worktrees remain independent", async (t) => {
-    const f = await fixture(t);
-    await repository(f.root);
-    const sub = join(f.root, "src"),
-        linked = join(f.root, "..", "linked");
-    await mkdir(sub);
-    await git(f.root, "worktree", "add", "-b", "independent", linked);
     await f.run("send", { threadId: "first" });
-    const gate = new WorktreeAdmission(f.backend);
-    await gate.admit({ ...f.project, id: "subproject", root: sub }, "send", { threadId: "child" });
-    await gate.admit({ ...f.project, id: "linked", root: linked }, "send", { threadId: "second" });
-    assert.equal((await readdir(join(f.backend.home, "workspace-authors"))).length, 2);
-});
-
-test("first checkout author refuses an unknown peer host or its foreign background effects", async (t) => {
-    const f = await fixture(t);
-    await repository(f.root);
-    const sub = join(f.root, "src");
-    await mkdir(sub);
-    const peer = { id: "peer", root: sub };
-    f.backend.saved = [f.project, peer];
-    await assert.rejects(f.run("send", { threadId: "first" }), required);
-    peer.client = {
-        ready: true,
-        request: (method, params) =>
-            method === "areal/server/status"
-                ? { ...idle(), resources: [{ threadId: "second", state: "running" }] }
-                : f.project.client.request(method, params),
-    };
-    await assert.rejects(f.run("send", { threadId: "first" }), required);
-    peer.client.request = (method, params) =>
-        method === "areal/server/status" ? idle() : f.project.client.request(method, params);
-    await f.run("send", { threadId: "first" });
-    assert.equal(f.dispatched.length, 1);
-});
-
-test("registered nested independent Git checkout is rejected before either first author can dispatch", async (t) => {
-    const f = await fixture(t);
-    await repository(f.root);
-    const sub = join(f.root, "inner");
-    await mkdir(sub);
-    await repository(sub);
-    const child = { ...f.project, id: "inner", root: sub };
-    f.backend.saved = [f.project, child];
-    f.status.resources = [{ threadId: "second", state: "running" }];
-    for (const project of [f.project, child])
-        await assert.rejects(
-            new WorktreeAdmission(f.backend).admit(project, "send", { threadId: "first" }),
-            required,
-        );
-    assert.deepEqual(f.dispatched, []);
-    assert.equal(
-        f.reads.some((read) => read.method === "areal/server/status"),
-        false,
-    );
-});
-
-test("later Git initialization in an owned directory cannot introduce a second overlapping checkout author", async (t) => {
-    const f = await fixture(t);
-    await f.run("send", { threadId: "first" });
-    const sub = join(f.root, "inner");
-    await mkdir(sub);
-    await repository(sub);
-    const child = { ...f.project, id: "inner", root: sub };
-    f.backend.saved = [f.project, child];
-    for (const project of [f.project, child])
-        await assert.rejects(
-            new WorktreeAdmission(f.backend).admit(project, "send", { threadId: "second" }),
-            required,
-        );
-    assert.equal(f.dispatched.length, 1);
-    assert.equal((await readdir(join(f.backend.home, "workspace-authors"))).length, 1);
-});
-
-test("registered overlapping non-Git directories fail closed but unrelated projects still execute", async (t) => {
-    const f = await fixture(t);
-    const sub = join(f.root, "src"),
-        unrelated = join(f.root, "..", "other");
-    await mkdir(sub);
-    await mkdir(unrelated);
-    const child = { ...f.project, id: "nested", root: sub };
-    f.backend.saved = [
-        f.project,
-        child,
-        { id: "other", root: unrelated },
-        { id: "removed", root: join(unrelated, "..", "removed") },
-    ];
-    for (const project of [f.project, child])
-        await assert.rejects(
-            new WorktreeAdmission(f.backend).admit(project, "send", { threadId: "first" }),
-            required,
-        );
-    await new WorktreeAdmission(f.backend).admit(
-        { ...f.project, id: "other", root: unrelated },
-        "send",
-        { threadId: "second" },
-    );
-});
-
-test("unregistered nested non-Git projects racing cannot publish two overlapping authors", async (t) => {
-    const f = await fixture(t);
-    const sub = join(f.root, "src");
-    await mkdir(sub);
-    const child = { ...f.project, id: "nested", root: sub };
-    const results = await Promise.allSettled([
-        new WorktreeAdmission(f.backend).admit(f.project, "send", { threadId: "first" }),
-        new WorktreeAdmission(f.backend).admit(child, "send", { threadId: "second" }),
-    ]);
-    assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
-    assert.equal(
-        results.filter((result) => result.status === "rejected" && required(result.reason)).length,
-        1,
-    );
-    assert.equal((await readdir(join(f.backend.home, "workspace-authors"))).length, 1);
-});
-
-test("legacy subdirectory claim is retained and blocks a newly discovered containing Git checkout", async (t) => {
-    const f = await fixture(t);
-    const sub = join(f.root, "src");
-    await mkdir(sub);
-    await new WorktreeAdmission(f.backend).admit(
-        { ...f.project, id: "nested", root: sub },
-        "send",
-        { threadId: "first" },
-    );
-    const directory = join(f.backend.home, "workspace-authors");
-    const [file] = await readdir(directory),
-        before = await readFile(join(directory, file), "utf8");
-    await repository(f.root);
-    await assert.rejects(f.run("send", { threadId: "first" }), required);
-    assert.equal(await readFile(join(directory, file), "utf8"), before);
 });
 
 test("checkout identity ignores inherited Git redirection and fails closed for a corrupt Git marker", async (t) => {
@@ -546,10 +383,7 @@ test("checkout identity ignores inherited Git redirection and fails closed for a
     const { writeFile } = require("node:fs/promises");
     await writeFile(join(other, ".git"), "gitdir: /missing-areal-test-git\n");
     await assert.rejects(
-        new WorktreeAdmission(f.backend).admit({ ...f.project, root: other }, "send", {
-            threadId: "first",
-        }),
-        required,
+        checkoutRoot(other),
     );
 });
 
@@ -561,18 +395,6 @@ test("task draft confirmation requires dedicated schedule admission before dispa
     );
     assert.deepEqual(f.dispatched, []);
     assert.deepEqual(f.reads, []);
-});
-
-test("corrupt durable owner record rejects instead of being silently replaced", async (t) => {
-    const f = await fixture(t);
-    await f.run("send", { threadId: "first" });
-    const directory = join(f.backend.home, "workspace-authors"),
-        [file] = await readdir(directory);
-    const { writeFile } = require("node:fs/promises");
-    await writeFile(join(directory, file), "{");
-    f.restart();
-    await assert.rejects(f.run("send", { threadId: "first" }), required);
-    assert.equal(f.dispatched.length, 1);
 });
 
 test("failed authoritative read stays a pre-dispatch Worktree requirement", async (t) => {
@@ -807,7 +629,7 @@ test("executable Side uses its verified source author for first input, replies a
     f.threads.sideChild = { id: "sideChild", sessionId: "executable", parentThreadId: "executable", cwd: f.root };
     await f.run("send", { threadId: "first" });
     await f.run("side", { sourceThreadId: "first", operation: "create", firstInput: { text: "hello" } });
-    await assert.rejects(f.run("side", { sourceThreadId: "second", operation: "create", firstInput: { text: "hello" } }), required);
+    await f.run("side", { sourceThreadId: "second", operation: "create", firstInput: { text: "hello" } });
     await f.run("send", { threadId: "executable" });
     await f.run("respond", { threadId: "executable" });
     await f.run("manage", { threadId: "sideChild", operation: "processStart" });
@@ -816,5 +638,5 @@ test("executable Side uses its verified source author for first input, replies a
     await assert.rejects(f.run("send", { threadId: "executable" }), required);
     f.threads.executable.cwd = f.root;
     f.threads.executable.conversation.origin.sourceThreadId = "second";
-    await assert.rejects(f.run("send", { threadId: "executable" }), required);
+    await f.run("send", { threadId: "executable" });
 });

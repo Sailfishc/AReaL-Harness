@@ -121,15 +121,10 @@ export const worktreeMessages = {
   },
   "worktree.configure": { "zh-CN": "新会话工作区", en: "New conversation workspace" },
   "worktree.new": { "zh-CN": "新 Worktree", en: "New worktree" },
-  "worktree.automatic": { "zh-CN": "自动隔离", en: "Automatic isolation" },
   "worktree.mode": { "zh-CN": "工作区方式", en: "Workspace mode" },
   "worktree.createOnSend": {
     "zh-CN": "发送首条消息时准备工作区，再开始会话。",
     en: "The workspace is prepared when you send the first message, before the conversation starts.",
-  },
-  "worktree.automaticDescription": {
-    "zh-CN": "来源目录已有会话时，新会话会先创建独立 Worktree。",
-    en: "If the source checkout already has a conversation, the new conversation starts in a separate worktree.",
   },
   "worktree.source": { "zh-CN": "来源 Worktree", en: "Source worktree" },
   "worktree.startBranch": { "zh-CN": "起始分支", en: "Starting branch" },

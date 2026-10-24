@@ -156,18 +156,51 @@ let projectId, threads, directories;
 try {
   await backend.init();
   projectId = await backend.addProject(source);
+  const rejectedRequest = randomUUID();
+  await assert.rejects(backend.command("create", { projectId, requestId: rejectedRequest, profile: { id: "missing-profile", revision: "v1" } }), error => error.submissionUnknown === false && error.outcome?.kind === "rejected");
+  assert.equal(projection().pending.length, 0, "known configuration rejection leaves no pending creation");
+  assert.equal((await backend.command("workspace", { projectId, operation: "worktreeRead", requestId: rejectedRequest })).state, "failed");
+  checks.push("invalid creation configuration is rejected before acceptance and clears pending without replay");
   const ids = [randomUUID(), randomUUID()];
   const create = (index) =>
     backend.command("create", {
       projectId,
       requestId: ids[index],
       options: { permissionPreset: "fullAccess" },
+      ...(index === 1 ? { worktree: { mode: "worktree", ref: "main" } } : {}),
     });
-  threads = await Promise.all([create(0), create(1)]);
+  const ordinary = await Promise.all([
+    create(0),
+    backend.command("create", { projectId, requestId: randomUUID(), options: { permissionPreset: "fullAccess" } }),
+  ]);
+  for (const { threadId } of ordinary) {
+    const thread = projection().state.threads[threadId];
+    assert.equal(thread.cwd, source);
+    assert.equal(thread.worktree, undefined);
+    assert.equal(backend.worktrees.executionProjectId(projectId, threadId), projectId);
+  }
+  assert.equal(backend.saved.length, 1, "ordinary concurrent creation registers no new execution host");
+  assert.equal(git("branch", "--show-current"), "main");
+  assert.deepEqual(await create(0), ordinary[0]);
+  checks.push("concurrent ordinary conversations retain the selected directory, branch and Core with idempotent receipts");
+  const nonGit = join(scratch, "non-git");
+  await mkdir(nonGit);
+  const nonGitId = await backend.addProject(nonGit);
+  for (let index = 0; index < 2; index++) {
+    const result = await backend.command("create", { projectId: nonGitId, requestId: randomUUID() });
+    const thread = backend.snapshot().projects.find(project => project.id === nonGitId).state.threads[result.threadId];
+    assert.equal(thread.cwd, nonGit);
+    assert.equal(thread.worktree, undefined);
+  }
+  const nonGitThreads = Object.keys(backend.snapshot().projects.find(project => project.id === nonGitId).state.threads);
+  await assert.rejects(backend.command("create", { projectId: nonGitId, requestId: randomUUID(), worktree: { mode: "worktree" } }));
+  assert.deepEqual(Object.keys(backend.snapshot().projects.find(project => project.id === nonGitId).state.threads), nonGitThreads);
+  checks.push("non-Git directories allow two ordinary conversations and reject explicit Worktree creation without a replacement thread");
+  threads = [ordinary[0], await create(1)];
   assert.equal(new Set(threads.map((thread) => thread.threadId)).size, 2);
   assert.equal(
     backend.snapshot().projects.length,
-    1,
+    2,
     "execution hosts remain hidden in navigation",
   );
   const snapshots = threads.map(({ threadId }) => projection().state.threads[threadId]);
@@ -175,7 +208,7 @@ try {
   assert.equal(
     new Set(directories).size,
     2,
-    "barrier creates reserve one original checkout and isolate the other before model execution",
+    "only the explicit Worktree creation allocates an independent checkout before model execution",
   );
   assert.equal(snapshots.filter((thread) => !thread.worktree).length, 1);
   for (const thread of snapshots) assert.equal(thread.cwd, thread.worktree?.directory ?? source);
@@ -193,7 +226,7 @@ try {
   );
   assert.equal(requests.length, 0, "creation, isolation and binding precede any model request");
   checks.push(
-    "concurrent direct desktop commands create two independent hosts before any model call, with one logical sidebar project and idempotent receipts",
+    "explicit Worktree creation retains an independent host, logical project aggregation and idempotent receipts",
   );
   if (!creationOnly) {
     for (const kind of ["file", "shell"]) {
@@ -339,8 +372,8 @@ try {
     threads,
     directories,
     limitations: [
-      "Linux full-access Runtime default-root isolation only; absolute paths and trusted external effects are not confined",
-      "No macOS Electron, signing or real provider account validation",
+      "Source Core/Runtime validation only; absolute paths and trusted external effects are not confined",
+      "No Electron, package, signing or real provider account validation",
     ],
   };
   await writeFile(join(scratch, "manifest.json"), JSON.stringify(manifest, null, 2));

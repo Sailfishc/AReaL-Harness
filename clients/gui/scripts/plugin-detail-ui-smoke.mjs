@@ -29,7 +29,7 @@ const installedMetadata=()=>({name:'github',displayName:'GitHub',description:'In
 const support=()=>({digest,manifestFormat:'portable1',compatibility:{state:'allowed',reasonCodes:[]},validation:{provider:'unverified',platform:'unverified',distribution:'unverified'},components:[{kind:'mcp',sourceField:'mcp.json',status:'supported',reasonCodes:[],supportedSchema:'areal-mcp-document-envelope-v1',activationRequirements:['explicitMcpTrust','mcpConnection']},{kind:'uiSurfaces',sourceField:'plugin.json#/ui/surfaces/panel',status:'unsupported',reasonCodes:['componentNotImplemented'],supportedSchema:null,activationRequirements:[]}]});
 const detail=()=>({installedMetadata:installed?installedMetadata():null,componentChoices:{disabledSkills,disabledMcpServers},interface:mode==='catalog-changed'?{developerName:'Candidate developer',longDescription:'Candidate-only description.'}:installedMetadata().interface,revision,id:'github@official',name:'github',displayName:mode==='catalog-changed'?'GitHub Next':'GitHub',description:mode==='catalog-changed'?'Candidate-only description.':'在对话中使用 GitHub。',version:mode==='catalog-changed'?'2.0.0':null,installed,installedVersion:installed?'1.0.0':null,installedDigest:installed?digest:null,installedSkills:installed&&skillsOnly()?[skill]:[],installedOnboardingSkill:null,enabled:installed,source:'/fixture/github',sourceDigest:mode==='catalog-changed'?'c'.repeat(64):digest,catalogSource:{type:'local',path:'/fixture/github'},componentSupport:skillsOnly()?{...support(),components:[]}:support(),installedComponentSupport:installed?(skillsOnly()?{...support(),components:[]}:support()):null,components:skillsOnly()?['skills']:['mcp'],diagnostics:['MCP declarations require explicit digest trust and connection'],skills:skillsOnly()?[skill]:[],onboardingSkill:null});
 const connection=()=>({pluginId:'github@official',installedDigest:digest,state:state==='connected'?'connected':auth==='ready'?'disconnected':'authRequired',trusted:state==='connected',authenticationTiming:'ON_INSTALL',servers:skillsOnly()?[]:[{serverId:'github-mcp',projectEnabled:!disabledMcpServers.includes('github-mcp'),enabled:!disabledMcpServers.includes('github-mcp'),state:disabledMcpServers.includes('github-mcp')?'disabled':state==='connected'?'connected':auth==='ready'?'disconnected':'authRequired',authentication:'required',config:{title:'GitHub MCP',authentication:{},authenticationRequirements:{}}}],connectors:[],diagnostics:[]});
-const action=async(_name,p)=>{calls.push({...p});switch(p.operation){
+const action=async(_name,p)=>{calls.push({name:_name,...p});if(_name==='reconcile')return {outcomes:{}};switch(p.operation){
 case'pluginCapabilities':return {enabled:true};
 case'plugins':return {revision,data:[detail()],marketplaces:[{name:'official',root:'/fixture',sourceUrl:'https://github.com/openai/plugins'}],errors:[]};
 case'plugin':return detail();case'pluginResolve':case'pluginArchiveImport':return detail();case'pluginArchivePick':return {canceled:false,fileName:'github.zip',selectionToken:'fixture-archive'};
@@ -44,7 +44,7 @@ case'pluginConnection':state=p.connect&&mode!=='failed'?'connected':'disconnecte
 case'pluginSubmission':return receipt;default:throw Error('Unexpected fixture operation '+p.operation);}};
 function assertComponent(p){if(p.expectedRevision!==revision||p.expectedDigest!==digest)throw Error('STALE_COMPONENT_GUARD');}
 function App(){const [epoch,setEpoch]=useState(0),[surface,setSurface]=useState('workspace');window.pluginFixture={calls,reset(next){mode=next;disabledSkills=[];disabledMcpServers=[];setSurface('workspace');installed=next!=='uninstalled';auth=next==='pending'?'pending':next==='ready'||next==='connected'||next==='unknown'||next==='failed'?'ready':'notStarted';state=next==='connected'?'connected':'disconnected';lose=next==='unknown'||next==='failed';revision++;setEpoch(x=>x+1);},swapDigest(){digest='b'.repeat(64);revision++;window.dispatchEvent(new Event('areal-plugins-changed'));},setReady(){auth='ready';mode='ready';},changeCatalog(){mode='catalog-changed';revision++;window.dispatchEvent(new Event('areal-plugins-changed'));},language(locale){setApplicationPreferences({locale});},};
-const project={id:'fixture',name:'workspace',root:'/fixture',state:{connected:true},profiles:[{id:'standard',revision:1}],pending:[]};return <UnsavedChangesProvider><div style={{height:'100vh',display:'flex',background:'var(--color-background)'}}><PluginCenter key={epoch} project={project} projects={[project]} action={action} active surface={surface} marketRequest={0} onSettings={()=>setSurface("settings")} onMarket={()=>setSurface("workspace")} onChooseProject={()=>{}} onSelectProject={()=>{}} onStartDraft={async()=>{calls.push({operation:'startDraft'});}} /></div></UnsavedChangesProvider>;}
+const project={id:'fixture',name:'workspace',root:'/fixture',state:{connected:true},profiles:[{id:'standard',revision:1}],pending:mode==='project-unknown'?[{method:'areal/thread/start',params:{requestId:'00000000-0000-4000-a000-000000000111'},awaitingResponse:false}]:[]};return <UnsavedChangesProvider><div style={{height:'100vh',display:'flex',background:'var(--color-background)'}}><PluginCenter key={epoch} project={project} projects={[project]} action={action} active surface={surface} marketRequest={0} onSettings={()=>setSurface("settings")} onMarket={()=>setSurface("workspace")} onChooseProject={()=>{}} onSelectProject={()=>{}} onStartDraft={async()=>{calls.push({operation:'startDraft'});}} /></div></UnsavedChangesProvider>;}
 createRoot(document.getElementById('root')).render(<ApplicationIntlProvider><App/></ApplicationIntlProvider>);`);
 const server = await createServer({ root: join(gui, 'renderer'), configFile: join(gui, 'renderer/vite.config.ts'), mode: 'design-system', appType: 'custom', server: { host: '127.0.0.1', port: 0, fs: { allow: [root] } } });
 server.middlewares.use(async (req, res, next) => {
@@ -71,12 +71,29 @@ async function capture(name) {
   await page.screenshot({ path: join(evidence, name + '.png'), animations: 'disabled' });
   await writeFile(join(evidence, name + '.aria.txt'), await page.locator('body').ariaSnapshot());
 }
+async function checkProjectRecovery() {
+  await open('project-unknown',false);
+  await page.getByText(/areal\/thread\/start/).waitFor();
+  await page.getByText(/00000000-0000-4000-a000-000000000111/).waitFor();
+  const previousCalls=await page.evaluate(()=>window.pluginFixture.calls.length);
+  await button('核对项目操作').click();
+  await page.waitForFunction(()=>window.pluginFixture.calls.some(call=>call.name==='reconcile'));
+  await button('核对项目操作').waitFor({state:'visible'});
+  const checkedCalls=await page.evaluate(offset=>window.pluginFixture.calls.slice(offset),previousCalls);
+  assert.equal(checkedCalls.filter(call=>call.name==='reconcile').length,1);
+  assert.equal(checkedCalls.filter(call=>['create','send'].includes(call.name)||['pluginInstall','pluginConfigure','pluginConnection'].includes(call.operation)).length,0);
+  await capture('13-project-operation-recovery');
+  checks.push('generic project uncertainty names the original request and supports read-only checking without replay or plugin writes');
+}
 try {
   browser = await chromium.launch({ headless: true, ...(process.env.AREAL_GUI_TEST_BROWSER ? { executablePath: process.env.AREAL_GUI_TEST_BROWSER } : { channel: 'chrome' }) });
   page = await browser.newPage({ viewport: { width: 1440, height: 960 }, deviceScaleFactor: 1 });
   page.setDefaultTimeout(15000);page.on('pageerror', error => errors.push(error.message));
   await page.goto(origin + 'plugin-detail-acceptance.html');
   await page.waitForFunction(() => !!window.pluginFixture);
+  if (process.env.AREAL_PLUGIN_PROJECT_RECOVERY_ONLY === '1') {
+    await checkProjectRecovery();assert.deepEqual(errors,[]);passed=true;
+  } else {
   await page.getByRole('tablist', { name: '市场范围', exact: true }).waitFor();await button('添加资源').click();
   await page.getByRole('menuitem', { name: '上传插件包', exact: true }).click();await button('导入并预览').click();
   await page.getByRole('checkbox', { name: '我已核对以上来源、版本和内容摘要', exact: true }).waitFor();
@@ -164,6 +181,7 @@ await button('试用').waitFor();await button('断开并撤销信任').waitFor()
   await waitChecked('在当前项目启用 Skill Review changes',false);assert.equal(await skillSwitch.isChecked(),false);await button('查看插件详情').click();await button('管理').click();assert.equal(await skillSwitch.isChecked(),false);
   const changed=await page.evaluate(()=>window.pluginFixture.calls.filter(c=>c.operation==='pluginComponentConfigure').at(-1));assert.equal(changed.expectedDigest.length,64);assert.equal(typeof changed.expectedRevision,'number');
   await capture('09-skills-management');checks.push('skills-only detail hides MCP and authentication; component choice persists across settings navigation with revision and digest');
+  await checkProjectRecovery();
   await open('connected');const serverSwitch=page.getByRole('switch',{name:'在当前项目启用 MCP GitHub MCP',exact:true});await serverSwitch.click();await waitChecked('在当前项目启用 MCP GitHub MCP',false);assert.equal(await serverSwitch.isChecked(),false);assert.equal(await button('在浏览器中认证').count(),0);await serverSwitch.click();await button('审阅并连接').waitFor();checks.push('MCP choices persist and enabling requires explicit reconnect');
   await button('查看插件详情').click();await capture('10-content-detail');
   await page.evaluate(()=>window.pluginFixture.language('en'));await button('Manage').waitFor();await capture('11-content-detail-english');await button('Manage').click();await button('View plugin details').waitFor();await capture('12-management-english');checks.push('content detail and management render in English');
@@ -171,6 +189,7 @@ await button('试用').waitFor();await button('断开并撤销信任').waitFor()
   await page.setViewportSize({ width: 900, height: 850 });await page.evaluate(() => document.documentElement.classList.add('dark'));await capture('07-narrow-dark');
   const overflow = await page.getByTestId('plugin-detail-page').evaluate(el => el.scrollWidth > el.clientWidth + 1);assert.equal(overflow, false);
   assert.deepEqual(errors, []);checks.push('narrow/dark has no detail overflow or renderer errors');passed=true;
+  }
 } catch (error) {failure={message:error.message,stack:error.stack};process.exitCode=1;if(page)await capture('failure');}
 finally {
   await browser?.close();await server.close();

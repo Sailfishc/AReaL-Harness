@@ -89,7 +89,7 @@ try {
     projectId,
     requestId,
     options: { permissionPreset: "fullAccess" },
-    worktree: { ref: "main", environmentId: "dev", environmentRevision: 1 },
+    worktree: { mode: "worktree", ref: "main", environmentId: "dev", environmentRevision: 1 },
   });
   const operation = await workspace("worktreeRead", { requestId });
   assert.equal(operation.state, "ready");
@@ -140,7 +140,7 @@ try {
     projectId,
     requestId: cancelId,
     options: { permissionPreset: "fullAccess" },
-    worktree: { ref: "main", environmentId: "slow", environmentRevision: 2 },
+    worktree: { mode: "worktree", ref: "main", environmentId: "slow", environmentRevision: 2 },
   });
   const rejected = assert.rejects(creating, /取消|cancel/i);
   rejected.catch(() => {});

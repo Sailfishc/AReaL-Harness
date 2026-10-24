@@ -16,7 +16,7 @@ export type WorktreeSelection = {
     worktreeRoot: string;
     branch: string;
     branchPrefix: string;
-    mode?: "source" | "worktree";
+    mode: "source" | "worktree";
     environmentId?: string;
     environmentRevision?: number;
 };
@@ -27,18 +27,6 @@ type Options = {
     environments?: { id: string; name: string }[];
     environmentRevision?: number;
 };
-
-export function worktreeSelectionKey(projectId: string) {
-    return `areal-gui:worktree-selection:${projectId}`;
-}
-export function readWorktreeSelection(projectId: string): WorktreeSelection | undefined {
-    try {
-        const value: unknown = JSON.parse(localStorage.getItem(worktreeSelectionKey(projectId)) ?? "null");
-        if (value && typeof value === "object" && ["sourceRoot", "ref", "worktreeRoot", "branch", "branchPrefix"].every(
-            key => typeof (value as Record<string, unknown>)[key] === "string")) return value as WorktreeSelection;
-    } catch {}
-    return undefined;
-}
 
 type PickerPage = "main" | "branch" | "environment";
 
@@ -81,7 +69,7 @@ export function WorktreeStarter({ project, action, value, onChange, onConfigureE
         sourceRoot, ref: "HEAD", worktreeRoot: options?.settings.worktreeRoot ?? "",
         branch: "", branchPrefix: options?.settings.branchPrefix ?? "areal", mode: "source",
     };
-    const enabled = !!value && value.mode !== "source";
+    const enabled = value?.mode === "worktree";
     const change = (patch: Partial<WorktreeSelection>) => {
         const next = { ...selected, ...patch };
         if (next.environmentId === undefined) delete next.environmentId;

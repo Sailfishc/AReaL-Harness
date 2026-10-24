@@ -162,45 +162,30 @@ async function setup(t, { gitRepo = true } = {}) {
     return { root, home, id, facts, calls, backend };
 }
 
-test("simultaneous desktop-service creates reserve only one original checkout and aggregate two threads", async (t) => {
-    const f = await setup(t),
-        b = await f.backend();
-    const requests = [
-        { projectId: f.id, requestId: randomUUID() },
-        { projectId: f.id, requestId: randomUUID() },
-    ];
-    const [first, second] = await Promise.all(
-        requests.map((request) => b.command("create", request)),
-    );
-    assert.notEqual(first.threadId, second.threadId);
-    assert.equal(f.calls.length, 2);
-    assert.equal(f.calls.filter((call) => call.root === f.root).length, 1);
-    assert.equal(new Set(f.calls.map((call) => call.root)).size, 2);
-    const snapshot = b.snapshot();
-    assert.equal(snapshot.projects.length, 1);
-    assert.equal(snapshot.projects[0].id, f.id);
-    assert.equal(Object.keys(snapshot.projects[0].state.threads).length, 2);
-    const isolatedThreads = Object.values(snapshot.projects[0].state.threads).filter(
-        (thread) => thread.worktree,
-    );
-    assert.equal(isolatedThreads.length, 1);
-    const [isolated] = isolatedThreads;
-    assert.ok([first.threadId, second.threadId].includes(isolated.id));
-    assert.equal(isolated.worktree.automatic, true);
-    assert.ok(isolated.worktree.branch.startsWith("areal"));
+test("ordinary desktop creates share the selected checkout until Worktree is explicitly selected", async (t) => {
+    const f = await setup(t), b = await f.backend();
+    const requests = [0, 1].map(() => ({ projectId: f.id, requestId: randomUUID() }));
+    const threads = await Promise.all(requests.map(request => b.command("create", request)));
+    assert.notEqual(threads[0].threadId, threads[1].threadId);
+    assert.deepEqual(f.calls.map(call => call.root), [f.root, f.root]);
+    assert.equal(b.saved.length, 1);
+    assert.equal(git(f.root, "branch", "--show-current"), "main");
+    const snapshot = b.snapshot().projects[0];
+    assert.equal(Object.keys(snapshot.state.threads).length, 2);
+    assert.ok(Object.values(snapshot.state.threads).every(thread => !thread.worktree));
+    const explicit = await b.command("create", { projectId: f.id, requestId: randomUUID(), worktree: { mode: "worktree", ref: "main" } });
+    const isolated = b.snapshot().projects[0].state.threads[explicit.threadId];
     assert.notEqual(isolated.cwd, f.root);
-    assert.deepEqual(
-        isolated.worktreeEvents.map((event) => event.state),
-        ["creating", "created", "binding", "ready"],
-    );
-    assert.match(isolated.worktreeEvents[1].message, /未复制/);
+    assert.equal(isolated.worktree.automatic, false);
+    assert.ok(isolated.worktree.branch.startsWith("areal"));
+    assert.deepEqual(isolated.worktreeEvents.map(event => event.state), ["creating", "created", "binding", "ready"]);
     assert.equal(await readFile(join(f.root, "shared.txt"), "utf8"), "baseline\n");
 });
 
 test("same creation identity reuses one thread and rejects changed model or checkout parameters", async (t) => {
     const f = await setup(t),
         b = await f.backend(),
-        request = { projectId: f.id, requestId: randomUUID(), worktree: { ref: "main" } };
+        request = { projectId: f.id, requestId: randomUUID(), worktree: { mode: "worktree", ref: "main" } };
     const [first, second] = await Promise.all([
         b.command("create", request),
         b.command("create", request),
@@ -212,14 +197,14 @@ test("same creation identity reuses one thread and rejects changed model or chec
         b.command("create", { ...request, model: { providerId: "other", modelId: "new" } }),
         /参数/,
     );
-    await assert.rejects(b.command("create", { ...request, worktree: { ref: "HEAD" } }), /参数/);
+    await assert.rejects(b.command("create", { ...request, worktree: { mode: "worktree", ref: "HEAD" } }), /参数/);
     assert.equal(f.calls.length, 1);
 });
 
 test("persisted thread binding routes files, background processes, children and request recovery to its original host", async (t) => {
     const f = await setup(t),
         b = await f.backend(),
-        request = { projectId: f.id, requestId: randomUUID(), worktree: { ref: "main" } };
+        request = { projectId: f.id, requestId: randomUUID(), worktree: { mode: "worktree", ref: "main" } };
     const { threadId } = await b.command("create", request),
         owner = b.worktrees.executionProjectId(f.id, threadId);
     const restarted = await f.backend();
@@ -278,7 +263,7 @@ test("persisted thread binding routes files, background processes, children and 
 test("lost thread-start response is reconciled from original host receipt without duplicate creation", async (t) => {
     const f = await setup(t),
         b = await f.backend(),
-        request = { projectId: f.id, requestId: randomUUID(), worktree: { ref: "main" } };
+        request = { projectId: f.id, requestId: randomUUID(), worktree: { mode: "worktree", ref: "main" } };
     const submit = b.submit;
     b.submit = async (...args) => {
         await submit(...args);
@@ -297,7 +282,7 @@ test("lost thread-start response is reconciled from original host receipt withou
 test("unconfirmed binding never starts another thread or falls back to the source checkout", async (t) => {
     const f = await setup(t),
         b = await f.backend(),
-        request = { projectId: f.id, requestId: randomUUID(), worktree: { ref: "main" } };
+        request = { projectId: f.id, requestId: randomUUID(), worktree: { mode: "worktree", ref: "main" } };
     b.submit = async () => {
         throw Object.assign(new Error("no confirmation"), { submissionUnknown: true });
     };
@@ -312,13 +297,14 @@ test("unconfirmed binding never starts another thread or falls back to the sourc
     assert.equal(await readFile(join(record.record.directory, "shared.txt"), "utf8"), "baseline\n");
 });
 
-test("non-Git directories allow the first conversation and refuse the second before execution", async (t) => {
-    const f = await setup(t, { gitRepo: false }),
-        b = await f.backend();
+test("non-Git directories allow ordinary conversations and reject only explicit Worktree creation", async (t) => {
+    const f = await setup(t, { gitRepo: false }), b = await f.backend();
     await b.command("create", { projectId: f.id, requestId: randomUUID() });
-    await assert.rejects(b.command("create", { projectId: f.id, requestId: randomUUID() }));
-    assert.equal(f.calls.length, 1);
-    assert.equal(f.calls[0].root, f.root);
+    await b.command("create", { projectId: f.id, requestId: randomUUID() });
+    await b.command("create", { projectId: f.id, requestId: randomUUID(), worktree: { ref: "HEAD" } });
+    await assert.rejects(b.command("create", { projectId: f.id, requestId: randomUUID(), worktree: { mode: "worktree" } }));
+    assert.deepEqual(f.calls.map(call => call.root), [f.root, f.root, f.root]);
+    assert.equal(b.saved.length, 1);
 });
 
 test("settings affect future checkouts and source-specific options list real Git branches", async (t) => {
@@ -338,7 +324,7 @@ test("settings affect future checkouts and source-specific options list real Git
     const { threadId } = await b.command("create", {
         projectId: f.id,
         requestId: randomUUID(),
-        worktree: { ref: "feature" },
+        worktree: { mode: "worktree", ref: "feature" },
     });
     const thread = b.snapshot().projects[0].state.threads[threadId];
     assert.ok(thread.worktree.branch.startsWith("areal/custom"));
@@ -359,7 +345,7 @@ test("known unsupported Core rejects before reserving a directory or source auth
     const f = await setup(t),
         b = await f.backend(),
         live = await b.start(f.id),
-        request = { projectId: f.id, requestId: randomUUID(), worktree: { ref: "main" } };
+        request = { projectId: f.id, requestId: randomUUID(), worktree: { mode: "worktree", ref: "main" } };
     live.client.capabilities.features.permissionPresets = false;
     await assert.rejects(
         b.command("create", request),
@@ -392,7 +378,7 @@ test("registration failure after Git creation preserves the checkout and resumes
     const f = await setup(t),
         b = await f.backend(),
         save = b.save,
-        request = { projectId: f.id, requestId: randomUUID(), worktree: { ref: "main" } };
+        request = { projectId: f.id, requestId: randomUUID(), worktree: { mode: "worktree", ref: "main" } };
     let fail = true;
     b.save = async (name, value) => {
         if (name === "projects.json" && fail) {
@@ -423,7 +409,7 @@ test("non-creation pending and outcome receipts recover through the owning execu
     const { threadId } = await b.command("create", {
         projectId: f.id,
         requestId: randomUUID(),
-        worktree: { ref: "main" },
+        worktree: { mode: "worktree", ref: "main" },
     });
     const owner = b.worktrees.executionProjectId(f.id, threadId),
         live = b.projects.get(owner),
@@ -453,7 +439,7 @@ test("observed child ownership survives restart before child views have loaded",
     const { threadId } = await b.command("create", {
         projectId: f.id,
         requestId: randomUUID(),
-        worktree: { ref: "main" },
+        worktree: { mode: "worktree", ref: "main" },
     });
     const owner = b.worktrees.executionProjectId(f.id, threadId),
         live = b.projects.get(owner),
@@ -475,7 +461,7 @@ test("observed child ownership survives restart before child views have loaded",
     );
 });
 
-test("root and subdirectory projects isolate before either new model context uses the shared checkout", async (t) => {
+test("root and subdirectory projects keep their selected current directories", async (t) => {
     const f = await setup(t),
         b = await f.backend();
     const subroot = join(f.root, "src");
@@ -501,7 +487,7 @@ test("root and subdirectory projects isolate before either new model context use
     );
     assert.equal(results.length, 2);
     assert.equal(f.calls.length, 2);
-    assert.ok(f.calls.every((call) => call.root !== f.root && call.root !== subroot));
+    assert.deepEqual(new Set(f.calls.map(call => call.root)), new Set([f.root, subroot]));
     assert.notEqual(f.calls[0].root, f.calls[1].root);
     assert.equal(
         f.calls.some((call) => call.root.endsWith("/src")),
@@ -548,23 +534,11 @@ test("global management stores versioned project environments without starting C
     assert.deepEqual(restored.projects[0].environments, [environment]);
 });
 
-test("explicit source rejects an occupied checkout instead of auto isolating", async (t) => {
-    const f = await setup(t),
-        b = await f.backend();
-    await b.command("create", {
-        projectId: f.id,
-        requestId: randomUUID(),
-        worktree: { mode: "source" },
-    });
-    await assert.rejects(
-        b.command("create", {
-            projectId: f.id,
-            requestId: randomUUID(),
-            worktree: { mode: "source" },
-        }),
-        /占用|occupied/,
-    );
-    assert.equal(f.calls.length, 1);
+test("explicit source allows multiple conversations without allocating a checkout", async (t) => {
+    const f = await setup(t), b = await f.backend();
+    for (let index = 0; index < 2; index++) await b.command("create", { projectId: f.id, requestId: randomUUID(), worktree: { mode: "source" } });
+    assert.deepEqual(f.calls.map(call => call.root), [f.root, f.root]);
+    assert.equal(b.saved.length, 1);
 });
 
 test("cancel before binding retains checkout and never starts a thread", async (t) => {
@@ -585,7 +559,7 @@ test("cancel before binding retains checkout and never starts a thread", async (
         await gate;
         return result;
     };
-    const creating = b.command("create", { projectId: f.id, requestId, worktree: { ref: "main" } });
+    const creating = b.command("create", { projectId: f.id, requestId, worktree: { mode: "worktree", ref: "main" } });
     const rejected = assert.rejects(creating, /取消|cancel/i);
     await waiting;
     const cancelling = b.command("workspace", {
@@ -617,7 +591,7 @@ test("ready cancellation reports too late and preserves the existing thread", as
     const created = await b.command("create", {
         projectId: f.id,
         requestId,
-        worktree: { ref: "main" },
+        worktree: { mode: "worktree", ref: "main" },
     });
     const result = await b.command("workspace", {
         projectId: f.id,
@@ -633,7 +607,7 @@ test("unknown setup read never dispatches the script again", async (t) => {
     const f = await setup(t),
         b = await f.backend(),
         requestId = randomUUID();
-    await b.command("create", { projectId: f.id, requestId, worktree: { ref: "main" } });
+    await b.command("create", { projectId: f.id, requestId, worktree: { mode: "worktree", ref: "main" } });
     const ready = b.worktrees.records.get(requestId);
     await b.worktrees.persist({
         ...ready,
@@ -671,7 +645,7 @@ test("bound setup thread rejects ordinary writes before environment is ready", a
     const created = await b.command("create", {
         projectId: f.id,
         requestId,
-        worktree: { ref: "main" },
+        worktree: { mode: "worktree", ref: "main" },
     });
     const value = b.worktrees.records.get(requestId);
     await b.worktrees.persist({ ...value, state: "settingUp" });

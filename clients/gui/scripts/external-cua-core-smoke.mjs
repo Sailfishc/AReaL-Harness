@@ -87,8 +87,8 @@ async function history(id = threadId) {
   try { await client.connect(); return (await client.request('thread/read', { threadId: id, includeTurns: true })).thread; }
   finally { client.close(); }
 }
-async function newThread() {
-  threadId = (await command('create', { projectId, browserEnabled: true, profile: { id: 'fixture', revision: 'v1' }, options: { permissionPreset: 'ask', appendInstructions: 'USER_RULE_PRESERVED' } })).threadId;
+async function newThread(worktree = false) {
+  threadId = (await command('create', { projectId, ...(worktree ? { worktree: { mode: 'worktree' } } : {}), browserEnabled: true, profile: { id: 'fixture', revision: 'v1' }, options: { permissionPreset: 'ask', appendInstructions: 'USER_RULE_PRESERVED' } })).threadId;
   await selectConversation(page, threadId);
   return threadId;
 }
@@ -238,7 +238,7 @@ try {
   }
   assert.equal((await command('computerControl', { operation: 'status' })).active, false);
   checks.push('Core-issued identities, original instructions and schemas, consent choices, mixed media and raw history, normal cleanup');
-  await newThread();
+  await newThread(true);
   scenario = { id: 'interrupt', code: 'wait', sent: false };
   await command('send', { projectId, threadId, text: 'External CUA interrupt acceptance' });
   await until(async () => { await outerApproval(); return (await command('computerControl', { operation: 'status' })).active; }, 'active CUA call');
@@ -246,7 +246,7 @@ try {
   const running = (await history()).turns.at(-1);
   const executionProjectId = project(await snapshot()).state.threads[threadId].executionProjectId;
   assert.ok(executionProjectId);
-  assert.notEqual(executionProjectId, projectId, 'Fixture uses the normal automatic worktree chat');
+  assert.notEqual(executionProjectId, projectId, 'Fixture explicitly selects a worktree for cross-host interruption');
   const stopRequestId = randomUUID();
   const stopReceipt = await command('stop', { projectId, threadId, turnId: running.id, requestId: stopRequestId });
   await writeFile(join(evidence, 'interrupt-receipt.json'), JSON.stringify(stopReceipt, null, 2));

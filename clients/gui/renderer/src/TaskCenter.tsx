@@ -531,7 +531,7 @@ export function TaskCenter({ projects: allProjects, connected, action, onOpenThr
           const result = await action("reconcile", { projectId: draft.projectId });
           const outcome = recoveredOutcome({ outcomes: result.outcomes }, draft.requestId, "");
           const method = outcome?.operation?.method ?? outcome?.method;
-          if (!record && outcome?.accepted === true && outcome.status === "completed" && method === "areal/thread/start" && outcome.threadId) {
+          if ((!record || record.state === "missing") && outcome?.accepted === true && outcome.status === "completed" && method === "areal/thread/start" && outcome.threadId) {
             draft.threadId = outcome.threadId; draft.pending = false; persist();
           } else if (outcome?.status === "failed" && method === "areal/thread/start") {
             draft.pending = false; draft.requestId = crypto.randomUUID(); persist();
@@ -563,7 +563,7 @@ export function TaskCenter({ projects: allProjects, connected, action, onOpenThr
     const record = owner.worktreeOperations?.findLast((item: Data) => item.requestId === draft.requestId);
     const outcome = recoveredOutcome(owner, draft.requestId, "");
     const method = outcome?.operation?.method ?? outcome?.method;
-    const id = record?.state === "ready" ? record.threadId : !record && outcome?.accepted === true && outcome.status === "completed" && method === "areal/thread/start" ? outcome.threadId : undefined;
+    const id = record?.state === "ready" ? record.threadId : (!record || record.state === "missing") && outcome?.accepted === true && outcome.status === "completed" && method === "areal/thread/start" ? outcome.threadId : undefined;
     if (id) openCreatedSchedule({ ...draft, threadId: id });
   }, [allProjects, creating, creationError]);
   const activeRun = task?.runs?.find((run: Data) => !terminal(run));

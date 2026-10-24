@@ -84,8 +84,20 @@ export const pluginMessages = {
     "en": "Check plugin submission"
   },
   "settings.pluginCenter.aProjectOperationHasAnUnconfirmedResult": {
-    "zh-CN": "项目中有结果待核对的操作，请回到原操作入口核对后再管理插件。",
-    "en": "A project operation has an unconfirmed result. Check it at its original entry point before managing plugins."
+    "zh-CN": "项目中有结果待核对的操作，插件修改暂不可用。核对项目操作只读取原请求结果，不会重新提交。",
+    "en": "A project operation has an unconfirmed result. Plugin changes are unavailable. Checking reads the original request result without resubmitting it."
+  },
+  "settings.pluginCenter.checkProjectOperation": {
+    "zh-CN": "核对项目操作",
+    "en": "Check project operation"
+  },
+  "settings.pluginCenter.checkingProjectOperation": {
+    "zh-CN": "正在核对项目操作…",
+    "en": "Checking project operation…"
+  },
+  "settings.pluginCenter.openOperationConversation": {
+    "zh-CN": "打开原操作会话",
+    "en": "Open operation conversation"
   },
   "settings.pluginCenter.theOriginalPluginSubmissionResultIsUnconfirmed": {
     "zh-CN": "原插件提交结果待核对，不会自动重发。",
@@ -96,8 +108,8 @@ export const pluginMessages = {
     "en": "Adding plugin marketplace…"
   },
   "settings.pluginCenter.aProjectOperationIsProcessingPleaseWait": {
-    "zh-CN": "项目操作正在处理中，请稍候。",
-    "en": "A project operation is processing. Please wait."
+    "zh-CN": "项目操作正在处理中，插件修改暂不可用。请等待原请求完成。",
+    "en": "A project operation is processing. Plugin changes are unavailable until the original request completes."
   },
   "settings.pluginCenter.checkingTheOriginalSourceResolution": {
     "zh-CN": "正在核对原来源解析…",

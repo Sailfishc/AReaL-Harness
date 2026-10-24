@@ -48,6 +48,12 @@ export async function runComposerReferencesAcceptance({ page, pid, call, state, 
       && !project(await state()).pending.length, "conversation reference send completed");
     return (await current()).turns.at(-1);
   };
+  await page.evaluate(({ id, root }) => localStorage.setItem(`areal-gui:worktree-selection:${id}`, JSON.stringify({ mode: "worktree", sourceRoot: root, ref: "HEAD", worktreeRoot: "", branch: "", branchPrefix: "areal" })), { id: pid, root: project(await state()).root });
+  await page.reload();
+  await page.getByTestId("areal-workbench").waitFor();
+  await button("新会话工作区").click();
+  assert.equal(await page.getByRole("switch", { name: "在新 Worktree 中工作", exact: true }).isChecked(), false, "legacy Worktree preference cannot authorize a new checkout");
+  await page.keyboard.press("Escape");
   await send("REF_SOURCE_SECRET_木星_9482");
   const sourceId = await activeId();
   const title = "引用 [发布] (中文) \\ 路径";
