@@ -101,7 +101,7 @@ MCP 应用页面在窗口内保留。切换标签、隐藏面板、会话或项�
 
 ## Worktree 新会话
 
-新会话 Composer 的“自动隔离”可选择同仓库来源 Worktree、起始分支和新分支，并保存未来使用的根目录与 `areal` 前缀。隔离创建在首条消息执行前准备目录和独立 Core/Runtime，线程仍显示在原项目。创建记录、当前分支和实际目录沿宿主持久状态显示；失败或未知不回退来源目录。新目录不复制未提交改动、`.worktreeinclude` 文件或来源项目专有资源。旧 `working-tree` 快照来源明确拒绝，不自动 commit。既有共享目录的第二个独立作者会被阻断，不透明迁移。任务沿实际宿主路由；定时任务可在自动分配、已预约的项目外目录中规划、保存和执行，共享目录与无预约的旧安排不能启用。创建结果不确定时先核对原 UUID，再显式“保留原结果，返回草稿”，不删除资源或自动重发。定时 Run 的有效问题或审批响应会自动继续；暂停执行用 `taskResumeRun`，普通 Continue 仍不支持 goal 线程。从本目录运行 `node scripts/worktree-schedule-interactions.mjs` 可复验真实 Core 交互协议，payload 与协议结果分别报告，不代表 Electron/macOS 或成功文件写入。创建、恢复及 full-access、原生自主任务和外部工具的限制见 [Worktree 指南](../../docs/guides/worktrees.md)。
+新会话 Composer 上方右侧的齿轮可启用 Worktree，搜索起始分支并选择项目环境。首条 Prompt 在目录创建、空线程绑定与所选 setup 成功后才发送。创建过程中可请求取消，确认取消后可明确改用原目录，原目录仍须满足作者准入。设置中的 Worktrees 提供 General 根目录与保留策略、按项目目录管理，以及环境名称、Default/macOS/Linux setup/cleanup 和 Actions。默认根目录为 `~/.areal/worktrees`，设置只影响未来创建。删除保留分支与历史，活动、脏或未知状态会阻止删除；自动清理默认关闭。创建、恢复、执行隔离与现有任务准入边界见 [Worktree 指南](../../docs/guides/worktrees.md)。
 
 ## 插件详情
 

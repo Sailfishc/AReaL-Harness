@@ -6,19 +6,33 @@ A new desktop conversation can select a source worktree, starting branch, and ne
 
 ## Workspace selection for a new conversation
 
-The **Automatic isolation** control beside the new-conversation Composer opens **New conversation workspace**. Automatic mode lets an unoccupied first root conversation use the source checkout. Once that source has a root conversation, or another registered project points into the same Git checkout, including a subdirectory, a new ordinary root conversation gets a separate worktree before its thread is created. This is more conservative than inferring whether a model intends to write. It also avoids switching workspaces after the model has read shared files.
+Open the gear above the Composer on the right. Enable **New worktree**, then select a starting branch and a project environment. Search filters the branch list. The environment configuration link opens **Settings > Worktrees > Environments** for the project. Selecting options saves the draft configuration. Creation begins when you send the first prompt. The source must share the repository's Git common directory. The host pins its ref to a commit before creating an independent named branch. It does not reuse an occupied branch or overwrite a directory. Projects opened in repository subdirectories keep their relative execution root. Preparation fails if that directory is absent from the selected commit.
 
-**New worktree** selects a source worktree, starting branch, and new branch name. The source must share the repository's Git common directory. The host resolves the source ref to a fixed commit before creating a new named branch. Creation does not implicitly fetch from the network. The source commit must already exist locally. It does not reuse an occupied target branch, force an existing directory, or silently switch to detached HEAD. A project opened in a repository subdirectory keeps the same relative execution directory. Preparation fails if the selected commit lacks that directory.
+Legacy drafts without an explicit workspace choice retain automatic isolation. An occupied source checkout gets a separate worktree. Explicitly selecting the original checkout still uses durable author admission. An occupied original checkout is rejected.
 
-**Worktree defaults** saves a root directory and branch-name prefix. An empty root uses `worktrees` under the desktop data directory. The default prefix is `areal`. An empty new-branch name generates a name from that prefix and the request UUID. Defaults affect future creations only. They do not move existing directories, rename existing branches, or expand a running Runtime's permissions.
+Preparation shows its stage, output, and the submitted prompt preview. Cancellation blocks the first message and confirms that preparation has stopped. Created directories remain. **Don't use worktree** creates a new explicit request for the original checkout only after cancellation is confirmed. Unknown results never trigger an automatic fallback. The sidebar fork icon and creation status reflect the actual worktree binding.
 
-Cancelling the picker preserves the conversation draft. **Use this selection** saves new-conversation options without creating a checkout. The host accepts creation when the first message is sent. Closing the picker or window does not cancel an accepted Git operation.
+## General settings and directory management
+
+**Settings > Worktrees > General** stores the root, branch prefix, fetch preference, automatic cleanup, and retention count. An empty root uses `~/.areal/worktrees`, with a directory per project. The default branch prefix is `areal`. An unnamed branch uses that prefix and the request UUID. Changes affect future creations only. They do not move existing directories or rename branches. Fetch is off by default. When enabled, the host fetches before pinning the starting commit.
+
+The management list groups registered worktrees by project. Deletion verifies the checkout and execution host, runs the selected environment's cleanup, and checks Git again before a non-force removal. Branches and history remain. Active tasks, unknown operations, dirty files, untracked files, ignored files, and unmerged commits can block deletion. The primary checkout cannot be deleted here. Automatic cleanup is off by default. It considers archived, unpinned conversations and unbound checkouts, using the same checks. Protected worktrees can keep the total above the retention limit.
+
+## Project environments
+
+**Environments** stores a name, setup script, cleanup script, and custom actions per project. Scripts have **Default**, **macOS**, and **Linux** tabs. A nonempty platform script replaces Default. An empty override uses Default. Creation freezes the selected environment. Later edits do not change existing worktrees.
+
+Setup runs in the new worktree's project root. The first prompt is sent only after setup succeeds. An empty bound thread can exist during preparation. Cleanup runs before deletion. Run an action explicitly from the current worktree to build, test, or run another project command. Scripts use Core managed processes and their existing permission, timeout, output, and cleanup rules.
+
+Scripts receive `AREAL_WORKTREE_PATH`, `AREAL_PROJECT_PATH`, and `AREAL_WORKTREE_BRANCH`. Paths and branch names are passed as environment variables. Only a saved, selected environment runs. Repository setup scripts and Git hooks are not discovered or executed automatically. The script entry supports macOS and Linux. Each script runs for at most 10 minutes and retains up to 64 KiB of output. It is a managed command and does not leave an unmanaged background service.
+
+Setup failure preserves the draft, journal, and checkout without sending the prompt. Unknown script outcomes are inspected through their original receipts and never rerun automatically. Failed or unknown cleanup preserves the directory. Before an explicit retry with a new request, inspect any effects the original script may have produced.
 
 ## Source changes and compatibility
 
-A new worktree contains only the selected commit. Staged, unstaged, untracked, and ignored source content is not copied. Source HEAD, index, and files remain unchanged. The host does not stash, commit, execute project setup scripts, or run Git hooks. It does not automatically copy `.worktreeinclude` files. The new host uses the deployment's global or default resources. Source-project-specific Skills, MCP configuration, and Profiles are not cloned. An unavailable selected resource cannot silently redirect execution to the source checkout.
+A new worktree contains only the selected commit. Staged, unstaged, untracked, and ignored source content is not copied. Source HEAD, index, and files remain unchanged. The host does not stash, commit, or run Git hooks. Setup runs only for a selected saved environment. It does not automatically copy `.worktreeinclude` files. The new host uses the deployment's global or default resources. Source-project-specific Skills, MCP configuration, and Profiles are not cloned. An unavailable selected resource cannot silently redirect execution to the source checkout.
 
-The old `source: "working-tree"` snapshot entry created a temporary Git commit. That mode now returns an explicit error asking for a commit or branch. Its old "include uncommitted changes" meaning is not silently replaced. Existing worktrees and legacy creation records remain. They are not automatically deleted or moved. A user who needs uncommitted content must explicitly prepare a suitable source commit or independent directory first.
+The old `source: "working-tree"` snapshot entry created a temporary Git commit. That mode now returns an explicit error asking for a commit or branch. Its old "include uncommitted changes" meaning is not silently replaced. Existing worktrees and legacy creation records remain. They are not automatically moved. A user who needs uncommitted content must explicitly prepare a suitable source commit or independent directory first.
 
 ## Creation, binding, and recovery
 
@@ -29,7 +43,10 @@ Each creation uses a stable `requestId`. An identical request returns its origin
 | `creating` | Creation intent is saved, but the Git result is not confirmed. A repeated request cannot create a second directory. |
 | `created` | The Git checkout is confirmed. Thread binding remains incomplete, so model execution is not ready. |
 | `binding` | The execution host is selected. Thread creation or its receipt is still unconfirmed. Recovery reads the original Core receipt without replaying an unknown submission. |
-| `ready` | Thread identity and its actual host are confirmed. The new conversation can use that Runtime's workspace root. |
+| `settingUp` | An empty thread is bound while environment setup is checked. The first prompt has not been sent. |
+| `cancelling` | Cancellation is requested. The original operation must stop before another checkout is selected. |
+| `cancelled` | Preparation is confirmed cancelled. The draft and any created checkout remain. |
+| `ready` | Thread identity, execution host, and environment preparation are confirmed. The first prompt can be sent. |
 | `failed` | Failure is confirmed. The source and created resources remain. A corrected attempt uses a new explicit request. |
 | `unknown` | Part of the Git outcome is uncertain. Query and inspect existing branches, directories, and records before any retry or cleanup. |
 
@@ -37,7 +54,7 @@ If creation remains uncertain, first use **Check operation status** to query the
 
 Creation events belong to the desktop host's durable journal. The UI projects them into the conversation flow and shows the branch and directory on the thread and workspace context. It does not fabricate Core messages or model tool results. Reconnection restores the original records and host snapshot. If Git succeeds but registration, resource initialization, or binding fails, the checkout remains available for inspection. Execution does not fall back to the source directory.
 
-An existing target branch, directory collision, invalid ref, foreign-repository source, or second root conversation in a non-Git source is rejected. Root directories reject traversal and symlink ancestors. Concurrent creation uses independent request records and destination reservations. `git worktree lock` is not a file-write mutex. The product does not automatically reclaim, delete, or merge worktrees.
+An existing target branch, directory collision, invalid ref, foreign-repository source, or second root conversation in a non-Git source is rejected. Root directories reject traversal and symlink ancestors. Concurrent creation uses independent request records and destination reservations. `git worktree lock` is not a file-write mutex. Deletion and optional automatic cleanup act only on verified managed worktrees. They do not merge worktrees.
 
 ## Execution-isolation scope
 
@@ -90,6 +107,13 @@ After building the real Core, run the integration in an environment that support
 ```sh
 make build
 AREAL_CORE_BIN="$PWD/target/debug/areal" node clients/gui/scripts/worktree-integration.mjs
+```
+
+Run environment checks with a trusted Core executable. The first checks real managed scripts, a 40-second preparation and cancellation, cleanup, and removal. The second drives isolated Electron settings, the first prompt, actions, failure, cancellation, and explicit source selection. Only the file picker and external model use fixtures.
+
+```sh
+AREAL_CORE_BIN=/absolute/path/to/areal pnpm --dir clients/gui test:worktree-environment
+AREAL_CORE_BIN=/absolute/path/to/areal pnpm --dir clients/gui test:worktree-environment-ui
 ```
 
 Verify the real Core scheduled-interaction protocol separately:

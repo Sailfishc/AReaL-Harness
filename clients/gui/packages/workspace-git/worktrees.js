@@ -419,6 +419,8 @@ async function createTask(root, storage, options = {}) {
     )
       throw fail("工作树根目录不能位于已有检出目录内");
     await safeGit(target, ["check-ref-format", "--branch", branch]);
+    if (options.fetchBeforeCreate === true)
+      await safeGit(target, ["fetch", "--all", "--no-recurse-submodules", "--no-auto-maintenance"]);
     const sourceHead = (await safeGit(target, ["rev-parse", "--verify", "HEAD"])).trim();
     const base =
       source === "branch"
@@ -494,7 +496,92 @@ async function createTask(root, storage, options = {}) {
     }
   }
 }
+async function inspectManagedTask(storage, creationId, { allowDirty = false } = {}) {
+  const record = await readTaskCreation(storage, creationId);
+  if (!record) throw fail("工作树创建回执不可用", "WORKTREE_RECEIPT_MISSING");
+  const trees = await listWorktrees(record.target);
+  const tree = trees.find((item) => item.root === record.directory);
+  if (
+    !tree ||
+    record.directory === record.target ||
+    record.directory === trees[0]?.root ||
+    tree.locked ||
+    tree.prunable
+  )
+    throw fail("工作树身份、主目录或锁定状态不允许删除", "WORKTREE_REMOVE_BLOCKED");
+  const status = await safeGit(record.directory, [
+    "status",
+    "--porcelain=v1",
+    "--untracked-files=all",
+    "--ignored=matching",
+  ]);
+  if (!allowDirty && status.trim())
+    throw fail("工作树含有未提交改动、未跟踪或忽略文件", "WORKTREE_DIRTY");
+  const submodules = await safeGit(record.directory, ["ls-files", "--stage"]);
+  if (/^160000 /m.test(submodules)) throw fail("工作树含有子模块，保留目录", "WORKTREE_SUBMODULE");
+  const target = await gitIdentity(record.target);
+  if (target.commonDir !== record.commonDir)
+    throw fail("来源仓库身份已变化", "WORKTREE_IDENTITY_CHANGED");
+  const head = (await safeGit(record.directory, ["rev-parse", "HEAD"])).trim();
+  try {
+    await safeGit(record.target, ["merge-base", "--is-ancestor", head, "HEAD"]);
+  } catch {
+    throw fail("工作树包含尚未合并到来源的提交，保留目录与分支", "WORKTREE_UNMERGED");
+  }
+  return record;
+}
+async function readManagedTaskRemoval(storage, requestId) {
+  if (!uuid.test(requestId)) throw fail("无效工作树删除标识");
+  const file = path.join(storage, "worktree-removals", requestId + ".json");
+  const record = await readJson(file);
+  if (!record || record.removed) return record;
+  if (
+    await fs.lstat(record.directory).then(
+      () => true,
+      (error) => {
+        if (error.code === "ENOENT") return false;
+        throw error;
+      },
+    )
+  )
+    return record;
+  const trees = await listWorktrees(record.target);
+  if (trees.some((tree) => tree.root === record.directory)) return record;
+  await safeGit(record.target, ["show-ref", "--verify", `refs/heads/${record.branch}`]);
+  return { ...record, removed: true };
+}
+async function removeManagedTask(storage, { requestId, creationId }) {
+  if (!uuid.test(requestId) || !uuid.test(creationId)) throw fail("无效工作树删除标识");
+  const directory = path.join(storage, "worktree-removals"),
+    file = path.join(directory, requestId + ".json");
+  const existing = await readManagedTaskRemoval(storage, requestId);
+  if (existing) {
+    if (existing.creationId !== creationId) throw fail("删除标识已绑定其它工作树");
+    if (existing.removed) return existing;
+    throw fail("原删除结果尚未确认，请核对目录与 Git 登记", "WORKTREE_REMOVE_UNKNOWN");
+  }
+  const record = await inspectManagedTask(storage, creationId);
+  await fs.mkdir(directory, { recursive: true, mode: 0o700 });
+  const result = {
+    requestId,
+    creationId,
+    directory: record.directory,
+    branch: record.branch,
+    target: record.target,
+    removed: false,
+  };
+  if (!(await writeOnce(file, result))) throw fail("原删除正在核对", "WORKTREE_REMOVE_UNKNOWN");
+  await safeGit(record.target, ["worktree", "remove", record.directory]);
+  result.removed = true;
+  const temporary = file + "." + randomUUID();
+  await fs.writeFile(temporary, JSON.stringify(result), { mode: 0o600 });
+  await fs.rename(temporary, file);
+  return result;
+}
 module.exports = {
+  inspectManagedTask,
+  readManagedTaskRemoval,
+  removeManagedTask,
   createTask,
   readTaskCreation,
   readTaskCreationStatus,

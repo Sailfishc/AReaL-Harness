@@ -1,7 +1,9 @@
 "use strict";
 const { mkdir, readFile, readdir, writeFile, realpath, lstat } = require("node:fs/promises");
-const { join, isAbsolute, resolve, parse, relative } = require("node:path");
-const { createHash } = require("node:crypto");
+const { join, isAbsolute, resolve, parse, relative, basename } = require("node:path");
+const { homedir } = require("node:os");
+const { WorktreeEnvironment, platformScript } = require("./worktree-environment.cjs");
+const { createHash, randomUUID } = require("node:crypto");
 const { isDeepStrictEqual } = require("node:util");
 const git = require("@areal/workspace-git");
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -28,6 +30,9 @@ class CoreWorktrees {
         this.records = new Map();
         this.queues = new Map();
         this.threadOwners = new Map();
+        this.writes = new Map();
+        this.active = new Map();
+        this.environment = new WorktreeEnvironment(this);
     }
     key(id) {
         if (typeof id !== "string" || !uuid.test(id)) throw new Error("无效工作树请求标识");
@@ -50,6 +55,8 @@ class CoreWorktrees {
                 throw new Error("工作树创建日志无效");
             this.records.set(value.requestId, value);
         }
+        for (const value of this.records.values())
+            await this.reconcileDeletion(value).catch(() => {});
         const directory = join(this.backend.home, "thread-owners");
         await mkdir(directory, { recursive: true, mode: 0o700 });
         for (const name of await readdir(directory)) {
@@ -211,33 +218,136 @@ class CoreWorktrees {
             logicalProjectId: logicalId,
         };
     }
-    async persist(value) {
-        await mkdir(join(this.backend.home, "worktree-requests"), { recursive: true, mode: 0o700 });
-        await this.backend.save(this.key(value.requestId), value);
-        this.records.set(value.requestId, value);
-        this.backend.onChange();
-        return value;
+    async update(id, change) {
+        const task = (this.writes.get(id) ?? Promise.resolve())
+            .catch(() => {})
+            .then(async () => {
+                const value = change(this.records.get(id));
+                await mkdir(join(this.backend.home, "worktree-requests"), {
+                    recursive: true,
+                    mode: 0o700,
+                });
+                await this.backend.save(this.key(id), value);
+                this.records.set(id, value);
+                this.backend.onChange();
+                return value;
+            });
+        this.writes.set(id, task);
+        try {
+            return await task;
+        } finally {
+            if (this.writes.get(id) === task) this.writes.delete(id);
+        }
     }
-    async transition(value, state, patch = {}) {
-        return this.persist({
+    persist(value) {
+        return this.update(value.requestId, (latest) => ({
+            ...latest,
             ...value,
-            ...patch,
-            state,
-            events: [
-                ...(value.events ?? []),
-                {
-                    id: `${value.requestId}:${(value.events ?? []).length}`,
-                    state,
-                    time: new Date().toISOString(),
-                    ...(patch.message ? { message: patch.message } : {}),
-                },
-            ],
+            ...(latest?.intent === "cancel" ? { intent: "cancel" } : {}),
+        }));
+    }
+    transition(value, state, patch = {}) {
+        return this.update(value.requestId, (latest) => {
+            const nextState = state === "ready" && latest.intent === "cancel" ? "cancelled" : state;
+            return {
+                ...latest,
+                ...patch,
+                state: nextState,
+                events: [
+                    ...(latest.events ?? []),
+                    {
+                        id: `${value.requestId}:${(latest.events ?? []).length}`,
+                        state: nextState,
+                        time: new Date().toISOString(),
+                        ...(patch.message ? { message: patch.message } : {}),
+                    },
+                ],
+            };
         });
+    }
+    defaultRoot() {
+        return join(this.backend.userHome ?? homedir(), ".areal", "worktrees");
+    }
+    projectRoot(project, configured) {
+        const name =
+            basename(project.root)
+                .replace(/[^a-zA-Z0-9_-]/g, "-")
+                .slice(0, 60) || "project";
+        return join(
+            configured || this.defaultRoot(),
+            `${name}-${createHash("sha256").update(project.root).digest("hex").slice(0, 12)}`,
+        );
+    }
+    environmentStore(project) {
+        const meta = this.backend.library.value.projects[this.logicalId(project)] ?? {};
+        return {
+            environments: meta.worktreeEnvironments ?? [],
+            environmentRevision: meta.worktreeEnvironmentRevision ?? 0,
+        };
+    }
+    async saveEnvironment(project, request, remove = false) {
+        await this.backend.library.change((state) => {
+            const meta = (state.projects[this.logicalId(project)] ??= {});
+            if (request.expectedRevision !== (meta.worktreeEnvironmentRevision ?? 0))
+                throw new Error("环境版本已变化，请刷新后保存");
+            const id = remove ? request.environmentId : request.environment.id;
+            const environments = (meta.worktreeEnvironments ?? []).filter(
+                (value) => value.id !== id,
+            );
+            if (!remove) environments.push(structuredClone(request.environment));
+            meta.worktreeEnvironments = environments;
+            meta.worktreeEnvironmentRevision = (meta.worktreeEnvironmentRevision ?? 0) + 1;
+        });
+        return this.environmentStore(project);
+    }
+    list() {
+        return {
+            settings: this.settings(),
+            defaultRoot: this.defaultRoot(),
+            revision: this.backend.library.value.settings.worktreeRevision ?? 0,
+            projects: this.backend.saved
+                .filter((p) => !p.logicalProjectId)
+                .map((project) => ({
+                    id: project.id,
+                    root: project.root,
+                    name:
+                        this.backend.library.value.projects[project.id]?.name ??
+                        basename(project.root),
+                    ...this.environmentStore(project),
+                })),
+            worktrees: [...this.records.values()]
+                .filter((value) => value.record)
+                .map((value) => ({
+                    ...value,
+                    directory: value.record.directory,
+                    branch: value.record.branch,
+                    deleted: value.deleted === true,
+                })),
+        };
+    }
+    assertAvailable(projectId) {
+        const value = [...this.records.values()].find(
+            (value) =>
+                value.executionProjectId === projectId &&
+                (value.deleted ||
+                    value.deletion?.status === "running" ||
+                    value.deletion?.status === "unknown"),
+        );
+        if (value)
+            throw Object.assign(
+                new Error(
+                    value.deleted ? "工作树目录已删除，历史仍保留" : "工作树正在删除或结果尚未确认",
+                ),
+                { code: "WORKTREE_REMOVED" },
+            );
     }
     settings() {
         return {
             worktreeRoot: "",
             branchPrefix: "areal",
+            fetchBeforeCreate: false,
+            autoCleanup: false,
+            keepCount: 10,
             ...this.backend.library.value.settings.worktrees,
         };
     }
@@ -276,7 +386,20 @@ class CoreWorktrees {
             }
         }
         await this.backend.library.change((state) => {
-            state.settings.worktrees = { worktreeRoot, branchPrefix };
+            const revision = state.settings.worktreeRevision ?? 0;
+            if (request.expectedRevision !== undefined && request.expectedRevision !== revision)
+                throw new Error("设置版本已变化，请刷新后保存");
+            state.settings.worktrees = {
+                ...this.settings(),
+                worktreeRoot,
+                branchPrefix,
+                ...Object.fromEntries(
+                    ["fetchBeforeCreate", "autoCleanup", "keepCount"]
+                        .filter((key) => request[key] !== undefined)
+                        .map((key) => [key, request[key]]),
+                ),
+            };
+            state.settings.worktreeRevision = revision + 1;
         });
         return this.settings();
     }
@@ -293,7 +416,13 @@ class CoreWorktrees {
         const branches = (await git.reviewBranches(selected)).branches
             .map((value) => (typeof value === "string" ? value : (value.name ?? value.branch)))
             .filter(Boolean);
-        return { worktrees, branches, settings: this.settings() };
+        return {
+            worktrees,
+            branches,
+            settings: this.settings(),
+            defaultRoot: this.defaultRoot(),
+            ...this.environmentStore(logical),
+        };
     }
     async register(logicalProject, record, requestId) {
         const b = this.backend,
@@ -328,6 +457,7 @@ class CoreWorktrees {
             .catch(() => {})
             .then(() => this.createThreadInner(project, request, key));
         this.queues.set(queueId, task);
+        this.active.set(request.requestId, task);
         try {
             return await task;
         } catch (error) {
@@ -335,13 +465,14 @@ class CoreWorktrees {
             if (
                 record?.projectId === project.id &&
                 isDeepStrictEqual(record.parameters, signature(request)) &&
-                !["ready", "failed"].includes(record.state)
+                !["ready", "failed", "cancelled"].includes(record.state)
             ) {
                 Object.assign(error, { requestId: request.requestId, submissionUnknown: true });
             }
             throw error;
         } finally {
             if (this.queues.get(queueId) === task) this.queues.delete(queueId);
+            if (this.active.get(request.requestId) === task) this.active.delete(request.requestId);
         }
     }
     async createThreadInner(project, request, key) {
@@ -357,7 +488,7 @@ class CoreWorktrees {
             )
                 throw new Error("原创建请求的参数不可修改");
             if (value.state === "ready") return { threadId: value.threadId, requestId };
-            if (value.state === "failed")
+            if (["failed", "cancelled"].includes(value.state))
                 throw Object.assign(new Error(value.message ?? "原工作树创建失败，请使用新请求"), {
                     requestId,
                     submissionUnknown: false,
@@ -376,7 +507,14 @@ class CoreWorktrees {
             (
                 await Promise.all(
                     b.saved
-                        .filter((saved) => saved.id !== project.id)
+                        .filter(
+                            (saved) =>
+                                saved.id !== project.id &&
+                                ![...this.records.values()].some(
+                                    (value) =>
+                                        value.executionProjectId === saved.id && value.deleted,
+                                ),
+                        )
                         .map(async (saved) => (await git.checkoutRoot(saved.root)) === checkout),
                 )
             ).some(Boolean);
@@ -390,13 +528,52 @@ class CoreWorktrees {
                     record.usesSource &&
                     record.state !== "failed",
             );
-        const isolate = !!request.worktree || occupied;
+        if (request.worktree?.mode === "source" && occupied)
+            throw Object.assign(new Error("来源目录已被其他会话占用，不能使用原目录"), {
+                submissionUnknown: false,
+                code: "WORKTREE_SOURCE_OCCUPIED",
+            });
+        if (request.worktree?.mode === "source" && request.worktree.environmentId)
+            throw new Error("环境脚本只能用于独立工作树");
+        const isolate =
+            request.worktree?.mode === "source" ? false : !!request.worktree || occupied;
+        const store = this.environmentStore(project);
+        if (
+            request.worktree?.environmentRevision !== undefined &&
+            request.worktree.environmentRevision !== store.environmentRevision
+        )
+            throw new Error("环境版本已变化，请重新选择");
+        const environment = request.worktree?.environmentId
+            ? store.environments.find((e) => e.id === request.worktree.environmentId)
+            : undefined;
+        if (request.worktree?.environmentId && !environment) throw new Error("所选环境不存在");
+        if (environment) {
+            platformScript(environment.setup);
+            platformScript(environment.cleanup);
+            for (const action of environment.actions) platformScript(action.script);
+        }
+        const settings = this.settings();
         value = {
             kind: "thread",
             requestId,
             projectId: project.id,
             parameters,
             sourceRoot,
+            ...(environment
+                ? {
+                      environment: structuredClone(environment),
+                      environmentRevision: store.environmentRevision,
+                  }
+                : {}),
+            settings: {
+                ...settings,
+                worktreeRoot: this.projectRoot(
+                    project,
+                    request.worktree?.worktreeRoot ?? settings.worktreeRoot,
+                ),
+            },
+            intent: "continue",
+            createdAt: new Date().toISOString(),
             automatic: !request.worktree && isolate,
             usesSource: !isolate,
             state: "creating",
@@ -413,7 +590,11 @@ class CoreWorktrees {
         value = await this.transition(value, "creating");
         try {
             if (isolate) {
-                const spec = { ...this.settings(), ...request.worktree };
+                const spec = {
+                    ...value.settings,
+                    ...request.worktree,
+                    worktreeRoot: value.settings.worktreeRoot,
+                };
                 const record = await git.createTask(project.root, b.home, {
                     taskId: requestId,
                     sourceRoot,
@@ -422,6 +603,7 @@ class CoreWorktrees {
                     worktreeRoot: spec.worktreeRoot || undefined,
                     branch: spec.branch || undefined,
                     branchPrefix: spec.branchPrefix,
+                    fetchBeforeCreate: spec.fetchBeforeCreate,
                 });
                 value = await this.transition(value, "created", {
                     record,
@@ -441,8 +623,18 @@ class CoreWorktrees {
         }
         return this.resumeThread(project, value, request);
     }
-    async resumeThread(project, value, request) {
+    async resumeThread(project, value, request, { observeOnly = false } = {}) {
         const b = this.backend;
+        value = this.records.get(value.requestId) ?? value;
+        if (value.state === "cancelled") throw new Error("工作树创建已取消");
+        if (value.setup) {
+            const attempt = await this.environment.execute(value, "setup", value.setup.script, {
+                requestId: value.setup.requestId,
+                recover: true,
+                observeOnly,
+            });
+            return this.finishSetup(value, attempt);
+        }
         if (value.state === "unknown" || value.state === "creating") {
             if (value.usesSource && value.executionProjectId)
                 value = await this.persist({ ...value, state: "created" });
@@ -459,6 +651,10 @@ class CoreWorktrees {
             value = await this.persist({ ...value, executionProjectId });
         }
         if (!value.executionProjectId) throw unavailable("执行目录登记尚未确认");
+        if (value.state !== "binding" && this.records.get(value.requestId)?.intent === "cancel") {
+            await this.transition(value, "cancelled", { message: "创建已取消，已创建目录保留" });
+            throw new Error("工作树创建已取消");
+        }
         let execution;
         try {
             execution = await b.start(value.executionProjectId);
@@ -473,19 +669,28 @@ class CoreWorktrees {
             const threadId = receipt.result?.threadId ?? receipt.result?.thread?.id;
             if (!receipt.confirmed || !threadId)
                 throw unavailable("原线程创建回执尚未确认，不会重发或回退来源目录");
-            value = await this.transition(value, "ready", { threadId });
+            value = await this.persist({ ...value, threadId });
             await b.openThread(execution, threadId);
-            return { threadId, requestId: value.requestId };
+            return this.prepareEnvironment(value, true);
         }
         value = await this.transition(value, "binding");
+        if (value.intent === "cancel") {
+            await this.transition(value, "cancelled");
+            throw new Error("工作树创建已取消");
+        }
         try {
             const result = await b.createThreadInProject(execution, {
                 ...request,
                 requestId: value.requestId,
             });
-            await this.transition(value, "ready", { threadId: result.threadId });
-            return result;
+            value = await this.persist({
+                ...this.records.get(value.requestId),
+                threadId: result.threadId,
+            });
+            return await this.prepareEnvironment(value);
         } catch (error) {
+            value = this.records.get(value.requestId);
+            if (value.state !== "binding") throw error;
             if (
                 error.submissionUnknown === false ||
                 ["noMutation", "rejected"].includes(error.outcome?.kind)
@@ -495,25 +700,428 @@ class CoreWorktrees {
             throw error;
         }
     }
+    async prepareEnvironment(value, recovering = false) {
+        value = this.records.get(value.requestId);
+        if (value.intent === "cancel") {
+            await this.transition(value, "cancelled", { message: "创建已取消，目录与空会话保留" });
+            throw new Error("工作树创建已取消");
+        }
+        const script = platformScript(value.environment?.setup);
+        if (!script) {
+            const ready = await this.transition(value, "ready");
+            if (ready.state === "cancelled")
+                throw Object.assign(new Error("工作树创建已取消"), { submissionUnknown: false });
+            void this.autoCleanup().catch(() => {});
+            return { threadId: value.threadId, requestId: value.requestId };
+        }
+        if (recovering && !value.setup) {
+            await this.transition(value, "unknown", {
+                message: "绑定已确认但环境脚本尚未派发，请核对原创建请求",
+            });
+            throw unavailable("环境脚本尚未派发，读取不会启动脚本");
+        }
+        value = await this.transition(value, "settingUp");
+        const attempt = await this.environment.execute(value, "setup", script);
+        return this.finishSetup(value, attempt);
+    }
+    async finishSetup(value, attempt) {
+        value = this.records.get(value.requestId);
+        if (attempt?.status === "succeeded" && value.intent !== "cancel") {
+            const ready = await this.transition(value, "ready");
+            if (ready.state === "cancelled")
+                throw Object.assign(new Error("工作树创建已取消"), { submissionUnknown: false });
+            void this.autoCleanup().catch(() => {});
+            return { threadId: value.threadId, requestId: value.requestId };
+        }
+        if (
+            ["cancelled", "succeeded", "failed"].includes(attempt?.status) &&
+            value.intent === "cancel"
+        ) {
+            await this.transition(value, "cancelled", { message: "环境进程已终止，工作树保留" });
+            throw Object.assign(new Error("工作树创建已取消"), { submissionUnknown: false });
+        }
+        const state = attempt?.status === "failed" ? "failed" : "unknown";
+        await this.transition(value, state, {
+            message: attempt?.message ?? "环境脚本结果尚未确认",
+        });
+        throw Object.assign(new Error(attempt?.message ?? "环境脚本结果尚未确认"), {
+            submissionUnknown: state === "unknown",
+        });
+    }
+    async cancel(project, requestId) {
+        this.key(requestId);
+        let value = this.records.get(requestId);
+        if (!value || value.projectId !== this.logicalId(project))
+            throw new Error("工作树请求不存在或不属于此项目");
+        if (value.state === "ready") return { ...value, cancelResult: "tooLate" };
+        if (value.state === "cancelled") return value;
+        value = await this.update(requestId, (latest) =>
+            latest.state === "ready" ? latest : { ...latest, intent: "cancel" },
+        );
+        if (value.state === "ready") return { ...value, cancelResult: "tooLate" };
+        if (this.active.has(requestId)) await this.active.get(requestId).catch(() => {});
+        else {
+            if (value.setup && ["running", "unknown"].includes(value.setup.status)) {
+                const attempt = await this.environment.execute(value, "setup", value.setup.script, {
+                    requestId: value.setup.requestId,
+                });
+                await this.finishSetup(value, attempt).catch(() => {});
+            } else if (value.state === "binding")
+                await this.resumeThread(project, value, value.parameters).catch(() => {});
+            else if (["created", "failed"].includes(value.state))
+                await this.transition(value, "cancelled", { message: "创建已取消，目录保留" });
+        }
+        return this.records.get(requestId);
+    }
+    creation(project, requestId) {
+        this.key(requestId);
+        const value = this.records.get(requestId);
+        if (!value || value.projectId !== this.logicalId(project) || !value.record)
+            throw new Error("工作树不属于此逻辑项目或创建尚未确认");
+        return value;
+    }
+    assertOperationId(request, kind) {
+        for (const value of this.records.values()) {
+            const action = value.actions?.[request.requestId];
+            const deletion = value.deletion?.requestId === request.requestId;
+            if (
+                (action || deletion) &&
+                (value.requestId !== request.worktreeRequestId ||
+                    (kind === "action" && (!action || action.actionId !== request.actionId)) ||
+                    (kind === "delete" && !deletion))
+            )
+                throw new Error("请求标识已绑定其它工作树操作");
+        }
+    }
+    async action(project, request) {
+        this.assertOperationId(request, "action");
+        const value = this.creation(project, request.worktreeRequestId);
+        this.key(request.requestId);
+        this.assertAvailable(value.executionProjectId);
+        if (value.state !== "ready") throw new Error("工作树环境尚未就绪");
+        if (this.active.has(`delete:${value.requestId}`)) throw new Error("工作树正在删除");
+        const action = value.environment?.actions.find((action) => action.id === request.actionId);
+        if (!action) throw new Error("此工作树快照中没有该动作");
+        const existing = value.actions?.[request.requestId];
+        if (existing && existing.actionId !== request.actionId)
+            throw new Error("动作请求标识已绑定其他动作");
+        const key = `action:${request.requestId}`;
+        if (this.active.has(key)) return this.active.get(key);
+        const script = platformScript(action.script);
+        if (!script) throw new Error("此平台没有配置动作脚本");
+        const task = this.environment.execute(value, "actions", script, {
+            requestId: request.requestId,
+            actionId: request.actionId,
+            recover: !!existing,
+        });
+        task.worktreeRequestId = value.requestId;
+        this.active.set(key, task);
+        try {
+            return await task;
+        } finally {
+            this.active.delete(key);
+        }
+    }
+    async deletionBlockers(value, execution) {
+        const blockers = [];
+        if (
+            this.active.has(value.requestId) ||
+            ["creating", "binding", "settingUp", "unknown"].includes(value.state)
+        )
+            blockers.push("创建或环境结果尚未确认");
+        if (
+            [value.setup, value.cleanup, ...Object.values(value.actions ?? {})].some(
+                (attempt) => attempt && ["running", "unknown"].includes(attempt.status),
+            )
+        )
+            blockers.push("环境脚本或动作尚未结算");
+        if (
+            [...this.active.entries()].some(
+                ([key, task]) =>
+                    key.startsWith("action:") && task.worktreeRequestId === value.requestId,
+            )
+        )
+            blockers.push("仍有动作正在执行");
+        if (execution?.pending?.length) blockers.push("仍有待核对的提交");
+        if (!execution?.client?.ready) {
+            blockers.push("原 Core 未连接，无法确认执行状态");
+            return blockers;
+        }
+        const status = await execution.client.request("areal/server/status", {});
+        const arrays = [
+            "activeTurns",
+            "resources",
+            "unresolvedTools",
+            "activeGoals",
+            "compactions",
+            "workgroups",
+        ];
+        if (
+            !arrays.every((key) => Array.isArray(status[key])) ||
+            !Number.isSafeInteger(status.activeTasks) ||
+            !Number.isSafeInteger(status.pendingQueueItems)
+        )
+            blockers.push("Core 未提供完整的空闲证明");
+        else if (
+            arrays.some((key) => status[key].length) ||
+            status.activeTasks ||
+            status.pendingQueueItems
+        )
+            blockers.push("Core 仍有活动轮次、进程、预览、任务或待结算资源");
+        let after;
+        for (let page = 0; page < 1000; page++) {
+            const tasks = await execution.client.request("areal/task/list", {
+                limit: 100,
+                ...(after ? { after } : {}),
+            });
+            if (!Array.isArray(tasks.data)) {
+                blockers.push("任务清单不可核对");
+                break;
+            }
+            if (
+                tasks.data.some(
+                    (task) =>
+                        !["completed", "cancelled", "failed"].includes(task.status ?? task.state),
+                )
+            ) {
+                blockers.push("工作树仍有关联的未结束任务");
+                break;
+            }
+            if (!tasks.nextCursor) break;
+            if (tasks.nextCursor === after || page === 999) {
+                blockers.push("任务清单不完整");
+                break;
+            }
+            after = tasks.nextCursor;
+        }
+        return blockers;
+    }
+    async remove(project, request) {
+        this.assertOperationId(request, "delete");
+        const key = `delete:${request.worktreeRequestId}`;
+        if (this.active.has(key)) {
+            const task = this.active.get(key);
+            if (task.requestId !== request.requestId) throw new Error("工作树已有删除请求正在执行");
+            return task;
+        }
+        const task = this.removeInner(project, request);
+        task.requestId = request.requestId;
+        this.active.set(key, task);
+        try {
+            return await task;
+        } finally {
+            this.active.delete(key);
+        }
+    }
+    async reconcileDeletion(value) {
+        if (
+            !value.deleted &&
+            value.deletion &&
+            ["running", "unknown"].includes(value.deletion.status) &&
+            !this.active.has(`delete:${value.requestId}`)
+        ) {
+            const result = await git.readManagedTaskRemoval(
+                this.backend.home,
+                value.deletion.requestId,
+            );
+            if (result?.removed && result.creationId === value.requestId)
+                return this.update(value.requestId, (latest) => ({
+                    ...latest,
+                    deleted: true,
+                    deletedAt: new Date().toISOString(),
+                    deletion: { ...latest.deletion, status: "succeeded", result },
+                }));
+        }
+        return value;
+    }
+    async removeInner(project, request) {
+        this.key(request.requestId);
+        let value = await this.reconcileDeletion(this.creation(project, request.worktreeRequestId));
+        if (value.deletion?.requestId === request.requestId) return value;
+        if (value.deleted) return value;
+        if (value.deletion && ["running", "unknown"].includes(value.deletion.status)) return value;
+        if (value.usesSource || value.executionProjectId === value.projectId)
+            throw new Error("不能删除来源工作区");
+        try {
+            await git.inspectManagedTask(this.backend.home, value.requestId, { allowDirty: true });
+        } catch (error) {
+            return this.update(value.requestId, (latest) => ({
+                ...latest,
+                deletion: {
+                    requestId: request.requestId,
+                    status: "blocked",
+                    blockers: [error.message],
+                },
+            }));
+        }
+        const execution = value.executionProjectId
+            ? await this.backend.start(value.executionProjectId)
+            : null;
+        if (request.automatic && value.threadId) {
+            await this.backend.listThreads(execution);
+            if (!this.autoEligible(value))
+                return this.update(value.requestId, (latest) => ({
+                    ...latest,
+                    deletion: {
+                        requestId: request.requestId,
+                        status: "blocked",
+                        blockers: ["会话仍可见或已固定，不自动清理"],
+                    },
+                }));
+        }
+        const blockers = execution
+            ? await this.deletionBlockers(value, execution)
+            : ["工作树没有可核对的执行 owner"];
+        if (blockers.length)
+            return this.update(value.requestId, (latest) => ({
+                ...latest,
+                deletion: { requestId: request.requestId, status: "blocked", blockers },
+            }));
+        value = await this.update(value.requestId, (latest) => ({
+            ...latest,
+            deletion: {
+                requestId: request.requestId,
+                status: "running",
+                blockers: [],
+                stopRequestId: randomUUID(),
+            },
+        }));
+        try {
+            const beforeCleanup = await this.deletionBlockers(value, execution);
+            if (beforeCleanup.length) throw new Error(beforeCleanup.join("；"));
+            const cleanup = platformScript(value.environment?.cleanup);
+            if (cleanup) {
+                const attempt = await this.environment.execute(value, "cleanup", cleanup, {
+                    recover: !!value.cleanup,
+                });
+                if (attempt.status !== "succeeded")
+                    throw new Error(attempt.message ?? "清理脚本尚未确认成功");
+                value = this.records.get(value.requestId);
+            }
+            const afterCleanup = await this.deletionBlockers(value, execution);
+            if (afterCleanup.length) throw new Error(afterCleanup.join("；"));
+            await git.inspectManagedTask(this.backend.home, value.requestId);
+            const receipt = await this.backend.lifecycleOperations.request({
+                requestId: value.deletion.stopRequestId,
+                kind: "stopProject",
+                mode: "ifIdle",
+                expectedDesktopGeneration: this.backend.lifecycleOperations.generation,
+                expectedTargets: [
+                    {
+                        projectId: execution.id,
+                        serviceId: execution.service.serviceId,
+                        generation: execution.service.generation,
+                    },
+                ],
+            });
+            value = await this.update(value.requestId, (latest) => ({
+                ...latest,
+                deletion: { ...latest.deletion, stopReceipt: receipt },
+            }));
+            if (receipt.phase !== "completed") throw new Error("原 Core 停止或资源释放尚未确认");
+            const removed = await git.removeManagedTask(this.backend.home, {
+                requestId: request.requestId,
+                creationId: value.requestId,
+            });
+            return this.update(value.requestId, (latest) => ({
+                ...latest,
+                deleted: true,
+                deletedAt: new Date().toISOString(),
+                deletion: { ...latest.deletion, status: "succeeded", result: removed },
+            }));
+        } catch (error) {
+            return this.update(value.requestId, (latest) => ({
+                ...latest,
+                deletion: {
+                    ...latest.deletion,
+                    status:
+                        latest.cleanup?.status === "unknown" ||
+                        (latest.deletion.stopReceipt &&
+                            latest.deletion.stopReceipt.phase !== "completed") ||
+                        error.code === "WORKTREE_REMOVE_UNKNOWN"
+                            ? "unknown"
+                            : "blocked",
+                    blockers: [error.message],
+                },
+            }));
+        }
+    }
+    autoEligible(value) {
+        if (this.backend.library.value.projects[value.projectId]?.pinned) return false;
+        if (!value.threadId) return true;
+        const live = this.backend.projects.get(value.executionProjectId);
+        const summaries = live?.summariesLoaded
+            ? live.summaries
+            : this.backend.library.value.projects[value.executionProjectId]?.navigationSummaries;
+        return (
+            Array.isArray(summaries) &&
+            summaries.length > 0 &&
+            summaries.every(
+                (thread) =>
+                    thread.desktop?.archived === true &&
+                    !this.backend.library.value.threads[`${value.projectId}:${thread.id}`]?.pinned,
+            )
+        );
+    }
+    async autoCleanup() {
+        if (this.cleaning || !this.settings().autoCleanup) return;
+        this.cleaning = true;
+        try {
+            const retained = [...this.records.values()].filter(
+                (value) => value.record && !value.deleted,
+            );
+            let excess = retained.length - this.settings().keepCount;
+            for (const value of retained.sort((a, b) =>
+                (a.createdAt ?? "").localeCompare(b.createdAt ?? ""),
+            )) {
+                if (excess <= 0) break;
+                if (
+                    !this.autoEligible(value) ||
+                    value.deletion ||
+                    !["ready", "created", "cancelled", "failed"].includes(value.state)
+                )
+                    continue;
+                const project = this.backend.saved.find(
+                    (project) => project.id === value.projectId,
+                );
+                const removed = await this.remove(project, {
+                    requestId: randomUUID(),
+                    worktreeRequestId: value.requestId,
+                    automatic: true,
+                });
+                if (removed.deleted) excess--;
+            }
+        } finally {
+            this.cleaning = false;
+        }
+    }
     async read(project, requestId) {
         this.key(requestId);
         let value = this.records.get(requestId);
         if (!value) return { state: "missing" };
+        value = await this.reconcileDeletion(value);
         if (value.projectId !== this.logicalId(project))
             throw new Error("工作树创建请求不属于此项目");
         if (value.kind === "checkout" && ["creating", "unknown"].includes(value.state)) {
             const record = await git.readTaskCreation(this.backend.home, requestId);
             if (record) value = await this.transition(value, "created", { record });
         }
-        if (value.kind === "thread" && value.state === "binding") {
+        if (
+            !this.active.has(requestId) &&
+            value.kind === "thread" &&
+            (value.state === "binding" ||
+                (value.setup && ["running", "unknown"].includes(value.setup.status)))
+        ) {
             try {
                 await this.resumeThread(
                     this.backend.saved.find((p) => p.id === value.projectId),
                     value,
                     { ...value.parameters, requestId },
+                    { observeOnly: true },
                 );
                 value = this.records.get(requestId);
             } catch {}
+            value = this.records.get(requestId);
         }
         return value;
     }
@@ -591,7 +1199,17 @@ class CoreWorktrees {
     async connectExecutions(logicalId) {
         return Promise.allSettled(
             this.owners(logicalId)
-                .filter((p) => p.id !== logicalId)
+                .filter(
+                    (p) =>
+                        p.id !== logicalId &&
+                        ![...this.records.values()].some(
+                            (value) =>
+                                value.executionProjectId === p.id &&
+                                (value.deleted ||
+                                    value.deletion?.status === "running" ||
+                                    value.deletion?.status === "unknown"),
+                        ),
+                )
                 .map((p) => this.backend.start(p.id)),
         );
     }
@@ -600,11 +1218,11 @@ class CoreWorktrees {
             live = b.projects.get(project.id);
         const operation = [...this.records.values()].find(
             (value) =>
-                value.executionProjectId === project.id && value.record && value.state === "ready",
+                value.executionProjectId === project.id && value.record,
         );
         const worktree = operation
             ? {
-                  state: "ready",
+                  state: operation.state,
                   directory: project.root,
                   checkoutRoot: operation.record.directory,
                   branch: operation.record.branch,

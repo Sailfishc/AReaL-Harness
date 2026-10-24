@@ -14,7 +14,7 @@ class ProjectConnections {
   }
 
   start(id) {
-    try { this.host.lifecycleOperations.assertProject(id); }
+    try { this.host.worktrees?.assertAvailable(id); this.host.lifecycleOperations.assertProject(id); }
     catch (error) { return Promise.reject(error); }
     if (this.host.closing) return Promise.reject(new Error('应用正在退出'));
     if (this.host.starting.has(id)) return this.host.starting.get(id);
@@ -79,6 +79,7 @@ class ProjectConnections {
   }
 
   scheduleReconnect(project) {
+    try { this.host.worktrees?.assertAvailable(project.id); } catch { return; }
     if (this.host.closing || project.resourceInitializing || !project.service || project.reconnectBlocked || project.reconnectTimer || project.client?.ready) return;
     const delay = Math.min(500 * 2 ** Math.min(project.reconnectAttempt ?? 0, 6), 30000);
     project.reconnectTimer = setTimeout(() => {
@@ -110,6 +111,7 @@ class ProjectConnections {
   async reconnectProject(project) {
     const previous = project.service, previousClient = project.client;
     const current = () => {
+      this.host.worktrees?.assertAvailable(project.id);
       this.host.lifecycleOperations.assertProject(project.id);
       if (this.host.closing || this.host.projects.get(project.id) !== project || project.service !== previous || project.client !== previousClient)
         throw Object.assign(new Error('服务归属已变化'), { code: 'STALE_CONNECTION' });

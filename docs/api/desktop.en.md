@@ -14,19 +14,27 @@ Thread snapshots and Item notifications accept the optional `agentMessage.phase`
 
 This section describes the authenticated desktop host `command` contract in `clients/gui`. It does not add a Rust `areal.core.v1` RPC. The host uses existing Core methods for each execution directory. Core retains ownership of threads and execution history. Shared desktop types and validation are in `clients/gui/packages/workbench/client/desktop-contract.cjs`.
 
-`create` accepts the logical `projectId`, a stable `requestId`, existing model and configuration fields, and optional `worktree: {sourceRoot?,ref?,worktreeRoot?,branch?,branchPrefix?}`. Worktree fields are strings. Without `worktree`, an existing root conversation in the source checkout triggers early isolation for the new conversation. Success returns `{threadId,requestId}` without changing the logical project ID. For isolated creation, the source ref is fixed to a SHA. The independent Core/Runtime and thread binding are confirmed before readiness is returned.
+`create` accepts the logical `projectId`, stable `requestId`, existing model and configuration fields, and optional `worktree: {sourceRoot?,ref?,worktreeRoot?,branch?,branchPrefix?,mode?,environmentId?,environmentRevision?}`. `mode` is `source` or `worktree`. `environmentRevision` is a nonnegative integer. Other fields are strings. Omitting Worktree retains automatic isolation. Explicit `source` rejects an occupied checkout. Success returns `{threadId,requestId}` without changing the logical project. Isolated creation pins the source SHA, confirms an independent Core/Runtime and empty-thread binding, and completes selected setup before readiness.
 
-`workspace` provides these host operations:
+`workspace` provides these host operations through the existing narrow command boundary. Project ownership is validated.
 
 | operation | Additional request fields | Result and behavior |
 |---|---|---|
-| `worktreeOptions` | `sourceRoot?` | `{worktrees:[{root,branch,head}],branches:[string],settings:{worktreeRoot,branchPrefix}}`; sources stay within one repository. |
-| `worktreeSettings` | `worktreeRoot,branchPrefix` | Saves future-creation defaults. An empty root uses the application directory. The default prefix is `areal`. |
-| `worktreeRead` | `requestId` | Reads the original creation and binding record, or `missing`. An unknown outcome does not trigger another creation. |
-| `worktreeCreate` | `requestId,source?,sourceRoot?,ref?,worktreeRoot?,branch?,branchPrefix?` | Retained explicit checkout entry using the same Git lifecycle. The `working-tree` source is explicitly rejected. |
-| `worktreeOpen` | `requestId` | Recovers or completes thread binding for a confirmed checkout. Returns the original logical project and thread without adding a visible sidebar project. |
+| `worktreeOptions` | `sourceRoot?` | Returns same-repository sources, branches, settings, defaultRoot, project environments, and environmentRevision. |
+| `worktreeSettings` | `worktreeRoot,branchPrefix,fetchBeforeCreate?,autoCleanup?,keepCount?,expectedRevision?` | Saves global future-creation policy without moving existing directories. An empty root uses `.areal/worktrees` under user home, grouped by project. |
+| `worktreeList` | None | Returns `{settings,defaultRoot,revision,projects,worktrees}` from host registrations without starting every Core. |
+| `worktreeEnvironmentSave` | `environment,expectedRevision` | Saves an environment for the logical project with revision conflict detection. |
+| `worktreeEnvironmentDelete` | `environmentId,expectedRevision` | Deletes configuration without changing frozen creation environments. |
+| `worktreeRead` | `requestId` | Reads the original creation and binding record, or `missing`. It does not recreate a checkout or rerun unknown scripts. |
+| `worktreeCancel` | `requestId` | Requests cancellation and returns the current record. `cancelling` does not confirm termination. Only `cancelled` allows a new explicit source request. |
+| `worktreeAction` | `requestId,worktreeRequestId,actionId` | Runs a frozen environment action in its managed checkout with an independent receipt and bounded output. |
+| `worktreeDelete` | `requestId,worktreeRequestId` | Checks the managed checkout, cleanup, and service-stop receipts before non-force removal. Branches, history, and ownership tombstones remain. Failure or uncertainty preserves the directory. |
+| `worktreeCreate` | `requestId,source?,sourceRoot?,ref?,worktreeRoot?,branch?,branchPrefix?` | Retained explicit checkout entry using the original Git lifecycle. The `working-tree` source is rejected. |
+| `worktreeOpen` | `requestId` | Recovers or completes binding for a confirmed checkout and returns the original logical project and thread. |
 
-The host records `creating`, `created`, `binding`, `ready`, `failed`, and `unknown`. Project snapshots expose those records through `worktreeOperations`. Thread `worktree`, `worktreeEvents`, and `executionProjectId` describe the actual directory and host. These events are host facts, not Core messages. Changed parameters under one request identity are rejected. Partial success preserves existing directories. Recovery reads original Git facts and Core receipts without falling back to the source directory.
+An environment is `{id,name,setup,cleanup,actions}`. Setup, cleanup, and each action's script use `{default,macos?,linux?}`. A nonempty platform script replaces Default. Actions are `{id,name,script}` entries. Creation freezes the environment. Later edits do not affect existing checkouts. Scripts use existing Core managed processes at the actual project execution root and receive `AREAL_WORKTREE_PATH`, `AREAL_PROJECT_PATH`, and `AREAL_WORKTREE_BRANCH`.
+
+Host states include `creating`, `created`, `binding`, `settingUp`, `cancelled`, `ready`, `failed`, and `unknown`. Cancellation retains the original stage with `intent: "cancel"`; the UI shows cancelling. Binding an empty thread does not permit ordinary execution before environment readiness. Project snapshots expose the journal through `worktreeOperations`. Thread `worktree`, `worktreeEvents`, and `executionProjectId` describe the actual checkout and host. Events are not Core messages. Changed parameters under one request identity are rejected. Unknown writes are not replayed. Partial success never falls back to the source. Removal preserves ownership so reconnect cannot create an empty replacement or redirect execution.
 
 Desktop execution requests for an existing shared checkout also pass durable Session-author admission keyed by the canonical checkout root. Subdirectory aliases share one author; physically overlapping different execution roots are conservatively rejected. A second independent author receives `WORKTREE_REQUIRED`, `submissionUnknown: false`, and `outcome: {kind:"noMutation"}` before dispatch. The original conversation is not moved. Cancellation and read-only inspection remain available. This host registry does not add direct Core/CLI authorization or exclusion across desktop data directories.
 

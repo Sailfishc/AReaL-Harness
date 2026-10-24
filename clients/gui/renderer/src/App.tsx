@@ -44,7 +44,7 @@ import {
   SettingsPluginIcon,
   SettingsUsageIcon,
 } from "./settings/settingsNavIcons.js";
-import { Cpu, Server, Smartphone, Database, Monitor } from "lucide-react"; // 恢复 Inbox 入口时加回 Inbox as InboxIcon
+import { Cpu, Server, Smartphone, Database, Monitor, GitFork } from "lucide-react"; // 恢复 Inbox 入口时加回 Inbox as InboxIcon
 import * as React from "react";
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { DismissIcon as X } from "./interfaceIcons.js";
@@ -65,6 +65,8 @@ import { Composer, attachmentDrafts, sending, subscribeSending } from "./Compose
 import { isTechnicalErrorMessage, recoveredOutcome, recoveryMessage, recoverySettings, sameRecoveryOwner, type RecoveryFailure, type RecoveryNotice, type RecoveryOwner } from "./recoveryPresentation.js";
 import { DraftComposer } from "./DraftComposer.js";
 import { ProjectlessDraft } from "./ProjectlessDraft.js";
+import { WorktreesSettings } from "./settings/WorktreesSettings.js";
+import { WorktreeActions } from "./WorktreeStatus.js";
 import { WorktreeStarter, readWorktreeSelection, worktreeSelectionKey, type WorktreeSelection } from "./WorktreeStarter.js";
 import { ComposerWorkspaceContext } from "./ComposerWorkspaceContext.js";
 import { Queue } from "./Queue.js";
@@ -128,6 +130,7 @@ const settingsNavigationGroups = [
     { id: "电脑控制", label: "settings.computer.title", icon: <Monitor strokeWidth={1.5} /> },
   ] },
   { id: "coding", label: "settings.navigation.coding", items: [
+    { id: "Worktrees", label: "settings.worktrees.title", icon: <GitFork strokeWidth={1.5} /> },
     { id: "钩子", label: "settings.hooks.title", icon: <SettingsHooksIcon /> },
     { id: "模型服务", label: "settings.models.title", icon: <Cpu strokeWidth={1.5} /> },
     { id: "会话配置", label: "settings.session.title", icon: <SettingsConfigurationIcon /> },
@@ -240,6 +243,7 @@ function AppContent({ services }: { services: PlatformServices }) {
   useEffect(() => services.onQuitRequested?.(() => requestNavigation(() => {})), [services, requestNavigation]);
   const { terminalLocation, nextPromptSuggestions } = useApplicationPreferences();
   const [snapshot, updateSnapshot] = useState<Snapshot>({ projects: [], connection: { state: "connecting" } });
+  const [worktreeSettingsTarget, setWorktreeSettingsTarget] = useState<{ projectId?: string; tab: "general" | "environments" }>({ tab: "general" });
   const [worktreeSelections, setWorktreeSelections] = useState<Record<string, WorktreeSelection | undefined>>({});
   const backendActionInFlight = React.useRef(false);
   const [backendActionPending, setBackendActionPending] = useState(false);
@@ -1796,6 +1800,8 @@ function AppContent({ services }: { services: PlatformServices }) {
         <BrowserSettings settings={library.settings} action={resourceAction} connected={snapshot.connection?.state === "ready"} />
       ) : settingsTab === "电脑控制" ? (
         <ComputerSettings settings={library.settings} action={resourceAction} connected={snapshot.connection?.state === "ready"} />
+      ) : settingsTab === "Worktrees" ? (
+        <WorktreesSettings action={resourceAction} projects={projects} initialProjectId={worktreeSettingsTarget.projectId} initialTab={worktreeSettingsTarget.tab} />
       ) : settingsTab === "钩子" ? (
         <HooksSettings action={resourceAction} connected={snapshot.connection?.state === "ready"} onConnect={reconnectService} />
       ) : settingsTab === "模型服务" ? (
@@ -1994,6 +2000,7 @@ function AppContent({ services }: { services: PlatformServices }) {
                   >
                     <SidePanelIcon />
                   </button>
+                  {thread?.worktree && project && <WorktreeActions key={`${project.id}:${thread.id}`} projectId={project.id} threadId={thread.id} worktree={thread.worktree} action={resourceAction} />}
                   {taskActions}
                 </>
               )}
@@ -2161,7 +2168,7 @@ function AppContent({ services }: { services: PlatformServices }) {
                         </DropdownMenu>
                           {project && <ComposerWorkspaceContext project={project} action={resourceAction} backendReady={snapshot.connection?.state === "ready"} />}
                           </div>
-                        {project && <WorktreeStarter key={project.id} project={project} action={resourceAction} value={worktreeSelection} onChange={value => changeWorktreeSelection(project.id, value)} disabled={admitting || !!project.pending?.length} />}
+                        {project && <WorktreeStarter key={project.id} project={project} action={resourceAction} value={worktreeSelection} onChange={value => changeWorktreeSelection(project.id, value)} onConfigureEnvironments={() => { setWorktreeSettingsTarget({ projectId: project.id, tab: "environments" }); setSettingsTab("Worktrees"); setSettingsOpen(true); }} disabled={admitting || !!project.pending?.length} />}
                       </div>
                       {project ? (
                           <DraftComposer

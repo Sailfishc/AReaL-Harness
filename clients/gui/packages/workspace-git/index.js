@@ -63,7 +63,7 @@ async function copyWorktreeIncludes(source, destination) {
   return [...new Set(copied)];
 }
 
-const { createTask, readTaskCreation, readTaskCreationStatus, listWorktrees, checkoutRoot } = require('./worktrees');
+const { createTask, readTaskCreation, readTaskCreationStatus, listWorktrees, checkoutRoot, inspectManagedTask, readManagedTaskRemoval, removeManagedTask } = require('./worktrees');
 
 function reviewFiles(diff, paths) {
   const parsed = diff ? parsePatch(diff) : [];
@@ -402,4 +402,4 @@ async function removeTask(root, storage, options = {}) {
   return { removed: true, directory: record.directory, branch: record.branch, target: record.target };
 }
 
-module.exports = { fileStatus, createTask, readTaskCreation, readTaskCreationStatus, listWorktrees, checkoutRoot, review, reviewCommits, reviewBranches, mergeTask, removeTask, copyWorktreeIncludes, reviewFiles, workspaceInfo, snapshotTree, reviewTrees, restoreTrees, reviewTurnFiles, gitState, gitChange };
+module.exports = { inspectManagedTask, readManagedTaskRemoval, removeManagedTask, fileStatus, createTask, readTaskCreation, readTaskCreationStatus, listWorktrees, checkoutRoot, review, reviewCommits, reviewBranches, mergeTask, removeTask, copyWorktreeIncludes, reviewFiles, workspaceInfo, snapshotTree, reviewTrees, restoreTrees, reviewTurnFiles, gitState, gitChange };

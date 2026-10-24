@@ -610,6 +610,7 @@ async function executingSchedule(t) {
         const resumed = new Promise((resolve) => f.callbacks.set(requestId, resolve));
         return { value, resumed };
     };
+    f.backend.worktrees = { assertAvailable() {}, records: new Map() };
     const execute = (name, request) =>
         CoreBackend.prototype.executeCommand.call(f.backend, name, {
             projectId: f.project.id,

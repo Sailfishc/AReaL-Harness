@@ -138,6 +138,10 @@ export function DraftComposer({
   const [checkingCreation, setCheckingCreation] = useState(false);
   const [creationChecked, setCreationChecked] = useState(false);
   const acceptedRecovery = useRef<string | null>(null);
+  const [activeCreation, setActiveCreation] = useState<{ requestId: string; text: string }>();
+  const stoppedCreation = useRef(new Set<string>());
+  const [cancellingCreation, setCancellingCreation] = useState(false);
+  const [sourceRetry, setSourceRetry] = useState<string>();
   const busy = useSyncExternalStore(subscribeSending, () => sending.has(key));
   const editLocked = busy || !!project.pending.length || !!unknown || !!reviewDraft.error;
   const executionReady = backendReady && !!project.state?.connected;
@@ -172,6 +176,14 @@ export function DraftComposer({
       const frozen = JSON.parse(localStorage.getItem(`${key}:pending-create-request`) ?? "null");
       if (!frozen) { await action("reconcile", { projectId: project.id }); return; }
       if (frozen.requestId !== unknown || frozen.projectId !== project.id) throw new Error(t("worktree.recoveryMismatch"));
+      const worktreeRecord = await readAction("workspace", { projectId: project.id, operation: "worktreeRead", requestId: unknown });
+      if (worktreeRecord) {
+        if (worktreeRecord.state === "ready" && worktreeRecord.threadId) {
+          finishRecoveredCreation(worktreeRecord.threadId); return;
+        }
+        setCreationChecked(true);
+        throw Object.assign(new Error(t("worktree.unknown")), { submissionUnknown: true });
+      }
       const result = await action("create", frozen);
       if (!result?.threadId) throw new Error(t("worktree.unknown"));
       finishRecoveredCreation(result.threadId);
@@ -222,7 +234,7 @@ export function DraftComposer({
     setFiles([]);
   };
   useEffect(() => {
-    if (!unknown || project.pending.length) return;
+    if (!unknown || project.pending.length || stoppedCreation.current.has(unknown)) return;
     const outcome = recoveredOutcome(project, unknown, "");
     if (!outcome || outcome.operation && outcome.operation.method !== "areal/thread/start") return;
     if (outcome.status === "failed" || outcome.accepted === false) {
@@ -233,10 +245,12 @@ export function DraftComposer({
       return;
     }
     if (!outcome.threadId || outcome.accepted !== true) return;
+    const worktreeRecord = project.worktreeOperations?.findLast((item: Data) => item.requestId === unknown);
+    if (worktreeRecord && worktreeRecord.state !== "ready") return;
     try { finishRecoveredCreation(outcome.threadId); }
     catch (cause) { setDraftError((cause as Error).message); return; }
-  }, [unknown, project.pending.length, project.outcomes]);
-  const submit = async (value: string) => {
+  }, [unknown, project.pending.length, project.outcomes, project.worktreeOperations]);
+  const submit = async (value: string, selection = worktree) => {
     if (workspaceReferencePending) return;
     const submittedInput = composerInput(value, files);
     if ((desktopUnsupported && !goalMode) || submitDisabled || annotationBlocked || sending.has(key) || (!submittedInput.text.trim() && !submittedInput.files.length && !comments.length && !skills.selected.length) || (goalMode && !submittedInput.text.trim())) return;
@@ -285,10 +299,12 @@ export function DraftComposer({
         ...(chosenModel.providerId
           ? { model: { providerId: chosenModel.providerId, modelId: chosenModel.modelId } }
           : {}),
-        ...(worktree ? { worktree: { ...worktree } } : {}),
+        ...(selection ? { worktree: { ...selection } } : {}),
       };
       localStorage.setItem(`${key}:pending-create-request`, JSON.stringify(creationRequest));
+      setActiveCreation({ requestId: creationRequestId, text: value });
       const result = await action("create", creationRequest);
+      if (stoppedCreation.current.has(creationRequestId)) return;
       localStorage.removeItem(`${key}:pending-create-request`);
       onWorktreeCreated?.();
       targetKey = stageThreadDraft(owner.id, result.threadId, value, files);
@@ -317,6 +333,7 @@ export function DraftComposer({
       window.dispatchEvent(new CustomEvent("areal-draft-change", { detail: targetKey }));
     } catch (e) {
       const failure = e as RecoveryFailure;
+      if (stoppedCreation.current.has(creationRequestId)) return;
       if (!failure.submissionUnknown) {
         localStorage.removeItem(`${key}:pending-create-request`);
         setDraftError(recoveryMessage(failure));
@@ -338,11 +355,51 @@ export function DraftComposer({
     } finally {
       if (targetKey) markSending(targetKey, false);
       markSending(key, false);
+      if (targetKey) setActiveCreation(previous => previous?.requestId === creationRequestId ? undefined : previous);
     }
   };
+  const cancelCreation = async (useSource: boolean) => {
+    if (!activeCreation || cancellingCreation) return;
+    const current = activeCreation;
+    stoppedCreation.current.add(current.requestId);
+    localStorage.setItem(`${key}:pending-create`, current.requestId);
+    setCancellingCreation(true); setDraftError("");
+    try {
+      let result = await action("workspace", { projectId: project.id, operation: "worktreeCancel", requestId: current.requestId });
+      while (result.state === "cancelling") {
+        await new Promise(resolve => setTimeout(resolve, 300));
+        result = await readAction("workspace", { projectId: project.id, operation: "worktreeRead", requestId: current.requestId });
+      }
+      const record = result;
+      if (record.state !== "cancelled") {
+        localStorage.setItem(`${key}:pending-create`, current.requestId); setUnknown(current.requestId);
+        setDraftError(t("worktree.cancelTooLate")); return;
+      }
+      localStorage.removeItem(`${key}:pending-create`);
+      localStorage.removeItem(`${key}:pending-create-request`);
+      setUnknown(null); setDraftError(t("worktree.cancelled"));
+      if (useSource) setSourceRetry(current.text);
+    } catch (cause) {
+      localStorage.setItem(`${key}:pending-create`, current.requestId); setUnknown(current.requestId);
+      setDraftError(recoveryMessage(cause as RecoveryFailure));
+    } finally { setCancellingCreation(false); }
+  };
+  useEffect(() => {
+    if (sourceRetry === undefined || busy || cancellingCreation) return;
+    const value = sourceRetry; setSourceRetry(undefined);
+    void submit(value, { sourceRoot: project.logicalRoot ?? project.root, ref: "HEAD", worktreeRoot: "", branch: "", branchPrefix: "areal", mode: "source" });
+  }, [sourceRetry, busy, cancellingCreation]);
+  const creationStatus = activeCreation && project.worktreeOperations?.findLast((item: Data) => item.requestId === activeCreation.requestId);
   return (
     <div className="composer-dock" data-v4-composer-dock="true">
-      {project.worktreeOperations?.at(-1) && project.worktreeOperations.at(-1).state !== "ready" && <WorktreeStatus events={[project.worktreeOperations.at(-1)]} />}
+      {activeCreation && (busy || creationStatus) && <div className="grid gap-2" data-testid="worktree-creation-progress">
+        <p className="ml-auto max-w-[85%] whitespace-pre-wrap break-words rounded-xl bg-surface px-3 py-2 text-ui-sm">{activeCreation.text}</p>
+        <WorktreeStatus current={{ ...(creationStatus ?? { requestId: activeCreation.requestId, state: "creating" }), ...(cancellingCreation ? { state: "cancelling" } : {}) }} />
+        {busy && <div className="flex items-center gap-2 pb-2">
+          <Button variant="ghost" size="sm" disabled={cancellingCreation} onClick={() => void cancelCreation(false)}>{t("worktree.cancelCreation")}</Button>
+          <Button variant="ghost" size="sm" disabled={cancellingCreation} onClick={() => void cancelCreation(true)}>{t("worktree.useOriginal")}</Button>
+        </div>}
+      </div>}
       <input
         ref={upload}
         type="file"

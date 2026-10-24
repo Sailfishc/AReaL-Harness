@@ -30,6 +30,7 @@ test("historical anchor A with current source C: renderer default intent reaches
     let sent;
     const backend = Object.assign(Object.create(CoreBackend.prototype), {
       closing: false,
+      worktrees: { assertAvailable() {}, records: new Map() },
       start: async () => project,
       submit: async (_project, method, params) => {
         assert.equal(method, "areal/side/start");

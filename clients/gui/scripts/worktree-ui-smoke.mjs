@@ -28,7 +28,7 @@ window.fixtureRecovery=location.search.includes('recovery');
 if(window.fixtureRecovery){localStorage.setItem('fixture-draft','retain this input');localStorage.setItem('fixture-draft:pending-create','00000000-0000-4000-a000-000000000001');localStorage.setItem('fixture-draft:pending-create-request',JSON.stringify({projectId:'logical',requestId:'00000000-0000-4000-a000-000000000001',worktree:{ref:'main'}}));}
 const action=async(name,params)=>{window.fixtureCalls.push({name,params});if(window.fixtureRecovery)throw Object.assign(new Error('Original request still uncertain'),{submissionUnknown:true,requestId:params.requestId});if(window.fixtureFail)throw new Error('Fixture directory unavailable');
  await new Promise(resolve=>setTimeout(resolve,30));
- if(params.operation==='worktreeOptions')return {worktrees:[{root:'/fixture/source',branch:'main',head:'a'.repeat(40)},{root:'/fixture/existing',branch:'feature/source',head:'b'.repeat(40)}],branches:params.sourceRoot==='/fixture/existing'?['feature/source','release']:['main','release'],settings:{worktreeRoot:'',branchPrefix:'areal'}};
+ if(params.operation==='worktreeOptions')return {worktrees:[{root:'/fixture/source',branch:'main',head:'a'.repeat(40)},{root:'/fixture/existing',branch:'feature/source',head:'b'.repeat(40)}],branches:params.sourceRoot==='/fixture/existing'?['feature/source','release']:['main','release'],settings:{worktreeRoot:'',branchPrefix:'areal'},environments:[{id:'dev',name:'Development',setup:{default:'echo setup'},cleanup:{default:''},actions:[]}],environmentRevision:1};
  return {worktreeRoot:params.worktreeRoot,branchPrefix:params.branchPrefix};};
 function Fixture(){useAppearance(false);const [selection,setSelection]=useState();const [events,setEvents]=useState([]);const [current,setCurrent]=useState();
  window.updateEvents=(value,ready)=>{setEvents(value);setCurrent(ready);};
@@ -91,23 +91,15 @@ try {
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(`http://127.0.0.1:${vite.httpServer.address().port}/__worktree_fixture.html`);
   await page.getByRole("button", { name: "新会话工作区" }).click();
-  await page.getByText("来源目录已有会话时，新会话会先创建独立 Worktree。").waitFor();
-  await page.getByRole("tab", { name: "新 Worktree", exact: true }).click();
-  await page.getByLabel("来源 Worktree", { exact: true }).click();
-  await page
-    .getByRole("option", { name: "feature/source · /fixture/existing", exact: true })
-    .click();
-  await page.getByLabel("起始分支", { exact: true }).click();
+  await page.getByRole("switch", { name: "在新 Worktree 中工作", exact: true }).click();
+  await page.getByRole("button", { name: "起始分支", exact: true }).click();
+  await page.getByRole("searchbox", { name: "搜索分支", exact: true }).fill("release");
   await page.getByRole("option", { name: "release", exact: true }).click();
-  await page.getByLabel("新分支名称", { exact: true }).fill("areal/gui-proof");
-  await page.getByText("Worktree 默认配置", { exact: true }).click();
-  await page.getByLabel("Worktree 根目录", { exact: true }).fill("/fixture/new-trees");
-  await page.getByLabel("分支名称前缀", { exact: true }).fill("areal");
-  await page.getByRole("button", { name: "保存默认配置", exact: true }).click();
-  await page.getByText("默认配置已保存", { exact: true }).waitFor();
+  await page.getByLabel("项目环境", { exact: true }).click();
+  await page.getByRole("option", { name: "Development", exact: true }).click();
   const capture = async (name) => {
     const path = join(evidence, name + ".png");
-    await page.screenshot({ path, fullPage: true });
+    await page.screenshot({ path, fullPage: true, animations: "disabled" });
     frames.push({
       path,
       sha256: createHash("sha256")
@@ -116,38 +108,16 @@ try {
     });
   };
   await capture("picker-configured");
-  await page.getByRole("button", { name: "使用此选择", exact: true }).click();
+  await page.keyboard.press("Escape");
   assert.deepEqual(await page.evaluate(() => window.fixtureSelection), {
-    sourceRoot: "/fixture/existing",
-    ref: "release",
-    worktreeRoot: "/fixture/new-trees",
-    branch: "areal/gui-proof",
-    branchPrefix: "areal",
+    sourceRoot: "/fixture/source", ref: "release", worktreeRoot: "", branch: "", branchPrefix: "areal",
+    mode: "worktree", environmentId: "dev", environmentRevision: 1,
   });
   const calls = await page.evaluate(() => window.fixtureCalls);
-  assert.ok(
-    calls.some(
-      (call) =>
-        call.params.operation === "worktreeOptions" &&
-        call.params.sourceRoot === "/fixture/existing",
-    ),
-  );
-  assert.ok(
-    calls.some(
-      (call) =>
-        call.params.operation === "worktreeSettings" &&
-        call.params.worktreeRoot === "/fixture/new-trees",
-    ),
-  );
-  assert.equal(
-    calls.some((call) => ["worktreeCreate", "worktreeOpen"].includes(call.params.operation)),
-    false,
-    "configuration must not create before first send",
-  );
-  checks.push(
-    "actual production picker selects another source checkout and branch, saves future defaults, and preserves selection without premature creation",
-  );
-  for (const state of ["creating", "created", "binding", "ready", "failed", "unknown"]) {
+  assert.equal(calls.some(call => ["worktreeCreate", "worktreeOpen"].includes(call.params.operation)), false,
+    "configuration must not create before first send");
+  checks.push("production gear popover toggles worktree creation, searches branches and selects a project environment without creating before send");
+  for (const state of ["creating", "created", "binding", "settingUp", "cancelling", "cancelled", "ready", "failed", "unknown"]) {
     await page.evaluate(
       (state) =>
         window.updateEvents(
@@ -171,6 +141,7 @@ try {
     );
     await page.locator(`[data-worktree-state="${state}"]`).waitFor();
     if (state === "ready") {
+      await page.getByRole("button", { name: "查看创建详情", exact: true }).click();
       await page.getByText("areal/gui-proof", { exact: true }).waitFor();
       await page.getByText("/fixture/new-trees/task-proof", { exact: true }).waitFor();
     }
@@ -188,7 +159,7 @@ try {
   });
   await page.getByRole("button", { name: "新会话工作区" }).click();
   await page.getByRole("alert").getByText("Fixture directory unavailable").waitFor();
-  await page.getByRole("button", { name: "取消", exact: true }).click();
+  await page.keyboard.press("Escape");
   await page.getByRole("dialog").waitFor({ state: "hidden" });
   checks.push("source-query failure preserves a visible error and an accessible return path");
   await page.setViewportSize({ width: 390, height: 844 });
@@ -196,7 +167,7 @@ try {
     window.fixtureFail = false;
   });
   await page.getByRole("button", { name: "新会话工作区" }).click();
-  await page.getByLabel("新分支名称", { exact: true }).waitFor();
+  await page.getByRole("switch", { name: "在新 Worktree 中工作", exact: true }).waitFor();
   assert.ok(
     await page
       .getByRole("dialog")
@@ -234,11 +205,10 @@ try {
     ),
   );
   const recoveryCalls = await page.evaluate(() => window.fixtureCalls);
-  assert.equal(recoveryCalls.filter((call) => call.name === "create").length, 1);
-  assert.deepEqual(recoveryCalls.find((call) => call.name === "create").params, {
-    projectId: "logical",
+  assert.equal(recoveryCalls.filter((call) => call.name === "create").length, 0);
+  assert.deepEqual(recoveryCalls.find((call) => call.params.operation === "worktreeRead").params, {
+    projectId: "logical", operation: "worktreeRead",
     requestId: "00000000-0000-4000-a000-000000000001",
-    worktree: { ref: "main" },
   });
   assert.equal(
     recoveryCalls.some((call) => call.name === "send"),

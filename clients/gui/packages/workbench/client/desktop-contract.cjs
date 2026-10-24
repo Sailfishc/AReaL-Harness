@@ -4,7 +4,7 @@
 /** @template T @typedef {{ok:true,value:T}|{ok:false,error:DesktopError}} DesktopResult */
 /** @typedef {{id:string,revision:string}} ResourceRef */
 /** @typedef {{projectId:string,profile?:ResourceRef}} PrepareCreatorRequest */
-/** @typedef {{sourceRoot?:string,ref?:string,worktreeRoot?:string,branch?:string,branchPrefix?:string}} WorktreeSpec */
+/** @typedef {{sourceRoot?:string,ref?:string,worktreeRoot?:string,branch?:string,branchPrefix?:string,environmentId?:string,environmentRevision?:number,mode?:'source'|'worktree'}} WorktreeSpec */
 /** @typedef {{projectId:string,threadId:string,requestId?:string,expectedRevision?:number,model?:{providerId:string,modelId:string}|null,profile?:ResourceRef,options?:Record<string,unknown>,parameters?:Record<string,unknown>,selectedSkills?:ResourceRef[]}} ConfigureRequest */
 /** @typedef {{projectId:string,operation:'start',sourceThreadId:string,requestId:string,text:string,workspaceAccess:'none'|'readOnly',model?:{providerId:string,modelId:string},resetModel?:boolean,anchor?:Record<string,unknown>|null,selection?:Record<string,unknown>|null,parameters?:Record<string,unknown>}|{projectId:string,operation:'create',sourceThreadId:string,requestId:string,firstInput?:{text:string}}|{projectId:string,operation:'close',threadId:string,requestId:string}|{projectId:string,operation:'recover',requestId:string,sourceThreadId?:string,threadId?:string,method?:'areal/side/start'|'areal/side/create'|'areal/side/close'}|{projectId:string,operation:'send',threadId:string,text:string}|{projectId:string,operation:'context',threadId:string,cursor?:string,evidenceRef?:string,maxBytes?:number}|{projectId:string,operation:'list',sourceThreadId:string,includeArchived?:boolean,cursor?:string}} SideRequest */
 /** @typedef {{projectId:string,threadId:string,expectedTurnId:string,expectedConfigRevision?:number,requestId?:string}} ContinueRequest */
@@ -44,7 +44,7 @@ const commandDefinitions = Object.freeze({
     ...operations(mutation, 'pluginArchivePick pluginAuth pluginAuthCredential mcpAppOpen mcpAppOpenFromResult mcpAppRequest mcpAppClose mcpExtensionCall mcpFormRespond mcpFormPreview mcpFormResourcePrepare mcpFormResourceRelease executionCancel executionApply serverDrain serverGc workgroupApplyArtifact workgroupCancel closeResources planUpdate toolAcknowledge contextCompact permissionsForget providerProbe taskDraftConfirm'),
     taskDraftStart: { effect: 'mutation', requestId: 'draftId' },
   }],
-  workspace: ['service', 'project', { ...operations(read, 'worktreeOptions worktreeRead list search read review reviewCommits reviewBranches turnReview status info gitState'), ...operations(recoverable, 'worktreeCreate'), ...operations(mutation, 'worktreeSettings worktreeOpen save gitStage gitUnstage gitCommit gitPush') }],
+  workspace: ['service', 'project', { ...operations(read, 'worktreeList worktreeOptions worktreeRead list search read review reviewCommits reviewBranches turnReview status info gitState'), ...operations(recoverable, 'worktreeCreate worktreeAction worktreeDelete'), ...operations(mutation, 'worktreeSettings worktreeEnvironmentSave worktreeEnvironmentDelete worktreeCancel worktreeOpen save gitStage gitUnstage gitCommit gitPush') }],
   media: ['service', 'thread', { ...operations(read, 'list read'), upload: mutation, release: recoverable }],
   steer: ['service', 'thread', recoverable], dismissRecovery: ['service', 'project', mutation],
   providers: ['service', 'app', { ...operations(read, 'list revealKey discover'), ...operations(mutation, 'probe apply save saveAndApply removeAndApply defaultAndApply remove default') }],
@@ -87,7 +87,7 @@ function validateCommand(name, params, { serviceOnly = false } = {}) {
   if (!Object.hasOwn(commandDefinitions, name) || !record(params)) invalid();
   const [layer, scope] = commandDefinitions[/** @type {CommandName} */ (name)];
   if (serviceOnly && layer !== 'service') invalid();
-  if (scope !== 'app' && !identifier(params.projectId)) invalid();
+  if (scope !== 'app' && !(name === 'workspace' && ['worktreeList','worktreeSettings'].includes(String(params.operation))) && !identifier(params.projectId)) invalid();
   if (scope === 'thread' && !identifier(params.threadId)) invalid();
   if (name === 'prediction' && (!identifier(params.sourceTurnId) || !['request', 'cancel'].includes(String(params.operation))
     || Object.keys(params).some(key => !['projectId', 'threadId', 'sourceTurnId', 'operation'].includes(key)))) invalid();
@@ -126,16 +126,38 @@ function validateCommand(name, params, { serviceOnly = false } = {}) {
   if (name === 'create' && params.browserEnabled !== undefined && typeof params.browserEnabled !== 'boolean') invalid();
   if (name === 'create' && params.worktree !== undefined) {
     const spec = params.worktree;
-    if (!record(spec) || Object.keys(spec).some(key => !['sourceRoot', 'ref', 'worktreeRoot', 'branch', 'branchPrefix'].includes(key))
-      || Object.values(spec).some(value => typeof value !== 'string' || value.length > 4096 || /[\x00-\x1f\x7f]/.test(value))) invalid();
+    if (!record(spec) || Object.keys(spec).some(key => !['sourceRoot', 'ref', 'worktreeRoot', 'branch', 'branchPrefix', 'environmentId', 'environmentRevision', 'mode'].includes(key))
+      || Object.entries(spec).some(([key,value]) => key === 'environmentRevision' ? !Number.isSafeInteger(value) || Number(value) < 0 : typeof value !== 'string' || value.length > 4096 || /[\x00-\x1f\x7f]/.test(value))
+      || spec.mode !== undefined && !['source','worktree'].includes(String(spec.mode))) invalid();
   }
-  if (name === 'workspace' && params.operation === 'worktreeOptions'
-    && (Object.keys(params).some(key => !['projectId', 'operation', 'sourceRoot'].includes(key))
-      || params.sourceRoot !== undefined && (typeof params.sourceRoot !== 'string' || !params.sourceRoot || params.sourceRoot.length > 4096 || /[\x00-\x1f\x7f]/.test(params.sourceRoot)))) invalid();
-  if (name === 'workspace' && params.operation === 'worktreeSettings'
-    && (Object.keys(params).some(key => !['projectId', 'operation', 'worktreeRoot', 'branchPrefix'].includes(key))
-      || typeof params.worktreeRoot !== 'string' || params.worktreeRoot.length > 4096 || /[\x00-\x1f\x7f]/.test(params.worktreeRoot)
-      || typeof params.branchPrefix !== 'string' || !params.branchPrefix || params.branchPrefix.length > 128 || /[\x00-\x1f\x7f]/.test(params.branchPrefix))) invalid();
+  if (name === 'workspace' && String(params.operation).startsWith('worktree')) {
+    const optionalRevision = value => value === undefined || Number.isSafeInteger(value) && Number(value) >= 0;
+    const script = value => record(value) && Object.keys(value).every(key => ['default','macos','linux'].includes(key))
+      && typeof value.default === 'string' && Object.values(value).every(item => typeof item === 'string' && item.length <= 32768 && !item.includes('\0'));
+    const environment = value => record(value) && Object.keys(value).every(key => ['id','name','setup','cleanup','actions'].includes(key))
+      && identifier(value.id) && identifier(value.name) && script(value.setup) && script(value.cleanup) && Array.isArray(value.actions) && value.actions.length <= 50
+      && new Set(value.actions.map(action => action.id)).size === value.actions.length
+      && value.actions.every(action => record(action) && Object.keys(action).every(key => ['id','name','script'].includes(key)) && identifier(action.id) && identifier(action.name) && script(action.script));
+    const keys = {
+      worktreeList: [], worktreeOptions: ['sourceRoot'], worktreeSettings: ['worktreeRoot','branchPrefix','fetchBeforeCreate','autoCleanup','keepCount','expectedRevision'],
+      worktreeEnvironmentSave: ['environment','expectedRevision'], worktreeEnvironmentDelete: ['environmentId','expectedRevision'],
+      worktreeCancel: ['requestId'], worktreeRead: ['requestId'], worktreeOpen: ['requestId'],
+      worktreeAction: ['requestId','worktreeRequestId','actionId'], worktreeDelete: ['requestId','worktreeRequestId'],
+    }[String(params.operation)];
+    if (keys && Object.keys(params).some(key => !['projectId','operation',...keys].includes(key))) invalid();
+    if (['worktreeCancel','worktreeRead','worktreeOpen','worktreeAction','worktreeDelete'].includes(String(params.operation))
+      && (typeof params.requestId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(params.requestId))) invalid();
+    if (['worktreeAction','worktreeDelete'].includes(String(params.operation)) && (typeof params.worktreeRequestId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(params.worktreeRequestId))) invalid();
+    if (params.operation === 'worktreeAction' && !identifier(params.actionId)) invalid();
+    if (params.operation === 'worktreeOptions' && params.sourceRoot !== undefined && (typeof params.sourceRoot !== 'string' || !params.sourceRoot || params.sourceRoot.length > 4096 || /[\x00-\x1f\x7f]/.test(params.sourceRoot))) invalid();
+    if (params.operation === 'worktreeSettings' && (typeof params.worktreeRoot !== 'string' || params.worktreeRoot.length > 4096 || /[\x00-\x1f\x7f]/.test(params.worktreeRoot)
+      || typeof params.branchPrefix !== 'string' || !params.branchPrefix || params.branchPrefix.length > 128 || /[\x00-\x1f\x7f]/.test(params.branchPrefix)
+      || ['fetchBeforeCreate','autoCleanup'].some(key => params[key] !== undefined && typeof params[key] !== 'boolean')
+      || params.keepCount !== undefined && (!Number.isSafeInteger(params.keepCount) || Number(params.keepCount) < 1 || Number(params.keepCount) > 1000) || !optionalRevision(params.expectedRevision))) invalid();
+    if (['worktreeEnvironmentSave','worktreeEnvironmentDelete'].includes(String(params.operation)) && (!Number.isSafeInteger(params.expectedRevision) || Number(params.expectedRevision) < 0)) invalid();
+    if (params.operation === 'worktreeEnvironmentSave' && !environment(params.environment)) invalid();
+    if (params.operation === 'worktreeEnvironmentDelete' && !identifier(params.environmentId)) invalid();
+  }
   if (name === 'fork' && (!identifier(params.sourceThreadId) || !record(params.anchor)
     || !identifier(params.anchor.turnId) || !['before', 'after'].includes(String(params.anchor.boundary))
     || params.workspaceMode !== 'sharedCurrent')) invalid();

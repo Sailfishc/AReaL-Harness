@@ -2,7 +2,7 @@
  * title overflow and action geometry. Core supplies state and callbacks. */
 import { memo, type ReactNode } from 'react';
 import { useI18n } from './i18n/IntlProvider.js';
-import { LoaderIcon, CircleDashed, GitBranch } from 'lucide-react';
+import { LoaderIcon, CircleDashed, GitFork } from 'lucide-react';
 import { ArchiveChatIcon as Archive, PinChatIcon as Pin, MoreOptionsIcon as MoreHorizontal, EditMessageIcon as PenLine } from './interfaceIcons.js';
 import { SidebarDragSurface, type SidebarSurfaceDragProps } from './sidebarDrag.js';
 import { cn } from './components/lib/utils.js';
@@ -75,8 +75,8 @@ export const MemoTaskItem = memo(function TaskListItem({ id, title, worktree, ac
               <TaskTitleOverflowText className="navigation-task-title" title={title}>
                 {title}
               </TaskTitleOverflowText>
-              {worktree && <span className="flex min-w-0 max-w-full items-center gap-1 text-ui-caption text-foreground-subtle" title={worktree.directory} aria-label={t("worktree.threadWorkspace", { branch: worktree.branch })}>
-                <GitBranch className="size-3 shrink-0" aria-hidden="true" /><span className="truncate">{worktree.branch}</span>
+              {worktree && <span data-testid="task-worktree-badge" className="flex min-w-0 max-w-full items-center gap-1 text-ui-caption text-foreground-subtle" title={worktree.directory} aria-label={t("worktree.threadWorkspace", { branch: worktree.branch })}>
+                <GitFork className="size-3 shrink-0" aria-hidden="true" /><span className="truncate">{worktree.branch}</span>
               </span>}
             </div>
           </div>

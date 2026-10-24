@@ -1,23 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { GitBranch, GitFork } from "lucide-react";
+import { Check, ChevronDown, GitBranch, Settings } from "lucide-react";
 import { Button } from "./components/ui/button.js";
 import { Input } from "./components/ui/input.js";
-import {
-    Dialog,
-    DialogContent,
-    DialogHeader,
-    DialogTitle,
-    DialogDescription,
-} from "./components/ui/dialog.js";
-import { SettingsSelect } from "./settings/SettingsPageParts.js";
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "./components/ui/select.js";
-import { SettingsDisclosure } from "./settings/SettingsDisclosure.js";
+import { Popover, PopoverContent, PopoverTrigger } from "./components/ui/popover.js";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select.js";
+import { SettingsSwitch } from "./settings/SettingsPageParts.js";
 import { useI18n } from "./i18n/IntlProvider.js";
 import type { Action, Data } from "./services.js";
 
@@ -27,355 +14,113 @@ export type WorktreeSelection = {
     worktreeRoot: string;
     branch: string;
     branchPrefix: string;
+    mode?: "source" | "worktree";
+    environmentId?: string;
+    environmentRevision?: number;
 };
 type Options = {
-    worktrees: { root: string; branch?: string; head?: string }[];
     branches: string[];
     settings: { worktreeRoot: string; branchPrefix: string };
+    environments?: { id: string; name: string }[];
+    environmentRevision?: number;
 };
-
-function WorktreeChoice({
-    label,
-    value,
-    items,
-    disabled,
-    onChange,
-}: {
-    label: string;
-    value: string;
-    items: { value: string; label: string }[];
-    disabled: boolean;
-    onChange: (value: string) => void;
-}) {
-    return (
-        <Select
-            value={value}
-            items={items}
-            disabled={disabled}
-            onValueChange={(next) => {
-                if (next !== null) onChange(next);
-            }}
-        >
-            <SelectTrigger
-                aria-label={label}
-                variant="secondary"
-                size="sm"
-                className="w-full max-w-full"
-            >
-                <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-                {items.map((item) => (
-                    <SelectItem key={item.value} value={item.value}>
-                        {item.label}
-                    </SelectItem>
-                ))}
-            </SelectContent>
-        </Select>
-    );
-}
 
 export function worktreeSelectionKey(projectId: string) {
     return `areal-gui:worktree-selection:${projectId}`;
 }
 export function readWorktreeSelection(projectId: string): WorktreeSelection | undefined {
     try {
-        const value: unknown = JSON.parse(
-            localStorage.getItem(worktreeSelectionKey(projectId)) ?? "null",
-        );
-        if (
-            value &&
-            typeof value === "object" &&
-            ["sourceRoot", "ref", "worktreeRoot", "branch", "branchPrefix"].every(
-                (key) => typeof (value as Record<string, unknown>)[key] === "string",
-            )
-        )
-            return value as WorktreeSelection;
-    } catch {
-        /* 无效本地草稿不影响新会话。 */
-    }
+        const value: unknown = JSON.parse(localStorage.getItem(worktreeSelectionKey(projectId)) ?? "null");
+        if (value && typeof value === "object" && ["sourceRoot", "ref", "worktreeRoot", "branch", "branchPrefix"].every(
+            key => typeof (value as Record<string, unknown>)[key] === "string")) return value as WorktreeSelection;
+    } catch {}
     return undefined;
 }
 
-export function WorktreeStarter({
-    project,
-    action,
-    value,
-    onChange,
-    disabled = false,
-}: {
+export function WorktreeStarter({ project, action, value, onChange, onConfigureEnvironments, disabled = false }: {
     project: Data;
     action: Action;
     value?: WorktreeSelection;
     onChange: (value: WorktreeSelection | undefined) => void;
+    onConfigureEnvironments?: () => void;
     disabled?: boolean;
 }) {
     const { t } = useI18n();
     const sourceRoot = project.logicalRoot ?? project.root;
-    const empty = (): WorktreeSelection => ({
-        sourceRoot,
-        ref: "HEAD",
-        worktreeRoot: "",
-        branch: "",
-        branchPrefix: "areal",
-    });
     const [open, setOpen] = useState(false);
-    const [mode, setMode] = useState<"automatic" | "worktree">(value ? "worktree" : "automatic");
-    const [draft, setDraft] = useState<WorktreeSelection>(value ?? empty);
+    const [branchOpen, setBranchOpen] = useState(false);
+    const [query, setQuery] = useState("");
     const [options, setOptions] = useState<Options>();
     const [loading, setLoading] = useState(false);
-    const [saving, setSaving] = useState(false);
     const [error, setError] = useState("");
-    const [saved, setSaved] = useState(false);
     const request = useRef(action);
     request.current = action;
     useEffect(() => {
         if (!open) return;
         let active = true;
-        setLoading(true);
-        setError("");
-        void request
-            .current("workspace", {
-                projectId: project.id,
-                operation: "worktreeOptions",
-                sourceRoot: draft.sourceRoot,
-            })
-            .then(
-                (result: Options) => {
-                    if (!active) return;
-                    setOptions(result);
-                    if (!value)
-                        setDraft((previous) => ({
-                            ...previous,
-                            worktreeRoot:
-                                previous.worktreeRoot || result.settings.worktreeRoot || "",
-                            branchPrefix:
-                                previous.branchPrefix === "areal"
-                                    ? result.settings.branchPrefix || "areal"
-                                    : previous.branchPrefix,
-                        }));
-                },
-                (cause) => {
-                    if (active) setError((cause as Error).message);
-                },
-            )
-            .finally(() => {
-                if (active) setLoading(false);
-            });
-        return () => {
-            active = false;
-        };
-    }, [open, project.id, draft.sourceRoot]);
-    const busy = disabled || loading || saving;
-    const saveDefaults = async () => {
-        if (busy) return;
-        setSaving(true);
-        setError("");
-        setSaved(false);
-        try {
-            await action("workspace", {
-                projectId: project.id,
-                operation: "worktreeSettings",
-                worktreeRoot: draft.worktreeRoot,
-                branchPrefix: draft.branchPrefix,
-            });
-            setSaved(true);
-        } catch (cause) {
-            setError((cause as Error).message);
-        } finally {
-            setSaving(false);
-        }
+        setLoading(true); setError("");
+        void request.current("workspace", { projectId: project.id, operation: "worktreeOptions", sourceRoot }).then(
+            (result: Options) => { if (active) setOptions(result); },
+            cause => { if (active) setError((cause as Error).message); },
+        ).finally(() => { if (active) setLoading(false); });
+        return () => { active = false; };
+    }, [open, project.id, sourceRoot]);
+    const selected: WorktreeSelection = value ?? {
+        sourceRoot, ref: "HEAD", worktreeRoot: options?.settings.worktreeRoot ?? "",
+        branch: "", branchPrefix: options?.settings.branchPrefix ?? "areal",
     };
-    const sources = options?.worktrees ?? [];
-    const branches = [...new Set(["HEAD", ...(options?.branches ?? [])])];
-    return (
-        <>
-            <Button
-                variant="ghost"
-                size="sm"
-                disabled={disabled || !project.state?.connected}
-                onClick={() => {
-                    setDraft(value ?? empty());
-                    setMode(value ? "worktree" : "automatic");
-                    setSaved(false);
-                    setOpen(true);
-                }}
-                aria-label={t("worktree.configure")}
-            >
-                <GitFork className="size-3.5" aria-hidden="true" />
-                {t(value ? "worktree.new" : "worktree.automatic")}
-            </Button>
-            <Dialog
-                open={open}
-                onOpenChange={(next) => {
-                    if (!saving) setOpen(next);
-                }}
-            >
-                <DialogContent className="max-w-lg">
-                    <DialogHeader>
-                        <DialogTitle>{t("worktree.configure")}</DialogTitle>
-                        <DialogDescription>{t("worktree.createOnSend")}</DialogDescription>
-                    </DialogHeader>
-                    <div className="grid min-w-0 gap-3">
-                        <SettingsSelect
-                            aria-label={t("worktree.mode")}
-                            value={mode}
-                            disabled={busy}
-                            onValueChange={(next) => setMode(next as typeof mode)}
-                        >
-                            <option value="automatic">{t("worktree.automatic")}</option>
-                            <option value="worktree">{t("worktree.new")}</option>
-                        </SettingsSelect>
-                        {mode === "automatic" ? (
-                            <p className="text-ui-caption text-foreground-subtle">
-                                {t("worktree.automaticDescription")}
-                            </p>
-                        ) : (
-                            <>
-                                <label className="grid min-w-0 gap-2 text-ui-caption">
-                                    {t("worktree.source")}
-                                    <WorktreeChoice
-                                        label={t("worktree.source")}
-                                        value={draft.sourceRoot}
-                                        disabled={busy || !sources.length}
-                                        items={sources.map((source) => ({
-                                            value: source.root,
-                                            label: [source.branch, source.root]
-                                                .filter(Boolean)
-                                                .join(" · "),
-                                        }))}
-                                        onChange={(next) =>
-                                            setDraft((previous) => ({
-                                                ...previous,
-                                                sourceRoot: next,
-                                                ref: "HEAD",
-                                            }))
-                                        }
-                                    />
-                                </label>
-                                <label className="grid min-w-0 gap-2 text-ui-caption">
-                                    {t("worktree.startBranch")}
-                                    <WorktreeChoice
-                                        label={t("worktree.startBranch")}
-                                        value={draft.ref}
-                                        disabled={busy}
-                                        items={branches.map((branch) => ({
-                                            value: branch,
-                                            label: branch,
-                                        }))}
-                                        onChange={(next) =>
-                                            setDraft((previous) => ({ ...previous, ref: next }))
-                                        }
-                                    />
-                                </label>
-                                <label className="grid gap-2 text-ui-caption">
-                                    {t("worktree.branchName")}
-                                    <Input
-                                        aria-label={t("worktree.branchName")}
-                                        value={draft.branch}
-                                        disabled={busy}
-                                        placeholder={t("worktree.generatedBranch")}
-                                        onChange={(event) =>
-                                            setDraft((previous) => ({
-                                                ...previous,
-                                                branch: event.target.value,
-                                            }))
-                                        }
-                                    />
-                                </label>
-                                <p className="text-ui-caption text-foreground-subtle">
-                                    {t("worktree.commitOnly")}
-                                </p>
-                            </>
-                        )}
-                        <SettingsDisclosure title={t("worktree.defaults")}>
-                            <div className="grid gap-3">
-                                <label className="grid gap-2 text-ui-caption">
-                                    {t("worktree.root")}
-                                    <Input
-                                        aria-label={t("worktree.root")}
-                                        value={draft.worktreeRoot}
-                                        disabled={busy}
-                                        placeholder={t("worktree.defaultRoot")}
-                                        onChange={(event) => {
-                                            setSaved(false);
-                                            setDraft((previous) => ({
-                                                ...previous,
-                                                worktreeRoot: event.target.value,
-                                            }));
-                                        }}
-                                    />
-                                </label>
-                                <label className="grid gap-2 text-ui-caption">
-                                    {t("worktree.prefix")}
-                                    <Input
-                                        aria-label={t("worktree.prefix")}
-                                        value={draft.branchPrefix}
-                                        disabled={busy}
-                                        placeholder={t("worktree.defaultPrefix")}
-                                        onChange={(event) => {
-                                            setSaved(false);
-                                            setDraft((previous) => ({
-                                                ...previous,
-                                                branchPrefix: event.target.value,
-                                            }));
-                                        }}
-                                    />
-                                </label>
-                                <p className="text-ui-caption text-foreground-subtle">
-                                    {t("worktree.futureOnly")}
-                                </p>
-                                <Button
-                                    variant="secondary"
-                                    size="sm"
-                                    disabled={busy}
-                                    onClick={() => void saveDefaults()}
-                                >
-                                    {t(saving ? "worktree.saving" : "worktree.saveDefaults")}
-                                </Button>
-                                {saved && (
-                                    <p
-                                        role="status"
-                                        className="text-ui-caption text-foreground-subtle"
-                                    >
-                                        {t("worktree.defaultsSaved")}
-                                    </p>
-                                )}
+    const enabled = !!value && value.mode !== "source";
+    const change = (patch: Partial<WorktreeSelection>) => {
+        const next = { ...selected, ...patch };
+        if (next.environmentId === undefined) delete next.environmentId;
+        if (next.environmentRevision === undefined) delete next.environmentRevision;
+        onChange(next);
+    };
+    const busy = disabled || loading;
+    const branches = [...new Set([selected.ref, "HEAD", ...(options?.branches ?? [])])].filter(branch => branch.toLowerCase().includes(query.toLowerCase()));
+    const environments = options?.environments ?? [];
+    return <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger render={<Button variant="ghost" size="icon" disabled={disabled || !project.state?.connected}
+            aria-label={t("worktree.configure")} title={t("worktree.configure")} className="size-7 shrink-0" />}>
+            <Settings className="size-3.5" aria-hidden="true" />
+        </PopoverTrigger>
+        <PopoverContent align="end" className="w-80 gap-3 p-3" aria-label={t("worktree.configure")}>
+            <div className="flex items-center justify-between gap-3">
+                <span className="text-ui-sm font-medium">{t("worktree.workInNew")}</span>
+                <SettingsSwitch aria-label={t("worktree.workInNew")} checked={enabled} disabled={busy}
+                    onCheckedChange={checked => change({ mode: checked ? "worktree" : "source", ...(checked ? {} : { environmentId: undefined, environmentRevision: undefined }) })} />
+            </div>
+            <p className="text-ui-caption text-foreground-subtle">{t("worktree.createOnSend")}</p>
+            {loading && <p role="status" className="text-ui-caption text-foreground-subtle">{t("worktree.loading")}</p>}
+            {error && <p role="alert" className="text-ui-caption text-destructive break-words">{error}</p>}
+            {enabled && <>
+                <div className="grid gap-1.5">
+                    <span className="text-ui-caption text-foreground-subtle">{t("worktree.startBranch")}</span>
+                    <Popover open={branchOpen} onOpenChange={next => { setBranchOpen(next); setQuery(""); }}>
+                        <PopoverTrigger render={<Button variant="secondary" size="sm" disabled={busy} aria-label={t("worktree.startBranch")} className="w-full justify-between" />}>
+                            <span className="flex min-w-0 items-center gap-2"><GitBranch className="size-3.5 shrink-0" /><span className="truncate">{selected.ref}</span></span><ChevronDown className="size-3.5" />
+                        </PopoverTrigger>
+                        <PopoverContent align="end" className="w-72">
+                            <Input type="search" aria-label={t("worktree.searchBranches")} placeholder={t("worktree.searchBranches")} value={query} onChange={event => setQuery(event.target.value)} />
+                            <div role="listbox" aria-label={t("worktree.startBranch")} className="grid max-h-56 overflow-auto">
+                                {branches.map(branch => <Button variant="ghost" size="sm" type="button" role="option" aria-selected={selected.ref === branch} key={branch}
+                                    className="w-full justify-between text-left"
+                                    onClick={() => { change({ ref: branch }); setBranchOpen(false); }}>{branch}{selected.ref === branch && <Check className="size-3.5" />}</Button>)}
+                                {!branches.length && <p className="p-2 text-ui-caption text-foreground-subtle">{t("worktree.noBranches")}</p>}
                             </div>
-                        </SettingsDisclosure>
-                        {loading && (
-                            <p role="status" className="text-ui-caption text-foreground-subtle">
-                                {t("worktree.loading")}
-                            </p>
-                        )}
-                        {error && (
-                            <p
-                                role="alert"
-                                className="break-words text-ui-caption text-destructive"
-                            >
-                                {error}
-                            </p>
-                        )}
-                    </div>
-                    <div className="flex justify-end gap-2">
-                        <Button variant="ghost" disabled={saving} onClick={() => setOpen(false)}>
-                            {t("worktree.cancel")}
-                        </Button>
-                        <Button
-                            disabled={
-                                busy || (mode === "worktree" && (!options || !!error || !draft.ref))
-                            }
-                            onClick={() => {
-                                onChange(mode === "worktree" ? { ...draft } : undefined);
-                                setOpen(false);
-                            }}
-                        >
-                            <GitBranch className="size-3.5" aria-hidden="true" />
-                            {t("worktree.useSelection")}
-                        </Button>
-                    </div>
-                </DialogContent>
-            </Dialog>
-        </>
-    );
+                        </PopoverContent>
+                    </Popover>
+                </div>
+                <div className="grid gap-1.5">
+                    <span className="text-ui-caption text-foreground-subtle">{t("worktree.environment")}</span>
+                    <Select value={selected.environmentId ?? "none"} disabled={busy} items={[{ value: "none", label: t("worktree.noEnvironment") }, ...environments.map(item => ({ value: item.id, label: item.name }))]}
+                        onValueChange={id => { if (id) change({ environmentId: id === "none" ? undefined : id, environmentRevision: id === "none" ? undefined : options?.environmentRevision }); }}>
+                        <SelectTrigger aria-label={t("worktree.environment")} variant="secondary" size="sm" className="w-full"><SelectValue /></SelectTrigger>
+                        <SelectContent>{[{ id: "none", name: t("worktree.noEnvironment") }, ...environments].map(item => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}</SelectContent>
+                    </Select>
+                </div>
+            </>}
+            {onConfigureEnvironments && <Button variant="ghost" size="sm" className="justify-start" onClick={() => { setOpen(false); onConfigureEnvironments(); }}>{t("worktree.configureEnvironments")}</Button>}
+        </PopoverContent>
+    </Popover>;
 }

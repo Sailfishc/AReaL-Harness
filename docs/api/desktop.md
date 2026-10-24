@@ -14,19 +14,27 @@ Thread 快照和 Item 通知支持可选 `agentMessage.phase`，生命周期、�
 
 本节属于 `clients/gui` 的认证桌面宿主 `command` 合同，不新增 `areal.core.v1` Rust RPC。宿主继续通过现有 Core 方法管理每个执行目录，Core 仍持有线程和执行历史。共享桌面类型与校验位于 `clients/gui/packages/workbench/client/desktop-contract.cjs`。
 
-`create` 接受逻辑 `projectId`、稳定 `requestId`、原模型与配置字段，以及可选 `worktree: {sourceRoot?,ref?,worktreeRoot?,branch?,branchPrefix?}`。Worktree 字段均为字符串。未指定 `worktree` 时，已有根会话的来源 checkout 触发新会话提前隔离。成功返回 `{threadId,requestId}`；逻辑项目 ID 不变。隔离创建将来源 ref 固定成 SHA，独立 Core/Runtime 启动并确认线程绑定后才返回就绪结果。
+`create` 接受逻辑 `projectId`、稳定 `requestId`、原模型与配置，以及可选 `worktree: {sourceRoot?,ref?,worktreeRoot?,branch?,branchPrefix?,mode?,environmentId?,environmentRevision?}`。`mode` 为 `source` 或 `worktree`，`environmentRevision` 为非负整数，其余字段为字符串。未指定 Worktree 时保留自动隔离；明确 `source` 在原目录被占用时拒绝，不回退自动创建。成功返回 `{threadId,requestId}`，逻辑项目 ID 不变。隔离创建固定来源 SHA，确认独立 Core/Runtime、空线程绑定及所选 setup 成功后才就绪。
 
-`workspace` 提供以下宿主操作：
+`workspace` 提供以下宿主操作。新增管理操作均通过原窄 `command` 边界，并核对逻辑项目归属。
 
 | operation | 请求补充字段 | 返回与作用 |
 |---|---|---|
-| `worktreeOptions` | `sourceRoot?` | `{worktrees:[{root,branch,head}],branches:[string],settings:{worktreeRoot,branchPrefix}}`；来源限定同仓库。 |
-| `worktreeSettings` | `worktreeRoot,branchPrefix` | 保存未来创建的默认值；空根目录使用应用目录，默认前缀 `areal`。 |
-| `worktreeRead` | `requestId` | 读取原创建及绑定记录，可能为 `missing`；结果未知不触发第二次创建。 |
-| `worktreeCreate` | `requestId,source?,sourceRoot?,ref?,worktreeRoot?,branch?,branchPrefix?` | 兼容的显式 checkout 创建入口，共用同一 Git 生命周期。`working-tree` 来源明确拒绝。 |
-| `worktreeOpen` | `requestId` | 为已确认 checkout 恢复或完成线程绑定，返回原逻辑项目和线程，不新增可见侧栏项目。 |
+| `worktreeOptions` | `sourceRoot?` | 返回同仓库来源、分支、settings、defaultRoot、项目 environments 和 environmentRevision。 |
+| `worktreeSettings` | `worktreeRoot,branchPrefix,fetchBeforeCreate?,autoCleanup?,keepCount?,expectedRevision?` | 保存全局未来创建策略，已有目录不移动。空根使用用户 home 下 `.areal/worktrees`，其下按项目分组。 |
+| `worktreeList` | 无 | 返回 `{settings,defaultRoot,revision,projects,worktrees}`。全局列表来自宿主登记，不为列举启动每个 Core。 |
+| `worktreeEnvironmentSave` | `environment,expectedRevision` | 保存当前逻辑项目的环境，以 revision 防止覆盖并发修改。 |
+| `worktreeEnvironmentDelete` | `environmentId,expectedRevision` | 删除环境配置，不改写已固定的创建环境。 |
+| `worktreeRead` | `requestId` | 读取原创建与绑定记录，可能为 `missing`。不重新创建或重跑未知脚本。 |
+| `worktreeCancel` | `requestId` | 请求取消原创建并返回当前记录。`cancelling` 不能当作终止，`cancelled` 才能明确开始新的原目录请求。 |
+| `worktreeAction` | `requestId,worktreeRequestId,actionId` | 在原受管 Worktree 显式执行已固定环境的动作，使用独立请求回执和有界输出。 |
+| `worktreeDelete` | `requestId,worktreeRequestId` | 核对受管目录、清理与服务停止回执，非 force 删除，保留分支、历史和归属 tombstone。失败或未知保留目录。 |
+| `worktreeCreate` | `requestId,source?,sourceRoot?,ref?,worktreeRoot?,branch?,branchPrefix?` | 兼容的显式 checkout 入口，共用原 Git 生命周期，`working-tree` 来源拒绝。 |
+| `worktreeOpen` | `requestId` | 为已确认 checkout 恢复或完成线程绑定，返回原逻辑项目和线程。 |
 
-宿主记录 `creating`、`created`、`binding`、`ready`、`failed` 和 `unknown`。项目快照中的 `worktreeOperations` 投影这些记录；线程的 `worktree`、`worktreeEvents` 与 `executionProjectId` 描述实际目录及宿主。线程事件是宿主事实，不加入 Core 消息历史。相同请求标识的参数变化会被拒绝。部分成功保留现有目录，恢复读取原 Git 事实和 Core 收据，不回退来源目录。
+环境为 `{id,name,setup,cleanup,actions}`。`setup`、`cleanup` 和 action 的 `script` 使用 `{default,macos?,linux?}`，非空平台脚本覆盖 Default；`actions` 为 `{id,name,script}` 数组。创建时固定所选环境，之后的配置修改不改变旧目录。脚本经现有 Core 受管进程执行，cwd 为真实项目执行根，变量为 `AREAL_WORKTREE_PATH`、`AREAL_PROJECT_PATH`、`AREAL_WORKTREE_BRANCH`。
+
+宿主状态包括 `creating`、`created`、`binding`、`settingUp`、`cancelled`、`ready`、`failed` 和 `unknown`。取消期间保留原阶段和 `intent: "cancel"`，界面显示正在取消。空线程绑定不是发送门槛；环境就绪才允许普通执行。项目快照通过 `worktreeOperations` 投影原日志；线程 `worktree`、`worktreeEvents` 和 `executionProjectId` 描述实际目录及宿主。事件不加入 Core 消息历史。同一请求的参数变化拒绝，未知写入不重放，部分成功不回退来源。删除后的原归属保留，不允许重连创建空目录或改用来源。
 
 已有共享目录的桌面执行请求还经过按规范化 checkout 根登记的持久 Session 作者准入；同 checkout 的子目录别名共用作者，重叠的不同执行根保守拒绝。第二个独立作者在派发前返回 `WORKTREE_REQUIRED`，`submissionUnknown: false`，`outcome: {kind:"noMutation"}`；原会话不自动搬迁，取消和只读检查仍可进行。此宿主登记不扩展为直接 Core/CLI 的权限或跨桌面数据目录互斥。
 

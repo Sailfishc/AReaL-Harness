@@ -491,3 +491,49 @@ test("a subdirectory project preserves its execution directory across source wor
         "nested fixture\n",
     );
 });
+
+test("guarded removal preserves ignored and unmerged content and keeps the branch after deletion", async (t) => {
+    const f = await fixture(t),
+        creationId = randomUUID();
+    const record = await api.createTask(f.root, f.storage, { taskId: creationId });
+    const remove = () => api.removeManagedTask(f.storage, { requestId: randomUUID(), creationId });
+    await fs.writeFile(path.join(record.directory, "ignored.txt"), "keep ignored");
+    await assert.rejects(remove(), /ignored|未跟踪|忽略|改动/);
+    assert.equal(
+        await fs.readFile(path.join(record.directory, "ignored.txt"), "utf8"),
+        "keep ignored",
+    );
+    await fs.unlink(path.join(record.directory, "ignored.txt"));
+    await fs.writeFile(path.join(record.directory, "committed.txt"), "keep commit");
+    await git(record.directory, "add", ".");
+    await git(
+        record.directory,
+        "-c",
+        "user.name=Fixture",
+        "-c",
+        "user.email=fixture@example.invalid",
+        "commit",
+        "-m",
+        "preserved",
+    );
+    await assert.rejects(remove(), /合并|unmerged/);
+    await git(f.root, "merge", "--ff-only", record.branch);
+    const requestId = randomUUID();
+    const result = await api.removeManagedTask(f.storage, { requestId, creationId });
+    assert.equal(result.removed, true);
+    assert.equal(
+        await git(f.root, "rev-parse", record.branch),
+        await git(f.root, "rev-parse", "HEAD"),
+    );
+    await assert.rejects(fs.access(record.directory));
+    assert.deepEqual(await api.removeManagedTask(f.storage, { requestId, creationId }), result);
+    await fs.writeFile(
+        path.join(f.storage, "worktree-removals", requestId + ".json"),
+        JSON.stringify({ ...result, removed: false }),
+    );
+    assert.equal(
+        (await api.readManagedTaskRemoval(f.storage, requestId)).removed,
+        true,
+        "restart reconciles an already removed checkout without running remove again",
+    );
+});

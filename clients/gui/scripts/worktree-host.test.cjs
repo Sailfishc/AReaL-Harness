@@ -39,7 +39,7 @@ async function setup(t, { gitRepo = true } = {}) {
         facts = new Map(),
         calls = [];
     async function backend() {
-        const b = new CoreBackend({ binary: "/bin/true", home });
+        const b = new CoreBackend({ binary: "/bin/true", home, userHome: join(directory, "user") });
         try {
             b.saved = JSON.parse(await readFile(join(home, "projects.json"), "utf8"));
         } catch {
@@ -508,4 +508,195 @@ test("root and subdirectory projects isolate before either new model context use
         true,
     );
     assert.equal(git(f.root, "status", "--porcelain"), "");
+});
+
+test("global management stores versioned project environments without starting Core", async (t) => {
+    const f = await setup(t),
+        b = await f.backend();
+    b.start = () => assert.fail("metadata management must not start Core");
+    const list = await b.command("workspace", { projectId: f.id, operation: "worktreeList" });
+    assert.equal(list.defaultRoot, join(b.userHome, ".areal", "worktrees"));
+    assert.equal(list.settings.autoCleanup, false);
+    const environment = {
+        id: "dev",
+        name: "Development",
+        setup: { default: "printf setup", macos: " " },
+        cleanup: { default: "" },
+        actions: [{ id: "check", name: "Check", script: { default: "pwd" } }],
+    };
+    const saved = await b.command("workspace", {
+        projectId: f.id,
+        operation: "worktreeEnvironmentSave",
+        environment,
+        expectedRevision: 0,
+    });
+    assert.equal(saved.environmentRevision, 1);
+    await assert.rejects(
+        b.command("workspace", {
+            projectId: f.id,
+            operation: "worktreeEnvironmentSave",
+            environment,
+            expectedRevision: 0,
+        }),
+        /版本|revision/,
+    );
+    const restarted = await f.backend();
+    const restored = await restarted.command("workspace", {
+        projectId: f.id,
+        operation: "worktreeList",
+    });
+    assert.deepEqual(restored.projects[0].environments, [environment]);
+});
+
+test("explicit source rejects an occupied checkout instead of auto isolating", async (t) => {
+    const f = await setup(t),
+        b = await f.backend();
+    await b.command("create", {
+        projectId: f.id,
+        requestId: randomUUID(),
+        worktree: { mode: "source" },
+    });
+    await assert.rejects(
+        b.command("create", {
+            projectId: f.id,
+            requestId: randomUUID(),
+            worktree: { mode: "source" },
+        }),
+        /占用|occupied/,
+    );
+    assert.equal(f.calls.length, 1);
+});
+
+test("cancel before binding retains checkout and never starts a thread", async (t) => {
+    const f = await setup(t),
+        b = await f.backend(),
+        requestId = randomUUID();
+    const register = b.worktrees.register.bind(b.worktrees);
+    let release, reached;
+    const waiting = new Promise((resolve) => {
+        reached = resolve;
+    });
+    const gate = new Promise((resolve) => {
+        release = resolve;
+    });
+    b.worktrees.register = async (...args) => {
+        const result = await register(...args);
+        reached();
+        await gate;
+        return result;
+    };
+    const creating = b.command("create", { projectId: f.id, requestId, worktree: { ref: "main" } });
+    const rejected = assert.rejects(creating, /取消|cancel/i);
+    await waiting;
+    const cancelling = b.command("workspace", {
+        projectId: f.id,
+        operation: "worktreeCancel",
+        requestId,
+    });
+    const deadline = Date.now() + 1000;
+    while (b.worktrees.records.get(requestId).intent !== "cancel" && Date.now() < deadline)
+        await new Promise((resolve) => setTimeout(resolve, 10));
+    release();
+    assert.equal(b.worktrees.records.get(requestId).intent, "cancel");
+    await rejected;
+    const result = await cancelling;
+    assert.equal(result.state, "cancelled");
+    assert.ok(result.record.directory);
+    assert.equal(f.calls.length, 0);
+    assert.equal(
+        (await b.command("workspace", { projectId: f.id, operation: "worktreeRead", requestId }))
+            .state,
+        "cancelled",
+    );
+});
+
+test("ready cancellation reports too late and preserves the existing thread", async (t) => {
+    const f = await setup(t),
+        b = await f.backend(),
+        requestId = randomUUID();
+    const created = await b.command("create", {
+        projectId: f.id,
+        requestId,
+        worktree: { ref: "main" },
+    });
+    const result = await b.command("workspace", {
+        projectId: f.id,
+        operation: "worktreeCancel",
+        requestId,
+    });
+    assert.equal(result.state, "ready");
+    assert.equal(result.cancelResult, "tooLate");
+    assert.equal(result.threadId, created.threadId);
+});
+
+test("unknown setup read never dispatches the script again", async (t) => {
+    const f = await setup(t),
+        b = await f.backend(),
+        requestId = randomUUID();
+    await b.command("create", { projectId: f.id, requestId, worktree: { ref: "main" } });
+    const ready = b.worktrees.records.get(requestId);
+    await b.worktrees.persist({
+        ...ready,
+        state: "settingUp",
+        environment: {
+            id: "dev",
+            name: "Dev",
+            setup: { default: "touch unknown-effect" },
+            cleanup: { default: "" },
+            actions: [],
+        },
+        setup: {
+            requestId: randomUUID(),
+            kind: "setup",
+            status: "running",
+            script: "touch unknown-effect",
+        },
+    });
+    const restarted = await f.backend();
+    restarted.readSubmission = async () => ({ confirmed: false });
+    restarted.submit = () => assert.fail("unknown process start cannot be repeated");
+    const recovered = await restarted.command("workspace", {
+        projectId: f.id,
+        operation: "worktreeRead",
+        requestId,
+    });
+    assert.equal(recovered.state, "unknown");
+    assert.equal(recovered.setup.status, "unknown");
+});
+
+test("bound setup thread rejects ordinary writes before environment is ready", async (t) => {
+    const f = await setup(t),
+        b = await f.backend(),
+        requestId = randomUUID();
+    const created = await b.command("create", {
+        projectId: f.id,
+        requestId,
+        worktree: { ref: "main" },
+    });
+    const value = b.worktrees.records.get(requestId);
+    await b.worktrees.persist({ ...value, state: "settingUp" });
+    await assert.rejects(
+        b.command("send", { projectId: f.id, threadId: created.threadId, text: "must not run" }),
+        /环境|就绪/,
+    );
+    await assert.rejects(
+        b.command("manage", {
+            projectId: f.id,
+            threadId: created.threadId,
+            operation: "processStart",
+            requestId: randomUUID(),
+            argv: ["/bin/true"],
+        }),
+        /环境|就绪/,
+    );
+    await assert.rejects(
+        b.command("workspace", {
+            projectId: f.id,
+            threadId: created.threadId,
+            operation: "save",
+            path: "shared.txt",
+            text: "must not write",
+        }),
+        /环境|就绪/,
+    );
 });

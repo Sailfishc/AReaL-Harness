@@ -102,6 +102,7 @@ class CoreBackend {
         get defaultProfile() { return backend.defaultProfile; },
         get hooks() { return backend.hooks; },
         get lifecycleOperations() { return backend.lifecycleOperations; },
+        get worktrees() { return backend.worktrees; },
         listThreads: (...args) => backend.listThreads(...args),
         onChange: () => backend.onChange(),
         observeNotification: (...args) => backend.observations.notification(...args),
@@ -213,6 +214,7 @@ class CoreBackend {
       trace.advance('resources');
       await this.resources.init();
       await this.lifecycleOperations.reconcileLoaded();
+      void this.worktrees.autoCleanup().catch(() => {});
       trace.finish('ok');
     } catch (error) { trace.finish('error', error); throw error; }
   }
@@ -746,6 +748,7 @@ class CoreBackend {
   reconcileEntries(...args) { return this.submissions.reconcileEntries(...args); }
 
   async command(name, request, context = {}) {
+    if (name === 'workspace' && request?.operation?.startsWith('worktree')) require('@areal/workbench/desktop-contract').validateCommand(name, request);
     const semantics = commandSemantics(name, request);
     if (semantics.requestId && !request[semantics.requestId]) request = { ...request, [semantics.requestId]: randomUUID() };
     if (this.worktrees) request = await this.worktrees.resolveRequest(name, request);
@@ -829,6 +832,13 @@ class CoreBackend {
     if (name === 'tasks') return taskCatalog(this, request);
     if (name === 'projectless') return this.projectless.command(request);
     if (name === 'library') return this.library.command(request);
+    if (!(name === 'workspace' && request.operation.startsWith('worktree')) && name !== 'create') {
+      this.worktrees.assertAvailable(request.projectId);
+      if (commandSemantics(name, request).effect === 'mutation') {
+        const operation = [...this.worktrees.records.values()].find(value => value.executionProjectId === request.projectId && value.threadId && value.state !== 'ready');
+        if (operation) throw new Error('工作树环境尚未就绪，不能执行会话写操作');
+      }
+    }
     if (name === 'workspace') {
       if (this.worktreeAdmission.needsAdmission(name, request)) await this.worktreeAdmission.admit(await this.start(request.projectId), name, request);
       return workspaceCommand(this, request);

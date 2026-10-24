@@ -6,19 +6,33 @@
 
 ## 新会话的工作区选择
 
-新会话 Composer 旁的“自动隔离”打开“新会话工作区”。自动模式允许没有其他占用的首个根会话使用来源目录。来源已有根会话，或其他已登记项目指向同一 Git checkout（包括其子目录）时，新的普通根会话先创建独立 Worktree，再创建线程。这一选择比推测模型是否准备写文件更保守，也避免模型读过共享目录后才更换工作区。
+新会话 Composer 上方右侧的齿轮打开工作区设置。打开“新 Worktree”，选择起始分支和项目环境。分支支持搜索。环境入口可以跳转到“设置 > Worktrees > 环境”配置当前项目。选择只保存草稿选项，发送首条 Prompt 后才创建目录。来源必须属于同一个 Git common directory。宿主先把来源 ref 固定为提交，再创建独立命名分支，不复用已占用分支或覆盖目录。项目位于仓库子目录时，新执行根保留相同相对目录；选定提交缺少该目录时准备失败。
 
-“新 Worktree”模式可以指定来源 Worktree、起始分支和新分支名称。来源必须属于同一个 Git common directory。宿主先把来源 ref 解析成固定提交，再创建新的命名分支。创建不隐式联网 fetch，来源提交须已存在于本地仓库。它不复用被占用的目标分支，不强制覆盖目录，也不静默改成 detached HEAD。来源项目位于仓库子目录时，新的执行根保留相同相对目录。选定提交没有该目录时，准备失败。
+未明确选择工作区方式的旧草稿保留自动隔离行为。来源已有根会话，或其他已登记项目指向同一 checkout 时，新会话先创建 Worktree。明确选择原目录仍受持久作者准入约束，已占用的原目录会被拒绝，不绕过隔离保护。
 
-“Worktree 默认配置”保存根目录和分支名称前缀。空根目录使用桌面数据目录下的 `worktrees`。默认前缀是 `areal`，留空的新分支名称按前缀和请求 UUID 生成。配置只影响未来创建，不移动现有目录、不修改已有分支，也不扩大已启动 Runtime 的权限。
+创建过程中显示准备阶段、输出和已发送的 Prompt 预览。取消请求先阻止首条消息发送，再确认准备进程终止；已建目录保留。“不使用 Worktree”只有在原请求确认取消后，才以新的明确请求选择原目录。未确认结果不会自动回退。侧栏的分叉图标及对话中的创建标识来自实际 Worktree 绑定。
 
-取消选择浮层保留会话草稿。点击“使用此选择”只保存新会话选项，不创建目录。发送首条消息后，宿主才受理创建请求。关闭浮层或窗口不等于取消已受理的 Git 操作。
+## General 与目录管理
+
+“设置 > Worktrees > General”保存根目录、分支前缀、创建前 fetch、自动清理和保留数量。空根目录使用 `~/.areal/worktrees`，其下按项目分组。默认前缀为 `areal`，新分支未命名时按前缀和请求 UUID 生成。配置只影响未来创建，不移动已有目录或修改已有分支。fetch 默认关闭；开启后先获取远端，再解析固定起点。
+
+管理列表按项目展示宿主登记的 Worktree。删除会核对目录身份和实际执行宿主，执行所选环境的 cleanup，再次检查 Git 状态，以非 force 的 Git 操作移除目录，保留分支和历史。活动任务、未确认操作、未提交或未跟踪文件、忽略文件及未合并提交等会阻止删除。主 checkout 不能通过此入口删除。自动清理默认关闭，仅考虑已归档且未固定的会话及未绑定目录，复用相同检查；受保护目录可以使数量超过上限。
+
+## 项目环境
+
+“环境”按项目保存名称、Setup script、Cleanup script 和自定义 Actions。脚本提供 Default、macOS、Linux 标签。当前平台的非空脚本覆盖 Default，空白覆盖使用 Default。环境在创建受理时固定，之后编辑不会改变已经准备或运行的 Worktree。
+
+Setup 在新 Worktree 的项目根执行，成功后才发送首条 Prompt。准备期间可以存在尚未收到 Prompt 的空线程。Cleanup 在删除前执行。Actions 从当前 Worktree 的入口显式运行，可用于构建、测试或执行其他项目命令。它们复用 Core 的受管进程，并遵循原有权限、超时、输出和清理规则。
+
+脚本可读取 `AREAL_WORKTREE_PATH`、`AREAL_PROJECT_PATH`、`AREAL_WORKTREE_BRANCH`。路径和分支通过环境变量传递，不拼接到命令中。只执行用户保存并选择的环境，不自动发现或执行仓库中的 setup 或 Git hooks。当前脚本入口支持 macOS、Linux。每次脚本最多运行 10 分钟，输出最多保留 64 KiB；它是一次受管命令，不会留下不受管理的后台服务。
+
+Setup 失败保留草稿、创建记录和目录，不自动发送 Prompt。脚本执行结果未知时只检查原回执，不自动重跑。Cleanup 失败或未知时保留目录，不强制删除。手动以新请求重试前，需要核对原脚本可能已经产生的副作用。
 
 ## 来源改动与兼容性
 
-新 Worktree 只包含选定提交。来源的 staged、unstaged、untracked 和 ignored 内容均不复制，来源 HEAD、index 和文件保持原状。宿主不自动 stash、commit、运行项目 setup 脚本或执行 Git hooks；也不自动复制 `.worktreeinclude` 所列文件。新宿主使用当前部署的全局或默认资源，不复制来源项目专有的 Skills、MCP 或 Profile。指定资源在新宿主不可用时，创建不能静默改用来源目录。
+新 Worktree 只包含选定提交。来源的 staged、unstaged、untracked 和 ignored 内容均不复制，来源 HEAD、index 和文件保持原状。宿主不自动 stash、commit 或执行 Git hooks；未选择已保存环境时不运行 setup；也不自动复制 `.worktreeinclude` 所列文件。新宿主使用当前部署的全局或默认资源，不复制来源项目专有的 Skills、MCP 或 Profile。指定资源在新宿主不可用时，创建不能静默改用来源目录。
 
-旧 `source: "working-tree"` 快照入口会创建临时 Git 提交。该模式现明确拒绝并提示选择提交或分支，不再沿用“包含未提交的改动”的旧含义。已有 Worktree 和旧创建记录保留，不自动删除或搬迁。确需以尚未提交的内容开始工作时，由用户先明确准备合适的来源提交或独立目录。
+旧 `source: "working-tree"` 快照入口会创建临时 Git 提交。该模式现明确拒绝并提示选择提交或分支，不再沿用“包含未提交的改动”的旧含义。已有 Worktree 和旧创建记录保留，不自动搬迁。确需以尚未提交的内容开始工作时，由用户先明确准备合适的来源提交或独立目录。
 
 ## 创建、绑定与恢复
 
@@ -29,7 +43,10 @@
 | `creating` | 已保存创建意图，Git 结果尚未确认。重复请求不能创建第二份目录。 |
 | `created` | Git checkout 已确认。线程绑定尚未完成，不表示可以开始模型执行。 |
 | `binding` | 已选择实际执行宿主，线程创建或其回执仍待确认。恢复读取原 Core 回执，不重发未知提交。 |
-| `ready` | 线程身份与实际宿主已确认。新会话可以使用该 Runtime 的工作区根。 |
+| `settingUp` | 空线程已绑定，正在核对环境 setup；首条 Prompt 尚未发送。 |
+| `cancelling` | 已请求取消，等待原操作或进程静止，不能改用原目录。 |
+| `cancelled` | 准备已确认取消，保留已建目录和草稿。 |
+| `ready` | 线程身份、实际宿主和环境准备均已确认，可以发送首条 Prompt。 |
 | `failed` | 已确认失败。保留来源和已创建资源，修正问题后使用新的明确请求。 |
 | `unknown` | 部分 Git 操作结果不确定。先查询并核对现有分支、目录和记录，不重放或强制清理。 |
 
@@ -37,7 +54,7 @@
 
 创建事件属于桌面宿主的持久日志。界面把事件投影到对话流，并在线程、工作区上下文中显示分支和目录；这些投影不伪造 Core 消息或模型工具结果。重连从原记录及宿主快照恢复。Git 成功而登记、资源初始化或绑定失败时，保留目录供核查，不回退来源目录继续执行。
 
-已存在的目标分支、目录冲突、非法 ref、跨仓库来源和非 Git 来源的第二个根会话会被拒绝。根目录禁止路径穿越和符号链接祖先。并发创建通过独立请求记录和目标预留处理；`git worktree lock` 不是文件写互斥。产品不自动回收、删除或合并 Worktree。
+已存在的目标分支、目录冲突、非法 ref、跨仓库来源和非 Git 来源的第二个根会话会被拒绝。根目录禁止路径穿越和符号链接祖先。并发创建通过独立请求记录和目标预留处理；`git worktree lock` 不是文件写互斥。删除与可选自动清理只处理通过上述检查的受管 Worktree，不自动合并。
 
 ## 执行隔离的范围
 
@@ -90,6 +107,13 @@ node --test clients/gui/scripts/worktree-git.test.cjs clients/gui/scripts/worktr
 ```sh
 make build
 AREAL_CORE_BIN="$PWD/target/debug/areal" node clients/gui/scripts/worktree-integration.mjs
+```
+
+环境专项在固定可信 Core 路径上运行。第一项验证真实受管脚本、40 秒准备和取消、cleanup 与删除。第二项验证隔离 Electron 设置、首条 Prompt、Action、失败、取消及原目录选择。文件选择器和外部模型使用 fixture，其余经过真实桌面与 Core 路径。
+
+```sh
+AREAL_CORE_BIN=/absolute/path/to/areal pnpm --dir clients/gui test:worktree-environment
+AREAL_CORE_BIN=/absolute/path/to/areal pnpm --dir clients/gui test:worktree-environment-ui
 ```
 
 真实 Core 的定时任务交互协议可另行复验：
