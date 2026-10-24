@@ -23,7 +23,7 @@ import {setApplicationPreferences} from '${join(gui, 'renderer/src/settings/appl
 import '${join(gui, 'renderer/src/styles.css')}';
 let mode='uninstalled',digest='a'.repeat(64),installed=false,auth='notStarted',state='disconnected',revision=1,lose=false,disabledSkills=[],disabledMcpServers=[];
 const skill={id:'github@official/review',revision:'skill-r1',name:'Review changes',description:'Review a proposed change.',onboarding:false,allowImplicitInvocation:true};
-const skillsOnly=()=>mode==='skills-only';
+const skillsOnly=()=>['skills-only','project-unknown'].includes(mode);
 const calls=[]; let receipt;
 const installedMetadata=()=>({name:'github',displayName:'GitHub',description:'Installed GitHub description.',version:'1.0.0',interface:{developerName:'Fixture developer',longDescription:'Read issues and review proposed changes.',defaultPrompt:['Review the current changes.'],category:'Development',websiteUrl:'https://example.com/plugin',privacyPolicyUrl:'https://example.com/privacy'},components:skillsOnly()?['skills']:['mcp']});
 const support=()=>({digest,manifestFormat:'portable1',compatibility:{state:'allowed',reasonCodes:[]},validation:{provider:'unverified',platform:'unverified',distribution:'unverified'},components:[{kind:'mcp',sourceField:'mcp.json',status:'supported',reasonCodes:[],supportedSchema:'areal-mcp-document-envelope-v1',activationRequirements:['explicitMcpTrust','mcpConnection']},{kind:'uiSurfaces',sourceField:'plugin.json#/ui/surfaces/panel',status:'unsupported',reasonCodes:['componentNotImplemented'],supportedSchema:null,activationRequirements:[]}]});
@@ -44,7 +44,7 @@ case'pluginConnection':state=p.connect&&mode!=='failed'?'connected':'disconnecte
 case'pluginSubmission':return receipt;default:throw Error('Unexpected fixture operation '+p.operation);}};
 function assertComponent(p){if(p.expectedRevision!==revision||p.expectedDigest!==digest)throw Error('STALE_COMPONENT_GUARD');}
 function App(){const [epoch,setEpoch]=useState(0),[surface,setSurface]=useState('workspace');window.pluginFixture={calls,reset(next){mode=next;disabledSkills=[];disabledMcpServers=[];setSurface('workspace');installed=next!=='uninstalled';auth=next==='pending'?'pending':next==='ready'||next==='connected'||next==='unknown'||next==='failed'?'ready':'notStarted';state=next==='connected'?'connected':'disconnected';lose=next==='unknown'||next==='failed';revision++;setEpoch(x=>x+1);},swapDigest(){digest='b'.repeat(64);revision++;window.dispatchEvent(new Event('areal-plugins-changed'));},setReady(){auth='ready';mode='ready';},changeCatalog(){mode='catalog-changed';revision++;window.dispatchEvent(new Event('areal-plugins-changed'));},language(locale){setApplicationPreferences({locale});},};
-const project={id:'fixture',name:'workspace',root:'/fixture',state:{connected:true},profiles:[{id:'standard',revision:1}],pending:mode==='project-unknown'?[{method:'areal/thread/start',params:{requestId:'00000000-0000-4000-a000-000000000111'},awaitingResponse:false}]:[]};return <UnsavedChangesProvider><div style={{height:'100vh',display:'flex',background:'var(--color-background)'}}><PluginCenter key={epoch} project={project} projects={[project]} action={action} active surface={surface} marketRequest={0} onSettings={()=>setSurface("settings")} onMarket={()=>setSurface("workspace")} onChooseProject={()=>{}} onSelectProject={()=>{}} onStartDraft={async()=>{calls.push({operation:'startDraft'});}} /></div></UnsavedChangesProvider>;}
+const project={id:'fixture',name:'workspace',root:'/fixture',state:{connected:true},profiles:[{id:'standard',revision:1}],pending:mode==='project-unknown'?[{method:'areal/thread/start',params:{requestId:'00000000-0000-4000-a000-000000000111'},awaitingResponse:false}]:[]};window.pluginFixture.pending=project.pending;return <UnsavedChangesProvider><div style={{height:'100vh',display:'flex',background:'var(--color-background)'}}><PluginCenter key={epoch} project={project} projects={[project]} action={action} active surface={surface} marketRequest={0} onSettings={()=>setSurface("settings")} onMarket={()=>setSurface("workspace")} onChooseProject={()=>{}} onSelectProject={()=>{}} onStartDraft={async()=>{calls.push({operation:'startDraft'});}} /></div></UnsavedChangesProvider>;}
 createRoot(document.getElementById('root')).render(<ApplicationIntlProvider><App/></ApplicationIntlProvider>);`);
 const server = await createServer({ root: join(gui, 'renderer'), configFile: join(gui, 'renderer/vite.config.ts'), mode: 'design-system', appType: 'custom', server: { host: '127.0.0.1', port: 0, fs: { allow: [root] } } });
 server.middlewares.use(async (req, res, next) => {
@@ -72,7 +72,18 @@ async function capture(name) {
   await writeFile(join(evidence, name + '.aria.txt'), await page.locator('body').ariaSnapshot());
 }
 async function checkProjectRecovery() {
-  await open('project-unknown',false);
+  await open('project-unknown');
+  const skillSwitch=page.getByRole('switch',{name:'在当前项目启用 Skill Review changes',exact:true});
+  assert.equal(await skillSwitch.isEnabled(),true,'unrelated creation must retain normal Skills management');
+  const originalPending=await page.evaluate(()=>structuredClone(window.pluginFixture.pending));
+  const beforeConfiguration=await page.evaluate(()=>window.pluginFixture.calls.length);
+  await skillSwitch.click();
+  await waitChecked('在当前项目启用 Skill Review changes',false);
+  const configured=await page.evaluate(offset=>window.pluginFixture.calls.slice(offset).filter(call=>call.operation==='pluginComponentConfigure'),beforeConfiguration);
+  assert.equal(configured.length,1);
+  assert.equal(configured[0].enabled,false);
+  assert.notEqual(configured[0].requestId,originalPending[0].params.requestId);
+  assert.deepEqual(await page.evaluate(()=>window.pluginFixture.pending),originalPending);
   await page.getByText(/areal\/thread\/start/).waitFor();
   await page.getByText(/00000000-0000-4000-a000-000000000111/).waitFor();
   const previousCalls=await page.evaluate(()=>window.pluginFixture.calls.length);
@@ -80,10 +91,13 @@ async function checkProjectRecovery() {
   await page.waitForFunction(()=>window.pluginFixture.calls.some(call=>call.name==='reconcile'));
   await button('核对项目操作').waitFor({state:'visible'});
   const checkedCalls=await page.evaluate(offset=>window.pluginFixture.calls.slice(offset),previousCalls);
-  assert.equal(checkedCalls.filter(call=>call.name==='reconcile').length,1);
+  assert.deepEqual(checkedCalls.filter(call=>call.name==='reconcile').map(call=>({projectId:call.projectId,requestId:call.requestId})),[{projectId:'fixture',requestId:originalPending[0].params.requestId}]);
+  await page.getByText('已核对，原操作仍未确认。未重新提交。',{exact:true}).waitFor();
+  assert.deepEqual(await page.evaluate(()=>window.pluginFixture.pending),originalPending);
+  assert.equal(await skillSwitch.isEnabled(),true);
   assert.equal(checkedCalls.filter(call=>['create','send'].includes(call.name)||['pluginInstall','pluginConfigure','pluginConnection'].includes(call.operation)).length,0);
   await capture('13-project-operation-recovery');
-  checks.push('generic project uncertainty names the original request and supports read-only checking without replay or plugin writes');
+  checks.push('unrelated creation retains normal Skills management; checking names original UUID and reports unresolved without replay or plugin writes');
 }
 try {
   browser = await chromium.launch({ headless: true, ...(process.env.AREAL_GUI_TEST_BROWSER ? { executablePath: process.env.AREAL_GUI_TEST_BROWSER } : { channel: 'chrome' }) });
