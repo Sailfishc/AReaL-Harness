@@ -15,7 +15,7 @@ const renderer = resolve(gui, "renderer/src");
 
 async function components() {
   const out = [];
-  for (const file of (await readdir(ui, { recursive: true })).filter(file => file.endsWith(".md"))) {
+  for (const file of (await readdir(ui, { recursive: true })).filter(file => file.endsWith(".md") && !file.startsWith("generated/"))) {
     const front = (await readFile(resolve(ui, file), "utf8")).match(/^---\n([\s\S]+?)\n---\n/);
     const data = Object.fromEntries(front[1].split("\n").map(line => line.split(/: (.*)/s).slice(0, 2)));
     out.push({ id: data.id, layer: data.layer, status: data.status, hold: data.hold, exports: data.exports ? JSON.parse(data.exports) : [data.title] });
