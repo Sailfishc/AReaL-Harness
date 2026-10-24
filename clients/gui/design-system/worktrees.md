@@ -34,7 +34,7 @@
 
 | 层级 | Worktree 的职责 | 唯一来源 |
 | --- | --- | --- |
-| Foundations | 表面、字号、字重、间距、图标、焦点、动效 | [foundations](foundations.md)、[Token 指南](../DESIGN_SYSTEM.md#token-选择)、生产 CSS 与外观偏好 |
+| Foundations | 表面、字号、字重、间距、图标、焦点、动效 | [foundations](foundations.md)、[Token 来源与使用](../../../design/foundations/tokens.md)、生产 CSS 与外观偏好 |
 | 通用控件 | Button、Switch、搜索、Tabs、Popover、详情、输入与反馈 | 原 UI / Settings 控件；不在控件中认识项目、分支或创建请求 |
 | 领域组合 | 配置行、分支条目、准备摘要、目录行、脚本字段、Action 条目 | [UI包Worktree层](../packages/ui/src/worktree)承接有限组合与就近MD，原Worktree所有者保留数据/操作适配，Props由真实TS生成 |
 | 交互模式 | 选择、观察、管理、返回与恢复 | 复用 P-DETAIL、P-STATUS、P-SETTINGS；对话顺序沿 P-CONVERSATION |

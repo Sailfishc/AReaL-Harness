@@ -437,19 +437,19 @@ button.composer-project:hover > svg,
   border: 0;
   background: var(--color-user-message);
   color: var(--color-user-message-text);
-  border-radius: var(--radius-composer);
-  line-height: 1.5;
+  border-radius: var(--radius-message);
+  line-height: var(--conversation-line);
 }
 .assistant-message {
-  margin: 0 0 12px;
+  margin: 0 0 var(--conversation-gap);
 }
 .assistant-message-final { margin-bottom: 0; }
 /* Compact top-level Markdown blocks without changing list/code internals or line height. */
 .conversation-markdown:not(.user-message-body) > :not(:last-child) {
-  margin-block: 0 0.571429em;
+  margin-block: 0 var(--conversation-gap);
 }
 .conversation-markdown:not(.user-message-body) > p + p { margin-block-start: 0; }
-.conversation-markdown { min-width: 0; overflow-wrap: anywhere; line-height: 1.6; }
+.conversation-markdown { min-width: 0; overflow-wrap: anywhere; line-height: var(--conversation-line); }
 
 .user-message-body { white-space: normal; letter-spacing: normal; }
 .user-message-body > * { margin-block: 0; }
@@ -1306,7 +1306,7 @@ button.composer-project:hover > svg,
 .provider-status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-foreground-subtlest); margin-left: auto; }
 .provider-status-dot.enabled { background: #d68712; }
 
-.turn-activity { margin: 8px 0 12px; color: var(--color-foreground-subtle); font-size: var(--text-ui-sm); }
+.turn-activity { margin: 0; color: var(--color-foreground-subtle); font-size: var(--text-conversation); line-height: var(--conversation-line); }
 /* 重复色带的首尾同相位，让等待状态连续滚动；明暗都使用当前主题文字色。 */
 .turn-thinking { display: inline-block; color: var(--color-foreground-subtle); }
 @supports (background-clip: text) {
@@ -1320,7 +1320,7 @@ button.composer-project:hover > svg,
    Focus/scrollIntoView must never move the composer along with the transcript. */
 .conversation-pane:not(.draft-pane) { overflow: clip; }
 .tool-event { margin: 0; min-width: 0; }
-.tool-summary-row { display: flex; align-items: center; gap: 6px; max-width: 100%; min-height: 21px; padding: 0; border: 0; background: transparent; text-align: left; font-size: var(--text-ui-caption); line-height: 1.5; color: var(--activity-foreground); }
+.tool-summary-row { display: flex; align-items: center; gap: 6px; max-width: 100%; min-height: 21px; padding: 0; border: 0; background: transparent; text-align: left; font-size: var(--text-conversation); line-height: var(--conversation-line); color: var(--activity-foreground); }
 .tool-summary-row > svg { flex-shrink: 0; }
 .tool-summary-detail { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: inherit; }
 .tool-result { font-size: var(--text-ui-caption); white-space: nowrap; color: var(--color-foreground-subtle); }
@@ -1475,7 +1475,7 @@ body { font-family: var(--font-sans); }
 
 /* Application appearance preferences: independent typography roles and compact settings. */
 .assistant-message, .user-bubble { font-family: var(--font-content, var(--font-sans)); font-size: var(--content-font-size, 14px); --text-ui-base: var(--content-font-size, 14px); font-weight: var(--ui-font-weight); letter-spacing: normal; }
-.user-bubble { line-height: 1.625; }
+.user-bubble { line-height: var(--conversation-line); }
 .assistant-message > * { letter-spacing: normal; }
 .assistant-message { font-weight: 400; }
 .compact-settings h2 { font-size: var(--text-ui-base); font-weight: 500; margin-bottom: 12px; }
@@ -1505,14 +1505,14 @@ body { font-family: var(--font-sans); }
 .reasoning-details p { margin: 6px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 
-.turn-execution { --activity-foreground: var(--color-foreground-subtle); margin: var(--spacing-inline) 0; font-weight: 450; min-width: 0; }
+.turn-execution { --activity-foreground: var(--color-foreground-subtle); margin: var(--conversation-gap) 0; font-weight: 400; min-width: 0; }
 .tool-summary-row:hover { color: var(--color-foreground); }
 .execution-failures { font-size: var(--text-content-caption); color: var(--color-destructive); }
 .turn-execution .execution-row { min-width: 0; }
 .execution-row[hidden] { display: none; }
-.execution-row > .assistant-message[data-message-phase="commentary"] { margin: 7px 0; line-height: 1.5; }
-.assistant-message[data-message-phase="commentary"] .conversation-markdown { line-height: 1.5; }
-.assistant-message[data-message-phase="commentary"] { margin: 12px 0; }
+.execution-row > .assistant-message[data-message-phase="commentary"] { margin: var(--conversation-gap) 0; line-height: var(--conversation-line); }
+.assistant-message[data-message-phase="commentary"] .conversation-markdown { line-height: var(--conversation-line); }
+.assistant-message[data-message-phase="commentary"] { margin: var(--conversation-gap) 0; }
 .conversation-web-preview { display: flex; align-items: center; gap: 12px; padding: 12px; border: 1px solid var(--color-border); border-radius: 12px; background: var(--color-surface); }
 .conversation-web-preview > svg { flex: none; color: var(--color-foreground-subtle); }
 .conversation-web-preview-info { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 3px; }
@@ -1525,7 +1525,7 @@ body { font-family: var(--font-sans); }
 .tool-image-row { justify-content: space-between; }
 .tool-image-preview { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .tool-image-preview[hidden] { display: none; }
-.assistant-message[data-message-phase="commentary"] .conversation-markdown > :not(:last-child) { margin-bottom: .5em; }
+.assistant-message[data-message-phase="commentary"] .conversation-markdown > :not(:last-child) { margin-bottom: var(--conversation-gap); }
 .reasoning-group { margin: 0; }
 .reasoning-group-details { padding: 4px 0 4px 16px; border-left: 1px solid var(--color-border); }
 .reasoning-group-details[hidden] { display: none; }
@@ -1548,10 +1548,10 @@ body { font-family: var(--font-sans); }
 @scope (:root[data-reduced-motion="true"]) { .execution-chevron, .tool-chevron, .turn-progress-summary > svg { transition: none; } }
 
 
-.turn-progress { margin: var(--spacing-inline) 0; }
+.turn-progress { margin: var(--conversation-gap) 0; }
 .turn-elapsed { margin: var(--spacing-inline) 0; }
 .turn-progress-heading { display: flex; flex-direction: column; }
-.turn-progress-label { display: flex; font-size: var(--text-content-caption); font-weight: 450; line-height: 1.5; }
+.turn-progress-label { display: flex; font-size: var(--text-conversation); font-weight: 400; line-height: var(--conversation-line); }
 .turn-progress-summary { display: inline-flex; vertical-align: middle; align-items: center; flex-wrap: wrap; gap: 4px; max-width: 100%; padding: 0; margin: 0; border: 0; border-radius: 0; background: transparent; color: var(--color-process-settled, var(--color-foreground-subtle)); font: inherit; text-align: left; }
 .turn-progress-divider { margin-top: 4px; border-bottom: 1px solid var(--color-menu-border, var(--color-border)); }
 .turn-progress:not(:has(> .turn-progress-heading)) { margin: 0; }
@@ -1559,7 +1559,11 @@ body { font-family: var(--font-sans); }
 .turn-progress-summary > svg.open { transform: rotate(90deg); }
 .turn-progress-summary .execution-failures { margin-left: auto; }
 .turn-progress-body[hidden] { display: none; }
-.turn-progress-heading + .turn-progress-body > :first-child { padding-top: 7px; }
+.turn-progress-heading + .turn-progress-body > :first-child { padding-top: 0; }
+/* 过程体首尾不叠加外边距：块间距只由 --conversation-gap 提供一次。 */
+.turn-progress-body > :first-child { margin-top: 0; }
+.turn-progress-body > :last-child { margin-bottom: 0; }
+.message-actions:empty { display: none; }
 /* Reference disclosure rhythm; Base UI owns measured height and interrupted
    transitions. Keep children mounted so disclosure never replays execution. */
 .conversation-disclosure { height: var(--collapsible-panel-height); overflow: hidden; transition: height 300ms cubic-bezier(.19, 1, .22, 1); }
@@ -1576,7 +1580,7 @@ body { font-family: var(--font-sans); }
 .assistant-message-final:hover ~ .message-actions, .assistant-message-final:focus-within ~ .message-actions,
 .turn-file-summary:hover ~ .message-actions, .turn-file-summary:focus-within ~ .message-actions,
 .message-actions:hover, .message-actions:focus-within { opacity: 1; }
-.user-message .message-actions { opacity: 0; margin: 4px 4px 0; }
+.user-message .message-actions { opacity: 0; margin: 0 4px; }
 .user-message:hover .message-actions, .user-message:focus-within .message-actions { opacity: 1; }
 @media (hover: none) { .message-actions, .user-message .message-actions { opacity: 1; } }
 
@@ -2184,8 +2188,8 @@ body { font-family: var(--font-sans); }
 .turn-progress-summary { gap: var(--spacing-inline); }
 .turn-progress-summary:focus-visible { outline: var(--focus-width) solid var(--color-ring); outline-offset: var(--focus-width); border-radius: var(--radius-control); }
 
-.turn-activity { min-width: 0; margin-block: var(--spacing-inline); }
-.execution-status { color: var(--color-foreground-subtle); font-size: var(--text-content-caption); overflow-wrap: anywhere; }
+.turn-activity { min-width: 0; margin-block: var(--conversation-gap) 0; }
+.execution-status { color: var(--color-foreground-subtle); font-size: var(--text-conversation); line-height: var(--conversation-line); overflow-wrap: anywhere; }
 .tool-image-row > .areal-image-disclosure { min-width: 0; flex: 1; }
 .turn-execution .areal-activity-list .tool-file-diff { max-width: 100%; }
 

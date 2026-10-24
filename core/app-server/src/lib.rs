@@ -1288,7 +1288,9 @@ impl Connection {
                 Ok(thread_result(engine, thread))
             }
             "areal/capabilities" => {
-                use areal_protocol::desktop::{API_VERSION, METHODS, NOTIFICATIONS};
+                use areal_protocol::desktop::{
+                    API_VERSION, METHODS, NOTIFICATIONS, SERVER_REQUESTS,
+                };
                 let p: areal_protocol::desktop::CapabilitiesRequest = parse(params)?;
                 if p.api_version
                     .as_deref()
@@ -1336,7 +1338,7 @@ impl Connection {
                     "areal/mcp/app/tools/cancelled",
                 ]);
                 let mut capabilities = json!({"apiVersion": API_VERSION, "methods": methods, "methodSemantics":semantics,
-                    "notifications": notifications, "serverRequests":["item/tool/call","areal/task/prepare","areal/browser/prepare","areal/computer/prepare","areal/cua/turnEnded"],
+                    "notifications": notifications, "serverRequests":SERVER_REQUESTS,
                     "browserToolBundles":if can_attach_browser {json!([{"bundleId":areal_protocol::desktop::BROWSER_V1_BUNDLE,
                         "definition":areal_protocol::desktop::browser_v1_tool()}])} else {json!([])},
                     "features":json!({"operationOutcomes":true,"taskRequestReceipts":true,"atomicConfigureReceipt":true,"conversationDerivationV1":json!({"preview":false,"methods":["areal/thread/fork","areal/side/start","areal/conversation/list","areal/conversation/history","areal/conversation/unarchive","areal/side/context/read"],"limits":engine.conversation_derivation_limits(),"forkBoundaries":["after","before"],"workspaceModes":["sharedCurrent"],"sideWorkspaceAccess":if engine.side_workspace_read_available() {json!(["none","readOnly"])} else {json!(["none"])},"historyBytes":engine.fork_snapshot_limit()}),"subscriptionRemoval":true,"atomicResume":true,"atomicObserve":true,"atomicObserveOwnership":true,"browserToolAttachment":can_attach_browser,

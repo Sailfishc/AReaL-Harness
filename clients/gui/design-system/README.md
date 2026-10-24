@@ -28,7 +28,7 @@ GUI 设计知识与后续 Web 复用边界从[设计文档](../../../design/READ
 
 新增或修改页面、组件、布局、样式、动效、UI 文案时：
 
-1. 写清用户任务，先从[用户交互模式](interactions.md)选主要交互族及规则强度，再从[页面组合](patterns.md)选模式与[生产目录](inventory.md)中的所有者，读取适用的[基础规则](foundations.md)及[控件合同](../DESIGN_SYSTEM.md)。
+1. 写清用户任务，先从[用户交互模式](interactions.md)选主要交互族及规则强度，再从[页面组合](patterns.md)选模式与[生产目录](inventory.md)中的所有者，读取适用的[基础规则](foundations.md)及[控件合同](../packages/ui/README.md)。
 2. 按[证据驱动设计流程（B路线）](structured-flow.md#执行顺序与每步完成条件)固定页面合同、参考和验收条件。动态页面先做视频候选分析、关键帧/日志核查与差异裁决，再修改已确认的缺口；静态小改动按该流程复用有效证据。
 3. 沿原所有者实现并重放受影响状态，按[准入与完成条件](governance.md)回写唯一规则位置。交付模式、采纳/拒绝的差异、实际验证与缺口；模型建议和生成页面均经过相同准入。
 
@@ -51,7 +51,42 @@ GUI 设计知识与后续 Web 复用边界从[设计文档](../../../design/READ
 | 自动化如何工作、哪些已接入 | [automation.md](automation.md) |
 | 页面设计、视频分析、关键帧核查与差异筛选的默认顺序 | [structured-flow.md](structured-flow.md) |
 | 设计依据、参考观察与采纳如何记录 | [references.md](references.md) |
-| Token 名、组件接口与预览命令 | [现有实现指南](../DESIGN_SYSTEM.md) |
+| Token 名、组件接口与预览命令 | [Token 速查](../packages/ui/src/generated/tokens.md)、[@areal/ui](../packages/ui/README.md)、[预览与检查](#预览与检查) |
+
+## 预览与检查
+
+从仓库根运行：
+
+```sh
+pnpm --dir clients/gui design:dev
+```
+
+打开 Vite 地址的 `/design-system.html`。这是独立开发入口，挂载生产 ConversationComposer、ApprovalRequest 与 SideChatPane，可切换明暗、UI 字号、宽窄面板，查看提交中、失败和未知结果。审批状态通过选择状态后点击审批动作呈现；Side 保留实际入口并明确拒绝真实操作。设置组合额外挂载真实 `SettingsPage`、portal `SettingsDialog` 和 `GeneralSettings`。`/design-system.html?settings` 聚焦此组合。常规设置使用实际浏览器偏好路径；服务操作不可用。紧凑、宽控件、长中英文及外部禁用、处理中、明确失败、结果待确认属于独立展示 fixture，不表示 `GeneralSettings` 支持未知提交。
+
+预览不读取桌面 bridge，不连接 Core/供应商。业务动作使用本地 fixture；常规设置会读写当前 origin 的 localStorage，验收使用隔离浏览器上下文。状态预览不证明业务恢复或权限执行通过。
+
+`design:build` 输出到 `clients/gui/dist/design-system/`；普通 renderer 构建不包含预览 HTML 或预览模块，安装包继续使用 `renderer/dist/`。
+
+```sh
+pnpm --dir clients/gui typecheck
+pnpm --dir clients/gui verify:design
+pnpm --dir clients/gui design:build
+pnpm --dir clients/gui test:design
+# 开发期间仅检查设置组合
+pnpm --dir clients/gui test:design --settings-only
+```
+
+`test:design` 使用隔离 Chrome，保存截图、计算样式与 manifest；可用 `AREAL_GUI_TEST_BROWSER` 指定已有浏览器。检查编辑器草稿保留、模型菜单、实际审批状态、明暗、字号及宽窄布局。设置检查比较独立部件、真实页面与弹窗的计算样式，并验证紧凑密度、分隔线、容器窄宽、键盘控件值、常规偏好重挂载与重载保留、Mobile 插槽几何及实际 CSSOM 规则重排。字体、平台、缩放不同的截图分别评估，不要求跨平台像素一致。
+
+普通 `verify` 执行目录、完整迁移清单和[增量设计检查](automation.md#增量设计检查)；`verify:design` 另运行目录与增量审计回归。`verify:design` 的单一清单覆盖已迁移的 DecisionCard、ComposerSurface、SideChat、Feedback、SettingsPageParts 完整 CSS，以及 `SettingsPageParts.tsx`。CSS 检查阻止局部硬编码字号和颜色，并检查 Token 存在。TSX 使用现有 TypeScript AST 检查 JSX `className` 的直接字符串、`cn`、条件与模板中的字符串，以及直接对象 `style` 的字面量；拒绝 Tailwind 固定字号和标准色板，允许布局数字。检查器内的正反例验证目标写法。动态间接值和变量传递的 style 不在静态覆盖范围内；其他生产 UI 文件按 Git 基线检查新增问题，具体范围见增量设计检查。
+
+目录与页面合同另外由[单源目录](automation.md)校验；目录变化后运行 `design:sync` 同步派生物。
+
+生产样式改变需查看相关组件和原消费者；变体变化看默认、焦点、禁用和提交状态。Composer、审批、Side 的业务兼容继续使用已有 `test:composer`、`test:interactions`、`test:conversation-derivation`，它们与组件预览各自提供不同证据。物理 IME、真实供应商及安装包需单独验收。
+
+新增或重构页面先读[用户交互模式](interactions.md)，按 must/default/explore 约束选已有组合。设置首阶段的设计输入与实际Electron验证合同见[迁移题](exercises/settings-stage1.md)。
+
+界面文案变更同时完成简体中文和英文词条、无障碍名称及受影响路径的双语检查。调用与校验合同见[界面语言与文案开发](../README.md#界面语言与文案开发)。
 
 ## 权威与冲突
 

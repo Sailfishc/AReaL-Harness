@@ -9,6 +9,7 @@
 | --- | --- | --- |
 | `--ui-font-size` | `14px` | 界面默认字号；用户偏好可覆盖 |
 | `--ui-font-weight` | `400` | 界面常规字重 |
+| `--text-conversation` | `var(--content-font-size, 14px)` | 对话时间线字号：正文、活动行、子代理行与过程状态共用，跟随内容字号偏好 |
 | `--text-ui-xl` | `calc(var(--ui-font-size) + 4px)` | 区块标题 |
 | `--text-page-title` | `calc(var(--ui-font-size) + 8px)` | 页面标题、空态大标题 |
 | `--text-ui-lg` | `calc(var(--ui-font-size) + 2px)` | 输入框文字、卡片标题等较突出内容 |
@@ -56,6 +57,7 @@
 | `--radius-composer` | `22px` | 输入区外框 |
 | `--radius-panel` | `12px` | 面板与分组卡片 |
 | `--radius-dialog` | `16px` | 对话框 |
+| `--radius-message` | `16px` | 用户消息气泡圆角 |
 
 ## 阴影
 
@@ -101,6 +103,8 @@
 | `--border-width-default` | `1px` | 描边、分隔线的默认宽度 |
 | `--font-sans` | `-apple-system, system-ui, "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Noto Sans CJK SC", sans-serif` | 基础界面字体及平台回退 |
 | `--font-mono` | `ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", monospace` | 代码字体及CJK无衬线回退 |
+| `--conversation-line` | `1.43` | 对话时间线行高（无单位比例）：14px 时为 20px；标题与更大的内容字号按比例增长 |
+| `--conversation-gap` | `12px` | 对话时间线块间距：段落、活动行、子代理行、状态行之间的统一节奏 |
 
 ## 调色板（由主题输入派生，用户可在外观设置中覆盖）
 

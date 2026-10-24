@@ -44,7 +44,7 @@ core 不能导入其他层，[documents.mjs](../../clients/gui/packages/ui/scrip
 
 ## 一份合同对应一个实现所有者
 
-GUI 控件选择与后续 Web 复用边界由本目录维护。组件参数、导出与类型归实际代码，GUI 的控件尺寸与组合接线见[组件指南](../../clients/gui/DESIGN_SYSTEM.md#公共组件与试点组合)。同一事实不再抄成另一份 Props 表或手工组件名单。
+GUI 控件选择与后续 Web 复用边界由本目录维护。组件参数、导出与类型归实际代码，GUI 的控件尺寸见各组件合同，组合接线见[输入区与面板组合](../../clients/gui/design-system/patterns.md#输入区与面板组合)与[设置控件与反馈](../../clients/gui/design-system/patterns.md#设置控件与反馈)。同一事实不再抄成另一份 Props 表或手工组件名单。
 
 新增或改变公共组件时，在原实现附近维护用途、适用与不适用条件、必要状态、键盘和焦点行为，以及生产示例。已有集中合同逐项整理，迁出后原位置改为引用。当前 [GUI registry](../../clients/gui/design-system/registry.json)仍拥有本端组件索引，不能把登记当作实际导出或运行准入证明。
 
