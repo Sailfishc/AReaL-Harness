@@ -43,8 +43,8 @@ use anyhow::{Context, Result, bail, ensure};
 use areal_protocol::{DynamicToolResponse, ToolContent, ToolDefinition};
 pub use config::{ServerConfig, TransportConfig, validate};
 pub use plugin::{
-    ApprovalMode, AuthPolicy, PluginConfigOutcome, PluginDiagnostic, PluginPolicy,
-    PluginServerConfig, ToolPolicy, normalize_plugin_document,
+    ApprovalMode, AuthPolicy, PluginConfigOutcome, PluginDeclaration, PluginDiagnostic,
+    PluginEnvelopeEntry, PluginPolicy, PluginServerConfig, ToolPolicy, normalize_plugin_document,
 };
 use rmcp::{
     ClientHandler, RoleClient,

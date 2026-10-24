@@ -237,38 +237,41 @@ fn unsupported(
     }
     Ok(())
 }
-fn mcp(value: &Value, field: &str, rows: &mut Vec<ComponentSupport>) -> Result<()> {
-    let source = if value.get("mcpServers").is_some() {
-        pointer(field, "mcpServers")?
-    } else {
-        field.into()
-    };
-    let field = source.as_str();
-    let servers = value.get("mcpServers").unwrap_or(value);
-    if let Some(servers) = servers.as_object() {
-        reserve(rows, servers.len().max(1))?;
-        for (key, config) in servers {
-            let source = pointer(field, key)?;
-            rows.push(if config.is_object() {
-                row(ComponentKind::Mcp, source, true)
-            } else {
-                partial(ComponentKind::Mcp, source, "invalidMcpEnvelope")
-            });
-        }
-        if servers.is_empty() {
-            rows.push(partial(
-                ComponentKind::Mcp,
-                field.into(),
-                "emptyMcpEnvelope",
-            ));
-        }
-    } else {
-        reserve(rows, 1)?;
-        rows.push(partial(
-            ComponentKind::Mcp,
-            field.into(),
-            "invalidMcpEnvelope",
-        ));
+fn mcp(
+    declaration: &areal_mcp::PluginDeclaration,
+    field: &str,
+    rows: &mut Vec<ComponentSupport>,
+) -> Result<()> {
+    use areal_mcp::PluginEnvelopeEntry;
+    let entries = declaration.envelope();
+    reserve(rows, entries.len())?;
+    for entry in entries {
+        let nested = match entry {
+            PluginEnvelopeEntry::Server { nested, .. }
+            | PluginEnvelopeEntry::Empty { nested }
+            | PluginEnvelopeEntry::Invalid { nested } => nested,
+        };
+        let field = if nested {
+            pointer(field, "mcpServers")?
+        } else {
+            field.into()
+        };
+        rows.push(match entry {
+            PluginEnvelopeEntry::Server { name, object, .. } => {
+                let source = pointer(&field, name)?;
+                if object {
+                    row(ComponentKind::Mcp, source, true)
+                } else {
+                    partial(ComponentKind::Mcp, source, "invalidMcpEnvelope")
+                }
+            }
+            PluginEnvelopeEntry::Empty { .. } => {
+                partial(ComponentKind::Mcp, field, "emptyMcpEnvelope")
+            }
+            PluginEnvelopeEntry::Invalid { .. } => {
+                partial(ComponentKind::Mcp, field, "invalidMcpEnvelope")
+            }
+        });
     }
     Ok(())
 }
@@ -359,6 +362,7 @@ fn document(
     kind: ComponentKind,
     field: &str,
     files: &package::Files,
+    portable: bool,
     rows: &mut Vec<ComponentSupport>,
 ) -> Result<()> {
     match value {
@@ -369,6 +373,7 @@ fn document(
                     kind,
                     &pointer(field, &index.to_string())?,
                     files,
+                    portable,
                     rows,
                 )?;
             }
@@ -382,7 +387,11 @@ fn document(
                 .get(&path)
                 .and_then(|file| serde_json::from_slice::<Value>(&file.bytes).ok())
             {
-                Some(value) => mcp(&value, &format!("{path}#"), rows)?,
+                Some(value) => mcp(
+                    &areal_mcp::PluginDeclaration::parse(portable, value),
+                    &format!("{path}#"),
+                    rows,
+                )?,
                 None => rows.push(partial(
                     kind,
                     field.into(),
@@ -390,7 +399,11 @@ fn document(
                 )),
             }
         }
-        value => mcp(value, field, rows)?,
+        value => mcp(
+            &areal_mcp::PluginDeclaration::parse(portable, value.clone()),
+            field,
+            rows,
+        )?,
     }
     Ok(())
 }
@@ -438,7 +451,7 @@ pub(crate) fn parse(
         }
         for (origin, document) in &mcp_documents.documents {
             mcp(
-                &document.value,
+                &document.declaration,
                 &document_field(origin.clone(), &manifest_field),
                 &mut components,
             )?;
@@ -450,6 +463,7 @@ pub(crate) fn parse(
                 ComponentKind::Mcp,
                 "mcp.json",
                 files,
+                selection.portable,
                 &mut components,
             )?;
         }
@@ -459,6 +473,7 @@ pub(crate) fn parse(
             ComponentKind::Mcp,
             &field(&selection.overlay_path, "mcpServers"),
             files,
+            selection.portable,
             &mut components,
         )?;
     } else if files.contains_key(".mcp.json") {
@@ -467,6 +482,7 @@ pub(crate) fn parse(
             ComponentKind::Mcp,
             ".mcp.json",
             files,
+            selection.portable,
             &mut components,
         )?;
     }
@@ -623,7 +639,7 @@ pub(crate) fn parse(
         || mcp_documents
             .documents
             .iter()
-            .any(|(_, document)| references_user_config(&document.value))
+            .any(|(_, document)| document.declaration.references_user_config())
     {
         reasons.push("userConfigUnsupported".into());
     }

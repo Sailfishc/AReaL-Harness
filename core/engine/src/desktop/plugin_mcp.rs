@@ -284,13 +284,10 @@ impl Engine {
         .map_err(invalid)?;
         let mut names = vec![];
         for document in &component.mcp_documents {
-            let normalized = areal_mcp::normalize_plugin_document(
-                document.portable,
-                &document.value,
-                &component.root,
-                &component.data_root,
-            )
-            .map_err(|_| invalid("invalid MCP document"))?;
+            let normalized = document
+                .declaration
+                .normalize(&component.root, &component.data_root)
+                .map_err(|_| invalid("invalid MCP document"))?;
             names.extend(normalized.servers.into_keys());
         }
         let apps = app_declarations(&component);
@@ -321,13 +318,10 @@ impl Engine {
         let mut result = BTreeMap::new();
         let mut diagnostics = vec![];
         for document in &c.mcp_documents {
-            let normalized = areal_mcp::normalize_plugin_document(
-                document.portable,
-                &document.value,
-                &c.root,
-                &c.data_root,
-            )
-            .map_err(|_| invalid("invalid plugin MCP document"))?;
+            let normalized = document
+                .declaration
+                .normalize(&c.root, &c.data_root)
+                .map_err(|_| invalid("invalid plugin MCP document"))?;
             diagnostics.extend(normalized.diagnostics.iter().map(|d| json!({"serverId":server_id(&c.id,&d.server),"server":d.server,"class":if normalized.servers.contains_key(&d.server){"policy"}else{"configuration"},"message":"MCP declaration has a host policy restriction or invalid configuration; inspect the trusted package"})));
             for (name, config) in normalized.servers {
                 let name = server_id(&c.id, &name);

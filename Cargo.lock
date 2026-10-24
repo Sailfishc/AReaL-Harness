@@ -283,6 +283,7 @@ name = "areal-plugins"
 version = "0.1.7-beta.3"
 dependencies = [
  "anyhow",
+ "areal-mcp",
  "base64 0.22.1",
  "flate2",
  "fs2",

@@ -2084,12 +2084,13 @@ async fn marketplace_authentication_timing_gates_only_declared_servers() {
         );
         e.install_plugin_store(store.clone()).unwrap();
         let d = store.read("sample@local").unwrap();
+        let review_digest = d.review_digest().to_owned();
         e.plugin_install(
             d.id.clone(),
             "user".into(),
             d.revision,
             d.source,
-            d.source_digest,
+            review_digest,
         )
         .await
         .unwrap();

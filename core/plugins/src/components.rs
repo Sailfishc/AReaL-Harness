@@ -11,12 +11,17 @@ pub struct ComponentDocument {
     pub value: Value,
 }
 #[derive(Clone, Debug)]
+pub struct McpComponentDocument {
+    pub origin: String,
+    pub declaration: areal_mcp::PluginDeclaration,
+}
+#[derive(Clone, Debug)]
 pub struct InstalledComponents {
     pub id: String,
     pub root: PathBuf,
     pub data_root: PathBuf,
     pub digest: String,
-    pub mcp_documents: Vec<ComponentDocument>,
+    pub mcp_documents: Vec<McpComponentDocument>,
     pub hook_documents: Vec<ComponentDocument>,
     pub app_documents: Vec<ComponentDocument>,
     pub policy: Value,
@@ -398,13 +403,17 @@ pub(crate) fn documents(
     result
 }
 
+pub(crate) struct McpDocumentSelection {
+    pub documents: Vec<(DocumentSource, McpComponentDocument)>,
+    pub rejected: Vec<DocumentSource>,
+}
 pub(crate) fn mcp_documents(
     declaration: Option<&Value>,
     files: &package::Files,
     portable: bool,
     claude_defaults: bool,
     diagnostics: &mut Vec<String>,
-) -> DocumentSelection {
+) -> McpDocumentSelection {
     let default = if portable { "mcp.json" } else { ".mcp.json" };
     let mut selected = documents(
         if portable { None } else { declaration },
@@ -413,14 +422,33 @@ pub(crate) fn mcp_documents(
         portable,
         diagnostics,
     );
-    if !claude_defaults {
-        return selected;
-    }
-    if declaration.is_some() {
+    if claude_defaults && declaration.is_some() {
         let mut defaults = documents(None, default, files, false, diagnostics);
         defaults.documents.append(&mut selected.documents);
         defaults.rejected.append(&mut selected.rejected);
         selected = defaults;
+    }
+    let mut selected = McpDocumentSelection {
+        documents: selected
+            .documents
+            .into_iter()
+            .map(|(source, document)| {
+                (
+                    source,
+                    McpComponentDocument {
+                        origin: document.origin,
+                        declaration: areal_mcp::PluginDeclaration::parse(
+                            document.portable,
+                            document.value,
+                        ),
+                    },
+                )
+            })
+            .collect(),
+        rejected: selected.rejected,
+    };
+    if !claude_defaults {
+        return selected;
     }
     let mut names = std::collections::BTreeSet::new();
     selected.documents = selected
@@ -428,17 +456,11 @@ pub(crate) fn mcp_documents(
         .into_iter()
         .rev()
         .filter_map(|(source, mut document)| {
-            let servers = if document.value.get("mcpServers").is_some() {
-                document.value.get_mut("mcpServers").unwrap()
-            } else {
-                &mut document.value
-            };
-            if let Some(servers) = servers.as_object_mut() {
-                let had_servers = !servers.is_empty();
-                servers.retain(|name, _| names.insert(name.clone()));
-                if had_servers && servers.is_empty() {
-                    return None;
-                }
+            if document
+                .declaration
+                .retain_servers(|name| names.insert(name.to_owned()))
+            {
+                return None;
             }
             Some((source, document))
         })

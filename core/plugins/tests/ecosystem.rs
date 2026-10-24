@@ -67,13 +67,12 @@ fn mcp_names(store: &Store, id: &str) -> BTreeSet<String> {
         .iter()
         .flat_map(|document| {
             document
-                .value
-                .get("mcpServers")
-                .unwrap_or(&document.value)
-                .as_object()
-                .unwrap()
-                .keys()
-                .cloned()
+                .declaration
+                .envelope()
+                .filter_map(|entry| match entry {
+                    areal_mcp::PluginEnvelopeEntry::Server { name, .. } => Some(name.to_owned()),
+                    _ => None,
+                })
         })
         .collect()
 }
@@ -906,17 +905,17 @@ fn claude_manifest_mcp_merges_default_and_explicit_documents_with_last_name_winn
     write(
         f.corpus.path(),
         "pkg/.mcp.json",
-        r#"{"mcpServers":{"default":{"command":"default"},"shared":{"command":"old"}}}"#,
+        r#"{"mcpServers":{"default":{"command":"default"},"shared":{"url":"https://old.invalid/mcp"}}}"#,
     );
     write(
         f.corpus.path(),
         "pkg/extra.json",
-        r#"{"mcpServers":{"file":{"command":"file"},"shared":{"command":"middle"}}}"#,
+        r#"{"mcpServers":{"file":{"command":"file"},"shared":{"url":"https://middle.invalid/mcp"}}}"#,
     );
     write(
         f.corpus.path(),
         "pkg/.claude-plugin/plugin.json",
-        r#"{"name":"sample","mcpServers":["./extra.json",{"shared":{"command":"last"},"inline":{"command":"inline"}}]}"#,
+        r#"{"name":"sample","mcpServers":["./extra.json",{"shared":{"url":"https://last.invalid/mcp"},"inline":{"command":"inline"}}]}"#,
     );
     f.catalog(json!([{"name":"sample","source":"./pkg"}]));
     let store = f.open();
@@ -945,11 +944,10 @@ fn claude_manifest_mcp_merges_default_and_explicit_documents_with_last_name_winn
     let servers: Vec<_> = documents
         .iter()
         .flat_map(|d| {
-            d.value
-                .get("mcpServers")
-                .unwrap_or(&d.value)
-                .as_object()
+            d.declaration
+                .normalize(&components[0].root, &components[0].data_root)
                 .unwrap()
+                .servers
         })
         .collect();
     assert_eq!(
@@ -962,8 +960,9 @@ fn claude_manifest_mcp_merges_default_and_explicit_documents_with_last_name_winn
             .iter()
             .find(|(name, _)| name.as_str() == "shared")
             .unwrap()
-            .1["command"],
-        "last"
+            .1
+            .endpoint(),
+        Some("https://last.invalid/mcp")
     );
     assert_eq!(
         documents
@@ -974,6 +973,6 @@ fn claude_manifest_mcp_merges_default_and_explicit_documents_with_last_name_winn
     );
     assert_eq!(
         fs::read_to_string(components[0].root.join(".mcp.json")).unwrap(),
-        r#"{"mcpServers":{"default":{"command":"default"},"shared":{"command":"old"}}}"#
+        r#"{"mcpServers":{"default":{"command":"default"},"shared":{"url":"https://old.invalid/mcp"}}}"#
     );
 }

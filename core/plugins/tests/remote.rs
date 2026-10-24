@@ -299,7 +299,13 @@ fn portable_overlay_is_replaced_and_installed_cache_is_validated() {
     let c = store.installed_components().unwrap();
     assert!(c[0].app_documents.is_empty());
     assert_eq!(c[0].mcp_documents.len(), 1);
-    assert!(c[0].mcp_documents[0].portable);
+    assert!(
+        c[0].mcp_documents[0]
+            .declaration
+            .normalize(&c[0].root, &c[0].data_root)
+            .is_err(),
+        "portable source must retain strict MCP schema validation"
+    );
     let path = c[0].root.join("mcp.json");
     fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
     fs::write(&path, "{}").unwrap();

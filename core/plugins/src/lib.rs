@@ -8,7 +8,8 @@ mod package;
 mod remote;
 mod support;
 pub use components::{
-    AppDeclaration, ComponentDocument, InstalledComponents, InstalledSnapshot, app_declarations,
+    AppDeclaration, ComponentDocument, InstalledComponents, InstalledSnapshot,
+    McpComponentDocument, app_declarations,
 };
 pub use support::{
     CompatibilityState, ComponentCompatibility, ComponentKind, ComponentSupport, ManifestFormat,

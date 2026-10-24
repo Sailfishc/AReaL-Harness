@@ -51,7 +51,21 @@ Skill 发现由 `core/config` 根据可信启动参数执行，只返回元信�
 
 Codex 兼容包由 `core/plugins` 持有本地安装与范围选择；Engine 登记不可变插件 Skill 根，并在 Turn 提交时固定引用、读取时检查当前撤权。普通会话可以发现新安装，显式 Profile、旧版只读 Side 和隔离 worker 不自动扩权。onboarding 使用已有普通 Turn 入口；客户端通过现有管理收据恢复 UNKNOWN。独立 Skills 保持动态描述符读取契约。当前支持及限制见[插件指南](../guides/plugins.md)，后续完整兼容任务见[实施计划](../development/codex-plugins-plan.md)。
 
-组件支持报告归同一包解析器，候选与安装报告分别绑定 sourceDigest 与 installedDigest。Store 将当前启用意图与准确包摘要的静态兼容组合为有效选择；历史 Skill 以自身不可变包检查，Engine 按精确 id/revision 投影准入。Hook 声明和 Apps 文档复用原解析所有者，报告读取不执行包代码，认证、连接与信任仍归现有运行所有者。
+组件支持报告归同一包解析器，候选报告绑定 `admissionDigest ?? sourceDigest`，安装报告绑定 `installedDigest`。Store 将当前启用意图与准确包摘要的静态兼容组合为有效选择；历史 Skill 以自身不可变包检查，Engine 按精确 id/revision 投影准入。Hook 声明和 Apps 文档复用原解析所有者，报告读取不执行包代码，认证、连接与信任仍归现有运行所有者。
+
+### 多格式插件导入决策
+
+插件按格式及其支持版本导入，再接入同一套 AReaL 原生组件与执行所有者。新包优先使用 Agent Plugins 1.0.0 的 Skills/MCP 结构；Codex、Claude、Cursor 和 ZCode 的发现顺序、默认目录、marketplace 合并及扩展规则由兼容导入边界解释。可读取 manifest 不代表支持该宿主的全部运行语义。未知 Portable schema 不回退为另一格式。
+
+导入结果保留包身份、组件名称、声明位置及所需语义。包发现与有效定义仍归 `core/plugins`；MCP 配置校验、认证与连接仍归 `core/mcp`。支持报告、预览与执行复用同一声明解释，管理结果仅输出脱敏投影。来源格式不授予 Hook、工具、网络或文件权限。可选组件失败按其边界隔离，必需组件或包级要求不满足时阻止有效激活。
+
+首个 MCP 切片由现有 `core/mcp` 持有文档声明解释，`core/plugins` 单向依赖该库并保存带来源的声明。接受包工具扩大到 MCP 库的编译依赖，换取一个解释入口，以及现有 MCP 调用接口和每服务校验的复用。该依赖不授予包发现网络或进程执行权，也不把连接状态写入 Store。
+
+`PluginDeclaration` 私有保留原文、文档包装与延迟校验错误，公开安全的 envelope 投影和归一化配置。`McpComponentDocument` 关联原声明来源。Claude 按服务器保留最后定义后，再检查服务器数量及当前文档引用。原始 JSON 调用入口也经同一声明解释，静态报告不因完整运行校验而提前改变安装准入。
+
+兼容证据分为格式识别、组件语义支持、当前环境可用和真实路径验收。当前 MCP 静态报告只承诺 `areal-mcp-document-envelope-v1`，不代表服务配置已通过运行时校验、已经认证或能够连接。用户配置值与秘密由配置所有者持有；插件依赖属于安装图，不与 MCP 连接状态合并。
+
+选择这一结构是为了集中来源差异并复用现有权威。每个生态独立运行时会重复授权、取消和恢复逻辑；把所有字段压成通用 JSON 会丢失覆盖与执行语义，因此均不采用。原始安装包、来源与准入摘要、Store 事务、Turn 版本、撤权及 UNKNOWN 不重放保持原契约。以后导入规则若改变有效执行含义，必须定义重新审阅与旧引用策略，不能静默继承旧信任。分阶段范围与完成条件见[插件实施计划](../development/codex-plugins-plan.md#多格式导入演进)。
 
 插件来源解析仍归 `core/plugins`，Git/npm 不执行安装脚本。`core/mcp` 持有认证、资源与连接版本，Engine 固定 Turn 的 schema/调用对象并拥有撤权、受理和清理。Apps 绑定 Core 进程 epoch、Thread 与包摘要；Electron 的独立沙箱只持窄能力。Main 为每个 App 实例记录原窗口 owner，普通导航保留活 iframe；销毁和撤权按实例归属回收，不依赖原生窗口仍然存活。异步打开返回时复核 owner 与 epoch，旧 token 不随活动窗口转移。文件实际读写复用 Runtime 的目录描述符助手，模型投影剔除 `_meta`。原始 Connector ID 通过明确映射接到 GitHub；客户端凭据仅由可信启动环境注入。
 
