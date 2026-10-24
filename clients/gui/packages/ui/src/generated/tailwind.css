@@ -40,15 +40,15 @@
   --text-ui-2xs: calc(var(--ui-font-size) - 5px);
   --tracking-wf-label: 0.09em;
   --text-mobile-input-safe: 16px;
-  --color-destructive: var(--color-red-600);
+  --color-destructive: #e03131;
   --color-destructive-foreground: var(--color-foreground-inverse);
-  --color-warning: var(--color-yellow-600);
+  --color-warning: #e07b00;
   --color-warning-foreground: var(--color-foreground-inverse);
-  --color-foreground-inverse: var(--color-white);
+  --color-foreground-inverse: #ffffff;
   --color-ring: var(--color-input-border-focused);
   --color-muted: var(--color-surface);
   --color-muted-foreground: var(--color-foreground-subtle);
-  --color-success: var(--color-green-600);
+  --color-success: #1e8a3e;
 }
 @theme {
   --color-background: #ffffff;

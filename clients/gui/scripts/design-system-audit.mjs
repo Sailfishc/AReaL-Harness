@@ -46,6 +46,28 @@ for (const token of ["--focus-width", "--focus-offset"]) {
   }
   assert.ok(webStyle.includes(`var(${token})`), `Web consumes ${token}`);
 }
+// Token 单源：@areal/ui 生成的基础角色与默认调色板，不能在 renderer 的全局主题选择器里再定义一次。
+// 组件内的局部重映射（如消息正文把 --text-ui-base 指向内容字号）不受限制。
+const ownedTokens = new Set([...uiSources.slice(0, 2).join("\n").matchAll(/(--[\w-]+)\s*:/g)].map(match => match[1]));
+const themeSource = await readFile(new URL("../packages/ui/src/generated/themes.css", import.meta.url), "utf8");
+for (const match of themeSource.matchAll(/(--[\w-]+)\s*:/g)) ownedTokens.add(match[1]);
+assert.match(owners[0], /@import\s+["']@areal\/ui\/themes\.css["'];/, "GUI imports generated default themes for first paint");
+const globalSelector = /^(?:@theme|:root|html|\.dark|\.light|\.theme-[\w-]+)(?:\s*,\s*(?:@theme|:root|html|\.dark|\.light|\.theme-[\w-]+|:root\.[\w-]+))*$/;
+const redefinitions = [];
+for (const file of await rendererCss()) {
+  const source = (await readFile(join(root, file), "utf8")).replace(/\/\*[\s\S]*?\*\//g, "");
+  for (const block of source.matchAll(/(^|\})\s*([^{}]+?)\s*\{([^{}]*)\}/g)) {
+    if (!globalSelector.test(block[2].trim())) continue;
+    for (const declaration of block[3].matchAll(/(--[\w-]+)\s*:/g))
+      if (ownedTokens.has(declaration[1])) redefinitions.push(`${file} ${block[2].trim()} ${declaration[1]}`);
+  }
+}
+assert.deepEqual(redefinitions, [], `以下变量由 @areal/ui/tokens.json 生成，请修改 tokens.json：\n${redefinitions.join("\n")}`);
+async function rendererCss() {
+  const { readdir } = await import("node:fs/promises");
+  const entries = await readdir(root, { recursive: true });
+  return entries.filter(file => file.endsWith(".css")).sort();
+}
 const definitions = new Set([...(sharedFocus + owners.join("\n") + uiSources.join("\n") + sources.join("\n")).matchAll(/(--[\w-]+)["']?\s*:/g)].map(match => match[1]));
 const violations = [];
 sources.forEach((source, index) => {
