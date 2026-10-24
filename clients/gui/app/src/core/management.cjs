@@ -2,6 +2,7 @@
 const {configurePluginAuthentication} = require('./plugin-authentication.cjs');
 const { manageTask, taskOperations } = require('./tasks.cjs');
 const { workgroupArtifactFile } = require('./workgroup-artifacts.cjs');
+const { resolveTerminalPresentation } = require('./terminal-profile.cjs');
 const os = require('node:os');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -215,7 +216,9 @@ async function manage(backend, project, request, context = {}) {
   if (operation === 'processSubmission') {
     if (typeof request.threadId !== 'string' || !request.threadId || typeof request.requestId !== 'string' || !/^[0-9a-f-]{36}$/.test(request.requestId)) throw new Error('缺少原终端请求标识或任务');
     const result = await backend.recoverProcessSubmission(project, request.threadId, request.requestId);
-    return result ? { confirmed: true, result: { ...result, shell: shellFromManagedArgv(result.argv) } } : { confirmed: false };
+    if (!result) return { confirmed: false };
+    const presentation = await resolveTerminalPresentation(backend.library?.value.settings, backend.userHome);
+    return { confirmed: true, result: { ...result, shell: shellFromManagedArgv(result.argv), ...presentation } };
   }
   if (operation === 'agentSubmission') {
     if (typeof request.parentThreadId !== 'string' || !request.parentThreadId || typeof request.requestId !== 'string' || !request.requestId) throw new Error('缺少原创建请求标识或父任务');
@@ -352,6 +355,6 @@ async function manage(backend, project, request, context = {}) {
   }
   } catch (error) { if (request.threadId) backend.observationFailure(project, request.threadId, error); }
   backend.onChange();
-  return terminal ? { ...result, shell: terminal.shell } : result;
+  return terminal ? { ...result, shell: terminal.shell, ...await resolveTerminalPresentation(backend.library?.value.settings, backend.userHome) } : result;
 }
 module.exports = { manage, managementMethods, threadMutationMethods };

@@ -3,7 +3,7 @@ const { startupTrace } = require('./startup-timing.cjs');
 const startupTraceMain = startupTrace('gui.startup');
 startupTraceMain.advance('imports');
 
-const { app, BrowserWindow, Menu, dialog, ipcMain, protocol, nativeTheme, WebContentsView, shell, powerMonitor, Notification, crashReporter } = require('electron');
+const { app, BrowserWindow, Menu, dialog, ipcMain, protocol, nativeTheme, WebContentsView, shell, powerMonitor, Notification, crashReporter, session } = require('electron');
 const { readFile, realpath, stat, writeFile } = require('node:fs/promises');
 const { join, resolve, extname, sep } = require('node:path');
 const { randomUUID } = require('node:crypto');
@@ -23,6 +23,8 @@ const { ComputerControl } = require('./computer-control.cjs');
 const { ExternalCua, upstream: cuaUpstream } = require('./external-cua.cjs');
 const diagnostics = require('./diagnostics.cjs');
 const { configureUserData, serviceOptions, serviceHome } = require('./service-config.cjs');
+const { readLibraryStartupSettings } = require('./library.cjs');
+const { applyDesktopSessionNetworkPolicy } = require('./desktop-network.cjs');
 const { SharedCoreBackend } = require('./service-client.cjs');
 const { recoverConnectedService } = require('./startup-recovery.cjs');
 const { setNativeLocale, nativeText } = require('./native-i18n.cjs');
@@ -33,6 +35,11 @@ app.setName('AReaL Harness GUI');
 configureUserData(app);
 const applicationOwner = createOwner(app.getPath('userData'));
 app.setPath('userData', applicationOwner.profile);
+let startupSettings, startupSettingsError;
+try {
+  startupSettings = readLibraryStartupSettings(serviceHome(app));
+  if (startupSettings.hardwareAcceleration === false) app.disableHardwareAcceleration();
+} catch (error) { startupSettingsError = error; console.error('Desktop startup settings could not be read', error); }
 // Acquire before loading resources or registering shutdown hooks. The userData
 // directory scopes the lock, so explicitly isolated development/test homes coexist.
 if (!app.requestSingleInstanceLock()) {
@@ -361,6 +368,9 @@ async function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  if (startupSettingsError) throw startupSettingsError;
+  await Promise.all([session.defaultSession, session.fromPartition('persist:areal-embedded-browser')]
+    .map(target => applyDesktopSessionNetworkPolicy(target, startupSettings)));
   startupTraceMain.finish('ok');
   if (process.platform === 'darwin') app.dock.setIcon(join(__dirname, '../../assets/icon-1024.png'));
   protocol.handle('areal-ui', async request => {

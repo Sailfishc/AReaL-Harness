@@ -2,6 +2,7 @@ import { useI18n, UiMessageError, formatUiMessage, type UiMessage } from "../i18
 import { ActionButton } from "../components/ui/action-button.js";
 import { SettingsSelect } from "./SettingsPageParts.js";
 import { SettingsDisclosure } from "./SettingsDisclosure.js";
+import { DesktopEnvironmentSettings } from "./DesktopEnvironmentSettings.js";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Input } from "../components/ui/input.js";
 import { CODE_PREVIEW_THEME_OPTIONS } from "../lib/codePreviewPreferences.js";
@@ -156,6 +157,7 @@ export function GeneralSettings({ settings = {}, power, menuBar, projectlessDire
           />
         </SettingsGroupCard>
       </SettingsSection>
+      <DesktopEnvironmentSettings settings={settings} action={action} connected={connected} />
       <SettingsSection title={t("settings.displaySettings.power")}>
         <SettingsGroupCard>
           <SettingsRow

@@ -321,6 +321,7 @@ class DesktopService {
   }
   notify(notice) {
     const settings = this.backend.library.value.settings;
+    if (settings.taskNotifications === false) return;
     const clients = [...this.clients].filter(s => s.notifications && s.readyState === 1);
     if (notice.kind === 'completion') {
       const policy = settings.turnNotifications ?? 'unfocused';

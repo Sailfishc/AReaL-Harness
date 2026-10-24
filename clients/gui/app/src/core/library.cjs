@@ -2,6 +2,41 @@
 const { readFile } = require('node:fs/promises');
 const { join } = require('node:path');
 const { randomUUID } = require('node:crypto');
+const { openSync, fstatSync, readSync, closeSync, constants } = require('node:fs');
+const { normalizeNetworkSetting } = require('./desktop-network.cjs');
+const DESKTOP_SETTING_DEFAULTS = Object.freeze({ terminalInheritSystemProfile: true, terminalFontFamily: '',
+  httpProxy: '', httpProxyNoProxy: '', httpProxyCaCertPath: '', hardwareAcceleration: true, taskNotifications: true });
+
+function readLibraryStartupSettings(home) {
+  let fd;
+  try { fd = openSync(join(home, 'library.json'), constants.O_RDONLY | constants.O_NONBLOCK); }
+  catch (error) { if (error.code === 'ENOENT') return { ...DESKTOP_SETTING_DEFAULTS }; throw error; }
+  try {
+    const maximum = 8 * 1024 * 1024, stat = fstatSync(fd);
+    if (!stat.isFile() || stat.size > maximum) throw new Error('Desktop library must be a regular file no larger than 8 MiB');
+    const bytes = Buffer.alloc(maximum + 1), length = readSync(fd, bytes, 0, bytes.length, 0);
+    if (length > maximum) throw new Error('Desktop library exceeds 8 MiB');
+    const value = JSON.parse(bytes.subarray(0, length).toString('utf8'));
+    if (!value || typeof value !== 'object' || Array.isArray(value)
+      || value.settings !== undefined && (!value.settings || typeof value.settings !== 'object' || Array.isArray(value.settings))) throw new Error('Invalid desktop library settings');
+    const result = { ...DESKTOP_SETTING_DEFAULTS };
+    for (const [key, fallback] of Object.entries(DESKTOP_SETTING_DEFAULTS)) {
+      const setting = value.settings?.[key];
+      if (setting === undefined) continue;
+      if (typeof setting !== typeof fallback) throw new Error(`Invalid desktop setting ${key}`);
+      if (typeof setting === 'string' && (setting.length > (key === 'terminalFontFamily' ? 256 : 4096) || /[\x00-\x1f\x7f]/.test(setting))) throw new Error(`Invalid desktop setting ${key}`);
+      result[key] = typeof setting === 'string' ? setting.trim() : setting;
+    }
+    return result;
+  } finally { closeSync(fd); }
+}
+function validateDesktopString(key, value) {
+  if (key === 'terminalFontFamily') {
+    if (typeof value !== 'string' || value.length > 256 || /[\x00-\x1f\x7f]/.test(value)) throw new Error('Terminal font must be no longer than 256 characters without control characters');
+    return value.trim();
+  }
+  return normalizeNetworkSetting(key, value);
+}
 
 /** 桌面整理偏好与可重建导航摘要；Core 继续拥有会话、执行和历史。 */
 class CoreLibrary {
@@ -194,9 +229,14 @@ class CoreLibrary {
             turnNotifications: ['always', 'unfocused', 'never'], permissionNotifications: [true, false],
             questionNotifications: [true, false], notificationSound: ['default', 'silent'], preventSleep: [true, false], showInMenuBar: [true, false],
             fileOpenTarget: ['system', 'finder', 'zed', 'vscode', 'cursor'],
+            terminalInheritSystemProfile: [true, false], hardwareAcceleration: [true, false], taskNotifications: [true, false],
             computerControlEnabled: [true, false], computerControlShowEntry: [true, false], computerControlProvider: ['native', 'lcu'],
             browserLinkTarget: ['internal', 'external'], browserLocalTarget: ['internal', 'external'], browserFullAddress: [true, false] };
-          if (request.key === 'computerControlExecutable') {
+          let settingValue = request.value;
+          if (['terminalFontFamily', 'httpProxy', 'httpProxyNoProxy', 'httpProxyCaCertPath'].includes(request.key)) {
+            if (typeof request.value !== 'string') throw new Error('Invalid desktop setting');
+            settingValue = validateDesktopString(request.key, request.value);
+          } else if (request.key === 'computerControlExecutable') {
             if (typeof request.value !== 'string' || request.value.length > 4096 || request.value.includes('\0')
               || request.value && !require('node:path').isAbsolute(request.value)) throw new Error('LCU executable must be an absolute path');
           } else if (!allowed[request.key]?.includes(request.value)) throw new Error('无效偏好设置');
@@ -205,7 +245,7 @@ class CoreLibrary {
             if (!Array.isArray(request.order) || request.order.some(id => !available.includes(id)) || new Set(request.order).size !== request.order.length) throw new Error('排序列表已变化，请刷新');
             state.sidebarThreadOrder = [...request.order, ...available.filter(id => !request.order.includes(id))];
           }
-          state.settings[request.key] = request.value; break;
+          state.settings[request.key] = settingValue; break;
         }
         default: throw new Error('不支持的整理操作');
       }
@@ -280,4 +320,4 @@ function reorder(current, available, id, before) {
   ids.splice(before == null ? ids.length : ids.indexOf(before), 0, id);
   return ids;
 }
-module.exports = { CoreLibrary };
+module.exports = { CoreLibrary, readLibraryStartupSettings };

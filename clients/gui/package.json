@@ -98,6 +98,8 @@
     "verify:design": "pnpm --filter @areal/ui build && pnpm --filter @areal/ui check && node --test scripts/design-system-catalog.test.mjs scripts/design-system-changes.test.mjs && node scripts/design-system-audit.mjs",
     "test:regressions": "node --test scripts/browser-observation-privacy.test.cjs scripts/trajectory-polling.test.mjs scripts/builder-download.test.mjs",
     "test:proxy": "node --test scripts/system-proxy.test.mjs",
+    "test:desktop-settings": "node scripts/migration-smoke.mjs --desktop-settings",
+    "test:desktop-network": "node scripts/desktop-network-smoke.mjs",
     "test:mcp-app-lifecycle": "node scripts/mcp-app-lifecycle-smoke.mjs",
     "test:mcp-platform": "node scripts/mcp-platform-renderer-smoke.mjs",
     "test:mcp-page-tools": "node scripts/mcp-app-page-tools-smoke.mjs",

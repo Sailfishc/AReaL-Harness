@@ -66,12 +66,13 @@ await writeFile(
 const conversationStage2 = process.argv.includes("--conversation-stage2");
 const conversationProduction = process.argv.includes("--conversation-production");
 const settingsMode = process.argv.includes("--settings-stage1");
+const desktopSettingsMode = process.argv.includes("--desktop-settings");
 const i18nMode = process.argv.includes("--settings-i18n");
 const nativeI18nMode = process.argv.includes("--native-dialog-i18n");
 const hostMode = process.argv.includes("--conversation-host");
 const motionMode = hostMode || process.argv.includes("--conversation-motion");
-const journeyMode = conversationProduction || nativeI18nMode || i18nMode || conversationStage2 || settingsMode || motionMode || process.argv.includes("--conversation-journey");
-const journey = nativeI18nMode ? (await import("./native-dialog-i18n.mjs")).nativeDialogI18n(scratch) : i18nMode ? (await import("./settings-i18n.mjs")).settingsI18n(scratch) : settingsMode ? (await import("./settings-stage1.mjs")).settingsStage1(scratch) : hostMode ? (await import("./conversation-host.mjs")).conversationHost(scratch, workspace) : journeyMode ? (await import("./conversation-journey.mjs")).conversationJourney(scratch, workspace, { motion: motionMode, stage2: conversationStage2, production: conversationProduction }) : null;
+const journeyMode = desktopSettingsMode || conversationProduction || nativeI18nMode || i18nMode || conversationStage2 || settingsMode || motionMode || process.argv.includes("--conversation-journey");
+const journey = desktopSettingsMode ? (await import("./desktop-settings-smoke.mjs")).desktopSettingsSmoke(scratch, workspace) : nativeI18nMode ? (await import("./native-dialog-i18n.mjs")).nativeDialogI18n(scratch) : i18nMode ? (await import("./settings-i18n.mjs")).settingsI18n(scratch) : settingsMode ? (await import("./settings-stage1.mjs")).settingsStage1(scratch) : hostMode ? (await import("./conversation-host.mjs")).conversationHost(scratch, workspace) : journeyMode ? (await import("./conversation-journey.mjs")).conversationJourney(scratch, workspace, { motion: motionMode, stage2: conversationStage2, production: conversationProduction }) : null;
 const received = [];
 let finishBackground, finishAgentParent;
 const server = createServer(async (req, res) => {
@@ -939,7 +940,7 @@ try {
         arch: process.arch,
         runtime: "real Electron + real Rust Core/Runtime + deterministic local HTTP/SSE model",
         nativeDialogs: nativeI18nMode ? "initial project picker injected; archive/save/directory dialog options captured and canceled; OS appearance not verified" : "project picker and archive/quit confirmations injected",
-        scenario: conversationProduction ? "conversation-production" : nativeI18nMode ? "native-dialog-i18n" : i18nMode ? "settings-i18n" : conversationStage2 ? "conversation-stage2" : settingsMode ? "settings-stage1" : hostMode ? "conversation-host" : motionMode ? "conversation-motion" : journey ? "conversation-journey" : "migration",
+        scenario: desktopSettingsMode ? "desktop-settings" : conversationProduction ? "conversation-production" : nativeI18nMode ? "native-dialog-i18n" : i18nMode ? "settings-i18n" : conversationStage2 ? "conversation-stage2" : settingsMode ? "settings-stage1" : hostMode ? "conversation-host" : motionMode ? "conversation-motion" : journey ? "conversation-journey" : "migration",
         scratch,
         frames: journey ? journey.frames() : frames,
         journeyEvents: journey && !nativeI18nMode ? "journey-events.json" : null,

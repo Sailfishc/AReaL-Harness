@@ -281,12 +281,12 @@ export const generalMessages = {
     "en": "⌘/Ctrl+Enter to send"
   },
   "settings.displaySettings.followUpBehavior": {
-    "zh-CN": "跟进处理方式",
-    "en": "Follow-up behavior"
+    "zh-CN": "交互行为",
+    "en": "Interaction behavior"
   },
   "settings.displaySettings.howNewMessagesAreSentWhileRunning": {
-    "zh-CN": "运行中发送新消息的方式；⌘/Ctrl+点击可临时反转。",
-    "en": "How new messages are sent while running. ⌘/Ctrl+click temporarily reverses this choice."
+    "zh-CN": "加入队列会等当前运行结束再发送。调整方向会请求中断当前输出，在同一轮继续。⌘/Ctrl+点击可临时反转。",
+    "en": "Queue waits until the current run ends. Steer requests an interruption of the current output and continues in the same turn. ⌘/Ctrl+click temporarily reverses this choice."
   },
   "settings.displaySettings.queue": {
     "zh-CN": "加入队列",

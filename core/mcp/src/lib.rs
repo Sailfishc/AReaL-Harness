@@ -773,7 +773,11 @@ async fn connect_one(
             let mut process = tokio::process::Command::new(command);
             process.args(args).env_clear().kill_on_drop(true);
             // 搜索等可信 MCP 工具沿用 Core 的代理；其他变量仍须显式列入 envVars。
-            for key in ["PATH"].into_iter().chain(areal_config::PROXY_ENV_VARS) {
+            for key in ["PATH"]
+                .into_iter()
+                .chain(areal_config::PROXY_ENV_VARS)
+                .chain(areal_config::TLS_ENV_VARS)
+            {
                 if let Some(value) = env.get(std::ffi::OsStr::new(key)) {
                     process.env(key, value);
                 }
