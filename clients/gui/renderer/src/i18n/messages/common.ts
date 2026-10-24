@@ -1,4 +1,7 @@
 export const commonMessages = {
+  "content.diagramPreview": { "zh-CN": "预览图形", en: "Preview diagram" },
+  "content.diagramSource": { "zh-CN": "查看源码", en: "View source" },
+  "content.diagramUnavailable": { "zh-CN": "图形暂无法预览，可切换源码查看。", en: "Diagram preview unavailable. Switch to source to inspect it." },
   "content.preparing": { "zh-CN": "正在准备内容…", en: "Preparing content…" },
   "content.fallback": { "zh-CN": "内容暂不可用，查看原文", en: "Content unavailable; view source" },
   "content.copy": { "zh-CN": "复制内容", en: "Copy content" },

@@ -42,20 +42,21 @@ function Decisions({ kind, state, questionMode }: { kind: string; state: string;
 }
 export function ContentSystemPreview({ dark }: { dark: boolean }) {
   const [mode, setMode] = useState("ready"), [kind, setKind] = useState("shell"), [state, setState] = useState("ready"), [questionMode, setQuestionMode] = useState("single");
-  const source = mode === "streaming" ? '```areal-ui\n{"version":1,"type":"metric"' : mode === "invalid" ? '```areal-ui\n{"version":1,"type":"html","html":"<script>bad()</script>"}\n```' : markdown + nativeExamples.map(fence).join("\n");
-  const blocks = projectConversationContent(source, mode !== "streaming", mode === "streaming");
+  const source = mode === "diagram-error" ? '```mermaid\nthis is not a diagram\n```' : mode === "diagram-streaming" ? '```mermaid\nflowchart LR\n A[输入] --> B[' : mode === "streaming" ? '```areal-ui\n{"version":1,"type":"metric"' : mode === "invalid" ? '```areal-ui\n{"version":1,"type":"html","html":"<script>bad()</script>"}\n```' : markdown + nativeExamples.map(fence).join("\n");
+  const streaming = mode === "streaming" || mode === "diagram-streaming";
+  const blocks = projectConversationContent(source, !streaming, streaming);
   const failed = { id: "failed-tool", type: "dynamicToolCall", tool: "browser_v1", success: false, status: "completed", arguments: { operation: "command" }, contentItems: [{ type: "text", text: "审批拒绝" }] };
   return <section className="design-preview-panel content-system-preview" aria-label="内容与决策系统">
     <h2>内容与决策</h2><p>生产共享组件 · 本地状态样例。不会创建制品、调用服务或执行命令。</p>
     <div className="design-preview-controls">
-      <label>内容状态<select aria-label="内容状态" value={mode} onChange={e => setMode(e.target.value)}>{["ready", "streaming", "invalid"].map(value => <option key={value}>{value}</option>)}</select></label>
+      <label>内容状态<select aria-label="内容状态" value={mode} onChange={e => setMode(e.target.value)}>{["ready", "streaming", "invalid", "diagram-error", "diagram-streaming"].map(value => <option key={value}>{value}</option>)}</select></label>
       <label>审批类型<select aria-label="审批类型" value={kind} onChange={e => setKind(e.target.value)}>{Object.keys(requests).map(value => <option key={value}>{value}</option>)}</select></label>
       <label>响应状态<select aria-label="响应状态" value={state} onChange={e => setState(e.target.value)}>{["ready", "busy", "failed", "unknown"].map(value => <option key={value}>{value}</option>)}</select></label>
       <label>问题类型<select aria-label="问题类型" value={questionMode} onChange={e => setQuestionMode(e.target.value)}>{["single", "multi", "free", "long"].map(value => <option key={value}>{value}</option>)}</select></label>
     </div>
     <section aria-label="过程预览"><TurnProgress turn={{ id: "example", status: "completed", durationMs: 929000 }} connected settled summaryAvailable failures={1} unfinished={false} failureDetails={<pre>{JSON.stringify(failed, null, 2)}</pre>}><TurnExecution items={[failed]} turn={{ status: "completed" }} project={{}} threadId="preview" renderItem={() => <p>不应默认出现的失败工具行</p>} /></TurnProgress></section>
     <Decisions key={`${kind}:${state}:${questionMode}`} kind={kind} state={state} questionMode={questionMode} />
-    <section aria-label="混合内容预览"><ConversationContentView blocks={blocks} markdown={text => <MessageResponse theme={dark ? "dark" : "light"}>{text}</MessageResponse>} interactive={() => <p>交互页面由原有制品宿主打开；此离线样例没有制品。</p>} /></section>
+    <section aria-label="混合内容预览"><ConversationContentView blocks={blocks} markdown={text => <MessageResponse streaming={streaming} theme={dark ? "dark" : "light"}>{text}</MessageResponse>} interactive={() => <p>交互页面由原有制品宿主打开；此离线样例没有制品。</p>} /></section>
     <details><summary>查看文字降级</summary><pre className="content-system-plain">{conversationContentToText(blocks)}</pre></details>
   </section>;
 }

@@ -124,7 +124,7 @@ export const MessageResponse = memo(function MessageResponse({ children, streami
                 return <code className={cn('rounded-md bg-markdown-inline-code/50 mx-0.5 px-1.5 py-0.5 font-mono text-ui-sm', codeClassName)} {...props}>{children}</code>;
             const codeText = String(children ?? '').replace(/\n+$/, '');
             const language = /language-([^\s]+)/.exec(codeClassName ?? '')?.[1] ?? 'text';
-            return <MessageCodeBlock code={codeText} language={language} streaming={streaming} fontSizePx={fontSizePx} />;
+            return <MessageCodeBlock code={codeText} language={language} streaming={streaming} theme={theme} fontSizePx={fontSizePx} />;
         },
         blockquote: MarkdownBlockquote, li: MarkdownListItem, ol: MarkdownOrderedList, ul: MarkdownUnorderedList,
         table: MarkdownTable, tbody: MarkdownTableBody, td: MarkdownTableCell, th: MarkdownTableHead, thead: MarkdownTableHeader, tr: MarkdownTableRow,
