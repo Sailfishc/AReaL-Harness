@@ -141,6 +141,15 @@ try {
   await page.reload();
   await until(async () => (await state()).connection?.state === 'ready' && logical(await state())?.state?.connected, 'reloaded isolated preferences');
   await createProjectConversation(page, 'workspace');
+  const workspaceSettings = button('新会话工作区');
+  await capture('00-workspace-settings');
+  assert.equal(await workspaceSettings.isEnabled(), true, 'Unrelated retained creation must not disable new-chat workspace settings');
+  await workspaceSettings.click();
+  const worktreeToggle = page.getByRole('switch', { name: '在新 Worktree 中工作', exact: true });
+  await worktreeToggle.waitFor();
+  assert.equal(await worktreeToggle.isChecked(), false, 'Opening settings keeps worktree opt-in');
+  await page.keyboard.press('Escape');
+  checks.push('New-chat workspace settings open with unrelated retained creation; worktree stays off');
   await page.getByTestId('chat-input').fill('Independent fresh draft');
   const draftEnabled = await button('发送').isEnabled();
   await capture('01-fresh-draft');
@@ -160,6 +169,8 @@ try {
   await skillSwitch.waitFor();
   manifest.skillEnabled = await skillSwitch.isEnabled();
   await capture('02-plugin-management');
+  assert.equal(await button('核对项目操作').isVisible(), false, 'Unrelated historical creation recovery is collapsed in plugin management');
+  await page.getByText('历史会话创建记录（待核对）', { exact: true }).click();
   const beforeCheck = (await trace()).length;
   await button('核对项目操作').click();
   await until(async () => (await trace()).slice(beforeCheck).some(call => call.kind === 'desktop-result' && call.name === 'reconcile'), 'explicit GUI reconciliation complete');
