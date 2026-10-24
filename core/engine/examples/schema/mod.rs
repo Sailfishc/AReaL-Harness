@@ -482,11 +482,15 @@ pub fn projections() -> (Value, Value) {
     );
     insert(
         &["side/create"],
-        object(json!({"thread":thread.clone(),"turn":nullable(turn.clone()),"requestId":string.clone()})),
+        object(
+            json!({"thread":thread.clone(),"turn":nullable(turn.clone()),"requestId":string.clone()}),
+        ),
     );
     insert(
         &["side/close"],
-        object(json!({"threadId":string.clone(),"requestId":string.clone(),"accepted":boolean.clone(),"cleanupConfirmed":boolean.clone()})),
+        object(
+            json!({"threadId":string.clone(),"requestId":string.clone(),"accepted":boolean.clone(),"cleanupConfirmed":boolean.clone()}),
+        ),
     );
     insert(
         &["side/context/read"],

@@ -47,15 +47,14 @@ fn selected_ids(input: &[Input]) -> BTreeSet<String> {
             {
                 let id_start = offset + 8;
                 let id_end = id_start + 36;
-                if bytes.get(id_end) == Some(&b')') {
-                    if let Some(id) = text
+                if bytes.get(id_end) == Some(&b')')
+                    && let Some(id) = text
                         .get(id_start..id_end)
                         .filter(|id| canonical_thread_id(id))
-                    {
-                        selected.insert(id.into());
-                        offset = id_end + 1;
-                        continue;
-                    }
+                {
+                    selected.insert(id.into());
+                    offset = id_end + 1;
+                    continue;
                 }
             }
             offset = offset.max(start + 1);
@@ -148,7 +147,14 @@ impl Engine {
         let identity = format!("conversation-reference:{}:{}", caller.id, turn.id);
         let metadata_bytes = ",\"remainingToolCalls\":".len() + usize::MAX.to_string().len();
         self.store
-            .own_history_page(thread, identity, args.cursor, max_bytes - metadata_bytes, None, None)
+            .own_history_page(
+                thread,
+                identity,
+                args.cursor,
+                max_bytes - metadata_bytes,
+                None,
+                None,
+            )
             .await
             .map_err(|error| match error {
                 Error::HistoryRead { .. } => error,

@@ -321,6 +321,7 @@ impl Handles {
     }
 }
 mod agents;
+mod conversation_context;
 mod extensions;
 mod file_before;
 mod images;
@@ -331,7 +332,6 @@ mod plugin_execution;
 pub mod plugins;
 pub(crate) mod registry;
 mod results;
-mod conversation_context;
 pub(crate) use registry::Backend;
 mod scheduling;
 mod verification;

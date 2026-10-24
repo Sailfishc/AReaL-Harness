@@ -1,7 +1,7 @@
 "use strict";
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { mkdtemp, mkdir, readFile, writeFile, rename, rm } = require("node:fs/promises");
+const { mkdtemp, mkdir, readFile, writeFile, rename, rm, realpath } = require("node:fs/promises");
 const { join, dirname } = require("node:path");
 const { tmpdir } = require("node:os");
 const { randomUUID, createHash } = require("node:crypto");
@@ -12,7 +12,7 @@ const { manageTask } = require("../app/src/core/tasks.cjs");
 const { CoreBackend } = require("../app/src/core/backend.cjs");
 
 async function fixture(t, { independent = true } = {}) {
-    const base = await mkdtemp(join(tmpdir(), "areal-schedule-owner-"));
+    const base = await realpath(await mkdtemp(join(tmpdir(), "areal-schedule-owner-")));
     t.after(() => rm(base, { recursive: true, force: true }));
     const root = join(base, "execution"),
         home = join(base, "desktop");

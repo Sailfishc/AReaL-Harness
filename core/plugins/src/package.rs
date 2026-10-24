@@ -597,16 +597,16 @@ fn select(files: &Files, context: Option<&CatalogContext>) -> Result<Selection> 
             }
         }
     }
-    if claude_defaults || matches!(format, crate::ManifestFormat::Zcode) {
-        if let Some(explicit) = overlay.get("skills") {
-            let mut roots = paths(explicit)?;
-            if files.keys().any(|p| p.starts_with("skills/")) {
-                roots.push("skills".into());
-            }
-            roots.sort();
-            roots.dedup();
-            overlay["skills"] = serde_json::to_value(roots)?;
+    if (claude_defaults || matches!(format, crate::ManifestFormat::Zcode))
+        && let Some(explicit) = overlay.get("skills")
+    {
+        let mut roots = paths(explicit)?;
+        if files.keys().any(|p| p.starts_with("skills/")) {
+            roots.push("skills".into());
         }
+        roots.sort();
+        roots.dedup();
+        overlay["skills"] = serde_json::to_value(roots)?;
     }
     let restricted = matches!(
         format,

@@ -271,9 +271,12 @@ impl Store {
             }) = &record.thread.conversation
             {
                 anyhow::ensure!(
-                    record.version >= 14 && matches!((version, policy),
-                        (1, areal_protocol::SidePolicy::ReadOnlyV1 { .. })
-                        | (2, areal_protocol::SidePolicy::ExecutableV2)),
+                    record.version >= 14
+                        && matches!(
+                            (version, policy),
+                            (1, areal_protocol::SidePolicy::ReadOnlyV1 { .. })
+                                | (2, areal_protocol::SidePolicy::ExecutableV2)
+                        ),
                     "unsupported Side policy"
                 );
                 anyhow::ensure!(
@@ -284,18 +287,35 @@ impl Store {
                     "Side execution authority mismatch"
                 );
                 if let areal_protocol::SidePolicy::ReadOnlyV1 { workspace_access } = policy {
-                    anyhow::ensure!(record.thread.dynamic_tools.is_empty(), "legacy Side dynamic tools mismatch");
                     anyhow::ensure!(
-                        record.thread.desktop.as_ref().is_some_and(|d| d.queue.items.is_empty()
-                            && d.processes.is_empty() && d.configuration.read_only
-                            && d.configuration.tool_allowlist.as_ref().is_some_and(|tools| {
-                                tools.iter().any(|name| name == "side_context_read")
-                                    && tools.iter().all(|name| {
-                                        matches!(name.as_str(), "side_context_read" | "gen_ui_publish")
-                                            || (*workspace_access == areal_protocol::SideWorkspaceAccess::ReadOnly
-                                                && crate::tools::side_file_tool(name, &crate::tools::registry::Backend::Builtin))
-                                    })
-                            })),
+                        record.thread.dynamic_tools.is_empty(),
+                        "legacy Side dynamic tools mismatch"
+                    );
+                    anyhow::ensure!(
+                        record
+                            .thread
+                            .desktop
+                            .as_ref()
+                            .is_some_and(|d| d.queue.items.is_empty()
+                                && d.processes.is_empty()
+                                && d.configuration.read_only
+                                && d.configuration
+                                    .tool_allowlist
+                                    .as_ref()
+                                    .is_some_and(|tools| {
+                                        tools.iter().any(|name| name == "side_context_read")
+                                            && tools.iter().all(|name| {
+                                                matches!(
+                                                    name.as_str(),
+                                                    "side_context_read" | "gen_ui_publish"
+                                                ) || (*workspace_access
+                                                    == areal_protocol::SideWorkspaceAccess::ReadOnly
+                                                    && crate::tools::side_file_tool(
+                                                        name,
+                                                        &crate::tools::registry::Backend::Builtin,
+                                                    ))
+                                            })
+                                    })),
                         "Side configuration authority mismatch"
                     );
                 }
@@ -529,23 +549,40 @@ if keep.contains(&name){retained+=e.metadata()?.len();}else{reclaimed+=e.metadat
         }).await?
     }
 
-    pub(crate) async fn publish_gen_ui(&self, artifact_id: &str, name: &str, digest: &str) -> Result<String> {
-        anyhow::ensure!(artifact_id.len() == 64 && artifact_id.bytes().all(|c| c.is_ascii_hexdigit()), "invalid artifact identity");
-        anyhow::ensure!(!name.is_empty() && name.len() <= 80 && name.split('-').all(|part| !part.is_empty() && part.bytes().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())), "invalid artifact name");
+    pub(crate) async fn publish_gen_ui(
+        &self,
+        artifact_id: &str,
+        name: &str,
+        digest: &str,
+    ) -> Result<String> {
+        anyhow::ensure!(
+            artifact_id.len() == 64 && artifact_id.bytes().all(|c| c.is_ascii_hexdigit()),
+            "invalid artifact identity"
+        );
+        anyhow::ensure!(
+            !name.is_empty()
+                && name.len() <= 80
+                && name.split('-').all(|part| !part.is_empty()
+                    && part
+                        .bytes()
+                        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())),
+            "invalid artifact name"
+        );
         let source = self.blob_path(digest)?;
         let directory = self.root.join("gen-ui-output").join(artifact_id);
         let path = directory.join(format!("{name}.html"));
         tokio::task::spawn_blocking(move || {
             std::fs::create_dir_all(&directory)?;
             match std::fs::hard_link(source, &path) {
-                Ok(()) => {},
-                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {},
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
                 Err(error) => return Err(error.into()),
             }
             #[cfg(unix)]
             File::open(directory)?.sync_all()?;
             Ok(path.to_string_lossy().into_owned())
-        }).await?
+        })
+        .await?
     }
 
     pub(crate) async fn save_metadata(&self, name: &str, value: &impl Serialize) -> Result<()> {

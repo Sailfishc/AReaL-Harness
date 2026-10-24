@@ -24,32 +24,69 @@ def digest(data):
 
 def usage():
     return {
-        "inputTokens": 0, "cachedInputTokens": 0, "outputTokens": 0,
-        "tokensUsed": 0, "reservedTokens": 0, "unknownRequests": 0,
-        "timeUsedSeconds": 0.0, "turnsStarted": 0, "accountingComplete": True,
+        "inputTokens": 0,
+        "cachedInputTokens": 0,
+        "outputTokens": 0,
+        "tokensUsed": 0,
+        "reservedTokens": 0,
+        "unknownRequests": 0,
+        "timeUsedSeconds": 0.0,
+        "turnsStarted": 0,
+        "accountingComplete": True,
     }
 
 
 def task(task_id, mode="scheduled", source="origin", objective=None):
     return {
-        "id": task_id, "revision": 7, "channelSequence": 1,
-        "sourceThreadId": source, "owner": "fixture", "mode": mode,
-        "interactionMode": "interactive", "objective": objective or task_id,
-        "threadId": None, "schedule": {"at": 4102444800, "intervalSeconds": 3600},
-        "nextRunAt": 4102444800, "paused": False, "cancelled": False,
-        "tokenBudget": None, "maxTurns": None, "maxActiveSeconds": None,
-        "archivedRunCount": 2, "runCount": 3, "runsComplete": False,
-        "runs": [{
-            "id": task_id + "-run", "threadId": None, "goalId": None,
-            "status": "running", "reason": None, "scheduledAt": 0,
-            "completedAt": None, "usage": usage(), "waitRequested": False,
-        }],
-        "messages": [{
-            "id": "question", "sequence": 1, "runId": task_id + "-run",
-            "author": "fixture", "kind": "question", "status": "pending",
-            "createdAt": 0, "expiresAt": None, "questions": [], "required": True,
-            "inReplyTo": None, "answers": None, "text": "Continue?",
-        }],
+        "id": task_id,
+        "revision": 7,
+        "channelSequence": 1,
+        "sourceThreadId": source,
+        "owner": "fixture",
+        "mode": mode,
+        "interactionMode": "interactive",
+        "objective": objective or task_id,
+        "threadId": None,
+        "schedule": {"at": 4102444800, "intervalSeconds": 3600},
+        "nextRunAt": 4102444800,
+        "paused": False,
+        "cancelled": False,
+        "tokenBudget": None,
+        "maxTurns": None,
+        "maxActiveSeconds": None,
+        "archivedRunCount": 2,
+        "runCount": 3,
+        "runsComplete": False,
+        "runs": [
+            {
+                "id": task_id + "-run",
+                "threadId": None,
+                "goalId": None,
+                "status": "running",
+                "reason": None,
+                "scheduledAt": 0,
+                "completedAt": None,
+                "usage": usage(),
+                "waitRequested": False,
+            }
+        ],
+        "messages": [
+            {
+                "id": "question",
+                "sequence": 1,
+                "runId": task_id + "-run",
+                "author": "fixture",
+                "kind": "question",
+                "status": "pending",
+                "createdAt": 0,
+                "expiresAt": None,
+                "questions": [],
+                "required": True,
+                "inReplyTo": None,
+                "answers": None,
+                "text": "Continue?",
+            }
+        ],
     }
 
 
@@ -83,27 +120,51 @@ class CatalogSmoke(unittest.TestCase):
             body_digest = digest(body)
             (ledger / body_digest).write_bytes(body)
             heads[digest(row["id"].encode())] = {
-                "body": body_digest, "hot_bytes": len(body), "history": None,
-                "history_segments": 0, "archived_count": row["archivedRunCount"],
-                "usage": usage(), "settlement_limit": max(len(body), 1024 * 1024),
+                "body": body_digest,
+                "hot_bytes": len(body),
+                "history": None,
+                "history_segments": 0,
+                "archived_count": row["archivedRunCount"],
+                "usage": usage(),
+                "settlement_limit": max(len(body), 1024 * 1024),
             }
-        root = encoded({
-            "version": 5, "tasks": heads, "receipts": {}, "bindings": {},
-            "index_version": 3, "preparations": None,
-        })
+        root = encoded(
+            {
+                "version": 5,
+                "tasks": heads,
+                "receipts": {},
+                "bindings": {},
+                "index_version": 3,
+                "preparations": None,
+            }
+        )
         if install:
             (self.data / "desktop/task-mode.json").write_bytes(root)
         return root
 
     def invoke(self, *args, success=True, data=None):
         result = subprocess.run(
-            [str(self.binary), "service", "task-catalog", "--workspace", str(self.workspace),
-             "--data-dir", str(data or self.data), "--json", *args],
+            [
+                str(self.binary),
+                "service",
+                "task-catalog",
+                "--workspace",
+                str(self.workspace),
+                "--data-dir",
+                str(data or self.data),
+                "--json",
+                *args,
+            ],
             cwd=self.workspace,
-            env={"PATH": "/usr/bin:/bin", "HOME": str(self.home),
-                 "AREAL_HARNESS_HOME": str(self.home),
-                 "AREAL_HARNESS_SERVICE_HOME": str(self.home / "service-home")},
-            capture_output=True, text=True, timeout=15,
+            env={
+                "PATH": "/usr/bin:/bin",
+                "HOME": str(self.home),
+                "AREAL_HARNESS_HOME": str(self.home),
+                "AREAL_HARNESS_SERVICE_HOME": str(self.home / "service-home"),
+            },
+            capture_output=True,
+            text=True,
+            timeout=15,
         )
         if success:
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -127,18 +188,28 @@ class CatalogSmoke(unittest.TestCase):
         worker["deletedAt"] = 123
         worker["runs"][0]["status"] = "completed"
         worker["runs"][0]["workers"] = [{"status": "running", "settled": False}]
-        root = self.publish([
-            task("z-scheduled"), task("0-background", "background"),
-            task("1-other", source="other"), tombstone, settled, worker,
-        ])
+        root = self.publish(
+            [
+                task("z-scheduled"),
+                task("0-background", "background"),
+                task("1-other", source="other"),
+                tombstone,
+                settled,
+                worker,
+            ]
+        )
         value = self.invoke("--source-thread-id", "origin", "--limit", "1")
         self.assertEqual(value["version"], 1)
         self.assertEqual(value["source"], "published")
         self.assertEqual(value["executionState"], "unobserved")
-        self.assertEqual(value["target"], {
-            "workspace": str(self.workspace), "dataDir": str(self.data),
-            "instanceId": digest(os.fsencode(self.data))[:24],
-        })
+        self.assertEqual(
+            value["target"],
+            {
+                "workspace": str(self.workspace),
+                "dataDir": str(self.data),
+                "instanceId": digest(os.fsencode(self.data))[:24],
+            },
+        )
         catalog = value["catalog"]
         self.assertEqual(catalog["kind"], "snapshot")
         self.assertEqual(catalog["rootDigest"], digest(root))
@@ -152,9 +223,14 @@ class CatalogSmoke(unittest.TestCase):
         self.assertEqual(row["pendingQuestions"], 1)
         self.assertNotIn("messages", row)
         visible = self.invoke("--source-thread-id", "origin")["catalog"]
-        self.assertEqual([row["id"] for row in visible["data"]], [
-            "a-deleted", "b-deleted-worker", "z-scheduled",
-        ])
+        self.assertEqual(
+            [row["id"] for row in visible["data"]],
+            [
+                "a-deleted",
+                "b-deleted-worker",
+                "z-scheduled",
+            ],
+        )
         self.assertFalse(visible["hasMore"])
         empty = self.invoke("--source-thread-id", "missing")["catalog"]
         self.assertEqual(empty["kind"], "snapshot")
@@ -172,7 +248,9 @@ class CatalogSmoke(unittest.TestCase):
         path = self.data / "desktop/task-mode.json"
         original = encoded({"version": 3, "tasks": {}, "receipts": []})
         path.write_bytes(original)
-        self.assertEqual(self.invoke()["catalog"], {"kind": "requiresCore", "reason": "legacyFormat"})
+        self.assertEqual(
+            self.invoke()["catalog"], {"kind": "requiresCore", "reason": "legacyFormat"}
+        )
         self.assertEqual(path.read_bytes(), original)
         self.assertFalse((self.data / "desktop/task-legacy").exists())
 
@@ -196,7 +274,8 @@ class CatalogSmoke(unittest.TestCase):
     def files(self):
         return {
             str(path.relative_to(self.root)): (digest(path.read_bytes()), path.stat().st_mtime_ns)
-            for path in self.root.rglob("*") if path.is_file()
+            for path in self.root.rglob("*")
+            if path.is_file()
         }
 
     def test_corrupt_references_and_unsupported_formats_fail_closed(self):
@@ -248,13 +327,19 @@ class CatalogSmoke(unittest.TestCase):
         row = task("large")
         row["messages"][0]["text"] = "x" * (33 * 1024 * 1024)
         self.publish([task("small"), row])
-        self.assertEqual(self.invoke()["catalog"], {
-            "kind": "requiresCore", "reason": "readBudgetExceeded",
-        })
+        self.assertEqual(
+            self.invoke()["catalog"],
+            {
+                "kind": "requiresCore",
+                "reason": "readBudgetExceeded",
+            },
+        )
 
     def test_atomic_root_replacement_keeps_each_response_coherent(self):
-        roots = [self.publish([task(str(i), objective=marker) for i in range(3)], install=False)
-                 for marker in ["old", "new"]]
+        roots = [
+            self.publish([task(str(i), objective=marker) for i in range(3)], install=False)
+            for marker in ["old", "new"]
+        ]
         path = self.data / "desktop/task-mode.json"
         path.write_bytes(roots[0])
         stopped = threading.Event()

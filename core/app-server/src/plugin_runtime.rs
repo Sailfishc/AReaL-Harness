@@ -154,11 +154,10 @@ async fn dispatch_inner(
                 .await
         }
         "areal/genUi/source" => {
-            #[derive(serde::Deserialize)]
-            #[serde(rename_all = "camelCase", deny_unknown_fields)]
-            struct Source { thread_id: String, turn_id: String, item_id: String, path: Option<String> }
-            let p: Source = parse(params)?;
-            engine.gen_ui_source(&p.thread_id, &p.turn_id, &p.item_id, p.path.as_deref()).await
+            let p: GenUiSource = parse(params)?;
+            engine
+                .gen_ui_source(&p.thread_id, &p.turn_id, &p.item_id, p.path.as_deref())
+                .await
         }
         "areal/mcp/apps/list" => {
             let p: Apps = parse(params)?;

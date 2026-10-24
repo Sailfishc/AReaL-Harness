@@ -1,8 +1,8 @@
 'use strict';
 
-// Electron 44.5.0 lib/browser/api/web-contents.ts owns these private events.
+// 已核对 Electron 44.9.1 lib/browser/api/web-contents.ts 的私有事件契约。
 // Keep normal answers on CDP; the retained callback is only for teardown.
-const PINNED_ELECTRON = '44.5.0';
+const PINNED_ELECTRON = '44.9.1';
 function attachAgentDialogPresentation(contents, { ownership, onFault }) {
   const runListeners = contents.listeners('-run-dialog');
   const cancelListeners = contents.listeners('-cancel-dialogs');

@@ -1003,7 +1003,11 @@ impl Engine {
             .await
     }
     pub(super) async fn update_plan_inner(&self, request: PlanUpdate) -> Result<Plan> {
-        if self.read(&request.thread_id, false).await?.is_read_only_side() {
+        if self
+            .read(&request.thread_id, false)
+            .await?
+            .is_read_only_side()
+        {
             return Err(invalid("SIDE_POLICY_VIOLATION"));
         }
         let mut ids = HashSet::new();

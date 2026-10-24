@@ -369,7 +369,10 @@ impl Engine {
             // 只在模型请求期间持有许可；等待与停止不占其他会话的模型名额。
             let side_thread_id = {
                 let state = cell.state.lock().await;
-                state.thread.is_read_only_side().then(|| state.thread.id.clone())
+                state
+                    .thread
+                    .is_read_only_side()
+                    .then(|| state.thread.id.clone())
             };
             while steer.try_recv().is_ok() {}
             let (configuration, thread) = {
@@ -396,7 +399,9 @@ impl Engine {
             let goal_instructions = self.goal_instructions(cell).await?;
             let app_context = self.app_model_context(&cell.id).await;
             let reference_thread = cell.state.lock().await.thread.clone();
-            let conversation_reference = self.conversation_reference_reminder(&reference_thread).await?;
+            let conversation_reference = self
+                .conversation_reference_reminder(&reference_thread)
+                .await?;
             let (
                 messages,
                 live_context,

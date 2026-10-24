@@ -400,7 +400,7 @@ Hook 报告复用运行时声明选择与强类型文档解析，`mcp_tool` 是�
 
 启用 `genUi` 的部署向主会话和 Side 提供原生工具 `gen_ui_publish {name,html}`。`name` 为最多 80 字符的小写连字符名称，`html` 为最多 48 KiB 的 UTF-8 HTML 片段。工具将制品存入受保护的不可变输出目录，返回 `{artifactId,path,digest}`。它不授予工作区写入、命令、网络或 MCP 工具权限。助手通过 `::visualize` 指令引用返回的精确路径。
 
-只读方法 `areal/genUi/source {threadId,turnId,itemId,path?}` 返回已完成助手消息的 `{text,artifacts,readOnly}`。不传 `path` 时只读取消息，制品列表为空。Main 使用移植的解析器按指令偏移解码路径，再传入精确 `path` 读取至多一个制品。制品包含身份、来源 Turn 和调用、摘要、路径及 HTML。Core 从该 Thread 的成功发布记录核对来源、托管路径和 SHA-256。用户消息、代码片段、未完成回复或未发布的文件引用不能获得执行权限。
+只读方法 `areal/genUi/source {threadId,turnId,itemId,path?}` 返回已完成助手消息的 `{text,artifacts,readOnly}`。不传 `path` 时只读取消息，制品列表为空。Main 使用移植的解析器按指令偏移解码路径，再传入精确 `path` 读取至多一个制品。制品包含身份、来源 Turn 和调用、摘要、路径及 HTML。Core 从该 Thread 的成功发布记录核对来源、托管路径和 SHA-256。用户消息、代码片段、未完成回复或未发布的文件引用不能获得执行权限。 请求与响应契约均纳入生成的桌面 schema。
 
 Desktop 在同一配置目录内保存 `{modelContent,privateContent}`，按真实执行工作区、Thread 和制品隔离；Worktree 的 GUI 保存与 Core 后续读取使用同一物理身份。单项序列化状态最多 16 KiB，会话最多保留 100 项，超出时淘汰最早更新的状态。页面通过 `window.zcode.widgetState` 读取初值，`setWidgetState({modelContent,privateContent})` 等待保存确认，`sendFollowUpMessage({prompt,title?})` 提出后续问题。主会话和 Side 的实际发送入口将最多 64 KiB 的 `modelContent` 列表附加为 `<untrusted_gen_ui_state>`，不附加 `privateContent`。状态保存本身不创建模型 Turn。页面后续问题等待状态保存，再交给宿主确认与原会话发送入口。未知受理只核对原收据，不自动重发。
 

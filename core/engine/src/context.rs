@@ -480,11 +480,20 @@ impl Engine {
                     .await
                     .iter()
                     .any(|tool| tool["function"]["name"] == "gen_ui_publish")
-            } else { false }
-        } else { false };
+            } else {
+                false
+            }
+        } else {
+            false
+        };
         if gen_ui_available {
-            instructions.get_or_insert_with(|| InstructionText::new(String::new()))
-                .push(Kind::Other, "Interactive answers", crate::desktop::gen_ui::GUIDANCE);
+            instructions
+                .get_or_insert_with(|| InstructionText::new(String::new()))
+                .push(
+                    Kind::Other,
+                    "Interactive answers",
+                    crate::desktop::gen_ui::GUIDANCE,
+                );
         }
         if let Some(workspace) = self.workspace_context(cell) {
             // 工作区能力随本轮指令冻结，并纳入同一文本快照的用量归因。

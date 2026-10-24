@@ -117,8 +117,7 @@ impl Engine {
         thread: &Thread,
         model: &dyn Model,
     ) -> Result<()> {
-        if let Some(history_seed) = thread.model_history_seed()
-        {
+        if let Some(history_seed) = thread.model_history_seed() {
             let prefix = self
                 .store
                 .read_fork_snapshot(&history_seed.snapshot_id)

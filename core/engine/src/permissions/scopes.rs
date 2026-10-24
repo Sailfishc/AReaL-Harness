@@ -241,7 +241,9 @@ impl Engine {
                 .turns
                 .last()
                 .and_then(|turn| turn.configuration.as_ref());
-            if state.thread.is_read_only_side() || cell.research || configuration.is_some_and(|c| c.read_only)
+            if state.thread.is_read_only_side()
+                || cell.research
+                || configuration.is_some_and(|c| c.read_only)
             {
                 return Err(rt::Error::new(
                     rt::ErrorCode::PermissionDenied,

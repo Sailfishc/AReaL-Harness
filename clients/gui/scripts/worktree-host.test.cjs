@@ -1,7 +1,7 @@
 "use strict";
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { mkdtemp, mkdir, writeFile, readFile, rename, rm } = require("node:fs/promises");
+const { mkdtemp, mkdir, writeFile, readFile, rename, rm, realpath } = require("node:fs/promises");
 const { join, dirname } = require("node:path");
 const { tmpdir } = require("node:os");
 const { randomUUID, createHash } = require("node:crypto");
@@ -14,7 +14,7 @@ function git(root, ...args) {
     return execFileSync("git", ["-C", root, ...args], { encoding: "utf8" }).trim();
 }
 async function setup(t, { gitRepo = true } = {}) {
-    const directory = await mkdtemp(join(tmpdir(), "areal-host-worktree-"));
+    const directory = await realpath(await mkdtemp(join(tmpdir(), "areal-host-worktree-")));
     t.after(() => rm(directory, { recursive: true, force: true }));
     const root = join(directory, "source"),
         home = join(directory, "desktop");

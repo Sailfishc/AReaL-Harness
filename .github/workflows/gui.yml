@@ -86,6 +86,8 @@ jobs:
           rustup show
           if ! command -v cmake; then brew install cmake; fi
           make gui-install
+      - name: Build desktop package entry points
+        run: pnpm --dir clients/gui build:desktop
       - name: Verify design contracts and incremental audit
         run: pnpm --dir clients/gui verify:design 2>&1 | tee target/ci/gui/design.log
       - name: Verify fast GUI regressions
@@ -178,6 +180,8 @@ jobs:
           key: gui-deps-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('clients/gui/pnpm-lock.yaml') }}
       - name: Prepare locked GUI dependencies
         run: make gui-install
+      - name: Build desktop package entry points
+        run: pnpm --dir clients/gui build:desktop
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: macos-gui-smoke-inputs

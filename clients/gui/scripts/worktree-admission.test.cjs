@@ -1,7 +1,7 @@
 "use strict";
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { mkdtemp, mkdir, rm, readdir, readFile, writeFile } = require("node:fs/promises");
+const { mkdtemp, mkdir, rm, readdir, readFile, writeFile, realpath } = require("node:fs/promises");
 const { join, dirname } = require("node:path");
 const { tmpdir } = require("node:os");
 const { WorktreeAdmission } = require("../app/src/core/worktree-admission.cjs");
@@ -39,7 +39,7 @@ const idle = () => ({
     pendingQueueItems: 0,
 });
 async function fixture(t, status = idle()) {
-    const directory = await mkdtemp(join(tmpdir(), "areal-author-"));
+    const directory = await realpath(await mkdtemp(join(tmpdir(), "areal-author-")));
     t.after(() => rm(directory, { recursive: true, force: true }));
     const root = join(directory, "repo");
     await mkdir(root);

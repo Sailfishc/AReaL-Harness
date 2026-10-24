@@ -16,7 +16,7 @@ const git = async (root, ...args) =>
         })
     ).stdout.trim();
 async function fixture(t) {
-    const scratch = await fs.mkdtemp(path.join(tmpdir(), "areal-worktree-test-"));
+    const scratch = await fs.realpath(await fs.mkdtemp(path.join(tmpdir(), "areal-worktree-test-")));
     t.after(() => fs.rm(scratch, { recursive: true, force: true }));
     const root = path.join(scratch, "source"),
         storage = path.join(scratch, "state");

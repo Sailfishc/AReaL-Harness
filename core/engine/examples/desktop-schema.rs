@@ -29,6 +29,10 @@ fn desktop_schema() -> Value {
         };
     }
     add!("areal/capabilities", CapabilitiesRequest);
+    add!(
+        "areal/genUi/source",
+        areal_protocol::plugin_runtime::GenUiSource
+    );
     add!("areal/thread/prediction", PromptPredictionRequest);
     add!(
         "areal/mcp/app/tools/register",

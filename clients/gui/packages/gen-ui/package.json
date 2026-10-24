@@ -12,7 +12,7 @@
     "./assets/*": "./assets/*"
   },
   "dependencies": {
-    "zod": "4.2.0",
+    "zod": "4.6.6",
     "@modelcontextprotocol/ext-apps": "2.0.3"
   },
   "devDependencies": {

@@ -64,26 +64,27 @@ impl Model for Fixture {
             return Ok(Box::pin(futures_util::stream::pending()));
         }
         let paging = self.paging.lock().unwrap().clone();
-        if let Some((target, budget)) = paging {
-            if let Some(message) = messages.iter().rev().find(|message| message.role == "tool") {
-                let page: Value = serde_json::from_str(&message.text_content()).unwrap();
-                assert!(page.get("data").is_some(), "{page}");
-                assert!(serde_json::to_vec(&page).unwrap().len() <= budget);
-                for entry in page["data"].as_array().unwrap() {
-                    if let Some(cursor) = entry["item"]["cursor"].as_str() {
-                        self.calls.lock().unwrap().push_back(
-                            json!({"threadId":target,"cursor":cursor,"maxBytes":budget}),
-                        );
-                    }
-                }
-                if let Some(cursor) = page["nextCursor"].as_str() {
+        if let Some((target, budget)) = paging
+            && let Some(message) = messages.iter().rev().find(|message| message.role == "tool")
+        {
+            let page: Value = serde_json::from_str(&message.text_content()).unwrap();
+            assert!(page.get("data").is_some(), "{page}");
+            assert!(serde_json::to_vec(&page).unwrap().len() <= budget);
+            for entry in page["data"].as_array().unwrap() {
+                if let Some(cursor) = entry["item"]["cursor"].as_str() {
                     self.calls
                         .lock()
                         .unwrap()
                         .push_back(json!({"threadId":target,"cursor":cursor,"maxBytes":budget}));
                 }
-                self.pages.lock().unwrap().push(page);
             }
+            if let Some(cursor) = page["nextCursor"].as_str() {
+                self.calls
+                    .lock()
+                    .unwrap()
+                    .push_back(json!({"threadId":target,"cursor":cursor,"maxBytes":budget}));
+            }
+            self.pages.lock().unwrap().push(page);
         }
         let call = self.calls.lock().unwrap().pop_front();
         let mut events = Vec::new();

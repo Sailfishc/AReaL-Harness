@@ -8,7 +8,7 @@
 
 Core 工具使用 `{operation:"command",parameters:{pageId,command}}`。例如定位器点击命令为 `{method:"playwright",action:{name:"locator",selector:"#continue",operation:"click"}}`。`describeBrowserCommands()` 返回完整 JSON schema、实际方法清单、限制和有效示例。`validateBrowserCommand()` 使用上游 schema 解析，并限制普通等待最多 30 秒、下载等待最多 120 秒。
 
-默认 CommonJS 入口不依赖 Electron，导出 schema、描述、`executeBrowserCommandOnView` 和录制动作编排。`@areal/browser-automation/electron` 导出实际 Electron WebM 录制器和后台截图租约。Playwright `1.59.1` 与 Zod `4.6.5` 是运行时依赖。执行器从 Playwright 包读取注入脚本，不能在打包时遗漏它。
+默认 CommonJS 入口不依赖 Electron，导出 schema、描述、`executeBrowserCommandOnView` 和录制动作编排。`@areal/browser-automation/electron` 导出实际 Electron WebM 录制器和后台截图租约。Playwright `1.59.1` 与 Zod `4.6.6` 是运行时依赖。执行器从 Playwright 包读取注入脚本，不能在打包时遗漏它。
 
 Preview 保持唯一 Page、WebContentsView、debugger、控制 epoch 和输入账本。每条命令消费绑定原始参数的不可变一次性审批计划。定位器、坐标、脚本、下载和录制动作都经过该边界。后台页面临时借用一个透明、不可聚焦窗口建立真实 compositor surface，完成后交还同一个 WebContentsView。录制保留完整已审批动作程序，取消、关闭和人工接管撤销后续输入。
 

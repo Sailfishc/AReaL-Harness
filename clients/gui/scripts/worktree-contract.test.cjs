@@ -1,7 +1,7 @@
 "use strict";
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { mkdtemp, mkdir, writeFile, rm } = require("node:fs/promises");
+const { mkdtemp, mkdir, writeFile, rm, realpath } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const { join } = require("node:path");
 const {
@@ -46,7 +46,7 @@ test("Worktree configuration is a validated future-creation request", () => {
 });
 
 test("native file handoff follows selected thread checkout and rejects source/foreign fallback", async () => {
-    const home = await mkdtemp(join(tmpdir(), "areal-file-worktree-"));
+    const home = await realpath(await mkdtemp(join(tmpdir(), "areal-file-worktree-")));
     try {
         const root = join(home, "source"),
             directory = join(home, "tree");
