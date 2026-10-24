@@ -442,6 +442,11 @@ class WorktreeAdmission {
                         (name === "manage" && request.operation === "taskDraftSend"))
                 )
                     return;
+                // Legacy Side retention is Core-owned history management, not workspace authorship.
+                if (name === "manage" && ["archive", "unarchive"].includes(request.operation)
+                    && threads.some(thread => thread.id === request.threadId
+                        && thread.conversation?.kind === "side"
+                        && thread.conversation.policy?.kind === "sideReadOnlyV1")) return;
                 if (readOnlySide) throw reject("旁路讨论不能作为工作区作者执行写入");
                 if (typeof this.backend.scheduleAdmission?.authorForSession === "function") {
                     const verified = await this.backend.scheduleAdmission.authorForSession(

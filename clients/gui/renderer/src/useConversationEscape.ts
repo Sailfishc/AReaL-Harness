@@ -15,7 +15,7 @@ export function useConversationEscape({ pane, project, thread, action, enabled, 
       const owned = path.includes(pane.current);
       if (!owned && (!outsideFallback || path.some(target => target instanceof Element && target.matches(".side-chat-pane")))) return;
       if (path.some(target => target instanceof Element && (target.getAttribute("role") === "dialog" || target.getAttribute("data-slot") === "dialog-content"))
-        || document.querySelector('[role="dialog"], [data-slot="dialog-content"], [data-slot="select-content"], [data-slot="popover-content"], [data-slot="dropdown-menu-content"], [data-slot="context-menu-content"]')
+        || [...document.querySelectorAll('[role="dialog"], [data-slot="dialog-content"], [data-slot="select-content"], [data-slot="popover-content"], [data-slot="dropdown-menu-content"], [data-slot="context-menu-content"]')].some(element => element.getClientRects().length)
         || pane.current.querySelector('[aria-haspopup][aria-expanded="true"], .composer-queue-edit-banner')) return;
       event.preventDefault();
       if (running) void stopConversationTurn(action, project, thread).catch(cause => onError?.(cause.message));
