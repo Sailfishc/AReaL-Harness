@@ -13,10 +13,10 @@ export function UiLibraryPreview({ dark, fontSize }: { dark: boolean; fontSize: 
       <p>保留现有视觉，先贯通基础值、组件、文档、Agent入口与守卫，再通过真实组合迭代。</p></div>
     <nav className="design-preview-navigation" aria-label="UI包入口"><a href={url("clients/gui/packages/ui/agent-guide.md")}>Agent 使用入口</a><a href="./components.json" target="_blank" rel="noreferrer">组件索引 JSON</a><a href="./llms.txt" target="_blank" rel="noreferrer">llms.txt</a><a href="?conversation-system">对话组合实例</a></nav>
     <section className="ui-library-section" aria-label="独立包消费"><h3>真实组件示例</h3><p>下方示例运行在独立文档中，基础外观由包内样式提供。</p>
-      <iframe title="独立UI包示例" src={`./ui-library.html?theme=${dark ? "dark" : "light"}&font=${fontSize}`} />
+      <iframe key={`${dark}-${fontSize}`} title="独立UI包示例" src={`./ui-library.html?theme=${dark ? "dark" : "light"}&font=${fontSize}`} />
     </section>
-    <section className="ui-library-section" aria-label="包内组件目录"><h3>组件与合同</h3>{manifest.components.map(component => <article className="ui-library-component" key={component.id}>
-      <div><h4>{component.title}</h4><span>{component.layer === "conversation" ? "对话组合" : "基础控件"} · {component.status === "stable" ? "稳定入口" : "实验入口"} · {component.entry === "wip" ? "@areal/ui/wip" : "@areal/ui"}</span></div><p>{component.summary}</p><a href={url(component.document)}>阅读组件合同</a>
+    <section className="ui-library-section" aria-label="包内组件目录"><h3>组件与合同</h3>{manifest.components.map(component => <article id={`component-${component.id}`} className="ui-library-component" key={component.id}>
+      <div><h4>{component.title}</h4><span>{component.layer === "conversation" ? "对话组合" : "基础控件"} · {component.status === "stable" ? "稳定入口" : "实验入口"} · {component.entry === "wip" ? "@areal/ui/wip" : "@areal/ui"}</span></div><p>{component.summary}</p><a href={url(component.document)}>阅读组件合同</a><small className="ui-library-source">{component.document}</small>
       <details><summary>查看 TypeScript 生成的 API</summary><pre>{component.api}</pre></details>
     </article>)}</section>
     <section className="ui-library-section" aria-label="设计源与产物"><h3>设计源与生成链</h3><table><thead><tr><th>来源</th><th>生成/实现</th><th>消费者与检查</th></tr></thead><tbody>

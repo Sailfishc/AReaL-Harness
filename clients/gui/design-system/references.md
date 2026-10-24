@@ -94,3 +94,17 @@ AReaL 保留窄容器上下排列：这是既有长文案可达性合同，与�
 本次恢复的常驻参考实例沿用原验证聊天，通过CDP在真实浏览器页签导航本地合成Project preview；启动应用包核对为Codex26.1013.40934（20770），与此前E3记录的版本分别标注。宿主工具栏和独立网页分别取证；点击Try preview后按钮变为Preview clicked，主宿主焦点记录为WEBVIEW；随后点击Hide tabs，焦点回到Work with Codex。该记录支持网页交互与本路径关闭后的焦点结果，不推断其内部恢复机制或任意入口的行为。
 
 AReaL选定窗口往返与原生网页切片见[E4](exercises/conversation-flow.md#原生宿主补充-e4)。双方保留各自原生视图及宿主图，不把宿主空白当作网页缺失；本轮不调整Token或声称像素一致。自有应用的人工补采只确认英文文字上屏，用户明确未见候选字列表，候选浮窗仍未知；不能把既有组合事件升级成候选窗口已覆盖。参考的原生OS激活和中文候选仍无独立证据。
+
+### 2026-10-24 过程摘要、上下文卡片与组件文档再调研
+
+这次不是完整复刻验收。用户新图1显示过程末尾有具体模型文字而非固定Thinking；图2经用户确认，Changes/Subagents/Sources卡片由顶部按钮开关；图3展示Raft组件旁MD的元数据与用途/组成等结构。它们补充原观察，不证明全部Codex版本、动效时长或关闭策略。
+
+| 资料 | 可采用事实 | 设计推断/边界 |
+| --- | --- | --- |
+| [OpenAI Reasoning summaries](https://developers.openai.com/api/docs/guides/reasoning#reasoning-summaries) | 支持时可选择返回公开摘要，与原始隐藏推理不同 | 组件只消费宿主允许公开的可读摘要；不请求或展示隐藏推理，不假定全部模型都有摘要 |
+| [Codex for (almost) everything，2026-04-16](https://openai.com/index/codex-for-almost-everything/) | 官方区分文件预览与追踪计划/来源/产物的summary pane | 任务卡片与资源阅读区分离；该资料不能证明当前按钮的精确位置、默认值或Escape机制 |
+| [Raft Composer MD](https://github.com/botiverse/raft-design/blob/f2675b83a6e3329ef05216bfc6ad530cdcbca980/packages/ui/src/components/composer/composer.md)及[ConversationPanel MD](https://github.com/botiverse/raft-design/blob/f2675b83a6e3329ef05216bfc6ad530cdcbca980/packages/ui/src/components/conversation-panel/conversation-panel.md) | 就近文档包含可检索元数据、使用选择、组成、状态/行为、内容和可访问性，以及示例引用 | 采用工程结构，保留AReaL分层与视觉；不是只补一个同名空MD，也不复制品牌规则 |
+| [Raft LiveAgentActivityBar](https://github.com/botiverse/raft-design/blob/f2675b83a6e3329ef05216bfc6ad530cdcbca980/packages/ui/src/components/live-agent-activity-bar/live-agent-activity-bar.md) | 其全局活动条已弃用，说明将工作状态放回所属对象的原因 | 摘要放在各自对话内，避免新建全局持续打扰区；不是照搬其具体布局 |
+| 本仓TurnExecution/TurnActivity与conversationPresentation.activityLabel | 原执行投影已区分连接、等待确认、重试、工具与模型状态 | 未来接线继续沿原状态所有者；当前只在设计预览用固定样例验证，不能用模型文字证明命令成功 |
+
+优化方案与实施范围归[对话流规范](conversation-flow.md#研究后的优化选择)。仍未覆盖完整资源标签页、真实供应商流、所有模型摘要策略、原生窗口生命周期与全量视觉对照。卡片显式关闭/Escape、阅读器进入时暂收卡片及返回恢复，是AReaL本轮产品选择，不标成Codex实测事实。

@@ -1,5 +1,5 @@
 import { ActivityGroup, Disclosure, ImageDisclosure, SubagentPanel, TaskContext, ThinkingStatus } from "@areal/ui/wip";
-import { useLayoutEffect, useRef, useState } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 import { FileTextIcon, GlobeIcon, ImageIcon } from "lucide-react";
 import "@areal/ui/conversation.css";
 import { ActivityIcon } from "../ActivityIcon.js";
@@ -34,6 +34,10 @@ export function ConversationSystemPreview({ dark }: { dark: boolean }) {
   const [imageAvailable, setImageAvailable] = useState(true);
   const [agentMode, setAgentMode] = useState<AgentMode>("mixed");
   const [agentPanelOpen, setAgentPanelOpen] = useState(false);
+  const [progressMode, setProgressMode] = useState("summary");
+  const [progressIndex, setProgressIndex] = useState(0);
+  const progressLabels = ["澄清动效与输出需求", "对比上下文卡片与资源面板", "核对组件规范与状态边界"];
+  const progressLabel = progressMode === "thinking" ? undefined : progressMode === "long" ? "正在核对模型提供的公开过程摘要、工具活动与等待确认状态，检查不同字号下的完整阅读和返回路径。" : progressLabels[progressIndex % progressLabels.length];
   const [selectedAgentId, setSelectedAgentId] = useState<string>();
   const agentInvoker = useRef<HTMLElement | null>(null);
   const [draft, setDraft] = useState("");
@@ -41,6 +45,8 @@ export function ConversationSystemPreview({ dark }: { dark: boolean }) {
   const [inspection, setInspection] = useState<Inspection | null>(null);
   const contextTrigger = useRef<HTMLButtonElement>(null);
   const contextHeading = useRef<HTMLHeadingElement>(null);
+  const contextId = useId();
+  const contextBeforeReader = useRef(false);
   const invoker = useRef<HTMLElement | null>(null);
   const sources: PreviewSource[] = [...previewSources.slice(0, Number(sourceCount)), ...(draftSource
     ? [{ id: "draft-web", kind: "web" as const, name: "新加入的网页引用", location: "example.com/draft", note: "草稿待发送" }] : [])];
@@ -50,18 +56,18 @@ export function ConversationSystemPreview({ dark }: { dark: boolean }) {
   const childState = agentMode === "mixed" ? "运行中" : agentMode === "attention" ? "需要确认" : "已完成";
   const openAgents = (id?: string) => {
     agentInvoker.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    setSelectedAgentId(id); setAgentPanelOpen(true);
+    contextBeforeReader.current = contextOpen;
+    setContextOpen(false); setSelectedAgentId(id); setAgentPanelOpen(true);
   };
   const closeAgents = () => {
-    setAgentPanelOpen(false);
+    setAgentPanelOpen(false); setContextOpen(contextBeforeReader.current);
     requestAnimationFrame(() => agentInvoker.current?.focus({ preventScroll: true }));
   };
   const inspect = (next: Inspection) => {
     invoker.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setInspection(next);
-    // In wide layout the context is already visible. Only narrow inspection
-    // changes which region is shown; don't carry a wide inspection into resize.
-    if (contextTrigger.current && getComputedStyle(contextTrigger.current).display !== "none") setContextOpen(true);
+    // Resource inspection opens the context card on every viewport size.
+    setContextOpen(true);
   };
   const returnContext = () => {
     setInspection(null);
@@ -70,6 +76,11 @@ export function ConversationSystemPreview({ dark }: { dark: boolean }) {
   const returnConversation = () => {
     setInspection(null); setContextOpen(false);
     requestAnimationFrame(() => contextTrigger.current?.focus({ preventScroll: true }));
+  };
+  const toggleContext = () => {
+    if (agentPanelOpen) { setAgentPanelOpen(false); setContextOpen(true); }
+    else if (contextOpen) returnConversation();
+    else { setInspection(null); setContextOpen(true); }
   };
   useLayoutEffect(() => {
     if (inspection || contextOpen) contextHeading.current?.focus({ preventScroll: true });
@@ -86,6 +97,10 @@ export function ConversationSystemPreview({ dark }: { dark: boolean }) {
       <label>来源数量<select aria-label="来源数量" value={sourceCount} onChange={event => { setSourceCount(event.target.value); setDraftSource(false); }}>
         <option value="0">0 项 · 空态</option><option value="3">3 项</option><option value="5">5 项 · 含不可用引用</option>
       </select></label>
+      <label>过程摘要<select aria-label="过程摘要" value={progressMode} onChange={event => setProgressMode(event.target.value)}>
+        <option value="summary">模型摘要</option><option value="thinking">无摘要 · Thinking</option><option value="long">长摘要</option>
+      </select></label>
+      <Button variant="outline" size="sm" disabled={phase !== "running" && !agentPanelOpen} onClick={() => { setProgressMode("summary"); setProgressIndex(value => value + 1); }}>推进摘要样例</Button>
       <label>子任务状态<select aria-label="子任务状态" value={agentMode} onChange={event => setAgentMode(event.target.value as AgentMode)}>
         <option value="mixed">1 运行中 · 15 已完成</option><option value="completed">全部已完成</option><option value="attention">1 需要确认 · 15 已完成</option>
       </select></label>
@@ -96,9 +111,9 @@ export function ConversationSystemPreview({ dark }: { dark: boolean }) {
       <a href="?docs=clients/gui/design-system/conversation-flow.md">阅读规范</a>
     </div>
     <WorkbenchShell className="conversation-system-shell" data-context-open={contextOpen} data-agent-open={agentPanelOpen}>
+      <header className="cs-chat-header"><span>整理对话流设计系统</span><Button ref={contextTrigger} variant="ghost" size="sm"
+        aria-label="任务上下文" aria-expanded={contextOpen} aria-controls={contextId} onClick={toggleContext}>任务上下文</Button></header>
       <div className="cs-conversation">
-        <header className="cs-chat-header"><span>整理对话流设计系统</span><Button ref={contextTrigger} variant="ghost" size="sm" className="cs-context-toggle"
-          aria-label="查看任务上下文" aria-expanded={contextOpen} onClick={() => setContextOpen(true)}>任务上下文</Button></header>
         <div className="cs-transcript" role="region" aria-label="示例对话" tabIndex={0}>
           <div className="cs-reading-column">
             <p className="cs-user-message">把活动分组、图片和任务上下文整理为统一的对话流，保留按需展开与返回阅读。</p>
@@ -126,7 +141,7 @@ export function ConversationSystemPreview({ dark }: { dark: boolean }) {
             <p>活动摘要用于快速了解过程，展开后可以核对原始记录。右侧按项目、子任务和输入来源整理相关对象。</p>
             {phase === "completed" && <div className="cs-final"><h3>对话流预览已整理完成</h3><p>活动与图片可按需展开，来源支持三项预览和查看全部。可以继续切换主题、字号和窄窗，检查同一组内容的呈现。</p></div>}
             {phase === "attention" && <p>已保留当前记录。查看详情不会重新执行命令；子任务的状态需要分别确认。</p>}
-            {phase === "running" && <div className="cs-thinking"><ThinkingStatus /></div>}
+            {phase === "running" && <div className="cs-thinking"><ThinkingStatus label={progressLabel} /></div>}
           </div>
         </div>
         <div className="cs-composer composer-dock"><ConversationComposer project={previewProject} modelConfig={previewProject.configurations.main}
@@ -134,7 +149,8 @@ export function ConversationSystemPreview({ dark }: { dark: boolean }) {
           taskId="system-main" placeholder="补充这项任务…" submitDisabled submitLabel="发送" onChange={setDraft} onSubmit={() => false}
           enableMentionPanel={false} /></div>
       </div>
-      <TaskContext title={inspectionTitle} headingRef={contextHeading} onBack={inspection ? returnContext : undefined}
+      <TaskContext id={contextId} hidden={!contextOpen} title={inspectionTitle} headingRef={contextHeading} onBack={inspection ? returnContext : undefined}
+        onKeyDown={event => { if (event.key === "Escape" && !event.defaultPrevented && !(event.target as HTMLElement).closest('[role="dialog"]')) { event.preventDefault(); returnConversation(); } }}
         actions={<Button variant="ghost" size="sm" className="cs-context-toggle" onClick={returnConversation}>返回对话</Button>}>
           <div hidden={!!inspection}>
             <TaskContext.Section label="当前项目变更" title="AReaL-Harness">
@@ -171,7 +187,7 @@ export function ConversationSystemPreview({ dark }: { dark: boolean }) {
           <ActivityGroup label="读取规范、核对交互 · 3 项活动">
             <p>已读取对话流设计规范。</p><p>已核对活动展开、图片查看和来源返回。</p><p>{selectedAgent.state === "completed" ? "已整理本地样例检查记录。" : "已保留当前核对记录。"}</p>
           </ActivityGroup>
-          {selectedAgent.state === "running" ? <><p>正在检查窄窗返回与键盘焦点，结果尚未结算。</p><ThinkingStatus /></>
+          {selectedAgent.state === "running" ? <><p>正在检查窄窗返回与键盘焦点，结果尚未结算。</p><ThinkingStatus label={progressLabel} /></>
             : selectedAgent.state === "attention" ? <><Feedback message="退出结果尚未确认，保留最后收到的记录。" /><p>此处只读历史，不重试或重放任务。</p></>
               : <><h3>{selectedAgent.name}完成</h3><ul><li>活动与图片的人工展开选择得到保留。</li><li>来源返回后可继续阅读原记录。</li><li>子任务状态独立于父任务结算。</li></ul><p>以上是固定历史样例，用于评审完成态的阅读体验。</p></>}
         </>}

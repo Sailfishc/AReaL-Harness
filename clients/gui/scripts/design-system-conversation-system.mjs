@@ -8,6 +8,15 @@ export async function runConversationSystem(page, scratch, checks) {
   const activity = preview.getByRole("button", { name: "读取文件、运行命令 · 30 项活动", exact: true });
   const image = preview.getByRole("button", { name: "已查看图片 · 界面参考.png", exact: true });
   const sources = preview.getByRole("region", { name: "输入来源", exact: true });
+  const contextToggle = preview.getByRole("button", { name: "任务上下文", exact: true });
+  const card = preview.getByRole("complementary", { name: "任务上下文", exact: true });
+  assert.equal(await contextToggle.getAttribute("aria-expanded"), "false");
+  assert.equal(await card.isVisible(), false, "context card is closed before its top button is used");
+  await contextToggle.click();
+  await card.waitFor();
+  await card.getByRole("heading", { name: "任务上下文", exact: true }).press("Escape");
+  assert.equal(await contextToggle.getAttribute("aria-expanded"), "false");
+  await contextToggle.click();
   await activity.waitFor();
   assert.equal(await activity.getAttribute("aria-expanded"), "false");
   assert.equal(await image.getAttribute("aria-expanded"), "false");
@@ -99,8 +108,8 @@ export async function runConversationSystem(page, scratch, checks) {
   const draft = preview.getByTestId("system-preview-composer");
   await draft.fill("保留这段未发送的草稿");
   await page.getByLabel("面板宽度", { exact: true }).selectOption("narrow");
-  const context = preview.getByRole("button", { name: "查看任务上下文", exact: true });
-  await context.click();
+  const context = preview.getByRole("button", { name: "任务上下文", exact: true });
+  if (await context.getAttribute("aria-expanded") === "false") await context.click();
   await preview.getByRole("button", { name: "查看全部 Subagents（16）", exact: true }).click();
   const narrowAgents = preview.getByRole("region", { name: "子代理面板", exact: true });
   await narrowAgents.getByRole("button", { name: /对话布局检查.*运行中/ }).click();
@@ -109,7 +118,7 @@ export async function runConversationSystem(page, scratch, checks) {
   await narrowAgents.getByRole("button", { name: "关闭子代理面板", exact: true }).click();
   await preview.getByRole("button", { name: "返回对话", exact: true }).click();
   assert.equal(await draft.innerText(), "保留这段未发送的草稿");
-  await page.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "查看任务上下文");
+  await page.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "任务上下文");
   for (const theme of ["light", "dark"]) {
     await page.getByLabel("主题", { exact: true }).selectOption(theme);
     await page.getByLabel("字号", { exact: true }).selectOption("18");
@@ -133,6 +142,7 @@ export async function runConversationSystem(page, scratch, checks) {
 
 async function verifySubagentFlow(page, preview, scratch) {
   await preview.getByRole("button", { name: "查看全部 Subagents（16）", exact: true }).click();
+  assert.equal(await preview.getByRole("button", { name: "任务上下文", exact: true }).getAttribute("aria-expanded"), "false");
   const panel = preview.getByRole("region", { name: "子代理面板", exact: true });
   await panel.getByRole("heading", { name: "Active · 1", exact: true }).waitFor();
   await panel.getByRole("heading", { name: "Done · 15", exact: true }).waitFor();
@@ -151,6 +161,12 @@ async function verifySubagentFlow(page, preview, scratch) {
   const history = panel.getByRole("region", { name: "子代理历史对话", exact: true });
   await history.getByText("检查活动分组、阅读返回和上下文来源，保留独立的子任务状态。", { exact: true }).waitFor();
   await history.getByText("Working for 2m 28s", { exact: true }).waitFor();
+  await history.getByRole("status").filter({ hasText: "澄清动效与输出需求" }).waitFor();
+  await preview.getByRole("button", { name: "推进摘要样例", exact: true }).click();
+  await history.getByRole("status").filter({ hasText: "对比上下文卡片与资源面板" }).waitFor();
+  await preview.getByLabel("过程摘要", { exact: true }).selectOption("long");
+  assert.equal(await history.evaluate(element => element.scrollWidth <= element.clientWidth), true);
+  await preview.getByLabel("过程摘要", { exact: true }).selectOption("thinking");
   await history.getByRole("status").filter({ hasText: "Thinking" }).waitFor();
   const thinking = history.locator('.areal-thinking');
   await thinking.scrollIntoViewIfNeeded();
@@ -180,7 +196,7 @@ async function verifySubagentFlow(page, preview, scratch) {
   await panel.getByRole("button", { name: /活动合同核对.*已完成/ }).click();
   await history.getByText("Worked for 16m 18s", { exact: true }).waitFor();
   await history.getByRole("heading", { name: "活动合同核对完成", exact: true }).waitFor();
-  assert.equal(await history.getByRole("status").filter({ hasText: "Thinking" }).count(), 0);
+  assert.equal(await history.locator('.areal-thinking').count(), 0);
   await page.screenshot({ path: join(scratch, "subagent-completed.png"), fullPage: true });
   await panel.getByRole("button", { name: "返回子代理列表", exact: true }).click();
   await preview.getByLabel("子任务状态", { exact: true }).selectOption("completed");
@@ -191,8 +207,9 @@ async function verifySubagentFlow(page, preview, scratch) {
   await panel.getByRole("heading", { name: "Needs attention · 1", exact: true }).waitFor();
   await panel.getByRole("button", { name: /对话布局检查.*需要确认/ }).click();
   await history.getByRole("status").filter({ hasText: "退出结果尚未确认" }).waitFor();
-  assert.equal(await history.getByRole("status").filter({ hasText: "Thinking" }).count(), 0);
+  assert.equal(await history.locator('.areal-thinking').count(), 0);
   await preview.getByLabel("子任务状态", { exact: true }).selectOption("mixed");
+  await preview.getByLabel("过程摘要", { exact: true }).selectOption("summary");
   await panel.getByRole("button", { name: "关闭子代理面板", exact: true }).click();
   await panel.waitFor({ state: "hidden" });
   await page.waitForFunction(() => document.querySelector('.areal-subagent-panel .areal-thinking')?.dataset.animating === 'false');

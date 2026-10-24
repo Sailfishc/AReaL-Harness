@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 
 /** Visible text remains readable without animation, observers or scripting. */
-export function ThinkingStatus({ label = "Thinking" }: { label?: string }) {
+export function ThinkingStatus({ label }: { label?: string }) {
+  const text = label?.trim() || "Thinking";
   const ref = useRef<HTMLSpanElement>(null);
   const [animating, setAnimating] = useState(false);
   useEffect(() => {
@@ -12,7 +13,7 @@ export function ThinkingStatus({ label = "Thinking" }: { label?: string }) {
     document.addEventListener("visibilitychange", update);
     return () => { observer.disconnect(); document.removeEventListener("visibilitychange", update); };
   }, []);
-  return <span ref={ref} className="areal-thinking" role="status" data-animating={animating}>
-    <span>{label}</span><span className="areal-thinking-sweep" aria-hidden="true">{label}</span>
+  return <span ref={ref} className="areal-thinking" role="status" aria-live="polite" aria-atomic="true" data-animating={animating} data-content={label?.trim() ? "summary" : "fallback"}>
+    <span key={text} className="areal-thinking-message"><span>{text}</span><span className="areal-thinking-sweep" aria-hidden="true">{text}</span></span>
   </span>;
 }

@@ -20,6 +20,30 @@ export async function runUiLibrary(page, scratch, checks) {
     const component = manifest.components.find(component => component.id === id);
     await library.locator("article").filter({ has: page.getByRole("heading", { name: component.title, exact: true }) }).getByRole("link", { name: "阅读组件合同", exact: true }).click();
     await page.getByRole("heading", { name: new RegExp(`^${component.title} `) }).waitFor();
+    const metadata = page.getByRole("region", { name: "组件元数据", exact: true });
+    await metadata.getByRole("rowheader", { name: "related", exact: true }).waitFor();
+    await metadata.getByRole("link", { name: "查看 Markdown 原文", exact: true }).waitFor();
+    const live = page.frameLocator(`iframe[title="${component.title} 独立示例"]`);
+    if (id === "thinking-status") {
+      await live.getByRole("button", { name: "更新模型摘要", exact: true }).click();
+      await live.getByRole("status").filter({ hasText: "对比上下文卡片与资源面板" }).waitFor();
+      await live.getByRole("button", { name: "回退 Thinking", exact: true }).click();
+      await live.getByRole("status").filter({ hasText: "Thinking" }).waitFor();
+      await page.screenshot({ path: join(scratch, "thinking-document-example.png"), fullPage: true });
+      await metadata.scrollIntoViewIfNeeded();
+      await page.screenshot({ path: join(scratch, "thinking-document-metadata.png"), fullPage: true });
+      await page.getByLabel("主题", { exact: true }).selectOption("dark");
+      await page.setViewportSize({ width: 420, height: 900 });
+      await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth);
+      await page.screenshot({ path: join(scratch, "thinking-document-narrow.png"), fullPage: true });
+      await page.setViewportSize({ width: 1440, height: 900 });
+    }
+    if (id === "task-context") {
+      const toggle = live.getByRole("button", { name: "任务上下文", exact: true });
+      assert.equal(await toggle.getAttribute("aria-expanded"), "false");
+      await toggle.click();
+      await live.getByRole("region", { name: "输入来源", exact: true }).waitFor();
+    }
     await page.goBack(); await library.waitFor();
   }
   const llms = await page.evaluate(async () => (await fetch("/llms.txt")).text());
@@ -48,7 +72,7 @@ export async function runUiLibrary(page, scratch, checks) {
   await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth);
   assert.equal(await control.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   await page.screenshot({ path: join(scratch, "ui-library-dark-narrow.png"), fullPage: true });
-  checks.push("组件索引、API、llms与Agent原文由包构建输出；稳定/实验入口一致");
+  checks.push("组件索引、API、llms与Agent原文由包构建输出；MD元数据、原文链接、关联组件及独立示例可导航操作，窄窗无横向溢出");
   checks.push("独立iframe仅消费包与Tailwind，未加载renderer工作台样式；按钮动作、28/32px字号响应、Disclosure键盘、明暗默认主题与420px布局通过");
   const group = frame.getByRole("button", { name: "读取文件、运行命令 · 30 项活动", exact: true });
   assert.equal(await group.getAttribute("aria-expanded"), "false");

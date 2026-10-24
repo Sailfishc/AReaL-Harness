@@ -1,17 +1,20 @@
-import { useId, useState, type ComponentProps, type ReactNode, type Ref } from "react";
+import { useId, useState, type ComponentProps, type KeyboardEventHandler, type ReactNode, type Ref } from "react";
 import { Collapsible } from "@base-ui/react/collapsible";
 import { ArrowLeftIcon, ChevronRightIcon, PlusIcon } from "lucide-react";
 import { Button } from "../../components/button/button.js";
 
 export type TaskContextProps = {
   title: string;
+  id?: string;
+  hidden?: boolean;
+  onKeyDown?: KeyboardEventHandler<HTMLElement>;
   headingRef?: Ref<HTMLHeadingElement>;
   actions?: ReactNode;
   onBack?: () => void;
   children: ReactNode;
 };
-function TaskContextRoot({ title, headingRef, actions, onBack, children }: TaskContextProps) {
-  return <aside className="areal-task-context" aria-label="任务上下文">
+function TaskContextRoot({ title, id, hidden, onKeyDown, headingRef, actions, onBack, children }: TaskContextProps) {
+  return <aside id={id} hidden={hidden} onKeyDown={onKeyDown} className="areal-task-context" aria-label="任务上下文">
     <header className="areal-context-top"><h2 ref={headingRef} tabIndex={-1}>{title}</h2>{actions}</header>
     {onBack && <Button variant="ghost" size="sm" className="areal-context-back" onClick={onBack}><ArrowLeftIcon size={14} />返回任务上下文</Button>}
     <div className="areal-context-body">{children}</div>

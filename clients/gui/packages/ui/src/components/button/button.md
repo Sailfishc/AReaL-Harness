@@ -5,24 +5,45 @@ summary: 发出一次动作或打开入口，外观不代表业务已经受理�
 status: stable
 entry: index
 layer: core
+category: actions
+aliases: ["按钮"]
+related: ["disclosure"]
 ---
 
 # Button 按钮
 
-用于执行一次动作或打开入口。持续状态选择使用原 Switch，值选择使用原 Select；业务决定何时允许动作。
+## 何时使用
 
-## 组成与状态
+| 场景 | 选择 |
+| --- | --- |
+| 提交、打开或执行一次动作 | Button |
+| 按需展开阅读 | [Disclosure](../disclosure/disclosure.md) |
+| 持续状态/取值选择 | 原 Switch / Select，不用按钮模拟 |
 
-基于 Base UI Button 的具名按钮。保留现有 AReaL variant、size 和 render 接口；参数、默认值和联合类型从 TypeScript 生成到组件目录，避免手抄接口表。
+## 组成
 
-## 行为与可访问性
+Base UI Button 与现有 cva recipe。保留 variant、size、render 接口；Props、默认值和联合类型以生成的 TypeScript API 为准。
 
-Tab 进入可用按钮，Enter/Space 触发。disabled 时不可执行；纯图标按钮由调用方提供 aria-label。返回、提交与结果未知由消费方处理。
+## 状态
 
-## 视觉来源
+默认、hover、focus-visible、disabled、aria-invalid；业务控制等待或忙碌时能否点击。样式并不证明命令已被受理。
 
-有限样式由本组件的 cva recipe 和包内语义 Token 决定。默认外观保持既有值；调用方选择已有变体，结构与状态说明保持可读。
+## 行为
+
+Tab 进入可用按钮，Enter/Space 触发；disabled 不执行。调用方处理打开、关闭、提交、返回和结果未知，不在控件内重试。
+
+## 内容
+
+可见文字命名动作；纯图标按钮提供 aria-label。使用原有限变体，不用 className 补齐基本外观。
+
+## 可访问性
+
+沿 Base UI 按钮语义及键盘。图标辅助文字；运行状态不只靠颜色，调用方提供状态反馈。
+
+## 规则
+
+沿包内语义 Token，保留既有视觉。内部稳定入口不扩大 Base 准入，不代表所有变体已经完成安装包验收。
 
 ## 示例
 
-[包与组件示例](../../../../../renderer/design-system.html?ui-library)。
+[组件目录与生成API](../../../../../renderer/design-system.html?ui-library#component-button)；[对话组合](../../../../../renderer/design-system.html?conversation-system)。文档站会嵌入该组件的独立可操作示例，原文与实现同目录，Props不另抄一份。

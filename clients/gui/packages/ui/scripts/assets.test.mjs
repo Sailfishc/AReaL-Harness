@@ -4,8 +4,16 @@ import { mkdtemp, readFile, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { renderFoundations, writeOrCheck } from "./foundations.mjs";
+import { parseComponentMetadata } from "./documents.mjs";
 
 const tokens = JSON.parse(await readFile(new URL("../tokens.json", import.meta.url), "utf8"));
+test("component contracts require discoverable metadata and a usage/behavior/accessibility structure", async () => {
+  const valid = await readFile(new URL("../src/conversation/thinking-status/thinking-status.md", import.meta.url), "utf8");
+  const data = parseComponentMetadata(valid, "thinking-status.md");
+  assert.ok(data.related.includes("activity-group"));
+  assert.throws(() => parseComponentMetadata(valid.replace(/^category:.*\n/m, ""), "broken.md"), /missing category/);
+  assert.throws(() => parseComponentMetadata(valid.replace("## 可访问性", "## 其他"), "broken.md"), /missing section.*可访问性/);
+});
 test("existing control geometry and default palette remain explicit", () => {
   const result = renderFoundations(tokens);
   assert.match(result.foundation, /--spacing-field: 16px;/);

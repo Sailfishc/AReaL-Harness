@@ -2,6 +2,10 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { MessageResponse } from "../components/ai-elements/message.js";
 import { Feedback } from "../components/ui/feedback.js";
 import { useAppearance } from "../settings/applicationPreferences.js";
+import manifestText from "@areal/ui/components.json?raw";
+
+type ComponentDoc = { id: string; title: string; summary: string; document: string; status: string; layer: string; category: string; aliases: string[]; related: string[]; api: string };
+const componentDocs: ComponentDoc[] = JSON.parse(manifestText).components;
 
 type Destination =
   | { kind: "document"; path: string; fragment: string }
@@ -35,6 +39,7 @@ export function DesignDocument({ path }: { path: string }) {
   const [notice, setNotice] = useState("");
   const article = useRef<HTMLElement>(null);
   const markdown = documents.get(path);
+  const component = componentDocs.find(component => component.document === path);
   useAppearance(dark);
   useLayoutEffect(() => {
     const root = document.documentElement;
@@ -106,8 +111,17 @@ export function DesignDocument({ path }: { path: string }) {
     <p className="design-document-path">{path}</p>
     <Feedback message={notice} />
     <article ref={article} aria-label="设计文档正文">
+      {component && <section className="design-component-meta" aria-label="组件元数据">
+        <table><tbody>{[["title", component.title], ["summary", component.summary], ["status", component.status], ["layer", component.layer], ["category", component.category], ["aliases", component.aliases.join("、") || "—"]].map(([key, value]) => <tr key={key}><th scope="row">{key}</th><td>{value}</td></tr>)}
+          <tr><th scope="row">related</th><td>{component.related.map(id => { const related = componentDocs.find(item => item.id === id)!; return <a key={id} href={documentUrl(related.document)}>{related.title}</a>; })}</td></tr></tbody></table>
+        <nav aria-label="组件文档入口"><a href={`./docs/ui/${component.id}.md`} target="_blank" rel="noreferrer">查看 Markdown 原文</a><a href={`?ui-library#component-${component.id}`}>返回组件目录</a><a href="#可操作示例">查看可操作示例</a></nav>
+      </section>}
       {markdown ? <MessageResponse className="conversation-markdown" theme={dark ? "dark" : "light"} fileLinks fileLinkBase={repositoryBase + path} onOpenFileLink={openLink} onOpenExternalUrl={openLink}>{markdown}</MessageResponse>
         : <Feedback error={`未收录此设计文档。原路径 ${path}`} />}
+      {component && <section className="design-component-example" aria-label="组件可操作示例"><h2>可操作示例</h2>
+        <iframe key={`${component.id}-${dark}`} title={`${component.title} 独立示例`} src={`./ui-library.html?theme=${dark ? "dark" : "light"}&component=${component.id}`} />
+        <details><summary>TypeScript 生成的 API</summary><pre>{component.api}</pre></details>
+      </section>}
     </article>
   </main>;
 }

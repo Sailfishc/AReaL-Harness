@@ -13,6 +13,21 @@ function exported(source) {
   const file = ts.createSourceFile("entry.ts", source, ts.ScriptTarget.Latest, true);
   return new Set(file.statements.filter(ts.isExportDeclaration).flatMap(item => item.exportClause && ts.isNamedExports(item.exportClause) ? item.exportClause.elements.map(element => element.name.text) : []));
 }
+// Contract metadata is a small YAML-compatible subset: scalars and inline JSON arrays.
+export function parseComponentMetadata(markdown, path) {
+  const front = markdown.match(/^---\n([\s\S]+?)\n---\n/);
+  assert.ok(front, `missing component metadata: ${path}`);
+  const data = Object.fromEntries(front[1].split("\n").map(line => line.split(/: (.*)/s).slice(0, 2)));
+  for (const key of ["id", "title", "summary", "status", "entry", "layer", "category"]) assert.ok(data[key]?.trim(), `missing ${key}: ${path}`);
+  for (const key of ["aliases", "related"]) {
+    assert.ok(data[key], `missing ${key}: ${path}`);
+    data[key] = JSON.parse(data[key]);
+    assert.ok(Array.isArray(data[key]) && data[key].every(value => typeof value === "string"), `invalid ${key}: ${path}`);
+  }
+  for (const section of ["何时使用", "组成", "状态", "行为", "内容", "可访问性", "规则", "示例"])
+    assert.ok(markdown.includes(`\n## ${section}\n`), `missing section ${section}: ${path}`);
+  return data;
+}
 export async function buildDocuments(check = false) {
   const pkg = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
   assert.equal(pkg.private, true, "workspace UI package stays private");
@@ -34,10 +49,7 @@ export async function buildDocuments(check = false) {
   const components = [];
   for (const path of srcFiles.filter(path => path.endsWith(".md"))) {
     const markdown = await readFile(path, "utf8");
-    const front = markdown.match(/^---\n([\s\S]+?)\n---\n/);
-    assert.ok(front, `missing component metadata: ${path}`);
-    const data = Object.fromEntries(front[1].split("\n").map(line => line.split(/: (.*)/s).slice(0, 2)));
-    for (const key of ["id", "title", "summary", "status", "entry", "layer"]) assert.ok(data[key]?.trim(), `missing ${key}: ${path}`);
+    const data = parseComponentMetadata(markdown, path);
     assert.ok(/^[a-z][a-z-]+$/.test(data.id));
     assert.ok(["core", "conversation"].includes(data.layer), `unknown layer: ${path}`);
     assert.equal(data.layer, path.includes("/src/conversation/") ? "conversation" : "core", `layer/source mismatch: ${path}`);
@@ -52,6 +64,8 @@ export async function buildDocuments(check = false) {
     await writeOrCheck(resolve(root, `dist/docs/${data.id}.md`), markdown, check);
   }
   components.sort((a, b) => a.id.localeCompare(b.id));
+  for (const component of components) for (const id of component.related)
+    assert.ok(components.some(item => item.id === id), `unknown related component ${id}: ${component.id}`);
   for (const [entry, names] of Object.entries(entries)) for (const name of names) {
     if (/^[A-Z]/.test(name)) assert.ok(components.some(component => component.title === name && component.entry === entry), `missing contract for export ${name}`);
   }

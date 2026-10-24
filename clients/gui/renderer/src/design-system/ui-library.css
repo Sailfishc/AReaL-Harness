@@ -7,6 +7,7 @@
 .ui-library-component { margin-top: var(--spacing-field); min-width: 0; }
 .ui-library-component > div { display: flex; flex-wrap: wrap; gap: var(--spacing-field); align-items: center; }
 .ui-library-component h4 { margin: 0; }
+.ui-library-source { display: block; color: var(--color-foreground-subtle); overflow-wrap: anywhere; font-size: var(--text-ui-xs); margin-top: var(--spacing-inline); }
 .ui-library-component pre { max-height: 300px; overflow: auto; padding: var(--spacing-field); white-space: pre-wrap; overflow-wrap: anywhere; font: var(--text-ui-sm)/1.6 var(--font-mono); }
 .ui-library a { color: var(--color-foreground); text-underline-offset: 3px; }
 .ui-library details { margin-block: var(--spacing-field); }

@@ -17,8 +17,12 @@ Run `pnpm --filter @areal/ui generate` after editing tokens, `build` for JavaScr
 
 Source values live in tokens.json; generated foundation, Tailwind mappings and theme defaults live in src/generated. Theme derivation lives in src/theme.ts. Component descriptions sit next to their code; API text comes from TypeScript declaration output. The existing design site provides live examples and serves components.json, llms.txt and Markdown copies from the built package.
 
+Each catalog component has a Markdown file beside its implementation, covering use, anatomy, states, behavior, content, accessibility, rules and examples. Metadata uses a small YAML-compatible subset with inline JSON arrays for aliases/related. The generator checks structure and related targets. The site shows metadata, raw Markdown and an interactive component example from the same index, without maintaining a second props or document catalog.
+
 Button is stable within the existing internal scope. Disclosure, ActivityGroup, ImageDisclosure and TaskContext are experimental exports from `@areal/ui/wip`. Conversation compositions live in src/conversation; core controls in src/components cannot import them. Import `@areal/ui/conversation.css` for their appearance. Only design previews consume these compositions; production pages retain their current implementation.
 
 TaskContext composes Section, Item and Sources for changes, projects, subagents and input references. Components own presentation and reading interactions. The host supplies authoritative state, resource readers, narrow-layout navigation and focus restoration. Other controls and remaining compositions retain their renderer owners. See [the agent entry](agent-guide.md) and the repository's design architecture for adoption and scope.
 
 Experimental SubagentPanel groups the full list by independent child state, expands long completed lists and preserves reading state on return from host-supplied history. ThinkingStatus scans text brightness from left to right, uses static text with reduced motion and stops looping when hidden or in a background tab. Both are consumed only by design previews.
+
+ThinkingStatus accepts an exposed model progress summary through label and transitions when it changes; absent summaries fall back to Thinking. The product's top button controls the task context card, separately from resource readers. Research and design choices remain in the existing conversation-flow specification and references.

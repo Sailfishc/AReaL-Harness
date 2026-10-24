@@ -15,4 +15,6 @@ body { margin: 0; padding: var(--spacing-field); color: var(--color-foreground);
 .library-conversation .areal-task-context { max-height: 480px; }
 .library-activities { margin: 0; padding-left: var(--spacing-section); }
 .library-activities li { margin-block: var(--spacing-inline); }
-@media (max-width: 650px) { .library-conversation { grid-template-columns: minmax(0, 1fr); } .library-conversation .areal-task-context { border-left: 0; } }
+.library-example:not([data-example="all"]) .library-conversation { grid-template-columns: minmax(0, 1fr); }
+.library-example > .areal-subagent-panel { height: 300px; margin-top: var(--spacing-field); }
+@media (max-width: 650px) { .library-conversation { grid-template-columns: minmax(0, 1fr); } }

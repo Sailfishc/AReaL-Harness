@@ -1,4 +1,5 @@
-.areal-task-context { min-width: 0; min-height: 0; display: flex; flex-direction: column; border-left: var(--border-width-default) solid var(--color-border); background: var(--color-composer); }
+.areal-task-context { min-width: 0; min-height: 0; display: flex; flex-direction: column; border: var(--border-width-default) solid var(--color-border); border-radius: var(--radius-panel); background: var(--color-composer); }
+.areal-task-context[hidden] { display: none; }
 .areal-context-top { padding: var(--spacing-field); display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-inline); }
 .areal-context-top h2 { margin: 0; font-size: var(--text-ui-sm); font-weight: var(--ui-font-weight); overflow-wrap: anywhere; }
 .areal-context-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 0 var(--spacing-field) var(--spacing-field); scrollbar-width: thin; scrollbar-color: var(--color-border) transparent; overflow-wrap: anywhere; }
