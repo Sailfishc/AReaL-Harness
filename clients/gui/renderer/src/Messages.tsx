@@ -1,5 +1,6 @@
 import type { ConversationSelectionReference, ConversationSelectionContentType } from "./conversationSelectionReference.js";
-import { projectGenUiReferences } from "@areal/gen-ui/references";
+import { projectConversationContent, conversationContentToText } from "./conversationContent.js";
+import { ConversationContentView } from "./ConversationContentView.js";
 import { GenUiCard } from "./GenUiWorkspace.js";
 import { submitMessage, sending, markSending } from "./Composer.js";
 import { useI18n } from "./i18n/IntlProvider.js";
@@ -11,7 +12,7 @@ import { useForkHistory } from "./ForkHistory.js";
 import { DeferredHistoryItem, useConversationHistory } from "./ConversationHistory.js";
 import { UnknownToolInspection } from "./UnknownToolInspection.js";
 import { TurnNavigation } from "./TurnNavigation.js";
-import { executionOutcome, executionSegments, goalContinuationLabel, turnFailureMessage } from "./conversationPresentation.js";
+import { toolPresentation, executionOutcome, executionSegments, goalContinuationLabel, turnFailureMessage } from "./conversationPresentation.js";
 import { TurnProgress } from "./TurnProgress.js";
 import { TurnElapsed } from "./TurnElapsed.js";
 import { ForkIcon } from "./interfaceIcons.js";
@@ -375,13 +376,14 @@ export function Messages({
     try { await submitMessage(action, project.id, localThread.id, prompt, [], { appMessage: true, enqueue: !!localThread.turns?.some((turn: Data) => turn.status === "inProgress") }); }
     finally { markSending(key, false); }
   };
-  const renderAgentMessage = (entry: Data, turn: Data, deferActions = false) => !entry.text?.trim() ? null : <div className={`assistant-message${deferActions ? " assistant-message-final" : ""}`} data-message-phase={entry.phase ?? "legacy"} data-side-item-id={entry.id} key={entry.id}>
-    {projectGenUiReferences(entry.text, turn.status === "completed").map((part, index) => part.kind === "text" ?
-      <MessageResponse key={index} className="conversation-markdown" preserveLineBreaks streaming={turn.status === "inProgress" && (entry.phase !== "commentary" || entry.id === turn.items?.findLast((item: Data) => ["agentMessage", "dynamicToolCall", "userMessage", "agentMedia"].includes(item.type))?.id)} theme={dark ? "dark" : "light"} onOpenExternalUrl={onLink} onOpenFileLink={onFile} onRenderImage={renderImage} webPreviews>{part.text}</MessageResponse> : part.kind === "ui" && !inheritedIds.has(turn.id) ?
-      <GenUiCard key={`${entry.id}:${part.offset}`} source={{ projectId: project.id, threadId: localThread.id, turnId: turn.id, itemId: entry.id, referenceOffset: part.offset }} title={part.reference.title ?? t("genUi.title")} dark={dark} send={readOnly || localThread.desktop?.archived || !project.state?.connected ? undefined : sendGenUi} /> :
-      <p key={index} role="status">{t(part.kind === "pending" ? "genUi.preparing" : "genUi.unavailable")}</p>)}
-    {!deferActions && entry.phase !== "commentary" && turn.status !== "inProgress" && <MessageActions text={entry.text} />}
-  </div>;
+  const renderAgentMessage = (entry: Data, turn: Data, deferActions = false) => {
+    if (!entry.text?.trim()) return null;
+    const blocks = projectConversationContent(entry.text, turn.status === "completed", turn.status === "inProgress");
+    return <div className={`assistant-message${deferActions ? " assistant-message-final" : ""}`} data-message-phase={entry.phase ?? "legacy"} data-side-item-id={entry.id} key={entry.id}>
+      <ConversationContentView blocks={blocks} markdown={text => <MessageResponse className="conversation-markdown" preserveLineBreaks streaming={turn.status === "inProgress" && (entry.phase !== "commentary" || entry.id === turn.items?.findLast((item: Data) => ["agentMessage", "dynamicToolCall", "userMessage", "agentMedia"].includes(item.type))?.id)} theme={dark ? "dark" : "light"} onOpenExternalUrl={onLink} onOpenFileLink={onFile} onRenderImage={renderImage} webPreviews>{text}</MessageResponse>} interactive={part => !inheritedIds.has(turn.id) ? <GenUiCard key={`${entry.id}:${part.offset}`} source={{ projectId: project.id, threadId: localThread.id, turnId: turn.id, itemId: entry.id, referenceOffset: part.offset }} title={part.reference.title ?? t("genUi.title")} dark={dark} send={readOnly || localThread.desktop?.archived || !project.state?.connected ? undefined : sendGenUi} /> : <p role="status">{t("genUi.unavailable")}</p>} />
+      {!deferActions && entry.phase !== "commentary" && turn.status !== "inProgress" && <MessageActions text={conversationContentToText(blocks)} />}
+    </div>;
+  };
   useLayoutEffect(() => {
     const element = container.current, spacer = responseSpace.current;
     if (embedded || !element || !spacer) return;
@@ -673,7 +675,8 @@ export function Messages({
               {group.progress ? <TurnProgress summaryAvailable
                 turn={groupIndex === firstProgress ? turn : undefined} connected={!!project.state?.connected}
                 label={legacyReply ? "早前消息与活动" : "本轮过程"}
-                settled={turn.status === "completed" && hasReadingSummary && !outcome.unfinished && !outcome.failures && !pendingInput}
+                settled={turn.status === "completed" && hasReadingSummary && !outcome.unfinished && !pendingInput}
+                failureDetails={group.entries.flatMap(({ item }) => item.items ?? []).filter((entry: Data) => entry.type === "dynamicToolCall" && toolPresentation(entry).failed).map((entry: Data) => <div key={entry.id}><p>{entry.tool}</p><pre>{JSON.stringify(entry, null, 2)}</pre></div>)}
                 {...outcome}>{contents}</TurnProgress> : contents}
               {group.entries.some(({ item }) => item === initialUser) &&
                 firstProgress < 0 &&
@@ -684,7 +687,7 @@ export function Messages({
               <UnknownToolInspection key={`${project.id}:${thread.id}:${item.id}`} item={item} project={readOnly ? { ...project, state: { ...project.state, connected: false } } : project} thread={thread} action={action} />)}
             <ScheduledTaskCards items={turn.items ?? []} project={project} action={action} />
             <TurnFileSummary turn={turn} readTurnReview={readTurnReview} onFile={onFile} onReview={onReview} />
-            {responseMessage && turn.status !== "inProgress" ? <MessageActions text={responseMessage.text}><TurnHookStats turn={turn} /><TurnUsage project={project} thread={localThread} turn={turn} action={action} inherited={isInherited} />{forkControls}{responseActions?.(responseMessage)}{!isInherited && !readOnly && <UserFeedback project={project} thread={localThread} turn={turn} item={responseMessage} action={action} dark={dark} />}</MessageActions>
+            {responseMessage && turn.status !== "inProgress" ? <MessageActions text={conversationContentToText(projectConversationContent(responseMessage.text, turn.status === "completed", false))}><TurnHookStats turn={turn} /><TurnUsage project={project} thread={localThread} turn={turn} action={action} inherited={isInherited} />{forkControls}{responseActions?.(responseMessage)}{!isInherited && !readOnly && <UserFeedback project={project} thread={localThread} turn={turn} item={responseMessage} action={action} dark={dark} />}</MessageActions>
               : <div className="message-actions"><TurnUsage project={project} thread={localThread} turn={turn} action={action} inherited={isInherited} />{forkControls}</div>}
             {canFork && forkReason && turn.status !== "inProgress" && <p id={`fork-reason-${turn.id}`} className="notice">{forkReason}</p>}
             {canFork && forkError?.turnId === turn.id && <p role="alert" className="notice">{forkError?.message}</p>}

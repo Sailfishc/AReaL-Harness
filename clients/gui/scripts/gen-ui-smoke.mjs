@@ -27,6 +27,7 @@ rate.value=window.zcode.widgetState?.modelContent?.rate??5;value.value=rate.valu
 document.querySelector('#save').onclick=async()=>{try{await window.zcode.setWidgetState({modelContent:{rate:Number(rate.value)},privateContent:{note:privateNote.value}});status.textContent='saved';}catch{status.textContent='failed';}};
 document.querySelector('#ask').onclick=async()=>{try{await window.zcode.sendFollowUpMessage({prompt:'EXPLAIN_GEN_UI_SELECTION'});status.textContent='requested';}catch{status.textContent='not-sent';}};
 </script>`;
+const nativeAnswer = '```areal-ui\n' + JSON.stringify({ version: 1, type: "metric", title: "Growth baseline", value: "5", unit: "%" }) + '\n```\n';
 const sse = (delta, finish = "stop") => `data: ${JSON.stringify({ choices: [{ index: 0, delta, finish_reason: null }] })}\n\ndata: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: finish }] })}\n\ndata: [DONE]\n\n`;
 let modelFailure;
 const server = createServer(async (req, res) => {
@@ -61,7 +62,7 @@ const server = createServer(async (req, res) => {
       }
       const artifact = JSON.parse(result.content);
       assert(artifact.path, "publication returns a managed HTML path");
-      res.end(sse({ content: `Select a rate.\n::visualize${JSON.stringify({ path: artifact.path, title: "Growth explorer" })}` })); return;
+      res.end(sse({ content: `Select a rate. $x^2$\n${nativeAnswer}::visualize${JSON.stringify({ path: artifact.path, title: "Growth explorer" })}` })); return;
     }
     res.end(sse({ content: `GEN_UI_FOLLOWUP_OK ${prompt.split("\n")[0]}` }));
   } catch (error) { modelFailure = error; res.end(); }
@@ -97,7 +98,7 @@ async function until(predicate, label) {
 }
 const state = () => page.evaluate(() => window.arealDesktop.snapshot());
 const project = snapshot => snapshot.projects.find(project => project.root === workspace);
-const pane = side => side ? page.getByRole("region", { name: "旁路讨论", exact: true }) : page.getByTestId("chat-view");
+const pane = side => side ? page.getByTestId("side-chat-pane").filter({ visible: true }) : page.getByTestId("chat-view");
 async function frame(threadId, side = false) {
   await pane(side).getByTestId("gen-ui-card").first().scrollIntoViewIfNeeded();
   let guest;
@@ -174,6 +175,19 @@ try {
   await send("CREATE_GEN_UI_MAIN", false, null);
   await until(async () => { owner = await page.getByTestId("areal-workbench").evaluate(el => ({ projectId: el.dataset.projectId, threadId: el.dataset.threadId })); return !!owner.threadId; }, "first conversation admitted");
   await completed(owner.threadId, "CREATE_GEN_UI_MAIN");
+  const native = page.locator('[data-content-type="metric"]').first();
+  await native.waitFor();
+  assert.match(await native.innerText(), /Growth baseline/);
+  assert.equal(await native.locator("iframe").count(), 0, "read-only metric stays in trusted native React");
+  await page.locator('.katex-mathml math').first().waitFor();
+  await native.getByRole("button", { name: "复制内容", exact: true }).click();
+  await native.getByText("已复制", { exact: true }).first().waitFor();
+  assert.equal(await app.evaluate(({ clipboard }) => clipboard.readText()), "Growth baseline：5 %");
+  await page.locator('.katex').first().evaluate(el => { const selection = window.getSelection(), range = document.createRange(); range.selectNodeContents(el); selection.removeAllRanges(); selection.addRange(range); });
+  await page.keyboard.press("Meta+C");
+  assert.match(await app.evaluate(({ clipboard }) => clipboard.readText()), /\$x\^2\$/);
+  await page.evaluate(() => window.getSelection()?.removeAllRanges());
+  checks.push("Core assistant message mixes Markdown math, validated native content with semantic copy and an isolated Gen UI reference");
   let guest = await frame(owner.threadId);
   assert.deepEqual(await guest.evaluate(() => ({ node: typeof process, require: typeof require, bridge: typeof window.arealDesktop })), { node: "undefined", require: "undefined", bridge: "undefined" });
   assert.equal(await guest.locator("#chart circle").count(), 1, "copied D3 loads through the offline asset mapping");
@@ -203,15 +217,16 @@ try {
   guest = await frame(sideId, true); await confirmFollowup(guest, "CONFIRMED_GEN_UI_SIDE", sideId, true); assertContext("CONFIRMED_GEN_UI_SIDE", 7);
   const sideRequest = requests.find(request => promptText(request).startsWith("CREATE_GEN_UI_SIDE"));
   const toolNames = sideRequest.tools.map(tool => tool.function.name);
-  assert(toolNames.includes("gen_ui_publish")); assert(!toolNames.includes("fs_write")); assert(!toolNames.includes("run_command"));
+  assert(toolNames.includes("gen_ui_publish")); assert(toolNames.includes("fs_write")); assert(toolNames.includes("run_command"));
+  assert.equal(project(await state()).state.threads[sideId].conversation.policy.kind, "sideExecutableV2", "current Side inherits its ordinary execution policy");
   guest = await frame(sideId, true); await page.screenshot({ path: join(scratch, "side-saved.png"), animations: "disabled" });
   const sideToken = new URL(guest.url()).hostname;
-  await pane(true).getByRole("button", { name: "返回主会话", exact: true }).click();
+  await page.getByRole("button", { name: "关闭面板", exact: true }).click();
   await until(async () => await page.locator(`[data-gen-ui-token="${sideToken}"]`).getAttribute("aria-hidden") === "true", "Side page hidden");
   assert.equal(await guest.evaluate(async () => { try { await window.zcode.sendFollowUpMessage({ prompt: "HIDDEN_SHOULD_NOT_SEND" }); return false; } catch { return true; } }), true, "hidden retained guest cannot send");
   await rejected({ operation: "request", token: sideToken, request: { jsonrpc: "2.0", id: 9001, method: "zcode/gen-ui/follow-up", params: { prompt: "HIDDEN_HOST_DENIAL" } } });
   assert(!requests.some(request => promptText(request).includes("HIDDEN_")));
-  checks.push("Side publication with read-only tool policy, independent parameters, ordinary and host-confirmed Side follow-ups, hidden guest and Main rejection");
+  checks.push("Side publication with inherited executable tool policy, independent parameters, ordinary and host-confirmed Side follow-ups, hidden guest and Main rejection");
   guest = await frame(owner.threadId);
   await app.evaluate(({ app }, connectionPath) => {
     const read = process.getBuiltinModule("module").createRequire(app.getAppPath() + "/package.json");

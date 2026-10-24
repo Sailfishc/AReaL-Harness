@@ -58,3 +58,5 @@ export { type MarkdownUnorderedListProps, MarkdownUnorderedList, type MarkdownOr
 export { MessageCodeBlock } from "./conversation/message-code-block/message-code-block.js";
 export { buildMarkdownTableText, buildCsvTableText, resolveMarkdownTableStickyScrollbarMode, resolveMarkdownTableStickyScrollbarOffset, resolveMarkdownTableFrameDistances, resolveMarkdownTableVirtualScrollbarMetrics, resolveMarkdownTableVirtualScrollMax, MarkdownTable, MarkdownTableHeader, MarkdownTableBody, MarkdownTableRow, MarkdownTableHead, MarkdownTableCell, type MarkdownTableRows, type MarkdownTableLabels, type MarkdownTableProps, type MarkdownTableHeaderProps, type MarkdownTableBodyProps, type MarkdownTableRowProps, type MarkdownTableHeadProps, type MarkdownTableCellProps } from "./conversation/markdown-table/markdown-table.js";
 export { MarkdownSurface } from "./conversation/markdown-surface/markdown-surface.js";
+export { NativeContent } from "./conversation/native-content/native-content.js";
+export { QuestionCard } from "./conversation/question-card/question-card.js";

@@ -32,3 +32,10 @@
 .question-answer-title { opacity: .7; font-size: var(--text-ui-caption); margin-bottom: 4px !important; }
 
 .decision-card:focus-visible { outline: var(--focus-width) solid var(--color-foreground-subtle); outline-offset: var(--focus-offset); }
+.decision-card-details { margin-top: var(--spacing-inline); }
+.decision-card-details > summary { width: fit-content; cursor: var(--interactive-cursor, pointer); color: var(--color-foreground-subtle); font-size: var(--text-ui-sm); padding-block: var(--spacing-inline); }
+.decision-card-details > div { padding-top: var(--spacing-inline); }
+.approval-target { margin: 0 0 var(--spacing-inline); color: var(--color-foreground-subtle); font-size: var(--text-ui-sm); overflow-wrap: anywhere; }
+.approval-command-summary { overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; padding: var(--spacing-inline); background: var(--color-surface); color: var(--color-foreground-subtle); border-radius: var(--radius-inset); font: var(--text-ui-caption)/var(--line-height-ui) var(--font-mono); }
+
+.approval-command-summary > code { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font: inherit; }

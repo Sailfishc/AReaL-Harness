@@ -362,7 +362,7 @@ export function conversationJourney(scratch, workspace, { motion = false, stage2
         assert.equal(received.length,beforeRevisit);
         await writeFile(join(scratch,'stage2-final-state.json'),JSON.stringify(await state(),null,2));
         if (process.env.AREAL_CONVERSATION_BASELINE !== '1') {
-          assert.match(await latest().locator('.turn-progress-summary').innerText(),/执行过程/);
+          assert.match(await latest().locator('.turn-progress-summary').innerText(),/Working for/);
           assert.equal(await latest().locator('.turn-progress-summary .conversation-disclosure-action').innerText(),'收起');
         }
         checks.push('Stage2 interaction families: actual send acceptance, command execution/output polling, independent Core child, draft/focus/parent identity return, complete/revisit without replay');

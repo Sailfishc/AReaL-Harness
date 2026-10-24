@@ -35,13 +35,14 @@ export function TurnActivity({ turn, project, threadId }: { turn: Data; project:
 export function TurnExecution({ items, turn, project, threadId, renderItem }: {
   items: Data[]; turn: Data; project: Data; threadId: string; renderItem: (item: Data, disclosure: { animate: boolean }) => ReactNode;
 }) {
-  const { failures, unfinished } = executionOutcome(items);
-  const tools = items.filter(item => item.type === "dynamicToolCall");
+  const { unfinished } = executionOutcome(items);
+  const visibleItems = items.filter(item => item.type !== "dynamicToolCall" || !toolPresentation(item).failed);
+  const tools = visibleItems.filter(item => item.type === "dynamicToolCall");
   const unconfirmed = tools.some(item => toolPresentation(item).status === "结果待确认");
-  const rows = timelineItems(items);
+  const rows = timelineItems(visibleItems);
   const reasoningCount = items.filter(item => item.type === "reasoning").length;
   const counts = [reasoningCount && `${reasoningCount} 段思考`, tools.length && `${tools.length} 项活动`].filter(Boolean).join(" · ");
-  const label = `${executionSummary(items)}${turn.status === "failed" ? " · 回合失败" : ""}`;
+  const label = `${executionSummary(visibleItems)}${turn.status === "failed" ? " · 回合失败" : ""}`;
   const singleTool = rows.length === 1 && rows[0].type === "dynamicToolCall";
   const singleReasoning = rows.length === 1 && rows[0].type === "reasoningGroup";
   const onlyAgentEntries = rows.length > 0 && rows.every(item => !!spawnedAgent(item));
@@ -50,7 +51,6 @@ export function TurnExecution({ items, turn, project, threadId, renderItem }: {
   const iconKind = toolPresentation(tools.find(item => toolPresentation(item).running) ?? tools[0] ?? {}).kind;
   if (!rows.length) return null;
   const status = <>
-    {!!failures && <p className="execution-failures" role="status">{failures} 次工具失败</p>}
     {unconfirmed ? <p role="status">结果待确认</p> : unfinished && turn.status !== "inProgress" && <p role="status">仍在运行</p>}
   </>;
   const content = rows.map(item => <div key={item.id} className="execution-row">{item.type === "reasoningGroup"

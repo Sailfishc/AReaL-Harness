@@ -13,6 +13,14 @@
     "README.en.md"
   ],
   "exports": {
+    "./content": {
+      "types": "./dist/lib/conversation-content.d.ts",
+      "default": "./dist/lib/conversation-content.js"
+    },
+    "./math-text": {
+      "types": "./dist/lib/math-text.d.ts",
+      "default": "./dist/lib/math-text.js"
+    },
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"

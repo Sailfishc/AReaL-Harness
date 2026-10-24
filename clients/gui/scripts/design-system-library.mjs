@@ -176,6 +176,7 @@ export async function runUiLibrary(page, scratch, checks) {
     "wip",
     "conversation"
   ],
+  ["NativeContent", "experimental", "wip", "conversation"],
   [
     "NotificationToast",
     "experimental",
@@ -188,6 +189,7 @@ export async function runUiLibrary(page, scratch, checks) {
     "wip",
     "core"
   ],
+  ["QuestionCard", "experimental", "wip", "conversation"],
   [
     "ResourceScope",
     "experimental",
@@ -370,7 +372,7 @@ export async function runUiLibrary(page, scratch, checks) {
   ]
 ]);
   assert.ok(manifest.components.find(component => component.title === "Button").api.includes("declare function Button"));
-  for (const id of ["action-button", "activity-group", "attachment-card", "card", "code-viewer", "collapsible-text", "command", "command-details", "composer-surface", "composer-toolbar", "context-menu", "control-hint-tooltip", "decision-card", "dialog", "diff-viewer", "dropdown-menu", "feedback-notice", "image-disclosure", "input", "input-group", "markdown-blockquote", "markdown-list", "markdown-surface", "markdown-table", "message-attachments", "message-code-block", "notification-toast", "popover", "resource-controls", "select", "settings-dialog", "settings-disclosure", "settings-group-card", "settings-navigation", "settings-page", "settings-row", "settings-search-input", "settings-section", "settings-segmented-tabs", "settings-select", "side-pane-frame", "side-pane-launcher", "spinner", "subagent-panel", "switch", "tabs", "task-context", "task-list-item", "task-title-overflow", "textarea", "thinking-status", "tooltip", "workbench-shell", "worktree-directory", "worktree-picker", "worktree-settings", "worktree-status", "worktree-workspace"]) {
+  for (const id of ["action-button", "activity-group", "attachment-card", "card", "code-viewer", "collapsible-text", "command", "command-details", "composer-surface", "composer-toolbar", "context-menu", "control-hint-tooltip", "decision-card", "dialog", "diff-viewer", "dropdown-menu", "feedback-notice", "image-disclosure", "input", "input-group", "markdown-blockquote", "markdown-list", "markdown-surface", "markdown-table", "message-attachments", "message-code-block", "native-content", "notification-toast", "popover", "question-card", "resource-controls", "select", "settings-dialog", "settings-disclosure", "settings-group-card", "settings-navigation", "settings-page", "settings-row", "settings-search-input", "settings-section", "settings-segmented-tabs", "settings-select", "side-pane-frame", "side-pane-launcher", "spinner", "subagent-panel", "switch", "tabs", "task-context", "task-list-item", "task-title-overflow", "textarea", "thinking-status", "tooltip", "workbench-shell", "worktree-directory", "worktree-picker", "worktree-settings", "worktree-status", "worktree-workspace"]) {
     const document = await page.evaluate(async id => (await fetch(`/docs/ui/${id}.md`)).text(), id);
     assert.ok(document.includes(`id: ${id}`), `raw contract for ${id}`);
     const component = manifest.components.find(component => component.id === id);

@@ -25,3 +25,6 @@ ComposerSurface/ComposerToolbar 提供主聊、Side与草稿共享的输入布�
 Worktree领域组合位于src/worktree，从wip导入并使用worktree.css；配置、准备、目录、环境设置和工作区详情拥有就近MD与独立实例。NotificationToast从core层提供四级短时通知，使用notifications.css，默认5秒，悬停/焦点暂停；原ToastHost保持应用通知通道。
 
 共享控件、设置编辑/选择、决策卡、代码/Diff及Markdown阅读器、附件、命令详情和工作台组合已迁入包。工作台样式从`@areal/ui/workbench.css`导入；原renderer入口保留本地化、偏好与业务适配。组件组的`exports`元数据覆盖全部子组件，共用同目录MD；生成器拒绝缺失或重复归属。具体范围与宿主边界见[组件迁移](../../design-system/component-migration.md)。
+
+
+新增NativeContent与QuestionCard实验组合；`@areal/ui/content`提供严格只读数据校验、块投影与文字降级，`@areal/ui/math-text`提供单美元公式兼容。原生内容目录不包含执行动作，生产请求/制品仍归原宿主。`design-system.html?content-system`演示实际共享组件。

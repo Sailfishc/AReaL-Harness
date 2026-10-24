@@ -1,3 +1,6 @@
+import { normalizeMessageSingleDollarMath } from "@areal/ui/math-text";
+import "katex/contrib/mhchem";
+import "katex/contrib/copy-tex";
 import { MarkdownSurface } from "@areal/ui/wip";
 /*
  * Derived from ZCode 872ad960 components/ai-elements/message.tsx, in turn derived
@@ -48,7 +51,7 @@ function pluginReferenceLabels() {
         visit(tree);
     };
 }
-const plugins = { cjk, math: createMathPlugin(), mermaid };
+const plugins = { cjk, math: createMathPlugin({ singleDollarTextMath: true }), mermaid };
 export const MessageResponse = memo(function MessageResponse({ children, streaming = false, theme = 'light', onOpenExternalUrl, onOpenFileLink, onRenderImage, webPreviews = false, className, fileLinks = false, fileLinkBase, preserveLineBreaks = false }: {
     children: string;
     fileLinks?: boolean;
@@ -126,5 +129,5 @@ export const MessageResponse = memo(function MessageResponse({ children, streami
         blockquote: MarkdownBlockquote, li: MarkdownListItem, ol: MarkdownOrderedList, ul: MarkdownUnorderedList,
         table: MarkdownTable, tbody: MarkdownTableBody, td: MarkdownTableCell, th: MarkdownTableHead, thead: MarkdownTableHeader, tr: MarkdownTableRow,
     }), [streaming, theme, Boolean(onOpenExternalUrl), Boolean(onOpenFileLink), Boolean(onRenderImage), webPreviews, fontSizePx]);
-    return <MarkdownSurface streaming={streaming} theme={theme} className={className} components={components} parseIncompleteMarkdown={streaming} remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} plugins={plugins} controls={STREAMDOWN_CONTROLS} linkSafety={{ enabled: false }} urlTransform={(url, key, node) => onRenderImage && key === 'src' && /^areal:\/\/blob\/[A-Za-z0-9_-]+$/.test(url) ? url : defaultUrlTransform(url, key, node)}>{children}</MarkdownSurface>;
+    return <MarkdownSurface streaming={streaming} theme={theme} className={className} components={components} parseIncompleteMarkdown={streaming} remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} plugins={plugins} controls={STREAMDOWN_CONTROLS} linkSafety={{ enabled: false }} urlTransform={(url, key, node) => onRenderImage && key === 'src' && /^areal:\/\/blob\/[A-Za-z0-9_-]+$/.test(url) ? url : defaultUrlTransform(url, key, node)}>{normalizeMessageSingleDollarMath(children)}</MarkdownSurface>;
 });

@@ -1,3 +1,4 @@
+import { runContentSystem } from "./design-system-content.mjs";
 import { runReuseExercise } from "./design-system-reuse-exercise.mjs";
 import { runProductCandidate } from "./design-system-product-candidate.mjs";
 import { runDesignDocuments } from "./design-system-documents.mjs";
@@ -28,6 +29,7 @@ const baseline = process.argv.includes("--baseline");
 const conversationExercise = process.argv.includes("--conversation-exercise");
 const conversationDemo = process.argv.includes("--conversation-demo");
 const conversationSystem = process.argv.includes("--conversation-system");
+const contentSystem = process.argv.includes("--content-system");
 const uiLibrary = process.argv.includes("--ui-library");
 const decisionExercise = process.argv.includes("--decision-exercise");
 const settingsContrast = process.argv.includes("--settings-contrast");
@@ -36,7 +38,7 @@ const sharedWorkspace = process.argv.includes("--shared-workspace");
 const documents = process.argv.includes("--documents");
 const productCandidate = process.argv.includes("--product-candidate");
 const reuseExercise = process.argv.includes("--reuse-exercise");
-const namedExercise = reuseExercise || productCandidate || documents || sharedWorkspace || conversationExercise || conversationDemo || conversationSystem || uiLibrary || decisionExercise || settingsExercise;
+const namedExercise = contentSystem || reuseExercise || productCandidate || documents || sharedWorkspace || conversationExercise || conversationDemo || conversationSystem || uiLibrary || decisionExercise || settingsExercise;
 const exercise = { steps: [], checks: [] };
 const settingsOnly = process.argv.includes("--settings-only");
 const html = await readFile(join(dist, "design-system.html"), "utf8");
@@ -263,11 +265,12 @@ try {
       }
     };
   });
-  await page.goto(`${origin}/design-system.html${uiLibrary ? "?ui-library" : conversationSystem ? "?conversation-system" : reuseExercise ? "?reuse-exercise" : productCandidate ? "?product-candidate" : sharedWorkspace ? "?shared-workspace" : conversationExercise ? "?conversation-exercise" : conversationDemo ? "?conversation" : decisionExercise ? "?decision-exercise" : settingsExercise ? "?settings-exercise" : settingsOnly ? "?settings" : ""}`);
+  await page.goto(`${origin}/design-system.html${contentSystem ? "?content-system" : uiLibrary ? "?ui-library" : conversationSystem ? "?conversation-system" : reuseExercise ? "?reuse-exercise" : productCandidate ? "?product-candidate" : sharedWorkspace ? "?shared-workspace" : conversationExercise ? "?conversation-exercise" : conversationDemo ? "?conversation" : decisionExercise ? "?decision-exercise" : settingsExercise ? "?settings-exercise" : settingsOnly ? "?settings" : ""}`);
   await page.getByRole("heading", { name: productCandidate ? "快速开始指南" : "客户端设计系统", exact: true }).waitFor();
   assert.equal(await page.evaluate(() => typeof window.arealDesktop), "undefined");
   if (namedExercise) {
-    if (reuseExercise) {
+    if (contentSystem) await runContentSystem(page, scratch, exercise.checks);
+    else if (reuseExercise) {
       const inputFiles = ["design-system/registry.json", "design-system/base.md", "renderer/src/design-system/base-components.ts"];
       execFileSync("git", ["diff", "--exit-code", "HEAD", "--", ...inputFiles], { cwd: gui });
       exercise.inputBaseSnapshot = execFileSync("git", ["log", "-1", "--format=%H", "--", ...inputFiles], { cwd: gui }).toString().trim();

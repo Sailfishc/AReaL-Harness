@@ -27,7 +27,7 @@ exports: ["DecisionCard"]
 
 ## 行为
 
-保留原实现和键盘/焦点/滚动语义。原renderer适配提供翻译、偏好与合法动作；UI包只呈现与管理本地交互。
+关键信息放正文，长参数放默认折叠details，页脚位于滚动正文外。保留原实现和键盘/焦点/滚动语义。原renderer适配提供翻译、偏好与合法动作；UI包只呈现与管理本地交互。
 
 ## 内容
 
@@ -39,7 +39,7 @@ exports: ["DecisionCard"]
 
 ## 规则
 
-审批、问答草稿、提交锁、UNKNOWN核对和动作合法性归原ApprovalRequest/AskUserQuestion。组件只有header/body/feedback/footer插槽；输入法和Esc仍沿宿主处理。
+审批、问答草稿、提交锁、UNKNOWN核对和动作合法性归原ApprovalRequest/AskUserQuestion。组件提供header/body/details/feedback/footer插槽，details默认折叠且不卸载原始参数；输入法和Esc仍沿宿主处理。
 
 ## 示例
 

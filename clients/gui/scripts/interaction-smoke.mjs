@@ -643,6 +643,8 @@ try {
   assert.equal(await question().getByRole("button",{name:"发送",exact:true}).isEnabled(),false,"unanswered question cannot submit a default");
   await shot("03-question-pending");
   await page.getByRole("radio",{name:/重构/}).click();
+  assert.equal(interaction(await state(),"question").requestId, optionRequest.requestId, "selection edits the draft without submitting");
+  await question().getByRole("button",{name:"发送",exact:true}).click();
   await done();
   assert.equal(project(await state()).state.interactions[tid].data.find(i=>i.requestId===optionRequest.requestId).response.answers.choice,"重构");
   await page.locator('[data-question-answer]').last().getByText("重构",{exact:true}).waitFor();
@@ -659,7 +661,7 @@ try {
   assert.ok(interaction(await state(),"question"),"close never completes Core request");
   await button("展开待回答问题").click();
   assert.equal(await reply.inputValue(),"保留原有审批逻辑");
-  await button("跳过").click();
+  await button("稍后回答").click();
   await button("展开待回答问题").click();
   assert.equal(await reply.inputValue(),"保留原有审批逻辑");
   await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setSize(800,700));

@@ -1,4 +1,13 @@
 export const commonMessages = {
+  "content.preparing": { "zh-CN": "正在准备内容…", en: "Preparing content…" },
+  "content.fallback": { "zh-CN": "内容暂不可用，查看原文", en: "Content unavailable; view source" },
+  "content.copy": { "zh-CN": "复制内容", en: "Copy content" },
+  "content.copied": { "zh-CN": "已复制", en: "Copied" },
+  "content.copyFailed": { "zh-CN": "复制失败，请手动选择文本", en: "Copy failed; select the text manually" },
+  "content.data": { "zh-CN": "查看数据", en: "View data" },
+  "decision.requestDetails": { "zh-CN": "查看完整请求", en: "View full request" },
+  "decision.commandPreview": { "zh-CN": "命令预览", en: "Command preview" },
+  "decision.answerLater": { "zh-CN": "稍后回答", en: "Answer later" },
   "chat.context.allSources": { "zh-CN": "全部来源", en: "All sources" },
   "chat.context.sourceRegion": { "zh-CN": "全部输入来源", en: "All input sources" },
   "chat.context.backSources": { "zh-CN": "返回来源概览", en: "Back to sources" },

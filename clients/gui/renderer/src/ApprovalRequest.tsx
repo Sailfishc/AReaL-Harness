@@ -41,6 +41,7 @@ export function ApprovalRequest({ item, projectId, action }: { item: Data; proje
     finally { setBusy(false); }
   };
   const locked = busy || submitted || unknown;
+  const summary = [item.reason, item.justification, item.effectiveArguments?.purpose].find(value => typeof value === "string" && value.trim());
   return <DecisionCard kind="approval" label={isComputer ? t("chat.approval.computer") : isBrowser ? "浏览器" : item.effectiveArguments?.command ? "终端" : "工具"}
     icon={isBrowser ? <Globe /> : <SquareTerminal />} busy={busy} error={error}
     onKeyDown={(e) => {
@@ -50,20 +51,9 @@ export function ApprovalRequest({ item, projectId, action }: { item: Data; proje
       void respond("deny");
     }}
     message={submitted ? "已提交，等待执行状态更新。" : undefined}
-    footer={unknown ? <Button type="button" className="decision-button" variant="outline" disabled={busy} onClick={() => void refresh()}>核对待审批状态</Button> : <>
-      <Button type="button" className="decision-button" variant="outline" aria-label="拒绝" disabled={locked} onClick={() => void respond("deny")}>拒绝<kbd aria-hidden="true">Esc</kbd></Button>
-      {canRemember ? <div className="approval-split">
-        <Button type="button" className="decision-button decision-primary" aria-label="允许一次" disabled={locked} onClick={() => void respond("allowOnce")}>{busy ? "提交中…" : "允许一次"}<kbd aria-hidden="true"><CornerDownLeft size={12} /></kbd></Button>
-        <DropdownMenu><DropdownMenuTrigger render={<Button type="button" className="decision-button approval-scope-trigger" aria-label="更多授权范围" disabled={locked}><ChevronDown /></Button>} />
-          <DropdownMenuContent side="top" align="end" sideOffset={8} className="approval-scope-menu">
-            <DropdownMenuItem disabled={locked} onClick={() => void respond("allowOnce")}>允许一次<small>仅批准本次请求</small></DropdownMenuItem>
-            <DropdownMenuItem disabled={locked} onClick={() => void respond("allowSession")}>本任务允许此操作<small>仅适用于当前任务的相同操作</small></DropdownMenuItem>
-            <DropdownMenuItem disabled={locked} onClick={() => void respond("allowProject")}>本项目允许此操作<small>仅适用于当前项目的相同操作</small></DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div> : <Button type="button" className="decision-button decision-primary" disabled={locked} onClick={() => void respond("allowOnce")}>{busy ? "提交中…" : "允许一次"}<kbd aria-hidden="true"><CornerDownLeft size={12} /></kbd></Button>}
-    </>}>
-    <h3 className="decision-card-title">{isComputer ? t("chat.approval.computerQuestion") : `是否允许${isBrowser ? "执行浏览器操作" : `执行 ${item.tool}`}？`}</h3>
+    detailsLabel={t("decision.requestDetails")}
+    details={<>
+
     {computerPlan && <div className="approval-preview">
       <p>{t('chat.approval.computerTarget')} · {computerPlan.target?.app?.name ?? computerPlan.target?.name ?? computerPlan.origin}</p>
       <pre>{JSON.stringify({ operation: computerPlan.operation, parameters: computerPlan.parameters }, null, 2)}</pre>
@@ -104,5 +94,24 @@ export function ApprovalRequest({ item, projectId, action }: { item: Data; proje
         ? "记住的授权绑定当前页面、控制代次、目标和具体内容；人工接管或内容变化后重新审批。"
         : "记住的授权绑定当前页面、控制代次和具体操作；人工接管后重新审批。"
       : "记住的授权只适用于相同参数及权限条件，可在任务菜单的“已保存授权”中撤销。"}</p></details>}
+    </>}
+    footer={unknown ? <Button type="button" className="decision-button" variant="outline" disabled={busy} onClick={() => void refresh()}>核对待审批状态</Button> : <>
+      <Button type="button" className="decision-button" variant="outline" aria-label="拒绝" disabled={locked} onClick={() => void respond("deny")}>拒绝<kbd aria-hidden="true">Esc</kbd></Button>
+      {canRemember ? <div className="approval-split">
+        <Button type="button" className="decision-button decision-primary" aria-label="允许一次" disabled={locked} onClick={() => void respond("allowOnce")}>{busy ? "提交中…" : "允许一次"}<kbd aria-hidden="true"><CornerDownLeft size={12} /></kbd></Button>
+        <DropdownMenu><DropdownMenuTrigger render={<Button type="button" className="decision-button approval-scope-trigger" aria-label="更多授权范围" disabled={locked}><ChevronDown /></Button>} />
+          <DropdownMenuContent side="top" align="end" sideOffset={8} className="approval-scope-menu">
+            <DropdownMenuItem disabled={locked} onClick={() => void respond("allowOnce")}>允许一次<small>仅批准本次请求</small></DropdownMenuItem>
+            <DropdownMenuItem disabled={locked} onClick={() => void respond("allowSession")}>本任务允许此操作<small>仅适用于当前任务的相同操作</small></DropdownMenuItem>
+            <DropdownMenuItem disabled={locked} onClick={() => void respond("allowProject")}>本项目允许此操作<small>仅适用于当前项目的相同操作</small></DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div> : <Button type="button" className="decision-button decision-primary" disabled={locked} onClick={() => void respond("allowOnce")}>{busy ? "提交中…" : "允许一次"}<kbd aria-hidden="true"><CornerDownLeft size={12} /></kbd></Button>}
+    </>}>
+
+    <h3 className="decision-card-title">{summary || (isComputer ? t("chat.approval.computerQuestion") : `是否允许${isBrowser ? "执行浏览器操作" : `执行 ${item.tool}`}？`)}</h3>
+    <p className="approval-target">{isComputer ? computerPlan?.target?.app?.name ?? computerPlan?.target?.name ?? computerPlan?.origin : isBrowser ? browserPlan?.targetOrigin ?? browserPlan?.origin ?? browserPlan?.url : item.effectiveArguments?.cwd ?? item.effectiveArguments?.path}</p>
+    {typeof item.effectiveArguments?.command === "string" && <pre className="approval-command-summary" aria-label={t("decision.commandPreview")}><code>{item.effectiveArguments.command}</code></pre>}
+
   </DecisionCard>;
 }

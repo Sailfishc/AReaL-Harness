@@ -7,8 +7,8 @@ import {
 } from "./assistantDirectiveParser.js";
 export type GenUiPart =
   | { kind: "text"; text: string }
-  | { kind: "ui"; reference: GenUiReference; offset: number }
-  | { kind: "pending" | "invalid" };
+  | { kind: "ui"; reference: GenUiReference; offset: number; raw: string }
+  | { kind: "pending" | "invalid"; offset: number; raw: string };
 interface ReferenceCandidate {
   start: number;
   end: number;
@@ -54,14 +54,14 @@ export function projectGenUiReferences(text: string, completed: boolean): GenUiP
     if (start > cursor) parts.push({ kind: "text", text: text.slice(cursor, start) });
     cursor = end;
     if (!completed) {
-      parts.push({ kind: "pending" });
+      parts.push({ kind: "pending", offset: start, raw: text.slice(start, end) });
       continue;
     }
     try {
       const reference = genUiReferenceSchema.parse(candidate.decode());
-      parts.push({ kind: "ui", reference, offset: start });
+      parts.push({ kind: "ui", reference, offset: start, raw: text.slice(start, end) });
     } catch {
-      parts.push({ kind: "invalid" });
+      parts.push({ kind: "invalid", offset: start, raw: text.slice(start, end) });
     }
   }
   let tailEnd = text.length;

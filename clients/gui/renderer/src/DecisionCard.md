@@ -2,7 +2,7 @@
 
 ## DecisionCard
 
-[DecisionCard.tsx](DecisionCard.tsx) 展示请求、头部动作、正文、Feedback 和页脚。本次准入审批与提问两种上下文。请求草稿与提交仍归调用方。`busy` 宣告传入的等待状态，不会自动禁用任意页脚子项。传入键盘处理函数时，卡片才进入焦点顺序。键盘决策与动作禁用由调用方负责。错误使用 alert 反馈；普通消息与结果未知说明均来自调用方提供的事实。
+[DecisionCard.tsx](DecisionCard.tsx) 展示请求、头部动作、摘要正文、默认折叠详情、Feedback 和页脚。本次准入审批与提问两种上下文。请求草稿与提交仍归调用方。`busy` 宣告传入的等待状态，不会自动禁用任意页脚子项。传入键盘处理函数时，卡片才进入焦点顺序。键盘决策与动作禁用由调用方负责。错误使用 alert 反馈；普通消息与结果未知说明均来自调用方提供的事实。
 
 生产消费者包括 [ApprovalRequest.tsx](ApprovalRequest.tsx) 和 [AskUserQuestion.tsx](AskUserQuestion.tsx)。回调成功不等于权威执行已经完成。
 
@@ -15,3 +15,10 @@ Tab 可到达可用动作；Enter 与 Space 沿用 Button 语义。Escape 仅在
 ## 证据与边界
 
 [E-DECISION](../../design-system/base-evidence.md#e-decision) 记录本地决策与长内容检查。列明状态是有限准入范围，不代表真实供应商、全部权限组合或安装包已验收。
+
+
+## Ask User与过程展示
+
+AskUserQuestion保留业务草稿、问题导航、输入法处理与提交锁，使用包内QuestionCard。单选/数字选择只修改草稿，明确发送才提交；多题回答一次提交。稍后回答与关闭只折叠并保留草稿，原Core请求保持pending。UNKNOWN核对不自动重发。
+
+TurnElapsed使用Core起始时间和终态durationMs，所有语言均为`Working for …`。失败工具记录不进入默认活动行；TurnProgress用一个可展开标识提供原始记录，结果待确认与恢复动作继续沿原所有者展示。

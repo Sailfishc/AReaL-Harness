@@ -1,3 +1,4 @@
+import { ContentSystemPreview } from "./ContentSystemPreview.js";
 import { ToastHost } from "../ToastHost.js";
 import { FeedbackNotice } from "../FeedbackNotice.js";
 import { ArtifactReviewExercise } from "./ArtifactReviewExercise.js";
@@ -103,6 +104,7 @@ function Preview() {
   const sharedWorkspace = new URLSearchParams(window.location.search).has("shared-workspace");
   const conversationExercise = new URLSearchParams(window.location.search).has("conversation-exercise");
   const conversationSystem = new URLSearchParams(window.location.search).has("conversation-system");
+  const contentSystem = new URLSearchParams(window.location.search).has("content-system");
   const uiLibrary = new URLSearchParams(window.location.search).has("ui-library");
   const decisionExercise = new URLSearchParams(window.location.search).has("decision-exercise");
   const exercise = new URLSearchParams(window.location.search).has("settings-exercise");
@@ -154,7 +156,7 @@ function Preview() {
       <label>减少动态效果<input type="checkbox" checked={reducedMotion} onChange={event => setReducedMotion(event.target.checked)} /></label>
       {exercise && <label>题目内容<select aria-label="题目内容" value={exerciseContent} onChange={event => setExerciseContent(event.target.value)}><option value="reference">参考内容</option><option value="stress">长文案</option></select></label>}
     </header>
-    {uiLibrary ? <UiLibraryPreview dark={dark} fontSize={fontSize} /> : conversationSystem ? <ConversationSystemPreview dark={dark} /> : reuseExercise ? <section id="artifact-review-exercise" className="design-preview-panel" aria-label="交付物核对"><ArtifactReviewExercise baseVersion={baseCandidate.version} /></section> : sharedWorkspace ? <SharedWorkspacePreview dark={dark} /> : conversationExercise ? <ConversationFlowExercise dark={dark} /> : decisionExercise ? <DecisionTransferExercise key={state} state={state} /> : exercise ? <SettingsReflowExercise key={exerciseContent} stress={exerciseContent === "stress"} state={state} /> : <>
+    {contentSystem ? <ContentSystemPreview dark={dark} /> : uiLibrary ? <UiLibraryPreview dark={dark} fontSize={fontSize} /> : conversationSystem ? <ConversationSystemPreview dark={dark} /> : reuseExercise ? <section id="artifact-review-exercise" className="design-preview-panel" aria-label="交付物核对"><ArtifactReviewExercise baseVersion={baseCandidate.version} /></section> : sharedWorkspace ? <SharedWorkspacePreview dark={dark} /> : conversationExercise ? <ConversationFlowExercise dark={dark} /> : decisionExercise ? <DecisionTransferExercise key={state} state={state} /> : exercise ? <SettingsReflowExercise key={exerciseContent} stress={exerciseContent === "stress"} state={state} /> : <>
     <SettingsPreview />
     <section id="controls" className="design-preview-panel" aria-label="公共控件">
       <h2>设置控件 · 按交互选择</h2>
