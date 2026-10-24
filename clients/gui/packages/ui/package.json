@@ -40,7 +40,8 @@
     "./tokens.json": "./tokens.json",
     "./components.json": "./dist/components.json",
     "./llms.txt": "./dist/llms.txt",
-    "./agent-guide.md": "./agent-guide.md"
+    "./agent-guide.md": "./agent-guide.md",
+    "./settings.css": "./dist/settings.css"
   },
   "scripts": {
     "generate": "node scripts/foundations.mjs",

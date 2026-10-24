@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "@areal/ui/styles.css";
 @import "@areal/ui/conversation.css";
+@import "@areal/ui/settings.css";
 @import "@areal/ui/themes.css";
 @custom-variant dark (&:where(.dark, .dark *));
 body { margin: 0; padding: var(--spacing-field); color: var(--color-foreground); background: var(--color-background); font: var(--text-ui-base)/1.6 var(--font-sans); }
@@ -18,3 +19,15 @@ body { margin: 0; padding: var(--spacing-field); color: var(--color-foreground);
 .library-example:not([data-example="all"]) .library-conversation { grid-template-columns: minmax(0, 1fr); }
 .library-example > .areal-subagent-panel { height: 300px; margin-top: var(--spacing-field); }
 @media (max-width: 650px) { .library-conversation { grid-template-columns: minmax(0, 1fr); } }
+
+.library-composer-example { margin-block: var(--spacing-section); min-width: 0; }
+.library-composer-input { width: 100%; border: 0; background: transparent; color: inherit; resize: none; }
+.library-composer-reference { display: flex; align-items: center; gap: var(--spacing-inline); min-width: 0; font-size: var(--text-ui-sm); }
+.library-composer-reference > span { min-width: 0; overflow-wrap: anywhere; }
+.library-composer-example select { min-width: 0; max-width: 12rem; font-size: var(--text-ui-sm); }
+@media (max-width: 500px) { .library-composer-example select { max-width: 7rem; } }
+
+.library-settings-example { margin-block: var(--spacing-section); min-width: 0; }
+.library-settings-viewport { height: 460px; min-width: 0; border: 1px solid var(--color-border); border-radius: var(--radius-overlay); overflow: hidden; }
+.library-settings-feedback { margin: 0; color: var(--color-foreground-subtle); overflow-wrap: anywhere; }
+.library-settings-feedback[role="alert"] { color: var(--color-foreground); }

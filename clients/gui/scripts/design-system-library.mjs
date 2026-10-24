@@ -9,12 +9,15 @@ export async function runUiLibrary(page, scratch, checks) {
   assert.equal(manifest.private, true);
   assert.deepEqual(manifest.components.map(({ title, status, entry, layer }) => [title, status, entry, layer]), [
     ["ActivityGroup", "experimental", "wip", "conversation"], ["Button", "stable", "index", "core"],
+    ["ComposerSurface", "experimental", "wip", "conversation"], ["ComposerToolbar", "experimental", "wip", "conversation"],
     ["Disclosure", "experimental", "wip", "core"], ["ImageDisclosure", "experimental", "wip", "conversation"],
+    ["SettingsGroupCard", "experimental", "wip", "core"], ["SettingsPage", "experimental", "wip", "core"],
+    ["SettingsRow", "experimental", "wip", "core"], ["SettingsSection", "experimental", "wip", "core"],
     ["SubagentPanel", "experimental", "wip", "conversation"], ["TaskContext", "experimental", "wip", "conversation"],
     ["ThinkingStatus", "experimental", "wip", "conversation"],
   ]);
   assert.ok(manifest.components.find(component => component.title === "Button").api.includes("declare function Button"));
-  for (const id of ["activity-group", "image-disclosure", "task-context", "subagent-panel", "thinking-status"]) {
+  for (const id of ["activity-group", "image-disclosure", "task-context", "subagent-panel", "thinking-status", "composer-surface", "composer-toolbar", "settings-page", "settings-section", "settings-group-card", "settings-row"]) {
     const document = await page.evaluate(async id => (await fetch(`/docs/ui/${id}.md`)).text(), id);
     assert.ok(document.includes(`id: ${id}`), `raw contract for ${id}`);
     const component = manifest.components.find(component => component.id === id);
@@ -36,6 +39,61 @@ export async function runUiLibrary(page, scratch, checks) {
       await page.setViewportSize({ width: 420, height: 900 });
       await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth);
       await page.screenshot({ path: join(scratch, "thinking-document-narrow.png"), fullPage: true });
+      await page.setViewportSize({ width: 1440, height: 900 });
+    }
+    if (id === "composer-surface") {
+      const input = live.getByRole("textbox", { name: "示例任务输入", exact: true });
+      const send = live.getByRole("button", { name: "发送样例", exact: true });
+      assert.equal(await send.isEnabled(), false, "empty input cannot submit");
+      await input.fill("保留的Composer草稿");
+      await send.click();
+      await live.getByRole("status").filter({ hasText: "本地发送动作 1 次" }).waitFor();
+      await live.getByLabel("Composer状态", { exact: true }).selectOption("blocked");
+      await live.getByRole("status").filter({ hasText: "所选模型暂不可用" }).waitFor();
+      assert.equal(await send.isEnabled(), false);
+      assert.equal(await input.inputValue(), "保留的Composer草稿");
+      assert.equal(await input.isEnabled(), true, "blocked model leaves the draft editable");
+      await live.getByLabel("Composer状态", { exact: true }).selectOption("sending");
+      assert.equal(await input.isEnabled(), false);
+      await live.getByLabel("Composer状态", { exact: true }).selectOption("ready");
+      await live.getByRole("button", { name: "添加示例引用", exact: true }).click();
+      await live.getByRole("button", { name: "移除 设计引用 1.md", exact: true }).click();
+      assert.equal(await input.inputValue(), "保留的Composer草稿");
+      await live.getByRole("button", { name: "填入长草稿", exact: true }).click();
+      const bounds = await input.evaluate(el => { const editor = el.closest(".composer-editor"); return { full: editor.scrollHeight, visible: editor.clientHeight, overflow: getComputedStyle(editor).overflowY }; });
+      assert.ok(bounds.full > bounds.visible && bounds.overflow === "auto", "long draft uses the editor's vertical scroll owner");
+      await live.getByLabel("Composer布局", { exact: true }).selectOption("compact");
+      await live.getByLabel("Composer状态", { exact: true }).selectOption("running");
+      await live.getByRole("button", { name: "停止运行样例", exact: true }).click();
+      assert.ok((await input.inputValue()).includes("请核对活动"));
+    }
+    if (id === "settings-page") {
+      const settings = live.getByRole("region", { name: "设置布局样例", exact: true });
+      const value = settings.getByRole("textbox", { name: "示例工作区名称", exact: true });
+      await value.fill("尚未保存的名称");
+      await live.getByLabel("设置反馈状态", { exact: true }).selectOption("pending");
+      assert.equal(await value.isEnabled(), false, "host disables actual controls while saving");
+      await live.getByLabel("设置反馈状态", { exact: true }).selectOption("unknown");
+      await settings.getByRole("status").filter({ hasText: "保存结果待核对" }).waitFor();
+      assert.equal(await value.inputValue(), "尚未保存的名称");
+      assert.equal(await settings.getByRole("button", { name: "保存样例", exact: true }).isEnabled(), false);
+      await live.getByLabel("设置反馈状态", { exact: true }).selectOption("error");
+      await settings.getByRole("alert").filter({ hasText: "保存失败" }).waitFor();
+      await live.getByLabel("设置反馈状态", { exact: true }).selectOption("ready");
+      await settings.getByRole("button", { name: "保存样例", exact: true }).click();
+      await settings.getByRole("status").filter({ hasText: "本地样例已保存：尚未保存的名称" }).waitFor();
+      await settings.getByRole("button", { name: "查看设置边界", exact: true }).click();
+      await settings.getByText("配置值、导航守卫与保存回执仍归宿主。", { exact: true }).waitFor();
+      assert.equal(await settings.getByRole("checkbox", { name: "锁定的示例选项", exact: true }).isEnabled(), false);
+      const scroll = await settings.locator(".settings-workspace").evaluate(el => ({ overflow: getComputedStyle(el).overflowY, full: el.scrollHeight, height: el.clientHeight }));
+      assert.ok(scroll.overflow === "auto" && scroll.full > scroll.height, "settings page owns vertical reading");
+      await page.screenshot({ path: join(scratch, "settings-document-example.png"), fullPage: true });
+      await page.setViewportSize({ width: 420, height: 900 });
+      await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth);
+      assert.equal(await value.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      const columns = await settings.locator(".settings-field-layout-wide").first().evaluate(el => getComputedStyle(el).gridTemplateColumns.split(" ").length);
+      assert.equal(columns, 1, "narrow group stacks label and control");
+      await page.screenshot({ path: join(scratch, "settings-document-narrow.png"), fullPage: true });
       await page.setViewportSize({ width: 1440, height: 900 });
     }
     if (id === "task-context") {

@@ -444,7 +444,7 @@ export function ChatPromptEditor({
           </div>
         ) : null}
 
-        context={<>{topContent}{pendingReferences > 0 && <p role="status" className="notice">{intl.formatMessage({ id: "chat.composer.workspaceReferencePending" })}</p>}{dropError && <p role="alert" className="notice text-destructive">{dropError}</p>}</>}
+        context={<>{topContent}{submitBlockedReason && <p id={submitDescriptionId} className="composer-submit-feedback" role="status">{submitBlockedReason}</p>}{pendingReferences > 0 && <p role="status" className="notice">{intl.formatMessage({ id: "chat.composer.workspaceReferencePending" })}</p>}{dropError && <p role="alert" className="notice text-destructive">{dropError}</p>}</>}
         editor={<LexicalChatInput
           placeholder={placeholder}
           nextPrompt={nextPrompt}
@@ -537,7 +537,6 @@ export function ChatPromptEditor({
                     {submitting ? <Spinner className="size-4" /> : <SendMessageIcon className="size-5" />}
                     <span className="sr-only">{submitLabel}</span>
                   </Button>
-                  {submitBlockedReason && <span id={submitDescriptionId} className="sr-only">{submitBlockedReason}</span>}
                 </span>
               </ControlHintTooltip>
             )}

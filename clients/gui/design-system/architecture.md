@@ -44,7 +44,7 @@
 | 用户偏好、外观应用、reduced motion | [applicationPreferences.ts](../renderer/src/settings/applicationPreferences.ts) | `useAppearance` 将合法偏好写入 CSS 变量；消费端尊重这条链 |
 | 宿主题与面板主题适配 | [Main](../app/src/core/main.cjs)、[themes](../app/src/themes/index.js) | Main 调用现有 theme adapter；不能宣称 registry 已统一这些数值 |
 | 基础组件 | [components/ui](../renderer/src/components/ui) | 已有生产实现，按实际用途和状态准入 Base |
-| 设置与对话组合 | [SettingsPageParts](../renderer/src/settings/SettingsPageParts.tsx)、[ComposerSurface](../renderer/src/prompt-editor/ComposerSurface.tsx)、[DecisionCard](../renderer/src/DecisionCard.tsx)、[CollapsibleText](../renderer/src/CollapsibleText.tsx) | 已有组合，优先复用；当前六个模式是候选目录 |
+| 设置与对话组合 | [UI包components](../packages/ui/src/components)、[UI包conversation](../packages/ui/src/conversation)；原SettingsPageParts/ComposerSurface转接 | SettingsPage/Section/GroupCard/Row及ComposerSurface/Toolbar采用包内纯布局；编辑、导航、保存和执行归原renderer；DecisionCard等未迁入组合仍沿原所有者 |
 | 目录/合同与生成 | [registry](registry.json)、[catalog generator](../scripts/design-system-catalog.mjs) | 原型已接入，检查来源引用与派生输出 |
 | 开发期预览 | [design-system/main.tsx](../renderer/src/design-system/main.tsx) | 已有生产组件 fixture；普通构建不包含预览入口 |
 | 检查入口 | [design-system-audit](../scripts/design-system-audit.mjs)、[package scripts](../package.json) | 已有 verify 调用链；CSS 覆盖仍有限，目录检查不证明 JSX 依从 |

@@ -4,3 +4,9 @@ export { ImageDisclosure } from "./conversation/image-disclosure/image-disclosur
 export { TaskContext } from "./conversation/task-context/task-context.js";
 export { SubagentPanel } from "./conversation/subagent-panel/subagent-panel.js";
 export { ThinkingStatus } from "./conversation/thinking-status/thinking-status.js";
+export { ComposerSurface } from "./conversation/composer-surface/composer-surface.js";
+export { ComposerToolbar } from "./conversation/composer-toolbar/composer-toolbar.js";
+export { SettingsPage } from "./components/settings-page/settings-page.js";
+export { SettingsSection } from "./components/settings-section/settings-section.js";
+export { SettingsGroupCard } from "./components/settings-group-card/settings-group-card.js";
+export { SettingsRow } from "./components/settings-row/settings-row.js";

@@ -19,3 +19,5 @@ TaskContext 通过 Section、Item、Sources 组合变更、项目、子任务和
 SubagentPanel 提供入口后的完整列表、按独立状态分区、完成组展开与历史详情返回；历史内容由宿主提供。ThinkingStatus 提供从左到右的思考扫描，减少动态效果时静态呈现，不可见或后台停止循环。两者同样保留实验入口，生产消费不自动扩大稳定API或Base准入。
 
 ThinkingStatus 的 label 消费公开模型过程摘要并在变化时局部过渡，无摘要才回退 Thinking。任务上下文卡片由产品顶部按钮控制，与资源阅读器分开；具体优化依据见原对话流规范和参考记录。
+
+ComposerSurface/ComposerToolbar 提供主聊、Side与草稿共享的输入布局，导入 conversation.css。SettingsPage/Section/GroupCard/Row 提供已有设置布局，导入 settings.css；两组均从wip导入，各自维护就近MD与可操作状态实例。旧renderer路径转接同一实现。编辑器、模型权限、提交、配置值、保存回执与导航守卫仍归原宿主，不因布局提取而迁入UI包。

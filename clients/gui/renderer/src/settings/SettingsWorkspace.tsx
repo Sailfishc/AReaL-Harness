@@ -1,10 +1,9 @@
 import { useI18n } from "../i18n/IntlProvider.js";
-import { useId, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { NavigationBackIcon as ArrowLeft, NavigationForwardIcon as ArrowRight } from "../interfaceIcons.js";
 import { useNavigationBusy } from "./UnsavedChanges.js";
 import { SettingsSearchInput } from "./SettingsSearchInput.js";
 import { NavigationSidebar } from "../app-shell/WorkbenchShell.js";
-import { cn } from "../components/lib/utils.js";
 import "./SettingsWorkspace.css";
 
 export type SettingsNavigationGroup = {
@@ -83,32 +82,4 @@ export function SettingsNavigation({ groups, activeId, onSelect, onBack, width, 
   );
 }
 
-/** One scroll owner and the shared centered settings column. */
-export function SettingsPage({
-  title,
-  subtitle,
-  children,
-  className,
-}: {
-  title?: string;
-  subtitle?: string;
-  children: ReactNode;
-  className?: string;
-}) {
-  const id = useId();
-  return (
-    <section className="settings-workspace" tabIndex={0} aria-labelledby={title ? id : undefined}>
-      <div className={cn("settings-page", className)}>
-        {title && (
-          <header className="settings-page-header">
-            <h1 id={id} className="settings-page-title">
-              {title}
-            </h1>
-            {subtitle && <p className="settings-page-subtitle">{subtitle}</p>}
-          </header>
-        )}
-        {children}
-      </div>
-    </section>
-  );
-}
+export { SettingsPage } from "@areal/ui/wip";

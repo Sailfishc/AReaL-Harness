@@ -58,7 +58,7 @@ GUI 设计知识与后续 Web 复用边界从[设计文档](../../../design/READ
 
 ## 目录与完成边界
 
-本目录只放内部规范与稳定目录。生产 Token 继续放 `renderer/src/styles.css` 及外观所有者；公共控件继续放 `renderer/src/components/ui/`；组合继续由 `settings/`、Composer、DecisionCard 等既有模块拥有；预览继续放 `renderer/src/design-system/`。原始截图、DOM 与运行 manifest 保存在本地证据目录，不复制用户数据到公开源码。
+本目录只放内部规范与稳定目录。已迁入的基础值、纯组件与就近MD归 `packages/ui/`；未迁入Token/控件及主题偏好继续归原renderer所有者。设置页面/分区/组/行与Composer表面/工具栏已使用包内实验导出，原路径保留转接；编辑器、模型权限、提交、导航守卫与配置保存仍由原业务模块拥有。预览继续放 `renderer/src/design-system/`，组件目录展示同一包的合同、API和独立状态实例。原始截图、DOM 与运行 manifest 保存在本地证据目录，不复制用户数据到公开源码。
 
 目录提供有限选择和增量迁移约束。Base 冻结仅对应其列明范围，不代表全仓视觉已经统一。当前缺口集中在[目录状态](inventory.md#覆盖与缺口)；本次不批量重写业务页，不引入另一套组件库或 Token 生成链。
 

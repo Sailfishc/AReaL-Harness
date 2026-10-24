@@ -3,3 +3,4 @@
 @import "./conversation/task-context/task-context.css";
 @import "./conversation/subagent-panel/subagent-panel.css";
 @import "./conversation/thinking-status/thinking-status.css";
+@import "./conversation/composer-surface/composer-surface.css";

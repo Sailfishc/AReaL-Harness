@@ -33,3 +33,5 @@
 子代理入口使用 SubagentPanel 的列表→历史→返回动线，读取原子任务状态，不使用父任务完成状态生成Done。列表展开和焦点归组件，历史与区域布局归宿主。ThinkingStatus 的 label 用于公开模型过程摘要；无摘要回退Thinking，完成/未确认时移除，不把等待审批或未知结果写成Thinking。卡片从产品顶部入口开关，不作为永久资源侧栏。
 
 组件MD须与实现同目录，含用途、组成、状态、行为、内容、可访问性、规则及可操作示例链接；category/aliases/related供人和Agent检索。数组使用行内JSON，关联使用已有组件id。MD、TS声明与独立示例各自拥有事实，生成的索引/原文站点不反向编辑。文档阅读器可检查元数据和实际示例；仅有MD文件不等于文档完整或体验已通过。
+
+输入区采用[ComposerSurface合同](src/conversation/composer-surface/composer-surface.md)和[工具栏合同](src/conversation/composer-toolbar/composer-toolbar.md)；设置布局从[SettingsPage合同](src/components/settings-page/settings-page.md)进入，并沿related查找分区、组与行。各合同说明样式入口、宿主职责及可操作实例；实际编辑、提交、保存回执和导航守卫沿原业务所有者。
