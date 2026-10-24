@@ -18,6 +18,8 @@
 
 产品中如何组合这些控件见[桌面工作台](../products/workbench/README.md)。
 
+正文、公式、图表与Gen UI/MCP Apps的关系见[对话内容呈现系统](../content/conversation-content-system.md)。它统一展示、阅读和动作合同，保留专用渲染器与原宿主生命周期；目前是设计建议，不表示已增加新的公开组件或完成生产迁移。
+
 ## 一份合同对应一个实现所有者
 
 GUI 控件选择与后续 Web 复用边界由本目录维护。组件参数、导出与类型归实际代码，GUI 的控件尺寸与组合接线见[组件指南](../../clients/gui/DESIGN_SYSTEM.md#公共组件与试点组合)。同一事实不再抄成另一份 Props 表或手工组件名单。

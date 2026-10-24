@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | 取舍依据 | [设计原则](principles/README.md) | 平台引用适用理由，不复制定义 |
 | 基础表达 | [设计基础](foundations/README.md)、[Token 地图](foundations/tokens.md) | GUI 确立角色与默认值；已复用的默认值归共享源，动态偏好与浏览器适配归原所有者 |
-| 内容表达 | [内容与文案](content/README.md) | GUI 文案键、翻译与真实状态绑定；Web 按实际入口复用 |
+| 内容表达 | [内容与文案](content/README.md)、[对话内容呈现系统](content/conversation-content-system.md) | 正文、公式、结构化内容与交互页面的展示合同；GUI保留翻译、状态与资源绑定，Web按实际入口复用 |
 | 人机关系 | [人与 Agent](people-and-agents/README.md) | 现有服务判断身份、权限、受理、执行和结算 |
 | 任务组织 | [交互模式](patterns/README.md) | GUI 布局、阅读、焦点、状态投影和合法动作绑定；Web 复用时验证适配 |
 | 控件与组合 | [组件目录](components/README.md) | 真实导出、参数、平台交互及生产示例 |
@@ -29,7 +29,7 @@ GUI 的 `registry.json` 仍是本端索引。I-*、P-* 和 CONV-* 的定义、�
 
 组件参数从类型和实现读取，结构索引由原 registry 维护，生产预览使用真实组件。规则、数值、接口和示例各有一个来源，派生文档或检索格式不反向编辑它们。
 
-按 [D-004](decisions/004-local-ui-package.md)，首批基础值、原纯调色板函数和控件实现由私有 [@areal/ui](../clients/gui/packages/ui/README.md)承接，原 GUI registry 继续拥有模式与 Base。包生成 CSS、类型、组件索引和 Agent 入口，原设计站提供独立包示例；[UI 包与架构](../clients/gui/renderer/design-system.html?ui-library)可核对实际来源与产物。其余 renderer 控件和领域组合尚未迁入，不把首批链路写成全量迁移。
+按 [D-004](decisions/004-local-ui-package.md)，基础值、原纯调色板函数和共享展示实现由私有 [@areal/ui](../clients/gui/packages/ui/README.md)承接，原 GUI registry 继续拥有模式与 Base。包生成 CSS、类型、组件索引和 Agent 入口，原设计站提供独立包示例；[UI 包与架构](../clients/gui/renderer/design-system.html?ui-library)可核对实际来源与产物。共享组件的当前范围见[组件迁移](../clients/gui/design-system/component-migration.md)，产品适配与Gen UI/MCP Apps宿主继续归原renderer、Electron和Core，不因展示包化而迁移执行权威。
 
 ## 文档整理与产品演进
 
