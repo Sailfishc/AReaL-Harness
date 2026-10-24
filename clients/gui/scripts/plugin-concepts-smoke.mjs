@@ -7,6 +7,8 @@ import { createServer } from "node:http";
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { captureSmokeFailure, createProjectConversation } from "./smoke-navigation.mjs";
+import { assertApplicationStopped, closeSmokeApplication } from "./application-cleanup.mjs";
+import { respondToSessionName } from "./model-fixture.mjs";
 
 const gui = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const root = resolve(gui, "../..");
@@ -41,6 +43,9 @@ const checks = [];
 const errors = [];
 const requests = [];
 const instances = [];
+const auxiliaryRequests = [];
+const creatorOnly = process.argv.includes("--creator-only");
+assert.ok(process.argv.slice(2).every(arg => arg === "--creator-only"), "Usage: plugin-concepts-smoke.mjs [--creator-only]");
 const archiveEvidence = {};
 let creatorEvidence;
 const sha = value => createHash("sha256").update(value).digest("hex");
@@ -130,25 +135,80 @@ const createdSkillBody = "---\nname: creator-project-proof\ndescription: Produce
 const creatorBody = await readFile(join(gui, "app/assets/builtin-skills", fixture.creatorId, "SKILL.md"), "utf8");
 const creatorSource = JSON.parse(await readFile(join(gui, "app/assets/builtin-skills", `${fixture.creatorId}.source.json`), "utf8"));
 
+const creatorToolRoot = ".scratch/creator-tools";
+const creatorResources = await Promise.all(["init_skill.py", "generate_openai_yaml.py", "quick_validate.py"].map(async name => {
+  const resource = `scripts/${name}`;
+  const expected = creatorSource.files.find(file => file.path === resource);
+  assert.ok(expected);
+  return { name, resource, sha256: expected.sha256, size: (await readFile(join(gui, "app/assets/builtin-skills", fixture.creatorId, resource))).length };
+}));
+const creatorReadSteps = creatorResources.flatMap(file => Array.from({ length: Math.ceil(file.size / 8192) }, (_, index) =>
+  ["skill_read", { skill: { id: fixture.creatorId, revision: `builtin-${creatorSource.contentDigest}` }, resource: file.resource, offset: index * 8192, maxBytes: 8192 }]));
+const creatorToolCount = creatorReadSteps.length + 8;
+function creatorResourceText(payload, file) {
+  const calls = new Map((payload.messages ?? []).flatMap(message => message.tool_calls ?? []).map(call => [call.id, call]));
+  const pages = (payload.messages ?? []).filter(message => message.role === "tool" && calls.get(message.tool_call_id)?.function.name === "skill_read")
+    .map(message => ({ args: JSON.parse(calls.get(message.tool_call_id).function.arguments), result: JSON.parse(message.content) }))
+    .filter(page => page.args.resource === file.resource).sort((a, b) => a.args.offset - b.args.offset);
+  let offset = 0;
+  const chunks = pages.map(({ args, result }) => {
+    assert.equal(args.offset, offset); assert.equal(result.resource, file.resource);
+    assert.equal(result.revision, `builtin-${creatorSource.contentDigest}`);
+    const bytes = typeof result.text === "string" ? Buffer.from(result.text, "utf8") : Buffer.from(result.dataBase64, "base64"); offset += bytes.length;
+    assert.equal(result.nextOffset, offset); return bytes;
+  });
+  assert.equal(pages.at(-1)?.result.eof, true);
+  const bytes = Buffer.concat(chunks);
+  assert.equal(bytes.length, file.size); assert.equal(sha(bytes), file.sha256, "Core resource bytes match the pinned official file");
+  return bytes.toString("utf8");
+}
+
 const model = createServer(async (request, response) => {
+  try {
   let body = "";
   for await (const part of request) body += part;
   const payload = JSON.parse(body);
+  if (respondToSessionName(payload, response)) { auxiliaryRequests.push({ purpose: "sessionName" }); return; }
+  const system = payload.messages?.filter(message => message.role === "system").map(message => message.content).filter(content => typeof content === "string") ?? [];
+  if (system.some(content => content.startsWith("Predict the next user prompt from the conversation data."))) {
+    assert.ok(!payload.tools?.length, "prompt predictions have no tools");
+    auxiliaryRequests.push({ purpose: "promptPrediction" });
+    response.writeHead(200, { "Content-Type": "text/event-stream" });
+    response.end(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: "" }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`);
+    return;
+  }
+  if (system.some(content => content.startsWith("AReaL permission review."))) {
+    assert.ok(!payload.tools?.length, "permission review has no tools");
+    const packet = JSON.parse(payload.messages.findLast(message => message.role === "user").content);
+    assert.match(packet.digest, /^[a-f0-9]{64}$/);
+    auxiliaryRequests.push({ purpose: "permissionReview", tool: packet.tool, digest: packet.digest });
+    response.writeHead(200, { "Content-Type": "text/event-stream" });
+    response.end(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: JSON.stringify({ decision: "ask", reason: "The fixture requires explicit user approval.", digest: packet.digest }) }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`);
+    return;
+  }
   requests.push(payload);
   const calls = (payload.messages ?? []).flatMap(message => message.tool_calls ?? []);
   const completed = calls.length;
-  const creatorRoot = join(scratch, "core/builtin-skills", creatorSource.contentDigest);
   const steps = [
-    ["run_command", { argv: [creatorPython, join(creatorRoot, "scripts/init_skill.py"), createdSkillId, "--path", ".agents/skills", "--interface", "short_description=Create a concise project-local acceptance proof"], yieldMs: 10000 }],
+    ...creatorReadSteps,
+    ["run_command", { argv: [creatorPython, "-c", `from pathlib import Path; Path('${creatorToolRoot}').mkdir(parents=True, exist_ok=False)`], yieldMs: 10000 }],
+    ...creatorResources.map(file => ["fs_create", () => ({ path: `${creatorToolRoot}/${file.name}`, text: creatorResourceText(payload, file) })]),
+    ["run_command", { argv: [creatorPython, `${creatorToolRoot}/init_skill.py`, createdSkillId, "--path", ".agents/skills", "--interface", "short_description=Create a concise project-local acceptance proof"], yieldMs: 10000 }],
     ["fs_read", { path: `.agents/skills/${createdSkillId}/SKILL.md` }],
     ["fs_write", { path: `.agents/skills/${createdSkillId}/SKILL.md`, text: createdSkillBody }],
-    ["run_command", { argv: [creatorPython, join(creatorRoot, "scripts/quick_validate.py"), `.agents/skills/${createdSkillId}`], yieldMs: 10000 }],
+    ["run_command", { argv: [creatorPython, `${creatorToolRoot}/quick_validate.py`, `.agents/skills/${createdSkillId}`], yieldMs: 10000 }],
   ];
-  const step = steps[completed];
+  const planned = steps[completed];
+  const step = planned && [planned[0], typeof planned[1] === "function" ? planned[1]() : planned[1]];
   const delta = step ? { tool_calls: [{ index: 0, id: `creator-tool-${completed}`, type: "function", function: { name: step[0], arguments: JSON.stringify(step[1]) } }] } : { content: "CONCEPT_MODEL_REPLY" };
   response.writeHead(200, { "Content-Type": "text/event-stream" });
   response.end(`data: ${JSON.stringify({ choices: [{ index: 0, delta, finish_reason: null }] })}\n\n` +
     `data: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: step ? "tool_calls" : "stop" }] })}\n\ndata: [DONE]\n\n`);
+  } catch (error) {
+    errors.push(`Creator model fixture: ${error.stack ?? error}`);
+    if (!response.headersSent) response.writeHead(500);
+    response.end();
+  }
 });
 await new Promise(resolve => model.listen(0, "127.0.0.1", resolve));
 await writeFile(join(userHome, ".areal/config.toml"),
@@ -204,6 +264,14 @@ async function capture(name) {
 async function launch() {
   app = await electron.launch({ executablePath: require("electron"), args: [join(gui, "app")], env, timeout: 120_000 });
   page = await app.firstWindow();
+  await app.evaluate(({ dialog }) => {
+    const original = dialog.showMessageBox;
+    dialog.showMessageBox = async (...args) => {
+      const options = args.at(-1);
+      return options?.type === "question" && /退出|关闭/.test(options.message ?? "")
+        ? { response: 1, checkboxChecked: false } : original(...args);
+    };
+  });
   page.setDefaultTimeout(20_000);
   page.on("pageerror", error => errors.push(error.message));
   await page.getByTestId("areal-workbench").waitFor({ timeout: 120_000 });
@@ -324,13 +392,35 @@ async function stopService() {
       catch (error) { if (error.code === "ESRCH") return true; throw error; }
     }, "owned desktop service exits");
   }
+  await assertApplicationStopped(env.AREAL_CORE_BIN, env, metadata);
   const remaining = JSON.parse(execFileSync(env.AREAL_CORE_BIN, ["service", "list", "--json"], { env, encoding: "utf8", timeout: 30_000 }));
-  for (const service of remaining) assert.equal(service.workspace, workspace, "registry contains only this fixture workspace");
+  const owners = JSON.parse(await readFile(join(scratch, "core/projects.json"), "utf8"));
+  const projectless = JSON.parse(await readFile(join(scratch, "core/projectless-drafts.json"), "utf8"));
+  for (const service of remaining) {
+    const owner = owners.find(owner => owner.root === service.workspace);
+    assert.ok(owner && (owner.root === workspace || owner.projectless === true
+      && projectless[owner.projectlessRequestId]?.root === owner.root && owner.root.startsWith(`${userHome}/`)), "registry contains only persisted fixture owners");
+    assert.equal(service.owner?.kind, "gui");
+    assert.equal(service.owner?.profile, env.AREAL_GUI_USER_DATA);
+    assert.equal(service.dataDir, join(scratch, "core", owner.id, "state"));
+  }
   assert.equal(remaining.every(service => service.state === "stopped"), true, "owned Core services stopped");
   return { desktopStopped: true, coreStopped: true, remaining };
 }
 
 try {
+  if (creatorOnly) {
+    await launch();
+    await selectNative(workspace);
+    await page.evaluate(() => window.arealDesktop.chooseProject());
+    await page.getByRole("navigation", { name: "应用导航", exact: true }).getByRole("button", { name: "首页", exact: true }).click();
+    await createProjectConversation(page, "workspace");
+    const owner = await until(async () => (await state()).projects.find(project => project.root === workspace && project.state?.connected), "Creator fixture project connected");
+    projectId = owner.id;
+    assert.equal(Object.keys(owner.state.threads).length, 0, "Creator scenario starts before any task occupies the source workspace");
+    await page.getByTestId("chat-input").fill("CREATOR_EXISTING_DRAFT");
+    await skillWorkspace();
+  } else {
   const legacyDeployment = join(scratch, "legacy-desktop.json");
   await json(legacyDeployment, { profiles: [{ id: "areal-standard", revision: "resources-00000000", displayName: "标准", instructions: "Legacy deployment", allowPluginSkills: true, skills: [] }] });
   env.AREAL_CORE_DESKTOP_CONFIG = legacyDeployment;
@@ -368,7 +458,7 @@ try {
   assert.equal(await page.evaluate(id => localStorage.getItem(`areal-gui:draft:${id}:new`), projectId), "RESTRICTED_CREATOR_DRAFT");
   assert.equal(requests.length, 0);
   checks.push("custom deployment without Creator keeps its permissions and preserves the existing chat draft");
-  await app.close(); app = null;
+  await closeSmokeApplication(app); app = null;
   await stopService();
   delete env.AREAL_CORE_DESKTOP_CONFIG;
   await launch();
@@ -427,10 +517,10 @@ try {
   await page.getByTestId("plugin-detail-page").waitFor();
   assert.equal(await page.getByRole("dialog").count(), 0, "market plugin detail is a content page");
   await button("安装").click();
-  await page.getByRole("checkbox", { name: "我已核对以上来源、版本和内容摘要", exact: true }).waitFor();
+  await page.getByRole("checkbox", { name: "我已核对以上来源、版本和摘要", exact: true }).waitFor();
   await scopeProject();
   assert.equal(await button("安装到当前项目").isEnabled(), false, "package install needs source review");
-  await page.getByRole("checkbox", { name: "我已核对以上来源、版本和内容摘要", exact: true }).check();
+  await page.getByRole("checkbox", { name: "我已核对以上来源、版本和摘要", exact: true }).check();
   await button("安装到当前项目").click();
   await button("管理").waitFor();
   const installed = (await manage("plugins")).data.find(plugin => plugin.id === fixture.pluginId);
@@ -513,12 +603,12 @@ try {
   const imported = (await manage("plugins")).data.find(plugin => plugin.id === archivePluginId);
   assert.equal(imported.installed, false, "archive import publishes a candidate without installation");
   assert.equal(imported.enabled, false);
-  await page.getByRole("checkbox", { name: "我已核对以上来源、版本和内容摘要", exact: true }).waitFor();
+  await page.getByRole("checkbox", { name: "我已核对以上来源、版本和摘要", exact: true }).waitFor();
   await scopeProject();
   assert.equal(await button("安装到当前项目").isEnabled(), false, "archive candidate needs explicit source review");
   assert.equal((await events()).length, 0, "archive import cannot start MCP");
   assert.equal(requests.length, 0, "archive import cannot start inference");
-  await page.getByRole("checkbox", { name: "我已核对以上来源、版本和内容摘要", exact: true }).check();
+  await page.getByRole("checkbox", { name: "我已核对以上来源、版本和摘要", exact: true }).check();
   await button("安装到当前项目").click();
   await button("管理").waitFor();
   const archiveInstalled = (await manage("plugins")).data.find(plugin => plugin.id === archivePluginId);
@@ -655,7 +745,7 @@ try {
   assert.equal(requests.length, 0, "interactive App echo cannot invoke model inference");
   checks.push("interactive App remains reachable from plugin detail and returns the literal echo through an actual sandbox frame and MCP transport");
   await capture("05-plugin-interactive-app");
-  await app.close();
+  await closeSmokeApplication(app);
   app = null;
   await launch();
   await until(async () => (await state()).projects.find(project => project.id === projectId)?.state?.connected, "reopened project connected");
@@ -693,6 +783,7 @@ try {
   await page.getByTestId("chat-input").fill("CREATOR_EXISTING_DRAFT");
   await page.evaluate(id => localStorage.setItem(`areal-gui:draft:${id}:new:profile`, JSON.stringify({ id: "areal-standard", revision: "v1" })), projectId);
   await skillWorkspace();
+  }
   const creator = await call("resources", { operation: "builtinSkill", id: fixture.creatorId });
   assert.equal(creator.skill.id, fixture.creatorId);
   assert.equal(creator.skill.revision, `builtin-${creatorSource.contentDigest}`);
@@ -718,8 +809,22 @@ try {
   assert.notEqual(boundProfile.revision, "resources-00000000");
   await capture("07-official-creator-chat-draft");
   await button("发送").click();
-  await page.getByText("CONCEPT_MODEL_REPLY", { exact: true }).waitFor();
-  assert.equal(requests.length, 5, "one ordinary turn runs official initialization, project editing and official validation through Runtime");
+  let creatorApprovals = 0;
+  await until(async () => {
+    if (await page.getByText("CONCEPT_MODEL_REPLY", { exact: true }).isVisible()) return true;
+    const approval = page.locator('[data-interaction="approval"]');
+    const allow = approval.getByRole("button", { name: "允许一次", exact: true });
+    if (await approval.count() && await approval.isVisible() && await allow.isEnabled()) {
+      assert.match(await approval.innerText(), /run_command|fs_create|fs_write|fs_read|skill_read/);
+      await allow.click();
+      assert.ok(++creatorApprovals <= creatorToolCount, "Creator cannot request more approvals than its bounded tool calls");
+    }
+    return false;
+  }, "official Creator tool chain finishes");
+  assert.equal(requests.length, creatorToolCount + 1, "one ordinary turn reads official resources, materializes them through Runtime, initializes and validates the project Skill");
+  for (const file of creatorResources)
+    assert.equal(sha(await readFile(join(workspace, creatorToolRoot, file.name))), file.sha256, "Runtime script copy retains the pinned official bytes");
+  checks.push("official Creator resources are paginated through skill_read and copied by Runtime with pinned SHA-256 equality");
   assert.equal(await readFile(join(workspace, ".agents/skills", createdSkillId, "SKILL.md"), "utf8"), createdSkillBody);
   await readFile(join(workspace, ".agents/skills", createdSkillId, "agents/openai.yaml"), "utf8");
   assert.equal((await readdir(join(userHome, ".agents/skills")).catch(error => error.code === "ENOENT" ? [] : Promise.reject(error))).includes(createdSkillId), false);
@@ -739,7 +844,7 @@ try {
   const authoring = await call("manage", { projectId, threadId: authoringThreadId, operation: "inspect" });
   assert.deepEqual({ id: authoring.configuration.profile.id, revision: authoring.configuration.profile.revision }, boundProfile, "ordinary created thread uses the exact prepared profile");
   await json(join(scratch, "creator-thread.json"), authoring);
-  creatorEvidence = { profile: boundProfile, installedSkillRoot: join(workspace, ".agents/skills", createdSkillId), skill: creator.skill, provenance: creator.provenance, bodySha256: sha(creatorBody), modelUserTextSha256: sha(userText) };
+  creatorEvidence = { approvals: creatorApprovals, profile: boundProfile, installedSkillRoot: join(workspace, ".agents/skills", createdSkillId), skill: creator.skill, provenance: creator.provenance, bodySha256: sha(creatorBody), modelUserTextSha256: sha(userText) };
   checks.push("Create Skill preserves draft input, binds the verified official Creator, starts no execution before Send, and sends its exact body in an ordinary first chat turn");
   await capture("08-official-creator-first-turn");
   assert.deepEqual(errors, []);
@@ -750,7 +855,7 @@ try {
   process.exitCode = 1;
   if (page) await captureSmokeFailure(page, scratch, error);
 } finally {
-  if (app) await app.close().catch(error => errors.push(`close GUI: ${error.message}`));
+  if (app) await closeSmokeApplication(app).catch(error => errors.push(`close GUI: ${error.message}`));
   try { cleanup = await stopService(); }
   catch (error) { cleanup = { error: error.message }; errors.push(`stop owned service: ${error.message}`); }
   await new Promise(resolve => model.close(resolve));
@@ -761,10 +866,10 @@ try {
     source: execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim(),
     sourceFiles, sourceDiffSha256,
     core: { binary: env.AREAL_CORE_BIN, sha256: coreSha256, unchanged: sha(await readFile(env.AREAL_CORE_BIN)) === coreSha256 },
-    modelRequests: requests.length,
-    scope: "source Electron/Main/Core plugin workspace, reviewed portable local and ZIP plugins, standalone resources, stdio MCP, native App iframe, official bundled Creator ordinary chat turn; deterministic loopback model; no packaged or remote-provider acceptance",
+    mode: creatorOnly ? "creator-only" : "comprehensive", modelRequests: requests.length, auxiliaryRequests,
+    scope: creatorOnly ? "source Electron/Main/Core official Creator first ordinary turn in an otherwise unoccupied project workspace; deterministic model; actual Runtime writes and validation; no MCP App, worktree inheritance, package or real-provider acceptance" : "source Electron/Main/Core plugin workspace, reviewed portable local and ZIP plugins, standalone resources, stdio MCP, native App iframe, official bundled Creator ordinary chat turn; deterministic loopback model; no packaged or remote-provider acceptance",
     creatorPython,
-    injectedBoundary: "native directory and ZIP selection return isolated fixture paths; explicit Python with PyYAML; deterministic loopback model emits official Creator init, project read/write and validation tool calls, then the literal response",
+    injectedBoundary: "native directory and ZIP selection return isolated fixture paths; explicit Python with PyYAML; auxiliary model requests are fixtures; deterministic loopback model reads official resources with skill_read, materializes those returned bytes through Runtime into authorized workspace scratch, then emits official Creator init, project read/write and validation tool calls, then the literal response",
   };
   await json(join(scratch, "manifest.json"), manifest);
   await json(join(scratch, "model-requests.json"), requests);

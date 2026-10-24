@@ -107,6 +107,17 @@ const model = createServer(async (request, response) => {
       response.end(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: '' }, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`);
       return;
     }
+    if (body.messages?.some(message => message.role === 'system' && typeof message.content === 'string'
+      && message.content.startsWith('AReaL permission review.'))) {
+      assert.ok(!body.tools?.length, 'permission review has no tools');
+      const packet = JSON.parse(body.messages.findLast(message => message.role === 'user').content);
+      assert.ok(['browser_v1', 'computer_v1'].includes(packet.tool));
+      assert.match(packet.digest, /^[a-f0-9]{64}$/);
+      (events.permissionReviews ??= []).push({ tool: packet.tool, digest: packet.digest });
+      response.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      response.end(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: JSON.stringify({ decision: 'ask', reason: 'The fixture requires explicit user approval.', digest: packet.digest }) }, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`);
+      return;
+    }
     assert.ok(activeScenario, 'every conversation model request belongs to a scenario');
     const names = (body.tools ?? []).map(tool => tool.function?.name);
     const last = body.messages?.at(-1);
@@ -146,7 +157,7 @@ const model = createServer(async (request, response) => {
 await new Promise(resolve => model.listen(0, '127.0.0.1', resolve));
 await writeFile(join(userHome, '.areal/config.toml'), `schema_version=1\n[model]\nprovider="fixture"\nname="fixture"\n[model.providers.fixture]\nprotocol="chat-completions"\nendpoint="http://127.0.0.1:${model.address().port}/v1/chat/completions"\n`);
 const deployment = join(scratch, 'desktop.json');
-await writeFile(deployment, JSON.stringify({ profiles: [{ id: 'fixture', revision: 'v1', displayName: 'Fixture', instructions: 'Use the requested tool and report the result.' }] }));
+await writeFile(deployment, JSON.stringify({ profiles: [{ id: 'fixture', revision: 'v1', displayName: 'Fixture', instructions: 'Use the requested tool and report the result.', allowPluginSkills: options.ecosystem === true }] }));
 const env = { ...process.env, AREAL_GUI_USER_DATA: join(scratch, 'electron'), AREAL_CORE_HOME: join(scratch, 'core'),
   AREAL_CORE_USER_HOME: userHome, AREAL_HARNESS_SERVICE_HOME: join(scratch, 'registry'), AREAL_CORE_DESKTOP_CONFIG: deployment, AREAL_CORE_BIN: binary };
 for (const key of ['AREAL_CORE_WORKSPACE', 'AREAL_CORE_CONFIG', 'AREAL_HARNESS_HOME', 'AREAL_HARNESS_CONFIG']) delete env[key];
@@ -348,11 +359,11 @@ async function readiness(expectedAvailable) {
 async function installEcosystem() {
   const detail = await ecosystemDetail();
   await detail.getByRole('button', { name: '安装', exact: true }).click();
-  await detail.getByRole('checkbox', { name: '我已核对以上来源、版本和内容摘要', exact: true }).waitFor();
+  await detail.getByRole('checkbox', { name: '我已核对以上来源、版本和摘要', exact: true }).waitFor();
   await detail.getByRole('button', { name: '资源范围', exact: true }).click();
   await page.getByRole('menuitemradio', { name: '当前项目', exact: true }).click();
   assert.equal(await detail.getByRole('button', { name: '安装到当前项目', exact: true }).isEnabled(), false, 'source review is required');
-  await detail.getByRole('checkbox', { name: '我已核对以上来源、版本和内容摘要', exact: true }).check();
+  await detail.getByRole('checkbox', { name: '我已核对以上来源、版本和摘要', exact: true }).check();
   await detail.getByRole('button', { name: '安装到当前项目', exact: true }).click();
   const installed = await until(async () => (await command('manage', { projectId, operation: 'plugins' })).data.find(plugin => plugin.id === ecosystem.pluginId && plugin.installed), 'reviewed package installed by GUI');
   assert.equal(installed.enabled, true);
@@ -392,6 +403,13 @@ async function launch() {
   events.runtime = await app.evaluate(({ app, BrowserWindow, dialog, shell }, { workspace, computerModule }) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [workspace] });
     globalThis.__automationPermissionRequests = [];
+    globalThis.__automationDialogs = [];
+    app.on('web-contents-created', (_event, contents) => {
+      contents.debugger.on('message', (_event, method, params) => {
+        if (method === 'Page.javascriptDialogOpening' || method === 'Page.javascriptDialogClosed')
+          globalThis.__automationDialogs.push({ at: Date.now(), webContentsId: contents.id, method, params });
+      });
+    });
     if (computerModule) {
       const { ComputerControl } = process.getBuiltinModule('node:module').createRequire(computerModule)(computerModule);
       globalThis.__automationComputerTrace = [];
@@ -429,6 +447,12 @@ async function launch() {
   await page.evaluate(() => window.arealDesktop.chooseProject());
   const owner = await until(async () => (await state()).projects.find(item => item.root === workspace && item.state?.connected), 'isolated project ready');
   projectId = owner.id;
+  if (ecosystem) {
+    ecosystem.fixtureProfile = { id: 'fixture', revision: 'v1' };
+    await page.evaluate(({ key, profile }) => {
+      if (localStorage.getItem(key) === null) localStorage.setItem(key, JSON.stringify(profile));
+    }, { key: `areal-gui:draft:${projectId}:new:profile`, profile: ecosystem.fixtureProfile });
+  }
 }
 let passed = false;
 console.log(`Automation Core evidence ${scratch}`);
@@ -439,6 +463,8 @@ try {
     await installEcosystem();
   }
   if (options.suite !== 'browser') {
+    let selectedThread;
+    if (ecosystem) { await newThread(); selectedThread = threadId; }
     await setComputerEnabled(false);
     if (ecosystem) {
       await readiness(false);
@@ -475,7 +501,11 @@ try {
       const status = await command('computerControl', { operation: 'status' });
       await readiness(status.available === true);
     }
-    await newThread();
+    if (ecosystem) {
+      threadId = selectedThread;
+      ecosystem.currentSelected = true;
+      await selectConversation(page, threadId);
+    } else await newThread();
     await computerCase('describe', 'describe', {}, { assertResult(item) {
       successful(item); const text = JSON.stringify(item.contentItems);
       for (const name of ['get_app_state', 'left_click', 'set_value', 'request_access', 'stop_computer_control']) assert.ok(text.includes(name), `describe lists ${name}`);
@@ -630,6 +660,7 @@ try {
   }
   const metadata = await readFile(join(scratch, 'core/service.json'), 'utf8').then(JSON.parse, error => { if (error.code !== 'ENOENT') errors.push(error.message); return null; });
   if (app) {
+    events.nativeDialogs = await app.evaluate(() => globalThis.__automationDialogs).catch(error => ({ unavailable: error.message }));
     events.computerTrace = await app.evaluate(() => globalThis.__automationComputerTrace).catch(error => ({ unavailable: error.message }));
     events.permissionRequests ??= await app.evaluate(() => globalThis.__automationPermissionRequests).catch(error => ({ unavailable: error.message }));
     try {
@@ -671,7 +702,7 @@ try {
     sourceHead: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(),
     diffSHA256: sha(execFileSync('git', ['diff', 'HEAD'], { cwd: root })), hashes, coreBinary: binary,
     coreBinarySHA256: await readFile(binary).then(sha, error => `unavailable ${error.code}`),
-    scope: 'Real isolated source Electron, independent desktop service, Core and native browser executor. Loopback model/site and directory chooser are fixtures. Explicit OS authorization and System Settings opening are guarded to fail and recorded. Native OS actions require explicit mode and pre-existing grants.' };
+    scope: 'Real isolated source Electron, independent desktop service, Core and native browser executor. Loopback model/site, directory chooser, explicit plugin-enabled Profile and its saved draft selection are fixtures. Explicit OS authorization and System Settings opening are guarded to fail and recorded. Native OS actions require explicit mode and pre-existing grants.' };
   await writeFile(join(scratch, 'run-manifest.json'), JSON.stringify(manifest, null, 2));
   console.log(JSON.stringify({ passed, evidence: scratch, checks, errors, gaps }));
 }

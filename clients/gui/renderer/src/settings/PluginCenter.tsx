@@ -385,7 +385,7 @@ export function PluginCenter({ project: selectedProject, projects, thread, actio
     const refreshReadiness = async () => {
       setReadiness(null);
       setReadinessError("");
-      if (!detail?.installed || !detail.installedDigest || !detail.enabled) return;
+      if (!panelActive || !detail?.installed || !detail.installedDigest || !detail.enabled) return;
       try {
         const value: PluginReadiness = await api("pluginReadiness", { id: detail.id, expectedDigest: detail.installedDigest });
         if (current) setReadiness(value);
@@ -399,7 +399,7 @@ export function PluginCenter({ project: selectedProject, projects, thread, actio
       window.removeEventListener("focus", refreshReadiness);
       window.removeEventListener("areal-plugins-changed", refreshReadiness);
     };
-  }, [api, detail?.id, detail?.installedDigest, detail?.enabled, catalog?.revision]);
+  }, [api, panelActive, detail?.id, detail?.installedDigest, detail?.enabled, catalog?.revision]);
   const readinessReason = (value: PluginReadiness) => t("settings.pluginCenter.requiredHostToolsUnavailable", { tools: value.missingTools.join(", ") }) +
     (value.missingTools.includes("computer_v1") ? ` ${t("settings.pluginCenter.enableNativeComputerProvider")}` : "");
   const refresh = useCallback(async () => {

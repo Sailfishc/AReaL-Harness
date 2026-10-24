@@ -19,7 +19,7 @@ const scratch = await mkdtemp('/private/tmp/areal-plugin-ecosystem-');
 const cases = [
   { id: 'browser', script: 'automation-core-smoke.mjs', args: ['--ecosystem', '--suite', 'browser'], marker: 'Automation Core evidence ', manifest: 'run-manifest.json' },
   { id: 'computer', script: 'automation-core-smoke.mjs', args: ['--ecosystem', '--suite', 'computer'], marker: 'Automation Core evidence ', manifest: 'run-manifest.json' },
-  { id: 'creator', script: 'plugin-concepts-smoke.mjs', args: [], marker: 'Evidence: ', manifest: 'manifest.json' },
+  { id: 'creator', script: 'plugin-concepts-smoke.mjs', args: ['--creator-only'], marker: 'Evidence: ', manifest: 'manifest.json' },
 ].filter(item => suite === 'all' || suite === item.id);
 const failureModes = [
   'Reviewed GUI installation or restart changes the selected package digest or exact Skill reference.',
