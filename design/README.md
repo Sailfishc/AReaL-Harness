@@ -35,7 +35,7 @@
 
 | 客户端 | 现有设计与实现入口 | 平台责任 |
 | --- | --- | --- |
-| 桌面 GUI | [GUI 设计入口](../clients/gui/design-system/README.md)、[组件指南](../clients/gui/DESIGN_SYSTEM.md)、[生产目录](../clients/gui/design-system/inventory.md) | React 控件、布局、窗口与原生视图的适配和准入 |
+| 桌面 GUI | [GUI 设计入口](../clients/gui/design-system/README.md)、[@areal/ui](../clients/gui/packages/ui/README.md)、[生产目录](../clients/gui/design-system/inventory.md) | React 控件、布局、窗口与原生视图的适配和准入 |
 | Remote Web | [RemoteWorkbench](../clients/gui/renderer/src/remote/RemoteWorkbench.tsx) | 复用的 GUI 组件，以及浏览器权限和偏好边界 |
 | 本地 Web | [界面](../clients/web/app.js)、[样式](../clients/web/style.css) | 独立 Web 实现及主题偏好，不等同于 Remote Web |
 

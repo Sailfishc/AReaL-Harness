@@ -56,7 +56,7 @@
 
 | 层 | 本题维护什么 | 唯一来源与后续落点 |
 | --- | --- | --- |
-| Foundations | 内容/控件文字、次级信息、表面、间距、图标、焦点和动效角色 | [GUI 基础规则](foundations.md)、[Token 指南](../DESIGN_SYSTEM.md#token-选择)及生产 CSS/偏好链；本稿不存数值副本 |
+| Foundations | 内容/控件文字、次级信息、表面、间距、图标、焦点和动效角色 | [GUI 基础规则](foundations.md)、[Token 来源与使用](../../../design/foundations/tokens.md)及生产 CSS/偏好链；本稿不存数值副本 |
 | 通用控件 | 按钮、折叠、列表语义、反馈和详情容器 | 包内基础 Button/Disclosure 及原控件；不认识 Thread、processId 或权限结果 |
 | 对话领域组合 | 活动组、图片入口与任务上下文 | 首批 src/conversation 实现与就近合同；命令、子代理资源与权威状态沿原所有者，接口以真实类型为准 |
 | 交互模式 | 活动何时分组、怎样展开、回看与返回 | [过程阅读](../../../design/patterns/task-progress.md)与原 CONV 合同；不接管 Core 状态机 |
@@ -169,7 +169,7 @@ Subagents 入口首先打开全部列表，按Active/Needs attention/Done区分�
 
 活动采用轻量行式表达，右侧分区使用已有面板表面与分隔；命令正文只在展开后获得内容区域。最终回答保持最高阅读权重，正常结束的过程使用次级表达，但不能把运行/失败内容做成禁用态。
 
-过程摘要消费 `--text-content-caption`，控件标签消费 `--text-ui-caption`，次级信息沿 `--color-foreground-subtle/subtlest`；代码沿 `--font-mono`，阅读列沿 `--reading-width`。间距、圆角、状态颜色和字号偏好只引用 [GUI Token 指南](../DESIGN_SYSTEM.md#token-选择)，不登记截图数值或 Raft 字体副本。
+过程摘要消费 `--text-content-caption`，控件标签消费 `--text-ui-caption`，次级信息沿 `--color-foreground-subtle/subtlest`；代码沿 `--font-mono`，阅读列沿 `--reading-width`。间距、圆角、状态颜色和字号偏好只引用 [Token 来源与使用](../../../design/foundations/tokens.md)，不登记截图数值或 Raft 字体副本。
 
 折叠触发器是具名按钮，Enter/Space 可切换并暴露 expanded/controls；文件打开、详情展开、复制与菜单分别是独立目标，不嵌套按钮。“查看全部”带来源区上下文与数量。被收起内容退出焦点序列；收起正在聚焦的内容时将焦点交回触发器。滚动区溢出时可键盘到达和纵向滚动，图片有可理解名称，纯图标动作有可访问名称。颜色与动画均不独自承担状态；沿已有 reduced motion 和可逆折叠机制。
 

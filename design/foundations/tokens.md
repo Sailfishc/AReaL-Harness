@@ -21,6 +21,14 @@ GUI 的基础值只有一个可编辑来源。写样式时按用途选变量，�
 - 颜色用语义变量（`--color-foreground`、`--color-border`、`--color-destructive` 等），不写十六进制或 Tailwind 色板类。
 - 组件内部可以局部重映射变量（例如消息正文把 `--text-ui-base` 指向内容字号），不能在全局主题选择器里重新定义 @areal/ui 已生成的变量。
 
+## 容易选错的角色
+
+- 主要动作：审批主动作与发送共用 `--color-primary` / `--color-primary-foreground`；`--color-composer-action` 是同一配对的别名。强调色 `--color-brand` 只用于链接与焦点。
+- 设置说明：活跃设置标签的说明用 `--color-settings-secondary`，不借用禁用透明度或已完成过程的颜色。
+- 过程附注与对话：对话时间线用 `--text-conversation` / `--conversation-line` / `--conversation-gap`（跟随内容字号）；按钮、菜单等控件文字用 `--text-ui-*`（跟随界面字号）。两种字号偏好不能合并。
+- 阅读宽度：消息列与输入停靠区共用 `--reading-width`，内侧留白用 `--spacing-field`；嵌入式对话保留宿主宽度。
+- 独有宽度、滚动上限或定位属于具体组件，可以保留局部数值；多个组件共用时才进入 tokens.json。
+
 ## 自动守卫
 
 [design-system-audit](../../clients/gui/scripts/design-system-audit.mjs) 在 `pnpm --dir clients/gui verify` 中运行，包含：

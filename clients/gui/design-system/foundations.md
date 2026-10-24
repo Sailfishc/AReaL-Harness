@@ -6,7 +6,7 @@
 
 ## Token 按用途选择
 
-完整 Token 角色表见 [DESIGN_SYSTEM.md](../DESIGN_SYSTEM.md#token-选择)。本页不维护另一份数值表。
+完整 Token 角色表见 [Token 速查](../packages/ui/src/generated/tokens.md)。本页不维护另一份数值表。
 
 | 决策 | 必须采用的来源与约束 |
 | --- | --- |

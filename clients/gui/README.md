@@ -6,7 +6,7 @@
 
 Web/PWA Remote v2 的实施边界见[架构](../../docs/design/remote-control.md)、[API](../../docs/api/remote-control.md)、[连接与部署](../../docs/guides/remote-control.md)及[验收计划](../../docs/development/remote-control-testing.md)。源码已实现默认关闭的入口、浏览器申请与桌面确认、显式项目授权及设备撤销，以及工作概览、会话详情、创建与发送、精确轮次停止、审批和问题回复、任务暂停及结果审查。Direct 与独立 Relay 共用 Host 授权和加密协议；容器部署脚手架见 [Relay 部署](../../services/remote-relay/deploy/README.md)。源码实现不代表真实手机、生产浏览器 TLS、公网网络、系统钥匙串或安装包验收通过，各层仍需独立证据。
 
-新增、修改或评审页面前，Agent 从[设计规则 v1](design-system/README.md)进入[证据驱动设计流程](design-system/structured-flow.md#执行顺序与每步完成条件)：固定合同与参考，视频提名候选，关键帧/日志核查，筛选差异，再复用现有所有者实现、验收并更新规范；Token、交互合同和预览见[客户端设计系统](DESIGN_SYSTEM.md)。
+新增、修改或评审页面前，Agent 从[设计规则 v1](design-system/README.md)进入[证据驱动设计流程](design-system/structured-flow.md#执行顺序与每步完成条件)：固定合同与参考，视频提名候选，关键帧/日志核查，筛选差异，再复用现有所有者实现、验收并更新规范；Token、交互合同和预览见[客户端设计系统](design-system/README.md)。
 
 真实Electron对话专项从仓库根运行 `node clients/gui/scripts/migration-smoke.mjs --conversation-journey`；先构建并核对Core/Runtime及renderer。覆盖命令、子代理、图片、阅读/收敛、暂停UNKNOWN核查与GUI历史恢复；外部模型为本地确定性SSE。证据与注入边界见[真实Electron专项](design-system/exercises/conversation-flow.md#真实-electron-专项-e1)。
 生产UI包接入专项为 `node clients/gui/scripts/migration-smoke.mjs --conversation-production`：覆盖顶部任务卡片、Sources三项/全部、子代理列表与真实历史返回、工具图片/活动人工展开、窄桌面、暂停、Core返回UNKNOWN时的核查及Renderer历史重载不重放。沿相同隔离Electron/Core/Runtime与本地模型；它不代替完整专项末尾的活动任务退出后后台完成合同，也不代表安装包或真实供应商验收。
@@ -63,9 +63,9 @@ macOS GUI 后台自动读取系统静态 HTTP、HTTPS 和 SOCKS 代理，供 Cor
 
 中文输入法组词期间只更新编辑器候选文字，确认或取消后同步最终草稿；候选确认的 Enter 不发送消息。输入光标沿用当前主题的正文颜色，换行与空行沿用编辑器字号和行高。
 
-已发送的长消息默认显示约 8 行预览，通过“展开全文 / 收起”完整阅读；是否折叠随面板宽度和字号重新判断。复制保留完整原文，附件独立展示。主聊天、Side 与 Remote 共用同一消息组件。后续长文本界面遵循[设计系统的渐进展示原则](DESIGN_SYSTEM.md#长文本统一采用渐进展示)。
+已发送的长消息默认显示约 8 行预览，通过“展开全文 / 收起”完整阅读；是否折叠随面板宽度和字号重新判断。复制保留完整原文，附件独立展示。主聊天、Side 与 Remote 共用同一消息组件。后续长文本界面遵循[设计系统的渐进展示原则](packages/ui/src/conversation/collapsible-text/collapsible-text.md#gui-接线)。
 
-流式回复的新文字逐字淡入，中文与英文共用同一呈现方式；完成后的历史直接显示。等待状态使用随主题变化的连续文字高光。设置中的“减少动态效果”同时关闭这两类动效；可在[设计系统预览](DESIGN_SYSTEM.md#开发预览)中切换明暗、字号和动效检查。
+流式回复的新文字逐字淡入，中文与英文共用同一呈现方式；完成后的历史直接显示。等待状态使用随主题变化的连续文字高光。设置中的“减少动态效果”同时关闭这两类动效；可在[设计系统预览](design-system/README.md#预览与检查)中切换明暗、字号和动效检查。
 
 新一次发送或调整方向会清除上一操作的界面错误提示；本次失败仍显示原因并保留草稿，受理结果未知的消息不会自动重发。
 
