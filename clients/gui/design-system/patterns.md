@@ -32,6 +32,8 @@ P-RESOURCES 沿现有 PluginCenter 领域布局组合搜索、分类、列表、
 
 ## 设置组合布局
 
+Worktree 的配置菜单、准备状态和项目环境按[领域设计候选](worktrees.md)组合既有模式。脚本平台标签、设置子页导航与目录层级 Chevron 的有限例外见[例外表](worktrees.md#有限例外与共享规则)；不改变普通设置的默认控件选择，也不表示生产 UI 已迁移。
+
 `SET-LAYOUT-01`：复用 SettingsPage → SettingsSection → SettingsGroupCard → SettingsRow。宽组共享控件右边缘；窄组由 SettingsWorkspace.css 的容器规则切为上下排列，控件在完整标签/说明之后左对齐。页面不重新定义断点，不以缩字号、固定行高或偏移隐藏长文案。
 
 `SET-CONTENT-01`：标签、说明、值和反馈沿用生产语义角色，行高随内容增长。控件尺寸的唯一规则见 [DESIGN_SYSTEM.md](../DESIGN_SYSTEM.md#按交互类型选择控件)，页面不自行选择紧凑档。选项过长时由共享 Select 的截断和完整菜单承担，不为页面另造控件。参考与本产品组合不同的布局需要有界内容验证后决定采纳或保留；单次参考截图不覆盖现有共享规则。
