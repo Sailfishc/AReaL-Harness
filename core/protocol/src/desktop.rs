@@ -321,6 +321,14 @@ pub enum ThreadOwnership {
         run_id: Option<String>,
     },
 }
+pub const SERVER_REQUESTS: &[&str] = &[
+    "item/tool/call",
+    "areal/task/prepare",
+    "areal/browser/prepare",
+    "areal/computer/prepare",
+    "areal/cua/turnEnded",
+];
+
 pub const NOTIFICATIONS: &[&str] = &[
     "areal/mcp/app/notification",
     "areal/mcp/tool/result",

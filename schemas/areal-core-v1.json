@@ -131637,6 +131637,78 @@
       ],
       "type": "object"
     },
+    "areal/computer/prepare": {
+      "additionalProperties": false,
+      "properties": {
+        "arguments": {},
+        "callId": {
+          "type": "string"
+        },
+        "computerApproval": {
+          "additionalProperties": false,
+          "properties": {
+            "plan": {
+              "type": "object"
+            }
+          },
+          "required": [
+            "plan"
+          ],
+          "type": "object"
+        },
+        "discardPreparedPlan": {
+          "type": "boolean"
+        },
+        "hostGeneration": {
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "tool": {
+          "type": "string"
+        },
+        "turnId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "threadId",
+        "turnId",
+        "callId",
+        "tool",
+        "arguments",
+        "hostGeneration"
+      ],
+      "type": "object"
+    },
+    "areal/cua/turnEnded": {
+      "additionalProperties": false,
+      "properties": {
+        "event": {
+          "enum": [
+            "Stop",
+            "Interrupt"
+          ]
+        },
+        "hostGeneration": {
+          "type": "string"
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "turnId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "threadId",
+        "turnId",
+        "hostGeneration",
+        "event"
+      ],
+      "type": "object"
+    },
     "areal/task/prepare": {
       "additionalProperties": false,
       "properties": {
@@ -131688,6 +131760,18 @@
         "callId": {
           "type": "string"
         },
+        "computerApproval": {
+          "additionalProperties": false,
+          "properties": {
+            "plan": {
+              "type": "object"
+            }
+          },
+          "required": [
+            "plan"
+          ],
+          "type": "object"
+        },
         "hostGeneration": {
           "type": "string"
         },
@@ -131714,6 +131798,14 @@
   },
   "serverResponses": {
     "areal/browser/prepare": {
+      "type": "object"
+    },
+    "areal/computer/prepare": {
+      "type": "object"
+    },
+    "areal/cua/turnEnded": {
+      "additionalProperties": false,
+      "properties": {},
       "type": "object"
     },
     "areal/task/prepare": {

@@ -154,6 +154,11 @@ class TemporaryWorktreeCacheTest(unittest.TestCase):
                 stderr=subprocess.PIPE,
                 text=True,
                 start_new_session=True,
+                env={
+                    key: value
+                    for key, value in os.environ.items()
+                    if key not in {"MAKEFLAGS", "MFLAGS", "MAKELEVEL", "GNUMAKEFLAGS"}
+                },
             )
             try:
                 self.assertEqual(builder.stdout.readline().strip(), "ready")
