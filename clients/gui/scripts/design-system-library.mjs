@@ -8,18 +8,369 @@ export async function runUiLibrary(page, scratch, checks) {
   assert.equal(manifest.name, "@areal/ui");
   assert.equal(manifest.private, true);
   assert.deepEqual(manifest.components.map(({ title, status, entry, layer }) => [title, status, entry, layer]), [
-    ["ActivityGroup", "experimental", "wip", "conversation"], ["Button", "stable", "index", "core"],
-    ["ComposerSurface", "experimental", "wip", "conversation"], ["ComposerToolbar", "experimental", "wip", "conversation"],
-    ["Disclosure", "experimental", "wip", "core"], ["ImageDisclosure", "experimental", "wip", "conversation"],
-    ["NotificationToast", "experimental", "wip", "core"],
-    ["SettingsGroupCard", "experimental", "wip", "core"], ["SettingsPage", "experimental", "wip", "core"],
-    ["SettingsRow", "experimental", "wip", "core"], ["SettingsSection", "experimental", "wip", "core"],
-    ["SubagentPanel", "experimental", "wip", "conversation"], ["TaskContext", "experimental", "wip", "conversation"],
-    ["ThinkingStatus", "experimental", "wip", "conversation"],
-    ...["WorktreeDirectory", "WorktreePicker", "WorktreeSettings", "WorktreeStatus", "WorktreeWorkspace"].map(title => [title, "experimental", "wip", "worktree"]),
-  ]);
+  [
+    "ActionButton",
+    "experimental",
+    "wip",
+    "core"
+  ],
+  [
+    "ActivityGroup",
+    "experimental",
+    "wip",
+    "conversation"
+  ],
+  [
+    "AttachmentCard",
+    "experimental",
+    "wip",
+    "conversation"
+  ],
+  [
+    "Button",
+    "stable",
+    "index",
+    "core"
+  ],
+  [
+    "Card",
+    "experimental",
+    "wip",
+    "core"
+  ],
+  [
+    "CodeViewer",
+    "experimental",
+    "wip",
+    "core"
+  ],
+  [
+    "CollapsibleText",
+    "experimental",
+    "wip",
+    "conversation"
+  ],
+  [
+    "Command",
+    "experimental",
+    "wip",
+    "core"
+  ],
+  [
+    "CommandDetails",
+    "experimental",
+    "wip",
+    "conversation"
+  ],
+  [
+    "ComposerSurface",
+    "experimental",
+    "wip",
+    "conversation"
+  ],
+  [
+    "ComposerToolbar",
+    "experimental",
+    "wip",
+    "conversation"
+  ],
+  [
+    "ContextMenu",
+    "experimental",
+    "wip",
+    "core"
+  ],
+  [
+    "ControlHintTooltip",
+    "experimental",
+    "wip",
+    "core"
+  ],
+  [
+    "DecisionCard",
+    "experimental",
+    "wip",
+    "conversation"
+  ],
+  [
+    "Dialog",
+    "experimental",
+    "wip",
+    "core"
+  ],
+  [
+    "DiffViewer",
+    "experimental",
+    "wip",
+    "core"
+  ],
+  [
+    "Disclosure",
+    "experimental",
+    "wip",
+    "core"
+  ],
+  [
+    "DropdownMenu",
+    "experimental",
+    "wip",
+    "core"
+  ],
+  [
+    "FeedbackNotice",
+    "experimental",
+    "wip",
+    "core"
+  ],
+  [
+    "ImageDisclosure",
+    "experimental",
+    "wip",
+    "conversation"
+  ],
+  [
+    "Input",
+    "experimental",
+    "wip",
+    "core"
+  ],
+  [
+    "InputGroup",
+    "experimental",
+    "wip",
+    "core"
+  ],
+  [
+    "MarkdownBlockquote",
+    "experimental",
+    "wip",
+    "conversation"
+  ],
+  [
+    "MarkdownUnorderedList",
+    "experimental",
+    "wip",
+    "conversation"
+  ],
+  [
+    "MarkdownSurface",
+    "experimental",
+    "wip",
+    "conversation"
+  ],
+  [
+    "MarkdownTable",
+    "experimental",
+    "wip",
+    "conversation"
+  ],
+  [
+    "Attachments",
+    "experimental",
+    "wip",
+    "conversation"
+  ],
+  [
+    "MessageCodeBlock",
+    "experimental",
+    "wip",
+    "conversation"
+  ],
+  [
+    "NotificationToast",
+    "experimental",
+    "wip",
+    "core"
+  ],
+  [
+    "Popover",
+    "experimental",
+    "wip",
+    "core"
+  ],
+  [
+    "ResourceScope",
+    "experimental",
+    "wip",
+    "workbench"
+  ],
+  [
+    "Select",
+    "experimental",
+    "wip",
+    "core"
+  ],
+  [
+    "SettingsDialog",
+    "experimental",
+    "wip",
+    "core"
+  ],
+  [
+    "SettingsDisclosure",
+    "experimental",
+    "wip",
+    "core"
+  ],
+  [
+    "SettingsGroupCard",
+    "experimental",
+    "wip",
+    "core"
+  ],
+  [
+    "SettingsNavigation",
+    "experimental",
+    "wip",
+    "workbench"
+  ],
+  [
+    "SettingsPage",
+    "experimental",
+    "wip",
+    "core"
+  ],
+  [
+    "SettingsRow",
+    "experimental",
+    "wip",
+    "core"
+  ],
+  [
+    "SettingsSearchInput",
+    "experimental",
+    "wip",
+    "core"
+  ],
+  [
+    "SettingsSection",
+    "experimental",
+    "wip",
+    "core"
+  ],
+  [
+    "SettingsSegmentedTabs",
+    "experimental",
+    "wip",
+    "core"
+  ],
+  [
+    "SettingsSelect",
+    "experimental",
+    "wip",
+    "core"
+  ],
+  [
+    "SidePaneFrame",
+    "experimental",
+    "wip",
+    "workbench"
+  ],
+  [
+    "SidePaneLauncher",
+    "experimental",
+    "wip",
+    "workbench"
+  ],
+  [
+    "Spinner",
+    "experimental",
+    "wip",
+    "core"
+  ],
+  [
+    "SubagentPanel",
+    "experimental",
+    "wip",
+    "conversation"
+  ],
+  [
+    "Switch",
+    "experimental",
+    "wip",
+    "core"
+  ],
+  [
+    "Tabs",
+    "experimental",
+    "wip",
+    "core"
+  ],
+  [
+    "TaskContext",
+    "experimental",
+    "wip",
+    "conversation"
+  ],
+  [
+    "MemoTaskItem",
+    "experimental",
+    "wip",
+    "workbench"
+  ],
+  [
+    "TaskTitleOverflowText",
+    "experimental",
+    "wip",
+    "workbench"
+  ],
+  [
+    "Textarea",
+    "experimental",
+    "wip",
+    "core"
+  ],
+  [
+    "ThinkingStatus",
+    "experimental",
+    "wip",
+    "conversation"
+  ],
+  [
+    "Tooltip",
+    "experimental",
+    "wip",
+    "core"
+  ],
+  [
+    "WorkbenchShell",
+    "experimental",
+    "wip",
+    "workbench"
+  ],
+  [
+    "WorktreeDirectory",
+    "experimental",
+    "wip",
+    "worktree"
+  ],
+  [
+    "WorktreePicker",
+    "experimental",
+    "wip",
+    "worktree"
+  ],
+  [
+    "WorktreeSettings",
+    "experimental",
+    "wip",
+    "worktree"
+  ],
+  [
+    "WorktreeStatus",
+    "experimental",
+    "wip",
+    "worktree"
+  ],
+  [
+    "WorktreeWorkspace",
+    "experimental",
+    "wip",
+    "worktree"
+  ]
+]);
   assert.ok(manifest.components.find(component => component.title === "Button").api.includes("declare function Button"));
-  for (const id of ["activity-group", "image-disclosure", "task-context", "subagent-panel", "thinking-status", "composer-surface", "composer-toolbar", "settings-page", "settings-section", "settings-group-card", "settings-row", "worktree-directory", "worktree-picker", "worktree-settings", "worktree-status", "worktree-workspace", "notification-toast"]) {
+  for (const id of ["action-button", "activity-group", "attachment-card", "card", "code-viewer", "collapsible-text", "command", "command-details", "composer-surface", "composer-toolbar", "context-menu", "control-hint-tooltip", "decision-card", "dialog", "diff-viewer", "dropdown-menu", "feedback-notice", "image-disclosure", "input", "input-group", "markdown-blockquote", "markdown-list", "markdown-surface", "markdown-table", "message-attachments", "message-code-block", "notification-toast", "popover", "resource-controls", "select", "settings-dialog", "settings-disclosure", "settings-group-card", "settings-navigation", "settings-page", "settings-row", "settings-search-input", "settings-section", "settings-segmented-tabs", "settings-select", "side-pane-frame", "side-pane-launcher", "spinner", "subagent-panel", "switch", "tabs", "task-context", "task-list-item", "task-title-overflow", "textarea", "thinking-status", "tooltip", "workbench-shell", "worktree-directory", "worktree-picker", "worktree-settings", "worktree-status", "worktree-workspace"]) {
     const document = await page.evaluate(async id => (await fetch(`/docs/ui/${id}.md`)).text(), id);
     assert.ok(document.includes(`id: ${id}`), `raw contract for ${id}`);
     const component = manifest.components.find(component => component.id === id);
@@ -185,6 +536,14 @@ export async function runUiLibrary(page, scratch, checks) {
       await toggle.click();
       await live.getByRole("region", { name: "输入来源", exact: true }).waitFor();
     }
+    await verifyMigratedExample(id, live);
+    if (["input", "dialog", "markdown-table", "code-viewer", "workbench-shell", "settings-navigation", "decision-card", "attachment-card"].includes(id)) {
+      await live.locator("body").screenshot({ path: join(scratch, `${id}-migrated.png`) });
+      await page.setViewportSize({ width: 420, height: 900 });
+      assert.equal(await frameFits(live), true, `${id} fits narrow independent container`);
+      await live.locator("body").screenshot({ path: join(scratch, `${id}-migrated-narrow.png`) });
+      await page.setViewportSize({ width: 1440, height: 900 });
+    }
     await page.goBack(); await library.waitFor();
   }
   const llms = await page.evaluate(async () => (await fetch("/llms.txt")).text());
@@ -201,7 +560,7 @@ export async function runUiLibrary(page, scratch, checks) {
   await disclosure.press("Enter");
   await frame.getByText("基础交互与外观由包内实现负责。业务状态、执行与持久化由宿主提供。", { exact: true }).waitFor();
   assert.equal(await control.evaluate(() => typeof window.arealDesktop), "undefined");
-  assert.equal(await control.evaluate(() => [...document.styleSheets].some(sheet => [...sheet.cssRules].some(rule => rule.cssText.includes(".areal-workbench")))), false);
+  assert.equal(await control.evaluate(() => [...document.styleSheets].some(sheet => [...sheet.cssRules].some(rule => rule.cssText.includes(".tool-file-diff")))), false);
   await page.screenshot({ path: join(scratch, "ui-library-light.png"), fullPage: true });
   await page.getByLabel("主题", { exact: true }).selectOption("dark");
   await page.getByLabel("字号", { exact: true }).selectOption("18");
@@ -211,10 +570,10 @@ export async function runUiLibrary(page, scratch, checks) {
   assert.equal(await control.evaluate(() => getComputedStyle(document.body).backgroundColor), "rgb(24, 24, 24)");
   await page.setViewportSize({ width: 420, height: 900 });
   await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth);
-  assert.equal(await control.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  assert.equal(await frameFits(frame), true, "combined independent examples fit after resize");
   await page.screenshot({ path: join(scratch, "ui-library-dark-narrow.png"), fullPage: true });
   checks.push("组件索引、API、llms与Agent原文由包构建输出；MD元数据、原文链接、关联组件及独立示例可导航操作，窄窗无横向溢出");
-  checks.push("独立iframe仅消费包与Tailwind，未加载renderer工作台样式；按钮动作、28/32px字号响应、Disclosure键盘、明暗默认主题与420px布局通过");
+  checks.push("独立iframe仅消费包与Tailwind（含迁入包的工作台样式），未加载renderer业务样式；按钮动作、28/32px字号响应、Disclosure键盘、明暗默认主题与420px布局通过");
   const group = frame.getByRole("button", { name: "读取文件、运行命令 · 30 项活动", exact: true });
   assert.equal(await group.getAttribute("aria-expanded"), "false");
   await group.press("Enter");
@@ -252,4 +611,97 @@ export async function runUiLibrary(page, scratch, checks) {
   await agents.getByRole("region", { name: "子代理历史对话", exact: true }).getByText("本地子任务历史样例：已读取规范并核对组件接口。", { exact: true }).waitFor();
   await agents.getByRole("button", { name: "返回子代理列表", exact: true }).click();
   await agents.getByRole("button", { name: "关闭子代理面板", exact: true }).click();
+}
+
+async function verifyMigratedExample(id, live) {
+  const fields = ["input", "textarea", "switch", "select", "tabs", "settings-search-input", "settings-segmented-tabs", "settings-select"];
+  if (fields.includes(id)) {
+    const input = live.getByRole("textbox", { name: "包内单行输入", exact: true });
+    await input.fill("迁移后保留草稿");
+    await live.getByRole("checkbox", { name: "禁用实例控件", exact: true }).check();
+    assert.equal(await input.isEnabled(), false);
+    assert.equal(await input.inputValue(), "迁移后保留草稿");
+    await live.getByRole("checkbox", { name: "禁用实例控件", exact: true }).uncheck();
+    const select = live.getByRole("combobox", { name: "包内单选", exact: true });
+    await select.click();
+    await live.getByRole("option", { name: "第二项", exact: true }).click();
+    await live.getByRole("status").filter({ hasText: "当前选项：second" }).waitFor();
+    await live.getByRole("button", { name: "清除包内搜索", exact: true }).click();
+    assert.equal(await input.inputValue(), "");
+  }
+  if (["popover", "dialog", "dropdown-menu"].includes(id)) {
+    const trigger = live.getByRole("button", { name: "打开包内浮层", exact: true });
+    await trigger.click();
+    if (id === "dropdown-menu") {
+      await live.getByRole("menuitem", { name: "执行本地菜单项", exact: true }).press("Enter");
+      await live.getByRole("status").filter({ hasText: "本地动作 1 次" }).waitFor();
+    } else {
+      const input = live.getByRole("textbox", { name: id === "dialog" ? "对话框输入" : "浮层输入", exact: true });
+      await input.fill("浮层编辑"); await input.press("Escape");
+      await input.waitFor({ state: "hidden" });
+    }
+    await trigger.and(live.locator(":focus")).waitFor();
+    assert.equal(await trigger.evaluate(el => el === document.activeElement), true, `${id} restores trigger focus`);
+  }
+  if (id === "context-menu") {
+    await live.getByText("在此区域打开右键菜单", { exact: true }).click({ button: "right" });
+    await live.getByRole("menuitem", { name: "执行本地菜单项", exact: true }).click();
+    await live.getByRole("status").filter({ hasText: "本地动作 1 次" }).waitFor();
+  }
+  if (id === "command") {
+    const search = live.getByRole("combobox"); await search.fill("执行"); await search.press("ArrowDown"); await search.press("Enter");
+    await live.getByRole("status").filter({ hasText: "本地动作 1 次" }).waitFor();
+  }
+  if (id === "action-button") {
+    const action = live.getByRole("button", { name: "本地动作 0", exact: true }); await action.click();
+    await live.getByRole("button", { name: "切换处理中", exact: true }).click();
+    assert.equal(await live.getByRole("button", { name: /本地动作 1/ }).isEnabled(), false);
+  }
+  if (id === "settings-dialog") {
+    await live.getByRole("button", { name: "打开设置编辑", exact: true }).click();
+    const input = live.getByRole("textbox", { name: "设置编辑字段", exact: true });
+    await input.fill("未提交草稿");
+    await live.getByRole("button", { name: "切换保存中", exact: true }).click();
+    const close = live.getByRole("button", { name: "关闭设置编辑", exact: true });
+    assert.equal(await close.count(), 0, "saving hides the close affordance");
+    await input.press("Escape"); assert.equal(await input.inputValue(), "未提交草稿");
+    await live.getByRole("button", { name: "切换保存中", exact: true }).click(); await close.click();
+    await input.waitFor({ state: "hidden" });
+  }
+  if (id === "decision-card") {
+    await live.getByRole("button", { name: "批准本地样例", exact: true }).click();
+    await live.getByRole("status").filter({ hasText: "仅表达意图；等待宿主结果。" }).waitFor();
+    assert.equal(await live.getByRole("button", { name: /批准本地样例/ }).isEnabled(), false);
+  }
+  if (id === "attachment-card") {
+    await live.getByRole("button", { name: "移除包内引用", exact: true }).click();
+    await live.getByRole("status").filter({ hasText: "已从本地草稿移除" }).waitFor();
+  }
+  if (id === "settings-navigation") {
+    const search = live.getByRole("searchbox", { name: "搜索设置样例", exact: true }); await search.fill("外观");
+    await live.getByRole("button", { name: "外观", exact: true }).click();
+    await live.getByRole("status").filter({ hasText: "当前分类 two" }).waitFor();
+  }
+  if (id === "task-list-item") {
+    await live.getByTestId("task-item-sample").press("Enter");
+    await live.getByRole("status").filter({ hasText: "本地动作 1" }).waitFor();
+  }
+  if (id === "code-viewer" || id === "diff-viewer") {
+    await live.locator("diffs-container").first().locator("pre").waitFor();
+    assert.ok((await live.locator("diffs-container").first().evaluate(el => el.shadowRoot?.textContent || "")).includes(id === "code-viewer" ? "AReaL" : "const value"));
+  }
+  if (id === "markdown-surface") await live.getByRole("heading", { name: "包内正文", exact: true }).waitFor();
+  if (id === "markdown-table") await live.getByRole("cell", { name: "Input", exact: true }).waitFor();
+}
+
+async function frameFits(frame) {
+  return frame.locator("html").evaluate(() => new Promise(resolve => {
+    const deadline = performance.now() + 1500;
+    const inspect = () => {
+      if (document.documentElement.scrollWidth <= innerWidth) resolve(true);
+      else if (performance.now() > deadline) resolve(false);
+      else requestAnimationFrame(inspect);
+    };
+    requestAnimationFrame(inspect);
+  }));
 }

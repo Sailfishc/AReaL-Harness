@@ -4,3 +4,8 @@
 @import "./conversation/subagent-panel/subagent-panel.css";
 @import "./conversation/thinking-status/thinking-status.css";
 @import "./conversation/composer-surface/composer-surface.css";
+@import "./conversation/decision-card/decision-card.css";
+@import "./conversation/collapsible-text/collapsible-text.css";
+@import "./conversation/command-details/command-details.css";
+@import "./conversation/attachment-card/attachment-card.css";
+@import "./conversation/message-code-block/message-code-block.css";

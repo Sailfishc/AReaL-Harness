@@ -26,14 +26,16 @@
 | 在目录里登记就算稳定 | 实验入口、有限 Base 准入与单次运行结果分别维护 |
 | 相同文字意味着相同执行状态 | 使用原身份与权威投影；查看不重试未知写入 |
 
-本包覆盖 Button、实验 Disclosure、首批基础值和默认主题输入；实验对话层提供 ActivityGroup、ImageDisclosure、TaskContext（Section/Item/Sources）。对话组件从 wip 导入，样式另导入 conversation.css。基础层不能反向导入对话层；对话层不能导入 renderer、Core、Node 或 Electron。
+本包覆盖基础控件、设置组合、阅读器与对话/Worktree/工作台组合；分组范围从生成的components.json读取，不手维护第二份组件数量。对话组件从 wip 导入，样式另导入 conversation.css。基础层不能反向导入对话层；对话层不能导入 renderer、Core、Node 或 Electron。
 
-对话组件由设计预览与生产对话共同消费：ActivityGroup 的 status 放在折叠外，ImageDisclosure 接受宿主确认的可用性，TaskContext.Sources 只展示三项并触发宿主的查看全部/添加动作。同一对象更新保留组件 key；对象切换按原 id 重建。宿主负责窄窗、真实资源阅读、焦点返回及草稿。生产适配归TurnExecution、ToolEvent、ConversationStatusCard及AgentsPane/AgentHistoryPane，继续使用原Core投影、资源读取和SidePane导航。其他控件及领域组合沿原目录查找，不创建同名替代品。包设置 private，分发边界是本地 workspace，发布需另行授权。
+对话组件由设计预览与生产对话共同消费：ActivityGroup 的 status 放在折叠外，ImageDisclosure 接受宿主确认的可用性，TaskContext.Sources 只展示三项并触发宿主的查看全部/添加动作。同一对象更新保留组件 key；对象切换按原 id 重建。宿主负责窄窗、真实资源阅读、焦点返回及草稿。生产适配归TurnExecution、ToolEvent、ConversationStatusCard及AgentsPane/AgentHistoryPane，继续使用原Core投影、资源读取和SidePane导航。已有产品适配沿原目录查找；共用展示按索引选择包内实现，不创建同名替代品。包设置 private，分发边界是本地 workspace，发布需另行授权。
 
 子代理入口使用 SubagentPanel 的列表→历史→返回动线，读取原子任务状态，不使用父任务完成状态生成Done。列表展开和焦点归组件，历史与区域布局归宿主。ThinkingStatus 的 label 用于公开模型过程摘要；无摘要回退Thinking，完成/未确认时移除，不把等待审批或未知结果写成Thinking。卡片从产品顶部入口开关，不作为永久资源侧栏。
 
-组件MD须与实现同目录，含用途、组成、状态、行为、内容、可访问性、规则及可操作示例链接；category/aliases/related供人和Agent检索。数组使用行内JSON，关联使用已有组件id。MD、TS声明与独立示例各自拥有事实，生成的索引/原文站点不反向编辑。文档阅读器可检查元数据和实际示例；仅有MD文件不等于文档完整或体验已通过。
+组件MD须与实现同目录，含用途、组成、状态、行为、内容、可访问性、规则及可操作示例链接；category/aliases/related供人和Agent检索。数组使用行内JSON，关联使用已有组件id。exports列出合同覆盖的运行期导出；例如Dialog与其子组件共用一份合同，每个公开组件导出必须恰好归属一份合同。类型导出由.d.ts提供，不另建空文档。MD、TS声明与独立示例各自拥有事实，生成的索引/原文站点不反向编辑。文档阅读器可检查元数据和实际示例；仅有MD文件不等于文档完整或体验已通过。
 
 输入区采用[ComposerSurface合同](src/conversation/composer-surface/composer-surface.md)和[工具栏合同](src/conversation/composer-toolbar/composer-toolbar.md)；设置布局从[SettingsPage合同](src/components/settings-page/settings-page.md)进入，并沿related查找分区、组与行。各合同说明样式入口、宿主职责及可操作实例；实际编辑、提交、保存回执和导航守卫沿原业务所有者。
 
 Worktree界面从[选择合同](src/worktree/worktree-picker/worktree-picker.md)与related进入；业务适配仍归原Worktree模块。短时提示采用[NotificationToast合同](src/components/notification-toast/notification-toast.md)，通过原ToastHost发送；任务状态与恢复动作按原权威记录提供。
+
+工作台组合使用workbench.css；基础设置组合的控件样式使用styles.css，页面/分区使用settings.css。纯组件允许局部展开、焦点和阅读交互；已保存偏好、I18n、业务请求、历史投影、上传与本地文件处理、拖拽身份、关闭守卫及原生面板生命周期由renderer适配注入。所有包化组件保留原视觉，提升稳定状态和Base准入仍须独立决定。迁移范围见[组件迁移](../../design-system/component-migration.md)。

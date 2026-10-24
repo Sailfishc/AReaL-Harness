@@ -4,7 +4,7 @@ import { Feedback } from "../components/ui/feedback.js";
 import { useAppearance } from "../settings/applicationPreferences.js";
 import manifestText from "@areal/ui/components.json?raw";
 
-type ComponentDoc = { id: string; title: string; summary: string; document: string; status: string; layer: string; category: string; aliases: string[]; related: string[]; api: string };
+type ComponentDoc = { id: string; title: string; summary: string; document: string; status: string; layer: string; category: string; aliases: string[]; related: string[]; exports: string[]; api: string };
 const componentDocs: ComponentDoc[] = JSON.parse(manifestText).components;
 
 type Destination =
@@ -112,7 +112,7 @@ export function DesignDocument({ path }: { path: string }) {
     <Feedback message={notice} />
     <article ref={article} aria-label="设计文档正文">
       {component && <section className="design-component-meta" aria-label="组件元数据">
-        <table><tbody>{[["title", component.title], ["summary", component.summary], ["status", component.status], ["layer", component.layer], ["category", component.category], ["aliases", component.aliases.join("、") || "—"]].map(([key, value]) => <tr key={key}><th scope="row">{key}</th><td>{value}</td></tr>)}
+        <table><tbody>{[["title", component.title], ["summary", component.summary], ["status", component.status], ["layer", component.layer], ["category", component.category], ["aliases", component.aliases.join("、") || "—"], ["exports", component.exports.join("、")]].map(([key, value]) => <tr key={key}><th scope="row">{key}</th><td>{value}</td></tr>)}
           <tr><th scope="row">related</th><td>{component.related.map(id => { const related = componentDocs.find(item => item.id === id)!; return <a key={id} href={documentUrl(related.document)}>{related.title}</a>; })}</td></tr></tbody></table>
         <nav aria-label="组件文档入口"><a href={`./docs/ui/${component.id}.md`} target="_blank" rel="noreferrer">查看 Markdown 原文</a><a href={`?ui-library#component-${component.id}`}>返回组件目录</a><a href="#可操作示例">查看可操作示例</a></nav>
       </section>}

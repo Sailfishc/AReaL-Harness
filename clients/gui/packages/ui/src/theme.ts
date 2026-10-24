@@ -91,6 +91,8 @@ export function paletteVariables(p: Palette, dark = false): Record<string, strin
     "--color-composer-catalog": dark ? mix(2000 / 231) : p.background,
     "--color-input": p.background,
     "--color-input-focused": p.background,
+    "--color-input-border": "var(--color-border)",
+    "--color-input-border-hover": "var(--color-border-hover)",
     "--color-foreground-subtle": mix(69.5 + contrastDelta * 0.15),
     "--color-foreground-subtlest": mix(49.5 + contrastDelta * 0.15),
     // Active settings explanations follow the observed dark 65% layer.

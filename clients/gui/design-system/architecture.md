@@ -4,7 +4,7 @@
 
 共享知识与平台职责见[设计系统架构](../../../design/architecture.md)，下一轮产品建设见[建设计划](../../../design/roadmap.md)。整体候选与真实路径迁移仍按各自条件准入，不由文档整理自动通过。
 
-2026-10-24 按 [D-004](../../../design/decisions/004-local-ui-package.md)采用私有 @areal/ui 包的首批闭环：源、生成 CSS/主题、控件、类型/文档与 Agent 索引、独立示例及守卫。以下未迁入的所有者继续保留；本文件的阶段不代表全部控件均已包化。
+2026-10-24 按 [D-004](../../../design/decisions/004-local-ui-package.md)采用私有 @areal/ui 包的首批闭环：源、生成 CSS/主题、控件、类型/文档与 Agent 索引、独立示例及守卫。共享控件与组合的包化范围、生产适配和验证边界见[组件迁移](component-migration.md)。业务页面与平台所有者继续保留；包化不自动提升Base准入。
 
 ## 目标与质量场景
 
@@ -34,6 +34,8 @@
 
 包内Worktree领域组合位于`packages/ui/src/worktree`，与conversation并列，依赖core控件；core不可反向依赖领域层。五个组合通过原Worktree业务适配接入，状态与操作权威保持原位。短时通知采用core层NotificationToast及原ToastHost通道，等级颜色来自既有语义角色。
 
+工作台层位于`packages/ui/src/workbench`，拥有壳层、面板结构、设置导航、任务行及资源范围/空态。面板注册、拖拽身份、关闭守卫、保活与原生资源生命周期归宿主；层级不可反向依赖renderer。
+
 系统级目录 `registry.json` 是上述角色、组件与模式的索引。它只引用数值源和实现，不是新增的数值层，也不承担渲染引擎职责。
 
 ## 与现有所有者的映射
@@ -45,8 +47,8 @@
 | 调色板/字体默认、规范化及派生 | [applicationSettings.ts](../renderer/src/settings/applicationSettings.ts) | 已有生产源；派生值不转成截图抄来的常量 |
 | 用户偏好、外观应用、reduced motion | [applicationPreferences.ts](../renderer/src/settings/applicationPreferences.ts) | `useAppearance` 将合法偏好写入 CSS 变量；消费端尊重这条链 |
 | 宿主题与面板主题适配 | [Main](../app/src/core/main.cjs)、[themes](../app/src/themes/index.js) | Main 调用现有 theme adapter；不能宣称 registry 已统一这些数值 |
-| 基础组件 | [components/ui](../renderer/src/components/ui) | 已有生产实现，按实际用途和状态准入 Base |
-| 设置与对话组合 | [UI包components](../packages/ui/src/components)、[UI包conversation](../packages/ui/src/conversation)；原SettingsPageParts/ComposerSurface转接 | SettingsPage/Section/GroupCard/Row及ComposerSurface/Toolbar采用包内纯布局；编辑、导航、保存和执行归原renderer；DecisionCard等未迁入组合仍沿原所有者 |
+| 基础组件 | [UI包components](../packages/ui/src/components)；[原路径适配](../renderer/src/components/ui) | 基础控件与代码/Diff阅读器已迁入；原路径保留本地化和偏好注入，按实际状态准入Base |
+| 设置与对话组合 | [UI包components](../packages/ui/src/components)、[UI包conversation](../packages/ui/src/conversation)；原SettingsPageParts/ComposerSurface转接 | 设置选择/编辑、输入附件、决策卡、长文本、Markdown阅读与过程组合采用包内实现；编辑、授权、保存、历史投影继续归原renderer |
 | 目录/合同与生成 | [registry](registry.json)、[catalog generator](../scripts/design-system-catalog.mjs) | 原型已接入，检查来源引用与派生输出 |
 | 开发期预览 | [design-system/main.tsx](../renderer/src/design-system/main.tsx) | 已有生产组件 fixture；普通构建不包含预览入口 |
 | 检查入口 | [design-system-audit](../scripts/design-system-audit.mjs)、[package scripts](../package.json) | 已有 verify 调用链；CSS 覆盖仍有限，目录检查不证明 JSX 依从 |
@@ -93,7 +95,7 @@
 | 方案 | 收益 | 代价 / 结论 |
 | --- | --- | --- |
 | 只扩写规范 | 上手快 | 实现可绕过，目录/示例会漂移；不足以单独达成目标 |
-| 全量替换为独立设计包、DTCG 全生成或通用页面 DSL | 来源集中、可跨端转译 | 不做全量替换；D-004 仅将列明基础能力迁入同源私有包，移除旧默认定义，用户偏好与业务边界保留 |
+| 全量替换为独立设计包、DTCG 全生成或通用页面 DSL | 来源集中、可跨端转译 | 共享展示逐批迁入同源私有包；本轮不引入DTCG编译器/页面DSL，用户偏好与业务边界保留 |
 | 复用生产所有者，补职责分层、单源目录、有限组合及独立验证 | 可增量落地，已有公共控件立即受益 | JSX 依从与视觉质量仍需单独检查；作为当前方案 |
 
 若未来出现多个独立运行端必须消费同一设计源，再复审 Token 编译与跨端 recipe；不能仅因参考项目采用就提前迁移。

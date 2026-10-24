@@ -43,7 +43,32 @@
     "./agent-guide.md": "./agent-guide.md",
     "./settings.css": "./dist/settings.css",
     "./worktree.css": "./dist/worktree.css",
-    "./notifications.css": "./dist/notifications.css"
+    "./notifications.css": "./dist/notifications.css",
+    "./icons": {
+      "types": "./dist/icons.d.ts",
+      "default": "./dist/icons.js"
+    },
+    "./code-preview-settings": {
+      "types": "./dist/lib/code-preview-settings.d.ts",
+      "default": "./dist/lib/code-preview-settings.js"
+    },
+    "./code-preview-preferences": {
+      "types": "./dist/lib/code-preview-preferences.d.ts",
+      "default": "./dist/lib/code-preview-preferences.js"
+    },
+    "./diffs-highlighter-engine": {
+      "types": "./dist/lib/diffs-highlighter-engine.d.ts",
+      "default": "./dist/lib/diffs-highlighter-engine.js"
+    },
+    "./keyboard-shortcuts": {
+      "types": "./dist/lib/keyboard-shortcuts.d.ts",
+      "default": "./dist/lib/keyboard-shortcuts.js"
+    },
+    "./code-comment-types": {
+      "types": "./dist/lib/code-comment-types.d.ts",
+      "default": "./dist/lib/code-comment-types.js"
+    },
+    "./workbench.css": "./dist/workbench.css"
   },
   "scripts": {
     "generate": "node scripts/foundations.mjs",
@@ -55,7 +80,11 @@
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
     "tailwind-merge": "3.7.0",
-    "lucide-react": "1.47.0"
+    "lucide-react": "1.47.0",
+    "cmdk": "1.1.1",
+    "@pierre/diffs": "1.4.3",
+    "shiki": "4.4.3",
+    "streamdown": "2.6.0"
   },
   "peerDependencies": {
     "react": "^19.2.8",

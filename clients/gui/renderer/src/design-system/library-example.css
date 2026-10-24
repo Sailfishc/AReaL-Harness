@@ -4,6 +4,7 @@
 @import "@areal/ui/settings.css";
 @import "@areal/ui/worktree.css";
 @import "@areal/ui/notifications.css";
+@import "@areal/ui/workbench.css";
 @import "@areal/ui/themes.css";
 @custom-variant dark (&:where(.dark, .dark *));
 body { margin: 0; padding: var(--spacing-field); color: var(--color-foreground); background: var(--color-background); font: var(--text-ui-base)/1.6 var(--font-sans); }
@@ -38,3 +39,11 @@ body { margin: 0; padding: var(--spacing-field); color: var(--color-foreground);
 .library-worktree-picker { max-width: 20rem; padding: var(--spacing-inline); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-overlay); }
 .library-worktree-example input:not([type="checkbox"]), .library-worktree-example select { max-width: 100%; min-width: 0; color: var(--color-foreground); background: var(--color-background); border: 1px solid var(--color-border); border-radius: var(--radius-control); }
 .library-toast-example { padding-top: 80px; }
+
+.library-package-example { min-width: 0; margin-block: var(--spacing-section); }
+.library-package-example:empty { display: none; }
+.library-package-example > :is(input, textarea) { margin-block: 8px; }
+.library-context-trigger { padding: 24px; border: 1px solid var(--color-border); border-radius: var(--radius-control); }
+.library-shell-example { min-width: 0; overflow: hidden; border: 1px solid var(--color-border); border-radius: var(--radius-control); }
+.library-navigation-example { height: 360px; display: flex; min-width: 0; overflow: hidden; }
+.library-task-list { list-style: none; margin: 0; padding: 0; }

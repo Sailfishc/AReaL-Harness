@@ -1,3 +1,4 @@
+import { MarkdownSurface } from "@areal/ui/wip";
 /*
  * Derived from ZCode 872ad960 components/ai-elements/message.tsx, in turn derived
  * from vercel/ai-elements. Copyright 2023 Vercel, Inc. Apache-2.0.
@@ -6,7 +7,7 @@
  * no ZCode services, subscription, citations catalog or platform stores.
  * See ZCODE-LICENSE and ../../../THIRD-PARTY-NOTICES.md.
  */
-import { Component, memo, useMemo, useRef, type ComponentProps, type ReactNode } from 'react';
+import { memo, useMemo, useRef, type ComponentProps, type ReactNode } from 'react';
 import { Streamdown, defaultRehypePlugins, defaultRemarkPlugins, defaultUrlTransform, type ExtraProps } from 'streamdown';
 import { GlobeIcon } from 'lucide-react';
 import remarkBreaks from 'remark-breaks';
@@ -48,16 +49,6 @@ function pluginReferenceLabels() {
     };
 }
 const plugins = { cjk, math: createMathPlugin(), mermaid };
-class MarkdownBoundary extends Component<{
-    children: ReactNode;
-    text: string;
-}, {
-    failed: boolean;
-}> {
-    state = { failed: false };
-    static getDerivedStateFromError() { return { failed: true }; }
-    render() { return this.state.failed ? <div className="whitespace-pre-wrap break-words">{this.props.text}</div> : this.props.children; }
-}
 export const MessageResponse = memo(function MessageResponse({ children, streaming = false, theme = 'light', onOpenExternalUrl, onOpenFileLink, onRenderImage, webPreviews = false, className, fileLinks = false, fileLinkBase, preserveLineBreaks = false }: {
     children: string;
     fileLinks?: boolean;
@@ -135,5 +126,5 @@ export const MessageResponse = memo(function MessageResponse({ children, streami
         blockquote: MarkdownBlockquote, li: MarkdownListItem, ol: MarkdownOrderedList, ul: MarkdownUnorderedList,
         table: MarkdownTable, tbody: MarkdownTableBody, td: MarkdownTableCell, th: MarkdownTableHead, thead: MarkdownTableHeader, tr: MarkdownTableRow,
     }), [streaming, theme, Boolean(onOpenExternalUrl), Boolean(onOpenFileLink), Boolean(onRenderImage), webPreviews, fontSizePx]);
-    return <MarkdownBoundary key={streaming ? 'streaming' : `static:${children.length}`} text={children}><Streamdown key={theme} className={cn('size-full text-ui-base leading-[1.75] tracking-wide [&>*:first-child]:mt-0 [&>*:last-child]:mb-0', className)} mode={streaming ? 'streaming' : 'static'} components={components} parseIncompleteMarkdown={streaming} remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} plugins={plugins} controls={STREAMDOWN_CONTROLS} linkSafety={{ enabled: false }} urlTransform={(url, key, node) => onRenderImage && key === 'src' && /^areal:\/\/blob\/[A-Za-z0-9_-]+$/.test(url) ? url : defaultUrlTransform(url, key, node)} animated={false} isAnimating={streaming}>{children}</Streamdown></MarkdownBoundary>;
+    return <MarkdownSurface streaming={streaming} theme={theme} className={className} components={components} parseIncompleteMarkdown={streaming} remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} plugins={plugins} controls={STREAMDOWN_CONTROLS} linkSafety={{ enabled: false }} urlTransform={(url, key, node) => onRenderImage && key === 'src' && /^areal:\/\/blob\/[A-Za-z0-9_-]+$/.test(url) ? url : defaultUrlTransform(url, key, node)}>{children}</MarkdownSurface>;
 });

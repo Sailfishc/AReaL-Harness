@@ -62,10 +62,6 @@ body,
   /* Interaction, layer and layout roles shared by production UI and Storybook. */
 }
 
-.ui-popup { transform-origin: var(--transform-origin); transition: opacity var(--motion-normal) var(--ease-standard), scale var(--motion-normal) var(--ease-standard); }
-.ui-popup[data-starting-style], .ui-popup[data-ending-style] { opacity: 0; scale: .98; }
-:root[data-reduced-motion="true"] .ui-popup { transition: none; }
-
 body {
   margin: 0;
   overflow: hidden;
@@ -147,8 +143,6 @@ body {
   --color-popover-border: var(--color-border);
   --color-input: var(--color-white);
   --color-input-focused: var(--color-neutral-50);
-  --color-input-border: var(--color-border);
-  --color-input-border-hover: var(--color-border-hover);
   --color-input-border-focused: var(--color-brand);
   --color-terminal-bg: var(--color-neutral-50);
   --color-terminal-fg: var(--color-neutral-950);
@@ -303,8 +297,6 @@ body {
   --color-popover-border: var(--color-border);
   --color-input: var(--color-neutral-800);
   --color-input-focused: var(--color-neutral-950);
-  --color-input-border: var(--color-border);
-  --color-input-border-hover: var(--color-border-hover);
   --color-input-border-focused: var(--color-brand);
   --color-terminal-bg: var(--color-neutral-950);
   --color-terminal-fg: var(--color-neutral-50);
@@ -450,8 +442,6 @@ body {
   --color-popover-border: var(--color-border);
   --color-input: #ffffff;
   --color-input-focused: var(--color-input);
-  --color-input-border: var(--color-border);
-  --color-input-border-hover: var(--color-border-hover);
   --color-input-border-focused: var(--color-border-hover);
   --color-terminal-bg: var(--color-background);
   --color-terminal-fg: var(--color-foreground);
@@ -597,8 +587,6 @@ body {
   --color-popover-border: var(--color-border);
   --color-input: #2b2b2b;
   --color-input-focused: var(--color-input);
-  --color-input-border: var(--color-border);
-  --color-input-border-hover: var(--color-border-hover);
   --color-input-border-focused: var(--color-border-hover);
   --color-terminal-bg: var(--color-background);
   --color-terminal-fg: var(--color-foreground);

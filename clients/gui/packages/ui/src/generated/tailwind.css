@@ -91,6 +91,8 @@
   --color-composer-catalog: #ffffff;
   --color-input: #ffffff;
   --color-input-focused: #ffffff;
+  --color-input-border: var(--color-border);
+  --color-input-border-hover: var(--color-border-hover);
   --color-foreground-subtle: color-mix(in srgb, #1a1c1f 69.5%, #ffffff);
   --color-foreground-subtlest: color-mix(in srgb, #1a1c1f 49.5%, #ffffff);
   --color-settings-secondary: color-mix(in srgb, #1a1c1f 69.5%, #ffffff);

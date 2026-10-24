@@ -4,3 +4,8 @@
 @source "./**/*.js";
 
 .ui-control { transition-duration: var(--motion-fast); transition-timing-function: var(--ease-standard); }
+@import "./components/settings-segmented-tabs/settings-segmented-tabs.css";
+@import "./components/settings-disclosure/settings-disclosure.css";
+@import "./components/settings-select/settings-select.css";
+@import "./components/settings-dialog/settings-dialog.css";
+@import "./components/popover/popup.css";

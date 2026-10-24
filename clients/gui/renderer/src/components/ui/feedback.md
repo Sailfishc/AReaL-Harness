@@ -10,7 +10,7 @@
 
 ## 状态
 
-有 `error` 时经ToastHost显示error等级提示，默认5秒后消失；原位置保留可展开的详情，有id时保留屏幕阅读器关联说明。否则有 `message` 时显示原位置的 `status` 正文，两者均为空时不渲染。Props 与实现以 [feedback.tsx](./feedback.tsx) 为准。明确失败与结果待核对使用不同事实描述。
+有 `error` 时经ToastHost显示error等级提示，默认5秒后消失；不在页面上留下错误卡片或折叠详情，有id时保留屏幕阅读器关联说明。否则有 `message` 时显示原位置的 `status` 正文，两者均为空时不渲染。Props 与实现以 [feedback.tsx](./feedback.tsx) 为准。明确失败与结果待核对使用不同事实描述。
 
 ## 键盘与焦点
 

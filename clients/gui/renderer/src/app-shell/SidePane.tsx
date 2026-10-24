@@ -1,3 +1,4 @@
+import { SidePaneFrame } from "@areal/ui/wip";
 import { useI18n } from "../i18n/IntlProvider.js";
 import { useLayoutEffect, useRef, useState, type ReactNode, type PointerEvent } from "react";
 import { SideChatIcon as MessageCircle, SearchIcon as Search } from "../interfaceIcons.js";
@@ -179,9 +180,8 @@ export function SidePane({
     { id: "files", panel: "文件", label: "文件", shortcut: mac ? "⌘P" : "Ctrl+P", icon: FilesPanelIcon, onOpen: () => onSelect("文件") },
   ].filter((item) => item.id === "side" || item.id === "terminal" || item.id === "browser" || !names.includes(item.panel));
   return (
-    <section
+    <SidePaneFrame
       ref={panel}
-      className="side-panel workspace-side-panel"
       data-open={Boolean(active)}
       style={{ flexBasis: `${width}%`, display: active ? undefined : "none" }}
     >
@@ -331,13 +331,13 @@ export function SidePane({
           <SidePanelIcon />
         </Button>
       </div>
-      <div className="panel-resource-layout" data-file-preview={active.startsWith("file:") || undefined}>
-        <div className={`panel-content ${active === "功能" || ["预览", "终端", "改动", "文件", "旁路讨论", "图片标注"].includes(active) || active.startsWith("file:") || active.startsWith("terminal:") || active.startsWith("side:") || active.startsWith("side-resource:") || isBrowserTab(active) ? "full-height" : ""}`}>
+      <SidePaneFrame.Layout  data-file-preview={active.startsWith("file:") || undefined}>
+        <SidePaneFrame.Content fullHeight={active === "功能" || ["预览", "终端", "改动", "文件", "旁路讨论", "图片标注"].includes(active) || active.startsWith("file:") || active.startsWith("terminal:") || active.startsWith("side:") || active.startsWith("side-resource:") || isBrowserTab(active)}>
           {retainedPanels.map(pane => <div key={pane.id} className="side-pane-retained-content" style={{ display: pane.visible ? "flex" : "none", flex: 1, minHeight: 0, height: "100%", flexDirection: "column" }}>{pane.content}</div>)}
           {active && !retainedPanels.some(pane => pane.visible) && (active === "功能" ? <SidePaneLauncher items={items} /> : render(active))}
-        </div>
-        {auxiliary && <aside className="panel-resource-tree" aria-label="文件列表">{auxiliary}</aside>}
-      </div>
-    </section>
+        </SidePaneFrame.Content>
+        {auxiliary && <SidePaneFrame.Auxiliary  aria-label="文件列表">{auxiliary}</SidePaneFrame.Auxiliary>}
+      </SidePaneFrame.Layout>
+    </SidePaneFrame>
   );
 }

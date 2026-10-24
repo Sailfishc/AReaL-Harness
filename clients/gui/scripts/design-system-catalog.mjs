@@ -66,7 +66,7 @@ export async function verifyDesignCatalog({ write = false, root = guiRoot } = {}
   for (const component of registry.components) {
     assert.ok(/^[A-Z]\w*$/.test(component.id) && text(component.purpose), `invalid component: ${component.id}`);
     await source(root, component.source);
-    if (component.importFrom !== undefined) assert.ok(/^@areal\/[a-z-]+$/.test(component.importFrom), `invalid package import: ${component.id}`);
+    if (component.importFrom !== undefined) assert.ok(/^@areal\/[a-z-]+$/.test(component.importFrom) || component.importFrom === "@areal/ui/wip", `invalid package import: ${component.id}`);
   }
   list(registry.patterns, "patterns");
   unique(registry.patterns.map(item => item.id), "pattern ids");

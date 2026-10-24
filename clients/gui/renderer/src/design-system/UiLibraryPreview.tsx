@@ -16,13 +16,13 @@ export function UiLibraryPreview({ dark, fontSize }: { dark: boolean; fontSize: 
       <iframe key={`${dark}-${fontSize}`} title="独立UI包示例" src={`./ui-library.html?theme=${dark ? "dark" : "light"}&font=${fontSize}`} />
     </section>
     <section className="ui-library-section" aria-label="包内组件目录"><h3>组件与合同</h3>{manifest.components.map(component => <article id={`component-${component.id}`} className="ui-library-component" key={component.id}>
-      <div><h4>{component.title}</h4><span>{component.layer === "conversation" ? "对话组合" : component.layer === "worktree" ? "Worktree组合" : "基础控件"} · {component.status === "stable" ? "稳定入口" : "实验入口"} · {component.entry === "wip" ? "@areal/ui/wip" : "@areal/ui"}</span></div><p>{component.summary}</p><a href={url(component.document)}>阅读组件合同</a><small className="ui-library-source">{component.document}</small>
+      <div><h4>{component.title}</h4><span>{component.layer === "conversation" ? "对话组合" : component.layer === "worktree" ? "Worktree组合" : component.layer === "workbench" ? "工作台组合" : "基础控件"} · {component.status === "stable" ? "稳定入口" : "实验入口"} · {component.entry === "wip" ? "@areal/ui/wip" : "@areal/ui"}</span></div><p>{component.summary}</p><a href={url(component.document)}>阅读组件合同</a><small className="ui-library-source">{component.document}</small>
       <details><summary>查看 TypeScript 生成的 API</summary><pre>{component.api}</pre></details>
     </article>)}</section>
     <section className="ui-library-section" aria-label="设计源与产物"><h3>设计源与生成链</h3><table><thead><tr><th>来源</th><th>生成/实现</th><th>消费者与检查</th></tr></thead><tbody>
       <tr><td>tokens.json · {Object.keys(tokens.foundation).length} 个基础角色</td><td>foundation.css、Tailwind 映射、默认主题输入</td><td>包、GUI 与独立示例；生成漂移和默认正文对比度检查</td></tr>
       <tr><td>theme.ts · 原有纯调色板算法</td><td>默认明暗 themes.css；动态偏好复用同一函数</td><td>原外观设置与示例；默认/自定义主题一致性核对</td></tr>
       <tr><td>组件源码与就近合同</td><td>JavaScript、声明类型、components.json、llms.txt</td><td>现有文档站与 Agent；导出、状态与依赖方向检查</td></tr>
-    </tbody></table><p>其余控件与领域组合仍沿原 renderer 所有者。包内登记、有限 Base 准入与用户视觉认可分别维护。</p></section>
+    </tbody></table><p>产品状态、保存、执行与资源生命周期继续归原renderer适配层。包内登记、有限 Base 准入与用户视觉认可分别维护。</p></section>
   </section>;
 }

@@ -1,4 +1,5 @@
 import { ToastHost } from "../ToastHost.js";
+import { FeedbackNotice } from "../FeedbackNotice.js";
 import { ArtifactReviewExercise } from "./ArtifactReviewExercise.js";
 import { DesignDashboard } from "./DesignDashboard.js";
 import { ProductCandidate } from "./ProductCandidate.js";
@@ -96,6 +97,7 @@ function Preview() {
   const [showPanel, setShowPanel] = useState(true);
   const [panelLocation, setPanelLocation] = useState<"bottom" | "right">("bottom");
   const [message, setMessage] = useState("");
+  const [operationNotice, setOperationNotice] = useState("");
   const [reducedMotion, setReducedMotion] = useState(false);
   const reuseExercise = new URLSearchParams(window.location.search).has("reuse-exercise");
   const sharedWorkspace = new URLSearchParams(window.location.search).has("shared-workspace");
@@ -181,7 +183,9 @@ function Preview() {
         <ActionButton disabled>不可用</ActionButton>
         <ActionButton pending={state === "busy"} onClick={() => setMessage("状态已刷新。")}>刷新状态</ActionButton>
         <Button size="icon-sm" variant="ghost" aria-label="刷新预览" onClick={() => setMessage("状态已刷新。 ")}><RefreshIcon /></Button>
+        <Button variant="outline" onClick={() => setOperationNotice("示例操作失败，输入已保留。")}>触发操作失败提醒</Button>
       </div>
+      {operationNotice && <FeedbackNotice transient tone="error" message={operationNotice} actions={<></>} onDismiss={() => setOperationNotice("")} />}
       <Feedback error={state === "failed" ? "操作未受理，请检查后重试。" : undefined} message={state === "unknown" ? "结果待核对，保留当前内容。" : "反馈跟随所属组件，错误与等待保持不同含义。"} />
       </SettingsSection></SettingsPage>
     </section>

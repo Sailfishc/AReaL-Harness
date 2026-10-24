@@ -83,8 +83,10 @@ export async function runDecisionExercise(page, scratch, gui, report) {
   await page.waitForFunction(() => { const el = document.querySelector('.decision-card-body'); return el.scrollTop + el.clientHeight >= el.scrollHeight - 1; });
   await frame("narrow-parameters-end", "wheel within existing request body", "last purpose parameter visible; footer remains outside the scroll body");
   await body.evaluate(el => el.scrollTo(0, 0));
-  await card.getByRole("button", { name: "允许一次", exact: true }).click(); await card.getByRole("alert").waitFor();
-  assert.ok((await card.getByRole("alert").innerText()).includes("明确未受理"));
+  await card.getByRole("button", { name: "允许一次", exact: true }).click();
+  const failureToast = page.getByTestId("toast").getByRole("alert");
+  await failureToast.waitFor();
+  assert.ok((await failureToast.innerText()).includes("明确未受理"));
   assert.equal(await card.getByRole("button", { name: "允许一次", exact: true }).isEnabled(), true);
   await card.getByRole("button", { name: "允许一次", exact: true }).click();
   assert.ok((await calls.innerText()).includes("模拟响应：2；模拟核对：0"));
@@ -109,7 +111,7 @@ export async function runDecisionExercise(page, scratch, gui, report) {
   assert.equal(await card.getByRole("button", { name: "允许一次", exact: true }).count(), 0);
   await frame("unknown", "independent unknown scenario; approve once", "only reconciliation offered, full command retained");
   await reconcile.focus(); await page.keyboard.press("Enter");
-  await page.waitForFunction(() => document.querySelector('.decision-card [role="alert"]')?.textContent.includes("无法核对审批状态"));
+  await page.getByTestId("toast").getByRole("alert").filter({ hasText: "无法核对审批状态" }).waitFor();
   assert.equal(await card.getByRole("button", { name: "允许一次", exact: true }).count(), 0);
   assert.ok((await calls.innerText()).includes("模拟响应：1；模拟核对：1"));
   assert.equal(await card.locator(".approval-preview").textContent(), original);

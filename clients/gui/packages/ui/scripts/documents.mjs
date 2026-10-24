@@ -11,7 +11,7 @@ async function files(path) {
 }
 function exported(source) {
   const file = ts.createSourceFile("entry.ts", source, ts.ScriptTarget.Latest, true);
-  return new Set(file.statements.filter(ts.isExportDeclaration).flatMap(item => item.exportClause && ts.isNamedExports(item.exportClause) ? item.exportClause.elements.map(element => element.name.text) : []));
+  return new Set(file.statements.filter(node => ts.isExportDeclaration(node) && !node.isTypeOnly).flatMap(item => item.exportClause && ts.isNamedExports(item.exportClause) ? item.exportClause.elements.filter(element => !element.isTypeOnly).map(element => element.name.text) : []));
 }
 // Contract metadata is a small YAML-compatible subset: scalars and inline JSON arrays.
 export function parseComponentMetadata(markdown, path) {
@@ -24,6 +24,8 @@ export function parseComponentMetadata(markdown, path) {
     data[key] = JSON.parse(data[key]);
     assert.ok(Array.isArray(data[key]) && data[key].every(value => typeof value === "string"), `invalid ${key}: ${path}`);
   }
+  data.exports = data.exports ? JSON.parse(data.exports) : [data.title];
+  assert.ok(Array.isArray(data.exports) && data.exports.includes(data.title) && new Set(data.exports).size === data.exports.length && data.exports.every(name => typeof name === "string"), `invalid exports: ${path}`);
   for (const section of ["何时使用", "组成", "状态", "行为", "内容", "可访问性", "规则", "示例"])
     assert.ok(markdown.includes(`\n## ${section}\n`), `missing section ${section}: ${path}`);
   return data;
@@ -42,7 +44,7 @@ export async function buildDocuments(check = false) {
         const target = resolve(dirname(path), name);
         assert.ok(target.startsWith(resolve(root, "src") + "/"), `import escapes UI: ${name}`);
         if (path.startsWith(resolve(root, "src/components") + "/") || path === resolve(root, "src/index.ts"))
-          assert.ok(!["conversation", "worktree"].some(layer => target.startsWith(resolve(root, `src/${layer}`) + "/")), `core imports domain: ${relative(root, path)} -> ${name}`);
+          assert.ok(!["conversation", "worktree", "workbench"].some(layer => target.startsWith(resolve(root, `src/${layer}`) + "/")), `core imports domain: ${relative(root, path)} -> ${name}`);
       }
     }
   }
@@ -51,11 +53,11 @@ export async function buildDocuments(check = false) {
     const markdown = await readFile(path, "utf8");
     const data = parseComponentMetadata(markdown, path);
     assert.ok(/^[a-z][a-z-]+$/.test(data.id));
-    assert.ok(["core", "conversation", "worktree"].includes(data.layer), `unknown layer: ${path}`);
-    assert.equal(data.layer, path.includes("/src/conversation/") ? "conversation" : path.includes("/src/worktree/") ? "worktree" : "core", `layer/source mismatch: ${path}`);
+    assert.ok(["core", "conversation", "worktree", "workbench"].includes(data.layer), `unknown layer: ${path}`);
+    assert.equal(data.layer, path.includes("/src/conversation/") ? "conversation" : path.includes("/src/worktree/") ? "worktree" : path.includes("/src/workbench/") ? "workbench" : "core", `layer/source mismatch: ${path}`);
     if (data.layer !== "core") assert.equal(data.entry, "wip", "domain components remain experimental");
     assert.equal(data.status, data.entry === "index" ? "stable" : "experimental", `status/entry mismatch: ${path}`);
-    assert.ok(entries[data.entry]?.has(data.title), `documented export does not exist: ${data.title}`);
+    for (const name of data.exports) assert.ok(entries[data.entry]?.has(name), `documented export does not exist: ${name}`);
     const source = relative(root, path).replace(/\.md$/, ".tsx");
     const declaration = source.replace(/^src\//, "dist/").replace(/\.tsx$/, ".d.ts");
     const api = await readFile(resolve(root, declaration), "utf8");
@@ -67,7 +69,7 @@ export async function buildDocuments(check = false) {
   for (const component of components) for (const id of component.related)
     assert.ok(components.some(item => item.id === id), `unknown related component ${id}: ${component.id}`);
   for (const [entry, names] of Object.entries(entries)) for (const name of names) {
-    if (/^[A-Z]/.test(name)) assert.ok(components.some(component => component.title === name && component.entry === entry), `missing contract for export ${name}`);
+    if (/^[A-Z]/.test(name)) assert.ok(components.filter(component => component.exports.includes(name) && component.entry === entry).length === 1, `missing contract for export ${name}`);
   }
   await writeOrCheck(resolve(root, "dist/components.json"), JSON.stringify({ schemaVersion: 1, name: pkg.name, version: pkg.version, private: pkg.private, components }, null, 2) + "\n", check);
   const index = `# ${pkg.name} ${pkg.version}\n\nLocal workspace package; private, not published.\n\n- [Agent guide](docs/ui/agent-guide.md): adoption order, source owners and verification.\n` +

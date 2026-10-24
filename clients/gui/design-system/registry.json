@@ -167,58 +167,69 @@
     },
     {
       "id": "ActionButton",
-      "source": "renderer/src/components/ui/action-button.tsx",
-      "purpose": "普通紧凑操作与 pending"
+      "source": "packages/ui/src/components/action-button/action-button.tsx",
+      "purpose": "普通紧凑操作与 pending",
+      "importFrom": "@areal/ui/wip"
     },
     {
       "id": "Switch",
-      "source": "renderer/src/components/ui/switch.tsx",
-      "purpose": "双向布尔值"
+      "source": "packages/ui/src/components/switch/switch.tsx",
+      "purpose": "双向布尔值",
+      "importFrom": "@areal/ui/wip"
     },
     {
       "id": "Select",
-      "source": "renderer/src/components/ui/select.tsx",
-      "purpose": "多个候选中的单选"
+      "source": "packages/ui/src/components/select/select.tsx",
+      "purpose": "多个候选中的单选",
+      "importFrom": "@areal/ui/wip"
     },
     {
       "id": "SettingsPage",
-      "source": "renderer/src/settings/SettingsWorkspace.tsx",
-      "purpose": "设置页面的生产表面、列宽与滚动边界"
+      "source": "packages/ui/src/components/settings-page/settings-page.tsx",
+      "purpose": "设置页面的生产表面、列宽与滚动边界",
+      "importFrom": "@areal/ui/wip"
     },
     {
       "id": "SettingsSection",
-      "source": "renderer/src/settings/SettingsPageParts.tsx",
-      "purpose": "功能分区"
+      "source": "packages/ui/src/components/settings-section/settings-section.tsx",
+      "purpose": "功能分区",
+      "importFrom": "@areal/ui/wip"
     },
     {
       "id": "SettingsGroupCard",
-      "source": "renderer/src/settings/SettingsPageParts.tsx",
-      "purpose": "相关行的公共外框"
+      "source": "packages/ui/src/components/settings-group-card/settings-group-card.tsx",
+      "purpose": "相关行的公共外框",
+      "importFrom": "@areal/ui/wip"
     },
     {
       "id": "SettingsRow",
-      "source": "renderer/src/settings/SettingsPageParts.tsx",
-      "purpose": "名称、说明与行内控件"
+      "source": "packages/ui/src/components/settings-row/settings-row.tsx",
+      "purpose": "名称、说明与行内控件",
+      "importFrom": "@areal/ui/wip"
     },
     {
       "id": "SettingsSelect",
-      "source": "renderer/src/settings/SettingsPageParts.tsx",
-      "purpose": "二值分段或多值菜单"
+      "source": "packages/ui/src/components/settings-select/settings-select.tsx",
+      "purpose": "二值分段或多值菜单",
+      "importFrom": "@areal/ui/wip"
     },
     {
       "id": "SettingsSegmentedTabs",
-      "source": "renderer/src/settings/SettingsSegmentedTabs.tsx",
-      "purpose": "两个互斥设置值"
+      "source": "packages/ui/src/components/settings-segmented-tabs/settings-segmented-tabs.tsx",
+      "purpose": "两个互斥设置值",
+      "importFrom": "@areal/ui/wip"
     },
     {
       "id": "SettingsDisclosure",
-      "source": "renderer/src/settings/SettingsDisclosure.tsx",
-      "purpose": "显式展开/收起详情"
+      "source": "packages/ui/src/components/settings-disclosure/settings-disclosure.tsx",
+      "purpose": "显式展开/收起详情",
+      "importFrom": "@areal/ui/wip"
     },
     {
       "id": "SettingsDialog",
-      "source": "renderer/src/settings/common.tsx",
-      "purpose": "设置编辑与确认详情"
+      "source": "packages/ui/src/components/settings-dialog/settings-dialog.tsx",
+      "purpose": "设置编辑与确认详情",
+      "importFrom": "@areal/ui/wip"
     },
     {
       "id": "Feedback",
@@ -227,8 +238,9 @@
     },
     {
       "id": "EmptySettings",
-      "source": "renderer/src/settings/common.tsx",
-      "purpose": "设置空态"
+      "source": "packages/ui/src/components/settings-dialog/settings-dialog.tsx",
+      "purpose": "设置空态",
+      "importFrom": "@areal/ui/wip"
     },
     {
       "id": "ConversationComposer",
@@ -237,13 +249,15 @@
     },
     {
       "id": "ComposerSurface",
-      "source": "renderer/src/prompt-editor/ComposerSurface.tsx",
-      "purpose": "输入区布局插槽"
+      "source": "packages/ui/src/conversation/composer-surface/composer-surface.tsx",
+      "purpose": "输入区布局插槽",
+      "importFrom": "@areal/ui/wip"
     },
     {
       "id": "DecisionCard",
-      "source": "renderer/src/DecisionCard.tsx",
-      "purpose": "决策布局插槽"
+      "source": "packages/ui/src/conversation/decision-card/decision-card.tsx",
+      "purpose": "决策布局插槽",
+      "importFrom": "@areal/ui/wip"
     },
     {
       "id": "ApprovalRequest",
@@ -267,8 +281,9 @@
     },
     {
       "id": "CollapsibleText",
-      "source": "renderer/src/CollapsibleText.tsx",
-      "purpose": "长文本渐进展示"
+      "source": "packages/ui/src/conversation/collapsible-text/collapsible-text.tsx",
+      "purpose": "长文本渐进展示",
+      "importFrom": "@areal/ui/wip"
     },
     {
       "id": "SideChatPane",
@@ -282,8 +297,9 @@
     },
     {
       "id": "CommandDetails",
-      "source": "renderer/src/CommandDetails.tsx",
-      "purpose": "同一进程的输入、连续输出、状态与原始记录"
+      "source": "packages/ui/src/conversation/command-details/command-details.tsx",
+      "purpose": "同一进程的输入、连续输出、状态与原始记录",
+      "importFrom": "@areal/ui/wip"
     },
     {
       "id": "AgentConversationPane",
@@ -297,8 +313,9 @@
     },
     {
       "id": "SettingsNavigation",
-      "source": "renderer/src/settings/SettingsWorkspace.tsx",
-      "purpose": "定位、筛选设置分类并沿原导航守卫返回"
+      "source": "packages/ui/src/workbench/settings-navigation/settings-navigation.tsx",
+      "purpose": "定位、筛选设置分类并沿原导航守卫返回",
+      "importFrom": "@areal/ui/wip"
     },
     {
       "id": "SidePane",
@@ -307,8 +324,9 @@
     },
     {
       "id": "SettingsSearchInput",
-      "source": "renderer/src/settings/SettingsSearchInput.tsx",
-      "purpose": "带可读清除动作的资源搜索输入"
+      "source": "packages/ui/src/components/settings-search-input/settings-search-input.tsx",
+      "purpose": "带可读清除动作的资源搜索输入",
+      "importFrom": "@areal/ui/wip"
     }
   ],
   "patterns": [
