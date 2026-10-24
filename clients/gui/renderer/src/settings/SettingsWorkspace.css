@@ -53,7 +53,7 @@
   min-width: 24px;
   height: 22px;
   padding: 0 6px;
-  font-size: 11px;
+  font-size: var(--text-ui-xs);
   font-family: var(--font-mono, monospace);
   border-radius: 6px;
   background: var(--color-surface, rgba(0, 0, 0, 0.05));
@@ -317,13 +317,13 @@
 
 .appearance-segment {
   padding: 2px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--color-hover);
 }
 
 .appearance-segment span {
   padding: 2px 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font-size: var(--text-ui-sm);
   color: var(--color-foreground);
 }
@@ -374,7 +374,7 @@
 .appearance-preview .preview-tabs {
   display: flex;
   gap: 4px;
-  border-radius: 9999px;
+  border-radius: var(--radius-pill);
   background: var(--color-surface, rgba(0, 0, 0, 0.05));
   padding: 3px;
   width: fit-content;
@@ -383,7 +383,7 @@
 .appearance-preview .preview-tabs button {
   height: 24px;
   padding: 0 10px;
-  border-radius: 9999px;
+  border-radius: var(--radius-pill);
   border: none;
   background: transparent;
   font-size: var(--text-ui-sm);

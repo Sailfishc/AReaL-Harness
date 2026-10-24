@@ -596,7 +596,7 @@ body {
   min-height: 32px;
   min-width: 32px;
   border: 3px solid transparent;
-  border-radius: 9999px;
+  border-radius: var(--radius-pill);
   background: var(--color-border);
   background-clip: padding-box;
 }
@@ -1143,7 +1143,7 @@ body {
   right: -4px;
   top: -1.25px;
   height: 1.5px;
-  border-radius: 9999px;
+  border-radius: var(--radius-pill);
   background: linear-gradient(90deg, transparent, var(--color-warning) 80%);
 }
 .wf-lit {
@@ -1878,17 +1878,17 @@ body {
 
 /* Update notice stays blue across application themes and accent preferences. */
 .areal-update-indicator { --update-notice: #2563eb; position: relative; display: inline-flex; flex-direction: column; align-items: center; gap: 4px; width: 36px; flex-shrink: 0; }
-.areal-update-error { position: absolute; left: calc(100% + 8px); bottom: 0; z-index: var(--layer-popover); width: min(280px, calc(100vw - 80px)); padding: 10px 12px; border: 1px solid var(--color-border); border-radius: var(--radius-navigation); background: var(--color-popover); color: var(--color-foreground); box-shadow: 0 5px 18px #00000014; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.areal-update-error { position: absolute; left: calc(100% + 8px); bottom: 0; z-index: var(--layer-popover); width: min(280px, calc(100vw - 80px)); padding: 10px 12px; border: 1px solid var(--color-border); border-radius: var(--radius-navigation); background: var(--color-popover); color: var(--color-foreground); box-shadow: 0 5px 18px #00000014; font-size: var(--text-ui-sm); line-height: 1.5; overflow-wrap: anywhere; }
 .areal-update-action, .areal-update-current { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border: 0; border-radius: var(--radius-navigation); }
 .areal-update-action { background: var(--update-notice); color: white; cursor: var(--interactive-cursor, pointer); }
 .areal-update-action:hover { background: #1d4ed8; }
 .areal-update-action:focus-visible, .areal-update-recover:focus-visible { outline: 2px solid var(--update-notice); outline-offset: 2px; }
-.areal-update-current { font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--color-foreground); background: var(--color-secondary); }
+.areal-update-current { font-size: var(--text-ui-xs); font-weight: 600; font-variant-numeric: tabular-nums; color: var(--color-foreground); background: var(--color-secondary); }
 .areal-update-recover { cursor: var(--interactive-cursor, pointer); color: var(--update-notice); }
 .areal-update-recover:hover { background: var(--color-selected); }
-.areal-update-indicator progress { appearance: none; width: 32px; height: 4px; border: 0; border-radius: 999px; overflow: hidden; }
-.areal-update-indicator progress::-webkit-progress-bar { background: var(--color-secondary); border-radius: 999px; }
-.areal-update-indicator progress::-webkit-progress-value { background: var(--update-notice); border-radius: 999px; }
+.areal-update-indicator progress { appearance: none; width: 32px; height: 4px; border: 0; border-radius: var(--radius-pill); overflow: hidden; }
+.areal-update-indicator progress::-webkit-progress-bar { background: var(--color-secondary); border-radius: var(--radius-pill); }
+.areal-update-indicator progress::-webkit-progress-value { background: var(--update-notice); border-radius: var(--radius-pill); }
 .areal-update-floating { display: none; position: fixed; left: 12px; bottom: 16px; z-index: var(--layer-popover); }
 .areal-update-spin { animation: areal-update-spin 1.2s linear infinite; }
 @keyframes areal-update-spin { to { transform: rotate(360deg); } }

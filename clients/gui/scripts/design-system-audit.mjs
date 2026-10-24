@@ -1,6 +1,7 @@
 import { verifyDesignCatalog } from "./design-system-catalog.mjs";
 import { cssFindings, tsxFindings } from "./design-system-rules.mjs";
 import { auditDesignChanges } from "./design-system-changes.mjs";
+import { verifyLiteralBaseline } from "./design-system-baseline.mjs";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -79,4 +80,5 @@ sources.forEach((source, index) => {
 assert.deepEqual(violations, [], `设计系统新增硬编码：\n${violations.join("\n")}`);
 const changes = await auditDesignChanges();
 assert.deepEqual(changes.violations, [], `新增 UI 设计违规：\n${changes.violations.map(item => `${item.file}: ${item.finding}`).join("\n")}`);
-console.log(JSON.stringify({ passed: true, catalog, files, changes, scope: "complete migrated CSS and static JSX className/style literals, including cn, conditionals and templates; dynamic indirect styles are not covered; layout numbers remain component-owned" }));
+const literals = await verifyLiteralBaseline();
+console.log(JSON.stringify({ passed: true, catalog, files, changes, literals, scope: "complete migrated CSS and static JSX className/style literals, including cn, conditionals and templates; dynamic indirect styles are not covered; layout numbers remain component-owned" }));
