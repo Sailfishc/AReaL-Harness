@@ -2,7 +2,7 @@ import type { AppLocale } from "../i18n/messages.js";
 import type { PermissionPreset } from "../permissions.js";
 export const UI_FONTS = {
   system:
-    '-apple-system, system-ui, "Segoe UI", sans-serif',
+    '-apple-system, system-ui, "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Noto Sans CJK SC", sans-serif',
   Arial: 'Arial, "PingFang SC", sans-serif',
   Georgia: 'Georgia, "Songti SC", serif',
   PingFang: '"PingFang SC", sans-serif',

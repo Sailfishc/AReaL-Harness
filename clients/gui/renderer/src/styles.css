@@ -55,7 +55,7 @@ body,
 
 :root {
   --ui-font-size: 14px;
-  --ui-font-weight: 430;
+  --ui-font-weight: 400;
   --composer-shadow-light: 0 0 0 1px #0000000a, 0 2px 8px 0 #0000000a, 0 4px 80px 8px #00000006;
   --composer-shadow-dark: inset 0 0 1px 0 #fff3;
   --color-composer-action-bar: #f6f6f6;
@@ -142,7 +142,7 @@ body {
   --shadow-composer: var(--composer-shadow-light);
   --shadow-dialog: 0 12px 32px rgb(0 0 0 / 20%);
 
-  --font-sans: -apple-system, system-ui, "Segoe UI", sans-serif;
+  --font-sans: -apple-system, system-ui, "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Noto Sans CJK SC", sans-serif;
   /* Windows 的 Consolas 不含中文字形，Tailwind 默认栈最终会让中文落到宋体。
    * 保留各平台西文等宽字体，并在通用 monospace 前显式加入各平台 CJK 无衬线字体。 */
   --font-mono:
