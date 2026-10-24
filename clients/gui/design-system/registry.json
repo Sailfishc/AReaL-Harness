@@ -169,53 +169,53 @@
       "id": "ActionButton",
       "source": "packages/ui/src/components/action-button/action-button.tsx",
       "purpose": "普通紧凑操作与 pending",
-      "importFrom": "@areal/ui/wip"
+      "importFrom": "@areal/ui"
     },
     {
       "id": "Switch",
       "source": "packages/ui/src/components/switch/switch.tsx",
       "purpose": "双向布尔值",
-      "importFrom": "@areal/ui/wip"
+      "importFrom": "@areal/ui"
     },
     {
       "id": "Select",
       "source": "packages/ui/src/components/select/select.tsx",
       "purpose": "多个候选中的单选",
-      "importFrom": "@areal/ui/wip"
+      "importFrom": "@areal/ui"
     },
     {
       "id": "SettingsPage",
-      "source": "packages/ui/src/components/settings-page/settings-page.tsx",
+      "source": "packages/ui/src/settings/settings-page/settings-page.tsx",
       "purpose": "设置页面的生产表面、列宽与滚动边界",
       "importFrom": "@areal/ui/wip"
     },
     {
       "id": "SettingsSection",
-      "source": "packages/ui/src/components/settings-section/settings-section.tsx",
+      "source": "packages/ui/src/settings/settings-section/settings-section.tsx",
       "purpose": "功能分区",
       "importFrom": "@areal/ui/wip"
     },
     {
       "id": "SettingsGroupCard",
-      "source": "packages/ui/src/components/settings-group-card/settings-group-card.tsx",
+      "source": "packages/ui/src/settings/settings-group-card/settings-group-card.tsx",
       "purpose": "相关行的公共外框",
       "importFrom": "@areal/ui/wip"
     },
     {
       "id": "SettingsRow",
-      "source": "packages/ui/src/components/settings-row/settings-row.tsx",
+      "source": "packages/ui/src/settings/settings-row/settings-row.tsx",
       "purpose": "名称、说明与行内控件",
       "importFrom": "@areal/ui/wip"
     },
     {
       "id": "SettingsSelect",
-      "source": "packages/ui/src/components/settings-select/settings-select.tsx",
+      "source": "packages/ui/src/settings/settings-select/settings-select.tsx",
       "purpose": "二值分段或多值菜单",
       "importFrom": "@areal/ui/wip"
     },
     {
       "id": "SettingsSegmentedTabs",
-      "source": "packages/ui/src/components/settings-segmented-tabs/settings-segmented-tabs.tsx",
+      "source": "packages/ui/src/settings/settings-segmented-tabs/settings-segmented-tabs.tsx",
       "purpose": "两个互斥设置值",
       "importFrom": "@areal/ui/wip"
     },
@@ -227,7 +227,7 @@
     },
     {
       "id": "SettingsDialog",
-      "source": "packages/ui/src/components/settings-dialog/settings-dialog.tsx",
+      "source": "packages/ui/src/settings/settings-dialog/settings-dialog.tsx",
       "purpose": "设置编辑与确认详情",
       "importFrom": "@areal/ui/wip"
     },
@@ -238,7 +238,7 @@
     },
     {
       "id": "EmptySettings",
-      "source": "packages/ui/src/components/settings-dialog/settings-dialog.tsx",
+      "source": "packages/ui/src/settings/settings-dialog/settings-dialog.tsx",
       "purpose": "设置空态",
       "importFrom": "@areal/ui/wip"
     },
@@ -324,7 +324,7 @@
     },
     {
       "id": "SettingsSearchInput",
-      "source": "packages/ui/src/components/settings-search-input/settings-search-input.tsx",
+      "source": "packages/ui/src/settings/settings-search-input/settings-search-input.tsx",
       "purpose": "带可读清除动作的资源搜索输入",
       "importFrom": "@areal/ui/wip"
     }

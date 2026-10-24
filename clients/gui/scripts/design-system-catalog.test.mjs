@@ -19,6 +19,8 @@ async function fixture(t) {
     ...registry.patterns.map(item => item.reference),
     "renderer/src/design-system/catalog.ts",
     "renderer/src/design-system/base-components.ts",
+    "packages/ui/src/index.ts",
+    "packages/ui/src/wip.ts",
     registry.baseCandidate.snapshot.owner.split("#")[0],
     ...registry.baseCandidate.admissions.flatMap(item => [item.contract.split("#")[0], ...item.consumers]),
     ...registry.baseCandidate.evidence.flatMap(item => [item.checker, item.report.split("#")[0]]),

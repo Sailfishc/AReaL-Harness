@@ -2,6 +2,8 @@
 
 这里是 AReaL Harness 的设计地图，供设计师、客户端工程师和 Agent 使用。从用户任务进入，找到负责该判断的唯一文档，再前往实现与验证位置。
 
+本目录是设计规则的源头，[@areal/ui](../clients/gui/packages/ui/README.md) 是它的实现：改变外观的修改同时更新这里的规则与理由；两者不一致时修改其中之一，不让它们并存（[P5](principles/README.md#p5-共享规则只维护一次)）。写代码时从 @areal/ui 的说明和 [Token 速查](../clients/gui/packages/ui/src/generated/tokens.md) 开始。
+
 设计系统以桌面 GUI 为准，先完成 GUI 的视觉、交互与生产迁移。后续 Web 复用适用的设计原则、Token、组件和模式，并按浏览器能力适配。TUI、CLI 不在本设计系统的建设与验收范围内。设计知识仍集中在根目录 `design/`，范围取舍见[D-001](decisions/001-shared-design-knowledge.md)。
 
 本目录只维护中文。外部使用与 API 文档由 `docs/` 维护。文档归档不改变产品行为、GUI Base 准入或视觉基线。

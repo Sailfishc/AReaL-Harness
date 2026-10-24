@@ -1,7 +1,11 @@
 import { useState } from "react";
 import { FileTextIcon } from "lucide-react";
-import { Button } from "@areal/ui";
-import * as UI from "@areal/ui/wip";
+import * as Stable from "@areal/ui";
+import * as Wip from "@areal/ui/wip";
+
+// 示例同时展示稳定与实验入口；组件按成熟度分属两个入口。
+const UI = { ...Stable, ...Wip };
+const { Button } = Stable;
 
 const fields = new Set(["input", "textarea", "switch", "select", "tabs", "settings-search-input", "settings-segmented-tabs", "settings-select"]);
 const overlays = new Set(["popover", "dialog", "dropdown-menu", "context-menu", "tooltip", "command", "control-hint-tooltip"]);
@@ -75,4 +79,4 @@ function Workbench({ id }: { id: string }) {
   return <div className="library-shell-example"><UI.WorkbenchShell windowInset={0} style={{ height: 340, minHeight: 0, width: "100%" }}><UI.WorkspaceHeader>工作台实例</UI.WorkspaceHeader><UI.WorkSurface panelOpen split reducedMotion><div>任务正文与草稿由宿主提供。</div></UI.WorkSurface><UI.SidePaneFrame data-open><UI.SidePaneFrame.Header>资源面板<Button variant="ghost" onClick={() => setCount(value => value + 1)}>动作 {count}</Button></UI.SidePaneFrame.Header><UI.SidePaneFrame.Layout><UI.SidePaneFrame.Content>同一面板内容</UI.SidePaneFrame.Content></UI.SidePaneFrame.Layout></UI.SidePaneFrame></UI.WorkbenchShell></div>;
 }
 
-function GalleryCodeViewer(props: UI.CodeViewerProps) { return <UI.CodeViewer {...props} theme="github-light" />; }
+function GalleryCodeViewer(props: Wip.CodeViewerProps) { return <UI.CodeViewer {...props} theme="github-light" />; }

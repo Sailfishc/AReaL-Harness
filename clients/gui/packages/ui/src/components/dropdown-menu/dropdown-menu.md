@@ -2,8 +2,8 @@
 id: dropdown-menu
 title: DropdownMenu
 summary: 操作菜单，沿用现有生产实现与交互。
-status: experimental
-entry: wip
+status: stable
+entry: index
 layer: core
 category: overlay
 aliases: ["操作菜单"]

@@ -1,8 +1,8 @@
 import { DismissIcon as X, SearchIcon as Search } from "../../icons.js";
 import type { ComponentProps } from "react";
 import { cn } from "../../lib/utils.js";
-import { Button } from "../button/button.js";
-import { Input } from "../input/input.js";
+import { Button } from "../../components/button/button.js";
+import { Input } from "../../components/input/input.js";
 
 export function SettingsSearchInput({
   className,

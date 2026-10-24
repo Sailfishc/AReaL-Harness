@@ -1,3 +1,4 @@
+import { ComposerActionButton } from "@areal/ui/wip";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Messages } from "../Messages.js";
 import { ConversationComposer } from "../ConversationComposer.js";
@@ -170,10 +171,9 @@ export function ConversationFlowExercise({ dark }: { dark: boolean }) {
                             onChange={setDraft}
                             submitControl={
                                 running ? (
-                                    <Button
+                                    <ComposerActionButton
                                         type="button"
-                                        variant="composer"
-                                        size="icon-md"
+                                        size="icon"
                                         aria-label="停止演示任务"
                                         onClick={() => {
                                             setStopped(true);
@@ -181,7 +181,7 @@ export function ConversationFlowExercise({ dark }: { dark: boolean }) {
                                         }}
                                     >
                                         <StopIcon />
-                                    </Button>
+                                    </ComposerActionButton>
                                 ) : undefined
                             }
                             onSubmit={(value) => {

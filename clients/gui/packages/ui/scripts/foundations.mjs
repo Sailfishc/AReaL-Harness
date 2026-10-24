@@ -57,6 +57,27 @@ export function renderFoundations(tokens) {
   return { themes, foundation: banner + `:root {\n${definitions.join("\n")}\n}\n.dark {\n${dark.join("\n")}\n}\n:root[data-reduced-motion="true"] { --motion-fast: 0ms; --motion-normal: 0ms; --motion-slow: 0ms; }\n`,
     tailwind: banner + `@theme {\n${mappings.join("\n")}\n}\n` };
 }
+// 给使用者和 Agent 的速查表：从 tokens.json 与 theme.ts 生成，不手工维护数值。
+export function renderTokenReference(tokens, themes, paletteVariables) {
+  const groups = [["字号", /^text-|^ui-font/], ["行高与字重", /^line-height|^ui-font-weight|^tracking/], ["间距与尺寸", /^spacing-|^reading-width/],
+    ["圆角", /^radius-/], ["阴影", /^shadow-/], ["状态色与语义色", /^color-/], ["动效与层级", /^motion-|^ease-|^layer-/], ["其他", /./]];
+  const cell = value => String(value).replace(/\|/g, "\\|");
+  const rows = Object.entries(tokens.foundation).map(([key, token]) => {
+    const name = extension(token).name ?? key, dark = extension(token).dark;
+    return { name, value: serialize(token, name) + (dark !== undefined ? `（暗色 ${serialize({ ...token, $value: dark }, name)}）` : ""), meaning: token.$description };
+  });
+  const used = new Set(); let out = "<!-- Generated from tokens.json and src/theme.ts. Run pnpm --dir clients/gui --filter @areal/ui generate. -->\n# @areal/ui Token 速查\n\n" +
+    "写样式时按用途选这里的变量，不写字面量。数值只在 [tokens.json](../../tokens.json) 修改；调色板派生在 [theme.ts](../theme.ts)。\n";
+  for (const [title, pattern] of groups) {
+    const list = rows.filter(row => !used.has(row.name) && pattern.test(row.name));
+    if (!list.length) continue; list.forEach(row => used.add(row.name));
+    out += `\n## ${title}\n\n| 变量 | 默认值 | 用途 |\n| --- | --- | --- |\n` + list.map(row => `| \`--${row.name}\` | \`${cell(row.value)}\` | ${cell(row.meaning)} |`).join("\n") + "\n";
+  }
+  const light = paletteVariables({ ...themes.light, translucentSidebar: true }, false), dark = paletteVariables({ ...themes.dark, translucentSidebar: true }, true);
+  out += "\n## 调色板（由主题输入派生，用户可在外观设置中覆盖）\n\n| 变量 | 默认亮色 | 默认暗色 |\n| --- | --- | --- |\n" +
+    Object.keys(light).map(name => `| \`${name}\` | \`${cell(light[name])}\` | \`${cell(dark[name])}\` |`).join("\n") + "\n";
+  return out;
+}
 export async function writeOrCheck(path, output, check) {
   if (check) assert.equal(await readFile(path, "utf8"), output, `generated asset out of date: ${path}`);
   else { await mkdir(dirname(path), { recursive: true }); await writeFile(path, output); }
@@ -72,7 +93,7 @@ export async function generateFoundations(check = false) {
   result.tailwind += `@theme {\n${Object.entries(defaultVariables).filter(([name]) => /^--(?:color|shadow)-/.test(name)).map(([name, value]) => `  ${name}: ${value};`).join("\n")}\n}\n`;
   const themeCSS = banner + Object.entries(result.themes).map(([mode, input]) =>
     `:root${mode === "dark" ? ".dark" : ", :root.light"} {\n${Object.entries(paletteVariables({ ...input, translucentSidebar: true }, mode === "dark")).map(([name, value]) => `  ${name}: ${value};`).join("\n")}\n}`).join("\n") + "\n";
-  for (const [name, output] of Object.entries({ "foundation.css": result.foundation, "tailwind.css": result.tailwind, "themes.css": themeCSS,
+  for (const [name, output] of Object.entries({ "foundation.css": result.foundation, "tailwind.css": result.tailwind, "themes.css": themeCSS, "tokens.md": renderTokenReference(tokens, result.themes, paletteVariables),
     "theme-defaults.ts": "// Generated from tokens.json.\nexport const DEFAULT_THEME_INPUTS = " + JSON.stringify(result.themes, null, 2) + " as const;\n" }))
     await writeOrCheck(resolve(root, "src/generated", name), output, check);
   return result;

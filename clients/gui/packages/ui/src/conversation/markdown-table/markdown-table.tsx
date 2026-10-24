@@ -1348,7 +1348,7 @@ function MarkdownTableActionButton({
 }) {
   return (
     <ControlHintTooltip title={label}>
-      <Button type="button" variant="ghost" size="icon-md" aria-label={label} onClick={onClick}>
+      <Button type="button" variant="ghost" size="icon" aria-label={label} onClick={onClick}>
         {children}
       </Button>
     </ControlHintTooltip>

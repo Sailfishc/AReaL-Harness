@@ -10,8 +10,8 @@ export async function runUiLibrary(page, scratch, checks) {
   assert.deepEqual(manifest.components.map(({ title, status, entry, layer }) => [title, status, entry, layer]), [
   [
     "ActionButton",
-    "experimental",
-    "wip",
+    "stable",
+    "index",
     "core"
   ],
   [
@@ -76,14 +76,14 @@ export async function runUiLibrary(page, scratch, checks) {
   ],
   [
     "ContextMenu",
-    "experimental",
-    "wip",
+    "stable",
+    "index",
     "core"
   ],
   [
     "ControlHintTooltip",
-    "experimental",
-    "wip",
+    "stable",
+    "index",
     "core"
   ],
   [
@@ -112,8 +112,8 @@ export async function runUiLibrary(page, scratch, checks) {
   ],
   [
     "DropdownMenu",
-    "experimental",
-    "wip",
+    "stable",
+    "index",
     "core"
   ],
   [
@@ -130,8 +130,8 @@ export async function runUiLibrary(page, scratch, checks) {
   ],
   [
     "Input",
-    "experimental",
-    "wip",
+    "stable",
+    "index",
     "core"
   ],
   [
@@ -176,7 +176,12 @@ export async function runUiLibrary(page, scratch, checks) {
     "wip",
     "conversation"
   ],
-  ["NativeContent", "experimental", "wip", "conversation"],
+  [
+    "NativeContent",
+    "experimental",
+    "wip",
+    "conversation"
+  ],
   [
     "NotificationToast",
     "experimental",
@@ -185,29 +190,39 @@ export async function runUiLibrary(page, scratch, checks) {
   ],
   [
     "Popover",
-    "experimental",
-    "wip",
+    "stable",
+    "index",
     "core"
   ],
-  ["QuestionCard", "experimental", "wip", "conversation"],
+  [
+    "QuestionCard",
+    "experimental",
+    "wip",
+    "conversation"
+  ],
   [
     "ResourceScope",
     "experimental",
     "wip",
     "workbench"
   ],
-  ["ScheduledWorkspace", "experimental", "wip", "workbench"],
   [
-    "Select",
+    "ScheduledWorkspace",
     "experimental",
     "wip",
+    "workbench"
+  ],
+  [
+    "Select",
+    "stable",
+    "index",
     "core"
   ],
   [
     "SettingsDialog",
     "experimental",
     "wip",
-    "core"
+    "settings"
   ],
   [
     "SettingsDisclosure",
@@ -219,7 +234,7 @@ export async function runUiLibrary(page, scratch, checks) {
     "SettingsGroupCard",
     "experimental",
     "wip",
-    "core"
+    "settings"
   ],
   [
     "SettingsNavigation",
@@ -231,37 +246,37 @@ export async function runUiLibrary(page, scratch, checks) {
     "SettingsPage",
     "experimental",
     "wip",
-    "core"
+    "settings"
   ],
   [
     "SettingsRow",
     "experimental",
     "wip",
-    "core"
+    "settings"
   ],
   [
     "SettingsSearchInput",
     "experimental",
     "wip",
-    "core"
+    "settings"
   ],
   [
     "SettingsSection",
     "experimental",
     "wip",
-    "core"
+    "settings"
   ],
   [
     "SettingsSegmentedTabs",
     "experimental",
     "wip",
-    "core"
+    "settings"
   ],
   [
     "SettingsSelect",
     "experimental",
     "wip",
-    "core"
+    "settings"
   ],
   [
     "SidePaneFrame",
@@ -289,14 +304,14 @@ export async function runUiLibrary(page, scratch, checks) {
   ],
   [
     "Switch",
-    "experimental",
-    "wip",
+    "stable",
+    "index",
     "core"
   ],
   [
     "Tabs",
-    "experimental",
-    "wip",
+    "stable",
+    "index",
     "core"
   ],
   [
@@ -319,8 +334,8 @@ export async function runUiLibrary(page, scratch, checks) {
   ],
   [
     "Textarea",
-    "experimental",
-    "wip",
+    "stable",
+    "index",
     "core"
   ],
   [
@@ -331,8 +346,8 @@ export async function runUiLibrary(page, scratch, checks) {
   ],
   [
     "Tooltip",
-    "experimental",
-    "wip",
+    "stable",
+    "index",
     "core"
   ],
   [

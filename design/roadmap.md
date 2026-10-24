@@ -14,8 +14,8 @@ AReaL 已有生产控件、GUI 目录、状态合同和开发预览。[完整工
 | --- | --- | --- |
 | 产品设计语言 | [共享原则](principles/README.md)、[表达角色](foundations/roles.md)、[完整工作台候选](products/workbench/candidate.md)沿既有角色形成整体 | 用户评价文字层级、表面、密度、形状、状态和动效，并收敛下一轮选择 |
 | 内容与文案 | [术语](content/terminology.md)、[界面文案](content/interface-copy.md)已区分用词建议与执行事实 | 随真实入口采用并核对翻译、范围和反馈，不做脱离功能的全局替换 |
-| Token | [角色与平台映射](foundations/tokens.md)、[浏览器焦点共享源](tokens/focus.css)已接入；首组焦点有 GUI 与本地 Web 键盘审批证据，任务切片已统一主要动作颜色、阅读宽度、间距和过程附注字号 | 其余角色随真实 GUI 任务收敛，保留动态偏好边界；Web 后续按实际接入独立验证 |
-| 组件合同 | [组件选择与职责](components/README.md)连接首批就近合同、生产消费者引用与类型导出检查，生产控件及平台合同保留原所有者 | 后续成员按真实需求准入，Props 仍由类型提供 |
+| Token | [角色与平台映射](foundations/tokens.md)、[浏览器焦点共享源](tokens/focus.css)已接入；首组焦点有 GUI 与本地 Web 键盘审批证据，任务切片已统一主要动作颜色、阅读宽度、间距和过程附注字号 | 默认调色板与状态色已由 tokens.json 单源生成并有重定义守卫；存量字号/颜色/圆角字面量由[基线](foundations/tokens.md#自动守卫)只减不增，继续按页面收敛到零；Web 后续按实际接入独立验证 |
+| 组件合同 | [组件选择与职责](components/README.md)连接首批就近合同、生产消费者引用与类型导出检查；[分层与成熟度](components/README.md#成熟度)由审计按生产使用自动核对 | 后续成员按真实需求准入，Props 仍由类型提供 |
 | 用户任务与组合 | [共享模式](patterns/README.md)、[完整候选](products/workbench/candidate.md)串联任务、过程、审批、资源与设置；五条切片均有真实 GUI 自动化证据 | 后三条切片待用户评价；完整资源管理、插件安装/认证/连接和其他异常恢复按真实需求单独验收 |
 | 文档与可运行示例 | [文档与预览入口](README.md#阅读与预览)、现有 catalog 与生成器 | 核对原 Markdown 链接、合同和生产示例的阅读路径；运行结果另行记录，不以构建代替用户路径 |
 | 变更约束与准入 | [目录检查](../clients/gui/scripts/design-system-catalog.mjs)、[增量审计](../clients/gui/scripts/design-system-changes.mjs)约束有限成员；Base 0.2 已完成独立复用，0.4.0 按列明插件与阅读恢复范围有限冻结 | 同题复验沿迁移回归入口记录，不追加新盲试结论；Web 接入时另行验证 |

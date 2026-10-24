@@ -2,8 +2,8 @@
 id: input
 title: Input
 summary: 输入框，沿用现有生产实现与交互。
-status: experimental
-entry: wip
+status: stable
+entry: index
 layer: core
 category: control
 aliases: ["输入框"]

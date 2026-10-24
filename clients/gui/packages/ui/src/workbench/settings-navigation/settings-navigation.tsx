@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 
-import { SettingsSearchInput } from "../../components/settings-search-input/settings-search-input.js";
+import { SettingsSearchInput } from "../../settings/settings-search-input/settings-search-input.js";
 import { NavigationSidebar } from "../workbench-shell/workbench-shell.js";
 
 export type SettingsNavigationGroup = {

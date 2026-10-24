@@ -4,7 +4,7 @@ title: SettingsPage
 summary: 设置页面的唯一纵向滚动区、居中内容列与可选标题。
 status: experimental
 entry: wip
-layer: core
+layer: settings
 category: settings
 aliases: ["设置页面"]
 related: ["settings-section", "settings-group-card"]

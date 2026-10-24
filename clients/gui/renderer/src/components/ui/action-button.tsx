@@ -1,1 +1,1 @@
-export { ActionButton } from "@areal/ui/wip";
+export { ActionButton } from "@areal/ui";

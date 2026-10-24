@@ -8,6 +8,7 @@ layer: conversation
 category: input
 aliases: ["对话输入工具栏"]
 related: ["composer-surface", "button"]
+exports: ["ComposerToolbar", "ComposerActionButton"]
 ---
 
 # ComposerToolbar 对话输入工具栏
@@ -37,6 +38,8 @@ leading与trailing两个必要插槽；原data-composer-leading-actions/content�
 使用原按钮/菜单语义；图标入口由宿主命名。禁用必须作用于真实按钮，不以pointer-events代替禁用语义。
 
 ## 规则
+
+发送/继续等主动作使用 `ComposerActionButton`：胶囊形、前景色底、禁用时退为次要表面，默认 `size="icon"`。它不是基础 Button 的变体，停止、排队保存等次要动作继续用 Button 的 `secondary`。
 
 不导入模型目录、权限策略或UI导航；不将选择模型等同于已应用，也不把停止受理显示为任务终止。
 

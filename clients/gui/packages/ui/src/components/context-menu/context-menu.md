@@ -2,8 +2,8 @@
 id: context-menu
 title: ContextMenu
 summary: 上下文菜单，沿用现有生产实现与交互。
-status: experimental
-entry: wip
+status: stable
+entry: index
 layer: core
 category: overlay
 aliases: ["上下文菜单"]
