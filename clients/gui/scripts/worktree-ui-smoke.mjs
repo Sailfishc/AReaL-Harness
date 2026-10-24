@@ -39,6 +39,11 @@ let listing={settings:{worktreeRoot:'',branchPrefix:'areal',fetchBeforeCreate:fa
 if(params.get('actions')==='full')listing.worktrees[0].environment=environments[1];
 window.fixtureCalls=[];
 window.fixtureRecovery=params.has('recovery');
+if(params.has('unrelated-pending')){
+ project.pending=[{method:'areal/thread/start',params:{requestId:'unrelated-request'}}];
+ localStorage.setItem('fixture-draft','[111](#sess_existing-source) 这个会话记录是什么');
+}
+
 if(window.fixtureRecovery){localStorage.setItem('fixture-draft','retain this input');localStorage.setItem('fixture-draft:pending-create','00000000-0000-4000-a000-000000000001');localStorage.setItem('fixture-draft:pending-create-request',JSON.stringify({projectId:'logical',requestId:'00000000-0000-4000-a000-000000000001',worktree:{ref:'main'}}));}
 if(params.get('recovery')==='accepted'){project.pending=[{params:{requestId:'unrelated-request'}}];project.outcomes['00000000-0000-4000-a000-000000000001']={accepted:true,status:'completed',operation:{requestId:'00000000-0000-4000-a000-000000000001',method:'areal/thread/start',target:{kind:'thread',threadId:'known-created'}},threadId:'known-created'};}
 const fixtureTurn=(id,text)=>({id,status:'completed',items:[{id:id+'-user',type:'userMessage',content:[{type:'text',text}]},{id:id+'-assistant',type:'agentMessage',phase:'final_answer',text:'Fixture response '+id}]});
@@ -62,6 +67,7 @@ function Fixture(){
  window.setFixtureAppearance=({dark,size,reducedMotion})=>{setDark(dark);document.documentElement.classList.toggle('dark',dark);document.documentElement.style.setProperty('--ui-font-size',size+'px');document.documentElement.style.fontSize=size+'px';setApplicationPreferences({contentSize:size,reducedMotion:reducedMotion?'on':'off'});};
  if(params.has('messages')){const kind=params.get('messages');const thread={id:'worktree-thread',conversation:kind==='inherited'?{kind:'fork',historySeed:{snapshotId:'fixture-snapshot'}}:undefined,turns:[fixtureTurn('local-own',kind==='partial'?'Later paginated local prompt':'First own local prompt')],displayHistory:{supported:kind==='partial',complete:kind!=='partial',latestTurnComplete:true},worktree:{state:'ready',directory:'/fixture/new-trees/task-proof',branch:'areal/gui-proof'}};return <main className='h-full bg-background p-6 text-foreground'><Messages project={project} thread={thread} action={action} dark={dark} embedded readOnly onLink={()=>{}} onFile={()=>{}} onReview={()=>{}} readTurnReview={async()=>({})}/></main>;}
  if(params.has('toast'))return <main className='p-6'><button onClick={()=>setEvents(events=>[...events,{}])}>更新快照</button><FeedbackNotice requestId='same-request' tone={events.length>2?'error':'warning'} message='正在核对操作' actions={<button onClick={()=>window.fixtureCalls.push({name:'check'})}>核对通知</button>}/><FeedbackNotice requestId='same-request' tone={events.length>2?'error':'warning'} message='正在核对操作' actions={<button onClick={()=>window.fixtureCalls.push({name:'check'})}>核对通知</button>}/></main>;
+ if(params.has('unrelated-pending'))return <main className='p-6'><DraftComposer project={project} draftKey='fixture-draft' action={action} onOpen={async()=>{}} onPanel={()=>{}} /></main>;
  if(window.fixtureRecovery)return <main className='p-6'><DraftComposer project={{...project,state:{connected:false}}} draftKey='fixture-draft' action={action} onOpen={async(pid,tid)=>window.fixtureCalls.push({name:'opened',params:{projectId:pid,threadId:tid}})} onPanel={()=>{}} /></main>;
  if(params.has('settings'))return <main className='h-full bg-background text-foreground'><UnsavedChangesProvider><SettingsPage title='Worktrees'><WorktreesSettings action={action} projects={listing.projects} onAddProject={async()=>{window.fixtureCalls.push({name:'addProject',params:{}});return undefined;}}/></SettingsPage></UnsavedChangesProvider></main>;
  if(params.has('sidebar'))return <main className='w-80 max-w-full p-3'><ul><MemoTaskItem id='ordinary' title='Ordinary conversation' active={false} pinned={false} running={false} attention={false} archived={false} disabled={false} onSelect={()=>{}} onRename={()=>{}} onPin={()=>{}} onArchive={()=>{}}/><MemoTaskItem id='bound' title='A long conversation title remains the primary sidebar content' worktree={{branch:'areal/a-very-long-branch-name',directory:'/fixture/new-trees/task-proof',state:'ready'}} active={true} pinned={false} unread={true} running={false} attention={false} archived={false} disabled={false} onSelect={()=>{}} onRename={()=>{}} onPin={()=>{}} onArchive={()=>{}}/><MemoTaskItem id='running' title='Running worktree conversation' worktree={{branch:'areal/gui-proof',directory:'/fixture/new-trees/task-proof',state:'settingUp'}} active={false} pinned={false} running={true} attention={false} archived={false} disabled={false} onSelect={()=>{}} onRename={()=>{}} onPin={()=>{}} onArchive={()=>{}}/></ul></main>;
@@ -152,6 +158,16 @@ try {
     await capture("messages-complete-first-own");
     checks.push("production Messages anchors preparation after the first own local user and never under inherited or partially loaded later prompts");
   };
+  await page.goto(base + "?unrelated-pending");
+  await page.getByTestId("chat-input").waitFor();
+  await page.getByTestId("chat-input").locator('[data-mention-category="sessions"]').waitFor();
+  await capture("draft-with-unrelated-pending");
+  assert.equal(await page.getByTestId("chat-input").getAttribute("contenteditable"), "true", "unrelated project submission must not lock a restored draft");
+  await page.getByTestId("chat-input").press("End");
+  await page.keyboard.type(" 编辑草稿");
+  assert.match(await page.getByTestId("chat-input").textContent(), /编辑草稿$/);
+  assert.deepEqual(await page.evaluate(() => window.fixtureCalls.filter(call => ["create", "send"].includes(call.name))), [], "editing never replays the original request");
+  checks.push("restored reference draft remains editable while an unrelated project submission is unresolved");
   await messagesAcceptance();
   if (process.env.AREAL_WORKTREE_UI_MESSAGES_ONLY === "1") {
     assert.deepEqual(errors, []); passed = true;

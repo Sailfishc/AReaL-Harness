@@ -360,7 +360,7 @@ try {
   if (filesRegression) {
     await runComposerFilesAcceptance({ app, page, pid, workspace, scratch, endpoint, desktop, call, state, project, until, received, checks, shot, fixture: filesFixture });
   } else if (referencesRegression) {
-    await runComposerReferencesAcceptance({ app, page, pid, workspace, scratch, endpoint, desktop, call, state, project, until, received, checks, shot, fixture: referencesFixture });
+    await runComposerReferencesAcceptance({ app, page, pid, workspace, scratch, endpoint, desktop, call, state, project, until, received, checks, shot, fixture: referencesFixture, reopen: async () => { await quit(); await launch(); return page; } });
   } else {
   if (skillsRegression) {
     const trace = async () => (await readFile(labelsTrace, "utf8").catch(error => {

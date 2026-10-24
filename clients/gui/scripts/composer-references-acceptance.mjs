@@ -35,7 +35,7 @@ export function composerReferencesResponse(body, response, fixture) {
   response.end("data: [DONE]\n\n");
 }
 
-export async function runComposerReferencesAcceptance({ page, pid, call, state, project, until, received, checks, shot, fixture }) {
+export async function runComposerReferencesAcceptance({ page, pid, call, state, project, until, received, checks, shot, fixture, reopen }) {
   const input = () => page.getByTestId("chat-input");
   const button = name => page.getByRole("button", { name, exact: true });
   const activeId = () => page.getByTestId("areal-workbench").getAttribute("data-thread-id");
@@ -82,6 +82,14 @@ export async function runComposerReferencesAcceptance({ page, pid, call, state, 
   assert(canonical.includes(`](#sess_${sourceId})`));
   assert(canonical.includes("\\[发布\\]"));
   await shot("references-plus-draft");
+  page = await reopen();
+  await input().waitFor();
+  await chip().waitFor();
+  await input().press("End");
+  await page.keyboard.type(" REOPEN_EDIT");
+  assert.match(await input().textContent(), /REOPEN_EDIT$/, "restored conversation reference draft remains editable");
+  await input().press("ControlOrMeta+Z");
+  await shot("references-reopened-draft");
   await selectConversation(page, sourceId);
   await createProjectConversation(page, projectName);
   await chip().waitFor();
