@@ -12,7 +12,7 @@ GUI 设计知识与后续 Web 复用边界从[设计文档](../../../design/READ
 
 本轮交付、复验入口与范围见[候选交付](delivery.md)。对话信息流从[证据→规则→所有者→检查点](patterns.md#从证据回溯到规则和组件)进入；其[结构化合同](surfaces/conversation-flow.json)已可校验，逐步投影预览及共享过程组已实现，只有列明且已复验的过程/阅读组合进入 Base，完整对话模式仍保留准入缺口。
 
-两张用户标注图对应的[对话流设计草案](conversation-flow.md)定义活动行、默认折叠、纵向滚动及右侧 Changes、关联项目、Subagents、Sources。它沿现有系统与 Raft 分层组织，是规范候选，尚未修改生产实现或 Base 范围。
+两张用户标注图对应的[对话流设计候选](conversation-flow.md)定义活动行、默认折叠、纵向滚动及右侧 Changes、关联项目、Subagents、Sources。[独立交互预览](../renderer/design-system.html?conversation-system)支持运行/完成/待关注、来源数量、图片查看和窄窗返回；沿现有系统与 Raft 分层组织，尚未修改生产页面或 Base 范围。
 
 九张用户参考图对应的[Worktree 设计规范](worktrees.md)定义 Composer 配置菜单、准备过程、侧栏身份，以及 General / Environments 的布局与状态。规范及三个页面合同均为候选，尚未迁移生产 UI 或扩大 Base。
 

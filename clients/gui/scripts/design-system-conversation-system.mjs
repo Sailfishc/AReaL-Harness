@@ -1,0 +1,115 @@
+import assert from "node:assert/strict";
+import { join } from "node:path";
+
+// Renderer-only acceptance, driven by the published conversation-flow brief.
+export async function runConversationSystem(page, scratch, checks) {
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  const preview = page.getByRole("region", { name: "对话流设计预览", exact: true });
+  const activity = preview.getByRole("button", { name: "读取文件、运行命令 · 30 项活动", exact: true });
+  const image = preview.getByRole("button", { name: "已查看图片 · 界面参考.png", exact: true });
+  const sources = preview.getByRole("region", { name: "输入来源", exact: true });
+  await activity.waitFor();
+  assert.equal(await activity.getAttribute("aria-expanded"), "false");
+  assert.equal(await image.getAttribute("aria-expanded"), "false");
+  assert.equal(await sources.getByRole("button", { name: /^查看来源：/ }).count(), 3);
+  await activity.focus(); await activity.press("Enter");
+  const list = preview.getByRole("region", { name: "分组活动列表", exact: true });
+  await list.waitFor();
+  assert.equal(await list.locator("[data-tool-id]").count(), 30);
+  const geometry = await list.evaluate(element => ({ vertical: element.scrollHeight > element.clientHeight, horizontal: element.scrollWidth > element.clientWidth + 1 }));
+  assert.equal(geometry.vertical, true);
+  assert.equal(geometry.horizontal, false);
+  await list.hover(); await page.mouse.wheel(0, 260);
+  await page.waitForFunction(() => document.querySelector('[aria-label="分组活动列表"]').scrollTop > 0);
+  await list.evaluate(element => element.scrollTo(0, 0));
+  const command = list.locator('[data-tool-id="system-command"]').getByRole("button").first();
+  await command.click();
+  await list.getByText("工作目录：/preview/AReaL-Harness", { exact: true }).waitFor();
+  await preview.getByRole("button", { name: "追加命令输出", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('[data-tool-id="system-command"] .command-output').textContent.includes("检查片段 8"));
+  assert.equal(await list.evaluate(element => element.scrollWidth <= element.clientWidth + 1), true, "展开长命令和输出后仍没有横向溢出");
+  await image.click();
+  const picture = preview.getByRole("button", { name: /预览图片.*界面参考/ });
+  await picture.waitFor();
+  await page.waitForFunction(() => {
+    const element = document.querySelector('.cs-image-content img');
+    return element?.complete && element.naturalWidth > 0;
+  });
+  await picture.click();
+  await page.getByRole("dialog").waitFor();
+  await page.keyboard.press("Escape");
+  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  await page.screenshot({ path: join(scratch, "conversation-system-dark-expanded.png"), fullPage: true });
+  await preview.getByRole("tab", { name: "已完成", exact: true }).click();
+  await preview.getByRole("heading", { name: "对话流预览已整理完成", exact: true }).waitFor();
+  assert.equal(await activity.getAttribute("aria-expanded"), "true");
+  assert.equal(await image.getAttribute("aria-expanded"), "true");
+  assert.equal(await command.getAttribute("aria-expanded"), "true");
+  await activity.click(); await activity.click();
+  assert.equal(await command.getAttribute("aria-expanded"), "true");
+  checks.push("活动与图片默认收起；30项活动纵向滚动且无横向溢出；真实图片可加载和查看，人工展开跨完成及父组收起保留");
+
+  await sources.getByRole("button", { name: "查看全部来源（5）", exact: true }).click();
+  const allSources = preview.getByRole("region", { name: "全部来源", exact: true });
+  assert.equal(await allSources.getByRole("button", { name: /^查看来源：/ }).count(), 5);
+  await allSources.getByRole("button", { name: "查看来源：历史页面引用", exact: true }).click();
+  await preview.getByRole("status").filter({ hasText: "该页面的历史快照不可用" }).waitFor();
+  await preview.getByRole("button", { name: "返回任务上下文", exact: true }).click();
+  const agents = preview.getByRole("region", { name: "子代理列表", exact: true });
+  await agents.getByRole("button", { name: "Subagents · 3 个子任务", exact: true }).click();
+  await agents.getByRole("button", { name: /对话布局检查/ }).click();
+  await preview.getByRole("heading", { name: "对话布局检查", exact: true }).waitFor();
+  await preview.getByRole("button", { name: "返回任务上下文", exact: true }).click();
+  await agents.getByRole("button", { name: "Subagents · 3 个子任务", exact: true }).click();
+  await preview.getByRole("button", { name: "展开关联项目 ZCode", exact: true }).click();
+  await preview.getByText("/preview/workspace/ZCode", { exact: true }).waitFor();
+  await sources.getByRole("button", { name: "折叠来源", exact: true }).click();
+  assert.equal(await sources.getByRole("button", { name: /^查看来源：/ }).count(), 0);
+  await sources.getByRole("button", { name: "展开来源", exact: true }).click();
+  await preview.getByLabel("来源数量", { exact: true }).selectOption("3");
+  assert.equal(await sources.getByRole("button", { name: /^查看来源：/ }).count(), 3);
+  assert.equal(await sources.getByRole("button", { name: /查看全部来源/ }).count(), 0);
+  await preview.getByLabel("来源数量", { exact: true }).selectOption("0");
+  await sources.getByText("还没有输入来源", { exact: true }).waitFor();
+  await sources.getByRole("button", { name: "添加来源", exact: true }).click();
+  const adding = preview.getByRole("region", { name: "添加输入来源", exact: true });
+  await adding.getByRole("button", { name: "添加示例网页到草稿", exact: true }).click();
+  await sources.getByText("草稿待发送", { exact: true }).waitFor();
+  await preview.getByLabel("来源数量", { exact: true }).selectOption("5");
+  await preview.getByRole("tab", { name: "需要关注", exact: true }).click();
+  await activity.click(); // Close the list: the warning must remain outside it.
+  await preview.getByRole("status").filter({ hasText: "结果待核对" }).first().waitFor();
+  await preview.getByRole("button", { name: "查看待核对记录", exact: true }).click();
+  await preview.getByRole("heading", { name: "结果待核对", exact: true }).waitFor();
+  await preview.getByRole("button", { name: "返回任务上下文", exact: true }).click();
+  checks.push("关联项目可展开；来源三项/全部/折叠/空态和草稿添加可操作；异常在收起组外可发现且核对只读");
+  await page.screenshot({ path: join(scratch, "conversation-system-attention.png"), fullPage: true });
+
+  const draft = preview.getByTestId("system-preview-composer");
+  await draft.fill("保留这段未发送的草稿");
+  await page.getByLabel("面板宽度", { exact: true }).selectOption("narrow");
+  const context = preview.getByRole("button", { name: "查看任务上下文", exact: true });
+  await context.click();
+  await preview.getByRole("button", { name: "返回对话", exact: true }).click();
+  assert.equal(await draft.innerText(), "保留这段未发送的草稿");
+  await page.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "查看任务上下文");
+  for (const theme of ["light", "dark"]) {
+    await page.getByLabel("主题", { exact: true }).selectOption(theme);
+    await page.getByLabel("字号", { exact: true }).selectOption("18");
+    await page.setViewportSize({ width: 420, height: 900 });
+    await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth);
+    await page.screenshot({ path: join(scratch, `conversation-system-${theme}-narrow.png`), fullPage: true });
+  }
+  await page.getByLabel("面板宽度", { exact: true }).selectOption("wide");
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.getByLabel("字号", { exact: true }).selectOption("14");
+  await page.getByLabel("减少动态效果", { exact: true }).check();
+  assert.equal(await activity.locator("svg").last().evaluate(element => getComputedStyle(element).transitionDuration), "0s");
+  await preview.getByRole("tab", { name: "运行中", exact: true }).click();
+  if (await activity.getAttribute("aria-expanded") === "true") await activity.click();
+  if (await image.getAttribute("aria-expanded") === "true") await image.click();
+  await preview.getByRole("region", { name: "示例对话", exact: true }).focus();
+  await page.keyboard.press("Control+Home");
+  await page.screenshot({ path: join(scratch, "conversation-system-dark-wide.png"), fullPage: true });
+  checks.push("窄窗上下文返回保留草稿和焦点；420px大字号明暗主题无页面横向溢出；保存宽窄截图供视觉审查");
+}

@@ -4,6 +4,7 @@ import { runDesignDocuments } from "./design-system-documents.mjs";
 import { runSharedWorkspace } from "./design-system-shared-workspace.mjs";
 import { runConversationExercise } from "./design-system-conversation-exercise.mjs";
 import { runConversationDemo } from "./design-system-conversation-demo.mjs";
+import { runConversationSystem } from "./design-system-conversation-system.mjs";
 import { runDecisionExercise } from "./design-system-decision-exercise.mjs";
 import { runSettingsExercise, runSettingsContrast } from "./design-system-settings-exercise.mjs";
 import assert from "node:assert/strict";
@@ -25,6 +26,7 @@ const scratch = await mkdtemp(join(tmpdir(), "areal-design-system-"));
 const baseline = process.argv.includes("--baseline");
 const conversationExercise = process.argv.includes("--conversation-exercise");
 const conversationDemo = process.argv.includes("--conversation-demo");
+const conversationSystem = process.argv.includes("--conversation-system");
 const decisionExercise = process.argv.includes("--decision-exercise");
 const settingsContrast = process.argv.includes("--settings-contrast");
 const settingsExercise = process.argv.includes("--settings-exercise") || settingsContrast;
@@ -32,7 +34,7 @@ const sharedWorkspace = process.argv.includes("--shared-workspace");
 const documents = process.argv.includes("--documents");
 const productCandidate = process.argv.includes("--product-candidate");
 const reuseExercise = process.argv.includes("--reuse-exercise");
-const namedExercise = reuseExercise || productCandidate || documents || sharedWorkspace || conversationExercise || conversationDemo || decisionExercise || settingsExercise;
+const namedExercise = reuseExercise || productCandidate || documents || sharedWorkspace || conversationExercise || conversationDemo || conversationSystem || decisionExercise || settingsExercise;
 const exercise = { steps: [], checks: [] };
 const settingsOnly = process.argv.includes("--settings-only");
 const html = await readFile(join(dist, "design-system.html"), "utf8");
@@ -259,7 +261,7 @@ try {
       }
     };
   });
-  await page.goto(`${origin}/design-system.html${reuseExercise ? "?reuse-exercise" : productCandidate ? "?product-candidate" : sharedWorkspace ? "?shared-workspace" : conversationExercise ? "?conversation-exercise" : conversationDemo ? "?conversation" : decisionExercise ? "?decision-exercise" : settingsExercise ? "?settings-exercise" : settingsOnly ? "?settings" : ""}`);
+  await page.goto(`${origin}/design-system.html${conversationSystem ? "?conversation-system" : reuseExercise ? "?reuse-exercise" : productCandidate ? "?product-candidate" : sharedWorkspace ? "?shared-workspace" : conversationExercise ? "?conversation-exercise" : conversationDemo ? "?conversation" : decisionExercise ? "?decision-exercise" : settingsExercise ? "?settings-exercise" : settingsOnly ? "?settings" : ""}`);
   await page.getByRole("heading", { name: productCandidate ? "快速开始指南" : "客户端设计系统", exact: true }).waitFor();
   assert.equal(await page.evaluate(() => typeof window.arealDesktop), "undefined");
   if (namedExercise) {
@@ -275,6 +277,7 @@ try {
     else if (sharedWorkspace) await runSharedWorkspace(page, scratch, exercise, baseline);
     else if (conversationExercise) await runConversationExercise(page, scratch, gui, exercise);
     else if (conversationDemo) await runConversationDemo(page, scratch, exercise.checks);
+    else if (conversationSystem) await runConversationSystem(page, scratch, exercise.checks);
     else if (decisionExercise) await runDecisionExercise(page, scratch, gui, exercise);
     else if (settingsContrast) await runSettingsContrast(page, scratch, gui, exercise);
     else await runSettingsExercise(page, scratch, gui, exercise);
