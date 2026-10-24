@@ -40,6 +40,8 @@ P-RESOURCES 沿现有 PluginCenter 领域布局组合搜索、分类、列表、
 
 ## 对话信息流
 
+活动类型、图片与命令组默认收起、组内纵向滚动，以及右侧上下文的新增设计要求见[对话流设计草案](conversation-flow.md)。该草案明确区分活动组与过程总组，列出当前源码差异；未实施部分不视为下列合同已经完成迁移。
+
 共享内容与阅读组织见[任务推进与过程阅读](../../../design/patterns/task-progress.md)，请求与回执含义见[控制与审批](../../../design/people-and-agents/control-and-approval.md)，父子关系与停止交接见[委派与交接](../../../design/people-and-agents/delegation-and-handoff.md)。以下保留 GUI 的 CONV-* 合同与实际所有者。
 
 以下是 P-CONVERSATION 的目标合同。参考依据见[信息流观察](references.md#对话信息流的动态观察)，复验题见[动态信息流题](exercises/conversation-flow.md)。该完整模式尚未准入Base候选0.1.3；已准入的仅是下述动态题验证过的过程/阅读组合；另有真实 Electron E1 对话专项，范围见复验题，不能据此提升完整模式或所有桌面宿主准入。

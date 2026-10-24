@@ -12,6 +12,8 @@ GUI 设计知识与后续 Web 复用边界从[设计文档](../../../design/READ
 
 本轮交付、复验入口与范围见[候选交付](delivery.md)。对话信息流从[证据→规则→所有者→检查点](patterns.md#从证据回溯到规则和组件)进入；其[结构化合同](surfaces/conversation-flow.json)已可校验，逐步投影预览及共享过程组已实现，只有列明且已复验的过程/阅读组合进入 Base，完整对话模式仍保留准入缺口。
 
+两张用户标注图对应的[对话流设计草案](conversation-flow.md)定义活动行、默认折叠、纵向滚动及右侧 Changes、关联项目、Subagents、Sources。它沿现有系统与 Raft 分层组织，是规范候选，尚未修改生产实现或 Base 范围。
+
 后续从 renderer 题推进到真实桌面的覆盖、顺序和停止条件见[Electron 旅程推进计划](roadmap.md)；该计划与已通过证据分别维护。
 
 ## 开工顺序

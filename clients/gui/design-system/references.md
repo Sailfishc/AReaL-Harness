@@ -12,6 +12,26 @@
 
 采纳：规则指导用途，生产源拥有数值，目录记录覆盖，真实截图承担视觉证据；语义用途优先，未迁移范围如实登记。落点分别是本目录、现有 CSS/组件、inventory 与本地证据。借鉴方法不迁入 Cindy 的主题、品牌、登录尺寸、工具链或审批流程。
 
+## Raft：设计知识、组件与产品分层
+
+2026-10-24 依据用户指定的本地 `raft-design` 源码核对，版本为 `f2675b83a6e3329ef05216bfc6ad530cdcbca980`。下列链接固定到同一提交，供没有该本地 checkout 的读者复查：
+
+| 来源 | 本次采用的组织方法 | AReaL 落点 |
+| --- | --- | --- |
+| [Authoring](https://github.com/botiverse/raft-design/blob/f2675b83a6e3329ef05216bfc6ad530cdcbca980/design/authoring/README.md) | 设计知识、就近组件合同、源码参数与真实示例分别维护，同一事实只有一个正文所有者 | 原 `design/`、GUI 合同与设计预览，不复制一套文档站 |
+| [组件分层](https://github.com/botiverse/raft-design/blob/f2675b83a6e3329ef05216bfc6ad530cdcbca980/design/components/overview.md) | 通用组件不依赖消息/任务/Agent 领域，领域组合建立在通用组件上 | 原 UI 控件与对话组合；不把界面控件层的 core 与 AReaL 执行 Core 混同 |
+| [模式模板](https://github.com/botiverse/raft-design/blob/f2675b83a6e3329ef05216bfc6ad530cdcbca980/design/authoring/templates/pattern.md)、[组件模板](https://github.com/botiverse/raft-design/blob/f2675b83a6e3329ef05216bfc6ad530cdcbca980/design/authoring/templates/component.md) | 写用途、组成、有限变体、状态、行为、内容与可访问性；产品独有布局归产品说明 | [对话流草案](conversation-flow.md)的活动、详情与右侧上下文，不手抄不存在的 Props |
+| [Token](https://github.com/botiverse/raft-design/blob/f2675b83a6e3329ef05216bfc6ad530cdcbca980/design/foundations/tokens.md) | 角色优先、数值单源；Raft 本身由 DTCG 源生成 CSS | AReaL 保留生产 CSS/外观偏好源，不因参考而迁移构建链或移植数值 |
+| [ScrollArea 合同](https://github.com/botiverse/raft-design/blob/f2675b83a6e3329ef05216bfc6ad530cdcbca980/packages/ui/src/components/scroll-area/scroll-area.md)、[实现](https://github.com/botiverse/raft-design/blob/f2675b83a6e3329ef05216bfc6ad530cdcbca980/packages/ui/src/components/scroll-area/scroll-area.tsx) | 明确滚动区域、内容、方向与键盘职责 | 本稿采用有界区域/单一滚动所有者；命令组禁止横向滚动来自用户要求，不能说 Raft 禁止双向滚动 |
+
+上述采用是设计组织方法，不安装 raft-ui、不复制其品牌资产，也不据静态源码声明运行效果通过。
+
+### 本轮用户截图的使用范围
+
+两张 Codex 截图和文字标注由用户直接提供。图一固定活动类别、图片/命令组默认关闭、命令组仅纵向滚动；图二固定右侧区块和 Sources 三项预览、查看全部、折叠及多类型输入方向。要求归纳在[对话流草案](conversation-flow.md#依据与规则强度)，原始用户截图留在本地，不迁入源码。
+
+截图只支持所见布局；“默认关闭”和滚动约束的依据是用户明确标注，不能由单帧声称已实测 Codex 的动态行为。Sources 区块首次展开、稳定排序、查看全部的承载方式与窄窗安排属于本稿设计默认，不冒充参考事实。
+
 ## Codex 参考校正记录
 
 v1 先由现有代码和上述方法建立。[governance](governance.md) 定义后续截图字段和证据分层。每条校正写明直接观察、关联规则、采纳/保留差异、缺口；截图像素只有在主题、字体、缩放和具体控件条件一致时才参与测量。
