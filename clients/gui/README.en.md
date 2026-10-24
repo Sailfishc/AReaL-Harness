@@ -39,7 +39,7 @@ After installing locked dependencies, Vite+ 1.4.0 supplies local checks and task
 
 `verify`, `verify:design`, and `typecheck` use Vite+ tasks in the root `vite.config.mts`, preserving the existing checks and their order. The shared UI build cache explicitly tracks source, generators, documentation, configuration, and the lockfile, and restores `packages/ui/dist`. Git-baseline audits, desktop builds, and tests run every time. GUI CI saves the local task cache. To verify without caching, run `pnpm exec vp run --no-cache verify-suite` from `clients/gui`. Run `pnpm exec vp cache clean` to clear the cache.
 
-The renderer keeps Vite 7, desktop packages keep their current builders, and tests keep `node --test` and existing scenarios. A later `vp dev/build` migration needs separate checks for React, Tailwind, multiple entries, the remote shell, custom assets, and CJS loading. `vp pack` cannot directly replace UI generators or Electron/Core packaging, signing, and notarization.
+The renderer uses local `vp dev/build` for `dev`, `build`, `design:dev`, and `design:build`, with configuration imported from `vite-plus`. The workspace pins `vite@*` to the matching `@voidzero-dev/vite-plus-core` so plugins share one Vite instance. Browser types reference `vite-plus/client`. Normal and design development modes share the known workspace CommonJS dependency pre-bundling list. Electron continues to load built `renderer/dist` assets; the browser development server does not automatically connect to desktop windows. Desktop builders, `node --test`, signing, and notarization keep their existing entry points.
 
 `make gui-install` explicitly runs the official Electron installer to download the pinned native runtime.
 

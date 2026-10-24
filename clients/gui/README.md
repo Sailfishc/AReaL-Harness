@@ -35,7 +35,7 @@ Vite+ 1.4.0 提供本地检查和任务编排，不需要安装全局 `vp`。`pn
 
 `verify`、`verify:design` 和 `typecheck` 由根 `vite.config.mts` 的 Vite+ 任务编排，保留现有检查和执行顺序。共享的 UI 构建缓存显式跟踪源码、生成器、文档、配置和锁文件，并恢复 `packages/ui/dist`。Git 基线审计、桌面构建和测试每次执行，避免把成功日志当作新一轮验收。GUI CI 保存本地任务缓存。需要排除缓存影响时，从 `clients/gui` 运行 `pnpm exec vp run --no-cache verify-suite`。需要清空缓存时运行 `pnpm exec vp cache clean`。
 
-Renderer 仍使用 Vite 7，桌面包仍沿用现有构建器，测试仍使用 `node --test` 与现有专项。后续 `vp dev/build` 迁移需单独验证 React、Tailwind、多入口、remote shell、自定义资源和 CJS 加载；`vp pack` 不能直接替代 UI 生成器或 Electron/Core 的打包、签名与公证流程。
+Renderer 的 `dev`、`build`、`design:dev` 和 `design:build` 使用本地 `vp dev/build`，配置从 `vite-plus` 导入。workspace 将 `vite@*` 固定到匹配版本的 `@voidzero-dev/vite-plus-core`，让插件共享 Vite 实例；浏览器类型引用使用 `vite-plus/client`。普通与设计开发模式共用已知 workspace CommonJS 依赖的预打包列表。Electron 继续加载构建后的 `renderer/dist`，开发服务器仅用于浏览器，不自动接入桌面窗口。桌面包构建器、`node --test`、签名与公证流程保持原有入口。
 
 `make gui-install` 按锁文件安装依赖后，显式运行 Electron 官方安装器下载固定版本的原生运行时。
 
