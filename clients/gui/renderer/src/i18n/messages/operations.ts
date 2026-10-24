@@ -373,6 +373,8 @@ export const operationMessages = {
   "operations.schedules.partialLoad": { "zh-CN": "部分任务未能加载", "en": "Some tasks could not be loaded" },
   "operations.schedules.retryCatalog": { "zh-CN": "重新加载任务", "en": "Reload tasks" },
   "operations.schedules.catalogEmpty": { "zh-CN": "尚无定时任务", "en": "No scheduled tasks yet" },
+  "operations.schedules.updatingStatus": { "zh-CN": "正在更新任务状态…", "en": "Updating task status…" },
+  "operations.schedules.unconfirmedStatus": { "zh-CN": "任务状态尚未确认，请重试更新。", "en": "Task status is unconfirmed. Retry the update." },
   "operations.schedules.finishedGroup": { "zh-CN": "已结束", "en": "Finished" },
   "operations.schedules.closeDetails": { "zh-CN": "关闭任务详情", "en": "Close task details" },
   "operations.schedules.location": { "zh-CN": "工作目录与来源", "en": "Working directory and source" },

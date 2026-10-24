@@ -51,7 +51,7 @@ const commandDefinitions = Object.freeze({
   chatgpt: ['service', 'app', operations(mutation, 'status login forget logout selectAccount cancel probe')],
   analytics: ['service', 'app', { ...operations(read, 'read sync') }],
   resources: ['service', 'app', { ...operations(read, 'hooks builtinSkill skills mcp skillRead'), ...operations(mutation, 'hooksSave skillToggle skillSave mcpSave mcpConnect mcpDisconnect') }],
-  projectless: ['service', 'app', { directory: mutation, prepare: recoverable }], tasks: ['service', 'app', operations(read, 'list inbox')],
+  projectless: ['service', 'app', { directory: mutation, prepare: recoverable }], tasks: ['service', 'app', operations(read, 'list inbox preview')],
   trajectory: ['service', 'app', { status: read, ...operations(mutation, 'retry setEnabled') }],
   feedback: ['service', 'app', { ...operations(read, 'status read'), ...operations(mutation, 'preference prepare draft refine submit close') }],
   serviceLifecycle: ['main', 'app', { check: read, ...operations(mutation, 'update stop recover quitInterface stopAndQuit') }],
@@ -207,10 +207,10 @@ function validateCommand(name, params, { serviceOnly = false } = {}) {
   if (name === 'providers' && params.operation === 'revealKey'
     && (!identifier(params.id) || !identifier(params.expectedRevision)
       || Object.keys(params).some(key => !['operation', 'id', 'expectedRevision'].includes(key)))) invalid();
-  if (name === 'tasks' && (!['list', 'inbox'].includes(String(params.operation))
+  if (name === 'tasks' && (!['list', 'inbox', 'preview'].includes(String(params.operation))
     || Object.keys(params).some(key => !['operation', 'projectId', 'sourceThreadId', 'limit', 'requestId', 'viewEpoch'].includes(key))
     || params.projectId !== undefined && !identifier(params.projectId)
-    || params.sourceThreadId !== undefined && (params.operation !== 'list' || !identifier(params.sourceThreadId) || !identifier(params.projectId))
+    || params.sourceThreadId !== undefined && (!['list', 'preview'].includes(String(params.operation)) || !identifier(params.sourceThreadId) || !identifier(params.projectId))
     || params.limit !== undefined && (!Number.isSafeInteger(params.limit) || Number(params.limit) < 1 || Number(params.limit) > 1024)
     || params.requestId !== undefined && (typeof params.requestId !== 'string' || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(params.requestId))
     || params.viewEpoch !== undefined && (!Number.isSafeInteger(params.viewEpoch) || Number(params.viewEpoch) < 0))) invalid();
@@ -415,6 +415,7 @@ function validateCommandResponse(name, params, value) {
     return;
   }
   if (name === 'tasks') {
+    const preview = params.operation === 'preview';
     if (params.projectId !== undefined && (!record(value) || value.projectId !== params.projectId
       || value.requestId !== params.requestId || value.viewEpoch !== params.viewEpoch
       || !Array.isArray(value.owners) || value.owners.length !== 1 || !record(value.owners[0]) || value.owners[0].projectId !== params.projectId)) {
@@ -422,7 +423,9 @@ function validateCommandResponse(name, params, value) {
     }
     if (!record(value) || !Array.isArray(value.data) || !value.data.every(record) || !Array.isArray(value.errors) || !value.errors.every(record) || typeof value.hasMore !== 'boolean'
       || params.projectId !== undefined && (value.data.some(row => row.projectId !== params.projectId) || value.errors.some(error => error.projectId !== params.projectId)
-        || !['ready', 'error'].includes(String(value.owners[0].status)) || value.owners[0].status === 'ready' && (!Number.isSafeInteger(value.owners[0].connectionGeneration) || value.owners[0].connectionGeneration < 0))) invalid();
+        || !(preview ? ['unobserved', 'error'] : ['ready', 'error']).includes(String(value.owners[0].status)) || value.owners[0].status === 'ready' && (!Number.isSafeInteger(value.owners[0].connectionGeneration) || value.owners[0].connectionGeneration < 0))
+      || preview && (value.source !== 'published' || value.executionState !== 'unobserved' || !Array.isArray(value.owners)
+        || value.owners.some(owner => !record(owner) || !identifier(owner.projectId) || !['unobserved', 'error'].includes(String(owner.status)) || 'connectionGeneration' in owner))) invalid();
     return;
   }
   if (name === 'continue' && (!record(value) || !(record(value.turn) && identifier(value.turn.id) || Number.isSafeInteger(value.queueRevision) && Number(value.queueRevision) >= 0))) invalid();

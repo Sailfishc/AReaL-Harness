@@ -117,15 +117,29 @@ test("removed or lifecycle-blocked execution owner cannot publish late preview",
 test("logical preview keeps each execution owner mapping", async t => {
   const f = await fixture(t);
   const executionRoot = join(f.backend.home, "execution-workspace"), executionData = join(f.backend.home, "execution", "state");
-  await Promise.all([mkdir(executionRoot), mkdir(executionData, { recursive: true })]);
+  const otherRoot = join(f.backend.home, "other-workspace"), otherData = join(f.backend.home, "other", "state");
+  await Promise.all([mkdir(executionRoot), mkdir(executionData, { recursive: true }), mkdir(otherRoot), mkdir(otherData, { recursive: true })]);
   f.backend.saved.push({ id: "execution", logicalProjectId: "owner", root: executionRoot });
+  f.backend.saved.push({ id: "other", root: otherRoot });
+  const gate = deferred();
+  let active = 0, maximumActive = 0;
   execute = async (_binary, args) => {
+    active++;
+    maximumActive = Math.max(maximumActive, active);
+    await gate.promise;
     const dataDir = await realpath(args[args.indexOf("--data-dir") + 1]);
     const workspace = await realpath(args[args.indexOf("--workspace") + 1]);
+    active--;
     return { stdout: JSON.stringify({ ...f.response, target: { workspace, dataDir, instanceId: createHash("sha256").update(dataDir).digest("hex").slice(0, 24) } }) };
   };
-  const result = await taskCatalog(f.backend, request);
+  const first = taskCatalog(f.backend, request), second = taskCatalog(f.backend, { ...request, projectId: "other" });
+  await new Promise(resolve => setImmediate(resolve));
+  gate.resolve();
+  const [result, other] = await Promise.all([first, second]);
   assert.equal(result.data.length, 2);
+  assert.equal(other.data.length, 1, "concurrent logical owners must retain every execution owner");
+  assert.ok(maximumActive <= 2, "published CLI concurrency stays bounded across logical requests");
+  assert.deepEqual(other.errors, []);
   assert.deepEqual(result.data.map(row => [row.projectId, row.executionProjectId]), [["owner", undefined], ["owner", "execution"]]);
   assert.deepEqual(result.owners, [{ projectId: "owner", status: "unobserved" }]);
 });

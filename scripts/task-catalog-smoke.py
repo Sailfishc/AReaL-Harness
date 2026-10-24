@@ -119,9 +119,17 @@ class CatalogSmoke(unittest.TestCase):
     def test_published_projection_filters_before_limiting_without_recovery(self):
         tombstone = task("a-deleted")
         tombstone["deletedAt"] = 123
+        settled = task("0-settled")
+        settled["deletedAt"] = 123
+        settled["runs"][0]["status"] = "completed"
+        settled["messages"] = []
+        worker = task("b-deleted-worker")
+        worker["deletedAt"] = 123
+        worker["runs"][0]["status"] = "completed"
+        worker["runs"][0]["workers"] = [{"status": "running", "settled": False}]
         root = self.publish([
             task("z-scheduled"), task("0-background", "background"),
-            task("1-other", source="other"), tombstone,
+            task("1-other", source="other"), tombstone, settled, worker,
         ])
         value = self.invoke("--source-thread-id", "origin", "--limit", "1")
         self.assertEqual(value["version"], 1)
@@ -143,6 +151,11 @@ class CatalogSmoke(unittest.TestCase):
         self.assertEqual(row["runCount"], 3)
         self.assertEqual(row["pendingQuestions"], 1)
         self.assertNotIn("messages", row)
+        visible = self.invoke("--source-thread-id", "origin")["catalog"]
+        self.assertEqual([row["id"] for row in visible["data"]], [
+            "a-deleted", "b-deleted-worker", "z-scheduled",
+        ])
+        self.assertFalse(visible["hasMore"])
         empty = self.invoke("--source-thread-id", "missing")["catalog"]
         self.assertEqual(empty["kind"], "snapshot")
         self.assertEqual(empty["data"], [])

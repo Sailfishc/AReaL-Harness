@@ -1,5 +1,9 @@
 //! 任务身份与通信独立持久化；执行继续复用 Goal、Thread 和 Runtime 的准入边界。
+mod catalog;
 mod channel;
+pub use catalog::{
+    PublishedTaskCatalog, PublishedTaskCatalogFallback, read_published_task_catalog,
+};
 mod ledger;
 #[cfg(feature = "test-support")]
 pub use ledger::TaskCommitFault;

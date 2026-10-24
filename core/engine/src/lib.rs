@@ -24,6 +24,9 @@ pub use areal_plugins::PluginComponentId;
 #[cfg(feature = "test-support")]
 pub use task_mode::TaskCommitFault;
 pub use task_mode::TaskRunNowAdmission;
+pub use task_mode::{
+    PublishedTaskCatalog, PublishedTaskCatalogFallback, read_published_task_catalog,
+};
 pub mod tools;
 mod trajectory;
 pub use trajectory::{configure_trajectory_capture_budget, record_json as record_trajectory_json};

@@ -1,8 +1,99 @@
 'use strict';
 const { performance } = require('node:perf_hooks');
+const { createHash } = require('node:crypto');
+const { realpath, lstat } = require('node:fs/promises');
+const { dirname, basename, join } = require('node:path');
+const { executeCore } = require('./core-process.cjs');
 const { operationTrace } = require('./startup-timing.cjs');
 const reads = new WeakMap();
+const previews = new WeakMap();
 const deadlineMs = 5000;
+
+async function canonicalPending(path) {
+  try { return await realpath(path); }
+  catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+    try { await lstat(path); throw new Error('任务数据目录不可用'); }
+    catch (missing) { if (missing.code !== 'ENOENT') throw missing; }
+    return join(await canonicalPending(dirname(path)), basename(path));
+  }
+}
+
+async function previewRead(backend, saved, limit, sourceThreadId) {
+  let pending = previews.get(backend);
+  if (!pending) { pending = { flights: new Map(), active: 0, queue: [] }; previews.set(backend, pending); }
+  const existing = pending.flights.get(saved.id);
+  if (existing) {
+    if (existing.limit === limit && existing.sourceThreadId === sourceThreadId && existing.root === saved.root) return existing.work;
+    await existing.work.catch(() => {});
+    return previewRead(backend, saved, limit, sourceThreadId);
+  }
+  const guard = () => {
+    if (!backend.saved.some(owner => owner.id === saved.id && owner.root === saved.root && owner.logicalProjectId === saved.logicalProjectId)) throw new Error('任务所有者已移除');
+    backend.lifecycleOperations.assertProject(saved.id);
+  };
+  const work = (async () => {
+    guard();
+    if (pending.active >= 2) await new Promise(resolve => pending.queue.push(resolve));
+    else pending.active++;
+    try {
+      guard();
+      const dataPath = join(backend.home, saved.id, 'state');
+      const [workspace, dataDir] = await Promise.all([realpath(saved.root), canonicalPending(dataPath)]);
+      guard();
+      const { stdout } = await executeCore(backend.binary, ['service', 'task-catalog', '--workspace', saved.root, '--data-dir', dataPath,
+        '--limit', String(limit), ...(sourceThreadId === undefined ? [] : ['--source-thread-id', sourceThreadId]), '--json'],
+      { env: backend.hooks.environment(), timeout: deadlineMs, maxBuffer: 2 * 1024 * 1024, windowsHide: true });
+      guard();
+      const value = JSON.parse(stdout), catalog = value?.catalog;
+      const invalid = () => { throw new Error('任务预览身份或数据格式不匹配'); };
+      if (value.version !== 1 || value.source !== 'published' || value.executionState !== 'unobserved'
+        || value.target?.workspace !== workspace || value.target?.dataDir !== dataDir
+        || value.target?.instanceId !== createHash('sha256').update(dataDir).digest('hex').slice(0, 24)) invalid();
+      if (catalog?.kind === 'empty' || catalog?.kind === 'requiresCore' && ['unbound', 'legacyFormat', 'readBudgetExceeded'].includes(catalog.reason)) return { data: [], hasMore: false };
+      if (catalog?.kind !== 'snapshot' || !/^[a-f0-9]{64}$/.test(catalog.rootDigest) || typeof catalog.hasMore !== 'boolean'
+        || !Array.isArray(catalog.data) || catalog.data.length > limit || catalog.data.some(task => !task || typeof task !== 'object'
+          || typeof task.id !== 'string' || !task.id || typeof task.objective !== 'string' || task.mode !== 'scheduled'
+          || !Number.isSafeInteger(task.revision) || task.revision < 0 || !Array.isArray(task.runs)
+          || sourceThreadId !== undefined && task.sourceThreadId !== sourceThreadId)) invalid();
+      return { data: catalog.data, hasMore: catalog.hasMore };
+    } finally {
+      const next = pending.queue.shift();
+      if (next) next();
+      else pending.active--;
+    }
+  })();
+  pending.flights.set(saved.id, { root: saved.root, limit, sourceThreadId, work });
+  try { return await work; }
+  finally { if (pending.flights.get(saved.id)?.work === work) pending.flights.delete(saved.id); }
+}
+
+async function previewCatalog(backend, request, selected, limit) {
+  const results = new Array(selected.length), queue = selected.map((saved, index) => ({ saved, index }));
+  await Promise.all(Array.from({ length: Math.min(2, queue.length) }, async () => {
+    while (queue.length) {
+      const { saved, index } = queue.shift(), projectId = saved.logicalProjectId ?? saved.id;
+      const logical = backend.saved.find(owner => owner.id === projectId);
+      const execution = saved.logicalProjectId ? { executionProjectId: saved.id } : {};
+      const projectName = logical?.projectless ? '独立任务' : backend.library.value.projects[projectId]?.title || (logical?.root ?? saved.root).split(/[\\/]/).pop();
+      try {
+        const value = await previewRead(backend, saved, limit, request.sourceThreadId);
+        results[index] = { data: value.data.map(task => ({ ...task, projectId, ...execution, projectName, scope: logical?.projectless ? 'independent' : 'project' })), hasMore: value.hasMore,
+          owner: { projectId, status: 'unobserved' } };
+      } catch (error) {
+        let message = error.message;
+        try { message = JSON.parse(error.stderr).error?.message || message; } catch {}
+        results[index] = { data: [], hasMore: false, owner: { projectId, status: 'error' },
+          error: { projectId, ...execution, projectName, code: 'TASK_CATALOG_PREVIEW_FAILED', message: backend.providers.redact(message).slice(0, 2048) } };
+      }
+    }
+  }));
+  const owners = new Map();
+  for (const { owner } of results) if (!owners.has(owner.projectId) || owner.status === 'error') owners.set(owner.projectId, owner);
+  return { source: 'published', executionState: 'unobserved', data: results.flatMap(result => result.data), errors: results.flatMap(result => result.error ? [result.error] : []),
+    hasMore: results.some(result => result.hasMore), owners: [...owners.values()],
+    ...(request.projectId === undefined ? {} : { projectId: request.projectId }), ...(request.requestId === undefined ? {} : { requestId: request.requestId }), ...(request.viewEpoch === undefined ? {} : { viewEpoch: request.viewEpoch }) };
+}
 
 function bounded(work, deadline, timeout) {
   let timer;
@@ -79,12 +170,13 @@ function ownerRead(backend, saved, inbox, limit, trace, sourceThreadId, deadline
 
 async function taskCatalog(backend, request) {
   const limit = request.limit ?? 30, inbox = request.operation === 'inbox';
-  if ((!inbox && request.operation !== 'list') || !Number.isSafeInteger(limit) || limit < 1 || limit > 1024) throw new Error('无效任务列表请求');
+  if ((!inbox && !['list', 'preview'].includes(request.operation)) || !Number.isSafeInteger(limit) || limit < 1 || limit > 1024) throw new Error('无效任务列表请求');
   if (request.sourceThreadId !== undefined && (inbox || typeof request.projectId !== 'string' || typeof request.sourceThreadId !== 'string' || !request.sourceThreadId || request.sourceThreadId.length > 256 || request.sourceThreadId.includes('\0'))) throw new Error('无效来源会话');
   const requested = request.projectId === undefined ? null : backend.saved.find(saved => saved.id === request.projectId);
   if (request.projectId !== undefined && !requested) throw new Error('任务所有者不存在');
   const logicalId = requested && (requested.logicalProjectId ?? requested.id);
   const selected = requested ? backend.saved.filter(saved => (saved.logicalProjectId ?? saved.id) === logicalId) : backend.saved;
+  if (request.operation === 'preview') return previewCatalog(backend, request, selected, limit);
   const trace = operationTrace('task_catalog', request);
   trace.advance('begin');
   const results = await Promise.all(selected.map(async saved => {

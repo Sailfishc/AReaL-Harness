@@ -146,6 +146,7 @@ version = "0.1.7-beta.3"
 dependencies = [
  "anyhow",
  "areal-config",
+ "areal-engine",
  "areal-local-service",
  "areal-protocol",
  "areal-server",
