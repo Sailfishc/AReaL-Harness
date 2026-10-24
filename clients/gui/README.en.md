@@ -23,7 +23,7 @@ The production UI package adoption scenario is `node clients/gui/scripts/migrati
 
 ## Development
 
-Run from the repository root with Node.js 22.19+, pnpm 11.7.0 and the repository Rust toolchain. Use the same Node.js 22 LTS version as CI for both packaging and validation:
+Run from the repository root with Node.js 22.19+ on 22 LTS, 24.11+ on 24 LTS, or 26+, pnpm 11.7.0 and the repository Rust toolchain. Use the same Node.js 22 LTS version as CI for both packaging and validation:
 
 ```sh
 make build
@@ -33,7 +33,15 @@ make gui
 
 `make gui-build` runs `pnpm install --frozen-lockfile` before building the renderer. `make gui` and `make gui-package` share this step, automatically synchronizing dependencies and installation records after branch or version changes. A lockfile mismatch stops the command without updating the lockfile. `pnpm --dir clients/gui typecheck` checks renderer and shared desktop contract JSDoc types (not all Electron CJS implementations); `pnpm --dir clients/gui run verify` checks the public source boundary. Before running standalone Node tests, run `pnpm --dir clients/gui build:desktop` to build the browser automation, browser data and interactive content package entry points. CI runs the same prerequisite before tests. This module has its own pnpm lockfile; existing SDKs retain npm. Dependencies use the public npm registry; initial Electron/Core tool installation needs network access.
 
-After installing locked dependencies, `make gui-install` explicitly runs the official Electron installer to download the pinned native runtime.
+After installing locked dependencies, Vite+ 1.4.0 supplies local checks and task orchestration without a global `vp` installation. `pnpm --dir clients/gui check` runs Oxlint and Oxfmt on final working-tree changes relative to `HEAD`, plus untracked files. Lint warnings fail the command. The gate checks whole changed files, not only changed lines. After committing, set `AREAL_CHECK_BASE=<base-commit>` to check branch changes. CI requires `AREAL_CHECK_BASE` or the existing `AREAL_DESIGN_BASE`; missing or unavailable baselines fail. The command does not stage, stash, or rewrite files. Run `pnpm --dir clients/gui check --fix` to explicitly fix selected files.
+
+`pnpm --dir clients/gui check:all` inventories all owned source. Existing files have not been reformatted in bulk, so this full check can fail. Check specific files with `pnpm --dir clients/gui exec vp check <file-paths>`. The `lint` and `fmt` scripts run Oxlint and Oxfmt separately. Generated directories, build outputs, and third-party static assets are excluded. Formatting also excludes Markdown, the lockfile, and dependency patches. TypeScript checks continue through the existing `typecheck`; this phase does not enable TypeScript Go.
+
+`verify`, `verify:design`, and `typecheck` use Vite+ tasks in the root `vite.config.mts`, preserving the existing checks and their order. The shared UI build cache explicitly tracks source, generators, documentation, configuration, and the lockfile, and restores `packages/ui/dist`. Git-baseline audits, desktop builds, and tests run every time. GUI CI saves the local task cache. To verify without caching, run `pnpm exec vp run --no-cache verify-suite` from `clients/gui`. Run `pnpm exec vp cache clean` to clear the cache.
+
+The renderer keeps Vite 7, desktop packages keep their current builders, and tests keep `node --test` and existing scenarios. A later `vp dev/build` migration needs separate checks for React, Tailwind, multiple entries, the remote shell, custom assets, and CJS loading. `vp pack` cannot directly replace UI generators or Electron/Core packaging, signing, and notarization.
+
+`make gui-install` explicitly runs the official Electron installer to download the pinned native runtime.
 
 `AREAL_CORE_BIN` selects an absolute trusted Core path; development defaults to `target/debug/areal`. Development data is isolated under `AReaL Harness GUI Dev/<checkout digest>`; installed builds use `AReaL Harness GUI`. Existing desktop installations and data are not imported or replaced. `AREAL_GUI_USER_DATA`, `AREAL_CORE_HOME`, and `AREAL_HARNESS_SERVICE_HOME` explicitly select isolated directories. Model configuration defaults to the CLI's `~/.areal/config.toml`; Core owns parsing, validation, and saving. `AREAL_HARNESS_HOME` changes the Core configuration home, and `AREAL_CORE_CONFIG` explicitly selects another file. Reads do not create configuration; Core creates the default file on first save. Configuration in old GUI isolated directories is not merged automatically.
 

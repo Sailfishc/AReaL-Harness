@@ -19,7 +19,7 @@ Web/PWA Remote v2 的实施边界见[架构](../../docs/design/remote-control.md
 
 ## 开发
 
-从仓库根执行，需 Node.js 22.19+、pnpm 11.7.0 及仓库 Rust 工具链；建议构建和验收均使用与 CI 一致的 Node.js 22 LTS：
+从仓库根执行，需 Node.js 22.19+（22 LTS）、24.11+（24 LTS）或 26+、pnpm 11.7.0 及仓库 Rust 工具链；建议构建和验收均使用与 CI 一致的 Node.js 22 LTS：
 
 ```sh
 make build
@@ -28,6 +28,14 @@ make gui
 ```
 
 `make gui-build` 构建 renderer 前先执行 `pnpm install --frozen-lockfile`；`make gui` 和 `make gui-package` 复用这一步，自动同步切换分支或版本更新后的依赖与安装记录。锁文件不匹配时停止，不自动更新锁文件。`pnpm --dir clients/gui typecheck` 检查界面类型及共享桌面契约的 JSDoc 类型（尚未覆盖整个 Electron CJS 实现），`pnpm --dir clients/gui run verify` 检查公开文件边界。独立运行 Node 测试前，先执行 `pnpm --dir clients/gui build:desktop` 构建浏览器自动化、浏览器数据与交互内容包的入口；CI 同样在测试前执行此步骤。此模块单独锁定 pnpm 依赖，不改变仓库 SDK 的 npm 工具链。依赖来自公开 npm registry；Electron 和 Core 工具首次安装需网络。
+
+Vite+ 1.4.0 提供本地检查和任务编排，不需要安装全局 `vp`。`pnpm --dir clients/gui check` 对相对 `HEAD` 的最终工作区改动与未跟踪文件运行 Oxlint 和 Oxfmt，并将 lint 告警视为失败。它检查整个改动文件，不是只检查改动行。提交后请设置 `AREAL_CHECK_BASE=<基线提交>` 检查分支改动；CI 必须提供 `AREAL_CHECK_BASE` 或已有的 `AREAL_DESIGN_BASE`，缺失或不可用时失败。此命令不暂存、stash 或改写文件。`pnpm --dir clients/gui check --fix` 显式修复选中文件。
+
+`pnpm --dir clients/gui check:all` 检查所有自有源码，供存量问题盘点。当前存量未批量格式化，全量检查可能失败。直接检查指定文件使用 `pnpm --dir clients/gui exec vp check <文件路径>`；`lint` 和 `fmt` 分别运行 Oxlint 和 Oxfmt。生成目录、构建产物及第三方静态资源不参与检查，Markdown、锁文件与依赖补丁不参与格式化。TypeScript 检查继续使用原有 `typecheck`，本阶段不启用 TypeScript Go。
+
+`verify`、`verify:design` 和 `typecheck` 由根 `vite.config.mts` 的 Vite+ 任务编排，保留现有检查和执行顺序。共享的 UI 构建缓存显式跟踪源码、生成器、文档、配置和锁文件，并恢复 `packages/ui/dist`。Git 基线审计、桌面构建和测试每次执行，避免把成功日志当作新一轮验收。GUI CI 保存本地任务缓存。需要排除缓存影响时，从 `clients/gui` 运行 `pnpm exec vp run --no-cache verify-suite`。需要清空缓存时运行 `pnpm exec vp cache clean`。
+
+Renderer 仍使用 Vite 7，桌面包仍沿用现有构建器，测试仍使用 `node --test` 与现有专项。后续 `vp dev/build` 迁移需单独验证 React、Tailwind、多入口、remote shell、自定义资源和 CJS 加载；`vp pack` 不能直接替代 UI 生成器或 Electron/Core 的打包、签名与公证流程。
 
 `make gui-install` 按锁文件安装依赖后，显式运行 Electron 官方安装器下载固定版本的原生运行时。
 
