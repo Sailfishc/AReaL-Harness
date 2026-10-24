@@ -160,8 +160,23 @@ async function assertCompactEffort() {
 }
 async function chooseEffort(name, key) {
   const slider = page.getByRole("slider", { name: "思考强度", exact: true });
-  if (await slider.count()) await slider.press(key);
-  else {
+  const hasSlider = await slider.count();
+  if (hasSlider) {
+    await page.evaluate(() => {
+      const input = document.querySelector('[aria-label="思考强度"]');
+      const editor = document.querySelector('[data-testid="chat-input"]');
+      const violations = [];
+      const observer = new MutationObserver(records => {
+        for (const record of records) {
+          if (record.target === input && record.attributeName === "disabled") violations.push("slider disabled");
+          if (record.target === editor && record.attributeName === "contenteditable") violations.push("editor editability changed");
+        }
+      });
+      observer.observe(document.body, { attributes: true, subtree: true, attributeFilter: ["disabled", "contenteditable"] });
+      window.effortContinuity = { observer, violations, input };
+    });
+    await slider.press(key);
+  } else {
     const choice = page.getByRole("group", { name: "选择思考强度", exact: true }).getByRole("button", { name, exact: true });
     await button("选择模型").focus();
     await page.keyboard.press("Tab");
@@ -171,6 +186,17 @@ async function chooseEffort(name, key) {
   }
   await page.waitForFunction(name => document.querySelector('[aria-label="思考强度"]')?.getAttribute("aria-valuetext") === name, name);
   assert.equal(await page.locator(".composer-effort-center strong").innerText(), name, "top label follows the saved selection");
+  if (hasSlider) {
+    await page.waitForFunction(() => !document.querySelector('.composer-model-trigger')?.hasAttribute('aria-busy'));
+    const continuity = await page.evaluate(() => {
+      const { observer, violations, input } = window.effortContinuity;
+      observer.disconnect();
+      delete window.effortContinuity;
+      return { violations, focused: document.activeElement === input };
+    });
+    assert.deepEqual(continuity.violations, [], "saving effort never disables the editor or blurs the slider");
+    assert.equal(continuity.focused, true, "keyboard effort changes retain slider focus");
+  }
 }
 async function saveProvider() {
   await button("保存").click();

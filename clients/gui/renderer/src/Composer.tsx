@@ -126,6 +126,8 @@ export function Composer({
     api.current?.focus();
   };
   const busy = useSyncExternalStore(subscribeSending, () => sending.has(key));
+  const [configurationRequestId, setConfigurationRequestId] = useState<string | null>(null);
+  const configuring = configurationRequestId !== null;
   const [files, setFiles] = useState<ComposerDraftAttachment[]>(() => attachmentDrafts.get(key) ?? []);
   const input = composerInput(text, files);
   useImageAnnotationRevision();
@@ -149,7 +151,7 @@ export function Composer({
   const [returning, setReturning] = useState(false);
   const running = thread.turns?.find((t: Data) => t.status === "inProgress");
   useEffect(() => { releaseSettledStops(project.id, thread); }, [project.id, thread]);
-  const pending = project.pending.some((p: Data) => p.params?.threadId === thread.id);
+  const pending = project.pending.some((p: Data) => p.params?.threadId === thread.id && p.params?.requestId !== configurationRequestId);
   const archived = thread.desktop?.archived;
   const questions = (project.state?.interactions?.[thread.id]?.data ?? [])
     .filter((item: Data) => item.status === "pending" && item.kind !== "approval" && !archived);
@@ -160,11 +162,12 @@ export function Composer({
     if (hadQuestion.current && !questions.length) api.current?.focus();
     hadQuestion.current = questions.length > 0;
   }, [questions.length]);
-  const baseDisabled = !project.state?.connected || !!project.observationErrors?.[thread.id] || archived || busy || pending || !!unknown || !!reviewDraft.error;
+  const baseDisabled = !project.state?.connected || !!project.observationErrors?.[thread.id] || archived || (busy && !configuring) || pending || !!unknown || !!reviewDraft.error;
   const queueEditor = useComposerQueueEdit({ project, threadId: thread.id, draftKey: key, action, readAction, api, draftFiles: attachmentDrafts,
     setText, setFiles, setGoalMode, annotationBlocked: annotationEditing || invalidAnnotation, inFlight: busy, setInFlight: active => markSending(key, active), uploadFiles: selected => uploadComposerFiles(action, project.id, thread.id, selected) });
-  const editorDisabled = baseDisabled || queueEditor.busy || queueEditor.locked;
-  const disabled = editorDisabled || executionBlocked;
+  // 配置写入仍占用提交锁，但不把草稿编辑和模型浮层切成消息发送态。
+  const editorDisabled = baseDisabled || (queueEditor.busy && !configuring) || queueEditor.locked;
+  const disabled = editorDisabled || executionBlocked || configuring;
   const compatibilityDescription = useId();
   const desktopUnsupported = project.desktopCapabilities?.currentCommands === false;
   const stop = () => {
@@ -356,8 +359,9 @@ export function Composer({
   const configure = async (values: Data) => {
     if (queueEditor.edit) return;
     if (disabled || running || sending.has(key)) return;
-    markSending(key, true);
     const requestId = crypto.randomUUID();
+    setConfigurationRequestId(requestId);
+    markSending(key, true);
     try {
       await action("configure", { projectId: project.id, threadId: thread.id, requestId, expectedRevision: config?.revision, ...values });
     } catch (cause) {
@@ -370,7 +374,7 @@ export function Composer({
         const outcome = (failure as RecoveryFailure).outcome;
         if (outcome && "operation" in outcome) composerDraftStorage.setItem(`${key}:pending-operation`, JSON.stringify(outcome.operation));
       } else setAdmissionError(recoveryMessage(failure));
-    } finally { markSending(key, false); }
+    } finally { setConfigurationRequestId(null); markSending(key, false); }
   };
   const catalogActions: ComposerCatalogEntry[] = [
     ...(onSide && !input.files.length && !sideContextCount && !isSide && !taskManagement && !matchMedia("(max-width: 640px)").matches ? ["side", "btw"].filter(name => !appEntries.some(entry => entry.value.toLowerCase() === name)).map(name => ({
@@ -466,8 +470,9 @@ export function Composer({
         project={project}
         contextControl={<ContextMeter key={`${project.id}:${thread.id}`} project={project} thread={thread} action={readAction} anchor={menuAnchor} />}
         modelConfig={config}
-        modelDisabled={disabled || !!queueEditor.edit || !!running || !config}
-        onConfigureModel={values => { void configure(values); }}
+        modelDisabled={editorDisabled || executionBlocked || !!queueEditor.edit || !!running || !config}
+        modelPending={configuring}
+        onConfigureModel={configure}
         triggerPanelContainer={menuAnchor}
         className={!queueEditor.edit ? approvals.length ? "hidden" : questions.length ? "interaction-composer-compact" : undefined : undefined}
         shellClassName="@container/composer"
@@ -487,7 +492,7 @@ export function Composer({
         disabled={editorDisabled}
         submitDisabled={workspaceReferencePending || disabled || (modelUnavailable && !queueEditor.edit && !creatingGoal) || (desktopUnsupported && !queueEditor.edit && !creatingGoal) || (taskManagement && !!running) || annotationEditing || invalidAnnotation || (queueEditor.edit ? queueEditor.saveDisabled || (!input.text.trim() && !input.files.length && !queueEditor.edit.attachments.length) : creatingGoal ? !input.text.trim() || !!running : !canContinue && emptyDraft)}
         submitDisabledReason={desktopUnsupported && !queueEditor.edit && !creatingGoal ? t("backend.updateRequired") : modelUnavailable && !queueEditor.edit && !creatingGoal ? t("chat.composer.previousModelUnavailable") : undefined}
-        submitting={busy}
+        submitting={busy && !configuring}
         submitLabel={queueEditor.edit ? "保存排队消息" : creatingGoal ? "开始目标" : canContinue ? "继续执行" : "发送"}
         enterSubmits={prefs.sendShortcut === "enter"}
         enableMentionPanel={false}

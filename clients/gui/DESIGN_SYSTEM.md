@@ -90,6 +90,8 @@ Tailwind 的 `text-ui-sm`、`rounded-overlay` 等直接消费同一套 Token。�
 
 审批按钮的 split 几何、Side 面板比例、Composer 紧凑布局是当前组合规则，不作为全局控件的新默认值。
 
+主 Composer 的模型配置保存与消息发送反馈分开：保存期间仍可编辑草稿，不播放发送中的 Spinner，也不通过禁用滑块打断焦点。`ConversationComposer.modelPending` 只锁定模型配置动作，发送入口仍由宿主阻止；滑块保留待保存位置，完成或失败后回到 Core 确认值。未知结果继续沿原恢复路径处理，不自动重试。
+
 ## 长文本统一采用渐进展示
 
 共享阅读方式、全文与原文关系由[深入查看与返回](../../design/patterns/inspect-and-return.md)维护。本节定义 GUI 的组件、测量、焦点与例外接线。
