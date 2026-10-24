@@ -148,7 +148,7 @@ class TemporaryWorktreeCacheTest(unittest.TestCase):
             makefile = self.old / "waiting.mk"
             makefile.write_text("wait:\n\t@echo ready\n\t@sleep 60\n")
             builder = subprocess.Popen(
-                ["make", "-f", str(makefile), "wait"],
+                ["make", "--no-print-directory", "-f", str(makefile), "wait"],
                 cwd=self.old,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
