@@ -140,6 +140,34 @@ try {
   await page.evaluate(() => localStorage.setItem('areal-gui:application-preferences', JSON.stringify({ nextPromptSuggestions: false })));
   await page.reload();
   await until(async () => (await state()).connection?.state === 'ready' && logical(await state())?.state?.connected, 'reloaded isolated preferences');
+  if (process.env.AREAL_PENDING_SCHEDULE_RECOVERY === '1') {
+    const scheduleDraft = { prepareId: randomUUID(), requestId, projectId, pending: true, text: 'Retained schedule intent' };
+    await page.evaluate(draft => localStorage.setItem('areal-gui:ordinary-schedule-creation', JSON.stringify(draft)), scheduleDraft);
+    await button('定时任务').click();
+    const checkStart = (await trace()).length;
+    await button('新建自动化').click();
+    await until(async () => (await trace()).slice(checkStart).some(call => call.kind === 'desktop-result' && call.name === 'reconcile'), 'schedule original request checked');
+    const scheduleCheck = (await trace()).slice(checkStart).find(call => call.kind === 'desktop-command' && call.name === 'reconcile');
+    assert.equal(scheduleCheck.request.requestId, requestId, 'Schedule recovery must reconcile the original request identity');
+    const leave = button('保留原记录，返回任务列表');
+    await leave.waitFor();
+    await capture('schedule-unknown');
+    page.once('dialog', dialog => dialog.accept());
+    await leave.click();
+    const retained = await page.evaluate(id => ({ active: localStorage.getItem('areal-gui:ordinary-schedule-creation'), retained: JSON.parse(localStorage.getItem(`areal-gui:retained-schedule-creation:${id}`) ?? 'null') }), requestId);
+    assert.equal(retained.active, null, 'Leaving recovery releases only the active draft slot');
+    assert.deepEqual(retained.retained, scheduleDraft, 'Original frozen schedule draft remains inspectable');
+    assert.ok(!(await trace()).slice(checkStart).some(call => call.kind === 'desktop-command' && call.name === 'create'), 'Leaving unknown creation never creates or replays a request');
+    await button('新建自动化').click();
+    await page.getByTestId('chat-input').waitFor();
+    await until(async () => (await page.getByTestId('chat-input').innerText()).includes('帮我创建一个定时任务'), 'fresh schedule conversation opens');
+    const creates = (await trace()).slice(checkStart).filter(call => call.kind === 'desktop-command' && call.name === 'create');
+    assert.equal(creates.length, 1, 'Explicit new schedule creates exactly one new conversation');
+    assert.notEqual(creates[0].request.requestId, requestId, 'Fresh schedule uses a new identity');
+    assert.equal(requests.length, 0, 'Recovery and opening a new schedule do not send the retained intent');
+    await capture('schedule-fresh');
+    checks.push('Unknown schedule can be retained without replay; explicit new creation opens a new real Core conversation');
+  }
   await createProjectConversation(page, 'workspace');
   const workspaceSettings = button('新会话工作区');
   await capture('00-workspace-settings');
