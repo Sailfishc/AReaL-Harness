@@ -1,3 +1,4 @@
+import { ScheduledWorkspace } from "@areal/ui/wip";
 import { recoveredOutcome, recoveryMessage, type RecoveryFailure } from "./recoveryPresentation.js";
 import { FeedbackNotice } from "./FeedbackNotice.js";
 import { activeScheduledTask, scheduledTaskStatus, ScheduledTaskControls, ScheduledTaskSummary } from "./ScheduledTasks.js";
@@ -203,7 +204,6 @@ export function TaskCenter({ projects: allProjects, connected, action, onOpenThr
   const [creationError, setCreationError] = useState("");
   const [creationTone, setCreationTone] = useState<"warning" | "error">("error");
   const [creationRequestId, setCreationRequestId] = useState<string>();
-  const [ownerFilter, setOwnerFilter] = useState("all");
   const creatingRequest = useRef(false);
   const [catalog, setCatalog] = useState<Record<string, OwnerRead>>({});
   const committedOwners = useRef(new Map<string, string>());
@@ -570,7 +570,7 @@ export function TaskCenter({ projects: allProjects, connected, action, onOpenThr
   const detailOpen = creating || !!task && !!project;
   const updatedTask = useCallback(() => { void refresh(); }, [refresh]);
   const closeDetails = () => { setCreating(false); setSelected(""); requestAnimationFrame(() => layout.current?.querySelector<HTMLButtonElement>('[aria-label="新建自动化"]')?.focus()); };
-  const visibleRows = listed.filter(row => (ownerFilter === "all" || row.projectId === ownerFilter) && (row.mode === "scheduled") && row.objective.toLowerCase().includes(search.toLowerCase()) && filters.includes(row.cancelled || finished(row) ? "已完成" : row.paused ? "已暂停" : "已开启"));
+  const visibleRows = listed.filter(row => (row.mode === "scheduled") && row.objective.toLowerCase().includes(search.toLowerCase()) && filters.includes(row.cancelled || finished(row) ? "已完成" : row.paused ? "已暂停" : "已开启"));
   const runHistory = task && project && <><div className="flex flex-wrap items-center gap-2">
     <Button size="sm" disabled={disabled || task.cancelled || !!activeRun || history.owner !== selected || !history.runNow} onClick={() => void control("taskRunNow")}>{t("operations.runNow")}</Button>
     {activeRun && <Button size="sm" variant="ghost" disabled={!connected || !project.state?.connected} onClick={() => activeRun.threadId ? onOpenThread(project.id, activeRun.threadId) : setDetailsOpen(true)}>{t("operations.viewCurrentRun")}</Button>}
@@ -593,46 +593,41 @@ export function TaskCenter({ projects: allProjects, connected, action, onOpenThr
   </div></details></>;
   return <section ref={layout} aria-label="自动化中心" className={`task-center text-ui-base ${detailOpen ? "has-detail" : ""} ${narrow ? "is-narrow" : ""}`}>
     <div className="task-center-toolbar">{navigation}<button className="icon-button" aria-label="前进" disabled><ArrowRight size={16}/></button><button className="icon-button" aria-label="切换任务侧栏" aria-expanded={!navCollapsed} onClick={() => setNavCollapsed(!navCollapsed)}><SidebarToggleIcon/></button></div>
-    <div className="task-center-body">
+    <ScheduledWorkspace>
     <div data-testid="task-center-list" className="task-center-list" hidden={navCollapsed || (narrow && detailOpen)}>
       <header className="task-list-heading"><h1>定时任务</h1><button aria-label="搜索定时任务" onClick={() => setSearching(!searching)}><Search size={16}/></button></header>
       {searching && <input autoFocus className="task-search" aria-label="搜索定时任务" placeholder="搜索" value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => {if(e.key === "Escape") {setSearching(false);setSearch("");}}}/>}
       <button className="task-new" aria-label="新建自动化" aria-pressed={creating} disabled={!connected} onClick={() => void beginCreate()}><Plus size={18}/>{t("operations.schedules.newTitle")}</button>
 
       <div className="task-list-subheading"><span>任务目录</span><DropdownMenu><DropdownMenuTrigger aria-label="筛选任务"><ListFilter size={16}/></DropdownMenuTrigger><DropdownMenuContent align="end">{["已开启","已暂停","已完成"].map(label => <DropdownMenuCheckboxItem key={label} checked={filters.includes(label)} onCheckedChange={checked => setFilters(values => checked ? [...values,label] : values.filter(v => v !== label))}>{label}</DropdownMenuCheckboxItem>)}</DropdownMenuContent></DropdownMenu></div>
-      <Select value={ownerFilter} items={[{ value: "all", label: t("operations.schedules.allOwners") }, ...projects.map(owner => ({ value: owner.id, label: projectLabel(owner) }))]} onValueChange={value => { if (value) setOwnerFilter(value); }}><SelectTrigger aria-label={t("operations.schedules.filterProject")} className="mx-2 mb-2"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">{t("operations.schedules.allOwners")}</SelectItem>{projects.map(owner => <SelectItem key={owner.id} value={owner.id}>{projectLabel(owner)}</SelectItem>)}</SelectContent></Select>
       <div className="task-list-scroll">
         {pending.length > 0 && <div><p role="alert">{t("operations.admissionUnknown")}</p>{pending.some((entry: Data) => entry.method === "areal/task/runNow") && <Button size="sm" variant="ghost" disabled={!connected || busy} onClick={() => { setError(""); void action("reconcile", { projectId: project?.id }).catch(cause => setError(cause.message)); }}>{t("operations.checkAdmission")}</Button>}</div>}
         {error && <p role="alert">{error}</p>}
-        <details className="task-owner-status"><summary>{t("operations.schedules.ownerStates")}</summary>{projects.map(owner => {
-          const read = catalog[owner.id];
-          return <div key={owner.id} data-task-owner-id={owner.id} data-load-status={read?.status ?? "unloaded"}><p role={read?.status === "error" ? "alert" : "status"}>{projectLabel(owner)} · {!read ? t("operations.schedules.unloaded") : read.status === "pending" ? t("operations.schedules.ownerLoading") : read.status === "ready" ? t("operations.schedules.ownerReady", { count: read.value.data.length }) : `${read.message}${read.previous ? " 当前显示上次读取的任务。" : ""}`}</p>{read?.status === "error" && <Button variant="ghost" onClick={() => void refresh(false, owner.id)} disabled={!connected} aria-label={`重试读取 ${projectLabel(owner)}`}>重试读取</Button>}</div>;
-        })}</details>
+        {failedProjects.length > 0 && <div className="task-catalog-error" role="status"><p>{t("operations.schedules.partialLoad")}</p><Button variant="ghost" size="sm" disabled={!connected || loading} onClick={() => void (async () => { for (const id of failedProjects) await refresh(false, id); })()} aria-label={t("operations.schedules.retryCatalog")}>{t("common.retry")}</Button></div>}
         {!connected && <p role="status">尚未确认最新状态，当前显示上次读取的任务。请连接后台后重试。</p>}
         {initialLoading && <p role="status">{listed.length ? "其余任务仍在读取…" : "正在读取任务…"}</p>}
-        <div className="task-list-rows">{visibleRows.map(row => {
-          const failed = failedProjects.includes(row.projectId);
-          const disconnected = !connected || !projects.find(owner => owner.id === row.projectId)?.state?.connected;
-          return <button key={`${row.projectId}:${row.id}`} data-task-id={row.id} type="button" aria-label={`打开自动化 ${row.objective}`} aria-pressed={`${row.projectId}:${row.id}` === selected} disabled={disconnected || failed} className={`task-list-row ${`${row.projectId}:${row.id}` === selected ? "bg-selected" : ""}`} onClick={() => {setCreating(false);setSelected(`${row.projectId}:${row.id}`);setError("");}}><span>{row.objective}</span><small>{row.scope === "independent" ? "独立任务" : row.projectName} · 定时任务</small><small>{row.deletedAt != null ? scheduledTaskStatus(row, t) : row.paused || row.cancelled || finished(row) ? taskStatus(row) : row.nextRunAt != null ? date(row.nextRunAt, scheduleZone(row)) : taskStatus(row)}</small>{failed && <small>读取失败 · 上次读取</small>}</button>;
-        })}</div>
-        {fresh && !visibleRows.length && <p>{moreAvailable ? "已加载任务中没有匹配项，可展开显示更多。" : "没有符合筛选条件的定时任务。"}</p>}
+        {([['已开启', (row: Data) => !row.paused && !row.cancelled && !finished(row)], ['已暂停', (row: Data) => row.paused && !row.cancelled && !finished(row)], ['已结束', (row: Data) => row.cancelled || finished(row)]] as const).map(([label, matches]) => {
+          const rows = visibleRows.filter(matches);
+          return rows.length > 0 && <ScheduledWorkspace.Group key={label} label={label === "已结束" ? t("operations.schedules.finishedGroup") : label}>{rows.map(row => <ScheduledWorkspace.Item key={taskKey(row)} data-task-id={row.id} aria-label={`打开自动化 ${row.objective}`} aria-pressed={taskKey(row) === selected} disabled={!connected || !projects.find(owner => owner.id === row.projectId)?.state?.connected || failedProjects.includes(row.projectId)} title={row.objective} description={row.deletedAt != null ? scheduledTaskStatus(row, t) : row.paused || row.cancelled || finished(row) ? taskStatus(row) : row.nextRunAt != null ? date(row.nextRunAt, scheduleZone(row)) : taskStatus(row)} onClick={() => {setCreating(false);setSelected(taskKey(row));setError("");}} />)}</ScheduledWorkspace.Group>;
+        })}
+        {fresh && !visibleRows.length && <p>{moreAvailable ? "已加载任务中没有匹配项，可展开显示更多。" : listed.length || search || filters.length < 3 ? "没有符合筛选条件的定时任务。" : t("operations.schedules.catalogEmpty")}</p>}
         {moreAvailable && <Button variant="ghost" disabled={!connected || loading} onClick={() => void refresh(true)}>展开显示</Button>}
       </div>
     </div>
     {creating && <main className="task-conversation" aria-label={t("operations.schedules.newLabel")}><header><h2>{t("operations.schedules.newTitle")}</h2><Button size="sm" variant="ghost" onClick={() => setCreating(false)}>{t("common.close")}</Button></header>{creationError && <FeedbackNotice tone={creationTone} requestId={creationRequestId} message={creationError} actions={<Button variant="ghost" size="sm" disabled={!connected || creatingRequest.current} onClick={() => void beginCreate()}>{t("recovery.checkOriginal")}</Button>} />}<div className="task-conversation-pending">{creationError ? <Button variant="ghost" disabled={!connected || creatingRequest.current} onClick={() => void beginCreate()}>{t("recovery.checkOriginal")}</Button> : <p role="status">{t("operations.schedules.opening")}</p>}</div></main>}
-    {!detailOpen && <main className="task-welcome"><div className="task-welcome-intro"><span className="task-clock"><CalendarClock size={44}/></span><h2>安排任务</h2><p>AReaL 可以帮你处理持续性任务，让你无需亲力亲为。</p></div><div className="task-examples">{([
+    {!detailOpen && <ScheduledWorkspace.Welcome icon={<CalendarClock size={32}/>} title="安排任务" description={t("operations.schedules.intro")}>{([
       [GitPullRequest,"检查仓库进展","检查我指定仓库的公开提交与 PR，整理进展和待处理事项。"],
       [ListChecks,"整理每日计划","回顾我提供的计划，整理当天待办和需要关注的事项。"],
       [Newspaper,"跟踪行业动态","整理最近的 AI 行业动态，附上原始来源。"],
       [FileSearch,"整理研究线索","回顾研究资料，整理关键发现和待验证的问题。"],
       [BookOpen,"每周知识回顾","回顾我提供的本周记录，总结结论与下一步。"],
       [Activity,"跟踪产品变化","检查我指定产品的公开更新，列出需要关注的变化。"],
-    ] as const).map(([Icon,title,description]) => <button key={title} onClick={() => void beginCreate(description)} disabled={!connected}><span><Icon size={24}/></span><div><h3>{title}</h3><p>{description}</p></div></button>)}</div></main>}
+    ] as const).map(([Icon,title,description]) => <ScheduledWorkspace.Template key={title} icon={<Icon size={18}/>} title={title} description={description} onClick={() => void beginCreate(description)} disabled={!connected} />)}</ScheduledWorkspace.Welcome>}
 
     {task && project && !creating && task.sourceThreadId && <ScheduledTaskConversation task={task} project={project} action={action} disabled={disabled} history={runHistory} onClose={closeDetails} onOpenThread={onOpenThread} renderConversation={renderConversation} renderResources={(owner, thread) => renderResources(owner, thread, { ...task, controlDisabled: disabled }, runHistory, revealKey)} />}
     {task && project && !creating && !task.sourceThreadId && <TaskDraft key={selected} projects={projects} initialProjectId={project.id} task={task} action={action} disabled={disabled} onClose={closeDetails} onCreated={updatedTask} onOpenModelSettings={onOpenModelSettings} renderConversation={renderConversation} renderResources={(owner, thread) => renderResources(owner, thread, {...task, controlDisabled: disabled, displayStatus: task.paused || task.cancelled || finished(task) ? taskStatus(task) : "已开启"}, runHistory, revealKey)} />}
 
-    </div>
+    </ScheduledWorkspace>
 
 
   </section>;

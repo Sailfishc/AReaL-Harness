@@ -1,3 +1,4 @@
+import { ScheduledWorkspaceExample } from "./scheduled-workspace-example.js";
 import { PackageControlsExamples } from "./package-controls-examples.js";
 import { WorktreeExamples } from "./package-worktree-examples.js";
 import { ComposerSurfaceExample, SettingsLayoutExample } from "./package-surface-examples.js";
@@ -59,6 +60,7 @@ function Example() {
         {draftAdded && <p role="status">已加入草稿</p>}
       </TaskContext></div>}
     </section>
+    {show("scheduled-workspace") && <ScheduledWorkspaceExample />}
     {show("subagent-panel") && <>{only && <Button variant="outline" onClick={() => setAgentsOpen(true)}>查看子代理</Button>}<SubagentPanel open={agentsOpen} agents={[{ id: "running", name: "独立交互检查", state: "running" }, { id: "done", name: "独立合同检查", state: "completed" }]}
       selectedId={selectedAgent} onSelect={setSelectedAgent} onClose={() => setAgentsOpen(false)}>
       <p>本地子任务历史样例：已读取规范并核对组件接口。</p>{selectedAgent === "running" ? <ThinkingStatus label={modelLabel} /> : <p>检查已完成，保留原记录。</p>}

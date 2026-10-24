@@ -196,6 +196,7 @@ export async function runUiLibrary(page, scratch, checks) {
     "wip",
     "workbench"
   ],
+  ["ScheduledWorkspace", "experimental", "wip", "workbench"],
   [
     "Select",
     "experimental",
