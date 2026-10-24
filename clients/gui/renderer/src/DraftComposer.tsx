@@ -16,6 +16,8 @@ import { useComposerSkills, transferComposerSkills, clearComposerSkills, readCom
 import { ComposerMcpIcon } from "./ComposerIcons.js";
 import { ComposerMcp } from "./ComposerMcp.js";
 import { useI18n } from "./i18n/IntlProvider.js";
+import { CircleAlert } from "lucide-react";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "./components/ui/dropdown-menu.js";
 import { FeedbackNotice } from "./FeedbackNotice.js";
 import { Button } from "./components/ui/button.js";
 import type { LexicalChatInputHandle } from "./LexicalChatInput.js";
@@ -234,7 +236,7 @@ export function DraftComposer({
     setFiles([]);
   };
   useEffect(() => {
-    if (!unknown || project.pending.length || stoppedCreation.current.has(unknown)) return;
+    if (!unknown || stoppedCreation.current.has(unknown)) return;
     const outcome = recoveredOutcome(project, unknown, "");
     if (!outcome || outcome.operation && outcome.operation.method !== "areal/thread/start") return;
     if (outcome.status === "failed" || outcome.accepted === false) {
@@ -491,7 +493,10 @@ export function DraftComposer({
           </div></>
         }
         leadingActions={
-          <>{!executionReady && preparationStatus}{executionReady && <ComposerPermissionMenu value={chosenProfile?.readOnly ? "readOnly" : permission} disabled={submitDisabled}
+          <>{unknown && <DropdownMenu><DropdownMenuTrigger render={<Button type="button" variant="ghost" size="icon-sm" aria-label={t("recovery.pendingAction")} title={t("recovery.checkOriginal")}><CircleAlert size={16} /></Button>} /><DropdownMenuContent>
+            <DropdownMenuItem disabled={checkingCreation} onClick={() => void checkCreation()}>{t("recovery.checkOriginal")}</DropdownMenuItem>
+            {creationChecked && <DropdownMenuItem disabled={checkingCreation} onClick={leaveCreationForInspection}>{t("worktree.leavePending")}</DropdownMenuItem>}
+          </DropdownMenuContent></DropdownMenu>}{!executionReady && preparationStatus}{executionReady && <ComposerPermissionMenu value={chosenProfile?.readOnly ? "readOnly" : permission} disabled={submitDisabled}
             permissionsSupported={project.core?.features?.permissionPresets === true}
             fullAccessAvailable={project.core?.features?.permissionFullAccess === true}
             lockedReadOnly={chosenProfile?.readOnly === true}

@@ -1,4 +1,6 @@
 export const commonMessages = {
+  "recovery.operationUnconfirmed": { "zh-CN": "操作结果待确认。", en: "The operation is unconfirmed." },
+  "recovery.pendingAction": { "zh-CN": "操作待确认", en: "Unconfirmed operation" },
   "content.diagramPreview": { "zh-CN": "预览图形", en: "Preview diagram" },
   "content.diagramSource": { "zh-CN": "查看源码", en: "View source" },
   "content.diagramUnavailable": { "zh-CN": "图形暂无法预览，可切换源码查看。", en: "Diagram preview unavailable. Switch to source to inspect it." },
@@ -68,8 +70,8 @@ export const commonMessages = {
 
   "recovery.details": { "zh-CN": "查看详情", en: "View details" },
   "recovery.requestId": { "zh-CN": "请求编号：{id}", en: "Request ID: {id}" },
-  "recovery.sendUnconfirmed": { "zh-CN": "发送结果尚未确认，草稿已保留，正在核对原请求。", en: "The send result is not confirmed yet. Your draft is saved while we check the original request." },
-  "recovery.createUnconfirmed": { "zh-CN": "任务创建结果待确认，草稿已保留，不会重复创建。", en: "Task creation is not confirmed yet. Your draft is saved, and the task will not be created again." },
+  "recovery.sendUnconfirmed": { "zh-CN": "发送结果待确认，输入已保留。", en: "The send result is not confirmed yet. Your draft is saved while we check the original request." },
+  "recovery.createUnconfirmed": { "zh-CN": "任务创建结果待确认。", en: "Task creation is unconfirmed." },
   "recovery.checkOriginal": { "zh-CN": "检查操作状态", en: "Check request status" },
   "startup.loading": { "zh-CN": "正在加载…", en: "Loading…" },
   "startup.delayed": { "zh-CN": "加载时间较长，历史和草稿已保留。", en: "Loading is taking longer. Your history and draft are saved." },

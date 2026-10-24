@@ -37,7 +37,7 @@ export function recoveredOutcome(project: Data, requestId: string, threadId: str
 }
 export function recoveryMessage(failure: RecoveryFailure, context: "operation" | "view" = "operation") {
   if (context === "operation" && (failure.submissionUnknown || failure.outcome?.kind === "admitted" || failure.outcome?.kind === "unconfirmed"))
-    return "操作结果尚未确认。正在核对原请求，不会自动重发。";
+    return "操作结果待确认。";
   if (/auth|credential|api.?key|unauthorized|鉴权|凭据/i.test(`${failure.reason ?? ""} ${failure.code ?? ""}`))
     return "无法完成操作，请检查模型服务的登录或凭据设置后重试。";
   if (failure.code === -32003 || /permission|forbidden|权限|denied/i.test(`${failure.reason ?? ""} ${failure.code ?? ""}`))

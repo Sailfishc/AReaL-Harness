@@ -2023,8 +2023,8 @@ function AppContent({ services }: { services: PlatformServices }) {
           </WorkspaceHeader>}
           {operationNotices.map(notice => (
             <FeedbackNotice key={notice.id} tone={notice.kind === "unconfirmed" ? "warning" : "error"}
-              transient={notice.kind !== "unconfirmed" && !notice.settings}
-              message={isTechnicalErrorMessage(notice.message) ? t("recovery.operationFailed") : notice.message} requestId={notice.requestId} onDismiss={() => dismissNotice(notice.id)}
+              transient
+              message={notice.kind === "unconfirmed" ? t("recovery.operationUnconfirmed") : isTechnicalErrorMessage(notice.message) ? t("recovery.operationFailed") : notice.message} requestId={notice.requestId} onDismiss={() => dismissNotice(notice.id)}
               detail={(notice.requestId || notice.detail || isTechnicalErrorMessage(notice.message)) ? <>
                 {notice.requestId && <div>{t("recovery.requestId", { id: notice.requestId })}</div>}
                 {(notice.detail || isTechnicalErrorMessage(notice.message)) && <pre>{notice.detail || notice.message}</pre>}

@@ -18,6 +18,7 @@ const entry = String.raw`
 import React,{useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {ToastHost} from '/src/ToastHost.tsx';
+import {FeedbackNotice} from '/src/FeedbackNotice.tsx';
 import {ApplicationIntlProvider} from '/src/i18n/IntlProvider.tsx';
 import {useAppearance,setApplicationPreferences} from '/src/settings/applicationPreferences.ts';
 import {WorktreeStarter} from '/src/WorktreeStarter.tsx';
@@ -39,6 +40,7 @@ if(params.get('actions')==='full')listing.worktrees[0].environment=environments[
 window.fixtureCalls=[];
 window.fixtureRecovery=params.has('recovery');
 if(window.fixtureRecovery){localStorage.setItem('fixture-draft','retain this input');localStorage.setItem('fixture-draft:pending-create','00000000-0000-4000-a000-000000000001');localStorage.setItem('fixture-draft:pending-create-request',JSON.stringify({projectId:'logical',requestId:'00000000-0000-4000-a000-000000000001',worktree:{ref:'main'}}));}
+if(params.get('recovery')==='accepted'){project.pending=[{params:{requestId:'unrelated-request'}}];project.outcomes['00000000-0000-4000-a000-000000000001']={accepted:true,status:'completed',operation:{requestId:'00000000-0000-4000-a000-000000000001',method:'areal/thread/start',target:{kind:'thread',threadId:'known-created'}},threadId:'known-created'};}
 const fixtureTurn=(id,text)=>({id,status:'completed',items:[{id:id+'-user',type:'userMessage',content:[{type:'text',text}]},{id:id+'-assistant',type:'agentMessage',phase:'final_answer',text:'Fixture response '+id}]});
 const action=async(name,params={})=>{
  window.fixtureCalls.push({name,params});
@@ -59,7 +61,8 @@ function Fixture(){
  window.updateEvents=(value,record)=>{setEvents(value);setCurrent(record);};
  window.setFixtureAppearance=({dark,size,reducedMotion})=>{setDark(dark);document.documentElement.classList.toggle('dark',dark);document.documentElement.style.setProperty('--ui-font-size',size+'px');document.documentElement.style.fontSize=size+'px';setApplicationPreferences({contentSize:size,reducedMotion:reducedMotion?'on':'off'});};
  if(params.has('messages')){const kind=params.get('messages');const thread={id:'worktree-thread',conversation:kind==='inherited'?{kind:'fork',historySeed:{snapshotId:'fixture-snapshot'}}:undefined,turns:[fixtureTurn('local-own',kind==='partial'?'Later paginated local prompt':'First own local prompt')],displayHistory:{supported:kind==='partial',complete:kind!=='partial',latestTurnComplete:true},worktree:{state:'ready',directory:'/fixture/new-trees/task-proof',branch:'areal/gui-proof'}};return <main className='h-full bg-background p-6 text-foreground'><Messages project={project} thread={thread} action={action} dark={dark} embedded readOnly onLink={()=>{}} onFile={()=>{}} onReview={()=>{}} readTurnReview={async()=>({})}/></main>;}
- if(window.fixtureRecovery)return <main className='p-6'><DraftComposer project={{...project,state:{connected:false}}} draftKey='fixture-draft' action={action} onOpen={async()=>{}} onPanel={()=>{}} /></main>;
+ if(params.has('toast'))return <main className='p-6'><button onClick={()=>setEvents(events=>[...events,{}])}>更新快照</button><FeedbackNotice requestId='same-request' tone={events.length>2?'error':'warning'} message='正在核对操作' actions={<button onClick={()=>window.fixtureCalls.push({name:'check'})}>核对通知</button>}/><FeedbackNotice requestId='same-request' tone={events.length>2?'error':'warning'} message='正在核对操作' actions={<button onClick={()=>window.fixtureCalls.push({name:'check'})}>核对通知</button>}/></main>;
+ if(window.fixtureRecovery)return <main className='p-6'><DraftComposer project={{...project,state:{connected:false}}} draftKey='fixture-draft' action={action} onOpen={async(pid,tid)=>window.fixtureCalls.push({name:'opened',params:{projectId:pid,threadId:tid}})} onPanel={()=>{}} /></main>;
  if(params.has('settings'))return <main className='h-full bg-background text-foreground'><UnsavedChangesProvider><SettingsPage title='Worktrees'><WorktreesSettings action={action} projects={listing.projects} onAddProject={async()=>{window.fixtureCalls.push({name:'addProject',params:{}});return undefined;}}/></SettingsPage></UnsavedChangesProvider></main>;
  if(params.has('sidebar'))return <main className='w-80 max-w-full p-3'><ul><MemoTaskItem id='ordinary' title='Ordinary conversation' active={false} pinned={false} running={false} attention={false} archived={false} disabled={false} onSelect={()=>{}} onRename={()=>{}} onPin={()=>{}} onArchive={()=>{}}/><MemoTaskItem id='bound' title='A long conversation title remains the primary sidebar content' worktree={{branch:'areal/a-very-long-branch-name',directory:'/fixture/new-trees/task-proof',state:'ready'}} active={true} pinned={false} unread={true} running={false} attention={false} archived={false} disabled={false} onSelect={()=>{}} onRename={()=>{}} onPin={()=>{}} onArchive={()=>{}}/><MemoTaskItem id='running' title='Running worktree conversation' worktree={{branch:'areal/gui-proof',directory:'/fixture/new-trees/task-proof',state:'settingUp'}} active={false} pinned={false} running={true} attention={false} archived={false} disabled={false} onSelect={()=>{}} onRename={()=>{}} onPin={()=>{}} onArchive={()=>{}}/></ul></main>;
  if(params.has('actions'))return <main className='p-6'><WorktreeActions projectId='logical' threadId='bound' worktree={{branch:'areal/gui-proof',directory:'/fixture/new-trees/task-proof'}} action={action}/></main>;
@@ -353,14 +356,36 @@ try {
     await capture("workspace-action-" + result);
   }
   checks.push("production workspace details expose only saved actions and distinguish running, succeeded, failed and unknown service results without duplicate submission");
+  await page.goto(base + "?recovery=accepted");
+  await page.waitForFunction(() => window.fixtureCalls.some(call => call.name === 'opened'));
+  assert.equal(await page.evaluate(() => localStorage.getItem('fixture-draft:pending-create')), null);
+  assert.equal(await page.evaluate(() => window.fixtureCalls.filter(call => call.name === 'opened').length), 1);
+  assert.equal(await page.evaluate(() => window.fixtureCalls.some(call => ['create','send'].includes(call.name))), false);
+  checks.push('a known creation receipt converges despite an unrelated pending project request, without create/send replay');
+  await page.goto(base + "?toast=1");
+  await page.getByTestId('toast').waitFor();
+  assert.equal(await page.locator('[data-recovery-request-id="same-request"]').count(), 1);
+  assert.equal(await page.getByTestId('feedback-notice').count(), 0);
+  await page.getByRole('button', { name: '核对通知', exact: true }).click();
+  assert.equal(await page.evaluate(() => window.fixtureCalls.filter(call => call.name === 'check').length), 1);
+  await page.getByRole('button', { name: '更新快照', exact: true }).click();
+  await page.mouse.move(0, 0);
+  await page.getByTestId('toast').waitFor({ state: 'hidden', timeout: 8000 });
+  await page.getByRole('button', { name: '更新快照', exact: true }).click();
+  assert.equal(await page.getByTestId('toast').count(), 0, 'same receipt is not announced again on snapshot updates');
+  await page.getByRole('button', { name: '更新快照', exact: true }).click();
+  await page.locator('[data-testid="toast"][data-tone="error"]').waitFor();
+  checks.push('same-request notices deduplicate into one actionable toast, expire and do not reappear on unrelated snapshots');
   await page.goto(base + "?recovery=1");
   await page.getByRole("button", { name: "检查操作状态", exact: true }).click();
-  const recover = page.getByRole("button", { name: "保留原结果，返回草稿", exact: true });
+  await page.getByRole("button", { name: "操作待确认", exact: true }).click();
+  const recover = page.getByRole("menuitem", { name: "保留原结果，返回草稿", exact: true });
   await recover.waitFor();
   page.once("dialog", dialog => dialog.dismiss());
   await recover.click();
   assert.notEqual(await page.evaluate(() => localStorage.getItem("fixture-draft:pending-create")), null);
   page.once("dialog", dialog => dialog.accept());
+  await page.getByRole("button", { name: "操作待确认", exact: true }).click();
   await recover.click();
   assert.equal(await page.evaluate(() => localStorage.getItem("fixture-draft:pending-create")), null);
   assert.equal(await page.evaluate(() => localStorage.getItem("fixture-draft")), "retain this input");

@@ -1,3 +1,5 @@
+import { recoveredOutcome, recoveryMessage, type RecoveryFailure } from "./recoveryPresentation.js";
+import { FeedbackNotice } from "./FeedbackNotice.js";
 import { activeScheduledTask, scheduledTaskStatus, ScheduledTaskControls, ScheduledTaskSummary } from "./ScheduledTasks.js";
 import { scheduleZone, runZone } from "./TaskRunConversations.js";
 import { useI18n } from "./i18n/IntlProvider.js";
@@ -199,6 +201,8 @@ export function TaskCenter({ projects: allProjects, connected, action, onOpenThr
   const [searching, setSearching] = useState(false), [search, setSearch] = useState("");
   const [filters, setFilters] = useState(["已开启","已暂停","已完成"]);
   const [creationError, setCreationError] = useState("");
+  const [creationTone, setCreationTone] = useState<"warning" | "error">("error");
+  const [creationRequestId, setCreationRequestId] = useState<string>();
   const [ownerFilter, setOwnerFilter] = useState("all");
   const creatingRequest = useRef(false);
   const [catalog, setCatalog] = useState<Record<string, OwnerRead>>({});
@@ -490,6 +494,15 @@ export function TaskCenter({ projects: allProjects, connected, action, onOpenThr
     catch (cause) { setControlView(null); if (current()) setError((cause as Error).message); await action("manage", { projectId: project.id, operation: "task", taskId: task.id }).catch(() => {}); }
     finally { mutation.current = false; setBusy(false); }
   };
+  const openCreatedSchedule = (draft: ScheduleCreation) => {
+    if (!draft.projectId || !draft.threadId) throw new Error("会话创建结果缺少身份，请核对原请求。");
+    const key = `areal-gui:draft:${draft.projectId}:${draft.threadId}`;
+    if (localStorage.getItem(key) == null) localStorage.setItem(key, draft.text);
+    onOpenThread(draft.projectId, draft.threadId);
+    localStorage.removeItem("areal-gui:ordinary-schedule-creation");
+    setCreating(false); setCreationError("");
+    requestAnimationFrame(() => window.dispatchEvent(new CustomEvent("areal-draft-change", { detail: key })));
+  };
   const beginCreate = async (text = "") => {
     if (creatingRequest.current || !connected) return;
     creatingRequest.current = true; setCreating(true); setCreationError("");
@@ -498,6 +511,7 @@ export function TaskCenter({ projects: allProjects, connected, action, onOpenThr
     try { saved = JSON.parse(localStorage.getItem(storageKey) ?? "null"); } catch { saved = null; }
     saved ??= { prepareId: crypto.randomUUID(), requestId: crypto.randomUUID(), text: `${t("operations.schedules.creationIntent")}${text}` };
     const draft = saved;
+    setCreationRequestId(draft.requestId);
     const persist = () => localStorage.setItem(storageKey, JSON.stringify(draft));
     try {
       persist();
@@ -506,13 +520,24 @@ export function TaskCenter({ projects: allProjects, connected, action, onOpenThr
         draft.projectId = owner.projectId; persist();
       }
       if (draft.pending) {
-        const result = await action("reconcile", { projectId: draft.projectId });
-        const outcome = result.outcomes?.[draft.requestId];
-        if (outcome?.status === "completed" && outcome.method === "areal/thread/start" && outcome.threadId) draft.threadId = outcome.threadId;
-        else if (outcome?.status === "failed") {
+        const record = await action("workspace", { projectId: draft.projectId, operation: "worktreeRead", requestId: draft.requestId });
+        if (record && ["failed", "cancelled"].includes(record.state)) {
           draft.pending = false; draft.requestId = crypto.randomUUID(); persist();
-          throw new Error(outcome.message ?? "会话创建已被拒绝，请重试。");
-        } else throw new Error("会话创建结果尚未确认。请核对原请求，不会重复创建。");
+          throw new Error(record.message ?? "会话创建未完成，请重试。");
+        }
+        if (record?.state === "ready" && record.threadId) {
+          draft.threadId = record.threadId; draft.pending = false; persist();
+        } else {
+          const result = await action("reconcile", { projectId: draft.projectId });
+          const outcome = recoveredOutcome({ outcomes: result.outcomes }, draft.requestId, "");
+          const method = outcome?.operation?.method ?? outcome?.method;
+          if (!record && outcome?.accepted === true && outcome.status === "completed" && method === "areal/thread/start" && outcome.threadId) {
+            draft.threadId = outcome.threadId; draft.pending = false; persist();
+          } else if (outcome?.status === "failed" && method === "areal/thread/start") {
+            draft.pending = false; draft.requestId = crypto.randomUUID(); persist();
+            throw new Error(outcome.message ?? "会话创建已被拒绝，请重试。");
+          } else throw Object.assign(new Error(t("recovery.createUnconfirmed")), { submissionUnknown: true, requestId: draft.requestId });
+        }
       }
       if (!draft.threadId) {
         draft.pending = true; persist();
@@ -524,16 +549,23 @@ export function TaskCenter({ projects: allProjects, connected, action, onOpenThr
           throw cause;
         }
       }
-      if (!draft.projectId || !draft.threadId) throw new Error("会话创建结果缺少身份，请核对原请求。");
-      const key = `areal-gui:draft:${draft.projectId}:${draft.threadId}`;
-      if (localStorage.getItem(key) == null) localStorage.setItem(key, draft.text);
-      onOpenThread(draft.projectId, draft.threadId);
-      localStorage.removeItem(storageKey);
-      setCreating(false);
-      requestAnimationFrame(() => window.dispatchEvent(new CustomEvent("areal-draft-change", { detail: key })));
-    } catch (cause) { setCreationError((cause as Error).message); }
+      openCreatedSchedule(draft);
+    } catch (cause) { setCreationTone((cause as RecoveryFailure).submissionUnknown || draft.pending ? "warning" : "error"); setCreationError(recoveryMessage(cause as RecoveryFailure)); }
     finally { creatingRequest.current = false; }
   };
+  useEffect(() => {
+    if (!creating || creatingRequest.current) return;
+    let draft: ScheduleCreation | null;
+    try { draft = JSON.parse(localStorage.getItem("areal-gui:ordinary-schedule-creation") ?? "null"); } catch { return; }
+    if (!draft?.pending || !draft.projectId) return;
+    const owner = allProjects.find(item => item.id === draft.projectId);
+    if (!owner) return;
+    const record = owner.worktreeOperations?.findLast((item: Data) => item.requestId === draft.requestId);
+    const outcome = recoveredOutcome(owner, draft.requestId, "");
+    const method = outcome?.operation?.method ?? outcome?.method;
+    const id = record?.state === "ready" ? record.threadId : !record && outcome?.accepted === true && outcome.status === "completed" && method === "areal/thread/start" ? outcome.threadId : undefined;
+    if (id) openCreatedSchedule({ ...draft, threadId: id });
+  }, [allProjects, creating, creationError]);
   const activeRun = task?.runs?.find((run: Data) => !terminal(run));
   const detailOpen = creating || !!task && !!project;
   const updatedTask = useCallback(() => { void refresh(); }, [refresh]);
@@ -587,7 +619,7 @@ export function TaskCenter({ projects: allProjects, connected, action, onOpenThr
         {moreAvailable && <Button variant="ghost" disabled={!connected || loading} onClick={() => void refresh(true)}>展开显示</Button>}
       </div>
     </div>
-    {creating && <main className="task-conversation" aria-label={t("operations.schedules.newLabel")}><header><h2>{t("operations.schedules.newTitle")}</h2><Button size="sm" variant="ghost" onClick={() => setCreating(false)}>{t("common.close")}</Button></header><div className="task-conversation-pending">{creationError ? <><p role="alert">{creationError}</p><Button variant="ghost" disabled={!connected || creatingRequest.current} onClick={() => void beginCreate()}>{t("operations.schedules.retryCreation")}</Button></> : <p role="status">{t("operations.schedules.opening")}</p>}</div></main>}
+    {creating && <main className="task-conversation" aria-label={t("operations.schedules.newLabel")}><header><h2>{t("operations.schedules.newTitle")}</h2><Button size="sm" variant="ghost" onClick={() => setCreating(false)}>{t("common.close")}</Button></header>{creationError && <FeedbackNotice tone={creationTone} requestId={creationRequestId} message={creationError} actions={<Button variant="ghost" size="sm" disabled={!connected || creatingRequest.current} onClick={() => void beginCreate()}>{t("recovery.checkOriginal")}</Button>} />}<div className="task-conversation-pending">{creationError ? <Button variant="ghost" disabled={!connected || creatingRequest.current} onClick={() => void beginCreate()}>{t("recovery.checkOriginal")}</Button> : <p role="status">{t("operations.schedules.opening")}</p>}</div></main>}
     {!detailOpen && <main className="task-welcome"><div className="task-welcome-intro"><span className="task-clock"><CalendarClock size={44}/></span><h2>安排任务</h2><p>AReaL 可以帮你处理持续性任务，让你无需亲力亲为。</p></div><div className="task-examples">{([
       [GitPullRequest,"检查仓库进展","检查我指定仓库的公开提交与 PR，整理进展和待处理事项。"],
       [ListChecks,"整理每日计划","回顾我提供的计划，整理当天待办和需要关注的事项。"],

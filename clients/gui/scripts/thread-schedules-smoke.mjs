@@ -276,6 +276,35 @@ async function protocolRecovery(taskId) {
   } finally { client.close(); }
 }
 
+async function recoverScheduledCreation() {
+  await app.evaluate(({ app }) => {
+    const require = process.getBuiltinModule('module').createRequire(app.getAppPath() + '/package.json');
+    const { ServiceConnection } = require('./src/core/service-client.cjs');
+    const request = ServiceConnection.prototype.request;
+    ServiceConnection.prototype.request = async function(method, params, ...rest) {
+      const result = await request.call(this, method, params, ...rest);
+      if (method === 'command' && params.name === 'create') globalThis.__scheduleCreateCalls = (globalThis.__scheduleCreateCalls ?? 0) + 1;
+      if (method === 'command' && params.name === 'create' && !globalThis.__scheduleLostCreation) {
+        globalThis.__scheduleLostCreation = { requestId: params.request.requestId, projectId: params.request.projectId, threadId: result.threadId, calls: 1 };
+        throw Object.assign(new Error('Fixture lost committed creation reply'), { submissionUnknown: true, requestId: params.request.requestId });
+      }
+      return result;
+    };
+  });
+  await page.getByRole("button", { name: "新建自动化", exact: true }).click();
+  await page.getByTestId("chat-input").waitFor();
+  await until(async () => !(await page.locator('.task-conversation-pending').count()), 'known committed creation opens without duplicate create');
+  const recoveredCreation = await app.evaluate(() => globalThis.__scheduleLostCreation);
+  assert.ok(recoveredCreation?.threadId && recoveredCreation.requestId);
+  assert.equal(await app.evaluate(() => globalThis.__scheduleCreateCalls), 1, "read-only recovery never repeats create");
+  assert.equal(await page.evaluate(() => localStorage.getItem('areal-gui:ordinary-schedule-creation')), null);
+  checks.push('a lost committed Scheduled creation reply recovers from its original ready record without another create');
+  const owner = (await snapshot()).projects.find(project => project.id === recoveredCreation.projectId);
+  assert.equal(owner.worktreeOperations.find(record => record.requestId === recoveredCreation.requestId).state, 'ready');
+  assert.equal(await page.getByTestId('areal-workbench').getAttribute('data-thread-id'), recoveredCreation.threadId);
+  return recoveredCreation;
+}
+
 console.log("Thread schedules GUI evidence:", evidence);
 try {
   app = await electron.launch({ executablePath: process.env.AREAL_ELECTRON_EXECUTABLE || require("electron"), args: [process.env.AREAL_GUI_TEST_APP_DIR || join(gui, "app")], env, timeout: 120000 });
@@ -298,6 +327,13 @@ try {
   await page.evaluate(() => window.arealDesktop.chooseProject());
   const project = await until(async () => (await snapshot()).projects.find(project => project.root === workspace && project.state?.connected), "isolated project ready");
   projectId = project.id;
+  if (process.argv.includes("--creation-recovery-only")) {
+    await page.getByRole("button", { name: "定时任务", exact: true }).click();
+    await recoverScheduledCreation();
+    assert.match(await page.getByTestId("chat-input").innerText(), /帮我创建一个定时任务/);
+    assert.equal(requests.length, 0, "recovered creation preserves the draft without sending it");
+    passed = true;
+  } else {
   await createProjectConversation(page, "workspace");
   await page.getByRole("button", { name: "更改权限", exact: true }).click();
   await page.getByRole("menuitemradio", { name: /^完全访问/ }).click();
@@ -381,8 +417,7 @@ try {
 
   await page.getByRole("button", { name: "定时任务", exact: true }).click();
   for (const entry of [A, B]) await page.getByRole("button", { name: `打开自动化 ${entry.objective}`, exact: true }).waitFor();
-  await page.getByRole("button", { name: "新建自动化", exact: true }).click();
-  await page.getByTestId("chat-input").waitFor();
+  await recoverScheduledCreation();
   const independentThread = await send("THREAD_SCHEDULE_CREATE_C 每天九点在独立工作目录检查。");
   const approval = await until(async () => (await snapshot()).projects.flatMap(project => project.state?.interactions?.[independentThread]?.data ?? []).find(item => item.kind === "approval" && item.status === "pending"), "independent source asks for exact schedule creation approval");
   assert.equal(approval.tool, "scheduled_task_create");
@@ -449,6 +484,7 @@ try {
   await protocolRecovery(A.id);
   assert.deepEqual(errors, []);
   passed = true;
+  }
 } catch (error) {
   errors.push(error.stack ?? String(error));
   if (page) {

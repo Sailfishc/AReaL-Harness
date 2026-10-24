@@ -7,7 +7,8 @@ import { composerDraftStorage } from "./composerDraftStorage.js";
 import { validateWorkspaceFileReference } from "./lib/workspaceFileComposer.js";
 import { stripGenUiModelContext } from "@areal/gen-ui/contract";
 import { useI18n } from "./i18n/IntlProvider.js";
-import { SettingsDisclosure } from "./settings/SettingsDisclosure.js";
+import { FeedbackNotice } from "./FeedbackNotice.js";
+import { CircleAlert } from "lucide-react";
 import { useComposerPrediction } from "./useComposerPrediction.js";
 import { ContextMeter } from "./ContextMeter.js";
 import { isOrdinaryConversation, interruptedConversationTurn } from "./ordinaryConversation.js";
@@ -421,20 +422,8 @@ export function Composer({
           e.currentTarget.value = "";
         }}
       />
-      {deliveryError && <p role="alert" className="notice">{deliveryError}</p>}
-      {unknown && (
-        <div role="status" className="notice" data-composer-recovery-request-id={unknown}>
-          {t("recovery.sendUnconfirmed")}
-          <SettingsDisclosure title={t("recovery.details")}>
-            <small className="break-all text-foreground-subtle">{t("recovery.requestId", { id: unknown })}</small>
-          </SettingsDisclosure>
-          <button
-            onClick={() => void readAction("reconcile", { projectId: project.id }).catch(() => {})}
-          >
-            {t("recovery.checkOriginal")}
-          </button>
-        </div>
-      )}
+      {deliveryError && <FeedbackNotice tone="error" message={deliveryError} onDismiss={() => setDeliveryError("")} />}
+      {unknown && <FeedbackNotice tone="warning" requestId={unknown} message={t("recovery.sendUnconfirmed")} actions={<Button variant="ghost" size="sm" onClick={() => void readAction("reconcile", { projectId: project.id }).catch(() => {})}>{t("recovery.checkOriginal")}</Button>} />}
       {planReady && !queueEditor.edit && <section className="flex items-center justify-between gap-3 px-3 py-2 text-ui-sm" aria-label="计划确认">
         <span className="text-foreground-subtle">计划已完成。批准后将以自动编辑模式执行。</span>
         <Button size="sm" disabled={disabled || modelUnavailable || desktopUnsupported || !!input.text.trim() || !!input.files.length || !!comments.length} aria-describedby={desktopUnsupported ? compatibilityDescription : undefined} title={desktopUnsupported ? t("backend.updateRequired") : undefined} onClick={() => void submit("按上方已确认的计划执行。", false, true)}>批准并执行</Button>
@@ -556,7 +545,7 @@ export function Composer({
             ),
         )}
         leadingActions={
-          <><ComposerPermissionMenu value={executionPermission}
+          <>{unknown && <Button type="button" variant="ghost" size="icon-sm" aria-label={t("recovery.pendingAction")} title={t("recovery.checkOriginal")} onClick={() => void readAction("reconcile", { projectId: project.id }).catch(() => {})}><CircleAlert size={16} /></Button>}<ComposerPermissionMenu value={executionPermission}
             configuration={config}
             permissionsSupported={project.core?.features?.permissionPresets === true}
             fullAccessAvailable={project.core?.features?.permissionFullAccess === true}

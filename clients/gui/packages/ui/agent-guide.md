@@ -44,3 +44,5 @@ Worktree界面从[选择合同](src/worktree/worktree-picker/worktree-picker.md)
 混合内容从`@areal/ui/content`的严格`areal-ui`注册表进入，NativeContent只展示六类只读数据。普通说明优先Markdown；不要为单个事实强制生成卡片。无效/未知数据必须保留原文入口，不新增HTML、URL、样式、动作脚本或任意组件名。Gen UI和MCP Apps继续走原制品/工具宿主，不能用原生内容目录绕过审批。
 
 审批复用DecisionCard的摘要、默认折叠details和固定操作页脚；问题复用QuestionCard。业务控制器决定提交、草稿与UNKNOWN，选择不等于提交，收起不等于解决。所有包内实例使用同目录MD，不让展示包读取Core或Desktop权限。
+
+操作反馈，包括有核对或设置动作的UNKNOWN提示，统一用原ToastHost/NotificationToast通道，按requestId去重并默认5秒消失。不要新增顶部或Composer大错误卡片。状态本身和草稿不随通知消失而清除，必要核对由Composer小标识进入；已确认的原创建回执/Worktree就绪记录应正常收敛，不被无关pending阻塞。

@@ -39,7 +39,7 @@ exports: ["FeedbackNotice"]
 
 ## 规则
 
-这是有恢复动作的持久状态，和短时NotificationToast分开。组件不核对请求、不重试未知操作，详情与动作由宿主提供。
+这是底层纯展示表面，不用于新的操作通知。生产renderer适配默认经ToastHost显示统一短时NotificationToast，包含核对动作；真正的任务事实由原专用状态组件呈现。组件不核对请求、不重试未知操作。
 
 ## 示例
 
