@@ -2,8 +2,8 @@
 id: tooltip
 title: Tooltip
 summary: 辅助提示，沿用现有生产实现与交互。
-status: experimental
-entry: wip
+status: stable
+entry: index
 layer: core
 category: overlay
 aliases: ["辅助提示"]

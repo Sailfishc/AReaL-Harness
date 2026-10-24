@@ -1,5 +1,7 @@
 # AReaL GUI 设计系统 v1
 
+**只是使用设计系统**（写页面、选组件、写样式）：读 [@areal/ui](../packages/ui/README.md) 与 [Token 速查](../packages/ui/src/generated/tokens.md) 即可，规则的理由在 [design/](../../../design/README.md)。本目录下面的内容面向维护者：交互分类、页面合同、Base 准入、证据与自动化。
+
 GUI 设计知识与后续 Web 复用边界从[设计文档](../../../design/README.md)进入。本目录保留 GUI 设计与 Agent 实现合同。目标是让同类任务得到同类页面：先选已有组合与控件，再填入业务内容。适用于桌面 renderer；Remote 复用组件时遵循同一展示合同，原生平台适配仍归各自所有者。
 
 ## 当前阶段

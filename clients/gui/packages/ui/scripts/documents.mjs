@@ -44,17 +44,17 @@ export async function buildDocuments(check = false) {
         const target = resolve(dirname(path), name);
         assert.ok(target.startsWith(resolve(root, "src") + "/"), `import escapes UI: ${name}`);
         if (path.startsWith(resolve(root, "src/components") + "/") || path === resolve(root, "src/index.ts"))
-          assert.ok(!["conversation", "worktree", "workbench"].some(layer => target.startsWith(resolve(root, `src/${layer}`) + "/")), `core imports domain: ${relative(root, path)} -> ${name}`);
+          assert.ok(!["conversation", "settings", "worktree", "workbench"].some(layer => target.startsWith(resolve(root, `src/${layer}`) + "/")), `core imports domain: ${relative(root, path)} -> ${name}`);
       }
     }
   }
   const components = [];
-  for (const path of srcFiles.filter(path => path.endsWith(".md"))) {
+  for (const path of srcFiles.filter(path => path.endsWith(".md") && !path.includes("/src/generated/"))) {
     const markdown = await readFile(path, "utf8");
     const data = parseComponentMetadata(markdown, path);
     assert.ok(/^[a-z][a-z-]+$/.test(data.id));
-    assert.ok(["core", "conversation", "worktree", "workbench"].includes(data.layer), `unknown layer: ${path}`);
-    assert.equal(data.layer, path.includes("/src/conversation/") ? "conversation" : path.includes("/src/worktree/") ? "worktree" : path.includes("/src/workbench/") ? "workbench" : "core", `layer/source mismatch: ${path}`);
+    assert.ok(["core", "conversation", "settings", "worktree", "workbench"].includes(data.layer), `unknown layer: ${path}`);
+    assert.equal(data.layer, path.includes("/src/conversation/") ? "conversation" : path.includes("/src/settings/") ? "settings" : path.includes("/src/worktree/") ? "worktree" : path.includes("/src/workbench/") ? "workbench" : "core", `layer/source mismatch: ${path}`);
     if (data.layer !== "core") assert.equal(data.entry, "wip", "domain components remain experimental");
     assert.equal(data.status, data.entry === "index" ? "stable" : "experimental", `status/entry mismatch: ${path}`);
     for (const name of data.exports) assert.ok(entries[data.entry]?.has(name), `documented export does not exist: ${name}`);
@@ -72,10 +72,11 @@ export async function buildDocuments(check = false) {
     if (/^[A-Z]/.test(name)) assert.ok(components.filter(component => component.exports.includes(name) && component.entry === entry).length === 1, `missing contract for export ${name}`);
   }
   await writeOrCheck(resolve(root, "dist/components.json"), JSON.stringify({ schemaVersion: 1, name: pkg.name, version: pkg.version, private: pkg.private, components }, null, 2) + "\n", check);
-  const index = `# ${pkg.name} ${pkg.version}\n\nLocal workspace package; private, not published.\n\n- [Agent guide](docs/ui/agent-guide.md): adoption order, source owners and verification.\n` +
+  const index = `# ${pkg.name} ${pkg.version}\n\nLocal workspace package; private, not published.\n\n- [Agent guide](docs/ui/agent-guide.md): adoption order, source owners and verification.\n- [Token reference](docs/ui/tokens.md): every CSS variable with default value and purpose.\n` +
     components.map(component => `- [${component.title}](docs/ui/${component.id}.md): ${component.summary} (${component.status}, @areal/ui${component.entry === "wip" ? "/wip" : ""}).`).join("\n") + "\n";
   await writeOrCheck(resolve(root, "dist/llms.txt"), index, check);
   await writeOrCheck(resolve(root, "dist/docs/agent-guide.md"), await readFile(resolve(root, "agent-guide.md"), "utf8"), check);
+  await writeOrCheck(resolve(root, "dist/docs/tokens.md"), await readFile(resolve(root, "src/generated/tokens.md"), "utf8"), check);
   if (!check) for (const path of srcFiles.filter(path => path.endsWith(".css"))) {
     const output = resolve(root, "dist", relative(resolve(root, "src"), path));
     await mkdir(dirname(output), { recursive: true }); await copyFile(path, output);

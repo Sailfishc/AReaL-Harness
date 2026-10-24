@@ -2,8 +2,8 @@
 id: select
 title: Select
 summary: 单选菜单，沿用现有生产实现与交互。
-status: experimental
-entry: wip
+status: stable
+entry: index
 layer: core
 category: control
 aliases: ["单选菜单"]

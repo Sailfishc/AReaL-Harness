@@ -1,1 +1,1 @@
-export { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@areal/ui/wip";
+export { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@areal/ui";

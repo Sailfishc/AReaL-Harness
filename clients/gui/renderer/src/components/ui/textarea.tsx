@@ -1,1 +1,1 @@
-export { Textarea } from "@areal/ui/wip";
+export { Textarea } from "@areal/ui";

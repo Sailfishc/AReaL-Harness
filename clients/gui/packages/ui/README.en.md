@@ -2,36 +2,35 @@
 
 # @areal/ui
 
-A private workspace package for AReaL's CSS foundations, React controls, component contracts and agent entry points. It uses the existing AReaL visual language. Nothing is published to npm.
+Foundations, React components and component contracts for the AReaL GUI. A private workspace package, not published to npm. Consumers declare `"@areal/ui": "workspace:*"` and build this package first (GUI scripts already chain it).
 
-GUI consumers declare `"@areal/ui": "workspace:*"`. Build the package before the consumer. Workspace resolution uses the local package; the version does not download a similarly named npm package.
+## Usage
 
 ```tsx
-import { Button } from "@areal/ui";
-import { Disclosure } from "@areal/ui/wip";
+import { Button, Select, Tooltip } from "@areal/ui";          // stable entry
+import { ComposerActionButton, SettingsRow } from "@areal/ui/wip"; // experimental entry and domain compositions
 ```
 
-The host uses React 19, Base UI and Tailwind 4. Import `@areal/ui/styles.css` after Tailwind. AReaL's renderer retains the remaining theme aliases and applies saved appearance preferences. `foundation.css` exposes the adopted CSS variables; optional `themes.css` exposes the generated default light/dark palette, using the same pure implementation as the renderer.
+The host uses React 19, Base UI and Tailwind 4. Import `@areal/ui/styles.css` (foundations and core component styles) and `@areal/ui/themes.css` (default light/dark palette) after Tailwind. Domain compositions import their own styles: `conversation.css`, `settings.css`, `workbench.css`, `worktree.css`, `notifications.css`.
 
-Run `pnpm --filter @areal/ui generate` after editing tokens, `build` for JavaScript/types/CSS/documentation outputs, and `check` for drift, boundaries, export metadata and generator regression checks. GUI scripts build this dependency before their consumers.
+| Looking for | Where |
+| --- | --- |
+| A variable's name, default value and purpose | [Token reference](src/generated/tokens.md) (generated) |
+| Which components exist and which entry exports them | build output `dist/components.json`, `dist/llms.txt`, or the design site `design-system.html?ui-library` |
+| When to use a component, its states, keyboard and rules | the Markdown contract next to the component |
+| Order for choosing components and changing the system | [Agent guide](agent-guide.md) |
+| Layer and maturity rules | [Components](../../../../design/components/README.md#分层) |
 
-Source values live in tokens.json; generated foundation, Tailwind mappings and theme defaults live in src/generated. Theme derivation lives in src/theme.ts. Component descriptions sit next to their code; API text comes from TypeScript declaration output. The existing design site provides live examples and serves components.json, llms.txt and Markdown copies from the built package.
+## Layers and maturity
 
-Each catalog component has a Markdown file beside its implementation, covering use, anatomy, states, behavior, content, accessibility, rules and examples. Metadata uses a small YAML-compatible subset with inline JSON arrays for aliases/related. The generator checks structure and related targets. The site shows metadata, raw Markdown and an interactive component example from the same index, without maintaining a second props or document catalog.
+`src/components` (core) holds general controls; `src/settings`, `src/conversation`, `src/workbench` and `src/worktree` hold domain compositions. Core cannot import other layers, and no component may import the renderer, Core, Node or Electron.
 
-Button is stable within the existing internal scope. Disclosure, ActivityGroup, ImageDisclosure and TaskContext are experimental exports from `@areal/ui/wip`. Conversation compositions live in src/conversation; core controls in src/components cannot import them. Import `@areal/ui/conversation.css` for their appearance. Design previews and production conversations consume these compositions. Existing renderer owners retain authoritative state and navigation.
+A core component used by three or more production files moves to the stable entry `@areal/ui`; domain compositions stay in `@areal/ui/wip`. `dist/components.json` lists the current members.
 
-TaskContext composes Section, Item and Sources for changes, projects, subagents and input references. Components own presentation and reading interactions. The host supplies authoritative state, resource readers, narrow-layout navigation and focus restoration. Product controllers retain their renderer owners. See [the agent entry](agent-guide.md) and the repository's design architecture for adoption and scope.
+## Changing the system
 
-Experimental SubagentPanel groups the full list by independent child state, expands long completed lists and preserves reading state on return from host-supplied history. ThinkingStatus scans text brightness from left to right, uses static text with reduced motion and stops looping when hidden or in a background tab. Both retain experimental exports; production adoption does not automatically promote their APIs or the Base scope.
+1. Edit foundation values in [tokens.json](tokens.json) and palette derivation in [src/theme.ts](src/theme.ts). Update a component's Markdown contract together with its implementation.
+2. Run `pnpm --filter @areal/ui generate`, then `build` and `check`. Generated files live in `src/generated`; do not edit them by hand.
+3. From `clients/gui`, run `node scripts/design-system-audit.mjs` and `pnpm typecheck`, then verify the affected screens.
 
-ThinkingStatus accepts an exposed model progress summary through label and transitions when it changes; absent summaries fall back to Thinking. The product's top button controls the task context card, separately from resource readers. Research and design choices remain in the existing conversation-flow specification and references.
-
-ComposerSurface/ComposerToolbar provide the shared input layout for main chat, Side and drafts; import conversation.css. SettingsPage/Section/GroupCard/Row provide the existing settings layout; import settings.css. Both groups use the wip entry with colocated Markdown and interactive state examples. Existing renderer paths re-export the same implementation. Editors, model and permission selection, submission, configuration values, save receipts and navigation guards retain their original host owners.
-
-Worktree domain compositions live in src/worktree, use the wip entry and worktree.css, and include colocated contracts and standalone examples for selection, preparation, directories, environment settings and workspace details. NotificationToast provides four semantic levels through notifications.css, with a five-second default and hover/focus pause. The existing ToastHost retains the application notification channel.
-
-Shared controls, settings editors/selectors, decision cards, code/diff and Markdown readers, attachments, command details and workbench compositions now live in this package. Import `@areal/ui/workbench.css` for workbench layouts. Renderer adapters retain localization, saved preferences and business bindings. The `exports` metadata groups related subcomponents under one colocated Markdown contract; the generator rejects missing or duplicate ownership. See [the migration inventory](../../design-system/component-migration.md) for boundaries.
-
-
-Experimental NativeContent and QuestionCard compositions are available. `@areal/ui/content` provides strict read-only data validation, block projection and text fallback; `@areal/ui/math-text` provides single-dollar math normalization. The native catalog has no execution actions. Existing hosts retain requests and artifacts. `design-system.html?content-system` demonstrates the shared components.
+The host (renderer) keeps user preferences, business state, localization and execution wiring; see [D-004](../../../../design/decisions/004-local-ui-package.md).

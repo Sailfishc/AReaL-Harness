@@ -53,7 +53,7 @@ export function ComposerCatalogTrigger({
                 ref={trigger}
                 type="button"
                 variant="ghost"
-                size="icon-md"
+                size="icon"
                 aria-label="添加功能与 Skills"
                 aria-haspopup="listbox"
                 aria-expanded={open}

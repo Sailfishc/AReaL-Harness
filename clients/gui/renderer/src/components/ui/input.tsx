@@ -1,1 +1,1 @@
-export { Input, inputVariants, type InputProps } from "@areal/ui/wip";
+export { Input, inputVariants, type InputProps } from "@areal/ui";

@@ -25,9 +25,6 @@ const buttonVariants = cva(
         warning:
           "bg-warning text-warning-foreground hover:bg-warning/90 focus-visible:border-warning/40 focus-visible:ring-warning/20 aria-expanded:bg-warning aria-expanded:text-warning-foreground",
         link: "text-primary underline-offset-4 hover:underline",
-        // 主与 Side 的输入动作共用外观，发送/停止仍由调用方处理。
-        composer:
-          "composer-primary-action rounded-pill gap-1 bg-foreground text-ui-base text-background hover:bg-foreground/90 disabled:bg-secondary disabled:text-foreground-subtlest disabled:opacity-100",
       },
       size: {
         default:
@@ -39,8 +36,6 @@ const buttonVariants = cva(
         "icon-xs":
           "size-control-xs rounded-sm [&_svg:not([class*='size-'])]:size-2.5",
         "icon-sm": "size-control-sm [&_svg:not([class*='size-'])]:size-3",
-        "icon-md":
-          "size-control rounded-button [&_svg:not([class*='size-'])]:size-4",
         "icon-lg":
           "size-control-lg rounded-button [&_svg:not([class*='size-'])]:size-4",
       },

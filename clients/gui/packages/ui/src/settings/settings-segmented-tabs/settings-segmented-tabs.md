@@ -4,7 +4,7 @@ title: SettingsSegmentedTabs
 summary: 设置值的分段切换。
 status: experimental
 entry: wip
-layer: core
+layer: settings
 category: composition
 aliases: ["设置值的分段切换"]
 related: ["button"]

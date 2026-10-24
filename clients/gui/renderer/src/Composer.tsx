@@ -1,3 +1,4 @@
+import { ComposerActionButton } from "@areal/ui/wip";
 import { parseMentionMarkdown } from "./mentions/mentionMarkdown.js";
 import { stopConversationTurn, releaseSettledStops } from "./conversationStop.js";
 import { ConversationSelectionReferences } from "./ConversationSelectionReferences.js";
@@ -565,30 +566,30 @@ export function Composer({
           </div>}</>
         }
         onCancel={queueEditor.edit ? () => { if (!executionBlocked) void queueEditor.cancel(); } : running ? stop : undefined}
-        submitControl={queueEditor.edit ? <Button type="button" size="icon-md" aria-label="保存排队消息" data-testid={submitTestId} disabled={workspaceReferencePending || disabled || queueEditor.saveDisabled || (!input.text.trim() && !input.files.length && !queueEditor.edit.attachments.length)}
+        submitControl={queueEditor.edit ? <Button type="button" size="icon" aria-label="保存排队消息" data-testid={submitTestId} disabled={workspaceReferencePending || disabled || queueEditor.saveDisabled || (!input.text.trim() && !input.files.length && !queueEditor.edit.attachments.length)}
           className="composer-primary-action" onClick={() => void saveQueueEdit()}><SendMessageIcon className="size-5" /></Button> : running && !input.text.trim() && !input.files.length && !comments.length && !skills.selected.length && !mcpDraft.length && !references.length ? (
           <ControlHintTooltip title={ordinary ? "暂停执行" : "停止"} shortcut="Esc">
-            <Button type="button" variant="secondary" size="icon-md" className="composer-primary-action composer-stop-action" aria-label={ordinary ? "暂停执行" : "停止"} disabled={executionBlocked}
+            <Button type="button" variant="secondary" size="icon" className="composer-primary-action composer-stop-action" aria-label={ordinary ? "暂停执行" : "停止"} disabled={executionBlocked}
               onClick={() => { stop(); api.current?.focus(); }}>
               <StopIcon className="size-4" />
             </Button>
           </ControlHintTooltip>
         ) : running ? (
           <ControlHintTooltip title={desktopUnsupported ? t("backend.updateRequired") : "发送"} shortcut={prefs.sendShortcut === "enter" ? "Enter" : "⌘/Ctrl+Enter"}>
-            <Button type="button" variant="composer" size="icon-md" aria-label="发送" data-testid={submitTestId}
+            <ComposerActionButton type="button" size="icon" aria-label="发送" data-testid={submitTestId}
               aria-describedby={desktopUnsupported ? compatibilityDescription : undefined} title={desktopUnsupported ? t("backend.updateRequired") : undefined}
               disabled={disabled || modelUnavailable || desktopUnsupported || taskManagement || (!input.text.trim() && !input.files.length && !comments.length && !skills.selected.length && !mcpDraft.length && !references.length)}
               onClick={event => void submit(api.current?.getMarkdown() ?? text, event.metaKey || event.ctrlKey)}>
               <SendMessageIcon className="size-5" />
-            </Button>
+            </ComposerActionButton>
           </ControlHintTooltip>
         ) : canContinue ? (
           <ControlHintTooltip title={desktopUnsupported ? t("backend.updateRequired") : "继续执行"}>
-            <Button type="button" variant="composer" size="icon-md" aria-label="继续执行" data-testid="chat-continue-button"
+            <ComposerActionButton type="button" size="icon" aria-label="继续执行" data-testid="chat-continue-button"
               aria-describedby={desktopUnsupported ? compatibilityDescription : undefined} title={desktopUnsupported ? t("backend.updateRequired") : undefined}
               disabled={disabled || modelUnavailable || desktopUnsupported} className="composer-primary-action" onClick={() => void continueExecution()}>
               <ContinueExecutionIcon className="size-5" />
-            </Button>
+            </ComposerActionButton>
           </ControlHintTooltip>
         ) : undefined}
 

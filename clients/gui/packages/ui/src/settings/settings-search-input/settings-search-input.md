@@ -1,25 +1,25 @@
 ---
-id: settings-select
-title: SettingsSelect
-summary: 设置值选择及辅助显示。
+id: settings-search-input
+title: SettingsSearchInput
+summary: 带清除动作的设置搜索输入。
 status: experimental
 entry: wip
-layer: core
+layer: settings
 category: composition
-aliases: ["设置值选择及辅助显示"]
+aliases: ["带清除动作的设置搜索输入"]
 related: ["button"]
-exports: ["SettingsSelect", "SettingsLockedValue", "SettingsBadge", "SettingsSwitch", "SettingsValueAction"]
+exports: ["SettingsSearchInput"]
 ---
 
-# SettingsSelect 设置值选择及辅助显示
+# SettingsSearchInput 带清除动作的设置搜索输入
 
 ## 何时使用
 
-设置值选择及辅助显示。沿现有生产用途，不新增业务入口。
+带清除动作的设置搜索输入。沿现有生产用途，不新增业务入口。
 
 ## 组成
 
-本合同覆盖SettingsSelect, SettingsLockedValue, SettingsBadge, SettingsSwitch, SettingsValueAction；完整Props从同目录生成TS API读取。
+本合同覆盖SettingsSearchInput；完整Props从同目录生成TS API读取。
 
 ## 状态
 
@@ -43,4 +43,4 @@ exports: ["SettingsSelect", "SettingsLockedValue", "SettingsBadge", "SettingsSwi
 
 ## 示例
 
-[组件目录与独立实例](../../../../../renderer/design-system.html?ui-library#component-settings-select)消费同一包实现。真实服务、持久化和桌面生命周期由原专项验证。
+[组件目录与独立实例](../../../../../renderer/design-system.html?ui-library#component-settings-search-input)消费同一包实现。真实服务、持久化和桌面生命周期由原专项验证。

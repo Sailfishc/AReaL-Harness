@@ -2,29 +2,35 @@
 
 # @areal/ui
 
-AReaL 的私有 workspace 包，承接首批 CSS 基础值、React 控件、组件合同和 Agent 入口。保留现有视觉，当前不发布 npm。
+AReaL GUI 的基础值、React 组件和组件合同。私有 workspace 包，不发布 npm；消费者声明 `"@areal/ui": "workspace:*"`，先构建本包再构建消费者（GUI 脚本已串联）。
 
-消费者在 package.json 声明 `"@areal/ui": "workspace:*"`，由 pnpm 接入本地包。包与 npm 发布包使用相同格式；workspace 指本地解析方式，private 阻止误发布。先构建包再构建消费者，GUI 公共脚本已串联该依赖。
+## 使用
 
-稳定组件从 `@areal/ui` 导入；候选组件从 `@areal/ui/wip` 导入。宿主使用 React 19、Base UI 和 Tailwind 4，在 Tailwind 后导入 `@areal/ui/styles.css`。`foundation.css` 提供已采用的 CSS 变量；可选 `themes.css` 提供默认明暗调色板，沿同一纯函数生成。AReaL 宿主仍拥有未迁入的主题别名和保存的偏好。
+```tsx
+import { Button, Select, Tooltip } from "@areal/ui";          // 稳定入口
+import { ComposerActionButton, SettingsRow } from "@areal/ui/wip"; // 实验入口与领域组合
+```
 
-源值编辑 tokens.json，显式运行 generate，再运行 build 和 check。基础产物生成到 src/generated；主题算法归 src/theme.ts。组件说明与代码就近维护，API 由 TypeScript 声明生成；既有站点消费真实导出，并提供独立示例、components.json、llms.txt 与 Markdown。
+宿主使用 React 19、Base UI 与 Tailwind 4，在 Tailwind 之后导入 `@areal/ui/styles.css`（基础值与 core 组件样式）和 `@areal/ui/themes.css`（默认明暗调色板）。领域组合各自导入样式：`conversation.css`、`settings.css`、`workbench.css`、`worktree.css`、`notifications.css`。
 
-每个目录组件的同名 MD 与实现同目录，维护“何时使用、组成、状态、行为、内容、可访问性、规则、示例”。元数据使用简单 YAML 兼容格式，aliases/related 数组使用行内 JSON。生成器检查完整性和关联目标；站点从同一索引显示元数据、MD 原文和该组件独立示例，不另抄 Props 或维护第二份文档目录。
+| 要找什么 | 去哪里 |
+| --- | --- |
+| 某个变量叫什么、默认值、用在哪 | [Token 速查](src/generated/tokens.md)（生成） |
+| 有哪些组件、该从哪个入口导入 | 构建产物 `dist/components.json`、`dist/llms.txt`，或设计站 `design-system.html?ui-library` |
+| 某个组件何时用、状态、键盘、规则 | 组件同目录的 MD 合同 |
+| 选组件和改系统的顺序、常见误区 | [Agent 指南](agent-guide.md) |
+| 分层与成熟度规则 | [组件与组合](../../../../design/components/README.md#分层) |
 
-稳定成员为 Button；Disclosure、ActivityGroup、ImageDisclosure、TaskContext 由实验入口提供。三类对话组合实现位于 src/conversation，基础控件位于 src/components；基础层禁止反向导入对话层。对话外观单独导入 `@areal/ui/conversation.css`，由设计预览与生产对话共同消费；状态与导航接线仍归原renderer所有者。
+## 分层与成熟度
 
-TaskContext 通过 Section、Item、Sources 组合变更、项目、子任务和来源。组件负责基本呈现与读取交互；真实状态、资源读取、窄窗导航与焦点恢复由宿主提供。产品状态与资源生命周期继续归renderer适配层。开发前读取 [Agent 入口](agent-guide.md)，架构与取舍见仓库 D-004。
+`src/components`（core）放通用控件；`src/settings`、`src/conversation`、`src/workbench`、`src/worktree` 放领域组合。core 不能导入其他层，组件不能导入 renderer、Core、Node 或 Electron。
 
-SubagentPanel 提供入口后的完整列表、按独立状态分区、完成组展开与历史详情返回；历史内容由宿主提供。ThinkingStatus 提供从左到右的思考扫描，减少动态效果时静态呈现，不可见或后台停止循环。两者同样保留实验入口，生产消费不自动扩大稳定API或Base准入。
+core 组件在 3 个及以上生产文件使用后进入稳定入口 `@areal/ui`；领域组合留在 `@areal/ui/wip`。当前成员以 `dist/components.json` 为准。
 
-ThinkingStatus 的 label 消费公开模型过程摘要并在变化时局部过渡，无摘要才回退 Thinking。任务上下文卡片由产品顶部按钮控制，与资源阅读器分开；具体优化依据见原对话流规范和参考记录。
+## 修改
 
-ComposerSurface/ComposerToolbar 提供主聊、Side与草稿共享的输入布局，导入 conversation.css。SettingsPage/Section/GroupCard/Row 提供已有设置布局，导入 settings.css；两组均从wip导入，各自维护就近MD与可操作状态实例。旧renderer路径转接同一实现。编辑器、模型权限、提交、配置值、保存回执与导航守卫仍归原宿主，不因布局提取而迁入UI包。
+1. 基础值改 [tokens.json](tokens.json)，调色板派生改 [src/theme.ts](src/theme.ts)。组件改实现时同改旁边的 MD 合同。
+2. `pnpm --filter @areal/ui generate` → `build` → `check`。生成产物在 `src/generated`，不要手改。
+3. 在 `clients/gui` 运行 `node scripts/design-system-audit.mjs` 与 `pnpm typecheck`，再验证受影响的页面。
 
-Worktree领域组合位于src/worktree，从wip导入并使用worktree.css；配置、准备、目录、环境设置和工作区详情拥有就近MD与独立实例。NotificationToast从core层提供四级短时通知，使用notifications.css，默认5秒，悬停/焦点暂停；原ToastHost保持应用通知通道。
-
-共享控件、设置编辑/选择、决策卡、代码/Diff及Markdown阅读器、附件、命令详情和工作台组合已迁入包。工作台样式从`@areal/ui/workbench.css`导入；原renderer入口保留本地化、偏好与业务适配。组件组的`exports`元数据覆盖全部子组件，共用同目录MD；生成器拒绝缺失或重复归属。具体范围与宿主边界见[组件迁移](../../design-system/component-migration.md)。
-
-
-新增NativeContent与QuestionCard实验组合；`@areal/ui/content`提供严格只读数据校验、块投影与文字降级，`@areal/ui/math-text`提供单美元公式兼容。原生内容目录不包含执行动作，生产请求/制品仍归原宿主。`design-system.html?content-system`演示实际共享组件。
+宿主（renderer）继续拥有用户偏好、业务状态、本地化与执行接线；取舍见 [D-004](../../../../design/decisions/004-local-ui-package.md)。

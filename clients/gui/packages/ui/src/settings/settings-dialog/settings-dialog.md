@@ -4,7 +4,7 @@ title: SettingsDialog
 summary: 设置弹窗、工具栏与空态。
 status: experimental
 entry: wip
-layer: core
+layer: settings
 category: composition
 aliases: ["设置弹窗、工具栏与空态"]
 related: ["button"]

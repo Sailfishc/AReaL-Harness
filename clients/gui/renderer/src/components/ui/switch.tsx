@@ -1,1 +1,1 @@
-export { Switch } from "@areal/ui/wip";
+export { Switch } from "@areal/ui";
