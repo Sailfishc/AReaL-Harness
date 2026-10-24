@@ -8,7 +8,8 @@ import type {
 } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Trash2Icon } from "lucide-react";
-import type { FileContents, LineAnnotation, SupportedLanguages } from "@pierre/diffs";
+import { RegisteredCustomLanguages, type FileContents, type LineAnnotation, type SupportedLanguages } from "@pierre/diffs";
+import { bundledLanguages } from "shiki";
 import { File, type FileOptions } from "@pierre/diffs/react";
 import type { CodePreviewTheme } from "../../lib/code-preview-settings.js";
 
@@ -255,9 +256,12 @@ function createCodeViewerFile(params: {
   language: string;
   theme?: CodePreviewTheme;
 }): FileContents {
+  // Markdown fences may name arbitrary languages; unknown names still render as text.
   const lang = params.enableSyntaxHighlighting
+    && (params.language === "ansi" || Object.hasOwn(bundledLanguages, params.language)
+      || RegisteredCustomLanguages.has(params.language))
     ? (params.language as SupportedLanguages)
-    : ("text" as SupportedLanguages);
+    : "text";
   const name = params.language ? `preview.${params.language}` : "preview.txt";
   const themeCacheKey = params.theme ?? "auto";
 

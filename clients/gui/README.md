@@ -299,7 +299,9 @@ pnpm --dir clients/gui run sign:mac --app "/absolute/new-package/package/mac-arm
 
 Core 构建完成后再启动使用该二进制的桌面 smoke，验收期间不重新链接它。模型专项等待保存完成及 Core 的模型选择状态，再进行下一步操作；GUI CI 运行该专项并上传其日志、截图和 manifest。Core 模型配置子进程失败时，后台服务日志保留操作、退出码、signal 和超时分类，不记录密钥或完整环境。
 
-`pnpm --dir clients/gui run test:conversation-derivation` 保留完整 RPC 记录，并在草稿回传的测量区间主动执行一次真实 `trajectory/status` 查询。回传断言只排除该精确只读后台查询；`retry`、发送、配置、排队和 steer 等命令仍使检查失败，相关讨论导航仅另允许 `side/list`。
+`pnpm --dir clients/gui run test:side-chat-parity` 验证当前默认的可执行侧边聊天 P1–P6：工具与权限、来源上下文隔离、临时标签生命周期、选区引用、Composer 与斜杠命令、Esc 停止归属。CI 将其作为独立 smoke 场景，使用同一提交归档中的 Core/Runtime；本地运行通过绝对路径 `AREAL_CORE_BIN` 指定已冻结的产物。
+
+`pnpm --dir clients/gui run test:conversation-derivation` 验证 Fork、主聊选区与旧只读旁路兼容性。旧旁路部分从真实 Core 来源 Item 或已观察的流式文字构造历史持久草稿和锚点，通过“历史旁路讨论”入口恢复，再验证只读权限、冻结证据、回传与重连；这不代表已被替换的旧选区入口仍可使用。Composer smoke 中的旧只读插件用例也通过历史入口执行。该专项保留完整 RPC 记录，并在草稿回传的测量区间主动执行一次真实 `trajectory/status` 查询。回传断言只排除该精确只读后台查询；`retry`、发送、配置、排队和 steer 等命令仍使检查失败，相关讨论导航仅另允许 `side/list`。
 
 `pnpm --dir clients/gui run test:connection` 验证真实 Core 断线恢复、并发操作、旧连接消息隔离及显式关闭；`pnpm --dir clients/gui run test:architecture` 通过真实 Electron IPC 验证契约拒绝、错误码透传及原生预览的驱逐、崩溃重建和归属释放。两者使用隔离目录并输出证据，不替代安装包验收。
 

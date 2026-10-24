@@ -221,7 +221,11 @@ export function Messages({
   useEffect(() => {
     const invalidate = () => { const chosen = selectionSnapshot.current; if (chosen && !selectionIsCurrent(chosen)) setSelectedSideText(null); };
     const dismiss = () => setSelectedSideText(null);
-    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") dismiss(); };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || !selectionSnapshot.current) return;
+      event.preventDefault();
+      dismiss();
+    };
     document.addEventListener("selectionchange", invalidate);
     document.addEventListener("keydown", escape);
     window.addEventListener("scroll", dismiss, true);

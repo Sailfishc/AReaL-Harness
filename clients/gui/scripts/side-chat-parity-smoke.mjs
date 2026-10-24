@@ -683,6 +683,12 @@ async function escapeOwnership() {
     await grows(child, "closing panel leaves Side execution running");
     await sendMain(`PARITY:STREAM_MAIN_CLOSED_${order}`, false);
     const closedMainTurn = (await readCoreThread(parent)).turns.at(-1).id;
+    await page.getByRole("button", { name: "任务资源", exact: true }).click();
+    const resources = page.getByRole("complementary", { name: "任务上下文", exact: true });
+    await resources.waitFor();
+    await page.keyboard.press("Escape");
+    await resources.waitFor({ state: "hidden" });
+    await grows(parent, "dismissing visible resources preserves the main stream");
     await page.getByRole("button", { name: "收起侧栏", exact: true }).focus(); await page.keyboard.press("Escape");
     await until(async () => threads(await state())[parent]?.turns.at(-1).status !== "inProgress", "panel-closed outside Esc falls back to main");
     await grows(child, "hidden Side survivor grows after main fallback stop");
