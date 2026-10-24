@@ -618,7 +618,7 @@ class SharedCoreBackend {
       const receipt = this.lifecycleReceipts.get(reference.requestId);
       return { requestId: reference.requestId, kind: reference.kind,
         phase: receipt?.phase ?? 'admissionUnconfirmed',
-        targets: (receipt?.targets ?? reference.targets).map(target => ({ projectId: target.projectId,
+        targets: (receipt?.targets ?? reference.targets).map(target => ({ projectId: reference.logicalProjectId ?? target.projectId,
           phase: target.phase ?? 'admissionUnconfirmed', ...(target.error ? { message: typeof target.error === 'string' ? target.error : target.error.message } : {}) })),
         ...(reference.threadId ? { threadId: reference.threadId, turnId: reference.turnId } : {}),
         ...(receipt?.desktopExit ? { desktopExit: receipt.desktopExit } : {}),
@@ -731,6 +731,7 @@ class SharedCoreBackend {
         }
       }
     }
+    if (reference.logicalProjectId) operation = { ...operation, logicalProjectId: reference.logicalProjectId };
     this.lifecycleReceipts.set(reference.requestId, operation);
     if (operation.phase === 'blocked' || operation.phase === 'completed' && !desktopKind(reference.kind)) {
       this.lifecycleReferences.delete(reference.requestId); await this.persistReferences();
@@ -806,7 +807,7 @@ class SharedCoreBackend {
       const operation = this.lifecycleReceipts.get(reference.requestId);
       if (['blocked', 'completed'].includes(operation?.phase)) continue;
       if (reference.kind === 'interruptTurn' && reference.threadId !== request.threadId) continue;
-      const target = (operation?.targets ?? reference.targets).find(target => target.projectId === request.projectId);
+      const target = (operation?.targets ?? reference.targets).find(target => target.projectId === request.projectId || reference.logicalProjectId === request.projectId);
       if (target && !['blocked', 'completed'].includes(target.phase)) throw Object.assign(
         new Error('此任务的原后台操作尚未结算，请检查原请求'), { code: 'LIFECYCLE_INCOMPLETE', requestId: reference.requestId });
     }
@@ -817,7 +818,7 @@ class SharedCoreBackend {
     const previous = this.lifecycleReferences.get(requestId) ?? this.lifecycleReceipts.get(requestId);
     if (previous) {
       if (previous.kind !== kind || previous.mode !== mode || previous.threadId !== threadId || previous.turnId !== turnId
-        || projectId && !previous.targets.some(target => target.projectId === projectId))
+        || projectId && (previous.logicalProjectId ? previous.logicalProjectId !== projectId : !previous.targets.some(target => target.projectId === projectId)))
         throw Object.assign(new Error('原请求身份不能绑定其他操作或轮次'), { code: 'LIFECYCLE_REQUEST_CONFLICT' });
       const operation = this.lifecycleReferences.has(requestId) ? await this.readLifecycle(previous) : previous;
       return { stopped: operation.phase === 'completed', operation };
@@ -836,7 +837,7 @@ class SharedCoreBackend {
     }).prepare({ kind, mode, observed, projectId, threadId, turnId });
     const reference = { requestId, kind, mode, desktopGeneration: intent.expectedDesktopGeneration,
       targets: intent.expectedTargets, desktop: { pid: this.metadata.pid, identity: this.metadata.identity },
-      ...(kind === 'interruptTurn' ? { threadId, turnId } : {}) };
+      ...(kind === 'interruptTurn' ? { threadId, turnId, logicalProjectId: projectId } : {}) };
     this.lifecycleReferences.set(requestId, reference);
     try { await this.persistReferences(); }
     catch (error) { this.lifecycleReferences.delete(requestId); throw error; }

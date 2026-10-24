@@ -189,6 +189,8 @@ class ProjectConnections {
     project.client = null;
     previous?.close();
     project.summariesLoaded = false;
+    const cuaOwner = { projectId: project.id, coreInstanceId: project.service?.serviceId, coreGeneration: project.service?.generation };
+    let cuaHostGeneration;
     const client = new CoreClient({ createSocket: () => {
       const target = Object.freeze({ boundary: 'desktop-core', projectId: project.id, coreGeneration: project.service?.generation,
         connectionGeneration: project.connectionGeneration, hostPid: project.service?.hostPid, corePid: project.service?.corePid, serviceId: project.service?.serviceId });
@@ -209,6 +211,15 @@ class ProjectConnections {
         const profile = project.resourceProfile ?? this.host.defaultProfile;
         return { ...(model ? { model } : {}), ...(profile ? { agentProfile: profile } : {}),
           ...(this.host.desktopTools(project).length ? { dynamicTools: this.host.desktopTools(project) } : {}) };
+      }
+      if (method === 'areal/cua/turnEnded' || method === 'item/tool/call' && ['js', 'js_reset'].includes(params?.tool)) {
+        this.requireConnection(project, client);
+        cuaHostGeneration = params.hostGeneration;
+        const result = await this.host.cuaRead({ ...params, projectId: project.id, cwd: project.root,
+          toolHostGeneration: params.hostGeneration, coreInstanceId: project.service?.serviceId,
+          coreGeneration: project.service?.generation, signal: context.signal,
+          phase: method === 'areal/cua/turnEnded' ? 'endTurn' : 'call' });
+        return method === 'areal/cua/turnEnded' ? result : { success: result.isError !== true, contentItems: [], rawMcpResult: result };
       }
       if (params?.tool === 'computer_v1' && ['item/tool/call', 'areal/computer/prepare'].includes(method)) {
         this.requireConnection(project, client);
@@ -245,6 +256,7 @@ class ProjectConnections {
         if (this.currentConnection(project, client)) this.host.observeNotification(project, client, method, params);
       });
       client.onClose(failure => {
+        if (cuaHostGeneration) void Promise.resolve(this.host.cuaRead?.({ phase: 'revokeProject', ...cuaOwner, toolHostGeneration: cuaHostGeneration })).catch(() => {});
         this.host.onMcpPageToolsDisconnected?.(client);
         if (project.client === client) {
         project.taskNotificationMonitor?.stop();

@@ -194,9 +194,12 @@ class CoreLibrary {
             turnNotifications: ['always', 'unfocused', 'never'], permissionNotifications: [true, false],
             questionNotifications: [true, false], notificationSound: ['default', 'silent'], preventSleep: [true, false], showInMenuBar: [true, false],
             fileOpenTarget: ['system', 'finder', 'zed', 'vscode', 'cursor'],
-            computerControlEnabled: [true, false], computerControlShowEntry: [true, false],
+            computerControlEnabled: [true, false], computerControlShowEntry: [true, false], computerControlProvider: ['native', 'lcu'],
             browserLinkTarget: ['internal', 'external'], browserLocalTarget: ['internal', 'external'], browserFullAddress: [true, false] };
-          if (!allowed[request.key]?.includes(request.value)) throw new Error('无效偏好设置');
+          if (request.key === 'computerControlExecutable') {
+            if (typeof request.value !== 'string' || request.value.length > 4096 || request.value.includes('\0')
+              || request.value && !require('node:path').isAbsolute(request.value)) throw new Error('LCU executable must be an absolute path');
+          } else if (!allowed[request.key]?.includes(request.value)) throw new Error('无效偏好设置');
           if (['sidebarSort', 'sidebarSortChats', 'sidebarSortProjects', 'sidebarSortPinned'].includes(request.key) && request.value === 'manual' && !state.sidebarThreadOrder.length) {
             const available = this.backend.saved.flatMap(owner => this.threadSummaries(owner.id).map(item => `${owner.id}:${item.id}`));
             if (!Array.isArray(request.order) || request.order.some(id => !available.includes(id)) || new Set(request.order).size !== request.order.length) throw new Error('排序列表已变化，请刷新');

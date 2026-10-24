@@ -20,6 +20,7 @@ const { McpMetadataImages } = require('./mcp-apps-images.cjs');
 const { validateCommand, validatePreview, desktopError } = require('@areal/workbench/desktop-contract');
 const { CorePreview } = require('./preview.cjs');
 const { ComputerControl } = require('./computer-control.cjs');
+const { ExternalCua, upstream: cuaUpstream } = require('./external-cua.cjs');
 const diagnostics = require('./diagnostics.cjs');
 const { configureUserData, serviceOptions, serviceHome } = require('./service-config.cjs');
 const { SharedCoreBackend } = require('./service-client.cjs');
@@ -48,8 +49,16 @@ protocol.registerSchemesAsPrivileged([{ scheme: 'areal-mcp', privileges: { stand
 
 const guiRoot = app.isPackaged ? join(process.resourcesPath, 'areal-gui') : resolve(__dirname, '../../../renderer/dist');
 const mime = { '.wasm': 'application/wasm', '.js': 'text/javascript', '.css': 'text/css', '.html': 'text/html', '.json': 'application/json', '.woff2': 'font/woff2', '.woff': 'font/woff', '.svg': 'image/svg+xml', '.png': 'image/png' };
-let computer, computerActivity = null, computerWasEnabled = false, computerAdmissionSuspended = false, computerUiAvailable = false, computerSystemPaused = false;
+let computer, externalCua, computerActivity = null, computerWasEnabled = false, computerAdmissionSuspended = false, computerUiAvailable = false, computerSystemPaused = false;
 const computerRequests = new Map();
+const computerSelection = () => {
+  const settings = backend?.snapshot().library?.settings ?? {};
+  return { enabled: settings.computerControlEnabled === true, provider: settings.computerControlProvider ?? 'native', executable: settings.computerControlExecutable ?? '' };
+};
+const computerAvailable = () => backend?.computerHostOwned === true && !quitting && !browserWindowClosed
+  && computerUiAvailable && !computerSystemPaused && !computerAdmissionSuspended;
+const stopComputer = reason => Promise.all([computer?.stop(reason), externalCua?.stop(reason)]);
+const closeComputer = () => Promise.all([computer?.close(), externalCua?.close()]);
 let window, backend, preview, mcpApps, updates, quitting = false, exitReady = false, themeId = 'system';
 let browserWindowClosed = false, windowClosePromise = null;
 const previewSubscriptions = new Map();
@@ -168,7 +177,7 @@ function requestQuit(intent = 'application') {
     recordQuitStage(attempt, 'disconnect');
     await backend.shutdown();
     await preview?.dispose();
-    await computer?.close();
+    await closeComputer();
     exitReady = true;
     recordQuitStage(attempt, 'exit-ready');
     if (intent !== 'install') setImmediate(() => app.quit());
@@ -238,8 +247,8 @@ function desktopSnapshot() {
   // A temporary disconnect must not reset the native preference.
   if (state.connection?.state === 'ready' && state.library && !quitting) menuBar?.sync(state.library.settings?.showInMenuBar !== false);
   const enabled = state.library?.settings?.computerControlEnabled === true;
-  if (computerWasEnabled && !enabled) void computer?.stop('disabled').catch(() => {});
-  computerWasEnabled = enabled;
+  const wasEnabled = computerWasEnabled; computerWasEnabled = enabled;
+  if (wasEnabled && !enabled) void stopComputer('disabled').catch(() => {});
   return { ...state, menuBar: menuBar?.snapshot() ?? null, computerControl: computerActivity };
 }
 function trustedSender(event) {
@@ -305,18 +314,18 @@ async function createWindow() {
         return response === 1 && current();
       }, (projectId, threadId) => backend.retainsThreadResources(projectId, threadId));
     preview.onRevoke = identity => { void backend.browserRevoke(identity).catch(() => {}); };
-    window.on('unresponsive', () => { computerUiAvailable = false; void computer?.stop('ui_unresponsive').catch(() => {}); diagnostics.record({ type: 'renderer-unresponsive' }); });
+    window.on('unresponsive', () => { computerUiAvailable = false; void stopComputer('ui_unresponsive').catch(() => {}); diagnostics.record({ type: 'renderer-unresponsive' }); });
     window.on('responsive', () => { computerUiAvailable = window.webContents.mainFrame.url.startsWith('areal-ui://app/'); diagnostics.record({ type: 'renderer-responsive' }); });
     const owner = window.webContents;
     owner.on('did-start-navigation', (_event, _url, inPlace, mainFrame) => {
       if (mainFrame && !inPlace) {
-        computerUiAvailable = false; void computer?.stop('ui_navigation').catch(() => {});
+        computerUiAvailable = false; void stopComputer('ui_navigation').catch(() => {});
         projections.delete(owner); mcpApps?.dispose();
       }
     });
     owner.on('did-finish-load', () => { computerUiAvailable = owner.mainFrame.url.startsWith('areal-ui://app/'); });
-    owner.on('destroyed', () => { computerUiAvailable = false; void computer?.stop('ui_destroyed').catch(() => {}); projections.delete(owner); });
-    owner.on('render-process-gone', () => { computerUiAvailable = false; void computer?.stop('ui_crashed').catch(() => {}); projections.delete(owner); mcpApps?.dispose(); });
+    owner.on('destroyed', () => { computerUiAvailable = false; void stopComputer('ui_destroyed').catch(() => {}); projections.delete(owner); });
+    owner.on('render-process-gone', () => { computerUiAvailable = false; void stopComputer('ui_crashed').catch(() => {}); projections.delete(owner); mcpApps?.dispose(); });
     window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     window.webContents.on('will-navigate', event => event.preventDefault());
     window.webContents.on('will-frame-navigate', event => {
@@ -337,7 +346,7 @@ async function createWindow() {
       browserWindowClosed = true;
       if (startupPresentation !== 'presented') { startupPresentation = 'suppressed'; focusRequested = false; }
       const owner = window;
-      void computer?.stop('window_closed').catch(() => {});
+      void stopComputer('window_closed').catch(() => {});
       windowClosePromise = backend.closeWindowSideChats().then(async () => {
         await preview?.dispose();
         mcpApps?.dispose();
@@ -370,20 +379,52 @@ app.whenReady().then(async () => {
   computer = new ComputerControl({
     helperPath: app.isPackaged ? join(process.resourcesPath, 'computer-helper/AReaL Computer Helper.app')
       : join(__dirname, '../../../native/computer-helper/build/AReaL Computer Helper.app'),
-    getEnabled: () => backend.computerHostOwned === true && !quitting && !browserWindowClosed && computerUiAvailable && !computerSystemPaused && !computerAdmissionSuspended
-      && backend.snapshot().library?.settings?.computerControlEnabled === true,
-    onActivity: status => { computerActivity = status; publish(); },
+    getEnabled: () => computerAvailable() && computerSelection().enabled && computerSelection().provider === 'native',
+    onActivity: status => { if (computerSelection().provider === 'native') { computerActivity = status; publish(); } },
+  });
+  externalCua = new ExternalCua({ getSelection: computerSelection, getAvailable: computerAvailable,
+    onActivity: status => { if (computerSelection().provider === 'lcu') { computerActivity = status; publish(); } },
+    onElicitation: async (params, { signal, owner }) => {
+      const { nativeAppApprovalOptions, nativeAppApprovalResponse } = await cuaUpstream();
+      const { declineAgentHostApp, detectHostApps, appBundleOf, plistBundleId } = await import('../vendor/lcu/host-guard.mjs');
+      const bundle = appBundleOf(process.execPath), bundleId = bundle && plistBundleId(bundle);
+      const refusal = declineAgentHostApp(params, { env: {}, report() {},
+        hosts: [...detectHostApps(), ...(bundleId ? [{ bundleId, name: app.getName() }] : [])] });
+      if (refusal) return refusal;
+      const approval = nativeAppApprovalOptions(params);
+      if (!approval || signal.aborted || !computerAvailable() || !window || window.isDestroyed()) return { action: 'cancel' };
+      const choices = [...approval.choices, { value: 'cancel', label: 'Cancel' }];
+      const result = await dialog.showMessageBox(window, { type: 'question', title: 'External computer control',
+        message: approval.message, detail: [approval.resource, typeof params._meta?.warning === 'string' ? params._meta.warning : '',
+          `Chat ${owner.threadId}`].filter(Boolean).join('\n\n'), buttons: choices.map(choice => choice.label),
+        defaultId: choices.length - 1, cancelId: choices.length - 1, noLink: true, signal });
+      return signal.aborted ? { action: 'cancel' } : nativeAppApprovalResponse(params, choices[result.response]?.value);
+    },
   });
   backend.onBrowserDisconnected = () => {
     preview?.revokeAll();
     for (const controller of computerRequests.values()) controller.abort();
-    void computer.stop('desktop_disconnected').catch(() => {});
+    void stopComputer('desktop_disconnected').catch(() => {});
   };
   backend.onBrowserCancel = request => {
-    if (request.tool === 'computer_v1') computerRequests.get(request.requestId)?.abort();
+    if (['computer_v1', 'external_cua'].includes(request.tool)) computerRequests.get(request.requestId)?.abort();
     else preview?.cancelRead(request);
   };
   backend.onBrowserRequest = async request => {
+    if (request.tool === 'external_cua') {
+      const controller = new AbortController(); computerRequests.set(request.requestId, controller);
+      try {
+        const input = { ...request, tool: request.cuaTool, signal: controller.signal };
+        if (request.phase === 'catalog') return await externalCua.catalog({ ...input, threadId: '__catalog__' });
+        if (request.phase === 'call') return await externalCua.call(input);
+        if (request.phase === 'endTurn') return await externalCua.endTurn(input);
+        if (request.phase === 'revokeProject') { await externalCua.revokeProject(input); return {}; }
+        throw new Error('Unsupported external CUA request');
+      } catch (error) {
+        if (request.phase === 'catalog') return { error: error.message };
+        throw error;
+      } finally { computerRequests.delete(request.requestId); }
+    }
     if (request.tool === 'computer_v1') {
       if (quitting || !window || window.isDestroyed() || browserWindowClosed) throw new Error('Computer host unavailable');
       const controller = new AbortController(); computerRequests.set(request.requestId, controller);
@@ -451,7 +492,7 @@ app.whenReady().then(async () => {
         : /not_sent|target_unavailable/.test(error.message) ? 'not_sent'
         : /budget exceeded|Sensitive field|viewport changed|content changed during capture|capture guard unavailable/.test(error.message) ? 'evidence_unavailable' : 'page_unavailable' }; }
   };
-  app.on('will-quit', () => { mcpApps?.dispose(); void computer?.close(); });
+  app.on('will-quit', () => { mcpApps?.dispose(); void closeComputer().catch(() => {}); });
   mcpApps = new McpAppsHost({ backend, ownerId: () => window && !window.isDestroyed() && !window.webContents.isDestroyed() ? window.webContents.id : undefined,
     notify: value => { if (window && !window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send('areal-core:mcp-app-event', value); },
     openFile: (request, current) => fileOpen({ backend, shell, home: app.getPath('home'), authorize: current,
@@ -608,7 +649,12 @@ app.whenReady().then(async () => {
       }
       if (name === 'computerControl') {
         let value;
-        if (params.operation === 'status') value = await computer.status();
+        if (computerSelection().provider === 'lcu') {
+          if (params.operation === 'status') value = externalCua.status();
+          else if (params.operation === 'restart') value = await externalCua.check();
+          else if (params.operation === 'stop') { await externalCua.stop('user_stop'); value = externalCua.status(); }
+          else throw new Error('LCU installation and OS permissions are managed outside AReaL Harness');
+        } else if (params.operation === 'status') value = await computer.status();
         else if (params.operation === 'stop') { await computer.stop('user_stop'); value = await computer.status(); }
         else if (params.operation === 'restart') { await computer.restart(); value = await computer.status(); }
         else {
@@ -624,9 +670,9 @@ app.whenReady().then(async () => {
         if (backend.computerHostOwned !== true) value = { ...value, ready: false, code: 'host_busy', reason: 'Computer control belongs to another GUI window. Reconnect after that host closes.' };
         return { ok: true, value };
       }
-      if (name === 'library' && params.operation === 'settings' && params.key === 'computerControlEnabled' && params.value === false) {
+      if (name === 'library' && params.operation === 'settings' && ['computerControlEnabled', 'computerControlProvider', 'computerControlExecutable'].includes(params.key)) {
         computerAdmissionSuspended = true;
-        try { await computer.stop('disabled'); return { ok: true, value: await backend.command(name, params) }; }
+        try { await stopComputer('configuration_changed'); return { ok: true, value: await backend.command(name, params) }; }
         finally { computerAdmissionSuspended = false; }
       }
       if (name === 'exportDiagnostics') return { ok: true, value: await exportDiagnostics() };
@@ -735,7 +781,7 @@ app.whenReady().then(async () => {
   const activityTimer = setInterval(sampleActivity, 5000);
   const saveTimer = setInterval(() => { void backend.analytics.flush(); }, 30000);
   for (const event of ['focus', 'blur', 'hide', 'minimize', 'restore']) window.on(event, sampleActivity);
-  for (const event of ['suspend', 'lock-screen']) powerMonitor.on(event, () => { computerSystemPaused = true; void computer?.stop(event).catch(() => {}); sampleActivity(); activityPauses.add(event); sampleActivity(); void backend.analytics.flush(); });
+  for (const event of ['suspend', 'lock-screen']) powerMonitor.on(event, () => { computerSystemPaused = true; void stopComputer(event).catch(() => {}); sampleActivity(); activityPauses.add(event); sampleActivity(); void backend.analytics.flush(); });
   for (const [event, pause] of [['resume', 'suspend'], ['unlock-screen', 'lock-screen']]) powerMonitor.on(event, () => { activityPauses.delete(pause); computerSystemPaused = activityPauses.size > 0; sampleActivity(); });
   app.on('before-quit', () => { sampleActivity(); void backend.analytics.flush(); });
   app.on('will-quit', () => { clearInterval(activityTimer); clearInterval(saveTimer); });

@@ -143,6 +143,11 @@ impl DynamicToolHost for ToolHost {
             })??,
         ))
     }
+    async fn end_cua_turn(&self, request: Value) -> anyhow::Result<()> {
+        self.request("areal/cua/turnEnded", request, CancellationToken::new())
+            .await?;
+        Ok(())
+    }
     async fn page_tool_notice(
         &self,
         notice: areal_protocol::plugin_runtime::PageToolNotice,

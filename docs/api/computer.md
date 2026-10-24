@@ -22,6 +22,20 @@
 
 仅启用功能时，新 GUI 会话登记电脑工具。已有会话可能保留其持久化工具定义，但关闭后执行准入仍拒绝。CLI/TUI 和没有本机 GUI 宿主的会话不会创建另一个原生控制进程。
 
+## 外部 CUA（LCU）
+
+在 macOS 的电脑控制设置中选择“外部 CUA（LCU）”，保存已经安装的 `lcu` 绝对路径，启用功能并检查连接，然后新建普通聊天。AReaL 不安装或更新 LCU，不复制专有应用或运行时，不申请它所需的系统权限。缺少依赖或 Core 不支持此能力时明确拒绝，不回退到内置控制。
+
+此阶段只为手动新建的顶层聊天登记原始 `js` 和 `js_reset`。已有聊天、Side Chat、子代理和计划任务不启用外部 CUA 执行。原始初始化指令与已有附加指令合计不得超过 32768 字节，超限会拒绝创建，不截断。每个聊天有独立 JS 状态，正常轮次之间复用连接。切换方式会先停止旧控制；选择 LCU 时，旧 `computer_v1` 定义仍无法执行。内置 Preview 和 `browser_v1` 保留，LCU 只启用 computer surface。
+
+LCU 负责 JS、应用控制和内部权限策略。Core 保留外层工具审批、真实 thread/turn/call 身份、媒体与历史。原始应用授权在 Main 的原生对话框显示，选择经上游映射返回；关闭、取消和过期回答不会授权。未支持的表单取消。没有独立的授权缓存。
+
+Core 在轮次结束时等待原始 `turn_ended`；中断发送 Interrupt。设置中的停止先查询真实活动应用，再调用原始 host Stop 和轮次清理。窗口关闭、界面崩溃、锁屏及 Core/Desktop 断线会撤销当前控制。清理未确认保留不可用状态，关闭传输本身不代表系统输入已停止。派发后断线或取消保持 UNKNOWN，不能自动重放 JS。
+
+开源适配层固定到 [LCU](https://github.com/amontlabs/lcu) 的 `c31a57958b3086112949374ca6d21414a3ba22b7`，原样保留 MIT 源文件与摘要。`node clients/gui/scripts/external-cua-acceptance.mjs` 验证原版客户端与 MCP subprocess fixture；它不操作真实应用，也不证明已安装 LCU、物理输入、系统权限或安装包验收。
+
+外部 LCU 在受信任的 Desktop 宿主中运行，不受 AReaL Runtime 的工作区文件和网络沙箱限制。Core 权限模式控制外层 JS 工具准入，脚本内部访问与应用策略由原运行时负责。
+
 ## 构建和验证
 
 `node clients/gui/scripts/build-computer-helper.mjs` 构建 `clients/gui/native/computer-helper/build/AReaL Computer Helper.app`。GUI 构建调用同一脚本，安装包将 Helper 放入 Resources。非 macOS 构建明确跳过原生产物并报告平台不支持。

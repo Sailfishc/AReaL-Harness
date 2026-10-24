@@ -401,6 +401,8 @@ pub struct ToolDefinition {
 #[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DynamicToolResponse {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_mcp_result: Option<Value>,
     pub success: bool,
     pub content_items: Vec<ToolContent>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

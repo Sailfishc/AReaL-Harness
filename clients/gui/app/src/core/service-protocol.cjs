@@ -11,6 +11,9 @@ const { ProjectionEncoder } = require('@areal/workbench/state-projection');
 const PROTOCOL = 'areal.desktop-service.v1';
 const COMMAND_CONTRACT = 'areal.desktop-commands.v2';
 const browserKey = (projectId, threadId) => JSON.stringify([projectId, threadId]);
+const computerSetting = (name, request) => name === 'library' && request?.operation === 'settings'
+  && ['computerControlEnabled', 'computerControlProvider', 'computerControlExecutable'].includes(request.key);
+
 function validateCommand(name, params) {
   validateDesktopCommand(name, params, { serviceOnly: true });
 }
@@ -49,6 +52,7 @@ class DesktopService {
     this.browserTestTrace = process.env.AREAL_BROWSER_READ_TEST_TRACE;
     backend.browserRead = request => this.browserRead(request);
     backend.computerRead = request => this.computerRead(request);
+    backend.cuaRead = request => this.cuaRead(request);
     this.sequence = 0; this.inflight = 0;
     this.idleSince = Date.now(); this.closed = false;
     backend.onChange = () => this.schedule();
@@ -553,8 +557,11 @@ class DesktopService {
         this.sampleActivity(); this.send(socket, { id, result: null }); return;
       }
       if (method !== 'addProject' && method !== 'command') throw new Error('不支持的后台服务操作');
-      if (method === 'command') validateCommand(params?.name, params?.request);
-      else if (typeof params?.path !== 'string') throw new Error('无效工作区路径');
+      if (method === 'command') {
+        validateCommand(params?.name, params?.request);
+        if (computerSetting(params.name, params.request) && this.computerSocket !== socket)
+          throw new Error('Computer provider settings belong to the local computer control host');
+      } else if (typeof params?.path !== 'string') throw new Error('无效工作区路径');
       this.inflight++; this.schedule();
       try {
         const entryKey = method === 'command' && ['send', 'editMessage', 'continue'].includes(params.name)
@@ -614,6 +621,7 @@ class DesktopService {
     this.server?.close();
   }
   async executeRemote(name, request) {
+    if (computerSetting(name, request)) throw new Error('Computer provider settings must be changed on the local control host');
     if (name === 'providers' && request?.operation === 'revealKey') throw new Error('API Key 仅可在本机模型设置中查看');
     if (this.closed || this.recovering) throw new Error('后台正在停止或恢复，请稍后重试');
     this.inflight++; this.schedule();
@@ -779,6 +787,35 @@ class DesktopService {
     return { success: envelope.isError !== true, contentItems, ...(envelope.structuredContent ? { structuredContent: envelope.structuredContent } : {}) };
   }
 
+  async cuaRead(request) {
+    const { projectId, signal, phase } = request;
+    const project = this.backend.projects.get(projectId), client = project?.client, socket = this.computerSocket;
+    const current = () => !this.closed && this.computerSocket === socket && this.clients.has(socket) && socket.readyState === 1
+      && (phase === 'revokeProject' || this.backend.projects.get(projectId) === project && this.backend.currentConnection(project, client)
+        && project.service?.serviceId === request.coreInstanceId && project.service?.generation === request.coreGeneration);
+    if (!socket || !current()) throw new Error('External CUA desktop host is unavailable');
+    if (['catalog', 'call'].includes(phase) && (this.backend.library.value.settings.computerControlEnabled !== true
+      || this.backend.library.value.settings.computerControlProvider !== 'lcu')) throw new Error('External CUA is not the selected computer provider');
+    if (signal?.aborted || this.browserPending.size >= 16) throw new Error('External CUA request cancelled or host busy before dispatch');
+    const requestId = ++this.nextBrowserId;
+    const result = await new Promise((resolve, reject) => {
+      let timer;
+      const finish = (next, value) => { clearTimeout(timer); signal?.removeEventListener('abort', onAbort); this.browserPending.delete(requestId); next(value); };
+      const cancel = () => this.send(socket, { method: 'browserCancel', params: { tool: 'external_cua', requestId } });
+      const onAbort = () => { cancel(); finish(reject, new Error('External CUA cancelled; outcome is UNKNOWN')); };
+      if (phase !== 'call') timer = setTimeout(() => { cancel(); finish(reject, new Error('External CUA host did not finish')); }, 130000);
+      this.browserPending.set(requestId, { socket, tool: 'external_cua', timer,
+        resolve: value => finish(resolve, value), reject: error => finish(reject, error) });
+      signal?.addEventListener('abort', onAbort, { once: true });
+      const { signal: ignoredSignal, ...params } = request;
+      this.send(socket, { method: 'browserRequest', params: { ...params, tool: 'external_cua', cuaTool: request.tool, requestId } });
+    });
+    if (!current() || signal?.aborted) throw new Error('External CUA owner changed; outcome is UNKNOWN');
+    if (result?.error) throw new Error(result.error);
+    if (!result || Buffer.byteLength(JSON.stringify(result)) > 32 * 1024 * 1024) throw new Error('Invalid external CUA response');
+    return result;
+  }
+
   async computerRead(request) {
     const { projectId, threadId, turnId, callId, coreInstanceId, coreGeneration, signal, phase } = request;
     if (![projectId, threadId, turnId, callId, coreInstanceId].every(value => typeof value === 'string' && value)
@@ -788,7 +825,7 @@ class DesktopService {
     const current = () => !this.closed && this.computerSocket === socket && this.clients.has(socket) && socket.readyState === 1
       && this.backend.projects.get(projectId) === project && this.backend.currentConnection(project, client)
       && project.service?.serviceId === coreInstanceId && project.service?.generation === coreGeneration;
-    if (request.discardPreparedPlan !== true && this.backend.library.value.settings.computerControlEnabled !== true) {
+    if (request.discardPreparedPlan !== true && (this.backend.library.value.settings.computerControlEnabled !== true || this.backend.library.value.settings.computerControlProvider === 'lcu')) {
       const refusal = { code: 'not_authorized', message: 'Computer control is disabled', action_sent: false,
         dispatch_status: 'not_sent', dispatch: 'not_sent' };
       return phase === 'prepare' ? { ...refusal, error: refusal.code }

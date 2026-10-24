@@ -113,6 +113,9 @@
             },
             "type": "array"
           },
+          "externalCua": {
+            "type": "boolean"
+          },
           "interactionMode": {
             "$ref": "#/$defs/InteractionMode",
             "default": "interactive"
@@ -2986,6 +2989,9 @@
                   },
                   "type": "array"
                 },
+                "externalCua": {
+                  "type": "boolean"
+                },
                 "interactionMode": {
                   "$ref": "#/properties/queue/$defs/InteractionMode",
                   "default": "interactive"
@@ -4834,6 +4840,9 @@
                   },
                   "type": "array"
                 },
+                "externalCua": {
+                  "type": "boolean"
+                },
                 "interactionMode": {
                   "$ref": "#/properties/configuration/$defs/InteractionMode",
                   "default": "interactive"
@@ -5502,6 +5511,9 @@
                     "type": "string"
                   },
                   "type": "array"
+                },
+                "externalCua": {
+                  "type": "boolean"
                 },
                 "interactionMode": {
                   "$ref": "#/properties/thread/$defs/InteractionMode",
@@ -10683,6 +10695,9 @@
                   },
                   "type": "array"
                 },
+                "externalCua": {
+                  "type": "boolean"
+                },
                 "interactionMode": {
                   "$ref": "#/properties/thread/$defs/InteractionMode",
                   "default": "interactive"
@@ -14014,6 +14029,9 @@
                   },
                   "type": "array"
                 },
+                "externalCua": {
+                  "type": "boolean"
+                },
                 "interactionMode": {
                   "$ref": "#/properties/turn/$defs/InteractionMode",
                   "default": "interactive"
@@ -15686,6 +15704,9 @@
                     "type": "string"
                   },
                   "type": "array"
+                },
+                "externalCua": {
+                  "type": "boolean"
                 },
                 "interactionMode": {
                   "$ref": "#/properties/turn/$defs/InteractionMode",
@@ -17774,6 +17795,9 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "externalCua": {
+            "type": "boolean"
           },
           "interactionMode": {
             "$ref": "#/$defs/InteractionMode",
@@ -25099,6 +25123,9 @@
               },
               "type": "array"
             },
+            "externalCua": {
+              "type": "boolean"
+            },
             "interactionMode": {
               "$ref": "#/$defs/InteractionMode",
               "default": "interactive"
@@ -25581,6 +25608,9 @@
                 "type": "string"
               },
               "type": "array"
+            },
+            "externalCua": {
+              "type": "boolean"
             },
             "interactionMode": {
               "$ref": "#/$defs/InteractionMode",
@@ -28742,6 +28772,9 @@
                       "type": "string"
                     },
                     "type": "array"
+                  },
+                  "externalCua": {
+                    "type": "boolean"
                   },
                   "interactionMode": {
                     "$ref": "#/properties/data/items/$defs/InteractionMode",
@@ -32167,6 +32200,9 @@
                       },
                       "type": "array"
                     },
+                    "externalCua": {
+                      "type": "boolean"
+                    },
                     "interactionMode": {
                       "$ref": "#/oneOf/0/properties/thread/$defs/InteractionMode",
                       "default": "interactive"
@@ -35488,6 +35524,9 @@
                         "type": "string"
                       },
                       "type": "array"
+                    },
+                    "externalCua": {
+                      "type": "boolean"
                     },
                     "interactionMode": {
                       "$ref": "#/oneOf/0/properties/turn/$defs/InteractionMode",
@@ -39638,6 +39677,9 @@
                       "type": "string"
                     },
                     "type": "array"
+                  },
+                  "externalCua": {
+                    "type": "boolean"
                   },
                   "interactionMode": {
                     "$ref": "#/properties/data/items/$defs/InteractionMode",
@@ -54614,6 +54656,9 @@
                   },
                   "type": "array"
                 },
+                "externalCua": {
+                  "type": "boolean"
+                },
                 "interactionMode": {
                   "$ref": "#/properties/thread/$defs/InteractionMode",
                   "default": "interactive"
@@ -57932,6 +57977,9 @@
                     "type": "string"
                   },
                   "type": "array"
+                },
+                "externalCua": {
+                  "type": "boolean"
                 },
                 "interactionMode": {
                   "$ref": "#/properties/turn/$defs/InteractionMode",
@@ -61652,6 +61700,9 @@
               },
               "type": "array"
             },
+            "externalCua": {
+              "type": "boolean"
+            },
             "interactionMode": {
               "$ref": "#/$defs/InteractionMode",
               "default": "interactive"
@@ -62456,6 +62507,9 @@
                 "type": "string"
               },
               "type": "array"
+            },
+            "externalCua": {
+              "type": "boolean"
             },
             "interactionMode": {
               "$ref": "#/$defs/InteractionMode",
@@ -63262,6 +63316,9 @@
               },
               "type": "array"
             },
+            "externalCua": {
+              "type": "boolean"
+            },
             "interactionMode": {
               "$ref": "#/$defs/InteractionMode",
               "default": "interactive"
@@ -64067,6 +64124,9 @@
               },
               "type": "array"
             },
+            "externalCua": {
+              "type": "boolean"
+            },
             "interactionMode": {
               "$ref": "#/$defs/InteractionMode",
               "default": "interactive"
@@ -64871,6 +64931,9 @@
                 "type": "string"
               },
               "type": "array"
+            },
+            "externalCua": {
+              "type": "boolean"
             },
             "interactionMode": {
               "$ref": "#/$defs/InteractionMode",
@@ -65701,6 +65764,9 @@
                 "type": "string"
               },
               "type": "array"
+            },
+            "externalCua": {
+              "type": "boolean"
             },
             "interactionMode": {
               "$ref": "#/$defs/InteractionMode",
@@ -68116,6 +68182,9 @@
                     "type": "string"
                   },
                   "type": "array"
+                },
+                "externalCua": {
+                  "type": "boolean"
                 },
                 "interactionMode": {
                   "$ref": "#/properties/thread/$defs/InteractionMode",
@@ -71435,6 +71504,9 @@
                     "type": "string"
                   },
                   "type": "array"
+                },
+                "externalCua": {
+                  "type": "boolean"
                 },
                 "interactionMode": {
                   "$ref": "#/properties/turn/$defs/InteractionMode",
@@ -84829,6 +84901,9 @@
               },
               "type": "array"
             },
+            "externalCua": {
+              "type": "boolean"
+            },
             "interactionMode": {
               "$ref": "#/$defs/InteractionMode",
               "default": "interactive"
@@ -85490,6 +85565,9 @@
                     "type": "string"
                   },
                   "type": "array"
+                },
+                "externalCua": {
+                  "type": "boolean"
                 },
                 "interactionMode": {
                   "$ref": "#/properties/thread/$defs/InteractionMode",
@@ -88823,6 +88901,9 @@
                   },
                   "type": "array"
                 },
+                "externalCua": {
+                  "type": "boolean"
+                },
                 "interactionMode": {
                   "$ref": "#/properties/configuration/$defs/InteractionMode",
                   "default": "interactive"
@@ -89959,6 +90040,9 @@
                     "type": "string"
                   },
                   "type": "array"
+                },
+                "externalCua": {
+                  "type": "boolean"
                 },
                 "interactionMode": {
                   "$ref": "#/properties/thread/$defs/InteractionMode",
@@ -93489,6 +93573,9 @@
                   },
                   "type": "array"
                 },
+                "externalCua": {
+                  "type": "boolean"
+                },
                 "interactionMode": {
                   "$ref": "#/properties/thread/$defs/InteractionMode",
                   "default": "interactive"
@@ -96866,6 +96953,9 @@
                   },
                   "type": "array"
                 },
+                "externalCua": {
+                  "type": "boolean"
+                },
                 "interactionMode": {
                   "$ref": "#/properties/turn/$defs/InteractionMode",
                   "default": "interactive"
@@ -98536,6 +98626,9 @@
                         "type": "string"
                       },
                       "type": "array"
+                    },
+                    "externalCua": {
+                      "type": "boolean"
                     },
                     "interactionMode": {
                       "$ref": "#/oneOf/0/properties/turn/$defs/InteractionMode",
@@ -110050,6 +110143,9 @@
                     },
                     "type": "array"
                   },
+                  "externalCua": {
+                    "type": "boolean"
+                  },
                   "interactionMode": {
                     "$ref": "#/properties/data/items/$defs/InteractionMode",
                     "default": "interactive"
@@ -113461,6 +113557,9 @@
                     "type": "string"
                   },
                   "type": "array"
+                },
+                "externalCua": {
+                  "type": "boolean"
                 },
                 "interactionMode": {
                   "$ref": "#/properties/thread/$defs/InteractionMode",
@@ -116966,6 +117065,9 @@
                   },
                   "type": "array"
                 },
+                "externalCua": {
+                  "type": "boolean"
+                },
                 "interactionMode": {
                   "$ref": "#/properties/thread/$defs/InteractionMode",
                   "default": "interactive"
@@ -120446,6 +120548,9 @@
                   },
                   "type": "array"
                 },
+                "externalCua": {
+                  "type": "boolean"
+                },
                 "interactionMode": {
                   "$ref": "#/properties/thread/$defs/InteractionMode",
                   "default": "interactive"
@@ -123788,6 +123893,9 @@
                   },
                   "type": "array"
                 },
+                "externalCua": {
+                  "type": "boolean"
+                },
                 "interactionMode": {
                   "$ref": "#/properties/turn/$defs/InteractionMode",
                   "default": "interactive"
@@ -125544,6 +125652,7 @@
           },
           "type": "array"
         },
+        "rawMcpResult": true,
         "structuredContent": true,
         "success": {
           "type": "boolean"
@@ -125747,6 +125856,9 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "externalCua": {
+            "type": "boolean"
           },
           "interactionMode": {
             "$ref": "#/$defs/InteractionMode",
@@ -129066,6 +129178,9 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "externalCua": {
+            "type": "boolean"
           },
           "interactionMode": {
             "$ref": "#/$defs/InteractionMode",

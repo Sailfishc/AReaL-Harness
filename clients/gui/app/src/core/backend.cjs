@@ -97,6 +97,7 @@ class CoreBackend {
         get applicationOwner() { return backend.applicationOwner; },
         browserRead: (...args) => backend.browserRead?.(...args),
         computerRead: (...args) => backend.computerRead?.(...args),
+        cuaRead: (...args) => backend.cuaRead?.(...args),
         desktopTools: (...args) => backend.desktopTools(...args),
         get closing() { return backend.closing; },
         get defaultProfile() { return backend.defaultProfile; },
@@ -536,7 +537,7 @@ class CoreBackend {
 
   desktopTools(project) {
     return [...(this.supportsBrowser(project) ? [browserTool] : []),
-      ...(this.supportsComputer(project) && this.library.value.settings.computerControlEnabled === true ? [computerTool] : [])];
+      ...(this.supportsComputer(project) && this.library.value.settings.computerControlEnabled === true && this.library.value.settings.computerControlProvider !== 'lcu' ? [computerTool] : [])];
   }
 
   async ensureBrowserTools(project, threadId) {
@@ -814,10 +815,20 @@ class CoreBackend {
     this.assertThreadCreationAvailable(project, request);
     try { await this.resources.beforeCreate(project); }
     catch (error) { throw Object.assign(error, {submissionUnknown:false,outcome:{kind:'noMutation'}}); }
+    let options = { permissionPreset: 'ask', ...request.options };
+    let tools = this.desktopTools(project);
+    if (this.library.value.settings.computerControlEnabled === true && this.library.value.settings.computerControlProvider === 'lcu') {
+      if (project.client?.capabilities?.features?.externalCua !== true) throw new Error('This Core does not support external CUA; update Core before creating this chat');
+      const catalog = await this.cuaRead({ phase: 'catalog', projectId: project.id, cwd: project.root,
+        coreInstanceId: project.service?.serviceId, coreGeneration: project.service?.generation });
+      options = { ...options, externalCua: true, appendInstructions: [options.appendInstructions, catalog.instructions].filter(Boolean).join('\n\n') };
+      if (Buffer.byteLength(options.appendInstructions) > 32768) throw new Error('Complete LCU and client instructions exceed the 32768-byte budget');
+      tools = [...tools, ...catalog.tools];
+    }
     const { thread } = await this.submit(project, 'areal/thread/start', { cwd: project.root,
-      ...(this.desktopTools(project).length ? { dynamicTools: this.desktopTools(project) } : {}),
+      ...(tools.length ? { dynamicTools: tools } : {}),
       ...(request.parameters ? { parameters: request.parameters } : {}),
-      options: { permissionPreset: 'ask', ...request.options },
+      options,
       ...(request.model ? { model: request.model } : {}),
       ...((request.profile ?? project.resourceProfile ?? this.defaultProfile) ? { agentProfile: request.profile ?? project.resourceProfile ?? this.defaultProfile } : {}),
     }, { requestId: request.requestId });
