@@ -34,6 +34,7 @@
       "default": "./dist/generated/theme-defaults.js"
     },
     "./styles.css": "./dist/styles.css",
+    "./conversation.css": "./dist/conversation.css",
     "./foundation.css": "./dist/generated/foundation.css",
     "./themes.css": "./dist/generated/themes.css",
     "./tokens.json": "./tokens.json",

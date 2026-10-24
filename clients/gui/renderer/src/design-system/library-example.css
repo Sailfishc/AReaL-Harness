@@ -1,10 +1,18 @@
 @import "tailwindcss";
 @import "@areal/ui/styles.css";
+@import "@areal/ui/conversation.css";
 @import "@areal/ui/themes.css";
 @custom-variant dark (&:where(.dark, .dark *));
 body { margin: 0; padding: var(--spacing-field); color: var(--color-foreground); background: var(--color-background); font: var(--text-ui-base)/1.6 var(--font-sans); }
-.library-example { max-width: var(--reading-width); margin-inline: auto; }
+.library-example { max-width: 1100px; margin-inline: auto; }
 .library-example h1 { font-size: var(--text-ui-lg); font-weight: var(--ui-font-weight); }
 .library-example-actions { display: flex; flex-wrap: wrap; gap: var(--spacing-inline); margin-block: var(--spacing-field); }
 .library-example code { font-family: var(--font-mono); }
 .library-example-result { margin-block: var(--spacing-field); color: var(--color-foreground-subtle); }
+.library-conversation { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: var(--spacing-section); margin-top: var(--spacing-section); }
+.library-conversation > div { min-width: 0; }
+.library-conversation h2 { font-size: var(--text-ui-lg); font-weight: var(--ui-font-weight); }
+.library-conversation .areal-task-context { max-height: 480px; }
+.library-activities { margin: 0; padding-left: var(--spacing-section); }
+.library-activities li { margin-block: var(--spacing-inline); }
+@media (max-width: 650px) { .library-conversation { grid-template-columns: minmax(0, 1fr); } .library-conversation .areal-task-context { border-left: 0; } }

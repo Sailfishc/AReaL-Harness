@@ -3,7 +3,7 @@
 .ui-library-heading h2 small { font-size: var(--text-ui-sm); font-weight: normal; }
 .ui-library-section { padding-block: var(--spacing-section); border-bottom: var(--border-width-default) solid var(--color-border); }
 .ui-library-section h3 { margin-top: 0; }
-.ui-library-section iframe { width: 100%; height: 320px; border: var(--border-width-default) solid var(--color-border); border-radius: var(--radius-panel); }
+.ui-library-section iframe { width: 100%; height: 680px; border: var(--border-width-default) solid var(--color-border); border-radius: var(--radius-panel); }
 .ui-library-component { margin-top: var(--spacing-field); min-width: 0; }
 .ui-library-component > div { display: flex; flex-wrap: wrap; gap: var(--spacing-field); align-items: center; }
 .ui-library-component h4 { margin: 0; }

@@ -8,9 +8,17 @@
 
 从仓库根运行 `pnpm --dir clients/gui design:dev`，打开 [对话流设计预览](../renderer/design-system.html?conversation-system)。建设看板和组件目录也提供“对话流设计”入口。
 
-预览提供运行中、已完成、需要关注三种状态，来源数量可选零、三、五项。活动与图片默认收起；三十项列表、追加命令输出、文件/变更入口、子任务、来源折叠/查看全部、添加示例网页到草稿和窄窗上下文返回均可操作。切换状态保留同一组的人工展开和未发送草稿，刷新则回到初始样例。
+预览提供运行中、已完成、需要关注三种状态，来源数量可选零、三、五项，图片可切换可用/引用不可用。活动与图片默认收起；三十项列表、追加命令输出、文件/变更入口、子任务、来源折叠/查看全部、添加示例网页到草稿和窄窗上下文返回均可操作。切换状态保留同一组的人工展开和未发送草稿，刷新则回到初始样例。
 
-实现位于 [ConversationSystemPreview](../renderer/src/design-system/ConversationSystemPreview.tsx)，固定数据位于 [conversationSystemScenario](../renderer/src/design-system/conversationSystemScenario.ts)，样式仅作用于该预览。复用 ToolEvent、CommandDetails、SentAttachment、ConversationComposer、WorkbenchShell 和现有基础控件，候选折叠与右侧组合留在设计目录。图片来自既有仓库示例，文件/网页/变更/子任务详情是本地说明，不读取真实项目、不执行命令、不连接 Core 或供应商。
+宿主适配位于 [ConversationSystemPreview](../renderer/src/design-system/ConversationSystemPreview.tsx)，固定数据位于 [conversationSystemScenario](../renderer/src/design-system/conversationSystemScenario.ts)。活动、图片和右侧基本外观已由私有包的实验对话组件提供；本地 CSS 仅保留页面布局与 ToolEvent/SentAttachment 适配。复用原 CommandDetails、ConversationComposer 和 WorkbenchShell。图片来自既有仓库示例，文件/网页/变更/子任务详情是本地说明，不读取真实项目、不执行命令、不连接 Core 或供应商。
+
+| 实验组件 | 就近规范 | 预览实践 |
+| --- | --- | --- |
+| ActivityGroup | [活动分组合同](../packages/ui/src/conversation/activity-group/activity-group.md) | 30项原 ToolEvent，纵向滚动、增量/完成保留展开、折叠外状态 |
+| ImageDisclosure | [图片折叠合同](../packages/ui/src/conversation/image-disclosure/image-disclosure.md) | 默认收起、原图片查看器、引用不可用仍保留反馈 |
+| TaskContext | [上下文合同](../packages/ui/src/conversation/task-context/task-context.md) | Section/Item/Sources 组合变更、项目、子任务、来源；宿主返回与草稿保留 |
+
+这些组件均从 `@areal/ui/wip` 消费，独立样式为 `@areal/ui/conversation.css`。[UI 包预览](../renderer/design-system.html?ui-library)用普通活动文本、原生图片和本地动作独立消费同一组件，不加载 renderer 工作台样式。API、组件索引、Agent 索引和 Markdown 来自包构建，尚未提升为稳定入口或 Base 准入。
 
 相关检查：`pnpm --dir clients/gui design:build`，然后 `pnpm --dir clients/gui test:design --conversation-system`。专项沿既有浏览器 runner 检查默认折叠、人工选择跨完成保留、纵向滚动、图片加载与查看、来源状态以及窄窗返回，保留截图与 manifest。浏览器结果不代表真实执行、完整应用生命周期、安装包或用户视觉认可；下面的目标合同仍需分别按实际覆盖验收。
 
@@ -27,18 +35,18 @@
 
 ## 设计系统如何组织
 
-沿 [AReaL 架构](../../../design/architecture.md)组织，不新建独立组件库、Token 编译器或页面 DSL。
+沿 [AReaL 架构](../../../design/architecture.md)和 [D-004 私有 UI 包](../../../design/decisions/004-local-ui-package.md)组织，复用已有包、Token/主题和目录构建链，不新增平行组件库或页面 DSL。
 
 | 层 | 本题维护什么 | 唯一来源与后续落点 |
 | --- | --- | --- |
 | Foundations | 内容/控件文字、次级信息、表面、间距、图标、焦点和动效角色 | [GUI 基础规则](foundations.md)、[Token 指南](../DESIGN_SYSTEM.md#token-选择)及生产 CSS/偏好链；本稿不存数值副本 |
-| 通用控件 | 按钮、折叠、列表语义、反馈和详情容器 | 现有 UI 控件；不认识 Thread、processId 或权限结果 |
-| 对话领域组合 | 活动摘要、活动组、命令详情、图片入口、子代理入口与来源条目 | 本稿描述用途与行为；后续在既有组件旁维护就近合同，接口以真实类型为准 |
+| 通用控件 | 按钮、折叠、列表语义、反馈和详情容器 | 包内基础 Button/Disclosure 及原控件；不认识 Thread、processId 或权限结果 |
+| 对话领域组合 | 活动组、图片入口与任务上下文 | 首批 src/conversation 实现与就近合同；命令、子代理资源与权威状态沿原所有者，接口以真实类型为准 |
 | 交互模式 | 活动何时分组、怎样展开、回看与返回 | [过程阅读](../../../design/patterns/task-progress.md)与原 CONV 合同；不接管 Core 状态机 |
 | 产品布局 | 主阅读列、右侧上下文、查看资源及窄窗返回 | [桌面工作台](../../../design/products/workbench/README.md)与现有 App 宿主 |
 | 目录与示例 | 找到合同、真实实现及已覆盖状态 | 原 registry、设计文档阅读器与生产组件预览；未实现概念不登记成可用组件 |
 
-下面的英文名称是设计词汇，不是新增导出或 Props 承诺。若现有所有者能够承担，直接补齐它的合同与有限变体。
+上表的三个实验导出有实际类型和合同；下文其他英文名称仍是设计词汇，不构成新增导出或 Props 承诺。若现有所有者能够承担，直接补齐它的合同与有限变体。
 
 ## 主阅读列与活动层级
 

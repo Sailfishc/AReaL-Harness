@@ -23,7 +23,12 @@ export async function buildDocuments(check = false) {
     const specifiers = source.statements.filter(node => ts.isImportDeclaration(node) || ts.isExportDeclaration(node)).map(node => node.moduleSpecifier?.text).filter(Boolean);
     for (const name of specifiers) {
       assert.ok(!/(?:renderer|app\/src|electron|^node:|^fs$|^path$|collaboration)/.test(name), `UI reverse/platform dependency: ${relative(root, path)} -> ${name}`);
-      if (name.startsWith(".")) assert.ok(resolve(dirname(path), name).startsWith(resolve(root, "src") + "/"), `import escapes UI: ${name}`);
+      if (name.startsWith(".")) {
+        const target = resolve(dirname(path), name);
+        assert.ok(target.startsWith(resolve(root, "src") + "/"), `import escapes UI: ${name}`);
+        if (path.startsWith(resolve(root, "src/components") + "/") || path === resolve(root, "src/index.ts"))
+          assert.ok(!target.startsWith(resolve(root, "src/conversation") + "/"), `core imports conversation: ${relative(root, path)} -> ${name}`);
+      }
     }
   }
   const components = [];
@@ -34,7 +39,9 @@ export async function buildDocuments(check = false) {
     const data = Object.fromEntries(front[1].split("\n").map(line => line.split(/: (.*)/s).slice(0, 2)));
     for (const key of ["id", "title", "summary", "status", "entry", "layer"]) assert.ok(data[key]?.trim(), `missing ${key}: ${path}`);
     assert.ok(/^[a-z][a-z-]+$/.test(data.id));
-    assert.equal(data.layer, "core");
+    assert.ok(["core", "conversation"].includes(data.layer), `unknown layer: ${path}`);
+    assert.equal(data.layer, path.includes("/src/conversation/") ? "conversation" : "core", `layer/source mismatch: ${path}`);
+    if (data.layer === "conversation") assert.equal(data.entry, "wip", "conversation components remain experimental");
     assert.equal(data.status, data.entry === "index" ? "stable" : "experimental", `status/entry mismatch: ${path}`);
     assert.ok(entries[data.entry]?.has(data.title), `documented export does not exist: ${data.title}`);
     const source = relative(root, path).replace(/\.md$/, ".tsx");

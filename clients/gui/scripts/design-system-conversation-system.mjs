@@ -25,6 +25,14 @@ export async function runConversationSystem(page, scratch, checks) {
   const command = list.locator('[data-tool-id="system-command"]').getByRole("button").first();
   await command.click();
   await list.getByText("工作目录：/preview/AReaL-Harness", { exact: true }).waitFor();
+  await list.getByRole("button", { name: "展开完整命令", exact: true }).click();
+  const commandLayout = await list.evaluate(element => {
+    const input = element.querySelector('.command-input').getBoundingClientRect();
+    const output = element.querySelector('.command-output').getBoundingClientRect();
+    return { noOverlap: input.bottom <= output.top, horizontal: element.scrollWidth > element.clientWidth + 1 };
+  });
+  assert.equal(commandLayout.noOverlap, true, "full command must not overlap output");
+  assert.equal(commandLayout.horizontal, false);
   await preview.getByRole("button", { name: "追加命令输出", exact: true }).click();
   await page.waitForFunction(() => document.querySelector('[data-tool-id="system-command"] .command-output').textContent.includes("检查片段 8"));
   assert.equal(await list.evaluate(element => element.scrollWidth <= element.clientWidth + 1), true, "展开长命令和输出后仍没有横向溢出");
@@ -32,7 +40,7 @@ export async function runConversationSystem(page, scratch, checks) {
   const picture = preview.getByRole("button", { name: /预览图片.*界面参考/ });
   await picture.waitFor();
   await page.waitForFunction(() => {
-    const element = document.querySelector('.cs-image-content img');
+    const element = document.querySelector('.areal-image-content img');
     return element?.complete && element.naturalWidth > 0;
   });
   await picture.click();
@@ -47,6 +55,12 @@ export async function runConversationSystem(page, scratch, checks) {
   assert.equal(await command.getAttribute("aria-expanded"), "true");
   await activity.click(); await activity.click();
   assert.equal(await command.getAttribute("aria-expanded"), "true");
+  await preview.getByLabel("图片状态", { exact: true }).selectOption("unavailable");
+  await image.click();
+  await preview.getByRole("status").filter({ hasText: "图片引用暂不可用" }).waitFor();
+  await preview.getByLabel("图片状态", { exact: true }).selectOption("available");
+  assert.equal(await image.getAttribute("aria-expanded"), "false");
+  await image.click();
   checks.push("活动与图片默认收起；30项活动纵向滚动且无横向溢出；真实图片可加载和查看，人工展开跨完成及父组收起保留");
 
   await sources.getByRole("button", { name: "查看全部来源（5）", exact: true }).click();

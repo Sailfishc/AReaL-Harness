@@ -2,7 +2,7 @@ import manifestText from "@areal/ui/components.json?raw";
 import tokenText from "@areal/ui/tokens.json?raw";
 import "./ui-library.css";
 
-type ComponentEntry = { id: string; title: string; summary: string; status: string; entry: string; source: string; document: string; api: string };
+type ComponentEntry = { id: string; title: string; summary: string; status: string; entry: string; layer: string; source: string; document: string; api: string };
 const manifest: { name: string; version: string; private: boolean; components: ComponentEntry[] } = JSON.parse(manifestText);
 const tokens = JSON.parse(tokenText);
 const url = (document: string) => `?docs=${encodeURIComponent(document)}`;
@@ -16,7 +16,7 @@ export function UiLibraryPreview({ dark, fontSize }: { dark: boolean; fontSize: 
       <iframe title="独立UI包示例" src={`./ui-library.html?theme=${dark ? "dark" : "light"}&font=${fontSize}`} />
     </section>
     <section className="ui-library-section" aria-label="包内组件目录"><h3>组件与合同</h3>{manifest.components.map(component => <article className="ui-library-component" key={component.id}>
-      <div><h4>{component.title}</h4><span>{component.status === "stable" ? "稳定入口" : "实验入口"} · {component.entry === "wip" ? "@areal/ui/wip" : "@areal/ui"}</span></div><p>{component.summary}</p><a href={url(component.document)}>阅读组件合同</a>
+      <div><h4>{component.title}</h4><span>{component.layer === "conversation" ? "对话组合" : "基础控件"} · {component.status === "stable" ? "稳定入口" : "实验入口"} · {component.entry === "wip" ? "@areal/ui/wip" : "@areal/ui"}</span></div><p>{component.summary}</p><a href={url(component.document)}>阅读组件合同</a>
       <details><summary>查看 TypeScript 生成的 API</summary><pre>{component.api}</pre></details>
     </article>)}</section>
     <section className="ui-library-section" aria-label="设计源与产物"><h3>设计源与生成链</h3><table><thead><tr><th>来源</th><th>生成/实现</th><th>消费者与检查</th></tr></thead><tbody>
