@@ -38,7 +38,7 @@ const commandDefinitions = Object.freeze({
   queue: ['service', 'thread', read], queueEdit: ['service', 'thread', recoverable],
   library: ['service', 'app', operations(mutation, 'dropSidebar renameProject renameThread pinThread pinProject createSection renameSection removeSection orderSection moveThread moveProject readThread markAllRead orderSidebarThread hideProject orderProject orderThread settings')],
   manage: ['service', 'project', {
-    ...operations(read, 'pluginHooks pluginMcp mcpApps genUiSource mcpForms mcpToolResult plugins plugin providers mcp profile skills skill inspect context inheritedHistory plan processes process processWait goal permissions interactions processOutput executions execution executionArtifact executionWait agents agentWait workflows server workflow workgroupPolicy workgroups workgroup workgroupWait workgroupArtifact workgroupArtifactStatus workgroupCapabilities workgroupSubmission pluginCapabilities pluginSubmission processSubmission agentSubmission mcpFormResourceSubmission tasks task taskInbox taskChannel taskDraftHistory taskDraftRead taskSchedulePreview taskScheduleContext taskHistoryCapabilities taskRuns taskRun'),
+    ...operations(read, 'pluginHooks pluginMcp mcpApps genUiSource mcpForms mcpToolResult plugins plugin providers mcp profile skills skill inspect context inheritedHistory plan processes process processWait goal permissions interactions processOutput executions execution executionArtifact executionWait agents agentWait workflows server workflow workgroupPolicy workgroups workgroup workgroupWait workgroupArtifact workgroupArtifactStatus workgroupCapabilities workgroupSubmission pluginCapabilities pluginReadiness pluginSubmission processSubmission agentSubmission mcpFormResourceSubmission tasks task taskInbox taskChannel taskDraftHistory taskDraftRead taskSchedulePreview taskScheduleContext taskHistoryCapabilities taskRuns taskRun'),
     ...operations(subscription, 'taskWatch taskUnwatch'),
     ...operations(recoverable, 'pluginArchiveImport mcpFormResourceStage pluginHooksConfigure hookAcknowledge marketplaceAdd marketplaceAddGit marketplaceRemove marketplaceUpdate pluginResolve pluginAuthConfigure pluginConnection connectorConfigure connectorCredential pluginInstall pluginConfigure pluginComponentConfigure pluginUninstall pluginSetup providerSave providerRemove mcpSave mcpConnect mcpDisconnect archive unarchive processCloseStdin processStart processWrite processResize processTerminate goalCreate goalUpdate goalPause goalResume goalClear workgroupStart workflowStart workgroupRevise agentSpawn taskCreate taskUpdate taskRunNow taskPause taskResume taskStopRun taskResumeRun taskCancel taskDelete taskReply taskDraftSend'),
     ...operations(mutation, 'pluginArchivePick pluginAuth pluginAuthCredential mcpAppOpen mcpAppOpenFromResult mcpAppRequest mcpAppClose mcpExtensionCall mcpFormRespond mcpFormPreview mcpFormResourcePrepare mcpFormResourceRelease executionCancel executionApply serverDrain serverGc workgroupApplyArtifact workgroupCancel closeResources planUpdate toolAcknowledge contextCompact permissionsForget providerProbe taskDraftConfirm'),
@@ -216,6 +216,9 @@ function validateCommand(name, params, { serviceOnly = false } = {}) {
     || params.viewEpoch !== undefined && (!Number.isSafeInteger(params.viewEpoch) || Number(params.viewEpoch) < 0))) invalid();
   if (name === 'resources' && params.operation === 'builtinSkill'
     && (params.id !== 'openai-skill-creator' || Object.keys(params).some(key => !['operation', 'id'].includes(key)))) invalid();
+  if (name === 'manage' && params.operation === 'pluginReadiness'
+    && (!identifier(params.id) || !identifier(params.expectedDigest)
+      || Object.keys(params).some(key => !['operation', 'projectId', 'id', 'expectedDigest'].includes(key)))) invalid();
   if (name === 'manage' && ['pluginArchivePick', 'pluginArchiveImport'].includes(String(params.operation))) {
     const importing = params.operation === 'pluginArchiveImport';
     if (serviceOnly && !importing) invalid();
@@ -386,6 +389,14 @@ function desktopError(error) {
 /** @param {string} name @param {unknown} params @param {unknown} value */
 function validateCommandResponse(name, params, value) {
   if (!record(params)) invalid();
+  if (name === 'manage' && params.operation === 'pluginReadiness') {
+    if (!record(value) || value.pluginId !== params.id || value.installedDigest !== params.expectedDigest
+      || !Array.isArray(value.requiredTools) || !value.requiredTools.every(identifier)
+      || !Array.isArray(value.missingTools) || !value.missingTools.every(name => identifier(name) && Array.isArray(value.requiredTools) && value.requiredTools.includes(name))
+      || value.available !== (value.missingTools.length === 0)
+      || Object.keys(value).some(key => !['pluginId', 'installedDigest', 'requiredTools', 'missingTools', 'available'].includes(key))) invalid();
+  }
+
   if (name === 'providers' && params.operation === 'revealKey') {
     if (!record(value) || typeof value.apiKey !== 'string' || !value.apiKey.trim() || value.apiKey.length > 16384
       || Object.keys(value).some(key => key !== 'apiKey')) invalid();

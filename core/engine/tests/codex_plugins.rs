@@ -1081,3 +1081,84 @@ async fn blocked_historical_skill_cannot_be_selected_after_compatible_replacemen
         engine.take().unwrap().shutdown().await;
     }
 }
+
+#[tokio::test]
+async fn declared_host_requirements_gate_reads_and_selected_turns() {
+    for required in ["browser_v1", "skill_read"] {
+        let t = fixture();
+        write(t.path(), "pkg/plugin.json", &json!({"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json", "name":"sample", "skills":["skills/one","skills/setup"], "extensions":{"org.areal":{"hostRequirements":{"version":1,"tools":[required]}}}}).to_string());
+        let state = tempfile::tempdir().unwrap();
+        let recorded = Arc::new(Mutex::new(vec![]));
+        let e = Engine::open(
+            state.path(),
+            Arc::new(Recorder(recorded.clone())),
+            Limits::default(),
+        )
+        .unwrap();
+        let store = Arc::new(Store::open(t.path().join("plugins"), t.path().into(), None).unwrap());
+        e.install_plugin_store(store.clone()).unwrap();
+        install(&e, &store).await;
+        let thread = e.create(t.path().to_str().unwrap().into()).await.unwrap();
+        let skills = e.skills(&thread.id).await.unwrap();
+        let r = reference(&skills["data"][0]);
+        let read = e
+            .read_skill(&thread.id, r.clone(), "SKILL.md", 0, 8192)
+            .await;
+        let input = vec![Input::text(format!(
+            "<skill id={} revision={}>untrusted body</skill>",
+            json!(r.id),
+            json!(r.revision)
+        ))];
+        let admission = e.start(&thread.id, input).await;
+        if required == "browser_v1" {
+            assert!(read.unwrap_err().to_string().contains("browser_v1"));
+            assert!(admission.unwrap_err().to_string().contains("browser_v1"));
+            assert!(recorded.lock().unwrap().is_empty());
+            assert!(e.read(&thread.id, true).await.unwrap().turns.is_empty());
+        } else {
+            assert!(read.is_ok());
+            admission.unwrap();
+            e.wait(&thread.id).await.unwrap();
+        }
+        e.shutdown().await;
+    }
+}
+
+#[tokio::test]
+async fn declared_host_requirements_do_not_override_profile_tool_scope() {
+    let t = fixture();
+    write(t.path(), "pkg/plugin.json", &json!({"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json", "name":"sample", "skills":["skills/one"], "extensions":{"org.areal":{"hostRequirements":{"version":1,"tools":["skill_read"]}}}}).to_string());
+    let state = tempfile::tempdir().unwrap();
+    let e = Engine::open(
+        state.path(),
+        Arc::new(Recorder(Default::default())),
+        Limits::default(),
+    )
+    .unwrap();
+    let store = Arc::new(Store::open(t.path().join("plugins"), t.path().into(), None).unwrap());
+    e.install_plugin_store(store.clone()).unwrap();
+    install(&e, &store).await;
+    write(t.path(), "deployment.json", &json!({"profiles":[{"id":"restricted","revision":"v1","displayName":"Restricted","instructions":"","allowPluginSkills":true,"toolAllowlist":["read_history"]}]}).to_string());
+    e.install_deployment(&t.path().join("deployment.json"))
+        .unwrap();
+    let thread = e.create(t.path().to_str().unwrap().into()).await.unwrap();
+    e.configure_thread(serde_json::from_value(json!({"threadId":thread.id,"expectedRevision":1,"agentProfile":{"id":"restricted","revision":"v1"}})).unwrap()).await.unwrap();
+    let r = reference(&e.skills(&thread.id).await.unwrap()["data"][0]);
+    assert!(
+        e.read_skill(&thread.id, r.clone(), "SKILL.md", 0, 8192)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("skill_read")
+    );
+    let profile = VersionRef {
+        id: "restricted".into(),
+        revision: "v1".into(),
+    };
+    assert!(
+        e.read_profile_skill(profile, r, "SKILL.md", 0, 8192)
+            .await
+            .is_ok()
+    );
+    e.shutdown().await;
+}

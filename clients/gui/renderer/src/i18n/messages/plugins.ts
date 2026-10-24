@@ -1,4 +1,24 @@
 export const pluginMessages = {
+  "settings.pluginCenter.requiredHostToolsUnavailable": {
+    "zh-CN": "当前宿主未提供所需工具：{tools}。",
+    "en": "Required tools are unavailable in this host: {tools}."
+  },
+  "settings.pluginCenter.enableNativeComputerProvider": {
+    "zh-CN": "请在设置中明确启用原生电脑控制提供方。LCU 不提供 computer_v1。",
+    "en": "Enable the native computer control provider in Settings. LCU does not provide computer_v1."
+  },
+  "settings.pluginCenter.hostReadinessUnavailable": {
+    "zh-CN": "无法确认当前安装快照的工具可用性，请刷新插件详情。",
+    "en": "Could not confirm tool availability for this installed snapshot. Refresh plugin details."
+  },
+  "settings.pluginCenter.hostToolDeploymentReady": {
+    "zh-CN": "所需工具已部署。执行仍需通过操作审批与系统权限检查。",
+    "en": "Required tools are deployed. Execution still checks action approvals and OS permissions."
+  },
+  "settings.pluginCenter.checkingHostToolDeployment": {
+    "zh-CN": "正在检查宿主工具部署…",
+    "en": "Checking host tool deployment…"
+  },
   "settings.pluginCenter.returnToTask": {
     "zh-CN": "返回原任务",
     "en": "Return to original task"
@@ -504,8 +524,16 @@ export const pluginMessages = {
     "en": "Package version"
   },
   "settings.pluginCenter.contentDigest": {
-    "zh-CN": "内容摘要",
-    "en": "Content digest"
+    "zh-CN": "原包内容摘要",
+    "en": "Package content digest"
+  },
+  "settings.pluginCenter.definitionReviewDigest": {
+    "zh-CN": "有效定义审阅摘要",
+    "en": "Effective definition review digest"
+  },
+  "settings.pluginCenter.installedSnapshotDigest": {
+    "zh-CN": "已安装快照摘要",
+    "en": "Installed snapshot digest"
   },
   "settings.pluginCenter.pinnedCommit": {
     "zh-CN": "固定提交",
@@ -528,8 +556,8 @@ export const pluginMessages = {
     "en": "Save within the current project scope."
   },
   "settings.pluginCenter.iHaveReviewedTheSourceVersionAnd": {
-    "zh-CN": "我已核对以上来源、版本和内容摘要",
-    "en": "I have reviewed the source, version, and content digest above"
+    "zh-CN": "我已核对以上来源、版本和摘要",
+    "en": "I have reviewed the source, version, and digests above"
   },
   "settings.pluginCenter.theCatalogChangedResolveTheSourceAgain": {
     "zh-CN": "目录已变化，请重新解析来源后安装。",
@@ -716,12 +744,12 @@ export const pluginMessages = {
     "en": "None"
   },
   "settings.pluginCenter.catalogContentDigest": {
-    "zh-CN": "目录内容摘要",
-    "en": "Catalog content digest"
+    "zh-CN": "目录原包内容摘要",
+    "en": "Catalog package content digest"
   },
   "settings.pluginCenter.installedContentDigest": {
-    "zh-CN": "已安装内容摘要",
-    "en": "Installed content digest"
+    "zh-CN": "已安装原包内容摘要",
+    "en": "Installed package content digest"
   },
   "settings.pluginCenter.catalogPackageDiagnostics": {
     "zh-CN": "目录包诊断",

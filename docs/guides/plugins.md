@@ -1,8 +1,8 @@
 **中文** | [English](plugins.en.md)
 
-# Codex 插件包
+# 插件包兼容
 
-AReaL 的插件包由共享 Core 管理；GUI 与 CLI 读取同一安装与启用状态。支持本地/Git marketplace、Git 与 npm 来源、两种 manifest 中的 Skills，以及显式 onboarding；插件 MCP、Apps 和 GitHub Connector 通过现有 Core 执行边界接入。固定格式基线见 [upstream/pins.json](../../upstream/pins.json)，完整实施与验收见[任务计划](../development/codex-plugins-plan.md)。
+AReaL 的插件包由共享 Core 管理；GUI 与 CLI 读取同一安装与启用状态。支持本地/Git marketplace、Git 与 npm 来源、兼容 manifest 中的 Skills，以及显式 onboarding；插件 MCP、Apps 和 GitHub Connector 通过现有 Core 执行边界接入。固定格式基线见 [upstream/pins.json](../../upstream/pins.json)，完整实施与验收见[任务计划](../development/codex-plugins-plan.md)。
 
 ## 查看组件支持
 
@@ -12,9 +12,23 @@ AReaL 的插件包由共享 Core 管理；GUI 与 CLI 读取同一安装与启�
 
 CLI 使用 `areal plugins --workspace /path/to/project read <plugin-id>` 读取同一 Core 报告。同一命令与工作区下的 `mcp-list`、`hooks-list` 提供当前连接和信任事实。核对 `pluginId` 与 `installedDigest`，不能把候选摘要当作安装版本。静态报告中的真实供应商、平台和签名发行包验收保持未核实。
 
-Portable 作者可通过 `extensions.org.areal.componentRequirements` 声明静态必需 kind，例如 `{"version":1,"requiredKinds":["skills"]}`。每个必需 kind 的全部声明记录必须受支持。不兼容的必需 kind 会让包保留安装以供检查，但排除有效激活。可选 unsupported 声明不会禁用有效 Skill。该语义只适用于已识别的 portable 1.0.0 manifest。严格字段及限制见 [API 契约](../api/desktop.md#组件支持报告)。只有 `.zcode-plugin` 的包不受支持，请使用已有文档说明的 portable、Codex、Claude 或 Cursor manifest。
+Portable 作者可通过 `extensions.org.areal.componentRequirements` 声明静态必需 kind，例如 `{"version":1,"requiredKinds":["skills"]}`。每个必需 kind 的全部声明记录必须受支持。不兼容的必需 kind 会让包保留安装以供检查，但排除有效激活。可选 unsupported 声明不会禁用有效 Skill。该语义只适用于已识别的 portable 1.0.0 manifest。严格字段及限制见 [API 契约](../api/desktop.md#组件支持报告)。支持 `.zcode-plugin` 的有限组件导入；完整宿主 SDK 与其他差异见下文。
 
 历史 Skill 保留自身包摘要的静态兼容性要求。安装兼容的新版本不会解锁被阻止的旧引用。兼容的旧引用可继续使用，直到当前包被阻止、停用或卸载。
+
+## Claude Code 与 ZCode 的兼容范围
+
+Core 继续使用同一个 Store、不可变原包缓存和管理回执。原包不会被改写为 AReaL manifest。可移植 Agent Plugins 1.0.0 优先，其后依次选择 Codex、Claude、Cursor、ZCode manifest。未知可移植 schema 不降级到其他格式。OpenAI inline extension 仍整体替代兼容 overlay。
+
+Claude 市场允许由条目定义没有独立 manifest 的插件。例如 `source: "./"` 与 `skills: ["./skills/review"]` 只选择该条目的 Skill，不把同根其他条目的技能混入。`strict` 默认 true，存在 manifest 时追加条目的组件路径；`strict:false` 与 manifest、条目组件同时存在时拒绝冲突。Claude 有独立 manifest 时，只有条目的 commands、agents、skills、hooks、outputStyles、themes 参与合并和 strict 冲突。条目中的 MCP、LSP、userConfig、channels、apps、UI 不覆盖 manifest。显式 Claude skills 路径与默认目录相加。Claude MCP 按默认文件、显式文档的顺序合并，同名服务保留最后定义。manifestless 显式列表仍按条目限定。ZCode 的默认 skills 目录与显式路径相加。新导入格式首批只执行 Skills 与已支持的 MCP；commands、agents、UI、宿主专用 SDK 和未支持的 hook 语义仍明确诊断，不因安装而执行。
+
+目录 source 的相对路径和 `directory` 类型均受市场根边界约束。`github` 来源归一到固定 Git 来源，再沿原有显式解析和审阅步骤安装。HTTP JSON 市场、marketplace archive source、command source 与 pip 不在本批范围。手工 ZIP 导入是独立入口，不能用它证明对应市场 source 已支持。相同字段名按所属格式解释，不把 Git URL 自动当成 JSON catalog。
+
+`sourceDigest` 始终描述当前候选的原包字节。消费市场条目定义的候选另有 `admissionDigest`。安装时 `expectedDigest` 使用 `admissionDigest ?? sourceDigest`，界面与 CLI 自动选择正确身份。`installedDigest` 描述有效安装快照，`installedSourceDigest` 单独描述已安装原包。市场条目只改组件选择、来源或执行前提，也会要求重新审阅。安装后读取、重启及历史引用使用固定定义，不重新读取可变市场。旧无上下文包保留原摘要和收据行为。旧客户端只提交原包摘要时不能安装需要新审阅身份的候选。
+
+自有可移植包可以声明 `extensions.org.areal.hostRequirements` 为 `{"version":1,"tools":["browser_v1"]}`。这些要求只收窄可用性，不注册、开启或授权工具。桌面试用前检查当前部署；Core 在实际会话与 Turn 准入时检查可用工具及 Profile 限制。电脑控制关闭或使用不同 provider 时，要求 `computer_v1` 的 Skill 不会自动切换输入通道。工具存在不代表 OS 权限已授予，审批、系统权限、Stop 与 UNKNOWN 规则继续由原所有者执行。没有结构化声明的任意 Skill 文本不被当作可自动推断的完整依赖图，其行为兼容保持未验证。
+
+仓库提供 [本地市场示例](../../examples/plugin-marketplace/README.zh-CN.md)，包含调用现有工具的 AReaL 浏览器和电脑适配 Skill。它们是 AReaL 适配包，不宣称原始 ZCode JavaScript SDK 可以原样执行。创建技能继续使用既有 **Create Skill** 和固定官方 Creator，市场发现、创建产物和发布分别处理。
 
 ## 插件、Skills 与 MCP
 

@@ -368,7 +368,7 @@ MCP 清理失败保持 cleanupFailed，并持久保存 cleanupUnconfirmed。无�
 | `areal/plugin/uninstall` | `id, expectedRevision, requestId` | 撤权；保留历史缓存 |
 | `areal/plugin/setup` | `id, threadId?, requestId` | `{thread,turn,requestId}`；仅普通会话；显式选择已安装 onboarding Skill |
 
-目录条目的 `version/sourceDigest/skills/onboardingSkill` 描述当前候选；`installedVersion/installedDigest/installedSkills/installedOnboardingSkill` 描述持久安装副本。安装必须同时提交本次选中的 `source` 和 64 位十六进制 `expectedDigest`。范围变更采用目录 `revision` 的 CAS；冲突或来源变化后重新读取，不隐式重试写入。
+目录条目的 `version/sourceDigest/admissionDigest/skills/onboardingSkill` 描述当前候选；`installedVersion/installedDigest/installedSourceDigest/installedSkills/installedOnboardingSkill` 描述持久安装副本。`sourceDigest` 与 `installedSourceDigest` 是原包字节摘要。可空 `admissionDigest` 绑定已消费的市场条目定义和原包；候选审阅身份取 `admissionDigest ?? sourceDigest`。`installedDigest` 是已安装有效定义身份。安装必须同时提交选中 `source` 和审阅身份作为 64 位十六进制 `expectedDigest`。上下文候选拒绝仅提交原包摘要的旧客户端，不降级审阅。范围变更采用目录 `revision` 的 CAS；冲突或来源变化后重新读取，不隐式重试写入。
 
 `component` 是 `{kind:"skill",id}` 或 `{kind:"mcpServer",id}`。Skill 使用现有稳定 ID；MCP 使用 `areal/plugin/mcp/list` 的命名空间 `serverId`。`componentChoices.disabledSkills/disabledMcpServers` 投影当前项目的关闭选择，缺省为空。选择按稳定身份跨更新保留，卸载清除。它们只收窄包声明、插件启用与 Profile 权限，不能授予额外访问。关闭 Skill 同时拒绝目录发现、保留版本读取和 onboarding。
 
@@ -380,7 +380,9 @@ MCP 清理失败保持 cleanupFailed，并持久保存 cleanupUnconfirmed。无�
 
 ### 组件支持报告
 
-`PluginDetail.componentSupport` 对应候选 `sourceDigest`，`installedComponentSupport` 对应准确的 `installedDigest`。可空报告包含 `digest`、`manifestFormat`、`components`、`compatibility` 和 `validation`。尚未解析或来源不可读的候选没有报告；经校验且没有声明的包返回空组件列表。旧安装 State 缺少字段时，Core 从通过完整性校验的安装缓存重算。候选变化不会替换安装报告。
+可移植 manifest 的 `extensions.org.areal.hostRequirements` 接受严格对象 `{"version":1,"tools":["browser_v1"]}`。未知字段、未知版本或无效工具名拒绝。工具要求投影为 `PluginDetail.requiredTools` 与每个 `InstalledSkill.requiredTools`，旧记录默认空列表。它们只限制实际会话 Skill 的准入和读取，不注册或授予工具。静态支持报告的 `declaredHostTools` 只表示尚需核对实际部署；桌面只读 readiness 使用已安装身份和当前部署工具，不证明 OS 权限。
+
+`PluginDetail.componentSupport` 对应候选 `admissionDigest ?? sourceDigest`，`installedComponentSupport` 对应准确的 `installedDigest`。可空报告包含 `digest`、`manifestFormat`、`components`、`compatibility` 和 `validation`。尚未解析或来源不可读的候选没有报告；经校验且没有声明的包返回空组件列表。旧安装 State 缺少字段时，Core 从通过完整性校验的安装缓存重算。候选变化不会替换安装报告。
 
 逐项记录包含 `kind`、包内 `sourceField`、`status`、`reasonCodes`、可空 `supportedSchema`、`required` 和 `activationRequirements`。kind 为 `skills`、`mcp`、`hooks`、`apps`、`commands`、`agents`、`uiSurfaces`。status 为 `supported`、`partial`、`unsupported`。Commands、agents 与 UI surfaces 保留独立声明记录，不导出命令、prompt、环境或凭据值。声明键限制为 256 字节，隐式路径限制为 1024 字节，报告最多 4096 项。超限拒绝候选，不静默丢项。
 

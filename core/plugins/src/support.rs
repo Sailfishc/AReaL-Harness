@@ -16,6 +16,9 @@ pub enum ComponentKind {
     Commands,
     Agents,
     UiSurfaces,
+    OutputStyles,
+    Themes,
+    Lsp,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -31,6 +34,7 @@ pub enum ManifestFormat {
     Codex,
     Claude,
     Cursor,
+    Zcode,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -90,6 +94,10 @@ pub(crate) struct ManifestSelection<'a> {
     pub manifest: &'a Value,
     pub overlay_path: String,
     pub overlay: &'a Value,
+    pub restricted: bool,
+    pub claude_defaults: bool,
+    pub field_origins: &'a std::collections::BTreeMap<String, String>,
+    pub catalog: Option<&'a package::CatalogContext>,
 }
 fn field(path: &str, key: &str) -> String {
     if path.contains('#') {
@@ -386,6 +394,14 @@ fn document(
     }
     Ok(())
 }
+fn references_user_config(value: &Value) -> bool {
+    match value {
+        Value::String(s) => s.contains("${user_config.") || s.contains("${userConfig."),
+        Value::Array(values) => values.iter().any(references_user_config),
+        Value::Object(values) => values.values().any(references_user_config),
+        _ => false,
+    }
+}
 pub(crate) fn parse(
     files: &package::Files,
     selection: ManifestSelection<'_>,
@@ -404,7 +420,30 @@ pub(crate) fn parse(
         ));
     }
     let overlay = selection.overlay;
-    if selection.portable {
+    let mcp_documents = crate::components::mcp_documents(
+        overlay.get("mcpServers"),
+        files,
+        selection.portable,
+        selection.claude_defaults,
+        &mut vec![],
+    );
+    if selection.claude_defaults {
+        let manifest_field = field(&selection.overlay_path, "mcpServers");
+        for origin in &mcp_documents.rejected {
+            components.push(partial(
+                ComponentKind::Mcp,
+                document_field(origin.clone(), &manifest_field),
+                "componentDocumentMissingOrInvalid",
+            ));
+        }
+        for (origin, document) in &mcp_documents.documents {
+            mcp(
+                &document.value,
+                &document_field(origin.clone(), &manifest_field),
+                &mut components,
+            )?;
+        }
+    } else if selection.portable {
         if files.contains_key("mcp.json") {
             document(
                 &Value::String("mcp.json".into()),
@@ -446,15 +485,28 @@ pub(crate) fn parse(
         &mut components,
     )?;
     let mut declarations = vec![(selection.manifest, selection.manifest_path)];
-    if !std::ptr::eq(overlay, selection.manifest) {
+    if selection.portable {
         declarations.push((overlay, selection.overlay_path.as_str()));
+    } else if let Some(catalog) = selection.catalog
+        && catalog.origin != selection.manifest_path
+    {
+        declarations.push((&catalog.entry, catalog.origin.as_str()));
     }
     for (kind, key) in [
         (ComponentKind::Commands, "commands"),
         (ComponentKind::Agents, "agents"),
+        (ComponentKind::OutputStyles, "outputStyles"),
+        (ComponentKind::Themes, "themes"),
+        (ComponentKind::Lsp, "lspServers"),
     ] {
         let mut declared = false;
         for (manifest, path) in &declarations {
+            if selection.claude_defaults
+                && *path != selection.manifest_path
+                && !package::CLAUDE_MERGE_FIELDS.contains(&key)
+            {
+                continue;
+            }
             if let Some(value) = manifest.get(key) {
                 unsupported(value, kind, &field(path, key), &mut components)?;
                 declared = true;
@@ -475,6 +527,9 @@ pub(crate) fn parse(
         }
     }
     for (manifest, path) in declarations {
+        if selection.claude_defaults && path != selection.manifest_path {
+            continue;
+        }
         if let Some(value) = manifest.pointer("/ui/surfaces") {
             unsupported(
                 value,
@@ -504,7 +559,7 @@ pub(crate) fn parse(
                     "unsupported componentRequirements version"
                 );
                 ensure!(
-                    requirements.required_kinds.len() <= 7,
+                    requirements.required_kinds.len() <= 10,
                     "too many required component kinds"
                 );
                 let mut kinds = BTreeSet::new();
@@ -518,7 +573,68 @@ pub(crate) fn parse(
     } else {
         vec![]
     };
+    for component in &mut components {
+        for (key, origin) in selection.field_origins {
+            let original = field(&selection.overlay_path, key);
+            if component.source_field == original
+                || component
+                    .source_field
+                    .strip_prefix(&original)
+                    .is_some_and(|rest| rest.starts_with('/'))
+            {
+                component.source_field = component.source_field.replacen(&original, origin, 1);
+            }
+        }
+        if selection.restricted
+            && matches!(component.kind, ComponentKind::Hooks | ComponentKind::Apps)
+        {
+            component.status = SupportStatus::Unsupported;
+            component.supported_schema = None;
+            component.reason_codes = vec!["hostRuntimeUnsupported".into()];
+        }
+        if selection
+            .manifest
+            .pointer("/extensions/org.areal/hostRequirements")
+            .is_some()
+        {
+            component
+                .activation_requirements
+                .push("declaredHostTools".into());
+        }
+    }
     let mut reasons = Vec::new();
+    let nonempty = |v: &Value| {
+        !v.is_null()
+            && match v {
+                Value::Array(v) => !v.is_empty(),
+                Value::Object(v) => !v.is_empty(),
+                _ => true,
+            }
+    };
+    if [selection.manifest, overlay]
+        .iter()
+        .any(|v| v.get("dependencies").is_some_and(nonempty))
+    {
+        reasons.push("packageDependenciesUnsupported".into());
+    }
+    if [selection.manifest, overlay]
+        .iter()
+        .any(|v| v.get("userConfig").is_some_and(nonempty) || references_user_config(v))
+        || mcp_documents
+            .documents
+            .iter()
+            .any(|(_, document)| references_user_config(&document.value))
+    {
+        reasons.push("userConfigUnsupported".into());
+    }
+    if !reasons.is_empty() {
+        for component in &mut components {
+            component.status = SupportStatus::Unsupported;
+            component.reason_codes.extend(reasons.clone());
+            component.activation_requirements.extend(reasons.clone());
+        }
+    }
+
     for kind in required {
         let mut found = false;
         let mut supported = true;

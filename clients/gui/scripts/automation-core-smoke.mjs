@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { cp, mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:http';
@@ -15,12 +15,17 @@ const options = { suite: 'all', native: false };
 for (let index = 2; index < process.argv.length; index++) {
   const flag = process.argv[index];
   if (flag === '--native') options.native = true;
+  else if (flag === '--ecosystem') options.ecosystem = true;
   else if (['--suite', '--native-bundle-id', '--native-fixture-app'].includes(flag)) {
     assert.ok(process.argv[index + 1] && !process.argv[index + 1].startsWith('--'), `${flag} needs a value`);
     options[{ '--suite': 'suite', '--native-bundle-id': 'bundleId', '--native-fixture-app': 'fixtureApp' }[flag]] = process.argv[++index];
   } else throw Error(`Unknown flag ${flag}`);
 }
 assert.ok(['all', 'browser', 'computer'].includes(options.suite), '--suite must be all, browser, or computer');
+if (options.ecosystem) {
+  assert.notEqual(options.suite, 'all', '--ecosystem requires one explicit --suite');
+  assert.ok(process.env.AREAL_CORE_BIN, '--ecosystem requires an explicit AREAL_CORE_BIN');
+}
 if (options.native) {
   assert.notEqual(options.suite, 'browser', '--native requires the computer suite');
   assert.equal(options.bundleId, 'com.areal.harness.computer-fixture', 'native actions accept only the dedicated harmless AReaL fixture');
@@ -38,6 +43,11 @@ assert.ok(isAbsolute(binary), 'AREAL_CORE_BIN must be absolute');
 const scratch = await mkdtemp('/private/tmp/areal-automation-core-');
 const workspace = join(scratch, 'workspace'), userHome = join(scratch, 'user');
 await mkdir(workspace);
+const ecosystem = options.ecosystem ? { pluginId: `${options.suite}-control@areal-adapters`, skillName: `${options.suite}-control`, tool: `${options.suite}_v1`, selections: [] } : null;
+if (ecosystem) {
+  await cp(join(root, 'examples/plugin-marketplace'), workspace, { recursive: true });
+  ecosystem.body = await readFile(join(workspace, ecosystem.skillName, 'skills', ecosystem.skillName, 'SKILL.md'), 'utf8');
+}
 await mkdir(join(userHome, '.areal'), { recursive: true });
 execFileSync('git', ['init', '-b', 'main'], { cwd: workspace, stdio: 'ignore' });
 execFileSync('git', ['-c', 'user.name=Smoke', '-c', 'user.email=smoke@example.invalid', 'commit', '--allow-empty', '-m', 'fixture'], { cwd: workspace, stdio: 'ignore' });
@@ -53,6 +63,14 @@ const failureModes = [
   'Settings enablement does not persist, a fresh disabled session advertises computer_v1, or disabled native admission executes.',
   'Passive computer status requests OS authorization or native actions run without existing grants.',
 ];
+if (ecosystem) failureModes.push(
+  'GUI source review installs the wrong package or restart loses the installed digest or selected Skill reference.',
+  'Try creates a thread or submits to the model before Send.',
+  'The model never receives the exact installed Skill body and Core reference before native tool execution.',
+  'Missing host tools or disabled computer control report available readiness.',
+  'Creator replaces the existing official builtin source or skips its real Runtime initialization and validation.',
+  'Stale, denied or UNKNOWN mutations execute again. Only denied mutation replay is covered by this combined runner.',
+);
 const siteFacts = { gets: [], effects: [] };
 const sentinel = 'AUTOMATION_REAL_NATIVE_PAGE_23';
 const site = createServer(async (request, response) => {
@@ -98,6 +116,13 @@ const model = createServer(async (request, response) => {
         const url = part.image_url?.url;
         if (typeof url === 'string' && url.startsWith('data:image/')) imageUrls.push(createHash('sha256').update(Buffer.from(url.split(',')[1], 'base64')).digest('hex'));
       }
+    }
+    if (ecosystem?.currentSelected) {
+      const userText = (body.messages ?? []).filter(message => message.role === 'user').map(message => typeof message.content === 'string' ? message.content : (message.content ?? []).map(part => part.text ?? '').join('\n')).join('\n');
+      assert.ok(userText.includes(ecosystem.body), 'actual model request carries the installed AReaL Skill body');
+      assert.ok(userText.includes(`id="${ecosystem.skill.id}" revision="${ecosystem.skill.revision}"`), 'actual model request carries the selected exact Core Skill reference');
+      events.ecosystem ??= ecosystem;
+      await writeFile(join(scratch, `${activeScenario.id}-model-request.json`), JSON.stringify(body, null, 2));
     }
     events.modelCalls.push({ scenario: activeScenario.id, toolNames: names, lastRole: last?.role, imageSHA256: imageUrls });
     response.writeHead(200, { 'Content-Type': 'text/event-stream' });
@@ -234,7 +259,21 @@ async function imageResult(item) {
   await writeFile(join(scratch, `${item.callId}.png`), bytes);
   return info;
 }
-async function newThread() {
+async function newThread(selectSkill = true) {
+  if (ecosystem) ecosystem.currentSelected = selectSkill;
+  if (ecosystem && selectSkill) {
+    await prepareEcosystemDraft();
+    const id = `ecosystem-selection-${ecosystem.selections.length}`;
+    activeScenario = { id, sent: false };
+    await page.getByRole('button', { name: '发送', exact: true }).click();
+    threadId = await until(async () => await page.getByTestId('areal-workbench').getAttribute('data-thread-id'), 'GUI Send creates selected Skill conversation');
+    await until(async () => (await readCoreThread()).turns?.at(-1)?.status === 'completed', 'selected Skill reaches model through GUI Send');
+    const inspection = await command('manage', { projectId, threadId, operation: 'inspect' });
+    await command('configure', { projectId, threadId, expectedRevision: inspection.configuration.revision, selectedSkills: [{ id: ecosystem.skill.id, revision: ecosystem.skill.revision }] });
+    ecosystem.selections.push({ threadId, skill: ecosystem.skill });
+    checks.push(id);
+    return threadId;
+  }
   const created = await command('create', { projectId, browserEnabled: true, options: { permissionPreset: 'ask' }, profile: { id: 'fixture', revision: 'v1' } });
   threadId = created.threadId;
   await selectConversation(page, threadId);
@@ -273,9 +312,74 @@ function assertComputerCatalog(id, enabled) {
   assert.ok(requests.every(call => call.toolNames.includes('computer_v1') === enabled), 'fresh-session catalog follows computer enablement');
 }
 
-let passed = false;
-console.log(`Automation Core evidence ${scratch}`);
-try {
+async function ecosystemDetail() {
+  await page.getByRole('navigation', { name: '应用导航', exact: true }).getByRole('button', { name: '插件', exact: true }).click();
+  await page.getByRole('tablist', { name: '市场范围', exact: true }).getByRole('tab', { name: '个人', exact: true }).click();
+  await page.getByRole('button', { name: `查看插件 ${ecosystem.pluginId}`, exact: true }).click();
+  const detail = page.getByTestId('plugin-detail-page');
+  await detail.waitFor();
+  return detail;
+}
+async function prepareEcosystemDraft() {
+  const before = (await state()).projects.find(project => project.id === projectId);
+  const threadIds = Object.keys(before.state?.threads ?? {}).sort();
+  const requests = events.modelCalls.length;
+  const detail = await ecosystemDetail();
+  await detail.getByRole('button', { name: '管理', exact: true }).click();
+  await page.getByTestId('plugin-detail-page').getByRole('button', { name: ecosystem.skillName, exact: true }).click();
+  await page.getByTestId('skill-detail-page').getByRole('button', { name: '试用', exact: true }).click();
+  await page.getByRole('button', { name: new RegExp(`^查看技能 ${ecosystem.skillName}`) }).waitFor();
+  assert.deepEqual(Object.keys((await state()).projects.find(project => project.id === projectId).state?.threads ?? {}).sort(), threadIds, 'Try stages only a draft');
+  assert.equal(events.modelCalls.length, requests, 'Try does not submit to the model');
+  const selected = await page.evaluate(id => JSON.parse(localStorage.getItem(`areal-gui:draft:${id}:new:skills`) ?? '[]'), projectId);
+  assert.equal(selected.length, 1);
+  assert.deepEqual({ id: selected[0].id, revision: selected[0].revision }, ecosystem.skill);
+}
+async function readiness(expectedAvailable) {
+  const value = await command('manage', { projectId, operation: 'pluginReadiness', id: ecosystem.pluginId, expectedDigest: ecosystem.installedDigest });
+  assert.equal(value.pluginId, ecosystem.pluginId);
+  assert.equal(value.installedDigest, ecosystem.installedDigest);
+  assert.deepEqual(value.requiredTools, [ecosystem.tool]);
+  assert.equal(value.available, expectedAvailable);
+  assert.deepEqual(value.missingTools, expectedAvailable ? [] : [ecosystem.tool]);
+  ecosystem.readiness ??= [];
+  ecosystem.readiness.push(value);
+}
+async function installEcosystem() {
+  const detail = await ecosystemDetail();
+  await detail.getByRole('button', { name: '安装', exact: true }).click();
+  await detail.getByRole('checkbox', { name: '我已核对以上来源、版本和内容摘要', exact: true }).waitFor();
+  await detail.getByRole('button', { name: '资源范围', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: '当前项目', exact: true }).click();
+  assert.equal(await detail.getByRole('button', { name: '安装到当前项目', exact: true }).isEnabled(), false, 'source review is required');
+  await detail.getByRole('checkbox', { name: '我已核对以上来源、版本和内容摘要', exact: true }).check();
+  await detail.getByRole('button', { name: '安装到当前项目', exact: true }).click();
+  const installed = await until(async () => (await command('manage', { projectId, operation: 'plugins' })).data.find(plugin => plugin.id === ecosystem.pluginId && plugin.installed), 'reviewed package installed by GUI');
+  assert.equal(installed.enabled, true);
+  assert.equal(installed.installedVersion, '1.0.0');
+  assert.equal(installed.installedSkills.length, 1);
+  ecosystem.installedDigest = installed.installedDigest;
+  ecosystem.skill = { id: installed.installedSkills[0].id, revision: installed.installedSkills[0].revision };
+  assert.ok(ecosystem.skill.id && ecosystem.skill.revision);
+  assert.equal(events.modelCalls.length, 0, 'installation cannot invoke inference');
+  await prepareEcosystemDraft();
+  const saved = await page.evaluate(id => localStorage.getItem(`areal-gui:draft:${id}:new:skills`), projectId);
+  const metadata = JSON.parse(await readFile(join(scratch, 'core/service.json'), 'utf8'));
+  await app.evaluate(({ dialog }) => { dialog.showMessageBox = async () => ({ response: 1 }); });
+  await closeSmokeApplication(app);
+  app = undefined;
+  await assertApplicationStopped(binary, env, metadata);
+  await launch();
+  const restored = (await command('manage', { projectId, operation: 'plugins' })).data.find(plugin => plugin.id === ecosystem.pluginId);
+  assert.equal(restored.installedDigest, ecosystem.installedDigest, 'cold restart preserves reviewed package identity');
+  assert.equal(restored.installedSkills.length, 1);
+  assert.deepEqual({ id: restored.installedSkills[0].id, revision: restored.installedSkills[0].revision }, ecosystem.skill, 'cold restart preserves exact Skill selection');
+  assert.equal(await page.evaluate(id => localStorage.getItem(`areal-gui:draft:${id}:new:skills`), projectId), saved, 'cold restart preserves unsent Skill reference');
+  assert.equal(events.modelCalls.length, 0, 'restart cannot execute Try');
+  checks.push('ecosystem-gui-install-try-restart');
+}
+
+async function launch() {
   app = await electron.launch({ executablePath: process.env.AREAL_ELECTRON_EXECUTABLE || require('electron'), args: [join(gui, 'app')], env, timeout: 120000 });
   app.process().stderr.on('data', chunk => void writeFile(join(scratch, 'electron.stderr.log'), chunk, { flag: 'a' }));
   page = await app.firstWindow(); page.setDefaultTimeout(20000);
@@ -325,18 +429,52 @@ try {
   await page.evaluate(() => window.arealDesktop.chooseProject());
   const owner = await until(async () => (await state()).projects.find(item => item.root === workspace && item.state?.connected), 'isolated project ready');
   projectId = owner.id;
+}
+let passed = false;
+console.log(`Automation Core evidence ${scratch}`);
+try {
+  await launch();
+  if (ecosystem) {
+    if (options.suite === 'computer') await setComputerEnabled(true);
+    await installEcosystem();
+  }
   if (options.suite !== 'browser') {
     await setComputerEnabled(false);
+    if (ecosystem) {
+      await readiness(false);
+      const requests = events.modelCalls.length;
+      const before = (await state()).projects.find(project => project.id === projectId).state;
+      const draft = await page.evaluate(id => ({ text: localStorage.getItem(`areal-gui:draft:${id}:new`), skills: localStorage.getItem(`areal-gui:draft:${id}:new:skills`) }), projectId);
+      const detail = await ecosystemDetail();
+      await until(async () => !(await detail.getByRole('button', { name: '试用', exact: true }).isEnabled()), 'disabled native provider blocks Try');
+      await until(async () => /computer_v1/.test(await detail.innerText()), 'unavailable readiness identifies missing native host tool');
+      assert.deepEqual(await page.evaluate(id => ({ text: localStorage.getItem(`areal-gui:draft:${id}:new`), skills: localStorage.getItem(`areal-gui:draft:${id}:new:skills`) }), projectId), draft, 'unavailable Try preserves the draft and selected Skill reference');
+      assert.equal(events.modelCalls.length, requests);
+      assert.deepEqual(Object.keys((await state()).projects.find(project => project.id === projectId).state.threads).sort(), Object.keys(before.threads).sort(), 'unavailable adapter does not create a thread');
+      await detail.getByRole('button', { name: '管理', exact: true }).click();
+      await page.getByTestId('plugin-detail-page').getByRole('button', { name: ecosystem.skillName, exact: true }).click();
+      const skillDetail = page.getByTestId('skill-detail-page');
+      await skillDetail.getByRole('button', { name: '试用', exact: true }).click();
+      await until(async () => /computer_v1/.test(await skillDetail.innerText()), 'Skill detail Try reports the same missing deployment');
+      assert.deepEqual(await page.evaluate(id => ({ text: localStorage.getItem(`areal-gui:draft:${id}:new`), skills: localStorage.getItem(`areal-gui:draft:${id}:new:skills`) }), projectId), draft, 'Skill detail blocked Try preserves draft');
+      assert.equal(events.modelCalls.length, requests, 'Skill detail cannot bypass disabled native deployment');
+      checks.push('ecosystem-disabled-computer-try-blocked');
+      await page.getByRole('navigation', { name: '应用导航', exact: true }).getByRole('button', { name: '首页', exact: true }).click();
+    }
     const before = await command('computerControl', { operation: 'status' });
     const after = await command('computerControl', { operation: 'status' });
     events.passiveStatus = { before, after };
     assert.equal(before.enabled, false); assert.equal(after.enabled, false);
     for (const capability of ['accessibility', 'screenRecording', 'inputMonitoring']) assert.equal(after[capability], before[capability], 'passive status leaves OS grants unchanged');
-    await newThread();
+    await newThread(false);
     await runScenario({ id: 'computer-disabled-tool-catalog' });
     assertComputerCatalog('computer-disabled-tool-catalog', false);
     checks.push('computer-disabled-tool-catalog');
     await setComputerEnabled(true);
+    if (ecosystem) {
+      const status = await command('computerControl', { operation: 'status' });
+      await readiness(status.available === true);
+    }
     await newThread();
     await computerCase('describe', 'describe', {}, { assertResult(item) {
       successful(item); const text = JSON.stringify(item.contentItems);
@@ -410,12 +548,13 @@ try {
       assert.equal(denial.dispatch_status, 'not_sent');
     } });
     events.computerRegistrationContract = 'Existing threads may retain their saved tool definition. Disabled Main admission rejects before approval. Fresh disabled threads omit computer_v1.';
-    await newThread();
+    await newThread(false);
     await runScenario({ id: 'computer-disabled-again' });
     assertComputerCatalog('computer-disabled-again', false);
     checks.push('computer-disabled-again');
   }
   if (options.suite !== 'computer') {
+    if (ecosystem) await readiness(true);
     await newThread();
     await page.keyboard.press('Meta+t');
     await page.locator('.preview-panel').waitFor();
@@ -474,6 +613,7 @@ try {
     gaps.push('The runner covers representative browser commands. It does not establish every ZCode command, arbitrary public sites, real-provider behavior, or packaged application parity.');
     gaps.push('The browser dialog case covers confirm. Electron prompt support is not established by this runner.');
   }
+  if (ecosystem) gaps.push('Selected-plugin browser/computer paths do not cover stale-reference mutation rejection, UNKNOWN receipt loss, physical Stop/takeover, real providers, or packaged apps. Those scenarios require separate acceptance and cannot be inferred from this runner.');
   events.permissionRequests = await app.evaluate(() => globalThis.__automationPermissionRequests);
   assert.deepEqual(events.permissionRequests, [], 'passive settings/model access queries never call explicit authorization or open System Settings');
   checks.push(options.suite === 'browser' ? 'browser-no-authorization-request' : 'passive-status-no-authorization-request');

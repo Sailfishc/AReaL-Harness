@@ -93,8 +93,14 @@ impl Store {
     ) -> Result<InstalledComponents> {
         let mut component = self.read_components(
             &detail.id,
-            &detail.source_digest,
+            detail.review_digest(),
             self.root.join("cache").join(&detail.source_digest),
+            self.definition(
+                state,
+                &detail.id,
+                detail.review_digest(),
+                &detail.source_digest,
+            )?,
             state
                 .installed_policies
                 .get(&detail.id)
@@ -136,8 +142,9 @@ impl Store {
             .unwrap_or_else(|| detail.source.clone());
         self.read_components(
             &detail.id,
-            &detail.source_digest,
+            detail.review_digest(),
             root,
+            detail.definition.as_ref(),
             detail.policy.clone(),
         )
     }
@@ -146,10 +153,26 @@ impl Store {
         id: &str,
         digest: &str,
         root: PathBuf,
+        definition: Option<&package::Definition>,
         policy: Value,
     ) -> Result<InstalledComponents> {
+        let raw_digest = if let Some(definition) = definition {
+            definition.validate(id, digest)?;
+            &definition.package_digest
+        } else {
+            ensure!(
+                !root.starts_with(self.root.join("cache"))
+                    || root.file_name().and_then(|name| name.to_str()) == Some(digest),
+                "plugin definition receipt missing"
+            );
+            digest
+        };
+        let policy = match definition {
+            Some(definition) => crate::metadata::policy(&definition.context.entry)?,
+            None => policy,
+        };
         let fingerprint = package::fingerprint(&root)?;
-        let cache_key = id.to_owned();
+        let cache_key = format!("{id}/{digest}");
         if let Some((previous, component)) = self.component_cache.lock().unwrap().get(&cache_key)
             && previous == &fingerprint
             && component.root == root
@@ -163,38 +186,17 @@ impl Store {
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let files = package::snapshot(&root)?;
         ensure!(
-            package::digest(&files) == digest,
+            package::digest(&files) == raw_digest,
             "installed package integrity mismatch: {}",
             id
         );
-        let parsed = package::parse(&files, id, &root, &root)?;
-        let read = |path: &str| {
-            files
-                .get(path)
-                .and_then(|f| serde_json::from_slice::<Value>(&f.bytes).ok())
-        };
-        let manifest = read("plugin.json");
-        let portable = manifest
-            .as_ref()
-            .and_then(|v| v["$schema"].as_str())
-            .is_some_and(|s| s.contains("agent-plugins.org/"));
-        let inline = manifest
-            .as_ref()
-            .and_then(|v| v.pointer("/extensions/com.openai"))
-            .filter(|v| v.is_object());
-        let legacy = [
-            ".codex-plugin/plugin.json",
-            ".claude-plugin/plugin.json",
-            ".cursor-plugin/plugin.json",
-        ]
-        .into_iter()
-        .find(|p| files.contains_key(*p))
-        .and_then(read);
-        let overlay = if portable {
-            inline.or(legacy.as_ref())
-        } else {
-            legacy.as_ref()
-        };
+        let (mut parsed, selection) =
+            package::parse_context(&files, id, &root, &root, definition.map(|d| &d.context))?;
+        if let Some(support) = &mut parsed.component_support {
+            support.digest = digest.into();
+        }
+        let portable = selection.portable;
+        let overlay = &selection.overlay;
         let mut result = InstalledComponents {
             id: id.to_owned(),
             root,
@@ -210,15 +212,11 @@ impl Store {
                 .component_support
                 .context("validated package support report missing")?,
         };
-        result.mcp_documents = documents(
-            if portable {
-                None
-            } else {
-                overlay.and_then(|v| v.get("mcpServers"))
-            },
-            if portable { "mcp.json" } else { ".mcp.json" },
+        result.mcp_documents = mcp_documents(
+            overlay.get("mcpServers"),
             &files,
             portable,
+            selection.claude_defaults,
             &mut result.diagnostics,
         )
         .documents
@@ -226,7 +224,7 @@ impl Store {
         .map(|(_, document)| document)
         .collect();
         result.app_documents = documents(
-            overlay.and_then(|v| v.get("apps")),
+            overlay.get("apps"),
             ".app.json",
             &files,
             portable,
@@ -240,7 +238,7 @@ impl Store {
             result.diagnostics.push("hooks: declarations do not execute during discovery; explicit hook definition trust is required".into());
         }
         result.hook_documents = crate::hooks::discover(
-            overlay.and_then(|v| v.get("hooks")),
+            overlay.get("hooks"),
             &files,
             portable,
             &mut result.diagnostics,
@@ -249,6 +247,26 @@ impl Store {
         .into_iter()
         .map(|(_, document)| document)
         .collect();
+        if selection.restricted {
+            result.hook_documents.clear();
+            result.app_documents.clear();
+        }
+        if result
+            .support
+            .compatibility
+            .reason_codes
+            .iter()
+            .any(|reason| {
+                matches!(
+                    reason.as_str(),
+                    "packageDependenciesUnsupported" | "userConfigUnsupported"
+                )
+            })
+        {
+            result.mcp_documents.clear();
+            result.hook_documents.clear();
+            result.app_documents.clear();
+        }
         ensure!(
             package::fingerprint(&result.root)? == fingerprint,
             "package changed during component validation"
@@ -261,6 +279,7 @@ impl Store {
     }
 }
 
+#[derive(Clone)]
 pub(crate) enum DocumentSource {
     Manifest(Vec<usize>),
     Path(String),
@@ -377,6 +396,55 @@ pub(crate) fn documents(
         );
     }
     result
+}
+
+pub(crate) fn mcp_documents(
+    declaration: Option<&Value>,
+    files: &package::Files,
+    portable: bool,
+    claude_defaults: bool,
+    diagnostics: &mut Vec<String>,
+) -> DocumentSelection {
+    let default = if portable { "mcp.json" } else { ".mcp.json" };
+    let mut selected = documents(
+        if portable { None } else { declaration },
+        default,
+        files,
+        portable,
+        diagnostics,
+    );
+    if !claude_defaults {
+        return selected;
+    }
+    if declaration.is_some() {
+        let mut defaults = documents(None, default, files, false, diagnostics);
+        defaults.documents.append(&mut selected.documents);
+        defaults.rejected.append(&mut selected.rejected);
+        selected = defaults;
+    }
+    let mut names = std::collections::BTreeSet::new();
+    selected.documents = selected
+        .documents
+        .into_iter()
+        .rev()
+        .filter_map(|(source, mut document)| {
+            let servers = if document.value.get("mcpServers").is_some() {
+                document.value.get_mut("mcpServers").unwrap()
+            } else {
+                &mut document.value
+            };
+            if let Some(servers) = servers.as_object_mut() {
+                let had_servers = !servers.is_empty();
+                servers.retain(|name, _| names.insert(name.clone()));
+                if had_servers && servers.is_empty() {
+                    return None;
+                }
+            }
+            Some((source, document))
+        })
+        .collect();
+    selected.documents.reverse();
+    selected
 }
 
 pub struct AppDeclaration {

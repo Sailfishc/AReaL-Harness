@@ -146,6 +146,17 @@ async function manage(backend, project, request, context = {}) {
     }
     catch (error) { if (typeof error.code !== 'number' || error.code === -32603) {error.submissionUnknown=true;error.message=`操作结果待核对，不会自动重发。${error.message}`;} throw error; }
   }
+  if (operation === 'pluginReadiness') {
+    if (typeof request.id !== 'string' || !request.id.trim() || typeof request.expectedDigest !== 'string' || !request.expectedDigest.trim()) throw new Error('Missing installed plugin snapshot');
+    const detail = await project.client.request('areal/plugin/read', {id: request.id});
+    if (detail.id !== request.id || !detail.installed || detail.installedDigest !== request.expectedDigest) throw new Error('Installed plugin snapshot changed; refresh plugin details');
+    if (!detail.enabled) throw new Error('Plugin is disabled in this project');
+    const disabledSkills = new Set(detail.componentChoices?.disabledSkills ?? []);
+    const requiredTools = [...new Set((detail.installedSkills ?? []).filter(skill => !disabledSkills.has(skill.id)).flatMap(skill => skill.requiredTools ?? []))].sort();
+    const deployed = new Set(backend.desktopTools(project).map(tool => tool.name));
+    const missingTools = requiredTools.filter(name => !deployed.has(name));
+    return {pluginId: detail.id, installedDigest: detail.installedDigest, requiredTools, missingTools, available: missingTools.length === 0};
+  }
   if (operation === 'pluginCapabilities') return { enabled: project.client.capabilities?.methods?.includes('areal/plugin/list') === true };
   if (operation === 'executionCancel') return project.client.request('areal/execution/cancel', pick(request, ['parentThreadId', 'executionId', 'mode']));
   // Core 管理整组交付与未知结果恢复，客户端不会自动重放写入。
