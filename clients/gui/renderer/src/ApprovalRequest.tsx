@@ -42,6 +42,8 @@ export function ApprovalRequest({ item, projectId, action }: { item: Data; proje
   };
   const locked = busy || submitted || unknown;
   const summary = [item.reason, item.justification, item.effectiveArguments?.purpose].find(value => typeof value === "string" && value.trim());
+  const command = typeof item.effectiveArguments?.command === "string" ? item.effectiveArguments.command
+    : browserPlan?.operation === "command" && browserPlan.parameters?.command != null ? JSON.stringify(browserPlan.parameters.command, null, 2) : "";
   return <DecisionCard kind="approval" label={isComputer ? t("chat.approval.computer") : isBrowser ? "浏览器" : item.effectiveArguments?.command ? "终端" : "工具"}
     icon={isBrowser ? <Globe /> : <SquareTerminal />} busy={busy} error={error}
     onKeyDown={(e) => {
@@ -53,6 +55,11 @@ export function ApprovalRequest({ item, projectId, action }: { item: Data; proje
     message={submitted ? "已提交，等待执行状态更新。" : undefined}
     detailsLabel={t("decision.requestDetails")}
     details={<>
+    <dl className="approval-request-context">
+      {typeof item.reason === "string" && item.reason && <div><dt>{t("decision.reason")}</dt><dd>{item.reason}</dd></div>}
+      {typeof item.justification === "string" && item.justification && item.justification !== item.reason && <div><dt>{t("decision.justification")}</dt><dd>{item.justification}</dd></div>}
+      {typeof item.effectiveArguments?.purpose === "string" && item.effectiveArguments.purpose && <div><dt>{t("decision.purpose")}</dt><dd>{item.effectiveArguments.purpose}</dd></div>}
+    </dl>
 
     {computerPlan && <div className="approval-preview">
       <p>{t('chat.approval.computerTarget')} · {computerPlan.target?.app?.name ?? computerPlan.target?.name ?? computerPlan.origin}</p>
@@ -111,7 +118,7 @@ export function ApprovalRequest({ item, projectId, action }: { item: Data; proje
 
     <h3 className="decision-card-title">{summary || (isComputer ? t("chat.approval.computerQuestion") : `是否允许${isBrowser ? "执行浏览器操作" : `执行 ${item.tool}`}？`)}</h3>
     <p className="approval-target">{isComputer ? computerPlan?.target?.app?.name ?? computerPlan?.target?.name ?? computerPlan?.origin : isBrowser ? browserPlan?.targetOrigin ?? browserPlan?.origin ?? browserPlan?.url : item.effectiveArguments?.cwd ?? item.effectiveArguments?.path}</p>
-    {typeof item.effectiveArguments?.command === "string" && <pre className="approval-command-summary" aria-label={t("decision.commandPreview")}><code>{item.effectiveArguments.command}</code></pre>}
+    {command && <pre className="approval-command-summary" aria-label={t("decision.commandPreview")}><code>{command}</code></pre>}
 
   </DecisionCard>;
 }

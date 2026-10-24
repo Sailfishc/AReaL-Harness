@@ -106,5 +106,36 @@ export async function runContentSystem(page, scratch, checks) {
   await question.getByRole('button', { name: '发送', exact: true }).scrollIntoViewIfNeeded();
   await question.screenshot({ path: join(scratch, 'question-dark-narrow.png'), animations: 'disabled' });
   await page.screenshot({ path: join(scratch, 'content-dark-narrow.png'), fullPage: true, animations: 'disabled' });
+  await page.getByLabel('响应状态', { exact: true }).selectOption('ready');
+  for (const kind of ['browser-long', 'shell-long', 'computer-long', 'file-long']) {
+    await page.getByLabel('审批类型', { exact: true }).selectOption(kind);
+    const card = approval.locator('.decision-card');
+    await card.scrollIntoViewIfNeeded();
+    assert.equal(await card.locator('.decision-card-details').getAttribute('open'), null);
+    const initial = await card.evaluate(el => ({ height: el.getBoundingClientRect().height, width: el.clientWidth, full: el.scrollWidth }));
+    assert.ok(initial.height <= 360, `${kind} default summary must stay compact: ${JSON.stringify(initial)}`);
+    assert.ok(initial.full <= initial.width + 1, `${kind} must not scroll horizontally`);
+    if (kind === 'browser-long' || kind === 'shell-long') {
+      const preview = card.locator('.approval-command-summary > code');
+      assert.equal(await preview.count(), 1);
+      assert.ok(await preview.evaluate(el=>el.clientHeight<=parseFloat(getComputedStyle(el).lineHeight)*2+1));
+    }
+    await approval.screenshot({ path: join(scratch, `${kind}-collapsed.png`), animations: 'disabled' });
+    await card.getByText('查看完整请求', { exact: true }).click();
+    const details = card.locator('.decision-card-details > div');
+    const full = await details.textContent();
+    assert.ok(full.includes('REASON_END') && full.includes('TARGET_END') && full.includes('COMMAND_END'), `${kind} keeps every original field on demand`);
+    const footer = await card.locator('.decision-card-footer').evaluate(el => { const r=el.getBoundingClientRect(); return {top:r.top,bottom:r.bottom}; });
+    assert.ok(footer.top >= 0 && footer.bottom <= await page.evaluate(()=>innerHeight), `${kind} decision actions remain visible`);
+    await card.locator('.decision-card-body').evaluate(el=>el.scrollTo(0,el.scrollHeight));
+    assert.equal(await card.locator('.decision-card-body').evaluate(el=>el.scrollWidth > el.clientWidth + 1), false);
+    await approval.screenshot({ path: join(scratch, `${kind}-expanded.png`), animations: 'disabled' });
+    await card.locator('.decision-card-body').evaluate(el=>el.scrollTo(0,0));
+    await card.getByText('查看完整请求', { exact: true }).click();
+    await card.getByRole('button',{name:'允许一次',exact:true}).click();
+    assert.match(await records.innerText(), /响应次数：1/);
+    assert.equal(await card.getByRole('button',{name:'允许一次',exact:true}).isDisabled(), true);
+  }
+  checks.push('all approval types: dark18 narrow compact summaries, complete original reasons/targets/commands on demand, visible footer and acknowledged submission lock');
   checks.push('busy/unknown approval locks; multiple-question drafts; explicit batch submission; dark18 narrow long-option footer reachability');
 }

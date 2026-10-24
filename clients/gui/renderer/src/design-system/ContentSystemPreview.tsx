@@ -24,6 +24,13 @@ const requests: Record<string, Data> = {
   computer: { tool: "computer_v1", reason: "是否允许点击指定应用？", effectiveArguments: { plan: { operation: "click", target: { app: { name: "示例应用" } }, parameters: { x: 50, y: 80 } } } },
   file: { tool: "fs_create", reason: "是否允许创建说明文件？", effectiveArguments: { path: "/preview/说明.md", text: "仅本地样例，不创建文件" } },
 };
+// Long requests exercise the same production approval adapter; no command is executed.
+const longReason = "是否允许检查当前目标？完整理由应在详情中阅读。".repeat(60) + " REASON_END";
+const longCommand = "const result = await page.evaluate(() => { " + "console.log('保留完整命令'); ".repeat(180) + " }); COMMAND_END";
+requests["browser-long"] = { tool: "browser_v1", reason: longReason, effectiveArguments: { purpose: "浏览器长请求示例", plan: { operation: "command", url: "https://example.com/" + "long-path/".repeat(80) + "TARGET_END", parameters: { command: { method: "evaluate", expression: longCommand } } } }, effectivePermissions: { rememberAllowed: true } };
+requests["shell-long"] = { tool: "shell", justification: longReason, effectiveArguments: { command: longCommand, cwd: "/workspace/" + "目录/".repeat(100) + "TARGET_END" }, effectivePermissions: { rememberAllowed: true } };
+requests["computer-long"] = { tool: "computer_v1", reason: longReason, effectiveArguments: { plan: { operation: "click", target: { app: { name: "应用名称".repeat(100) + "TARGET_END" } }, parameters: { text: longCommand } } } };
+requests["file-long"] = { tool: "fs_create", effectiveArguments: { purpose: longReason, path: "/workspace/" + "目录/".repeat(100) + "TARGET_END", text: longCommand } };
 function Decisions({ kind, state, questionMode }: { kind: string; state: string; questionMode: string }) {
   const [responses, setResponses] = useState(0);
   const action = (async (name: string) => {

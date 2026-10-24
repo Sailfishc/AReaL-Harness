@@ -224,6 +224,12 @@ async function runScenario(scenario) {
       assert.notEqual(activeScenario.approval, 'none', 'prepare-time refusal must not request approval');
       // 紧凑审批卡默认折叠完整请求，先展开再核对本次授权的具体操作。
       const details = panel.locator('details.decision-card-details');
+      if (scenario.compact) {
+        assert.equal(await details.getAttribute('open'), null, 'long approval starts with a collapsed full request');
+        const bounds = await panel.evaluate(el => ({ height: el.getBoundingClientRect().height, width: el.clientWidth, full: el.scrollWidth }));
+        assert.ok(bounds.height <= 360 && bounds.full <= bounds.width + 1, JSON.stringify(bounds));
+        await panel.screenshot({ path: join(scratch, `${scenario.id}-collapsed.png`) });
+      }
       if (await details.count() && await details.getAttribute('open') === null) await details.locator(':scope > summary').click();
       const text = await panel.innerText();
       if (scenario.tool) assert.ok(text.includes(scenario.tool) || text.includes(scenario.arguments.operation), 'approval identifies this tool operation');
@@ -656,6 +662,7 @@ try {
       assert.equal(siteFacts.gets.filter(path => path === '/target').length, 1);
     } });
     await browserCase('dom-snapshot', { method: 'playwright', action: { name: 'domSnapshot' } }, { assertResult(item) { successful(item); assert.ok(JSON.stringify(item.contentItems).includes(sentinel)); } });
+    await browserCase('long-command', { method: 'evaluate', expression: '(() => {' + '/* retained long browser approval parameter */'.repeat(180) + 'window.fixture.longCommands=(window.fixture.longCommands||0)+1;return true;})()' }, { compact: true, assertResult: successful, assertEffect: async () => assert.equal((await nativeFacts()).longCommands, 1) });
     const locator = (selector, operation, rest = {}) => ({ method: 'playwright', action: { name: 'locator', selector, operation, ...rest } });
     await browserCase('fill', locator('#draft', 'fill', { value: 'Core browser input A😀BC' }), { assertEffect: async () => { const facts = await nativeFacts(); assert.equal(facts.draft, 'Core browser input A😀BC'); assert.equal(facts.inputs, 1); } });
     await browserCase('check', locator('#check', 'setChecked', { checked: true }), { assertEffect: async () => { const facts = await nativeFacts(); assert.equal(facts.checked, true); assert.equal(facts.changes, 1); } });
