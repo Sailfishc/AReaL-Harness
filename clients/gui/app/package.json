@@ -22,7 +22,8 @@
     "@areal/provider-config": "workspace:*",
     "@areal/gen-ui": "workspace:*",
     "@areal/browser-automation": "workspace:*",
-    "@areal/browser-data": "workspace:*"
+    "@areal/browser-data": "workspace:*",
+    "@modelcontextprotocol/sdk": "1.30.0"
   },
   "devDependencies": {
     "electron": "44.5.0",

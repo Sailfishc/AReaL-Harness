@@ -491,6 +491,8 @@ pub struct EffectivePermissions {
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ClientOptions {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub external_cua: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permission_preset: Option<PermissionPreset>,
     #[serde(default)]

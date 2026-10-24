@@ -22,6 +22,20 @@ While idle awaiting approval, the native monitor exempts only input that the sys
 
 New GUI conversations register the tool only while the feature is enabled. Existing conversations may retain the persisted definition, but disabled admission still rejects execution. CLI/TUI and conversations without the local GUI host do not create another native-control process.
 
+## External CUA (LCU)
+
+On macOS, select **External CUA (LCU)** in Computer control settings. Save the absolute path to your installed `lcu`, enable control, check the connection, and create a regular chat. AReaL does not install or update LCU, bundle proprietary applications or runtimes, or request its system permissions. Missing dependencies or an unsupported Core produce an explicit failure without falling back to built-in control.
+
+This phase registers the original `js` and `js_reset` only for manually created top-level chats. External CUA execution is not enabled for existing chats, Side Chat, child agents, or scheduled tasks. Original initialization instructions plus existing client instructions must fit the 32768-byte budget. Oversized instructions fail chat creation without truncation. Each chat has separate JavaScript state and reuses its connection across normal turns. Switching providers first stops existing control. Selecting LCU rejects old `computer_v1` calls. In-app Preview and `browser_v1` remain available, while LCU enables only its computer surface.
+
+LCU owns JavaScript execution, application control, and internal permission policy. Core retains outer tool approval, real thread/turn/call identities, media, and history. Main displays original application consent in a native dialog and returns the selected upstream response. Closing, cancellation, and stale replies never grant access. Unsupported forms cancel. AReaL adds no approval cache.
+
+Core waits for original `turn_ended` cleanup before settling a turn and sends Interrupt on interruption. Settings Stop queries actual active applications before calling original host Stop and turn cleanup. Window close, renderer crash, lock, and Core/Desktop disconnect revoke current control. Unconfirmed cleanup leaves control unavailable. Closing a transport does not establish that physical input has stopped. A disconnect or cancellation after dispatch remains UNKNOWN and never automatically replays JavaScript.
+
+The open-source adapter is pinned to [LCU](https://github.com/amontlabs/lcu) commit `c31a57958b3086112949374ca6d21414a3ba22b7`. The MIT source files and their hashes are retained unchanged. Run `node clients/gui/scripts/external-cua-acceptance.mjs` to exercise the original client against an MCP subprocess fixture. This does not operate real applications or establish installed LCU, physical input, OS permissions, or package acceptance.
+
+External LCU runs in the trusted Desktop host outside the AReaL Runtime workspace file and network sandbox. Core permission presets control outer JavaScript-tool admission; the original runtime governs the script’s internal access and application policies.
+
 ## Build and validation
 
 `node clients/gui/scripts/build-computer-helper.mjs` builds `clients/gui/native/computer-helper/build/AReaL Computer Helper.app`. GUI builds invoke the same script and packages place the helper in Resources. Non-macOS builds explicitly skip the native artifact and report the unsupported platform.

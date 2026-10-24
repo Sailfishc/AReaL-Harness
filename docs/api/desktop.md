@@ -264,6 +264,8 @@ features.goals=true 表示服务支持 Goal，无需单独配置开关；Goal �
 
 `lifecycleRequest` 携带 `{protocol,requestId,kind,mode,expectedDesktopGeneration,expectedTargets,threadId?,turnId?}`；mode 为 ifIdle 或 cancel；targets 每项绑定 projectId/serviceId/generation。interruptTurn 必须指定原 threadId/turnId。`lifecycleRead` 与 `lifecycleReconcile` 只携带 protocol/requestId，后者仅核查原 Host 或原轮次，不调用 ensure、drain 或 cancel。
 
+工作树聊天中，Main 在准备 interruptTurn 前，将所选逻辑项目和聊天解析到当前执行项目及 Core 实例。Main 的持久引用保留原逻辑项目，用于重复请求身份及界面阻断；请求 targets 保留实际 Core 代际。同一请求 ID 不能改绑其他项目。
+
 Desktop owner 在副作用前保存持久回执，记录逐目标 Host requestId 与状态。整体 phase 为 acceptedPending、blocked、partial、admissionUnconfirmed、settlementIncomplete 或 completed。Desktop 停止的目标全部完成后，仅记录 desktopExit=requested；Main 核验原 Desktop 确实退出才显示完成。Main 在写入前持久保存原请求引用，不维护另一份执行权威。响应丢失或换代后读取原回执，已完成目标不重做；未知目标限制相关项目，其他项目保留可用。
 
 应用退出前的资源观察使用 `purpose="quit"`。Desktop 保留完整所属目标范围，状态读取共享 5 秒预算，断连目标不先重连。连接不可用或读取超时的目标返回 `observation="unavailable"`，不填充空闲状态或空任务列表，并要求原生确认后提交原代际的 cancel 请求。确认后再次核对目标、代际和影响，观察可用性变化也会使确认失效。登记、归属、Core 明确返回的 RPC 错误和无效结果结构仍阻止操作。连接关闭仅表示观察不可用；Host 仍独立核验原身份和清理回执。更新与资源管理保留严格观察。
@@ -500,3 +502,9 @@ GUI 服务的窄命令 `trajectory` 支持 `{operation:"status"}`、`{operation:
 缺失或未知命令声明不阻止只读接入；停止原后台另需独立的 lifecycle version 2 能力。Main 对需要当前语义的 `send`、`continue`、`prepareCreator`、`feedback`、携带 MCP 内容的 steer/队列更新、新增插件管理操作、`providers.defaultAndApply` 和 `trajectory.setEnabled` 在发出前返回 `SERVICE_COMMAND_UNSUPPORTED`。这是已知未提交，不带未知提交标记或伪造的请求 ID。兼容的队列操作继续使用原业务请求键；不退回另一种写操作。评价草稿读取、偏好及 MCP Apps/表单轮询按这项可用性降级，保留本地草稿。
 
 命令 version 2 还要求创建、配置和 Task 写入保留原调用者身份及规范化的受理/执行结果。Main 在旧 version 1 上分配业务请求 ID 之前拒绝这些写入；已有只读观察和旧队列/追加指令核查仍保留。
+
+## 外部 CUA 客户端结果
+
+Core 的 `externalCua` 能力表示支持原始 CUA 工具结果与轮次清理。受信任工具宿主可在动态工具响应中提供可选 `rawMcpResult`，值是原始 MCP CallToolResult。Core 使用已有 MCP 投影器和媒体物化，将原始包保存在持久结果的 `mcpResult` 字段；`structuredContent` 保持原始 schema 校验目标。媒体结果沿 MCP 的 8 MiB 持久接收预算，而不是一般混合 client 结果的 16 KiB 预算。投影、媒体或持久化失败属于 UNKNOWN，不能据此重发工具。
+
+`ClientOptions.externalCua` 默认 false。GUI 仅为手动新建的 LCU 聊天设置 true；Core 据此为 js/js_reset 增加可信身份与轮次清理。普通动态宿主使用相同工具名不会改变原有行为。

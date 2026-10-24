@@ -54,8 +54,10 @@ impl Invocation<'_> {
         {
             let state = self.cell.state.lock().await;
             if state.thread.is_read_only_side()
-                && !(matches!(self.call.name.as_str(), "side_context_read" | "gen_ui_publish")
-                    && matches!(self.entry.backend, Backend::Core))
+                && !(matches!(
+                    self.call.name.as_str(),
+                    "side_context_read" | "gen_ui_publish"
+                ) && matches!(self.entry.backend, Backend::Core))
                 && !(state.thread.side_workspace_read()
                     && super::side_file_tool(&self.call.name, &self.entry.backend))
             {
@@ -1032,6 +1034,35 @@ impl Invocation<'_> {
                     .as_ref()
                     .ok_or_else(|| unknown("dynamic tool client is unavailable"))?;
                 let mut request = json!({"threadId":self.thread_id,"turnId":self.turn_id,"callId":self.call.id,"tool":self.call.name,"arguments":args,"hostGeneration":host.id()});
+                if matches!(self.call.name.as_str(), "js" | "js_reset")
+                    && self
+                        .cell
+                        .state
+                        .lock()
+                        .await
+                        .thread
+                        .desktop
+                        .as_ref()
+                        .is_some_and(|data| data.configuration.options.external_cua)
+                {
+                    let mut state = self.cell.state.lock().await;
+                    if state.thread.parent_thread_id.is_some() || state.thread.is_read_only_side() {
+                        return Err(rt::Error::new(
+                            rt::ErrorCode::PermissionDenied,
+                            "External CUA is available only in a new top-level desktop chat",
+                        ));
+                    }
+                    request["definition"] =
+                        serde_json::to_value(&self.entry.definition).map_err(unknown)?;
+                    request["clientInstructions"] = json!(
+                        state
+                            .thread
+                            .desktop
+                            .as_ref()
+                            .map(|data| &data.configuration.options.append_instructions)
+                    );
+                    state.active.as_mut().unwrap().cua_used = true;
+                }
                 if let Some(plan) = approval_plan {
                     let field = if self.call.name == "computer_v1" {
                         "computerApproval"
@@ -1045,6 +1076,11 @@ impl Invocation<'_> {
                     .map_err(unknown)?
             }
         };
+        let raw_mcp_result = response.raw_mcp_result.take();
+        if let Some(raw) = &raw_mcp_result {
+            let parsed = serde_json::from_value(raw.clone()).map_err(unknown)?;
+            response = areal_mcp::project_result(&parsed).map_err(unknown)?;
+        }
         if matches!(self.call.name.as_str(), "browser_v1" | "computer_v1")
             && response.structured_content.as_ref().is_some_and(|content| {
                 content["code"] == "outcome_unknown" && content["dispatch"] == "unknown"
@@ -1080,12 +1116,15 @@ impl Invocation<'_> {
             .materialize_tool_media(self.cell, &mut response.content_items)
             .await
             .map_err(unknown)?;
-        let value = serde_json::to_value(&response).map_err(unknown)?;
-        // 混合媒体沿用已有有界投影；仅纯文本/结构化结果进入本次持久回取路径。
-        let limit = if response
-            .content_items
-            .iter()
-            .all(|item| matches!(item, areal_protocol::ToolContent::InputText { .. }))
+        let mut value = serde_json::to_value(&response).map_err(unknown)?;
+        if let Some(raw) = &raw_mcp_result {
+            value["mcpResult"] = raw.clone();
+        }
+        let limit = if raw_mcp_result.is_some()
+            || response
+                .content_items
+                .iter()
+                .all(|item| matches!(item, areal_protocol::ToolContent::InputText { .. }))
         {
             areal_protocol::MAX_TOOL_RESULT_BYTES
         } else {

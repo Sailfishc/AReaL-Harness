@@ -218,3 +218,7 @@ Clients freeze public history and reuse an independent Side for feedback. Core S
 `core/engine/src/workspace.rs` manages shared-writer leases at confirmed managed-effect settlement boundaries. `tools/scheduling.rs` admits concurrent calls by trusted backend and ordered barriers. Runtime retains process and cleanup facts; Core does not infer read-only behavior or release from shell text.
 
 Computer control uses a separate native helper. Main owns its lifecycle, OS authorization and Stop. Core retains prepared plans, approval and history authority. Only an explicit settings click requests OS access; observation and model requests never prompt. AX, capture and input results return over the authenticated desktop channel. Unknown input is never replayed automatically. See [Computer control](../api/computer.en.md).
+
+## External computer provider
+
+LCU is an explicitly selected computer provider. Main owns the pinned upstream CUA client and independent JavaScript sessions per chat. The existing authenticated computerHost connection carries original tools and native application consent. Core injects complete initialization instructions into manually created chats, supplies trusted call identities, reuses MCP result projection and durable media, and waits for cleanup before authoritative turn settlement. Existing chats receive no tool migration. Execution admission checks the current provider again. Preview and browser_v1 retain their existing owners.

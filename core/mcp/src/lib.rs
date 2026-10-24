@@ -413,6 +413,7 @@ fn convert_result(value: Value) -> Result<DynamicToolResponse> {
         "MCP text result exceeds 8 MiB; outcome is UNKNOWN"
     );
     Ok(DynamicToolResponse {
+        raw_mcp_result: None,
         success: !value["isError"].as_bool().unwrap_or(false),
         content_items: items,
         structured_content: value.get("structuredContent").cloned(),
