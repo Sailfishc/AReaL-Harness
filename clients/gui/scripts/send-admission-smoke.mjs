@@ -127,6 +127,9 @@ try {
   await page.getByRole('button', { name: '不在项目中工作', exact: true }).click();
   await page.getByRole('menuitem', { name: '新建项目', exact: true }).click();
   await until(async () => project(await snapshot())?.state?.connected && project(await snapshot())?.summariesLoaded, 'Project and navigation summaries ready');
+  await page.evaluate(() => localStorage.setItem('areal-gui:application-preferences', JSON.stringify({ nextPromptSuggestions: false })));
+  await page.reload();
+  await until(async () => (await snapshot()).connection?.state === 'ready' && project(await snapshot())?.state?.connected, 'Reloaded isolated preferences');
   await page.getByTestId('chat-input').fill(originalText);
   await page.getByTestId('chat-send-button').click();
   await until(async () => (await trace()).some(item => item.boundary === 'listGate' && item.phase === 'held'), 'Conversation-list response held');

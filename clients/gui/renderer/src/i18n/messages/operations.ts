@@ -368,6 +368,8 @@ export const operationMessages = {
   "operations.schedules.newTitle": { "zh-CN": "新建任务", "en": "New task" },
   "operations.schedules.retryCreation": { "zh-CN": "重试或核对原请求", "en": "Retry or check the original request" },
   "operations.schedules.opening": { "zh-CN": "正在打开独立会话…", "en": "Opening an independent conversation…" },
+  "operations.schedules.retainCreation": { "zh-CN": "保留原记录，返回任务列表", "en": "Keep the original record and return to tasks" },
+  "operations.schedules.retainCreationConfirm": { "zh-CN": "原创建结果仍未确认，目录或会话可能已经存在。将保留原记录和资源，返回任务列表，不重发原请求或发送草稿。之后再次新建会创建另一份资源。继续吗？", "en": "The original creation result is still unconfirmed; its directory or conversation may already exist. Keep its records and resources and return to tasks without replaying the request or sending the draft. Creating again afterward will create a separate resource. Continue?" },
   "operations.schedules.conversation": { "zh-CN": "定时任务会话", "en": "Scheduled task conversation" },
   "operations.schedules.intro": { "zh-CN": "让 AReaL 按计划处理持续性任务。", "en": "Let AReaL handle ongoing tasks on a schedule." },
   "operations.schedules.partialLoad": { "zh-CN": "部分任务未能加载", "en": "Some tasks could not be loaded" },

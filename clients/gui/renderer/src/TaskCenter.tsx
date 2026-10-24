@@ -204,6 +204,7 @@ export function TaskCenter({ projects: allProjects, connected, action, onOpenThr
   const [creationError, setCreationError] = useState("");
   const [creationTone, setCreationTone] = useState<"warning" | "error">("error");
   const [creationRequestId, setCreationRequestId] = useState<string>();
+  const [creationChecked, setCreationChecked] = useState(false);
   const creatingRequest = useRef(false);
   const [catalog, setCatalog] = useState<Record<string, OwnerRead>>({});
   const catalogState = useRef(catalog);
@@ -520,12 +521,12 @@ export function TaskCenter({ projects: allProjects, connected, action, onOpenThr
     if (localStorage.getItem(key) == null) localStorage.setItem(key, draft.text);
     onOpenThread(draft.projectId, draft.threadId);
     localStorage.removeItem("areal-gui:ordinary-schedule-creation");
-    setCreating(false); setCreationError("");
+    setCreating(false); setCreationError(""); setCreationChecked(false);
     requestAnimationFrame(() => window.dispatchEvent(new CustomEvent("areal-draft-change", { detail: key })));
   };
   const beginCreate = async (text = "") => {
     if (creatingRequest.current || !connected) return;
-    creatingRequest.current = true; setCreating(true); setCreationError("");
+    creatingRequest.current = true; setCreating(true); setCreationError(""); setCreationChecked(false);
     const storageKey = "areal-gui:ordinary-schedule-creation";
     let saved: ScheduleCreation | null;
     try { saved = JSON.parse(localStorage.getItem(storageKey) ?? "null"); } catch { saved = null; }
@@ -548,7 +549,7 @@ export function TaskCenter({ projects: allProjects, connected, action, onOpenThr
         if (record?.state === "ready" && record.threadId) {
           draft.threadId = record.threadId; draft.pending = false; persist();
         } else {
-          const result = await action("reconcile", { projectId: draft.projectId });
+          const result = await action("reconcile", { projectId: draft.projectId, requestId: draft.requestId });
           const outcome = recoveredOutcome({ outcomes: result.outcomes }, draft.requestId, "");
           const method = outcome?.operation?.method ?? outcome?.method;
           if ((!record || record.state === "missing") && outcome?.accepted === true && outcome.status === "completed" && method === "areal/thread/start" && outcome.threadId) {
@@ -556,7 +557,10 @@ export function TaskCenter({ projects: allProjects, connected, action, onOpenThr
           } else if (outcome?.status === "failed" && method === "areal/thread/start") {
             draft.pending = false; draft.requestId = crypto.randomUUID(); persist();
             throw new Error(outcome.message ?? "会话创建已被拒绝，请重试。");
-          } else throw Object.assign(new Error(t("recovery.createUnconfirmed")), { submissionUnknown: true, requestId: draft.requestId });
+          } else {
+            setCreationChecked(true);
+            throw Object.assign(new Error(t("recovery.createUnconfirmed")), { submissionUnknown: true, requestId: draft.requestId });
+          }
         }
       }
       if (!draft.threadId) {
@@ -572,6 +576,19 @@ export function TaskCenter({ projects: allProjects, connected, action, onOpenThr
       openCreatedSchedule(draft);
     } catch (cause) { setCreationTone((cause as RecoveryFailure).submissionUnknown || draft.pending ? "warning" : "error"); setCreationError(recoveryMessage(cause as RecoveryFailure)); }
     finally { creatingRequest.current = false; }
+  };
+  const retainCreation = () => {
+    if (!creationChecked || creatingRequest.current) return;
+    try {
+      const saved = localStorage.getItem("areal-gui:ordinary-schedule-creation");
+      const draft: ScheduleCreation | null = JSON.parse(saved ?? "null");
+      if (!saved || !draft?.pending || draft.requestId !== creationRequestId) throw new Error(t("worktree.recoveryMismatch"));
+      if (!window.confirm(t("operations.schedules.retainCreationConfirm"))) return;
+      localStorage.setItem(`areal-gui:retained-schedule-creation:${draft.requestId}`, saved);
+      localStorage.removeItem("areal-gui:ordinary-schedule-creation");
+      setCreationError(""); setCreationChecked(false); setCreationRequestId(undefined);
+      closeDetails();
+    } catch (cause) { setCreationTone("error"); setCreationError(recoveryMessage(cause as RecoveryFailure)); }
   };
   useEffect(() => {
     if (!creating || creatingRequest.current) return;
@@ -635,7 +652,14 @@ export function TaskCenter({ projects: allProjects, connected, action, onOpenThr
         {moreAvailable && <Button variant="ghost" disabled={!connected || loading} onClick={() => void refresh(true)}>展开显示</Button>}
       </div>
     </div>
-    {creating && <main className="task-conversation" aria-label={t("operations.schedules.newLabel")}><header><h2>{t("operations.schedules.newTitle")}</h2><Button size="sm" variant="ghost" onClick={() => setCreating(false)}>{t("common.close")}</Button></header>{creationError && <FeedbackNotice tone={creationTone} requestId={creationRequestId} message={creationError} actions={<Button variant="ghost" size="sm" disabled={!connected || creatingRequest.current} onClick={() => void beginCreate()}>{t("recovery.checkOriginal")}</Button>} />}<div className="task-conversation-pending">{creationError ? <Button variant="ghost" disabled={!connected || creatingRequest.current} onClick={() => void beginCreate()}>{t("recovery.checkOriginal")}</Button> : <p role="status">{t("operations.schedules.opening")}</p>}</div></main>}
+    {creating && <main className="task-conversation" aria-label={t("operations.schedules.newLabel")}>
+      <header><h2>{t("operations.schedules.newTitle")}</h2><Button size="sm" variant="ghost" onClick={() => setCreating(false)}>{t("common.close")}</Button></header>
+      {creationError && <FeedbackNotice transient={false} tone={creationTone} requestId={creationRequestId} message={creationError} actions={<>
+        <Button variant="ghost" size="sm" disabled={!connected || creatingRequest.current} onClick={() => void beginCreate()}>{t("recovery.checkOriginal")}</Button>
+        {creationChecked && <Button variant="ghost" size="sm" disabled={creatingRequest.current} onClick={retainCreation}>{t("operations.schedules.retainCreation")}</Button>}
+      </>} />}
+      {!creationError && <div className="task-conversation-pending"><p role="status">{t("operations.schedules.opening")}</p></div>}
+    </main>}
     {!detailOpen && <ScheduledWorkspace.Welcome icon={<CalendarClock size={32}/>} title="安排任务" description={t("operations.schedules.intro")}>{([
       [GitPullRequest,"检查仓库进展","检查我指定仓库的公开提交与 PR，整理进展和待处理事项。"],
       [ListChecks,"整理每日计划","回顾我提供的计划，整理当天待办和需要关注的事项。"],

@@ -500,7 +500,6 @@ class CoreWorktrees {
             : await realpath(project.root);
         const live = await b.start(project.id);
         b.assertThreadCreationAvailable(live, request);
-        await b.listThreads(live);
         const isolate = request.worktree?.mode === "worktree";
         if (!isolate && request.worktree?.environmentId)
             throw new Error("环境脚本只能用于独立工作树");

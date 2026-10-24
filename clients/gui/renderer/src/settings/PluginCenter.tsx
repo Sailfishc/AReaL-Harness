@@ -689,7 +689,7 @@ export function PluginCenter({ project: selectedProject, projects, thread, actio
       active.current = false;
     }
   };
-  const projectRecovery = projectPendingEntries.length > 0 && <div className="grid gap-2">
+  const projectRecoveryDetails = <div className="grid gap-2">
     {pendingEntries.some(entry => isIndependentCreation(entry, [submission?.requestId, error?.requestId])) && <Feedback message={t("settings.pluginCenter.unrelatedCreationUnconfirmed")} />}
     {projectPendingEntries.map((entry, index) => {
       const threadId = entry.params?.threadId ?? entry.operation?.threadId;
@@ -701,6 +701,14 @@ export function PluginCenter({ project: selectedProject, projects, thread, actio
     })}
     <Button variant="outline" disabled={!connected || busy || loading} onClick={() => void checkProjectOperation()}>{t(checkingProjectOperation ? "settings.pluginCenter.checkingProjectOperation" : "settings.pluginCenter.checkProjectOperation")}</Button>
   </div>;
+  const projectRecovery = projectPendingEntries.length > 0 && (
+    projectPendingEntries.every(entry => isIndependentCreation(entry, [submission?.requestId, error?.requestId]))
+      ? <details>
+        <summary className="cursor-pointer text-ui-sm text-muted-foreground">{t("settings.pluginCenter.previousCreationRecords")}</summary>
+        <div className="mt-2">{projectRecoveryDetails}</div>
+      </details>
+      : projectRecoveryDetails
+  );
   const recoverSubmission = async () => {
     if (!recoverable || active.current || !connected) return;
     active.current = true;
