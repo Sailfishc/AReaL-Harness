@@ -1,7 +1,7 @@
 import { createRoot } from "react-dom/client";
 import { useState } from "react";
 import { Button } from "@areal/ui";
-import { ActivityGroup, Disclosure, ImageDisclosure, TaskContext } from "@areal/ui/wip";
+import { ActivityGroup, Disclosure, ImageDisclosure, SubagentPanel, TaskContext, ThinkingStatus } from "@areal/ui/wip";
 import sampleImage from "../../../../../docs/assets/tui.png";
 import "./library-example.css";
 
@@ -15,6 +15,8 @@ function Example() {
   const [imageAvailable, setImageAvailable] = useState(true);
   const [inspection, setInspection] = useState<string | null>(null);
   const [draftAdded, setDraftAdded] = useState(false);
+  const [agentsOpen, setAgentsOpen] = useState(false);
+  const [selectedAgent, setSelectedAgent] = useState<string>();
   const items = Array.from({ length: draftAdded ? 6 : 5 }, (_, index) => ({ id: `source-${index}`, name: ["本地图片", "参考网页", "设计规范", "交互标注", "不可用历史引用", "草稿网页"][index] }));
   const source = (item: typeof items[number]) => <TaskContext.Item key={item.id} title={item.name} description={item.id === "source-4" ? "原引用暂不可用" : "本地示例输入"}
     aria-label={`查看来源：${item.name}`} onClick={() => setInspection(item.id)} />;
@@ -24,7 +26,8 @@ function Example() {
     <Disclosure label="查看组件职责" textRole="interface"><p>基础交互与外观由包内实现负责。业务状态、执行与持久化由宿主提供。</p></Disclosure>
     <section className="library-conversation" aria-label="独立对话组件">
       <div><h2>对话活动</h2><p>示例状态由本页提供，组件不连接执行服务。</p>
-        <div className="library-example-actions"><Button variant="outline" onClick={() => setAttention(value => !value)}>显示待核对状态</Button><Button variant="outline" onClick={() => setImageAvailable(value => !value)}>切换图片可用性</Button></div>
+        <div className="library-example-actions"><Button variant="outline" onClick={() => setAttention(value => !value)}>显示待核对状态</Button><Button variant="outline" onClick={() => setImageAvailable(value => !value)}>切换图片可用性</Button><Button variant="outline" onClick={() => setAgentsOpen(true)}>查看子代理</Button></div>
+        {!attention && <ThinkingStatus />}
         <ActivityGroup label="读取文件、运行命令 · 30 项活动" status={<p role="status">{attention ? "退出结果待核对；查看不会重试" : "正在收集示例输出"}</p>}>
           <ol className="library-activities">{Array.from({ length: 30 }, (_, index) => <li key={index}>{index === 0 ? <Disclosure label="查看首条命令"><pre>{`pnpm typecheck ${"long_argument_".repeat(40)}\n原始命令完整换行，不横向滚动。`}</pre></Disclosure> : `读取记录 ${index + 1} /workspace/${"reference_".repeat(12)}.md`}</li>)}</ol>
         </ActivityGroup>
@@ -42,6 +45,10 @@ function Example() {
         {draftAdded && <p role="status">已加入草稿</p>}
       </TaskContext>
     </section>
+    <SubagentPanel open={agentsOpen} agents={[{ id: "running", name: "独立交互检查", state: "running" }, { id: "done", name: "独立合同检查", state: "completed" }]}
+      selectedId={selectedAgent} onSelect={setSelectedAgent} onClose={() => setAgentsOpen(false)}>
+      <p>本地子任务历史样例：已读取规范并核对组件接口。</p>{selectedAgent === "running" ? <ThinkingStatus /> : <p>检查已完成，保留原记录。</p>}
+    </SubagentPanel>
   </main>;
 }
 createRoot(document.getElementById("root")!).render(<Example />);

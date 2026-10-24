@@ -7,6 +7,7 @@
 .cs-preview-bar select { max-width: 100%; padding: var(--spacing-inline); color: inherit; background: var(--color-background); border: var(--border-width-default) solid var(--color-border); border-radius: var(--radius-control); }
 .cs-preview-bar > a { color: var(--color-foreground-subtle); font-size: var(--text-ui-sm); text-underline-offset: 3px; }
 .areal-workbench.conversation-system-shell { display: grid; grid-template-columns: minmax(0, 1fr) 310px; height: 760px; width: 100%; padding: 0; border: var(--border-width-default) solid var(--color-border); border-radius: var(--radius-panel); background: var(--color-background); container-type: inline-size; }
+.conversation-system-shell[data-agent-open="true"] { grid-template-columns: minmax(0, 1fr) 250px minmax(0, 1fr); }
 .cs-conversation { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .cs-chat-header { display: flex; align-items: center; justify-content: space-between; flex: none; gap: var(--spacing-inline); padding: var(--spacing-field) var(--spacing-section); font-size: var(--text-ui-sm); border-bottom: var(--border-width-default) solid var(--color-border); }
 .cs-context-toggle { display: none; }
@@ -36,6 +37,10 @@
 .cs-agent-summary { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-inline); margin-block: var(--spacing-inline); font-size: var(--text-ui-sm); color: var(--color-foreground-subtle); }
 .cs-path { overflow-wrap: anywhere; font: var(--text-ui-sm)/1.7 var(--font-mono); }
 .cs-file-content { white-space: pre-wrap; overflow-wrap: anywhere; font: var(--text-ui-sm)/1.8 var(--font-mono); }
+.cs-working { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--spacing-inline); color: var(--color-foreground-subtle); font-size: var(--text-content-caption); padding-bottom: var(--spacing-inline); border-bottom: var(--border-width-default) solid var(--color-border); }
+.cs-working small { font-size: var(--text-ui-xs); }
+.cs-thinking { margin-top: var(--spacing-field); }
+.cs-agent-request { border-radius: var(--radius-panel); padding: var(--spacing-inline) var(--spacing-field); background: var(--color-user-message); color: var(--color-user-message-text); margin-block: var(--spacing-field); }
 .conversation-system :is(button, select, a, [tabindex="0"]):focus-visible { outline: var(--focus-width) solid var(--color-foreground); outline-offset: var(--focus-offset); }
 .design-preview[data-width="narrow"] .conversation-system { max-width: 420px; }
 .design-preview[data-width="narrow"] .conversation-system-shell { grid-template-columns: minmax(0, 1fr); }
@@ -44,6 +49,12 @@
 .design-preview[data-width="narrow"] .conversation-system-shell[data-context-open="true"] .areal-task-context { display: flex; border-left: 0; }
 .design-preview[data-width="narrow"] .conversation-system-shell[data-context-open="true"] .cs-conversation { display: none; }
 .design-preview[data-width="narrow"] :is(.cs-reading-column, .cs-chat-header, .cs-composer.composer-dock) { padding: var(--spacing-field); }
+.design-preview[data-width="narrow"] .conversation-system-shell[data-agent-open="true"] { grid-template-columns: minmax(0, 1fr); }
+.design-preview[data-width="narrow"] .conversation-system-shell[data-agent-open="true"] > :is(.cs-conversation, .areal-task-context) { display: none; }
+@media (min-width: 801px) and (max-width: 1179px) {
+  .conversation-system-shell[data-agent-open="true"] { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .conversation-system-shell[data-agent-open="true"] > .areal-task-context { display: none; }
+}
 @media (max-width: 800px) {
   .areal-workbench.conversation-system-shell { grid-template-columns: minmax(0, 1fr); }
   .conversation-system .cs-context-toggle { display: inline-flex; }
@@ -51,4 +62,6 @@
   .conversation-system-shell[data-context-open="true"] .areal-task-context { display: flex; border-left: 0; }
   .conversation-system-shell[data-context-open="true"] .cs-conversation { display: none; }
   .conversation-system :is(.cs-reading-column, .cs-chat-header, .cs-composer.composer-dock) { padding: var(--spacing-field); }
+  .conversation-system-shell[data-agent-open="true"] { grid-template-columns: minmax(0, 1fr); }
+  .conversation-system-shell[data-agent-open="true"] > :is(.cs-conversation, .areal-task-context) { display: none; }
 }

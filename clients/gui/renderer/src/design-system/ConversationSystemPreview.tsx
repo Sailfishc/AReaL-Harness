@@ -1,4 +1,4 @@
-import { ActivityGroup, Disclosure, ImageDisclosure, TaskContext } from "@areal/ui/wip";
+import { ActivityGroup, Disclosure, ImageDisclosure, SubagentPanel, TaskContext, ThinkingStatus } from "@areal/ui/wip";
 import { useLayoutEffect, useRef, useState } from "react";
 import { FileTextIcon, GlobeIcon, ImageIcon } from "lucide-react";
 import "@areal/ui/conversation.css";
@@ -12,7 +12,7 @@ import { ReviewPanelIcon } from "../app-shell/panelIcons.js";
 import { Button } from "../components/ui/button.js";
 import { Feedback } from "../components/ui/feedback.js";
 import { SettingsSegmentedTabs } from "../settings/SettingsSegmentedTabs.js";
-import { editedActivity, editReview, previewMedia, previewProject, previewSources, readActivity, systemActivities, verificationActivity, type PreviewSource, type SystemPhase } from "./conversationSystemScenario.js";
+import { editedActivity, editReview, previewMedia, previewProject, previewSources, previewSubagents, readActivity, systemActivities, verificationActivity, type AgentMode, type PreviewSource, type SystemPhase } from "./conversationSystemScenario.js";
 import "./conversation-system.css";
 
 function SourceIcon({ kind }: { kind: PreviewSource["kind"] }) {
@@ -20,7 +20,7 @@ function SourceIcon({ kind }: { kind: PreviewSource["kind"] }) {
 }
 
 type Inspection = { kind: "sources" } | { kind: "add" } | { kind: "changes" } | { kind: "unknown" }
-  | { kind: "source"; source: PreviewSource } | { kind: "file"; path: string } | { kind: "agent"; id: string; name: string };
+  | { kind: "source"; source: PreviewSource } | { kind: "file"; path: string };
 
 const phaseItems = [
   { value: "running" as const, label: "运行中" }, { value: "completed" as const, label: "已完成" }, { value: "attention" as const, label: "需要关注" },
@@ -32,6 +32,10 @@ export function ConversationSystemPreview({ dark }: { dark: boolean }) {
   const [sourceCount, setSourceCount] = useState("5");
   const [draftSource, setDraftSource] = useState(false);
   const [imageAvailable, setImageAvailable] = useState(true);
+  const [agentMode, setAgentMode] = useState<AgentMode>("mixed");
+  const [agentPanelOpen, setAgentPanelOpen] = useState(false);
+  const [selectedAgentId, setSelectedAgentId] = useState<string>();
+  const agentInvoker = useRef<HTMLElement | null>(null);
   const [draft, setDraft] = useState("");
   const [contextOpen, setContextOpen] = useState(false);
   const [inspection, setInspection] = useState<Inspection | null>(null);
@@ -41,7 +45,17 @@ export function ConversationSystemPreview({ dark }: { dark: boolean }) {
   const sources: PreviewSource[] = [...previewSources.slice(0, Number(sourceCount)), ...(draftSource
     ? [{ id: "draft-web", kind: "web" as const, name: "新加入的网页引用", location: "example.com/draft", note: "草稿待发送" }] : [])];
   const activities = systemActivities(phase, revision);
-  const childState = phase === "running" ? "运行中" : phase === "attention" ? "需要确认" : "已完成";
+  const agents = previewSubagents(agentMode);
+  const selectedAgent = agents.find(agent => agent.id === selectedAgentId);
+  const childState = agentMode === "mixed" ? "运行中" : agentMode === "attention" ? "需要确认" : "已完成";
+  const openAgents = (id?: string) => {
+    agentInvoker.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setSelectedAgentId(id); setAgentPanelOpen(true);
+  };
+  const closeAgents = () => {
+    setAgentPanelOpen(false);
+    requestAnimationFrame(() => agentInvoker.current?.focus({ preventScroll: true }));
+  };
   const inspect = (next: Inspection) => {
     invoker.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setInspection(next);
@@ -63,8 +77,7 @@ export function ConversationSystemPreview({ dark }: { dark: boolean }) {
   const sourceRow = (source: PreviewSource) => <TaskContext.Item key={source.id} title={source.name} description={source.note ?? source.location}
     icon={<SourceIcon kind={source.kind} />} aria-label={`查看来源：${source.name}`} onClick={() => inspect({ kind: "source", source })} />;
   const inspectionTitle = !inspection ? "任务上下文" : inspection.kind === "sources" ? "全部来源" : inspection.kind === "add" ? "添加输入来源"
-    : inspection.kind === "changes" ? "未暂存变更" : inspection.kind === "unknown" ? "结果待核对" : inspection.kind === "source" ? inspection.source.name
-      : inspection.kind === "agent" ? inspection.name : inspection.path.split("/").at(-1)!;
+    : inspection.kind === "changes" ? "未暂存变更" : inspection.kind === "unknown" ? "结果待核对" : inspection.kind === "source" ? inspection.source.name : inspection.path.split("/").at(-1)!;
 
   return <section className="conversation-system" aria-label="对话流设计预览" data-theme={dark ? "dark" : "light"}>
     <div className="cs-preview-bar">
@@ -73,19 +86,23 @@ export function ConversationSystemPreview({ dark }: { dark: boolean }) {
       <label>来源数量<select aria-label="来源数量" value={sourceCount} onChange={event => { setSourceCount(event.target.value); setDraftSource(false); }}>
         <option value="0">0 项 · 空态</option><option value="3">3 项</option><option value="5">5 项 · 含不可用引用</option>
       </select></label>
+      <label>子任务状态<select aria-label="子任务状态" value={agentMode} onChange={event => setAgentMode(event.target.value as AgentMode)}>
+        <option value="mixed">1 运行中 · 15 已完成</option><option value="completed">全部已完成</option><option value="attention">1 需要确认 · 15 已完成</option>
+      </select></label>
       <label>图片状态<select aria-label="图片状态" value={imageAvailable ? "available" : "unavailable"} onChange={event => setImageAvailable(event.target.value === "available")}>
         <option value="available">可用</option><option value="unavailable">引用不可用</option>
       </select></label>
       <Button variant="outline" size="sm" onClick={() => setRevision(value => value + 1)} disabled={phase !== "running"}>追加命令输出</Button>
       <a href="?docs=clients/gui/design-system/conversation-flow.md">阅读规范</a>
     </div>
-    <WorkbenchShell className="conversation-system-shell" data-context-open={contextOpen}>
+    <WorkbenchShell className="conversation-system-shell" data-context-open={contextOpen} data-agent-open={agentPanelOpen}>
       <div className="cs-conversation">
         <header className="cs-chat-header"><span>整理对话流设计系统</span><Button ref={contextTrigger} variant="ghost" size="sm" className="cs-context-toggle"
           aria-label="查看任务上下文" aria-expanded={contextOpen} onClick={() => setContextOpen(true)}>任务上下文</Button></header>
         <div className="cs-transcript" role="region" aria-label="示例对话" tabIndex={0}>
           <div className="cs-reading-column">
             <p className="cs-user-message">把活动分组、图片和任务上下文整理为统一的对话流，保留按需展开与返回阅读。</p>
+            <p className="cs-working"><span>{phase === "running" ? "Working for 2m 28s" : phase === "completed" ? "Worked for 16m 18s" : "结果待核对"}</span><small>本地历史样例</small></p>
             <p>我会先读取现有规范与组件，再整理活动的展示层级。命令、图片与子任务分别保留自己的入口。</p>
             <ActivityGroup indicator={<ActivityIcon kind="chevron" size={14} />} label="读取文件、运行命令 · 30 项活动" icon={<ActivityIcon kind="command" />}
               status={phase === "attention" ? <div className="cs-attention"><Feedback message="结果待核对 · 连接中断，命令是否退出尚未确认。" />
@@ -98,7 +115,7 @@ export function ConversationSystemPreview({ dark }: { dark: boolean }) {
               {...(imageAvailable ? { state: "available", children: <SentAttachment part={{ type: "image", uri: "areal://blob/system-image", name: "界面参考.png" }}
                 projectId={previewProject.id} threadId="system-main" action={previewMedia} /> } : { state: "unavailable", message: "图片引用暂不可用；保留原活动记录。" })} />
             <ToolEvent item={readActivity} onFile={path => inspect({ kind: "file", path })} />
-            <Button variant="ghost" className="cs-agent-activity" onClick={() => inspect({ kind: "agent", id: "layout", name: "对话布局检查" })}>
+            <Button variant="ghost" className="cs-agent-activity" onClick={() => openAgents("layout")}>
               <AgentAvatar id="layout" size={16} /><span>对话布局检查</span><small>{childState}</small><span className="cs-row-action">查看</span>
             </Button>
             <ActivityGroup indicator={<ActivityIcon kind="chevron" size={14} />} label="已编辑文件、运行命令" icon={<ActivityIcon kind="edit" />}>
@@ -109,6 +126,7 @@ export function ConversationSystemPreview({ dark }: { dark: boolean }) {
             <p>活动摘要用于快速了解过程，展开后可以核对原始记录。右侧按项目、子任务和输入来源整理相关对象。</p>
             {phase === "completed" && <div className="cs-final"><h3>对话流预览已整理完成</h3><p>活动与图片可按需展开，来源支持三项预览和查看全部。可以继续切换主题、字号和窄窗，检查同一组内容的呈现。</p></div>}
             {phase === "attention" && <p>已保留当前记录。查看详情不会重新执行命令；子任务的状态需要分别确认。</p>}
+            {phase === "running" && <div className="cs-thinking"><ThinkingStatus /></div>}
           </div>
         </div>
         <div className="cs-composer composer-dock"><ConversationComposer project={previewProject} modelConfig={previewProject.configurations.main}
@@ -130,11 +148,8 @@ export function ConversationSystemPreview({ dark }: { dark: boolean }) {
               </Disclosure>)}
             </TaskContext.Section>
             <TaskContext.Section label="子代理列表">
-              <Disclosure indicator={<ActivityIcon kind="chevron" size={14} />} label="Subagents · 3 个子任务" textRole="interface">
-                {[{ id: "layout", name: "对话布局检查", status: childState }, { id: "contract", name: "活动合同核对", status: "已完成" }, { id: "review", name: "资源归属检查", status: "已完成" }].map(agent => <TaskContext.Item key={agent.id} title={agent.name} description={agent.status}
-                  icon={<AgentAvatar id={agent.id} size={18} />} onClick={() => inspect({ kind: "agent", ...agent })} />)}
-              </Disclosure>
-              <div className="cs-agent-summary"><AgentAvatar id="layout" size={18} /><AgentAvatar id="contract" size={18} /><AgentAvatar id="review" size={18} /><span>{phase === "completed" ? "3 个已完成" : phase === "attention" ? "1 个待确认 · 2 个已完成" : "1 个运行中 · 2 个已完成"}</span></div>
+              <TaskContext.Item title="Subagents" aria-label="查看全部 Subagents（16）" onClick={() => openAgents()} meta={<ActivityIcon kind="chevron" size={14} />} />
+              <div className="cs-agent-summary"><AgentAvatar id="layout" size={18} /><AgentAvatar id="contract" size={18} /><AgentAvatar id="review" size={18} /><span>{agentMode === "completed" ? "16 个已完成" : agentMode === "attention" ? "1 个待确认 · 15 个已完成" : "1 个运行中 · 15 个已完成"}</span></div>
             </TaskContext.Section>
             <TaskContext.Sources items={sources} onViewAll={() => inspect({ kind: "sources" })} onAdd={() => inspect({ kind: "add" })}>{sourceRow}</TaskContext.Sources>
           </div>
@@ -143,11 +158,24 @@ export function ConversationSystemPreview({ dark }: { dark: boolean }) {
           {inspection?.kind === "source" && <section><p className="cs-path">{inspection.source.location}</p>{inspection.source.note && <Feedback message={inspection.source.note} />}
             {inspection.source.kind === "image" ? <SentAttachment part={{ type: "image", uri: "areal://blob/system-image", name: inspection.source.name }} projectId={previewProject.id} threadId="system-main" action={previewMedia} />
               : <p>{inspection.source.id === "raft" ? "参考其基础规则、通用控件、领域组合与产品布局的职责划分。此处展示本地引用摘要。" : "这是设计预览中的引用记录；来源身份与名称在返回后保留。"}</p>}</section>}
-          {inspection?.kind === "agent" && <section><div className="cs-agent-summary"><AgentAvatar id={inspection.id} size={24} /><span>{inspection.id === "layout" ? childState : "已完成"}</span></div><p>核对活动分组、阅读返回和资源归属，保留独立的子任务状态。</p><p className="cs-detail-note">子任务示例 · 父任务状态独立显示</p></section>}
           {inspection?.kind === "file" && <section><p className="cs-path">{inspection.path}</p><pre className="cs-file-content">{`# 对话流设计\n\n活动按原始顺序组织。\n展开用于核对内容，返回后继续原来的阅读。`}</pre></section>}
           {inspection?.kind === "changes" && <section><p>当前项目 · 未暂存变更</p><p className="cs-detail-note">示例统计包含工作区变更，不将全部修改归为 Agent 产出。</p><pre className="cs-file-content">{`src/conversation/ActivityGroup.tsx  +16 −4\nsrc/conversation/Context.tsx         +8 −4`}</pre></section>}
           {inspection?.kind === "unknown" && <section><Feedback message="退出结果尚未确认；保留原命令记录。" /><p>processId: preview-process</p><p>最后一次观察：已收到部分输出，连接随后中断。</p><p className="cs-detail-note">这里只展示已收集记录，不执行重试或重新运行命令。</p></section>}
       </TaskContext>
+      <SubagentPanel open={agentPanelOpen} agents={agents.map(agent => ({ ...agent, icon: <AgentAvatar id={agent.id} size={18} /> }))}
+        selectedId={selectedAgentId} onSelect={setSelectedAgentId} onClose={closeAgents}>
+        {selectedAgent && <>
+          <p className="cs-working"><span>{selectedAgent.state === "running" ? "Working for 2m 28s" : selectedAgent.state === "completed" ? "Worked for 16m 18s" : "结果待确认"}</span><small>本地历史样例</small></p>
+          <section className="cs-agent-request" aria-label="子任务请求"><p>检查活动分组、阅读返回和上下文来源，保留独立的子任务状态。</p></section>
+          <p>我会先读取现有规范，再核对长命令、图片和来源入口的阅读路径。</p>
+          <ActivityGroup label="读取规范、核对交互 · 3 项活动">
+            <p>已读取对话流设计规范。</p><p>已核对活动展开、图片查看和来源返回。</p><p>{selectedAgent.state === "completed" ? "已整理本地样例检查记录。" : "已保留当前核对记录。"}</p>
+          </ActivityGroup>
+          {selectedAgent.state === "running" ? <><p>正在检查窄窗返回与键盘焦点，结果尚未结算。</p><ThinkingStatus /></>
+            : selectedAgent.state === "attention" ? <><Feedback message="退出结果尚未确认，保留最后收到的记录。" /><p>此处只读历史，不重试或重放任务。</p></>
+              : <><h3>{selectedAgent.name}完成</h3><ul><li>活动与图片的人工展开选择得到保留。</li><li>来源返回后可继续阅读原记录。</li><li>子任务状态独立于父任务结算。</li></ul><p>以上是固定历史样例，用于评审完成态的阅读体验。</p></>}
+        </>}
+      </SubagentPanel>
     </WorkbenchShell>
   </section>;
 }

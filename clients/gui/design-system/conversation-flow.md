@@ -17,6 +17,8 @@
 | ActivityGroup | [活动分组合同](../packages/ui/src/conversation/activity-group/activity-group.md) | 30项原 ToolEvent，纵向滚动、增量/完成保留展开、折叠外状态 |
 | ImageDisclosure | [图片折叠合同](../packages/ui/src/conversation/image-disclosure/image-disclosure.md) | 默认收起、原图片查看器、引用不可用仍保留反馈 |
 | TaskContext | [上下文合同](../packages/ui/src/conversation/task-context/task-context.md) | Section/Item/Sources 组合变更、项目、子任务、来源；宿主返回与草稿保留 |
+| SubagentPanel | [子代理面板合同](../packages/ui/src/conversation/subagent-panel/subagent-panel.md) | 入口→分状态全部列表→子任务历史→原列表；过多完成项展开 |
+| ThinkingStatus | [思考提示合同](../packages/ui/src/conversation/thinking-status/thinking-status.md) | 左到右扫光、静态减少动效、不可见/后台停止 |
 
 这些组件均从 `@areal/ui/wip` 消费，独立样式为 `@areal/ui/conversation.css`。[UI 包预览](../renderer/design-system.html?ui-library)用普通活动文本、原生图片和本地动作独立消费同一组件，不加载 renderer 工作台样式。API、组件索引、Agent 索引和 Markdown 来自包构建，尚未提升为稳定入口或 Base 准入。
 
@@ -46,7 +48,7 @@
 | 产品布局 | 主阅读列、右侧上下文、查看资源及窄窗返回 | [桌面工作台](../../../design/products/workbench/README.md)与现有 App 宿主 |
 | 目录与示例 | 找到合同、真实实现及已覆盖状态 | 原 registry、设计文档阅读器与生产组件预览；未实现概念不登记成可用组件 |
 
-上表的三个实验导出有实际类型和合同；下文其他英文名称仍是设计词汇，不构成新增导出或 Props 承诺。若现有所有者能够承担，直接补齐它的合同与有限变体。
+上表的实验导出有实际类型和合同；下文其他英文名称仍是设计词汇，不构成新增导出或 Props 承诺。若现有所有者能够承担，直接补齐它的合同与有限变体。
 
 ## 主阅读列与活动层级
 
@@ -108,6 +110,10 @@
 | Sources / 来源 | 可折叠区块、总数、添加入口；展开时最多三项及“查看全部（总数）” | 设计默认：首次打开右侧时展示三项预览；收起只留标题/总数，查看全部进入原宿主中的完整来源列表，返回恢复原位置 |
 
 这里的“关联项目”描述产品上下文关系，不断言多个 Git 仓库物理处于同一个 Git Worktree，也不因展开而切换 cwd 或修改执行范围。关系与标识要在原 Worktree/项目合同明确后绑定；本轮不新增跨项目查询服务。
+
+Subagents 入口首先打开全部列表，按Active/Needs attention/Done区分任务状态，配合头像、状态图标和文字。完成项过多时先展示十项，可展开和收起；Active为零有明确空态。点击某项进入该子代理历史，显示请求、过程、活动与结果；返回保留列表展开、阅读位置与原行焦点，关闭恢复原入口。宽窗可将子任务阅读器与上下文并列，窄窗进入单独阅读区；不替换成一段概括说明。
+
+父任务与子任务状态分别提供。预览增加独立子任务状态切换，涵盖一项运行中/全部完成/一项需要确认，不从父任务结算推导子任务。运行中的历史可显示Working及Thinking，已确认完成显示Worked和最终结果，未知显示待确认。图3的用户标注确定Thinking亮度从左到右扫过；周期是实现选择。减少动态效果保留静态文字，离屏与后台停止；不在完成态或未知态继续扫光。
 
 右侧概览与深入阅读的面板是两个用途。宽窗可并排；空间不足时先保住正文与 Composer，将上下文收入有名称的入口，打开详情后提供明确返回。复用 WorkbenchShell / SidePane 的尺寸与导航，不按截图百分比固定侧栏，不叠出第二套常驻侧栏。打开右侧项目或资源不丢失主聊天草稿、阅读位置及来源入口。
 

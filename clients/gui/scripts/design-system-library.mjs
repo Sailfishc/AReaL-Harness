@@ -10,10 +10,11 @@ export async function runUiLibrary(page, scratch, checks) {
   assert.deepEqual(manifest.components.map(({ title, status, entry, layer }) => [title, status, entry, layer]), [
     ["ActivityGroup", "experimental", "wip", "conversation"], ["Button", "stable", "index", "core"],
     ["Disclosure", "experimental", "wip", "core"], ["ImageDisclosure", "experimental", "wip", "conversation"],
-    ["TaskContext", "experimental", "wip", "conversation"],
+    ["SubagentPanel", "experimental", "wip", "conversation"], ["TaskContext", "experimental", "wip", "conversation"],
+    ["ThinkingStatus", "experimental", "wip", "conversation"],
   ]);
   assert.ok(manifest.components.find(component => component.title === "Button").api.includes("declare function Button"));
-  for (const id of ["activity-group", "image-disclosure", "task-context"]) {
+  for (const id of ["activity-group", "image-disclosure", "task-context", "subagent-panel", "thinking-status"]) {
     const document = await page.evaluate(async id => (await fetch(`/docs/ui/${id}.md`)).text(), id);
     assert.ok(document.includes(`id: ${id}`), `raw contract for ${id}`);
     const component = manifest.components.find(component => component.id === id);
@@ -80,4 +81,10 @@ export async function runUiLibrary(page, scratch, checks) {
   await sources.getByRole("button", { name: "添加来源", exact: true }).click();
   await frame.getByRole("status").filter({ hasText: "已加入草稿" }).waitFor();
   checks.push("实验对话组件从包独立消费：活动纵向滚动/子展开保留、收起可见异常、图片可用性、来源三项/全部/折叠/草稿动作通过");
+  await frame.getByRole("button", { name: "查看子代理", exact: true }).click();
+  const agents = frame.getByRole("region", { name: "子代理面板", exact: true });
+  await agents.getByRole("button", { name: /独立交互检查.*运行中/ }).click();
+  await agents.getByRole("region", { name: "子代理历史对话", exact: true }).getByText("本地子任务历史样例：已读取规范并核对组件接口。", { exact: true }).waitFor();
+  await agents.getByRole("button", { name: "返回子代理列表", exact: true }).click();
+  await agents.getByRole("button", { name: "关闭子代理面板", exact: true }).click();
 }

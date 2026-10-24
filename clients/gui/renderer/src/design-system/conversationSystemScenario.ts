@@ -2,6 +2,14 @@ import sampleImage from "../../../../../docs/assets/tui.png";
 import type { Action, Data } from "../services.js";
 
 export type SystemPhase = "running" | "completed" | "attention";
+export type AgentMode = "mixed" | "completed" | "attention";
+export function previewSubagents(mode: AgentMode) {
+  const names = ["对话布局检查", "活动合同核对", "资源归属检查", "Worktree 交付审计", "等待状态核对", "后端实现检查", "正确性复查", "Electron 路径检查", "提交审查", "界面实现核对", "来源输入检查", "键盘与焦点检查", "窄窗布局检查", "主题和字号检查", "历史阅读检查", "操作边界核对"];
+  return names.map((name, index) => ({ id: ["layout", "contract", "review"][index] ?? `agent-${index}`, name,
+    state: index === 0 && mode !== "completed" ? (mode === "attention" ? "attention" as const : "running" as const) : "completed" as const,
+    timeLabel: index === 0 && mode !== "completed" ? "刚刚" : `${54 + index}m ago`,
+  }));
+}
 export type PreviewSource = { id: string; kind: "image" | "web" | "file"; name: string; location: string; note?: string };
 
 export const previewSources: PreviewSource[] = [

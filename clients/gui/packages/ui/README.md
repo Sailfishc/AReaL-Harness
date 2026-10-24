@@ -13,3 +13,5 @@ AReaL 的私有 workspace 包，承接首批 CSS 基础值、React 控件、组�
 稳定成员为 Button；Disclosure、ActivityGroup、ImageDisclosure、TaskContext 由实验入口提供。三类对话组合实现位于 src/conversation，基础控件位于 src/components；基础层禁止反向导入对话层。对话外观单独导入 `@areal/ui/conversation.css`，仅在设计预览消费；当前生产页面不接入这些组合。
 
 TaskContext 通过 Section、Item、Sources 组合变更、项目、子任务和来源。组件负责基本呈现与读取交互；真实状态、资源读取、窄窗导航与焦点恢复由宿主提供。其他控件及尚未迁入的领域组合继续归 renderer。开发前读取 [Agent 入口](agent-guide.md)，架构与取舍见仓库 D-004。
+
+SubagentPanel 提供入口后的完整列表、按独立状态分区、完成组展开与历史详情返回；历史内容由宿主提供。ThinkingStatus 提供从左到右的思考扫描，减少动态效果时静态呈现，不可见或后台停止循环。两者同样为实验对话组件，仅设计预览消费。
