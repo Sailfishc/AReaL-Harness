@@ -1,7 +1,7 @@
 // @ts-check
 "use strict";
 const { webUrl } = require("../preview/urls.cjs");
-const { sensitive, safeText } = require("../preview/diagnostics.cjs");
+const { safeText } = require("../preview/diagnostics.cjs");
 const { randomUUID } = require("node:crypto");
 const { isDeepStrictEqual } = require("node:util");
 const { readViewport } = require("./read-session.cjs");

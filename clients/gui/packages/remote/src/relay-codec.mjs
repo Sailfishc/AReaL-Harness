@@ -46,17 +46,20 @@ function isRelayMessage(message) {
           ["maxFrameBytes", RELAY_FRAME_BYTES],
         ]).every(
           ([key, ceiling]) =>
-            typeof limits[key] === "number" && Number.isSafeInteger(limits[key]) &&
+            typeof limits[key] === "number" &&
+            Number.isSafeInteger(limits[key]) &&
             limits[key] > 0 &&
             limits[key] <= ceiling,
         ) &&
-        typeof limits.heartbeatIntervalMs === "number" && Number.isFinite(limits.heartbeatIntervalMs) &&
+        typeof limits.heartbeatIntervalMs === "number" &&
+        Number.isFinite(limits.heartbeatIntervalMs) &&
         limits.heartbeatIntervalMs > 0 &&
         limits.heartbeatIntervalMs <= 15000))
   )
     return true;
   if (
-    typeof message.type === "string" && ["open", "close"].includes(message.type) &&
+    typeof message.type === "string" &&
+    ["open", "close"].includes(message.type) &&
     exact(message, ["type", "channel"]) &&
     channelShape(message.channel)
   )

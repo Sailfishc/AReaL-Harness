@@ -111,7 +111,7 @@ export function describeBrowserCommands() {
           method: "playwright",
           action: {
             name: "locator",
-            selector: 'internal:role=button[name=\"Continue\"s]',
+            selector: 'internal:role=button[name="Continue"s]',
             operation: "click",
           },
         },

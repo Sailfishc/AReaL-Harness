@@ -113,7 +113,8 @@ function usePanelTabLifecycle(props: WorkspacePanelsProps) {
           await sideResourceBindings.current.get(resource.childId)?.close(resource.resource);
       }
       for (const name of names.filter(isBrowserTab)) {
-        await browserWorkspace.request({ operation: "release",
+        await browserWorkspace.request({
+          operation: "release",
           pageId: browserPageId(name),
           userIntent: true,
         });
@@ -152,11 +153,9 @@ function usePanelTabLifecycle(props: WorkspacePanelsProps) {
       if (pageId === undefined) return;
       const owner = panelOwner;
       workspacePanels.selectPanel(name);
-      void browserWorkspace
-        .request({ operation: "selectPage", pageId })
-        .catch((cause) => {
-          if (previewOwner.current === owner) setError(cause.message);
-        });
+      void browserWorkspace.request({ operation: "selectPage", pageId }).catch((cause) => {
+        if (previewOwner.current === owner) setError(cause.message);
+      });
       return;
     }
     if (isTerminalTab(name)) {

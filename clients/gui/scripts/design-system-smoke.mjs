@@ -570,7 +570,8 @@ try {
   assert.equal(await page.evaluate(() => typeof window.arealDesktop), "undefined");
   if (namedExercise) {
     if (keyboardOnly) await runAccessibilityKeyboard(page, exercise.checks);
-    else if (accessibilityOnly) await runAccessibility(page, scratch, gui, exercise.checks, samples);
+    else if (accessibilityOnly)
+      await runAccessibility(page, scratch, gui, exercise.checks, samples);
     else if (contentSystem) await runContentSystem(page, scratch, exercise.checks);
     else if (reuseExercise) {
       const inputFiles = [

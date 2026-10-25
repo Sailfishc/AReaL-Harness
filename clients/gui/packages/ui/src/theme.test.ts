@@ -105,7 +105,6 @@ test("contrast and material derivations retain their captured precision", () => 
   );
 });
 
-
 test("custom color diagnostics measure the chosen text against its background", () => {
   expect(colorContrastRatio("#000000", "#ffffff")).toBe(21);
   expect(colorContrastRatio("#ffffff", "#ffffff")).toBe(1);

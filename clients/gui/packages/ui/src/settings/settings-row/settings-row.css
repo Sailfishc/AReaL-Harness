@@ -55,7 +55,9 @@
   box-shadow: none;
 }
 
-.settings-group-content { padding: 0; }
+.settings-group-content {
+  padding: 0;
+}
 
 .settings-field-row {
   position: relative;
@@ -128,7 +130,9 @@
   flex-shrink: 0;
 }
 
-.settings-field-control > * { max-width: 100%; }
+.settings-field-control > * {
+  max-width: 100%;
+}
 
 @container (max-width: 520px) {
   .settings-field-layout,

@@ -94,7 +94,8 @@ export function renderFoundations(tokens) {
   );
   const reducedMotion = Object.entries(tokens.foundation)
     .filter(([name, token]) => name.startsWith("motion-") && token.$type === "duration")
-    .map(([name]) => `--${extension(tokens.foundation[name]).name ?? name}: 0ms;`).join(" ");
+    .map(([name]) => `--${extension(tokens.foundation[name]).name ?? name}: 0ms;`)
+    .join(" ");
   return {
     themes,
     foundation:

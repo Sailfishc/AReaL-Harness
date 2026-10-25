@@ -1,5 +1,5 @@
 // @ts-check
-'use strict';
+"use strict";
 /** @typedef {import('./project-state.cjs').CoreProject} Project */
 /** @typedef {import('@areal/runtime-client/core').CoreClient} Client */
 /** @typedef {import('./history-contract.cjs').HistoryItem} Item */

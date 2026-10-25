@@ -33,7 +33,13 @@ function validateEdit(property, value) {
   if (!properties.has(property) || typeof value !== "string" || value.length > 500)
     throw new Error("不支持此页面试改");
   if (property === "text") {
-    if (value.length > 500 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(value))
+    if (
+      value.length > 500 ||
+      Array.from(value).some(
+        (character) =>
+          character.charCodeAt(0) < 32 && ![9, 10, 13].includes(character.charCodeAt(0)),
+      )
+    )
       throw new Error("无效文本");
   } else if (property === "color" || property === "background-color") {
     if (!color.test(value)) throw new Error("无效颜色");

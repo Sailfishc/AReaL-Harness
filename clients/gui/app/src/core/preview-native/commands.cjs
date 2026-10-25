@@ -244,8 +244,7 @@ class BrowserCommands {
    */
   async runBrowserCommand(request, page, command, approved, targets) {
     if (!hasNativePage(page)) throw new Error("plan_stale");
-    const started = Date.now(),
-      c = page.view.webContents;
+    const started = Date.now();
     /** @param {Omit<import("@areal/browser-automation").BrowserCommandResult,"elapsedMs">} partial */
     const done = (partial) => ({ commandResult: { elapsedMs: Date.now() - started, ...partial } });
     /** @param {import("./model.js").Page} target @returns {import("@areal/browser-automation").BrowserTabSummary} */

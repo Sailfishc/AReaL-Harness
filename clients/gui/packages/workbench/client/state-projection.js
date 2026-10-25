@@ -1,4 +1,4 @@
-import projection from './state-projection.cjs';
+import projection from "./state-projection.cjs";
 export const { ProjectionEncoder, ProjectionReader } = projection;
 
 /** @typedef {import("./state-projection.cjs").ProjectionNode} ProjectionNode */
