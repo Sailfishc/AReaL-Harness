@@ -31,7 +31,7 @@ make gui
 
 Vite+ 1.4.0 提供本地检查和任务编排，不需要安装全局 `vp`。`pnpm --dir clients/gui check` 对相对 `HEAD` 的最终工作区改动与未跟踪文件运行 Oxlint 和 Oxfmt，并将 lint 告警视为失败。它检查整个改动文件，不是只检查改动行。提交后请设置 `AREAL_CHECK_BASE=<基线提交>` 检查分支改动；CI 必须提供 `AREAL_CHECK_BASE` 或已有的 `AREAL_DESIGN_BASE`，缺失或不可用时失败。手动运行 GitHub `GUI checks` 时，可通过 `comparison_base` 指定已存在的祖先提交作为集成比较起点；未指定时沿用上一提交。此命令不暂存、stash 或改写文件。`pnpm --dir clients/gui check --fix` 显式修复选中文件。
 
-`pnpm --dir clients/gui check:all` 检查所有自有源码，供存量问题盘点。当前存量未批量格式化，全量检查可能失败。直接检查指定文件使用 `pnpm --dir clients/gui exec vp check <文件路径>`；`lint` 和 `fmt` 分别运行 Oxlint 和 Oxfmt。生成目录、构建产物及第三方静态资源不参与检查，Markdown、锁文件与依赖补丁不参与格式化。TypeScript 检查继续使用原有 `typecheck`，本阶段不启用 TypeScript Go。
+`pnpm --dir clients/gui check:all` 检查所有自有源码，供存量问题盘点。当前存量未批量格式化，全量检查可能失败。直接检查指定文件使用 `pnpm --dir clients/gui exec vp check <文件路径>`；`lint` 和 `fmt` 分别运行 Oxlint 和 Oxfmt。生成目录、构建产物及第三方静态资源不参与检查，Markdown、锁文件与依赖补丁不参与格式化。GUI 类型检查和 UI 声明构建使用 TypeScript 7.0.2 原生 `tsc`。Renderer 与 UI 的 AST、`transpileModule` 和生成脚本通过 `typescript` 别名使用 `@typescript/typescript6@6.0.2` 兼容包；当前锁文件将其 API 和 `tsc6` 固定到 TypeScript 6.0.3，与原生 `tsc` 并存。仓库 SDK 的独立 npm 项目保留其原有编译器。
 
 `pnpm-workspace.yaml` 为[受支持的 Vite+ 别名](https://viteplus.dev/guide/migrate)记录精确的 peer 元数据兼容例外。core 1.4.0 仅放行 React 插件 5.2.0、Tailwind Vite 插件 4.2.2、Vitest 5.0.5 及其 mocker 5.0.5；实际 core 导出的 Vite 版本为 8.3.5。Typography 0.5.19 另行接受 Tailwind 4.2.2，因为其发布的 peer 范围包含不符合 semver 的 `insiders` 标签。这些条目不改写包版本，也不关闭其他 peer 检查。更新任一相关版本前，重新验证对应构建、HMR、排版样式输出及测试运行器。
 

@@ -18,7 +18,7 @@
   "devDependencies": {
     "esbuild": "0.28.2",
     "@types/node": "26.6.4",
-    "typescript": "5.9.3"
+    "typescript": "7.0.2"
   },
   "scripts": {
     "build": "node build.mjs",

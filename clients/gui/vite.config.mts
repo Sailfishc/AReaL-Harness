@@ -124,7 +124,7 @@ export default defineConfig({
         command: [
           "pnpm --filter @areal/gen-ui typecheck",
           "pnpm --filter @areal/gui-renderer typecheck",
-          "pnpm --filter @areal/gui-renderer exec tsc --allowJs --checkJs --noEmit --skipLibCheck --target ES2022 --module NodeNext ../packages/workbench/client/desktop-contract.cjs",
+          "pnpm --filter @areal/gui-renderer exec tsc --ignoreConfig --allowJs --checkJs --noEmit --skipLibCheck --target ES2022 --module NodeNext ../packages/workbench/client/desktop-contract.cjs",
         ],
         dependsOn: ["ui-build"],
         cache: false,
