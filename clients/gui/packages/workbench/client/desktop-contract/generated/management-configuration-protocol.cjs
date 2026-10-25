@@ -87,9 +87,9 @@ function isSkillsResponseLoadedVariant1(value) { return modelRecord(value) && Ob
 /** @param {unknown} value @returns {value is SkillsResponseLoaded} */
 function isSkillsResponseLoaded(value) { return ((isSkillsResponseLoadedVariant1(value)) || (value === null)); }
 
-/** @typedef {{"data":(SkillsResponseDataItem)[],"loaded":SkillsResponseLoaded}} SkillsResponse */
+/** @typedef {{"data":(SkillsResponseDataItem)[],"loaded"?:SkillsResponseLoaded}} SkillsResponse */
 /** @param {unknown} value @returns {value is SkillsResponse} */
-function isSkillsResponse(value) { return modelRecord(value) && (Array.isArray(value["data"]) && value["data"].every((/** @type {unknown} */ item) => isSkillsResponseDataItem(item))) && (isSkillsResponseLoaded(value["loaded"])); }
+function isSkillsResponse(value) { return modelRecord(value) && (Array.isArray(value["data"]) && value["data"].every((/** @type {unknown} */ item) => isSkillsResponseDataItem(item))) && (value["loaded"] === undefined || (isSkillsResponseLoaded(value["loaded"]))); }
 
 /** @typedef {({"maxBytes"?:number,"offset"?:number,"resource"?:string,"skill":ProfileResponseSkillsItem,"threadId"?:string,"operation":"skill","projectId":string,"agentProfile"?:ProfileResponseSkillsItem}&(SkillsRequestVariant1|SkillsRequestVariant2))} SkillRequest */
 /** @param {unknown} value @returns {value is SkillRequest} */

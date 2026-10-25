@@ -218,6 +218,9 @@ class Module:
                 {'type':'object','properties':{'threadId':{'type':'string'},'agentProfile':False},'required':['threadId']},
                 {'type':'object','properties':{'threadId':False,'agentProfile':version},'required':['agentProfile']},
             ]
+        if operation == 'skills':
+            # catalog.rs:827 profile_skills returns data; skills_for_turn also returns loaded.
+            res['required'] = [key for key in res['required'] if key != 'loaded']
         if operation in ('context','contextCompact'):
             # context.rs:72-74 and history.rs:748 normalize calls, omitting provider-private bodies.
             res['properties']['data']['items']['properties']['toolCalls']['items'] = {'type':'object','properties':{'id':{'type':'string'},'type':{'const':'function'},'function':{'type':'object','properties':{'name':{'type':'string'},'arguments':{'type':'string'}},'required':['name','arguments']},'_responsesItem':True},'required':['id','type','function']}
