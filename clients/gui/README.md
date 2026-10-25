@@ -289,6 +289,8 @@ pnpm --dir clients/gui run dist --platform mac --arch arm64 --formats dmg,zip --
 
 当前支持矩阵只有 **macOS arm64 原生构建**；Linux、Windows、x64 和跨平台构建显式报错，待各平台打包及服务所有者实现后接入同一入口。ZIP 不受 DMG 体积预算限制。DMG 在本地导出及正式发布整理时统一检查 **≤250 MiB（262,144,000 字节）**，超出即失败；不得绕过专用导出器临时创建交付镜像。可单独检查现有产物：`node clients/gui/scripts/dmg-size.mjs /absolute/package.dmg`。GUI CI 保留 DMG 暂存测试，不执行完整 release DMG 打包；安装包由本地构建、验收并上传。候选构建成功不等于安装或 GUI 功能验收通过。
 
+工作区只排除 `app-builder-lib@26.15.3` 的 Squirrel.Windows 后端，依据是该打包入口的 macOS arm64 支持边界。macOS 自动更新继续使用 `electron-updater` 与 Electron 的 `autoUpdater`。
+
 ```sh
 make release
 AREAL_CORE_PROFILE=release AREAL_GUI_PACKAGE_DIR=/absolute/new-package make gui-package
