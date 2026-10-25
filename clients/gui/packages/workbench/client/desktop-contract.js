@@ -2,8 +2,8 @@ import contract from "./desktop-contract.cjs";
 export const {
   commandDefinitions,
   commandSemantics,
-  validateCommand,
   desktopError,
+  commandResponseError,
   validateMcpPageDeclaration,
   validateMcpPageCall,
   validateMcpPageReply,
@@ -36,3 +36,11 @@ export const validateCommandResponse = contract.validateCommandResponse;
 
 /** @type {typeof import("./desktop-contract.cjs").validatePreview} */
 export const validatePreview = contract.validatePreview;
+
+/** @type {typeof import("./desktop-contract.cjs").validateCommand} */
+export const validateCommand = contract.validateCommand;
+/** @type {typeof import("./desktop-contract.cjs").readCommandInvocation} */
+export const readCommandInvocation = contract.readCommandInvocation;
+/** @typedef {import("./desktop-contract.cjs").CommandInvocation} CommandInvocation */
+
+/** @typedef {import("./desktop-contract.cjs").DesktopBridge} DesktopBridge */

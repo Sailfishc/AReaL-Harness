@@ -1,6 +1,10 @@
+// @ts-check
 "use strict";
 
+/** @type {'zh-CN'|'en'} */
 let locale = "zh-CN";
+/** @typedef {{count?:unknown,value?:unknown,origin?:unknown}} NativeValues */
+/** @satisfies {Record<string,Record<'zh-CN'|'en',string|((values:NativeValues)=>string)>>} */
 const nativeMessages = {
   "common.cancel": { "zh-CN": "取消", en: "Cancel" },
   "common.back": { "zh-CN": "返回", en: "Back" },
@@ -204,11 +208,15 @@ const nativeMessages = {
   },
 };
 
+/** @param {unknown} value */
 function setNativeLocale(value) {
   if (value === "zh-CN" || value === "en") locale = value;
 }
+/** @param {keyof typeof nativeMessages} id @param {NativeValues} [values] */
 function nativeText(id, values) {
   const message = nativeMessages[id][locale];
-  return typeof message === "function" ? message(values) : message;
+  if (typeof message !== "function") return message;
+  if (values === undefined) throw new TypeError("Native message requires values");
+  return message(values);
 }
 module.exports = { setNativeLocale, nativeText, nativeMessages };

@@ -136,6 +136,7 @@ test("fork feedback assembles full inherited fragments and rejects snapshot drif
     sourceTurnId: "inherited",
     sourceTurnStatus: "completed",
     sourceItemId: "old-reply",
+    turn: { id: "inherited", status: "completed" },
     item: { id: "old-reply", type: "agentMessage", text: "完整继承上下文🌊" },
   };
   const raw = JSON.stringify(entry),

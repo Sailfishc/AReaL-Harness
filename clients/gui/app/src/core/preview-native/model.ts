@@ -1,9 +1,4 @@
-import type {
-  BrowserToolInput,
-  BrowserAction,
-  WaitCondition,
-  BatchStep,
-} from "../preview/tool-contract.cjs";
+import type { BrowserToolInput, BrowserAction, WaitCondition } from "../preview/tool-contract.cjs";
 import type {
   BrowserCommand,
   ControlledView,
@@ -13,14 +8,7 @@ import type {
   BrowserRecordingJob,
   BrowserRecordingArtifact,
 } from "@areal/browser-automation";
-import type {
-  BrowserWindow,
-  WebContentsView,
-  WebContents,
-  Session,
-  DownloadItem,
-  WebFrameMain,
-} from "electron";
+import type { BrowserWindow, WebContentsView, WebContents, Session, DownloadItem } from "electron";
 type WorkspaceNetworkPolicy = InstanceType<
   typeof import("../browser-network.cjs").WorkspaceNetworkPolicy
 >;
@@ -45,7 +33,7 @@ export interface HostIdentity {
   threadId: string;
   turnId: string;
   callId: string;
-  requestId: string;
+  requestId: string | number;
   pageId: string;
   browserHostId: string;
   hostGeneration: number;
@@ -88,7 +76,18 @@ export type NavigationRequest = HostIdentity &
   Extract<ToolInput, { operation: "navigate" | "newPage" }>;
 export type CommandRequest = HostIdentity & Extract<ToolInput, { operation: "command" }>;
 export type BatchRequest = HostIdentity & Extract<ToolInput, { operation: "runBatch" }>;
-export type DiscoveryRequest = HostIdentity & Extract<ToolInput, { operation: "describe" }>;
+export type DiscoveryRequest = Pick<
+  HostIdentity,
+  | "coreInstanceId"
+  | "coreGeneration"
+  | "projectId"
+  | "threadId"
+  | "turnId"
+  | "callId"
+  | "requestId"
+  | "phase"
+  | "browserApproval"
+> & { operation: "describe" };
 export type Control = "human" | "agent" | "transferring";
 export type Revocation = { projectId: string; threadId: string; pageId: string };
 export type Ownership = (projectId: string, threadId: string) => boolean;
@@ -165,13 +164,13 @@ export type NavigationIntent = Extract<
   { kind: "public_search" | "link_navigation" }
 > & { controlEpoch: number; pageGeneration?: number; expiresAt?: number };
 export type CancelableRead = {
-  requestId?: string;
+  requestId?: string | number;
   cancel: (reason?: string) => void;
   cancelled?: boolean;
   documentGeneration?: number;
 };
 export type ActionLease = {
-  requestId: string;
+  requestId: string | number;
   syntheticInput?: boolean;
   dispatched: boolean;
   cancelled: boolean;
@@ -409,7 +408,7 @@ export interface Page {
     dispose: () => void;
   } | null;
   activeAction?: ActionLease | null;
-  activeBatch?: { requestId: string; cancel: () => void; cancelled?: boolean } | null;
+  activeBatch?: { requestId: string | number; cancel: () => void; cancelled?: boolean } | null;
   activePrepare?: boolean;
   activeRead?: CancelableRead | null;
   activeSelection?: { cancel: () => void } | null;

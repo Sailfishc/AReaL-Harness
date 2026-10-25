@@ -243,7 +243,10 @@ test("read-only status keeps real validation and closing checks while retry keep
     await assert.rejects(backend.command("trajectory", { operation: "unknown" }), {
       code: "INVALID_DESKTOP_REQUEST",
     });
-    await assert.rejects(backend.command("send", {}), /配置正在应用/);
+    await assert.rejects(
+      backend.command("send", { projectId: "p", threadId: "t", text: "hello" }),
+      /配置正在应用/,
+    );
     assert.equal(backend.activeCommands, 0);
     backend[gate] = false;
   }
@@ -255,7 +258,7 @@ test("read-only status keeps real validation and closing checks while retry keep
   for (const [name, request] of [
     ["trajectory", { operation: "status" }],
     ["trajectory", { operation: "retry" }],
-    ["send", {}],
+    ["send", { projectId: "p", threadId: "t", text: "hello" }],
   ]) {
     await assert.rejects(backend.command(name, request), /应用正在退出/);
   }

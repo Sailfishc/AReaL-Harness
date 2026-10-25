@@ -1,5 +1,9 @@
 // The renderer consumes only the narrow preload contract. Execution facts remain in Core.
-import { validateCommand, validateCommandResponse } from "@areal/workbench/desktop-contract";
+import {
+  validateCommand,
+  validateCommandResponse,
+  commandResponseError,
+} from "@areal/workbench/desktop-contract";
 import type {
   CommandName,
   CommandParams,
@@ -121,7 +125,8 @@ export interface PlatformServices {
     id: string;
   }>;
   onTheme(listener: (theme: { platform?: string; dark: boolean; id: string }) => void): () => void;
-  preview(params: PreviewRequest): Promise<Data>;
+  preview(params: Exclude<PreviewRequest, { operation: "show" }>): Promise<Data>;
+  preview(params: PreviewRequest): Promise<Data | null>;
   onPreviewEvent?(listener: (event: Data) => void): () => void;
 }
 export type PreparedCreator = CommandResponse<"prepareCreator">;
@@ -161,6 +166,10 @@ export async function call<N extends CommandName, P extends CommandParams<N>>(
   validateCommand(name, params);
   const result = await services.command(name, params);
   if (!result.ok) throw Object.assign(new Error(result.error.message), result.error);
-  validateCommandResponse(name, params, result.value);
+  try {
+    validateCommandResponse(name, params, result.value);
+  } catch (error) {
+    throw commandResponseError(name, params, error);
+  }
   return result.value;
 }

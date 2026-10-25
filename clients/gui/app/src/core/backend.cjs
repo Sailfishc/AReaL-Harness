@@ -1,6 +1,11 @@
+// @ts-check
 "use strict";
 const { parseProjectIndex } = require("./project-index.cjs");
-const { commandSemantics } = require("@areal/workbench/desktop-contract");
+const {
+  commandSemantics,
+  desktopError,
+  readCommandInvocation,
+} = require("@areal/workbench/desktop-contract");
 const { startupTrace } = require("./startup-timing.cjs");
 
 const { connectService } = require("./local-service.cjs");
@@ -37,10 +42,24 @@ const { definition: computerTool } = require("./computer-tool.cjs");
 const { buildGenUiModelContext, stripGenUiModelContext } = require("@areal/gen-ui/node");
 const { genUiScope, createGenUiState } = require("./gen-ui-state.cjs");
 
+const {
+  readAdmission,
+  readThreadAdmission,
+  readQueueAdmission,
+} = require("./submission-results.cjs");
+const { readInspection, readConfigured } = require("./thread-configuration.cjs");
+const {
+  modelRecord,
+  readCoreTask,
+  readCoreQueue,
+} = require("@areal/workbench/core-model-contract");
 const { ProjectConnections } = require("./project-connections.cjs");
 const { HistoryObservation } = require("./history-observation.cjs");
 const { SubmissionRecovery, operationOf, isRemoteControl } = require("./submission-recovery.cjs");
 
+/** @typedef {import('./project-state.cjs').CoreProject} Project */
+/** @typedef {import('@areal/runtime-client/core').CoreClient} Client */
+/** @typedef {Record<string,unknown>} Fields */
 /** @typedef {{binary:string,home:string,applicationOwner?:import('./application-owner.cjs').ApplicationOwner,harnessHome?:string,config?:string,desktopConfig?:string,userHome?:string,toolExtensions?:string,workgroupPolicy?:string,workgroupToolchain?:string,sandboxProfile?:string,desktopProcesses?:boolean,defaultProfile?:import('@areal/workbench/desktop-contract').ResourceRef,encryption?:import('electron').SafeStorage,proxyEnvironment?:NodeJS.ProcessEnv,onChange?:()=>void}} CoreBackendOptions */
 /** 每个项目连接公开的共享 Core 服务；这里只保留可重建投影与客户端受理回执。 */
 class CoreBackend {
@@ -67,12 +86,15 @@ class CoreBackend {
       throw new Error("请设置 AREAL_CORE_BIN 为 areal 可执行文件的绝对路径");
     this.binary = binary;
     this.applicationOwner = applicationOwner;
+    /** @type {Map<string,Omit<import('./local-service.cjs').OwnedEngine,'project'|'service'> & {project:Project,service?:import('./local-service.cjs').RecoveryTarget,dataDir:string,pending?:boolean}>} */
     this.ownedEngines = new Map();
     this.home = home;
     this.genUiState = createGenUiState(home);
     this.harnessHome = harnessHome;
     this.config = config;
     this.proxyEnvironment = proxyEnvironment;
+    /** @type {Awaited<ReturnType<typeof import("./proxy-relay.cjs").proxyRelay>>|undefined} */
+    this.proxyRelay = undefined;
     this.toolExtensions = toolExtensions;
     this.workgroupPolicy = workgroupPolicy;
     this.workgroupToolchain = workgroupToolchain;
@@ -82,12 +104,37 @@ class CoreBackend {
     this.userHome = userHome;
     this.desktopConfig = desktopConfig;
     this.onChange = onChange;
+    /** @type {((notice:Record<string,unknown>)=>void)|undefined} */
+    this.onNotification = undefined;
+    /** @type {((input:import('./service-transport-contract.cjs').ToolHostInput)=>Promise<unknown>)|undefined} */
+    this.browserRead = undefined;
+    /** @type {((input:import('./service-transport-contract.cjs').ToolHostInput)=>Promise<unknown>)|undefined} */
+    this.computerRead = undefined;
+    /** @type {((input:import('./service-transport-contract.cjs').ToolHostInput)=>Promise<unknown>)|undefined} */
+    this.cuaRead = undefined;
+    /** @type {((event:unknown)=>void)|undefined} */
+    this.onMcpAppNotification = undefined;
+    /** @type {((event:{projectId:string,client:import('@areal/runtime-client/core').CoreClient,method:string,params:unknown})=>void)|undefined} */
+    this.onMcpPageToolNotice = undefined;
+    /** @type {((client:import('@areal/runtime-client/core').CoreClient)=>void)|undefined} */
+    this.onMcpPageToolsDisconnected = undefined;
+
     /** @type {Map<string,import('./project-state.cjs').CoreProject>} */
     this.projects = new Map();
     /** @type {Map<string,Promise<import('./project-state.cjs').CoreProject>>} */
     this.starting = new Map();
     /** @type {Map<string,Promise<void>>} */
     this.saves = new Map();
+    /** @type {Promise<void>|undefined} */
+    this.projectWrites = undefined;
+    /** @type {{enabled:boolean,active:boolean,error:string|null}|undefined} */
+    this.power = undefined;
+    /** @type {InstanceType<typeof ProjectConnections>|undefined} */
+    this._connections = undefined;
+    /** @type {InstanceType<typeof HistoryObservation>|undefined} */
+    this._observations = undefined;
+    /** @type {InstanceType<typeof SubmissionRecovery>|undefined} */
+    this._submissions = undefined;
     this.closing = false;
     this.library = new CoreLibrary(this);
     this.worktrees = new CoreWorktrees(this);
@@ -103,15 +150,21 @@ class CoreBackend {
     this.feedback = new UserFeedback(this);
     this.providers = new AppProviders(this, encryption);
     this.activeCommands = 0;
+    /** @type {boolean|undefined} */
+    this.providerUpdating = undefined;
+    /** @type {boolean|undefined} */
+    this.resourcesUpdating = undefined;
     /** @type {WeakSet<object>} */
     this.awaitingResponses = new WeakSet();
     this.lifecycleOperations = new LifecycleOperations(this);
   }
 
+  /** @param {Project} project @param {string} threadId */
   genUiScope(project, threadId) {
     return genUiScope(this.home, project, threadId);
   }
 
+  /** @param {Project} project @param {string} threadId @param {unknown} text */
   async genUiText(project, threadId, text) {
     text = typeof text === "string" ? stripGenUiModelContext(text) : text;
     const context = buildGenUiModelContext(
@@ -187,7 +240,7 @@ class CoreBackend {
           return backend.starting;
         },
         stopReconciliation: (...args) => backend.stopReconciliation(...args),
-        supportsBrowser: (...args) => backend.supportsBrowser(...args),
+        supportsBrowser: backend.supportsBrowser.bind(backend),
         supportsComputer: (...args) => backend.supportsComputer(...args),
         connectExisting: (project, previous) =>
           connectService(
@@ -226,7 +279,7 @@ class CoreBackend {
         onMcpAppNotification: (...args) => backend.onMcpAppNotification?.(...args),
         onMcpPageToolNotice: (...args) => backend.onMcpPageToolNotice?.(...args),
         scheduleReconciliation: (...args) => backend.scheduleReconciliation(...args),
-        currentConnection: (...args) => backend.currentConnection(...args),
+        currentConnection: backend.currentConnection.bind(backend),
         get library() {
           return backend.library;
         },
@@ -242,7 +295,7 @@ class CoreBackend {
         },
         refreshConfiguration: (...args) => backend.refreshConfiguration(...args),
         refreshQueue: (...args) => backend.refreshQueue(...args),
-        requireConnection: (...args) => backend.requireConnection(...args),
+        requireConnection: backend.requireConnection.bind(backend),
       });
     }
     return this._observations;
@@ -258,7 +311,7 @@ class CoreBackend {
         get closing() {
           return backend.closing;
         },
-        currentConnection: (...args) => backend.currentConnection(...args),
+        currentConnection: backend.currentConnection.bind(backend),
         get home() {
           return backend.home;
         },
@@ -279,7 +332,7 @@ class CoreBackend {
         readObservation: (...args) => backend.readObservation(...args),
         refreshAfterAdmission: (...args) => backend.refreshAfterAdmission(...args),
         refreshConfiguration: (...args) => backend.refreshConfiguration(...args),
-        requireConnection: (...args) => backend.requireConnection(...args),
+        requireConnection: backend.requireConnection.bind(backend),
         save: (...args) => backend.save(...args),
         get saved() {
           return backend.saved;
@@ -302,9 +355,11 @@ class CoreBackend {
       await this.lifecycleOperations.init();
       try {
         /** @type {import('./project-index.cjs').SavedProject[]} */
-        this.saved = parseProjectIndex(JSON.parse(await readFile(join(this.home, "projects.json"), "utf8")));
+        this.saved = parseProjectIndex(
+          JSON.parse(await readFile(join(this.home, "projects.json"), "utf8")),
+        );
       } catch (error) {
-        if (error.code !== "ENOENT") throw error;
+        if (desktopError(error).code !== "ENOENT") throw error;
         this.saved = [];
       }
       trace.advance("library");
@@ -407,21 +462,22 @@ class CoreBackend {
           const snapshot = live?.model.getSnapshot() ?? null;
           // Management conversations remain hidden from chat navigation, but use the
           // same snapshot/message components through a decoded display projection.
-          const state = snapshot?.threads
-            ? {
-                ...snapshot,
-                threads: Object.fromEntries(
-                  Object.entries(snapshot.threads).map(([id, thread]) => [
-                    id,
-                    isTaskDraftConfiguration(
-                      live.configurations?.[id] ?? thread.desktop?.configuration,
-                    )
-                      ? displayTaskDraftThread(thread, live)
-                      : thread,
-                  ]),
-                ),
-              }
-            : snapshot;
+          const state =
+            snapshot?.threads && live
+              ? {
+                  ...snapshot,
+                  threads: Object.fromEntries(
+                    Object.entries(snapshot.threads).map(([id, thread]) => [
+                      id,
+                      isTaskDraftConfiguration(
+                        live.configurations?.[id] ?? thread.desktop?.configuration,
+                      )
+                        ? displayTaskDraftThread(thread, live)
+                        : thread,
+                    ]),
+                  ),
+                }
+              : snapshot;
           return {
             ...project,
             hasTaskHistory: taskHistoryOwners.has(project.logicalProjectId ?? project.id),
@@ -431,12 +487,12 @@ class CoreBackend {
               instanceId: live?.service?.serviceId ?? null,
               connectionGeneration: live?.connectionGeneration ?? 0,
             },
-            state: state && live.resourceInitializing ? { ...state, connected: false } : state,
+            state: state && live?.resourceInitializing ? { ...state, connected: false } : state,
             pending: (live?.pending ?? [])
               .filter((entry) => !isRemoteControl(entry))
               .map((entry) => ({ ...entry, awaitingResponse: this.awaitingResponses.has(entry) })),
             outcomes: live?.outcomes ?? {},
-            models: this.providers.catalog(live?.models ?? [], live),
+            models: live ? this.providers.catalog(live.models ?? [], live) : [],
             profiles: live?.profiles ?? [],
             lastAcceptedModel: this.providers.lastAcceptedModel ?? null,
             defaultProfile: live?.resourceProfile ?? this.defaultProfile ?? null,
@@ -452,23 +508,28 @@ class CoreBackend {
     };
   }
 
+  /** @param {Parameters<InstanceType<typeof ProjectConnections>['start']>} args */
   start(...args) {
     return this.connections.start(...args);
   }
 
+  /** @param {Parameters<InstanceType<typeof ProjectConnections>['readConnection']>} args */
   readConnection(...args) {
     return this.connections.readConnection(...args);
   }
 
+  /** @param {Parameters<InstanceType<typeof ProjectConnections>['settleReadWaiters']>} args */
   settleReadWaiters(...args) {
     return this.connections.settleReadWaiters(...args);
   }
 
   // 本地日志加载与连接启动共用同一项目对象；只读收据不启动 Core。
+  /** @param {Parameters<InstanceType<typeof SubmissionRecovery>['loadProjectJournal']>} args */
   loadProjectJournal(...args) {
     return this.submissions.loadProjectJournal(...args);
   }
 
+  /** @param {string} id */
   async startProject(id) {
     const current = this.projects.get(id);
     const trace =
@@ -506,11 +567,14 @@ class CoreBackend {
         // A failed resource import must still allow authenticated status/drain on
         // its running Core. Keep the management connection, while start() retries
         // initialization before admitting any task or project command.
-        if (error.code === "RESPONSE_TOO_LARGE" || error.reason === "RESPONSE_TOO_LARGE")
+        if (
+          desktopError(error).code === "RESPONSE_TOO_LARGE" ||
+          desktopError(error).reason === "RESPONSE_TOO_LARGE"
+        )
           project.reconnectBlocked = true;
         if (!project.resourceInitializing || !project.client?.ready) project.client?.close();
-        project.error = error.message;
-        project.model.connection(false, error.message);
+        project.error = desktopError(error).message;
+        project.model.connection(false, desktopError(error).message);
         throw error;
       }
     } catch (error) {
@@ -566,6 +630,7 @@ class CoreBackend {
     return { args, environment, dataDir, hookDeployment };
   }
 
+  /** @param {Project} project */
   async launch(project) {
     const trace = startupTrace("core.launch", { projectId: project.id });
     trace.advance("directories");
@@ -611,10 +676,11 @@ class CoreBackend {
     if (!this.applicationOwner) return;
     const { serviceRequest } = require("./local-service.cjs");
     const { sameOwner } = require("./application-owner.cjs");
-    const descriptors = await serviceRequest(this, ["list"]);
-    if (!Array.isArray(descriptors)) throw new Error("Core 返回了无效的服务登记列表");
+    const descriptors = require("./local-service.cjs").readOwnedServices(
+      await serviceRequest(this, ["list"]),
+      this.applicationOwner,
+    );
     for (const descriptor of descriptors) {
-      if (!sameOwner(descriptor.owner, this.applicationOwner)) continue;
       // 历史索引沿用原项目 ID；路径散列只用于尚未登记的启动恢复，不能替换已登记身份。
       const registered = this.saved.find(
         (project) =>
@@ -654,15 +720,12 @@ class CoreBackend {
         });
       if (!owned) {
         const { CoreTaskModel } = await import("@areal/workbench/core-model");
-        const project = this.projects.get(projectId) ?? {
-          id: projectId,
-          root: descriptor.workspace,
-          model: new CoreTaskModel(),
-          pending: [],
-          outcomes: {},
-          configurations: {},
-          summaries: [],
-        };
+        const project =
+          this.projects.get(projectId) ??
+          require("./project-state.cjs").createProjectState(
+            { id: projectId, root: descriptor.workspace },
+            new CoreTaskModel(),
+          );
         owned = { project, dataDir: descriptor.dataDir };
         this.ownedEngines.set(projectId, owned);
       }
@@ -690,6 +753,7 @@ class CoreBackend {
     }
   }
 
+  /** @param {Project} project */
   async restartProject(project) {
     this.lifecycleOperations.assertProject(project.id);
     if (project.service) {
@@ -719,38 +783,47 @@ class CoreBackend {
     await this.resources.worktrees.apply(project);
   }
 
-  currentConnection(...args) {
-    return this.connections.currentConnection(...args);
+  /** @param {Project} project @param {Client|null|undefined} client @returns {client is Client} */
+  currentConnection(project, client) {
+    return this.connections.currentConnection(project, client);
   }
 
-  requireConnection(...args) {
-    return this.connections.requireConnection(...args);
+  /** @param {Project} project @param {Client|null|undefined} client @returns {asserts client is Client} */
+  requireConnection(project, client) {
+    return this.connections.requireConnection(project, client);
   }
 
+  /** @param {Parameters<InstanceType<typeof ProjectConnections>['scheduleReconnect']>} args */
   scheduleReconnect(...args) {
     return this.connections.scheduleReconnect(...args);
   }
 
+  /** @param {Parameters<InstanceType<typeof ProjectConnections>['reconnectProject']>} args */
   reconnectProject(...args) {
     return this.connections.reconnectProject(...args);
   }
 
+  /** @param {Parameters<InstanceType<typeof ProjectConnections>['recoverCrashedProject']>} args */
   recoverCrashedProject(...args) {
     return this.connections.recoverCrashedProject(...args);
   }
 
+  /** @param {Parameters<InstanceType<typeof ProjectConnections>['connect']>} args */
   connect(...args) {
     return this.connections.connect(...args);
   }
 
+  /** @param {Parameters<InstanceType<typeof HistoryObservation>['listThreads']>} args */
   listThreads(...args) {
     return this.observations.listThreads(...args);
   }
 
+  /** @param {Parameters<InstanceType<typeof HistoryObservation>['observationFailure']>} args */
   observationFailure(...args) {
     return this.observations.observationFailure(...args);
   }
 
+  /** @param {Project} project @param {string} [threadId] @param {import("@areal/runtime-client/core").OperationRef} [operation] @param {{backgroundList?:boolean}} [options] */
   async refreshAfterAdmission(project, threadId, operation, { backgroundList = false } = {}) {
     const client = project.client,
       generation = project.connectionGeneration;
@@ -759,7 +832,12 @@ class CoreBackend {
     const key = operation?.requestId ?? "project";
     if (operation?.method === "areal/task/runNow" && operation.target?.kind === "task") {
       try {
-        const task = await client.request("areal/task/read", { taskId: operation.target.taskId });
+        this.requireConnection(project, client);
+        const task = await client.request(
+          "areal/task/read",
+          { taskId: operation.target.taskId },
+          { decode: readCoreTask },
+        );
         if (!current()) return;
         project.model.setTask(task);
         if (project.refreshErrors?.[key]?.scope === "task") delete project.refreshErrors[key];
@@ -773,7 +851,7 @@ class CoreBackend {
           scope: "task",
           connectionGeneration: generation,
           operation,
-          message: this.providers.redact(error.message),
+          message: this.providers.redact(desktopError(error).message),
           refreshPending: true,
         };
         this.onChange();
@@ -801,7 +879,7 @@ class CoreBackend {
           scope: "threadList",
           connectionGeneration: generation,
           operation,
-          message: this.providers.redact(error.message),
+          message: this.providers.redact(desktopError(error).message),
           refreshPending: true,
         };
         this.onChange();
@@ -811,50 +889,62 @@ class CoreBackend {
     else await refreshList();
   }
 
+  /** @param {Parameters<InstanceType<typeof HistoryObservation>['openThread']>} args */
   openThread(...args) {
     return this.observations.openThread(...args);
   }
 
+  /** @param {Parameters<InstanceType<typeof HistoryObservation>['supportsBoundedHistory']>} args */
   supportsBoundedHistory(...args) {
     return this.observations.supportsBoundedHistory(...args);
   }
 
+  /** @param {Parameters<InstanceType<typeof HistoryObservation>['historyWindow']>} args */
   historyWindow(...args) {
     return this.observations.historyWindow(...args);
   }
 
+  /** @param {Parameters<InstanceType<typeof HistoryObservation>['publishHistory']>} args */
   publishHistory(...args) {
     return this.observations.publishHistory(...args);
   }
 
+  /** @param {Parameters<InstanceType<typeof HistoryObservation>['installObservation']>} args */
   installObservation(...args) {
     return this.observations.installObservation(...args);
   }
 
+  /** @param {Parameters<InstanceType<typeof HistoryObservation>['readObservation']>} args */
   readObservation(...args) {
     return this.observations.readObservation(...args);
   }
 
+  /** @param {Parameters<InstanceType<typeof HistoryObservation>['hydrateLatest']>} args */
   hydrateLatest(...args) {
     return this.observations.hydrateLatest(...args);
   }
 
+  /** @param {Parameters<InstanceType<typeof HistoryObservation>['refreshHistory']>} args */
   refreshHistory(...args) {
     return this.observations.refreshHistory(...args);
   }
 
+  /** @param {Parameters<InstanceType<typeof HistoryObservation>['validateHistoryPage']>} args */
   validateHistoryPage(...args) {
     return this.observations.validateHistoryPage(...args);
   }
 
+  /** @param {Parameters<InstanceType<typeof HistoryObservation>['historyCommand']>} args */
   historyCommand(...args) {
     return this.observations.historyCommand(...args);
   }
 
+  /** @param {Parameters<InstanceType<typeof HistoryObservation>['observeThread']>} args */
   observeThread(...args) {
     return this.observations.observeThread(...args);
   }
 
+  /** @param {Project} project */
   supportsBrowser(project) {
     const capabilities = project.client?.capabilities;
     return (
@@ -865,6 +955,7 @@ class CoreBackend {
     );
   }
 
+  /** @param {Project} project */
   supportsComputer(project) {
     const capabilities = project.client?.capabilities;
     return (
@@ -874,6 +965,7 @@ class CoreBackend {
     );
   }
 
+  /** @param {Project} project */
   desktopTools(project) {
     return [
       ...(this.supportsBrowser(project) ? [browserTool] : []),
@@ -885,6 +977,7 @@ class CoreBackend {
     ];
   }
 
+  /** @param {Project} project @param {string} threadId */
   async ensureBrowserTools(project, threadId) {
     const bundles = this.desktopTools(project).map((tool) =>
       tool.name === "browser_v1" ? "areal.browser.v1" : "areal.computer.v1",
@@ -898,7 +991,8 @@ class CoreBackend {
         thread.desktop?.archived ||
         thread.parentThreadId ||
         thread.conversation?.policy?.kind === "sideReadOnlyV1" ||
-        thread.status?.type !== "idle"
+        !modelRecord(thread.status) ||
+        thread.status.type !== "idle"
       )
         return;
       await this.submit(project, "areal/thread/tools/attach", {
@@ -911,6 +1005,7 @@ class CoreBackend {
     this.requireConnection(project, client);
   }
 
+  /** @param {Project} project @param {string} threadId */
   async bindBrowserHostForClaim(project, threadId) {
     const client = project.client;
     if (!client?.capabilities?.methods?.includes("areal/thread/observe")) {
@@ -922,9 +1017,13 @@ class CoreBackend {
     this.requireConnection(project, client);
     const thread = observed.thread;
     if (
-      !thread?.dynamicTools?.some((tool) => tool.name === "browser_v1") ||
+      !(
+        Array.isArray(thread.dynamicTools) &&
+        thread.dynamicTools.some((tool) => modelRecord(tool) && tool.name === "browser_v1")
+      ) ||
       thread.desktop?.archived ||
-      thread.status?.type !== "idle"
+      !modelRecord(thread.status) ||
+      thread.status.type !== "idle"
     ) {
       throw new Error("聊天正在执行或浏览器未启用，请刷新后再认领页面");
     }
@@ -932,6 +1031,7 @@ class CoreBackend {
     this.requireConnection(project, client);
   }
 
+  /** @param {Project} project @param {string} threadId @param {{client?:Client|null,timeoutMs?:number,current?:()=>boolean}} [options] */
   async refreshQueue(
     project,
     threadId,
@@ -941,11 +1041,13 @@ class CoreBackend {
       current = () => this.currentConnection(project, client),
     } = {},
   ) {
+    this.requireConnection(project, client);
     return client.request(
       "areal/queue/list",
       { threadId },
       {
         timeoutMs,
+        decode: readCoreQueue,
         onResult: (queue) => {
           if (current()) project.model.setQueue(threadId, queue);
         },
@@ -953,14 +1055,19 @@ class CoreBackend {
     );
   }
 
+  /** @param {Project} project @param {Fields} request */
   async editQueue(project, request) {
     const { threadId, operation, expectedRevision } = request;
     if (
+      typeof threadId !== "string" ||
+      typeof operation !== "string" ||
+      typeof expectedRevision !== "number" ||
       !["update", "remove", "reorder", "pause", "resume", "steer"].includes(operation) ||
       !Number.isSafeInteger(expectedRevision) ||
       expectedRevision < 0
     )
       throw new Error("无效队列操作");
+    /** @type {import("./project-state.cjs").SubmissionParams & {input?:unknown[]}} */
     const params = { threadId, expectedRevision };
     if (operation === "update" || operation === "remove" || operation === "steer") {
       if (typeof request.queueItemId !== "string" || !request.queueItemId)
@@ -977,13 +1084,16 @@ class CoreBackend {
         retained.length > 16 ||
         retained.some(
           (part) =>
+            !modelRecord(part) ||
             part.type === "text" ||
-            !original?.input.some((input) => isDeepStrictEqual(input, part)),
+            !original?.input?.some((input) => isDeepStrictEqual(input, part)),
         )
       )
         throw new Error("排队附件引用已变化，请核对原消息");
       const changed =
-        request.text?.trim() || request.attachments?.length || request.mcpContent?.length
+        (typeof request.text === "string" && request.text.trim()) ||
+        (Array.isArray(request.attachments) && request.attachments.length) ||
+        (Array.isArray(request.mcpContent) && request.mcpContent.length)
           ? messageInput(this, request)
           : [];
       params.input = [
@@ -991,7 +1101,10 @@ class CoreBackend {
         ...retained,
         ...changed.filter((part) => part.type !== "text"),
       ];
-      if (!params.input.length || params.input.filter((part) => part.type !== "text").length > 16)
+      if (
+        !params.input.length ||
+        params.input.filter((part) => !modelRecord(part) || part.type !== "text").length > 16
+      )
         throw new Error("排队消息不能为空，且最多 16 个附件");
     }
     if (operation === "steer") {
@@ -1010,13 +1123,15 @@ class CoreBackend {
       params.queueItemIds = request.queueItemIds;
     }
     try {
+      if (request.requestId !== undefined && typeof request.requestId !== "string")
+        throw new Error("无效队列请求标识");
       const result = await this.submit(project, `areal/queue/${operation}`, params, {
         requestId: request.requestId,
       });
       if (operation === "steer") {
         // 转移收据只保存绑定 ID 和版本，不把完整队列复制到每张收据。
         await this.refreshQueue(project, threadId).catch(() => {});
-      } else project.model.setQueue(threadId, result);
+      } else project.model.setQueue(threadId, readQueueAdmission(result));
       this.onChange();
       return result;
     } catch (error) {
@@ -1026,12 +1141,14 @@ class CoreBackend {
     }
   }
 
+  /** @param {unknown} text */
   textInput(text) {
     if (typeof text !== "string" || !text.trim() || Buffer.byteLength(text) > 64 * 1024)
       throw new Error("请输入有效任务内容（最多 64 KiB）");
     return [{ type: "text", text }];
   }
 
+  /** @param {Project} project @param {string} threadId @param {{client?:Client|null,timeoutMs?:number,current?:()=>boolean}} [options] */
   async refreshConfiguration(
     project,
     threadId,
@@ -1041,8 +1158,10 @@ class CoreBackend {
       current = () => this.currentConnection(project, client),
     } = {},
   ) {
-    let result;
-    if (project.model.state.threads[threadId]?.conversation?.policy?.kind === "sideReadOnlyV1") {
+    this.requireConnection(project, client);
+    let observed;
+    const conversation = project.model.state.threads[threadId]?.conversation;
+    if (modelRecord(conversation?.policy) && conversation.policy.kind === "sideReadOnlyV1") {
       // Side cannot call the ordinary execution inspection route. Its read snapshot
       // supplies the same authoritative configuration and active-turn precondition.
       const { thread } = this.supportsBoundedHistory(client)
@@ -1052,18 +1171,20 @@ class CoreBackend {
             current,
             install: false,
           })
-        : await client.request("thread/read", { threadId, includeTurns: true }, { timeoutMs });
+        : await client.request(
+            "thread/read",
+            { threadId, includeTurns: true },
+            { timeoutMs, decode: require("./history-contract.cjs").readObservationResult },
+          );
       if (thread?.id !== threadId || thread.conversation?.kind !== "side")
         throw new Error("Side 配置快照与目标会话不匹配");
-      result = {
+      observed = {
         configuration: thread.desktop?.configuration,
         activeTurnId: thread.turns?.find((turn) => turn.status === "inProgress")?.id,
       };
-    } else result = await client.request("areal/thread/inspect", { threadId }, { timeoutMs });
+    } else observed = await client.request("areal/thread/inspect", { threadId }, { timeoutMs });
     this.requireConnection(project, client);
-    if (!result?.configuration || !Number.isSafeInteger(result.configuration.revision)) {
-      throw new Error("Core 未返回有效的会话配置，请重新打开任务");
-    }
+    const result = readInspection(observed);
     if (!current()) throw Object.assign(new Error("观察归属已变化"), { code: "STALE_CONNECTION" });
     project.configurations ??= {};
     project.configurations[threadId] = {
@@ -1075,6 +1196,7 @@ class CoreBackend {
     return result;
   }
 
+  /** @param {Project} project @param {string} threadId @param {Omit<import("@areal/workbench/desktop-contract").ConfigureRequest,"projectId"|"threadId">} request */
   async configureThread(project, threadId, request) {
     if (
       request.options?.permissionPreset !== undefined &&
@@ -1155,9 +1277,11 @@ class CoreBackend {
           : {}),
       };
       const client = project.client;
-      const configuration = await this.submit(project, "areal/thread/configure", params, {
-        requestId: request.requestId,
-      });
+      const configuration = readConfigured(
+        await this.submit(project, "areal/thread/configure", params, {
+          requestId: request.requestId,
+        }),
+      );
       if (this.currentConnection(project, client))
         project.configurations[threadId] = {
           ...configuration,
@@ -1182,107 +1306,137 @@ class CoreBackend {
     }
   }
 
+  /** @param {Parameters<InstanceType<typeof SubmissionRecovery>['changePending']>} args */
   changePending(...args) {
     return this.submissions.changePending(...args);
   }
 
+  /** @param {Parameters<InstanceType<typeof SubmissionRecovery>['changeOutcomes']>} args */
   changeOutcomes(...args) {
     return this.submissions.changeOutcomes(...args);
   }
 
+  /** @param {Parameters<InstanceType<typeof SubmissionRecovery>['rememberWorkgroupOutcome']>} args */
   rememberWorkgroupOutcome(...args) {
     return this.submissions.rememberWorkgroupOutcome(...args);
   }
 
+  /** @param {Parameters<InstanceType<typeof SubmissionRecovery>['recoverWorkgroupSubmission']>} args */
   recoverWorkgroupSubmission(...args) {
     return this.submissions.recoverWorkgroupSubmission(...args);
   }
 
+  /** @param {Parameters<InstanceType<typeof SubmissionRecovery>['recoverProcessSubmission']>} args */
   recoverProcessSubmission(...args) {
     return this.submissions.recoverProcessSubmission(...args);
   }
 
+  /** @param {Parameters<InstanceType<typeof SubmissionRecovery>['recoverAgentSubmission']>} args */
   recoverAgentSubmission(...args) {
     return this.submissions.recoverAgentSubmission(...args);
   }
 
+  /** @param {Parameters<InstanceType<typeof SubmissionRecovery>['remoteRecord']>} args */
   remoteRecord(...args) {
     return this.submissions.remoteRecord(...args);
   }
 
+  /** @param {Parameters<InstanceType<typeof SubmissionRecovery>['readRemoteRecord']>} args */
   readRemoteRecord(...args) {
     return this.submissions.readRemoteRecord(...args);
   }
 
+  /** @param {Parameters<InstanceType<typeof SubmissionRecovery>['rememberRemoteOutcome']>} args */
   rememberRemoteOutcome(...args) {
     return this.submissions.rememberRemoteOutcome(...args);
   }
 
+  /** @param {Parameters<InstanceType<typeof SubmissionRecovery>['recoverRemoteSubmission']>} args */
   recoverRemoteSubmission(...args) {
     return this.submissions.recoverRemoteSubmission(...args);
   }
 
+  /** @param {Parameters<InstanceType<typeof SubmissionRecovery>['submitRemote']>} args */
   submitRemote(...args) {
     return this.submissions.submitRemote(...args);
   }
 
+  /** @param {Parameters<InstanceType<typeof SubmissionRecovery>['submit']>} args */
   submit(...args) {
     return this.submissions.submit(...args);
   }
 
+  /** @param {Parameters<InstanceType<typeof SubmissionRecovery>['processControlOutcome']>} args */
   processControlOutcome(...args) {
     return this.submissions.processControlOutcome(...args);
   }
 
+  /** @param {Parameters<InstanceType<typeof SubmissionRecovery>['requestSubmission']>} args */
   requestSubmission(...args) {
     return this.submissions.requestSubmission(...args);
   }
 
+  /** @param {Parameters<InstanceType<typeof SubmissionRecovery>['readReceipt']>} args */
   readReceipt(...args) {
     return this.submissions.readReceipt(...args);
   }
 
+  /** @param {Parameters<InstanceType<typeof SubmissionRecovery>['readSubmission']>} args */
   readSubmission(...args) {
     return this.submissions.readSubmission(...args);
   }
 
+  /** @param {Parameters<InstanceType<typeof SubmissionRecovery>['rememberOutcome']>} args */
   rememberOutcome(...args) {
     return this.submissions.rememberOutcome(...args);
   }
 
+  /** @param {Parameters<InstanceType<typeof SubmissionRecovery>['reconciliationCurrent']>} args */
   reconciliationCurrent(...args) {
     return this.submissions.reconciliationCurrent(...args);
   }
 
+  /** @param {Parameters<InstanceType<typeof SubmissionRecovery>['stopReconciliation']>} args */
   stopReconciliation(...args) {
     return this.submissions.stopReconciliation(...args);
   }
 
+  /** @param {Parameters<InstanceType<typeof SubmissionRecovery>['scheduleReconciliation']>} args */
   scheduleReconciliation(...args) {
     return this.submissions.scheduleReconciliation(...args);
   }
 
+  /** @param {Parameters<InstanceType<typeof SubmissionRecovery>['reconcile']>} args */
   reconcile(...args) {
     return this.submissions.reconcile(...args);
   }
 
+  /** @param {Parameters<InstanceType<typeof SubmissionRecovery>['reconcileEntries']>} args */
   reconcileEntries(...args) {
     return this.submissions.reconcileEntries(...args);
   }
 
-  async command(name, request, context = {}) {
-    if (name === "workspace" && request?.operation?.startsWith("worktree"))
-      require("@areal/workbench/desktop-contract").validateCommand(name, request);
-    const semantics = commandSemantics(name, request);
-    if (semantics.requestId && !request[semantics.requestId])
-      request = { ...request, [semantics.requestId]: randomUUID() };
-    if (this.worktrees) request = await this.worktrees.resolveRequest(name, request);
+  /** @param {string} commandName @param {Record<string,unknown>} rawRequest
+   * @param {{onMcpAppOpened?:(project:import('./project-state.cjs').CoreProject,client:import('@areal/runtime-client/core').CoreClient,request:Record<string,unknown>,result:unknown)=>void,onBrowserTurnStarted?:(turnId:string)=>void,onBrowserTurnQueued?:(queueItemId:string)=>void}} [context] */
+  async command(commandName, rawRequest, context = {}) {
+    const semantics = commandSemantics(commandName, rawRequest);
+    if (semantics.requestId && !rawRequest[semantics.requestId])
+      rawRequest = { ...rawRequest, [semantics.requestId]: randomUUID() };
+    const invocation = readCommandInvocation(commandName, { ...rawRequest });
+    if (this.worktrees)
+      Object.assign(
+        invocation.request,
+        await this.worktrees.resolveRequest(commandName, invocation.request),
+      );
+    const { name, request } = invocation;
+    const projectId = typeof request.projectId === "string" ? request.projectId : undefined;
+    const threadId = typeof request.threadId === "string" ? request.threadId : undefined;
     if (name === "history" && request.operation === "release") {
-      const project = this.projects.get(request.projectId);
+      const project = projectId === undefined ? undefined : this.projects.get(projectId);
       return project ? this.historyCommand(project, request) : { released: true };
     }
     if (name === "stop") {
-      const project = this.projects.get(request.projectId);
+      const project = projectId === undefined ? undefined : this.projects.get(projectId);
       if (!project?.service || !project.client?.ready)
         throw Object.assign(new Error("原 Core 连接不可用，不能中断轮次"), {
           code: "LIFECYCLE_INCOMPLETE",
@@ -1303,15 +1457,15 @@ class CoreBackend {
         turnId: request.turnId,
       });
     }
-    const lifecycleBlock = this.lifecycleOperations.blocking(request?.projectId, request?.threadId);
+    const lifecycleBlock = this.lifecycleOperations.blocking(projectId, threadId);
     if (
       (lifecycleBlock ||
         this.lifecycleOperations.activeRequestId ||
-        this.lifecycleOperations.activeTargets.has(request?.projectId)) &&
+        (projectId !== undefined && this.lifecycleOperations.activeTargets.has(projectId))) &&
       (["open", "list", "connect"].includes(name) ||
         require("./lifecycle.cjs").isRecoveryCommand(name, request))
     ) {
-      const project = this.projects.get(request.projectId);
+      const project = projectId === undefined ? undefined : this.projects.get(projectId);
       if (!project?.service || !project.client?.ready)
         throw Object.assign(new Error("原 Core 已断开，不能确认核查目标"), {
           code: "LIFECYCLE_INCOMPLETE",
@@ -1333,9 +1487,9 @@ class CoreBackend {
       if (name === "list") await this.listThreads(project);
       return this.snapshot();
     }
-    this.lifecycleOperations.assertProject(request?.projectId, request?.threadId);
+    this.lifecycleOperations.assertProject(projectId, threadId);
     if (this.closing && require("./lifecycle.cjs").isRecoveryCommand(name, request)) {
-      const project = this.projects.get(request.projectId);
+      const project = projectId === undefined ? undefined : this.projects.get(projectId);
       if (!project?.service || !project.client?.ready)
         throw new Error("原 Core 已断开，不能确认核查目标");
       if (name === "history") return this.historyCommand(project, request);
@@ -1357,12 +1511,13 @@ class CoreBackend {
       throw new Error("配置正在应用，请稍后重试");
     this.activeCommands++;
     try {
-      return await this.executeCommand(name, request, context);
+      return await this.dispatchCommand(invocation, context);
     } finally {
       this.activeCommands--;
     }
   }
 
+  /** @param {Project} project @param {Fields} request */
   assertThreadCreationAvailable(project, request) {
     if (project.client?.capabilities?.features?.permissionPresets !== true) {
       throw Object.assign(new Error("当前 Core 不支持权限模式，请更新后台后创建聊天"), {
@@ -1382,14 +1537,24 @@ class CoreBackend {
     }
   }
 
+  /** @param {Project} project @param {Fields} request */
   async createThreadInProject(project, request) {
     this.assertThreadCreationAvailable(project, request);
     try {
       await this.resources.beforeCreate(project);
     } catch (error) {
-      throw Object.assign(error, { submissionUnknown: false, outcome: { kind: "noMutation" } });
+      throw Object.assign(error instanceof Error ? error : new Error(String(error)), {
+        submissionUnknown: false,
+        outcome: { kind: "noMutation" },
+      });
     }
+    if (request.options !== undefined && !modelRecord(request.options))
+      throw new Error("无效会话配置");
+    if (request.requestId !== undefined && typeof request.requestId !== "string")
+      throw new Error("无效创建请求标识");
+    /** @type {Fields} */
     let options = { permissionPreset: "ask", ...request.options };
+    /** @type {unknown[]} */
     let tools = this.desktopTools(project);
     if (
       this.library.value.settings.computerControlEnabled === true &&
@@ -1399,6 +1564,7 @@ class CoreBackend {
         throw new Error(
           "This Core does not support external CUA; update Core before creating this chat",
         );
+      if (!this.cuaRead) throw new Error("External CUA desktop host is unavailable");
       const catalog = await this.cuaRead({
         phase: "catalog",
         projectId: project.id,
@@ -1406,31 +1572,36 @@ class CoreBackend {
         coreInstanceId: project.service?.serviceId,
         coreGeneration: project.service?.generation,
       });
-      options = {
-        ...options,
-        externalCua: true,
-        appendInstructions: [options.appendInstructions, catalog.instructions]
-          .filter(Boolean)
-          .join("\n\n"),
-      };
-      if (Buffer.byteLength(options.appendInstructions) > 32768)
+      if (
+        !modelRecord(catalog) ||
+        typeof catalog.instructions !== "string" ||
+        !Array.isArray(catalog.tools)
+      )
+        throw new Error("Invalid external CUA catalog");
+      const appendInstructions = [options.appendInstructions, catalog.instructions]
+        .filter(Boolean)
+        .join("\n\n");
+      options = { ...options, externalCua: true, appendInstructions };
+      if (Buffer.byteLength(appendInstructions) > 32768)
         throw new Error("Complete LCU and client instructions exceed the 32768-byte budget");
       tools = [...tools, ...catalog.tools];
     }
-    const { thread } = await this.submit(
-      project,
-      "areal/thread/start",
-      {
-        cwd: project.root,
-        ...(tools.length ? { dynamicTools: tools } : {}),
-        ...(request.parameters ? { parameters: request.parameters } : {}),
-        options,
-        ...(request.model ? { model: request.model } : {}),
-        ...((request.profile ?? project.resourceProfile ?? this.defaultProfile)
-          ? { agentProfile: request.profile ?? project.resourceProfile ?? this.defaultProfile }
-          : {}),
-      },
-      { requestId: request.requestId },
+    const { thread } = readThreadAdmission(
+      await this.submit(
+        project,
+        "areal/thread/start",
+        {
+          cwd: project.root,
+          ...(tools.length ? { dynamicTools: tools } : {}),
+          ...(request.parameters ? { parameters: request.parameters } : {}),
+          options,
+          ...(request.model ? { model: request.model } : {}),
+          ...((request.profile ?? project.resourceProfile ?? this.defaultProfile)
+            ? { agentProfile: request.profile ?? project.resourceProfile ?? this.defaultProfile }
+            : {}),
+        },
+        { requestId: request.requestId },
+      ),
     );
     await this.refreshAfterAdmission(
       project,
@@ -1441,7 +1612,14 @@ class CoreBackend {
     return { threadId: thread.id, requestId: request.requestId };
   }
 
-  async executeCommand(name, request, context = {}) {
+  /** @param {string} commandName @param {Fields} rawRequest @param {NonNullable<Parameters<CoreBackend["command"]>[2]>} [context] */
+  executeCommand(commandName, rawRequest, context = {}) {
+    return this.dispatchCommand(readCommandInvocation(commandName, rawRequest), context);
+  }
+
+  /** @param {import("@areal/workbench/desktop-contract").CommandInvocation} invocation @param {NonNullable<Parameters<CoreBackend["command"]>[2]>} context */
+  async dispatchCommand(invocation, context) {
+    const { name, request } = invocation;
     if (this.closing) throw new Error("应用正在退出");
     if (name === "trajectory") return this.trajectory.command(request);
     if (name === "feedback") return this.feedback.command(request);
@@ -1449,6 +1627,8 @@ class CoreBackend {
     if (name === "projectless") return this.projectless.command(request);
     if (name === "library") return this.library.command(request);
     if (!(name === "workspace" && request.operation.startsWith("worktree")) && name !== "create") {
+      if (request.projectId !== undefined && typeof request.projectId !== "string")
+        throw new Error("无效项目标识");
       this.worktrees.assertAvailable(request.projectId);
       if (commandSemantics(name, request).effect === "mutation") {
         const operation = [...this.worktrees.records.values()].find(
@@ -1461,12 +1641,14 @@ class CoreBackend {
       }
     }
     if (name === "workspace") {
-      if (this.worktreeAdmission.needsAdmission(name, request))
+      if (this.worktreeAdmission.needsAdmission(name, request)) {
+        if (typeof request.projectId !== "string") throw new Error("缺少工作区项目标识");
         await this.worktreeAdmission.admit(await this.start(request.projectId), name, request);
+      }
       return workspaceCommand(this, request);
     }
-    const { projectId, threadId } = request;
-    const project = await this.start(projectId);
+    if (typeof request.projectId !== "string") throw new Error("缺少项目标识");
+    const project = await this.start(request.projectId);
     if (this.closing) throw new Error("应用正在退出");
     await this.worktreeAdmission.admit(project, name, request);
     if (
@@ -1480,7 +1662,9 @@ class CoreBackend {
           ? project.configurations?.[request.sourceThreadId]?.model
           : name === "side" && request.operation === "start"
             ? request.model
-            : project.configurations?.[threadId]?.model;
+            : typeof request.threadId === "string"
+              ? project.configurations[request.threadId]?.model
+              : undefined;
       const model =
         configured?.providerId === "areal_openai"
           ? project.models?.find(
@@ -1501,13 +1685,15 @@ class CoreBackend {
     }
     switch (name) {
       case "connect":
-        await this.worktrees.connectExecutions(request.logicalProjectId ?? project.id);
+        await this.worktrees.connectExecutions(
+          typeof request.logicalProjectId === "string" ? request.logicalProjectId : project.id,
+        );
         return this.snapshot();
       case "prediction": {
         if (!project.client?.capabilities?.methods?.includes("areal/thread/prediction"))
           return null;
         return project.client.request("areal/thread/prediction", {
-          threadId,
+          threadId: request.threadId,
           sourceTurnId: request.sourceTurnId,
           operation: request.operation,
         });
@@ -1515,9 +1701,11 @@ class CoreBackend {
       case "prepareCreator":
         return this.resources.prepareCreator(project, request.profile);
       case "dismissRecovery": {
+        const requestId = request.requestId;
+        if (typeof requestId !== "string") throw new Error("缺少原请求标识");
         await this.changeOutcomes(project, (previous) => {
           const outcomes = { ...previous };
-          if (!outcomes[request.requestId]?.remote) delete outcomes[request.requestId];
+          if (!outcomes[requestId]?.remote) delete outcomes[requestId];
           return outcomes;
         });
         break;
@@ -1526,22 +1714,27 @@ class CoreBackend {
         return mediaCommand(project, request, this);
       case "manage":
         if (
-          isTaskDraftConfiguration(project.configurations?.[threadId]) &&
-          request.operation?.startsWith("goal")
+          typeof request.threadId === "string" &&
+          isTaskDraftConfiguration(project.configurations[request.threadId]) &&
+          typeof request.operation === "string" &&
+          request.operation.startsWith("goal")
         ) {
           throw new Error("任务管理会话不执行目标；请在会话中描述要调整的定时任务。");
         }
         return manage(this, project, request, context);
       case "list":
         await this.listThreads(project);
-        await this.worktrees.connectExecutions(request.logicalProjectId ?? project.id);
+        await this.worktrees.connectExecutions(
+          typeof request.logicalProjectId === "string" ? request.logicalProjectId : project.id,
+        );
         break;
       case "open":
-        await this.openThread(project, threadId);
+        await this.openThread(project, request.threadId);
         break;
       case "history":
         return this.historyCommand(project, request);
       case "attachBrowser": {
+        this.requireConnection(project, project.client);
         if (
           !project.client.capabilities?.methods?.includes("areal/thread/tools/attach") ||
           project.client.capabilities?.features?.browserToolAttachment !== true ||
@@ -1551,11 +1744,12 @@ class CoreBackend {
         ) {
           throw new Error("当前 Core 不支持在已有聊天启用浏览器");
         }
-        const existing = project.model.state.threads[threadId];
+        const existing = project.model.state.threads[request.threadId];
         if (
           !existing ||
           existing.desktop?.archived ||
-          existing.status?.type !== "idle" ||
+          !modelRecord(existing.status) ||
+          existing.status.type !== "idle" ||
           (existing.toolsetRevision !== request.expectedToolsetRevision &&
             (existing.toolsetRevision ?? 0) !== request.expectedToolsetRevision)
         ) {
@@ -1565,7 +1759,7 @@ class CoreBackend {
           project,
           "areal/thread/tools/attach",
           {
-            threadId,
+            threadId: request.threadId,
             expectedToolsetRevision: request.expectedToolsetRevision,
             bundleId: "areal.browser.v1",
           },
@@ -1573,49 +1767,56 @@ class CoreBackend {
         );
         await this.refreshAfterAdmission(
           project,
-          threadId,
+          request.threadId,
           operationOf("areal/thread/tools/attach", request),
         );
         return result;
       }
       case "configure": {
         if (
-          isTaskDraftConfiguration(project.configurations?.[threadId]) &&
+          isTaskDraftConfiguration(project.configurations?.[request.threadId]) &&
           (request.options !== undefined || request.profile !== undefined)
         ) {
           throw new Error("任务管理会话的执行限制不能修改；请在会话中描述要调整的任务。");
         }
-        await this.configureThread(project, threadId, request);
+        await this.configureThread(project, request.threadId, request);
         break;
       }
       case "queue": {
-        if (!request.requestId) return this.refreshQueue(project, threadId);
+        if (!request.requestId) return this.refreshQueue(project, request.threadId);
         if (
           typeof request.requestId !== "string" ||
           !/^[0-9a-f-]{36}$/.test(request.requestId) ||
+          typeof request.operation !== "string" ||
           !["update", "remove", "reorder", "pause", "resume", "steer"].includes(request.operation)
         )
           throw new Error("无效队列收据查询");
         const method = `areal/queue/${request.operation}`;
-        return this.readSubmission(project, method, { requestId: request.requestId, threadId });
+        return this.readSubmission(project, method, {
+          requestId: request.requestId,
+          threadId: request.threadId,
+        });
       }
       case "queueEdit":
         return this.editQueue(project, request);
       case "create":
         return this.worktrees.createThread(project, request);
       case "fork": {
+        this.requireConnection(project, project.client);
         if (!project.client.capabilities?.methods?.includes("areal/thread/fork"))
           throw new Error("当前 Core 不支持从此轮次创建分支");
-        const result = await this.submit(
-          project,
-          "areal/thread/fork",
-          {
-            sourceThreadId: request.sourceThreadId,
-            anchor: request.anchor,
-            workspaceMode: "sharedCurrent",
-            ...(request.target ? { target: request.target } : {}),
-          },
-          { requestId: request.requestId },
+        const result = readThreadAdmission(
+          await this.submit(
+            project,
+            "areal/thread/fork",
+            {
+              sourceThreadId: request.sourceThreadId,
+              anchor: request.anchor,
+              workspaceMode: "sharedCurrent",
+              ...(request.target ? { target: request.target } : {}),
+            },
+            { requestId: request.requestId },
+          ),
         );
         // 创建收据已确认受理；后续投影失败不能把已提交的创建显示成可重试错误。
         await this.refreshAfterAdmission(
@@ -1626,18 +1827,26 @@ class CoreBackend {
         return { threadId: result.thread.id, requestId: result.requestId };
       }
       case "side": {
+        this.requireConnection(project, project.client);
+        const requestId = request.requestId;
+        if (requestId !== undefined && typeof requestId !== "string")
+          throw new Error("无效 Side 请求标识");
         if (!project.client.capabilities?.methods?.includes("areal/side/start"))
           throw new Error("当前 Core 不支持旁路讨论");
         if (request.operation === "list") {
           if (!project.client.capabilities?.methods?.includes("areal/conversation/list"))
             throw new Error("当前 Core 不支持相关讨论列表");
-          const page = await project.client.request("areal/conversation/list", {
-            view: "side",
-            sourceThreadId: request.sourceThreadId,
-            includeArchived: request.includeArchived === true,
-            limit: 30,
-            ...(request.cursor ? { cursor: request.cursor } : {}),
-          });
+          const page = await project.client.request(
+            "areal/conversation/list",
+            {
+              view: "side",
+              sourceThreadId: request.sourceThreadId,
+              includeArchived: request.includeArchived === true,
+              limit: 30,
+              ...(request.cursor ? { cursor: request.cursor } : {}),
+            },
+            { decode: require("./history-contract.cjs").readThreadList },
+          );
           return {
             ...page,
             data: page.data.filter(
@@ -1659,18 +1868,20 @@ class CoreBackend {
           )
             throw new Error("当前 Core 不支持可执行 Side Chat");
           const method = `areal/side/${request.operation}`;
-          const result = await this.submit(
-            project,
-            method,
-            request.operation === "create"
-              ? {
-                  sourceThreadId: request.sourceThreadId,
-                  ...(request.firstInput
-                    ? { firstInput: messageInput(this, request.firstInput) }
-                    : {}),
-                }
-              : { threadId: request.threadId },
-            { requestId: request.requestId },
+          const result = readAdmission(
+            await this.submit(
+              project,
+              method,
+              request.operation === "create"
+                ? {
+                    sourceThreadId: request.sourceThreadId,
+                    ...(request.firstInput
+                      ? { firstInput: messageInput(this, request.firstInput) }
+                      : {}),
+                  }
+                : { threadId: request.threadId },
+              { requestId },
+            ),
           );
           const childId = result.thread?.id ?? result.threadId;
           await this.refreshAfterAdmission(project, childId, operationOf(method, request));
@@ -1683,21 +1894,33 @@ class CoreBackend {
             : result;
         }
         if (request.operation === "recover") {
+          const sourceThreadId = request.sourceThreadId,
+            threadId = request.threadId;
+          if (
+            (sourceThreadId !== undefined && typeof sourceThreadId !== "string") ||
+            (threadId !== undefined && typeof threadId !== "string")
+          )
+            throw new Error("无效 Side 恢复身份");
           const method = request.method ?? "areal/side/start";
-          const receipts = await project.client.request("areal/request/read", {
-            requestId: request.requestId,
-            ...(request.threadId ? { threadId: request.threadId } : {}),
-          });
+          const receipts = await project.client.request(
+            "areal/request/read",
+            {
+              requestId: request.requestId,
+              ...(request.threadId ? { threadId: request.threadId } : {}),
+            },
+            { decode: require("./receipt-contract.cjs").readReceipts },
+          );
           const receipt = receipts.data?.find((item) => item.method === method);
-          const result = receipt?.result;
-          const id = result?.threadId;
+          if (!receipt?.result) return { confirmed: false };
+          const result = readAdmission(receipt.result);
+          const id = result.threadId;
           if (!id) return { confirmed: false };
           await this.changeOutcomes(project, (outcomes) => ({
             ...outcomes,
             [request.requestId]: {
               accepted: true,
               method,
-              sourceThreadId: request.sourceThreadId,
+              sourceThreadId,
               threadId: id,
               ...(result.turnId ? { turnId: result.turnId } : {}),
               ...(method === "areal/side/close"
@@ -1708,7 +1931,11 @@ class CoreBackend {
           await this.changePending(project, (pending) =>
             pending.filter((item) => item.params.requestId !== request.requestId),
           );
-          await this.refreshAfterAdmission(project, id, operationOf(method, request));
+          await this.refreshAfterAdmission(
+            project,
+            id,
+            operationOf(method, { requestId, sourceThreadId, threadId }),
+          );
           return {
             confirmed: true,
             requestId: request.requestId,
@@ -1734,7 +1961,7 @@ class CoreBackend {
                 },
               ],
             },
-            { requestId: request.requestId },
+            { requestId },
           );
           // 追问已受理；快照读取失败只能通过重新打开恢复，不能重发输入。
           try {
@@ -1744,63 +1971,70 @@ class CoreBackend {
           }
           return result;
         }
-        const result = await this.submit(
-          project,
-          "areal/side/start",
-          {
-            sourceThreadId: request.sourceThreadId,
-            workspaceAccess: request.workspaceAccess === "readOnly" ? "readOnly" : "none",
-            ...(request.selection ? { selection: request.selection } : {}),
-            ...(request.anchor ? { anchor: request.anchor } : {}),
-            input: [{ type: "text", text: request.text }],
-            ...(request.resetModel === true ? { resetModel: true } : {}),
-            ...(request.model ? { model: request.model } : {}),
-            ...(request.parameters ? { parameters: request.parameters } : {}),
-          },
-          { requestId: request.requestId },
+        const result = readThreadAdmission(
+          await this.submit(
+            project,
+            "areal/side/start",
+            {
+              sourceThreadId: request.sourceThreadId,
+              workspaceAccess: request.workspaceAccess === "readOnly" ? "readOnly" : "none",
+              ...(request.selection ? { selection: request.selection } : {}),
+              ...(request.anchor ? { anchor: request.anchor } : {}),
+              input: [{ type: "text", text: request.text }],
+              ...(request.resetModel === true ? { resetModel: true } : {}),
+              ...(request.model ? { model: request.model } : {}),
+              ...(request.parameters ? { parameters: request.parameters } : {}),
+            },
+            { requestId },
+          ),
         );
         // 与 Fork 一样，投影刷新不改变 Core 已确认的创建结果。
         await this.refreshAfterAdmission(
           project,
           result.thread.id,
-          operationOf("areal/side/start", request),
+          operationOf("areal/side/start", { requestId, sourceThreadId: request.sourceThreadId }),
         );
         return { threadId: result.thread.id, turnId: result.turn?.id, requestId: result.requestId };
       }
       case "send": {
-        if (isTaskDraftConfiguration(project.configurations?.[threadId])) {
-          const zone = project.configurations[threadId].options.appendInstructions
+        this.requireConnection(project, project.client);
+        const configuration = project.configurations[request.threadId];
+        if (isTaskDraftConfiguration(configuration)) {
+          const zone = configuration.options.appendInstructions
             .split("\n")[1]
             .slice("Time zone: ".length);
           return manageTaskDraft(this, project, {
             operation: "taskDraftSend",
-            threadId,
+            threadId: request.threadId,
             timeZone: zone,
             text: request.text,
             attachments: request.attachments,
             requestId: request.requestId,
           });
         }
-        await this.ensureBrowserTools(project, threadId);
+        await this.ensureBrowserTools(project, request.threadId);
         const input = messageInput(this, {
           ...request,
-          text: await this.genUiText(project, threadId, request.text),
+          text: await this.genUiText(project, request.threadId, request.text),
         });
-        const current = project.model.state.threads[threadId];
+        const current = project.model.state.threads[request.threadId];
         let submitted;
         if (
           current?.goals?.goal ||
           current?.goalOwner ||
           current?.parentThreadId ||
           current?.source === "nativeTaskAgent" ||
-          current?.conversation?.policy?.kind === "sideReadOnlyV1"
+          (modelRecord(current?.conversation?.policy) &&
+            current.conversation.policy.kind === "sideReadOnlyV1")
         ) {
           const enqueue = current.turns?.some((turn) => turn.status === "inProgress");
-          submitted = await this.submit(
-            project,
-            enqueue ? "areal/turn/enqueue" : "areal/turn/start",
-            { threadId, input },
-            { requestId: request.requestId },
+          submitted = readAdmission(
+            await this.submit(
+              project,
+              enqueue ? "areal/turn/enqueue" : "areal/turn/start",
+              { threadId: request.threadId, input },
+              { requestId: request.requestId },
+            ),
           );
         } else {
           if (
@@ -1808,15 +2042,19 @@ class CoreBackend {
               ?.ordinaryTurnSubmit
           )
             throw new Error("当前 Core 不支持普通会话提交，请更新 Core。");
-          submitted = await this.submit(
-            project,
-            "areal/turn/submit",
-            {
-              threadId,
-              expectedConfigRevision: project.configurations[threadId].revision,
-              intent: { type: "message", input },
-            },
-            { requestId: request.requestId },
+          submitted = readAdmission(
+            await this.submit(
+              project,
+              "areal/turn/submit",
+              {
+                threadId: request.threadId,
+                expectedConfigRevision: readInspection({
+                  configuration: project.configurations[request.threadId],
+                }).configuration.revision,
+                intent: { type: "message", input },
+              },
+              { requestId: request.requestId },
+            ),
           );
         }
         if (submitted.queueItemId) context.onBrowserTurnQueued?.(submitted.queueItemId);
@@ -1824,58 +2062,69 @@ class CoreBackend {
         return submitted;
       }
       case "editMessage": {
+        this.requireConnection(project, project.client);
         if (
           !projectCoreCapabilities(this.binary, project.client.capabilities).features
             ?.editLastMessage
         )
           throw new Error("当前 Core 不支持编辑消息，请更新 Core。");
-        await this.ensureBrowserTools(project, threadId);
-        const submitted = await this.submit(
-          project,
-          "areal/turn/submit",
-          {
-            threadId,
-            expectedConfigRevision: request.expectedConfigRevision,
-            intent: {
-              type: "edit",
-              expectedTurnId: request.expectedTurnId,
-              itemId: request.itemId,
-              input: messageInput(this, {
-                ...request,
-                text: await this.genUiText(project, threadId, request.text),
-              }),
+        await this.ensureBrowserTools(project, request.threadId);
+        const submitted = readAdmission(
+          await this.submit(
+            project,
+            "areal/turn/submit",
+            {
+              threadId: request.threadId,
+              expectedConfigRevision: request.expectedConfigRevision,
+              intent: {
+                type: "edit",
+                expectedTurnId: request.expectedTurnId,
+                itemId: request.itemId,
+                input: messageInput(this, {
+                  ...request,
+                  text: await this.genUiText(project, request.threadId, request.text),
+                }),
+              },
             },
-          },
-          { requestId: request.requestId },
+            { requestId: request.requestId },
+          ),
         );
         if (submitted.turn?.id) context.onBrowserTurnStarted?.(submitted.turn.id);
         return submitted;
       }
       case "continue": {
+        this.requireConnection(project, project.client);
         if (
           !projectCoreCapabilities(this.binary, project.client.capabilities).features
             ?.ordinaryTurnSubmit
         )
           throw new Error("当前 Core 不支持继续执行，请更新 Core。");
-        await this.ensureBrowserTools(project, threadId);
-        const submitted = await this.submit(
-          project,
-          "areal/turn/submit",
-          {
-            threadId,
-            expectedConfigRevision:
-              request.expectedConfigRevision ?? project.configurations[threadId].revision,
-            intent: { type: "continue", expectedTurnId: request.expectedTurnId },
-          },
-          { requestId: request.requestId },
+        await this.ensureBrowserTools(project, request.threadId);
+        const submitted = readAdmission(
+          await this.submit(
+            project,
+            "areal/turn/submit",
+            {
+              threadId: request.threadId,
+              expectedConfigRevision:
+                request.expectedConfigRevision ??
+                readInspection({ configuration: project.configurations[request.threadId] })
+                  .configuration.revision,
+              intent: { type: "continue", expectedTurnId: request.expectedTurnId },
+            },
+            { requestId: request.requestId },
+          ),
         );
         if (submitted.turn?.id) context.onBrowserTurnStarted?.(submitted.turn.id);
         return submitted;
       }
       case "steer": {
-        if (isTaskDraftConfiguration(project.configurations?.[threadId]))
+        const requestId = request.requestId;
+        if (requestId !== undefined && typeof requestId !== "string")
+          throw new Error("无效转向请求标识");
+        if (isTaskDraftConfiguration(project.configurations?.[request.threadId]))
           throw new Error("请等待当前安排完成后再补充修改要求。");
-        const active = project.model.state.threads[threadId]?.turns.find(
+        const active = project.model.state.threads[request.threadId]?.turns?.find(
           (turn) => turn.status === "inProgress",
         );
         if (!active || active.id !== request.expectedTurnId)
@@ -1884,26 +2133,27 @@ class CoreBackend {
           project,
           "turn/steer",
           {
-            threadId,
+            threadId: request.threadId,
             expectedTurnId: active.id,
             input: messageInput(this, {
               ...request,
-              text: await this.genUiText(project, threadId, request.text),
+              text: await this.genUiText(project, request.threadId, request.text),
             }),
-            previousItems: active.items.map((item) => item.id),
+            previousItems: (active.items ?? []).map((item) => item.id),
           },
-          { requestId: request.requestId },
+          { requestId },
         );
         break;
       }
       case "respond": {
-        const interaction = project.model.state.interactions[threadId]?.data.find(
+        this.requireConnection(project, project.client);
+        const interaction = project.model.state.interactions[request.threadId]?.data.find(
           (item) => item.requestId === request.requestId && item.status === "pending",
         );
         if (!interaction) throw new Error("交互已过期，请刷新任务状态");
         try {
           await project.client.request("areal/interaction/respond", {
-            threadId,
+            threadId: request.threadId,
             turnId: interaction.turnId,
             requestId: interaction.requestId,
             ...(interaction.kind === "approval"
@@ -1912,9 +2162,13 @@ class CoreBackend {
           });
         } catch (error) {
           const current = await project.client
-            .request("areal/interaction/list", { threadId })
+            .request(
+              "areal/interaction/list",
+              { threadId: request.threadId },
+              { decode: require("./history-contract.cjs").readHistoryInteractions },
+            )
             .catch(() => null);
-          if (current) project.model.setInteractions(threadId, current);
+          if (current) project.model.setInteractions(request.threadId, current);
           throw error;
         }
         break;
@@ -1972,7 +2226,7 @@ class CoreBackend {
       ...this.projects.values(),
       ...[...this.ownedEngines.values()].map((entry) => entry.project),
     ])) {
-      clearTimeout(project.reconnectTimer);
+      if (project.reconnectTimer) clearTimeout(project.reconnectTimer);
       project.reconnectTimer = null;
       project.taskNotificationMonitor?.stop();
       this.stopReconciliation(project);

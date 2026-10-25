@@ -10,6 +10,7 @@ const { WorktreeAdmission } = require("../app/src/core/worktree-admission.cjs");
 const { manageTaskDraft } = require("../app/src/core/task-draft.cjs");
 const { manageTask } = require("../app/src/core/tasks.cjs");
 const { CoreBackend } = require("../app/src/core/backend.cjs");
+const { ProjectConnections } = require("../app/src/core/project-connections.cjs");
 
 async function fixture(t, { independent = true } = {}) {
   const base = await realpath(await mkdtemp(join(tmpdir(), "areal-schedule-owner-")));
@@ -44,6 +45,8 @@ async function fixture(t, { independent = true } = {}) {
     },
   };
   const backend = {
+    dispatchCommand: CoreBackend.prototype.dispatchCommand,
+    requireConnection: CoreBackend.prototype.requireConnection,
     home,
     saved: [saved],
     projects: new Map([[id, project]]),
@@ -218,6 +221,7 @@ async function fixture(t, { independent = true } = {}) {
     });
     return value;
   };
+  backend.connections = new ProjectConnections(backend);
   backend.worktreeAdmission = new WorktreeAdmission(backend);
   backend.scheduleAdmission = new ScheduleAdmission(backend);
   return {
@@ -427,9 +431,10 @@ test("existing selected directories preserve readonly planning but reject schedu
   );
   const task = {
     id: "legacy",
+    revision: 1,
     mode: "scheduled",
     threadId: proposal.threadId,
-    runs: [{ id: "run" }],
+    runs: [{ id: "run", status: "queued" }],
   };
   f.tasks.set(task.id, task);
   await assert.rejects(
@@ -571,6 +576,7 @@ async function executingSchedule(t) {
       cwd: f.root,
       source: "nativeTaskAgent",
       goals: {
+        revision: 1,
         goal: {
           id: run.goalId,
           threadId: run.threadId,
@@ -983,6 +989,7 @@ test("shared schedule continuation verifies its current Run and rejects stale tu
     id: randomUUID(),
     cwd: f.root,
     goals: {
+      revision: 1,
       goal: {
         id: randomUUID(),
         status: "active",
@@ -1058,6 +1065,7 @@ test("shared schedule approval replies retain exact pending interaction and work
     id: randomUUID(),
     cwd: f.root,
     goals: {
+      revision: 1,
       goal: {
         id: randomUUID(),
         status: "active",

@@ -18,7 +18,7 @@
  * "areal-core:present-ready":[],
  * "areal-core:preview":[request:unknown],
  * "areal-core:snapshot":[],
- * "areal-core:theme":[id:unknown],
+ * "areal-core:theme":[id?:unknown],
  * "areal-core:update-download":[],
  * "areal-core:update-recover-resources":[],
  * "areal-core:update-state":[]
@@ -46,15 +46,36 @@
 /** @typedef {{id:number,pluginId:string,marketplace?:string,toolName:string,path:string}} McpAppDeepLink */
 /** @typedef {{projectId:string}&({threadId:string,taskId?:never}|{taskId:string,runId?:string,questionId?:string})} NotificationTarget */
 
+/** @template {keyof DesktopInvokeArguments} N @typedef {(...args:DesktopInvokeArguments[N])=>Promise<unknown>} BridgeInvoke */
+/** The preload transport stays opaque; the renderer adapter owns response decoding. */
+/** @typedef {{
+ * command:BridgeInvoke<'areal-core:command'>,snapshot:BridgeInvoke<'areal-core:snapshot'>,
+ * presentReady:BridgeInvoke<'areal-core:present-ready'>,installCommandLineTools:BridgeInvoke<'areal-core:install-command-line-tools'>,
+ * chooseProject:BridgeInvoke<'areal-core:choose-project'>,chooseTaskDirectory:BridgeInvoke<'areal-core:choose-task-directory'>,
+ * chooseProjectlessDirectory:BridgeInvoke<'areal-core:choose-projectless-directory'>,fileOpen:BridgeInvoke<'areal-core:file-open'>,
+ * theme:BridgeInvoke<'areal-core:theme'>,preview:BridgeInvoke<'areal-core:preview'>,
+ * updateState:BridgeInvoke<'areal-core:update-state'>,downloadUpdate:BridgeInvoke<'areal-core:update-download'>,
+ * recoverUpdateResources:BridgeInvoke<'areal-core:update-recover-resources'>,
+ * mcpApp:BridgeInvoke<'areal-core:mcp-app'>,mcpFormResource:BridgeInvoke<'areal-core:mcp-form-resource'>,
+ * setInterfaceLocale:(locale:unknown)=>void,requestProjection:(requestId:unknown)=>void,
+ * onProjection:(listener:(value:unknown)=>void)=>()=>void,
+ * onPreviewEvent:(listener:(value:unknown)=>void)=>()=>void,onTheme:(listener:(value:unknown)=>void)=>()=>void,
+ * onUpdate:(listener:(value:unknown)=>void)=>()=>void,onMcpAppEvent:(listener:(value:unknown)=>void)=>()=>void,
+ * onQuitProgress:(listener:(value:QuitProgress)=>void)=>()=>void,
+ * onQuitRequested:(listener:()=>boolean|Promise<boolean>)=>()=>void,
+ * onNotificationOpen:(listener:(value:NotificationTarget)=>void)=>()=>void,
+ * onMcpAppDeepLink:(listener:(value:McpAppDeepLink)=>void|Promise<void>)=>()=>void
+ * }} DesktopBridge */
+
 /** @typedef {{message:string, code?:string|number, reason?:string, submissionUnknown?:boolean, requestId?:string, delivery?:'resultUnavailable', outcome?:import('../../runtime-client/core.js').FailureOutcome, recovery?:import('../../runtime-client/core.js').Recovery}} DesktopError */
 /** @template T @typedef {{ok:true,value:T}|{ok:false,error:DesktopError}} DesktopResult */
 /** @typedef {{id:string,revision:string}} ResourceRef */
 /** @typedef {{projectId:string,profile?:ResourceRef}} PrepareCreatorRequest */
 /** @typedef {{sourceRoot?:string,ref?:string,worktreeRoot?:string,branch?:string,branchPrefix?:string,environmentId?:string,environmentRevision?:number,mode?:'source'|'worktree'}} WorktreeSpec */
 /** @typedef {{projectId:string,threadId:string,requestId?:string,expectedRevision?:number,model?:{providerId:string,modelId:string}|null,profile?:ResourceRef,options?:Record<string,unknown>,parameters?:Record<string,unknown>,selectedSkills?:ResourceRef[]}} ConfigureRequest */
-/** @typedef {{projectId:string,operation:'start',sourceThreadId:string,requestId:string,text:string,workspaceAccess:'none'|'readOnly',model?:{providerId:string,modelId:string},resetModel?:boolean,anchor?:Record<string,unknown>|null,selection?:Record<string,unknown>|null,parameters?:Record<string,unknown>}|{projectId:string,operation:'create',sourceThreadId:string,requestId:string,firstInput?:{text:string}}|{projectId:string,operation:'close',threadId:string,requestId:string}|{projectId:string,operation:'recover',requestId:string,sourceThreadId?:string,threadId?:string,method?:'areal/side/start'|'areal/side/create'|'areal/side/close'}|{projectId:string,operation:'send',threadId:string,text:string}|{projectId:string,operation:'context',threadId:string,cursor?:string,evidenceRef?:string,maxBytes?:number}|{projectId:string,operation:'list',sourceThreadId:string,includeArchived?:boolean,cursor?:string}} SideRequest */
+/** @typedef {{projectId:string,operation:'start',sourceThreadId:string,requestId?:unknown,text:string,workspaceAccess?:'none'|'readOnly',model?:{providerId:string,modelId:string},resetModel?:boolean,anchor?:unknown,selection?:unknown,parameters?:unknown}|{projectId:string,operation:'create',sourceThreadId:string,requestId:string,firstInput?:{text:string}}|{projectId:string,operation:'close',threadId:string,requestId:string}|{projectId:string,operation:'recover',requestId:string,sourceThreadId?:unknown,threadId?:unknown,method?:'areal/side/start'|'areal/side/create'|'areal/side/close'}|{projectId:string,operation:'send',threadId:string,text:string,requestId?:unknown}|{projectId:string,operation:'context',threadId:string,cursor?:unknown,evidenceRef?:unknown,maxBytes?:unknown}|{projectId:string,operation:'list',sourceThreadId:string,includeArchived?:boolean,cursor?:unknown}} SideRequest */
 /** @typedef {{projectId:string,threadId:string,expectedTurnId:string,expectedConfigRevision?:number,requestId?:string}} ContinueRequest */
-/** @typedef {{projectId:string,sourceThreadId:string,requestId?:string,workspaceMode:'sharedCurrent',anchor:{turnId:string,boundary:'before'|'after'},target?:Record<string,unknown>}} ForkRequest */
+/** @typedef {{projectId:string,sourceThreadId:string,requestId?:string,workspaceMode:'sharedCurrent',anchor:{turnId:string,boundary:'before'|'after'},target?:unknown}} ForkRequest */
 /** @typedef {{projectId:string,threadId:string,viewId:string,operation:'acquire'|'loadOlder'|'release'}|{projectId:string,threadId:string,viewId:string,operation:'loadItem',itemId:string}} HistoryRequest */
 
 /** @typedef {{operation:'status'|'retry'}|{operation:'setEnabled',enabled:boolean,expectedRevision:string}} TrajectoryRequest */
@@ -224,7 +245,20 @@ function commandSemantics(name, request) {
   return selected;
 }
 /** @typedef {keyof typeof commandDefinitions} CommandName */
-/** @template {CommandName} N @typedef {N extends 'history' ? HistoryRequest : N extends 'serviceLifecycle' ? {operation:'update'|'stop'|'check'|'recover'|'quitInterface'|'stopAndQuit'} : N extends 'stop' ? {projectId:string,threadId:string,turnId:string,requestId:string} : N extends 'continue' ? ContinueRequest : N extends 'prepareCreator' ? PrepareCreatorRequest : N extends 'fork' ? ForkRequest : N extends 'configure' ? ConfigureRequest : N extends 'side' ? SideRequest : N extends 'trajectory' ? TrajectoryRequest : Record<string,unknown>} CommandParams */
+/** @template {string} N @typedef {N extends CommandName ? typeof commandDefinitions[N][1] extends 'thread' ? {projectId:string,threadId:string} : typeof commandDefinitions[N][1] extends 'project' ? N extends 'workspace' ? {projectId?:unknown} : {projectId:string} : Record<string,unknown> : Record<string,unknown>} CommandScope */
+/** @template {string} N @typedef {Record<string,unknown> & CommandScope<N> & (N extends 'browserData' ? {operation:'status'|'importChrome'|'clearCache'|'clearAll'} : N extends 'computerControl' ? ({operation:'requestAccess'|'openSettings',capability:'accessibility'|'screenRecording'|'inputMonitoring'}|{operation:'status'|'restart'|'stop',capability?:never}) : N extends 'history' ? HistoryRequest : N extends 'serviceLifecycle' ? {operation:'update'|'stop'|'check'|'recover'|'quitInterface'|'stopAndQuit'} : N extends 'stop' ? {projectId:string,threadId:string,turnId:string,requestId:string} : N extends 'continue' ? ContinueRequest : N extends 'prepareCreator' ? PrepareCreatorRequest : N extends 'fork' ? ForkRequest : N extends 'configure' ? ConfigureRequest : N extends 'side' ? SideRequest : N extends 'trajectory' ? TrajectoryRequest : N extends 'create' ? {requestId?:string,browserEnabled?:boolean} : N extends 'send' ? {requestId?:string} : N extends 'editMessage' ? {expectedTurnId:string,itemId:string,text:string,expectedConfigRevision:number,requestId:string} : N extends 'attachBrowser' ? {expectedToolsetRevision:number,requestId?:string} : N extends 'prediction' ? {sourceTurnId:string,operation:'request'|'cancel'} : N extends 'manage'|'workspace'|'media'|'queueEdit'|'library'|'providers'|'chatgpt'|'analytics'|'resources'|'projectless'|'tasks'|'remoteControl' ? {operation:string} : Record<string,unknown>)} CommandParams */
+/** @typedef {{[N in CommandName]:{name:N,request:CommandParams<N>}}[CommandName]} CommandInvocation */
+/** @param {string} name @param {unknown} request @param {{serviceOnly?:boolean}} [options] @returns {CommandInvocation} */
+function readCommandInvocation(name, request, options = { serviceOnly: true }) {
+  const invocation = { name, request };
+  if (!isCommandInvocation(invocation, options)) invalid();
+  return invocation;
+}
+/** @param {{name:string,request:unknown}} invocation @param {{serviceOnly?:boolean}} options @returns {invocation is CommandInvocation} */
+function isCommandInvocation(invocation, options) {
+  validateCommand(invocation.name, invocation.request, options);
+  return true;
+}
 /** @typedef {{projectId:string,profile:ResourceRef,skill:ResourceRef & {name:string,description:string},provenance:{upstream:string,revision:string,contentDigest:string}}} PrepareCreatorResponse */
 /** @typedef {Record<string,unknown> & ({turn:Record<string,unknown> & {id:string}}|{queueRevision:number})} ContinueResponse */
 /** @typedef {Record<string,unknown> & {threadId:string,requestId:string}} ForkResponse */
@@ -283,7 +317,7 @@ function resource(value) {
   return record(value) && identifier(value.id) && identifier(value.revision);
 }
 
-/** @param {string} name @param {unknown} params @param {{serviceOnly?:boolean}} [options] */
+/** @template {string} N @param {N} name @param {unknown} params @param {{serviceOnly?:boolean}} [options] @returns {asserts params is CommandParams<N>} */
 function validateCommand(name, params, { serviceOnly = false } = {}) {
   if (!Object.hasOwn(commandDefinitions, name) || !record(params)) invalid();
   const [layer, scope] = commandDefinitions[/** @type {CommandName} */ (name)];
@@ -1381,6 +1415,25 @@ function desktopError(error) {
   };
 }
 
+/** A malformed response does not establish whether a write was admitted. */
+/** @param {string} name @param {Record<string,unknown>} params @param {unknown} cause */
+function commandResponseError(name, params, cause) {
+  const semantics = commandSemantics(name, params);
+  const write = semantics.effect === "mutation";
+  const requestId = semantics.requestId ? params[semantics.requestId] : undefined;
+  return Object.assign(new Error("Invalid Desktop command response", { cause }), {
+    code: "DESKTOP_RESPONSE_INVALID",
+    ...(typeof requestId === "string" ? { requestId } : {}),
+    ...(write
+      ? {
+          submissionUnknown: true,
+          outcome: { kind: "unconfirmed" },
+          recovery: { kind: "queryOriginal" },
+        }
+      : { outcome: { kind: "noMutation" }, recovery: { kind: "retryRead" } }),
+  });
+}
+
 /** @template {CommandName} N @template {CommandParams<N>} P @overload
  * @param {N} name @param {P} params @param {unknown} value @returns {asserts value is CommandResponse<N,P>} */
 /** @param {string} name @param {unknown} params @param {unknown} value */
@@ -1734,7 +1787,9 @@ module.exports = {
   commandDefinitions,
   commandSemantics,
   validateCommand,
+  readCommandInvocation,
   validateCommandResponse,
+  commandResponseError,
   /** @type {(request:unknown)=>asserts request is PreviewRequest} */
   validatePreview: validatePreview,
   desktopError,

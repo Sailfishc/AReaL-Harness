@@ -1,21 +1,36 @@
+// @ts-check
 "use strict";
 const { mkdir, readFile, writeFile, realpath } = require("node:fs/promises");
 const { join, relative, isAbsolute, sep } = require("node:path");
 const { createHash } = require("node:crypto");
 const { checkoutRoot } = require("@areal/workspace-git");
+const { modelRecord } = require("@areal/workbench/core-model-contract");
+const { readTask, readTaskRun } = require("./task-contract.cjs");
+const { readReceipts, receiptResult } = require("./receipt-contract.cjs");
+const { readAdmissionThread } = require("./worktree-admission.cjs");
+const { readHistoryInteractions } = require("./history-contract.cjs");
+/** @typedef {import('./project-state.cjs').CoreProject} Project */
+/** @typedef {{kind:'draft'|'request',id:string}} Family */
+/** @typedef {{taskRequestId:string,executionRequestId?:string}} Requests */
+/** @typedef {{version:1,projectId:string,root:string,cwd:string,allocationId:string,family:Family,token:string,taskRequestId:string,executionRequestId?:string,anchorThreadId?:string,taskId?:string,kind?:never}} Reservation */
+/** @typedef {import('./worktree-admission.cjs').AdmissionThread & {goalOwner?:{threadId:string,goalId:string}|null,goals?:import('@areal/workbench/core-model-contract').CoreGoals & {goal?:{id:string,threadId:string,status:string,activeTurnId?:string|null}|null}}} ScheduleThread */
+/** @param {unknown} value @returns {value is string} */
 const identifier = (value) =>
   typeof value === "string" && value.length > 0 && value.length <= 256 && !/[\0\r\n]/.test(value);
+/** @param {string} message */
 const reject = (message) =>
   Object.assign(new Error(message), {
     code: "SCHEDULE_WORKSPACE_REQUIRED",
     submissionUnknown: false,
     outcome: { kind: "noMutation" },
   });
+/** @param {string} projectId @param {Family} family */
 const familyToken = (projectId, family) =>
   "schedule:" +
   createHash("sha256")
     .update(JSON.stringify([projectId, family.kind, family.id]))
     .digest("hex");
+/** @param {string} root @param {string} cwd */
 const contains = (root, cwd) => {
   const tail = relative(root, cwd);
   return tail === "" || (!isAbsolute(tail) && tail !== ".." && !tail.startsWith(".." + sep));
@@ -23,17 +38,23 @@ const contains = (root, cwd) => {
 
 /** 旧调度家庭保留独占预约；普通来源安排从 Core 身份派生共享目录资格。 */
 class ScheduleAdmission {
+  /** @param {InstanceType<typeof import('./backend.cjs').CoreBackend>} backend */
   constructor(backend) {
     this.backend = backend;
+    /** @type {Map<string,Promise<unknown>>} */
     this.writes = new Map();
   }
+  /** @param {Project} project */
   file(project) {
     if (!/^[a-f0-9]{24}$/.test(project.id)) throw reject("定时任务工作区身份无效");
     return join("schedule-authors", project.id + ".json");
   }
+  /** @param {Project} project @param {string} [cwd] */
   async eligible(project, cwd = project.root) {
     const saved = this.backend.saved.find((value) => value.id === project.id);
-    const allocation = this.backend.projectless.records?.[saved?.projectlessRequestId];
+    const allocation = saved?.projectlessRequestId
+      ? this.backend.projectless.records[saved.projectlessRequestId]
+      : undefined;
     const root = await realpath(project.root),
       directory = await realpath(cwd);
     if (
@@ -51,27 +72,25 @@ class ScheduleAdmission {
       throw reject("任务目录位于共享 Git 检出内，不能作为独立调度目录");
     return { root, cwd: directory, allocationId: saved.projectlessRequestId };
   }
+  /** @param {Project} project @returns {Promise<Reservation|null>} */
   async read(project) {
+    /** @type {unknown} */
     let value;
     try {
       value = JSON.parse(await readFile(join(this.backend.home, this.file(project)), "utf8"));
     } catch (error) {
-      if (error.code === "ENOENT") return null;
+      if (modelRecord(error) && error.code === "ENOENT") return null;
       throw reject("无法读取原定时任务目录预约");
     }
     if (
-      value?.version !== 1 ||
+      !isReservation(value) ||
       value.projectId !== project.id ||
-      !identifier(value.family?.id) ||
-      !["draft", "request"].includes(value.family?.kind) ||
-      value.token !== familyToken(project.id, value.family) ||
-      typeof value.root !== "string" ||
-      typeof value.cwd !== "string" ||
-      !identifier(value.taskRequestId)
+      value.token !== familyToken(project.id, value.family)
     )
       throw reject("定时任务目录预约无效");
     return value;
   }
+  /** @template T @param {Project} project @param {()=>Promise<T>} work */
   async serial(project, work) {
     const next = (this.writes.get(project.id) ?? Promise.resolve()).catch(() => {}).then(work);
     this.writes.set(project.id, next);
@@ -81,6 +100,7 @@ class ScheduleAdmission {
       if (this.writes.get(project.id) === next) this.writes.delete(project.id);
     }
   }
+  /** @param {Project} project @param {Family} family @param {string} cwd @param {Requests} requests @param {string} [anchorThreadId] */
   async reserve(project, family, cwd, requests, anchorThreadId) {
     if (
       !identifier(family.id) ||
@@ -123,9 +143,10 @@ class ScheduleAdmission {
             mode: 0o600,
           });
         } catch (error) {
-          if (error.code !== "EEXIST") throw error;
+          if (!modelRecord(error) || error.code !== "EEXIST") throw error;
           const previous = await this.read(project);
           if (
+            !previous ||
             previous.token !== token ||
             previous.root !== identity.root ||
             previous.cwd !== identity.cwd ||
@@ -142,16 +163,24 @@ class ScheduleAdmission {
       return value;
     });
   }
+  /** @param {Project} project @param {string} threadId @param {string} cwd @param {Requests} requests */
   reserveDraft(project, threadId, cwd, requests) {
     return this.reserve(project, { kind: "draft", id: threadId }, cwd, requests);
   }
+  /** @param {Project} project @param {string} requestId @param {string|null|undefined} anchorThreadId @param {{executionRequestId?:string}} [requests] */
   async reserveCreate(project, requestId, anchorThreadId, requests = {}) {
+    const client = project.client;
+    if (!client) throw reject("Core 未连接");
     let cwd = project.root;
     if (anchorThreadId) {
-      const response = await project.client.request("thread/read", {
-        threadId: anchorThreadId,
-        includeTurns: false,
-      });
+      const response = await client.request(
+        "thread/read",
+        {
+          threadId: anchorThreadId,
+          includeTurns: false,
+        },
+        { decode: readScheduleThread },
+      );
       if (response.thread?.id !== anchorThreadId) throw reject("定时任务执行锚点无法确认");
       cwd = response.thread.cwd;
     }
@@ -160,18 +189,25 @@ class ScheduleAdmission {
       { kind: "request", id: requestId },
       cwd,
       { ...requests, taskRequestId: requestId },
-      anchorThreadId,
+      anchorThreadId ?? undefined,
     );
   }
+  /** @param {Project} project @param {unknown} threadId */
   async setAnchor(project, threadId) {
+    const client = project.client;
+    if (!client) throw reject("Core 未连接");
     if (!identifier(threadId)) throw reject("定时任务执行锚点无效");
     return this.serial(project, async () => {
       const value = await this.read(project);
       if (!value) throw reject("定时任务尚未预约独立目录");
-      const response = await project.client.request("thread/read", {
-        threadId,
-        includeTurns: false,
-      });
+      const response = await client.request(
+        "thread/read",
+        {
+          threadId,
+          includeTurns: false,
+        },
+        { decode: readScheduleThread },
+      );
       if (
         response.thread?.id !== threadId ||
         (await realpath(response.thread.cwd)) !== value.cwd ||
@@ -182,6 +218,7 @@ class ScheduleAdmission {
       return { ...value, anchorThreadId: threadId };
     });
   }
+  /** @param {Project} project @param {import("./task-contract.cjs").Task} task */
   async bind(project, task) {
     return this.serial(project, async () => {
       const value = await this.read(project);
@@ -197,6 +234,7 @@ class ScheduleAdmission {
       return { ...value, taskId: task.id };
     });
   }
+  /** @param {Project} project @param {import("./task-contract.cjs").Task} task */
   async sourceWorkspace(project, task) {
     const client = project.client;
     // Core 服务在 core/server/src/lib.rs 颁发 desktop-owner principal；此处只读 Core Task 的 owner。
@@ -211,14 +249,22 @@ class ScheduleAdmission {
       task.sourceThreadId === task.threadId
     )
       throw reject("普通来源安排的桌面宿主身份尚未确认");
-    const source = await client.request("thread/read", {
-      threadId: task.sourceThreadId,
-      includeTurns: false,
-    });
-    const anchor = await client.request("thread/read", {
-      threadId: task.threadId,
-      includeTurns: false,
-    });
+    const source = await client.request(
+      "thread/read",
+      {
+        threadId: task.sourceThreadId,
+        includeTurns: false,
+      },
+      { decode: readScheduleThread },
+    );
+    const anchor = await client.request(
+      "thread/read",
+      {
+        threadId: task.threadId,
+        includeTurns: false,
+      },
+      { decode: readScheduleThread },
+    );
     if (
       source.thread?.id !== task.sourceThreadId ||
       !identifier(source.thread.sessionId) ||
@@ -247,7 +293,7 @@ class ScheduleAdmission {
     )
       throw reject("普通来源安排的来源、执行锚点或运行目录已变化");
     return {
-      kind: "sourceSchedule",
+      kind: /** @type {const} */ ("sourceSchedule"),
       root,
       cwd,
       taskId: task.id,
@@ -256,9 +302,12 @@ class ScheduleAdmission {
       anchorThreadId: task.threadId,
     };
   }
-  async admitTask(project, taskId) {
+  /** @param {Project} project @param {string} taskId @param {string} [_operation] */
+  async admitTask(project, taskId, _operation) {
+    const client = project.client;
+    if (!client) throw reject("Core 未连接");
     if (!identifier(taskId)) throw reject("定时任务身份无效");
-    const task = await project.client.request("areal/task/read", { taskId });
+    const task = await client.request("areal/task/read", { taskId }, { decode: readTask });
     if (task?.id !== taskId || task.mode !== "scheduled") throw reject("无法确认原定时任务");
     let value = await this.read(project);
     if (!value) {
@@ -276,17 +325,21 @@ class ScheduleAdmission {
     )
       throw reject("原安排的目录或执行锚点已变化");
     if (!value.taskId) {
-      const receipts = await project.client.request("areal/request/read", {
-        requestId: value.taskRequestId,
-      });
+      const taskRequestId = value.taskRequestId;
+      const receipts = await client.request(
+        "areal/request/read",
+        {
+          requestId: taskRequestId,
+        },
+        { decode: readReceipts },
+      );
       const receipt = receipts.data?.find(
         (item) =>
           (item.method ?? item.operation?.method) === "areal/task/create" &&
-          (item.requestId ?? item.operation?.requestId ?? value.taskRequestId) ===
-            value.taskRequestId,
+          (item.requestId ?? item.operation?.requestId ?? taskRequestId) === taskRequestId,
       );
-      const result = receipt?.result ?? receipt?.response?.result;
-      if ((result?.id ?? receipt?.taskId) !== task.id)
+      const result = receipt ? receiptResult(receipt) : undefined;
+      if (((modelRecord(result) ? result.id : undefined) ?? receipt?.taskId) !== task.id)
         throw reject("原任务创建结果尚未核对，不会将回调绑定到其他安排");
       value = await this.bind(project, task);
     }
@@ -294,13 +347,20 @@ class ScheduleAdmission {
     await this.backend.worktreeAdmission.claim(project, value.token);
     return { task, reservation: value };
   }
+  /** @param {Project} project @param {{name:string,request:Record<string,unknown>,threads:import("./worktree-admission.cjs").AdmissionThread[],sessionId:string}} context */
   async authorForSession(project, { name, request, threads, sessionId }) {
+    const client = project.client;
+    if (!client) throw reject("Core 未连接");
     if (!["respond", "continue"].includes(name)) return null;
     const exclusive = await this.read(project);
     let taskId = exclusive?.taskId;
     if (!exclusive) {
       const coordinators = new Set(
         threads
+          .map((thread) => {
+            if (!scheduleThread(thread)) throw reject("定时执行会话目标结构无效");
+            return thread;
+          })
           .filter((thread) => thread.goals?.goal || thread.goalOwner)
           .map((thread) => thread.goalOwner?.threadId ?? thread.id),
       );
@@ -310,14 +370,14 @@ class ScheduleAdmission {
         (task) =>
           task.mode === "scheduled" &&
           task.sourceThreadId &&
-          task.runs?.some((run) => coordinators.has(run.threadId)),
+          task.runs?.some((run) => !!run.threadId && coordinators.has(run.threadId)),
       );
       if (!candidates.length) return null;
       if (candidates.length !== 1) throw reject("定时执行的任务归属不唯一");
       taskId = candidates[0].id;
     }
     if (!identifier(taskId)) throw reject("原定时任务尚未完成绑定");
-    const task = await project.client.request("areal/task/read", { taskId });
+    const task = await client.request("areal/task/read", { taskId }, { decode: readTask });
     if (task?.id !== taskId) throw reject("定时执行的任务身份已变化");
     const reservation = exclusive ?? (await this.sourceWorkspace(project, task));
     if (exclusive) {
@@ -338,14 +398,18 @@ class ScheduleAdmission {
     if (
       !current ||
       !active.has(current.status) ||
-      task.runs.filter((run) => !["completed", "failed", "cancelled"].includes(run.status))
+      (task.runs ?? []).filter((run) => !["completed", "failed", "cancelled"].includes(run.status))
         .length !== 1
     )
       throw reject("只有当前未结束的定时执行可继续交互；暂停执行请使用任务恢复入口");
-    const run = await project.client.request("areal/task/run/read", {
-      taskId: task.id,
-      runId: current.id,
-    });
+    const run = await client.request(
+      "areal/task/run/read",
+      {
+        taskId: task.id,
+        runId: current.id,
+      },
+      { decode: readTaskRun },
+    );
     if (
       run?.id !== current.id ||
       !active.has(run.status) ||
@@ -358,7 +422,7 @@ class ScheduleAdmission {
       throw reject("当前定时执行身份已变化");
     const targetIds = [
       ...new Set(
-        [request.threadId, request.parentThreadId, request.sourceThreadId].filter(Boolean),
+        [request.threadId, request.parentThreadId, request.sourceThreadId].filter(identifier),
       ),
     ];
     if (
@@ -368,11 +432,16 @@ class ScheduleAdmission {
       targetIds.some((id) => !threads.some((thread) => thread.id === id))
     )
       throw reject("定时执行目标尚未全部核对");
+    /** @param {string} threadId */
     const readThread = async (threadId) => {
-      const response = await project.client.request("thread/read", {
-        threadId,
-        includeTurns: false,
-      });
+      const response = await client.request(
+        "thread/read",
+        {
+          threadId,
+          includeTurns: false,
+        },
+        { decode: readScheduleThread },
+      );
       const thread = response.thread;
       if (
         thread?.id !== threadId ||
@@ -439,17 +508,24 @@ class ScheduleAdmission {
       targets.set(thread.id, { thread, turnId });
     }
     if (name === "respond") {
+      if (!identifier(request.threadId)) throw reject("定时执行目标身份无效");
       const target = targets.get(request.threadId);
-      const result = await project.client.request("areal/interaction/list", {
-        threadId: request.threadId,
-      });
+      const result = await client.request(
+        "areal/interaction/list",
+        {
+          threadId: request.threadId,
+        },
+        { decode: readScheduleInteractions },
+      );
       const interaction = result.data?.find((value) => value.requestId === request.requestId);
       if (
         !target ||
-        interaction?.threadId !== target.thread.id ||
+        !interaction ||
+        interaction.threadId !== target.thread.id ||
         interaction.turnId !== target.turnId ||
         interaction.status !== "pending" ||
-        !["approval", "question"].includes(interaction.kind) ||
+        !(interaction.kind === "approval" || interaction.kind === "question") ||
+        typeof interaction.expiresAt !== "number" ||
         !Number.isSafeInteger(interaction.expiresAt) ||
         interaction.expiresAt <= Math.floor(Date.now() / 1000)
       )
@@ -457,50 +533,63 @@ class ScheduleAdmission {
       if (interaction.kind === "approval") {
         if (
           request.answers !== undefined ||
-          !["allowOnce", "allowSession", "allowProject", "deny"].includes(request.decision)
+          !(
+            typeof request.decision === "string" &&
+            ["allowOnce", "allowSession", "allowProject", "deny"].includes(request.decision)
+          )
         )
           throw reject("审批回答与原交互类型不匹配");
       } else {
         const answers = request.answers;
         if (
           request.decision !== undefined ||
-          !answers ||
-          typeof answers !== "object" ||
-          Array.isArray(answers) ||
+          !modelRecord(answers) ||
           !Array.isArray(interaction.questions) ||
           Object.keys(answers).length !== interaction.questions.length ||
-          interaction.questions.some(
-            (question) =>
-              typeof answers[question.id] !== "string" ||
-              Buffer.byteLength(answers[question.id]) > 4096 ||
-              (question.allowFreeText === false &&
-                !question.options?.includes(answers[question.id])),
-          )
+          interaction.questions.some((question) => {
+            const answer = answers[question.id];
+            return (
+              typeof answer !== "string" ||
+              Buffer.byteLength(answer) > 4096 ||
+              (question.allowFreeText === false && !question.options?.includes(answer))
+            );
+          })
         )
           throw reject("问题回答与原交互不匹配");
       }
       // 实际 respond 分支使用投影，先以刚核对的 Core 原始请求刷新，避免旧摘要误配。
       project.model.setInteractions(request.threadId, result);
     }
-    if (name === "continue" && request.expectedTurnId !== targets.get(request.threadId)?.turnId)
+    if (
+      name === "continue" &&
+      (!identifier(request.threadId) ||
+        request.expectedTurnId !== targets.get(request.threadId)?.turnId)
+    )
       throw reject("原定时执行轮次已变化");
     return reservation.kind === "sourceSchedule" ? reservation : reservation.token;
   }
+  /** @param {Project} project @param {Record<string,unknown>} params */
   async prepare(project, params) {
+    const client = project.client;
+    if (!client) throw reject("Core 未连接");
     if (
       !identifier(params?.taskId) ||
       !identifier(params.runId) ||
       !identifier(params.threadId) ||
-      !["start", "resume"].includes(params.intent)
+      !(params.intent === "start" || params.intent === "resume")
     )
       throw reject("定时执行准备身份无效");
     const { task, reservation } = await this.admitTask(project, params.taskId);
     const current = task.runs?.at(-1);
     if (current?.id !== params.runId) throw reject("原定时执行身份已变化");
-    const run = await project.client.request("areal/task/run/read", {
-      taskId: task.id,
-      runId: current.id,
-    });
+    const run = await client.request(
+      "areal/task/run/read",
+      {
+        taskId: task.id,
+        runId: current.id,
+      },
+      { decode: readTaskRun },
+    );
     if (
       task.cancelled !== false ||
       run?.id !== current.id ||
@@ -517,10 +606,14 @@ class ScheduleAdmission {
       throw reject("原定时执行已结束或不是当前可准备的执行");
     const expected = params.intent === "start" ? reservation.anchorThreadId : run.threadId;
     if (params.threadId !== expected) throw reject("定时执行回调与原执行身份不匹配");
-    const response = await project.client.request("thread/read", {
-      threadId: params.threadId,
-      includeTurns: false,
-    });
+    const response = await client.request(
+      "thread/read",
+      {
+        threadId: params.threadId,
+        includeTurns: false,
+      },
+      { decode: readScheduleThread },
+    );
     if (
       response.thread?.id !== params.threadId ||
       (await realpath(response.thread.cwd)) !== reservation.cwd
@@ -528,5 +621,74 @@ class ScheduleAdmission {
       throw reject("定时执行目录已变化，未放行执行");
     return { task, reservation };
   }
+}
+/** @param {unknown} value @returns {value is Reservation} */
+function isReservation(value) {
+  return (
+    modelRecord(value) &&
+    value.version === 1 &&
+    value.kind === undefined &&
+    typeof value.projectId === "string" &&
+    modelRecord(value.family) &&
+    identifier(value.family.id) &&
+    (value.family.kind === "draft" || value.family.kind === "request") &&
+    ["root", "cwd", "allocationId", "token", "taskRequestId"].every(
+      (key) => typeof value[key] === "string",
+    ) &&
+    ["executionRequestId", "anchorThreadId", "taskId"].every(
+      (key) => value[key] === undefined || identifier(value[key]),
+    )
+  );
+}
+/** @param {unknown} value @returns {{thread:ScheduleThread}} */
+function readScheduleThread(value) {
+  const { thread } = readAdmissionThread(value);
+  if (!scheduleThread(thread)) throw reject("定时执行会话目标结构无效");
+  return { thread };
+}
+/** @param {import('./worktree-admission.cjs').AdmissionThread} thread @returns {thread is ScheduleThread} */
+function scheduleThread(thread) {
+  const owner = thread.goalOwner;
+  const goal = thread.goals?.goal;
+  return (
+    (owner == null ||
+      (modelRecord(owner) &&
+        typeof owner.threadId === "string" &&
+        typeof owner.goalId === "string")) &&
+    (goal == null ||
+      (modelRecord(goal) &&
+        typeof goal.id === "string" &&
+        typeof goal.threadId === "string" &&
+        typeof goal.status === "string" &&
+        (goal.activeTurnId == null || typeof goal.activeTurnId === "string")))
+  );
+}
+/** @typedef {import('@areal/workbench/core-model-contract').CoreInteraction & {turnId?:string,status?:string,kind?:string,expiresAt?:number,questions?:{id:string,allowFreeText?:boolean,options?:string[]}[]}} ScheduleInteraction */
+/** @param {unknown} value @returns {{revision:number,data:ScheduleInteraction[]}} */
+function readScheduleInteractions(value) {
+  const result = readHistoryInteractions(value);
+  if (!result.data.every(scheduleInteraction)) throw reject("定时执行交互结构无效");
+  return { ...result, data: result.data };
+}
+/** @param {import('@areal/workbench/core-model-contract').CoreInteraction} value @returns {value is ScheduleInteraction} */
+function scheduleInteraction(value) {
+  return (
+    ["turnId", "status", "kind"].every(
+      (key) => value[key] === undefined || typeof value[key] === "string",
+    ) &&
+    (value.expiresAt === undefined ||
+      (typeof value.expiresAt === "number" && Number.isSafeInteger(value.expiresAt))) &&
+    (value.questions === undefined ||
+      (Array.isArray(value.questions) &&
+        value.questions.every(
+          (question) =>
+            modelRecord(question) &&
+            typeof question.id === "string" &&
+            (question.allowFreeText === undefined || typeof question.allowFreeText === "boolean") &&
+            (question.options === undefined ||
+              (Array.isArray(question.options) &&
+                question.options.every((option) => typeof option === "string"))),
+        )))
+  );
 }
 module.exports = { ScheduleAdmission };

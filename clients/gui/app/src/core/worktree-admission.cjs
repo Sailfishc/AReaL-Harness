@@ -1,9 +1,20 @@
+// @ts-check
 "use strict";
 const { mkdir, readFile, open, link, unlink, realpath, readdir } = require("node:fs/promises");
 const { join, relative, isAbsolute, resolve, sep } = require("node:path");
 const { createHash, randomUUID } = require("node:crypto");
 const { commandSemantics } = require("@areal/workbench/desktop-contract");
 const { checkoutRoot } = require("@areal/workspace-git");
+const { modelRecord } = require("@areal/workbench/core-model-contract");
+const { readThreadMetadata } = require("./history-contract.cjs");
+const { readResourceStatus } = require("./resource-observation.cjs");
+const { readTask, readTaskPage } = require("./task-contract.cjs");
+const { readWorktreeRequest } = require("./worktrees.cjs");
+/** @typedef {import('./project-state.cjs').CoreProject} Project */
+/** @typedef {import('./project-index.cjs').SavedProject} SavedProject */
+/** @typedef {import('./worktrees.cjs').WorktreeRequest} Request */
+/** @typedef {import('./history-contract.cjs').HistorySummary & {sessionId:string,cwd:string,parentThreadId?:string|null,conversation?:({kind?:string,policy?:{kind?:string},origin?:{sourceThreadId?:string},[key:string]:unknown})|null}} AdmissionThread */
+/** @param {string} parent @param {string} child */
 const contains = (parent, child) => {
   const path = relative(parent, child);
   return path === "" || (!isAbsolute(path) && path !== ".." && !path.startsWith(`..${sep}`));
@@ -51,6 +62,7 @@ const taskActivations = new Set([
   "taskReply",
   "taskUpdate",
 ]);
+/** @param {string} reason */
 const reject = (reason) =>
   Object.assign(
     new Error(`${reason}。请新建独立 Worktree 会话；已有会话不会迁移或在来源目录重试。`),
@@ -62,11 +74,15 @@ const reject = (reason) =>
   );
 
 class WorktreeAdmission {
+  /** @param {InstanceType<typeof import('./backend.cjs').CoreBackend>} backend */
   constructor(backend) {
     this.backend = backend;
+    /** @type {Map<string,Promise<void>>} */
     this.queues = new Map();
   }
+  /** @param {string} name @param {Record<string,unknown>} request */
   needsAdmission(name, request) {
+    const operation = typeof request.operation === "string" ? request.operation : "";
     if (
       commandSemantics(name, request).effect !== "mutation" ||
       noWorkspaceEffect.has(name) ||
@@ -74,24 +90,30 @@ class WorktreeAdmission {
       (name === "side" && request.operation !== "create")
     )
       return false;
-    if (name === "workspace") return workspaceEffects.has(request.operation);
+    if (name === "workspace") return workspaceEffects.has(operation);
     if (name === "manage" && request.operation === "taskCreate") return true;
-    if (name === "queueEdit" && ["pause", "remove"].includes(request.operation)) return false;
-    if (name === "manage" && cleanup.has(request.operation)) return false;
+    if (name === "queueEdit" && ["pause", "remove"].includes(operation)) return false;
+    if (name === "manage" && cleanup.has(operation)) return false;
     if (threadEffects.has(name)) return true;
     return !!(request.threadId || request.parentThreadId || request.sourceThreadId);
   }
+  /** @param {Project} project @param {unknown} threadId */
   async thread(project, threadId) {
     if (typeof threadId !== "string" || !threadId) throw reject("尚未选择可核对的会话");
-    const result = await project.client.request("thread/read", {
-      threadId,
-      includeTurns: false,
-    });
+    if (!project.client) throw reject("原执行后台尚未连接");
+    const result = await project.client.request(
+      "thread/read",
+      {
+        threadId,
+        includeTurns: false,
+      },
+      { decode: readAdmissionThread },
+    );
     const thread = result?.thread;
-    if (thread?.id !== threadId || typeof thread.sessionId !== "string" || !thread.sessionId)
-      throw reject("会话执行身份尚未确认");
+    if (thread.id !== threadId) throw reject("会话执行身份尚未确认");
     return thread;
   }
+  /** @param {Project} project @param {AdmissionThread} thread */
   async authorSession(project, thread) {
     const owner = thread.parentThreadId ? await this.thread(project, thread.sessionId) : thread;
     if (
@@ -99,7 +121,7 @@ class WorktreeAdmission {
       owner.conversation.policy?.kind !== "sideExecutableV2"
     )
       return thread.sessionId;
-    const source = await this.thread(project, owner.conversation.origin?.sourceThreadId);
+    const source = await this.thread(project, owner.conversation?.origin?.sourceThreadId);
     if (
       owner.conversation.version !== 2 ||
       source.conversation?.kind === "side" ||
@@ -112,10 +134,13 @@ class WorktreeAdmission {
       throw reject("可执行旁路讨论的来源与执行目录尚未确认");
     return source.sessionId;
   }
+  /** @param {Project} project @param {Request} request */
   async session(project, request) {
     const targets = [
       ...new Set(
-        [request.threadId, request.parentThreadId, request.sourceThreadId].filter(Boolean),
+        [request.threadId, request.parentThreadId, request.sourceThreadId].filter(
+          /** @returns {id is string} */ (id) => typeof id === "string" && !!id,
+        ),
       ),
     ];
     if (!targets.length) throw reject("写入需要绑定到具体会话");
@@ -133,9 +158,11 @@ class WorktreeAdmission {
           thread.conversation.policy?.kind !== "sideExecutableV2",
       ),
       readOnlyTaskDraft: threads.every((thread) => {
-        const options = thread.desktop?.configuration?.options;
+        const configuration = thread.desktop?.configuration;
+        const options = modelRecord(configuration?.options) ? configuration.options : undefined;
         return (
-          options?.appendInstructions?.startsWith("AREAL_TASK_DRAFT_V1\n") === true &&
+          typeof options?.appendInstructions === "string" &&
+          options.appendInstructions.startsWith("AREAL_TASK_DRAFT_V1\n") === true &&
           options.readOnly === true &&
           Array.isArray(options.toolAllowlist) &&
           options.toolAllowlist.length === 0
@@ -143,21 +170,24 @@ class WorktreeAdmission {
       }),
     };
   }
+  /** @param {Project} project @param {string} sessionId */
   async checkExistingEffects(project, sessionId) {
-    const status = await project.client.request("areal/server/status", {});
+    if (!project.client) throw reject("原执行后台尚未连接");
+    const status = await project.client.request(
+      "areal/server/status",
+      {},
+      { decode: readResourceStatus },
+    );
     if (
-      status?.acceptingWork !== true ||
-      ![
-        "activeTurns",
-        "resources",
-        "unresolvedTools",
-        "activeGoals",
-        "compactions",
-        "workgroups",
-      ].every((key) => Array.isArray(status[key])) ||
-      !["activeTasks", "pendingQueueItems"].every(
-        (key) => Number.isSafeInteger(status[key]) && status[key] >= 0,
-      )
+      status.acceptingWork !== true ||
+      !status.activeTurns ||
+      !status.resources ||
+      !status.unresolvedTools ||
+      !status.activeGoals ||
+      !status.compactions ||
+      !status.workgroups ||
+      status.activeTasks == null ||
+      status.pendingQueueItems == null
     )
       throw reject("后台执行状态尚未确认");
     if (
@@ -169,6 +199,8 @@ class WorktreeAdmission {
       )
     )
       throw reject("后台仍有待结算或无法归属的执行");
+    if (!status.compactions.every((id) => typeof id === "string"))
+      throw reject("后台执行状态尚未确认");
     const ids = new Set([
       ...status.activeTurns.map((value) => value.threadId),
       ...status.activeGoals,
@@ -178,7 +210,7 @@ class WorktreeAdmission {
       if (
         typeof resource.threadId !== "string" ||
         !resource.threadId ||
-        ["cleanupUnknown", "unavailable", "closing"].includes(resource.state)
+        ["cleanupUnknown", "unavailable", "closing"].includes(String(resource.state))
       )
         throw reject("后台进程或子任务的写入归属尚未确认");
       ids.add(resource.threadId);
@@ -195,25 +227,35 @@ class WorktreeAdmission {
       ]),
     ).values();
   }
+  /** @param {SavedProject} candidate @param {string} root */
   async registeredIdentity(candidate, root) {
     try {
       const cwd = await realpath(candidate.root);
       return (await checkoutRoot(cwd)) ?? cwd;
     } catch (error) {
       const path = resolve(candidate.root);
-      if (error.code === "ENOENT" && !contains(root, path) && !contains(path, root)) return null;
+      if (
+        modelRecord(error) &&
+        error.code === "ENOENT" &&
+        !contains(root, path) &&
+        !contains(path, root)
+      )
+        return null;
       throw error;
     }
   }
+  /** @param {Project} project @param {string} root @param {string} sessionId */
   async checkPeerEffects(project, root, sessionId) {
     for (const candidate of this.registeredProjects()) {
       if (candidate.id === project.id || !candidate.root) continue;
       if ((await this.registeredIdentity(candidate, root)) !== root) continue;
-      if (!candidate.client?.ready)
+      const live = this.backend.projects.get(candidate.id);
+      if (!live?.client?.ready)
         throw reject("同一检出目录的其他执行后台尚未连接，无法确认已有后台任务");
-      await this.checkExistingEffects(candidate, sessionId);
+      await this.checkExistingEffects(live, sessionId);
     }
   }
+  /** @param {Project} project @param {string} sessionId */
   async checkTaskCatalog(project, sessionId) {
     let schedule = null;
     if (sessionId.startsWith("schedule:")) {
@@ -221,36 +263,40 @@ class WorktreeAdmission {
         throw reject("定时任务家庭记录尚不可核对");
       schedule = await this.backend.scheduleAdmission.read(project);
     }
+    if (!project.client) throw reject("原执行后台尚未连接");
+    /** @type {string|null|undefined} */
     let after;
     const seen = new Set();
     const catalog = [];
     for (let page = 0; page < 1000; page++) {
       let value;
       try {
-        value = await project.client.request("areal/task/list", {
-          limit: 100,
-          ...(after ? { after } : {}),
-        });
+        value = await project.client.request(
+          "areal/task/list",
+          {
+            limit: 100,
+            ...(after ? { after } : {}),
+          },
+          { decode: readTaskPage },
+        );
       } catch (cause) {
         throw Object.assign(reject("无法核对可能休眠或已准备的定时任务目录"), { cause });
       }
       if (
-        !Array.isArray(value?.data) ||
-        !Object.hasOwn(value, "nextCursor") ||
-        (value.nextCursor !== null &&
-          (typeof value.nextCursor !== "string" || !value.nextCursor)) ||
+        value.nextCursor === undefined ||
+        value.nextCursor === "" ||
         (value.hasMore !== undefined && value.hasMore !== (value.nextCursor !== null))
       )
         throw reject("任务目录分页状态尚未确认");
       let previous = after;
       for (const task of value.data) {
         if (
-          typeof task?.id !== "string" ||
           !task.id ||
           seen.has(task.id) ||
           (previous && task.id <= previous) ||
+          task.mode === undefined ||
           !["scheduled", "foreground", "background"].includes(task.mode) ||
-          typeof task.cancelled !== "boolean"
+          task.cancelled === undefined
         )
           throw reject("任务目录包含无法核对的执行身份");
         seen.add(task.id);
@@ -263,7 +309,11 @@ class WorktreeAdmission {
           !sessionId.startsWith("schedule:") &&
           typeof this.backend.scheduleAdmission?.sourceWorkspace === "function"
         ) {
-          const current = await project.client.request("areal/task/read", { taskId: task.id });
+          const current = await project.client.request(
+            "areal/task/read",
+            { taskId: task.id },
+            { decode: readTask },
+          );
           if (current?.id !== task.id) throw reject("普通来源安排的任务身份已变化");
           await this.backend.scheduleAdmission.sourceWorkspace(project, current);
           continue;
@@ -285,25 +335,30 @@ class WorktreeAdmission {
     }
     throw reject("任务目录尚未完整核对，不能放行写入");
   }
+  /** @param {Project} project @param {string} root @param {string} sessionId */
   async checkCheckoutTasks(project, root, sessionId) {
     await this.checkTaskCatalog(project, sessionId);
     for (const candidate of this.registeredProjects()) {
       if (candidate.id === project.id || !candidate.root) continue;
       if ((await this.registeredIdentity(candidate, root)) !== root) continue;
-      if (!candidate.client?.ready) throw reject("同一检出目录的其他任务目录尚不可核对");
-      await this.checkTaskCatalog(candidate, sessionId);
+      const live = this.backend.projects.get(candidate.id);
+      if (!live?.client?.ready) throw reject("同一检出目录的其他任务目录尚不可核对");
+      await this.checkTaskCatalog(live, sessionId);
     }
   }
+  /** @param {string} file @param {string} [root] */
   async read(file, root) {
+    /** @type {unknown} */
     let record;
     try {
       record = JSON.parse(await readFile(file, "utf8"));
     } catch (error) {
-      if (error.code === "ENOENT") return null;
+      if (modelRecord(error) && error.code === "ENOENT") return null;
       throw reject("目录作者记录无法读取");
     }
     if (
-      record?.version !== 1 ||
+      !modelRecord(record) ||
+      record.version !== 1 ||
       typeof record.root !== "string" ||
       !isAbsolute(record.root) ||
       (root !== undefined && record.root !== root) ||
@@ -313,8 +368,14 @@ class WorktreeAdmission {
       !record.sessionId
     )
       throw reject("目录作者记录与执行目录不匹配");
-    return record;
+    return {
+      ...record,
+      root: record.root,
+      projectId: record.projectId,
+      sessionId: record.sessionId,
+    };
   }
+  /** @param {Project} project */
   async identity(project) {
     const cwd = await realpath(project.root);
     const checkout = await checkoutRoot(cwd);
@@ -329,6 +390,7 @@ class WorktreeAdmission {
     }
     return root;
   }
+  /** @param {string} directory @param {string} root @param {boolean} [schedulesOnly] */
   async checkOverlappingRecords(directory, root, schedulesOnly = false) {
     for (const name of await readdir(directory)) {
       if (!name.endsWith(".json")) continue;
@@ -342,6 +404,7 @@ class WorktreeAdmission {
         throw reject("重叠目录已有作者记录，须核查旧执行身份，未覆盖或迁移记录");
     }
   }
+  /** @param {string} directory */
   async claimLock(directory) {
     const file = join(directory, "claim.lock");
     for (let attempt = 0; attempt < 100; attempt++) {
@@ -352,13 +415,14 @@ class WorktreeAdmission {
           await unlink(file);
         };
       } catch (error) {
-        if (error.code !== "EEXIST") throw error;
+        if (!modelRecord(error) || error.code !== "EEXIST") throw error;
         await new Promise((resolve) => setTimeout(resolve, 10));
       }
     }
     // 崩溃留下的锁不根据心跳自动删除，避免让尚未停止的旧进程失去所有权。
     throw reject("目录作者登记仍在处理中或中断后尚未核对");
   }
+  /** @param {Project} project @param {string} sessionId */
   async claim(project, sessionId) {
     const root = await this.identity(project),
       directory = join(this.backend.home, "workspace-authors");
@@ -398,7 +462,7 @@ class WorktreeAdmission {
         try {
           await link(temporary, file);
         } catch (error) {
-          if (error.code !== "EEXIST") throw error;
+          if (!modelRecord(error) || error.code !== "EEXIST") throw error;
         } finally {
           await unlink(temporary);
         }
@@ -407,8 +471,10 @@ class WorktreeAdmission {
         await release();
       }
     }
-    if (current.sessionId !== sessionId) throw reject("此执行目录已保留给另一个会话及其后台任务");
+    if (!current || current.sessionId !== sessionId)
+      throw reject("此执行目录已保留给另一个会话及其后台任务");
   }
+  /** @param {Project} project @param {string} sessionId */
   async shared(project, sessionId) {
     if (!project.client?.ready) throw reject("原执行后台尚未连接");
     const cwd = await realpath(project.root),
@@ -419,7 +485,7 @@ class WorktreeAdmission {
     try {
       release = await this.claimLock(directory);
     } catch (error) {
-      if (error.code !== "ENOENT") throw error;
+      if (!modelRecord(error) || error.code !== "ENOENT") throw error;
     }
     try {
       if (release) await this.checkOverlappingRecords(directory, root, true);
@@ -429,7 +495,16 @@ class WorktreeAdmission {
       await release?.();
     }
   }
-  async admit(project, name, request) {
+  /** @param {Project} project @param {string} name @param {unknown} input */
+  async admit(project, name, input) {
+    if (!modelRecord(input)) throw reject("无效工作区准入请求");
+    const special =
+      name === "manage" &&
+      typeof input.operation === "string" &&
+      (taskActivations.has(input.operation) ||
+        ["taskDraftStart", "taskDraftConfirm", "taskCreate"].includes(input.operation));
+    if (!special && !this.needsAdmission(name, input)) return;
+    const request = readWorktreeRequest(input);
     if (name === "manage" && request.operation === "taskDraftStart") return;
     // 专用调度门禁在创建任何执行会话前保留 Task 家族作者；不误认只读管理会话。
     if (
@@ -444,13 +519,19 @@ class WorktreeAdmission {
         throw reject("专用定时任务执行目录准入尚不可用");
       return;
     }
-    if (name === "manage" && taskActivations.has(request.operation) && request.taskId) {
+    if (name === "manage" && taskActivations.has(request.operation ?? "") && request.taskId) {
       try {
-        const task = await project.client.request("areal/task/read", {
-          taskId: request.taskId,
-        });
+        if (!project.client) throw reject("原执行后台尚未连接");
+        const task = await project.client.request(
+          "areal/task/read",
+          {
+            taskId: request.taskId,
+          },
+          { decode: readTask },
+        );
         if (
           task?.id !== request.taskId ||
+          typeof task.mode !== "string" ||
           !["scheduled", "background", "foreground"].includes(task.mode)
         )
           throw reject("任务执行身份尚未确认");
@@ -461,7 +542,7 @@ class WorktreeAdmission {
           return;
         }
       } catch (error) {
-        if (error.code === "WORKTREE_REQUIRED") throw error;
+        if (modelRecord(error) && error.code === "WORKTREE_REQUIRED") throw error;
         throw Object.assign(reject("无法确认定时任务的执行目录准入"), { cause: error });
       }
     }
@@ -483,7 +564,7 @@ class WorktreeAdmission {
         // Legacy Side retention is Core-owned history management, not workspace authorship.
         if (
           name === "manage" &&
-          ["archive", "unarchive"].includes(request.operation) &&
+          ["archive", "unarchive"].includes(request.operation ?? "") &&
           threads.some(
             (thread) =>
               thread.id === request.threadId &&
@@ -500,7 +581,7 @@ class WorktreeAdmission {
             threads,
             sessionId,
           });
-          if (verified?.kind === "sourceSchedule") {
+          if (typeof verified !== "string" && verified?.kind === "sourceSchedule") {
             await this.shared(project, sessionId);
             return;
           }
@@ -517,7 +598,7 @@ class WorktreeAdmission {
     try {
       await task;
     } catch (error) {
-      if (error.code === "WORKTREE_REQUIRED") throw error;
+      if (modelRecord(error) && error.code === "WORKTREE_REQUIRED") throw error;
       // 资格检查失败尚未启动用户操作，不能把它当作未知提交而在来源目录重试。
       throw Object.assign(reject("无法确认目录作者或后台状态"), { cause: error });
     } finally {
@@ -525,4 +606,49 @@ class WorktreeAdmission {
     }
   }
 }
-module.exports = { WorktreeAdmission };
+/** @param {unknown} value @returns {{thread:AdmissionThread}} */
+function readAdmissionThread(value) {
+  const { thread } = readThreadMetadata(value);
+  if (
+    typeof thread.sessionId !== "string" ||
+    !thread.sessionId ||
+    typeof thread.cwd !== "string" ||
+    (thread.parentThreadId != null && typeof thread.parentThreadId !== "string")
+  )
+    throw reject("会话执行身份尚未确认");
+  const conversation = thread.conversation;
+  if (
+    conversation?.origin !== undefined &&
+    (!modelRecord(conversation.origin) ||
+      (conversation.origin.sourceThreadId !== undefined &&
+        typeof conversation.origin.sourceThreadId !== "string"))
+  )
+    throw reject("会话来源身份尚未确认");
+  return {
+    thread: {
+      ...thread,
+      sessionId: thread.sessionId,
+      cwd: thread.cwd,
+      parentThreadId: thread.parentThreadId,
+      ...(conversation
+        ? {
+            conversation: {
+              ...conversation,
+              ...(modelRecord(conversation.origin)
+                ? {
+                    origin: {
+                      ...conversation.origin,
+                      sourceThreadId:
+                        typeof conversation.origin.sourceThreadId === "string"
+                          ? conversation.origin.sourceThreadId
+                          : undefined,
+                    },
+                  }
+                : {}),
+            },
+          }
+        : {}),
+    },
+  };
+}
+module.exports = { WorktreeAdmission, readAdmissionThread };

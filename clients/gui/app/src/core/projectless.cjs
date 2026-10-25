@@ -1,23 +1,31 @@
+// @ts-check
 "use strict";
 const { readFile, mkdir, realpath, stat } = require("node:fs/promises");
 const { join, isAbsolute } = require("node:path");
+const { modelRecord } = require("@areal/workbench/core-model-contract");
 const { homedir } = require("node:os");
 
 // Desktop reserves workspace roots; Core remains the sole owner of threads and
 // execution. Repeating a preparation ID never creates another root or a turn.
 class ProjectlessWorkspaces {
+  /** @param {InstanceType<typeof import('./backend.cjs').CoreBackend>} backend */
   constructor(backend) {
     this.backend = backend;
+    /** @type {Record<string,{root:string,existing?:boolean}>} */
     this.records = {};
+    /** @type {Promise<unknown>} */
     this.pending = Promise.resolve();
   }
   async init() {
     try {
-      this.records = JSON.parse(
+      /** @type {unknown} */
+      const value = JSON.parse(
         await readFile(join(this.backend.home, "projectless-drafts.json"), "utf8"),
       );
+      if (!isAllocations(value)) throw new Error("项目外目录预约结构无效");
+      this.records = value;
     } catch (error) {
-      if (error.code !== "ENOENT") throw error;
+      if (!modelRecord(error) || error.code !== "ENOENT") throw error;
     }
   }
   snapshot() {
@@ -27,13 +35,15 @@ class ProjectlessWorkspaces {
         join(this.backend.userHome ?? homedir(), "Documents", "AReaL"),
     };
   }
+  /** @param {Record<string,unknown> & {operation:string}} request */
   async command(request) {
     if (request.operation === "catalog") {
       const providers = this.backend.providers;
       const config = await providers.config.current();
-      const selected = config.effective.model;
+      const selected = readEffectiveModel(config.effective);
       // 与 Core model_catalog 的 HTTP 适配器缺省允许值一致；发送时再核对目标 Core。
       const efforts = ["none", "minimal", "low", "medium", "high", "xhigh"];
+      /** @type {Array<{providerId:string|null,modelId:string,displayName:string,available:boolean,credentialState?:unknown,isDefault:boolean,parameters:Record<string,unknown>,capabilities?:unknown,reasoningEffortOptions:unknown}>} */
       const data = config.data
         .filter((provider) => provider.enabled)
         .flatMap((provider) => {
@@ -43,7 +53,7 @@ class ProjectlessWorkspaces {
             selected.name &&
             !models.some((model) => model.id === selected.name)
           )
-            models.push({ id: selected.name, parameters: {} });
+            models.push({ id: selected.name, parameters: {}, enabled: true });
           return models.map((model) => ({
             providerId: provider.id,
             modelId: model.id,
@@ -100,19 +110,13 @@ class ProjectlessWorkspaces {
           ...service.models.map((model) => ({
             providerId: "areal_openai",
             modelId: model.id,
-            displayName: model.displayName ?? model.id,
+            displayName: model.id,
             available: true,
             isDefault:
               config.defaultModel?.providerId === "areal_openai" &&
               config.defaultModel.modelId === model.id,
             parameters: model.parameters ?? {},
-            capabilities: model.capabilities,
-            reasoningEffortOptions:
-              model.capabilities?.reasoning === false
-                ? []
-                : model.reasoningEffortOptions?.length
-                  ? model.reasoningEffortOptions
-                  : efforts,
+            reasoningEffortOptions: efforts,
           })),
         );
       return { models: data, lastAcceptedModel: providers.lastAcceptedModel ?? null };
@@ -133,10 +137,10 @@ class ProjectlessWorkspaces {
       !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(request.requestId)
     )
       throw new Error("无效项目外草稿标识");
+    const id = request.requestId;
     const next = this.pending
       .catch(() => {})
       .then(async () => {
-        const id = request.requestId;
         let selected;
         if (request.directory !== undefined) {
           if (
@@ -151,6 +155,7 @@ class ProjectlessWorkspaces {
         let record = this.records[id];
         if (record && selected !== undefined && selected !== record.root)
           throw new Error("此草稿已绑定原工作目录，不能重新绑定；请创建新草稿");
+        /** @param {string|undefined} root */
         const normalProject = (root) =>
           this.backend.saved.find((project) => project.root === root && !project.projectless);
         if (normalProject(record?.root ?? selected))
@@ -187,5 +192,38 @@ class ProjectlessWorkspaces {
     this.pending = next.catch(() => {});
     return next;
   }
+}
+/** @param {unknown} value @returns {value is Record<string,{root:string,existing?:boolean}>} */
+function isAllocations(value) {
+  return (
+    modelRecord(value) &&
+    Object.values(value).every(
+      (record) =>
+        modelRecord(record) &&
+        typeof record.root === "string" &&
+        isAbsolute(record.root) &&
+        (record.existing === undefined || typeof record.existing === "boolean"),
+    )
+  );
+}
+/** @param {unknown} value */
+function readEffectiveModel(value) {
+  if (!modelRecord(value) || !effectiveModel(value.model)) throw new Error("有效模型配置结构无效");
+  return value.model;
+}
+/** @param {unknown} value @returns {value is {provider?:string,name?:string,endpoint?:string,api_key_env?:string|null,temperature?:number|null,max_output_tokens?:number|null,context_window_tokens?:number|null,reasoning_effort?:string|null,reasoning_summary?:string|null}} */
+function effectiveModel(value) {
+  return (
+    modelRecord(value) &&
+    ["provider", "name", "endpoint"].every(
+      (key) => value[key] === undefined || typeof value[key] === "string",
+    ) &&
+    ["api_key_env", "reasoning_effort", "reasoning_summary"].every(
+      (key) => value[key] == null || typeof value[key] === "string",
+    ) &&
+    ["temperature", "max_output_tokens", "context_window_tokens"].every(
+      (key) => value[key] == null || typeof value[key] === "number",
+    )
+  );
 }
 module.exports = { ProjectlessWorkspaces };

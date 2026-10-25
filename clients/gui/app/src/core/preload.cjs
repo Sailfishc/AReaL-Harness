@@ -7,7 +7,9 @@ const invokeDesktop = (channel, ...args) => ipcRenderer.invoke(channel, ...args)
 const sendDesktop = (channel, ...args) => ipcRenderer.send(channel, ...args);
 /** @template {keyof import('@areal/workbench/desktop-contract').DesktopEventArguments} N
  * @param {N} channel @param {(event:import('electron').IpcRendererEvent,...args:import('@areal/workbench/desktop-contract').DesktopEventArguments[N])=>void} listener */
-function onDesktopEvent(channel, listener) { return ipcRenderer.on(channel, listener); }
+function onDesktopEvent(channel, listener) {
+  return ipcRenderer.on(channel, listener);
+}
 /** @typedef {import("@areal/workbench/desktop-contract").QuitProgress} QuitProgress */
 /** @typedef {import("@areal/workbench/desktop-contract").McpAppDeepLink} McpAppDeepLink */
 /** @typedef {import("@areal/workbench/desktop-contract").NotificationTarget} NotificationTarget */
@@ -18,18 +20,21 @@ let quitSubscription = null;
 let quitProgress = { state: "idle" };
 /** @type {Set<(progress:QuitProgress)=>void>} */
 const quitProgressListeners = new Set();
-onDesktopEvent("areal-core:quit-progress", /** @param {unknown} value */ (_event, value) => {
-  if (!value || typeof value !== "object" || !("state" in value)) return;
-  if (value?.state === "idle") quitProgress = { state: "idle" };
-  else if (
-    value?.state === "quitting" &&
-    "phase" in value &&
-    (value.phase === "checking" || value.phase === "stopping" || value.phase === "finishing")
-  )
-    quitProgress = { state: "quitting", phase: value.phase };
-  else return;
-  for (const listener of quitProgressListeners) listener(quitProgress);
-});
+onDesktopEvent(
+  "areal-core:quit-progress",
+  /** @param {unknown} value */ (_event, value) => {
+    if (!value || typeof value !== "object" || !("state" in value)) return;
+    if (value?.state === "idle") quitProgress = { state: "idle" };
+    else if (
+      value?.state === "quitting" &&
+      "phase" in value &&
+      (value.phase === "checking" || value.phase === "stopping" || value.phase === "finishing")
+    )
+      quitProgress = { state: "quitting", phase: value.phase };
+    else return;
+    for (const listener of quitProgressListeners) listener(quitProgress);
+  },
+);
 /** @param {QuitSubscription} subscription @param {boolean} allowed */
 function answerQuitRequest(subscription, allowed) {
   if (subscription.pending === null) return;
@@ -37,22 +42,26 @@ function answerQuitRequest(subscription, allowed) {
   subscription.pending = null;
   sendDesktop("areal-core:quit-decision", { id, allowed });
 }
-onDesktopEvent("areal-core:quit-request", /** @param {unknown} id */ (_event, id) => {
-  if (typeof id !== "number") return;
-  const subscription = quitSubscription;
-  if (!subscription || subscription.pending !== null) {
-    sendDesktop("areal-core:quit-decision", { id, allowed: false });
-    return;
-  }
-  subscription.pending = id;
-  void Promise.resolve()
-    .then(() => (subscription === quitSubscription ? subscription.listener() : false))
-    .then(
-      (allowed) => answerQuitRequest(subscription, allowed === true),
-      () => answerQuitRequest(subscription, false),
-    );
-});
-contextBridge.exposeInMainWorld("arealDesktop", {
+onDesktopEvent(
+  "areal-core:quit-request",
+  /** @param {unknown} id */ (_event, id) => {
+    if (typeof id !== "number") return;
+    const subscription = quitSubscription;
+    if (!subscription || subscription.pending !== null) {
+      sendDesktop("areal-core:quit-decision", { id, allowed: false });
+      return;
+    }
+    subscription.pending = id;
+    void Promise.resolve()
+      .then(() => (subscription === quitSubscription ? subscription.listener() : false))
+      .then(
+        (allowed) => answerQuitRequest(subscription, allowed === true),
+        () => answerQuitRequest(subscription, false),
+      );
+  },
+);
+/** @satisfies {import("@areal/workbench/desktop-contract").DesktopBridge} */
+const desktopBridge = {
   /** @param {unknown} locale */
   setInterfaceLocale: (locale) => sendDesktop("areal-core:interface-locale", locale),
   /** @returns {Promise<unknown>} */
@@ -96,17 +105,18 @@ contextBridge.exposeInMainWorld("arealDesktop", {
     let pending = null;
     const handler = () => {
       void invokeDesktop("areal-core:mcp-app-deep-link-target")
-        .then(/** @param {unknown} target */ async (target) => {
-          if (!active || !isMcpAppDeepLink(target) || pending === target.id) return;
-          pending = target.id;
-          try {
-            await listener(target);
-            if (active)
-              await invokeDesktop("areal-core:mcp-app-deep-link-consumed", target.id);
-          } finally {
-            pending = null;
-          }
-        })
+        .then(
+          /** @param {unknown} target */ async (target) => {
+            if (!active || !isMcpAppDeepLink(target) || pending === target.id) return;
+            pending = target.id;
+            try {
+              await listener(target);
+              if (active) await invokeDesktop("areal-core:mcp-app-deep-link-consumed", target.id);
+            } finally {
+              pending = null;
+            }
+          },
+        )
         .catch(() => {});
     };
     onDesktopEvent("areal-core:mcp-app-deep-link", handler);
@@ -158,21 +168,23 @@ contextBridge.exposeInMainWorld("arealDesktop", {
     let delivered = null;
     const handler = () => {
       void invokeDesktop("areal-core:notification-target")
-        .then(/** @param {unknown} target */ (target) => {
-          if (!active || !isNotificationTarget(target) || delivered === target.id) return;
-          delivered = target.id;
-          listener(
-            typeof target.taskId === "string"
-              ? {
-                  projectId: target.projectId,
-                  taskId: target.taskId,
-                  runId: target.runId,
-                  questionId: target.questionId,
-                }
-              : { projectId: target.projectId, threadId: target.threadId },
-          );
-          return invokeDesktop("areal-core:notification-consumed", target.id);
-        })
+        .then(
+          /** @param {unknown} target */ (target) => {
+            if (!active || !isNotificationTarget(target) || delivered === target.id) return;
+            delivered = target.id;
+            listener(
+              typeof target.taskId === "string"
+                ? {
+                    projectId: target.projectId,
+                    taskId: target.taskId,
+                    runId: target.runId,
+                    questionId: target.questionId,
+                  }
+                : { projectId: target.projectId, threadId: target.threadId },
+            );
+            return invokeDesktop("areal-core:notification-consumed", target.id);
+          },
+        )
         .catch(() => {});
     };
     onDesktopEvent("areal-core:notification-open", handler);
@@ -198,22 +210,46 @@ contextBridge.exposeInMainWorld("arealDesktop", {
     onDesktopEvent("areal-core:theme-changed", handler);
     return () => ipcRenderer.removeListener("areal-core:theme-changed", handler);
   },
-});
+};
+contextBridge.exposeInMainWorld("arealDesktop", desktopBridge);
 
 /** @param {unknown} value @returns {value is McpAppDeepLink} */
 function isMcpAppDeepLink(value) {
-  return !!value && typeof value === "object" && "id" in value && typeof value.id === "number"
-    && "pluginId" in value && typeof value.pluginId === "string"
-    && "toolName" in value && typeof value.toolName === "string"
-    && "path" in value && typeof value.path === "string"
-    && (!("marketplace" in value) || value.marketplace === undefined || typeof value.marketplace === "string");
+  return (
+    !!value &&
+    typeof value === "object" &&
+    "id" in value &&
+    typeof value.id === "number" &&
+    "pluginId" in value &&
+    typeof value.pluginId === "string" &&
+    "toolName" in value &&
+    typeof value.toolName === "string" &&
+    "path" in value &&
+    typeof value.path === "string" &&
+    (!("marketplace" in value) ||
+      value.marketplace === undefined ||
+      typeof value.marketplace === "string")
+  );
 }
 /** @param {unknown} value @returns {value is NotificationTarget & {id:number}} */
 function isNotificationTarget(value) {
-  if (!value || typeof value !== "object" || !("id" in value) || typeof value.id !== "number"
-    || !("projectId" in value) || typeof value.projectId !== "string") return false;
-  if ("taskId" in value && value.taskId !== undefined) return typeof value.taskId === "string" && value.taskId.length > 0
-    && (!("runId" in value) || value.runId === undefined || typeof value.runId === "string")
-    && (!("questionId" in value) || value.questionId === undefined || typeof value.questionId === "string");
+  if (
+    !value ||
+    typeof value !== "object" ||
+    !("id" in value) ||
+    typeof value.id !== "number" ||
+    !("projectId" in value) ||
+    typeof value.projectId !== "string"
+  )
+    return false;
+  if ("taskId" in value && value.taskId !== undefined)
+    return (
+      typeof value.taskId === "string" &&
+      value.taskId.length > 0 &&
+      (!("runId" in value) || value.runId === undefined || typeof value.runId === "string") &&
+      (!("questionId" in value) ||
+        value.questionId === undefined ||
+        typeof value.questionId === "string")
+    );
   return "threadId" in value && typeof value.threadId === "string";
 }

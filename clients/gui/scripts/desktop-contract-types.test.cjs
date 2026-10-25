@@ -80,27 +80,50 @@ test("the contract accepts typed examples and rejects invalid requests and respo
   try {
     writeFileSync(filename, source);
     const config = join(directory, "tsconfig.json");
-    writeFileSync(config, JSON.stringify({ extends: resolve("app/tsconfig.json"), include: [], files: [filename] }));
-    const result = spawnSync(process.execPath, [resolve("renderer/node_modules/@typescript/native/bin/tsc"), "--ignoreConfig", "-p", config, "--pretty", "false"], { encoding: "utf8" });
+    writeFileSync(
+      config,
+      JSON.stringify({ extends: resolve("app/tsconfig.json"), include: [], files: [filename] }),
+    );
+    const result = spawnSync(
+      process.execPath,
+      [
+        resolve("renderer/node_modules/@typescript/native/bin/tsc"),
+        "--ignoreConfig",
+        "-p",
+        config,
+        "--pretty",
+        "false",
+      ],
+      { encoding: "utf8" },
+    );
     assert.equal(result.status, 1, result.stdout + result.stderr);
-  const expectedLines = [
-    ...cases.map((_, index) => 4 + index * 3),
-    ...invalidRequests.map((_, index) => 2 + rows.length + index),
-  ];
-    const diagnostics = result.stdout.trim().split("\n").filter(line => !line.startsWith(" ")).map(line => {
-      const match = line.match(/fixture\.mts\((\d+),\d+\): error TS\d+:/);
-      assert.ok(match, line);
-      return Number(match[1]);
-    });
+    const expectedLines = [
+      ...cases.map((_, index) => 4 + index * 3),
+      ...invalidRequests.map((_, index) => 2 + rows.length + index),
+    ];
+    const diagnostics = result.stdout
+      .trim()
+      .split("\n")
+      .filter((line) => !line.startsWith(" "))
+      .map((line) => {
+        const match = line.match(/fixture\.mts\((\d+),\d+\): error TS\d+:/);
+        assert.ok(match, line);
+        return Number(match[1]);
+      });
     assert.deepEqual(diagnostics, expectedLines, result.stdout);
-  } finally { rmSync(directory, { recursive: true, force: true }); }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
-test('validated preview requests narrow required fields by operation without asserting raw payloads', () => {
-  const directory = mkdtempSync(join(tmpdir(), 'areal-preview-types-'));
+test("validated preview requests narrow required fields by operation without asserting raw payloads", () => {
+  const directory = mkdtempSync(join(tmpdir(), "areal-preview-types-"));
   try {
-    const fixture = join(directory, 'fixture.mts'), config = join(directory, 'tsconfig.json');
-    writeFileSync(fixture, `import {validatePreview} from ${JSON.stringify(resolve('packages/workbench/client/desktop-contract.js'))};
+    const fixture = join(directory, "fixture.mts"),
+      config = join(directory, "tsconfig.json");
+    writeFileSync(
+      fixture,
+      `import {validatePreview} from ${JSON.stringify(resolve("packages/workbench/client/desktop-contract.js"))};
 let request: unknown = JSON.parse('{}');
 validatePreview(request);
 if (request.operation === 'selectElement') { const x: number = request.x; const page: string = request.pageId; const capture: string = request.captureId; }
@@ -108,9 +131,72 @@ if (request.operation === 'applyStyleTrial') { const trial: string = request.tri
 if (request.operation === 'navigate') { const url: string = request.url; }
 if (request.operation === 'cancelDownload') { const id: string = request.downloadId; const intent: true = request.userIntent; }
 if (request.operation === 'hide' && request.captureId !== undefined) { const project: string = request.projectId; const thread: string = request.threadId; }
-`);
-    writeFileSync(config, JSON.stringify({ extends: resolve('app/tsconfig.json'), include: [], files: [fixture] }));
-    const result = spawnSync(process.execPath, [resolve('renderer/node_modules/@typescript/native/bin/tsc'), '--ignoreConfig', '-p', config, '--pretty', 'false'], { encoding: 'utf8' });
+`,
+    );
+    writeFileSync(
+      config,
+      JSON.stringify({ extends: resolve("app/tsconfig.json"), include: [], files: [fixture] }),
+    );
+    const result = spawnSync(
+      process.execPath,
+      [
+        resolve("renderer/node_modules/@typescript/native/bin/tsc"),
+        "--ignoreConfig",
+        "-p",
+        config,
+        "--pretty",
+        "false",
+      ],
+      { encoding: "utf8" },
+    );
     assert.equal(result.status, 0, result.stdout + result.stderr);
-  } finally { rmSync(directory, { recursive: true, force: true }); }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("the shared preload bridge leaves unvalidated invoke and event responses unknown", () => {
+  const directory = mkdtempSync(join(tmpdir(), "areal-preload-types-"));
+  try {
+    const fixture = join(directory, "fixture.mts"),
+      config = join(directory, "tsconfig.json");
+    writeFileSync(
+      fixture,
+      `import type {DesktopBridge} from ${JSON.stringify(resolve("packages/workbench/client/desktop-contract.js"))};
+declare const bridge: DesktopBridge;
+const opaque: unknown = await bridge.command('send', {});
+const unsafe: string = await bridge.command('send', {});
+bridge.onProjection(value => { const unchecked: {frame:unknown} = value; });
+`,
+    );
+    writeFileSync(
+      config,
+      JSON.stringify({ extends: resolve("app/tsconfig.json"), include: [], files: [fixture] }),
+    );
+    const result = spawnSync(
+      process.execPath,
+      [
+        resolve("renderer/node_modules/@typescript/native/bin/tsc"),
+        "--ignoreConfig",
+        "-p",
+        config,
+        "--pretty",
+        "false",
+      ],
+      { encoding: "utf8" },
+    );
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    const lines = result.stdout
+      .trim()
+      .split("\n")
+      .filter((line) => !line.startsWith(" "))
+      .map((line) => {
+        const match = line.match(/fixture\.mts\((\d+),\d+\): error TS\d+:/);
+        assert.ok(match, line);
+        return Number(match[1]);
+      });
+    assert.deepEqual(lines, [4, 5], result.stdout);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
