@@ -155,6 +155,7 @@ export function Messages({
   responseActions,
   embedded = false,
   readOnly = false,
+  decisionShown = false,
   afterTurns,
   reserveResponseSpace = !embedded,
   onOpenResult,
@@ -166,6 +167,8 @@ export function Messages({
   resultStates?: Record<string, McpResultState>;
   embedded?: boolean;
   readOnly?: boolean;
+  /** The host renders this thread's pending decision cards (Composer); the transcript tail then does not repeat the wait. */
+  decisionShown?: boolean;
   afterTurns?: ReactNode;
   reserveResponseSpace?: boolean;
   beforeTurns?: ReactNode;
@@ -709,7 +712,7 @@ export function Messages({
             )}
             {!finalMessage && turn.status !== "inProgress" && turn.items?.some((item: Data) => item.type === "dynamicToolCall" && item.execution?.hooks?.length) &&
               <div className="message-actions"><TurnHookStats turn={turn} /></div>}
-            <TurnActivity turn={turn} project={project} threadId={thread.id} />
+            <TurnActivity turn={turn} project={project} threadId={thread.id} decisionShown={decisionShown} />
           </section>;
         })}
         {afterTurns}

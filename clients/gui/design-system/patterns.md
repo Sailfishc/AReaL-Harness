@@ -100,7 +100,9 @@ Worktree 的配置菜单、准备状态和项目环境按[领域设计规范](wo
 
 `CONV-ACTIVITY-01`：两条消息之间的工具活动按"连续同一动作"分段，不再把整段混合成一组。连续多次同一动作（运行命令、读取文件、修改文件、查找文件，或同名的其他工具）合成一行可折叠的段，标题是过去时动词短语，如“已运行命令”“已读取文件”；段内仍有运行中的项时用进行时“正在运行命令”。标题不显示数量。只有一项时不建段，直接显示该项自己的行（如“已运行 git add …”）。思考组、子代理创建等行各自成段并打断合并；段内顺序与原始历史一致。失败工具仍不进入默认行，由过程标题的失败标识进入。实现见 `activityRuns` / `TurnExecution`，回归见 `scripts/activity-runs.test.mjs`。
 
-`CONV-PROCESS-01`：对话时间线以 Core 的 `commentary` / `final_answer` 为边界，不按文字内容猜测思考或工具事件。耗时位于过程顶部并控制整段过程的展开与折叠；已完成过程默认折叠，最终回答及交付内容不在折叠范围。工具分组独立默认折叠，展开后列表限高 224px 并支持上下滚动。长过程仍在六行高度内滚动，当前流式正文完整展示。过程和活动区域支持键盘聚焦与滚动；打开单条命令或文件比较时，列表取消限高，避免与具体输出同时形成双层滚动。这是过程阅读的专用机制，不改变已发送用户长消息的展开行为。执行中活动文字复用左向右亮色扫光，终态及 reduced motion 下不播放。成功图片结果、可打开的子对话保留轻量入口，原始记录按需查看；文件变更默认显示前五条，多余部分可展开或收起，行数继续取自 Core 本轮比较。Markdown 图片仅通过现有会话授权的 Core blob 读取直接显示；不自动读取任意本机路径或远端图片。普通链接直接打开，独立本地网页链接显示预览卡片，点击仍经过现有 Main 导航策略，不探测服务状态。`design-system.html?conversation` 提供同一生产组件的隔离预览，不连接用户 Core。
+`CONV-PROCESS-01`：对话时间线以 Core 的 `commentary` / `final_answer` 为边界，不按文字内容猜测思考或工具事件。耗时位于过程顶部并控制整段过程的展开与折叠；已完成过程默认折叠，最终回答及交付内容不在折叠范围。工具分组独立默认折叠，展开后列表限高 224px 并支持上下滚动。长过程仍在六行高度内滚动，当前流式正文完整展示。过程和活动区域支持键盘聚焦与滚动；打开单条命令或文件比较时，列表取消限高，避免与具体输出同时形成双层滚动。这是过程阅读的专用机制，不改变已发送用户长消息的展开行为。执行中的状态只在回合末尾一处，见 `CONV-STATUS-01`。成功图片结果、可打开的子对话保留轻量入口，原始记录按需查看；文件变更默认显示前五条，多余部分可展开或收起，行数继续取自 Core 本轮比较。Markdown 图片仅通过现有会话授权的 Core blob 读取直接显示；不自动读取任意本机路径或远端图片。普通链接直接打开，独立本地网页链接显示预览卡片，点击仍经过现有 Main 导航策略，不探测服务状态。`design-system.html?conversation` 提供同一生产组件的隔离预览，不连接用户 Core。
+
+`CONV-STATUS-01`：一个回合只有一处实时状态，位于回合末尾，是一句话加左向右亮色扫光（ThinkingStatus）。工具运行时这句话是当前动作与目标（“正在运行命令… pnpm test”），模型思考时是公开思考摘要或 Thinking；上方的工具行保持静态，不再各自扫光。终态、reduced motion、连接中断、模型重试和待确认结果用静态文字。宿主已在 Composer 里显示待处理的审批或提问卡时（`Messages.decisionShown`），回合末尾不再重复“等待你的确认或回答”；没有卡片的只读或嵌入视图仍显示这句静态文字。审批卡内的“查看完整请求”“授权范围说明”等展开入口是文字按钮，不带展开三角；卡片内边距 12px，标题、正文与按钮之间各 4–8px。理由：多处同时扫光或同一等待说两遍，读者分不清哪一处才代表“现在”；把状态收在末尾一行，和 Composer 里唯一的决定入口各司其职。
 
 `CONV-DISCLOSURE-01`：默认展开状态和用户选择分别记录。在同一组/详情身份存续期间，不用无关增量或刷新重置人工选择；父组收起与子项展开值分别处理，重新打开父组应恢复其仍存续的详情状态。跨轮次或新总组不得继承不属于它的展开状态。这是本产品验收约束，不能仅凭一次参考的完成总组截图声称已验证。
 
@@ -158,6 +160,7 @@ Worktree 的配置菜单、准备状态和项目环境按[领域设计规范](wo
 | CONV-READ-01 | OBS-CONV-READ：生成中可见锚点和返回后的连续样本；目标规则不复制测量常量 | Messages既有阅读逻辑 | reading-history、following-latest |
 | CONV-RESOURCE-01 | OBS-CONV-RESOURCE：图片/子对话入口直接观察；独立网页面板仍未知 | ToolEvent及既有父聊天/资源面板所有者 | busy、completed；资源返回按复验题追加 |
 | CONV-COMMAND-01 | OBS-CONV-TOOL支持Shell输入/输出与终态；分批读取的节奏由本仓公开进程投影构造，不声称参考已连续采齐 | processItems / ToolEvent / CommandDetails | command-streaming、tool-details、completed |
+| CONV-STATUS-01 | 参考对话流末尾单行扫光状态；审批卡为唯一的等待入口 | TurnActivity / ThinkingStatus / DecisionCard / 宿主 Composer | running、awaiting-decision、completed |
 | CONV-PARALLEL-01 | OBS-CONV-RESOURCE支持独立子对话；父子不同步完成是本产品显式约束 | AgentIdentity / conversationPresentation.agentSettlements / ToolEvent / AgentConversationPane / 原父聊天宿主 | parallel-working、child-conversation、completed |
 | CONV-SCENARIO-01 | 原动态题仅有命令和重复段落，遗漏资源及子对话路径；复合题用于阻止同类范围遗漏 | ConversationFlowExercise及其输入fixture；生产所有者不迁移 | 全部复合检查点及逐状态对照 |
 

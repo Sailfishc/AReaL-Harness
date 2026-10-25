@@ -392,7 +392,7 @@ try {
     await status.scrollIntoViewIfNeeded();
     await settleLayout();
     const animations = await status.evaluate(el => el.getAnimations({ subtree: true }).filter(animation => animation.playState === "running").length);
-    assert.equal(animations > 0, shape === "reasoning" || shape === "empty", `${shape} animates only model progress while visible`);
+    assert.ok(animations > 0, `${shape} tail status sweeps while visible (CONV-STATUS-01: tool and model progress share one live line)`);
     if (shape === "multiple" || shape === "single") assert.ok((await status.innerText()).includes("command line 1"), "current tool target stays visible in the tail status");
     if (shape === "multiple") {
       await processToggle.click();
@@ -411,7 +411,7 @@ try {
     assert.equal(await status.evaluate(el => el.getAnimations({ subtree: true }).length), 0, `${state} status does not animate`);
   }
   await reading.getByLabel("活动状态", { exact: true }).selectOption("running");
-  checks.push("tools retain a static execution label; public model progress animates only while visible; input, retry and disconnect retain canonical static labels");
+  checks.push("one sweeping tail status for tool and model progress; tool rows stay static; input, retry and disconnect retain canonical static labels");
   const progressToggle = updating.locator(".turn-progress-summary");
   await progressToggle.click();
   await progressToggle.click();
@@ -517,7 +517,7 @@ try {
   assert.equal(await timeline.getByTestId("turn-file-summary").count(), 0, "running turns do not claim completed file totals");
   assert.equal(await timeline.locator('[data-side-item-id="timeline-stream"] .collapsible-text').count(), 0, "public reasoning after the current streamed reply does not fold that reply");
   assert.equal(await timeline.locator('[data-side-item-id="timeline-stream"] .commentary-scroll').count(), 0, "current streaming text is not bounded as past commentary");
-  assert.ok(await command.locator(".turn-thinking").evaluate(el => el.getAnimations().length > 0), "running activity text has the shared sweep animation");
+  assert.equal(await command.locator(".turn-thinking, .areal-thinking").count(), 0, "a running tool row stays static; the turn tail owns the sweep (CONV-STATUS-01)");
   await timeline.getByRole("button", { name: "显示已完成", exact: true }).click();
   assert.equal(await command.locator(".turn-thinking").count(), 0, "completed activity text stops sweeping");
   assert.equal(await progressText.evaluate(el => el.clientHeight), progressSize.height);

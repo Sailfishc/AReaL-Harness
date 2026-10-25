@@ -2057,7 +2057,7 @@ function AppContent({ services }: { services: PlatformServices }) {
           ) : taskSurface === "inbox" ? (
             <Inbox projects={snapshot.projects} connected={snapshot.connection?.state === "ready"} action={resourceAction} onClose={() => setTaskCenterOpen(false)} />
           ) : taskCenterOpen ? (
-            <TaskCenter target={taskNotification} initialProjectId={taskScope} defaultProjectId={project?.projectless ? undefined : project?.id} projects={snapshot.projects.map(p => ({...p,name:library.projects?.[p.id]?.title || p.root.split(/[\\/]/).pop()}))} connected={snapshot.connection?.state === "ready"} action={resourceAction} onOpenThread={(pid,id) => void open(pid, id)} onOpenModelSettings={() => showPanel("设置")} renderConversation={(owner,managementThread,beforeTurns,options) => <><Messages beforeTurns={beforeTurns} afterTurns={options?.afterTurns} embedded={options?.embedded} readOnly={options?.readOnly} reserveResponseSpace={!options?.embedded && !options?.afterTurns} project={owner} thread={managementThread} action={resourceAction} dark={dark} onLink={onLink}
+            <TaskCenter target={taskNotification} initialProjectId={taskScope} defaultProjectId={project?.projectless ? undefined : project?.id} projects={snapshot.projects.map(p => ({...p,name:library.projects?.[p.id]?.title || p.root.split(/[\\/]/).pop()}))} connected={snapshot.connection?.state === "ready"} action={resourceAction} onOpenThread={(pid,id) => void open(pid, id)} onOpenModelSettings={() => showPanel("设置")} renderConversation={(owner,managementThread,beforeTurns,options) => <><Messages beforeTurns={beforeTurns} afterTurns={options?.afterTurns} embedded={options?.embedded} readOnly={options?.readOnly} decisionShown={!options?.embedded && !options?.readOnly} reserveResponseSpace={!options?.embedded && !options?.afterTurns} project={owner} thread={managementThread} action={resourceAction} dark={dark} onLink={onLink}
               onFile={path => {void open(owner.id,managementThread.id).then(() => openFile(path));}}
               onReview={turnId => {void open(owner.id,managementThread.id).then(() => {setReviewRequest({owner:`${owner.id}:${managementThread.id}`,turnId});setPanel("改动");});}}
               readTurnReview={(turnId,itemId) => resourceAction("workspace",{projectId:owner.id,threadId:managementThread.id,turnId,itemId,operation:"turnReview"})}/>
@@ -2087,6 +2087,7 @@ function AppContent({ services }: { services: PlatformServices }) {
                           project={project}
                           thread={thread}
                           action={action}
+                          decisionShown
                           onOpenResult={mcpWorkspace.openResult}
                           resultStates={mcpWorkspace.resultStates}
                           onFork={forkFromTurn}

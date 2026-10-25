@@ -18,8 +18,9 @@ import { MessageActions } from "./MessageActions.js";
 import { SentAttachment } from "./MessageAttachment.js";
 import type { McpResultSource, McpResultState } from "./mcp-app-services.js";
 import type { Action, Data } from "./services.js";
-export function ToolEvent({ item, onFile, onAgent, agents, agentTaskOf, turnId, readTurnReview, action, projectId, threadId, animate = false, onOpenResult, resultState }: {
+export function ToolEvent({ item, onFile, onAgent, agents, agentTaskOf, turnId, readTurnReview, action, projectId, threadId, onOpenResult, resultState }: {
   onOpenResult?: (source: McpResultSource) => Promise<void>; resultState?: McpResultState;
+  /** Accepted for host compatibility; running rows stay static (CONV-STATUS-01). */
   animate?: boolean;
   item: Data; onAgent?: (id: string) => void; agents?: Data; agentTaskOf?: (id: string) => string | undefined; onFile?: (path: string) => void; turnId?: string;
   readTurnReview?: (turnId: string, itemId?: string) => Promise<Data>;
@@ -96,7 +97,7 @@ export function ToolEvent({ item, onFile, onAgent, agents, agentTaskOf, turnId, 
         title={item.tool}
       >
         {item.tool === "browser_v1" ? <GlobeIcon size={16} aria-hidden="true" /> : <ActivityIcon kind={view.kind} />}
-        <span className={animate && view.running ? "tool-summary-text turn-thinking" : "tool-summary-text"} role={view.running ? "status" : undefined}>
+        <span className="tool-summary-text" data-running={view.running || undefined}>
           <span>{view.running ? "正在" : view.status === "已完成" ? "已" : ""}{view.label}</span>
           <span className="tool-summary-detail">{view.detail}</span>
         </span>

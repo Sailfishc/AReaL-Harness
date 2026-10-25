@@ -13,21 +13,28 @@ function canAnimateTurn(project: Data, threadId: string, turn: Data) {
     && !project.state?.interactions?.[threadId]?.data?.some((item: Data) => item.status === "pending");
 }
 
-export function TurnActivity({ turn, project, threadId }: { turn: Data; project: Data; threadId: string }) {
+/**
+ * CONV-STATUS-01: one live status per turn, at its tail. Running tools and model
+ * progress both use the sweeping one-line status; tool rows above stay static.
+ * When the host shows the pending decision card (decisionShown), the card is the
+ * only place that asks — the tail does not repeat "等待你的确认或回答".
+ */
+export function TurnActivity({ turn, project, threadId, decisionShown = false }: { turn: Data; project: Data; threadId: string; decisionShown?: boolean }) {
   const { t } = useI18n();
   if (turn.status !== "inProgress") return null;
+  if (decisionShown && project.state?.interactions?.[threadId]?.data?.some((item: Data) => item.status === "pending")) return null;
   const animate = canAnimateTurn(project, threadId, turn);
-  const currentTool = animate && processItems(turn.items ?? [], turn.status).findLast(item => item.type === "dynamicToolCall" && toolPresentation(item).running);
-  const detail = currentTool ? toolPresentation(currentTool).detail : undefined;
   const items = processItems(turn.items ?? [], turn.status);
+  const currentTool = animate && items.findLast(item => item.type === "dynamicToolCall" && toolPresentation(item).running);
+  const detail = currentTool ? toolPresentation(currentTool).detail : undefined;
   const unconfirmed = items.some(item => item.type === "dynamicToolCall" && toolPresentation(item).status === "结果待确认");
   const last = items.filter(item => item.type !== "modelContext").at(-1);
   const summary = last?.type === "reasoning" ? (last.summary ?? []).filter((part: unknown) => typeof part === "string" && part.trim()).at(-1) : undefined;
   const label = activityLabel(project, threadId, turn);
-  const model = animate && !currentTool && !unconfirmed;
   return <div className="turn-activity" data-testid="turn-activity">
-    {model ? <ThinkingStatus label={summary || (/^(等待模型|正在思考)/.test(label) ? undefined : label)} />
-      : <p className="execution-status" role="status">{unconfirmed && animate && !currentTool ? t("chat.tool.unconfirmed") : label}{detail && <> {detail}</>}</p>}
+    {currentTool ? <ThinkingStatus label={detail ? `${label} ${detail}` : label} />
+      : animate && !unconfirmed ? <ThinkingStatus label={summary || (/^(等待模型|正在思考)/.test(label) ? undefined : label)} />
+      : <p className="execution-status" role="status">{unconfirmed && animate ? t("chat.tool.unconfirmed") : label}</p>}
   </div>;
 }
 
