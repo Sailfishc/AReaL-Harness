@@ -24,6 +24,8 @@ GUI 设计知识与后续 Web 复用边界从[设计文档](../../../design/READ
 
 共享组件的迁移范围与保留适配见[组件迁移](../../../design/archive/gui/component-migration.md)。原路径消费同一包实现；后续外观和交互微调先改包内组件及就近MD，再验证实际产品路径。
 
+顶部任务资源从[页面合同](surfaces/task-context.json)进入，使用[同一生产入口预览](../renderer/design-system.html?task-context)核对加载、空态、失败、子代理待确认与来源返回；共享布局归 TaskContext，业务与桌面验收分别记录。
+
 ## 开工顺序
 
 新增或修改页面、组件、布局、样式、动效、UI 文案时：

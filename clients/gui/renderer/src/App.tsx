@@ -333,7 +333,7 @@ function Usage({ thread }: { thread: Data }) {
   );
 }
 
-function TaskResourcesPopover({
+export function TaskResourcesPopover({
   project,
   thread,
   action,

@@ -1,5 +1,5 @@
 import { useI18n } from "./i18n/IntlProvider.js";
-import { SubagentPanel } from "@areal/ui/wip";
+import { SubagentPanel, TaskContext } from "@areal/ui/wip";
 import "@areal/ui/conversation.css";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "./components/ui/button.js";
@@ -198,15 +198,13 @@ export function AgentsPane({ project, thread, action, onOpen, summary, reader }:
     const running = connected && !readError ? children.filter(child => results[child.id]?.status === "inProgress") : [];
     const completed = connected && !readError ? children.filter(child => results[child.id]?.status === "completed") : [];
     const attention = children.length - running.length - completed.length;
-    return <section className="task-resources-section task-resources-agents" aria-label={t("chat.agents.region")}>
-      <h3 className="task-resources-heading">{t("chat.agents.title")}</h3>
-      <Button variant="ghost" className="task-resource-row task-agent-summary" aria-label={t("chat.agents.viewAll", { count: children.length, suffix: more ? "+" : "" })} onClick={summary.onOpen}>
-        <span className="task-resource-identity">{(running.length ? running : children).slice(0, 3).map(child => <AgentAvatar key={child.id} id={child.id} />)}</span>
-        <span className="task-resource-label">{running.length ? t("chat.agents.working", { count: running.length }) : attention ? t("chat.agents.attention", { count: attention }) : t("chat.agents.noneWorking")}{!!running.length && !!attention && <> · {t("chat.agents.attention", { count: attention })}</>}</span>
-        {!!completed.length && <span className="task-agent-completed">{t("chat.agents.done", { count: completed.length })}</span>}
-      </Button>
+    return <TaskContext.Section label={t("chat.agents.region")} title={t("chat.agents.title")}>
+      <TaskContext.Item title={running.length ? `${t("chat.agents.working", { count: running.length })}${attention ? ` · ${t("chat.agents.attention", { count: attention })}` : ""}` : attention ? t("chat.agents.attention", { count: attention }) : t("chat.agents.noneWorking")}
+        aria-label={t("chat.agents.viewAll", { count: children.length, suffix: more ? "+" : "" })} onClick={summary.onOpen}
+        icon={children.length ? (running.length ? running : children).slice(0, 3).map(child => <AgentAvatar key={child.id} id={child.id} />) : undefined}
+        meta={completed.length ? t("chat.agents.done", { count: completed.length }) : undefined} />
       {readError && <p role="alert" className="task-resource-note">{readError}</p>}
-    </section>;
+    </TaskContext.Section>;
   }
   return <section aria-label="子任务" className="flex h-full min-h-0 flex-col text-ui-base">
     <div className="panel-toolbar flex shrink-0 items-center justify-between gap-2"><span>子任务 · {children.length}</span><Button size="sm" variant="ghost" disabled={!connected || reading} onClick={() => void read()}>刷新子任务</Button></div>

@@ -14,7 +14,7 @@ export const resourceReply = workspace => "# 项目阅读简报\n\n" + Array.fro
 export async function verifyResourceSlice({ app, page, state, project, until, received, visualEvidence, checks, fullShot, setThread, workspace }) {
   const button = name => page.getByRole("button", { name, exact: true });
   const input = () => page.getByTestId("chat-input");
-  await input().fill("resource: 请生成项目资源简报，并保留可核验的文件结果。");
+  await input().fill("resource: 请生成项目资源简报，并保留可核验的文件结果。\nhttps://example.com/one https://example.com/two https://example.com/three https://example.com/four");
   await page.getByTestId("chat-send-button").click();
   await page.getByRole("region", { name: "工具审批", exact: true }).waitFor();
   await button("允许一次").click();
@@ -37,6 +37,31 @@ export async function verifyResourceSlice({ app, page, state, project, until, re
   const requests = requestCount();
   assert.equal(requests, 2, "approved write uses one task tool request and one continuation");
   const owner = { projectId: project(completed).id, threadId: thread.id, turnId: turn.id };
+  const context = page.getByRole("dialog", { name: "任务资源面板", exact: true });
+  const contextTrigger = button("任务资源");
+  const chatWidth = await page.locator(".messages").evaluate(element => element.getBoundingClientRect().width);
+  await contextTrigger.click();
+  await context.getByRole("button", { name: /^Changes/ }).waitFor();
+  const sources = context.getByRole("region", { name: "输入来源", exact: true });
+  await sources.getByRole("button", { name: "https://example.com/one", exact: true }).waitFor();
+  assert.equal(await sources.getByRole("button", { name: "https://example.com/four", exact: true }).count(), 0, "overview previews only three explicit user sources");
+  assert.equal(await page.locator(".messages").evaluate(element => element.getBoundingClientRect().width), chatWidth, "context popup does not reserve timeline width");
+  await fullShot("task-context-desktop-sources");
+  await sources.getByRole("button", { name: "折叠来源", exact: true }).click();
+  assert.equal(await sources.getByRole("button", { name: "展开来源", exact: true }).getAttribute("aria-expanded"), "false");
+  assert.equal(await sources.getByRole("button", { name: "https://example.com/one", exact: true }).isVisible(), false, "collapsed sources leave the visible interaction path");
+  await sources.getByRole("button", { name: "展开来源", exact: true }).click();
+  await sources.getByRole("button", { name: "查看全部来源（4）", exact: true }).click();
+  await context.getByRole("button", { name: "https://example.com/four", exact: true }).waitFor();
+  await button("返回来源概览").click();
+  await sources.waitFor();
+  await page.keyboard.press("Escape");
+  await context.waitFor({ state: "hidden" });
+  assert.equal(await contextTrigger.evaluate(element => document.activeElement === element), true, "Escape returns focus to the production header trigger");
+  assert.equal(await input().innerText(), draft, "resource popup preserves the unsent draft");
+  assert.equal(requestCount(), requests, "inspecting sources sends no model request");
+  checks.push("task context opens without shrinking the timeline; sources collapse, view all and return; Escape restores focus and preserves the draft without replay");
+
   const readView = () => page.evaluate(() => {
     const viewport = document.querySelector(".messages"), box = viewport.getBoundingClientRect();
     const paragraph = [...viewport.querySelectorAll(".assistant-message .conversation-markdown p")].find(element => element.getBoundingClientRect().bottom > box.top && element.getBoundingClientRect().top < box.bottom);

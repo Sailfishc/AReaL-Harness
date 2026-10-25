@@ -1,6 +1,6 @@
 import { useId, useState, type ComponentProps, type KeyboardEventHandler, type ReactNode, type Ref } from "react";
 import { Collapsible } from "@base-ui/react/collapsible";
-import { ArrowLeftIcon, ChevronRightIcon, PlusIcon, NetworkIcon } from "lucide-react";
+import { ArrowLeftIcon, PlusIcon, NetworkIcon } from "lucide-react";
 import { Button } from "../../components/button/button.js";
 
 export type TaskContextProps = {
@@ -31,20 +31,22 @@ type ContextItemProps = Omit<ComponentProps<typeof Button>, "children" | "classN
   meta?: ReactNode;
 };
 function ContextItem({ title, description, tooltip, icon, meta, ...props }: ContextItemProps) {
-  return <Button {...props} title={tooltip ?? title} variant="ghost" className="areal-context-item">{icon}<span className="areal-context-item-body"><span>{title}</span>{description && <small>{description}</small>}</span>{meta}</Button>;
+  return <Button {...props} title={tooltip ?? title} variant="ghost" className="areal-context-item">{icon && <span className="areal-context-item-icon">{icon}</span>}<span className="areal-context-item-body"><span>{title}</span>{description && <small>{description}</small>}</span>{meta && <span className="areal-context-item-meta">{meta}</span>}</Button>;
 }
 type ContextSourcesProps<T> = {
   items: readonly T[];
   children: (item: T) => ReactNode;
   onViewAll: () => void;
   onAdd?: () => void;
+  collapseLabel?: string;
+  expandLabel?: string;
 };
-function ContextSources<T extends { id: string }>({ items, children, onViewAll, onAdd }: ContextSourcesProps<T>) {
+function ContextSources<T extends { id: string }>({ items, children, onViewAll, onAdd, collapseLabel = "收起", expandLabel = "展开" }: ContextSourcesProps<T>) {
   const [open, setOpen] = useState(true);
   const id = useId();
   return <ContextSection label="输入来源"><Collapsible.Root className="areal-context-sources" open={open} onOpenChange={setOpen}>
     <div className="areal-sources-heading"><Collapsible.Trigger render={<Button variant="ghost" className="areal-sources-trigger" />} aria-label={open ? "折叠来源" : "展开来源"} aria-controls={id}>
-      <span>Sources</span><ChevronRightIcon size={14} className="areal-sources-indicator" />
+      <span>Sources</span><span className="areal-sources-toggle-label">{open ? collapseLabel : expandLabel}</span>
     </Collapsible.Trigger>{onAdd && <Button variant="ghost" size="icon-sm" aria-label="添加来源" onClick={onAdd}><PlusIcon size={16} /></Button>}</div>
     <Collapsible.Panel id={id} keepMounted>
       {items.length ? items.slice(0, 3).map(item => <div key={item.id}>{children(item)}</div>) : <p className="areal-context-empty">还没有输入来源</p>}

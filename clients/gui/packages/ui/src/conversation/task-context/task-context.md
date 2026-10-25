@@ -18,11 +18,11 @@ related: ["subagent-panel", "image-disclosure", "disclosure"]
 
 ## 组成
 
-具名 aside、标题、actions、可选返回、纵向滚动正文；Section 分区，Item 命名动作与次信息，Sources 负责三项预览/查看全部/添加入口。id、hidden 和 onKeyDown 由宿主接线。
+具名 aside、标题、actions、可选返回、纵向滚动正文；Section 分区及次级标题，Item 统一图标/头像组、命名动作与尾部元信息，Sources 负责三项预览/查看全部/添加入口。id、hidden 和 onKeyDown 由宿主接线。
 
 ## 状态
 
-产品顶部卡片默认收起，组件不自行决定开关。按钮 expanded/controls 对应同一 id；打开后保留来源折叠选择。Sources 初始展开，标题保持透明背景；仅悬停、键盘聚焦或收起时显示折叠指示。空集合明确显示紧凑空态。
+产品顶部卡片默认收起，组件不自行决定开关。按钮 expanded/controls 对应同一 id；打开后保留来源折叠选择。Sources 初始展开，标题保持透明背景，使用明确的“展开／收起”文字动作，不隐藏提示或使用三角标记。空集合明确显示紧凑空态。
 
 ## 行为
 
@@ -34,12 +34,14 @@ related: ["subagent-panel", "image-disclosure", "disclosure"]
 
 ## 可访问性
 
-宿主通过 headingRef 聚焦详情，返回原入口；标题是入口消失时的回退。Sources 提供 expanded/controls 和独立添加按钮；隐藏卡片不留可聚焦内容。
+宿主通过 headingRef 聚焦详情，返回原入口；标题是入口消失时的回退。宿主传入 Sources 展开／收起的本地化文案；Sources 提供 expanded/controls 和独立添加按钮；隐藏卡片不留可聚焦内容。
 
 ## 规则
+
+共享分区、图标/头像和尾部状态的布局由本组件维护；宿主使用 Section/Item 组合，不复制摘要行样式。选择依据见[深入查看与返回](../../../../../../../design/patterns/inspect-and-return.md)及[表达角色](../../../../../../../design/foundations/roles.md)。
 
 来源默认最多三项，超过提供带总数的全部入口。onAdd可选；宿主没有合法添加动作时不渲染加号，不能用空回调伪装能力。宿主拥有数据、草稿与导航，组件不扫描项目、维护 Core 状态或读取凭据。
 
 ## 示例
 
-[组件目录与生成API](../../../../../renderer/design-system.html?ui-library#component-task-context)；[对话组合](../../../../../renderer/design-system.html?conversation-system)。文档站会嵌入该组件的独立可操作示例，原文与实现同目录，Props不另抄一份。
+[组件目录与生成API](../../../../../renderer/design-system.html?ui-library#component-task-context)；[生产顶部入口预览](../../../../../renderer/design-system.html?task-context)；[对话组合](../../../../../renderer/design-system.html?conversation-system)。文档站会嵌入该组件的独立可操作示例，原文与实现同目录，Props不另抄一份。

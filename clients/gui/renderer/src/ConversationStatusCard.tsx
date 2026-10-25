@@ -89,7 +89,7 @@ export function ConversationStatusCard({ project, thread, action, onPanel, onAge
       <p className="task-resource-note">{thread.worktree.sourceRoot}</p><p className="task-resource-note">{thread.worktree.directory} · {thread.worktree.branch}</p>
     </Disclosure></TaskContext.Section>}
     <AgentsPane key={`${project.id}:${thread.id}`} project={project} thread={thread} action={action} onOpen={onAgent} summary={{ onOpen: onAgents ?? (() => onPanel("子代理")) }} />
-    <TaskContext.Sources items={entries} onAdd={onAddSource} onViewAll={() => setAllSources(true)}>{renderSource}</TaskContext.Sources>
+    <TaskContext.Sources collapseLabel={t("chat.context.collapseSources")} expandLabel={t("chat.context.expandSources")} items={entries} onAdd={onAddSource} onViewAll={() => setAllSources(true)}>{renderSource}</TaskContext.Sources>
     {scheduledTask ? <section className="task-resources-section" aria-label="定时任务安排" data-scheduled-task-card={scheduledTask.id} data-task-id={scheduledTask.id}>
       <h3 className="task-resources-heading">定时任务</h3>
       <p className="scheduled-task-description">{scheduledTask.objective}</p>
