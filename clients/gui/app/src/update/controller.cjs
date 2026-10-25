@@ -1,13 +1,18 @@
+// @ts-check
 'use strict';
 const { newer, validateUpdate } = require('./config.cjs');
 
 // Electron owns transport, SHA-512 verification and native signature validation.
 // Main owns consent and safe shutdown; native staging precedes Core shutdown.
+/** @typedef {'idle'|'available'|'downloading'|'validating'|'deferred'|'installing'|'error'} UpdateStatus */
+/** @typedef {{enabled:boolean,checking:boolean,downloading:boolean,installing:boolean,downloaded?:string,status:UpdateStatus,version?:string,percent:number|null,detail:string}} UpdateState */
+/** @typedef {{hasWork:()=>boolean|Promise<boolean>,prepareInstall:()=>Promise<unknown>,recoverInstall?:()=>Promise<unknown>,onState?:(state:UpdateState)=>void}} UpdateLifecycle */
+/** @param {UpdateLifecycle & {updater:import('electron-updater').AppUpdater,config?:import('./config.cjs').UpdateConfig|null,version:string,platform?:NodeJS.Platform,arch?:string,notify?:(options:import('electron').MessageBoxOptions)=>Promise<import('electron').MessageBoxReturnValue>,prepareNativeInstall?:()=>Promise<void>,log?:Pick<Console,'warn'>}} options */
 function createUpdater({ updater, config, version, platform = process.platform, arch = process.arch,
   notify, onState, hasWork, prepareInstall, prepareNativeInstall, recoverInstall, log = console }) {
   const enabled = !!config && platform === 'darwin' && arch === 'arm64';
-  let checking = false, downloading = false, installing = false, installAttempt = false, installUnconfirmed = false, downloaded = null, available = null;
-  let highWater = version, status = 'idle', percent = null, detail = '';
+  let checking = false, downloading = false, installing = false, installAttempt = false, installUnconfirmed = false, downloaded = /** @type {import('electron-updater').UpdateInfo|null} */ (null), available = /** @type {import('electron-updater').UpdateInfo|null} */ (null);
+  let highWater = version, status = /** @type {UpdateStatus} */ ('idle'), percent = /** @type {number|null} */ (null), detail = '';
   updater.autoDownload = false;
   updater.autoInstallOnAppQuit = false;
   updater.allowDowngrade = false;
@@ -16,15 +21,14 @@ function createUpdater({ updater, config, version, platform = process.platform, 
   const state = () => ({ enabled, checking, downloading, installing, downloaded: downloaded?.version,
     status, version: downloaded?.version ?? available?.version, percent, detail });
   const publish = () => onState?.(state());
+  /** @param {UpdateStatus} next */
   const set = (next, nextDetail = '') => { status = next; detail = nextDetail; publish(); };
+  /** @param {string} message */
   const message = (message, detail = '') => notify?.({ type: 'info', message, detail, buttons: ['确定'] });
   updater.on('download-progress', progress => {
     if (!downloading) return;
     percent = Number.isFinite(progress?.percent) ? Math.max(0, Math.min(100, progress.percent)) : null;
     publish();
-  });
-  updater.on('download-validating', () => {
-    if (downloading) { percent = 100; set('validating'); }
   });
   updater.on('error', error => {
     log.warn('[areal-update]', error.message);
@@ -48,18 +52,19 @@ function createUpdater({ updater, config, version, platform = process.platform, 
       await prepareInstall();
       prepared = true;
       updater.quitAndInstall();
-    } catch (error) {
+    } catch (cause) {
+      const error = cause instanceof Error ? cause : new Error(String(cause));
       if (prepared) {
         set('error', `安装程序已接管重启；若应用没有重新打开，请手动退出并打开。${error.message}`);
         return state();
       }
       installing = false;
-      if (error.submissionUnknown) {
+      if ('submissionUnknown' in error && error.submissionUnknown) {
         installUnconfirmed = true;
         set('error', '后台停止结果待核对，不会重发安装。请检查后台资源后重新打开应用。' + error.message);
         return state();
       }
-      if (['CORE_RESOURCES', 'CORE_BUSY', 'LIFECYCLE_BLOCKED', 'LIFECYCLE_INCOMPLETE', 'CONFIRMATION_STALE'].includes(error.code)) {
+      if (['CORE_RESOURCES', 'CORE_BUSY', 'LIFECYCLE_BLOCKED', 'LIFECYCLE_INCOMPLETE', 'CONFIRMATION_STALE'].includes('code' in error && typeof error.code === 'string' ? error.code : '')) {
         set('deferred', `后台尚未就绪：${error.message}。处理后将自动重试。`);
         if (!onState) {
           const answer = await notify?.({ type: 'warning', message: '需要先处理后台状态', detail: error.message,
@@ -90,7 +95,8 @@ function createUpdater({ updater, config, version, platform = process.platform, 
       downloading = false;
       percent = 100;
       await install();
-    } catch (error) {
+    } catch (cause) {
+      const error = cause instanceof Error ? cause : new Error(String(cause));
       downloading = false;
       log.warn('[areal-update]', error.message);
       set('error', error.message);
@@ -102,7 +108,7 @@ function createUpdater({ updater, config, version, platform = process.platform, 
       if (manual && !onState) await message('更新操作正在进行', '请等待当前更新操作完成。');
       return state();
     }
-    if (!enabled) { if (manual) await message('更新不可用', '首版仅支持配置了产品更新源的 macOS Apple Silicon 安装包。'); return state(); }
+    if (!enabled || !config) { if (manual) await message('更新不可用', '首版仅支持配置了产品更新源的 macOS Apple Silicon 安装包。'); return state(); }
     if (downloaded) { if (manual) await install(); return state(); }
     // electron-updater remembers the latest check target; keep it aligned with the displayed offer.
     if (available) {
@@ -132,7 +138,8 @@ function createUpdater({ updater, config, version, platform = process.platform, 
           detail: '是否下载更新？下载不会中断当前任务。', buttons: ['稍后', '下载更新'], defaultId: 0, cancelId: 0 });
         if (answer?.response === 1) { checking = false; await download(); }
       }
-    } catch (error) {
+    } catch (cause) {
+      const error = cause instanceof Error ? cause : new Error(String(cause));
       log.warn('[areal-update]', error.message);
       set('error', error.message);
       if (manual) await message('更新失败', error.message);

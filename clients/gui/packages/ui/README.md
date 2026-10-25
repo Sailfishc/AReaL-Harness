@@ -32,7 +32,7 @@ core 组件在 3 个及以上生产文件使用后评估进入稳定入口 `@are
 
 ## 修改
 
-1. 基础值改 [tokens.json](tokens.json)，调色板派生改 [src/theme.ts](src/theme.ts)。组件改实现时同改旁边的 MD 合同。
+1. 基础值及调色板公式改 [tokens.json](tokens.json)；[src/theme.ts](src/theme.ts) 保留公共 API 与 WCAG 算法，派生实现由生成器输出。组件改实现时同改旁边的 MD 合同。
 2. `pnpm --filter @areal/ui generate` → `build` → `check`。生成产物在 `src/generated`，不要手改。
 3. 在 `clients/gui` 运行 `node scripts/design-system-audit.mjs` 与 `pnpm typecheck`，再验证受影响的页面。
 

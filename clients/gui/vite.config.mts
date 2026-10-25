@@ -109,6 +109,7 @@ export default defineConfig({
           "node scripts/verify-i18n.mjs",
           "node scripts/test-manifest.mjs",
           "node scripts/design-system-audit.mjs",
+          "node scripts/a11y-lint.mjs",
           "node scripts/state-projection-smoke.mjs",
           "node --test scripts/conversation-content.test.mjs scripts/activity-runs.test.mjs scripts/bundle.test.mjs scripts/provider-affinity.test.mjs scripts/provider-status.test.cjs scripts/side-restore.test.mjs scripts/operation-contract.test.cjs scripts/side-model-intent.test.mjs scripts/startup-recovery.test.mjs scripts/service-connection-recovery.test.mjs scripts/core-read-recovery.test.mjs scripts/bounded-history-client.test.mjs scripts/desktop-projection-transport.test.mjs scripts/lifecycle-bounded-history.test.mjs scripts/backend-status.test.mjs scripts/system-proxy.test.mjs scripts/history.test.mjs scripts/macos-service.test.mjs scripts/macos-signing-paths.test.mjs scripts/feedback.test.mjs",
           "pnpm test:worktree",
@@ -122,8 +123,9 @@ export default defineConfig({
       "design-suite": {
         command: [
           "pnpm --filter @areal/ui check",
-          "node --test scripts/design-system-catalog.test.mjs scripts/design-system-changes.test.mjs scripts/design-system-accessibility.test.mjs",
+          "node --test scripts/design-system-catalog.test.mjs scripts/design-system-changes.test.mjs scripts/design-system-accessibility.test.mjs scripts/a11y-lint.test.mjs scripts/design-system-baseline.test.mjs",
           "node scripts/design-system-audit.mjs",
+          "node scripts/a11y-lint.mjs",
         ],
         dependsOn: ["ui-build"],
         cache: false,

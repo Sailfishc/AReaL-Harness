@@ -10,7 +10,7 @@
 .areal-subagent-name { min-width: 0; flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; }
 .areal-subagent-row small { color: var(--color-foreground-subtle); font-size: var(--text-ui-xs); }
 .areal-subagent-state { display: inline-flex; align-items: center; gap: 4px; flex: none; color: var(--color-foreground-subtle); font-size: var(--text-ui-xs); }
-.areal-subagent-state[data-state="attention"] svg { color: var(--color-warning); }
+.areal-subagent-state[data-state="attention"] svg { color: var(--color-status-attention); }
 .areal-subagent-more { margin-top: var(--spacing-inline); color: var(--color-foreground-subtle); }
 .areal-subagent-history { font-size: var(--content-font-size, var(--text-ui-base)); line-height: 1.8; }
 .areal-subagent-history > p { margin-block: var(--spacing-field); }

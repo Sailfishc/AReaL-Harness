@@ -1,7 +1,8 @@
 "use strict";
+const { makeTempDir } = require("./support/temp.mjs");
 const assert = require("node:assert/strict");
 const { test, after } = require("node:test");
-const { mkdtemp, mkdir, realpath, rm } = require("node:fs/promises");
+const { mkdir, realpath, rm } = require("node:fs/promises");
 const { join } = require("node:path");
 const { createHash } = require("node:crypto");
 const coreProcess = require("../app/src/core/core-process.cjs");
@@ -32,7 +33,7 @@ const request = {
 };
 
 async function fixture(t) {
-  const home = await mkdtemp("/private/tmp/areal-catalog-preview-");
+  const home = await makeTempDir("areal-catalog-preview-");
   t.after(() => rm(home, { recursive: true, force: true }));
   const root = join(home, "workspace"),
     dataDir = join(home, "owner", "state");

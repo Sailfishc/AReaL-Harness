@@ -1,3 +1,4 @@
+// @ts-check
 'use strict';
 const { executeCore } = require('./core-process.cjs');
 const { statSync } = require('node:fs');
@@ -7,14 +8,16 @@ const requiredCoreCommands = Object.freeze([
   Object.freeze(['config', 'models', 'write']),
 ]);
 
+/** @param {string} binary @param {readonly string[]} args */
 async function coreCommandHelp(binary, args) {
   try {
     return (await executeCore(binary, [...args, '--help'], { timeout: 5000 })).stdout;
   } catch (error) {
-    return `${error.stdout ?? ''}\n${error.stderr ?? ''}`;
+    return `${error instanceof Error && 'stdout' in error ? error.stdout : ''}\n${error instanceof Error && 'stderr' in error ? error.stderr : ''}`;
   }
 }
 
+/** @param {string} binary */
 async function inspectCoreCapabilities(binary) {
   const help = await Promise.all(requiredCoreCommands.map(args => coreCommandHelp(binary, args.slice(0, -1))));
   const missing = requiredCoreCommands.filter((args, index) => /unrecognized subcommand/.test(help[index]));
@@ -31,8 +34,10 @@ async function inspectCoreCapabilities(binary) {
 
 // Project only the current connection's public declaration. This does not
 // grant permissions, start a workspace, or infer support from source/version.
+/** @param {string} binary @param {import('../../../packages/runtime-client/capabilities.js').CoreCapabilities|null|undefined} capabilities */
 function projectCoreCapabilities(binary, capabilities) {
   const methods = new Set(capabilities?.methods ?? []);
+  /** @param {...string} required */
   const supports = (...required) => required.every(method => methods.has(method));
   return {
     binary,

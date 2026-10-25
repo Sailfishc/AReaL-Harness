@@ -7,6 +7,12 @@ on:
         description: Ancestor commit used for incremental source checks
         required: false
         type: string
+      qualification:
+        description: Optional repeated platform qualification; reports require review before promotion
+        required: false
+        type: choice
+        options: [none, linux-feasibility, macos-baseline]
+        default: none
   pull_request:
   push:
     branches: [main]
@@ -36,6 +42,8 @@ jobs:
     outputs:
       gui: ${{ steps.scope.outputs.gui }}
       release: ${{ steps.scope.outputs.release }}
+      smoke_matrix: ${{ steps.tests.outputs.matrix }}
+      baseline_matrix: ${{ steps.tests.outputs.baseline }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -43,13 +51,30 @@ jobs:
           fetch-depth: 0
       - id: scope
         run: python3 scripts/ci-scope.py
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '24.22.1'
+      - id: tests
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          args=()
+          if [ -n "$PR_BASE" ]; then
+            args+=("--base=$(git merge-base "$PR_BASE" HEAD)")
+          fi
+          echo "matrix=$(node clients/gui/scripts/test-manifest.mjs --ci-matrix "${args[@]}")" >> "$GITHUB_OUTPUT"
+          node --input-type=module - <<'NODE' >> "$GITHUB_OUTPUT"
+          import { readTestManifest } from './clients/gui/scripts/test-manifest.mjs';
+          const entries = (await readTestManifest()).filter(entry => entry.layer === 'e2e' && entry.platforms.includes('darwin') && !entry.requires.includes('desktop-input'));
+          console.log('baseline=' + JSON.stringify({ include: entries.map(entry => ({ script: entry.script, scenario: entry.script.replaceAll(':', '-') })) }));
+          NODE
 
   gui-health:
-    name: Linux GUI health and portable contracts
+    name: Linux GUI static health
     needs: scope
     if: needs.scope.outputs.gui == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 2
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -58,15 +83,6 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: '24.22.1'
-      - name: Install locked GUI dependencies
-        run: |
-          npm install --global pnpm@11.7.0
-          pnpm --dir clients/gui install --frozen-lockfile
-      - name: Build portable package inputs
-        run: |
-          pnpm --dir clients/gui build:desktop
-          pnpm --dir clients/gui --filter @areal/ui build
-          pnpm --dir clients/gui --filter @areal/gui-renderer build
       - name: Check health against the reviewed baseline
         env:
           PR_BASE: ${{ github.event.pull_request.base.sha }}
@@ -90,6 +106,39 @@ jobs:
             node clients/gui/scripts/gui-health.mjs --check
           fi
           node clients/gui/scripts/gui-health.mjs > target/ci/gui/health.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: linux-gui-health
+          path: target/ci/gui/health.json
+          if-no-files-found: warn
+
+
+  gui-portable:
+    name: Linux GUI portable contracts
+    needs: scope
+    if: needs.scope.outputs.gui == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Start measured portable interval
+        run: echo "GUI_PORTABLE_STARTED=$(date +%s)" >> "$GITHUB_ENV"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '24.22.1'
+      - name: Install locked GUI dependencies
+        run: |
+          npm install --global pnpm@11.7.0
+          pnpm --dir clients/gui install --frozen-lockfile
+      - name: Build portable package inputs
+        run: |
+          pnpm --dir clients/gui build:desktop
+          pnpm --dir clients/gui --filter @areal/ui build
+          pnpm --dir clients/gui --filter @areal/gui-renderer build
       - name: Validate registered portable tests
         working-directory: clients/gui
         run: |
@@ -102,11 +151,20 @@ jobs:
         run: |
           npm --prefix services/remote-relay ci --ignore-scripts
           pnpm --dir clients/gui run test:remote-relay
+      - name: Record portable interval
+        if: always()
+        run: |
+          mkdir -p target/ci/gui
+          node --input-type=module - <<'NODE'
+          import { writeFileSync } from 'node:fs';
+          const elapsedMs = Date.now() - Number(process.env.GUI_PORTABLE_STARTED) * 1000;
+          writeFileSync('target/ci/gui/portable-interval.json', JSON.stringify({ elapsedMs, withinTenMinutes: elapsedMs < 600000, scope: 'first run step through final report; excludes runner provisioning and artifact upload', runId: process.env.GITHUB_RUN_ID, attempt: process.env.GITHUB_RUN_ATTEMPT, sha: process.env.GITHUB_SHA }, null, 2) + '\n');
+          NODE
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
-          name: linux-gui-health
-          path: target/ci/gui/health.json
+          name: linux-gui-portable
+          path: target/ci/gui/portable-*.json
           if-no-files-found: warn
 
   gui:
@@ -115,7 +173,11 @@ jobs:
     name: macOS GUI build and contracts
     runs-on: macos-15
     timeout-minutes: 60
+    env:
+      TMPDIR: ${{ runner.temp }}/gui-build
     steps:
+      - name: Prepare isolated build temporary root
+        run: mkdir -p "$TMPDIR"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
@@ -156,7 +218,7 @@ jobs:
           key: gui-deps-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('clients/gui/pnpm-lock.yaml') }}
       - name: Prepare locked GUI dependencies
         run: |
-          mkdir -p target/ci/gui
+          mkdir -p target/ci/gui "$TMPDIR"
           rustup show
           if ! command -v cmake; then brew install cmake; fi
           make gui-install
@@ -217,9 +279,7 @@ jobs:
             target/ci/gui/fingerprint.json
             target/ci/gui/bundle-report.json
             clients/gui/renderer/dist/bundle-analysis.json
-            /private/tmp/areal-core-process-*/
-            /private/tmp/areal-browser-*/
-            /private/tmp/shared-browser-06-evidence-*/
+            ${{ runner.temp }}/gui-build/
           retention-days: 7
 
   smoke:
@@ -228,26 +288,15 @@ jobs:
     if: needs.scope.outputs.gui == 'true'
     runs-on: macos-15
     timeout-minutes: 15
+    env:
+      TMPDIR: ${{ runner.temp }}/gui-smoke
     strategy:
       fail-fast: false
       max-parallel: 6
-      matrix:
-        include:
-          - scenario: history
-            script: test:history-compat
-          - scenario: migration
-            script: test:e2e
-          - scenario: composer
-            script: test:composer
-          - scenario: model-selection
-            script: test:model-selection
-          - scenario: queue
-            script: test:queue
-          - scenario: conversation-derivation
-            script: test:conversation-derivation
-          - scenario: side-chat
-            script: test:side-chat-parity
+      matrix: ${{ fromJSON(needs.scope.outputs.smoke_matrix) }}
     steps:
+      - name: Prepare isolated smoke temporary root
+        run: mkdir -p "$TMPDIR"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
@@ -268,7 +317,9 @@ jobs:
             ~/Library/Caches/ms-playwright
           key: gui-deps-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('clients/gui/pnpm-lock.yaml') }}
       - name: Prepare locked GUI dependencies
-        run: make gui-install
+        run: |
+          mkdir -p "$TMPDIR"
+          make gui-install
       - name: Build desktop package entry points
         run: pnpm --dir clients/gui build:desktop
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
@@ -293,9 +344,9 @@ jobs:
         run: |
           python3 - <<'PYTHON'
           import glob
+          import os
           import tarfile
-          roots = ["target/ci/gui/smoke.log", ".scratch/gui-evidence", ".scratch/side-chat-parity"]
-          roots += [path for pattern in ("/private/tmp/areal-gui-*", "/private/tmp/ams-*", "/private/tmp/ahc-*", "/private/tmp/scp-*") for path in glob.glob(pattern)]
+          roots = ["target/ci/gui/smoke.log", ".scratch/gui-evidence", ".scratch/side-chat-parity", os.environ["TMPDIR"]]
           with tarfile.open("gui-smoke-evidence.tar.gz", "w:gz") as archive:
               for path in roots:
                   if glob.glob(path):
@@ -309,9 +360,100 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  linux-feasibility:
+    name: Linux Electron repeated qualification
+    needs: scope
+    if: github.event_name == 'workflow_dispatch' && inputs.qualification == 'linux-feasibility'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '24.22.1'
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+      - name: Prepare native Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap xvfb libgtk-3-0 libnss3 libasound2t64 libgbm1 cmake
+          npm install --global pnpm@11.7.0
+          make gui-install
+      - name: Build and freeze qualification inputs
+        run: |
+          make build
+          make gui-build
+          mkdir -p .local/dev-bin/gui-qualification
+          cp -R target/debug/areal target/debug/areal-runtime target/debug/areal-runtime-fs target/debug/areal-runtime-reaper target/debug/shells .local/dev-bin/gui-qualification/
+      - name: Qualify five sandboxed journeys with ten first attempts each
+        env:
+          AREAL_CORE_BIN: ${{ github.workspace }}/.local/dev-bin/gui-qualification/areal
+        run: xvfb-run -a node clients/gui/scripts/repeat-tests.mjs --profile=linux-feasibility --output=target/ci/gui/linux-feasibility
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: linux-gui-feasibility
+          path: |
+            target/ci/gui/linux-feasibility/
+            .scratch/startup-connection-investigation/
+          if-no-files-found: warn
+          retention-days: 7
+
+  macos-baseline:
+    name: macOS repeated baseline (${{ matrix.scenario }})
+    needs: [scope, gui]
+    if: github.event_name == 'workflow_dispatch' && inputs.qualification == 'macos-baseline'
+    runs-on: macos-15
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix: ${{ fromJSON(needs.scope.outputs.baseline_matrix) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '24.22.1'
+      - name: Prepare locked GUI dependencies
+        run: |
+          npm install --global pnpm@11.7.0
+          make gui-install
+          pnpm --dir clients/gui build:desktop
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: macos-gui-smoke-inputs
+          path: target/ci/gui
+      - name: Restore and freeze matching Core inputs
+        run: |
+          tar -xzf target/ci/gui/gui-smoke-inputs.tar.gz
+          test "$(cat target/ci/gui/source.sha)" = "$(git rev-parse HEAD)"
+          mkdir -p .local/dev-bin/gui-qualification
+          cp -R target/debug/areal target/debug/areal-runtime target/debug/areal-runtime-fs target/debug/shells .local/dev-bin/gui-qualification/
+      - name: Record five first attempts
+        env:
+          AREAL_CORE_BIN: ${{ github.workspace }}/.local/dev-bin/gui-qualification/areal
+          SMOKE_SCRIPT: ${{ matrix.script }}
+        run: node clients/gui/scripts/repeat-tests.mjs --profile=macos-baseline "--scripts=$SMOKE_SCRIPT" --output=target/ci/gui/macos-baseline
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: macos-gui-baseline-${{ matrix.scenario }}
+          path: |
+            target/ci/gui/macos-baseline/
+            .scratch/gui-evidence/
+            .scratch/side-chat-parity/
+            .scratch/startup-connection-investigation/
+          if-no-files-found: warn
+          retention-days: 7
+
   gate:
     name: GUI gate
-    needs: [scope, gui-health, gui, smoke]
+    needs: [scope, gui-health, gui-portable, gui, smoke]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -325,5 +467,6 @@ jobs:
           WORK_RESULT: ${{ needs.gui.result }}
           SMOKE_RESULT: ${{ needs.scope.outputs.gui == 'false' && 'success' || needs.smoke.result }}
           HEALTH_RESULT: ${{ needs.scope.outputs.gui == 'false' && 'success' || needs.gui-health.result }}
+          PORTABLE_RESULT: ${{ needs.scope.outputs.gui == 'false' && 'success' || needs.gui-portable.result }}
           NEEDED: ${{ needs.scope.outputs.gui }}
         run: python3 scripts/ci-gate.py

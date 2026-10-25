@@ -1,15 +1,18 @@
+// @ts-check
 "use strict";
 const { createServer, connect } = require("node:net");
 const { createHash } = require("node:crypto");
 
+/** @param {NodeJS.ProcessEnv} environment
+ * @param {{ports?:Record<string,number>,save?:(ports:Record<string,number>)=>Promise<void>,platform?:NodeJS.Platform}} [options] */
 async function proxyRelay(
     environment,
     { ports = {}, save = async () => {}, platform = process.platform } = {},
 ) {
     const env = { ...environment },
-        servers = [],
-        sockets = new Set(),
-        replacements = new Map();
+        servers = /** @type {import("node:net").Server[]} */ ([]),
+        sockets = new Set(/** @type {import("node:net").Socket[]} */ ([])),
+        replacements = new Map(/** @type {[string,string][]} */ ([]));
     const close = async () => {
         for (const socket of sockets) socket.destroy();
         await Promise.all(servers.map((server) => new Promise((resolve) => server.close(resolve))));
@@ -65,14 +68,15 @@ async function proxyRelay(
                     });
                 });
                 servers.push(server);
-                await new Promise((resolve, reject) => {
+                await new Promise(/** @param {(value?:void)=>void} resolve */ (resolve, reject) => {
                     server.once("error", reject);
                     server.listen(port, "127.0.0.1", () => {
                         server.removeListener("error", reject);
                         resolve();
                     });
                 });
-                ports[key] = server.address().port;
+                // This server listens on a numeric TCP port, never an IPC path.
+                ports[key] = /** @type {import("node:net").AddressInfo} */ (server.address()).port;
                 target.hostname = "127.0.0.1";
                 target.port = String(ports[key]);
                 replacements.set(value, target.toString());

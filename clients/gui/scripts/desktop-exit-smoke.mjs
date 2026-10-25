@@ -1,6 +1,7 @@
+import { makeTempDir } from "./support/temp.mjs";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
-import { mkdtemp, mkdir, readFile, writeFile, readdir, realpath } from "node:fs/promises";
+import { mkdir, readFile, writeFile, readdir, realpath } from "node:fs/promises";
 import { join, resolve, dirname, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync, spawn } from "node:child_process";
@@ -250,7 +251,7 @@ if (runnerPath) {
 const interruption = process.argv
   .find((arg) => arg.startsWith("--await-interruption="))
   ?.slice("--await-interruption=".length);
-const scratch = interruption || (await mkdtemp("/private/tmp/ae-"));
+const scratch = interruption || (await makeTempDir("ae-"));
 console.log("Application lifecycle evidence:", scratch);
 const workspace = join(scratch, "workspace");
 await mkdir(workspace);

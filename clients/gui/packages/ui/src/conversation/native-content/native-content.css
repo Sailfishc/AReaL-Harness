@@ -20,4 +20,4 @@
 .areal-native-track > span { display: block; height: 100%; border-radius: inherit; background: var(--color-brand); }
 .areal-native-content pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .areal-native-content[data-tone="warning"] { border-color: var(--color-warning); }
-.areal-native-content[data-tone="success"] { border-color: var(--color-success); }
+.areal-native-content[data-tone="success"] { border-color: var(--color-status-success); }

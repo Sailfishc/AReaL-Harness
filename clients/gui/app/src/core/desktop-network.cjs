@@ -1,3 +1,4 @@
+// @ts-check
 'use strict';
 const { openSync, fstatSync, readSync, closeSync, constants } = require('node:fs');
 const { mkdir, mkdtemp, writeFile } = require('node:fs/promises');
@@ -14,11 +15,13 @@ const SUPPORTED_CRITICAL_EXTENSIONS = new Set(['2.5.29.15', '2.5.29.17', '2.5.29
 const CA_FILE_ENV = ['SSL_CERT_FILE', 'NODE_EXTRA_CA_CERTS', 'REQUESTS_CA_BUNDLE', 'CURL_CA_BUNDLE', 'GIT_SSL_CAINFO'];
 const PEM_CERTIFICATE = /-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/g;
 
+/** @param {unknown} value @param {string} name */
 function settingString(value, name, limit = 4096) {
   if (value === undefined) return '';
   if (typeof value !== 'string' || value.length > limit || /[\x00-\x1f\x7f]/.test(value)) throw new Error(`Invalid ${name}`);
   return value.trim();
 }
+/** @param {unknown} value */
 function proxySetting(value) {
   const text = settingString(value, 'HTTP proxy');
   if (!text) return '';
@@ -28,6 +31,7 @@ function proxySetting(value) {
     || url.pathname !== '/' || url.search || url.hash) throw new Error('HTTP proxy requires an HTTP(S) host and port without credentials, path or query');
   return url.origin;
 }
+/** @param {unknown} value */
 function bypassSetting(value) {
   const text = settingString(value, 'proxy bypass');
   return [...new Set(text.split(/[;,\s]+/).filter(Boolean).map(raw => {
@@ -41,6 +45,7 @@ function bypassSetting(value) {
     throw new Error('Proxy bypass supports hosts, domains, IP addresses and CIDR ranges without ports');
   }))].join(',');
 }
+/** @param {string} path */
 function readCaBundle(path, requireSelfSigned = true) {
   if (!isAbsolute(path)) throw new Error('CA certificate must be an absolute PEM file path');
   const fd = openSync(path, constants.O_RDONLY | constants.O_NONBLOCK);
@@ -59,6 +64,7 @@ function readCaBundle(path, requireSelfSigned = true) {
   if (requireSelfSigned && roots.some(cert => !cert.ca || !cert.checkIssued(cert) || !cert.verify(cert.publicKey))) throw new Error('CA bundle must contain self-signed certificate authorities');
   return roots;
 }
+/** @param {string} key @param {unknown} value */
 function normalizeNetworkSetting(key, value) {
   if (key === 'httpProxy') return proxySetting(value);
   if (key === 'httpProxyNoProxy') return bypassSetting(value);
@@ -69,10 +75,14 @@ function normalizeNetworkSetting(key, value) {
   }
   throw new Error('Unknown network setting');
 }
+/** @typedef {{httpProxy?:unknown,httpProxyNoProxy?:unknown,httpProxyCaCertPath?:unknown}} DesktopNetworkSettings */
+/** @param {DesktopNetworkSettings} [settings] @param {NodeJS.ProcessEnv} [source]
+ * @param {{platform?:NodeJS.Platform,run?:Parameters<typeof systemProxyEnvironment>[2],caBundleDirectory?:string}} [options] */
 async function resolveDesktopNetwork(settings = {}, source = process.env, options = {}) {
   const proxy = proxySetting(settings.httpProxy);
   const bypass = bypassSetting(settings.httpProxyNoProxy);
   const caPath = normalizeNetworkSetting('httpProxyCaCertPath', settings.httpProxyCaCertPath);
+  /** @type {NodeJS.ProcessEnv} */
   const env = proxy ? Object.fromEntries(['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy'].map(key => [key, proxy]))
     : await systemProxyEnvironment(source, options.platform, options.run);
   if (proxy) env.AREAL_CHATGPT_SYSTEM_PROXY = proxy;
@@ -80,13 +90,13 @@ async function resolveDesktopNetwork(settings = {}, source = process.env, option
   for (const key of [...CA_FILE_ENV, 'SSL_CERT_DIR']) if (source[key]) env[key] = source[key];
   if (caPath) {
     const roots = readCaBundle(caPath).map(cert => cert.toString());
-    for (const inherited of new Set(CA_FILE_ENV.map(key => source[key]).filter(Boolean))) roots.push(...readCaBundle(inherited, false).map(cert => cert.toString()));
+    for (const inherited of new Set(CA_FILE_ENV.map(key => source[key]).filter((value) => typeof value === 'string'))) roots.push(...readCaBundle(inherited, false).map(cert => cert.toString()));
     const combined = [...new Set([...getCACertificates('default'), ...getCACertificates('system'), ...roots])].join('\n');
     const directory = options.caBundleDirectory ?? await mkdtemp(join(tmpdir(), 'areal-network-ca-'));
     await mkdir(directory, { recursive: true, mode: 0o700 });
     const path = join(directory, `${createHash('sha256').update(combined).digest('hex')}.pem`);
     try { await writeFile(path, combined, { mode: 0o600, flag: 'wx' }); }
-    catch (error) { if (error.code !== 'EEXIST') throw error; }
+    catch (error) { if (!(error instanceof Error) || !('code' in error) || error.code !== 'EEXIST') throw error; }
     env.SSL_CERT_FILE = path;
     env.NODE_EXTRA_CA_CERTS = path;
     env.REQUESTS_CA_BUNDLE = env.CURL_CA_BUNDLE = env.GIT_SSL_CAINFO = path;
@@ -94,6 +104,7 @@ async function resolveDesktopNetwork(settings = {}, source = process.env, option
   return env;
 }
 
+/** @param {import("electron").Request} request @param {X509Certificate[]} roots */
 async function verifyAdditionalCertificate(request, roots) {
   const { Certificate, CertificateChainValidationEngine, CryptoEngine } = require('pkijs');
   const chain = [], seen = new Set();
@@ -111,14 +122,14 @@ async function verifyAdditionalCertificate(request, roots) {
   const parsed = chain.map(cert => Certificate.fromBER(cert.raw));
   const trustedCerts = roots.map(cert => Certificate.fromBER(cert.raw));
   const engine = new CertificateChainValidationEngine({ certs: parsed.reverse(), trustedCerts });
-  const crypto = new CryptoEngine({ name: 'NodeWebCrypto', crypto: webcrypto });
+  const crypto = new CryptoEngine({ name: 'NodeWebCrypto', crypto: /** @type {Crypto} */ (webcrypto) });
   const result = await engine.verify({}, crypto);
   if (!result.result) return false;
   for (const [index, cert] of engine.certs.entries()) {
     for (const extension of cert.extensions ?? []) {
       if (extension.parsedValue?.parsingError !== undefined || extension.critical
         && (!SUPPORTED_CRITICAL_EXTENSIONS.has(extension.extnID) || !extension.parsedValue)) return false;
-      if (extension.extnID === '2.5.29.37' && !extension.parsedValue.keyPurposes.some(oid => ['1.3.6.1.5.5.7.3.1', '2.5.29.37.0'].includes(oid))) return false;
+      if (extension.extnID === '2.5.29.37' && !extension.parsedValue.keyPurposes.some(/** @param {string} oid */ oid => ['1.3.6.1.5.5.7.3.1', '2.5.29.37.0'].includes(oid))) return false;
       if (extension.extnID === '2.5.29.19' && extension.parsedValue.pathLenConstraint !== undefined
         && Math.max(0, index - 1) > extension.parsedValue.pathLenConstraint) return false;
       if (index === 0 && extension.extnID === '2.5.29.15' && !(extension.parsedValue.valueBlock.valueHexView[0] & 0xa0)) return false;
@@ -126,6 +137,8 @@ async function verifyAdditionalCertificate(request, roots) {
   }
   return true;
 }
+/** @param {import('electron').Session} session @param {DesktopNetworkSettings} [settings]
+ * @param {{fallbackProxyMode?:'direct'|'auto_detect'|'pac_script'|'fixed_servers'|'system'}} [options] */
 async function applyDesktopSessionNetworkPolicy(session, settings = {}, { fallbackProxyMode = 'system' } = {}) {
   const proxy = proxySetting(settings.httpProxy);
   const bypass = bypassSetting(settings.httpProxyNoProxy);

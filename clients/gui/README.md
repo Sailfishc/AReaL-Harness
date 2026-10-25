@@ -6,6 +6,8 @@
 
 工程检查沿用现有 Vite+ 入口。`pnpm --dir clients/gui health` 检查生产源码尺寸、采用率及存量债务；`verify:tests` 校验根包测试清单，`test:unit` 运行 Renderer 与 UI 包的纯行为测试。`node clients/gui/scripts/run-portable-tests.mjs` 按清单选择当前平台上不需要 Core 或原生界面的测试。Linux CI 的配置不表示本机已经完成 Linux 验收。
 
+测试注册、领域选择、平台前提和重复资格命令见[测试指南](../../docs/development/testing.md#gui-测试清单与平台资格)。新测试必须登记；临时目录使用 `scripts/support/temp.mjs`。`test-manifest.mjs --ci-matrix --base=<commit>` 从清单选择现有 macOS smoke；未知或共享路径保留全量。Linux 五条核心旅程各 10 次、macOS E2E 各 5 次通过 `repeat-tests.mjs` 运行并保留首跑结果。Linux 通过率至少 95% 且无阻塞才有资格提交人工审阅；未执行的 CI、blocked 环境和单元检查不能代替桌面验收。
+
 生产构建生成 `renderer/dist/bundle-analysis.json`，记录实际 chunk 的模块、静态依赖与哈希。`verify:bundle` 检查 HTML 入口的完整静态闭包、总 JS 及延迟 chunk 预算。`bundle-budget.json` 初始保留 5% 字节余量；`node clients/gui/scripts/bundle-budget.mjs --write` 只允许收紧预算。健康基线更新也只允许改善，CI 会检查相对基准提交的放宽。检查器和基线的限制见 [spec 源码核查](specs/implementation-decisions.md)。
 
 Web/PWA Remote v2 的实施边界见[架构](../../docs/design/remote-control.md)、[API](../../docs/api/remote-control.md)、[连接与部署](../../docs/guides/remote-control.md)及[验收计划](../../docs/development/remote-control-testing.md)。源码已实现默认关闭的入口、浏览器申请与桌面确认、显式项目授权及设备撤销，以及工作概览、会话详情、创建与发送、精确轮次停止、审批和问题回复、任务暂停及结果审查。Direct 与独立 Relay 共用 Host 授权和加密协议；容器部署脚手架见 [Relay 部署](../../services/remote-relay/deploy/README.md)。源码实现不代表真实手机、生产浏览器 TLS、公网网络、系统钥匙串或安装包验收通过，各层仍需独立证据。

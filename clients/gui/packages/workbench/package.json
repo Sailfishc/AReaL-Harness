@@ -18,6 +18,10 @@
       "require": "./client/state-projection.cjs"
     },
     "./core-model": "./client/core-model.js",
-    "./core-panels": "./client/core-panels.js"
+    "./core-panels": "./client/core-panels.js",
+    "./core-model-contract": {
+      "types": "./client/core-model-contract.js",
+      "default": "./client/core-model-contract.js"
+    }
   }
 }

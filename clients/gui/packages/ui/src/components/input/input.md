@@ -41,6 +41,8 @@ exports: ["Input", "inputVariants"]
 
 从@areal/ui导入，基础样式使用styles.css。原renderer路径转接同一实现；包不导入Intl、服务、凭据或存储。未提升稳定API或Base准入。
 
+`unstyled` 仅用于已经拥有完整外观的组合，如会话搜索与重命名弹层。它保留原生输入、输入法、事件、disabled 和 ref，不应用尺寸与外观 recipe。组合负责布局和可见焦点；普通字段仍使用原有 size。
+
 ## 示例
 
 [独立实例](../../../../../renderer/design-system.html?ui-library#component-input)直接使用包导出，生产消费者继续沿原路径。

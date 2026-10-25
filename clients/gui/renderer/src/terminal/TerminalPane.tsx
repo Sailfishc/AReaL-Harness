@@ -75,13 +75,13 @@ export function TerminalPane({ project, thread, action, onError, onLink, termina
   return <section className="terminal-pane flex h-full min-h-0 flex-col overflow-hidden bg-background" style={{ padding: 0 }}>
     {!terminalId && <div className="panel-toolbar flex shrink-0 items-center gap-1">
       <div role="tablist" aria-label="终端实例" className="flex min-w-0 flex-1 gap-1 overflow-x-auto">{state.ids.map(value => <button key={value} role="tab" aria-selected={value === id} className={`text-button shrink-0 ${value === id ? "bg-selected" : ""}`} onClick={() => selectTerminal(owner, value)}>{terminalTitle(owner, value, project.root)}</button>)}</div>
-      <select aria-label="新终端保留范围" title="Turn 终端需要正在执行的任务，范围由 Core 校验" value={nextLifetime} onChange={event => setNextLifetime(event.target.value === "turn" ? "turn" : "thread")} className="rounded border border-border bg-background px-2 py-1 text-xs">
+      <select aria-label="新终端保留范围" title="Turn 终端需要正在执行的任务，范围由 Core 校验" value={nextLifetime} onChange={event => setNextLifetime(event.target.value === "turn" ? "turn" : "thread")} className="rounded border border-border bg-background px-2 py-1 text-compact-caption">
         <option value="thread">Thread · 当前对话</option><option value="turn">Turn · 当前任务</option>
       </select>
       <button className="icon-button" aria-label="新建终端" onClick={() => addTerminal(owner, nextLifetime)}><Plus size={15} /></button>
       <button className="icon-button" aria-label="关闭当前终端" disabled={!id || closing || restarting} onClick={() => void close()}><X size={15} /></button>
     </div>}
-    {status && (status.runtime?.state !== "running" || status.partialOutput || status.error) && <div className="flex shrink-0 flex-wrap gap-x-3 gap-y-1 border-b border-border px-3 py-1 text-xs" aria-label="终端运行状态">
+    {status && (status.runtime?.state !== "running" || status.partialOutput || status.error) && <div className="flex shrink-0 flex-wrap gap-x-3 gap-y-1 border-b border-border px-3 py-1 text-compact-caption" aria-label="终端运行状态">
       <span role="status">{status.runtime ? `${status.runtime.state === "exited" ? "终端已退出" : status.runtime.state === "running" ? "终端运行中" : "终端状态未知"}${status.runtime.exitCode !== null ? ` · 退出码 ${status.runtime.exitCode}` : ""}${status.runtime.signal ? ` · 信号 ${status.runtime.signal}` : ""}` : "终端运行状态暂不可用"}</span>
       {status.runtime?.state !== "running" && <span>{status.cleanupConfirmed ? "终端资源已清理" : "终端资源尚未确认清理"}</span>}
       {status.partialOutput && <span role="status">终端输出存在缺口或截断</span>}

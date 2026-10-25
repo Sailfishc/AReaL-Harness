@@ -19,7 +19,11 @@ async function filesAt(root, dir) {
   const entries = await readdir(resolve(root, dir), { recursive: true });
   return entries
     .filter((file) => sourceExtension.test(file) && !excluded.test(`${dir}/${file}`))
-    .filter((file) => dir !== "packages" || /^[^/]+\/src\//.test(file))
+    .filter((file) =>
+      dir !== "packages" ||
+      /^[^/]+\/(?:src|client)\//.test(file) ||
+      (/^[^/]+\/[^/]+$/.test(file) && !/(?:^|\/)(?:build\.[^/]+|[^/]+\.config\.[^/]+|[^/]+\.d\.[cm]?ts)$/.test(file)),
+    )
     .sort()
     .map((file) => `${dir}/${file}`);
 }
@@ -62,6 +66,21 @@ export async function collectHealth({ root = gui } = {}) {
     JSON.parse(await readFile(resolve(root, "package.json"), "utf8")).scripts ?? {},
   ).filter((script) => script.startsWith("test:"));
   const adoption = await collectUiAdoption({ root });
+  const experimentalSource = await readFile(
+    resolve(root, "packages/ui/experimental-allowlist.json"),
+    "utf8",
+  ).catch((error) => {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  });
+  const experimental = experimentalSource === null ? null : JSON.parse(experimentalSource);
+  if (experimental !== null && !Array.isArray(experimental))
+    throw new Error("Invalid experimental import allowance");
+  const accessibilitySource = await readFile(resolve(root, "design-system/accessibility-baseline.json"), "utf8").catch(error => {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  });
+  const accessibility = accessibilitySource === null ? null : JSON.parse(accessibilitySource);
   const lintSources = [...files.map((file) => file.source), ...scriptSources];
   const metrics = {
     mainCheckedFiles: row(
@@ -100,11 +119,51 @@ export async function collectHealth({ root = gui } = {}) {
       "renderer/src",
       "Production files importing or re-exporting the wip entry",
     ),
+    experimentalImports: row(
+      experimental?.length ?? null,
+      "down",
+      "packages/ui/experimental-allowlist.json",
+      "File/symbol allowances; verify:design separately proves exact correspondence to imports",
+    ),
+    tsIgnores: row(
+      files.reduce(
+        (total, file) =>
+          total +
+          [...file.source.matchAll(/(?:\/\/[^\n]*|\/\*[\s\S]*?\*\/)/g)].reduce(
+            (count, comment) => count + [...comment[0].matchAll(/@ts-ignore\b/g)].length,
+            0,
+          ),
+        0,
+      ),
+      "down",
+      "app/src renderer/src packages",
+      "Production type-ignore directives, excluding tests/generated/vendor",
+    ),
+    tsExpectErrors: row(
+      files.reduce(
+        (total, file) =>
+          total +
+          [...file.source.matchAll(/(?:\/\/[^\n]*|\/\*[\s\S]*?\*\/)/g)].reduce(
+            (count, comment) => count + [...comment[0].matchAll(/@ts-expect-error\b/g)].length,
+            0,
+          ),
+        0,
+      ),
+      "down",
+      "app/src renderer/src packages",
+      "Production expected-error directives, excluding tests/generated/vendor",
+    ),
     rendererCssLines: row(
       sum(renderer.filter((file) => file.path.endsWith(".css"))),
       "down",
       "renderer/src",
       "Physical CSS lines excluding design previews",
+    ),
+    nonLayoutCssFiles: row(
+      renderer.filter((file) => file.path.endsWith(".css") && !file.path.endsWith(".layout.css")).length,
+      "down",
+      "renderer/src",
+      "Production CSS files other than explicitly owned layout styles",
     ),
     literalDebt: row(
       literalTotal.reduce((total, value) => total + value, 0),
@@ -117,6 +176,16 @@ export async function collectHealth({ root = gui } = {}) {
       "down",
       "scripts",
       "Number of script source files containing /private/tmp, including tests",
+    ),
+    a11yModerateIssues: row(
+      accessibility?.moderateIssues ?? null,
+      "down", "design-system/accessibility-baseline.json",
+      "Reviewed moderate issue budget; test:design validates actual mounted preview findings",
+    ),
+    contrastExceptions: row(
+      accessibility?.contrastExceptions.length ?? null,
+      "down", "design-system/accessibility-baseline.json",
+      "Registered default-theme contrast exceptions; custom diagnostics do not count as exceptions",
     ),
     lintDisables: row(
       lintSources.reduce(
@@ -131,7 +200,7 @@ export async function collectHealth({ root = gui } = {}) {
         0,
       ),
       "down",
-      "app/src renderer/src packages/*/src scripts",
+      "app/src renderer/src packages scripts",
       "Disable directives inside line/block comments",
     ),
     unregisteredTests: row(
@@ -167,7 +236,7 @@ export async function collectHealth({ root = gui } = {}) {
       .update(files.map((file) => `${file.path}\0${file.source}\0`).join(""))
       .digest("hex"),
     scope:
-      "GUI production app/src, renderer/src and packages/*/src; excludes vendor/generated/design previews/i18n messages/tests; manifest covers GUI root package only",
+      "GUI production app/src, renderer/src, packages/*/{src,client}, and package-root implementations; excludes package build/config/declaration tooling, vendor/generated/design previews/i18n messages/tests; manifest covers GUI root package only",
     metrics,
     counts: {
       mainSourceLines: sum(main),

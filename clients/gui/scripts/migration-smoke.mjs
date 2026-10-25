@@ -1,9 +1,10 @@
+import { makeTempDir } from "./support/temp.mjs";
 import { closeSmokeApplication } from "./application-cleanup.mjs";
 import { withSmokeDeadline } from "./smoke-deadline.mjs";
 import assert from "node:assert/strict";
 
 import { createRequire } from "node:module";
-import { mkdtemp, mkdir, writeFile, readFile } from "node:fs/promises";
+import { mkdir, writeFile, readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "node:http";
@@ -22,7 +23,7 @@ assert.ok(binary, "AREAL_CORE_BIN must point to the actual built Core");
 const binarySha256AtStart = createHash("sha256")
   .update(await readFile(binary))
   .digest("hex");
-const scratch = await mkdtemp("/private/tmp/areal-gui-");
+const scratch = await makeTempDir("areal-gui-");
 const workspace = join(scratch, "workspace");
 await mkdir(workspace);
 await mkdir(join(scratch, "user-home"));

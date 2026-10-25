@@ -4,7 +4,7 @@
 .side-chat-heading { display:flex; align-items:center; gap:7px; font-size:var(--text-ui-sm); margin-right:auto; color:var(--color-foreground-subtle); }
 .side-chat-related { width:340px; }
 .side-chat-related .utility-actions { display:flex; align-items:center; flex-wrap:wrap; gap:var(--spacing-inline); margin:6px 0; }
-.side-chat-related button { border-radius:6px; padding:5px; text-align:left; }
+.side-chat-related button { border-radius:var(--radius-compact); padding:5px; text-align:left; }
 .side-chat-related button[aria-current] { background:var(--color-surface); }
 .side-chat-information { padding:10px 22px; flex-shrink:0; max-height:35%; overflow:auto; font-size:var(--text-ui-xs); color:var(--color-foreground-subtle); }
 .side-chat-context summary { cursor:pointer; }

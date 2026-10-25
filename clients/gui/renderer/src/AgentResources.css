@@ -164,7 +164,7 @@
   gap: 11px;
   padding: 8px;
   text-align: left;
-  border-radius: 6px;
+  border-radius: var(--radius-compact);
   font: inherit;
   font-weight: 400;
 }
@@ -189,7 +189,7 @@
 }
 .task-resource-row small.task-resource-status,
 .task-resources-heading > span:last-child {
-  font-size: 10px;
+  font-size: var(--text-fixed-metadata);
 }
 .task-resource-identity {
   display: flex;
@@ -230,7 +230,7 @@
   height: 22px;
   flex: none;
   object-fit: cover;
-  border-radius: 4px;
+  border-radius: var(--radius-micro);
 }
 .task-resource-status {
   display: inline-flex;
@@ -275,7 +275,7 @@
   height: 6px;
   flex: none;
   border-radius: 50%;
-  background: var(--color-success, #32a852);
+  background: var(--color-success);
 }
 
 .agent-spawn-link:focus-visible {

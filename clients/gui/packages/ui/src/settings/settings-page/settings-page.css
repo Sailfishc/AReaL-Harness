@@ -32,7 +32,7 @@
 
 .settings-workspace .settings-page-title,
 .settings-workspace .settings-page > h1 {
-  font-size: 28px;
+  font-size: var(--text-fixed-page-title);
   font-weight: 500;
   line-height: 33.6px;
   letter-spacing: -0.015em;

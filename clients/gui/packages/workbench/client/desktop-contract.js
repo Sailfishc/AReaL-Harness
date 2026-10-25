@@ -3,7 +3,6 @@ export const {
   commandDefinitions,
   commandSemantics,
   validateCommand,
-  validatePreview,
   desktopError,
   validateMcpPageDeclaration,
   validateMcpPageCall,
@@ -22,3 +21,18 @@ export const {
 
 /** @type {typeof import('./desktop-contract.cjs').validateCommandResponse} */
 export const validateCommandResponse = contract.validateCommandResponse;
+
+/** @typedef {import("./desktop-contract.cjs").QuitProgress} QuitProgress */
+/** @typedef {import("./desktop-contract.cjs").McpAppDeepLink} McpAppDeepLink */
+/** @typedef {import("./desktop-contract.cjs").NotificationTarget} NotificationTarget */
+
+/** @typedef {import("./desktop-contract.cjs").DesktopInvokeArguments} DesktopInvokeArguments */
+/** @typedef {import("./desktop-contract.cjs").DesktopSendArguments} DesktopSendArguments */
+/** @typedef {import("./desktop-contract.cjs").DesktopEventArguments} DesktopEventArguments */
+/** @typedef {import("./desktop-contract.cjs").DesktopInvoke} DesktopInvoke */
+/** @typedef {import("./desktop-contract.cjs").DesktopSend} DesktopSend */
+
+/** @typedef {import("./desktop-contract.cjs").OwnedPreviewRequest} OwnedPreviewRequest */
+
+/** @type {typeof import("./desktop-contract.cjs").validatePreview} */
+export const validatePreview = contract.validatePreview;

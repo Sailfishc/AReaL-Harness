@@ -11,7 +11,7 @@
     "layer": "e2e",
     "platforms": ["darwin", "linux"],
     "areas": ["worktree", "git"],
-    "requires": ["browser", "git"]
+    "requires": ["browser", "git", "gui-build"]
   },
   {
     "script": "test:worktree-core",
@@ -23,18 +23,16 @@
   {
     "script": "test:worktree-environment",
     "layer": "contract",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["worktree", "git"],
-    "requires": ["core-binary", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["core-binary", "git"]
   },
   {
     "script": "test:worktree-environment-ui",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["worktree", "git"],
-    "requires": ["electron", "core-binary", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["electron", "core-binary", "git", "gui-build"]
   },
   {
     "script": "test:worktree-schedule-interactions",
@@ -49,15 +47,16 @@
     "platforms": ["darwin"],
     "areas": ["packaging"],
     "requires": ["macos-tools"],
-    "notes": "DMG and Gatekeeper integration includes platform-specific subprocesses."
+    "notes": "DMG and Gatekeeper integration includes platform-specific subprocesses.",
+    "platformReason": "Uses macOS codesign, xcrun, hdiutil and Gatekeeper."
   },
   {
     "script": "test:diagnostics",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["diagnostics"],
-    "requires": ["electron", "core-binary", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated. Mixed command; classified by highest browser or Electron boundary."
+    "requires": ["electron", "core-binary", "git", "gui-build"],
+    "notes": "Mixed command; classified by highest browser or Electron boundary."
   },
   {
     "script": "test:state-projection",
@@ -69,10 +68,9 @@
   {
     "script": "test:recovery",
     "layer": "contract",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["recovery", "lifecycle"],
-    "requires": ["core-binary"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["core-binary"]
   },
   {
     "script": "test:service-connection",
@@ -84,280 +82,258 @@
   {
     "script": "test:service-feedback",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["service", "lifecycle"],
-    "requires": ["electron", "core-binary", "gui-build", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["electron", "core-binary", "gui-build", "git"]
   },
   {
     "script": "test:backend-toast-ui",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["feedback"],
-    "requires": ["browser", "gui-build", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["browser", "gui-build", "git"]
   },
   {
     "script": "test:task-conversation",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["tasks"],
-    "requires": ["electron", "core-binary", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["electron", "core-binary", "git", "gui-build"]
   },
   {
     "script": "test:scheduled-workspace-ui",
     "layer": "e2e",
     "platforms": ["darwin", "linux"],
     "areas": ["schedules"],
-    "requires": ["browser"]
+    "requires": ["browser", "gui-build"]
   },
   {
     "script": "test:thread-schedules",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["schedules"],
-    "requires": ["electron", "core-binary", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["electron", "core-binary", "git", "gui-build"]
   },
   {
     "script": "test:execution-artifact-ui",
     "layer": "e2e",
     "platforms": ["darwin", "linux"],
     "areas": ["artifacts"],
-    "requires": ["browser", "git"]
+    "requires": ["browser", "git", "gui-build"]
   },
   {
     "script": "test:task-catalog-cold",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["tasks"],
-    "requires": ["electron", "core-binary", "gui-build", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["electron", "core-binary", "gui-build", "git"]
   },
   {
     "script": "test:task-catalog-startup",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["tasks"],
-    "requires": ["electron", "core-binary", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["electron", "core-binary", "git", "gui-build"]
   },
   {
     "script": "test:stop-turn",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["lifecycle"],
-    "requires": ["electron", "core-binary", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["electron", "core-binary", "git", "gui-build"],
+    "qualificationJourney": "stop-turn"
   },
   {
     "script": "test:service-reopen",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["service", "lifecycle"],
-    "requires": ["electron", "browser", "core-binary", "gui-build", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["electron", "browser", "core-binary", "gui-build", "git"]
   },
   {
     "script": "test:lifecycle",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["lifecycle"],
-    "requires": ["electron", "core-binary", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated. Mixed command; classified by highest browser or Electron boundary."
+    "requires": ["electron", "core-binary", "git", "gui-build"],
+    "notes": "Mixed command; classified by highest browser or Electron boundary.",
+    "qualificationJourney": "startup-recovery"
   },
   {
     "script": "test:desktop-exit",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["desktop"],
-    "requires": ["electron", "core-binary", "gui-build", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["electron", "core-binary", "gui-build", "git"]
   },
   {
     "script": "test:quit-draft",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["lifecycle", "draft"],
     "requires": ["electron", "core-binary", "gui-build", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "qualificationJourney": "quit-draft"
   },
   {
     "script": "test:quit-progress",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["lifecycle", "draft"],
-    "requires": ["electron", "core-binary", "gui-build", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["electron", "core-binary", "gui-build", "git"]
   },
   {
     "script": "test:legacy-recovery",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["recovery"],
-    "requires": ["electron", "core-binary", "gui-build", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["electron", "core-binary", "gui-build", "git"]
   },
   {
     "script": "test:lifecycle:legacy",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["lifecycle"],
-    "requires": ["electron", "core-binary", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["electron", "core-binary", "git", "gui-build"]
   },
   {
     "script": "test:queue",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["composer"],
-    "requires": ["electron", "core-binary", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["electron", "core-binary", "git", "gui-build"],
+    "ciSmoke": "queue"
   },
   {
     "script": "test:interactions",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["interaction"],
-    "requires": ["electron", "core-binary", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["electron", "core-binary", "git", "gui-build"]
   },
   {
     "script": "test:permission-presets",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["permissions"],
-    "requires": ["electron", "browser", "core-binary", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["electron", "browser", "core-binary", "git", "gui-build"]
   },
   {
     "script": "test:composer-predictions",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["composer"],
-    "requires": ["electron", "core-binary", "gui-build", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["electron", "core-binary", "gui-build", "git"]
   },
   {
     "script": "test:composer",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["composer"],
-    "requires": ["electron", "core-binary", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["electron", "core-binary", "git", "gui-build"],
+    "ciSmoke": "composer"
   },
   {
     "script": "test:send-admission",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["composer"],
-    "requires": ["electron", "core-binary", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["electron", "core-binary", "git", "gui-build"]
   },
   {
     "script": "test:subscription-send",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["provider"],
-    "requires": ["electron", "core-binary", "gui-build", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["electron", "core-binary", "gui-build", "git"]
   },
   {
     "script": "test:provider-hot-apply",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["provider"],
-    "requires": ["electron", "core-binary", "gui-build", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["electron", "core-binary", "gui-build", "git"]
   },
   {
     "script": "test:context-usage",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["context"],
-    "requires": ["electron", "core-binary", "gui-build", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["electron", "core-binary", "gui-build", "git"]
   },
   {
     "script": "test:model-selection",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["provider"],
-    "requires": ["electron", "core-binary", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["electron", "core-binary", "git", "gui-build"],
+    "ciSmoke": "model-selection"
   },
   {
     "script": "test:history-compat",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["history"],
-    "requires": ["electron", "core-binary"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["electron", "core-binary", "gui-build"],
+    "ciSmoke": "history"
   },
   {
     "script": "test:connection",
     "layer": "contract",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["service"],
-    "requires": ["core-binary"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["core-binary"]
   },
   {
     "script": "test:history-navigation-ui",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["history"],
-    "requires": ["browser", "gui-build", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["browser", "gui-build", "git"]
   },
   {
     "script": "test:history-recovery",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["history"],
     "requires": ["electron", "browser", "core-binary", "gui-build", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated. Mixed command; classified by highest browser or Electron boundary."
+    "notes": "Mixed command; classified by highest browser or Electron boundary."
   },
   {
     "script": "test:startup",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["lifecycle", "startup"],
-    "requires": ["electron", "core-binary", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["electron", "core-binary", "git", "gui-build"]
   },
   {
     "script": "test:history",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["history"],
     "requires": ["browser", "core-binary", "gui-build"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated. Mixed command; classified by highest browser or Electron boundary."
+    "notes": "Mixed command; classified by highest browser or Electron boundary."
   },
   {
     "script": "test:architecture",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["architecture"],
-    "requires": ["electron", "core-binary", "gui-build", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["electron", "core-binary", "gui-build", "git"]
   },
   {
     "script": "test:conversation-continue",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["conversation"],
-    "requires": ["electron", "core-binary", "gui-build", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["electron", "core-binary", "gui-build", "git"]
   },
   {
     "script": "test:conversation-derivation",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["conversation"],
-    "requires": ["electron", "core-binary", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["electron", "core-binary", "git", "gui-build"],
+    "ciSmoke": "conversation-derivation"
   },
   {
     "script": "test:trajectory",
@@ -383,98 +359,92 @@
   {
     "script": "test:remote-observation",
     "layer": "contract",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["remote"],
-    "requires": [],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": []
   },
   {
     "script": "test:remote-pairing-e2e",
     "layer": "e2e",
     "platforms": ["darwin"],
     "areas": ["remote"],
-    "requires": ["electron", "browser", "core-binary", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["electron", "browser", "core-binary", "git", "gui-build"],
+    "platformReason": "Browser executable is the installed macOS Google Chrome application."
   },
   {
     "script": "test:remote-observation-e2e",
     "layer": "e2e",
     "platforms": ["darwin"],
     "areas": ["remote"],
-    "requires": ["browser", "core-binary", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["browser", "core-binary", "git", "gui-build"],
+    "platformReason": "Browser executable is the installed macOS Google Chrome application."
   },
   {
     "script": "test:e2e",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["migration"],
-    "requires": ["electron", "core-binary", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["electron", "core-binary", "git", "gui-build"],
+    "ciSmoke": "migration",
+    "qualificationJourney": "send-stream"
   },
   {
     "script": "test:update",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["updates"],
-    "requires": ["electron", "core-binary", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["electron", "core-binary", "git", "gui-build"]
   },
   {
     "script": "test:core-process",
     "layer": "contract",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["core", "lifecycle"],
-    "requires": ["python3"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["python3"]
   },
   {
     "script": "test:skill-capacity",
     "layer": "contract",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["skills"],
-    "requires": ["core-binary"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["core-binary"]
   },
   {
     "script": "test:browser-feasibility",
     "layer": "e2e",
     "platforms": ["darwin"],
     "areas": ["browser"],
-    "requires": ["electron", "git", "desktop-input"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated. Interactive native input acceptance; not an unattended CI test."
+    "requires": ["electron", "git", "desktop-input", "gui-build"],
+    "notes": "Interactive native input acceptance; not an unattended CI test.",
+    "platformReason": "Requires attended native desktop input and macOS fixture acceptance."
   },
   {
     "script": "test:browser-attach",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["browser"],
-    "requires": ["electron", "browser", "core-binary", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["electron", "browser", "core-binary", "git", "gui-build"]
   },
   {
     "script": "test:browser-annotations",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["browser"],
-    "requires": ["electron", "core-binary", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["electron", "core-binary", "git", "gui-build"]
   },
   {
     "script": "test:browser-loading",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["browser"],
-    "requires": ["electron", "core-binary", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["electron", "core-binary", "git", "gui-build"]
   },
   {
     "script": "test:image-annotations",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["annotations"],
-    "requires": ["electron", "core-binary", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["electron", "core-binary", "git", "gui-build"]
   },
   {
     "script": "test:browser-contracts",
@@ -493,10 +463,9 @@
   {
     "script": "test:remote-command-e2e",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["remote"],
-    "requires": ["browser", "core-binary", "gui-build", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["browser", "core-binary", "gui-build", "git"]
   },
   {
     "script": "test:remote-session",
@@ -510,8 +479,8 @@
     "layer": "e2e",
     "platforms": ["darwin"],
     "areas": ["remote"],
-    "requires": ["browser", "core-binary"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["browser", "core-binary", "gui-build"],
+    "platformReason": "Browser executable is the installed macOS Google Chrome application."
   },
   {
     "script": "test:remote-session-body",
@@ -525,16 +494,16 @@
     "layer": "e2e",
     "platforms": ["darwin"],
     "areas": ["remote"],
-    "requires": ["electron", "browser", "core-binary", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["electron", "browser", "core-binary", "git", "gui-build"],
+    "platformReason": "Browser executable is the installed macOS Google Chrome application."
   },
   {
     "script": "test:remote-work-overview",
     "layer": "e2e",
     "platforms": ["darwin"],
     "areas": ["remote"],
-    "requires": ["browser", "core-binary", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["browser", "core-binary", "git", "gui-build"],
+    "platformReason": "Browser executable is the installed macOS Google Chrome application."
   },
   {
     "script": "test:remote-interaction",
@@ -574,10 +543,9 @@
   {
     "script": "test:remote-gui-quit",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["remote"],
-    "requires": ["electron", "browser", "core-binary"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["electron", "browser", "core-binary", "gui-build"]
   },
   {
     "script": "test:remote-review",
@@ -613,13 +581,13 @@
     "layer": "e2e",
     "platforms": ["darwin", "linux"],
     "areas": ["design"],
-    "requires": ["browser", "git"]
+    "requires": ["browser", "git", "gui-build"]
   },
   {
     "script": "test:regressions",
     "layer": "contract",
     "platforms": ["darwin", "linux"],
-    "areas": ["regression", "bundle"],
+    "areas": ["regression", "bundle", "design"],
     "requires": ["python3"]
   },
   {
@@ -633,41 +601,38 @@
   {
     "script": "test:desktop-settings",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["desktop"],
-    "requires": ["electron", "core-binary", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["electron", "core-binary", "git", "gui-build", "curl", "openssl"],
+    "qualificationJourney": "settings"
   },
   {
     "script": "test:desktop-network",
     "layer": "contract",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["desktop"],
-    "requires": ["git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["git"]
   },
   {
     "script": "test:mcp-app-lifecycle",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["mcp"],
-    "requires": ["electron", "core-binary", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["electron", "core-binary", "git", "gui-build"]
   },
   {
     "script": "test:mcp-platform",
     "layer": "e2e",
     "platforms": ["darwin", "linux"],
     "areas": ["mcp"],
-    "requires": ["browser", "git"]
+    "requires": ["browser", "git", "gui-build"]
   },
   {
     "script": "test:mcp-page-tools",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["mcp"],
-    "requires": ["electron", "core-binary", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["electron", "core-binary", "git", "gui-build"]
   },
   {
     "script": "test:mcp-page-tools-transport",
@@ -679,10 +644,9 @@
   {
     "script": "test:plugins",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["plugins"],
-    "requires": ["electron", "core-binary", "gui-build", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["electron", "core-binary", "gui-build", "git"]
   },
   {
     "script": "test:feedback",
@@ -702,34 +666,30 @@
   {
     "script": "test:trajectory-native",
     "layer": "contract",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["trajectory"],
-    "requires": ["core-binary"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["core-binary"]
   },
   {
     "script": "test:i18n",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["i18n"],
-    "requires": ["electron", "core-binary", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["electron", "core-binary", "git", "gui-build"]
   },
   {
     "script": "test:i18n-native",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["i18n"],
-    "requires": ["electron", "core-binary", "git", "macos-tools"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["electron", "core-binary", "git", "macos-tools", "gui-build"]
   },
   {
     "script": "test:core-crash-recovery",
     "layer": "contract",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["core", "lifecycle"],
-    "requires": ["core-binary"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["core-binary"]
   },
   {
     "script": "test:recovery-electron",
@@ -737,31 +697,29 @@
     "platforms": ["darwin"],
     "areas": ["recovery", "lifecycle"],
     "requires": ["electron", "core-binary", "gui-build", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "platformReason": "Runner explicitly asserts darwin and uses its existing macOS acceptance setup."
   },
   {
     "script": "test:gen-ui",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["gen-ui"],
-    "requires": ["electron", "core-binary", "gui-build", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["electron", "core-binary", "gui-build", "git"]
   },
   {
     "script": "test:side-chat-parity",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["side-chat"],
     "requires": ["electron", "core-binary", "gui-build", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "ciSmoke": "side-chat"
   },
   {
     "script": "test:automation",
     "layer": "e2e",
-    "platforms": ["darwin"],
+    "platforms": ["darwin", "linux"],
     "areas": ["schedules"],
-    "requires": ["electron", "browser", "core-binary", "gui-build", "git"],
-    "notes": "Darwin until existing hardcoded temporary paths are migrated."
+    "requires": ["electron", "browser", "core-binary", "gui-build", "git"]
   },
   {
     "script": "test:health",

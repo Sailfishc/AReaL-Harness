@@ -1,7 +1,8 @@
+import { makeTempDir } from "./support/temp.mjs";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { createServer } from "node:http";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { dirname, extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -12,7 +13,7 @@ const require = createRequire(join(gui, "app/package.json"));
 const { chromium } = require("playwright-core");
 const { checkHostPrerequisites } = require("./src/core/host-prerequisites.cjs");
 const dist = process.env.AREAL_RENDERER_DIST || join(gui, "renderer/dist");
-const scratch = await mkdtemp("/private/tmp/areal-startup-connection-");
+const scratch = await makeTempDir("areal-startup-connection-");
 const server = createServer(async (request, response) => {
   try {
     const pathname = decodeURIComponent(new URL(request.url, "http://local").pathname);

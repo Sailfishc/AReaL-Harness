@@ -1,3 +1,4 @@
+import { makeTempDir } from "./support/temp.mjs";
 import assert from "node:assert/strict";
 import { appearanceReply, verifyAppearanceSlice } from "./appearance-smoke.mjs";
 import {
@@ -8,7 +9,7 @@ import {
 } from "./resource-smoke.mjs";
 
 import { createRequire } from "node:module";
-import { mkdtemp, mkdir, writeFile, readFile } from "node:fs/promises";
+import { mkdir, writeFile, readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "node:http";
@@ -57,7 +58,7 @@ const binary = process.env.AREAL_GUI_EXECUTABLE
   ? resolve(dirname(process.env.AREAL_GUI_EXECUTABLE), "../Resources/areal-core/bin/areal")
   : process.env.AREAL_CORE_BIN || join(root, "target/debug/areal");
 assert.ok(binary, "AREAL_CORE_BIN must point to the actual built Core");
-const scratch = await mkdtemp("/private/tmp/areal-gui-");
+const scratch = await makeTempDir("areal-gui-");
 const workspace = join(scratch, "workspace");
 await mkdir(workspace);
 await mkdir(join(scratch, "user-home"));

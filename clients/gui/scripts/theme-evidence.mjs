@@ -5,21 +5,21 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
+import { loadPaletteVariables } from "../packages/ui/scripts/foundations.mjs";
 
 const gui = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const require = createRequire(resolve(gui, "packages/ui/package.json"));
-const ts = require("typescript");
+
 const baselinePath = resolve(gui, "design-system/theme-baseline.json");
+const revisionPath = resolve(gui, "design-system/theme-accessibility-revision.json");
 
 export async function collectThemeEvidence(browser) {
   const tokens = JSON.parse(await readFile(resolve(gui, "packages/ui/tokens.json"), "utf8"));
   const themeSource = await readFile(resolve(gui, "packages/ui/src/theme.ts"), "utf8");
-  const js = ts.transpileModule(themeSource, {
-    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
-  }).outputText;
-  const { paletteVariables } = await import(
-    `data:text/javascript;base64,${Buffer.from(js).toString("base64")}`
+  const paletteSource = await readFile(
+    resolve(gui, "packages/ui/src/generated/palette.ts"),
+    "utf8",
   );
+  const paletteVariables = await loadPaletteVariables();
   const defaultPalette = (dark) =>
     Object.fromEntries(
       Object.entries(tokens.themes).map(([name, token]) => {
@@ -106,19 +106,51 @@ export async function collectThemeEvidence(browser) {
                   return [name, { color, rgba: [...context.getImageData(0, 0, 1, 1).data] }];
                 }),
             );
+            const aliases = {
+              "--color-status-running": "--color-foreground-subtle",
+              "--color-status-success": "--color-success",
+              "--color-status-attention": "--color-warning",
+              "--color-status-unknown": "--color-warning",
+              "--color-status-error": "--color-destructive",
+              "--color-status-settled": "--color-process-settled",
+            };
+            const aliasTargets = Object.fromEntries(
+              Object.entries(aliases).map(([role, target]) => {
+                probe.style.color = `var(${target})`;
+                const color = getComputedStyle(probe).color;
+                context.clearRect(0, 0, 1, 1);
+                context.fillStyle = color;
+                context.fillRect(0, 0, 1, 1);
+                return [role, { color, rgba: [...context.getImageData(0, 0, 1, 1).data] }];
+              }),
+            );
             probe.remove();
-            return colors;
+            return { colors, aliasTargets };
           },
           { variables, dark: palette.dark },
         );
-        samples.push({ input, colors: observed });
+        for (const [role, target] of Object.entries(observed.aliasTargets))
+          assert.deepEqual(
+            observed.colors[role],
+            target,
+            `${role} differs from its declared semantic role`,
+          );
+        samples.push({ input, colors: observed.colors });
       }
     }
   }
   await context.close();
   return {
     schemaVersion: 1,
-    sourceSha256: createHash("sha256").update(themeSource).digest("hex"),
+    sourceSha256: createHash("sha256")
+      .update(themeSource)
+      .update("\0")
+      .update(paletteSource)
+      .digest("hex"),
+    sourceFilesSha256: {
+      "src/theme.ts": createHash("sha256").update(themeSource).digest("hex"),
+      "src/generated/palette.ts": createHash("sha256").update(paletteSource).digest("hex"),
+    },
     browser: browser.version(),
     scope:
       "Actual paletteVariables output, CSS variable resolution and browser sRGB canvas pixels; five palettes, three contrast levels, both sidebar materials.",
@@ -133,14 +165,28 @@ export async function verifyThemeEvidence(browser, scratch) {
     JSON.stringify(observed, null, 2) + "\n",
   );
   const baseline = JSON.parse(await readFile(baselinePath, "utf8"));
-  assert.deepEqual(
-    observed.samples,
-    baseline.samples,
-    "browser-resolved palette colors changed from the pre-refactor baseline",
-  );
+  const revision = JSON.parse(await readFile(revisionPath, "utf8"));
+  assert.equal(revision.baseVersion, "0.4.1");
+  assert.deepEqual(revision.roles.map(role => role.name).sort(), [
+    "--color-foreground-subtle", "--color-foreground-subtlest", "--color-process-settled", "--color-settings-secondary",
+  ]);
+  assert.ok(revision.roles.every(role => role.reason?.trim()), "accessibility color changes need reasons");
+  assert.equal(revision.samples.length, baseline.samples.length);
+  const revisedRoles = new Set(revision.roles.map(role => role.name));
+  for (const [index, sample] of observed.samples.entries()) {
+    assert.deepEqual(sample.input, baseline.samples[index].input);
+    assert.deepEqual(sample.input, revision.samples[index].input);
+    for (const [role, expected] of Object.entries(baseline.samples[index].colors)) {
+      assert.deepEqual(sample.colors[role], revisedRoles.has(role) ? revision.samples[index].colors[role] : expected,
+        `${sample.input.id} ${role} differs from its reviewed palette value`);
+    }
+  }
   return {
     samples: observed.samples.length,
-    variables: Object.keys(observed.samples[0].colors).length,
+    variables: Object.keys(baseline.samples[0].colors).length,
+    addedVariables: Object.keys(observed.samples[0].colors).filter(
+      (name) => !(name in baseline.samples[0].colors),
+    ).length,
     browser: observed.browser,
   };
 }

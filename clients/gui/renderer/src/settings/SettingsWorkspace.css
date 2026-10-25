@@ -25,7 +25,7 @@
   line-height: calc(var(--ui-font-size) + 4px);
   border-radius: var(--radius-navigation);
   border: 1px solid var(--color-border);
-  background-color: var(--color-hover, rgba(255, 255, 255, 0.03));
+  background-color: var(--color-hover);
   color: var(--color-foreground);
   appearance: none;
   cursor: var(--interactive-cursor, pointer);
@@ -55,11 +55,11 @@
   padding: 0 6px;
   font-size: var(--text-ui-xs);
   font-family: var(--font-mono, monospace);
-  border-radius: 6px;
-  background: var(--color-surface, rgba(0, 0, 0, 0.05));
+  border-radius: var(--radius-compact);
+  background: var(--color-surface);
   border: 1px solid var(--color-border);
   color: var(--color-foreground);
-  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
+  box-shadow: var(--shadow-inset-control);
 }
 
 /* 6. Theme Picker Thumbnails */
@@ -73,7 +73,7 @@
   display: flex;
   padding: 0;
   border: 0;
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   background: transparent;
   cursor: var(--interactive-cursor, pointer);
 }
@@ -93,7 +93,7 @@
   margin-bottom: 0;
   width: 80px;
   height: 60px;
-  border-radius: 8px;
+  border-radius: var(--radius-inset);
   border: 2px solid transparent;
   object-fit: contain;
   overflow: hidden;
@@ -126,10 +126,10 @@
   margin-top: 12px;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--color-foreground) 8%, transparent);
-  border-radius: 15px;
-  background: var(--color-card, #fff);
+  border-radius: var(--radius-choice);
+  background: var(--color-card);
   color: var(--color-foreground);
-  font: 430 12px/22px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font: 430 var(--text-fixed-caption)/var(--line-height-code-example) ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 .theme-diff-pane {
@@ -375,7 +375,7 @@
   display: flex;
   gap: 4px;
   border-radius: var(--radius-pill);
-  background: var(--color-surface, rgba(0, 0, 0, 0.05));
+  background: var(--color-surface);
   padding: 3px;
   width: fit-content;
 }
@@ -396,13 +396,13 @@
   background: var(--color-background);
   color: var(--color-foreground);
   font-weight: 500;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  box-shadow: var(--shadow-raised-control);
 }
 
 .appearance-message-preview {
-  border-radius: 16px;
+  border-radius: var(--radius-dialog);
   border: 1px solid var(--color-border);
-  background: var(--color-card, #ffffff);
+  background: var(--color-card);
   padding: 16px;
   display: flex;
   flex-direction: column;
@@ -464,9 +464,9 @@
 }
 
 .plugin-settings .settings-resource-list {
-  border-radius: 16px;
+  border-radius: var(--radius-dialog);
   border: 1px solid var(--color-border);
-  background: var(--color-card, #ffffff);
+  background: var(--color-card);
   overflow: hidden;
 }
 
@@ -559,7 +559,7 @@
   width: 100%;
   min-height: 80px;
   padding: 8px 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-inset);
   border: 1px solid var(--color-border);
   background: var(--color-background);
   color: var(--color-foreground);

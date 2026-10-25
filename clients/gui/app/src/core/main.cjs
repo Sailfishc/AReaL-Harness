@@ -8,7 +8,6 @@ const {
   BrowserWindow,
   Menu,
   dialog,
-  ipcMain,
   protocol,
   nativeTheme,
   WebContentsView,
@@ -18,6 +17,7 @@ const {
   crashReporter,
   session,
 } = require("electron");
+const { handleDesktopIpc, onDesktopIpc, sendDesktopEvent } = require("./desktop-ipc.cjs");
 const { readFile, realpath, stat, writeFile } = require("node:fs/promises");
 const { join, resolve, extname, sep } = require("node:path");
 const { randomUUID } = require("node:crypto");
@@ -226,14 +226,14 @@ function confirmRendererQuit(attempt) {
     owner.once("render-process-gone", cancel);
     owner.on("did-start-navigation", navigate);
     revealWindow();
-    owner.send("areal-core:quit-request", attempt.id);
+    sendDesktopEvent(owner,"areal-core:quit-request", attempt.id);
   });
 }
 function setQuitProgress(attempt, phase) {
   if (quitAttempt !== attempt || attempt.intent === "install") return;
   attempt.phase = phase;
   if (attempt.owner && !attempt.owner.isDestroyed() && attempt.owner.mainFrame === attempt.frame)
-    attempt.owner.send(
+    sendDesktopEvent(attempt.owner,
       "areal-core:quit-progress",
       phase ? { state: "quitting", phase } : { state: "idle" },
     );
@@ -404,7 +404,7 @@ function openNotificationTarget(target) {
   notificationTarget = { ...target, id: ++notificationSequence };
   if (!window || window.isDestroyed()) return;
   if (startupPresentation === "presented") revealWindow();
-  window.webContents.send("areal-core:notification-open");
+  sendDesktopEvent(window.webContents,"areal-core:notification-open");
 }
 let mcpAppDeepLink = null,
   mcpAppDeepLinkSequence = 0;
@@ -414,7 +414,7 @@ function receiveMcpAppDeepLink(raw) {
   } catch {
     return false;
   }
-  if (window && !window.isDestroyed()) window.webContents.send("areal-core:mcp-app-deep-link");
+  if (window && !window.isDestroyed()) sendDesktopEvent(window.webContents,"areal-core:mcp-app-deep-link");
   return true;
 }
 app.on("open-url", (event, url) => {
@@ -456,7 +456,7 @@ function publish() {
   const owner = window.webContents,
     projection = projections.get(owner);
   if (projection?.frame === owner.mainFrame)
-    owner.send("areal-core:projection", { frame: projection.encoder.encode(desktopSnapshot()) });
+    sendDesktopEvent(owner,"areal-core:projection", { frame: projection.encoder.encode(desktopSnapshot()) });
 }
 function desktopSnapshot() {
   const state = backend.snapshot();
@@ -483,7 +483,7 @@ function trusted(event) {
   if (quitting) throw new Error(nativeText("boundary.quitting"));
   trustedSender(event);
 }
-ipcMain.on("areal-core:interface-locale", (event, locale) => {
+onDesktopIpc("areal-core:interface-locale", (event, locale) => {
   try {
     trustedSender(event);
   } catch {
@@ -491,7 +491,7 @@ ipcMain.on("areal-core:interface-locale", (event, locale) => {
   }
   setNativeLocale(locale);
 });
-ipcMain.on("areal-core:quit-decision", (event, decision) => {
+onDesktopIpc("areal-core:quit-decision", (event, decision) => {
   const attempt = quitAttempt;
   if (
     !attempt?.decide ||
@@ -906,7 +906,7 @@ app
             throw error;
           }
           if (!window.isDestroyed())
-            window.webContents.send("areal-core:preview-event", {
+            sendDesktopEvent(window.webContents,"areal-core:preview-event", {
               kind: "reveal",
               projectId: request.projectId,
               threadId: request.threadId,
@@ -988,7 +988,7 @@ app
           : undefined,
       notify: (value) => {
         if (window && !window.isDestroyed() && !window.webContents.isDestroyed())
-          window.webContents.send("areal-core:mcp-app-event", value);
+          sendDesktopEvent(window.webContents,"areal-core:mcp-app-event", value);
       },
       openFile: (request, current) =>
         fileOpen(
@@ -1008,11 +1008,11 @@ app
     };
     backend.onMcpPageToolsDisconnected = (event) => mcpApps?.pageToolsDisconnected(event);
     protocol.handle("areal-mcp", (request) => mcpApps.resource(request));
-    ipcMain.handle("areal-core:mcp-app-deep-link-target", (event) => {
+    handleDesktopIpc("areal-core:mcp-app-deep-link-target", (event) => {
       trusted(event);
       return mcpAppDeepLink;
     });
-    ipcMain.handle("areal-core:mcp-app-deep-link-consumed", (event, id) => {
+    handleDesktopIpc("areal-core:mcp-app-deep-link-consumed", (event, id) => {
       trusted(event);
       if (mcpAppDeepLink?.id === id) mcpAppDeepLink = null;
     });
@@ -1023,7 +1023,7 @@ app
       confirm: (options) => dialog.showMessageBox(window, options),
     });
     app.on("will-quit", () => mcpFormResources.dispose());
-    ipcMain.handle("areal-core:mcp-form-resource", async (event, operation, request) => {
+    handleDesktopIpc("areal-core:mcp-form-resource", async (event, operation, request) => {
       trusted(event);
       const ownerWindow = window;
       const current = () => {
@@ -1035,7 +1035,7 @@ app
       if (operation === "release") return mcpFormResources.release(request, current);
       throw new Error("Invalid form resource operation");
     });
-    ipcMain.handle("areal-core:mcp-app", async (event, request) => {
+    handleDesktopIpc("areal-core:mcp-app", async (event, request) => {
       trusted(event);
       if (!request || typeof request !== "object") throw new Error("Invalid app request");
       if (request.operation === "metadataImage")
@@ -1075,7 +1075,7 @@ app
       if (request.operation === "close") return mcpApps.close(request.token, event.sender.id);
       throw new Error("Unsupported app operation");
     });
-    ipcMain.handle("areal-core:preview", async (event, request) => {
+    handleDesktopIpc("areal-core:preview", async (event, request) => {
       trustedSender(event);
       validatePreview(request);
       if (quitting) {
@@ -1089,7 +1089,7 @@ app
         const key = JSON.stringify([request.projectId, request.threadId]);
         previewSubscriptions.get(key)?.();
         const subscription = preview.subscribe(request.projectId, request.threadId, (update) => {
-          if (!window.isDestroyed()) window.webContents.send("areal-core:preview-event", update);
+          if (!window.isDestroyed()) sendDesktopEvent(window.webContents,"areal-core:preview-event", update);
         });
         previewSubscriptions.set(key, subscription.unsubscribe);
         return subscription.snapshot;
@@ -1146,19 +1146,19 @@ app
       }
       return preview.command(request);
     });
-    ipcMain.handle("areal-core:notification-target", (event) => {
+    handleDesktopIpc("areal-core:notification-target", (event) => {
       trusted(event);
       return notificationTarget;
     });
-    ipcMain.handle("areal-core:notification-consumed", (event, id) => {
+    handleDesktopIpc("areal-core:notification-consumed", (event, id) => {
       trusted(event);
       if (notificationTarget?.id === id) notificationTarget = null;
     });
-    ipcMain.handle("areal-core:snapshot", (event) => {
+    handleDesktopIpc("areal-core:snapshot", (event) => {
       trusted(event);
       return desktopSnapshot();
     });
-    ipcMain.handle("areal-core:install-command-line-tools", async (event) => {
+    handleDesktopIpc("areal-core:install-command-line-tools", async (event) => {
       trusted(event);
       if (
         backend.connectionState.state !== "unavailable" ||
@@ -1171,7 +1171,7 @@ app
       trusted(event);
       return result;
     });
-    ipcMain.on("areal-core:projection-request", (event, requestId) => {
+    onDesktopIpc("areal-core:projection-request", (event, requestId) => {
       try {
         trusted(event);
       } catch {
@@ -1183,18 +1183,18 @@ app
         projection = { frame: event.senderFrame, encoder: new ProjectionEncoder(randomUUID()) };
         projections.set(event.sender, projection);
       }
-      event.sender.send("areal-core:projection", {
+      sendDesktopEvent(event.sender,"areal-core:projection", {
         requestId,
         frame: projection.encoder.encode(desktopSnapshot(), true),
       });
     });
-    ipcMain.handle("areal-core:present-ready", (event) => {
+    handleDesktopIpc("areal-core:present-ready", (event) => {
       trusted(event);
       startupReady = true;
       startupPresentTrace?.finish("ok");
       presentStartup();
     });
-    ipcMain.handle("areal-core:theme", (event, id) => {
+    handleDesktopIpc("areal-core:theme", (event, id) => {
       trusted(event);
       if (id !== undefined) {
         if (id !== "system" && !themes.some((item) => item.id === id))
@@ -1203,8 +1203,8 @@ app
       }
       return theme();
     });
-    nativeTheme.on("updated", () => window?.webContents.send("areal-core:theme-changed", theme()));
-    ipcMain.handle("areal-core:choose-project", async (event) => {
+    nativeTheme.on("updated", () => { if (window) sendDesktopEvent(window.webContents, "areal-core:theme-changed", theme()); });
+    handleDesktopIpc("areal-core:choose-project", async (event) => {
       trusted(event);
       const result = await dialog.showOpenDialog(window, {
         title: nativeText("picker.project"),
@@ -1215,7 +1215,7 @@ app
       trusted(event);
       return backend.addProject(path);
     });
-    ipcMain.handle("areal-core:choose-task-directory", async (event) => {
+    handleDesktopIpc("areal-core:choose-task-directory", async (event) => {
       trusted(event);
       const result = await dialog.showOpenDialog(window, {
         title: nativeText("picker.taskDirectory"),
@@ -1227,7 +1227,7 @@ app
       trusted(event);
       return { cwd };
     });
-    ipcMain.handle("areal-core:choose-projectless-directory", async (event) => {
+    handleDesktopIpc("areal-core:choose-projectless-directory", async (event) => {
       trusted(event);
       const result = await dialog.showOpenDialog(window, {
         title: nativeText("picker.projectlessDirectory"),
@@ -1237,7 +1237,7 @@ app
       trusted(event);
       return backend.command("projectless", { operation: "directory", path: result.filePaths[0] });
     });
-    ipcMain.handle("areal-core:file-open", async (event, request) => {
+    handleDesktopIpc("areal-core:file-open", async (event, request) => {
       trusted(event);
       return fileOpen(
         {
@@ -1254,7 +1254,7 @@ app
       backend,
       choose: (options) => dialog.showOpenDialog(window, options),
     });
-    ipcMain.handle("areal-core:command", async (event, name, params) => {
+    handleDesktopIpc("areal-core:command", async (event, name, params) => {
       trusted(event);
       try {
         validateCommand(name, params);
@@ -1491,7 +1491,7 @@ app
       hasWork: hasUpdateWork,
       onState: (state) => {
         if (window && !window.isDestroyed())
-          window.webContents.send("areal-core:update-changed", state);
+          sendDesktopEvent(window.webContents,"areal-core:update-changed", state);
       },
       prepareInstall: async () => {
         if (quitting || (await hasUpdateWork()))
@@ -1505,16 +1505,16 @@ app
           });
       },
     });
-    ipcMain.handle("areal-core:update-state", (event) => {
+    handleDesktopIpc("areal-core:update-state", (event) => {
       trusted(event);
       return updates.state();
     });
-    ipcMain.handle("areal-core:update-download", (event) => {
+    handleDesktopIpc("areal-core:update-download", (event) => {
       trusted(event);
       void updates.download();
       return updates.state();
     });
-    ipcMain.handle("areal-core:update-recover-resources", async (event) => {
+    handleDesktopIpc("areal-core:update-recover-resources", async (event) => {
       trusted(event);
       await recoverInstall();
       return updates.state();

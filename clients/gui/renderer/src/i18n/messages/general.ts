@@ -532,6 +532,10 @@ export const generalMessages = {
     "zh-CN": "{value0}半透明侧边栏",
     "en": "{value0} translucent sidebar"
   },
+  "settings.displaySettings.lowContrast": {
+    "zh-CN": "当前文字与背景对比度为 {ratio}:1，低于正文建议的 4.5:1。请调整前景色或背景色；颜色设置仍由你控制。",
+    "en": "Text against the chosen background has a contrast ratio of {ratio}:1, below the 4.5:1 reading target. Adjust the foreground or background color. Your chosen colors remain unchanged."
+  },
   "settings.displaySettings.contrast": {
     "zh-CN": "对比度",
     "en": "Contrast"

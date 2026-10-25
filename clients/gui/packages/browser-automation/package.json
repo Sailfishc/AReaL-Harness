@@ -5,11 +5,18 @@
   "license": "Apache-2.0",
   "main": "./dist/index.cjs",
   "exports": {
-    ".": "./dist/index.cjs",
-    "./electron": "./dist/electron.cjs"
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.cjs"
+    },
+    "./electron": {
+      "types": "./src/electron.ts",
+      "default": "./dist/electron.cjs"
+    }
   },
   "files": [
     "dist",
+    "src",
     "LICENSE-ZCODE",
     "NOTICE",
     "UPSTREAM.json"

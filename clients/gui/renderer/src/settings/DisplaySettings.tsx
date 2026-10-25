@@ -1,3 +1,4 @@
+import { colorContrastRatio } from "@areal/ui/theme";
 import { useI18n, UiMessageError, formatUiMessage, type UiMessage } from "../i18n/IntlProvider.js";
 import { ActionButton } from "../components/ui/action-button.js";
 import { SettingsSelect } from "./SettingsPageParts.js";
@@ -326,6 +327,7 @@ export function AppearanceSettings({
   const activeMode = theme === "data-dense" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "light";
   const [mode, setMode] = useState<"light" | "dark">(activeMode);
   const palette = prefs[mode];
+  const paletteContrast = colorContrastRatio(palette.foreground, palette.background);
   const label = mode === "light" ? t("settings.displaySettings.light") : t("settings.displaySettings.dark");
   const update = (patch: Partial<Palette>) => setApplicationPreferences({ [mode]: { ...palette, ...patch } });
   return (
@@ -388,6 +390,7 @@ export function AppearanceSettings({
               <ThemeSharing mode={mode} />
               <ActionButton aria-label={t("settings.displaySettings.restoreValueDefaults", { value0: label })} onClick={() => setApplicationPreferences({ [mode]: DEFAULT_PALETTES[mode] })}>{t("settings.displaySettings.resetValueColors", { value0: label })}</ActionButton>
             </div>
+            {paletteContrast < 4.5 && <p role="status" className="text-ui-sm text-foreground">{t("settings.displaySettings.lowContrast", { ratio: paletteContrast.toFixed(2) })}</p>}
             <SettingsGroupCard density="compact">
               <SettingsRow label={t("settings.displaySettings.codeTheme")} control={<div className="appearance-theme-tools"><CodeThemeSample theme={code[`${mode}Theme`]} />{codeTheme(mode)}</div>} />
               <SettingsRow label={t("settings.displaySettings.interfaceFont")} control={fontSelect(mode, "uiFont", t("settings.displaySettings.valueInterfaceFont", { value0: label }))} />

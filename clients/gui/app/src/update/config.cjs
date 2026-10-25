@@ -1,3 +1,4 @@
+// @ts-check
 'use strict';
 const { readFileSync, existsSync } = require('node:fs');
 const { join } = require('node:path');
@@ -6,6 +7,8 @@ const githubFeedUrl = `https://github.com/${githubRepository}/releases/download/
 const githubReleaseUrl = `https://github.com/${githubRepository}/releases/download`;
 const githubTestFeedUrl = `${githubReleaseUrl}/update-test-channel/`;
 const githubSparkleTestFeedUrl = `${githubReleaseUrl}/update-test-sparkle-channel/`;
+/** @typedef {{feedUrl:string,development:boolean,engine?:string}} UpdateConfig */
+/** @param {string} value */
 function validateFeedUrl(value, { development = false } = {}) {
   const url = new URL(value);
   const local = development && url.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(url.hostname)
@@ -18,6 +21,7 @@ function validateFeedUrl(value, { development = false } = {}) {
   }
   return url.href;
 }
+/** @param {string} feedUrl @param {string} version */
 function releaseAssetUrl(feedUrl, version) {
   const feed = new URL(feedUrl);
   const test = feed.pathname.split('/').at(-2)?.startsWith('update-test');
@@ -26,26 +30,35 @@ function releaseAssetUrl(feedUrl, version) {
   const root = feed.protocol === 'http:' ? feedUrl.slice(0, -'/latest/download/'.length) + '/download' : githubReleaseUrl;
   return `${root}/${tag}/AReaLHarness-${version}-macos-arm64.zip`;
 }
+/** @param {{packaged:boolean,resourcesPath:string,env?:NodeJS.ProcessEnv}} options @returns {UpdateConfig|null} */
 function readUpdateConfig({ packaged, resourcesPath, env = process.env }) {
   const path = join(resourcesPath, 'areal-update.json');
+  /** @type {unknown} */
   const stored = existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : null;
-  const value = !packaged && env.AREAL_UPDATE_FEED_URL ? env.AREAL_UPDATE_FEED_URL : stored?.feedUrl;
+  if (stored != null && (typeof stored !== 'object' || Array.isArray(stored))) throw new Error('更新配置无效');
+  const feedUrl = stored && 'feedUrl' in stored ? stored.feedUrl : undefined;
+  const engine = stored && 'engine' in stored ? stored.engine : undefined;
+  const value = !packaged && env.AREAL_UPDATE_FEED_URL ? env.AREAL_UPDATE_FEED_URL : feedUrl;
   if (!value) return null;
-  if (stored?.engine && stored.engine !== 'electron') throw new Error('此客户端未配置原生更新分发');
-  return { feedUrl: validateFeedUrl(value, { development: !packaged }), development: !packaged, engine: stored?.engine };
+  if (typeof value !== 'string') throw new Error('更新源必须是字符串');
+  if (engine && engine !== 'electron') throw new Error('此客户端未配置原生更新分发');
+  return { feedUrl: validateFeedUrl(value, { development: !packaged }), development: !packaged, engine: typeof engine === 'string' ? engine : undefined };
 }
+/** @param {unknown} value @returns {value is string} */
 function stableVersion(value) { return typeof value === 'string' && /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(value); }
+/** @param {unknown} version @param {unknown} current */
 function newer(version, current) {
   if (!stableVersion(version) || !stableVersion(current)) return false;
   const a = version.split('.').map(BigInt), b = current.split('.').map(BigInt);
   for (let i = 0; i < 3; i++) { if (a[i] !== b[i]) return a[i] > b[i]; }
   return false;
 }
+/** @param {import('electron-updater').UpdateInfo} info @param {string} feedUrl @param {{engine?:string}} [options] */
 function validateUpdate(info, feedUrl, { engine } = {}) {
   if (!stableVersion(info?.version)) throw new Error('更新清单版本无效');
   const expected = releaseAssetUrl(validateFeedUrl(feedUrl, { development: true }), info.version);
   if (info.files?.length !== 1 || info.files[0].url !== expected
-    || !Number.isSafeInteger(info.files[0].size) || info.files[0].size <= 0
+    || typeof info.files[0].size !== 'number' || !Number.isSafeInteger(info.files[0].size) || info.files[0].size <= 0
     || (engine !== 'sparkle' && !/^[A-Za-z0-9+/]{86}==$/.test(info.files[0].sha512 || ''))) {
     throw new Error('更新清单必须指向同一 GitHub Release 版本中的 arm64 ZIP，并包含大小和 SHA-512');
   }

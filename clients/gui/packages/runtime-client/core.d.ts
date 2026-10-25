@@ -15,19 +15,27 @@ export class CoreRpcError extends Error {
   delivery?: 'resultUnavailable';
   submissionUnknown: boolean;
 }
+export interface CoreSocketEvents {
+  open: unknown;
+  message: { data: unknown };
+  close: { code: number; reason: string };
+  error: { error?: unknown; code?: string };
+}
 export interface CoreSocket {
   readonly readyState: number;
-  addEventListener(type: string, listener: (event: any) => void, options?: { once?: boolean }): void;
+  addEventListener<Event extends keyof CoreSocketEvents>(type: Event, listener: (event: CoreSocketEvents[Event]) => void, options?: { once?: boolean }): void;
   send(data: string): void;
   close(): void;
 }
 export class CoreClient {
   constructor(options: { createSocket: () => CoreSocket; timeoutMs?: number; onServerRequest?: (method: string, params: unknown, context: { requestId: string; signal: AbortSignal }) => Promise<unknown> });
   ready: boolean;
-  capabilities: { apiVersion?: string; methods: string[]; methodSemantics?: Record<string, MethodSemantics>; [key: string]: unknown };
-  connect(): Promise<CoreClient['capabilities']>;
-  request<T = unknown>(method: string, params?: object, options?: { onResult?: (result: T) => void; timeoutMs?: number; maxResponseBytes?: number }): Promise<T>;
-  onNotification(listener: (method: string, params: any) => void): () => void;
+  closed: boolean;
+  closeFailure: CoreRpcError | null;
+  capabilities?: import('./capabilities.js').CoreCapabilities;
+  connect(): Promise<NonNullable<CoreClient['capabilities']>>;
+  request(method: string, params?: object, options?: { onResult?: (result: unknown) => void; timeoutMs?: number; maxResponseBytes?: number }): Promise<unknown>;
+  onNotification(listener: (method: string, params: unknown) => void): () => void;
   onClose(listener: (failure: CoreRpcError) => void): () => void;
   close(): void;
 }

@@ -29,11 +29,42 @@ macOS native smoke tests require Seatbelt; Linux native smoke tests require `/us
 
 Linux host checks use `make verify CARGO_TEST_ARGS='--exclude areal-runtime-exec-native'`. Native backend tests require `/usr/bin/bwrap` and user namespaces; a separate CI job builds the Dockerfile's `runtime-tests` target and runs every backend test, including `outer-container-perf`, inside the controlled Bubblewrap container. It also enables `areal-runtime/native-tests` and runs the daemon's `native_transport` target. That target starts the real daemon over private stdio with the complete Runtime bundle, so Linux resolves the reaper beside the daemon. Its native sandbox test keeps the ordinary-command/hook progress and foreign-writer exclusion assertions; the four portable transport tests remain in the default suite. `make verify-native` builds the bundle before explicitly running the same native target on macOS. The feature selects this test target only and changes no production behavior. Excluding native tests from the portable host lane alone does not complete validation.
 
+## GUI test registry and platform qualification
+
+`clients/gui/scripts/test-manifest.json` registers every `test:*` command in the root GUI `package.json`. `layer` distinguishes pure unit tests, contracts without a GUI, and browser/Electron end-to-end boundaries. `platforms`, `areas`, and `requires` declare runnable platforms, covered areas, and prerequisites. Entries limited to one platform require `platformReason`. A platform declaration is not acceptance evidence. Headless tests that need Core remain contract tests.
+
+Run these commands from `clients/gui`. Use a frozen Core build and do not rebuild it during acceptance.
+
+```bash
+pnpm verify:tests
+pnpm test:unit
+node scripts/test-manifest.mjs --list --platform=linux --layer=contract --available=git,python3,gui-build
+node scripts/run-portable-tests.mjs
+node scripts/test-manifest.mjs --ci-matrix --base=<commit>
+node scripts/repeat-tests.mjs --profile=linux-feasibility --plan
+AREAL_CORE_BIN=/absolute/fixed/areal xvfb-run -a node scripts/repeat-tests.mjs --profile=linux-feasibility
+AREAL_CORE_BIN=/absolute/fixed/areal node scripts/repeat-tests.mjs --profile=macos-baseline
+```
+
+Run `make gui-build` first to prepare Desktop/UI/Renderer inputs. The portable runner executes every unit and contract test whose prerequisites are available on the current platform. It records results, elapsed times, and commands excluded for missing Core, native tools, or an exact Node version. The report defaults to `target/ci/gui/portable-tests.json`; set `AREAL_PORTABLE_TEST_REPORT` to override it. Full Relay transport contracts also require their pinned Node 24.2.0 and `services/remote-relay` dependencies. CI runs them in a separate step.
+
+`ciSmoke` binds the existing macOS smoke matrix. Area selection narrows only known local Renderer changes. Shared owners, test scripts, unmapped paths, and areas without matching smoke coverage retain the full matrix. Runs without a comparison base also use the full matrix. Linux units and contracts are not narrowed by area.
+
+Create temporary directories with `makeTempDir(prefix)` from `scripts/support/temp.mjs`. It resolves `os.tmpdir()` through `realpath`, preserving macOS path-comparison semantics. `verify:tests` checks registered scripts and local imports through an AST and rejects actual `/private/tmp` and `/var/folders` path literals. Strings in audit rules and negative fixtures are not temporary directory creation.
+
+The repeat driver retains first-attempt logs, isolated temporary directories, exit status, elapsed time, and source/Core identities before and after execution. It neither retries nor removes failures. Linux qualification reuses the five existing startup/recovery, send/stream, stop-Turn, desktop-settings, and quit-draft runners for ten attempts each. The macOS baseline runs every unattended registered E2E five times. `--scripts=test:composer,test:queue` narrows the run and marks its report scoped. `--repetitions=N` supports diagnosis; fewer than ten Linux attempts cannot qualify for required CI. Quit-draft still requires a complete frozen Core bundle under the repository's `.local/dev-bin/`.
+
+A Linux required-CI candidate must complete at least ten first attempts per journey, have no environment blocks, pass at least 95%, and retain the same source identity. Ten attempts therefore require 10/10. A complete five-attempt macOS sample below 95% with real failures appears in `flakyCandidates`; environment blocks remain separate. Maintainers review causes and evidence before setting `flaky: true` or approving the required Linux set. Qualification reports do not automatically alter registrations or weaken existing gates.
+
+Select `qualification=linux-feasibility` in a manual [GUI workflow](../../.github/workflows/gui.yml) run to execute the Linux plan on native Ubuntu with xvfb. `macos-baseline` expands the five-attempt baseline by script. Linux preflight requires a non-root user, DISPLAY, user namespaces, and Bubblewrap. Missing capabilities return blocked while preserving Electron/Runtime sandboxing. It does not use `--no-sandbox` or alter host security policy. Unexecuted or unreviewed qualification is not a Linux pass. Manual qualification jobs expose failures independently and do not replace the required GUI gate.
+
+The portable Linux job's ten-minute timeout is a limit, not runtime evidence. `portable-interval.json` measures the interval from its first execution step through report creation, excluding runner provisioning and artifact upload. Check GitHub Actions job timestamps for complete job duration. Without a remote CI run, the under-ten-minute criterion remains unverified.
+
 ## GUI and desktop route gates
 
 `cargo test --locked -p areal-app-server --lib desktop_registered_methods_have_dispatch_routes` sends non-object parameters for every registered desktop RPC through the real connection dispatcher and requires an invalid-parameters error rather than method-not-found. It includes `areal/thread/start`, handled separately by the connection. The check runs with `make test-protocol`, `make test` and CI without starting model requests or creating Threads.
 
-[GUI CI](../../.github/workflows/gui.yml) runs on GUI, Core, Runtime, schema and related build configuration changes. It installs frozen dependencies, checks GUI types and public boundaries, builds Core/GUI, checks routes, and runs the existing `make gui-smoke`, `test:composer` and `test:queue`. The three smoke scripts run sequentially with isolated directories and deterministic local models. Logs, screenshots and source manifests are uploaded as CI artifacts; they do not establish real-provider or packaged-app acceptance.
+[GUI CI](../../.github/workflows/gui.yml) runs locked dependency installation, GUI types, public boundaries, Core/GUI builds, desktop route checks, and the registered macOS smoke matrix for applicable changes. Linux static health and portable units/contracts use separate jobs. Tests use isolated directories and deterministic local models, retaining logs, screenshots, and source manifests. These checks do not establish real-provider or packaged-app acceptance.
 
 Composer and queue smoke share navigation and narrow-window steps in `clients/gui/scripts/smoke-navigation.mjs`: hover the project before creating a conversation, return through a stable task ID, and collapse the sidebar before resizing and waiting for the editor. Failures retain a full-window `failure-window.png` and `failure-state.json` with the original error, viewport, selected project/Thread and visible text. Unavailable pages or screenshots are recorded as capture errors without replacing the original test failure.
 
@@ -196,7 +227,7 @@ Before pushing a GUI/Core integration branch, run `make ci-preflight CI_BASE=ups
 
 `pnpm --dir clients/gui test:macos-dmg` separately exercises signed framework staging with real `codesign` and `hdiutil` on macOS. Run it where disk-image device access is permitted; a restricted agent sandbox may return `Device not configured`. Record that as an environment failure and rerun the same test in the permitted host environment. Do not skip assertions or report package acceptance. The macOS GUI job runs this check explicitly; portable `verify` does not create disk images.
 
-GUI CI builds Core and the renderer once, then runs historical compatibility, migration, Composer, model selection, queue, and conversation derivation in separate isolated matrix jobs (up to three concurrently, `fail-fast: false`). The same-run artifact preserves executable modes in a tar archive and records the exact checkout SHA; smoke jobs reject a different checkout. Locked pnpm/Electron/FFmpeg downloads are cached. Build caches can now save after a successful build even if a later smoke fails. Retry only failed smoke jobs and their gate with `gh run rerun <run-id> --failed`; passing build and smoke jobs are reused. Missing artifacts, failed/canceled/unexpectedly skipped smoke jobs still fail the gate; no `continue-on-error` is used.
+GUI CI builds Core and the renderer once, then runs historical compatibility, migration, Composer, model selection, queue, conversation derivation, and Side chat through the manifest in separate isolated matrix jobs (up to six concurrently, `fail-fast: false`). The same-run artifact preserves executable modes in a tar archive and records the exact checkout SHA; smoke jobs reject a different checkout. Locked pnpm/Electron/FFmpeg downloads are cached. Build caches can now save after a successful build even if a later smoke fails. Retry only failed smoke jobs and their gate with `gh run rerun <run-id> --failed`; passing build and smoke jobs are reused. Missing artifacts, failed/canceled/unexpectedly skipped smoke jobs still fail the gate; no `continue-on-error` is used.
 
 Restoration deduplication belongs to the project, Thread, and Core connection generation; a rebuilt adapter cannot reuse an old generation's completed or failed attempt. `thread-restoration-ui-smoke.mjs` reproduces this boundary in the built renderer with controlled Desktop projections while preserving unknown submissions without replay.
 

@@ -31,6 +31,8 @@ async function fixture(t) {
     "design-system/literal-baseline.json",
     JSON.stringify({ total: { color: 2, radius: 3, typography: 1 }, files: {} }),
   );
+  await put("packages/ui/experimental-allowlist.json", "[]\n");
+  await put("design-system/accessibility-baseline.json", JSON.stringify({moderateIssues:0,contrastExceptions:[]}));
   await put("app/src/main.cjs", "module.exports = {};\n");
   await put("renderer/src/App.tsx", 'import { useState } from "react";\nuseState(1);\n');
   await put(
@@ -147,4 +149,45 @@ test("an explicit base detects baseline relaxation in the same change", async (t
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /appLines/);
   assert.match(result.stderr, /baseline/i);
+});
+
+test("type suppression and experimental debt are counted by their existing owners", async (t) => {
+  const f = await fixture(t);
+  await f.put("app/src/Boundary.cjs", "// @ts-ignore\n// @ts-expect-error\nmodule.exports = {};\n");
+  await f.put(
+    "packages/ui/experimental-allowlist.json",
+    JSON.stringify([
+      {
+        file: "renderer/src/Consumer.tsx",
+        symbol: "Pending",
+        owner: "renderer/src/Consumer.tsx",
+        exitCondition: "Remove after admission",
+      },
+    ]),
+  );
+  const result = f.run();
+  assert.equal(result.status, 0, result.stderr);
+  const report = JSON.parse(result.stdout);
+  assert.equal(report.metrics.tsIgnores.value, 1);
+  assert.equal(report.metrics.tsExpectErrors.value, 1);
+  assert.equal(report.metrics.experimentalImports.value, 1);
+});
+
+
+test("package root and client implementations share production caps while build tools do not", async (t) => {
+  const f = await fixture(t);
+  assert.equal(f.run("--write").status, 0);
+  await f.put("packages/provider-config/connections.cjs", "module.exports = {};\n".repeat(801));
+  await f.put("packages/workbench/client/model.js", "export {};\n".repeat(801));
+  await f.put("packages/gen-ui/build.mjs", "build();\n".repeat(1001));
+  await f.put("packages/runtime-client/core.d.ts", "export {};\n".repeat(1001));
+  const report = JSON.parse(f.run().stdout);
+  assert.equal(report.sourceLines["packages/provider-config/connections.cjs"], 801);
+  assert.equal(report.sourceLines["packages/workbench/client/model.js"], 801);
+  assert.equal(report.sourceLines["packages/gen-ui/build.mjs"], undefined);
+  assert.equal(report.sourceLines["packages/runtime-client/core.d.ts"], undefined);
+  const result = f.run("--check");
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /connections\.cjs/);
+  assert.match(result.stderr, /client\/model\.js/);
 });

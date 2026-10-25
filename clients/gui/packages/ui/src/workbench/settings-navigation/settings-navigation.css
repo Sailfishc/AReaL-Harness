@@ -22,7 +22,7 @@
 
 .settings-sidebar .settings-navigation-search input {
   height: 36px;
-  border-radius: 9999px;
+  border-radius: var(--radius-full);
   background: var(--color-sidebar-item);
   border: 1px solid transparent;
   font-size: var(--text-ui-base);

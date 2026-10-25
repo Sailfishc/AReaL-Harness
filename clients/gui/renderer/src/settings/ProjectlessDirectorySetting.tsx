@@ -18,7 +18,7 @@ export function ProjectlessDirectorySetting({ directory, choose, connected }: {
   };
   return <>
     <SettingsRow label={t("settings.projectlessDirectorySetting.folderForTasksOutsideProjects")} description={t("settings.projectlessDirectorySetting.newTasksOutsideProjectsAreSavedIn")}
-      control={<div className="flex min-w-0 items-center gap-2"><span className="max-w-60 truncate text-xs" title={directory}>{directory ?? t("settings.projectlessDirectorySetting.disconnected")}</span><Button size="sm" variant="outline" aria-label={t("settings.projectlessDirectorySetting.changeFolderForTasksOutsideProjects")} disabled={!connected || !choose || busy} onClick={() => void change()}>{t("settings.projectlessDirectorySetting.change")}</Button></div>} />
+      control={<div className="flex min-w-0 items-center gap-2"><span className="max-w-60 truncate text-compact-caption" title={directory}>{directory ?? t("settings.projectlessDirectorySetting.disconnected")}</span><Button size="sm" variant="outline" aria-label={t("settings.projectlessDirectorySetting.changeFolderForTasksOutsideProjects")} disabled={!connected || !choose || busy} onClick={() => void change()}>{t("settings.projectlessDirectorySetting.change")}</Button></div>} />
     {error && <p role="alert" className="px-4 py-2 text-destructive">{formatUiMessage(t, error)}</p>}
   </>;
 }

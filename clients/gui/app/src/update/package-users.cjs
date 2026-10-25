@@ -1,9 +1,11 @@
+// @ts-check
 'use strict';
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const { realpath } = require('node:fs/promises');
 const execute = promisify(execFile);
 
+/** @param {{packaged?:boolean,executable?:string}} [options] */
 async function assertPackageUsersReleased({ packaged, executable = process.execPath } = {}) {
   if (!packaged || process.platform !== 'darwin') return;
   const actual = await realpath(executable);

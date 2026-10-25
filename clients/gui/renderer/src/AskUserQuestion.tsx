@@ -36,8 +36,10 @@ export function AskUserQuestion({
   const [unknown, setUnknown] = useState(false);
   const inFlight = useRef(false);
   const title = useRef<HTMLHeadingElement>(null);
+  const deferred = useRef<HTMLButtonElement>(null);
   const question = questions[index];
   useEffect(() => {
+    if (collapsed) deferred.current?.focus({ preventScroll: true });
     if (!collapsed) title.current?.focus({ preventScroll: true });
   }, [index, collapsed]);
   if (!question) return null;
@@ -105,6 +107,7 @@ export function AskUserQuestion({
     <>
       {collapsed && (
         <Button
+          ref={deferred}
           type="button"
           className="decision-deferred"
           variant="outline"
@@ -218,9 +221,6 @@ export function AskUserQuestion({
                     rows={1}
                     disabled={locked}
                     value={draft.text}
-                    onFocus={() => {
-                      if (!locked) update({ mode: "custom" });
-                    }}
                     onChange={(e) => update({ mode: "custom", text: e.target.value })}
                     onKeyDown={(e) => {
                       e.stopPropagation();

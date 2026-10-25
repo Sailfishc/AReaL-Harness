@@ -61,12 +61,12 @@ export function ExecutableSideChatPane({ tab, project, projects, services, dark,
   useConversationEscape({ pane, project, thread, action, enabled: active && owned && !executionBlocked && !tab.closeRequestId, onError: setError });
   const browser = useBrowserWorkspace(services, project.id, tab.childId, browserPageId(resource));
   const openBrowser = useCallback(async (url?: string) => {
-    let state = await browser.request("state");
-    if (!state.workspace?.selectedPageId) state = await browser.request("newPage");
+    let state = await browser.request({ operation: "state" });
+    if (!state.workspace?.selectedPageId) state = await browser.request({ operation: "newPage" });
     const pageId = state.browser?.pageId ?? state.workspace?.selectedPageId;
     if (!pageId) return;
-    if (url) await browser.request("navigate", { pageId, url });
-    await browser.request("selectPage", { pageId });
+    if (url) await browser.request({ operation: "navigate", pageId, url });
+    await browser.request({ operation: "selectPage", pageId });
     setResource(browserTabId(pageId));
   }, [browser.request]);
   const onLink = useCallback((url: string) => {
@@ -87,7 +87,7 @@ export function ExecutableSideChatPane({ tab, project, projects, services, dark,
   const binding = useRef<SideResourceBinding>({ close: async () => {} });
   binding.current = { close: async name => {
     if (name.startsWith("mcp-app:")) await apps.close(name);
-    else if (name.startsWith("browser:")) await browser.request("release", { pageId: browserPageId(name), userIntent: true });
+    else if (name.startsWith("browser:")) await browser.request({ operation: "release", pageId: browserPageId(name), userIntent: true });
     else if (name.startsWith("file:") && !confirmCloseFiles(project.id, [name.slice(5)], project.root)) throw new Error(t("chat.side.fileUnsaved"));
   } };
   useEffect(() => { bindingCallback.current({ close: name => binding.current.close(name) }); return () => bindingCallback.current(null); }, []);

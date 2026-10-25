@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -32,8 +33,20 @@ export async function readTestManifest(root = gui) {
     }
     if (!entry.platforms.every((platform) => platforms.includes(platform)))
       throw new Error(`${entry.script} has invalid platforms`);
+    for (const key of ["platformReason", "ciSmoke", "qualificationJourney"]) {
+      if (entry[key] !== undefined && (typeof entry[key] !== "string" || !entry[key].trim()))
+        throw new Error(`${entry.script} has invalid ${key}`);
+    }
+    if (entry.platforms.length === 1 && !entry.platformReason)
+      throw new Error(`${entry.script} requires platformReason`);
+    if ((entry.ciSmoke || entry.qualificationJourney) && entry.layer !== "e2e")
+      throw new Error(`${entry.script} CI smoke must cross the e2e boundary`);
     if (entry.flaky !== undefined && typeof entry.flaky !== "boolean")
       throw new Error(`${entry.script} has invalid flaky`);
+  }
+  for (const key of ["ciSmoke", "qualificationJourney"]) {
+    const values = manifest.map((entry) => entry[key]).filter(Boolean);
+    if (new Set(values).size !== values.length) throw new Error(`Duplicate ${key}`);
   }
   const missing = scripts.filter((script) => !seen.has(script));
   if (missing.length) throw new Error(`Unregistered tests ${missing.join(", ")}`);
@@ -54,13 +67,64 @@ export function selectTests(manifest, { platform, layer, areas = [], available =
     .map((entry) => entry.script);
 }
 
+export function areasForPaths(paths) {
+  const rules = [
+    [/^clients\/gui\/renderer\/src\/(?:composer|input|references)\//, ["composer"]],
+    [
+      /^clients\/gui\/renderer\/src\/(?:history|timeline|conversation)\//,
+      ["history", "conversation"],
+    ],
+    [/^clients\/gui\/renderer\/src\/(?:settings|models|providers)\//, ["provider", "desktop"]],
+    [/^clients\/gui\/renderer\/src\/side-chat\//, ["side-chat"]],
+    [/^clients\/gui\/renderer\/src\/(?:browser|annotations)\//, ["browser", "annotations"]],
+  ];
+  const matched = paths.map((path) => rules.find(([pattern]) => pattern.test(path))?.[1]);
+  // Shared owners and unmapped paths retain every required smoke.
+  return matched.some((areas) => !areas) ? [] : [...new Set(matched.flat())];
+}
+
+export function smokeMatrix(manifest, areas = []) {
+  const entries = manifest.filter((entry) => entry.ciSmoke);
+  const selected = entries.filter(
+    (entry) => !areas.length || entry.areas.some((area) => areas.includes(area)),
+  );
+  return {
+    include: (selected.length ? selected : entries).map((entry) => ({
+      scenario: entry.ciSmoke,
+      script: entry.script,
+    })),
+  };
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const value = (name) => args.find((arg) => arg.startsWith(`${name}=`))?.slice(name.length + 1);
   const rootIndex = args.indexOf("--root");
   const root = resolve(value("--root") ?? (rootIndex >= 0 ? args[rootIndex + 1] : gui));
   const manifest = await readTestManifest(root);
+  if (args.includes("--ci-matrix")) {
+    const base = value("--base");
+    const paths = base
+      ? execFileSync("git", ["diff", "--name-only", "--end-of-options", base, "HEAD", "--"], {
+          cwd: root,
+          encoding: "utf8",
+        })
+          .trim()
+          .split("\n")
+          .filter(Boolean)
+      : [];
+    console.log(JSON.stringify(smokeMatrix(manifest, areasForPaths(paths))));
+    return;
+  }
   if (!args.includes("--list")) {
+    const { auditPlatformPaths } = await import("./support/platform-paths.mjs");
+    const violations = await auditPlatformPaths(root);
+    if (violations.length)
+      throw new Error(
+        violations
+          .map((item) => `${item.file}:${item.line} platform-specific temporary path ${item.value}`)
+          .join("\n"),
+      );
     console.log(
       JSON.stringify({
         passed: true,

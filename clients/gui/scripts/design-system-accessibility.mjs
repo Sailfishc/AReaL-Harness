@@ -1,3 +1,4 @@
+import { runAccessibilityKeyboard } from "./design-system-keyboard.mjs";
 import assert from "node:assert/strict";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -39,6 +40,13 @@ export function summarizeAxe(result) {
       targets: rule.nodes.map((node) => node.target),
     })),
   };
+}
+
+export function assertAccessibleReport(report, moderateBaseline = 0) {
+  assert.ok(report.scans.length > 0, "axe must execute on mounted previews");
+  assert.equal(report.scans.flatMap(scan => scan.blocking).length, 0, "serious or critical accessibility violations");
+  assert.equal(report.contrast.defaultFailures, 0, "default theme contrast failures");
+  assert.equal(report.scans.reduce((sum, scan) => sum + scan.moderate, 0), moderateBaseline, "moderate accessibility issues exceed the zero baseline");
 }
 
 export async function runThemeContrast(browser, scratch) {
@@ -205,7 +213,7 @@ export async function runThemeContrast(browser, scratch) {
   }
   await context.close();
   const report = {
-    mode: "report",
+    mode: "blocking-defaults",
     scope:
       "Explicit production role pairs resolved by Chrome. Browser canvas composites alpha over the listed solid palette backdrop. This does not measure native blur over nonuniform content, every placement or antialiased text edges.",
     browser: evidence.browser,
@@ -214,7 +222,7 @@ export async function runThemeContrast(browser, scratch) {
     failures: rows.filter((row) => !row.passed),
     defaultFailures: rows.filter((row) => row.input.id.startsWith("default-") && !row.passed),
     gaps: [
-      "Arbitrary custom palettes need a product policy; no automatic recoloring.",
+      "Custom palette text/background contrast is reported in settings; colors remain user controlled.",
       "VoiceOver reading order and announcements not verified.",
     ],
   };
@@ -285,7 +293,7 @@ export async function runAccessibility(page, scratch, gui, checks, samples) {
             join(scratch, "accessibility.json"),
             JSON.stringify(
               {
-                mode: "report",
+                mode: "blocking-defaults",
                 axeVersion: result.testEngine.version,
                 scans,
                 palette,
@@ -319,12 +327,15 @@ export async function runAccessibility(page, scratch, gui, checks, samples) {
     },
   });
   checks.push(
-    `palette snapshot: ${palette.samples} samples × ${palette.variables} browser-resolved roles unchanged`,
+    `palette snapshot: ${palette.samples} samples × ${palette.variables} browser-resolved roles checked against the frozen baseline and explicit accessibility revision`,
   );
   checks.push(
-    `accessibility report: ${scans.length} axe scans; explicit contrast matrix saved; existing debt retained without changing default colors`,
+    `accessibility gate: ${scans.length} axe scans and default-theme contrast matrix; custom themes remain diagnostic`,
   );
-  assert.ok(scans.length > 0, "axe must execute on mounted previews");
+  const accessibilityBaseline = JSON.parse(await readFile(join(gui, "design-system/accessibility-baseline.json"), "utf8"));
+  assert.equal(accessibilityBaseline.contrastExceptions.length, 0, "default contrast exceptions require an explicit gate implementation");
+  assertAccessibleReport({scans, contrast}, accessibilityBaseline.moderateIssues);
+  await runAccessibilityKeyboard(page, checks);
   const metadata = JSON.parse(await readFile(join(gui, "packages/ui/tokens.json"), "utf8"));
   assert.equal(
     Object.keys(metadata.palette.roles).filter((name) => name.startsWith("--color-")).length,

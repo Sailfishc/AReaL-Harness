@@ -1,4 +1,50 @@
+// @ts-check
 "use strict";
+
+/** Raw Electron payloads have no precision until the receiving owner validates them.
+ * @typedef {{
+ * "areal-core:choose-project":[],
+ * "areal-core:choose-projectless-directory":[],
+ * "areal-core:choose-task-directory":[],
+ * "areal-core:command":[name:unknown,params:unknown],
+ * "areal-core:file-open":[request:unknown],
+ * "areal-core:install-command-line-tools":[],
+ * "areal-core:mcp-app":[request:unknown],
+ * "areal-core:mcp-app-deep-link-consumed":[id:unknown],
+ * "areal-core:mcp-app-deep-link-target":[],
+ * "areal-core:mcp-form-resource":[operation:unknown,request:unknown],
+ * "areal-core:notification-consumed":[id:unknown],
+ * "areal-core:notification-target":[],
+ * "areal-core:present-ready":[],
+ * "areal-core:preview":[request:unknown],
+ * "areal-core:snapshot":[],
+ * "areal-core:theme":[id:unknown],
+ * "areal-core:update-download":[],
+ * "areal-core:update-recover-resources":[],
+ * "areal-core:update-state":[]
+ * }} DesktopInvokeArguments */
+/** @typedef {{
+ * "areal-core:interface-locale":[locale:unknown],
+ * "areal-core:projection-request":[requestId:unknown],
+ * "areal-core:quit-decision":[decision:unknown]
+ * }} DesktopSendArguments */
+/** @typedef {{
+ * "areal-core:mcp-app-deep-link":[],
+ * "areal-core:mcp-app-event":[event:unknown],
+ * "areal-core:notification-open":[],
+ * "areal-core:preview-event":[event:unknown],
+ * "areal-core:projection":[message:unknown],
+ * "areal-core:quit-progress":[progress:unknown],
+ * "areal-core:quit-request":[id:unknown],
+ * "areal-core:theme-changed":[theme:unknown],
+ * "areal-core:update-changed":[state:unknown]
+ * }} DesktopEventArguments */
+/** @typedef {<N extends keyof DesktopInvokeArguments>(channel:N,...args:DesktopInvokeArguments[N])=>Promise<unknown>} DesktopInvoke */
+/** @typedef {<N extends keyof DesktopSendArguments>(channel:N,...args:DesktopSendArguments[N])=>void} DesktopSend */
+
+/** @typedef {{state:'idle'}|{state:'quitting',phase:'checking'|'stopping'|'finishing'}} QuitProgress */
+/** @typedef {{id:number,pluginId:string,marketplace?:string,toolName:string,path:string}} McpAppDeepLink */
+/** @typedef {{projectId:string}&({threadId:string,taskId?:never}|{taskId:string,runId?:string,questionId?:string})} NotificationTarget */
 
 /** @typedef {{message:string, code?:string|number, reason?:string, submissionUnknown?:boolean, requestId?:string, delivery?:'resultUnavailable', outcome?:import('../../runtime-client/core.js').FailureOutcome, recovery?:import('../../runtime-client/core.js').Recovery}} DesktopError */
 /** @template T @typedef {{ok:true,value:T}|{ok:false,error:DesktopError}} DesktopResult */
@@ -28,6 +74,7 @@ const recoverable = Object.freeze({ effect: "mutation", requestId: "requestId" }
 /** @param {CommandEffect} semantics @param {string} names */
 const operations = (semantics, names) =>
   Object.fromEntries(names.split(" ").map((name) => [name, semantics]));
+/** @satisfies {Record<string,readonly ['main'|'service','app'|'project'|'thread',CommandEffect|Record<string,CommandEffect>]>} */
 const commandDefinitions = Object.freeze({
   connect: ["service", "project", subscription],
   list: ["service", "project", read],
@@ -196,7 +243,23 @@ function commandSemantics(name, request) {
  * : N extends 'fork' ? ForkResponse : N extends 'configure' ? Record<string,unknown> & {projects:unknown[]}
  * : N extends 'side' ? SideResponse<Extract<P,SideRequest>> : unknown} CommandResponse */
 /** @typedef {'show'|'navigate'|'back'|'forward'|'reload'|'stop'|'state'|'external'|'devtools'|'openLink'|'release'|'claim'|'takeover'|'captureRegion'|'captureElement'|'selectElement'|'cancelElementSelection'|'checkElement'|'endRegion'|'beginStyleTrial'|'applyStyleTrial'|'undoStyleTrial'|'redoStyleTrial'|'styleTrialState'|'captureStyleTrialAfter'|'clearStyleTrial'|'newPage'|'selectPage'|'subscribe'|'unsubscribe'|'allowNextDownload'|'cancelFileHandoff'|'cancelDownload'|'authorizeFrameOrigin'|'reloadFrameOrigin'|'revokeFrameOrigin'} OwnedPreviewOperation */
-/** @typedef {{operation:'hide',projectId?:string,threadId?:string,pageId?:string,captureId?:string}|{operation:OwnedPreviewOperation,projectId:string,threadId:string,pageId?:string,captureId?:string,x?:number,y?:number,elementId?:string,trialId?:string,property?:string,value?:string,downloadId?:string,url?:string,userIntent?:boolean,visible?:boolean,bounds?:{x:number,y:number,width:number,height:number}}} PreviewRequest */
+/** @typedef {{projectId:string,threadId:string,pageId?:string,captureId?:string,downloadId?:string,url?:string,userIntent?:boolean,visible?:boolean,bounds?:{x:number,y:number,width:number,height:number},[key:string]:unknown}} PreviewOwner */
+/** @typedef {PreviewOwner & (
+ * {operation:'show'|'back'|'forward'|'reload'|'stop'|'state'|'external'|'devtools'|'claim'|'takeover'|'captureRegion'|'captureElement'|'cancelElementSelection'|'newPage'|'subscribe'|'unsubscribe'}
+ * | {operation:'navigate'|'openLink',url:string}
+ * | {operation:'release',userIntent:true}
+ * | {operation:'selectPage'|'cancelFileHandoff',pageId:string}
+ * | {operation:'authorizeFrameOrigin'|'reloadFrameOrigin'|'revokeFrameOrigin'|'allowNextDownload',pageId:string,userIntent:true}
+ * | {operation:'cancelDownload',pageId:string,downloadId:string,userIntent:true}
+ * | {operation:'endRegion',pageId:string,captureId:string}
+ * | {operation:'checkElement'|'beginStyleTrial',pageId:string,captureId:string,elementId:string}
+ * | {operation:'selectElement',pageId:string,captureId:string,x:number,y:number}
+ * | {operation:'applyStyleTrial',pageId:string,trialId:string,property:string,value:string}
+ * | {operation:'undoStyleTrial'|'redoStyleTrial'|'styleTrialState'|'captureStyleTrialAfter'|'clearStyleTrial',pageId:string,trialId:string}
+ * )} OwnedPreviewRequest */
+/** Hide without a capture deliberately allows unscoped owner fields; Main decides global hiding.
+ * @typedef {OwnedPreviewRequest | {operation:'hide',captureId:string,projectId:string,threadId:string,pageId:string,[key:string]:unknown}
+ * | {operation:'hide',captureId?:undefined,projectId?:unknown,threadId?:unknown,pageId?:unknown,[key:string]:unknown}} PreviewRequest */
 /** @param {unknown} value @returns {value is Record<string,unknown>} */
 function record(value) {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -1082,9 +1145,9 @@ function validateCommand(name, params, { serviceOnly = false } = {}) {
     invalid();
 }
 
-/** @param {unknown} request */
-function validatePreview(request) {
-  if (!record(request)) invalid();
+/** @type {(request:unknown)=>asserts request is PreviewRequest} */
+const validatePreview = (request) => {
+  if (!record(request) || typeof request.operation !== "string") invalid();
   if (request.operation === "hide") {
     if (
       request.captureId !== undefined &&
@@ -1242,7 +1305,7 @@ function validatePreview(request) {
       ))
   )
     invalid();
-}
+};
 
 /** @param {unknown} error @returns {DesktopError} */
 function desktopError(error) {
@@ -1672,7 +1735,8 @@ module.exports = {
   commandSemantics,
   validateCommand,
   validateCommandResponse,
-  validatePreview,
+  /** @type {(request:unknown)=>asserts request is PreviewRequest} */
+  validatePreview: validatePreview,
   desktopError,
   validateMcpPageDeclaration,
   validateMcpPageCall,

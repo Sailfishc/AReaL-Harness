@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Data, PlatformServices } from "../services.js";
-import type { OwnedPreviewOperation } from "@areal/workbench/desktop-contract";
+import type { OwnedPreviewRequest } from "@areal/workbench/desktop-contract";
+
+type WithoutOwner<Request> = Request extends unknown ? {
+  [Key in keyof Request as string extends Key ? never : Key extends 'projectId' | 'threadId' ? never : Key]: Request[Key]
+} : never;
+export type BrowserWorkspaceRequest = WithoutOwner<OwnedPreviewRequest>;
 
 export const browserTabId = (pageId: string) => `browser:${pageId}`;
 export const isBrowserTab = (id: string) => id.startsWith("browser:");
@@ -58,9 +63,9 @@ export function useBrowserWorkspace(services: PlatformServices, projectId: strin
     };
   }, [services, projectId, threadId, owner]);
   useEffect(() => { void refreshRef.current(); }, [activePageId]);
-  const request = useCallback(async (operation: OwnedPreviewOperation, extra: Data = {}) => {
+  const request = useCallback(async (request: BrowserWorkspaceRequest) => {
     if (current.current.owner !== owner) throw new Error("页面归属已变化");
-    const result = await services.preview({ operation, projectId, threadId, ...extra });
+    const result = await services.preview({ ...request, projectId, threadId });
     if (current.current.owner === owner) await refreshRef.current();
     return result;
   }, [services, projectId, threadId, owner]);

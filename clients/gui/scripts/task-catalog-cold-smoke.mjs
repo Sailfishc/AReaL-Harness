@@ -1,3 +1,4 @@
+import { makeTempDir } from "./support/temp.mjs";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { mkdir, mkdtemp, readFile, writeFile, readdir } from "node:fs/promises";
@@ -30,7 +31,7 @@ if (seed) {
     "only a stopped owned cold fixture may be reused",
   );
 }
-const scratch = seed?.scratch ?? (await mkdtemp("/private/tmp/areal-cold-red-"));
+const scratch = seed?.scratch ?? (await makeTempDir("areal-cold-red-"));
 const evidence = process.env.AREAL_COLD_EVIDENCE
   ? resolve(process.env.AREAL_COLD_EVIDENCE)
   : await mkdtemp(join(root, ".scratch/task-catalog-cold-"));

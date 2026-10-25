@@ -1,3 +1,4 @@
+import { makeTempDir } from "./support/temp.mjs";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
@@ -68,7 +69,7 @@ const bundleHashesAtStart = await bundleHashes();
 const evidenceRoot = join(root, ".scratch/side-chat-parity");
 await mkdir(evidenceRoot, { recursive: true });
 const evidence = await mkdtemp(join(evidenceRoot, baseline ? "baseline-" : "run-"));
-const stateRoot = await mkdtemp("/private/tmp/scp-");
+const stateRoot = await makeTempDir("scp-");
 const workspace = join(stateRoot, "w");
 const userHome = join(stateRoot, "u");
 await mkdir(workspace);

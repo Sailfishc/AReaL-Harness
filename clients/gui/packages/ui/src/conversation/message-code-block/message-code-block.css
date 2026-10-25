@@ -1,5 +1,5 @@
 
-.conversation-code-block { min-width: 0; width: 100%; overflow: hidden; margin-block: 1.25em; border: 1px solid color-mix(in srgb, var(--color-foreground) 4.7%, transparent); border-radius: 20px; background: color-mix(in srgb, var(--color-foreground) 5.5%, transparent); }
+.conversation-code-block { min-width: 0; width: 100%; overflow: hidden; margin-block: 1.25em; border: 1px solid color-mix(in srgb, var(--color-foreground) 4.7%, transparent); border-radius: var(--radius-overlay); background: color-mix(in srgb, var(--color-foreground) 5.5%, transparent); }
 .dark .conversation-code-block { border-color: color-mix(in srgb, var(--color-foreground) 4.3%, transparent); background: color-mix(in srgb, var(--color-foreground) 8%, transparent); }
 .conversation-markdown > .conversation-code-block:not(:last-child) { margin-bottom: 1.25em; }
 .conversation-code-header { display: flex; align-items: center; min-height: 48px; gap: 8px; padding: 6px 6px 6px 20px; font-family: var(--font-sans); font-size: var(--text-ui-caption); font-weight: 500; }

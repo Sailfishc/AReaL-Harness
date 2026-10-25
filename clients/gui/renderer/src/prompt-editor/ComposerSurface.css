@@ -17,12 +17,12 @@
 .interaction-composer-compact .composer-model-trigger { max-width: 200px; }
 
 /* 模型入口属于共享输入表面，主/Side/草稿不各自定义文字角色。 */
-.composer-model-trigger { max-width: 220px; min-width: 0; height: 28px; padding: 4px 8px; gap: 4px; border-radius: 12.5px; font-size: var(--text-ui-caption); font-weight: 430; }
+.composer-model-trigger { max-width: 220px; min-width: 0; height: 28px; padding: 4px 8px; gap: 4px; border-radius: var(--radius-navigation); font-size: var(--text-ui-caption); font-weight: 430; }
 .composer-model-trigger > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .composer-model-menu { width: 254px; }
-.composer-model-menu [role="menuitemradio"] { font-size: var(--text-ui-caption); font-weight: 430; padding-block: 5px; border-radius: 15px; }
+.composer-model-menu [role="menuitemradio"] { font-size: var(--text-ui-caption); font-weight: 430; padding-block: 5px; border-radius: var(--radius-choice); }
 .composer-model-menu { padding: 7px 4px 6px; }
-.composer-model-menu [role="radio"] { display: flex; justify-content: space-between; align-items: center; width: 100%; text-align: left; padding: 5px 8px; border-radius: 11px; font-size: var(--text-ui-base); min-height: 29px; }
+.composer-model-menu [role="radio"] { display: flex; justify-content: space-between; align-items: center; width: 100%; text-align: left; padding: 5px 8px; border-radius: var(--radius-feedback); font-size: var(--text-ui-base); min-height: 29px; }
 .composer-model-menu [role="radio"]:enabled:is(:hover, :focus-visible) { background: var(--color-hover); }
 .composer-model-menu [role="radio"]:disabled { color: var(--color-foreground-subtle); }
 .composer-model-menu [role="radio"] small { display: block; font-size: var(--text-ui-sm); }

@@ -1,9 +1,10 @@
 "use strict";
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
-const { createRequire } = require("node:module");
-const { resolve } = require("node:path");
-const ts = createRequire(resolve("renderer/package.json"))("typescript");
+const { resolve, join } = require("node:path");
+const { mkdtempSync, writeFileSync, rmSync } = require("node:fs");
+const { tmpdir } = require("node:os");
+const { spawnSync } = require("node:child_process");
 const { validateCommandResponse } = require("../packages/workbench/client/desktop-contract.cjs");
 
 const cases = [
@@ -73,42 +74,43 @@ test("the contract accepts typed examples and rejects invalid requests and respo
     `const badConfigure: CommandParams<'configure'> = {projectId:'p',threadId:'t',model:{providerId:'p',modelId:1}};`,
     `const badSide: CommandParams<'side'> = {projectId:'p',operation:'close',threadId:'t'};`,
   ];
-  const filename = resolve("scripts/desktop-contract-type-fixture.mts");
-  const source = `import type { CommandName, CommandParams, CommandResponse } from '../packages/workbench/client/desktop-contract.cjs';\n${rows.join("\n")}\n${invalidRequests.join("\n")}\nconst known: CommandName = 'fork';\nconst unsupported: CommandResponse<'stop'> = {opaque:true};\n`;
-  const options = {
-    allowJs: true,
-    checkJs: false,
-    strict: true,
-    noEmit: true,
-    skipLibCheck: true,
-    target: ts.ScriptTarget.ES2022,
-    module: ts.ModuleKind.NodeNext,
-    types: [],
-  };
-  const host = ts.createCompilerHost(options);
-  const getSourceFile = host.getSourceFile.bind(host);
-  host.getSourceFile = (path, languageVersion, onError, shouldCreateNewSourceFile) =>
-    path === filename
-      ? ts.createSourceFile(path, source, languageVersion, true)
-      : getSourceFile(path, languageVersion, onError, shouldCreateNewSourceFile);
-  const diagnostics = ts.getPreEmitDiagnostics(ts.createProgram([filename], options, host));
+  const directory = mkdtempSync(join(tmpdir(), "areal-command-types-"));
+  const filename = join(directory, "fixture.mts");
+  const source = `import type { CommandName, CommandParams, CommandResponse } from ${JSON.stringify(resolve("packages/workbench/client/desktop-contract.cjs"))};\n${rows.join("\n")}\n${invalidRequests.join("\n")}\nconst known: CommandName = 'fork';\nconst unsupported: CommandResponse<'stop'> = {opaque:true};\n`;
+  try {
+    writeFileSync(filename, source);
+    const config = join(directory, "tsconfig.json");
+    writeFileSync(config, JSON.stringify({ extends: resolve("app/tsconfig.json"), include: [], files: [filename] }));
+    const result = spawnSync(process.execPath, [resolve("renderer/node_modules/@typescript/native/bin/tsc"), "--ignoreConfig", "-p", config, "--pretty", "false"], { encoding: "utf8" });
+    assert.equal(result.status, 1, result.stdout + result.stderr);
   const expectedLines = [
     ...cases.map((_, index) => 4 + index * 3),
     ...invalidRequests.map((_, index) => 2 + rows.length + index),
   ];
-  assert.deepEqual(
-    diagnostics.map((item) => ({
-      file: item.file?.fileName,
-      line:
-        item.file && item.start !== undefined
-          ? item.file.getLineAndCharacterOfPosition(item.start).line + 1
-          : 0,
-    })),
-    expectedLines.map((line) => ({ file: filename, line })),
-    ts.formatDiagnosticsWithColorAndContext(diagnostics, {
-      getCanonicalFileName: (value) => value,
-      getCurrentDirectory: () => process.cwd(),
-      getNewLine: () => "\n",
-    }),
-  );
+    const diagnostics = result.stdout.trim().split("\n").filter(line => !line.startsWith(" ")).map(line => {
+      const match = line.match(/fixture\.mts\((\d+),\d+\): error TS\d+:/);
+      assert.ok(match, line);
+      return Number(match[1]);
+    });
+    assert.deepEqual(diagnostics, expectedLines, result.stdout);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('validated preview requests narrow required fields by operation without asserting raw payloads', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'areal-preview-types-'));
+  try {
+    const fixture = join(directory, 'fixture.mts'), config = join(directory, 'tsconfig.json');
+    writeFileSync(fixture, `import {validatePreview} from ${JSON.stringify(resolve('packages/workbench/client/desktop-contract.js'))};
+let request: unknown = JSON.parse('{}');
+validatePreview(request);
+if (request.operation === 'selectElement') { const x: number = request.x; const page: string = request.pageId; const capture: string = request.captureId; }
+if (request.operation === 'applyStyleTrial') { const trial: string = request.trialId; const property: string = request.property; const value: string = request.value; }
+if (request.operation === 'navigate') { const url: string = request.url; }
+if (request.operation === 'cancelDownload') { const id: string = request.downloadId; const intent: true = request.userIntent; }
+if (request.operation === 'hide' && request.captureId !== undefined) { const project: string = request.projectId; const thread: string = request.threadId; }
+`);
+    writeFileSync(config, JSON.stringify({ extends: resolve('app/tsconfig.json'), include: [], files: [fixture] }));
+    const result = spawnSync(process.execPath, [resolve('renderer/node_modules/@typescript/native/bin/tsc'), '--ignoreConfig', '-p', config, '--pretty', 'false'], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });

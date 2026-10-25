@@ -29,11 +29,42 @@ macOS 原生 smoke 需要 Seatbelt，Linux 原生 smoke 需要 `/usr/bin/bwrap` 
 
 Linux 宿主常规检查使用 `make verify CARGO_TEST_ARGS='--exclude areal-runtime-exec-native'`。原生后端测试要求 `/usr/bin/bwrap` 和 user namespace；CI 的独立任务构建 Dockerfile 的 `runtime-tests` 目标，在带 Bubblewrap 的受控容器中实际运行包含 `outer-container-perf` 的全部后端测试，并启用 `areal-runtime/native-tests` 运行 daemon 的 `native_transport` 目标。该目标经私有 stdio 启动真实 daemon 和完整 Runtime bundle，使 Linux 在 daemon 旁找到 reaper；原生沙箱用例保留普通命令/Hook 并发进展和外部 writer 排他断言，四个 portable transport 用例仍属于默认测试。`make verify-native` 先构建 bundle，再在 macOS 显式运行同一原生目标。该 feature 仅选择测试目标，不改变生产行为；不能只排除 portable 宿主的原生测试就视为完成验收。
 
+## GUI 测试清单与平台资格
+
+`clients/gui/scripts/test-manifest.json` 是根 `package.json` 中全部 `test:*` 命令的登记表。`layer` 区分纯逻辑单元、无 GUI 的契约和浏览器/Electron 端到端边界；`platforms` 声明脚本可运行的平台，`areas` 声明领域，`requires` 声明环境条件。仅支持一个平台的条目必须填写 `platformReason`。平台声明不等于该平台已经验收通过。需要 Core 的无界面测试仍属契约层。
+
+从 `clients/gui` 执行以下命令。真实 Core 用固定产物，测试期间不重新构建。
+
+```bash
+pnpm verify:tests
+pnpm test:unit
+node scripts/test-manifest.mjs --list --platform=linux --layer=contract --available=git,python3,gui-build
+node scripts/run-portable-tests.mjs
+node scripts/test-manifest.mjs --ci-matrix --base=<commit>
+node scripts/repeat-tests.mjs --profile=linux-feasibility --plan
+AREAL_CORE_BIN=/absolute/fixed/areal xvfb-run -a node scripts/repeat-tests.mjs --profile=linux-feasibility
+AREAL_CORE_BIN=/absolute/fixed/areal node scripts/repeat-tests.mjs --profile=macos-baseline
+```
+
+先运行 `make gui-build` 准备 portable runner 所需的 Desktop/UI/Renderer 产物。该 runner 全量运行当前平台上满足前提的单元和契约测试，记录每个结果、耗时，以及因 Core、原生工具或精确 Node 版本缺失而未选择的命令。报告默认写入 `target/ci/gui/portable-tests.json`，`AREAL_PORTABLE_TEST_REPORT` 可指定路径。Relay 完整传输契约另外需要其锁定的 Node 24.2.0 和 `services/remote-relay` 依赖，CI 使用独立步骤执行。
+
+`ciSmoke` 绑定现有 macOS smoke 矩阵。领域映射只裁剪已知的局部 Renderer 改动；共享所有者、测试脚本、未知路径及没有对应 smoke 的领域保留完整矩阵。没有比较基准的运行也使用完整矩阵。Linux 单元与契约不按领域裁剪。
+
+临时目录统一使用 `scripts/support/temp.mjs` 的 `makeTempDir(prefix)`。它对 `os.tmpdir()` 做 `realpath`，保留 macOS 路径比较语义。`verify:tests` 通过 AST 检查所有登记脚本及本地导入，拒绝实际路径字面量 `/private/tmp` 和 `/var/folders`。审计规则及负例中的字符串不构成临时目录创建。
+
+重复驱动保留每次首跑的日志、独立临时目录、退出状态、耗时和运行前后源码/Core 摘要，不自动重试或删除失败。Linux 计划复用启动/恢复、发送/流式、停止 Turn、桌面设置、退出草稿五个现有 runner，各跑 10 次；macOS 计划对可无人值守的登记 E2E 各跑 5 次。`--scripts=test:composer,test:queue` 可缩小范围，报告明确标为 scoped。`--repetitions=N` 可用于诊断，但少于 10 次的 Linux 样本不能获得必跑资格。退出草稿仍要求仓库 `.local/dev-bin/` 下的完整固定 Core bundle。
+
+Linux 必跑候选必须完成每条旅程至少 10 次首跑、无环境阻塞、通过率不低于 95%，并保持源码身份不变。10 次样本实际要求 10/10。完整 macOS 五次基线低于 95% 且存在真实失败时列入 `flakyCandidates`；环境阻塞单独报告。维护者核查失败原因和证据后更新 `flaky: true` 或批准 Linux 必跑集。候选资格报告不会自动更改清单或降低现有门禁。
+
+在 [GUI workflow](../../.github/workflows/gui.yml) 手动选择 `qualification=linux-feasibility`，可在原生 Ubuntu + xvfb 执行上述 Linux 计划；选择 `macos-baseline` 则按脚本展开五次基线。Linux 检查非 root 身份、DISPLAY、user namespace 和 Bubblewrap，能力不足返回 blocked，保持 Electron/Runtime 沙箱，不使用 `--no-sandbox` 或修改宿主安全策略。尚未取得并审阅的资格不能当作 Linux 通过。手动资格任务独立呈现失败，不替代必跑的 GUI gate。
+
+Linux portable job 的 10 分钟 timeout 是上限，不是耗时达标证据。`portable-interval.json` 记录首个执行步骤到报告步骤的实际区间，不含 runner 准备和 artifact 上传。完整 job 耗时需结合 GitHub Actions 的 job 时间核对；未运行远端 CI 时不能声称低于 10 分钟。
+
 ## GUI 与桌面路由门禁
 
 `cargo test --locked -p areal-app-server --lib desktop_registered_methods_have_dispatch_routes` 对每个已注册桌面 RPC 经真实连接分派发送非对象参数，要求返回参数错误而不是方法不存在；包含连接层单独接管的 `areal/thread/start`。该检查随 `make test-protocol`、`make test` 和 CI 执行，不启动模型请求或创建 Thread。
 
-[GUI CI](../../.github/workflows/gui.yml) 在 GUI、Core、Runtime、schema 与相关构建配置变更时运行冻结依赖安装、GUI 类型检查、公开边界、Core/GUI 构建、路由检查，以及现有 `make gui-smoke`、`test:composer`、`test:queue`。三个 smoke 顺序运行，使用独立目录和确定性本地模型；日志、截图与源码 manifest 上传为 CI artifact，不替代真实供应商或安装包验收。
+[GUI CI](../../.github/workflows/gui.yml) 按影响范围运行冻结依赖安装、GUI 类型检查、公开边界、Core/GUI 构建、桌面路由检查及已登记的 macOS smoke 矩阵。Linux 静态健康检查和 portable 单元/契约使用独立 job。测试使用隔离目录与确定性本地模型，保留日志、截图与源码 manifest；这些证据不替代真实供应商或安装包验收。
 
 Composer 和队列 smoke 共用 `clients/gui/scripts/smoke-navigation.mjs` 的导航与窄窗步骤：悬停项目后新建对话，通过稳定 task ID 切回对话，窄窗先收起侧栏再等待编辑器可见。失败保留 `failure-window.png` 整窗截图和 `failure-state.json` 的原错误、视口、当前项目/Thread 与可见文本；截图或页面已不可用时记录采集失败，不替换原测试错误。
 
@@ -196,7 +227,7 @@ TUI 与共享服务 PTY 检查共用终端画面解析器，处理增量重绘�
 
 `pnpm --dir clients/gui test:macos-dmg` 在 macOS 上独立通过真实 `codesign` 和 `hdiutil` 验证签名 framework 暂存。它需要允许磁盘映像设备访问的环境；受限 Agent 沙箱可能返回 `Device not configured`。应记录环境失败，并在允许的宿主环境重跑相同测试，不跳过断言，也不据此宣称安装包验收通过。macOS GUI job 显式执行该检查；可移植 `verify` 不创建磁盘映像。
 
-GUI CI 只构建一次 Core 和 Renderer，再将历史兼容、迁移、Composer、模型选择、队列和对话派生拆成独立隔离的 matrix job（最多三个并发，`fail-fast: false`）。同轮 artifact 以 tar 保留可执行权限，并记录精确 checkout SHA；smoke 拒绝不匹配的源码。锁定的 pnpm/Electron/FFmpeg 下载使用缓存；构建成功即可保存构建缓存，不再因后续 smoke 失败丢失缓存。使用 `gh run rerun <run-id> --failed` 只重试失败的 smoke 和 gate，复用已通过的构建及场景。缺失产物、失败、取消或意外跳过仍使 gate 失败，不使用 `continue-on-error`。
+GUI CI 只构建一次 Core 和 Renderer，再将历史兼容、迁移、Composer、模型选择、队列、对话派生和 Side chat 按清单选择后拆成独立隔离的 matrix job（最多六个并发，`fail-fast: false`）。同轮 artifact 以 tar 保留可执行权限，并记录精确 checkout SHA；smoke 拒绝不匹配的源码。锁定的 pnpm/Electron/FFmpeg 下载使用缓存；构建成功即可保存构建缓存，不再因后续 smoke 失败丢失缓存。使用 `gh run rerun <run-id> --failed` 只重试失败的 smoke 和 gate，复用已通过的构建及场景。缺失产物、失败、取消或意外跳过仍使 gate 失败，不使用 `continue-on-error`。
 
 恢复去重的归属包含项目、聊天和 Core 连接代际；适配器重建后不能复用旧代际的完成/失败尝试。`thread-restoration-ui-smoke.mjs` 使用真实构建的 Renderer 及受控 Desktop 投影复现此边界，同时保持未知提交不重发。
 

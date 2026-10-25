@@ -18,7 +18,10 @@ import "./BrowserFileHandoff.css";
 import { BrowserStyleTrial, type StyleTrialDraft } from './BrowserStyleTrial.js';
 import { BrowserKeyboardElementPicker } from './BrowserKeyboardElementPicker.js';
 import type { Action } from "./services.js";
-import type { PreviewRequest, OwnedPreviewOperation } from '@areal/workbench/desktop-contract';
+import type { PreviewRequest } from '@areal/workbench/desktop-contract';
+import type { BrowserWorkspaceRequest } from './app-shell/useBrowserWorkspace.js';
+type WithoutPage<Request> = Request extends unknown ? Omit<Request, 'pageId'> : never;
+type PagePreviewRequest = WithoutPage<BrowserWorkspaceRequest>;
 const locations = new Map<string, { url: string }>();
 const regionDrafts = new Map<string, RegionDraft>();
 const styleTrialDrafts = new Map<string, StyleTrialDraft>();
@@ -40,7 +43,7 @@ export function Preview({
   threadId: string;
   pageId: string;
   state: Data;
-  requestPage: (operation: OwnedPreviewOperation, extra?: Data) => Promise<Data>;
+  requestPage: (request: BrowserWorkspaceRequest) => Promise<Data>;
   fullAddress?: boolean;
   thread?: Data;
   action: Action;
@@ -110,7 +113,8 @@ export function Preview({
   current.current = owner;
   const mounted = useRef(false);
   const sequence = useRef(0);
-  const request = async (operation: OwnedPreviewOperation, extra: Data = {}) => {
+  const request = async (request: PagePreviewRequest) => {
+    const operation = request.operation;
     if (["navigate", "back", "forward", "reload", "selectPage", "newPage", "release"].includes(operation)) editing.current = false;
     if (["navigate", "back", "forward", "reload", "devtools"].includes(operation) && annotatingRef.current) {
       if (annotationBusy) return;
@@ -119,7 +123,7 @@ export function Preview({
     }
     const seq = ++sequence.current;
     try {
-      await requestPage(operation, { pageId, ...extra });
+      await requestPage({ ...request, pageId });
       if (!mounted.current || current.current !== owner || seq !== sequence.current) return;
       if (operation !== "state") setError("");
     } catch (e) {
@@ -285,13 +289,12 @@ export function Preview({
       if (mounted.current && current.current === owner) setError(e instanceof Error ? e.message : String(e));
     } finally { setStyleBusyOwner(value => value === owner ? null : value); }
   };
-  const changeStyleTrial = async (operation: 'applyStyleTrial' | 'undoStyleTrial' | 'redoStyleTrial', property?: string, value?: string) => {
+  const changeStyleTrial = async (change: { operation: 'applyStyleTrial'; property: string; value: string } | { operation: 'undoStyleTrial' | 'redoStyleTrial' }) => {
     const draft = styleTrialRef.current;
     if (!draft || styleBusy) return;
     setStyleBusyOwner(owner); setError('');
     try {
-      const next = await services.preview({ operation, projectId, threadId, pageId: draft.before.pageId,
-        trialId: draft.trialId, ...(property ? { property } : {}), ...(value !== undefined ? { value } : {}) });
+      const next = await services.preview({ ...change, projectId, threadId, pageId: draft.before.pageId, trialId: draft.trialId });
       if (mounted.current && current.current === owner && styleTrialRef.current === draft)
         updateStyleTrial({ ...draft, edits: next.edits, canUndo: next.canUndo, canRedo: next.canRedo, stale: next.stale });
     } catch (e) {
@@ -651,11 +654,11 @@ export function Preview({
           setUrl(state.url || "");
           editing.current = false;
         }}
-        onGoBack={() => void request("back")}
-        onGoForward={() => void request("forward")}
-        onOpenExternal={() => void request("external")}
-        onOpenDevTools={() => void request("devtools")}
-        onReload={() => void request(state.loading ? "stop" : "reload")}
+        onGoBack={() => void request({ operation: "back" })}
+        onGoForward={() => void request({ operation: "forward" })}
+        onOpenExternal={() => void request({ operation: "external" })}
+        onOpenDevTools={() => void request({ operation: "devtools" })}
+        onReload={() => void request({ operation: state.loading ? "stop" : "reload" })}
         onToggleResponsiveMode={() => setResponsive(!responsive)}
         isResponsiveMode={responsive}
         annotationControl={annotationControl}
@@ -665,7 +668,7 @@ export function Preview({
         onSubmit={(event) => {
           event.preventDefault();
           editing.current = false;
-          void request("navigate", { url });
+          void request({ operation: "navigate", url });
         }}
       />
       {annotationError && <div className="preview-viewport-toolbar" role="alert">
@@ -674,8 +677,8 @@ export function Preview({
       </div>}
       {state.browser?.control === 'transferring' && <div className="preview-viewport-toolbar browser-transfer-status" role="status">
         <span>{state.browser.transferError || '正在停止浏览器动作…'}</span>
-        <Button type="button" size="sm" onClick={() => void request('stop')}>停止加载</Button>
-        <Button type="button" size="sm" onClick={() => void request('release', { userIntent: true })}>关闭页面</Button>
+        <Button type="button" size="sm" onClick={() => void request({ operation: 'stop' })}>停止加载</Button>
+        <Button type="button" size="sm" onClick={() => void request({ operation: 'release', userIntent: true })}>关闭页面</Button>
       </div>}
       {uninspectedUnknown && <div className="preview-viewport-toolbar" role="status">上次浏览器操作的结果待核对，请在聊天中确认后继续。</div>}
       {annotationBusy && !annotating && <div className="sr-only" role="status">在页面中点击要标注的元素；按 Esc 取消。</div>}
@@ -688,10 +691,10 @@ export function Preview({
       {state.url && <div className="preview-viewport-toolbar" role="group" aria-label="网页文件交接">
         {state.browser?.control === 'human' ? <>
           <Button type="button" size="sm" disabled={!!state.browser?.downloadIntentExpiresAt || !!annotating || !!styleTrial}
-            onClick={() => void request('allowNextDownload', { userIntent: true })}>允许下一次下载</Button>
+            onClick={() => void request({ operation: 'allowNextDownload', userIntent: true })}>允许下一次下载</Button>
           {state.browser?.downloadIntentExpiresAt && <>
             <span role="status">30 秒内在当前网页触发一次下载，随后选择保存位置。</span>
-            <Button type="button" size="sm" onClick={() => void request('cancelFileHandoff')}>取消下载许可</Button>
+            <Button type="button" size="sm" onClick={() => void request({ operation: 'cancelFileHandoff' })}>取消下载许可</Button>
           </>}
           <span>上传请在网页中使用文件选择控件；系统选择器取消后可继续操作。</span>
         </> : <span>直接操作页面可选择文件。</span>}
@@ -706,7 +709,7 @@ export function Preview({
             {receipt.target ? ` · 保存为 ${receipt.target}` : ''}
             {['choosing', 'downloading', 'interrupted'].includes(receipt.status) && receipt.pageId === state.browser?.pageId
               && state.browser?.control === 'human' && <Button type="button" size="sm"
-                onClick={() => void request('cancelDownload', { downloadId: receipt.id, userIntent: true })}>取消下载</Button>}
+                onClick={() => void request({ operation: 'cancelDownload', downloadId: receipt.id, userIntent: true })}>取消下载</Button>}
           </div>)}
         </div>}
       {state.url && state.browser?.control === 'human' &&
@@ -715,11 +718,11 @@ export function Preview({
             <span role="status">嵌入站点 {state.browser.frameOriginGrant.origin} · 仅人工操作，iframe 使用区域标注</span>
             {state.browser.frameOriginGrant.status === 'pending' && <Button type="button" size="sm"
               disabled={!!annotating || !!styleTrial}
-              onClick={() => void request('reloadFrameOrigin', { userIntent: true })}>重载并应用嵌入授权</Button>}
+              onClick={() => void request({ operation: 'reloadFrameOrigin', userIntent: true })}>重载并应用嵌入授权</Button>}
             <Button type="button" size="sm" disabled={!!annotating || !!styleTrial}
-              onClick={() => void request('revokeFrameOrigin', { userIntent: true })}>撤销嵌入授权并关闭页面</Button>
+              onClick={() => void request({ operation: 'revokeFrameOrigin', userIntent: true })}>撤销嵌入授权并关闭页面</Button>
           </> : <Button type="button" size="sm" disabled={!!annotating || !!styleTrial || annotationBusy}
-            onClick={() => void request('authorizeFrameOrigin', { userIntent: true })}>授权当前页面的嵌入站点</Button>}
+            onClick={() => void request({ operation: 'authorizeFrameOrigin', userIntent: true })}>授权当前页面的嵌入站点</Button>}
         </div>}
       {state.url && <div className="preview-viewport-toolbar" role="group" aria-label="页面标注">
         <Button ref={styleControl} type="button" size="sm" disabled={annotationBusy || styleBusy || !!keyboardCapture || !!styleTrial || !!annotating || state.browser?.control === 'transferring'}
@@ -734,9 +737,9 @@ export function Preview({
           trialActive={!!styleTrial && !styleTrial.cleared || !!state.browser?.trialActive} />}
       </div>}
       {styleTrial && <BrowserStyleTrial draft={styleTrial} busy={styleBusy}
-        onApply={(property, value) => void changeStyleTrial('applyStyleTrial', property, value)}
-        onUndo={() => void changeStyleTrial('undoStyleTrial')}
-        onRedo={() => void changeStyleTrial('redoStyleTrial')}
+        onApply={(property, value) => void changeStyleTrial({ operation: 'applyStyleTrial', property, value })}
+        onUndo={() => void changeStyleTrial({ operation: 'undoStyleTrial' })}
+        onRedo={() => void changeStyleTrial({ operation: 'redoStyleTrial' })}
         onIntent={value => updateStyleTrial({ ...styleTrial, intent: value })}
         onStage={() => void stageStyleTrial()} onCancel={() => void cancelStyleTrial()} />}
       {responsive && (
@@ -777,7 +780,7 @@ export function Preview({
               errorMessage={failure}
               isCertificateError={false}
               formatMessage={browserLabel}
-              onRetry={() => void request("navigate", { url })}
+              onRetry={() => void request({ operation: "navigate", url })}
             />
         ) : !state.url ? (
           <BrowserEmptyState

@@ -47,17 +47,17 @@ export function UnknownToolInspection({ item, project, thread, action }: {
       <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogTitle>核查工具结果 UNKNOWN</DialogTitle>
         <DialogDescription>请先核对工作区的实际文件或进程。确认只记录核查事实，不重放原操作，也不将历史改写为成功。证据不足时取消核查。</DialogDescription>
-        <dl className="grid gap-1 text-sm break-all">
+        <dl className="grid gap-1 text-compact-body break-all">
           <dt>原工具</dt><dd>{item.tool}</dd>
           <dt>执行项</dt><dd>{item.id}</dd>
           <dt>操作</dt><dd>{item.execution.operationId}</dd>
           <dt>历史状态</dt><dd>{item.execution.outcome}{item.execution.hooks?.some((hook: Data) => hook.outcome === "unknown") ? " · 钩子 UNKNOWN" : ""}{item.execution.plugin?.operations?.some((operation: Data) => operation.outcome === "unknown") ? " · 插件 UNKNOWN" : ""}</dd>
         </dl>
-        <div><h3>原操作参数</h3><pre className="whitespace-pre-wrap break-all text-xs" aria-label="原操作参数">{JSON.stringify(item.arguments, null, 2)}</pre></div>
-        <details><summary>Core 原始结果与核查事实</summary><pre className="whitespace-pre-wrap break-all text-xs" aria-label="Core 原始结果">{JSON.stringify({ output: item.contentItems, execution: item.execution }, null, 2)}</pre></details>
+        <div><h3>原操作参数</h3><pre className="whitespace-pre-wrap break-all text-compact-caption" aria-label="原操作参数">{JSON.stringify(item.arguments, null, 2)}</pre></div>
+        <details><summary>Core 原始结果与核查事实</summary><pre className="whitespace-pre-wrap break-all text-compact-caption" aria-label="Core 原始结果">{JSON.stringify({ output: item.contentItems, execution: item.execution }, null, 2)}</pre></details>
         {confirmed ? <div role="status"><h3>已保存的核查说明</h3><p className="whitespace-pre-wrap break-words">{confirmed}</p></div> : <>
           <label>核查说明<Textarea aria-label="核查说明" value={inspection} onChange={event => setInspection(event.target.value)} disabled={busy} placeholder="记录已检查的文件、进程及观察到的事实；不确定时不要确认。" /></label>
-          <p className="text-xs">{bytes} / 1024 UTF-8 字节</p>
+          <p className="text-compact-caption">{bytes} / 1024 UTF-8 字节</p>
           <label className="flex items-center gap-2"><input type="checkbox" checked={checked} onChange={event => setChecked(event.target.checked)} disabled={disabled} />已核查实际文件或进程</label>
           {!connected && <p role="status">连接中断，不能确认。恢复连接后刷新原记录。</p>}
           {active && <p role="status">会话仍在执行，结算后才能确认。</p>}

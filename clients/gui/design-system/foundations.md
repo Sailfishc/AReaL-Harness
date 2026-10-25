@@ -32,6 +32,8 @@
 
 共同要求见[设计基础](../../../design/foundations/README.md#状态动效与可达性)、[反馈与恢复](../../../design/patterns/feedback-and-recovery.md)及[控制与审批](../../../design/people-and-agents/control-and-approval.md)。GUI 由原生或公共控件提供标签、键盘和焦点，具体字段反馈、详情入口与权限动作由原业务组件接线。
 
-调色板角色与已有参数的登记归 `packages/ui/tokens.json` 的 `palette`，速查表由现有 foundations 生成器输出。登记区分语义角色、组件角色与现有别名，保留缺少截图编号的来源缺口。运行时派生仍归 `theme.ts`，本次登记不表示公式已全部数据化、状态语义已补齐或组件引用方向已收敛。
+调色板参考值、派生参数、默认主题覆盖、语义公式和组件映射归 `packages/ui/tokens.json` 的 `palette`。构建时由 foundations 生成器输出 `src/generated/palette.ts` 与 Token 速查。`theme.ts` 只保留调色板 API、十六进制解码与 WCAG 算法，运行时不解释公式。组件角色只能引用语义角色；未知引用、循环依赖、组件直接公式及未登记的派生常量均阻断。运行中、成功、待关注、UNKNOWN、错误和已结算分别提供状态角色。
 
-`theme-baseline.json` 保存修改前真实 Chrome 解析的五套主题、三档 contrast、两种侧栏材料，共 30 组、每组 49 个颜色角色。`test:design` 比较 CSS 解析值及浏览器 sRGB 像素，不能用 `color-mix` 源码字符串相等代替。对比度报告使用具名的文字与表面配对，透明表面叠在报告列出的调色板背景上。原生模糊和非均匀底图仍需单独视觉取证。
+`theme-baseline.json` 保存修改前真实 Chrome 解析的五套主题、三档 contrast、两种侧栏材料，共 30 组、每组 49 个颜色角色。`test:design` 比较 CSS 解析值及浏览器 sRGB 像素，不能用 `color-mix` 源码字符串相等代替。对比度报告使用具名的文字与表面配对，透明表面叠在报告列出的调色板背景上。原有 49 个角色继续与该基线逐值比较，新增状态角色另核对其语义别名。原生模糊和非均匀底图仍需单独视觉取证。
+
+剩余字面量由 `literal-baseline.json` 的每项 file、finding、occurrence 标识，必须包含理由与退出条件。基线更新先核对当前全部 finding，拒绝缺项、重复和过期例外，并保留已有说明。迁移前 50 项抽样分成已有 Token 未使用、缺少等价 Token、合理例外或保留债务，不据此推断某一原因占多数。

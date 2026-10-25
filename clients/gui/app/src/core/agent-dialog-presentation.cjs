@@ -1,11 +1,17 @@
+// @ts-check
 "use strict";
 
 // 已核对 Electron 44.9.3 lib/browser/api/web-contents.ts 的私有事件契约。
 // Keep normal answers on CDP; the retained callback is only for teardown.
 const PINNED_ELECTRON = "44.9.3";
+/** @param {import('electron').WebContents} contents
+ * @param {{ownership:()=>{control:string},onFault:(error:Error)=>void}} options
+ */
 function attachAgentDialogPresentation(contents, { ownership, onFault }) {
-  const runListeners = contents.listeners("-run-dialog");
-  const cancelListeners = contents.listeners("-cancel-dialogs");
+  /** @type {import("node:events").EventEmitter} */
+  const dialogs = contents;
+  const runListeners = dialogs.listeners("-run-dialog");
+  const cancelListeners = dialogs.listeners("-cancel-dialogs");
   const originalRun = runListeners[0],
     originalCancel = cancelListeners[0];
   let unavailable =
@@ -18,11 +24,13 @@ function attachAgentDialogPresentation(contents, { ownership, onFault }) {
       ? "当前 Electron 对话框契约不可用，不能交给 Agent"
       : null;
   let disposed = false,
-    humanPending = 0,
-    pending = null;
+    humanPending = 0;
+  /** @type {((accepted:boolean,prompt:string)=>void)|null} */
+  let pending = null;
   const release = () => {
     pending = null;
   };
+  /** @param {string} message */
   const fault = (message) => {
     unavailable ??= message;
     onFault(new Error(unavailable));
@@ -39,8 +47,8 @@ function attachAgentDialogPresentation(contents, { ownership, onFault }) {
     }
   };
   const installed = () => {
-    const run = contents.listeners("-run-dialog"),
-      cancellations = contents.listeners("-cancel-dialogs");
+    const run = dialogs.listeners("-run-dialog"),
+      cancellations = dialogs.listeners("-cancel-dialogs");
     return (
       run.length === 1 &&
       run[0] === runDialog &&
@@ -49,6 +57,7 @@ function attachAgentDialogPresentation(contents, { ownership, onFault }) {
       cancellations[1] === cancelled
     );
   };
+  /** @param {unknown} receiver @param {unknown[]} args */
   function forward(receiver, args) {
     humanPending++;
     let result;
@@ -69,26 +78,27 @@ function attachAgentDialogPresentation(contents, { ownership, onFault }) {
     );
     return result;
   }
+  /** @this {unknown} @param {unknown[]} args */
   function runDialog(...args) {
     const [info, callback] = args;
     const valid =
       args.length === 2 &&
-      info &&
-      typeof info === "object" &&
+      isRecord(info) &&
+      typeof info.dialogType === "string" &&
       ["alert", "confirm", "prompt"].includes(info.dialogType) &&
       typeof info.messageText === "string" &&
       typeof info.defaultPromptText === "string" &&
-      info.frame &&
+      isRecord(info.frame) &&
       typeof info.frame.origin === "string" &&
       typeof info.frame.url === "string" &&
-      typeof callback === "function";
+      isDialogCallback(callback);
     const control = ownership().control;
     if (!valid || !installed()) {
       unavailable ??= "Electron 对话框契约已变化，不能交给 Agent";
       if (control === "human") return forward(this, args);
       // An unexpected platform contract cannot fall back to native presentation.
       cancel();
-      if (typeof callback === "function" && !contents.isDestroyed()) callback(false, "");
+      if (isDialogCallback(callback) && !contents.isDestroyed()) callback(false, "");
       fault(unavailable);
       return;
     }
@@ -111,12 +121,14 @@ function attachAgentDialogPresentation(contents, { ownership, onFault }) {
     }
     pending = callback;
   }
+  /** @param {unknown[]} args */
   function cancelled(...args) {
     // The platform has already cancelled the Chromium callback.
     release();
-    if (args.length !== 1 || typeof args[0]?.resetState !== "boolean")
+    if (args.length !== 1 || !isRecord(args[0]) || typeof args[0].resetState !== "boolean")
       fault("Electron 对话框取消契约已变化，不能交给 Agent");
   }
+  /** @param {unknown} _event @param {string} method */
   const closed = (_event, method) => {
     if (method === "Page.javascriptDialogClosed") release();
   };
@@ -130,16 +142,16 @@ function attachAgentDialogPresentation(contents, { ownership, onFault }) {
     cancel();
     // Restore only while our exact listener set is still the owner.
     const restore = !contents.isDestroyed() && installed();
-    contents.removeListener("-run-dialog", runDialog);
-    contents.removeListener("-cancel-dialogs", cancelled);
+    dialogs.removeListener("-run-dialog", runDialog);
+    dialogs.removeListener("-cancel-dialogs", cancelled);
     contents.removeListener("destroyed", destroyed);
     contents.debugger.removeListener("message", closed);
-    if (restore) contents.on("-run-dialog", originalRun);
+    if (restore && isListener(originalRun)) dialogs.on("-run-dialog", originalRun);
   }
-  if (!unavailable) {
-    contents.removeListener("-run-dialog", originalRun);
-    contents.on("-run-dialog", runDialog);
-    contents.on("-cancel-dialogs", cancelled);
+  if (!unavailable && isListener(originalRun)) {
+    dialogs.removeListener("-run-dialog", originalRun);
+    dialogs.on("-run-dialog", runDialog);
+    dialogs.on("-cancel-dialogs", cancelled);
     contents.on("destroyed", destroyed);
     contents.debugger.on("message", closed);
   }
@@ -155,3 +167,17 @@ function attachAgentDialogPresentation(contents, { ownership, onFault }) {
 }
 
 module.exports = { attachAgentDialogPresentation };
+
+/** @param {unknown} value @returns {value is Record<string,unknown>} */
+function isRecord(value) {
+  return value !== null && typeof value === "object";
+}
+/** @param {unknown} value @returns {value is (accepted:boolean,prompt:string)=>void} */
+function isDialogCallback(value) {
+  return typeof value === "function";
+}
+
+/** @param {unknown} value @returns {value is (...args:unknown[])=>unknown} */
+function isListener(value) {
+  return typeof value === "function";
+}

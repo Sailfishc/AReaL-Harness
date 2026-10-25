@@ -32,7 +32,7 @@ Each production experimental import records its file, symbol, owner and exit con
 
 ## Changing the system
 
-1. Edit foundation values in [tokens.json](tokens.json) and palette derivation in [src/theme.ts](src/theme.ts). Update a component's Markdown contract together with its implementation.
+1. Edit foundation values and palette formulas in [tokens.json](tokens.json). [src/theme.ts](src/theme.ts) retains the public API and WCAG algorithm; the generator emits the palette implementation. Update a component's Markdown contract together with its implementation.
 2. Run `pnpm --filter @areal/ui generate`, then `build` and `check`. Generated files live in `src/generated`; do not edit them by hand.
 3. From `clients/gui`, run `node scripts/design-system-audit.mjs` and `pnpm typecheck`, then verify the affected screens.
 

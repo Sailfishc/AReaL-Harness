@@ -1,3 +1,4 @@
+import { parseCoreCapabilities } from './capabilities.js';
 export const MAX_RESPONSE_BYTES = 64 * 1024 * 1024;
 
 const LEGACY_READ_METHODS = new Set([
@@ -100,7 +101,7 @@ export class CoreClient {
       await opened;
       await this.request('initialize', { clientInfo: { name: 'areal-harness-desktop', version: '0.1.0' } });
       socket.send(JSON.stringify({ method: 'initialized', params: {} }));
-      this.capabilities = await this.request('areal/capabilities', { apiVersion: 'areal.core.v1' });
+      this.capabilities = parseCoreCapabilities(await this.request('areal/capabilities', { apiVersion: 'areal.core.v1' }));
       if (this.closed) throw new CoreRpcError('Core disconnected during initialization', { code: 'DISCONNECTED' });
       this.ready = true;
       return this.capabilities;

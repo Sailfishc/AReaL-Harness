@@ -3,6 +3,7 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
+import { renderPalette } from "./palette.mjs";
 
 export const root = fileURLToPath(new URL("../", import.meta.url));
 const extension = (token) => token.$extensions?.["build.areal.ui"] ?? {};
@@ -91,11 +92,15 @@ export function renderFoundations(tokens) {
       return [mode, input];
     }),
   );
+  const reducedMotion = Object.entries(tokens.foundation)
+    .filter(([name, token]) => name.startsWith("motion-") && token.$type === "duration")
+    .map(([name]) => `--${extension(tokens.foundation[name]).name ?? name}: 0ms;`).join(" ");
   return {
     themes,
     foundation:
       banner +
-      `:root {\n${definitions.join("\n")}\n}\n.dark {\n${dark.join("\n")}\n}\n:root[data-reduced-motion="true"] { --motion-fast: 0ms; --motion-normal: 0ms; --motion-slow: 0ms; }\n`,
+      `:root {\n${definitions.join("\n")}\n}\n.dark {\n${dark.join("\n")}\n}\n` +
+      `:root[data-reduced-motion="true"] { ${reducedMotion} }\n@media (prefers-reduced-motion: reduce) { :root:not([data-reduced-motion="false"]) { ${reducedMotion} } }\n`,
     tailwind: banner + `@theme {\n${mappings.join("\n")}\n}\n`,
   };
 }
@@ -126,7 +131,7 @@ export function renderTokenReference(tokens, themes, paletteVariables) {
   const used = new Set();
   let out =
     "<!-- Generated from tokens.json and src/theme.ts. Run pnpm --dir clients/gui --filter @areal/ui generate. -->\n# @areal/ui Token 速查\n\n" +
-    "写样式时按用途选这里的变量，不写字面量。数值只在 [tokens.json](../../tokens.json) 修改；调色板派生在 [theme.ts](../theme.ts)。\n";
+    "写样式时按用途选这里的变量，不写字面量。数值与派生公式只在 [tokens.json](../../tokens.json) 修改；[theme.ts](../theme.ts) 保留公开调用与 WCAG 算法，[palette.ts](palette.ts) 是构建时生成的普通 TypeScript。\n";
   for (const [title, pattern] of groups) {
     const list = rows.filter((row) => !used.has(row.name) && pattern.test(row.name));
     if (!list.length) continue;
@@ -149,17 +154,30 @@ export function renderTokenReference(tokens, themes, paletteVariables) {
     if (alias) assert.ok(tokens.palette.roles[alias], `unknown palette alias: ${name} -> ${alias}`);
   }
   out +=
-    "\n## 已有派生参数与来源\n\n角色登记保留现有运行时算法。未将未证实的截图来源或复杂分支改写为通用表达式语言。\n\n| 参数 | 记录 |\n| --- | --- |\n" +
+    `\n## 派生参数与来源\n\n公式限定为已有混色、透明材料、默认覆盖和阴影操作。生成时校验引用方向与循环，运行时不解释数据。来源未记录的旧参数明确保留旧实现证据，不补造截图编号。\`palette.source.preMigration\` 指向迁移前的纯函数及其哈希。\n\n${JSON.stringify(tokens.palette.source.preMigration)}\n\n| 参数 | 记录 |\n| --- | --- |\n` +
     Object.entries(tokens.palette.parameters)
       .map(([name, value]) => `| \`${name}\` | ${cell(JSON.stringify(value))} |`)
       .join("\n") +
     "\n";
   out +=
-    "\n## 调色板（由主题输入派生，用户可在外观设置中覆盖）\n\n| 变量 | 层与角色 | 引用与来源 | 默认亮色 | 默认暗色 |\n| --- | --- | --- | --- | --- |\n" +
+    "\n## 参考值与语义派生\n\n参考输入为 background、foreground、accent 和 contrast；透明侧栏偏好选择已有材料。引用只允许参考值进入语义层，组件只映射语义层。\n\n| 参考值 | 值 | 来源 |\n| --- | --- | --- |\n" +
+    Object.entries(tokens.palette.references)
+      .map(([name, entry]) => `| \`${name}\` | \`${cell(entry.value)}\` | ${cell(entry.source)} |`)
+      .join("\n") +
+    "\n\n| 语义角色 | 派生公式 | 默认主题覆盖 | 用途与来源 |\n| --- | --- | --- | --- |\n" +
+    Object.entries(tokens.palette.semantic)
+      .map(
+        ([name, entry]) =>
+          `| \`${name}\` | \`${cell(JSON.stringify(entry.value))}\` | \`${cell(JSON.stringify(entry.defaultOverrides ?? []))}\` | ${cell(entry.meaning)} ${cell(entry.source)} |`,
+      )
+      .join("\n") +
+    "\n";
+  out +=
+    "\n## 调色板（由主题输入派生，用户可在外观设置中覆盖）\n\n| 变量 | 层与角色 | 语义引用与组件映射 | 默认亮色 | 默认暗色 |\n| --- | --- | --- | --- | --- |\n" +
     Object.keys(light)
       .map(
         (name) =>
-          `| \`${name}\` | ${tokens.palette.roles[name].layer} · ${cell(tokens.palette.roles[name].meaning)} | ${cell(tokens.palette.roles[name].alias ?? tokens.palette.roles[name].source)} | \`${cell(light[name])}\` | \`${cell(dark[name])}\` |`,
+          `| \`${name}\` | ${tokens.palette.roles[name].layer} · ${cell(tokens.palette.roles[name].meaning)} | ${cell(tokens.palette.roles[name].ref)} ${cell(tokens.palette.roles[name].mapping ?? "")} | \`${cell(light[name])}\` | \`${cell(dark[name])}\` |`,
       )
       .join("\n") +
     "\n";
@@ -173,17 +191,52 @@ export async function writeOrCheck(path, output, check) {
     await writeFile(path, output);
   }
 }
+export function verifyThemeSource(source) {
+  assert.ok(!/#[\da-f]{3,8}\b/i.test(source), "theme.ts color literal belongs in tokens.json");
+  const tree = ts.createSourceFile("theme.ts", source, ts.ScriptTarget.Latest, true);
+  // 仅允许十六进制解码、WCAG亮度与对比度算法中的已知常量。
+  const algorithmConstants = new Set([
+    1, 16, 255, 0.04045, 12.92, 0.055, 1.055, 2.4, 0.2126, 0.7152, 0.0722, 0.05, 1.05,
+  ]);
+  const inspect = (node, algorithm) => {
+    const insideAlgorithm = ts.isFunctionDeclaration(node)
+      ? ["readableForeground", "relativeLuminance", "colorContrastRatio"].includes(node.name?.text)
+      : algorithm;
+    if (ts.isNumericLiteral(node)) {
+      assert.ok(insideAlgorithm, "theme.ts numeric parameter belongs in tokens.json");
+      assert.ok(
+        algorithmConstants.has(Number(node.text)),
+        `undocumented color algorithm constant: ${node.text}`,
+      );
+    }
+    ts.forEachChild(node, (child) => inspect(child, insideAlgorithm));
+  };
+  inspect(tree, false);
+}
+export async function loadPaletteVariables() {
+  const [themeSource, paletteSource] = await Promise.all([
+    readFile(resolve(root, "src/theme.ts"), "utf8"),
+    readFile(resolve(root, "src/generated/palette.ts"), "utf8"),
+  ]);
+  verifyThemeSource(themeSource);
+  const moduleURL = (source) => {
+    const js = ts.transpileModule(source, {
+      compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+    }).outputText;
+    return `data:text/javascript;base64,${Buffer.from(js).toString("base64")}`;
+  };
+  const { paletteVariables } = await import(
+    moduleURL(
+      themeSource.replace('"./generated/palette.js"', JSON.stringify(moduleURL(paletteSource))),
+    )
+  );
+  return paletteVariables;
+}
 export async function generateFoundations(check = false) {
   const tokens = JSON.parse(await readFile(resolve(root, "tokens.json"), "utf8"));
   const result = renderFoundations(tokens);
-  // Evaluate the actual pure theme implementation; don't duplicate its palette algorithm.
-  const themeSource = await readFile(resolve(root, "src/theme.ts"), "utf8");
-  const js = ts.transpileModule(themeSource, {
-    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
-  }).outputText;
-  const { paletteVariables } = await import(
-    `data:text/javascript;base64,${Buffer.from(js).toString("base64")}`
-  );
+  await writeOrCheck(resolve(root, "src/generated/palette.ts"), renderPalette(tokens), check);
+  const paletteVariables = await loadPaletteVariables();
   const defaultVariables = paletteVariables(
     { ...result.themes.light, translucentSidebar: true },
     false,

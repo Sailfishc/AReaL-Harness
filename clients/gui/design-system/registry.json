@@ -6,59 +6,189 @@
     "renderer/src/settings/applicationPreferences.ts",
     "packages/ui/src/generated/foundation.css",
     "packages/ui/src/generated/tailwind.css",
-    "packages/ui/src/theme.ts"
+    "packages/ui/src/theme.ts",
+    "packages/ui/src/generated/palette.ts"
   ],
   "tokenGroups": [
     {
       "title": "文字",
       "tokens": [
-        ["--text-ui-lg", "输入与强调正文"],
-        ["--text-ui-base", "正文"],
-        ["--text-ui-caption", "控件标签"],
-        ["--text-content-caption", "过程与结果附注"],
-        ["--text-ui-sm", "说明"],
-        ["--text-ui-xs", "辅助信息"],
-        ["--line-height-ui", "公共内容行高"],
-        ["--line-height-ui-sm", "紧凑说明行高"]
+        [
+          "--text-ui-lg",
+          "输入与强调正文"
+        ],
+        [
+          "--text-ui-base",
+          "正文"
+        ],
+        [
+          "--text-ui-caption",
+          "控件标签"
+        ],
+        [
+          "--text-content-caption",
+          "过程与结果附注"
+        ],
+        [
+          "--text-ui-sm",
+          "说明"
+        ],
+        [
+          "--text-ui-xs",
+          "辅助信息"
+        ],
+        [
+          "--line-height-ui",
+          "公共内容行高"
+        ],
+        [
+          "--line-height-ui-sm",
+          "紧凑说明行高"
+        ]
       ]
     },
     {
       "title": "表面与反馈",
       "tokens": [
-        ["--color-background", "页面背景"],
-        ["--color-composer", "输入表面"],
-        ["--color-primary", "主要动作背景"],
-        ["--color-primary-foreground", "主要动作文字"],
-        ["--color-foreground", "主要文字"],
-        ["--color-foreground-subtle", "次要文字"],
-        ["--color-border", "分隔与边框"],
-        ["--color-button-surface", "次要按钮"],
-        ["--color-button-hover", "按钮悬停"],
-        ["--color-destructive", "错误反馈"]
+        [
+          "--color-background",
+          "页面背景"
+        ],
+        [
+          "--color-composer",
+          "输入表面"
+        ],
+        [
+          "--color-primary",
+          "主要动作背景"
+        ],
+        [
+          "--color-primary-foreground",
+          "主要动作文字"
+        ],
+        [
+          "--color-foreground",
+          "主要文字"
+        ],
+        [
+          "--color-foreground-subtle",
+          "次要文字"
+        ],
+        [
+          "--color-border",
+          "分隔与边框"
+        ],
+        [
+          "--color-button-surface",
+          "次要按钮"
+        ],
+        [
+          "--color-button-hover",
+          "按钮悬停"
+        ],
+        [
+          "--color-destructive",
+          "错误反馈"
+        ]
       ]
     },
     {
       "title": "尺寸与间距",
       "tokens": [
-        ["--spacing-control", "标准控件"],
-        ["--spacing-control-sm", "紧凑控件"],
-        ["--spacing-inline", "相邻内容"],
-        ["--spacing-field", "内容块"],
-        ["--spacing-section", "分区"],
-        ["--reading-width", "对话与输入阅读列"]
+        [
+          "--spacing-control",
+          "标准控件"
+        ],
+        [
+          "--spacing-control-sm",
+          "紧凑控件"
+        ],
+        [
+          "--spacing-inline",
+          "相邻内容"
+        ],
+        [
+          "--spacing-field",
+          "内容块"
+        ],
+        [
+          "--spacing-section",
+          "分区"
+        ],
+        [
+          "--reading-width",
+          "对话与输入阅读列"
+        ]
       ]
     },
     {
       "title": "形状与动效",
       "tokens": [
-        ["--radius-control", "控件"],
-        ["--radius-button", "操作按钮与下拉触发器"],
-        ["--radius-overlay", "浮层和决策卡片"],
-        ["--radius-composer", "输入区"],
-        ["--motion-fast", "控件反馈"],
-        ["--focus-width", "焦点描边"],
-        ["--radius-inset", "表面内的预览内容"],
-        ["--radius-pill", "胶囊或圆形动作"]
+        [
+          "--radius-control",
+          "控件"
+        ],
+        [
+          "--radius-button",
+          "操作按钮与下拉触发器"
+        ],
+        [
+          "--radius-overlay",
+          "浮层和决策卡片"
+        ],
+        [
+          "--radius-composer",
+          "输入区"
+        ],
+        [
+          "--motion-fast",
+          "控件反馈"
+        ],
+        [
+          "--focus-width",
+          "焦点描边"
+        ],
+        [
+          "--radius-inset",
+          "表面内的预览内容"
+        ],
+        [
+          "--radius-pill",
+          "胶囊或圆形动作"
+        ]
+      ]
+    },
+    {
+      "title": "状态语义",
+      "tokens": [
+        [
+          "--color-status-running",
+          "运行中进度"
+        ],
+        [
+          "--color-status-success",
+          "成功反馈"
+        ],
+        [
+          "--color-status-attention",
+          "待关注状态"
+        ],
+        [
+          "--color-status-unknown",
+          "结果待确认"
+        ],
+        [
+          "--color-status-error",
+          "明确错误"
+        ],
+        [
+          "--color-status-settled",
+          "已结算过程"
+        ],
+        [
+          "--color-settings-attention-indicator",
+          "设置入口关注指示"
+        ]
       ]
     }
   ],
@@ -243,10 +373,25 @@
     {
       "id": "P-SETTINGS",
       "intent": "修改偏好或配置",
-      "components": ["SettingsPage", "SettingsSection", "SettingsGroupCard", "SettingsRow"],
+      "components": [
+        "SettingsPage",
+        "SettingsSection",
+        "SettingsGroupCard",
+        "SettingsRow"
+      ],
       "reference": "renderer/src/settings/DisplaySettings.tsx",
-      "slots": ["label", "control", "detail"],
-      "states": ["default", "busy", "failed", "unknown", "disabled"],
+      "slots": [
+        "label",
+        "control",
+        "detail"
+      ],
+      "states": [
+        "default",
+        "busy",
+        "failed",
+        "unknown",
+        "disabled"
+      ],
       "variation": "分组、字段、文案与现有控件类型",
       "acceptance": "标签/控件对齐，窄窗换行，值和反馈真实"
     },
@@ -262,8 +407,17 @@
         "Feedback"
       ],
       "reference": "renderer/src/settings/PluginCenter.tsx",
-      "slots": ["toolbar", "list", "detail"],
-      "states": ["loading", "empty", "ready", "failed"],
+      "slots": [
+        "toolbar",
+        "list",
+        "detail"
+      ],
+      "states": [
+        "loading",
+        "empty",
+        "ready",
+        "failed"
+      ],
       "variation": "当前市场与资源分类、查询、详情、项目启用状态和局部读取反馈",
       "acceptance": "限插件目录/详情及当前项目启停；安装、启用和连接分开；原提交只读核对，返回保留上下文"
     },
@@ -285,7 +439,11 @@
         "Feedback"
       ],
       "reference": "renderer/src/design-system/ConversationFlowExercise.tsx",
-      "slots": ["timeline", "composer", "context"],
+      "slots": [
+        "timeline",
+        "composer",
+        "context"
+      ],
       "states": [
         "ready",
         "busy",
@@ -319,39 +477,86 @@
     {
       "id": "P-DECISION",
       "intent": "回答或批准请求",
-      "components": ["DecisionCard", "ApprovalRequest", "Feedback"],
+      "components": [
+        "DecisionCard",
+        "ApprovalRequest",
+        "Feedback"
+      ],
       "reference": "renderer/src/ApprovalRequest.tsx",
-      "slots": ["request", "actions", "feedback"],
-      "states": ["ready", "busy", "failed", "unknown"],
+      "slots": [
+        "request",
+        "actions",
+        "feedback"
+      ],
+      "states": [
+        "ready",
+        "busy",
+        "failed",
+        "unknown"
+      ],
       "variation": "请求正文及已有决策动作",
       "acceptance": "关键参数可核对，动作和结果可达"
     },
     {
       "id": "P-DETAIL",
       "intent": "阅读或编辑详情",
-      "components": ["SettingsDialog", "SettingsDisclosure", "Feedback"],
+      "components": [
+        "SettingsDialog",
+        "SettingsDisclosure",
+        "Feedback"
+      ],
       "reference": "renderer/src/settings/common.tsx",
-      "slots": ["body", "actions"],
-      "states": ["ready", "busy", "failed"],
+      "slots": [
+        "body",
+        "actions"
+      ],
+      "states": [
+        "ready",
+        "busy",
+        "failed"
+      ],
       "variation": "表单字段、正文及受控 footer",
       "acceptance": "返回/关闭路径和焦点恢复；不叠多层弹窗"
     },
     {
       "id": "P-STATUS",
       "intent": "了解状态并恢复",
-      "components": ["Feedback", "EmptySettings"],
+      "components": [
+        "Feedback",
+        "EmptySettings"
+      ],
       "reference": "renderer/src/settings/ServiceStatusSettings.tsx",
-      "slots": ["status", "recovery"],
-      "states": ["loading", "empty", "ready", "failed", "unknown"],
+      "slots": [
+        "status",
+        "recovery"
+      ],
+      "states": [
+        "loading",
+        "empty",
+        "ready",
+        "failed",
+        "unknown"
+      ],
       "variation": "状态说明、必要详情及可行恢复入口",
       "acceptance": "离线/失败/未知区分，静默刷新保留已确认内容"
     }
   ],
   "baseCandidate": {
     "id": "desktop-core",
-    "version": "0.4.0",
-    "foundations": ["文字", "表面与反馈", "尺寸与间距", "形状与动效"],
-    "primitives": ["Button", "ActionButton", "Switch", "Select", "Feedback"],
+    "version": "0.4.1",
+    "foundations": [
+      "文字",
+      "表面与反馈",
+      "尺寸与间距",
+      "形状与动效"
+    ],
+    "primitives": [
+      "Button",
+      "ActionButton",
+      "Switch",
+      "Select",
+      "Feedback"
+    ],
     "compositions": [
       "SettingsPage",
       "SettingsSection",
@@ -369,7 +574,11 @@
       "ToolEvent",
       "SettingsSearchInput"
     ],
-    "patterns": ["P-SETTINGS", "P-DECISION", "P-RESOURCES"],
+    "patterns": [
+      "P-SETTINGS",
+      "P-DECISION",
+      "P-RESOURCES"
+    ],
     "acceptance": [
       "角色引用现有生产来源；目录不存数值副本",
       "按成员准入表检查有限变体与状态；证据索引区分复验命令和已完成运行",
@@ -397,18 +606,43 @@
       {
         "id": "Button",
         "contract": "packages/ui/src/components/button/button.md",
-        "consumers": ["renderer/src/ApprovalRequest.tsx", "renderer/src/settings/PluginCenter.tsx"],
-        "variants": ["default/default", "secondary/sm", "outline/default", "ghost/sm"],
-        "states": ["default", "disabled", "keyboard-focus"],
-        "evidence": ["E-CONTROLS", "E-PLUGINS"]
+        "consumers": [
+          "renderer/src/ApprovalRequest.tsx",
+          "renderer/src/settings/PluginCenter.tsx"
+        ],
+        "variants": [
+          "default/default",
+          "secondary/sm",
+          "outline/default",
+          "ghost/sm"
+        ],
+        "states": [
+          "default",
+          "disabled",
+          "keyboard-focus"
+        ],
+        "evidence": [
+          "E-CONTROLS",
+          "E-PLUGINS"
+        ]
       },
       {
         "id": "ActionButton",
         "contract": "renderer/src/components/ui/action-button.md",
-        "consumers": ["renderer/src/settings/DisplaySettings.tsx"],
-        "variants": ["secondary/sm"],
-        "states": ["default", "disabled", "pending"],
-        "evidence": ["E-CONTROLS"]
+        "consumers": [
+          "renderer/src/settings/DisplaySettings.tsx"
+        ],
+        "variants": [
+          "secondary/sm"
+        ],
+        "states": [
+          "default",
+          "disabled",
+          "pending"
+        ],
+        "evidence": [
+          "E-CONTROLS"
+        ]
       },
       {
         "id": "Switch",
@@ -417,66 +651,157 @@
           "renderer/src/settings/SettingsPageParts.tsx",
           "renderer/src/settings/PluginCenter.tsx"
         ],
-        "variants": ["default"],
-        "states": ["checked", "unchecked", "disabled", "keyboard-focus"],
-        "evidence": ["E-CONTROLS", "E-PLUGINS"]
+        "variants": [
+          "default"
+        ],
+        "states": [
+          "checked",
+          "unchecked",
+          "disabled",
+          "keyboard-focus"
+        ],
+        "evidence": [
+          "E-CONTROLS",
+          "E-PLUGINS"
+        ]
       },
       {
         "id": "Select",
         "contract": "renderer/src/components/ui/select.md",
-        "consumers": ["renderer/src/settings/SettingsPageParts.tsx"],
-        "variants": ["secondary/sm"],
-        "states": ["closed", "open", "selected", "disabled", "keyboard-focus"],
-        "evidence": ["E-CONTROLS"],
-        "exports": ["Select", "SelectTrigger", "SelectValue", "SelectContent", "SelectItem"]
+        "consumers": [
+          "renderer/src/settings/SettingsPageParts.tsx"
+        ],
+        "variants": [
+          "secondary/sm"
+        ],
+        "states": [
+          "closed",
+          "open",
+          "selected",
+          "disabled",
+          "keyboard-focus"
+        ],
+        "evidence": [
+          "E-CONTROLS"
+        ],
+        "exports": [
+          "Select",
+          "SelectTrigger",
+          "SelectValue",
+          "SelectContent",
+          "SelectItem"
+        ]
       },
       {
         "id": "Feedback",
         "contract": "renderer/src/components/ui/feedback.md",
-        "consumers": ["renderer/src/DecisionCard.tsx", "renderer/src/settings/PluginCenter.tsx"],
-        "variants": ["inline"],
-        "states": ["empty", "status", "error", "unknown-message"],
-        "evidence": ["E-CONTROLS", "E-PLUGINS"]
+        "consumers": [
+          "renderer/src/DecisionCard.tsx",
+          "renderer/src/settings/PluginCenter.tsx"
+        ],
+        "variants": [
+          "inline"
+        ],
+        "states": [
+          "empty",
+          "status",
+          "error",
+          "unknown-message"
+        ],
+        "evidence": [
+          "E-CONTROLS",
+          "E-PLUGINS"
+        ]
       },
       {
         "id": "SettingsPage",
         "contract": "renderer/src/settings/SettingsPageParts.md#settingspage",
-        "consumers": ["renderer/src/App.tsx"],
-        "variants": ["settings-workspace"],
-        "states": ["titled", "untitled", "wide", "narrow"],
-        "evidence": ["E-SETTINGS"]
+        "consumers": [
+          "renderer/src/App.tsx"
+        ],
+        "variants": [
+          "settings-workspace"
+        ],
+        "states": [
+          "titled",
+          "untitled",
+          "wide",
+          "narrow"
+        ],
+        "evidence": [
+          "E-SETTINGS"
+        ]
       },
       {
         "id": "SettingsSection",
         "contract": "renderer/src/settings/SettingsPageParts.md#settingssection",
-        "consumers": ["renderer/src/settings/DisplaySettings.tsx"],
-        "variants": ["heading", "body-only"],
-        "states": ["default"],
-        "evidence": ["E-SETTINGS"]
+        "consumers": [
+          "renderer/src/settings/DisplaySettings.tsx"
+        ],
+        "variants": [
+          "heading",
+          "body-only"
+        ],
+        "states": [
+          "default"
+        ],
+        "evidence": [
+          "E-SETTINGS"
+        ]
       },
       {
         "id": "SettingsGroupCard",
         "contract": "renderer/src/settings/SettingsPageParts.md#settingsgroupcard",
-        "consumers": ["renderer/src/settings/DisplaySettings.tsx"],
-        "variants": ["default", "compact"],
-        "states": ["default"],
-        "evidence": ["E-SETTINGS"]
+        "consumers": [
+          "renderer/src/settings/DisplaySettings.tsx"
+        ],
+        "variants": [
+          "default",
+          "compact"
+        ],
+        "states": [
+          "default"
+        ],
+        "evidence": [
+          "E-SETTINGS"
+        ]
       },
       {
         "id": "SettingsRow",
         "contract": "renderer/src/settings/SettingsPageParts.md#settingsrow",
-        "consumers": ["renderer/src/settings/DisplaySettings.tsx"],
-        "variants": ["default", "wide"],
-        "states": ["default", "disabled", "with-detail"],
-        "evidence": ["E-SETTINGS"]
+        "consumers": [
+          "renderer/src/settings/DisplaySettings.tsx"
+        ],
+        "variants": [
+          "default",
+          "wide"
+        ],
+        "states": [
+          "default",
+          "disabled",
+          "with-detail"
+        ],
+        "evidence": [
+          "E-SETTINGS"
+        ]
       },
       {
         "id": "SettingsSelect",
         "contract": "renderer/src/settings/SettingsPageParts.md#settingsselect",
-        "consumers": ["renderer/src/settings/DisplaySettings.tsx"],
-        "variants": ["two-value-segmented", "multi-value-secondary-sm"],
-        "states": ["selected", "disabled"],
-        "evidence": ["E-SETTINGS"]
+        "consumers": [
+          "renderer/src/settings/DisplaySettings.tsx"
+        ],
+        "variants": [
+          "two-value-segmented",
+          "multi-value-secondary-sm"
+        ],
+        "states": [
+          "selected",
+          "disabled"
+        ],
+        "evidence": [
+          "E-SETTINGS"
+        ]
       },
       {
         "id": "SettingsSegmentedTabs",
@@ -485,9 +810,19 @@
           "renderer/src/settings/DisplaySettings.tsx",
           "renderer/src/settings/PluginCenter.tsx"
         ],
-        "variants": ["automatic-activation", "manual-activation"],
-        "states": ["selected", "disabled", "keyboard-focus"],
-        "evidence": ["E-SETTINGS", "E-PLUGINS"]
+        "variants": [
+          "automatic-activation",
+          "manual-activation"
+        ],
+        "states": [
+          "selected",
+          "disabled",
+          "keyboard-focus"
+        ],
+        "evidence": [
+          "E-SETTINGS",
+          "E-PLUGINS"
+        ]
       },
       {
         "id": "SettingsDisclosure",
@@ -496,39 +831,89 @@
           "renderer/src/settings/DisplaySettings.tsx",
           "renderer/src/settings/PluginCenter.tsx"
         ],
-        "variants": ["native-details"],
-        "states": ["collapsed", "expanded", "keyboard-focus"],
-        "evidence": ["E-SETTINGS", "E-PLUGINS"]
+        "variants": [
+          "native-details"
+        ],
+        "states": [
+          "collapsed",
+          "expanded",
+          "keyboard-focus"
+        ],
+        "evidence": [
+          "E-SETTINGS",
+          "E-PLUGINS"
+        ]
       },
       {
         "id": "DecisionCard",
         "contract": "renderer/src/DecisionCard.md#decisioncard",
-        "consumers": ["renderer/src/ApprovalRequest.tsx"],
-        "variants": ["approval", "question"],
-        "states": ["ready", "busy", "failed", "unknown-message"],
-        "evidence": ["E-DECISION"]
+        "consumers": [
+          "renderer/src/ApprovalRequest.tsx"
+        ],
+        "variants": [
+          "approval",
+          "question"
+        ],
+        "states": [
+          "ready",
+          "busy",
+          "failed",
+          "unknown-message"
+        ],
+        "evidence": [
+          "E-DECISION"
+        ]
       },
       {
         "id": "ApprovalRequest",
         "contract": "renderer/src/DecisionCard.md#approvalrequest",
-        "consumers": ["renderer/src/TaskRunConversations.tsx"],
-        "variants": ["once-only", "remember-allowed"],
-        "states": ["ready", "busy", "submitted", "failed", "unknown"],
-        "evidence": ["E-DECISION"]
+        "consumers": [
+          "renderer/src/TaskRunConversations.tsx"
+        ],
+        "variants": [
+          "once-only",
+          "remember-allowed"
+        ],
+        "states": [
+          "ready",
+          "busy",
+          "submitted",
+          "failed",
+          "unknown"
+        ],
+        "evidence": [
+          "E-DECISION"
+        ]
       },
       {
         "id": "CollapsibleText",
         "contract": "renderer/src/CollapsibleText.md",
-        "consumers": ["renderer/src/Messages.tsx"],
-        "variants": ["measured-preview"],
-        "states": ["short", "collapsed", "expanded", "keyboard-focus"],
-        "evidence": ["E-DECISION"]
+        "consumers": [
+          "renderer/src/Messages.tsx"
+        ],
+        "variants": [
+          "measured-preview"
+        ],
+        "states": [
+          "short",
+          "collapsed",
+          "expanded",
+          "keyboard-focus"
+        ],
+        "evidence": [
+          "E-DECISION"
+        ]
       },
       {
         "id": "Messages",
         "contract": "renderer/src/Messages.md#messages",
-        "consumers": ["renderer/src/App.tsx"],
-        "variants": ["main", "embedded"],
+        "consumers": [
+          "renderer/src/App.tsx"
+        ],
+        "variants": [
+          "main",
+          "embedded"
+        ],
         "states": [
           "accepted-placeholder",
           "following-latest",
@@ -538,39 +923,91 @@
           "unknown",
           "renderer-recovered-reading"
         ],
-        "evidence": ["E-CONVERSATION", "E-RECOVERY"]
+        "evidence": [
+          "E-CONVERSATION",
+          "E-RECOVERY"
+        ]
       },
       {
         "id": "TurnProgress",
         "contract": "renderer/src/Messages.md#turnprogress",
-        "consumers": ["renderer/src/Messages.tsx"],
-        "variants": ["ordered-progress"],
-        "states": ["working", "settled", "manual-expanded", "failed", "unfinished"],
-        "evidence": ["E-CONVERSATION"]
+        "consumers": [
+          "renderer/src/Messages.tsx"
+        ],
+        "variants": [
+          "ordered-progress"
+        ],
+        "states": [
+          "working",
+          "settled",
+          "manual-expanded",
+          "failed",
+          "unfinished"
+        ],
+        "evidence": [
+          "E-CONVERSATION"
+        ]
       },
       {
         "id": "TurnExecution",
         "contract": "renderer/src/Messages.md#turnexecution",
-        "consumers": ["renderer/src/Messages.tsx"],
-        "variants": ["direct-item", "grouped-items"],
-        "states": ["working", "completed-summary", "failed", "unknown", "manual-expanded"],
-        "evidence": ["E-CONVERSATION"]
+        "consumers": [
+          "renderer/src/Messages.tsx"
+        ],
+        "variants": [
+          "direct-item",
+          "grouped-items"
+        ],
+        "states": [
+          "working",
+          "completed-summary",
+          "failed",
+          "unknown",
+          "manual-expanded"
+        ],
+        "evidence": [
+          "E-CONVERSATION"
+        ]
       },
       {
         "id": "ToolEvent",
         "contract": "renderer/src/Messages.md#toolevent",
-        "consumers": ["renderer/src/Messages.tsx"],
-        "variants": ["tool-summary", "raw-record"],
-        "states": ["running", "completed", "failed", "unknown", "expanded"],
-        "evidence": ["E-CONVERSATION"]
+        "consumers": [
+          "renderer/src/Messages.tsx"
+        ],
+        "variants": [
+          "tool-summary",
+          "raw-record"
+        ],
+        "states": [
+          "running",
+          "completed",
+          "failed",
+          "unknown",
+          "expanded"
+        ],
+        "evidence": [
+          "E-CONVERSATION"
+        ]
       },
       {
         "id": "SettingsSearchInput",
         "contract": "renderer/src/settings/SettingsSearchInput.md",
-        "consumers": ["renderer/src/settings/PluginCenter.tsx"],
-        "variants": ["search-lg"],
-        "states": ["empty", "query", "clear", "keyboard-focus"],
-        "evidence": ["E-PLUGINS"]
+        "consumers": [
+          "renderer/src/settings/PluginCenter.tsx"
+        ],
+        "variants": [
+          "search-lg"
+        ],
+        "states": [
+          "empty",
+          "query",
+          "clear",
+          "keyboard-focus"
+        ],
+        "evidence": [
+          "E-PLUGINS"
+        ]
       }
     ],
     "evidence": [
@@ -615,57 +1052,130 @@
     {
       "id": "I-NAV",
       "intent": "定位与切换",
-      "patterns": ["P-SETTINGS", "P-RESOURCES"],
-      "components": ["SettingsNavigation"],
-      "rules": ["NAV-CONTEXT-01", "NAV-DEFAULT-01"],
+      "patterns": [
+        "P-SETTINGS",
+        "P-RESOURCES"
+      ],
+      "components": [
+        "SettingsNavigation"
+      ],
+      "rules": [
+        "NAV-CONTEXT-01",
+        "NAV-DEFAULT-01"
+      ],
       "ruleSource": "design-system/interactions.md"
     },
     {
       "id": "I-INPUT",
       "intent": "输入与提交",
-      "patterns": ["P-CONVERSATION", "P-SETTINGS", "P-DETAIL"],
-      "components": ["ConversationComposer", "SettingsRow"],
-      "rules": ["INPUT-TRUTH-01", "INPUT-DEFAULT-01"],
+      "patterns": [
+        "P-CONVERSATION",
+        "P-SETTINGS",
+        "P-DETAIL"
+      ],
+      "components": [
+        "ConversationComposer",
+        "SettingsRow"
+      ],
+      "rules": [
+        "INPUT-TRUTH-01",
+        "INPUT-DEFAULT-01"
+      ],
       "ruleSource": "design-system/interactions.md"
     },
     {
       "id": "I-OBSERVE",
       "intent": "等待与观察",
-      "patterns": ["P-CONVERSATION", "P-STATUS", "P-SETTINGS"],
-      "components": ["TurnExecution", "TurnProgress", "Feedback"],
-      "rules": ["OBSERVE-TRUTH-01", "OBSERVE-DEFAULT-01"],
+      "patterns": [
+        "P-CONVERSATION",
+        "P-STATUS",
+        "P-SETTINGS"
+      ],
+      "components": [
+        "TurnExecution",
+        "TurnProgress",
+        "Feedback"
+      ],
+      "rules": [
+        "OBSERVE-TRUTH-01",
+        "OBSERVE-DEFAULT-01"
+      ],
       "ruleSource": "design-system/interactions.md"
     },
     {
       "id": "I-READ",
       "intent": "阅读与探索",
-      "patterns": ["P-CONVERSATION", "P-DETAIL", "P-SETTINGS"],
-      "components": ["CollapsibleText", "SettingsDisclosure"],
-      "rules": ["READ-CONTINUITY-01", "READ-DEFAULT-01"],
+      "patterns": [
+        "P-CONVERSATION",
+        "P-DETAIL",
+        "P-SETTINGS"
+      ],
+      "components": [
+        "CollapsibleText",
+        "SettingsDisclosure"
+      ],
+      "rules": [
+        "READ-CONTINUITY-01",
+        "READ-DEFAULT-01"
+      ],
       "ruleSource": "design-system/interactions.md"
     },
     {
       "id": "I-RETURN",
       "intent": "打开与返回",
-      "patterns": ["P-CONVERSATION", "P-DETAIL", "P-SETTINGS"],
-      "components": ["AgentConversationPane", "SettingsDialog", "SidePane", "SideChatPane"],
-      "rules": ["RETURN-CONTEXT-01", "RETURN-DEFAULT-01"],
+      "patterns": [
+        "P-CONVERSATION",
+        "P-DETAIL",
+        "P-SETTINGS"
+      ],
+      "components": [
+        "AgentConversationPane",
+        "SettingsDialog",
+        "SidePane",
+        "SideChatPane"
+      ],
+      "rules": [
+        "RETURN-CONTEXT-01",
+        "RETURN-DEFAULT-01"
+      ],
       "ruleSource": "design-system/interactions.md"
     },
     {
       "id": "I-DECIDE",
       "intent": "选择与确认",
-      "patterns": ["P-DECISION", "P-SETTINGS", "P-DETAIL"],
-      "components": ["SettingsSelect", "Switch", "DecisionCard"],
-      "rules": ["DECIDE-RESULT-01", "DECIDE-DEFAULT-01"],
+      "patterns": [
+        "P-DECISION",
+        "P-SETTINGS",
+        "P-DETAIL"
+      ],
+      "components": [
+        "SettingsSelect",
+        "Switch",
+        "DecisionCard"
+      ],
+      "rules": [
+        "DECIDE-RESULT-01",
+        "DECIDE-DEFAULT-01"
+      ],
       "ruleSource": "design-system/interactions.md"
     },
     {
       "id": "I-MANAGE",
       "intent": "调整与管理",
-      "patterns": ["P-SETTINGS", "P-RESOURCES"],
-      "components": ["SettingsPage", "SettingsSection", "SettingsGroupCard", "SettingsRow"],
-      "rules": ["MANAGE-OWNER-01", "MANAGE-DEFAULT-01"],
+      "patterns": [
+        "P-SETTINGS",
+        "P-RESOURCES"
+      ],
+      "components": [
+        "SettingsPage",
+        "SettingsSection",
+        "SettingsGroupCard",
+        "SettingsRow"
+      ],
+      "rules": [
+        "MANAGE-OWNER-01",
+        "MANAGE-DEFAULT-01"
+      ],
       "ruleSource": "design-system/interactions.md"
     },
     {
@@ -679,8 +1189,14 @@
         "P-DETAIL",
         "P-DECISION"
       ],
-      "components": ["Feedback", "EmptySettings"],
-      "rules": ["RECOVER-TRUTH-01", "RECOVER-DEFAULT-01"],
+      "components": [
+        "Feedback",
+        "EmptySettings"
+      ],
+      "rules": [
+        "RECOVER-TRUTH-01",
+        "RECOVER-DEFAULT-01"
+      ],
       "ruleSource": "design-system/interactions.md"
     }
   ]

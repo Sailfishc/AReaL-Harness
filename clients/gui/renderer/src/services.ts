@@ -6,6 +6,8 @@ import type {
   CommandResponse,
   DesktopResult,
   PreviewRequest,
+  NotificationTarget,
+  QuitProgress,
 } from "@areal/workbench/desktop-contract";
 import type {
   McpAppCommand,
@@ -85,13 +87,7 @@ export interface UpdateState {
   percent?: number | null;
   detail?: string;
 }
-export type NotificationTarget = { projectId: string } & (
-  | { threadId: string; taskId?: never }
-  | { taskId: string; runId?: string; questionId?: string }
-);
-export type QuitProgress =
-  | { state: "idle" }
-  | { state: "quitting"; phase: "checking" | "stopping" | "finishing" };
+export type { NotificationTarget, QuitProgress } from "@areal/workbench/desktop-contract";
 export interface PlatformServices {
   mcpApp?: McpAppCommand;
   onMcpAppEvent?(listener: (event: McpAppEvent) => void): () => void;

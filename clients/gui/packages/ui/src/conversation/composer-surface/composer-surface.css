@@ -50,7 +50,7 @@
 
 /* 宿主显式选择布局；面板祖先不能改变另一输入器的几何。 */
 .composer-dock { container: composer-dock / inline-size; }
-.composer-surface[data-layout="compact"] { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; padding: 4px 12px; gap: 8px; border-radius: 28px; }
+.composer-surface[data-layout="compact"] { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; padding: 4px 12px; gap: 8px; border-radius: var(--radius-composer-large); }
 .composer-surface[data-layout="compact"] > :not(.composer-editor):not(.composer-toolbar) { grid-column: 1 / -1; grid-row: 1; }
 .composer-surface[data-layout="compact"]:has(> :not(.composer-editor):not(.composer-toolbar)) :is(.composer-editor, [data-composer-leading-actions], [data-composer-trailing-actions]) { grid-row: 2; }
 .composer-surface[data-layout="compact"] .composer-editor { grid-column: 2; grid-row: 1; padding: 0; max-height: 80px; }

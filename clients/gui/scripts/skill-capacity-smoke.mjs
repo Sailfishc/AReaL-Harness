@@ -1,6 +1,7 @@
+import { makeTempDir } from "./support/temp.mjs";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
-import { mkdtemp, mkdir, readFile, writeFile, symlink } from "node:fs/promises";
+import { mkdir, readFile, writeFile, symlink } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,7 +17,7 @@ const binary = resolve(process.env.AREAL_CORE_BIN);
 const coreSha256 = createHash("sha256")
   .update(await readFile(binary))
   .digest("hex");
-const scratch = await mkdtemp("/private/tmp/areal-skill-capacity-");
+const scratch = await makeTempDir("areal-skill-capacity-");
 const checks = [];
 const running = new Set();
 const config = join(scratch, "config.toml");
@@ -278,7 +279,7 @@ try {
   };
   await writeFile(join(scratch, "manifest.json"), JSON.stringify(report, null, 2));
   console.log(JSON.stringify(report));
-  for (const result of cleanup) if (result.status === "rejected") throw result.reason;
+  for (const result of cleanup) assert.ifError(result.status === "rejected" ? result.reason : null);
   assert.equal(finalCoreSha256, coreSha256, "Core binary remains unchanged during acceptance");
   assert.deepEqual(activeServices, [], "No active service remains in the isolated registry");
   assert.deepEqual(livePids, [], "All observed Core and service host processes have exited");

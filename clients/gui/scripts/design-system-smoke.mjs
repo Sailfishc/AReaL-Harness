@@ -1,3 +1,4 @@
+import { runAccessibilityKeyboard } from "./design-system-keyboard.mjs";
 import { runAccessibility } from "./design-system-accessibility.mjs";
 import { runContentSystem } from "./design-system-content.mjs";
 import { runReuseExercise } from "./design-system-reuse-exercise.mjs";
@@ -28,6 +29,7 @@ const dist = join(gui, "dist/design-system");
 const scratch = await mkdtemp(join(tmpdir(), "areal-design-system-"));
 const baseline = process.argv.includes("--baseline");
 const accessibilityOnly = process.argv.includes("--accessibility");
+const keyboardOnly = process.argv.includes("--keyboard-only");
 const conversationExercise = process.argv.includes("--conversation-exercise");
 const conversationDemo = process.argv.includes("--conversation-demo");
 const conversationSystem = process.argv.includes("--conversation-system");
@@ -42,6 +44,7 @@ const productCandidate = process.argv.includes("--product-candidate");
 const reuseExercise = process.argv.includes("--reuse-exercise");
 const namedExercise =
   accessibilityOnly ||
+  keyboardOnly ||
   contentSystem ||
   reuseExercise ||
   productCandidate ||
@@ -566,7 +569,8 @@ try {
     .waitFor();
   assert.equal(await page.evaluate(() => typeof window.arealDesktop), "undefined");
   if (namedExercise) {
-    if (accessibilityOnly) await runAccessibility(page, scratch, gui, exercise.checks, samples);
+    if (keyboardOnly) await runAccessibilityKeyboard(page, exercise.checks);
+    else if (accessibilityOnly) await runAccessibility(page, scratch, gui, exercise.checks, samples);
     else if (contentSystem) await runContentSystem(page, scratch, exercise.checks);
     else if (reuseExercise) {
       const inputFiles = [

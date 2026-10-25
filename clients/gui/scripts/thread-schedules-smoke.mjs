@@ -1,3 +1,4 @@
+import { makeTempDir } from "./support/temp.mjs";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
@@ -33,7 +34,7 @@ const evidenceRoot =
   process.env.AREAL_THREAD_SCHEDULE_EVIDENCE || join(root, ".scratch/thread-schedules/acceptance");
 await mkdir(evidenceRoot, { recursive: true });
 const evidence = await mkdtemp(join(evidenceRoot, "run-"));
-const stateRoot = await mkdtemp("/private/tmp/ts-");
+const stateRoot = await makeTempDir("ts-");
 const owner = randomUUID();
 await writeFile(join(stateRoot, ".owner"), owner);
 const workspace = join(stateRoot, "workspace");

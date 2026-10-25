@@ -11,15 +11,23 @@ async function fixture(t, entries) {
   const root = await mkdtemp(join(tmpdir(), "areal-manifest-test-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   await mkdir(join(root, "scripts"));
+  await writeFile(join(root, "scripts/one.mjs"), "export {};\n");
+  await writeFile(join(root, "scripts/two.mjs"), "export {};\n");
   await writeFile(
     join(root, "package.json"),
     JSON.stringify({
-      scripts: { "test:one": "node one.mjs", "test:two": "node two.mjs", build: "build" },
+      scripts: {
+        "test:one": "node scripts/one.mjs",
+        "test:two": "node scripts/two.mjs",
+        build: "build",
+      },
     }),
   );
   await writeFile(join(root, "scripts/test-manifest.json"), JSON.stringify(entries));
-  return (...args) =>
+  const run = (...args) =>
     spawnSync(process.execPath, [cli, "--root", root, ...args], { encoding: "utf8" });
+  run.root = root;
+  return run;
 }
 const one = {
   script: "test:one",
@@ -32,6 +40,7 @@ const two = {
   script: "test:two",
   layer: "e2e",
   platforms: ["darwin"],
+  platformReason: "Fixture requires macOS Electron.",
   areas: ["composer"],
   requires: ["electron"],
 };
@@ -53,6 +62,7 @@ test("invalid metadata cannot enter the selector", async (t) => {
     { platforms: ["unknown"] },
     { areas: [] },
     { requires: "electron" },
+    { platforms: ["darwin"] },
   ]) {
     assert.notEqual((await fixture(t, [{ ...one, ...patch }, two]))().status, 0);
   }
@@ -81,4 +91,28 @@ test("temporary directory helper resolves platform aliases", async (t) => {
   t.after(() => rm(dir, { recursive: true, force: true }));
   assert.equal(dir, await realpath(dir));
   assert.equal(dir.startsWith(await realpath(tmpdir())), true);
+});
+
+test("registered tests reject macOS temporary literals in source and imported helpers", async (t) => {
+  const run = await fixture(t, [one, two]);
+  await writeFile(
+    join(run.root, "scripts/one.mjs"),
+    'export const location = "/private/tmp/case";\n',
+  );
+  const direct = run();
+  assert.notEqual(direct.status, 0);
+  assert.match(direct.stderr, /one\.mjs.*platform-specific temporary path/);
+  await writeFile(join(run.root, "scripts/one.mjs"), 'import "./helper.mjs";\n');
+  await writeFile(
+    join(run.root, "scripts/helper.mjs"),
+    "export const location = `/var/folders/case`;\n",
+  );
+  const imported = run();
+  assert.notEqual(imported.status, 0);
+  assert.match(imported.stderr, /helper\.mjs.*platform-specific temporary path/);
+  await writeFile(
+    join(run.root, "scripts/helper.mjs"),
+    'export const text = "a diagnostic mentioning /private/tmp";\n',
+  );
+  assert.equal(run().status, 0);
 });

@@ -141,3 +141,48 @@ test("palette role metadata covers actual variables and aliases resolve to known
     /unknown palette alias/,
   );
 });
+
+test("palette generation rejects unknown, cyclic, and backwards dependencies", async () => {
+  const { renderPalette } = await import("./palette.mjs");
+  const unknown = structuredClone(tokens);
+  unknown.palette.semantic["surface-base"].value = { semantic: "missing" };
+  assert.throws(() => renderPalette(unknown), /unknown semantic.*missing/);
+  const cyclic = structuredClone(tokens);
+  cyclic.palette.semantic["surface-base"].value = { semantic: "surface-base" };
+  assert.throws(() => renderPalette(cyclic), /cyclic semantic.*surface-base/);
+  const backwards = structuredClone(tokens);
+  backwards.palette.roles["--color-result-card"].value = { input: "background" };
+  assert.throws(() => renderPalette(backwards), /component.*semantic reference/);
+  const unknownParameter = structuredClone(tokens);
+  unknownParameter.palette.semantic["surface-raised"].value.mix.percent = "missing";
+  assert.throws(() => renderPalette(unknownParameter), /unknown parameter.*missing/);
+  const badDefault = structuredClone(tokens);
+  badDefault.palette.semantic["text-primary-inverse"].defaultOverrides[0].match.background =
+    "missing";
+  assert.throws(() => renderPalette(badDefault), /unknown reference.*missing/);
+});
+
+test("theme source only retains documented color algorithms", async () => {
+  const { verifyThemeSource } = await import("./foundations.mjs");
+  const source = await readFile(new URL("../src/theme.ts", import.meta.url), "utf8");
+  verifyThemeSource(source);
+  assert.throws(
+    () => verifyThemeSource(source + '\nconst hiddenColor = "#123456";'),
+    /color literal/,
+  );
+  assert.throws(
+    () => verifyThemeSource(source + "\nconst hiddenParameter = 21;"),
+    /numeric parameter/,
+  );
+  assert.throws(() => verifyThemeSource(source.replace("0.2126", "0.2")), /algorithm constant/);
+});
+
+
+test("every duration token has a system and explicit reduced-motion override", () => {
+  const future = structuredClone(tokens);
+  future.foundation["motion-panel"] = { ...future.foundation["motion-fast"] };
+  const css = renderFoundations(future).foundation;
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
+  for (const name of Object.keys(future.foundation).filter(name => name.startsWith("motion-")))
+    assert.equal(css.split(`--${name}: 0ms;`).length - 1, 2, `${name} must follow both preference sources`);
+});

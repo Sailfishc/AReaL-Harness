@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { contrastRatio, summarizeAxe } from "./design-system-accessibility.mjs";
+import { contrastRatio, summarizeAxe, assertAccessibleReport } from "./design-system-accessibility.mjs";
 
 test("contrast uses resolved opaque pixels and rejects unreadable text", () => {
   assert.equal(contrastRatio([0, 0, 0], [255, 255, 255]), 21);
@@ -30,4 +30,14 @@ test("axe reports group each affected target and block serious or critical rules
   assert.equal(result.moderate, 1);
   assert.equal(result.incomplete[0].targets[0][0], "#alpha");
   assert.equal(result.violations[0].targets[0][0], "#button");
+});
+
+
+test("the accessibility gate rejects serious DOM and default contrast failures", () => {
+  const report = { scans: [{ blocking: [], moderate: 0 }], contrast: { defaultFailures: 0 } };
+  assert.doesNotThrow(() => assertAccessibleReport(report));
+  assert.throws(() => assertAccessibleReport({ ...report, scans: [{ blocking: [{ targets: [["#send"]] }], moderate: 0 }] }), /serious or critical/);
+  assert.throws(() => assertAccessibleReport({ ...report, contrast: { defaultFailures: 1 } }), /default theme contrast/);
+  assert.throws(() => assertAccessibleReport({ ...report, scans: [] }), /mounted previews/);
+  assert.throws(() => assertAccessibleReport({ ...report, scans: [{ blocking: [], moderate: 1 }] }), /moderate.*baseline/);
 });

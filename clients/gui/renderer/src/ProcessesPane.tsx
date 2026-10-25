@@ -221,7 +221,7 @@ export function ProcessesPane({ project, thread, action, onOpenService }: { proj
           <p className="text-foreground-subtle">以下地址来自此任务正在运行的受管进程输出。选择后在当前任务的浏览器打开；页面加载结果仍需核查。</p>
           {serviceUrls.map(url => <Button key={url} size="sm" variant="outline" className="w-fit max-w-full truncate" title={url} onClick={() => onOpenService(url)}>打开 {url}</Button>)}
         </div>}
-        <pre role="log" aria-label="进程输出" aria-live="off" className="max-h-96 min-h-24 overflow-auto whitespace-pre-wrap break-words rounded-control bg-background-secondary p-2 font-mono text-xs">{output || "暂无输出"}</pre>
+        <pre role="log" aria-label="进程输出" aria-live="off" className="max-h-96 min-h-24 overflow-auto whitespace-pre-wrap break-words rounded-control bg-background-secondary p-2 font-mono text-compact-caption">{output || "暂无输出"}</pre>
       </div>}
     </div>
     <Dialog open={cleanupOpen} onOpenChange={open => { if (!busy) setCleanupOpen(open); }}><DialogContent className="max-w-md" showCloseButton={!busy}>
@@ -240,7 +240,7 @@ export function ProcessesPane({ project, thread, action, onOpenService }: { proj
     </DialogContent></Dialog>
     <Dialog open={!!confirm} onOpenChange={open => { if (!open && !busy) setConfirm(null); }}><DialogContent className="max-w-md" showCloseButton={!busy}>
       <DialogHeader><DialogTitle>停止此进程？</DialogTitle><DialogDescription>这会中断所选命令并请求清理其资源，可能影响依赖它的任务。其他进程继续运行。</DialogDescription></DialogHeader>
-      <p className="break-all font-mono text-sm">{confirm?.argv.join(" ")}</p>
+      <p className="break-all font-mono text-compact-body">{confirm?.argv.join(" ")}</p>
       {stopError && <p role="alert" className="text-destructive">{stopError}</p>}
       <DialogFooter><Button variant="outline" disabled={busy} onClick={() => setConfirm(null)}>取消</Button><Button variant="destructive" disabled={disabled} onClick={() => void stop()}>{busy ? "停止中…" : "确认停止"}</Button></DialogFooter>
     </DialogContent></Dialog>

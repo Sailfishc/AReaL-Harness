@@ -1,6 +1,6 @@
 /* Only Remote placement; shared GUI components own messages, controls and editor. */
-html,body,#root {background:var(--color-background,#fff)!important;}
-body { background:var(--color-background,#fff);color:var(--color-foreground,#202020); }
+html,body,#root {background:var(--color-background)!important;}
+body { background:var(--color-background);color:var(--color-foreground); }
 body[data-connection="connected"] #connection-details {display:none;}
 #projects,#work-overview,#session-content,.remote-composer,#session-title,#session-summary,#session-range,#session-state,.legacy-session-details {display:none!important;}
 #project-section>h2,#session>.session-navigation,#session-history {display:none!important;}
@@ -19,10 +19,10 @@ body[data-detail="open"] #project-section,body[data-connection="connected"][data
 #session {height:calc(100dvh - 64px);}
 #remote-session-ui {display:flex;flex-direction:column;height:100%;min-height:0;}
 .remote-chat-heading {display:flex;align-items:center;justify-content:space-between;gap:12px;flex-shrink:0;}
-.remote-chat-heading span {font-size:12px;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-foreground-subtle);}
-.remote-chat-title {font-size:20px;margin:16px 8px 0;flex-shrink:0;}
+.remote-chat-heading span {font-size:var(--text-fixed-caption);max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--color-foreground-subtle);}
+.remote-chat-title {font-size:var(--text-fixed-section-title);margin:16px 8px 0;flex-shrink:0;}
 .remote-gui-composer {padding:12px 4px 4px;flex-shrink:0;overflow:visible;}
-.remote-gui-composer>p {font-size:13px;margin:8px 4px;}
+.remote-gui-composer>p {font-size:var(--text-fixed-label);margin:8px 4px;}
 #remote-session-ui .message-column {padding:24px 12px;}
 #remote-session-ui .composer-toolbar {gap:0;}
 main {max-width:780px;margin:auto;padding:28px 24px;}

@@ -1,6 +1,8 @@
+// @ts-check
 "use strict";
 
 // 原生准备超时也必须保留 Core；所有终态均释放本轮监听器。
+/** @param {import("electron").AutoUpdater} nativeUpdater @returns {Promise<void>} */
 function prepareNativeInstall(nativeUpdater, timeoutMs = 120000) {
     return new Promise((resolve, reject) => {
         const cleanup = () => {
@@ -13,6 +15,7 @@ function prepareNativeInstall(nativeUpdater, timeoutMs = 120000) {
             cleanup();
             resolve();
         };
+        /** @param {unknown} error */
         const failed = (error) => {
             cleanup();
             reject(error);

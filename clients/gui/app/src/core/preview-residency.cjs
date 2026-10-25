@@ -33,7 +33,7 @@ function isPinned(page) {
 
 /** @template {ResidentPage} P
  * @param {Iterable<P>} orderedPages
- * @param {{workspacePageCount:number,replacing?:boolean,excluded?:P}} options
+ * @param {{workspacePageCount:number,replacing?:boolean,excluded?:P|null}} options
  * @returns {{kind:'workspaceFull'|'available'|'allPinned'}|{kind:'evict',page:P}} */
 function reserveDecision(orderedPages, { workspacePageCount, replacing, excluded }) {
   if (!replacing && workspacePageCount >= MAX_WORKSPACE_PAGES) return { kind: "workspaceFull" };
