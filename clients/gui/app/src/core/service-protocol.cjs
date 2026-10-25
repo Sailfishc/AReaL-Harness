@@ -1167,9 +1167,13 @@ class DesktopService {
       }
       if (method !== "addProject" && method !== "command") throw new Error("不支持的后台服务操作");
       const name = typeof params.name === "string" ? params.name : "";
-      const request = record(params.request) ? params.request : {};
+      const request = record(params.request)
+        ? method === "command" && name === "media"
+          ? decodeMedia(params.request)
+          : params.request
+        : {};
       if (method === "command") {
-        validateCommand(name, params.request);
+        validateCommand(name, name === "media" ? request : params.request);
         if (computerSetting(name, request) && this.computerSocket !== socket)
           throw new Error("Computer provider settings belong to the local computer control host");
       } else if (typeof params.path !== "string") throw new Error("无效工作区路径");
@@ -1225,16 +1229,12 @@ class DesktopService {
             method === "command" && name === "history"
               ? await this.historyCommand(socket, request)
               : method === "command"
-                ? await this.backend.command(
-                    name,
-                    name === "media" ? decodeMedia(request) : request,
-                    {
-                      onMcpAppOpened: (project, client, request, result) =>
-                        this.bindMcpPageOwner(socket, project, client, request, result),
-                      onBrowserTurnStarted: (turnId) => entry?.resolve({ turnId }),
-                      onBrowserTurnQueued: (queueItemId) => entry?.resolve({ queueItemId }),
-                    },
-                  )
+                ? await this.backend.command(name, request, {
+                    onMcpAppOpened: (project, client, request, result) =>
+                      this.bindMcpPageOwner(socket, project, client, request, result),
+                    onBrowserTurnStarted: (turnId) => entry?.resolve({ turnId }),
+                    onBrowserTurnQueued: (queueItemId) => entry?.resolve({ queueItemId }),
+                  })
                 : await this.backend.addProject(String(params.path));
         } catch (error) {
           if (entry) this.forgetBrowserEntrypoint(entryKey, entry);
