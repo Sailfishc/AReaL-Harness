@@ -58,7 +58,7 @@
 | `--radius-pill` | `999px` | 胶囊形：发送等主动作、标签、计数徽标 |
 | `--radius-overlay` | `20px` | 大浮层与独立工作区：Worktree 设置、目录列表、定时任务 |
 | `--radius-navigation` | `12.5px` | 导航项、侧栏行与拖拽预览 |
-| `--radius-composer` | `22px` | 输入区外框 |
+| `--radius-composer` | `18px` | 输入区外框 |
 | `--radius-panel` | `12px` | 面板与分组卡片 |
 | `--radius-dialog` | `16px` | 对话框 |
 | `--radius-message` | `16px` | 用户消息气泡圆角 |

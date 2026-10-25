@@ -3,7 +3,7 @@
   "total": {
     "typography": 82,
     "color": 145,
-    "radius": 164
+    "radius": 163
   },
   "files": {
     "renderer/src/AgentResources.css": {
@@ -103,7 +103,7 @@
     "renderer/src/workbench.css": {
       "typography": 20,
       "color": 37,
-      "radius": 88
+      "radius": 87
     },
     "packages/ui/src/components/dialog/dialog.tsx": {
       "color": 1

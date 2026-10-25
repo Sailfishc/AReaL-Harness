@@ -28,7 +28,7 @@
   --radius-pill: 999px;
   --radius-overlay: 20px;
   --radius-navigation: 12.5px;
-  --radius-composer: 22px;
+  --radius-composer: 18px;
   --radius-panel: 12px;
   --radius-dialog: 16px;
   --shadow-menu: 0 0 0 0.5px var(--color-menu-border, var(--color-border)), 0 8px 16px -4px rgb(0 0 0 / 12%);
