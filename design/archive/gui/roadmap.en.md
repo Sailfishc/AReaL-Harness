@@ -1,6 +1,6 @@
 # From the Codex reference to real Electron journeys
 
-[中文](roadmap.md). This page owns the coverage roadmap and acceptance order. It does not replace the [structured B workflow](structured-flow.md) or component rules. E1 has now passed its selected real Electron journey. E2 has passed selected continuous slices; E3 has a bounded window/focus/native-composition and new-content slice; candidate overlays and the remaining host matrix are still pending; passing a phase does not automatically promote Base.
+[中文](roadmap.md). This page owns the coverage roadmap and acceptance order. It does not replace the [structured B workflow](../../../clients/gui/design-system/structured-flow.md) or component rules. E1 has now passed its selected real Electron journey. E2 has passed selected continuous slices; E3 has a bounded window/focus/native-composition and new-content slice; candidate overlays and the remaining host matrix are still pending; passing a phase does not automatically promote Base.
 
 ## Target and present evidence
 
@@ -22,9 +22,9 @@ Settings primarily combine stable controls. Conversation adds asynchronous arriv
 
 ### E1: A complete conversation slice in real Electron
 
-Status: the selected macOS dark-theme journey passed, including actual commands/children, image zoom/return, reading/convergence, paused UNKNOWN inspection and GUI reopen. See the [Electron scenario](exercises/conversation-flow.md#真实-electron-专项-e1) for the entry point, evidence and limits. UNKNOWN remains preserved; this does not establish a confirmed terminal outcome for every stop.
+Status: the selected macOS dark-theme journey passed, including actual commands/children, image zoom/return, reading/convergence, paused UNKNOWN inspection and GUI reopen. See the [Electron scenario](../../../clients/gui/design-system/exercises/conversation-flow.md#真实-electron-专项-e1) for the entry point, evidence and limits. UNKNOWN remains preserved; this does not establish a confirmed terminal outcome for every stop.
 
-Reuse [migration-smoke](../scripts/migration-smoke.mjs) for isolated home/workspace, actual Core, and source/binary identity. Its existence does not mean this design worktree passed E1. Inspect its actual coverage, then add only this journey's missing assertions and evidence.
+Reuse [migration-smoke](../../../clients/gui/scripts/migration-smoke.mjs) for isolated home/workspace, actual Core, and source/binary identity. Its existence does not mean this design worktree passed E1. Inspect its actual coverage, then add only this journey's missing assertions and evidence.
 
 Fix one main journey: send → command execution with successive output → parallel child agent → open/zoom/close image → read history while output grows → return to latest and continue following → independent parent/child completion → convergence with revisitable details. Use separate short variants for stop and one recovery/failure path; do not splice mutually exclusive outcomes into one successful recording.
 
@@ -35,7 +35,7 @@ Fix one main journey: send → command execution with successive output → para
 
 ### E2: Continuous motion around the accepted journey
 
-Current status: the selected macOS dark-mode continuous slices passed. Fixes cover hidden outer scrolling, abrupt disclosure height changes and a sidebar waiting spinner that ignored reduced motion. See the [E2 scenario](exercises/conversation-flow.md#真实-electron-连续动效专项-e2) for evidence limits and retained differences. This does not close full motion fidelity or E3.
+Current status: the selected macOS dark-mode continuous slices passed. Fixes cover hidden outer scrolling, abrupt disclosure height changes and a sidebar waiting spinner that ignored reduced motion. See the [E2 scenario](../../../clients/gui/design-system/exercises/conversation-flow.md#真实-electron-连续动效专项-e2) for evidence limits and retained differences. This does not close full motion fidelity or E3.
 
 
 Select short segments that affect comprehension: streaming/waiting, tool disclosure, child-pane entry/exit, image return, return to latest and completion convergence. Retain the existing smoke checks and add continuous Electron evidence; sampled animation phases alone are insufficient.
@@ -47,11 +47,11 @@ Select short segments that affect comprehension: streaming/waiting, tool disclos
 
 ### E3: Desktop host, regression and admission
 
-The selected macOS dark slice is complete: three actual content sizes and125% zoom, child/settings focus return, multiline drafts, native Doubao Pinyin composition/edit Escape, and a new library-content journey. See [E3](exercises/conversation-flow.md#真实-electron-宿主与新内容专项-e3). E4 additionally verifies same-app native window reactivation and one native web preview interaction/return, fixing lost composer focus on panel close; see [E4](exercises/conversation-flow.md#原生宿主补充-e4). The operator confirmed only entered text, so the candidate overlay was not triggered and remains unverified. Cross-app/display switching, native file views, the full condition matrix and packages remain open. Base is not promoted.
+The selected macOS dark slice is complete: three actual content sizes and125% zoom, child/settings focus return, multiline drafts, native Doubao Pinyin composition/edit Escape, and a new library-content journey. See [E3](../../../clients/gui/design-system/exercises/conversation-flow.md#真实-electron-宿主与新内容专项-e3). E4 additionally verifies same-app native window reactivation and one native web preview interaction/return, fixing lost composer focus on panel close; see [E4](../../../clients/gui/design-system/exercises/conversation-flow.md#原生宿主补充-e4). The operator confirmed only entered text, so the candidate overlay was not triggered and remains unverified. Cross-app/display switching, native file views, the full condition matrix and packages remain open. Base is not promoted.
 
 Within the same conversation, verify relevant window resizing, pane toggles/focus return, Chinese IME/shortcut boundaries, reading retention after window switching, and native file/browser previews actually used by the journey. Capture native views independently; injected pickers and renderer screenshots do not prove native paths.
 
-Fix representative conditions for the accepted slice: light/dark, wide/narrow, font size, keyboard and reduced motion. Use one unseen-content journey to check the same Base/compositions transfer. Update rules, surfaces and catalog under [governance admission](governance.md), then decide whether Base or the visual baseline can expand. Packages and other operating systems require separate acceptance.
+Fix representative conditions for the accepted slice: light/dark, wide/narrow, font size, keyboard and reduced motion. Use one unseen-content journey to check the same Base/compositions transfer. Update rules, surfaces and catalog under [governance admission](../../../clients/gui/design-system/governance.md), then decide whether Base or the visual baseline can expand. Packages and other operating systems require separate acceptance.
 
 ## Delivery and stopping
 

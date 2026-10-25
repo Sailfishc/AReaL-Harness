@@ -29,7 +29,7 @@ GUI 的 `registry.json` 仍是本端索引。I-*、P-* 和 CONV-* 的定义、�
 
 组件参数从类型和实现读取，结构索引由原 registry 维护，生产预览使用真实组件。规则、数值、接口和示例各有一个来源，派生文档或检索格式不反向编辑它们。
 
-按 [D-004](decisions/004-local-ui-package.md)，基础值、原纯调色板函数和共享展示实现由私有 [@areal/ui](../clients/gui/packages/ui/README.md)承接，原 GUI registry 继续拥有模式与 Base。包生成 CSS、类型、组件索引和 Agent 入口，原设计站提供独立包示例；[UI 包与架构](../clients/gui/renderer/design-system.html?ui-library)可核对实际来源与产物。共享组件的当前范围见[组件迁移](../clients/gui/design-system/component-migration.md)，产品适配与Gen UI/MCP Apps宿主继续归原renderer、Electron和Core，不因展示包化而迁移执行权威。
+按 [D-004](decisions/004-local-ui-package.md)，基础值、原纯调色板函数和共享展示实现由私有 [@areal/ui](../clients/gui/packages/ui/README.md)承接，原 GUI registry 继续拥有模式与 Base。包生成 CSS、类型、组件索引和 Agent 入口，原设计站提供独立包示例；[UI 包与架构](../clients/gui/renderer/design-system.html?ui-library)可核对实际来源与产物。共享组件的当前范围见[组件迁移](archive/gui/component-migration.md)，产品适配与Gen UI/MCP Apps宿主继续归原renderer、Electron和Core，不因展示包化而迁移执行权威。
 
 ## 文档整理与产品演进
 
