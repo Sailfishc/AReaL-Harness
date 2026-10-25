@@ -5,7 +5,7 @@ import "@areal/ui/conversation.css";
 import { spawnedAgent } from "./AgentIdentity.js";
 import { ActivityIcon } from "./ActivityIcon.js";
 import { ReasoningGroup } from "./ReasoningGroup.js";
-import { activityLabel, executionOutcome, executionSummary, processItems, timelineItems, toolPresentation } from "./conversationPresentation.js";
+import { activityLabel, activityRunLabel, activityRuns, executionOutcome, processItems, timelineItems, toolPresentation } from "./conversationPresentation.js";
 import type { Data } from "./services.js";
 
 function canAnimateTurn(project: Data, threadId: string, turn: Data) {
@@ -31,7 +31,11 @@ export function TurnActivity({ turn, project, threadId }: { turn: Data; project:
   </div>;
 }
 
-/** Core work items are disclosed in order between visible conversation messages. */
+/**
+ * Core work items are disclosed in order between visible conversation messages.
+ * 连续同一动作的工具合成一段（CONV-ACTIVITY-01）：一项时直接显示该项，多项时折叠为
+ * "已运行命令"等动词短语；思考组与子代理创建各自成段。段内顺序与原始历史一致。
+ */
 export function TurnExecution({ items, turn, project, threadId, renderItem }: {
   items: Data[]; turn: Data; project: Data; threadId: string; renderItem: (item: Data, disclosure: { animate: boolean }) => ReactNode;
 }) {
@@ -40,23 +44,23 @@ export function TurnExecution({ items, turn, project, threadId, renderItem }: {
   const tools = visibleItems.filter(item => item.type === "dynamicToolCall");
   const unconfirmed = tools.some(item => toolPresentation(item).status === "结果待确认");
   const rows = timelineItems(visibleItems);
-  const reasoningCount = items.filter(item => item.type === "reasoning").length;
-  const counts = [reasoningCount && `${reasoningCount} 段思考`, tools.length && `${tools.length} 项活动`].filter(Boolean).join(" · ");
-  const label = `${executionSummary(visibleItems)}${turn.status === "failed" ? " · 回合失败" : ""}`;
-  const singleTool = rows.length === 1 && rows[0].type === "dynamicToolCall";
-  const singleReasoning = rows.length === 1 && rows[0].type === "reasoningGroup";
-  const onlyAgentEntries = rows.length > 0 && rows.every(item => !!spawnedAgent(item));
-  const direct = singleTool || singleReasoning || onlyAgentEntries;
   const canAnimate = canAnimateTurn(project, threadId, turn);
-  const iconKind = toolPresentation(tools.find(item => toolPresentation(item).running) ?? tools[0] ?? {}).kind;
   if (!rows.length) return null;
-  const status = <>
-    {unconfirmed ? <p role="status">结果待确认</p> : unfinished && turn.status !== "inProgress" && <p role="status">仍在运行</p>}
-  </>;
-  const content = rows.map(item => <div key={item.id} className="execution-row">{item.type === "reasoningGroup"
+  const status = unconfirmed ? <p role="status">结果待确认</p>
+    : unfinished && turn.status !== "inProgress" ? <p role="status">仍在运行</p>
+    : turn.status === "failed" ? <p role="status">回合失败</p> : null;
+  const runs = activityRuns(rows, item => !!spawnedAgent(item));
+  const row = (item: Data) => <div key={item.id} className="execution-row">{item.type === "reasoningGroup"
     ? <ReasoningGroup items={item.items} />
-    : renderItem(item, { animate: canAnimate })}</div>);
+    : renderItem(item, { animate: canAnimate })}</div>;
   return <div className="turn-execution" data-testid="turn-execution">
-    <ActivityGroup presentation={direct ? "inline" : "collapsible"} label={`${label}${counts ? ` · ${counts}` : ""}`} icon={tools.length > 0 ? <ActivityIcon kind={iconKind} /> : undefined} status={status}>{content}</ActivityGroup>
+    {runs.map((run, index) => {
+      const last = index === runs.length - 1;
+      const grouped = run.key !== null && run.items.length > 1;
+      const kind = toolPresentation(run.items.find(item => toolPresentation(item).running) ?? run.items[0]).kind;
+      return <ActivityGroup key={run.items[0].id} presentation={grouped ? "collapsible" : "inline"}
+        label={run.key !== null ? activityRunLabel(run) : run.items[0].type === "reasoningGroup" ? "思考过程" : "执行活动"} icon={grouped ? <ActivityIcon kind={kind} /> : undefined}
+        status={last ? status : undefined}>{run.items.map(row)}</ActivityGroup>;
+    })}
   </div>;
 }

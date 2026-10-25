@@ -1506,6 +1506,9 @@ body { font-family: var(--font-sans); }
 
 
 .turn-execution { --activity-foreground: var(--color-foreground-subtle); margin: var(--conversation-gap) 0; font-weight: 400; min-width: 0; }
+/* 一个回合段内可有多个活动段（CONV-ACTIVITY-01）：段与段之间只隔一个块间距。 */
+.turn-execution > .areal-activity-group > .areal-disclosure { margin-block: 0; }
+.turn-execution > .areal-activity-group + .areal-activity-group { margin-top: var(--conversation-gap); }
 .tool-summary-row:hover { color: var(--color-foreground); }
 .execution-failures { font-size: var(--text-content-caption); color: var(--color-destructive); }
 .turn-execution .execution-row { min-width: 0; }

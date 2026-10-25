@@ -35,14 +35,25 @@ const categoryLabels: Record<ToolKind, string> = {
   command: "运行命令", wait: "等待任务", tool: "调用工具",
 };
 
-/** Action categories in first-observed order, not inferred outcomes or file counts. */
-export function executionSummary(items: Data[]): string {
-  const labels = new Set<string>();
-  for (const item of items) {
-    if (item.type !== "dynamicToolCall") continue;
-    labels.add(toolAction(item));
+/**
+ * 把时间线行切成"连续同一动作"的段：连续多次运行命令合成一段，读取文件另起一段。
+ * 只有普通工具调用参与合并；思考组、子代理创建等行各自成段，保持原有顺序。
+ */
+export function activityRuns(rows: Data[], isBreaker: (item: Data) => boolean = () => false): { key: string | null; items: Data[] }[] {
+  const runs: { key: string | null; items: Data[] }[] = [];
+  for (const item of rows) {
+    const key = item.type === "dynamicToolCall" && !isBreaker(item) ? toolAction(item) : null;
+    const last = runs.at(-1);
+    if (key !== null && last?.key === key) last.items.push(item);
+    else runs.push({ key, items: [item] });
   }
-  return [...labels].join(" · ") || (items.some(item => item.type === "reasoning") ? "思考" : "执行活动");
+  return runs;
+}
+
+/** 合并段的标题：过去时动词短语；仍有运行中的项时用进行时。不显示数量。 */
+export function activityRunLabel(run: { key: string | null; items: Data[] }): string {
+  const action = run.key ?? "执行活动";
+  return run.items.some(item => toolPresentation(item).running) ? `正在${action}` : `已${action}`;
 }
 
 /** Counts projected activities, not output polls or raw invocation records. */
