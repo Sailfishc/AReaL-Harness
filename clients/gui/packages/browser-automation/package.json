@@ -28,6 +28,6 @@
     "esbuild": "0.25.12",
     "typescript": "5.9.3",
     "@types/node": "24.10.1",
-    "electron": "44.9.1"
+    "electron": "44.9.3"
   }
 }

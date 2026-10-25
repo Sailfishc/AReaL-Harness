@@ -27,7 +27,7 @@
     "@modelcontextprotocol/sdk": "1.32.0"
   },
   "devDependencies": {
-    "electron": "44.9.1",
+    "electron": "44.9.3",
     "electron-builder": "26.15.3",
     "playwright-core": "1.57.0"
   }
