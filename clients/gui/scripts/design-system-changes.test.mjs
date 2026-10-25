@@ -143,6 +143,12 @@ test("新增CSS只能承载Token化布局，重命名不能隐藏外观规则", 
   assert.ok(
     invalid.violations.some((item) => item.finding.includes("layout dimension needs a token")),
   );
+  await f.put("panel.layout.css", ".panel { gap:.05rem; }");
+  assert.ok(
+    (await f.audit()).violations.some((item) =>
+      item.finding.includes("layout dimension needs a token"),
+    ),
+  );
   await rm(join(f.repoRoot, "clients/gui/renderer/src/panel.layout.css"));
   await rename(
     join(f.repoRoot, "clients/gui/renderer/src/Legacy.css"),

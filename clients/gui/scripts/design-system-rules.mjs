@@ -156,7 +156,11 @@ function layoutFindings(css) {
         )
       )
         findings.push(`layout CSS contains appearance declaration: ${property}: ${value.trim()}`);
-      if (/\b[1-9]\d*(?:\.\d+)?(?:px|rem|em|vh|vw)\b/i.test(value))
+      if (
+        [...value.matchAll(/(?<![\w.-])(-?(?:\d+(?:\.\d+)?|\.\d+))(?:px|rem|em|vh|vw)\b/gi)].some(
+          (match) => Number(match[1]) !== 0,
+        )
+      )
         findings.push(`layout dimension needs a token: ${property}: ${value.trim()}`);
       return findings;
     },
