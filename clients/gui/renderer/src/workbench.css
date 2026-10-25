@@ -1321,7 +1321,7 @@ button.composer-project:hover > svg,
    Focus/scrollIntoView must never move the composer along with the transcript. */
 .conversation-pane:not(.draft-pane) { overflow: clip; }
 .tool-event { margin: 0; min-width: 0; }
-.tool-summary-row { display: flex; align-items: center; gap: 6px; max-width: 100%; min-height: 21px; padding: 0; border: 0; background: transparent; text-align: left; font-size: var(--text-conversation); line-height: var(--conversation-line); color: var(--activity-foreground); }
+.tool-summary-row { display: flex; align-items: center; gap: 6px; max-width: 100%; min-height: 0; padding: 2px 0; border: 0; background: transparent; text-align: left; font-size: var(--text-conversation); line-height: var(--conversation-line); color: var(--activity-foreground); }
 .tool-summary-row > svg { flex-shrink: 0; }
 .tool-summary-detail { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: inherit; }
 .tool-result { font-size: var(--text-ui-caption); white-space: nowrap; color: var(--color-foreground-subtle); }
@@ -1507,9 +1507,9 @@ body { font-family: var(--font-sans); }
 
 
 .turn-execution { --activity-foreground: var(--color-foreground-subtle); margin: var(--conversation-gap) 0; font-weight: 400; min-width: 0; }
-/* 一个回合段内可有多个活动段（CONV-ACTIVITY-01）：段与段之间只隔一个块间距。 */
+/* 一个回合段内可有多个活动段（CONV-ACTIVITY-01）：相邻活动段与段内行同一节奏，连续读取、搜索、命令像一张列表；
+   每行自带上下 2px 命中区，段之间不再叠加块间距。过程说明等正文自带块间距，与活动行区分。 */
 .turn-execution > .areal-activity-group > .areal-disclosure { margin-block: 0; }
-.turn-execution > .areal-activity-group + .areal-activity-group { margin-top: var(--conversation-gap); }
 .tool-summary-row:hover { color: var(--color-foreground); }
 .execution-failures { font-size: var(--text-content-caption); color: var(--color-destructive); }
 .turn-execution .execution-row { min-width: 0; }
@@ -1526,7 +1526,7 @@ body { font-family: var(--font-sans); }
 .conversation-web-preview > button { flex: none; padding: 4px 10px; border: 1px solid var(--color-border); border-radius: 8px; font-size: var(--text-ui-caption); }
 .conversation-web-preview > button:hover { background: var(--color-hover); }
 .conversation-inline-media { display: flex; flex-wrap: wrap; gap: 8px; }
-.tool-image-row { justify-content: space-between; }
+.tool-image-row { justify-content: space-between; padding: 0; }
 .tool-image-preview { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .tool-image-preview[hidden] { display: none; }
 .assistant-message[data-message-phase="commentary"] .conversation-markdown > :not(:last-child) { margin-bottom: var(--conversation-gap); }
@@ -1539,11 +1539,12 @@ body { font-family: var(--font-sans); }
 .tool-summary-detail { min-width: 0; }
 .tool-summary-text { display: flex; gap: 6px; min-width: 0; overflow: hidden; }
 .tool-summary-text > span:first-child { flex-shrink: 0; white-space: nowrap; }
-.tool-file-row { gap: 4px; }
-.tool-file-row .tool-file-link { display: block; height: auto; min-width: 0; max-width: 100%; overflow: hidden; padding: 0; border: 0; border-radius: 4px; background: transparent; color: inherit; font: inherit; text-overflow: ellipsis; white-space: nowrap; text-decoration: underline dotted; text-underline-offset: 2px; }
-.tool-file-row .tool-file-record { width: 18px; height: 21px; flex-shrink: 0; padding: 0; border: 0; background: transparent; color: inherit; }
+.tool-file-row { gap: 6px; }
+.tool-file-row .tool-file-link { display: block; height: auto; min-width: 0; max-width: 100%; overflow: hidden; padding: 0; border: 0; border-radius: 4px; background: transparent; color: inherit; font: inherit; text-overflow: ellipsis; white-space: nowrap; text-underline-offset: 2px; }
+.tool-file-row .tool-file-link:hover { background: transparent; color: var(--color-foreground); text-decoration: underline; }
+.tool-file-row .tool-file-record { width: 18px; height: auto; flex-shrink: 0; padding: 0; border: 0; background: transparent; color: inherit; }
 .tool-file-row:focus-within .tool-chevron, .tool-file-row:hover .tool-chevron { opacity: 1; }
-.tool-file-row .tool-file-diff-toggle { height: auto; min-height: 21px; padding: 0; border: 0; gap: 4px; background: transparent; color: inherit; font: inherit; }
+.tool-file-row .tool-file-diff-toggle { height: auto; min-height: 0; padding: 0; border: 0; gap: 4px; background: transparent; color: inherit; font: inherit; }
 .tool-file-stats { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .tool-file-diff { margin-top: 8px; overflow: auto; max-height: 240px; border: 1px solid var(--color-border); border-radius: var(--radius-navigation); background: var(--color-background); }
 .tool-file-diff-header { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-foreground-subtle); font-size: var(--text-ui-base); }

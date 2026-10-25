@@ -20,7 +20,7 @@ const items: Data[] = [
   { id: "timeline-user", type: "userMessage", content: [{ type: "text", text: "检查对话交互，保留工具详情和文件变更入口。" }] },
   { id: "timeline-progress", type: "agentMessage", phase: "commentary", text: "我会先检查消息投影，再调整工具详情、图片与子智能体的展示。" },
   tool("timeline-read", "fs_read", { path: "src/conversation.tsx" }, receipt),
-  ...Array.from({ length: 8 }, (_, index) => tool(`timeline-extra-read-${index}`, "fs_read", { path: `src/context-${index + 1}.tsx` }, { ...receipt, path: `workspace://repo/src/context-${index + 1}.tsx` })),
+  ...Array.from({ length: 12 }, (_, index) => tool(`timeline-extra-read-${index}`, "fs_read", { path: `src/context-${index + 1}.tsx` }, { ...receipt, path: `workspace://repo/src/context-${index + 1}.tsx` })),
   tool("timeline-command", "run_command", { command: "pnpm --dir clients/gui typecheck" }, { stdout: "> tsc --noEmit\n\n类型检查通过。\n".repeat(12), stderr: "", exitCode: 0, commandStatus: "succeeded" }),
   { id: "timeline-image", type: "dynamicToolCall", tool: "browser_v1", arguments: { operation: "capture" }, status: "completed", success: true,
     contentItems: [{ type: "arealMedia", modality: "image", media: { uri: "areal://blob/preview-image" } }] },

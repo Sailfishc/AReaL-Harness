@@ -64,9 +64,9 @@ export function TurnExecution({ items, turn, project, threadId, renderItem }: {
     {runs.map((run, index) => {
       const last = index === runs.length - 1;
       const grouped = run.key !== null && run.items.length > 1;
-      const kind = toolPresentation(run.items.find(item => toolPresentation(item).running) ?? run.items[0]).kind;
+      const icon = toolPresentation(run.items.find(item => toolPresentation(item).running) ?? run.items[0]).icon;
       return <ActivityGroup key={run.items[0].id} presentation={grouped ? "collapsible" : "inline"}
-        label={run.key !== null ? activityRunLabel(run) : run.items[0].type === "reasoningGroup" ? "思考过程" : "执行活动"} icon={grouped ? <ActivityIcon kind={kind} /> : undefined}
+        label={run.key !== null ? activityRunLabel(run) : run.items[0].type === "reasoningGroup" ? "思考过程" : "执行活动"} icon={grouped ? <ActivityIcon kind={icon} /> : undefined}
         status={last ? status : undefined}>{run.items.map(row)}</ActivityGroup>;
     })}
   </div>;

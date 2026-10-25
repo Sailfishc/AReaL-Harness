@@ -24,8 +24,11 @@ const specificActions: Readonly<Record<string, string>> = {
   agent_spawn: "创建子智能体", agent_spawn_configured: "创建子智能体",
   agent_wait: "等待子智能体", agent_wait_any: "等待子智能体",
 };
+function hasToolImage(item: Data): boolean {
+  return item.status === "completed" && item.success === true && !!item.contentItems?.some((part: Data) => part.type === "arealMedia" && part.modality === "image" && part.media?.uri);
+}
 function toolAction(item: Data): string {
-  if (item.status === "completed" && item.success === true && item.contentItems?.some((part: Data) => part.type === "arealMedia" && part.modality === "image" && part.media?.uri)) return "查看图片";
+  if (hasToolImage(item)) return "查看图片";
   if (Object.hasOwn(specificActions, item.tool)) return specificActions[item.tool];
   const { kind } = toolPresentation(item);
   return kind === "tool" && item.tool ? `调用 ${item.tool}` : categoryLabels[kind];
@@ -113,6 +116,8 @@ export function toolPresentation(item: Data) {
     : args.path ?? args.file_path ?? args.command ?? args.argv?.join(" ") ?? args.query ?? args.pattern ?? name;
   return {
     kind,
+    // 图标只辅助识别：浏览器与图片结果有专门图形，其余沿语义类别；未知工具使用通用工具图形，保持行首对齐。
+    icon: name === "browser_v1" ? "globe" : hasToolImage(item) ? "image" : kind,
     running,
     failed,
     label: specificActions[name] ?? (kind === "tool" ? `调用 ${name}` : name === "fs_create" ? "创建" : { read: "读取", edit: "编辑", search: "搜索", list: "列出", command: "运行", wait: "等待" }[kind]),
