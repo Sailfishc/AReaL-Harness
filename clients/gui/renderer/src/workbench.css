@@ -289,9 +289,10 @@ kbd {
   justify-content: space-between;
   gap: 8px;
   margin: 0 13px -4px;
-  padding: 5px 4px 9px;
+  /* WT-PICKER-01 tray: 34px visible above the composer (28px row + 3/7 padding − 4px overlap). */
+  padding: 3px 4px 7px;
   overflow: clip;
-  border-radius: 20px 20px 0 0;
+  border-radius: var(--radius-composer) var(--radius-composer) 0 0;
   corner-shape: superellipse(1.5);
   background: var(--color-composer-action-bar, #f6f6f6);
 }
