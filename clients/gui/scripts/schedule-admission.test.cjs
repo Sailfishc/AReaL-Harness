@@ -12,6 +12,22 @@ const { manageTask } = require("../app/src/core/tasks.cjs");
 const { CoreBackend } = require("../app/src/core/backend.cjs");
 const { ProjectConnections } = require("../app/src/core/project-connections.cjs");
 
+const taskSnapshot = (value) => ({
+  revision: 1,
+  channelSequence: 0,
+  owner: "desktop-owner",
+  interactionMode: "interactive",
+  objective: "Scheduled report",
+  paused: false,
+  cancelled: false,
+  runCount: 0,
+  archivedRunCount: 0,
+  runsComplete: true,
+  pendingQuestions: 0,
+  runs: [],
+  ...value,
+});
+
 async function fixture(t, { independent = true } = {}) {
   const base = await realpath(await mkdtemp(join(tmpdir(), "areal-schedule-owner-")));
   t.after(() => rm(base, { recursive: true, force: true }));
@@ -207,7 +223,7 @@ async function fixture(t, { independent = true } = {}) {
       thread.turns.push(turn);
       value = { turn };
     } else if (method === "areal/task/create") {
-      value = { ...params, id: randomUUID(), revision: 1, cancelled: false, runs: [] };
+      value = taskSnapshot({ ...params, id: randomUUID() });
       tasks.set(value.id, value);
     } else {
       value = tasks.get(params.taskId);
@@ -429,13 +445,31 @@ test("existing selected directories preserve readonly planning but reject schedu
     f.calls.filter((call) => !call.read && call.method === "areal/task/create").length,
     0,
   );
-  const task = {
+  const task = taskSnapshot({
     id: "legacy",
     revision: 1,
     mode: "scheduled",
     threadId: proposal.threadId,
-    runs: [{ id: "run", status: "queued" }],
-  };
+    runs: [
+      {
+        id: "run",
+        status: "queued",
+        scheduledAt: 0,
+        waitRequested: false,
+        usage: {
+          accountingComplete: true,
+          cachedInputTokens: 0,
+          inputTokens: 0,
+          outputTokens: 0,
+          reservedTokens: 0,
+          timeUsedSeconds: 0,
+          tokensUsed: 0,
+          turnsStarted: 0,
+          unknownRequests: 0,
+        },
+      },
+    ],
+  });
   f.tasks.set(task.id, task);
   await assert.rejects(
     f.backend.scheduleAdmission.prepare(f.project, {
@@ -607,7 +641,7 @@ async function executingSchedule(t) {
     return { value, resumed };
   };
   f.backend.worktrees = { assertAvailable() {}, records: new Map() };
-  const execute = (name, request) =>
+  const execute = async (name, request) =>
     CoreBackend.prototype.executeCommand.call(f.backend, name, {
       projectId: f.project.id,
       threadId: thread.id,

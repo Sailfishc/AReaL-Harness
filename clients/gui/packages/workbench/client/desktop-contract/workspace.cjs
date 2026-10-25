@@ -123,7 +123,34 @@ function isWorkspaceRequest(value) {
       case "worktreeList":
         return true;
       case "worktreeSettings":
-        return typeof value.worktreeRoot === "string" && typeof value.branchPrefix === "string";
+        return (
+          typeof value.worktreeRoot === "string" &&
+          value.worktreeRoot.length <= 4096 &&
+          typeof value.branchPrefix === "string" &&
+          value.branchPrefix.length > 0 &&
+          value.branchPrefix.length <= 128 &&
+          ![...value.worktreeRoot, ...value.branchPrefix].some(
+            (character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127,
+          ) &&
+          (value.keepCount === undefined ||
+            (Number.isSafeInteger(value.keepCount) &&
+              value.keepCount >= 1 &&
+              value.keepCount <= 1000)) &&
+          (value.expectedRevision === undefined ||
+            (Number.isSafeInteger(value.expectedRevision) && value.expectedRevision >= 0)) &&
+          Object.keys(value).every((key) =>
+            [
+              "projectId",
+              "operation",
+              "worktreeRoot",
+              "branchPrefix",
+              "fetchBeforeCreate",
+              "autoCleanup",
+              "keepCount",
+              "expectedRevision",
+            ].includes(key),
+          )
+        );
       case "worktreeOptions":
         return value.sourceRoot === undefined || typeof value.sourceRoot === "string";
       case "worktreeEnvironmentSave":

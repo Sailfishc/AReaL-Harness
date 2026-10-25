@@ -1,6 +1,6 @@
 {
   "$schemaVersion": 1,
-  "$revision": "89b2a931fd13a817e8f7fc9b45d327b109f2b3bc",
+  "$revision": "3f52c2e5fb257a1278b7c882cc1728912cec4bc8",
   "mainCheckedFiles": {
     "value": 152,
     "direction": "up",
@@ -241,7 +241,7 @@
     "app/src/core/trajectory-apply.cjs": 169,
     "app/src/core/trajectory.cjs": 103,
     "app/src/core/workgroup-artifacts.cjs": 116,
-    "app/src/core/workspace.cjs": 252,
+    "app/src/core/workspace.cjs": 250,
     "app/src/core/worktree-admission.cjs": 657,
     "app/src/core/worktree-environment.cjs": 219,
     "app/src/core/worktree-resources.cjs": 227,
@@ -467,7 +467,7 @@
     "packages/workbench/client/desktop-contract/trajectory.cjs": 217,
     "packages/workbench/client/desktop-contract/transport.cjs": 281,
     "packages/workbench/client/desktop-contract/workspace-worktrees.cjs": 280,
-    "packages/workbench/client/desktop-contract/workspace.cjs": 369,
+    "packages/workbench/client/desktop-contract/workspace.cjs": 396,
     "packages/workbench/client/model-selection.cjs": 26,
     "packages/workbench/client/model-selection.js": 2,
     "packages/workbench/client/state-projection.cjs": 244,

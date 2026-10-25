@@ -1,7 +1,6 @@
 // @ts-check
 "use strict";
 const {
-  readWorkspaceRequest,
   validateWorkspaceResponse,
 } = require("../../../packages/workbench/client/desktop-contract/workspace.cjs");
 const { commandResponseError } = require("@areal/workbench/desktop-contract");
@@ -238,14 +237,13 @@ async function executeWorkspaceCommand(backend, request) {
       throw new Error("不支持的工作区操作");
   }
 }
-/** @param {InstanceType<typeof import('./backend.cjs').CoreBackend>} backend @param {Record<string,unknown>} input */
-async function workspaceCommand(backend, input) {
-  const request = readWorkspaceRequest(input);
-  const result = await executeWorkspaceCommand(backend, input);
+/** @param {InstanceType<typeof import('./backend.cjs').CoreBackend>} backend @param {import('../../../packages/workbench/client/desktop-contract/workspace.cjs').WorkspaceRequest} request */
+async function workspaceCommand(backend, request) {
+  const result = await executeWorkspaceCommand(backend, request);
   try {
     validateWorkspaceResponse(request, result);
   } catch (cause) {
-    throw commandResponseError("workspace", input, cause);
+    throw commandResponseError("workspace", request, cause);
   }
   return result;
 }

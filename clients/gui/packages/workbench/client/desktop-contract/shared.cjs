@@ -9,7 +9,7 @@ const {
 } = require("../core-model-contract.js");
 /** The consumed part of protocol::desktop::EffectiveConfig; extensions stay unknown. */
 /** @typedef {Record<string,unknown> & {revision?:number,model?:({providerId:string,modelId:string,[key:string]:unknown})|null,options?:ClientOptions,defaultModelRevision?:string|null,modelName?:string|null,provider?:(Record<string,unknown>&{endpoint?:string})|null,parameters?:import('./provider.cjs').ModelParameters}} Configuration */
-/** @typedef {Record<string,unknown> & {configuration:Configuration & {revision:number},activeTurnId?:string|null,modelName?:string|null,resolvedParameters?:import('./provider.cjs').ModelParameters}} Inspection */
+/** @typedef {Record<string,unknown> & {configuration:Configuration & {revision:number},activeTurnId?:string|null,modelName?:string|null,resolvedParameters?:import('./provider.cjs').ModelParameters|null}} Inspection */
 /** @param {unknown} value @returns {value is Configuration} */
 function isConfiguration(value) {
   return (
@@ -45,7 +45,7 @@ function isInspection(value) {
     typeof value.configuration.revision === "number" &&
     (value.activeTurnId == null || typeof value.activeTurnId === "string") &&
     (value.modelName == null || typeof value.modelName === "string") &&
-    (value.resolvedParameters === undefined ||
+    (value.resolvedParameters == null ||
       require("./provider.cjs").parameters(value.resolvedParameters))
   );
 }
