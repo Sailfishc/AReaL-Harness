@@ -15,7 +15,7 @@ import "./MobileSettings.css";
 import { Button } from "../components/ui/button.js";
 import { Input } from "../components/ui/input.js";
 
-import type { Action, Data } from "../services.js";
+import type { Action, CommandParams, Data } from "../services.js";
 
 const networkDiagnostics: Record<string, MessageId> = {
   "funnel-capability-unknown": "settings.mobileSettings.networkDiagnostic.funnelCapabilityUnknown",
@@ -66,12 +66,12 @@ function GrantReview({
   projects: Data[];
   pending?: boolean;
   busy: boolean;
-  run: (request: Data) => Promise<void>;
+  run: (request: CommandParams<"remoteControl">) => Promise<void>;
 }) {
   const { t } = useI18n();
   const id = device.devicePeerId ?? device.id;
   const [selected, setSelected] = useState<string[]>(device.projectIds ?? []);
-  const [preset, setPreset] = useState(
+  const [preset, setPreset] = useState<"Observer" | "Operator">(
     device.capabilities?.includes("submit") ? "Operator" : "Observer",
   );
   return (
@@ -145,20 +145,22 @@ function GrantReview({
           >
             <legend>{t("settings.mobileSettings.accessPermissions")}</legend>
             <div className="remote-permission-options">
-              {[
-                {
-                  value: "Observer",
-                  title: t("settings.mobileSettings.viewOnly"),
-                  description: t(
-                    "settings.mobileSettings.viewConversationsReviewResultsAndChanges",
-                  ),
-                },
-                {
-                  value: "Operator",
-                  title: t("settings.mobileSettings.canOperate"),
-                  description: t("settings.mobileSettings.alsoSendStopAnswerAndPauseTasks"),
-                },
-              ].map((option) => (
+              {(
+                [
+                  {
+                    value: "Observer",
+                    title: t("settings.mobileSettings.viewOnly"),
+                    description: t(
+                      "settings.mobileSettings.viewConversationsReviewResultsAndChanges",
+                    ),
+                  },
+                  {
+                    value: "Operator",
+                    title: t("settings.mobileSettings.canOperate"),
+                    description: t("settings.mobileSettings.alsoSendStopAnswerAndPauseTasks"),
+                  },
+                ] satisfies { value: typeof preset; title: string; description: string }[]
+              ).map((option) => (
                 <label key={option.value} data-selected={preset === option.value}>
                   <Input
                     unstyled
@@ -229,19 +231,19 @@ export function MobileSettings({ action, projects }: { action: Action; projects:
   );
   const [httpsPort, setHttpsPort] = useState("443");
   const [organizationOrigin, setOrganizationOrigin] = useState("");
-  const [visibility, setVisibility] = useState("private");
+  const [visibility, setVisibility] = useState<"private" | "public">("private");
   const [organizationConfirmed, setOrganizationConfirmed] = useState(false);
   const [publicConfirmed, setPublicConfirmed] = useState(false);
   const [recoveryConfirmed, setRecoveryConfirmed] = useState(false);
   const [relayOrigin, setRelayOrigin] = useState("");
   const [enrollmentCode, setEnrollmentCode] = useState("");
   const [relayConfirmed, setRelayConfirmed] = useState(false);
-  const [pairTransport, setPairTransport] = useState("direct");
+  const [pairTransport, setPairTransport] = useState<"direct" | "relay">("direct");
   const networkDetails = useRef<HTMLDetailsElement>(null);
   useEffect(() => {
     setRelayOrigin(state.relay ?? "");
   }, [state.relay]);
-  const run = async (request: Data) => {
+  const run = async (request: CommandParams<"remoteControl">) => {
     setBusy(true);
     setError("");
     if (["networkPropose", "networkProposeScope"].includes(request.operation)) {
@@ -251,13 +253,17 @@ export function MobileSettings({ action, projects }: { action: Action; projects:
       setFunnelConfirmed(false);
     }
     try {
-      const result = await action("remoteControl", request);
       if (request.operation === "pair") {
+        const result = await action("remoteControl", request);
         setInvite(result);
         setInviteExpired(false);
-      } else if (["networkPropose", "networkProposeScope"].includes(request.operation))
-        setProposal(result);
-      else {
+      } else if (
+        request.operation === "networkPropose" ||
+        request.operation === "networkProposeScope"
+      ) {
+        setProposal(await action("remoteControl", request));
+      } else {
+        const result = await action("remoteControl", request);
         setState(result);
         if (result.directUrl !== state.directUrl) setInvite(null);
         if (request.operation !== "networkInspect") {
@@ -455,6 +461,7 @@ export function MobileSettings({ action, projects }: { action: Action; projects:
                 aria-label={t("settings.mobileSettings.pairingEntry")}
                 value={pairTransport}
                 onValueChange={(selectedValue) => {
+                  if (selectedValue !== "direct" && selectedValue !== "relay") return;
                   setPairTransport(selectedValue);
                   setInvite(null);
                 }}
@@ -505,13 +512,11 @@ export function MobileSettings({ action, projects }: { action: Action; projects:
                 <div className="remote-actions">
                   <Button
                     onClick={() => {
-                      void navigator.clipboard
-                        .writeText(invite.payload)
-                        .catch(() =>
-                          setError({
-                            id: "settings.mobileSettings.copyFailedSelectTheLinkAndCopy",
-                          }),
-                        );
+                      void navigator.clipboard.writeText(invite.payload).catch(() =>
+                        setError({
+                          id: "settings.mobileSettings.copyFailedSelectTheLinkAndCopy",
+                        }),
+                      );
                     }}
                   >
                     {t("settings.mobileSettings.copyLink")}
@@ -898,7 +903,7 @@ export function MobileSettings({ action, projects }: { action: Action; projects:
                         void run({
                           operation: "networkChangeScope",
                           proposalId: proposal.proposalId,
-                          confirmed: scopeConfirmed,
+                          confirmed: true,
                           publicConfirmed: funnelConfirmed,
                         })
                       }
@@ -936,6 +941,7 @@ export function MobileSettings({ action, projects }: { action: Action; projects:
                     aria-label={t("settings.mobileSettings.organizationEntryAccessScope")}
                     value={visibility}
                     onValueChange={(selectedValue) => {
+                      if (selectedValue !== "private" && selectedValue !== "public") return;
                       setVisibility(selectedValue);
                       setOrganizationConfirmed(false);
                       setPublicConfirmed(false);

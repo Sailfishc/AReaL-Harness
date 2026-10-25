@@ -24,20 +24,23 @@ export function BrowserDataSettings({
     setMessage("");
     setError("");
     try {
-      const value = await action("browserData", { operation });
-      if (value?.success === false) throw Error(value.error ?? "browser_data_failed");
-      const result =
-        operation === "importChrome"
-          ? t("settings.browserData.imported", {
-              cookies: value.cookies?.imported ?? 0,
-              origins: value.localStorage?.originsImported ?? 0,
-              skipped: (value.cookies?.skipped ?? 0) + (value.localStorage?.originsSkipped ?? 0),
-              failed: (value.cookies?.failed ?? 0) + (value.localStorage?.originsFailed ?? 0),
-            })
-          : t("settings.browserData.cleared");
-      setMessage(result);
+      if (operation === "importChrome") {
+        const value = await action("browserData", { operation });
+        if (!value.success) throw Error(value.error ?? "browser_data_failed");
+        setMessage(
+          t("settings.browserData.imported", {
+            cookies: value.cookies.imported,
+            origins: value.localStorage.originsImported,
+            skipped: value.cookies.skipped + value.localStorage.originsSkipped,
+            failed: value.cookies.failed + value.localStorage.originsFailed,
+          }),
+        );
+        if (value.issues?.length) setError(value.issues.join(", "));
+      } else {
+        await action("browserData", { operation });
+        setMessage(t("settings.browserData.cleared"));
+      }
       setConfirmClear(false);
-      if (Array.isArray(value?.issues) && value.issues.length) setError(value.issues.join(", "));
     } catch (cause) {
       setError((cause as Error).message);
     } finally {

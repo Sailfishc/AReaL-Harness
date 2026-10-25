@@ -7,18 +7,26 @@ const { WorktreeEnvironment, platformScript } = require("./worktree-environment.
 const { createHash, randomUUID } = require("node:crypto");
 const { isDeepStrictEqual } = require("node:util");
 const git = require("@areal/workspace-git");
+const {
+  environmentDefinition,
+  worktreeSettings,
+  isWorktreeRecord,
+  readWorktreeRequest,
+  readOperation,
+  readWorktreeRemoval,
+} = require("../../../packages/workbench/client/desktop-contract/workspace-worktrees.cjs");
 const { modelRecord } = require("@areal/workbench/core-model-contract");
 const { readResourceStatus } = require("./resource-observation.cjs");
 /** @typedef {import('./project-index.cjs').SavedProject} SavedProject */
 /** @typedef {import('./project-state.cjs').CoreProject} Project */
-/** @typedef {{default:string,macos?:string,linux?:string}} EnvironmentScript */
-/** @typedef {{id:string,name:string,setup:EnvironmentScript,cleanup:EnvironmentScript,actions:Array<{id:string,name:string,script:EnvironmentScript}>}} EnvironmentDefinition */
-/** @typedef {{worktreeRoot:string,branchPrefix:string,fetchBeforeCreate:boolean,autoCleanup:boolean,keepCount:number}} WorktreeSettings */
-/** @typedef {Record<string,unknown> & {requestId?:string,projectId?:string,threadId?:string,sourceThreadId?:string,parentThreadId?:string,threadIds?:string[],logicalProjectId?:string,taskId?:string,executionProjectId?:string,operation?:string,source?:string,sourceRoot?:string,ref?:string,worktreeRoot?:string,branch?:string,branchPrefix?:string,worktree?:import('@areal/workbench/desktop-contract').WorktreeSpec,environmentId?:string,environment?:EnvironmentDefinition,expectedRevision?:number,worktreeRequestId?:string,actionId?:string,automatic?:boolean,fetchBeforeCreate?:boolean,autoCleanup?:boolean,keepCount?:number}} WorktreeRequest */
-/** @typedef {Record<string,unknown> & {directory:string,branch:string,base:string,target:string,cwd?:string}} WorktreeRecord */
-/** @typedef {{requestId:string,kind:string,script:string,status:string,startedAt?:string,timeoutMs?:number,output?:string,actionId?:string,processId?:string,receipt?:unknown,message?:string,terminateRequestId?:string,closeRequestId?:string,cursor?:string|null,outputTruncated?:boolean,runtime?:unknown,managed?:unknown,finishedAt?:string,exitCode?:number|null}} EnvironmentAttempt */
-/** @typedef {{requestId:string,status:string,blockers?:string[],stopRequestId?:string,stopReceipt?:{phase:string},result?:unknown}} DeletionAttempt */
-/** @typedef {Record<string,unknown> & {kind:string,requestId:string,projectId:string,parameters:WorktreeRequest,state:string,events?:Array<{id:string,state:string,time:string,message?:string}>,record?:WorktreeRecord,executionProjectId?:string,threadId?:string,sourceRoot?:string,environment?:EnvironmentDefinition,environmentRevision?:number,settings?:WorktreeSettings,intent?:string,createdAt?:string,automatic?:boolean,usesSource?:boolean,message?:string,setup?:EnvironmentAttempt,cleanup?:EnvironmentAttempt,actions?:Record<string,EnvironmentAttempt>,deletion?:DeletionAttempt,deleted?:boolean,deletedAt?:string}} WorktreeOperation */
+/** @typedef {import("../../../packages/workbench/client/desktop-contract/workspace-worktrees.cjs").EnvironmentScript} EnvironmentScript */
+/** @typedef {import("../../../packages/workbench/client/desktop-contract/workspace-worktrees.cjs").EnvironmentDefinition} EnvironmentDefinition */
+/** @typedef {import("../../../packages/workbench/client/desktop-contract/workspace-worktrees.cjs").WorktreeSettings} WorktreeSettings */
+/** @typedef {import("../../../packages/workbench/client/desktop-contract/workspace-worktrees.cjs").WorktreeRequest} WorktreeRequest */
+/** @typedef {import("../../../packages/workbench/client/desktop-contract/workspace-worktrees.cjs").WorktreeRecord} WorktreeRecord */
+/** @typedef {import("../../../packages/workbench/client/desktop-contract/workspace-worktrees.cjs").EnvironmentAttempt} EnvironmentAttempt */
+/** @typedef {import("../../../packages/workbench/client/desktop-contract/workspace-worktrees.cjs").DeletionAttempt} DeletionAttempt */
+/** @typedef {import("../../../packages/workbench/client/desktop-contract/workspace-worktrees.cjs").WorktreeOperation} WorktreeOperation */
 /** @typedef {SavedProject & {state?:import('@areal/workbench/core-model-contract').CoreModelState|null,error?:string|null,core?:unknown,summaries?:import('@areal/workbench/core-model-contract').CoreThread[],configurations?:Record<string,unknown>,outcomes?:Project['outcomes'],observationErrors?:Project['observationErrors'],refreshErrors?:Project['refreshErrors'],pending?:Project['pending']}} ProjectSnapshot */
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 /** @param {string} message */
@@ -280,7 +288,7 @@ class CoreWorktrees {
       ...(latest?.intent === "cancel" ? { intent: "cancel" } : {}),
     }));
   }
-  /** @param {WorktreeOperation} value @param {string} state @param {Partial<WorktreeOperation>} [patch] */
+  /** @param {WorktreeOperation} value @param {import("../../../packages/workbench/client/desktop-contract/workspace-worktrees.cjs").WorktreeState} state @param {Partial<WorktreeOperation>} [patch] */
   transition(value, state, patch = {}) {
     return this.update(value.requestId, (latest) => {
       const nextState = state === "ready" && latest.intent === "cancel" ? "cancelled" : state;
@@ -989,7 +997,11 @@ class CoreWorktrees {
           ...latest,
           deleted: true,
           deletedAt: new Date().toISOString(),
-          deletion: { ...requireDeletion(latest), status: "succeeded", result },
+          deletion: {
+            ...requireDeletion(latest),
+            status: "succeeded",
+            result: readWorktreeRemoval(result),
+          },
         }));
     }
     return value;
@@ -1090,7 +1102,11 @@ class CoreWorktrees {
         ...latest,
         deleted: true,
         deletedAt: new Date().toISOString(),
-        deletion: { ...requireDeletion(latest), status: "succeeded", result: removed },
+        deletion: {
+          ...requireDeletion(latest),
+          status: "succeeded",
+          result: readWorktreeRemoval(removed),
+        },
       }));
     } catch (error) {
       return this.update(value.requestId, (latest) => ({
@@ -1382,183 +1398,11 @@ function requireId(value) {
   if (typeof value !== "string") throw new Error("无效工作树请求标识");
   return value;
 }
-/** @param {unknown} value @returns {value is EnvironmentScript} */
-function environmentScript(value) {
-  return (
-    modelRecord(value) &&
-    typeof value.default === "string" &&
-    ["macos", "linux"].every((key) => value[key] === undefined || typeof value[key] === "string")
-  );
-}
-/** @param {unknown} value @returns {value is EnvironmentDefinition} */
-function environmentDefinition(value) {
-  return (
-    modelRecord(value) &&
-    typeof value.id === "string" &&
-    typeof value.name === "string" &&
-    environmentScript(value.setup) &&
-    environmentScript(value.cleanup) &&
-    Array.isArray(value.actions) &&
-    value.actions.every(
-      (action) =>
-        modelRecord(action) &&
-        typeof action.id === "string" &&
-        typeof action.name === "string" &&
-        environmentScript(action.script),
-    )
-  );
-}
-/** @param {unknown} value @returns {value is WorktreeSettings} */
-function worktreeSettings(value) {
-  return (
-    modelRecord(value) &&
-    typeof value.worktreeRoot === "string" &&
-    typeof value.branchPrefix === "string" &&
-    typeof value.fetchBeforeCreate === "boolean" &&
-    typeof value.autoCleanup === "boolean" &&
-    typeof value.keepCount === "number"
-  );
-}
 /** @param {unknown} value @returns {WorktreeRecord} */
 function readWorktreeRecord(value) {
   if (!isWorktreeRecord(value))
     throw Object.assign(unavailable("工作树创建结果结构无效"), { worktreeUncertain: true });
   return value;
-}
-/** @param {unknown} value @returns {value is WorktreeRecord} */
-function isWorktreeRecord(value) {
-  return (
-    modelRecord(value) &&
-    ["directory", "branch", "base", "target"].every((key) => typeof value[key] === "string") &&
-    (value.cwd === undefined || typeof value.cwd === "string")
-  );
-}
-/** @param {unknown} value @returns {WorktreeRequest} */
-function readWorktreeRequest(value) {
-  if (!isWorktreeRequest(value)) throw new Error("工作树请求字段无效");
-  return value;
-}
-/** @param {unknown} value @returns {value is WorktreeRequest} */
-function isWorktreeRequest(value) {
-  const worktree = modelRecord(value) && modelRecord(value.worktree) ? value.worktree : {};
-  return (
-    modelRecord(value) &&
-    [
-      "requestId",
-      "projectId",
-      "threadId",
-      "sourceThreadId",
-      "parentThreadId",
-      "logicalProjectId",
-      "taskId",
-      "executionProjectId",
-      "operation",
-      "source",
-      "sourceRoot",
-      "ref",
-      "worktreeRoot",
-      "branch",
-      "branchPrefix",
-      "environmentId",
-      "worktreeRequestId",
-      "actionId",
-    ].every((key) => value[key] === undefined || typeof value[key] === "string") &&
-    (value.expectedRevision === undefined || typeof value.expectedRevision === "number") &&
-    ["automatic", "fetchBeforeCreate", "autoCleanup"].every(
-      (key) => value[key] === undefined || typeof value[key] === "boolean",
-    ) &&
-    (value.keepCount === undefined || typeof value.keepCount === "number") &&
-    (value.threadIds === undefined ||
-      (Array.isArray(value.threadIds) && value.threadIds.every((id) => typeof id === "string"))) &&
-    (value.environment === undefined || environmentDefinition(value.environment)) &&
-    (value.worktree === undefined ||
-      (modelRecord(value.worktree) &&
-        ["sourceRoot", "ref", "worktreeRoot", "branch", "branchPrefix", "environmentId"].every(
-          (key) => worktree[key] === undefined || typeof worktree[key] === "string",
-        ) &&
-        (value.worktree.environmentRevision === undefined ||
-          typeof value.worktree.environmentRevision === "number") &&
-        (value.worktree.mode === undefined ||
-          value.worktree.mode === "source" ||
-          value.worktree.mode === "worktree")))
-  );
-}
-/** @param {unknown} value @returns {value is EnvironmentAttempt} */
-function environmentAttempt(value) {
-  return (
-    modelRecord(value) &&
-    ["requestId", "kind", "script", "status"].every((key) => typeof value[key] === "string") &&
-    (value.timeoutMs === undefined || typeof value.timeoutMs === "number") &&
-    [
-      "actionId",
-      "processId",
-      "message",
-      "terminateRequestId",
-      "closeRequestId",
-      "finishedAt",
-      "startedAt",
-      "output",
-    ].every((key) => value[key] === undefined || typeof value[key] === "string") &&
-    (value.cursor == null || typeof value.cursor === "string") &&
-    (value.outputTruncated === undefined || typeof value.outputTruncated === "boolean") &&
-    (value.exitCode == null || typeof value.exitCode === "number")
-  );
-}
-/** @param {unknown} value @returns {value is DeletionAttempt} */
-function deletionAttempt(value) {
-  return (
-    modelRecord(value) &&
-    typeof value.requestId === "string" &&
-    typeof value.status === "string" &&
-    (value.blockers === undefined ||
-      (Array.isArray(value.blockers) &&
-        value.blockers.every((item) => typeof item === "string"))) &&
-    (value.stopRequestId === undefined || typeof value.stopRequestId === "string") &&
-    (value.stopReceipt === undefined ||
-      (modelRecord(value.stopReceipt) && typeof value.stopReceipt.phase === "string"))
-  );
-}
-/** @param {unknown} value @returns {WorktreeOperation} */
-function readOperation(value) {
-  if (!isOperation(value)) throw new Error("工作树创建日志无效");
-  return value;
-}
-/** @param {unknown} value @returns {value is WorktreeOperation} */
-function isOperation(value) {
-  return (
-    modelRecord(value) &&
-    ["kind", "requestId", "projectId", "state"].every((key) => typeof value[key] === "string") &&
-    isWorktreeRequest(value.parameters) &&
-    (value.events === undefined ||
-      (Array.isArray(value.events) &&
-        value.events.every(
-          (event) =>
-            modelRecord(event) &&
-            ["id", "state", "time"].every((key) => typeof event[key] === "string") &&
-            (event.message === undefined || typeof event.message === "string"),
-        ))) &&
-    [
-      "executionProjectId",
-      "threadId",
-      "sourceRoot",
-      "intent",
-      "createdAt",
-      "message",
-      "deletedAt",
-    ].every((key) => value[key] === undefined || typeof value[key] === "string") &&
-    ["automatic", "usesSource", "deleted"].every(
-      (key) => value[key] === undefined || typeof value[key] === "boolean",
-    ) &&
-    (value.environmentRevision === undefined || typeof value.environmentRevision === "number") &&
-    (value.record === undefined || isWorktreeRecord(value.record)) &&
-    (value.settings === undefined || worktreeSettings(value.settings)) &&
-    (value.environment === undefined || environmentDefinition(value.environment)) &&
-    (value.setup === undefined || environmentAttempt(value.setup)) &&
-    (value.cleanup === undefined || environmentAttempt(value.cleanup)) &&
-    (value.actions === undefined ||
-      (modelRecord(value.actions) && Object.values(value.actions).every(environmentAttempt))) &&
-    (value.deletion === undefined || deletionAttempt(value.deletion))
-  );
 }
 /** @param {WorktreeOperation} value */
 function requireDeletion(value) {

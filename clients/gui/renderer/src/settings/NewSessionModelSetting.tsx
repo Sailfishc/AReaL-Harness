@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { SettingsSelect } from "./SettingsPageParts.js";
 import { Feedback, useResource } from "./common.js";
 import { useSettingsOperation } from "./useSettingsOperation.js";
-import type { Action, Data } from "../services.js";
+import type { Action, CommandParams, Data } from "../services.js";
 
 /** Application default; current-thread configuration remains owned by SessionSettings. */
 export function NewSessionModelSetting({
@@ -17,9 +17,8 @@ export function NewSessionModelSetting({
   onBusyChange: (busy: boolean) => void;
 }) {
   const { t } = useI18n();
-  const api = (operation: string, values: Data = {}) =>
-    action("providers", { operation, ...values });
-  const catalog = useResource(() => api("list"), "application");
+  const api = <P extends CommandParams<"providers">>(request: P) => action("providers", request);
+  const catalog = useResource(() => api({ operation: "list" }), "application");
   const subscription = useResource(
     () => action("chatgpt", { operation: "status", provider: "openai" }),
     "chatgpt-subscription-openai",
@@ -83,7 +82,8 @@ export function NewSessionModelSetting({
                 void run(async () => {
                   try {
                     catalog.accept(
-                      await api("defaultAndApply", {
+                      await api({
+                        operation: "defaultAndApply",
                         expectedRevision: catalog.value?.revision,
                         model: { providerId: choice.providerId, modelId: choice.modelId },
                       }),

@@ -1,3 +1,4 @@
+import type { ManagementResponseMap } from "@areal/workbench/desktop-contract/management";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Textarea } from "./components/ui/textarea.js";
 import { Button } from "./components/ui/button.js";
@@ -12,24 +13,8 @@ import {
 import type { Action, Data } from "./services.js";
 import { observedServiceUrls } from "./developmentService.js";
 
-type Process = {
-  id: string;
-  argv: string[];
-  lifetime: string;
-  state: string;
-  cleanupConfirmed: boolean;
-  error?: string;
-  turnId?: string;
-  owner: string;
-  inputs?: { action: string; outcome: string }[];
-};
-type Runtime = {
-  state: string;
-  exitCode: number | null;
-  signal: string | null;
-  cleanupError?: string;
-  stopReason?: string;
-};
+type Process = ManagementResponseMap["processes"]["data"][number];
+type Runtime = ManagementResponseMap["process"]["runtime"];
 const states: Record<string, string> = {
   starting: "启动中",
   running: "运行中",
@@ -96,15 +81,15 @@ export function ProcessesPane({
   );
   const processUnavailable = project.core?.features?.processes === false;
   const connected = !!project.state?.connected && !processUnavailable;
-  const request = useCallback(
-    (operation: string, extra: Data = {}) =>
-      action("manage", { projectId: project.id, threadId: thread.id, operation, ...extra }),
-    [project.id, thread.id, action],
-  );
+
   const read = useCallback(async () => {
     const ticket = ++sequence.current;
     try {
-      const result = await request("processes");
+      const result = await action("manage", {
+        projectId: project.id,
+        threadId: thread.id,
+        operation: "processes",
+      });
       if (sequence.current !== ticket) return;
       setItems(result.data);
       setError("");
@@ -117,7 +102,7 @@ export function ProcessesPane({
     } finally {
       if (sequence.current === ticket) setLoading(false);
     }
-  }, [request]);
+  }, [action, project.id, thread.id]);
   useEffect(() => {
     if (!connected) return;
     let live = true,
@@ -152,12 +137,20 @@ export function ProcessesPane({
     const decoders = new Map<string, TextDecoder>();
     const poll = async () => {
       try {
-        const result = await request("process", { id: selected });
+        const result = await action("manage", {
+          projectId: project.id,
+          threadId: thread.id,
+          operation: "process",
+          id: selected,
+        });
         if (!live) return;
         setRuntime(result.runtime);
         setDetailError("");
         if (!closed) {
-          const page = await request("processOutput", {
+          const page = await action("manage", {
+            projectId: project.id,
+            threadId: thread.id,
+            operation: "processOutput",
             id: selected,
             after: cursor,
             maxBytes: 65536,
@@ -197,7 +190,7 @@ export function ProcessesPane({
       live = false;
       clearTimeout(timer);
     };
-  }, [selected, connected, request]);
+  }, [selected, connected, action, project.id, thread.id]);
   const current = items.find((p) => p.id === selected);
   const disabled =
     busy || cleanupPending || loading || !connected || !!error || !!project.pending?.length;
@@ -212,7 +205,12 @@ export function ProcessesPane({
       let id: string;
       if (recover) {
         if (!requestId) throw new Error("原创建标识不可用，请从进程列表核对。");
-        const receipt = await request("processSubmission", { requestId });
+        const receipt = await action("manage", {
+          projectId: project.id,
+          threadId: thread.id,
+          operation: "processSubmission",
+          requestId,
+        });
         if (!receipt.confirmed) throw new Error("尚未找到原创建结果；不会再次创建，请稍后核对。");
         id = receipt.result.id;
       } else {
@@ -223,7 +221,10 @@ export function ProcessesPane({
         requestId = crypto.randomUUID();
         localStorage.setItem(`${draftKey}:pending`, requestId);
         setUnknown(true);
-        const result = await request("processStart", {
+        const result = await action("manage", {
+          projectId: project.id,
+          threadId: thread.id,
+          operation: "processStart",
           requestId,
           argv: ["/bin/sh", "-c", command],
           cwd: "workspace://repo",
@@ -261,9 +262,11 @@ export function ProcessesPane({
       const dataBase64 = btoa(
         Array.from(new TextEncoder().encode(input), (byte) => String.fromCharCode(byte)).join(""),
       );
-      await request(operation, {
+      await action("manage", {
+        projectId: project.id,
+        threadId: thread.id,
         id: current.id,
-        ...(operation === "processWrite" ? { dataBase64 } : {}),
+        ...(operation === "processWrite" ? { operation, dataBase64 } : { operation }),
       });
       if (generation === detailSequence.current && operation === "processWrite") setInput("");
       await read();
@@ -280,7 +283,13 @@ export function ProcessesPane({
     setWaiting(true);
     setWaitNotice("");
     try {
-      const result = await request("processWait", { id: current.id, timeoutMs: 10000 });
+      const result = await action("manage", {
+        projectId: project.id,
+        threadId: thread.id,
+        operation: "processWait",
+        id: current.id,
+        timeoutMs: 10000,
+      });
       if (generation !== detailSequence.current) return;
       if (result.timedOut) setWaitNotice("等待已结束，进程尚未退出；可以再次等待。");
       else {
@@ -306,8 +315,17 @@ export function ProcessesPane({
     setBusy(true);
     setStopError("");
     try {
-      await request("processTerminate", { id: target.id });
-      const result = await request("processes");
+      await action("manage", {
+        projectId: project.id,
+        threadId: thread.id,
+        operation: "processTerminate",
+        id: target.id,
+      });
+      const result = await action("manage", {
+        projectId: project.id,
+        threadId: thread.id,
+        operation: "processes",
+      });
       if (!result.data.some((p: Process) => p.id === target.id && p.cleanupConfirmed))
         throw new Error("停止请求已返回，但资源清理尚未确认，请刷新后核对。");
       sequence.current++; // An earlier background read must not replace confirmed cleanup.
@@ -339,7 +357,11 @@ export function ProcessesPane({
         );
         setCleanupPending(true);
         dispatched = true;
-        const result = await request("closeResources");
+        const result = await action("manage", {
+          projectId: project.id,
+          threadId: thread.id,
+          operation: "closeResources",
+        });
         acknowledged = true;
         if (result.cleanupConfirmed !== true)
           throw Object.assign(new Error("Core 尚未确认会话资源清理。"), {
@@ -347,7 +369,11 @@ export function ProcessesPane({
           });
       }
       const original: string[] = JSON.parse(localStorage.getItem(cleanupKey) ?? "[]");
-      const result = await request("processes");
+      const result = await action("manage", {
+        projectId: project.id,
+        threadId: thread.id,
+        operation: "processes",
+      });
       sequence.current++;
       setItems(result.data);
       setError("");

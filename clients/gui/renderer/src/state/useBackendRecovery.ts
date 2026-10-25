@@ -35,7 +35,7 @@ export function useBackendRecovery(
         await resourceAction("serviceLifecycle", { operation: "update" });
       } else if (kind === "recover") {
         const result = await resourceAction("serviceLifecycle", { operation: "recover" });
-        if (result?.recovered) await reconnectService();
+        if ("recovered" in result && result.recovered) await reconnectService();
       } else if (kind === "check") {
         await resourceAction("serviceLifecycle", { operation: "check" });
       } else {

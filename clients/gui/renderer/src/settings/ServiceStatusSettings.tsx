@@ -6,44 +6,9 @@ import { ActionButton } from "../components/ui/action-button.js";
 import { Button } from "../components/ui/button.js";
 import { SettingsSwitch } from "./SettingsPageParts.js";
 import { SpaceReclamation } from "./SpaceReclamation.js";
-import type { Action, Snapshot } from "../services.js";
+import type { Action, CommandResponse, Snapshot } from "../services.js";
 
-type Resource = { id: string; threadId: string; executable: string; state: string; stale: boolean };
-type Project = {
-  projectId: string;
-  root: string;
-  started: boolean;
-  restartSafe?: boolean;
-  resources?: Resource[];
-  activeThreads?: { threadId: string; turnId: string }[];
-  goalThreads?: string[];
-  activeTasks?: number;
-  goals?: { threadId: string; status: string; objective: string }[];
-  tasks?: {
-    id: string;
-    threadId: string;
-    mode: string;
-    objective: string;
-    paused: boolean;
-    nextRunAt?: number;
-    running: boolean;
-  }[];
-  unresolvedTools?: number;
-  compactions?: number;
-  workgroups?: number;
-  queues?: { threadId: string; paused: boolean; pending: number; running: number }[];
-  pendingRequests?: { threadId?: string; awaitingResponse: boolean }[];
-};
-type Status = {
-  canStop?: boolean;
-  connected: boolean;
-  clients: number;
-  busy: boolean;
-  activeCommands: number;
-  starting: number;
-  providerUpdating: boolean;
-  projects: Project[];
-};
+type Status = CommandResponse<"serviceStatus">;
 
 export function ServiceStatusSettings({
   connected,
@@ -85,7 +50,7 @@ export function ServiceStatusSettings({
     setReading(true);
     const pending = (async () => {
       try {
-        const result: Status = await action("serviceStatus");
+        const result: Status = await action("serviceStatus", {});
         if (ticket === generation.current) {
           setStatus(result);
           setReadError("");
@@ -130,24 +95,23 @@ export function ServiceStatusSettings({
     try {
       await inflight.current; // Finish this page's read before the native stop fence.
       if (operation === "connect") await onConnect();
-      else {
-        const result =
-          operation === "quitInterface" || operation === "stopAndQuit"
-            ? await action("serviceLifecycle", { operation })
-            : await action(operation);
-        if (operation === "quitInterface" || operation === "stopAndQuit")
-          stopped = !!result.quitting || !!result.stopped;
-        if (operation === "stopService") {
-          stopped = result.stopped === true;
-          setNotice(
-            stopped
-              ? { id: "settings.serviceStatusSettings.backgroundServiceStopped" }
-              : result.canceled
-                ? { id: "settings.serviceStatusSettings.stopCanceled" }
-                : { id: "settings.serviceStatusSettings.stopResultNeedsConfirmation" },
-          );
-        }
-        if (operation === "recoverResources" && result.recovered) {
+      else if (operation === "quitInterface" || operation === "stopAndQuit") {
+        const result = await action("serviceLifecycle", { operation });
+        stopped =
+          ("quitting" in result && result.quitting) || ("stopped" in result && result.stopped);
+      } else if (operation === "stopService") {
+        const result = await action("stopService", {});
+        stopped = "stopped" in result && result.stopped;
+        setNotice(
+          stopped
+            ? { id: "settings.serviceStatusSettings.backgroundServiceStopped" }
+            : "canceled" in result
+              ? { id: "settings.serviceStatusSettings.stopCanceled" }
+              : { id: "settings.serviceStatusSettings.stopResultNeedsConfirmation" },
+        );
+      } else {
+        const result = await action("recoverResources", {});
+        if ("recovered" in result && result.recovered) {
           await onConnect();
           setNotice({
             id: "settings.serviceStatusSettings.backgroundServiceRestoredConfigurationAndHistoryWere",
@@ -171,7 +135,7 @@ export function ServiceStatusSettings({
     try {
       const result = await action("exportDiagnostics", {});
       setExportNotice(
-        result.canceled
+        "canceled" in result
           ? { id: "settings.serviceStatusSettings.exportCanceled" }
           : {
               id: "settings.serviceStatusSettings.diagnosticsSavedToValue",

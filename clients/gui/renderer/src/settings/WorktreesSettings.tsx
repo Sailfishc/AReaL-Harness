@@ -368,11 +368,7 @@ export function WorktreesSettings({
         worktreeRequestId: item.requestId,
       });
       if (!result.deleted)
-        throw new Error(
-          result.deletion?.blockers?.join("\n") ||
-            result.deletion?.message ||
-            t("worktree.deleteBlocked"),
-        );
+        throw new Error(result.deletion?.blockers?.join("\n") || t("worktree.deleteBlocked"));
       setListing(
         (previous) =>
           previous && {

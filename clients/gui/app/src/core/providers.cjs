@@ -26,108 +26,13 @@ const providerContract = require("./provider-contract.cjs");
 /** @typedef {{target:ProviderTarget,connectionGeneration?:number,service:import('@areal/chatgpt-provider/core').CoreSubscription|null,accountRevision?:number,accountLifetime?:AbortController,observeOnly?:boolean}} SubscriptionScope */
 /** @typedef {{requestId:string,serviceId?:string,generation?:string,expectedApplied:import('./provider-contract.cjs').AppliedConfiguration,targetRevision:string,snapshot:ModelSnapshot}} PendingApplication */
 /** @typedef {{operation:string,id?:string,model?:import('./provider-contract.cjs').ModelRef|string|null,expectedRevision?:string,provider?:unknown,authentication?:unknown,apiKey?:unknown,discoverModels?:boolean,connection?:unknown}} ProviderRequest */
-/** @typedef {{provider?:string,operation:string,newAccount?:boolean,accountId?:string,model?:string}} ChatGPTRequest */
 /** @typedef {Awaited<ReturnType<import('@areal/chatgpt-provider/core').CoreSubscription['account']['status']>>} AccountStatus */
 /** @typedef {({ok:true,status:AccountStatus}|{ok:false,error:unknown}) & {completedAt:number,failure:import('@areal/chatgpt-provider/core').CoreSubscription['account']['failure'],refreshing:import('@areal/chatgpt-provider/core').CoreSubscription['account']['refreshing']}} StatusOutcome */
 /** @typedef {{service:import('@areal/chatgpt-provider/core').CoreSubscription,revision:number,lifetime:AbortController,outcome:Promise<StatusOutcome>}} PreparedStatus */
 /** @typedef {{target:ProviderTarget,applied?:boolean,pending?:boolean,error?:unknown}} ApplyOutcome */
 /** @typedef {{pending?:boolean,rejected?:boolean,generationChanged?:boolean,error?:unknown}} PendingOutcome */
 
-/** @param {unknown} baseUrl @param {unknown} protocol */
-function connection(baseUrl, protocol) {
-  if (typeof protocol !== "string" || !["chatCompletions", "responses"].includes(protocol))
-    throw new Error("请选择 Chat Completions 或 Responses");
-  let url;
-  try {
-    if (typeof baseUrl !== "string") throw new Error();
-    url = new URL(baseUrl);
-  } catch {
-    throw new Error("请输入有效的 Base URL");
-  }
-  if (
-    !["http:", "https:"].includes(url.protocol) ||
-    url.username ||
-    url.password ||
-    url.search ||
-    url.hash
-  )
-    throw new Error("Base URL 必须是无认证信息、查询参数和片段的 HTTP(S) 地址");
-  url.pathname = url.pathname.replace(/\/+$/, "").replace(/\/(chat\/completions|responses)$/, "");
-  const base = url.toString().replace(/\/$/, "");
-  return {
-    baseUrl: base,
-    endpoint: base + (protocol === "responses" ? "/responses" : "/chat/completions"),
-  };
-}
-
-/** @param {unknown} value @returns {value is number} */
-function validContextWindow(value) {
-  return (
-    typeof value === "number" && Number.isSafeInteger(value) && value > 0 && value <= 2_000_000
-  );
-}
-
-/** @param {unknown} raw @returns {import('./provider-contract.cjs').ModelParameters} */
-function modelParameters(raw = {}) {
-  if (!providerContract.record(raw)) throw new Error("模型参数无效");
-  if (
-    Object.keys(raw).some(
-      (key) =>
-        !["temperature", "maxOutputTokens", "contextWindowTokens", "reasoningEffort"].includes(
-          key,
-        ) || raw[key] === undefined,
-    )
-  )
-    throw new Error("模型参数无效");
-  const { temperature, maxOutputTokens, contextWindowTokens, reasoningEffort } = raw;
-  if (
-    (temperature != null &&
-      (typeof temperature !== "number" ||
-        !Number.isFinite(temperature) ||
-        temperature < 0 ||
-        temperature > 2)) ||
-    (maxOutputTokens != null &&
-      (typeof maxOutputTokens !== "number" ||
-        !Number.isSafeInteger(maxOutputTokens) ||
-        maxOutputTokens <= 0)) ||
-    (contextWindowTokens != null && !validContextWindow(contextWindowTokens)) ||
-    (reasoningEffort != null &&
-      (typeof reasoningEffort !== "string" ||
-        !["none", "minimal", "low", "medium", "high", "xhigh", "max"].includes(reasoningEffort)))
-  )
-    throw new Error("模型参数无效");
-  return {
-    ...(temperature == null ? {} : { temperature }),
-    ...(maxOutputTokens == null ? {} : { maxOutputTokens }),
-    ...(contextWindowTokens == null ? {} : { contextWindowTokens }),
-    ...(reasoningEffort == null ? {} : { reasoningEffort }),
-  };
-}
-
-/** @param {unknown} raw @returns {import('./provider-contract.cjs').ModelCapabilities|undefined} */
-function modelCapabilities(raw) {
-  if (raw === undefined) return undefined;
-  if (
-    !providerContract.capabilities(raw) ||
-    Object.keys(raw).some(
-      (field) => !["tools", "vision", "reasoning", "reasoningEffortOptions"].includes(field),
-    ) ||
-    raw.reasoningEffortOptions?.some(
-      (value) => !["none", "minimal", "low", "medium", "high", "xhigh", "max"].includes(value),
-    ) ||
-    (raw.reasoningEffortOptions &&
-      new Set(raw.reasoningEffortOptions).size !== raw.reasoningEffortOptions.length)
-  )
-    throw new Error("模型能力配置无效");
-  return {
-    tools: raw.tools,
-    vision: raw.vision,
-    reasoning: raw.reasoning,
-    ...(raw.reasoningEffortOptions === undefined
-      ? {}
-      : { reasoningEffortOptions: [...raw.reasoningEffortOptions] }),
-  };
-}
+const { connection, validContextWindow, modelParameters, modelCapabilities } = providerContract;
 
 const connectionFailures = [
   {
@@ -497,7 +402,7 @@ class AppProviders {
   }
   /** @param {unknown} request */
   async chatgpt(request) {
-    if (!isChatGPTRequest(request)) throw new Error("ChatGPT 操作参数无效");
+    if (!providerContract.isRequest("chatgpt", request)) throw new Error("ChatGPT 操作参数无效");
     if ((request.provider ?? "openai") !== "openai") throw new Error("不支持的账号类型");
     const service = await this.openai();
     const op = request.operation;
@@ -829,6 +734,7 @@ class AppProviders {
       if (this.networkPromise) (await this.networkPromise).close();
     }
   }
+  /** @returns {import("@areal/workbench/desktop-contract/provider").ProviderStatus} */
   public() {
     const value = this.config.public();
     const projects = value.projects.map((item) => ({
@@ -836,6 +742,7 @@ class AppProviders {
       application: this.applicationState(this.backend.projects.get(item.projectId), value.revision),
     }));
     const states = projects.map((item) => item.application);
+    /** @type {import("@areal/workbench/desktop-contract/provider").ApplicationState} */
     const application = ["unknown", "failed", "deferred"]
       .map((kind) => states.find((state) => state.kind === kind))
       .find(Boolean) ?? {
@@ -853,8 +760,8 @@ class AppProviders {
       })),
     };
   }
-  /** @param {CoreProject|undefined} project @param {string} [revision] */
-  applicationState(project, revision = this.value.revision) {
+  /** @param {CoreProject|undefined} project @param {string} [revision] @returns {import("@areal/workbench/desktop-contract/provider").ApplicationState} */
+  applicationState(project, revision = this.snapshot().revision) {
     if (!project?.service) return { kind: "saved", revision };
     if (this.pendingApplications.has(project.id)) return { kind: "unknown", revision };
     if (!project.client?.ready) return { kind: "deferred", revision, reason: "disconnected" };
@@ -1021,9 +928,9 @@ class AppProviders {
         });
     }
   }
-  /** @param {unknown} request */
-  async command(request) {
-    if (!isProviderRequest(request)) throw new Error("供应商操作参数无效");
+  /** @param {unknown} rawRequest */
+  async command(rawRequest) {
+    const request = providerContract.readRequest("providers", rawRequest);
     if (request.operation === "list") {
       if (!this.saving && !this.backend.providerUpdating) {
         await this.config.current();
@@ -1036,15 +943,6 @@ class AppProviders {
     if (this.saving || this.backend.providerUpdating)
       throw new Error("模型配置正在保存，请稍后重试");
     if (request.operation === "revealKey") {
-      if (
-        Object.keys(request).some(
-          (key) => !["operation", "id", "expectedRevision"].includes(key),
-        ) ||
-        ![request.id, request.expectedRevision].every(
-          (value) => typeof value === "string" && value.trim() && value.length <= 256,
-        )
-      )
-        throw new Error("无效的凭据查看请求");
       await this.config.current();
       if (request.expectedRevision !== this.value.revision)
         throw new Error("供应商配置已变化，请刷新后重新查看 API Key");
@@ -1834,29 +1732,5 @@ function errorMessage(value) {
     : providerContract.record(value) && typeof value.message === "string"
       ? value.message
       : String(value);
-}
-/** @param {unknown} value @returns {value is ProviderRequest} */
-function isProviderRequest(value) {
-  return (
-    providerContract.record(value) &&
-    typeof value.operation === "string" &&
-    (value.id === undefined || typeof value.id === "string") &&
-    (value.expectedRevision === undefined || typeof value.expectedRevision === "string") &&
-    (value.model == null ||
-      typeof value.model === "string" ||
-      providerContract.modelRef(value.model)) &&
-    (value.discoverModels === undefined || typeof value.discoverModels === "boolean")
-  );
-}
-/** @param {unknown} value @returns {value is ChatGPTRequest} */
-function isChatGPTRequest(value) {
-  return (
-    providerContract.record(value) &&
-    typeof value.operation === "string" &&
-    ["provider", "accountId", "model"].every(
-      (key) => value[key] === undefined || typeof value[key] === "string",
-    ) &&
-    (value.newAccount === undefined || typeof value.newAccount === "boolean")
-  );
 }
 module.exports = { AppProviders, connection };

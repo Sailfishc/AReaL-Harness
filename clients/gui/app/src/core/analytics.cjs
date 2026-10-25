@@ -1,5 +1,6 @@
 // @ts-check
 "use strict";
+const catalogContract = require("@areal/workbench/desktop-contract/catalog");
 const { readFile } = require("node:fs/promises");
 const { join } = require("node:path");
 const WebSocket = require("ws");
@@ -234,6 +235,7 @@ class UsageAnalytics {
       this.error = "使用统计保存失败，当前数据尚未持久化。";
     }
   }
+  /** @returns {import("@areal/workbench/desktop-contract/catalog").AnalyticsSummary} */
   summary() {
     const days = Object.fromEntries(
       Object.entries(this.value.days).map(([date, activeMs]) => [
@@ -308,6 +310,7 @@ class UsageAnalytics {
   }
   /** @param {{operation:unknown}} request */
   async command(request) {
+    if (!catalogContract.isRequest("analytics", request)) throw new Error("不支持的统计操作");
     if (request.operation === "sync")
       for (const project of this.backend.projects.values()) {
         if (project.client?.ready) await this.syncProject(project);

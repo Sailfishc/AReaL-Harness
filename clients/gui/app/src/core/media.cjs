@@ -1,5 +1,10 @@
 // @ts-check
 "use strict";
+const {
+  readMediaRequest,
+  validateMediaResponse,
+} = require("../../../packages/workbench/client/desktop-contract/library-media.cjs");
+const { commandResponseError } = require("@areal/workbench/desktop-contract");
 const { modelRecord } = require("@areal/workbench/core-model-contract");
 const { readObservationResult } = require("./history-contract.cjs");
 /** @typedef {import('./project-state.cjs').CoreProject} Project */
@@ -33,7 +38,7 @@ function uploadError(status, body) {
   return new Error(`附件上传失败 (${status})：${detail}`);
 }
 /** @param {Project} project @param {Record<string,unknown>} request @param {MediaHost} backend */
-async function mediaCommand(project, request, backend) {
+async function executeMediaCommand(project, request, backend) {
   if (typeof request.threadId !== "string") throw new Error("请先打开附件所属会话");
   const thread = project.model.state.threads[request.threadId];
   if (!thread) throw new Error("请先打开附件所属会话");
@@ -237,5 +242,16 @@ function messageInput(backend, request) {
   }
   if (!input.length) throw new Error("消息不能为空");
   return input;
+}
+/** @param {Project} project @param {Record<string,unknown>} input @param {MediaHost} backend */
+async function mediaCommand(project, input, backend) {
+  const request = readMediaRequest(input);
+  const result = await executeMediaCommand(project, input, backend);
+  try {
+    validateMediaResponse(request, result);
+  } catch (cause) {
+    throw commandResponseError("media", input, cause);
+  }
+  return result;
 }
 module.exports = { mediaCommand, messageInput };

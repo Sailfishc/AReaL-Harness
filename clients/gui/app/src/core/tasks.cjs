@@ -3,13 +3,17 @@
 const { createHash, randomUUID } = require("node:crypto");
 const { manageTaskDraft, taskDraftOperations } = require("./task-draft.cjs");
 
-const { readTask, readTaskAdmission, readTaskRequest } = require("./task-contract.cjs");
+const {
+  readTask,
+  readTaskAdmission,
+  readTaskRequest,
+} = require("../../../packages/workbench/client/desktop-contract/management-tasks.cjs");
 const { readReceipts } = require("./receipt-contract.cjs");
 const { readThreadAdmission } = require("./submission-results.cjs");
 const { modelRecord } = require("@areal/workbench/core-model-contract");
 /** @typedef {import('./project-state.cjs').CoreProject} Project */
 /** @typedef {InstanceType<typeof import('./backend.cjs').CoreBackend>} Backend */
-/** @typedef {import('./task-contract.cjs').TaskRequest} Request */
+/** @typedef {import('../../../packages/workbench/client/desktop-contract/management-tasks.cjs').TaskRequest} Request */
 /** @type {Record<string,[string,string[]]>} */
 const reads = {
   taskSchedulePreview: ["areal/task/schedule/preview", ["schedule", "from", "count"]],

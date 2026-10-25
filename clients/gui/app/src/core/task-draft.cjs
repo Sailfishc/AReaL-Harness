@@ -7,7 +7,10 @@ const { messageInput } = require("./media.cjs");
 const { resolveNewConversationModel } = require("@areal/workbench/model-selection");
 
 const { modelRecord } = require("@areal/workbench/core-model-contract");
-const { readTask, readTaskAdmission } = require("./task-contract.cjs");
+const {
+  readTask,
+  readTaskAdmission,
+} = require("../../../packages/workbench/client/desktop-contract/management-tasks.cjs");
 const { readReceipts, receiptResult } = require("./receipt-contract.cjs");
 const { readObservationResult, readThreadMetadata } = require("./history-contract.cjs");
 const { readAdmission, readThreadAdmission } = require("./submission-results.cjs");
@@ -62,7 +65,7 @@ function draftInstructions(thread, project) {
     throw new Error("这不是有效的任务配置会话，请重新创建。");
   return configuration.options.appendInstructions;
 }
-/** @param {import('./task-contract.cjs').Task} task */
+/** @param {import('../../../packages/workbench/client/desktop-contract/management-tasks.cjs').Task} task */
 const targetContext = (task) => ({
   taskId: task.id,
   expectedRevision: task.revision,
@@ -278,7 +281,7 @@ function receiptFor(project, threadId, turnId) {
       value.taskId,
   );
 }
-/** @param {string} method @param {import("./task-contract.cjs").Task} task @param {string} fallbackZone */
+/** @param {string} method @param {import("../../../packages/workbench/client/desktop-contract/management-tasks.cjs").Task} task @param {string} fallbackZone */
 function savedMessage(method, task, fallbackZone) {
   /** @type {Record<string,string>} */
   const statuses = {
@@ -294,7 +297,7 @@ function savedMessage(method, task, fallbackZone) {
   if (!schedule) return `${status}\n任务目标：${task.objective}`;
   if (task.scheduleV2 && rule?.kind === "calendar")
     return `${status}\n任务目标：${task.objective}\n频率：${rule.frequency === "daily" ? "每天" : rule.frequency === "weekly" ? "每周" : "每月"} ${rule.localTime} · ${rule.timeZone}\n${task.scheduleV2.misfire.kind === "skip" ? `错过 ${task.scheduleV2.misfire.maxLatenessSeconds} 秒后跳过` : "错过时合并执行一次"}`;
-  const interval = schedule.intervalSeconds;
+  const interval = "intervalSeconds" in schedule ? schedule.intervalSeconds : undefined;
   const frequency = !interval
     ? "一次性"
     : interval === 86400
@@ -306,8 +309,12 @@ function savedMessage(method, task, fallbackZone) {
           : interval % 60 === 0
             ? `每 ${interval / 60} 分钟`
             : `每 ${interval} 秒`;
-  const at = new Date((task.nextRunAt ?? schedule.at ?? rule?.anchorAt ?? NaN) * 1000);
-  const zone = schedule.timeZone ?? fallbackZone;
+  const at = new Date(
+    (task.nextRunAt ??
+      ("at" in schedule ? schedule.at : undefined) ??
+      (rule && "anchorAt" in rule ? rule.anchorAt : NaN)) * 1000,
+  );
+  const zone = ("timeZone" in schedule ? schedule.timeZone : undefined) ?? fallbackZone;
   let when;
   try {
     when = new Intl.DateTimeFormat("zh-CN", {
@@ -440,7 +447,7 @@ async function committed(project, threadId, turnId) {
     : null;
 }
 
-/** @param {InstanceType<typeof import("./backend.cjs").CoreBackend>} backend @param {Project} project @param {import("./task-contract.cjs").TaskRequest} request @returns {Promise<unknown>} */
+/** @param {InstanceType<typeof import("./backend.cjs").CoreBackend>} backend @param {Project} project @param {import("../../../packages/workbench/client/desktop-contract/management-tasks.cjs").TaskRequest} request @returns {Promise<unknown>} */
 async function manageTaskDraft(backend, project, request) {
   const client = project.client;
   if (!client) throw new Error("Core 未连接");

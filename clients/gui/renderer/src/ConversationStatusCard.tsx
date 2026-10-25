@@ -80,7 +80,7 @@ export function ConversationStatusCard({
           operation: "info",
         });
         const review =
-          info.git !== false && info.head
+          !("git" in info) && info.head
             ? await request.current("workspace", {
                 projectId: project.id,
                 threadId: thread.id,

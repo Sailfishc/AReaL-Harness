@@ -1429,8 +1429,12 @@ class CoreBackend {
         await this.worktrees.resolveRequest(commandName, invocation.request),
       );
     const { name, request } = invocation;
-    const projectId = typeof request.projectId === "string" ? request.projectId : undefined;
-    const threadId = typeof request.threadId === "string" ? request.threadId : undefined;
+    const projectId =
+      "projectId" in request && typeof request.projectId === "string"
+        ? request.projectId
+        : undefined;
+    const threadId =
+      "threadId" in request && typeof request.threadId === "string" ? request.threadId : undefined;
     if (name === "history" && request.operation === "release") {
       const project = projectId === undefined ? undefined : this.projects.get(projectId);
       return project ? this.historyCommand(project, request) : { released: true };
@@ -1470,9 +1474,7 @@ class CoreBackend {
         throw Object.assign(new Error("原 Core 已断开，不能确认核查目标"), {
           code: "LIFECYCLE_INCOMPLETE",
         });
-      const original = lifecycleBlock?.targets.find(
-        (target) => target.projectId === request.projectId,
-      );
+      const original = lifecycleBlock?.targets.find((target) => target.projectId === projectId);
       if (
         original &&
         (project.service.serviceId !== original.serviceId ||
@@ -1620,6 +1622,7 @@ class CoreBackend {
   /** @param {import("@areal/workbench/desktop-contract").CommandInvocation} invocation @param {NonNullable<Parameters<CoreBackend["command"]>[2]>} context */
   async dispatchCommand(invocation, context) {
     const { name, request } = invocation;
+    const projectId = "projectId" in request ? request.projectId : undefined;
     if (this.closing) throw new Error("应用正在退出");
     if (name === "trajectory") return this.trajectory.command(request);
     if (name === "feedback") return this.feedback.command(request);
@@ -1627,15 +1630,12 @@ class CoreBackend {
     if (name === "projectless") return this.projectless.command(request);
     if (name === "library") return this.library.command(request);
     if (!(name === "workspace" && request.operation.startsWith("worktree")) && name !== "create") {
-      if (request.projectId !== undefined && typeof request.projectId !== "string")
-        throw new Error("无效项目标识");
-      this.worktrees.assertAvailable(request.projectId);
+      if (projectId !== undefined && typeof projectId !== "string") throw new Error("无效项目标识");
+      this.worktrees.assertAvailable(projectId);
       if (commandSemantics(name, request).effect === "mutation") {
         const operation = [...this.worktrees.records.values()].find(
           (value) =>
-            value.executionProjectId === request.projectId &&
-            value.threadId &&
-            value.state !== "ready",
+            value.executionProjectId === projectId && value.threadId && value.state !== "ready",
         );
         if (operation) throw new Error("工作树环境尚未就绪，不能执行会话写操作");
       }
@@ -1647,8 +1647,8 @@ class CoreBackend {
       }
       return workspaceCommand(this, request);
     }
-    if (typeof request.projectId !== "string") throw new Error("缺少项目标识");
-    const project = await this.start(request.projectId);
+    if (typeof projectId !== "string") throw new Error("缺少项目标识");
+    const project = await this.start(projectId);
     if (this.closing) throw new Error("应用正在退出");
     await this.worktreeAdmission.admit(project, name, request);
     if (
@@ -1662,7 +1662,7 @@ class CoreBackend {
           ? project.configurations?.[request.sourceThreadId]?.model
           : name === "side" && request.operation === "start"
             ? request.model
-            : typeof request.threadId === "string"
+            : "threadId" in request && typeof request.threadId === "string"
               ? project.configurations[request.threadId]?.model
               : undefined;
       const model =
@@ -1686,7 +1686,9 @@ class CoreBackend {
     switch (name) {
       case "connect":
         await this.worktrees.connectExecutions(
-          typeof request.logicalProjectId === "string" ? request.logicalProjectId : project.id,
+          "logicalProjectId" in request && typeof request.logicalProjectId === "string"
+            ? request.logicalProjectId
+            : project.id,
         );
         return this.snapshot();
       case "prediction": {
@@ -1714,6 +1716,7 @@ class CoreBackend {
         return mediaCommand(project, request, this);
       case "manage":
         if (
+          "threadId" in request &&
           typeof request.threadId === "string" &&
           isTaskDraftConfiguration(project.configurations[request.threadId]) &&
           typeof request.operation === "string" &&
@@ -1725,7 +1728,9 @@ class CoreBackend {
       case "list":
         await this.listThreads(project);
         await this.worktrees.connectExecutions(
-          typeof request.logicalProjectId === "string" ? request.logicalProjectId : project.id,
+          "logicalProjectId" in request && typeof request.logicalProjectId === "string"
+            ? request.logicalProjectId
+            : project.id,
         );
         break;
       case "open":
@@ -1828,7 +1833,7 @@ class CoreBackend {
       }
       case "side": {
         this.requireConnection(project, project.client);
-        const requestId = request.requestId;
+        const requestId = "requestId" in request ? request.requestId : undefined;
         if (requestId !== undefined && typeof requestId !== "string")
           throw new Error("无效 Side 请求标识");
         if (!project.client.capabilities?.methods?.includes("areal/side/start"))

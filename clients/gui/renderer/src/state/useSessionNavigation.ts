@@ -5,7 +5,7 @@ import {
   type RecoveryFailure,
   type RecoveryOwner,
 } from "../recoveryPresentation.js";
-import { call, type Action, type Data, type PlatformServices, type Snapshot } from "../services.js";
+import { call, type Action, type PlatformServices, type Snapshot } from "../services.js";
 type InitialLocation =
   | { kind: "automatic" | "projectless" }
   | { kind: "project"; projectId: string; threadId: string };
@@ -112,16 +112,19 @@ export function useSessionNavigation(
   selectedRestoration.current = restorationOwner;
   const selectionReady = selectedProject === (project?.id ?? "");
   // Resource pages own their loading, validation and recovery feedback.
-  const resourceAction: Action = useCallback(
-    (name: import("../services.js").CommandName, params: Data = {}) => {
+  const resourceAction: Action = useCallback<Action>(
+    (name, params) => {
       return call(
         services,
         name,
         name === "workspace" &&
           threadId &&
+          "projectId" in params &&
           params.projectId === project?.id &&
-          !params.threadId &&
-          !String(params.operation).startsWith("worktree")
+          !("threadId" in params && params.threadId) &&
+          "operation" in params &&
+          typeof params.operation === "string" &&
+          !params.operation.startsWith("worktree")
           ? { ...params, threadId }
           : params,
       );
@@ -194,7 +197,7 @@ export function useSessionNavigation(
       attempt.promise = (async () => {
         try {
           if (options.connectService) {
-            await resourceAction("connectService");
+            await resourceAction("connectService", {});
             if (!current()) return;
           }
           if (operation === "connect")

@@ -20,13 +20,7 @@ export type WorktreeSelection = {
   environmentId?: string;
   environmentRevision?: number;
 };
-type Options = {
-  worktrees?: { root: string; branch?: string }[];
-  branches: string[];
-  settings: { worktreeRoot: string; branchPrefix: string };
-  environments?: { id: string; name: string }[];
-  environmentRevision?: number;
-};
+type Options = import("@areal/workbench/desktop-contract/workspace").WorktreeOptions;
 
 type PickerPage = "main" | "branch" | "environment";
 
@@ -191,7 +185,9 @@ export function WorktreeStarter({
                 icon={<GitBranch aria-hidden="true" />}
                 label={t("worktree.branchLabel")}
                 value={
-                  <span title={selected.ref === "HEAD" ? sourceBranch : selected.ref}>
+                  <span
+                    title={selected.ref === "HEAD" ? (sourceBranch ?? undefined) : selected.ref}
+                  >
                     {selected.ref === "HEAD" ? (sourceBranch ?? selected.ref) : selected.ref}
                   </span>
                 }

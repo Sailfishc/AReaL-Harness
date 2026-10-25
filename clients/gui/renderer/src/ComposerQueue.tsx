@@ -1,3 +1,5 @@
+import { isRequest } from "@areal/workbench/desktop-contract/conversation";
+import { modelRecord } from "@areal/workbench/desktop-contract/shared";
 import { Button } from "@areal/ui";
 import { useState } from "react";
 import {
@@ -19,7 +21,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from "./components/ui/dropdown-menu.js";
-import { queueText } from "./Queue.js";
+import { queueText, type QueueEditInput } from "./Queue.js";
 import { imageAnnotationTitle } from "./imageAnnotations.js";
 import type { Action, Data } from "./services.js";
 import { recoveredOutcome } from "./recoveryPresentation.js";
@@ -47,18 +49,27 @@ export function ComposerQueue({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const operationKey = `areal-gui:draft:${project.id}:${thread.id}:queue-operation`;
-  const [unknown, setUnknown] = useState<{ requestId: string; operation: string } | null>(() =>
-    JSON.parse(localStorage.getItem(operationKey) ?? "null"),
-  );
+  const [unknown, setUnknown] = useState<{
+    requestId: string;
+    operation: QueueEditInput["operation"];
+  } | null>(() => {
+    const value: unknown = JSON.parse(localStorage.getItem(operationKey) ?? "null");
+    if (value === null) return null;
+    if (!modelRecord(value)) throw new Error("原队列操作标识无效，请保留记录并核对。");
+    const request = { ...value, projectId: project.id, threadId: thread.id };
+    if (!isRequest("queue", request) || request.requestId === undefined)
+      throw new Error("原队列操作标识无效，请保留记录并核对。");
+    return { requestId: request.requestId, operation: request.operation };
+  });
   const [drag, setDrag] = useState<{ id: string; ids: string[]; revision: number } | null>(null);
   const [over, setOver] = useState<string | null>(null);
   const running = thread.turns?.find((turn: Data) => turn.status === "inProgress");
   const locked = disabled || busy || !!editingId || !!unknown;
-  const edit = async (operation: string, values: Data = {}, revision = queue.revision) => {
+  const edit = async (request: QueueEditInput, revision = queue.revision) => {
     if (locked) return;
     setBusy(true);
     setError("");
-    const unresolved = { requestId: crypto.randomUUID(), operation };
+    const unresolved = { requestId: crypto.randomUUID(), operation: request.operation };
     localStorage.setItem(operationKey, JSON.stringify(unresolved));
     setUnknown(unresolved);
     try {
@@ -67,15 +78,14 @@ export function ComposerQueue({
         threadId: thread.id,
         expectedRevision: revision,
         requestId: unresolved.requestId,
-        operation,
-        ...values,
+        ...request,
       });
       localStorage.removeItem(operationKey);
       setUnknown(null);
     } catch (cause) {
       const failure = cause as Error & { submissionUnknown?: boolean; requestId?: string };
       if (failure.submissionUnknown && failure.requestId) {
-        const unresolved = { requestId: failure.requestId, operation };
+        const unresolved = { requestId: failure.requestId, operation: request.operation };
         localStorage.setItem(operationKey, JSON.stringify(unresolved));
         setUnknown(unresolved);
         setError("队列操作结果尚未确认，条目以 Core 状态为准，不会自动重发。");
@@ -89,10 +99,11 @@ export function ComposerQueue({
     }
   };
   const reconcile = async () => {
+    if (!unknown) return;
     setBusy(true);
     try {
       const result = await action("reconcile", { projectId: project.id });
-      const request = unknown!;
+      const request = unknown;
       const known = recoveredOutcome(
         { outcomes: result.outcomes },
         request.requestId,
@@ -105,10 +116,10 @@ export function ComposerQueue({
             }
           : undefined,
       );
-      const observed =
-        known ??
-        (await action("queue", { projectId: project.id, threadId: thread.id, ...unknown }));
-      const outcome = known || observed.confirmed ? observed : null;
+      const observed = known
+        ? null
+        : await action("queue", { projectId: project.id, threadId: thread.id, ...request });
+      const outcome = known ?? (observed?.confirmed ? observed : null);
       if (outcome) {
         localStorage.removeItem(operationKey);
         setUnknown(null);
@@ -129,7 +140,7 @@ export function ComposerQueue({
       at = ids.indexOf(id);
     if (at < 0 || at + offset < 0 || at + offset >= ids.length) return;
     [ids[at], ids[at + offset]] = [ids[at + offset], ids[at]];
-    void edit("reorder", { queueItemIds: ids });
+    void edit({ operation: "reorder", queueItemIds: ids });
   };
   const drop = (target?: string) => {
     if (drag && target && drag.id !== target && drag.ids.includes(target)) {
@@ -138,7 +149,7 @@ export function ComposerQueue({
         to = ids.indexOf(target);
       ids.splice(from, 1);
       ids.splice(to, 0, drag.id);
-      void edit("reorder", { queueItemIds: ids }, drag.revision);
+      void edit({ operation: "reorder", queueItemIds: ids }, drag.revision);
     }
     setDrag(null);
     setOver(null);
@@ -173,7 +184,7 @@ export function ComposerQueue({
               data-slot={undefined}
               type="submit"
               disabled={locked}
-              onClick={() => void edit("resume")}
+              onClick={() => void edit({ operation: "resume" })}
             >
               继续队列
             </Button>
@@ -265,7 +276,8 @@ export function ComposerQueue({
                 aria-label={`引导 ${queueLabel(item)}`}
                 title="现在发送到正在进行的任务"
                 onClick={() =>
-                  void edit("steer", {
+                  void edit({
+                    operation: "steer",
                     queueItemId: item.id,
                     expectedTurnId: running.id,
                   })
@@ -281,7 +293,7 @@ export function ComposerQueue({
                 disabled={locked}
                 aria-label={`删除排队消息 ${queueLabel(item)}`}
                 title="删除"
-                onClick={() => void edit("remove", { queueItemId: item.id })}
+                onClick={() => void edit({ operation: "remove", queueItemId: item.id })}
               >
                 <Trash2 size={17} />
               </Button>
@@ -321,7 +333,9 @@ export function ComposerQueue({
                     下移
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => void edit(queue.paused ? "resume" : "pause")}>
+                  <DropdownMenuItem
+                    onClick={() => void edit({ operation: queue.paused ? "resume" : "pause" })}
+                  >
                     {queue.paused ? <Play size={17} /> : <Pause size={17} />}
                     {queue.paused ? "继续队列" : "暂停队列"}
                   </DropdownMenuItem>

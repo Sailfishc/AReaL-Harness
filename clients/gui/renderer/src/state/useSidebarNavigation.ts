@@ -1,6 +1,6 @@
 import { useState, useSyncExternalStore, type ReactNode } from "react";
 import { useI18n } from "../i18n/IntlProvider.js";
-import type { Action, Data, PlatformServices, Snapshot } from "../services.js";
+import type { Action, CommandParams, Data, PlatformServices, Snapshot } from "../services.js";
 import type { useGuardedNavigation } from "../settings/UnsavedChanges.js";
 import { useSidebarDrag, type SidebarDragSource } from "../sidebarDrag.js";
 import type { conversationCatalog } from "./conversationCatalog.js";
@@ -50,9 +50,15 @@ export function useSidebarNavigation(props: SidebarNavigationProps) {
     open ? props.navigation.openSearch() : props.navigation.hideSearch();
   const library = snapshot.library ?? {};
   const [projectVisibleCounts, setProjectVisibleCounts] = useState<Record<string, number>>({});
-  const [rename, setRename] = useState<Data | null>(null);
+  type Rename = {
+    [O in "renameProject" | "renameThread" | "renameSection"]: Omit<
+      Extract<CommandParams<"library">, { operation: O }>,
+      "title"
+    >;
+  }["renameProject" | "renameThread" | "renameSection"];
+  const [rename, setRename] = useState<Rename | null>(null);
   const [renameText, setRenameText] = useState("");
-  const startRename = (values: Data, current: string) => {
+  const startRename = (values: Rename, current: string) => {
     props.closePanels();
     setRename(values);
     setRenameText(current);
@@ -87,7 +93,8 @@ export function useSidebarNavigation(props: SidebarNavigationProps) {
       }
       return compareActivity(a, b);
     });
-  const organize = (request: Data) => void action("library", request).catch(() => {});
+  const organize = (request: CommandParams<"library">) =>
+    void action("library", request).catch(() => {});
   const sidebarDrag = useSidebarDrag(
     (request) => action("library", request),
     library.sidebarRevision ?? 0,
@@ -103,10 +110,13 @@ export function useSidebarNavigation(props: SidebarNavigationProps) {
   const placementKey = (target: Data) => (target.id ? `${target.type}:${target.id}` : target.type);
   const dropRequest = (
     source: SidebarDragSource,
-    target: Data,
+    target: import("@areal/workbench/desktop-contract/library-media").SidebarItem,
     edge: "before" | "after",
     anchor: string | null = null,
-  ) => {
+  ): Omit<
+    Extract<CommandParams<"library">, { operation: "dropSidebar" }>,
+    "expectedSidebarRevision"
+  > | null => {
     if (source.type === "section") return null;
     if (source.type === "thread" && target.type === "projects")
       target = snapshot.projects.find((p) => p.id === source.projectId)?.projectless

@@ -1,3 +1,4 @@
+import { readLibraryRequest } from "@areal/workbench/desktop-contract/library-media";
 import { SettingsGroupCard, SettingsRow, SettingsSection } from "@areal/ui/compositions";
 import { useI18n, UiMessageError, type UiMessage } from "../i18n/IntlProvider.js";
 import { SettingsSelect } from "./SettingsPageParts.js";
@@ -26,7 +27,7 @@ export function NotificationSettings({
     setBusy(true);
     setError("");
     try {
-      await action("library", { operation: "settings", key, value });
+      await action("library", readLibraryRequest({ operation: "settings", key, value }));
     } catch (cause) {
       setError(
         cause instanceof UiMessageError

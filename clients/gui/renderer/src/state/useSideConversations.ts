@@ -157,7 +157,11 @@ export function useSideConversations(
             (observed?.executionCore?.instanceId ?? observedProject?.core?.instanceId) !==
               owner.coreInstanceId ||
             observed?.desktop?.archived ||
-            observed?.conversation?.origin?.sourceThreadId !== owner.parentId
+            (observed?.conversation?.origin &&
+            typeof observed.conversation.origin === "object" &&
+            "sourceThreadId" in observed.conversation.origin
+              ? observed.conversation.origin.sourceThreadId
+              : undefined) !== owner.parentId
           )
             return;
           tab = current;

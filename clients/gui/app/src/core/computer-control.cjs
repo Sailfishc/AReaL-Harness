@@ -18,6 +18,9 @@ const READ_OPERATIONS = new Set([
   "stop_computer_control",
 ]);
 
+const {
+  readComputerStatus,
+} = require("../../../packages/workbench/client/desktop-contract/desktop-control.cjs");
 /** @typedef {Record<string,unknown>} Fields */
 /** @typedef {Fields & {active:boolean,activeTarget?:unknown,app?:unknown,heldKeys?:number,heldButtons?:number,reason?:string}} ControlActivity */
 /** @typedef {Fields & {arguments?:Fields,computerApproval?:Fields,admissionEpoch?:number}} ComputerRequest */
@@ -88,7 +91,7 @@ class ComputerControl {
         reason: "Native computer control requires macOS 14 or later",
       };
     try {
-      const value = await this._rpc("status", {}, { timeoutMs: 5_000 });
+      const value = readComputerStatus(await this._rpc("status", {}, { timeoutMs: 5_000 }));
       return { ...value, enabled, ownerFence, ready: enabled && value.ready === true };
     } catch (error) {
       return {
@@ -112,7 +115,9 @@ class ComputerControl {
         controlError("invalid_request", "Unknown computer permission capability"),
       );
     }
-    return this._rpc("requestAccess", { capability }, { timeoutMs: 120_000 });
+    return this._rpc("requestAccess", { capability }, { timeoutMs: 120_000 }).then(
+      readComputerStatus,
+    );
   }
 
   /** @param {import("./service-transport-contract.cjs").ToolHostInput} request */

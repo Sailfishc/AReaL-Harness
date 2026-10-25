@@ -1,3 +1,4 @@
+import type { Attachment } from "@areal/workbench/desktop-contract/conversation";
 import { Input } from "@areal/ui";
 import { ComposerActionButton } from "@areal/ui/experimental";
 import { parseMentionMarkdown } from "./mentions/mentionMarkdown.js";
@@ -732,16 +733,21 @@ export function Composer({
     try {
       const listed = await action("tasks", { operation: "list", limit: 1024 });
       const task = (listed.data ?? []).find(
-        (row: Data) =>
+        (row) =>
+          "runs" in row &&
           row.projectId === project.id &&
           row.runs?.some((run: Data) =>
             run.workers?.some((worker: Data) => worker.threadId === thread.id),
           ),
       );
-      const run = task?.runs?.find((item: Data) =>
-        item.workers?.some((worker: Data) => worker.threadId === thread.id),
-      );
-      if (!task || !run || !onOpenTask) throw new Error("找不到此 worker 所属的原运行。");
+      const run =
+        task && "runs" in task
+          ? task.runs?.find((item: Data) =>
+              item.workers?.some((worker: Data) => worker.threadId === thread.id),
+            )
+          : undefined;
+      if (!task || !("id" in task) || !run || !onOpenTask)
+        throw new Error("找不到此 worker 所属的原运行。");
       onOpenTask({ projectId: project.id, taskId: task.id, runId: run.id });
     } catch (cause) {
       setReturnError((cause as Error).message);
@@ -1452,7 +1458,7 @@ export async function submitMessage(
         threadId,
         mergeComposerPluginSkills(readComposerSkills(key), plugins),
       );
-  const attachments: Data[] = await uploadComposerFiles(action, projectId, threadId, [
+  const attachments = await uploadComposerFiles(action, projectId, threadId, [
     ...input.files,
     ...imageFiles,
   ]);
@@ -1527,7 +1533,7 @@ export async function uploadComposerFiles(
   threadId: string,
   files: File[],
 ) {
-  const attachments = [];
+  const attachments: Attachment[] = [];
   for (const file of files) {
     let bytes: Uint8Array;
     try {

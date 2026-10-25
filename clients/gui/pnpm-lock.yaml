@@ -164,6 +164,9 @@ importers:
 
   packages/chatgpt-provider:
     dependencies:
+      '@areal/workbench':
+        specifier: workspace:*
+        version: link:../workbench
       '@earendil-works/pi-ai':
         specifier: 0.84.4
         version: 0.84.4(@modelcontextprotocol/sdk@1.32.0(zod@4.6.6))(ws@8.21.3)(zod@4.6.6)
@@ -270,7 +273,11 @@ importers:
         specifier: npm:@typescript/typescript6@6.0.2
         version: '@typescript/typescript6@6.0.2'
 
-  packages/workbench: {}
+  packages/workbench:
+    dependencies:
+      '@modelcontextprotocol/core':
+        specifier: 2.3.0
+        version: 2.3.0
 
   packages/workspace-git:
     dependencies:

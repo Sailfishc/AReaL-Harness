@@ -4,11 +4,13 @@ const { spawn } = require("node:child_process");
 const { randomUUID } = require("node:crypto");
 const { readFile } = require("node:fs/promises");
 const { join } = require("node:path");
+const feedbackContract = require("@areal/workbench/desktop-contract/feedback");
+const { feedbackDraft } = feedbackContract;
 const { freezeContext } = require("./feedback-context.cjs");
 const { modelRecord } = require("@areal/workbench/core-model-contract");
 const { readObservationResult } = require("./history-contract.cjs");
 /** @typedef {{enabled:boolean,connected:boolean,installation:string|null,account:string|null,destination:string|null}} FeedbackStatus */
-/** @typedef {{id:string,projectId:string,threadId:string,turnId:string,itemId:string,rating:'up'|'down',reason:string,analysis:string,context:Record<string,unknown>,contextSha256:string,expectedDestination:string|null,expectedOwner:string|null,expectedInstallation:string|null,state:string,createdAt:number,analysisItemId?:string,sideThreadId?:string,refineRequestId?:string,refineInput?:string,refinementUnknown?:boolean,closed?:boolean,submission?:Record<string,unknown>,receipt?:Record<string,unknown>}} FeedbackDraft */
+/** @typedef {import("@areal/workbench/desktop-contract/feedback").FeedbackDraft} FeedbackDraft */
 /** @typedef {Record<string,unknown> & {operation:string,id?:string,projectId?:string,threadId?:string,turnId?:string,itemId?:string,rating?:'up'|'down',reason?:string,analysis?:string,analysisItemId?:string,text?:string}} FeedbackRequest */
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -163,7 +165,7 @@ class UserFeedback {
       throw new Error("评价不属于当前会话");
     return draft;
   }
-  /** @param {FeedbackDraft} draft */
+  /** @param {FeedbackDraft} draft @returns {import("@areal/workbench/desktop-contract/feedback").PublicFeedback} */
   public(draft) {
     const {
       context: _context,
@@ -381,8 +383,15 @@ class UserFeedback {
       }
       // 先固化请求；超时后的重试不带入新意见、新上下文或新身份。
       const receipt = await this.cli("feedback-submit", draft.submission);
-      if (receipt.feedback_id !== draft.id)
-        throw Object.assign(new Error("评价回执不匹配"), { submissionUnknown: true });
+      if (
+        !feedbackContract.feedbackReceipt(receipt) ||
+        receipt.feedback_id !== draft.id ||
+        receipt.rating !== draft.rating
+      )
+        throw Object.assign(new Error("评价回执不匹配"), {
+          submissionUnknown: true,
+          requestId: draft.id,
+        });
       draft.state = "submitted";
       draft.receipt = receipt;
       await this.save(draft);
@@ -393,50 +402,6 @@ class UserFeedback {
 }
 /** @param {Record<string,unknown>} value @returns {value is FeedbackRequest} */
 function feedbackRequest(value) {
-  return (
-    typeof value.operation === "string" &&
-    [
-      "id",
-      "projectId",
-      "threadId",
-      "turnId",
-      "itemId",
-      "reason",
-      "analysis",
-      "analysisItemId",
-      "text",
-    ].every((key) => value[key] === undefined || typeof value[key] === "string") &&
-    (value.rating === undefined || value.rating === "up" || value.rating === "down")
-  );
-}
-/** @param {unknown} value @returns {value is FeedbackDraft} */
-function feedbackDraft(value) {
-  return (
-    modelRecord(value) &&
-    [
-      "id",
-      "projectId",
-      "threadId",
-      "turnId",
-      "itemId",
-      "reason",
-      "analysis",
-      "contextSha256",
-      "state",
-    ].every((key) => typeof value[key] === "string") &&
-    (value.rating === "up" || value.rating === "down") &&
-    modelRecord(value.context) &&
-    typeof value.createdAt === "number" &&
-    ["expectedDestination", "expectedOwner", "expectedInstallation"].every(
-      (key) => value[key] === null || typeof value[key] === "string",
-    ) &&
-    ["analysisItemId", "sideThreadId", "refineRequestId", "refineInput"].every(
-      (key) => value[key] === undefined || typeof value[key] === "string",
-    ) &&
-    ["refinementUnknown", "closed"].every(
-      (key) => value[key] === undefined || typeof value[key] === "boolean",
-    ) &&
-    ["submission", "receipt"].every((key) => value[key] === undefined || modelRecord(value[key]))
-  );
+  return feedbackContract.isRequest("feedback", value);
 }
 module.exports = { UserFeedback };

@@ -145,7 +145,8 @@ export function WorktreeActions({
         worktreeRequestId: record.requestId,
         actionId,
       });
-      setOutput(result.output ?? result.stdout ?? result.result?.output ?? "");
+      if (!result) throw new Error(t("worktree.failed"));
+      setOutput(result.output ?? "");
       if (result.status !== "succeeded") {
         const message =
           result.message || t(result.status === "unknown" ? "worktree.unknown" : "worktree.failed");

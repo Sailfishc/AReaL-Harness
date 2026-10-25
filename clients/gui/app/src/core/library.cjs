@@ -7,14 +7,17 @@ const { openSync, fstatSync, readSync, closeSync, constants } = require("node:fs
 const { normalizeNetworkSetting } = require("./desktop-network.cjs");
 const { modelRecord } = require("@areal/workbench/core-model-contract");
 const { readObservationResult } = require("./history-contract.cjs");
-const { environmentDefinition } = require("./worktrees.cjs");
+const {
+  readLibraryState,
+  readLibraryRequest,
+} = require("../../../packages/workbench/client/desktop-contract/library-media.cjs");
 /** @typedef {{terminalInheritSystemProfile:boolean,terminalFontFamily:string,httpProxy:string,httpProxyNoProxy:string,httpProxyCaCertPath:string,hardwareAcceleration:boolean,taskNotifications:boolean}} StartupSettings */
-/** @typedef {{id:string,parentThreadId?:string,conversation?:{kind:string},name?:string,preview?:string,createdAt?:number,updatedAt?:number,desktop?:{archived:boolean}}} NavigationSummary */
-/** @typedef {{name?:string,worktreeEnvironments?:import('./worktrees.cjs').EnvironmentDefinition[],worktreeEnvironmentRevision?:number,title?:string,pinned?:boolean,sectionId?:string|null,unread?:boolean,completionId?:string,scheduledCompletionId?:string,hidden?:boolean,threadOrder?:string[],navigationSummaries?:NavigationSummary[]}} LibraryMetadata */
-/** @typedef {{projects:Record<string,LibraryMetadata>,threads:Record<string,LibraryMetadata>,projectOrder:string[],sections:Array<{id:string,title:string}>,sidebarThreadOrder:string[],sidebarRevision:number,settings:Record<string,unknown> & {worktrees?:Partial<import('./worktrees.cjs').WorktreeSettings>,worktreeRevision?:number,projectlessDirectory?:string}}} LibraryState */
+/** @typedef {import("../../../packages/workbench/client/desktop-contract/library-media.cjs").NavigationSummary} NavigationSummary */
+/** @typedef {import("../../../packages/workbench/client/desktop-contract/library-media.cjs").LibraryMetadata} LibraryMetadata */
+/** @typedef {import("../../../packages/workbench/client/desktop-contract/library-media.cjs").LibraryState} LibraryState */
 /** @typedef {{home:string,saved:import('./project-index.cjs').SavedProject[],projects:Map<string,import('./project-state.cjs').CoreProject>,worktrees?:{owners:(id:string)=>import('./project-index.cjs').SavedProject[]},start:(id:string)=>Promise<import('./project-state.cjs').CoreProject>,save:(name:string,value:unknown)=>Promise<unknown>,onChange:()=>void}} LibraryHost */
-/** @typedef {{type:string,id?:string,projectId?:string,group?:string}} SidebarItem */
-/** @typedef {{operation:string,projectId?:string,threadId?:string,title?:string,before?:string|null,sectionId?:string|null,hidden?:boolean,pinned?:boolean,read?:boolean,completionId?:string,key?:string,value?:unknown,order?:string[],source?:SidebarItem,target?:SidebarItem,anchor?:string|null,edge?:string,expectedSidebarRevision?:number}} LibraryRequest */
+/** @typedef {import("../../../packages/workbench/client/desktop-contract/library-media.cjs").SidebarItem} SidebarItem */
+/** @typedef {import("../../../packages/workbench/client/desktop-contract/library-media.cjs").LibraryRequest} LibraryRequest */
 const DESKTOP_SETTING_DEFAULTS = Object.freeze({
   terminalInheritSystemProfile: true,
   terminalFontFamily: "",
@@ -460,32 +463,6 @@ class CoreLibrary {
         }
         case "settings": {
           if (typeof request.key !== "string") throw new Error("无效偏好设置");
-          /** @type {Record<string,unknown[]>} */
-          const allowed = {
-            showPinned: [true, false],
-            showCompleted: [true, false],
-            busyEnter: ["queue", "steer"],
-            sidebarSort: ["manual", "updated_at", "priority"],
-            sidebarSortChats: ["manual", "updated_at", "priority"],
-            sidebarSortProjects: ["manual", "updated_at", "priority"],
-            sidebarSortPinned: ["manual", "updated_at", "priority"],
-            turnNotifications: ["always", "unfocused", "never"],
-            permissionNotifications: [true, false],
-            questionNotifications: [true, false],
-            notificationSound: ["default", "silent"],
-            preventSleep: [true, false],
-            showInMenuBar: [true, false],
-            fileOpenTarget: ["system", "finder", "zed", "vscode", "cursor"],
-            terminalInheritSystemProfile: [true, false],
-            hardwareAcceleration: [true, false],
-            taskNotifications: [true, false],
-            computerControlEnabled: [true, false],
-            computerControlShowEntry: [true, false],
-            computerControlProvider: ["native", "lcu"],
-            browserLinkTarget: ["internal", "external"],
-            browserLocalTarget: ["internal", "external"],
-            browserFullAddress: [true, false],
-          };
           let settingValue = request.value;
           if (
             ["terminalFontFamily", "httpProxy", "httpProxyNoProxy", "httpProxyCaCertPath"].includes(
@@ -502,8 +479,7 @@ class CoreLibrary {
               (request.value && !require("node:path").isAbsolute(request.value))
             )
               throw new Error("LCU executable must be an absolute path");
-          } else if (!allowed[request.key]?.includes(request.value))
-            throw new Error("无效偏好设置");
+          }
           if (
             [
               "sidebarSort",
@@ -528,7 +504,7 @@ class CoreLibrary {
               ...available.filter((id) => !request.order?.includes(id)),
             ];
           }
-          state.settings[request.key] = settingValue;
+          Object.assign(state.settings, { [request.key]: settingValue });
           break;
         }
         default:
@@ -695,132 +671,6 @@ function requireTitle(value) {
 function requireId(value) {
   if (typeof value !== "string") throw new Error("未知工作区或会话");
   return value;
-}
-/** @param {unknown} value @returns {value is string[]} */
-function strings(value) {
-  return Array.isArray(value) && value.every((item) => typeof item === "string");
-}
-/** @param {unknown} value @returns {value is LibraryMetadata} */
-function metadata(value) {
-  return (
-    modelRecord(value) &&
-    ["name", "title", "completionId", "scheduledCompletionId"].every(
-      (key) => value[key] === undefined || typeof value[key] === "string",
-    ) &&
-    ["pinned", "unread", "hidden"].every(
-      (key) => value[key] === undefined || typeof value[key] === "boolean",
-    ) &&
-    (value.worktreeEnvironmentRevision === undefined ||
-      typeof value.worktreeEnvironmentRevision === "number") &&
-    (value.worktreeEnvironments === undefined ||
-      (Array.isArray(value.worktreeEnvironments) &&
-        value.worktreeEnvironments.every(environmentDefinition))) &&
-    (value.sectionId == null || typeof value.sectionId === "string") &&
-    (value.threadOrder === undefined || strings(value.threadOrder)) &&
-    (value.navigationSummaries === undefined ||
-      (Array.isArray(value.navigationSummaries) &&
-        value.navigationSummaries.every(navigationSummary)))
-  );
-}
-/** @param {unknown} value @returns {value is NavigationSummary} */
-function navigationSummary(value) {
-  return (
-    modelRecord(value) &&
-    typeof value.id === "string" &&
-    ["parentThreadId", "name", "preview"].every(
-      (key) => value[key] === undefined || typeof value[key] === "string",
-    ) &&
-    ["createdAt", "updatedAt"].every(
-      (key) => value[key] === undefined || typeof value[key] === "number",
-    ) &&
-    (value.conversation === undefined ||
-      (modelRecord(value.conversation) && typeof value.conversation.kind === "string")) &&
-    (value.desktop === undefined ||
-      (modelRecord(value.desktop) && typeof value.desktop.archived === "boolean"))
-  );
-}
-/** @param {unknown} raw @param {LibraryState} defaults @returns {LibraryState} */
-function readLibraryState(raw, defaults) {
-  if (!modelRecord(raw)) throw new Error("无效侧栏整理记录");
-  const value = { ...defaults, ...raw };
-  if (!isLibraryState(value)) throw new Error("无效侧栏整理记录");
-  return value;
-}
-/** @param {unknown} value @returns {value is LibraryState} */
-function isLibraryState(value) {
-  return (
-    modelRecord(value) &&
-    modelRecord(value.projects) &&
-    Object.values(value.projects).every(metadata) &&
-    modelRecord(value.threads) &&
-    Object.values(value.threads).every(metadata) &&
-    strings(value.projectOrder) &&
-    strings(value.sidebarThreadOrder) &&
-    typeof value.sidebarRevision === "number" &&
-    modelRecord(value.settings) &&
-    (value.settings.projectlessDirectory === undefined ||
-      typeof value.settings.projectlessDirectory === "string") &&
-    (value.settings.worktreeRevision === undefined ||
-      typeof value.settings.worktreeRevision === "number") &&
-    (value.settings.worktrees === undefined ||
-      (modelRecord(value.settings.worktrees) &&
-        Object.entries(value.settings.worktrees).every(
-          ([key, item]) =>
-            ![
-              "worktreeRoot",
-              "branchPrefix",
-              "fetchBeforeCreate",
-              "autoCleanup",
-              "keepCount",
-            ].includes(key) ||
-            typeof item ===
-              (key === "keepCount"
-                ? "number"
-                : ["worktreeRoot", "branchPrefix"].includes(key)
-                  ? "string"
-                  : "boolean"),
-        ))) &&
-    Array.isArray(value.sections) &&
-    value.sections.every(
-      (item) => modelRecord(item) && typeof item.id === "string" && typeof item.title === "string",
-    )
-  );
-}
-/** @param {unknown} value @returns {value is SidebarItem} */
-function sidebarItem(value) {
-  return (
-    modelRecord(value) &&
-    typeof value.type === "string" &&
-    ["id", "projectId", "group"].every(
-      (key) => value[key] === undefined || typeof value[key] === "string",
-    )
-  );
-}
-/** @param {unknown} value @returns {LibraryRequest} */
-function readLibraryRequest(value) {
-  if (!isLibraryRequest(value)) throw new Error("无效整理操作");
-  return value;
-}
-/** @param {unknown} value @returns {value is LibraryRequest} */
-function isLibraryRequest(value) {
-  return (
-    modelRecord(value) &&
-    typeof value.operation === "string" &&
-    ["projectId", "threadId", "title", "completionId", "key", "edge"].every(
-      (key) => value[key] === undefined || typeof value[key] === "string",
-    ) &&
-    ["sectionId", "before", "anchor"].every(
-      (key) => value[key] == null || typeof value[key] === "string",
-    ) &&
-    ["hidden", "pinned", "read"].every(
-      (key) => value[key] === undefined || typeof value[key] === "boolean",
-    ) &&
-    (value.order === undefined || strings(value.order)) &&
-    (value.source === undefined || sidebarItem(value.source)) &&
-    (value.target === undefined || sidebarItem(value.target)) &&
-    (value.expectedSidebarRevision === undefined ||
-      typeof value.expectedSidebarRevision === "number")
-  );
 }
 module.exports = { CoreLibrary, readLibraryStartupSettings };
 

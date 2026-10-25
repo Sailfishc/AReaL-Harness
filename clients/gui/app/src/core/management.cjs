@@ -1,5 +1,11 @@
 // @ts-check
 "use strict";
+const {
+  readManagementRequest,
+  validateManagementResponse,
+  readPluginReadiness,
+} = require("../../../packages/workbench/client/desktop-contract/management.cjs");
+const { commandResponseError } = require("@areal/workbench/desktop-contract");
 const { configurePluginAuthentication } = require("./plugin-authentication.cjs");
 const { manageTask, taskOperations } = require("./tasks.cjs");
 const { workgroupArtifactFile } = require("./workgroup-artifacts.cjs");
@@ -235,10 +241,10 @@ const pick = (value, keys) =>
     keys.filter((key) => value[key] !== undefined).map((key) => [key, value[key]]),
   );
 /** @param {InstanceType<typeof import("./backend.cjs").CoreBackend>} backend @param {Project} project @param {Record<string,unknown>} rawRequest @param {{onMcpAppOpened?:(project:Project,client:import("@areal/runtime-client/core").CoreClient,request:Record<string,unknown>,result:unknown)=>void}} [context] @returns {Promise<unknown>} */
-async function manage(backend, project, rawRequest, context = {}) {
+async function executeManagement(backend, project, rawRequest, context = {}) {
   if (typeof rawRequest.operation === "string" && taskOperations.has(rawRequest.operation))
     return manageTask(backend, project, rawRequest);
-  const request = readManagementRequest(rawRequest);
+  const request = readSubmissionRequest(rawRequest);
   const current = project.client;
   if (!current) throw new Error("Core 未连接");
   const { operation } = request;
@@ -412,13 +418,6 @@ async function manage(backend, project, rawRequest, context = {}) {
     }
   }
   if (operation === "pluginReadiness") {
-    if (
-      typeof request.id !== "string" ||
-      !request.id.trim() ||
-      typeof request.expectedDigest !== "string" ||
-      !request.expectedDigest.trim()
-    )
-      throw new Error("Missing installed plugin snapshot");
     const detail = await current.request(
       "areal/plugin/read",
       { id: request.id },
@@ -811,7 +810,7 @@ async function manage(backend, project, rawRequest, context = {}) {
   };
 }
 /** @param {Record<string,unknown>} value @returns {Request} */
-function readManagementRequest(value) {
+function readSubmissionRequest(value) {
   const { isSubmissionParams } = require("./project-state.cjs");
   if (
     !isSubmissionParams(value) ||
@@ -836,35 +835,15 @@ function readPlan(value) {
   if (!isCorePlan(value)) throw new Error("Core 计划结构无效");
   return value;
 }
-/** @typedef {{id:string,installed:boolean,installedDigest?:string|null,enabled:boolean,componentChoices?:{disabledSkills?:string[]},installedSkills?:{id:string,requiredTools?:string[]}[]}} PluginReadiness */
-/** @param {unknown} value @returns {PluginReadiness} */
-function readPluginReadiness(value) {
-  if (!pluginReadiness(value)) throw new Error("插件就绪记录结构无效");
-  return value;
-}
-/** @param {unknown} value @returns {value is PluginReadiness} */
-function pluginReadiness(value) {
-  return (
-    modelRecord(value) &&
-    typeof value.id === "string" &&
-    typeof value.installed === "boolean" &&
-    typeof value.enabled === "boolean" &&
-    (value.installedDigest == null || typeof value.installedDigest === "string") &&
-    (value.componentChoices === undefined ||
-      (modelRecord(value.componentChoices) &&
-        (value.componentChoices.disabledSkills === undefined ||
-          (Array.isArray(value.componentChoices.disabledSkills) &&
-            value.componentChoices.disabledSkills.every((id) => typeof id === "string"))))) &&
-    (value.installedSkills === undefined ||
-      (Array.isArray(value.installedSkills) &&
-        value.installedSkills.every(
-          (skill) =>
-            modelRecord(skill) &&
-            typeof skill.id === "string" &&
-            (skill.requiredTools === undefined ||
-              (Array.isArray(skill.requiredTools) &&
-                skill.requiredTools.every((tool) => typeof tool === "string"))),
-        )))
-  );
+/** @param {InstanceType<typeof import("./backend.cjs").CoreBackend>} backend @param {Project} project @param {Record<string,unknown>} rawRequest @param {{onMcpAppOpened?:(project:Project,client:import("@areal/runtime-client/core").CoreClient,request:Record<string,unknown>,result:unknown)=>void}} [context] */
+async function manage(backend, project, rawRequest, context = {}) {
+  const request = readManagementRequest(rawRequest);
+  const result = await executeManagement(backend, project, rawRequest, context);
+  try {
+    validateManagementResponse(request, result);
+  } catch (cause) {
+    throw commandResponseError("manage", rawRequest, cause);
+  }
+  return result;
 }
 module.exports = { manage, managementMethods, threadMutationMethods };

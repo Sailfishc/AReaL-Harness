@@ -60,7 +60,7 @@ export function TerminalPane({
   const failure = terminalFailure(owner, id) ?? services.terminalService.creationFailure(key);
   const [processStatus, setProcessStatus] = useState<{
     key: string;
-    runtime?: { state: string; exitCode: number | null; signal: string | null };
+    runtime?: import("@areal/workbench/desktop-contract/management").ManagementResponseMap["process"]["runtime"];
     cleanupConfirmed?: boolean;
     partialOutput?: boolean;
     error?: string;

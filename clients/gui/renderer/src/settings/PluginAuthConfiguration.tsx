@@ -1,3 +1,4 @@
+import type { PluginCommand } from "./PluginCenter.js";
 import { Textarea } from "@areal/ui";
 import { useI18n, type UiMessage } from "../i18n/IntlProvider.js";
 import { SettingsDisclosure } from "./SettingsDisclosure.js";
@@ -8,6 +9,7 @@ import { Feedback } from "./common.js";
 import type { Data } from "../services.js";
 
 export function PluginAuthConfiguration({
+  projectId,
   pluginId,
   server,
   digest,
@@ -16,11 +18,12 @@ export function PluginAuthConfiguration({
   onSaved,
   onActivityChange,
 }: {
+  projectId: string;
   pluginId: string;
   server: Data;
   digest: string;
   disabled: boolean;
-  command: (operation: string, values: Data) => Promise<Data>;
+  command: PluginCommand;
   onSaved: () => void;
   onActivityChange?: (id: string, pending: boolean) => void;
 }) {
@@ -58,7 +61,9 @@ export function PluginAuthConfiguration({
     setError("");
     setMessage("");
     try {
-      await command("pluginAuthCredential", {
+      await command({
+        projectId,
+        operation: "pluginAuthCredential",
         id: pluginId,
         server: server.serverId,
         expectedDigest: digest,
@@ -91,7 +96,9 @@ export function PluginAuthConfiguration({
     setBusy(true);
     setError("");
     try {
-      const receipt = await command("pluginSubmission", {
+      const receipt = await command({
+        projectId,
+        operation: "pluginSubmission",
         mutation: "pluginAuthConfigure",
         requestId: pendingId,
       });

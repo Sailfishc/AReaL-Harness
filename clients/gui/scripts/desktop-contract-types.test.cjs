@@ -5,7 +5,10 @@ const { resolve, join } = require("node:path");
 const { mkdtempSync, writeFileSync, rmSync } = require("node:fs");
 const { tmpdir } = require("node:os");
 const { spawnSync } = require("node:child_process");
-const { validateCommandResponse } = require("../packages/workbench/client/desktop-contract.cjs");
+const {
+  commandDefinitions,
+  validateCommandResponse,
+} = require("../packages/workbench/client/desktop-contract.cjs");
 
 const cases = [
   [
@@ -22,7 +25,7 @@ const cases = [
   [
     "continue",
     { projectId: "project", threadId: "thread", expectedTurnId: "turn" },
-    { queueRevision: 1 },
+    { queueRevision: 1, configRevision: 1, queueItemId: null },
     { queueRevision: "1" },
   ],
   [
@@ -43,7 +46,18 @@ const cases = [
       threadId: "thread",
       model: { providerId: "provider", modelId: "model" },
     },
-    { projects: [] },
+    {
+      projects: [],
+      library: {
+        projects: {},
+        threads: {},
+        projectOrder: [],
+        sections: [],
+        sidebarThreadOrder: [],
+        sidebarRevision: 0,
+        settings: {},
+      },
+    },
     { projects: {} },
   ],
   [
@@ -76,7 +90,10 @@ test("the contract accepts typed examples and rejects invalid requests and respo
   ];
   const directory = mkdtempSync(join(tmpdir(), "areal-command-types-"));
   const filename = join(directory, "fixture.mts");
-  const source = `import type { CommandName, CommandParams, CommandResponse } from ${JSON.stringify(resolve("packages/workbench/client/desktop-contract.cjs"))};\n${rows.join("\n")}\n${invalidRequests.join("\n")}\nconst known: CommandName = 'fork';\nconst unsupported: CommandResponse<'stop'> = {opaque:true};\n`;
+  const unsupportedResponses = Object.keys(commandDefinitions).map(
+    (name) => `const unsupported_${name}: CommandResponse<'${name}'> = {opaque:true};`,
+  );
+  const source = `import type { CommandName, CommandParams, CommandResponse } from ${JSON.stringify(resolve("packages/workbench/client/desktop-contract.cjs"))};\n${rows.join("\n")}\n${invalidRequests.join("\n")}\nconst known: CommandName = 'fork';\n${unsupportedResponses.join("\n")}\n`;
   try {
     writeFileSync(filename, source);
     const config = join(directory, "tsconfig.json");
@@ -100,6 +117,7 @@ test("the contract accepts typed examples and rejects invalid requests and respo
     const expectedLines = [
       ...cases.map((_, index) => 4 + index * 3),
       ...invalidRequests.map((_, index) => 2 + rows.length + index),
+      ...unsupportedResponses.map((_, index) => 3 + rows.length + invalidRequests.length + index),
     ];
     const diagnostics = result.stdout
       .trim()

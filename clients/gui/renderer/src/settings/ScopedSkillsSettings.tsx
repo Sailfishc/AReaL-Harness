@@ -1,3 +1,4 @@
+import type { ResourceRequest, Scope } from "@areal/workbench/desktop-contract/resource";
 import { Textarea } from "@areal/ui";
 import { ResourceScope as ScopeView, CatalogEmpty as EmptyView } from "@areal/ui/experimental";
 import { useI18n, type UiMessage } from "../i18n/IntlProvider.js";
@@ -110,14 +111,15 @@ export function ScopedSkillsSettings({
     setLocalScope(value);
     onScopeChange?.(value);
   };
-  const api = (operation: string, values: Data = {}) =>
-    action("resources", {
-      operation,
-      scope,
-      projectId: project?.id,
-      ...values,
-    });
-  const state = useResource(() => api("skills"), `${scope}:${project?.id}`);
+  const owner: Scope =
+    scope === "user"
+      ? { scope: "user", projectId: project?.id }
+      : { scope: "project", projectId: project?.id };
+  const api = <P extends ResourceRequest>(request: P) => action("resources", request);
+  const state = useResource(
+    () => api({ ...owner, operation: "skills" }),
+    `${scope}:${project?.id}`,
+  );
   const source = t("settings.scopedSkillsSettings.standaloneResourcesValue", {
     value0:
       scope === "user"
@@ -216,7 +218,7 @@ export function ScopedSkillsSettings({
                 disabled={busy || !!item.error}
                 onClick={() =>
                   void run(async () => {
-                    const result = await api("skillRead", { id: item.id });
+                    const result = await api({ ...owner, operation: "skillRead", id: item.id });
                     setContent(result.content);
                     setContentTruncated(!!result.truncated);
                     setSelected(item);
@@ -250,7 +252,9 @@ export function ScopedSkillsSettings({
                 disabled={busy || !!item.error}
                 onCheckedChange={() =>
                   void run(async () => {
-                    await api("skillToggle", {
+                    await api({
+                      ...owner,
+                      operation: "skillToggle",
                       id: item.id,
                       enabled: !item.enabled,
                       expectedRevision: state.value?.revision,
@@ -323,8 +327,13 @@ export function ScopedSkillsSettings({
             onSubmit={(e) => {
               e.preventDefault();
               void run(async () => {
-                await api("skillSave", {
-                  ...draft,
+                await api({
+                  ...owner,
+                  operation: "skillSave",
+                  id: draft.id,
+                  name: draft.name,
+                  description: draft.description,
+                  content: draft.content,
                   expectedRevision: state.value?.revision,
                 });
                 setDraft(null);

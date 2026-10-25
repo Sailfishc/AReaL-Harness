@@ -1,3 +1,9 @@
+import {
+  sideSelection,
+  sideAnchor,
+  type SideSelection,
+  type SideAnchor,
+} from "@areal/workbench/desktop-contract/conversation";
 import { Textarea } from "@areal/ui";
 import { useComposerPrediction } from "./useComposerPrediction.js";
 import { ContextMeter } from "./ContextMeter.js";
@@ -244,16 +250,18 @@ function SideChatEditor({
   const restore = useMemo(() => createSideRestore(), [owner, generation]);
   const loading = restoreState === "loading";
   useEffect(() => () => restore.dispose(), [restore]);
-  const [selection, setSelection] = useState<Data | null>(() => {
+  const [selection, setSelection] = useState<SideSelection | null>(() => {
     try {
-      return JSON.parse(localStorage.getItem(selectionKey) ?? "null");
+      const value: unknown = JSON.parse(localStorage.getItem(selectionKey) ?? "null");
+      return sideSelection(value) ? value : null;
     } catch {
       return null;
     }
   });
-  const [anchor, setAnchor] = useState<Data | null>(() => {
+  const [anchor, setAnchor] = useState<SideAnchor | null>(() => {
     try {
-      return JSON.parse(localStorage.getItem(anchorKey) ?? "null");
+      const value: unknown = JSON.parse(localStorage.getItem(anchorKey) ?? "null");
+      return sideAnchor(value) ? value : null;
     } catch {
       return null;
     }
@@ -391,12 +399,14 @@ function SideChatEditor({
       const detail = (event as CustomEvent<{ owner: string }>).detail;
       if (detail?.owner !== owner) return;
       try {
-        setSelection(JSON.parse(localStorage.getItem(selectionKey) ?? "null"));
+        const value: unknown = JSON.parse(localStorage.getItem(selectionKey) ?? "null");
+        setSelection(sideSelection(value) ? value : null);
       } catch {
         setSelection(null);
       }
       try {
-        setAnchor(JSON.parse(localStorage.getItem(anchorKey) ?? "null"));
+        const value: unknown = JSON.parse(localStorage.getItem(anchorKey) ?? "null");
+        setAnchor(sideAnchor(value) ? value : null);
       } catch {
         setAnchor(null);
       }
@@ -508,7 +518,10 @@ function SideChatEditor({
   }, [project.state?.connected]);
   const submit = async (value = api.current?.getMarkdown() ?? text) => {
     let question =
-      value.trim() || (!sideId && selection ? selectionPreview || selection.text || "" : "");
+      value.trim() ||
+      (!sideId && selection
+        ? selectionPreview || (selection.kind === "userQuote" ? selection.text : "")
+        : "");
     if (
       executionBlocked ||
       modelUnavailable ||
@@ -554,8 +567,8 @@ function SideChatEditor({
           workspaceAccess,
           text: question,
           requestId,
-          selection,
-          anchor,
+          ...(selection ? { selection } : {}),
+          ...(anchor ? { anchor } : {}),
           ...sideStartConfiguration(draftConfig),
         });
         if (!mounted.current || !workspace.isCurrent(token, generation)) return;
@@ -1018,7 +1031,7 @@ function SideChatEditor({
                       )}
                     </p>
                     <blockquote className="max-h-32 overflow-auto whitespace-pre-wrap break-words">
-                      {selectionPreview || selection.text}
+                      {selectionPreview || (selection.kind === "userQuote" ? selection.text : "")}
                     </blockquote>
                   </div>
                   <Button

@@ -19,28 +19,71 @@ export function useConversationHistory(projectId: string, thread: Data, action: 
     void action("history", { ...request, operation: "acquire" }).catch((error: Error) => {
       if (!released) setFailure({ owner, message: error.message });
     });
-    return () => { released = true; void action("history", { ...request, operation: "release" }).catch(() => {}); };
-  }, [action, owner, projectId, supported, thread.id, thread.displayHistory?.viewGeneration, viewId]);
-  const load = useCallback(async (itemId?: string) => {
-    setFailure(undefined);
-    try {
-      await action("history", { projectId, threadId: thread.id, viewId,
-        operation: itemId ? "loadItem" : "loadOlder", ...(itemId ? { itemId } : {}) });
-    } catch (error) {
-      if (current.current === owner) setFailure({ owner, itemId, message: error instanceof Error ? error.message : t("chat.history.loadFailed") });
-    }
-  }, [action, owner, projectId, thread.id, viewId, t]);
+    return () => {
+      released = true;
+      void action("history", { ...request, operation: "release" }).catch(() => {});
+    };
+  }, [
+    action,
+    owner,
+    projectId,
+    supported,
+    thread.id,
+    thread.displayHistory?.viewGeneration,
+    viewId,
+  ]);
+  const load = useCallback(
+    async (itemId?: string) => {
+      setFailure(undefined);
+      try {
+        await action("history", {
+          projectId,
+          threadId: thread.id,
+          viewId,
+          ...(itemId ? { operation: "loadItem", itemId } : { operation: "loadOlder" }),
+        });
+      } catch (error) {
+        if (current.current === owner)
+          setFailure({
+            owner,
+            itemId,
+            message: error instanceof Error ? error.message : t("chat.history.loadFailed"),
+          });
+      }
+    },
+    [action, owner, projectId, thread.id, viewId, t],
+  );
   return { load, failure: failure?.owner === owner ? failure : undefined };
 }
 
-export function DeferredHistoryItem({ item, loading, error, onLoad }: {
-  item: Data; loading?: { bytes: number; totalBytes: number }; error?: string; onLoad: () => void;
+export function DeferredHistoryItem({
+  item,
+  loading,
+  error,
+  onLoad,
+}: {
+  item: Data;
+  loading?: { bytes: number; totalBytes: number };
+  error?: string;
+  onLoad: () => void;
 }) {
   const { t } = useI18n();
-  return <div className="notice" data-history-item-id={item.id}>
-    <p role="status">{loading ? t("chat.history.loadingFull", { progress: Math.floor(loading.bytes / loading.totalBytes * 100) })
-      : t("chat.history.deferred", { kind: item.originalType, size: Math.ceil(item.totalBytes / 1048576) })}</p>
-    {error && <p role="alert">{error}</p>}
-    <Button type="button" variant="ghost" size="sm" disabled={!!loading} onClick={onLoad}>{t("chat.history.loadFull")}</Button>
-  </div>;
+  return (
+    <div className="notice" data-history-item-id={item.id}>
+      <p role="status">
+        {loading
+          ? t("chat.history.loadingFull", {
+              progress: Math.floor((loading.bytes / loading.totalBytes) * 100),
+            })
+          : t("chat.history.deferred", {
+              kind: item.originalType,
+              size: Math.ceil(item.totalBytes / 1048576),
+            })}
+      </p>
+      {error && <p role="alert">{error}</p>}
+      <Button type="button" variant="ghost" size="sm" disabled={!!loading} onClick={onLoad}>
+        {t("chat.history.loadFull")}
+      </Button>
+    </div>
+  );
 }

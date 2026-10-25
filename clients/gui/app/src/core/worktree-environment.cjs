@@ -1,9 +1,14 @@
 // @ts-check
 "use strict";
 const { randomUUID } = require("node:crypto");
-const { modelRecord } = require("@areal/workbench/core-model-contract");
+const {
+  readEnvironmentProcess,
+  readEnvironmentOutput,
+} = require("../../../packages/workbench/client/desktop-contract/workspace-worktrees.cjs");
+const {
+  responses,
+} = require("../../../packages/workbench/client/desktop-contract/generated/management-processes-protocol.cjs");
 /** @typedef {import('./worktrees.cjs').EnvironmentAttempt} Attempt */
-/** @typedef {Record<string,unknown> & {state?:string,cleanupConfirmed?:boolean,exitCode?:number|null,stopReason?:string|null}} ProcessState */
 const TIMEOUT_MS = 600000;
 const OUTPUT_BYTES = 65536;
 const terminal = new Set(["succeeded", "failed", "cancelled"]);
@@ -87,8 +92,7 @@ class WorktreeEnvironment {
           },
           { requestId },
         );
-        if (!modelRecord(result) || typeof result.id !== "string")
-          throw new Error("环境脚本受理回执尚未确认");
+        if (!responses.processStart(result)) throw new Error("环境脚本受理回执尚未确认");
         await save({ processId: result.id, receipt: result });
       } catch (error) {
         await save({
@@ -103,12 +107,7 @@ class WorktreeEnvironment {
           requestId: attempt.requestId,
           threadId: operation.threadId,
         });
-        if (
-          receipt.confirmed &&
-          "result" in receipt &&
-          modelRecord(receipt.result) &&
-          typeof receipt.result.id === "string"
-        )
+        if (receipt.confirmed && "result" in receipt && responses.processStart(receipt.result))
           await save({
             processId: receipt.result.id,
             receipt: receipt.result,
@@ -140,7 +139,7 @@ class WorktreeEnvironment {
           }
         }
         const observed = await project.client.request("areal/process/get", target, {
-          decode: readProcess,
+          decode: readEnvironmentProcess,
         });
         let output = attempt.output ?? "";
         const page = await project.client.request(
@@ -151,7 +150,7 @@ class WorktreeEnvironment {
             maxBytes: OUTPUT_BYTES,
             waitMs: 0,
           },
-          { decode: readOutput },
+          { decode: readEnvironmentOutput },
         );
         for (const chunk of page.chunks ?? [])
           output += Buffer.from(chunk.dataBase64, "base64").toString("utf8");
@@ -181,7 +180,7 @@ class WorktreeEnvironment {
               }
             }
             const closed = await project.client.request("areal/process/get", target, {
-              decode: readProcess,
+              decode: readEnvironmentProcess,
             });
             await save({ managed: closed.process });
             if (closed.process?.cleanupConfirmed !== true)
@@ -216,50 +215,5 @@ class WorktreeEnvironment {
       });
     }
   }
-}
-/** @param {unknown} value @returns {value is ProcessState} */
-function processState(value) {
-  return (
-    modelRecord(value) &&
-    (value.state === undefined || typeof value.state === "string") &&
-    (value.cleanupConfirmed === undefined || typeof value.cleanupConfirmed === "boolean") &&
-    (value.exitCode == null || typeof value.exitCode === "number") &&
-    (value.stopReason == null || typeof value.stopReason === "string")
-  );
-}
-/** @param {unknown} value @returns {{runtime?:ProcessState|null,process?:ProcessState|null}} */
-function readProcess(value) {
-  if (
-    !modelRecord(value) ||
-    (value.runtime != null && !processState(value.runtime)) ||
-    (value.process != null && !processState(value.process))
-  )
-    throw new Error("环境脚本运行状态无效");
-  return { runtime: value.runtime, process: value.process };
-}
-/** @param {unknown} value */
-function readOutput(value) {
-  if (
-    !modelRecord(value) ||
-    !Array.isArray(value.chunks) ||
-    typeof value.nextCursor !== "string" ||
-    typeof value.gap !== "boolean" ||
-    typeof value.truncated !== "boolean" ||
-    typeof value.closed !== "boolean"
-  )
-    throw new Error("环境脚本输出页无效");
-  const chunks = value.chunks.map((/** @type {unknown} */ chunk) => {
-    if (!modelRecord(chunk) || typeof chunk.dataBase64 !== "string")
-      throw new Error("环境脚本输出片段无效");
-    return { ...chunk, dataBase64: chunk.dataBase64 };
-  });
-  return {
-    ...value,
-    chunks,
-    nextCursor: value.nextCursor,
-    gap: value.gap,
-    truncated: value.truncated,
-    closed: value.closed,
-  };
 }
 module.exports = { WorktreeEnvironment, platformScript };

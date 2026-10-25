@@ -238,7 +238,15 @@ class SharedCoreBackend {
     this.genUiState = createGenUiState(this.home);
     /** @type {import("./service-state.cjs").ServiceSnapshot} */
     this.value = {
-      library: { projects: {}, threads: {}, projectOrder: [], settings: {} },
+      library: {
+        projects: {},
+        threads: {},
+        projectOrder: [],
+        settings: {},
+        sections: [],
+        sidebarThreadOrder: [],
+        sidebarRevision: 0,
+      },
       projects: [],
     };
     /** @type {Partial<import('./resource-observation.cjs').RecoveryService>} */

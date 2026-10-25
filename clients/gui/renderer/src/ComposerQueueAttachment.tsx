@@ -33,7 +33,11 @@ export function ComposerQueueAttachment({
     void read()
       .then((result) => {
         if (!active) return;
-        preview = URL.createObjectURL(new Blob([result.bytes], { type: result.mime }));
+        preview = URL.createObjectURL(
+          new Blob([new Uint8Array(result.bytes).buffer], {
+            type: result.mime ?? "application/octet-stream",
+          }),
+        );
         setUrl(preview);
       })
       .catch((cause) => {

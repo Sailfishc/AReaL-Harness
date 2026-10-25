@@ -1,6 +1,13 @@
 import { Button, Textarea } from "@areal/ui";
 import { useState } from "react";
-import type { Data, Action } from "./services.js";
+import type { Data, Action, CommandParams } from "./services.js";
+
+export type QueueEditInput = {
+  [Request in CommandParams<"queueEdit"> as Request["operation"]]: Omit<
+    Request,
+    "projectId" | "threadId" | "expectedRevision" | "requestId"
+  >;
+}[CommandParams<"queueEdit">["operation"]];
 
 export const queueText = (item: Data) =>
   (item.input ?? []).map((p: Data) => (p.type === "text" ? p.text : "[附件]")).join("\n");
@@ -60,7 +67,7 @@ export function Queue({
   const [error, setError] = useState("");
   const pending = queue.items.filter((item: Data) => item.status === "pending");
   const reason = draft ? queueEditRefusal(queue, draft, error) : error;
-  const edit = async (operation: string, values: Data = {}, revision = queue.revision) => {
+  const edit = async (request: QueueEditInput, revision = queue.revision) => {
     if (busy) return;
     setBusy(true);
     setError("");
@@ -68,11 +75,10 @@ export function Queue({
       await action("queueEdit", {
         projectId,
         threadId,
-        operation,
+        ...request,
         expectedRevision: revision,
-        ...values,
       });
-      if (operation === "update") setDraft(null);
+      if (request.operation === "update") setDraft(null);
     } catch (cause) {
       const failure = cause as Error & { submissionUnknown?: boolean };
       setError(
@@ -84,8 +90,7 @@ export function Queue({
       setBusy(false);
     }
   };
-  const run = (operation: string, values: Data = {}, revision?: number) =>
-    void edit(operation, values, revision);
+  const run = (request: QueueEditInput, revision?: number) => void edit(request, revision);
   return (
     <div className="utility-content">
       <div className="utility-actions">
@@ -95,7 +100,7 @@ export function Queue({
           data-slot={undefined}
           type="submit"
           disabled={disabled || busy}
-          onClick={() => run(queue.paused ? "resume" : "pause")}
+          onClick={() => run({ operation: queue.paused ? "resume" : "pause" })}
         >
           {queue.paused ? "继续队列" : "暂停队列"}
         </Button>
@@ -169,7 +174,10 @@ export function Queue({
                   }
                   onClick={() => {
                     if (open)
-                      run("update", { queueItemId: item.id, text: open.text }, open.revision);
+                      run(
+                        { operation: "update", queueItemId: item.id, text: open.text },
+                        open.revision,
+                      );
                     else {
                       setError("");
                       setDraft({ id: item.id, text: current, revision: queue.revision });
@@ -195,7 +203,7 @@ export function Queue({
                     data-slot={undefined}
                     type="submit"
                     disabled={disabled || busy}
-                    onClick={() => run("remove", { queueItemId: item.id })}
+                    onClick={() => run({ operation: "remove", queueItemId: item.id })}
                   >
                     移除
                   </Button>
@@ -219,7 +227,7 @@ export function Queue({
                           ids[position + offset],
                           ids[position],
                         ];
-                        run("reorder", { queueItemIds: ids });
+                        run({ operation: "reorder", queueItemIds: ids });
                       }}
                     >
                       {offset < 0 ? "上移" : "下移"}

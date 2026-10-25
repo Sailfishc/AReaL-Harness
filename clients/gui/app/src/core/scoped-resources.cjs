@@ -603,14 +603,6 @@ function requireClient(project) {
 }
 /** @param {unknown} value @returns {value is ResourceRequest} */
 function isResourceRequest(value) {
-  return (
-    resourceContract.record(value) &&
-    typeof value.operation === "string" &&
-    ["scope", "projectId", "id"].every(
-      (key) => value[key] === undefined || typeof value[key] === "string",
-    ) &&
-    (value.expectedRevision === undefined || typeof value.expectedRevision === "number") &&
-    (value.enabled === undefined || typeof value.enabled === "boolean")
-  );
+  return resourceContract.isRequest("resources", value);
 }
 module.exports = { ScopedResources, metadata, normalizeMcp };

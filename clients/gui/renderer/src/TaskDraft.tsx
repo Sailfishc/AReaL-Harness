@@ -330,6 +330,7 @@ export function TaskDraft({
   }, [action, disabled, saved.threadId, saved.pending, startRequested, retry]);
   useEffect(() => {
     if (!saved.threadId || !project?.state?.connected) return;
+    const draftThreadId = saved.threadId;
     let live = true,
       reading = false,
       restored = false;
@@ -338,7 +339,7 @@ export function TaskDraft({
       reading = true;
       try {
         if (!restored) {
-          await action("open", { projectId: project.id, threadId: saved.threadId });
+          await action("open", { projectId: project.id, threadId: draftThreadId });
           if (!live) return;
           restored = true;
           setRestoredConnection(connectionKey);
@@ -346,18 +347,20 @@ export function TaskDraft({
         let result = await action("manage", {
           projectId: project.id,
           operation: "taskDraftRead",
-          threadId: saved.threadId,
+          threadId: draftThreadId,
         });
         if (!live) return;
         setReadError("");
         showView(result, project.id);
-        if (result.thread?.cwd && current.current.location.cwd !== result.thread.cwd)
+        if (result.thread.cwd && current.current.location.cwd !== result.thread.cwd)
           persist({ location: { ...current.current.location, cwd: result.thread.cwd } });
         if (current.current.failedTurn && current.current.failedTurn !== result.turnId)
           setError("");
         // Read-only recovery never replays an unknown or failed save.
         if (
           result.proposal &&
+          result.turnId &&
+          result.digest &&
           !result.running &&
           !result.error &&
           !current.current.pending &&
@@ -370,14 +373,14 @@ export function TaskDraft({
             await action("manage", {
               projectId: project.id,
               operation: "taskDraftConfirm",
-              threadId: saved.threadId,
+              threadId: draftThreadId,
               turnId: result.turnId,
               digest: result.digest,
             });
             const next = await action("manage", {
               projectId: project.id,
               operation: "taskDraftRead",
-              threadId: saved.threadId,
+              threadId: draftThreadId,
             });
             if (!live) return;
             result = next;
@@ -389,7 +392,7 @@ export function TaskDraft({
             const failure = cause as Error & { submissionUnknown?: boolean };
             persist({
               pending: failure.submissionUnknown ? "confirm" : undefined,
-              failedTurn: result.turnId,
+              failedTurn: result.turnId ?? undefined,
             });
             setError(failure.message);
           } finally {

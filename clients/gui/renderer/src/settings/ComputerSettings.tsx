@@ -1,7 +1,8 @@
+import { readLibraryRequest } from "@areal/workbench/desktop-contract/library-media";
 import { SettingsGroupCard, SettingsRow, SettingsSection } from "@areal/ui/compositions";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n/IntlProvider.js";
-import type { Action, Data } from "../services.js";
+import type { Action, CommandParams, Data } from "../services.js";
 import { Input } from "../components/ui/input.js";
 import { Button } from "../components/ui/button.js";
 import { SettingsBadge, SettingsSwitch, SettingsSelect } from "./SettingsPageParts.js";
@@ -80,18 +81,14 @@ export function ComputerSettings({
     };
   }, [refresh]);
   const run = async (
-    operation: "requestAccess" | "openSettings" | "restart" | "stop",
-    capability?: Capability,
+    request: Exclude<CommandParams<"computerControl">, { operation: "status" }>,
   ) => {
     if (pending.current || !connected) return;
     pending.current = true;
     setBusy(true);
     setError("");
     try {
-      const value = await action("computerControl", {
-        operation,
-        ...(capability ? { capability } : {}),
-      });
+      const value = await action("computerControl", request);
       if (mounted.current) setStatus(value);
     } catch (cause) {
       if (mounted.current) setError((cause as Error).message);
@@ -106,7 +103,7 @@ export function ComputerSettings({
     setBusy(true);
     setError("");
     try {
-      await action("library", { operation: "settings", key, value });
+      await action("library", readLibraryRequest({ operation: "settings", key, value }));
       setStatus(null);
     } catch (cause) {
       if (mounted.current) setError((cause as Error).message);
@@ -230,14 +227,14 @@ export function ComputerSettings({
                         <Button
                           variant="ghost"
                           disabled={disabled}
-                          onClick={() => void run("requestAccess", capability)}
+                          onClick={() => void run({ operation: "requestAccess", capability })}
                         >
                           {t("settings.computer.grant")}
                         </Button>
                         <Button
                           variant="ghost"
                           disabled={disabled}
-                          onClick={() => void run("openSettings", capability)}
+                          onClick={() => void run({ operation: "openSettings", capability })}
                         >
                           {t("settings.computer.openSettings")}
                         </Button>
@@ -282,13 +279,17 @@ export function ComputerSettings({
                 >
                   {t(lcu ? "settings.computer.lcuRefresh" : "settings.computer.refresh")}
                 </Button>
-                <Button variant="outline" disabled={disabled} onClick={() => void run("restart")}>
+                <Button
+                  variant="outline"
+                  disabled={disabled}
+                  onClick={() => void run({ operation: "restart" })}
+                >
                   {t(lcu ? "settings.computer.check" : "settings.computer.restart")}
                 </Button>
                 <Button
                   variant="outline"
                   disabled={!connected || busy}
-                  onClick={() => void run("stop")}
+                  onClick={() => void run({ operation: "stop" })}
                 >
                   {t("settings.computer.stop")}
                 </Button>

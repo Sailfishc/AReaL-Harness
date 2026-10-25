@@ -1,3 +1,4 @@
+import type { PluginCommand, PluginMutate } from "./PluginCenter.js";
 import { Input } from "@areal/ui";
 import { useI18n, type UiMessage } from "../i18n/IntlProvider.js";
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -13,13 +14,14 @@ import type { Data } from "../services.js";
 
 type AuthState = "notStarted" | "pending" | "ready" | "failed" | "cancelled" | "unknown";
 type Props = {
+  projectId: string;
   detail: PluginDetail;
   snapshot?: Data;
   loading: boolean;
   error: string | UiMessage;
   disabled: boolean;
-  command: (operation: string, values?: Data) => Promise<Data>;
-  mutate: (operation: "pluginAuth" | "pluginConnection", values: Data) => Promise<Data | undefined>;
+  command: PluginCommand;
+  mutate: PluginMutate;
   onRefresh: () => void;
   onAuthActivity: (id: string, pending: boolean) => void;
   onComponentChange: (serverId: string, enabled: boolean) => void;
@@ -28,6 +30,7 @@ type Props = {
 
 /** Projects the installed package's authoritative connection snapshot; consent is only a local draft. */
 export function PluginConnectionPanel({
+  projectId,
   detail,
   snapshot,
   loading,
@@ -64,7 +67,9 @@ export function PluginConnectionPanel({
     setAuthError("");
     void Promise.allSettled(
       authenticatedServers.map(async (server) => {
-        const result = await command("pluginAuth", {
+        const result = await command({
+          projectId,
+          operation: "pluginAuth",
           id: detail.id,
           server: server.serverId,
           authOperation: "status",
@@ -93,24 +98,34 @@ export function PluginConnectionPanel({
     return () => {
       ++generation.current;
     };
-  }, [detail.id, detail.installedDigest, snapshot, command]);
+  }, [projectId, detail.id, detail.installedDigest, snapshot, command]);
 
-  const authenticate = async (server: Data, operation: string) => {
-    if (disabled || actingRef.current) return;
+  const authenticate = async (server: Data, operation: "start" | "status" | "cancel") => {
+    if (disabled || actingRef.current || !detail.installedDigest) return;
     actingRef.current = true;
     const request = generation.current;
     setActing(`${server.serverId}:${operation}`);
-    const result = await mutate("pluginAuth", {
+    const result = await mutate({
+      operation: "pluginAuth",
       id: detail.id,
       server: server.serverId,
       authOperation: operation,
-      expectedDigest: detail.installedDigest,
     });
     // A refresh may have replaced this projection while the operation was in flight.
     if (request === generation.current) {
       setAuth((previous) => ({
         ...previous,
-        [server.serverId]: result === null ? "notStarted" : (result?.status ?? "unknown"),
+        [server.serverId]:
+          result === null
+            ? "notStarted"
+            : result &&
+                "status" in result &&
+                (result.status === "pending" ||
+                  result.status === "ready" ||
+                  result.status === "failed" ||
+                  result.status === "cancelled")
+              ? result.status
+              : "unknown",
       }));
       if (result === undefined)
         setAuthError({
@@ -326,9 +341,11 @@ export function PluginConnectionPanel({
                 variant="outline"
                 disabled={blocked}
                 onClick={() => {
+                  if (!detail.installedDigest) return;
                   setConsent(false);
                   setConsentOpen(false);
-                  void mutate("pluginConnection", {
+                  void mutate({
+                    operation: "pluginConnection",
                     id: detail.id,
                     expectedDigest: detail.installedDigest,
                     connect: false,
@@ -393,9 +410,10 @@ export function PluginConnectionPanel({
                       <Button
                         disabled={blocked || !consent}
                         onClick={() => {
-                          if (!consent) return;
+                          if (!consent || !detail.installedDigest) return;
                           setConsent(false);
-                          void mutate("pluginConnection", {
+                          void mutate({
+                            operation: "pluginConnection",
                             id: detail.id,
                             expectedDigest: detail.installedDigest,
                             connect: true,
@@ -431,6 +449,7 @@ export function PluginConnectionPanel({
             !consentOpen &&
             authenticatedServers.map((server) => (
               <PluginAuthConfiguration
+                projectId={projectId}
                 key={server.serverId}
                 pluginId={detail.id}
                 server={server}

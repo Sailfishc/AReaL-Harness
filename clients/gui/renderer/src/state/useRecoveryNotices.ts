@@ -1,13 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n/IntlProvider.js";
-import {
-  call,
-  type Action,
-  type CommandName,
-  type Data,
-  type PlatformServices,
-  type Snapshot,
-} from "../services.js";
+import { call, type Action, type Data, type PlatformServices, type Snapshot } from "../services.js";
 import {
   isTechnicalErrorMessage,
   recoveredOutcome,
@@ -122,27 +115,36 @@ export function useRecoveryNotices(
       notice.threadId === selection.threadId &&
       !dismissedNotices.has(notice.id),
   );
-  const action: Action = useCallback(
-    async (name: CommandName, params: Data = {}) => {
+  const action: Action = useCallback<Action>(
+    async (name, params) => {
       const selected = selectedRecoveryOwner.current;
       const target = recoverySnapshot.current.projects.find(
-        (item) => item.id === (params.projectId ?? selected.projectId),
+        (item) =>
+          item.id ===
+          (("projectId" in params ? params.projectId : undefined) ?? selected.projectId),
       );
       const owner = {
-        projectId: params.projectId ?? selected.projectId,
-        threadId: params.threadId ?? selected.threadId,
+        projectId: ("projectId" in params ? params.projectId : undefined) ?? selected.projectId,
+        threadId: ("threadId" in params ? params.threadId : undefined) ?? selected.threadId,
         connectionGeneration: target?.core?.connectionGeneration ?? selected.connectionGeneration,
       };
       const scoped =
         name === "workspace" &&
         selection.threadId &&
+        "projectId" in params &&
         params.projectId === selection.projectId &&
-        !params.threadId &&
-        !String(params.operation).startsWith("worktree")
+        !("threadId" in params && params.threadId) &&
+        "operation" in params &&
+        typeof params.operation === "string" &&
+        !params.operation.startsWith("worktree")
           ? { ...params, threadId: selection.threadId }
           : params;
       const request = ["create", "configure"].includes(name)
-        ? { ...scoped, requestId: params.requestId ?? crypto.randomUUID() }
+        ? {
+            ...scoped,
+            requestId:
+              ("requestId" in params ? params.requestId : undefined) ?? crypto.randomUUID(),
+          }
         : scoped;
       try {
         return await call(services, name, request);
@@ -152,16 +154,21 @@ export function useRecoveryNotices(
         if (
           !composerRefusal &&
           !["providers", "chatgpt", "prediction"].includes(name) &&
-          !(name === "respond" && params.answers) &&
+          !(name === "respond" && "answers" in params && params.answers) &&
           name !== "media" &&
           name !== "feedback" &&
-          !(name === "manage" && params.operation === "goalCreate")
+          !(name === "manage" && "operation" in params && params.operation === "goalCreate")
         ) {
           const operation =
             failure.outcome && "operation" in failure.outcome
               ? failure.outcome.operation
               : undefined;
-          const requestId = operation?.requestId ?? failure.requestId ?? request.requestId;
+          const requestId =
+            operation?.requestId ??
+            failure.requestId ??
+            ("requestId" in request && typeof request.requestId === "string"
+              ? request.requestId
+              : undefined);
           const unconfirmed =
             failure.submissionUnknown === true ||
             failure.outcome?.kind === "admitted" ||

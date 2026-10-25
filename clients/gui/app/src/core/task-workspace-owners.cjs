@@ -2,7 +2,9 @@
 "use strict";
 const { mkdir, readdir, readFile } = require("node:fs/promises");
 const { join } = require("node:path");
-const { readTask } = require("./task-contract.cjs");
+const {
+  readTask,
+} = require("../../../packages/workbench/client/desktop-contract/management-tasks.cjs");
 const { modelRecord } = require("@areal/workbench/core-model-contract");
 /** @typedef {{id:string,threadId?:string,ambiguous?:boolean}} OwnerRecord */
 /** @param {string} message */
@@ -84,7 +86,7 @@ class TaskWorkspaceOwners {
     owners.add(projectId);
     return JSON.stringify(previous) !== JSON.stringify(record);
   }
-  /** @param {import('./project-state.cjs').CoreProject} project @param {import("./task-contract.cjs").Task} task */
+  /** @param {import('./project-state.cjs').CoreProject} project @param {import("../../../packages/workbench/client/desktop-contract/management-tasks.cjs").Task} task */
   async observe(project, task) {
     if (task?.id) await this.observeTasks(project, [task]);
   }
@@ -92,12 +94,16 @@ class TaskWorkspaceOwners {
   async observeProject(project) {
     await this.observeTasks(project, Object.values(project.model.state.tasks ?? {}));
   }
-  /** @param {import('./project-state.cjs').CoreProject} project @param {Array<import("@areal/workbench/core-model-contract").CoreTask|import("./task-contract.cjs").InboxEntry>} tasks */
+  /** @param {import('./project-state.cjs').CoreProject} project @param {Array<import("@areal/workbench/core-model-contract").CoreTask|import("../../../packages/workbench/client/desktop-contract/management-tasks.cjs").InboxEntry>} tasks */
   async observeTasks(project, tasks) {
     this.registered(project.id);
     let changed = false;
     for (const task of tasks)
-      changed = this.remember(project.id, { ...task, id: task.taskId ?? task.id }) || changed;
+      changed =
+        this.remember(project.id, {
+          ...task,
+          id: task.taskId ?? ("id" in task ? task.id : undefined),
+        }) || changed;
     if (changed) this.dirty.add(project.id);
     if (this.dirty.has(project.id)) {
       const write = (this.writes.get(project.id) ?? Promise.resolve())
@@ -123,8 +129,11 @@ class TaskWorkspaceOwners {
     if (
       tasks.some(
         (task) =>
-          (this.owners.get(String(task.taskId ?? task.id))?.size ?? 0) > 1 ||
-          this.hosts.get(project.id)?.get(String(task.taskId ?? task.id))?.ambiguous,
+          (this.owners.get(String(task.taskId ?? ("id" in task ? task.id : undefined)))?.size ??
+            0) > 1 ||
+          this.hosts
+            .get(project.id)
+            ?.get(String(task.taskId ?? ("id" in task ? task.id : undefined)))?.ambiguous,
       )
     )
       throw unavailable("任务执行归属不唯一，未向任何工作区发送操作");

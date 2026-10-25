@@ -14,25 +14,21 @@ const {
   readTurnMetadata,
 } = require("./local-service.cjs");
 
-/** @typedef {'stopDesktop'|'updateDesktop'|'stopProject'|'updateProject'|'interruptTurn'} LifecycleKind */
-/** @typedef {'ifIdle'|'cancel'} LifecycleMode */
-/** @typedef {'notAttempted'|'acceptedPending'|'blocked'|'admissionUnconfirmed'|'settlementIncomplete'|'completed'} TargetPhase */
-/** @typedef {{projectId:string,serviceId:string,generation:string}} LifecycleIdentity */
-/** @typedef {LifecycleIdentity & {requestId:string,phase:TargetPhase,hostReceipt?:unknown,error?:unknown}} LifecycleTarget */
+/** @typedef {import('../../../packages/workbench/client/desktop-contract/shared.cjs').LifecycleKind} LifecycleKind */
+/** @typedef {import('../../../packages/workbench/client/desktop-contract/shared.cjs').LifecycleMode} LifecycleMode */
+/** @typedef {import('../../../packages/workbench/client/desktop-contract/shared.cjs').TargetPhase} TargetPhase */
+/** @typedef {import('../../../packages/workbench/client/desktop-contract/shared.cjs').LifecycleIdentity} LifecycleIdentity */
+/** @typedef {import('../../../packages/workbench/client/desktop-contract/shared.cjs').LifecycleTarget & {requestId:string}} LifecycleTarget */
 /** @typedef {{requestId:string,kind:LifecycleKind,mode:LifecycleMode,desktopGeneration:string,targets:LifecycleIdentity[],threadId?:string,turnId?:string}} LifecycleRequest */
-/** @typedef {Omit<LifecycleRequest,'targets'|'threadId'|'turnId'> & {version:1,targets:LifecycleTarget[],phase:Exclude<TargetPhase,'notAttempted'>|'partial',desktopExit:'notRequested'|'requested',harnessHome?:string,desktopError?:unknown,threadId?:unknown,turnId?:unknown,message?:unknown,logicalProjectId?:unknown}} LifecycleReceipt */
+/** @typedef {import('../../../packages/workbench/client/desktop-contract/shared.cjs').LifecycleReceipt & {targets:LifecycleTarget[]}} LifecycleReceipt */
 /** @typedef {import('./project-state.cjs').CoreProject} Project */
 /** @typedef {import('@areal/runtime-client/core').CoreClient} CoreClient */
 /** @typedef {InstanceType<typeof import('./backend.cjs').CoreBackend>} Backend */
 /** @typedef {{closed:boolean,clients:Set<unknown>,inflight:number}} LifecycleService */
-/** @type {readonly LifecycleKind[]} */
-const KINDS = Object.freeze([
-  "stopDesktop",
-  "updateDesktop",
-  "stopProject",
-  "updateProject",
-  "interruptTurn",
-]);
+const {
+  KINDS,
+  isLifecycleReceipt,
+} = require("../../../packages/workbench/client/desktop-contract/shared.cjs");
 const PHASES = new Set([
   "notAttempted",
   "acceptedPending",
@@ -169,7 +165,7 @@ function hostPhase(value) {
 /** @param {unknown} record @param {string} requestId @returns {record is LifecycleReceipt} */
 function validReceipt(record, requestId) {
   return (
-    object(record) &&
+    isLifecycleReceipt(record) &&
     uuid(record.requestId) &&
     record.requestId === requestId &&
     record.version === 1 &&

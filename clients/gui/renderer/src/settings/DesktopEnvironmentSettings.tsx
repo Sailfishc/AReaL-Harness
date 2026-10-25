@@ -1,3 +1,4 @@
+import { readLibraryRequest } from "@areal/workbench/desktop-contract/library-media";
 import { SettingsGroupCard, SettingsRow, SettingsSection } from "@areal/ui/compositions";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -49,7 +50,10 @@ function SavedSetting({
     setError("");
     setSaved(false);
     try {
-      await action("library", { operation: "settings", key: setting, value: next });
+      await action(
+        "library",
+        readLibraryRequest({ operation: "settings", key: setting, value: next }),
+      );
       if (typeof next === "string") setDraft(next);
       setSaved(true);
     } catch (cause) {

@@ -14,7 +14,7 @@ export interface ComposerSkill {
   description: string;
   source: string;
 }
-const identity = (skill: ComposerSkill) => `${skill.id}/${skill.revision}`;
+const identity = (skill: Pick<ComposerSkill, "id" | "revision">) => `${skill.id}/${skill.revision}`;
 export function readComposerSkills(key: string): ComposerSkill[] {
   const value: unknown = JSON.parse(composerDraftStorage.getItem(`${key}:skills`) ?? "[]");
   if (
@@ -129,14 +129,14 @@ export function useComposerSkills({
         stage = "labels";
         startedAt = performance.now();
         void Promise.allSettled(
-          ["project", "user"].map((scope) =>
+          (["project", "user"] satisfies Array<"project" | "user">).map((scope) =>
             action("resources", { operation: "skills", scope, projectId: project.id }),
           ),
         ).then((sources) => {
           if (!active) return;
           const labels = new Map<string, string>();
           for (const row of rows) {
-            if (row.pluginId) continue;
+            if ("pluginId" in row && row.pluginId) continue;
             const scope = sources.findIndex(
               (value) =>
                 value.status === "fulfilled" &&

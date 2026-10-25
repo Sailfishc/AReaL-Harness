@@ -292,7 +292,7 @@ test("explicit retry and ordinary send still count as work and release admission
   ]);
   assert.equal(backend.activeCommands, 1);
   await assert.rejects(
-    backend.command("providers", { operation: "apply" }),
+    backend.command("providers", { operation: "apply", expectedRevision: "fixture" }),
     /请等待任务和操作完成/,
   );
   assert.deepEqual(await backend.command("trajectory", { operation: "status" }), status);
@@ -351,7 +351,7 @@ test("explicit retry and ordinary send still count as work and release admission
   ]);
   assert.equal(backend.activeCommands, 1);
   await assert.rejects(
-    backend.command("providers", { operation: "apply" }),
+    backend.command("providers", { operation: "apply", expectedRevision: "fixture" }),
     /请等待任务和操作完成/,
   );
   releaseSend.resolve();

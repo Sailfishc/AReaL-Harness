@@ -45,6 +45,7 @@ import { TaskDraft, triggerExplanation, type TaskConversationRenderer } from "./
 import { stageComposerDraft } from "./composerDraftStorage.js";
 import "./TaskCenter.css";
 import type { Action, Data } from "./services.js";
+import type { ObservedCatalogOwner } from "@areal/workbench/desktop-contract/catalog";
 import { GoalUsageSummary } from "./GoalUsage.js";
 import { goalBudgetMessage } from "./conversationPresentation.js";
 
@@ -1069,6 +1070,7 @@ export function TaskCenter({
                 )
                   return;
                 const observation = result.owners[0];
+                if (observation.status !== "unobserved") return;
                 setCatalog((previous) => {
                   const read = previous[owner.id];
                   if (
@@ -1086,7 +1088,7 @@ export function TaskCenter({
                         data: result.data,
                         hasMore: result.hasMore,
                         readAt: observation.readAt,
-                        coverage: observation.coverage ?? { kind: "partial" },
+                        coverage: observation.coverage,
                       },
                     },
                   };
@@ -1094,12 +1096,31 @@ export function TaskCenter({
               })
               .catch(() => {});
             try {
-              const result = await action("tasks", {
-                operation: retryProjectId ? "list" : "observe",
-                projectId: owner.id,
-                limit: Math.min(1024, 30 * pages.current),
-                ...identity,
-              });
+              const result = retryProjectId
+                ? await action("tasks", {
+                    operation: "list",
+                    projectId: owner.id,
+                    limit: Math.min(1024, 30 * pages.current),
+                    ...identity,
+                  }).then((result) => ({
+                    ...result,
+                    owners: result.owners.map((observation): ObservedCatalogOwner =>
+                      observation.status === "ready"
+                        ? {
+                            ...observation,
+                            source: "live",
+                            coverage: { kind: "complete" },
+                            readAt: Date.now(),
+                          }
+                        : observation,
+                    ),
+                  }))
+                : await action("tasks", {
+                    operation: "observe",
+                    projectId: owner.id,
+                    limit: Math.min(1024, 30 * pages.current),
+                    ...identity,
+                  });
               observed = result.errors.length === 0;
               catalogTrace("response_received", identity, owner.id, result.data.length);
               if (!active) {
@@ -1112,42 +1133,27 @@ export function TaskCenter({
                 result.viewEpoch !== viewEpoch
               )
                 throw new Error("后台任务目录响应身份不匹配，请更新后台后重试。");
-              const observation =
-                retryProjectId && !result.errors.length
-                  ? {
-                      ...result.owners[0],
-                      source: "live",
-                      coverage: { kind: "complete" },
-                      readAt: Date.now(),
-                    }
-                  : result.owners[0];
-              const value: OwnerRows =
-                observation.source === "live"
-                  ? {
-                      source: "live",
-                      data: result.data,
-                      hasMore: result.hasMore,
-                      readAt: observation.readAt,
-                      coverage: observation.coverage ?? { kind: "partial" },
-                      connectionGeneration: observation.connectionGeneration,
-                    }
-                  : {
-                      source: "published",
-                      data: result.data,
-                      hasMore: result.hasMore,
-                      readAt: observation.readAt,
-                      coverage: observation.coverage ?? { kind: "partial" },
-                    };
+              const observation = result.owners[0];
+              if (result.errors.length || observation.status === "error") {
+                setCatalog((previous) => ({
+                  ...previous,
+                  [owner.id]: {
+                    status: "error",
+                    identity,
+                    message: result.errors.map((error) => error.message).join("\n"),
+                    previous: ownerRows(previous[owner.id]),
+                  },
+                }));
+                continue;
+              }
+              const value: OwnerRows = {
+                ...observation,
+                data: result.data,
+                hasMore: result.hasMore,
+              };
               setCatalog((previous) => ({
                 ...previous,
-                [owner.id]: result.errors.length
-                  ? {
-                      status: "error",
-                      identity,
-                      message: result.errors.map((error: Data) => error.message).join("\n"),
-                      previous: result.data.length ? value : ownerRows(previous[owner.id]),
-                    }
-                  : { status: "ready", identity, value },
+                [owner.id]: { status: "ready", identity, value },
               }));
             } catch (cause) {
               if (!active) {
@@ -1303,7 +1309,11 @@ export function TaskCenter({
       clearTimeout(deadline);
     };
   }, [target, selected, revealKey, targetRead?.status]);
-  const control = async (operation: string, runId?: string) => {
+  const control = async (
+    request:
+      | { operation: "taskRunNow" }
+      | { operation: "taskResumeRun" | "taskStopRun"; runId: string },
+  ) => {
     if (!task || !project || disabled || mutation.current) return;
     const owner = selected;
     const current = () => selection.current.selected === owner;
@@ -1313,12 +1323,13 @@ export function TaskCenter({
     try {
       const receipt = await action("manage", {
         projectId: project.id,
-        operation,
         taskId: task.id,
         expectedRevision: task.revision,
-        ...(runId ? { expectedRunId: runId } : {}),
+        ...(request.operation === "taskRunNow"
+          ? request
+          : { operation: request.operation, expectedRunId: request.runId }),
       });
-      if (current() && receipt?.id) {
+      if (current() && "id" in receipt && receipt.id) {
         const view = {
           ...task,
           ...receipt,
@@ -1397,7 +1408,7 @@ export function TaskCenter({
           operation: "worktreeRead",
           requestId: draft.requestId,
         });
-        if (record && ["failed", "cancelled"].includes(record.state)) {
+        if (record.state === "failed" || record.state === "cancelled") {
           draft.pending = false;
           draft.requestId = crypto.randomUUID();
           persist();
@@ -1552,7 +1563,7 @@ export function TaskCenter({
             history.owner !== selected ||
             !history.runNow
           }
-          onClick={() => void control("taskRunNow")}
+          onClick={() => void control({ operation: "taskRunNow" })}
         >
           {t("operations.runNow")}
         </Button>
@@ -1706,7 +1717,7 @@ export function TaskCenter({
                         disabled={
                           disabled || ["stopRequested", "resumeRequested"].includes(run.reason)
                         }
-                        onClick={() => void control("taskResumeRun", run.id)}
+                        onClick={() => void control({ operation: "taskResumeRun", runId: run.id })}
                       >
                         继续本次运行
                       </Button>
@@ -1715,7 +1726,7 @@ export function TaskCenter({
                       size="sm"
                       variant="outline"
                       disabled={disabled || run.reason === "stopRequested"}
-                      onClick={() => void control("taskStopRun", run.id)}
+                      onClick={() => void control({ operation: "taskStopRun", runId: run.id })}
                     >
                       停止本次运行
                     </Button>

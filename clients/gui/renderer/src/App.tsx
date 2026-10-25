@@ -274,7 +274,7 @@ function AppContent({ services }: { services: PlatformServices }) {
       await restoreConversation(restorationOwner, project.state?.connected ? "open" : "connect", {
         connectService: true,
       });
-    } else await resourceAction("connectService");
+    } else await resourceAction("connectService", {});
   };
   const backend = useBackendRecovery(snapshot, resourceAction, reconnectService, () => {
     setSettingsTab("后台服务");

@@ -374,7 +374,9 @@ export function SentAttachment({
         const blobMime = value.mime ?? "application/octet-stream";
         const displayMime =
           part.type === "image" && !blobMime.startsWith("image/") ? "image/*" : blobMime;
-        objectUrl = URL.createObjectURL(new Blob([value.bytes], { type: blobMime }));
+        objectUrl = URL.createObjectURL(
+          new Blob([new Uint8Array(value.bytes).buffer], { type: blobMime }),
+        );
         setMedia({ url: objectUrl, mime: displayMime });
       })
       .catch((cause) => {

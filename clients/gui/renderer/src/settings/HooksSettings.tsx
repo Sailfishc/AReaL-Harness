@@ -9,7 +9,7 @@ import { Button } from "../components/ui/button.js";
 import { Input } from "../components/ui/input.js";
 import { Feedback, SettingsDialog, useResource } from "./common.js";
 
-type Hook = { name: string; event: string; matcher: string; argv: string[]; timeoutMs: number };
+import type { Hook } from "@areal/workbench/desktop-contract/resource";
 type Hooks = {
   path: string;
   external: boolean;
@@ -23,7 +23,7 @@ type Draft = {
   hooks: Hook[];
   index: number;
   name: string;
-  event: string;
+  event: Hook["event"];
   matcher: string;
   argv: string;
   timeout: string;
@@ -151,8 +151,8 @@ export function HooksSettings({
   const apply = () =>
     run(async () => {
       if (connected) {
-        const result = await action("stopService");
-        if (result.canceled) {
+        const result = await action("stopService", {});
+        if ("canceled" in result) {
           setNotice({ id: "settings.hooksSettings.restartCancelledYourConfigurationIsSaved" });
           return;
         }
@@ -329,7 +329,14 @@ export function HooksSettings({
                 aria-label={t("settings.hooksSettings.triggerEvent")}
                 disabled={busy}
                 value={draft.event}
-                onValueChange={(selectedValue) => update({ ...draft, event: selectedValue })}
+                onValueChange={(event) => {
+                  if (
+                    event === "PreToolUse" ||
+                    event === "PostToolUse" ||
+                    event === "PostToolUseFailure"
+                  )
+                    update({ ...draft, event });
+                }}
               >
                 <option value="PreToolUse">
                   {t("settings.hooksSettings.beforeToolExecution")}

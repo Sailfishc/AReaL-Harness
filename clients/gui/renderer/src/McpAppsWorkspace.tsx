@@ -27,23 +27,13 @@ import {
   McpAppsMentions,
   type McpAppServer,
   type McpAppTool,
+  type McpAppsCommand,
 } from "./settings/McpAppsSettings.js";
 import type { Action, Data, PlatformServices } from "./services.js";
-export type McpWorkspaceServer = McpAppServer & {
-  pluginId?: string;
-  marketplace?: string;
-  installedDigest?: string;
-};
+import type { ManagementResponseMap } from "@areal/workbench/desktop-contract/management";
+export type McpWorkspaceServer = McpAppServer;
 type AppThreadIntent = "reuse-or-create" | "require-current" | "new";
-type FormRequest = {
-  requestId: string;
-  threadId: string;
-  serverId: string;
-  generation: string | number;
-  instanceId?: string;
-  message: string;
-  requestedSchema: unknown;
-};
+type FormRequest = ManagementResponseMap["mcpForms"]["data"][number];
 const appTab = (app: McpAppDescriptor) => `mcp-app:${app.instanceId}`;
 const compatibilityHint: UiMessage = { id: "settings.apps.upgradeBackend" };
 const visible = (block: ContentBlock) =>
@@ -686,11 +676,8 @@ export function useMcpAppsWorkspace({
   useEffect(() => {
     if (!desktopSupported || !deepLinksEnabled || !onMcpAppDeepLink) return;
     return onMcpAppDeepLink(async (link) => {
-      const candidates = servers.filter(
-        (server) =>
-          server.pluginId === link.pluginId &&
-          (!link.marketplace || server.marketplace === link.marketplace),
-      );
+      if (link.marketplace) throw Error(t("settings.mcpAppsWorkspace.theLinkDoesNotMatchASingle"));
+      const candidates = servers.filter((server) => server.pluginId === link.pluginId);
       const matches = candidates.flatMap((server) =>
         server.tools
           .filter((tool) => tool.name === link.toolName && entrypoint(tool, "global"))
@@ -812,9 +799,9 @@ export function useMcpAppsWorkspace({
         throw Error(t("settings.mcpAppsWorkspace.thePreviewAppIsNoLongerAvailable"));
       await openApp(server, tool, { arguments: advertised.arguments ?? {} });
     } else {
-      if (!Array.isArray(result.contents))
+      if (result.type !== "resource_link")
         throw Error(t("settings.mcpAppsWorkspace.invalidResourcePreviewFormat"));
-      setFormPreview({ requestId: form.requestId, contents: result.contents });
+      setFormPreview({ requestId: form.requestId, contents: result.resource.contents });
     }
   }
   const [slot, setSlot] = useState<HTMLDivElement | null>(null);
@@ -1059,7 +1046,7 @@ export function McpAppsHub({
     server.tools.some((tool) => entrypoint(tool, "global")),
   );
   const server = settingsServers.find((server) => server.serverId === selected);
-  const command = (request: Record<string, unknown>) => action("manage", request);
+  const command: McpAppsCommand = (request) => action("manage", request);
   const run = async (server: McpWorkspaceServer, tool: McpAppTool) => {
     setFeedback("");
     if (tool._meta?.ui || tool._meta?.["ui/resourceUri"]) {
@@ -1068,7 +1055,7 @@ export function McpAppsHub({
     }
     if (!project || !threadId)
       throw new UiMessageError({ id: "settings.mcpAppsWorkspace.chooseAnAppConversationFirst" });
-    const result = (await command({
+    const result = await command({
       operation: "mcpExtensionCall",
       projectId: project.id,
       threadId,
@@ -1077,13 +1064,13 @@ export function McpAppsHub({
       kind: "settingsAction",
       arguments: { toolName: tool.name },
       requestId: crypto.randomUUID(),
-    })) as Data;
+    });
     if (result.isError)
       throw new UiMessageError({ id: "settings.mcpAppsWorkspace.theAppActionDidNotComplete" });
     setFeedback(
       (result.content ?? [])
-        .filter((block: Data) => block.type === "text")
-        .map((block: Data) => block.text)
+        .filter((block) => block.type === "text")
+        .map((block) => block.text)
         .join("\n") || { id: "settings.mcpAppsWorkspace.actionCompleted" },
     );
   };

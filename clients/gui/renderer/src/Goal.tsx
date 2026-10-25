@@ -4,7 +4,7 @@ import { Maximize2, PauseCircle, PlayCircle, RotateCcw, Target, Trash2 } from "l
 import { Button } from "./components/ui/button.js";
 import { ControlHintTooltip } from "./ControlHintTooltip.js";
 import { goalBudgetMessage } from "./conversationPresentation.js";
-import { GoalUsageSummary, type GoalUsage } from "./GoalUsage.js";
+import { GoalUsageSummary } from "./GoalUsage.js";
 
 export const goalControlError = (cause: unknown) => {
   const message = (cause as Error).message;
@@ -19,29 +19,10 @@ export const goalControlError = (cause: unknown) => {
 import type { Action, Data } from "./services.js";
 import "./Goal.css";
 
-type GoalStatus = "active" | "paused" | "blocked" | "completed" | "budgetLimited" | "failed";
-type Goal = {
-  id: string;
-  objective: string;
-  status: GoalStatus;
-  reason: string | null;
-  tokenBudget: number | null;
-  maxTurns: number | null;
-  maxActiveSeconds: number | null;
-  settling: boolean;
-  waitingForInput: boolean;
-  waitingForAgents: boolean;
-  waitingForCapacity: boolean;
-  usage: GoalUsage;
-  limitsPending?: boolean;
-  report?: {
-    summary: string;
-    evidence: string[];
-    remaining: string[];
-    blocker?: string | null;
-  } | null;
-};
-type GoalState = { revision: number; eventSequence: number; goal: Goal | null };
+type GoalState =
+  import("@areal/workbench/desktop-contract/management").ManagementResponseMap["goal"];
+type Goal = NonNullable<GoalState["goal"]>;
+type GoalStatus = Goal["status"];
 type Props = { project: Data; thread: Data; action: Action };
 const labels: Record<GoalStatus, string> = {
   active: "进行中的目标",
@@ -95,7 +76,7 @@ export function GoalCard({ project, thread, action, onEdit }: Props & { onEdit: 
   if (!goal) return null;
   const disabled =
     busy || pendingGoal(project, thread) || !project.state?.connected || thread.desktop?.archived;
-  const control = async (operation: string) => {
+  const control = async (operation: "goalPause" | "goalResume" | "goalClear") => {
     if (locked.current || disabled) return;
     locked.current = true;
     setBusy(true);
@@ -250,9 +231,8 @@ export function GoalEditor({ project, thread, action }: Props) {
       const result: GoalState = await action("manage", {
         projectId: project.id,
         threadId: thread.id,
-        operation: goal ? "goalUpdate" : "goalCreate",
+        ...(goal ? { operation: "goalUpdate", goalId: goal.id } : { operation: "goalCreate" }),
         expectedRevision: revision,
-        ...(goal ? { goalId: goal.id } : {}),
         objective: draft.objective,
         inferLimits: true,
       });

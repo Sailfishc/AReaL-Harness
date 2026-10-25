@@ -36,7 +36,8 @@ class SharedPowerMonitor {
       unknown = false;
     if (this.backend.library.value.settings.preventSleep !== false) {
       for (const project of this.backend.projects.values()) {
-        if (this.stopped || this.backend.library.value.settings.preventSleep === false) break;
+        if (this.stopped || Object.is(this.backend.library.value.settings.preventSleep, false))
+          break;
         if (!project.client?.ready) {
           if (project.service) unknown = true;
           continue;

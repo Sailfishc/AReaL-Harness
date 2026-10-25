@@ -42,26 +42,15 @@ export function SpaceReclamation({
       // Each invocation owns its marker. A later successful operation cannot
       // erase an earlier unknown result, even for the same maintenance action.
       localStorage.setItem(key, operation);
-      const result = await action("manage", { projectId, operation });
       if (operation === "serverDrain") {
+        const result = await action("manage", { projectId, operation });
         if (result.draining !== true || result.restartSafe !== true)
           throw new UiMessageError({
             id: "settings.spaceReclamation.coreHasNotFinishedDrainingCheckExecution",
           });
         setNotice({ id: "settings.spaceReclamation.newWorkIsNoLongerAccepted" });
       } else {
-        if (
-          !["deletedBlobs", "reclaimedBytes", "retainedBytes"].every(
-            (field) => Number.isSafeInteger(result[field]) && result[field] >= 0,
-          )
-        ) {
-          throw Object.assign(
-            new UiMessageError({
-              id: "settings.spaceReclamation.reclamationResultsAreIncompleteVerifyTheSpace",
-            }),
-            { submissionUnknown: true },
-          );
-        }
+        const result = await action("manage", { projectId, operation });
         setNotice({
           id: "settings.spaceReclamation.reclaimedStorage",
           values: {

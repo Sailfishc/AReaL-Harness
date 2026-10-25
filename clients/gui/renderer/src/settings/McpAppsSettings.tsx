@@ -8,22 +8,17 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 import { McpAppIcon } from "../McpAppIcon.js";
 import type { McpMetadataImageLoader } from "../mcp-app-services.js";
-export type McpAppTool = {
-  name: string;
-  title?: string;
-  annotations?: { title?: string; readOnlyHint?: boolean };
-  icons?: { src: string }[];
-  _meta?: Record<string, unknown>;
-};
-export type McpAppServer = {
-  serverId: string;
-  generation: string | number;
-  tools: McpAppTool[];
-  capabilities?: Record<string, unknown>;
-  title?: string;
-  icons?: { src: string }[];
-};
-export type McpAppsCommand = (request: Record<string, unknown>) => Promise<unknown>;
+import type {
+  ManagementRequest,
+  ManagementRequestMap,
+  ManagementResponse,
+  ManagementResponseMap,
+} from "@areal/workbench/desktop-contract/management";
+export type McpAppServer = ManagementResponseMap["mcpApps"]["data"][number];
+export type McpAppTool = McpAppServer["tools"][number];
+export type McpAppsCommand = <P extends ManagementRequest>(
+  request: P,
+) => Promise<ManagementResponse<P>>;
 export const toolTitle = (tool: McpAppTool) => tool.title ?? tool.annotations?.title ?? tool.name;
 export function mcpAppEntrypoints<Server extends McpAppServer>(
   servers: readonly Server[],
@@ -189,7 +184,10 @@ export function McpAppsSettings({
     [error, setError] = useState<UiMessage | string>(""),
     [busy, setBusy] = useState(false);
   const epoch = useRef(0);
-  const call = (kind: string, args: Record<string, unknown>) =>
+  const call = (
+    kind: ManagementRequestMap["mcpExtensionCall"]["kind"],
+    args: ManagementRequestMap["mcpExtensionCall"]["arguments"],
+  ) =>
     command({
       operation: "mcpExtensionCall",
       projectId,

@@ -8,7 +8,10 @@ const { checkoutRoot } = require("@areal/workspace-git");
 const { modelRecord } = require("@areal/workbench/core-model-contract");
 const { readThreadMetadata } = require("./history-contract.cjs");
 const { readResourceStatus } = require("./resource-observation.cjs");
-const { readTask, readTaskPage } = require("./task-contract.cjs");
+const {
+  readTask,
+  readTaskPage,
+} = require("../../../packages/workbench/client/desktop-contract/management-tasks.cjs");
 const { readWorktreeRequest } = require("./worktrees.cjs");
 /** @typedef {import('./project-state.cjs').CoreProject} Project */
 /** @typedef {import('./project-index.cjs').SavedProject} SavedProject */

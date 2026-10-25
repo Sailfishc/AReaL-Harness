@@ -104,6 +104,7 @@ export default defineConfig({
       },
       "verify-suite": {
         command: [
+          "pnpm contracts:check",
           "pnpm --filter @areal/ui check",
           "node scripts/verify-public.mjs",
           "node scripts/verify-i18n.mjs",

@@ -1,3 +1,4 @@
+import type { ManagementResponseMap } from "@areal/workbench/desktop-contract/management";
 import { Input } from "@areal/ui";
 import { useI18n } from "./i18n/IntlProvider.js";
 import { SubagentPanel, TaskContext } from "@areal/ui/experimental";
@@ -15,20 +16,8 @@ import {
 import { AgentAvatar, agentName, agentStatus, agentAssignment } from "./AgentIdentity.js";
 import type { Action, Data } from "./services.js";
 
-type Result = {
-  threadId: string;
-  turnId: string;
-  status: string;
-  text: string;
-  truncated: boolean;
-  error?: { message?: string } | null;
-  configuration?: {
-    readOnly: boolean;
-    model?: { providerId: string; modelId: string };
-    profile?: { id: string };
-  };
-};
-type Child = { id: string; preview: string; parentThreadId: string };
+type Result = Extract<ManagementResponseMap["agentWait"]["data"][number], { threadId: string }>;
+type Child = ManagementResponseMap["agents"]["data"][number];
 type Version = { id: string; revision: string };
 type Options = {
   profile: string;
@@ -138,11 +127,7 @@ export function AgentsPane({
     setOptions(next);
     localStorage.setItem(`${key}:options`, JSON.stringify(next));
   };
-  const request = useCallback(
-    (operation: string, extra: Data = {}) =>
-      action("manage", { projectId: project.id, parentThreadId: thread.id, operation, ...extra }),
-    [action, project.id, thread.id],
-  );
+
   const read = useCallback(() => {
     if (!connected) return Promise.resolve();
     if (inflight.current) return inflight.current;
@@ -153,7 +138,13 @@ export function AgentsPane({
         const items: Child[] = [];
         let cursor: string | null = null;
         for (let index = 0; index < pages.current; index++) {
-          const page = await request("agents", { limit: 30, ...(cursor ? { cursor } : {}) });
+          const page: ManagementResponseMap["agents"] = await action("manage", {
+            projectId: project.id,
+            parentThreadId: thread.id,
+            operation: "agents",
+            limit: 30,
+            ...(cursor ? { cursor } : {}),
+          });
           items.push(...page.data);
           cursor = page.nextCursor;
           if (!cursor) break;
@@ -161,11 +152,14 @@ export function AgentsPane({
         const unique = [...new Map(items.map((item) => [item.id, item])).values()];
         const values: Result[] = [];
         for (let index = 0; index < unique.length; index += 16) {
-          const response = await request("agentWait", {
+          const response = await action("manage", {
+            projectId: project.id,
+            parentThreadId: thread.id,
+            operation: "agentWait",
             threadIds: unique.slice(index, index + 16).map((item) => item.id),
             timeoutMs: 0,
           });
-          values.push(...response.data);
+          values.push(...response.data.filter((value) => "threadId" in value));
         }
         if (mounted.current && generation.current === stamp) {
           setChildren(unique);
@@ -183,7 +177,7 @@ export function AgentsPane({
     })();
     inflight.current = pending;
     return pending;
-  }, [request, connected]);
+  }, [action, project.id, thread.id, connected]);
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -247,7 +241,12 @@ export function AgentsPane({
       }
       if (!saved || typeof submission?.requestId !== "string")
         throw new Error("旧版创建记录缺少请求标识，无法精确核对；当前指令保持锁定。");
-      const receipt = await request("agentSubmission", { requestId: submission.requestId });
+      const receipt = await action("manage", {
+        projectId: project.id,
+        parentThreadId: thread.id,
+        operation: "agentSubmission",
+        requestId: submission.requestId,
+      });
       if (!receipt.confirmed)
         throw new Error("尚未找到原创建请求的确认记录；不能确定是否创建成功，不会重发。");
       if (!clearSubmission(saved)) throw new Error("当前创建记录已变化，请重新核对。");
@@ -318,7 +317,14 @@ export function AgentsPane({
       saved = JSON.stringify({ requestId });
       localStorage.setItem(`${key}:pending`, saved);
       setUnknown(true);
-      await request("agentSpawn", { prompt, requestId, ...overrides });
+      await action("manage", {
+        projectId: project.id,
+        parentThreadId: thread.id,
+        operation: "agentSpawn",
+        prompt,
+        requestId,
+        ...overrides,
+      });
       clearSubmission(saved);
     } catch (cause) {
       const failure = cause as Error & { submissionUnknown?: boolean };
@@ -343,8 +349,15 @@ export function AgentsPane({
     setError("");
     setWaitNotice((previous) => ({ ...previous, [id]: "" }));
     try {
-      const response = await request("agentWait", { threadIds: [id], timeoutMs: 10000 });
-      const value: Result = response.data[0];
+      const response = await action("manage", {
+        projectId: project.id,
+        parentThreadId: thread.id,
+        operation: "agentWait",
+        threadIds: [id],
+        timeoutMs: 10000,
+      });
+      const value = response.data.find((value) => "threadId" in value && value.threadId === id);
+      if (!value || !("threadId" in value)) throw new Error("子任务回执不匹配，请刷新状态。");
       if (mounted.current) {
         generation.current++;
         setReading(false);

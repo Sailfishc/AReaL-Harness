@@ -1,5 +1,10 @@
 // @ts-check
 "use strict";
+const {
+  readWorkspaceRequest,
+  validateWorkspaceResponse,
+} = require("../../../packages/workbench/client/desktop-contract/workspace.cjs");
+const { commandResponseError } = require("@areal/workbench/desktop-contract");
 const files = require("../workspace-files");
 const git = require("@areal/workspace-git");
 const { createHash } = require("node:crypto");
@@ -65,7 +70,7 @@ async function readFileBefore(project, threadId, reference) {
 
 /** 用户直接操作的桌面文件／Git 功能，复用原有路径与 revision 校验。 */
 /** @param {InstanceType<typeof import('./backend.cjs').CoreBackend>} backend @param {Record<string,unknown>} request */
-async function workspaceCommand(backend, request) {
+async function executeWorkspaceCommand(backend, request) {
   if (request.operation === "worktreeList") return backend.worktrees.list();
   if (request.operation === "worktreeSettings") return backend.worktrees.configure(request);
   const project = backend.saved.find((item) => item.id === request.projectId);
@@ -232,5 +237,16 @@ async function workspaceCommand(backend, request) {
     default:
       throw new Error("不支持的工作区操作");
   }
+}
+/** @param {InstanceType<typeof import('./backend.cjs').CoreBackend>} backend @param {Record<string,unknown>} input */
+async function workspaceCommand(backend, input) {
+  const request = readWorkspaceRequest(input);
+  const result = await executeWorkspaceCommand(backend, input);
+  try {
+    validateWorkspaceResponse(request, result);
+  } catch (cause) {
+    throw commandResponseError("workspace", input, cause);
+  }
+  return result;
 }
 module.exports = { workspaceCommand };

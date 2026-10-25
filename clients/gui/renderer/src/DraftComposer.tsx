@@ -590,19 +590,11 @@ export function DraftComposer({
     setCancellingCreation(true);
     setDraftError("");
     try {
-      let result = await action("workspace", {
+      const result = await action("workspace", {
         projectId: project.id,
         operation: "worktreeCancel",
         requestId: current.requestId,
       });
-      while (result.state === "cancelling") {
-        await new Promise((resolve) => setTimeout(resolve, 300));
-        result = await readAction("workspace", {
-          projectId: project.id,
-          operation: "worktreeRead",
-          requestId: current.requestId,
-        });
-      }
       const record = result;
       if (record.state !== "cancelled") {
         localStorage.setItem(`${key}:pending-create`, current.requestId);

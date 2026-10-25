@@ -9,7 +9,7 @@ import { Button } from "../components/ui/button.js";
 import { Feedback, useResource } from "./common.js";
 
 import { subscriptionProjection } from "./provider-ui-state.js";
-import type { Action, Data } from "../services.js";
+import type { Action, CommandParams, Data } from "../services.js";
 
 const recovery: Record<string, MessageId | ""> = {
   ready: "",
@@ -49,9 +49,9 @@ export function ChatGPTSubscription({
   onReadyChange?: (ready: boolean) => void;
 }) {
   const { t } = useI18n();
-  const api = (operation: string, values: Data = {}) =>
-    action("chatgpt", { operation, provider: "openai", ...values });
-  const resource = useResource(() => api("status"), "chatgpt-subscription-openai");
+  const api = <P extends CommandParams<"chatgpt">>(request: P) =>
+    action("chatgpt", { ...request, provider: "openai" });
+  const resource = useResource(() => api({ operation: "status" }), "chatgpt-subscription-openai");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState<UiMessage>();
@@ -88,13 +88,13 @@ export function ChatGPTSubscription({
     };
   }, [value?.login?.loginId, resource.refresh]);
 
-  const run = async (operation: string, values: Data = {}) => {
+  const run = async (request: CommandParams<"chatgpt">) => {
     setBusy(true);
     setError("");
     setMessage(undefined);
     try {
-      await api(operation, { model: chosenModel, ...values });
-      if (operation === "probe")
+      await api(request);
+      if (request.operation === "probe")
         setMessage({
           id: "settings.chatGPTSubscription.connectedReceivedTheModelSCompleteResponse",
         });
@@ -147,12 +147,16 @@ export function ChatGPTSubscription({
                     variant="outline"
                     size="sm"
                     disabled={busy}
-                    onClick={() => void run("cancel")}
+                    onClick={() => void run({ operation: "cancel" })}
                   >
                     {t("settings.chatGPTSubscription.cancelSignIn")}
                   </Button>
                 ) : projection.canSignIn ? (
-                  <Button size="sm" disabled={disabled} onClick={() => void run("login")}>
+                  <Button
+                    size="sm"
+                    disabled={disabled}
+                    onClick={() => void run({ operation: "login" })}
+                  >
                     {projection.state === "reauth_required"
                       ? t("settings.chatGPTSubscription.signInAgain")
                       : t("settings.chatGPTSubscription.signInWithChatGPT")}
@@ -162,7 +166,7 @@ export function ChatGPTSubscription({
                     variant="outline"
                     size="sm"
                     disabled={disabled}
-                    onClick={() => void run("logout")}
+                    onClick={() => void run({ operation: "logout" })}
                   >
                     {t("settings.chatGPTSubscription.signOut")}
                   </Button>
@@ -208,7 +212,10 @@ export function ChatGPTSubscription({
               onValueChange={(id) => {
                 if (!id || id === value?.activeAccountId) return;
                 const account = accounts.find((account) => account.id === id);
-                void run(account?.state === "saved" ? "selectAccount" : "login", { accountId: id });
+                void run({
+                  operation: account?.state === "saved" ? "selectAccount" : "login",
+                  accountId: id,
+                });
               }}
             >
               {accounts.map((account) => (
@@ -225,7 +232,7 @@ export function ChatGPTSubscription({
             variant="ghost"
             size="sm"
             disabled={disabled}
-            onClick={() => void run("login", { newAccount: true })}
+            onClick={() => void run({ operation: "login", newAccount: true })}
           >
             {t("settings.chatGPTSubscription.addChatGPTAccount")}
           </Button>
@@ -252,7 +259,7 @@ export function ChatGPTSubscription({
               variant="outline"
               size="sm"
               disabled={disabled || !projection.canTest || !!value.login || !!resource.error}
-              onClick={() => void run("probe")}
+              onClick={() => void run({ operation: "probe", model: chosenModel })}
             >
               {busy
                 ? t("settings.chatGPTSubscription.checking")

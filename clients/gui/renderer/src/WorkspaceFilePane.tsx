@@ -105,8 +105,7 @@ export function WorkspaceFilePane({
       current = false;
     };
   }, [fileOpen, preferredFileOpenTarget]);
-  const api = (operation: string, values: Record<string, unknown> = {}) =>
-    action("workspace", { projectId, path, operation, ...values });
+
   const update = (value: Document) => {
     if (mounted.current && value.text !== documents.get(key)?.text && !value.saveError)
       setMessage("");
@@ -132,7 +131,7 @@ export function WorkspaceFilePane({
       });
     } else if (!cached || cached.text === cached.original) {
       setBusy(true);
-      void api("read")
+      void action("workspace", { projectId, path, operation: "read" })
         .then((value) => {
           if (cancelled) return;
           const current = documents.get(key);
@@ -183,8 +182,14 @@ export function WorkspaceFilePane({
       if (mounted.current) setMessage(error);
     };
     try {
-      const value = await api("save", { text: current.text, revision: current.revision });
-      if (value.conflict) {
+      const value = await action("workspace", {
+        projectId,
+        path,
+        operation: "save",
+        text: current.text,
+        revision: current.revision,
+      });
+      if ("conflict" in value) {
         failed(value.error);
         return;
       }
@@ -213,7 +218,7 @@ export function WorkspaceFilePane({
       return;
     setBusy(true);
     try {
-      const value = await api("read");
+      const value = await action("workspace", { projectId, path, operation: "read" });
       update({ ...value, original: value.text, editing: doc?.editing ?? false });
       if (mounted.current) setMessage("");
     } catch (e) {

@@ -1,3 +1,5 @@
+import type { ResourceRequest, Scope } from "@areal/workbench/desktop-contract/resource";
+import { normalizeMcp } from "@areal/workbench/desktop-contract/resource";
 import {
   useI18n,
   UiMessageError,
@@ -63,9 +65,12 @@ export function McpSettings({
     setLocalScope(value);
     onScopeChange?.(value);
   };
-  const api = (operation: string, values: Data = {}) =>
-    action("resources", { projectId: project?.id, scope, operation, ...values });
-  const state = useResource(() => api("mcp"), `${scope}:${project?.id}`);
+  const owner: Scope =
+    scope === "user"
+      ? { scope: "user", projectId: project?.id }
+      : { scope: "project", projectId: project?.id };
+  const api = <P extends ResourceRequest>(request: P) => action("resources", request);
+  const state = useResource(() => api({ ...owner, operation: "mcp" }), `${scope}:${project?.id}`);
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState<Data | null>(null);
   const [config, setConfig] = useState("");
@@ -113,14 +118,20 @@ export function McpSettings({
         throw new UiMessageError({ id: "settings.resourceSettings.theServerURLMustBeAValid" });
       }
     }
-    const result = await api("mcpSave", {
+    const result = await api({
+      ...owner,
+      operation: "mcpSave",
       id: draft.id.trim(),
       expectedRevision: scope === "user" ? state.value?.revision : draft.revision,
-      config: parsed,
+      config: normalizeMcp(parsed),
     });
     setDraft(null);
     await state.refresh();
-    setMessage(result.warning || { id: "settings.resourceSettings.configurationSaved" });
+    setMessage(
+      ("warning" in result && result.warning) || {
+        id: "settings.resourceSettings.configurationSaved",
+      },
+    );
   };
   useDraftBlocker({
     label: { id: "settings.resourceSettings.mcpConfiguration" },
@@ -260,7 +271,10 @@ export function McpSettings({
                         const connecting = ["disconnected", "failed", "notApplied"].includes(
                           item.state,
                         );
-                        await api(connecting ? "mcpConnect" : "mcpDisconnect", {
+                        await api({
+                          ...owner,
+                          operation: connecting ? "mcpConnect" : "mcpDisconnect",
+                          projectId: project?.id,
                           id: item.id,
                           expectedRevision: item.revision,
                         });

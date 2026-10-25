@@ -132,7 +132,8 @@
     "fmt": "vp fmt",
     "lint": "vp lint",
     "test:design-rules": "node --test scripts/design-rules.test.mjs",
-    "measure:gui": "node scripts/gui-performance.mjs"
+    "measure:gui": "node scripts/gui-performance.mjs",
+    "contracts:check": "python3 scripts/generate-management-contracts.py --check"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.14.0",

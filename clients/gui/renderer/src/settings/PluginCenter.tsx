@@ -36,11 +36,7 @@ import { McpSettings } from "./ResourceSettings.js";
 import { SettingsPluginIcon } from "./settingsNavIcons.js";
 import { PluginSkillsPage, type CenterSkill, type ResourceDraftSeed } from "./PluginSkillsPage.js";
 import "./PluginCenter.css";
-import {
-  PluginComponentSupport,
-  supportBlocked,
-  type PackageComponentSupport,
-} from "./PluginComponentSupport.js";
+import { PluginComponentSupport, supportBlocked } from "./PluginComponentSupport.js";
 import { PluginConnectionPanel } from "./PluginConnectionPanel.js";
 import { Button } from "../components/ui/button.js";
 import { Input } from "../components/ui/input.js";
@@ -53,86 +49,33 @@ import { isIndependentCreation, recoveredOutcome } from "../recoveryPresentation
 import { buildPluginMentionMarkdown } from "../mentions/mentionMarkdown.js";
 import { pluginMcpStateLabel } from "./pluginResources.js";
 
-type PluginSkill = {
-  id: string;
-  revision: string;
-  name: string;
-  description: string;
-  allowImplicitInvocation: boolean;
-  onboarding: boolean;
-};
-type PluginReadiness = {
-  pluginId: string;
-  installedDigest: string;
-  requiredTools: string[];
-  missingTools: string[];
-  available: boolean;
-};
-type PluginMetadata = {
-  name: string;
-  displayName: string;
-  description: string;
-  version: string | null;
-  interface?: Data | null;
-  components: string[];
-};
-export type PluginDetail = {
-  revision: number;
-  id: string;
-  name: string;
-  displayName: string;
-  description: string;
-  version: string | null;
-  installed: boolean;
-  installedVersion: string | null;
-  installedMetadata: PluginMetadata | null;
-  installedDigest: string | null;
-  installedSourceDigest?: string | null;
-  installedSkills: PluginSkill[];
-  componentChoices: { disabledSkills: string[]; disabledMcpServers: string[] };
-  componentSupport?: PackageComponentSupport | null;
-  installedComponentSupport?: PackageComponentSupport | null;
-  installedOnboardingSkill: string | null;
-  enabled: boolean;
-  source: string;
-  sourceDigest: string;
-  admissionDigest?: string | null;
-  catalogSource?: Data;
-  interface?: Data | null;
-  sourceKind?: string;
-  resolvedCommit?: string;
-  packageVersion?: string;
-  integrity?: string;
-  components: string[];
-  diagnostics: string[];
-  skills: PluginSkill[];
-  onboardingSkill: string | null;
-};
-type PluginList = {
-  revision: number;
-  data: PluginDetail[];
-  marketplaces: { name: string; root: string; sourceUrl?: string; resolvedCommit?: string }[];
-  errors: string[];
-};
-type PluginMutation =
-  | "pluginArchiveImport"
-  | "marketplaceAdd"
-  | "pluginInstall"
-  | "pluginConfigure"
-  | "pluginComponentConfigure"
-  | "pluginUninstall"
-  | "pluginSetup"
-  | "pluginResolve"
-  | "marketplaceAddGit"
-  | "marketplaceRemove"
-  | "marketplaceUpdate"
-  | "pluginConnection"
-  | "pluginAuth"
-  | "pluginAuthConfigure"
-  | "connectorConfigure"
-  | "pluginHooksConfigure";
+import type {
+  ManagementRequest,
+  ManagementRequestMap,
+  ManagementResponseMap,
+  ManagementResponse,
+  PluginMutation,
+} from "@areal/workbench/desktop-contract/management";
+export type PluginDetail = ManagementResponseMap["plugin"];
+type PluginReadiness = ManagementResponseMap["pluginReadiness"];
+type PluginList = ManagementResponseMap["plugins"];
+export type PluginCommand = <P extends ManagementRequest>(
+  request: P,
+) => Promise<ManagementResponse<P>>;
+type WithoutSubmission<R> = R extends { projectId: string }
+  ? Omit<R, "projectId" | "requestId">
+  : never;
+export type PluginMutationRequest = WithoutSubmission<
+  ManagementRequestMap[PluginMutation | "pluginAuth"]
+>;
+export type PluginMutate = (
+  request: PluginMutationRequest,
+) => Promise<ManagementResponseMap[PluginMutation | "pluginAuth"] | undefined>;
 type PluginSubmission = { mutation: PluginMutation; requestId: string; projectId: string };
-type PluginOperation = PluginSubmission & { pluginId?: string };
+type PluginOperation = Omit<PluginSubmission, "mutation"> & {
+  mutation: PluginMutation | "pluginAuth";
+  pluginId?: string;
+};
 type PluginActivity = PluginOperation & { kind: "submit" | "check" };
 type PluginPreview = Pick<
   PluginDetail,
@@ -146,21 +89,8 @@ type PluginPreview = Pick<
   | "version"
   | "integrity"
 >;
-type PluginReceipt =
-  | { confirmed: false; state: string }
-  | {
-      confirmed: true;
-      accepted: boolean;
-      status?: "completed" | "failed";
-      result?: Partial<PluginDetail> & {
-        thread?: { id: string };
-        turn?: { id: string };
-        requestId?: string;
-      };
-      error?: PluginFailure;
-      warning?: string;
-    };
-const pluginMethods: Record<string, PluginMutation> = {
+type PluginReceipt = ManagementResponseMap["pluginSubmission"];
+const pluginMethods: Record<string, PluginOperation["mutation"]> = {
   "areal/plugin/importArchive": "pluginArchiveImport",
   "areal/marketplace/add": "marketplaceAdd",
   "areal/plugin/install": "pluginInstall",
@@ -200,6 +130,30 @@ function isSourceOperation(
     operation.projectId === projectId &&
     operation.pluginId === pluginId
   );
+}
+function pluginInterface(value: unknown) {
+  const fields = typeof value === "object" && value !== null && !Array.isArray(value) ? value : {};
+  const text = (key: string) => {
+    const entry: unknown = Reflect.get(fields, key);
+    return typeof entry === "string" ? entry : undefined;
+  };
+  const strings = (key: string) => {
+    const entry: unknown = Reflect.get(fields, key);
+    return Array.isArray(entry)
+      ? entry.filter((item): item is string => typeof item === "string")
+      : [];
+  };
+  return {
+    category: text("category"),
+    developerName: text("developerName"),
+    longDescription: text("longDescription"),
+    websiteUrl: text("websiteUrl"),
+    privacyPolicyUrl: text("privacyPolicyUrl"),
+    termsOfServiceUrl: text("termsOfServiceUrl"),
+    defaultPrompt: strings("defaultPrompt"),
+    capabilities: strings("capabilities"),
+    url: text("url"),
+  };
 }
 function reviewDigest(plugin: Pick<PluginDetail, "sourceDigest" | "admissionDigest">) {
   return plugin.admissionDigest ?? plugin.sourceDigest;
@@ -281,7 +235,7 @@ export type PluginCenterProps = ScopedProps & {
   onStartDraft: (seed: ResourceDraftSeed) => Promise<void>;
   onReturnToTask?: () => void;
 };
-const officialMarket = (url?: string) =>
+const officialMarket = (url?: string | null) =>
   !!url && /^https:\/\/github\.com\/openai\/plugins(?:\.git)?\/?$/i.test(url);
 export function PluginCenter({
   project: selectedProject,
@@ -365,7 +319,7 @@ export function PluginCenter({
   const pending = !!blockingPending.length;
   const busy = activity !== null || checkingProjectOperation;
   const [query, setQuery] = useState("");
-  const [scope, setScope] = useState("user");
+  const [scope, setScope] = useState<"user" | "project">("user");
   const [adding, setAdding] = useState(false);
   const [root, setRoot] = useState("");
   const [addKind, setAddKind] = useState("local");
@@ -516,13 +470,13 @@ export function PluginCenter({
     previousTab.current = initialTab;
   }, [surface, initialTab]);
   const api = useCallback(
-    async (operation: string, values: Data = {}) => {
+    async <P extends ManagementRequest>(request: P) => {
       try {
-        return await actionRef.current("manage", { projectId, operation, ...values });
+        return await actionRef.current("manage", request);
       } finally {
         // Main clears its configuration gate before replying, including UNKNOWN.
         // Re-read only the catalog; keep the form's original submission receipt alive.
-        if (operation === "pluginAuthCredential")
+        if (request.operation === "pluginAuthCredential")
           window.dispatchEvent(new Event("areal-plugins-changed"));
       }
     },
@@ -535,7 +489,9 @@ export function PluginCenter({
       setReadinessError("");
       if (!panelActive || !detail?.installed || !detail.installedDigest || !detail.enabled) return;
       try {
-        const value: PluginReadiness = await api("pluginReadiness", {
+        const value: PluginReadiness = await api({
+          projectId,
+          operation: "pluginReadiness",
           id: detail.id,
           expectedDigest: detail.installedDigest,
         });
@@ -567,7 +523,7 @@ export function PluginCenter({
     setReadError("");
     setOptionalReadErrors({});
     try {
-      const capability = await api("pluginCapabilities");
+      const capability = await api({ projectId, operation: "pluginCapabilities" });
       if (!mounted.current || generation !== readGeneration.current) return;
       setSupported(capability.enabled);
       if (!capability.enabled) {
@@ -576,12 +532,12 @@ export function PluginCenter({
         setHookSources([]);
         return;
       }
-      const result: PluginList = await api("plugins");
+      const result: PluginList = await api({ projectId, operation: "plugins" });
       if (!mounted.current || generation !== readGeneration.current) return;
       setCatalog(result);
       const [pluginConnections, hooks] = await Promise.allSettled([
-        api("pluginMcp"),
-        api("pluginHooks"),
+        api({ projectId, operation: "pluginMcp" }),
+        api({ projectId, operation: "pluginHooks" }),
       ]);
       if (!mounted.current || generation !== readGeneration.current) return;
       setAllConnections(
@@ -646,7 +602,7 @@ export function PluginCenter({
       setDetail((current) => (current?.id === id ? current : null));
       setDetailError("");
       try {
-        const result: PluginDetail = await api("plugin", { id });
+        const result: PluginDetail = await api({ projectId, operation: "plugin", id });
         if (
           mounted.current &&
           generation === detailGeneration.current &&
@@ -694,7 +650,7 @@ export function PluginCenter({
     let current = true;
     setConnectionError("");
     setConnectionLoading(true);
-    void api("pluginMcp")
+    void api({ projectId, operation: "pluginMcp" })
       .then((result) => {
         if (current)
           setConnections(
@@ -745,7 +701,8 @@ export function PluginCenter({
     setPreview(next);
     return true;
   };
-  const mutate = async (operation: PluginMutation, values: Data) => {
+  const mutate = async (values: PluginMutationRequest) => {
+    const operation = values.operation;
     if (active.current || disabled || !connected) return;
     active.current = true;
     const requestId = crypto.randomUUID();
@@ -753,7 +710,7 @@ export function PluginCenter({
       mutation: operation,
       projectId: projectId!,
       requestId,
-      ...(typeof values.id === "string" ? { pluginId: values.id } : {}),
+      ...("id" in values ? { pluginId: values.id } : {}),
     };
     setActivity({ ...original, kind: "submit" });
     setError(null);
@@ -763,14 +720,14 @@ export function PluginCenter({
       setReviewed(false);
     }
     try {
-      const result = await api(operation, { ...values, requestId });
+      const result = await api({ projectId, ...values, requestId });
       if (!mounted.current) return;
       if (operation === "pluginResolve" || operation === "pluginArchiveImport") {
-        if (!acceptPreview(result, original)) {
+        if (!acceptPreview(result && "sourceDigest" in result ? result : undefined, original)) {
           window.dispatchEvent(new Event("areal-plugins-changed"));
           return;
         }
-        if (operation === "pluginArchiveImport") {
+        if (operation === "pluginArchiveImport" && result && "sourceDigest" in result) {
           setArchive(null);
           setInstallReview(true);
           updateSelected(result.id);
@@ -778,7 +735,8 @@ export function PluginCenter({
         }
       }
       window.dispatchEvent(new Event("areal-plugins-changed"));
-      if (operation === "pluginSetup" && result.thread?.id) setSetupThreadId(result.thread.id);
+      if (operation === "pluginSetup" && result && "thread" in result)
+        setSetupThreadId(result.thread.id);
       if (operation === "marketplaceAdd" || operation === "marketplaceAddGit") {
         setAdding(false);
         setRoot("");
@@ -964,7 +922,8 @@ export function PluginCenter({
       projectRecoveryDetails
     ));
   const recoverSubmission = async () => {
-    if (!recoverable || active.current || !connected) return;
+    if (!recoverable || recoverable.mutation === "pluginAuth" || active.current || !connected)
+      return;
     active.current = true;
     setActivity({ ...recoverable, kind: "check" });
     setMessage("");
@@ -1003,9 +962,19 @@ export function PluginCenter({
         return;
       }
       setError(null);
-      if (recoverable.mutation === "pluginResolve" && !acceptPreview(receipt.result, recoverable))
+      if (
+        recoverable.mutation === "pluginResolve" &&
+        !acceptPreview(
+          receipt.result && "sourceDigest" in receipt.result ? receipt.result : undefined,
+          recoverable,
+        )
+      )
         return;
-      if (recoverable.mutation === "pluginArchiveImport" && receipt.result?.id) {
+      if (
+        recoverable.mutation === "pluginArchiveImport" &&
+        receipt.result &&
+        "sourceDigest" in receipt.result
+      ) {
         updateSelected(receipt.result.id);
         setRoute({ kind: "plugin", id: receipt.result.id, returnTo: listRoute });
         setArchive(null);
@@ -1013,7 +982,7 @@ export function PluginCenter({
         setReviewed(false);
         await readDetail(receipt.result.id);
       }
-      if (recoverable.mutation === "pluginSetup" && receipt.result?.thread?.id)
+      if (recoverable.mutation === "pluginSetup" && receipt.result && "thread" in receipt.result)
         setSetupThreadId(receipt.result.thread.id);
       if (
         recoverable.mutation === "marketplaceAdd" ||
@@ -1132,7 +1101,8 @@ export function PluginCenter({
                 : "");
   const install = () => {
     if (!previewCurrent || !reviewed || !preview) return;
-    void mutate("pluginInstall", {
+    void mutate({
+      operation: "pluginInstall",
       id: preview.id,
       source: preview.source,
       expectedDigest: reviewDigest(preview),
@@ -1149,7 +1119,9 @@ export function PluginCenter({
     setCredentialBusy(true);
     setError(null);
     try {
-      const saved = await api("connectorCredential", {
+      const saved = await api({
+        projectId,
+        operation: "connectorCredential",
         id: detail.id,
         connectorId: connectorId.trim(),
         provider: "github",
@@ -1178,7 +1150,8 @@ export function PluginCenter({
       setCredentialBusy(false);
     }
   };
-  const copyMetadataLink = async (url: string, name: string) => {
+  const copyMetadataLink = async (url: string | undefined, name: string) => {
+    if (url === undefined) return;
     try {
       await navigator.clipboard.writeText(url);
       setMetadataCopy({ kind: "copied", name });
@@ -1214,14 +1187,18 @@ export function PluginCenter({
     });
     return () => cancelAnimationFrame(frame);
   }, [panelActive, projectId, selectedProject?.id, route, loading]);
+  const catalogRevision = () => {
+    if (!catalog) throw new UiMessageError({ id: "settings.pluginCenter.pluginOperationFailed" });
+    return catalog.revision;
+  };
   const installed = (catalog?.data ?? []).filter((item) => item.installed);
   const packageSkills: CenterSkill[] = installed.flatMap((item) =>
-    item.installedSkills.map((skill) => ({
+    (item.installedSkills ?? []).map((skill) => ({
       ...skill,
       key: `${item.id}:${item.installedDigest}:${skill.id}`,
       enabled:
         item.enabled &&
-        !item.componentChoices?.disabledSkills.includes(skill.id) &&
+        !item.componentChoices?.disabledSkills?.includes(skill.id) &&
         !supportBlocked(item.installedComponentSupport, item.installedDigest),
       sourceLabel: {
         id: "settings.pluginCenter.pluginsValue",
@@ -1301,7 +1278,9 @@ export function PluginCenter({
         supportBlocked(plugin.installedComponentSupport, plugin.installedDigest)
       )
         throw new UiMessageError({ id: "settings.pluginCenter.hostReadinessUnavailable" });
-      const fresh: PluginReadiness = await api("pluginReadiness", {
+      const fresh: PluginReadiness = await api({
+        projectId,
+        operation: "pluginReadiness",
         id: plugin.id,
         expectedDigest: plugin.installedDigest,
       });
@@ -1332,8 +1311,8 @@ export function PluginCenter({
   const pickArchive = async () => {
     setError(null);
     try {
-      const selection = await api("pluginArchivePick");
-      if (!selection.canceled) setArchive(selection);
+      const selection = await api({ projectId, operation: "pluginArchivePick" });
+      if (!("canceled" in selection)) setArchive(selection);
     } catch (cause) {
       setError(failure(cause));
     }
@@ -1382,7 +1361,13 @@ export function PluginCenter({
     (row) => row.pluginId === detail?.id && row.installedDigest === detail?.installedDigest,
   );
   const detailContent = detail?.installed ? detail.installedMetadata : detail;
-  const detailSkills = detail ? (detail.installed ? detail.installedSkills : detail.skills) : [];
+  const detailInterface = pluginInterface(detailContent?.interface);
+  const catalogInterface = pluginInterface(detail?.interface);
+  const detailSkills = detail
+    ? detail.installed
+      ? (detail.installedSkills ?? [])
+      : detail.skills
+    : [];
   const hostReady =
     readiness?.pluginId === detail?.id &&
     readiness?.installedDigest === detail?.installedDigest &&
@@ -1403,7 +1388,8 @@ export function PluginCenter({
     detailSupport?.compatibility.state === "blocked";
   const configureComponent = (kind: "skill" | "mcpServer", id: string, enabled: boolean) => {
     if (!detail?.installedDigest) return;
-    void mutate("pluginComponentConfigure", {
+    void mutate({
+      operation: "pluginComponentConfigure",
       id: detail.id,
       component: { kind, id },
       enabled,
@@ -1700,13 +1686,14 @@ export function PluginCenter({
                   >
                     <p className="text-ui-sm break-all">{source.origin}</p>
                     <PluginHookSettings
+                      projectId={projectId}
                       id={source.id}
                       installedDigest={source.digest}
                       disabled={disabled}
                       api={api}
                       refreshKey={catalog?.revision}
                       onConfigure={async (params) => {
-                        await mutate("pluginHooksConfigure", params);
+                        await mutate({ operation: "pluginHooksConfigure", ...params });
                       }}
                     />
                   </SettingsDisclosure>
@@ -1741,7 +1728,7 @@ export function PluginCenter({
                       items.map((item) =>
                         audience === "personal"
                           ? marketFor(item)?.name || null
-                          : item.interface?.category || null,
+                          : pluginInterface(item.interface).category || null,
                       ),
                     ),
                   ].map((value) => ({
@@ -1763,7 +1750,7 @@ export function PluginCenter({
                         (item) =>
                           (audience === "personal"
                             ? marketFor(item)?.name || null
-                            : item.interface?.category || null) === group.value,
+                            : pluginInterface(item.interface).category || null) === group.value,
                       );
                 return (
                   <section className="plugin-market-group" key={group.key}>
@@ -1821,11 +1808,12 @@ export function PluginCenter({
                               checked={item.enabled}
                               disabled={disabled}
                               onCheckedChange={(enabled) =>
-                                void mutate("pluginConfigure", {
+                                void mutate({
+                                  operation: "pluginConfigure",
                                   id: item.id,
                                   scope: "project",
                                   enabled,
-                                  expectedRevision: catalog?.revision,
+                                  expectedRevision: catalogRevision(),
                                 })
                               }
                             />
@@ -1946,9 +1934,10 @@ export function PluginCenter({
                       variant="ghost"
                       disabled={disabled}
                       onClick={() =>
-                        void mutate("marketplaceRemove", {
+                        void mutate({
+                          operation: "marketplaceRemove",
                           root: item.root,
-                          expectedRevision: catalog?.revision,
+                          expectedRevision: catalogRevision(),
                         })
                       }
                     >
@@ -1960,7 +1949,10 @@ export function PluginCenter({
                 variant="outline"
                 disabled={disabled}
                 onClick={() =>
-                  void mutate("marketplaceUpdate", { expectedRevision: catalog?.revision })
+                  void mutate({
+                    operation: "marketplaceUpdate",
+                    expectedRevision: catalogRevision(),
+                  })
                 }
               >
                 {t("settings.pluginCenter.refreshGitSourceSnapshot")}
@@ -1984,9 +1976,10 @@ export function PluginCenter({
                 <Button
                   disabled={disabled}
                   onClick={() =>
-                    void mutate("pluginArchiveImport", {
+                    void mutate({
+                      operation: "pluginArchiveImport",
                       selectionToken: archive.selectionToken,
-                      expectedRevision: catalog?.revision,
+                      expectedRevision: catalogRevision(),
                     })
                   }
                 >
@@ -2006,9 +1999,10 @@ export function PluginCenter({
                 className="settings-form"
                 onSubmit={(event) => {
                   event.preventDefault();
-                  void mutate(addKind === "git" ? "marketplaceAddGit" : "marketplaceAdd", {
+                  void mutate({
                     ...(addKind === "git"
                       ? {
+                          operation: "marketplaceAddGit",
                           url: root.trim(),
                           ...(gitRef.trim() ? { refName: gitRef.trim() } : {}),
                           ...(sparsePaths.trim()
@@ -2020,8 +2014,8 @@ export function PluginCenter({
                               }
                             : {}),
                         }
-                      : { root: root.trim() }),
-                    expectedRevision: catalog?.revision,
+                      : { operation: "marketplaceAdd", root: root.trim() }),
+                    expectedRevision: catalogRevision(),
                   });
                 }}
               >
@@ -2107,9 +2101,7 @@ export function PluginCenter({
                 </span>
                 <div>
                   <h1>{detailContent?.displayName || detailContent?.name || selected}</h1>
-                  {detailContent?.interface?.developerName && (
-                    <p>{detailContent?.interface.developerName}</p>
-                  )}
+                  {detailInterface.developerName && <p>{detailInterface.developerName}</p>}
                   {detail && marketFor(detail) && (
                     <p className="plugin-source-label">
                       {t("settings.pluginCenter.sourceName", {
@@ -2126,9 +2118,10 @@ export function PluginCenter({
                       disabled={disabled || detailLoading}
                       onClick={() => {
                         setInstallReview(true);
-                        void mutate("pluginResolve", {
+                        void mutate({
+                          operation: "pluginResolve",
                           id: detail.id,
-                          expectedRevision: catalog?.revision,
+                          expectedRevision: catalogRevision(),
                         });
                       }}
                     >
@@ -2152,7 +2145,8 @@ export function PluginCenter({
                           variant="outline"
                           disabled={disabled}
                           onClick={() =>
-                            void mutate("pluginUninstall", {
+                            void mutate({
+                              operation: "pluginUninstall",
                               id: detail.id,
                               expectedRevision: detail.revision,
                             })
@@ -2317,7 +2311,7 @@ export function PluginCenter({
                             <dt>{t("settings.pluginCenter.source2")}</dt>
                             <dd>
                               {marketFor(detail)?.sourceUrl ||
-                                detail.catalogSource?.url ||
+                                pluginInterface(detail.catalogSource).url ||
                                 detail.source}
                             </dd>
                             {(preview.packageVersion || preview.version) && (
@@ -2362,7 +2356,9 @@ export function PluginCenter({
                               <span>{t("settings.pluginCenter.installationScope")}</span>
                               <ResourceScope
                                 value={scope}
-                                onChange={setScope}
+                                onChange={(value) => {
+                                  if (value === "user" || value === "project") setScope(value);
+                                }}
                                 project={project}
                                 disabled={disabled}
                               />
@@ -2408,9 +2404,10 @@ export function PluginCenter({
                             <Button
                               disabled={disabled}
                               onClick={() =>
-                                void mutate("pluginResolve", {
+                                void mutate({
+                                  operation: "pluginResolve",
                                   id: detail.id,
-                                  expectedRevision: catalog?.revision,
+                                  expectedRevision: catalogRevision(),
                                 })
                               }
                             >
@@ -2433,6 +2430,7 @@ export function PluginCenter({
                     </section>
                   ) : managing && detail.installed && connectionManagement ? (
                     <PluginConnectionPanel
+                      projectId={projectId}
                       key={`${projectId}:${detail.id}:${detail.installedDigest}`}
                       detail={{ ...detail, ...detailContent }}
                       snapshot={detailSnapshot}
@@ -2518,18 +2516,17 @@ export function PluginCenter({
                   ) : null}
                   {!managing && (
                     <>
-                      {(detailContent?.interface?.longDescription ||
-                        detailContent?.description) && (
+                      {(detailInterface.longDescription || detailContent?.description) && (
                         <p className="plugin-long-description">
-                          {detailContent?.interface?.longDescription || detailContent?.description}
+                          {detailInterface.longDescription || detailContent?.description}
                         </p>
                       )}
-                      {Array.isArray(detailContent?.interface?.defaultPrompt) &&
-                        detailContent?.interface.defaultPrompt.length > 0 && (
+                      {Array.isArray(detailInterface.defaultPrompt) &&
+                        detailInterface.defaultPrompt.length > 0 && (
                           <section className="plugin-detail-resources">
                             <h2>{t("settings.pluginCenter.usageExamples")}</h2>
                             <div className="plugin-usage-examples">
-                              {detailContent?.interface.defaultPrompt.map((text: string) => (
+                              {detailInterface.defaultPrompt.map((text: string) => (
                                 <Button
                                   key={text}
                                   variant="outline"
@@ -2561,7 +2558,7 @@ export function PluginCenter({
                                 <strong>{skill.name}</strong>
                                 <p>{skill.description}</p>
                                 {detail.installed &&
-                                  detail.componentChoices?.disabledSkills.includes(skill.id) && (
+                                  detail.componentChoices?.disabledSkills?.includes(skill.id) && (
                                     <p>{t("settings.pluginCenter.componentOffInProject")}</p>
                                   )}
                               </li>
@@ -2619,25 +2616,25 @@ export function PluginCenter({
                           </p>
                         </section>
                       )}
-                      {(detailContent?.interface?.developerName ||
-                        detailContent?.interface?.category ||
+                      {(detailInterface.developerName ||
+                        detailInterface.category ||
                         detailContent?.version ||
-                        detailContent?.interface?.websiteUrl ||
-                        detailContent?.interface?.privacyPolicyUrl ||
-                        detailContent?.interface?.termsOfServiceUrl) && (
+                        detailInterface.websiteUrl ||
+                        detailInterface.privacyPolicyUrl ||
+                        detailInterface.termsOfServiceUrl) && (
                         <section className="plugin-detail-resources">
                           <h2>{t("settings.pluginCenter.pluginInformation")}</h2>
                           <dl className="plugin-metadata">
-                            {detailContent?.interface?.developerName && (
+                            {detailInterface.developerName && (
                               <>
                                 <dt>{t("settings.pluginCenter.developer")}</dt>
-                                <dd>{detailContent?.interface.developerName}</dd>
+                                <dd>{detailInterface.developerName}</dd>
                               </>
                             )}
-                            {detailContent?.interface?.category && (
+                            {detailInterface.category && (
                               <>
                                 <dt>{t("settings.pluginCenter.category")}</dt>
-                                <dd>{detailContent?.interface.category}</dd>
+                                <dd>{detailInterface.category}</dd>
                               </>
                             )}
                             {detailContent?.version && (
@@ -2646,11 +2643,11 @@ export function PluginCenter({
                                 <dd>{detailContent?.version}</dd>
                               </>
                             )}
-                            {detailContent?.interface?.websiteUrl && (
+                            {detailInterface.websiteUrl && (
                               <>
                                 <dt>{t("settings.pluginCenter.website")}</dt>
                                 <dd className="plugin-metadata-link">
-                                  <span>{detailContent?.interface.websiteUrl}</span>
+                                  <span>{detailInterface.websiteUrl}</span>
                                   <Button
                                     variant="link"
                                     aria-label={t("settings.pluginCenter.copyMetadataLink", {
@@ -2658,7 +2655,7 @@ export function PluginCenter({
                                     })}
                                     onClick={() =>
                                       void copyMetadataLink(
-                                        detailContent?.interface?.websiteUrl,
+                                        detailInterface.websiteUrl,
                                         t("settings.pluginCenter.website"),
                                       )
                                     }
@@ -2668,11 +2665,11 @@ export function PluginCenter({
                                 </dd>
                               </>
                             )}
-                            {detailContent?.interface?.privacyPolicyUrl && (
+                            {detailInterface.privacyPolicyUrl && (
                               <>
                                 <dt>{t("settings.pluginCenter.privacyPolicy")}</dt>
                                 <dd className="plugin-metadata-link">
-                                  <span>{detailContent?.interface.privacyPolicyUrl}</span>
+                                  <span>{detailInterface.privacyPolicyUrl}</span>
                                   <Button
                                     variant="link"
                                     aria-label={t("settings.pluginCenter.copyMetadataLink", {
@@ -2680,7 +2677,7 @@ export function PluginCenter({
                                     })}
                                     onClick={() =>
                                       void copyMetadataLink(
-                                        detailContent?.interface?.privacyPolicyUrl,
+                                        detailInterface.privacyPolicyUrl,
                                         t("settings.pluginCenter.privacyPolicy"),
                                       )
                                     }
@@ -2690,11 +2687,11 @@ export function PluginCenter({
                                 </dd>
                               </>
                             )}
-                            {detailContent?.interface?.termsOfServiceUrl && (
+                            {detailInterface.termsOfServiceUrl && (
                               <>
                                 <dt>{t("settings.pluginCenter.termsOfService")}</dt>
                                 <dd className="plugin-metadata-link">
-                                  <span>{detailContent?.interface.termsOfServiceUrl}</span>
+                                  <span>{detailInterface.termsOfServiceUrl}</span>
                                   <Button
                                     variant="link"
                                     aria-label={t("settings.pluginCenter.copyMetadataLink", {
@@ -2702,7 +2699,7 @@ export function PluginCenter({
                                     })}
                                     onClick={() =>
                                       void copyMetadataLink(
-                                        detailContent?.interface?.termsOfServiceUrl,
+                                        detailInterface.termsOfServiceUrl,
                                         t("settings.pluginCenter.termsOfService"),
                                       )
                                     }
@@ -2770,7 +2767,7 @@ export function PluginCenter({
                       {t("settings.pluginCenter.openSetupConversation")}
                     </Button>
                   )}
-                  {managing && detail.installed && detail.installedSkills.length > 0 && (
+                  {managing && detail.installed && (detail.installedSkills ?? []).length > 0 && (
                     <section
                       aria-label={t("settings.pluginCenter.installedSkills")}
                       className="plugin-detail-resources"
@@ -2780,8 +2777,8 @@ export function PluginCenter({
                         {t("settings.pluginCenter.componentChoiceExplanation")}
                       </p>
                       <SettingsGroupCard>
-                        {detail.installedSkills.map((skill) => {
-                          const requested = !detail.componentChoices?.disabledSkills.includes(
+                        {(detail.installedSkills ?? []).map((skill) => {
+                          const requested = !detail.componentChoices?.disabledSkills?.includes(
                             skill.id,
                           );
                           return (
@@ -2902,7 +2899,9 @@ export function PluginCenter({
                         <span>{t("settings.pluginCenter.changeScope")}</span>
                         <ResourceScope
                           value={scope}
-                          onChange={setScope}
+                          onChange={(value) => {
+                            if (value === "user" || value === "project") setScope(value);
+                          }}
                           project={project}
                           disabled={disabled}
                         />
@@ -2917,11 +2916,12 @@ export function PluginCenter({
                           variant="outline"
                           disabled={disabled}
                           onClick={() =>
-                            void mutate("pluginConfigure", {
+                            void mutate({
+                              operation: "pluginConfigure",
                               id: detail.id,
                               scope,
                               enabled: true,
-                              expectedRevision: catalog?.revision,
+                              expectedRevision: catalogRevision(),
                             })
                           }
                         >
@@ -2931,11 +2931,12 @@ export function PluginCenter({
                           variant="outline"
                           disabled={disabled}
                           onClick={() =>
-                            void mutate("pluginConfigure", {
+                            void mutate({
+                              operation: "pluginConfigure",
                               id: detail.id,
                               scope,
                               enabled: false,
-                              expectedRevision: catalog?.revision,
+                              expectedRevision: catalogRevision(),
                             })
                           }
                         >
@@ -2956,9 +2957,10 @@ export function PluginCenter({
                         onClick={() => {
                           setInstallReview(true);
                           setReviewed(false);
-                          void mutate("pluginResolve", {
+                          void mutate({
+                            operation: "pluginResolve",
                             id: detail.id,
-                            expectedRevision: catalog?.revision,
+                            expectedRevision: catalogRevision(),
                           });
                         }}
                       >
@@ -3042,12 +3044,12 @@ export function PluginCenter({
                           </>
                         )}
                       </dl>
-                      {Array.isArray(detail.interface?.capabilities) &&
-                        detail.interface.capabilities.length > 0 && (
+                      {Array.isArray(catalogInterface.capabilities) &&
+                        catalogInterface.capabilities.length > 0 && (
                           <>
                             <h3>{t("settings.pluginCenter.capabilitiesDeclaredByCatalog")}</h3>
                             <ul>
-                              {detail.interface.capabilities.map((capability: string) => (
+                              {catalogInterface.capabilities.map((capability: string) => (
                                 <li key={capability}>{capability}</li>
                               ))}
                             </ul>
@@ -3120,12 +3122,13 @@ export function PluginCenter({
                   )}
                   {managing && detail.installed && detail.installedDigest && (
                     <PluginHookSettings
+                      projectId={projectId}
                       id={detail.id}
                       installedDigest={detail.installedDigest}
                       disabled={disabled || detailLoading}
                       api={api}
                       onConfigure={async (parameters) => {
-                        await mutate("pluginHooksConfigure", parameters);
+                        await mutate({ operation: "pluginHooksConfigure", ...parameters });
                       }}
                       refreshKey={catalog?.revision}
                     />
@@ -3143,7 +3146,8 @@ export function PluginCenter({
                           supportBlocked(detail.installedComponentSupport, detail.installedDigest)
                         }
                         onClick={() =>
-                          void mutate("pluginSetup", {
+                          void mutate({
+                            operation: "pluginSetup",
                             id: detail.id,
                             ...(thread?.id ? { threadId: thread.id } : {}),
                           })

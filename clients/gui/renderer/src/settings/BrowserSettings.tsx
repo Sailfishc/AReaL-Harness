@@ -1,3 +1,4 @@
+import { readLibraryRequest } from "@areal/workbench/desktop-contract/library-media";
 import { SettingsGroupCard, SettingsRow, SettingsSection } from "@areal/ui/compositions";
 import { BrowserDataSettings } from "./BrowserDataSettings.js";
 import { useI18n } from "../i18n/IntlProvider.js";
@@ -25,7 +26,7 @@ export function BrowserSettings({
     setBusy(true);
     setError("");
     try {
-      await action("library", { operation: "settings", key, value });
+      await action("library", readLibraryRequest({ operation: "settings", key, value }));
     } catch (cause) {
       setError((cause as Error).message);
     } finally {

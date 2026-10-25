@@ -51,7 +51,9 @@ export function useConversationFork(
               forkIntent.resolve();
               setForkIntent((current) => (current === forkIntent ? null : current));
             }}
-            onCheck={() => resourceAction("reconcile", { projectId: forkIntent.projectId })}
+            onCheck={async () => {
+              await resourceAction("reconcile", { projectId: forkIntent.projectId });
+            }}
             onCreate={async () => {
               const result = await resourceAction("fork", {
                 projectId: forkIntent.projectId,

@@ -42,7 +42,7 @@ import {
   DropdownMenuItem,
 } from "../components/ui/dropdown-menu.js";
 import "./ModelSettings.css";
-import type { Action, Data } from "../services.js";
+import type { Action, CommandParams, Data } from "../services.js";
 
 const CHATGPT = "chatgpt";
 export function ModelSettings({
@@ -54,9 +54,8 @@ export function ModelSettings({
 }) {
   const { t } = useI18n();
   const navigate = useGuardedNavigation();
-  const api = (operation: string, values: Data = {}) =>
-    action("providers", { operation, ...values });
-  const state = useResource(() => api("list"), "application");
+  const api = <P extends CommandParams<"providers">>(request: P) => action("providers", request);
+  const state = useResource(() => api({ operation: "list" }), "application");
   const [accountModels, setAccountModels] = useState<Data[]>([]);
   const [accountStatus, setAccountStatus] = useState<SubscriptionAccountStatus>();
   const accountLabel = accountStatus
@@ -154,9 +153,18 @@ export function ModelSettings({
     if (!candidate) throw new UiMessageError({ id: "settings.modelSettings.noProviderToSave" });
     let result: Data;
     try {
-      result = await api("save", {
+      result = await api({
+        operation: "save",
         expectedRevision: candidate.basedOnRevision ?? state.value?.revision,
-        provider: candidate,
+        provider: {
+          id: candidate.id,
+          name: candidate.name,
+          baseUrl: candidate.baseUrl,
+          protocol: candidate.protocol,
+          enabled: candidate.enabled,
+          models: candidate.models,
+          parameters: candidate.parameters,
+        },
         authentication: candidate.authentication ?? (candidate.apiKeyEnv ? "apiKey" : "none"),
         ...(apiKey !== undefined ? { apiKey } : {}),
       });
@@ -296,7 +304,8 @@ export function ModelSettings({
     run(async () => {
       try {
         state.accept(
-          await api("defaultAndApply", {
+          await api({
+            operation: "defaultAndApply",
             expectedRevision: state.value?.revision,
             model: { providerId, modelId },
           }),
@@ -433,7 +442,9 @@ export function ModelSettings({
                 onClick={() =>
                   void run(async () => {
                     try {
-                      state.accept(await api("apply", { expectedRevision: state.value?.revision }));
+                      state.accept(
+                        await api({ operation: "apply", expectedRevision: state.value?.revision }),
+                      );
                     } finally {
                       await state.refresh();
                     }
@@ -675,7 +686,7 @@ export function ModelSettings({
                       onClick={() =>
                         void saveThen(async (saved) => {
                           const model = saved.models.find((m: Data) => m.enabled);
-                          await api("probe", { id: saved.id, model: model.id });
+                          await api({ operation: "probe", id: saved.id, model: model.id });
                           setProbe((p) => ({ ...p, [model.id]: true }));
                           setMessage({
                             id: "settings.modelSettings.connectedToModelValue",
@@ -858,7 +869,11 @@ export function ModelSettings({
                                 disabled={busy || !provider.enabled || !model.enabled}
                                 onClick={() =>
                                   void saveThen(async (saved) => {
-                                    await api("probe", { id: saved.id, model: model.id });
+                                    await api({
+                                      operation: "probe",
+                                      id: saved.id,
+                                      model: model.id,
+                                    });
                                     setProbe((p) => ({ ...p, [model.id]: true }));
                                     setMessage({
                                       id: "settings.modelSettings.connectedToModelValue",
@@ -1062,7 +1077,8 @@ export function ModelSettings({
               disabled={busy}
               onClick={() =>
                 void run(async () => {
-                  await api("removeAndApply", {
+                  await api({
+                    operation: "removeAndApply",
                     id: remove.id,
                     expectedRevision: state.value?.revision,
                   });

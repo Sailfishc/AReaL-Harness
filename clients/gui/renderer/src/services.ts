@@ -19,7 +19,7 @@ import type {
   McpAppEvent,
   McpFormResourceCommand,
 } from "./mcp-app-services.js";
-export type { CommandName };
+export type { CommandName, CommandParams, CommandResponse };
 export type Data = Record<string, any>;
 export type FileOpenTargets = {
   targets: { id: string; label: string }[];
@@ -131,33 +131,11 @@ export interface PlatformServices {
 }
 export type PreparedCreator = CommandResponse<"prepareCreator">;
 export interface Action {
-  <
-    N extends "prepareCreator" | "continue" | "fork" | "configure" | "side",
-    P extends CommandParams<N>,
-  >(
+  <N extends CommandName, P extends CommandParams<N>>(
     name: N,
     params: P,
   ): Promise<CommandResponse<N, P>>;
-  <
-    Name extends Exclude<
-      CommandName,
-      "prepareCreator" | "continue" | "side" | "fork" | "configure"
-    >,
-  >(
-    name: Name,
-    params?: Data,
-  ): Promise<any>;
 }
-// 业务投影仍由各能力所有者建模；此适配保留现有 Action 调用方的返回类型。
-export function call<
-  N extends "prepareCreator" | "continue" | "fork" | "configure" | "side",
-  P extends CommandParams<N>,
->(services: PlatformServices, name: N, params: P): Promise<CommandResponse<N, P>>;
-export function call<N extends CommandName>(
-  services: PlatformServices,
-  name: N,
-  params: CommandParams<N>,
-): Promise<any>;
 export async function call<N extends CommandName, P extends CommandParams<N>>(
   services: PlatformServices,
   name: N,

@@ -1,3 +1,4 @@
+import type { ManagementRequestMap } from "@areal/workbench/desktop-contract/management";
 import { Input } from "@areal/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "./components/ui/button.js";
@@ -63,7 +64,7 @@ export function WorkgroupsPane({ project, action }: { project: Data; action: Act
   const [workflow, setWorkflow] = useState<Data | null>(null),
     [detail, setDetail] = useState<Data | null>(null);
   const [workers, setWorkers] = useState(""),
-    [admission, setAdmission] = useState("fixed");
+    [admission, setAdmission] = useState<"fixed" | "auto" | "adaptive">("fixed");
   const [reading, setReading] = useState(true),
     [busy, setBusy] = useState(false),
     [confirmCancel, setConfirmCancel] = useState(false);
@@ -89,11 +90,7 @@ export function WorkgroupsPane({ project, action }: { project: Data; action: Act
     (entry: Data) =>
       entry.method?.startsWith("areal/workgroup/") || entry.method === "areal/workflow/start",
   );
-  const request = useCallback(
-    (operation: string, params: Data = {}) =>
-      action("manage", { projectId: project.id, operation, ...params }),
-    [action, project.id],
-  );
+
   const acceptDetail = useCallback((value: Data) => {
     setDetail((previous) =>
       !previous || previous.id !== value.id || value.record.revision >= previous.record.revision
@@ -168,7 +165,10 @@ export function WorkgroupsPane({ project, action }: { project: Data; action: Act
     setReading(true);
     const task = (async () => {
       try {
-        const capability = await request("workgroupCapabilities");
+        const capability = await action("manage", {
+          projectId: project.id,
+          operation: "workgroupCapabilities",
+        });
         if (!capability.enabled) {
           if (mounted.current) {
             setEnabled(false);
@@ -177,9 +177,9 @@ export function WorkgroupsPane({ project, action }: { project: Data; action: Act
           return;
         }
         const [limits, list, catalog] = await Promise.all([
-          request("workgroupPolicy"),
-          request("workgroups"),
-          request("workflows"),
+          action("manage", { projectId: project.id, operation: "workgroupPolicy" }),
+          action("manage", { projectId: project.id, operation: "workgroups" }),
+          action("manage", { projectId: project.id, operation: "workflows" }),
         ]);
         if (mounted.current) {
           setEnabled(true);
@@ -205,7 +205,7 @@ export function WorkgroupsPane({ project, action }: { project: Data; action: Act
     })();
     listRequest.current = task;
     return task;
-  }, [request, connected]);
+  }, [action, project.id, connected]);
   useEffect(() => {
     let live = true,
       timer: ReturnType<typeof setTimeout>;
@@ -234,7 +234,12 @@ export function WorkgroupsPane({ project, action }: { project: Data; action: Act
     setError("");
     const ref = workflows.find((item) => keyOf(item) === workflowKey);
     if (ref)
-      void request("workflow", { id: ref.id, revision: ref.revision })
+      void action("manage", {
+        projectId: project.id,
+        operation: "workflow",
+        id: ref.id,
+        revision: ref.revision,
+      })
         .then((value) => {
           if (live) setWorkflow(value);
         })
@@ -244,7 +249,7 @@ export function WorkgroupsPane({ project, action }: { project: Data; action: Act
     return () => {
       live = false;
     };
-  }, [workflowKey, request, workflows]);
+  }, [workflowKey, action, project.id, workflows]);
   useEffect(() => {
     let live = true,
       timer: ReturnType<typeof setTimeout>;
@@ -259,7 +264,11 @@ export function WorkgroupsPane({ project, action }: { project: Data; action: Act
     const tick = async () => {
       if (!selected || !connected) return;
       try {
-        const value = await request("workgroup", { id: selected });
+        const value = await action("manage", {
+          projectId: project.id,
+          operation: "workgroup",
+          id: selected,
+        });
         if (live) {
           acceptDetail(value);
           setDetailError("");
@@ -274,8 +283,15 @@ export function WorkgroupsPane({ project, action }: { project: Data; action: Act
       live = false;
       clearTimeout(timer);
     };
-  }, [selected, connected, request, acceptDetail]);
-  const mutate = async (operation: string, params: Data) => {
+  }, [selected, connected, action, project.id, acceptDetail]);
+  const mutate = async (
+    params:
+      | Omit<ManagementRequestMap["workgroupStart"], "projectId">
+      | Omit<ManagementRequestMap["workgroupRevise"], "projectId">
+      | Omit<ManagementRequestMap["workflowStart"], "projectId">
+      | Omit<ManagementRequestMap["workgroupCancel"], "projectId">,
+  ) => {
+    const operation = params.operation;
     const creating = operation !== "workgroupCancel";
     if (
       locked.current ||
@@ -292,8 +308,7 @@ export function WorkgroupsPane({ project, action }: { project: Data; action: Act
     const origin =
       operation === "workflowStart"
         ? workflows.find(
-            (item) =>
-              item.id === params.workflow?.id && item.revision === params.workflow?.revision,
+            (item) => item.id === params.workflow.id && item.revision === params.workflow.revision,
           )
         : undefined;
     if (creating) {
@@ -302,7 +317,7 @@ export function WorkgroupsPane({ project, action }: { project: Data; action: Act
         JSON.stringify({
           requestId,
           operation,
-          id: params.id,
+          id: "id" in params ? params.id : undefined,
           workflow: origin && {
             id: origin.id,
             revision: origin.revision,
@@ -313,7 +328,11 @@ export function WorkgroupsPane({ project, action }: { project: Data; action: Act
       setUnknown(true);
     }
     try {
-      const value = await request(operation, { ...params, ...(requestId ? { requestId } : {}) });
+      const value = await action("manage", {
+        projectId: project.id,
+        ...params,
+        ...(requestId ? { requestId } : {}),
+      });
       // Store the actual ID even when the originating panel has closed.
       localStorage.setItem(storageKey, value.id);
       rememberWorkflow(
@@ -358,7 +377,11 @@ export function WorkgroupsPane({ project, action }: { project: Data; action: Act
     setBusy(true);
     setError("");
     try {
-      const receipt = await request("workgroupSubmission", { requestId: saved.requestId });
+      const receipt = await action("manage", {
+        projectId: project.id,
+        operation: "workgroupSubmission",
+        requestId: saved.requestId,
+      });
       if (!receipt.confirmed) {
         if (mounted.current) setError("尚未找到原提交的确认记录，继续保留未知状态；不会重发。");
         return;
@@ -390,7 +413,8 @@ export function WorkgroupsPane({ project, action }: { project: Data; action: Act
       setError(`并发数应为1至${policy!.workers}的整数。`);
       return;
     }
-    void mutate("workflowStart", {
+    void mutate({
+      operation: "workflowStart",
       workflow: { id: workflow.id, revision: workflow.revision },
       admission,
       ...(count === undefined ? {} : { workers: count }),
@@ -405,7 +429,7 @@ export function WorkgroupsPane({ project, action }: { project: Data; action: Act
     try {
       // Opening the editor must not expose already-started stages as editable
       // merely because the periodic detail snapshot is one poll behind.
-      const value = await request("workgroup", { id });
+      const value = await action("manage", { projectId: project.id, operation: "workgroup", id });
       if (mounted.current && localStorage.getItem(storageKey) === id) {
         acceptDetail(value);
         setPlanEditor({ id });
@@ -424,11 +448,14 @@ export function WorkgroupsPane({ project, action }: { project: Data; action: Act
     setBusy(true);
     setError("");
     try {
-      const value = await request("workgroupArtifact", {
+      const value = await action("manage", {
+        projectId: project.id,
+        operation: "workgroupArtifact",
         id: detail.id,
         offset: more ? paths?.nextOffset : 0,
       });
       if (mounted.current && fileGeneration.current === stamp) {
+        if (!("paths" in value)) throw new Error("产物目录响应不完整，请重新读取。");
         if (more && paths?.head !== value.head) throw new Error("产物版本已变化，请重新读取。");
         setPaths({ ...value, paths: more ? [...paths!.paths, ...value.paths] : value.paths });
       }
@@ -451,13 +478,16 @@ export function WorkgroupsPane({ project, action }: { project: Data; action: Act
       setApplyError("");
     }
     try {
-      const value = await request("workgroupArtifact", {
+      const value = await action("manage", {
+        projectId: project.id,
+        operation: "workgroupArtifact",
         id: detail.id,
         path,
         offset: more ? file?.nextOffset : 0,
       });
       if (mounted.current && fileGeneration.current === stamp) {
         if (
+          !("path" in value) ||
           value.path !== path ||
           (more &&
             (file?.sha256 !== value.sha256 ||
@@ -513,7 +543,11 @@ export function WorkgroupsPane({ project, action }: { project: Data; action: Act
     setApplyState(null);
     setApplyError("");
     try {
-      const value = await request("workgroupArtifactStatus", params);
+      const value = await action("manage", {
+        projectId: project.id,
+        operation: "workgroupArtifactStatus",
+        ...params,
+      });
       const pending = pendingArtifact(artifactKey);
       if (
         pending &&
@@ -676,7 +710,8 @@ export function WorkgroupsPane({ project, action }: { project: Data; action: Act
                 value={admission}
                 disabled={disabled}
                 onValueChange={(value) => {
-                  if (value) setAdmission(value);
+                  if (value === "fixed" || value === "auto" || value === "adaptive")
+                    setAdmission(value);
                 }}
               >
                 <SelectTrigger aria-label="工作组调度策略">
@@ -725,7 +760,8 @@ export function WorkgroupsPane({ project, action }: { project: Data; action: Act
                 onClose={() => setPlanEditor(null)}
                 onSubmit={async (plan, revision) => {
                   if (planEditor.id)
-                    return mutate("workgroupRevise", {
+                    return mutate({
+                      operation: "workgroupRevise",
                       id: planEditor.id,
                       expectedRevision: revision,
                       plan,
@@ -736,7 +772,8 @@ export function WorkgroupsPane({ project, action }: { project: Data; action: Act
                     (!Number.isSafeInteger(count) || count < 1 || count > policy!.workers)
                   )
                     throw Error(`并发数应为1至${policy!.workers}的整数。`);
-                  return mutate("workgroupStart", {
+                  return mutate({
+                    operation: "workgroupStart",
                     plan,
                     admission,
                     ...(count === undefined ? {} : { workers: count }),
@@ -861,7 +898,7 @@ export function WorkgroupsPane({ project, action }: { project: Data; action: Act
                       <Button
                         size="sm"
                         disabled={controlDisabled}
-                        onClick={() => void mutate("workgroupCancel", { id: detail.id })}
+                        onClick={() => void mutate({ operation: "workgroupCancel", id: detail.id })}
                       >
                         确认取消工作组
                       </Button>

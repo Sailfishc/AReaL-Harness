@@ -22,9 +22,9 @@ export type ResourceDraftSeed =
 export type CenterSkill = {
   key: string;
   id: string;
-  revision: string;
+  revision?: string;
   name: string;
-  description: string;
+  description?: string;
   enabled: boolean;
   scope: "user" | "project" | "plugin";
   sourceLabel: string | UiMessage;
@@ -34,12 +34,21 @@ export type CenterSkill = {
   error?: string;
 };
 
+function skillOwner(
+  skill: CenterSkill,
+): import("@areal/workbench/desktop-contract/resource").Scope {
+  if (skill.scope === "user") return { scope: "user" };
+  if (skill.scope === "project" && skill.projectId)
+    return { scope: "project", projectId: skill.projectId };
+  throw new UiMessageError({ id: "settings.pluginSkillsPage.connectTheOwningProjectToReadThe" });
+}
+
 async function skillBody(action: Action, skill: CenterSkill, project?: Data) {
+  if (skill.revision === undefined) throw new Error(skill.error);
   if (skill.scope !== "plugin") {
     const result = await action("resources", {
+      ...skillOwner(skill),
       operation: "skillRead",
-      scope: skill.scope,
-      projectId: skill.projectId,
       id: skill.id,
     });
     if (result.truncated)
@@ -157,11 +166,13 @@ export function PluginSkillsPage({
     ];
     const results = await Promise.allSettled(
       owners.map((owner) =>
-        action("resources", {
-          operation: "skills",
-          scope: owner.scope,
-          projectId: owner.projectId,
-        }),
+        owner.scope === "user"
+          ? action("resources", { operation: "skills", scope: "user" })
+          : action("resources", {
+              operation: "skills",
+              scope: "project",
+              projectId: owner.projectId,
+            }),
       ),
     );
     if (generation.current !== version) return;
@@ -173,7 +184,7 @@ export function PluginSkillsPage({
           failures.push({ source: owner.label, error: result.reason.message });
           return [];
         }
-        return (result.value.data ?? []).map((item: Data) => ({
+        return (result.value.data ?? []).map((item) => ({
           ...item,
           key: `${owner.scope}:${owner.projectId || "user"}:${item.id}`,
           scope: owner.scope,
@@ -247,18 +258,23 @@ export function PluginSkillsPage({
   };
   const toggle = (skill: CenterSkill) =>
     run(async () => {
-      await action("resources", {
+      if (skill.scope === "plugin" || skill.catalogRevision === undefined) return;
+      const request = {
         operation: "skillToggle",
-        scope: skill.scope,
-        projectId: skill.projectId,
         id: skill.id,
         enabled: !skill.enabled,
         expectedRevision: skill.catalogRevision,
-      });
+      } satisfies Omit<
+        Extract<import("../services.js").CommandParams<"resources">, { operation: "skillToggle" }>,
+        "scope" | "projectId"
+      >;
+      await action("resources", { ...request, ...skillOwner(skill) });
       setMessage({ id: "settings.pluginSkillsPage.savedChangesTakeEffectInNewTasks" });
     });
   const startDraft = (skill: CenterSkill) =>
     run(async () => {
+      if (skill.revision === undefined || skill.description === undefined)
+        throw new Error(skill.error);
       const draftVersion = draftGeneration.current;
       if (skill.scope === "plugin") {
         if (!project?.state?.connected || !skill.pluginId)

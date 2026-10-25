@@ -1,3 +1,4 @@
+import type { PluginCommand, PluginMutationRequest } from "./PluginCenter.js";
 import { Input } from "@areal/ui";
 import { useI18n, UiMessageError, type UiMessage } from "../i18n/IntlProvider.js";
 import { SettingsDisclosure } from "./SettingsDisclosure.js";
@@ -23,11 +24,17 @@ type HookView = {
   diagnostics: string[];
 };
 type Props = {
+  projectId: string;
   id: string;
   installedDigest: string;
   disabled: boolean;
-  api: (operation: string, values?: RecordValue) => Promise<unknown>;
-  onConfigure: (parameters: RecordValue) => Promise<void> | void;
+  api: PluginCommand;
+  onConfigure: (
+    parameters: Omit<
+      Extract<PluginMutationRequest, { operation: "pluginHooksConfigure" }>,
+      "operation"
+    >,
+  ) => Promise<void> | void;
   refreshKey?: string | number;
 };
 const object = (value: unknown): value is RecordValue =>
@@ -104,6 +111,7 @@ const message = (error: unknown): string | UiMessage =>
       : { id: "settings.pluginHookSettings.couldNotLoadPluginHooks" };
 
 export function PluginHookSettings({
+  projectId,
   id,
   installedDigest,
   disabled,
@@ -126,7 +134,11 @@ export function PluginHookSettings({
     setLoading(true);
     setError("");
     try {
-      const next = readView(await apiRef.current("pluginHooks"), id, installedDigest);
+      const next = readView(
+        await apiRef.current({ operation: "pluginHooks", projectId }),
+        id,
+        installedDigest,
+      );
       if (generation.current === request) {
         const nextIdentity = JSON.stringify([id, installedDigest, next.definitionDigest]);
         setReviewedIdentity((previous) => (previous === nextIdentity ? previous : undefined));
@@ -145,7 +157,7 @@ export function PluginHookSettings({
     } finally {
       if (generation.current === request) setLoading(false);
     }
-  }, [id, installedDigest]);
+  }, [id, installedDigest, projectId]);
   useEffect(() => {
     setReviewedIdentity(undefined);
     setReadOnlyReviewedIdentity(undefined);

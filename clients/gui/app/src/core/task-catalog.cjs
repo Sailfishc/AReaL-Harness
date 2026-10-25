@@ -7,13 +7,18 @@ const { dirname, basename, join } = require("node:path");
 const { executeCore } = require("./core-process.cjs");
 const { operationTrace } = require("./startup-timing.cjs");
 const { modelRecord } = require("@areal/workbench/core-model-contract");
-const { readTask, readTaskPage, readInboxPage, readTaskRequest } = require("./task-contract.cjs");
+const {
+  readTask,
+  readTaskPage,
+  readInboxPage,
+} = require("@areal/workbench/desktop-contract/management-tasks");
+const catalogContract = require("@areal/workbench/desktop-contract/catalog");
 /** @typedef {InstanceType<typeof import('./backend.cjs').CoreBackend>} Backend */
 /** @typedef {import('./project-state.cjs').CoreProject} Project */
 /** @typedef {import('./project-index.cjs').SavedProject} SavedProject */
-/** @typedef {import('./task-contract.cjs').TaskRequest} Request */
-/** @typedef {import('./task-contract.cjs').Task} Task */
-/** @typedef {import('./task-contract.cjs').InboxEntry} InboxEntry */
+/** @typedef {import('@areal/workbench/desktop-contract/catalog').TasksRequest} Request */
+/** @typedef {import('@areal/workbench/desktop-contract/management-tasks').Task} Task */
+/** @typedef {import('@areal/workbench/desktop-contract/management-tasks').InboxEntry} InboxEntry */
 /** @typedef {{kind:string,reason?:string}} Coverage */
 /** @typedef {{data:Task[],hasMore:boolean,coverage:Coverage,readAt:number}} Preview */
 /** @typedef {{flights:Map<string,{root:string,limit:number,sourceThreadId?:string,work:Promise<Preview>}>,active:number,queue:Array<()=>void>}} PreviewReads */
@@ -459,28 +464,10 @@ function ownerRead(
 
 /** @param {Backend} backend @param {Record<string,unknown>} rawRequest */
 async function taskCatalog(backend, rawRequest) {
-  if (rawRequest.limit !== undefined && typeof rawRequest.limit !== "number")
-    throw new Error("无效任务列表请求");
-  const request = readTaskRequest(rawRequest);
+  if (!catalogContract.isRequest("tasks", rawRequest)) throw new Error("无效任务列表请求");
+  const request = rawRequest;
   const limit = request.limit ?? 30,
     inbox = request.operation === "inbox";
-  if (
-    (!inbox && !["list", "preview", "observe"].includes(request.operation)) ||
-    !Number.isSafeInteger(limit) ||
-    limit < 1 ||
-    limit > 1024
-  )
-    throw new Error("无效任务列表请求");
-  if (
-    request.sourceThreadId !== undefined &&
-    (inbox ||
-      typeof request.projectId !== "string" ||
-      typeof request.sourceThreadId !== "string" ||
-      !request.sourceThreadId ||
-      request.sourceThreadId.length > 256 ||
-      request.sourceThreadId.includes("\0"))
-  )
-    throw new Error("无效来源会话");
   const requested =
     request.projectId === undefined
       ? null

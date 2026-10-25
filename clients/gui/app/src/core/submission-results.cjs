@@ -1,6 +1,11 @@
 // @ts-check
 "use strict";
-const { modelRecord, isCoreQueue } = require("@areal/workbench/core-model-contract");
+const { modelRecord } = require("@areal/workbench/core-model-contract");
+const {
+  readAdmission,
+  readThreadAdmission,
+  readQueueAdmission,
+} = require("../../../packages/workbench/client/desktop-contract/shared.cjs");
 // Consumed fields of protocol::ManagedProcess and workgroup::service::read; other payload fields remain unknown.
 /** @typedef {Record<string,unknown> & {planRevision:number,revisions?:Record<string,{planRevision:number}>}} WorkgroupRecord */
 /** @typedef {Record<string,unknown> & {id:string,record:WorkgroupRecord}} Workgroup */
@@ -72,53 +77,4 @@ module.exports = {
   submissionError,
 };
 
-/** Consumed identities from Core thread/turn admission receipts; payload extensions stay opaque. */
-/** @typedef {Record<string,unknown> & {thread?:Record<string,unknown>&{id:string},turn?:Record<string,unknown>&{id:string},threadId?:string,turnId?:string,requestId?:string,queueItemId?:string}} Admission */
-/** @param {unknown} value @returns {Admission} */
-function readAdmission(value) {
-  if (!admission(value))
-    throw Object.assign(new Error("Core 受理结果不完整，请查询原请求"), {
-      code: "ADMISSION_RESULT_INVALID",
-      submissionUnknown: true,
-      outcome: { kind: "unconfirmed" },
-      recovery: { kind: "queryOriginal" },
-    });
-  return value;
-}
-/** @param {unknown} value @returns {Admission & {thread:Record<string,unknown>&{id:string}}} */
-function readThreadAdmission(value) {
-  const result = readAdmission(value);
-  if (!result.thread)
-    throw Object.assign(new Error("Core 未返回已创建的会话，请查询原请求"), {
-      code: "ADMISSION_RESULT_INVALID",
-      submissionUnknown: true,
-      outcome: { kind: "unconfirmed" },
-      recovery: { kind: "queryOriginal" },
-    });
-  return { ...result, thread: result.thread };
-}
-/** @param {unknown} value @returns {value is Admission} */
-function admission(value) {
-  return (
-    modelRecord(value) &&
-    ["threadId", "turnId", "requestId", "queueItemId"].every(
-      (key) => value[key] === undefined || typeof value[key] === "string",
-    ) &&
-    ["thread", "turn"].every(
-      (key) =>
-        value[key] === undefined || (modelRecord(value[key]) && typeof value[key].id === "string"),
-    )
-  );
-}
-
-/** @param {unknown} value @returns {import('@areal/workbench/core-model-contract').CoreQueue} */
-function readQueueAdmission(value) {
-  if (!isCoreQueue(value))
-    throw Object.assign(new Error("队列受理结果不完整，请查询原请求"), {
-      code: "ADMISSION_RESULT_INVALID",
-      submissionUnknown: true,
-      outcome: { kind: "unconfirmed" },
-      recovery: { kind: "queryOriginal" },
-    });
-  return value;
-}
+/** @typedef {import("../../../packages/workbench/client/desktop-contract/shared.cjs").Admission} Admission */

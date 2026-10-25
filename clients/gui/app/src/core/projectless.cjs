@@ -3,6 +3,7 @@
 const { readFile, mkdir, realpath, stat } = require("node:fs/promises");
 const { join, isAbsolute } = require("node:path");
 const { modelRecord } = require("@areal/workbench/core-model-contract");
+const catalogContract = require("@areal/workbench/desktop-contract/catalog");
 const { homedir } = require("node:os");
 
 // Desktop reserves workspace roots; Core remains the sole owner of threads and
@@ -35,15 +36,16 @@ class ProjectlessWorkspaces {
         join(this.backend.userHome ?? homedir(), "Documents", "AReaL"),
     };
   }
-  /** @param {Record<string,unknown> & {operation:string}} request */
+  /** @param {Record<string,unknown> & {operation:string}} request @returns {Promise<import("@areal/workbench/desktop-contract/catalog").ProjectlessCatalog|{directory:string}|{projectId:string,cwd:string}>} */
   async command(request) {
+    if (!catalogContract.isRequest("projectless", request)) throw new Error("无效项目外请求");
     if (request.operation === "catalog") {
       const providers = this.backend.providers;
       const config = await providers.config.current();
       const selected = readEffectiveModel(config.effective);
       // 与 Core model_catalog 的 HTTP 适配器缺省允许值一致；发送时再核对目标 Core。
       const efforts = ["none", "minimal", "low", "medium", "high", "xhigh"];
-      /** @type {Array<{providerId:string|null,modelId:string,displayName:string,available:boolean,credentialState?:unknown,isDefault:boolean,parameters:Record<string,unknown>,capabilities?:unknown,reasoningEffortOptions:unknown}>} */
+      /** @type {Array<{providerId:string|null,modelId:string,displayName:string,available:boolean,credentialState?:string,isDefault:boolean,parameters:import("./provider-contract.cjs").ModelParameters,capabilities?:import("./provider-contract.cjs").ModelCapabilities,reasoningEffortOptions:string[]}>} */
       const data = config.data
         .filter((provider) => provider.enabled)
         .flatMap((provider) => {
