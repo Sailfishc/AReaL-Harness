@@ -125,7 +125,14 @@ const trials = plan.tasks
     ),
   )
   .flat();
+async function implementationDigest(workspace) {
+  const digest = createHash("sha256");
+  for (const path of codeFiles)
+    digest.update(path).update(await readFile(resolve(workspace, path)));
+  return digest.digest("hex");
+}
 let sourceDigest;
+let preparedSourceDigest;
 for (const [index, trial] of trials.entries()) {
   const id = `${String(index + 1).padStart(2, "0")}-${trial.task.id}-${trial.repeat}-${trial.group}`;
   const evidence = resolve(output, id);
@@ -233,10 +240,7 @@ for (const [index, trial] of trials.entries()) {
       2,
     ) + "\n",
   );
-  const digest = createHash("sha256");
-  for (const path of codeFiles)
-    digest.update(path).update(await readFile(resolve(workspace, path)));
-  const codeDigest = digest.digest("hex");
+  const codeDigest = await implementationDigest(workspace);
   sourceDigest ??= codeDigest;
   assert.equal(codeDigest, sourceDigest, "Groups have different implementation source");
   const environment = {
@@ -275,6 +279,13 @@ for (const [index, trial] of trials.entries()) {
   for (const path of documents)
     if (!snapshot.some((item) => item.path === path))
       await rm(resolve(workspace, path), { force: true });
+  const preparedCodeDigest = await implementationDigest(workspace);
+  preparedSourceDigest ??= preparedCodeDigest;
+  assert.equal(
+    preparedCodeDigest,
+    preparedSourceDigest,
+    "Setup produced different implementation source between documentation groups",
+  );
   const baseline = [];
   for (const [step, argv] of config.checks.entries())
     baseline.push(
@@ -345,6 +356,7 @@ for (const [index, trial] of trials.entries()) {
     group: trial.group,
     sourceRevision: config.sourceRevision,
     codeDigest,
+    preparedCodeDigest,
     runtime: { node: process.version, platform: process.platform, arch: process.arch },
     agent,
     baseline,

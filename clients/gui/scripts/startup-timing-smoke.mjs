@@ -1,3 +1,5 @@
+import { artifactHashes } from "./support/performance-profile.mjs";
+import { startupResources, startupEnvironment, summarizeStartup } from "./startup-resources.mjs";
 import { makeTempDir } from "./support/temp.mjs";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
@@ -503,13 +505,36 @@ try {
       "AREAL_STARTUP_MISSING_CREDENTIAL",
     ])
       delete env[key];
-    const fixture = { ...variant, home, registry, env, generation: null };
+    const fixture = {
+      ...variant,
+      home,
+      registry,
+      env,
+      generation: null,
+      source: {
+        head: execFileSync("git", ["rev-parse", "HEAD"], {
+          cwd: variant.gui,
+          encoding: "utf8",
+        }).trim(),
+        diffSha256: createHash("sha256")
+          .update(
+            execFileSync("git", ["diff", "--binary", "HEAD"], {
+              cwd: variant.gui,
+              maxBuffer: 64 * 1024 * 1024,
+            }),
+          )
+          .digest("hex"),
+        rendererArtifacts: await artifactHashes(join(variant.gui, "renderer/dist")),
+        appSources: await artifactHashes(join(variant.gui, "app/src")),
+      },
+    };
     const binaryDigests = {};
     for (const name of ["areal", "areal-runtime", "areal-runtime-fs"]) {
       binaryDigests[name] = createHash("sha256")
         .update(await readFile(join(dirname(variant.binary), name)))
         .digest("hex");
     }
+    fixture.binaryDigests = binaryDigests;
     fixture.binaryFingerprint = createHash("sha256")
       .update(JSON.stringify(binaryDigests))
       .digest("hex");
@@ -627,6 +652,7 @@ try {
         visibleMs,
         firstView,
         catalogReadMs,
+        resources: await startupResources(app, page),
         windowTiming: Object.fromEntries(
           mainRecords
             .filter(
@@ -718,6 +744,8 @@ try {
           rounds,
           modelCount,
           catalogReads,
+          environment: startupEnvironment(),
+          summary: summarizeStartup(samples),
           samples,
           modelRequests,
           seedModelRequestCount,
@@ -728,7 +756,17 @@ try {
           failure,
           binaries,
           scratch,
-          variants: variants.map(({ label, gui }) => ({ label, gui })),
+          variants: variants.map(({ label, gui, source, binaryDigests }) => ({
+            label,
+            gui,
+            source,
+            binaryDigests,
+          })),
+          sameCoreRuntimeAcrossVariants:
+            new Set(variants.map((variant) => variant.binaryFingerprint)).size === 1,
+          scriptSha256: createHash("sha256")
+            .update(await readFile(fileURLToPath(import.meta.url)))
+            .digest("hex"),
           revision: execFileSync("git", ["rev-parse", "HEAD"], {
             cwd: root,
             encoding: "utf8",

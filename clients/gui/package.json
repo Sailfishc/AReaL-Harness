@@ -131,7 +131,8 @@
     "check:all": "vp check --deny-warnings",
     "fmt": "vp fmt",
     "lint": "vp lint",
-    "test:design-rules": "node --test scripts/design-rules.test.mjs"
+    "test:design-rules": "node --test scripts/design-rules.test.mjs",
+    "measure:gui": "node scripts/gui-performance.mjs"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.14.0",
