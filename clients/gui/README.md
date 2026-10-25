@@ -33,7 +33,7 @@ Vite+ 1.4.0 提供本地检查和任务编排，不需要安装全局 `vp`。`pn
 
 `pnpm --dir clients/gui check:all` 检查所有自有源码，供存量问题盘点。当前存量未批量格式化，全量检查可能失败。直接检查指定文件使用 `pnpm --dir clients/gui exec vp check <文件路径>`；`lint` 和 `fmt` 分别运行 Oxlint 和 Oxfmt。生成目录、构建产物及第三方静态资源不参与检查，Markdown、锁文件与依赖补丁不参与格式化。TypeScript 检查继续使用原有 `typecheck`，本阶段不启用 TypeScript Go。
 
-`verify`、`verify:design` 和 `typecheck` 由根 `vite.config.mts` 的 Vite+ 任务编排，保留现有检查和执行顺序。共享的 UI 构建缓存显式跟踪源码、生成器、文档、配置和锁文件，并恢复 `packages/ui/dist`。Git 基线审计、桌面构建和测试每次执行，避免把成功日志当作新一轮验收。GUI CI 保存本地任务缓存。需要排除缓存影响时，从 `clients/gui` 运行 `pnpm exec vp run --no-cache verify-suite`。需要清空缓存时运行 `pnpm exec vp cache clean`。
+`build`、`build:desktop`、`design:build`、`verify`、`verify:design` 和 `typecheck` 由根 `vite.config.mts` 的 Vite+ 任务编排。UI、浏览器自动化、浏览器数据与 Gen UI 构建显式跟踪源码、构建配置和锁文件，Gen UI 同时跟踪资源及其摘要清单；缓存命中时恢复各包的 `dist`。renderer 的生产和设计构建每次执行，分别写入 `renderer/dist` 与 `dist/design-system`。它们消费 GUI 工作区外的共享 CSS 和设计站图片；当前任务缓存不能可靠跟踪或显式声明这些路径，因此不缓存 renderer。Swift 原生 helper 依赖本机 Xcode、SDK 和签名环境，每次构建。Git 基线审计和测试也每次执行，缓存成功日志不代表新一轮验收。GUI CI 保存本地任务缓存。需要排除缓存影响时，从 `clients/gui` 运行 `pnpm exec vp run --no-cache verify-suite`。需要清空缓存时运行 `pnpm exec vp cache clean`。
 
 Renderer 的 `dev`、`build`、`design:dev` 和 `design:build` 使用本地 `vp dev/build`，配置从 `vite-plus` 导入。workspace 将 `vite@*` 固定到匹配版本的 `@voidzero-dev/vite-plus-core`，让插件共享 Vite 实例；浏览器类型引用使用 `vite-plus/client`。普通与设计开发模式共用已知 workspace CommonJS 依赖的预打包列表。Electron 继续加载构建后的 `renderer/dist`，开发服务器仅用于浏览器，不自动接入桌面窗口。桌面包构建器、`node --test`、签名与公证流程保持原有入口。
 

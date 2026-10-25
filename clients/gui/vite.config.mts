@@ -41,8 +41,61 @@ export default defineConfig({
           output: [{ pattern: "packages/ui/dist/**", base: "workspace" }],
         },
       },
+      "browser-automation-build": {
+        command: "node scripts/build.mjs",
+        cwd: "packages/browser-automation",
+        cache: {
+          input: [
+            { pattern: "packages/browser-automation/src/**", base: "workspace" },
+            { pattern: "packages/browser-automation/scripts/build.mjs", base: "workspace" },
+            { pattern: "packages/browser-automation/*.json", base: "workspace" },
+            { pattern: "pnpm-lock.yaml", base: "workspace" },
+          ],
+          output: [{ pattern: "packages/browser-automation/dist/**", base: "workspace" }],
+        },
+      },
+      "browser-data-build": {
+        command: "node scripts/build.mjs",
+        cwd: "packages/browser-data",
+        cache: {
+          input: [
+            { pattern: "packages/browser-data/src/**", base: "workspace" },
+            { pattern: "packages/browser-data/scripts/build.mjs", base: "workspace" },
+            { pattern: "packages/browser-data/*.json", base: "workspace" },
+            { pattern: "pnpm-lock.yaml", base: "workspace" },
+          ],
+          output: [{ pattern: "packages/browser-data/dist/**", base: "workspace" }],
+        },
+      },
       "desktop-build": {
-        command: "pnpm build:desktop",
+        command: "node build.mjs",
+        cwd: "packages/gen-ui",
+        dependsOn: ["browser-automation-build", "browser-data-build"],
+        cache: {
+          input: [
+            { pattern: "packages/gen-ui/*.ts", base: "workspace" },
+            { pattern: "packages/gen-ui/build.mjs", base: "workspace" },
+            { pattern: "packages/gen-ui/assets/**", base: "workspace" },
+            { pattern: "packages/gen-ui/*.json", base: "workspace" },
+            { pattern: "pnpm-lock.yaml", base: "workspace" },
+          ],
+          output: [{ pattern: "packages/gen-ui/dist/**", base: "workspace" }],
+        },
+      },
+      "computer-helper-build": {
+        command: "node scripts/build-computer-helper.mjs",
+        cache: false,
+      },
+      "build-suite": {
+        command: "vp build",
+        cwd: "renderer",
+        dependsOn: ["ui-build", "desktop-build", "computer-helper-build"],
+        cache: false,
+      },
+      "design-build": {
+        command: "vp build --mode design-system",
+        cwd: "renderer",
+        dependsOn: ["ui-build"],
         cache: false,
       },
       "verify-suite": {
