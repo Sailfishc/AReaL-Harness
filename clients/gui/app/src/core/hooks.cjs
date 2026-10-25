@@ -1,13 +1,18 @@
+// @ts-check
 'use strict';
 const { executeCore: execute } = require('./core-process.cjs');
 const { open, writeFile, rename, unlink } = require('node:fs/promises');
 const { constants } = require('node:fs');
 const { join, dirname } = require('node:path');
 const { createHash, randomUUID } = require('node:crypto');
+/** @typedef {{binary:string,home:string,harnessHome:string,config?:string,userHome?:string,toolExtensions?:string,proxyEnvironment:NodeJS.ProcessEnv,providers:{redact:(value:string)=>string},saved:import('./project-index.cjs').SavedProject[],projects:Map<string,{client?:{ready:boolean}|null,hookRevision?:string|null}>,starting:Map<string,unknown>,resourcesUpdating?:boolean,providerUpdating?:boolean,onChange:()=>void}} HookHost */
+/** @typedef {{text:string,mode:number,missing?:boolean,path:string,value:Record<string,unknown>,external:boolean,revision:string}} HookDocument */
+/** @param {string} value */
 const hash = value => createHash('sha256').update(value).digest('hex');
 // Core owns parsing, validation and execution. Only the hooks field is exposed
 // over IPC; paths and other extension fields are selected by trusted config.
 class AppHooks {
+  /** @param {HookHost} backend */
   constructor(backend) { this.backend = backend; }
   environment() {
     return { ...require('./application-owner.cjs').scrubOwnerEnvironment(), ...this.backend.proxyEnvironment, ...(this.backend.userHome ? { HOME: this.backend.userHome } : {}),
@@ -15,6 +20,7 @@ class AppHooks {
       AREAL_HARNESS_SERVICE_HOME: this.backend.harnessHome,
       ...(this.backend.toolExtensions ? { AREAL_HARNESS_TOOL_EXTENSIONS: this.backend.toolExtensions } : {}) };
   }
+  /** @param {'show'|'validate'} operation @param {string} [path] @returns {Promise<unknown>} */
   async diagnose(operation, path) {
     const args = ['config', operation, '--management'];
     if (this.backend.config) args.push('--config', this.backend.config);
@@ -23,14 +29,17 @@ class AppHooks {
         env: { ...this.environment(), ...(path ? { AREAL_HARNESS_TOOL_EXTENSIONS: path } : {}) } });
       return operation === 'show' ? JSON.parse(stdout) : null;
     } catch (error) {
-      console.error('Core 配置校验子进程失败', { operation, code: error.code, signal: error.signal, killed: error.killed });
-      throw new Error(`Core 配置校验失败：${this.backend.providers.redact(error.stderr || error.message).slice(0, 2048)}`);
+      const details = error instanceof Error ? error : new Error(String(error));
+      const stderr = 'stderr' in details && typeof details.stderr === 'string' ? details.stderr : '';
+      console.error('Core 配置校验子进程失败', { operation, code: 'code' in details ? details.code : undefined, signal: 'signal' in details ? details.signal : undefined, killed: 'killed' in details ? details.killed : undefined });
+      throw new Error(`Core 配置校验失败：${this.backend.providers.redact(stderr || details.message).slice(0, 2048)}`);
     }
   }
+  /** @param {string} path */
   async readPath(path, optional = false) {
     let file;
     try { file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW); }
-    catch (error) { if (optional && error.code === 'ENOENT') return { text: '{}', mode: 0o600, missing: true }; throw error; }
+    catch (error) { if (optional && error instanceof Error && 'code' in error && error.code === 'ENOENT') return { text: '{}', mode: 0o600, missing: true }; throw error; }
     try {
       const stat = await file.stat();
       if (!stat.isFile() || stat.size > 1024 * 1024) throw new Error('钩子配置必须是不超过 1 MiB 的普通文件');
@@ -40,18 +49,22 @@ class AppHooks {
       return { text: bytes.subarray(0, bytesRead).toString('utf8'), mode: stat.mode & 0o777 };
     } finally { await file.close(); }
   }
+  /** @returns {Promise<HookDocument>} */
   async current() {
     const config = await this.diagnose('show');
+    if (!record(config) || !record(config.tools) || config.tools.extensions_file != null && typeof config.tools.extensions_file !== 'string') throw new Error('Core 返回了无效的扩展配置路径');
     const external = config.tools.extensions_file;
     const path = external || join(this.backend.home, 'tool-extensions.json');
     const file = await this.readPath(path, !external);
     // config show validates an external source itself. The fallback is supplied
     // only to child Core launches, so validate it explicitly on reads as well.
     if (!external && !file.missing) await this.diagnose('validate', path);
+    /** @type {unknown} */
     const value = JSON.parse(file.text);
-    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('扩展配置必须是 JSON 对象');
+    if (!record(value)) throw new Error('扩展配置必须是 JSON 对象');
     return { ...file, path, value, external: !!external, revision: hash(JSON.stringify([path, file.text, !!file.missing])) };
   }
+  /** @param {HookDocument} current */
   public(current) {
     return { path: current.path, external: current.external, revision: current.revision, hooks: current.value.hooks ?? [],
       projects: this.backend.saved.map(project => {
@@ -65,12 +78,14 @@ class AppHooks {
     let current = await this.current();
     if (current.missing) {
       try { await writeFile(current.path, '{}', { flag: 'wx', mode: 0o600 }); }
-      catch (error) { if (error.code !== 'EEXIST') throw error; }
+      catch (error) { if (!(error instanceof Error && 'code' in error && error.code === 'EEXIST')) throw error; }
       current = await this.current();
     }
     return current;
   }
+  /** @param {unknown} request */
   async command(request) {
+    if (!record(request)) throw new Error('不支持的钩子操作');
     if (request.operation === 'hooks') return this.public(await this.current());
     if (request.operation !== 'hooksSave') throw new Error('不支持的钩子操作');
     if (this.backend.resourcesUpdating || this.backend.providerUpdating || this.backend.starting.size) throw new Error('配置正在更新，请稍后重试');
@@ -97,4 +112,6 @@ class AppHooks {
     }
   }
 }
+/** @param {unknown} value @returns {value is Record<string,unknown>} */
+function record(value) { return !!value && typeof value === 'object' && !Array.isArray(value); }
 module.exports = { AppHooks };

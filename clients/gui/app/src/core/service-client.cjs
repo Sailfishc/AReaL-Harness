@@ -6,8 +6,8 @@ const { spawn } = require("node:child_process");
 const { randomUUID } = require("node:crypto");
 const { mkdir, readFile, realpath, open, writeFile, rename, rm } = require("node:fs/promises");
 const { join } = require("node:path");
-const WebSocket = require("ws");
-const { ProjectionReader } = require("@areal/workbench/state-projection");
+const { ServiceConnection } = require("./service-connection.cjs");
+const { validateServicePacket } = require("./service-state.cjs");
 const { PROTOCOL, COMMAND_CONTRACT, encodeMedia, decodeMedia } = require("./service-protocol.cjs");
 const { serviceIdentity } = require("./service-config.cjs");
 const { genUiScope, createGenUiState } = require("./gen-ui-state.cjs");
@@ -15,7 +15,6 @@ const { inspectCoreCapabilities } = require("./core-capabilities.cjs");
 const { desktopExecutables } = require("./desktop-executables.cjs");
 const { sameOwner, scrubOwnerEnvironment } = require("./application-owner.cjs");
 const { checkHostPrerequisites } = require("./host-prerequisites.cjs");
-let diagnosticsConnectionGeneration = 0;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const currentCommands = new Set([
   "send",
@@ -85,49 +84,6 @@ function requiresCurrentCommands(name, request) {
   );
 }
 
-function validateServicePacket(packet, metadata) {
-  const record = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
-  const count = (value) => Number.isSafeInteger(value) && value >= 0;
-  const snapshot = packet?.snapshot,
-    service = packet?.service,
-    library = snapshot?.library;
-  if (
-    !count(packet?.sequence) ||
-    !record(snapshot) ||
-    !record(library) ||
-    !record(library.projects) ||
-    !record(library.threads) ||
-    !record(library.settings) ||
-    !Array.isArray(library.projectOrder) ||
-    !library.projectOrder.every((id) => typeof id === "string") ||
-    !Array.isArray(snapshot.projects) ||
-    snapshot.projects.some(
-      (project) =>
-        !record(project) ||
-        typeof project.id !== "string" ||
-        typeof project.root !== "string" ||
-        (project.state !== null && (!record(project.state) || !record(project.state.threads))),
-    ) ||
-    !record(service) ||
-    service.connected !== true ||
-    typeof service.busy !== "boolean" ||
-    typeof service.providerUpdating !== "boolean" ||
-    !count(service.clients) ||
-    !count(service.activeCommands) ||
-    !count(service.starting) ||
-    !Number.isSafeInteger(service.pid) ||
-    service.pid <= 1 ||
-    service.pid !== metadata.pid ||
-    ((metadata.applicationOwner !== undefined || service.applicationOwner !== undefined) &&
-      !sameOwner(metadata.applicationOwner, service.applicationOwner))
-  ) {
-    throw Object.assign(
-      new Error("后台服务快照不受支持，原后台保持运行。请安全重启后使用本次配置。"),
-      { code: "SERVICE_SNAPSHOT_INVALID" },
-    );
-  }
-}
-
 async function waitForServiceExit(home, metadata) {
   const deadline = Date.now() + 60000;
   while (Date.now() < deadline) {
@@ -162,225 +118,6 @@ async function waitForProcessExit(pid) {
     }
     if (Date.now() >= deadline) throw new Error("后台进程尚未退出，请稍后重试");
     await sleep(50);
-  }
-}
-
-class ServiceConnection {
-  constructor(
-    onState = () => {},
-    onClose = () => {},
-    onNotification = () => {},
-    onNotificationOpen = () => {},
-    onBrowserRequest = null,
-    onBrowserCancel = null,
-    onMcpAppNotification = () => {},
-    onMcpPageToolNotice = () => {},
-    onMcpPageToolsRevoked = () => {},
-  ) {
-    this.onNotification = onNotification;
-    this.onNotificationOpen = onNotificationOpen;
-    this.onBrowserRequest = onBrowserRequest;
-    this.onBrowserCancel = onBrowserCancel;
-    this.onMcpAppNotification = onMcpAppNotification;
-    this.onMcpPageToolNotice = onMcpPageToolNotice;
-    this.onMcpPageToolsRevoked = onMcpPageToolsRevoked;
-    this.onState = onState;
-    this.onClose = onClose;
-    this.pending = new Map();
-    this.nextId = 0;
-  }
-  async connect(metadata) {
-    const url = new URL(metadata.endpoint);
-    if (
-      metadata.protocol !== PROTOCOL ||
-      url.protocol !== "ws:" ||
-      url.hostname !== "127.0.0.1" ||
-      url.username ||
-      url.password ||
-      !/^[a-f0-9]{64}$/.test(metadata.token) ||
-      typeof metadata.identity !== "string" ||
-      !metadata.identity ||
-      !Number.isSafeInteger(metadata.pid) ||
-      metadata.pid <= 1
-    )
-      throw new Error("本地后台服务连接元数据无效");
-    const socket = (this.socket = new WebSocket(url, {
-      headers: { Authorization: `Bearer ${metadata.token}` },
-      followRedirects: false,
-      maxPayload: 256 * 1024 * 1024,
-    }));
-    const projection = new ProjectionReader();
-    const target = Object.freeze({
-      boundary: "main-desktop",
-      hostPid: metadata.pid,
-      coreGeneration: metadata.desktopGeneration,
-      connectionGeneration: ++diagnosticsConnectionGeneration,
-    });
-    socket.on("open", () => diagnostics.record({ type: "socket-open", ...target }));
-    socket.on("error", (error) =>
-      diagnostics.record({ type: "socket-error", ...target, code: error.code }),
-    );
-    socket.on("close", (closeCode) =>
-      diagnostics.record({ type: "socket-close", ...target, closeCode }),
-    );
-    socket.on("message", (bytes) => {
-      if (this.socket !== socket) return;
-      let message;
-      try {
-        message = JSON.parse(bytes.toString());
-        const key = message.method === "state" ? "params" : "result";
-        const packet = message[key];
-        if (packet?.snapshot && Object.hasOwn(packet.snapshot, "projection"))
-          message[key] = { ...packet, snapshot: projection.read(packet.snapshot) };
-      } catch {
-        socket.terminate();
-        return;
-      }
-      if (message.method === "mcpPageToolNotice") {
-        this.onMcpPageToolNotice(message.params);
-        return;
-      }
-      if (message.method === "mcpPageToolsRevoked") {
-        this.onMcpPageToolsRevoked(message.params);
-        return;
-      }
-      if (message.method === "mcpAppNotification") {
-        if (this.socket === socket) this.onMcpAppNotification?.(message.params);
-        return;
-      }
-      if (message.method === "notification") {
-        this.onNotification(message.params);
-        return;
-      }
-      if (message.method === "notificationOpen") {
-        this.onNotificationOpen(message.params);
-        return;
-      }
-      if (message.method === "state") {
-        this.onState(message.params);
-        return;
-      }
-      if (message.method === "browserCancel") {
-        this.onBrowserCancel?.(message.params);
-        return;
-      }
-      if (message.method === "browserRequest") {
-        if (!this.onBrowserRequest || !Number.isSafeInteger(message.params?.requestId)) {
-          socket.terminate();
-          return;
-        }
-        void Promise.resolve()
-          .then(() => this.onBrowserRequest(message.params))
-          .then(
-            (result) => {
-              if (this.socket === socket && socket.readyState === WebSocket.OPEN)
-                void this.request(
-                  "browserResult",
-                  { requestId: message.params.requestId, result },
-                  true,
-                ).catch(() => {});
-            },
-            () => {
-              if (this.socket === socket && socket.readyState === WebSocket.OPEN)
-                void this.request(
-                  "browserResult",
-                  { requestId: message.params.requestId, error: "host_failed" },
-                  true,
-                ).catch(() => {});
-            },
-          );
-        return;
-      }
-      const entry = this.pending.get(message.id);
-      if (!entry) return;
-      this.pending.delete(message.id);
-      clearTimeout(entry.timer);
-      if (message.error)
-        entry.reject(Object.assign(new Error(message.error.message), message.error));
-      else entry.resolve(message.result);
-    });
-    socket.on("close", () => {
-      if (this.socket !== socket) return;
-      for (const entry of this.pending.values()) {
-        clearTimeout(entry.timer);
-        entry.reject(
-          Object.assign(
-            new Error(
-              entry.mutation
-                ? "后台连接中断，操作结果未确认；请重连后核对任务，不会自动重发。"
-                : "后台服务连接已断开",
-            ),
-            {
-              submissionUnknown: entry.mutation,
-              code: "DISCONNECTED",
-              requestId: entry.requestId,
-              recovery: { kind: entry.mutation ? "queryOriginal" : "retryRead" },
-            },
-          ),
-        );
-      }
-      this.pending.clear();
-      this.onClose();
-    });
-    await new Promise((resolve, reject) => {
-      const fail = () => {
-        clearTimeout(timer);
-        reject(Object.assign(new Error("无法连接本地后台服务"), { code: "DISCONNECTED" }));
-      };
-      const timer = setTimeout(() => {
-        fail();
-        socket.terminate();
-      }, 2000);
-      socket.once("open", () => {
-        clearTimeout(timer);
-        resolve();
-      });
-      socket.once("error", fail);
-      socket.once("close", fail);
-    });
-  }
-  request(method, params, mutation = false) {
-    if (this.socket?.readyState !== WebSocket.OPEN)
-      return Promise.reject(
-        Object.assign(new Error("后台服务已断开，请重新连接"), {
-          code: "DISCONNECTED",
-          submissionUnknown: false,
-          outcome: { kind: mutation ? "rejected" : "noMutation" },
-          recovery: { kind: mutation ? "none" : "retryRead" },
-        }),
-      );
-    if (method === "hello")
-      params = { ...params, capabilities: { ...params?.capabilities, projection: 1 } };
-    const id = ++this.nextId;
-    const requestId =
-      method === "command" ? (params.request?.requestId ?? params.request?.draftId) : undefined;
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        reject(
-          Object.assign(
-            new Error(
-              mutation
-                ? "后台请求超时，请核对结果后继续；不会自动重发。"
-                : "读取状态超时，请重试。",
-            ),
-            {
-              submissionUnknown: mutation,
-              code: "TIMEOUT",
-              requestId,
-              recovery: { kind: mutation ? "queryOriginal" : "retryRead" },
-            },
-          ),
-        );
-      }, 150000);
-      this.pending.set(id, { resolve, reject, timer, mutation, requestId });
-      this.socket.send(JSON.stringify({ id, method, params }), (error) => {
-        if (error) this.socket.terminate();
-      });
-    });
-  }
-  close() {
-    this.socket?.close();
   }
 }
 
@@ -492,6 +229,7 @@ class SharedCoreBackend {
       connection,
     };
   }
+  /** @param {unknown} packet @param {unknown} [metadata] */
   accept(packet, metadata = this.metadata) {
     if (this.disposed) return;
     validateServicePacket(packet, metadata);

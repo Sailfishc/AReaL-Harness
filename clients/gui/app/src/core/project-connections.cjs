@@ -1,36 +1,66 @@
+// @ts-check
 'use strict';
 const diagnostics = require('./diagnostics.cjs');
 const { startupTrace } = require('./startup-timing.cjs');
 const WebSocket = require('ws');
 const { failure: browserFailure } = require('./browser-tool.cjs');
+const {modelRecord,isCoreTask} = require('@areal/workbench/core-model-contract');
 const { isObservationSizeFailure } = require('./history-observation.cjs');
+
+/** @typedef {import('./project-state.cjs').CoreProject} Project */
+/** @typedef {import('@areal/runtime-client/core').CoreClient} Client */
+/** @typedef {{project:Project,client:Client|null|undefined,generation:number}} ReadConnection */
+/** @typedef {(error:unknown,connection?:ReadConnection)=>void} ReadWaiter */
+/** @typedef {import('./local-service.cjs').RecoveryTarget} Service */
+/** @typedef {Awaited<ReturnType<typeof import('./local-service.cjs').connectService>>} ServiceConnection */
+/** @typedef {Awaited<ReturnType<InstanceType<typeof import('./backend.cjs').CoreBackend>['prepareServiceLaunch']>>} Launch */
+/** @typedef {Pick<InstanceType<typeof import('./backend.cjs').CoreBackend>,'applicationOwner'|'worktrees'|'lifecycleOperations'|'providers'|'resources'|'scheduleAdmission'|'hooks'|'defaultProfile'|'analytics'|'saved'> & {
+ * closing:boolean,providerUpdating:boolean,resourcesUpdating:boolean,
+ * starting:Map<string,Promise<Project>>,projects:Map<string,Project>,ownedEngines:Map<string,{service?:import('./local-service.cjs').ServiceReference,pending?:boolean}>,
+ * startProject:(id:string)=>Promise<Project>,stopReconciliation:(project:Project)=>void,
+ * scheduleReconciliation:(project:Project)=>void,onChange:()=>void,
+ * connectExisting:(project:Project,service:Service)=>Promise<ServiceConnection>,
+ * recoveryStatus:(project:Project,service:Service)=>Promise<import('./local-service.cjs').RecoveryStatus>,
+ * prepareServiceLaunch:(project:Project,trace:ReturnType<typeof startupTrace>)=>Promise<Launch>,
+ * recoverService:(project:Project,service:Service,launch:Launch)=>Promise<ServiceConnection>,
+ * reconcile:(project:Project,options:{observeOnly:boolean})=>Promise<unknown>,
+ * desktopTools:(project:Project)=>unknown[],supportsComputer:(project:Project)=>boolean,
+ * cuaRead:(request:Record<string,unknown>)=>Promise<unknown>,computerRead:(request:Record<string,unknown>)=>Promise<unknown>,browserRead?:(request:Record<string,unknown>)=>Promise<unknown>,
+ * observeNotification:(project:Project,client:Client,method:string,params:unknown)=>void,onMcpPageToolsDisconnected?:(client:Client)=>void,
+ * listThreads:(project:Project)=>Promise<unknown>,openThread:(project:Project,threadId:string)=>Promise<unknown>,startTaskMonitor:(project:Project,client:Client)=>Promise<void>
+ * }} ConnectionHost */
 
 // Owns observer connection identity, read waiters and reconnect scheduling.
 // Deployment and feature initialization use explicit host ports; no mutation replay.
 class ProjectConnections {
+  /** @param {ConnectionHost} host */
   constructor(host) {
     this.host = host;
+    /** @type {WeakMap<Promise<Project>,Set<ReadWaiter>>} */
     this.readWaiters = new WeakMap();
   }
 
+  /** @param {string} id @returns {Promise<Project>} */
   start(id) {
     try { this.host.worktrees?.assertAvailable(id); this.host.lifecycleOperations.assertProject(id); }
     catch (error) { return Promise.reject(error); }
     if (this.host.closing) return Promise.reject(new Error('应用正在退出'));
-    if (this.host.starting.has(id)) return this.host.starting.get(id);
+    const starting = this.host.starting.get(id);
+    if (starting) return starting;
     const project = this.host.projects.get(id);
-    if (project) { clearTimeout(project.reconnectTimer); project.reconnectTimer = null; project.reconnectBlocked = false; }
+    if (project) { clearTimeout(project.reconnectTimer ?? undefined); project.reconnectTimer = null; project.reconnectBlocked = false; }
     const task = this.host.startProject(id).finally(() => this.host.starting.delete(id));
     this.host.starting.set(id, task);
     return task;
   }
 
+  /** @param {string} id @param {AbortSignal} [signal] @returns {Promise<ReadConnection & {client:Client}>} */
   readConnection(id, signal) {
     if (signal?.aborted) return Promise.reject(signal.reason);
     const startup = this.start(id);
-    let waiters = this.readWaiters.get(startup);
-    if (!waiters) {
-      waiters = new Set();
+    /** @type {Set<ReadWaiter>} */
+    const waiters = this.readWaiters.get(startup) ?? new Set();
+    if (!this.readWaiters.has(startup)) {
       this.readWaiters.set(startup, waiters);
       startup.then(project => this.settleReadWaiters(startup, null, {
         project, client: project.client, generation: project.connectionGeneration ?? 0,
@@ -38,6 +68,7 @@ class ProjectConnections {
     }
     return new Promise((resolve, reject) => {
       let settled = false;
+      /** @type {ReadWaiter} */
       const settle = (error, connection) => {
         if (settled) return;
         settled = true;
@@ -45,6 +76,7 @@ class ProjectConnections {
         signal?.removeEventListener('abort', abort);
         try {
           if (error) throw error;
+          if (!connection) throw new Error('连接尚未就绪');
           this.host.lifecycleOperations.assertProject(id);
           const { project, client, generation } = connection;
           if (!this.host.saved.some(saved => saved.id === id) || this.host.projects.get(id) !== project)
@@ -52,10 +84,10 @@ class ProjectConnections {
           this.requireConnection(project, client);
           if (!client.ready || (project.connectionGeneration ?? 0) !== generation)
             throw Object.assign(new Error('连接已换代，请重试'), { code: 'STALE_CONNECTION' });
-          resolve(connection);
+          resolve({...connection,client});
         } catch (failure) { reject(failure); }
       };
-      const abort = () => settle(signal.reason);
+      const abort = () => settle(signal?.reason);
       waiters.add(settle);
       signal?.addEventListener('abort', abort, { once: true });
       if (signal?.aborted) { abort(); return; }
@@ -66,18 +98,22 @@ class ProjectConnections {
     });
   }
 
+  /** @param {Promise<Project>} startup @param {unknown} error @param {ReadConnection} [connection] */
   settleReadWaiters(startup, error, connection) {
     for (const settle of this.readWaiters.get(startup) ?? []) settle(error, connection);
   }
 
+  /** @param {import('./project-state.cjs').CoreProject} project @param {import('@areal/runtime-client/core').CoreClient|null|undefined} client @returns {client is import('@areal/runtime-client/core').CoreClient} */
   currentConnection(project, client) {
     return !this.host.closing && !!client && project.client === client && !client.closed;
   }
 
+  /** @param {Project} project @param {Client|null|undefined} client @returns {asserts client is Client} */
   requireConnection(project, client) {
     if (!this.currentConnection(project, client)) throw Object.assign(new Error('连接已换代，请等待状态恢复后重试'), { code: 'STALE_CONNECTION' });
   }
 
+  /** @param {Project} project */
   scheduleReconnect(project) {
     try { this.host.worktrees?.assertAvailable(project.id); } catch { return; }
     if (this.host.closing || project.resourceInitializing || !project.service || project.reconnectBlocked || project.reconnectTimer || project.client?.ready) return;
@@ -86,14 +122,14 @@ class ProjectConnections {
       project.reconnectTimer = null;
       if (this.host.closing || !project.service || project.reconnectBlocked || project.client?.ready) return;
       if (this.host.providerUpdating || this.host.resourcesUpdating || this.host.starting.has(project.id)) { this.scheduleReconnect(project); return; }
-      const task = this.reconnectProject(project).catch(error => {
+      const task = this.reconnectProject(project).catch(/** @param {unknown} error */ error => {
         if (!this.host.closing) {
-          project.reconnectBlocked = ['CORE_STOPPED', 'CORE_INCOMPATIBLE', 'CORE_RECOVERY_EXHAUSTED', 'LIFECYCLE_INCOMPLETE', 'LIFECYCLE_EXIT_REQUESTED', 'RESPONSE_TOO_LARGE'].includes(error.code)
-            || error.reason === 'RESPONSE_TOO_LARGE' || project.client?.closeFailure?.code === 'RESPONSE_TOO_LARGE';
+          project.reconnectBlocked = ['CORE_STOPPED', 'CORE_INCOMPATIBLE', 'CORE_RECOVERY_EXHAUSTED', 'LIFECYCLE_INCOMPLETE', 'LIFECYCLE_EXIT_REQUESTED', 'RESPONSE_TOO_LARGE'].includes(modelRecord(error) ? String(error.code) : '')
+            || modelRecord(error) && error.reason === 'RESPONSE_TOO_LARGE' || project.client?.closeFailure?.code === 'RESPONSE_TOO_LARGE';
           project.reconnectAttempt = (project.reconnectAttempt ?? 0) + 1;
           this.host.stopReconciliation(project);
           project.client?.close();
-          project.error = this.host.providers.redact(error.message);
+          project.error = this.host.providers.redact(error instanceof Error ? error.message : String(error));
           project.model.connection(false, project.error);
         }
         throw error;
@@ -108,8 +144,10 @@ class ProjectConnections {
     project.reconnectTimer.unref();
   }
 
+  /** @param {Project} project */
   async reconnectProject(project) {
     const previous = project.service, previousClient = project.client;
+    if (!previous) throw Object.assign(new Error('Core 服务尚未就绪'), {code:'CORE_STOPPED'});
     const current = () => {
       this.host.worktrees?.assertAvailable(project.id);
       this.host.lifecycleOperations.assertProject(project.id);
@@ -126,7 +164,7 @@ class ProjectConnections {
         connection = await this.recoverCrashedProject(project, previous, current);
       }
     } catch (error) {
-      if (error.code !== 'CORE_STOPPED' || !this.host.applicationOwner) throw error;
+      if (!modelRecord(error) || error.code !== 'CORE_STOPPED' || !this.host.applicationOwner) throw error;
       current();
       connection = await this.recoverCrashedProject(project, previous, current);
     }
@@ -143,6 +181,7 @@ class ProjectConnections {
     return project;
   }
 
+  /** @param {Project} project @param {Service} original @param {()=>void} current */
   async recoverCrashedProject(project, original, current) {
     current();
     let attempt = project.crashRecovery;
@@ -179,6 +218,7 @@ class ProjectConnections {
     } catch (error) { trace.finish('error', error); throw error; }
   }
 
+  /** @param {Project} project @param {{observeOnly?:boolean}} [options] */
   async connect(project, { observeOnly = false } = {}) {
     const startup = this.host.starting.get(project.id);
     const { CoreClient, MAX_RESPONSE_BYTES } = await import('@areal/runtime-client/core');
@@ -190,16 +230,20 @@ class ProjectConnections {
     previous?.close();
     project.summariesLoaded = false;
     const cuaOwner = { projectId: project.id, coreInstanceId: project.service?.serviceId, coreGeneration: project.service?.generation };
+    /** @type {unknown} */
     let cuaHostGeneration;
     const client = new CoreClient({ createSocket: () => {
+      /** @type {import('./diagnostics.cjs').SocketTarget} */
       const target = Object.freeze({ boundary: 'desktop-core', projectId: project.id, coreGeneration: project.service?.generation,
-        connectionGeneration: project.connectionGeneration, hostPid: project.service?.hostPid, corePid: project.service?.corePid, serviceId: project.service?.serviceId });
+        connectionGeneration: project.connectionGeneration, hostPid: typeof project.service?.hostPid === 'number' ? project.service.hostPid : undefined, corePid: typeof project.service?.corePid === 'number' ? project.service.corePid : undefined, serviceId: project.service?.serviceId });
+      if (!project.endpoint) throw new Error('Core 连接地址尚未就绪');
       const socket = new WebSocket(project.endpoint, { headers: { Authorization: `Bearer ${project.token}` }, followRedirects: false, maxPayload: MAX_RESPONSE_BYTES });
       socket.on('open', () => diagnostics.record({ type: 'socket-open', ...target }));
-      socket.on('error', error => diagnostics.record({ type: 'socket-error', ...target, code: error.code }));
+      socket.on('error', error => diagnostics.record({ type: 'socket-error', ...target, code: 'code' in error ? error.code : undefined }));
       socket.on('close', closeCode => diagnostics.record({ type: 'socket-close', ...target, closeCode }));
       return socket;
     }, onServerRequest: async (method, params, context) => {
+      if (!modelRecord(params)) throw new Error('Invalid Core tool host request');
       if (method === 'areal/task/prepare') {
         this.requireConnection(project, client);
         await this.host.scheduleAdmission.prepare(project, params);
@@ -212,14 +256,14 @@ class ProjectConnections {
         return { ...(model ? { model } : {}), ...(profile ? { agentProfile: profile } : {}),
           ...(this.host.desktopTools(project).length ? { dynamicTools: this.host.desktopTools(project) } : {}) };
       }
-      if (method === 'areal/cua/turnEnded' || method === 'item/tool/call' && ['js', 'js_reset'].includes(params?.tool)) {
+      if (method === 'areal/cua/turnEnded' || method === 'item/tool/call' && ['js', 'js_reset'].includes(String(params.tool))) {
         this.requireConnection(project, client);
         cuaHostGeneration = params.hostGeneration;
         const result = await this.host.cuaRead({ ...params, projectId: project.id, cwd: project.root,
           toolHostGeneration: params.hostGeneration, coreInstanceId: project.service?.serviceId,
           coreGeneration: project.service?.generation, signal: context.signal,
           phase: method === 'areal/cua/turnEnded' ? 'endTurn' : 'call' });
-        return method === 'areal/cua/turnEnded' ? result : { success: result.isError !== true, contentItems: [], rawMcpResult: result };
+        return method === 'areal/cua/turnEnded' ? result : { success: !modelRecord(result) || result.isError !== true, contentItems: [], rawMcpResult: result };
       }
       if (params?.tool === 'computer_v1' && ['item/tool/call', 'areal/computer/prepare'].includes(method)) {
         this.requireConnection(project, client);
@@ -241,8 +285,8 @@ class ProjectConnections {
         coreInstanceId: project.service?.serviceId, coreGeneration: project.service?.generation,
         signal: context.signal })) ?? browserFailure('host_unavailable', 'Desktop browser is unavailable')
         : browserFailure('host_unavailable', 'Desktop connection changed');
-      if (method === 'areal/browser/prepare' && result?.success === false
-        && typeof result.structuredContent?.code === 'string' && result.structuredContent.dispatch === 'not_sent')
+      if (method === 'areal/browser/prepare' && modelRecord(result) && result.success === false
+        && modelRecord(result.structuredContent) && typeof result.structuredContent.code === 'string' && result.structuredContent.dispatch === 'not_sent')
         return { error: result.structuredContent.code, dispatch: 'not_sent' };
       return result;
     } });
@@ -263,7 +307,7 @@ class ProjectConnections {
         this.host.stopReconciliation(project);
         if (failure.code === 'RESPONSE_TOO_LARGE') {
           project.reconnectBlocked = true;
-          clearTimeout(project.reconnectTimer);
+          clearTimeout(project.reconnectTimer ?? undefined);
           project.reconnectTimer = null;
           project.error = 'Core 返回内容超过当前支持的 64 MiB，无法完整加载。';
         }
@@ -299,6 +343,7 @@ class ProjectConnections {
         client.request('areal/profile/list').then(value => { profilesTrace.finish('ok'); return value; }, error => { profilesTrace.finish('error', error); throw error; }),
       ]);
       this.requireConnection(project, client);
+      if (!modelRecord(models) || !modelRecord(profiles)) throw new Error('Core 资源目录响应无效');
       await this.host.providers.acceptModelSelection(models.lastAcceptedModel);
       project.models = models.data ?? models.models ?? [];
       project.profiles = profiles.data ?? profiles.profiles ?? [];
@@ -316,6 +361,7 @@ class ProjectConnections {
       trace.advance('task_subscriptions');
       for (const taskId of new Set(project.taskViews?.values() ?? [])) {
         await client.request('areal/task/subscribe', { taskId }, { onResult: task => {
+          if (!isCoreTask(task)) throw new Error('Core 任务订阅响应无效');
           if (this.currentConnection(project, client)) project.model.setTask(task);
         } });
         this.requireConnection(project, client);

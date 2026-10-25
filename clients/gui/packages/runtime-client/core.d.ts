@@ -34,6 +34,7 @@ export class CoreClient {
   closeFailure: CoreRpcError | null;
   capabilities?: import('./capabilities.js').CoreCapabilities;
   connect(): Promise<NonNullable<CoreClient['capabilities']>>;
+  request<Result>(method: string, params: object | undefined, options: { decode: (value: unknown) => Result; onResult?: (result: Result) => void; timeoutMs?: number; maxResponseBytes?: number }): Promise<Result>;
   request(method: string, params?: object, options?: { onResult?: (result: unknown) => void; timeoutMs?: number; maxResponseBytes?: number }): Promise<unknown>;
   onNotification(listener: (method: string, params: unknown) => void): () => void;
   onClose(listener: (failure: CoreRpcError) => void): () => void;

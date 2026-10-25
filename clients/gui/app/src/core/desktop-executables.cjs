@@ -1,3 +1,4 @@
+// @ts-check
 "use strict";
 
 const { realpathSync } = require("node:fs");
@@ -5,6 +6,7 @@ const { dirname, join } = require("node:path");
 
 const serviceName = "AReaL Harness Service";
 
+/** @param {{packaged?:boolean,platform?:NodeJS.Platform,executable?:string,resourcesPath?:string}} [options] */
 function desktopExecutables({
     packaged,
     platform = process.platform,

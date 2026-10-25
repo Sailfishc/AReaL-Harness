@@ -1,32 +1,40 @@
+// @ts-check
 "use strict";
+const {record} = require('./remote-core-decoder.cjs');
+/** @typedef {import('./remote-session-observer.cjs').RemoteConnection} Connection */
+/** @typedef {import('./remote-session-observer.cjs').TaskQuestionRead} QuestionRead */
+/** @typedef {{taskId:string,runId:string,questionId:string,[key:string]:unknown}} Target */
+/** @typedef {Target & {answers:Record<string,string>}} ReplyParams */
+/** @typedef {{taskId:string,expectedRunId:string,expectedRevision:number}} PauseParams */
+/** @typedef {ReturnType<typeof pauseState> & {projectId:string,serviceGeneration:string,available:boolean}} PauseRead */
 const LIMITS = Object.freeze({
     taskQuestionPages: 8,
     taskQuestionBytes: 32 * 1024,
     taskQuestions: 8,
     taskAnswerBytes: 4096,
 });
+/** @param {string} code @param {string} message */
 const failure = (code, message) => Object.assign(new Error(message), { code });
+/** @param {unknown} value @param {string[]} keys @returns {value is Record<string,unknown>} */
 const exact = (value, keys) =>
-    value &&
+    !!value &&
     typeof value === "object" &&
     !Array.isArray(value) &&
     Object.keys(value).every((key) => keys.includes(key));
-function target(params) {
-    if (
-        ["taskId", "runId", "questionId"].some(
-            (key) =>
-                typeof params?.[key] !== "string" ||
-                !params[key] ||
-                Buffer.byteLength(params[key]) > 128,
-        )
-    )
+/** @param {unknown} value @returns {value is string} */
+function identity(value) { return typeof value === 'string' && !!value && Buffer.byteLength(value) <= 128; }
+/** @param {unknown} params @returns {asserts params is Target} */
+function assertTarget(params) {
+    if (!record(params) || !identity(params.taskId) || !identity(params.runId) || !identity(params.questionId))
         throw failure("INVALID_PARAMS", "缺少原 Task、Run 和问题身份");
-    return { taskId: params.taskId, runId: params.runId, questionId: params.questionId };
 }
+/** @param {unknown} params */
+function target(params) { assertTarget(params); return {taskId:params.taskId,runId:params.runId,questionId:params.questionId}; }
+/** @param {unknown} params @returns {asserts params is ReplyParams} */
 function validateReply(params) {
-    target(params);
+    assertTarget(params);
     if (
-        !exact(params.answers, Object.keys(params.answers ?? {})) ||
+        !record(params.answers) ||
         !Object.keys(params.answers).length ||
         Object.keys(params.answers).length > LIMITS.taskQuestions ||
         Object.entries(params.answers).some(
@@ -40,20 +48,17 @@ function validateReply(params) {
     )
         throw failure("INVALID_PARAMS", "答案必须非空且符合 UTF-8 字节预算");
 }
+/** @param {unknown} params @returns {asserts params is PauseParams} */
 function validatePause(params) {
     if (
         !exact(params, ["taskId", "expectedRunId", "expectedRevision"]) ||
-        ["taskId", "expectedRunId"].some(
-            (key) =>
-                typeof params?.[key] !== "string" ||
-                !params[key] ||
-                Buffer.byteLength(params[key]) > 128,
-        ) ||
+        !identity(params.taskId) || !identity(params.expectedRunId) || typeof params.expectedRevision !== "number" ||
         !Number.isSafeInteger(params.expectedRevision) ||
         params.expectedRevision < 0
     )
         throw failure("INVALID_PARAMS", "缺少原 Task、当前 Run 和版本");
 }
+/** @param {import("./remote-core-decoder.cjs").Task} task @param {string} [runId] */
 function pauseState(task, runId) {
     const run = task.runs?.find((value) => value.id === runId);
     const workersComplete =
@@ -78,9 +83,11 @@ function pauseState(task, runId) {
     };
 }
 class TaskQuestions {
+    /** @param {InstanceType<typeof import("./remote-session-observer.cjs").SessionObservers>} observers */
     constructor(observers) {
         this.observers = observers;
     }
+    /** @template T @param {Connection} connection @param {string} projectId @param {unknown} params @param {(value:PauseRead)=>T} publish */
     async pauseRead(connection, projectId, params, publish) {
         params = structuredClone(params);
         if (
@@ -94,15 +101,16 @@ class TaskQuestions {
                     Buffer.byteLength(params.runId) > 128))
         )
             throw failure("INVALID_PARAMS", "无效的 Task 读取参数");
-        return this.observers.taskQuestion(connection, projectId, params, ({ task }, entry) => {
-            const state = pauseState(task, params.runId);
+        const request = {taskId:params.taskId,runId:params.runId};
+        return this.observers.taskQuestion(connection, projectId, request, ({ task }, entry) => {
+            const state = pauseState(task, request.runId);
             return publish({
                 ...state,
                 projectId,
                 serviceGeneration: entry.generation,
                 available:
-                    !!params.runId &&
-                    state.currentRunId === params.runId &&
+                    !!request.runId &&
+                    state.currentRunId === request.runId &&
                     !task.paused &&
                     !task.cancelled &&
                     Number.isSafeInteger(task.revision) &&
@@ -113,6 +121,7 @@ class TaskQuestions {
             });
         });
     }
+    /** @param {Connection} connection @param {string} projectId @param {unknown} params */
     async preparePause(connection, projectId, params) {
         validatePause(params);
         return this.pauseRead(
@@ -130,7 +139,9 @@ class TaskQuestions {
             },
         );
     }
+    /** @param {Connection} connection @param {string} projectId @param {unknown} params */
     async observePause(connection, projectId, params) {
+        validatePause(params);
         return this.pauseRead(
             connection,
             projectId,
@@ -142,10 +153,12 @@ class TaskQuestions {
             }),
         );
     }
+    /** @param {QuestionRead} value @param {Target} params */
     lookup(value, params) {
+        const run = value.task.runs.find(run => run.id === params.runId);
         if (
             value.task?.id !== params.taskId ||
-            !value.task.runs?.some((run) => run.id === params.runId) ||
+            !run ||
             (value.item &&
                 (value.item.id !== params.questionId ||
                     value.item.runId !== params.runId ||
@@ -153,15 +166,16 @@ class TaskQuestions {
         )
             throw failure("TARGET_CHANGED", "原 Task、Run 或问题已不存在");
         if (!value.item && value.complete) throw failure("TARGET_CHANGED", "原问题已不存在");
-        return value.item;
+        return {item:value.item,run};
     }
+    /** @template T @param {Connection} connection @param {string} projectId @param {unknown} params @param {(value:unknown)=>T} publish */
     async read(connection, projectId, params, publish) {
         params = structuredClone(params);
         if (!exact(params, ["taskId", "runId", "questionId"]))
             throw failure("INVALID_PARAMS", "无效的问题读取参数");
-        target(params);
+        assertTarget(params);
         return this.observers.taskQuestion(connection, projectId, params, (value, entry) => {
-            const item = this.lookup(value, params);
+            const {item,run} = this.lookup(value, params);
             const complete =
                 value.complete &&
                 !!item &&
@@ -177,7 +191,7 @@ class TaskQuestions {
                 kind: "asyncQuestion",
                 taskPaused: value.task.paused === true,
                 taskCancelled: value.task.cancelled === true,
-                runStatus: value.task.runs.find((run) => run.id === params.runId).status,
+                runStatus: run.status,
                 status: item?.status ?? "unavailable",
                 expiresAt: item?.expiresAt ?? null,
                 complete,
@@ -185,11 +199,12 @@ class TaskQuestions {
             });
         });
     }
+    /** @param {Connection} connection @param {string} projectId @param {unknown} params */
     async prepare(connection, projectId, params) {
         params = structuredClone(params);
         validateReply(params);
         return this.observers.taskQuestion(connection, projectId, params, (value) => {
-            const item = this.lookup(value, params);
+            const {item,run} = this.lookup(value, params);
             if (
                 !value.complete ||
                 !item ||
@@ -206,7 +221,7 @@ class TaskQuestions {
                     item.expiresAt !== undefined &&
                     item.expiresAt <= Date.now() / 1000) ||
                 ["completed", "failed", "cancelled"].includes(
-                    value.task.runs.find((run) => run.id === params.runId).status,
+                    run.status,
                 )
             )
                 throw failure("TARGET_CHANGED", "原问题已结束或过期");
@@ -222,10 +237,12 @@ class TaskQuestions {
             return { ...target(params), answers: params.answers };
         });
     }
+    /** @param {Connection} connection @param {string} projectId @param {unknown} params */
     async observe(connection, projectId, params) {
         params = structuredClone(params);
+        assertTarget(params);
         return this.observers.taskQuestion(connection, projectId, params, (value) => {
-            const item = this.lookup(value, params);
+            const {item,run} = this.lookup(value, params);
             return {
                 source: "task.question.read",
                 ...target(params),

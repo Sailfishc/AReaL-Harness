@@ -1,4 +1,16 @@
+// @ts-check
 "use strict";
+const decoder = require('./remote-core-decoder.cjs');
+/** @typedef {import('@areal/runtime-client/core').CoreClient} Client */
+/** @typedef {import('./project-state.cjs').CoreProject} CoreProject */
+/** @typedef {CoreProject & {client:Client}} ReadyProject */
+/** @typedef {{connectionId:string,peer:string,grantRevision:number,gatewayGeneration:string,alive:()=>boolean,send:(value:unknown)=>void,close:()=>void}} RemoteConnection */
+/** @typedef {ReturnType<typeof snapshot> & {models?:Record<string,unknown>[]}} SessionState */
+/** @typedef {{id:string,viewers:Set<Viewer>,state:SessionState|null,refreshQueued?:boolean}} ThreadObserver */
+/** @typedef {{projectId:string,project:ReadyProject,desktop:Client,endpoint:string,token:string,serviceId:string,generation:string,gatewayGeneration:string,threads:Map<string,ThreadObserver>,pending:number,readers:number,tail:Promise<unknown>,closed:boolean,client?:Client,socket?:import('ws'),ready?:Promise<void>,offDesktop?:()=>void,offModel?:()=>void,offClose?:()=>void,offEvents?:()=>void,failureCode?:string}} ObserverEntry */
+/** @typedef {{id:string,connection:RemoteConnection,entry:ObserverEntry,thread:ThreadObserver,publish:(value:SessionPublished)=>void,sequence:number,published:boolean,body?:{id:string,encoded:Buffer,turnId:string,itemId:string,expiresAt:number}|null}} Viewer */
+/** @typedef {{snapshot:SessionState,[key:string]:unknown}} SessionPublished */
+/** @typedef {{task:import('./remote-core-decoder.cjs').Task,item?:import('./remote-core-decoder.cjs').ChannelItem,complete:boolean}} TaskQuestionRead */
 const { randomUUID } = require("node:crypto");
 const WebSocket = require("ws");
 const { snapshot, update, historyPage, constrain, publicBody } = require("./remote-session-projection.cjs");
@@ -21,18 +33,23 @@ const READ_METHODS = new Set([
     "areal/task/read",
     "areal/channel/read",
 ]);
+/** @param {string} code @param {string} message */
 const failure = (code, message) => Object.assign(new Error(message), { code });
 
 class SessionObservers {
+    /** @param {InstanceType<typeof import("./remote.cjs").RemoteControl>} remote */
     constructor(remote) {
         this.remote = remote;
+        /** @type {Map<string,ObserverEntry>} */
         this.projects = new Map();
+        /** @type {Map<string,Viewer>} */
         this.viewers = new Map();
         this.closed = false;
         // 替换项目登记不一定产生 Thread 通知；周期检查只校验身份，不读取/启动 Core。
         this.timer = setInterval(() => this.sweep(), 1000);
         this.timer.unref?.();
     }
+    /** @param {RemoteConnection} connection @param {string} projectId */
     authorize(connection, projectId) {
         const remote = this.remote;
         const grant = remote.config?.deviceGrants?.find(
@@ -56,10 +73,7 @@ class SessionObservers {
         const project = remote.backend.projects?.get(projectId);
         if (
             remote.backend.closing ||
-            !project?.client?.ready ||
-            project.client.closed ||
-            !project.model?.state?.connected ||
-            project.resourceInitializing
+            !readyProject(project)
         )
             throw failure("CORE_UNAVAILABLE", "项目 Core 当前不可用");
         if (
@@ -70,6 +84,7 @@ class SessionObservers {
             throw failure("CORE_INCOMPATIBLE", "此 Core 不支持安全观察，请在桌面升级");
         return project;
     }
+    /** @param {ObserverEntry} entry */
     current(entry) {
         const project = this.remote.backend.projects?.get(entry.projectId);
         return (
@@ -79,7 +94,7 @@ class SessionObservers {
             !this.remote.backend.closing &&
             this.remote.gatewayGeneration === entry.gatewayGeneration &&
             project === entry.project &&
-            project.client === entry.desktop &&
+            project?.client === entry.desktop &&
             project.client?.ready &&
             !project.client.closed &&
             project.model?.state?.connected &&
@@ -90,6 +105,7 @@ class SessionObservers {
             project.service?.generation === entry.generation
         );
     }
+    /** @param {ObserverEntry} entry @param {Viewer} [viewer] */
     check(entry, viewer) {
         if (!this.current(entry))
             throw failure("RESYNC_REQUIRED", "项目连接已变化，请重新打开会话");
@@ -103,9 +119,11 @@ class SessionObservers {
                 throw failure("RESYNC_REQUIRED", "项目已变化");
         }
     }
+    /** @param {ObserverEntry} entry @param {string} threadId */
     scope(entry, threadId) {
         return [entry.projectId, entry.serviceId, entry.generation, threadId];
     }
+    /** @param {Viewer} viewer */
     keys(viewer) {
         return {
             connectionId: viewer.connection.connectionId,
@@ -115,9 +133,13 @@ class SessionObservers {
             subscriptionId: viewer.id,
         };
     }
+    /** @param {Viewer} viewer @param {boolean} [initial] */
     publish(viewer, initial = false) {
         this.check(viewer.entry, viewer);
         if (!viewer.thread.state) return;
+        const state = viewer.thread.state;
+        const identity = this.remote.config.identity;
+        if (!identity) throw failure("RESYNC_REQUIRED", "Host 身份尚未就绪");
         const result = {
             ...this.keys(viewer),
             sequence: initial ? 0 : ++viewer.sequence,
@@ -126,8 +148,14 @@ class SessionObservers {
                     supported: viewer.entry.project.client?.capabilities?.features?.permissionPresets === true,
                     fullAccessAvailable: viewer.entry.project.client?.capabilities?.features?.permissionFullAccess === true,
                 },
-                goalControlAllowed: viewer.thread.state.goalControlAllowed && Object.values(viewer.entry.project.outcomes ?? {}).some(record =>
-                record.remote?.hostId === this.remote.crypto.identityId(this.remote.config.identity) && record.remote?.devicePeerId === viewer.connection.peer && record.remote?.projectId === viewer.entry.projectId && record.remote?.method === "session.control" && record.remote?.target?.operation === "goalCreate" && record.admissionState === "accepted" && record.receipt?.goalId === viewer.thread.state.goals?.goal?.id) },
+                goalControlAllowed: state.goalControlAllowed && Object.values(viewer.entry.project.outcomes ?? {}).some(record => {
+                    const remote = record.remote, receipt = record.receipt;
+                    return decoder.record(remote) && decoder.record(remote.target) && decoder.record(receipt)
+                        && remote.hostId === this.remote.crypto.identityId(identity) && remote.devicePeerId === viewer.connection.peer
+                        && remote.projectId === viewer.entry.projectId && remote.method === "session.control"
+                        && remote.target.operation === "goalCreate" && record.admissionState === "accepted"
+                        && receipt.goalId === state.goals.goal?.id;
+                }) },
         };
         // secure.send 同步序列化、入有界队列；不把可变投影交给稍后的异步写入。
         try {
@@ -141,6 +169,7 @@ class SessionObservers {
             throw failure("RESYNC_REQUIRED", "设备发送缓冲已满，请重新连接");
         }
     }
+    /** @param {ObserverEntry} entry @param {string} [code] */
     invalidate(entry, code = "RESYNC_REQUIRED") {
         if (entry.closed) return;
         entry.closed = true;
@@ -165,7 +194,7 @@ class SessionObservers {
                         event: "session.invalidated",
                         ...this.keys(viewer),
                         sequence: ++viewer.sequence,
-                        error: { code: error.code, message: error.message },
+                        error: { code: errorCode(error), message: error.message },
                         history: { truncated: true, unavailable: true },
                     });
                 } catch {
@@ -174,7 +203,7 @@ class SessionObservers {
             }
         entry.threads.clear();
         entry.client?.close();
-        entry.client?.socket?.terminate?.();
+        entry.socket?.terminate();
     }
     sweep() {
         for (const entry of this.projects.values()) {
@@ -184,7 +213,7 @@ class SessionObservers {
             }
             for (const thread of entry.threads.values())
                 for (const viewer of thread.viewers) {
-                    if (viewer.body?.expiresAt < Date.now()) viewer.body = null;
+                    if (viewer.body && viewer.body.expiresAt < Date.now()) viewer.body = null;
                     try {
                         this.check(entry, viewer);
                     } catch {
@@ -193,24 +222,25 @@ class SessionObservers {
                 }
         }
     }
+    /** @param {RemoteConnection} connection @param {string} projectId */
     entry(connection, projectId) {
         const project = this.authorize(connection, projectId);
         let entry = this.projects.get(projectId);
         if (entry && !this.current(entry)) {
             this.invalidate(entry);
-            entry = null;
+            entry = undefined;
         }
         if (entry) return entry;
         if (this.projects.size >= LIMITS.observerConnections)
             throw failure("LIMIT_EXCEEDED", "观察连接已达到上限");
+        const endpoint = project.endpoint, token = project.token, serviceId = project.service?.serviceId, generation = project.service?.generation;
+        if (typeof serviceId !== "string" || !generation || !endpoint || !token)
+            throw failure("CORE_UNAVAILABLE", "项目服务身份不可用");
         entry = {
             projectId,
             project,
             desktop: project.client,
-            endpoint: project.endpoint,
-            token: project.token,
-            serviceId: project.service?.serviceId,
-            generation: project.service?.generation,
+            endpoint, token, serviceId, generation,
             gatewayGeneration: this.remote.gatewayGeneration,
             threads: new Map(),
             pending: 0,
@@ -218,23 +248,18 @@ class SessionObservers {
             tail: Promise.resolve(),
             closed: false,
         };
-        if (
-            typeof entry.serviceId !== "string" ||
-            !entry.generation ||
-            !entry.endpoint ||
-            !entry.token
-        )
-            throw failure("CORE_UNAVAILABLE", "项目服务身份不可用");
         // 在异步加载/握手前占位；待建立的观察连接同样消耗容量。
         this.projects.set(projectId, entry);
-        entry.offDesktop = entry.desktop.onClose(() => this.invalidate(entry));
+        const created = entry;
+        entry.offDesktop = entry.desktop.onClose(() => this.invalidate(created));
         entry.offModel = project.model.subscribe(() => {
-            if (!this.current(entry)) this.invalidate(entry);
+            if (!this.current(created)) this.invalidate(created);
         });
         entry.ready = this.connect(entry);
         entry.ready.catch(() => {});
         return entry;
     }
+    /** @param {ObserverEntry} entry */
     async connect(entry) {
         try {
             const { CoreClient } = await import("@areal/runtime-client/core");
@@ -242,13 +267,13 @@ class SessionObservers {
             // 复用已验证的项目服务身份，但绝不覆盖 Desktop client 或注册工具回调。
             const client = (entry.client = new CoreClient({
                 createSocket: () => {
-                    const socket = new WebSocket(entry.endpoint, {
+                    const socket = entry.socket = new WebSocket(entry.endpoint, {
                         headers: { Authorization: `Bearer ${entry.token}` },
                         followRedirects: false,
                         maxPayload: LIMITS.nativeHistoryBytes,
                     });
                     socket.on("error", (error) => {
-                        if (error.code === "WS_ERR_UNSUPPORTED_MESSAGE_LENGTH")
+                        if ("code" in error && error.code === "WS_ERR_UNSUPPORTED_MESSAGE_LENGTH")
                             entry.failureCode = "RESOURCE_UNAVAILABLE";
                     });
                     return socket;
@@ -271,6 +296,7 @@ class SessionObservers {
             throw error;
         }
     }
+    /** @template T @param {ObserverEntry} entry @param {()=>T|Promise<T>} work */
     enqueue(entry, work) {
         if (entry.pending >= LIMITS.observerPendingRequests)
             return Promise.reject(failure("LIMIT_EXCEEDED", "观察请求队列已满"));
@@ -287,48 +313,55 @@ class SessionObservers {
             });
         return result;
     }
+    /** @param {ObserverEntry} entry @param {string} method @param {Record<string,unknown>} params @param {(result:unknown)=>void} [onResult] */
     async rpc(entry, method, params, onResult) {
         if (!READ_METHODS.has(method)) throw new Error("Remote observer RPC is not read-only");
         this.check(entry);
+        const client = entry.client;
+        if (!client) throw failure("RESYNC_REQUIRED", "观察连接尚未就绪");
         try {
-            return await entry.client.request(method, params, {
+            return await client.request(method, params, {
                 onResult: (result) => {
                     this.check(entry);
                     onResult?.(result);
                 },
             });
         } catch (error) {
+            const code = errorCode(error);
             // 超时未取消服务端观察；关闭专用连接，不能遗忘未知是否创建的订阅。
             if (
-                entry.client.closed ||
-                error.code === "RESPONSE_UNKNOWN" ||
-                error.code === "DISCONNECTED"
+                client.closed ||
+                code === "RESPONSE_UNKNOWN" ||
+                code === "DISCONNECTED"
             )
                 this.invalidate(entry, entry.failureCode);
             throw failure(
                 entry.failureCode ??
                     (["areal/task/read", "areal/channel/read"].includes(method) &&
-                    [-32004, -32009].includes(error.code)
+                    (code === -32004 || code === -32009)
                         ? "TARGET_CHANGED"
-                        : error.code === -32602
+                        : code === -32602
                           ? "INVALID_PARAMS"
-                          : ["RESYNC_REQUIRED", "CORE_INCOMPATIBLE"].includes(error.code)
-                            ? error.code
+                          : (code === "RESYNC_REQUIRED" || code === "CORE_INCOMPATIBLE")
+                            ? code
                             : "CORE_UNAVAILABLE"),
                 "会话读取不可用；请重新打开或在桌面查看",
             );
         }
     }
+    /** @param {ObserverEntry} entry @param {ThreadObserver} thread @param {import("./remote-core-decoder.cjs").Observation} result */
     baseline(entry, thread, result) {
         this.check(entry);
         if (result.thread?.id !== thread.id) throw failure("RESYNC_REQUIRED", "会话身份不匹配");
         if (!["ordinary", "task"].includes(result.ownership?.kind))
             throw failure("CORE_INCOMPATIBLE", "Core 未返回原子会话归属");
         thread.state = snapshot(result.thread, this.scope(entry, thread.id), result.ownership);
-        const catalog = this.remote.backend.providers?.catalog(entry.project.models ?? [],entry.project) ?? entry.project.models ?? [];
+        const models = decoder.modelCatalog(entry.project.models ?? []);
+        const catalog = decoder.modelCatalog(this.remote.backend.providers?.catalog(models,entry.project) ?? models);
         thread.state.models = catalog.slice(0,200).map(model => Object.fromEntries(["providerId","modelId","displayName","reasoningEffortOptions","available","unavailableReason"].filter(key=>model[key]!==undefined).map(key=>[key,model[key]])));
         constrain(thread.state, this.scope(entry, thread.id));
     }
+    /** @param {ObserverEntry} entry @param {ThreadObserver} thread */
     refresh(entry, thread) {
         if (thread.refreshQueued) return;
         thread.refreshQueued = true;
@@ -336,7 +369,7 @@ class SessionObservers {
             thread.refreshQueued = false;
             if (!thread.viewers.size || entry.threads.get(thread.id) !== thread) return;
             await this.rpc(entry, "areal/thread/observe", { threadId: thread.id }, (result) => {
-                this.baseline(entry, thread, result);
+                this.baseline(entry, thread, decoder.observation(result));
                 for (const viewer of [...thread.viewers]) {
                     if (!viewer.published) continue;
                     try {
@@ -348,14 +381,18 @@ class SessionObservers {
             });
         }).catch(() => this.invalidate(entry));
     }
+    /** @param {ObserverEntry} entry @param {string} method @param {unknown} params */
     event(entry, method, params) {
         if (!this.current(entry)) {
             this.invalidate(entry);
             return;
         }
-        const threadId = params?.threadId ?? params?.interaction?.threadId;
+        if (!decoder.record(params)) return;
+        const threadId = params.threadId ?? (decoder.record(params.interaction) ? params.interaction.threadId : undefined);
+        if (typeof threadId !== 'string') return;
         const thread = entry.threads.get(threadId);
         if (!thread?.state) return;
+        if (!decoder.notification(params)) { this.invalidate(entry); return; }
         try {
             // 归属由 Core 的原子观察返回；Task-only 变化由显式刷新重新取样。
             if (
@@ -381,6 +418,7 @@ class SessionObservers {
             this.invalidate(entry);
         }
     }
+    /** @param {RemoteConnection} connection @param {string} projectId @param {string} threadId @param {(value:SessionPublished)=>void} publish */
     async open(connection, projectId, threadId, publish) {
         this.authorize(connection, projectId);
         this.release(connection.connectionId);
@@ -398,6 +436,7 @@ class SessionObservers {
             thread = { id: threadId, viewers: new Set(), state: null };
             entry.threads.set(threadId, thread);
         }
+        /** @type {Viewer} */
         const viewer = {
             id: randomUUID(),
             connection,
@@ -414,7 +453,7 @@ class SessionObservers {
                 this.check(entry, viewer);
                 await this.rpc(entry, "areal/thread/observe", { threadId }, (result) => {
                     this.check(entry, viewer);
-                    this.baseline(entry, thread, result);
+                    this.baseline(entry, thread, decoder.observation(result));
                     // 同栈建立并发布快照；CoreClient 随后的通知只能发生在此基线之后。
                     this.publish(viewer, true);
                     for (const other of [...thread.viewers]) {
@@ -433,20 +472,24 @@ class SessionObservers {
             throw error;
         }
     }
+    /** @param {RemoteConnection} connection @param {string} projectId @param {string} threadId */
     async admission(connection, projectId, threadId) {
         // 临时引用复用同一个有界只读连接；不能改动 Desktop 的订阅或工具宿主。
         const temporary = { ...connection, connectionId: randomUUID(), send() {} };
+        /** @type {SessionState|undefined} */
         let state;
         try {
             await this.open(temporary, projectId, threadId, (value) => {
                 state = value.snapshot;
             });
             this.authorize(connection, projectId);
+            if (!state) throw failure("RESYNC_REQUIRED", "观察快照不可用");
             return state;
         } finally {
             this.release(temporary.connectionId);
         }
     }
+    /** @template T @param {RemoteConnection} connection @param {string} projectId @param {string} threadId @param {(result:import("./remote-core-decoder.cjs").InteractionList,entry:ObserverEntry)=>T} publish */
     async interactions(connection, projectId, threadId, publish) {
         const project = this.authorize(connection, projectId);
         if (!project.client.capabilities?.methods?.includes("areal/interaction/list"))
@@ -456,7 +499,7 @@ class SessionObservers {
         try {
             return await this.enqueue(entry, async () => {
                 this.authorize(connection, projectId);
-                const result = await this.rpc(entry, "areal/interaction/list", { threadId });
+                const result = decoder.interactions(await this.rpc(entry, "areal/interaction/list", { threadId }));
                 // await 后在同一栈验证身份并发布；临时读取不替换前台 Session viewer。
                 this.check(entry);
                 if (this.authorize(connection, projectId) !== entry.project)
@@ -471,6 +514,7 @@ class SessionObservers {
                 this.invalidate(entry);
         }
     }
+    /** @template T @param {RemoteConnection} connection @param {string} projectId @param {{taskId:string,runId?:string,questionId?:string}} params @param {(result:TaskQuestionRead,entry:ObserverEntry)=>T} publish */
     async taskQuestion(connection, projectId, params, publish) {
         const project = this.authorize(connection, projectId);
         if (
@@ -489,7 +533,7 @@ class SessionObservers {
                         throw failure("RESYNC_REQUIRED", "项目已变化");
                 };
                 check();
-                const task = await this.rpc(entry, "areal/task/read", { taskId: params.taskId });
+                const task = decoder.taskRead(await this.rpc(entry, "areal/task/read", { taskId: params.taskId }));
                 check();
                 if (Buffer.byteLength(JSON.stringify(task)) > LIMITS.nativeHistoryBytes)
                     throw failure("RESOURCE_UNAVAILABLE", "Task 超过读取上限");
@@ -505,11 +549,11 @@ class SessionObservers {
                     bytes = 0;
                 // 有界读取独立 Channel；不打开、订阅或恢复协调 Session。
                 for (let page = 0; page < TASK_QUESTION_LIMITS.taskQuestionPages; page++) {
-                    const result = await this.rpc(entry, "areal/channel/read", {
+                    const result = decoder.channelRead(await this.rpc(entry, "areal/channel/read", {
                         taskId: params.taskId,
                         afterSequence,
                         limit: 100,
-                    });
+                    }));
                     check();
                     bytes += Buffer.byteLength(JSON.stringify(result));
                     if (bytes > LIMITS.nativeHistoryBytes) break;
@@ -549,6 +593,7 @@ class SessionObservers {
                 this.invalidate(entry);
         }
     }
+    /** @template T @param {RemoteConnection} connection @param {string} projectId @param {string} threadId @param {(thread:import("./remote-core-decoder.cjs").Thread,entry:ObserverEntry,check:()=>void,read:()=>Promise<import("./remote-core-decoder.cjs").Thread>)=>T} work */
     async reviewThread(connection, projectId, threadId, work) {
         const entry = this.entry(connection, projectId);
         entry.readers++;
@@ -561,10 +606,10 @@ class SessionObservers {
                 };
                 const read = async () => {
                     check();
-                    const result = await this.rpc(entry, "thread/read", {
+                    const result = decoder.threadRead(await this.rpc(entry, "thread/read", {
                         threadId,
                         includeTurns: true,
-                    });
+                    }));
                     check();
                     if (
                         result.thread?.id !== threadId ||
@@ -583,6 +628,7 @@ class SessionObservers {
                 this.invalidate(entry);
         }
     }
+    /** @param {RemoteConnection} connection @param {string} projectId @param {{threadId:string,cursor?:string,limit?:number}} params @param {(value:unknown)=>unknown} publish */
     async history(connection, projectId, params, publish) {
         const viewer = this.viewers.get(connection.connectionId);
         if (
@@ -599,7 +645,8 @@ class SessionObservers {
                 entry,
                 "thread/read",
                 { threadId: params.threadId, includeTurns: true },
-                (result) => {
+                (raw) => {
+                    const result = decoder.threadRead(raw);
                     this.check(entry, viewer);
                     if (result.thread?.id !== params.threadId)
                         throw failure("RESYNC_REQUIRED", "会话身份不匹配");
@@ -614,6 +661,7 @@ class SessionObservers {
             );
         });
     }
+    /** @template T @param {RemoteConnection} connection @param {string} projectId @param {{threadId:string,turnId:string,itemId:string,cursor?:string}} params @param {(value:unknown)=>T} publish */
     async body(connection, projectId, params, publish) {
         const viewer = this.viewers.get(connection.connectionId);
         if (!viewer || !viewer.published || viewer.entry.projectId !== projectId || viewer.thread.id !== params.threadId)
@@ -622,7 +670,7 @@ class SessionObservers {
         return this.enqueue(entry, async () => {
             this.check(entry, viewer);
             if (params.cursor === undefined) {
-                const result = await this.rpc(entry, "thread/read", { threadId: params.threadId, includeTurns: true });
+                const result = decoder.threadRead(await this.rpc(entry, "thread/read", { threadId: params.threadId, includeTurns: true }));
                 this.check(entry, viewer);
                 if (result.thread?.id !== params.threadId) throw failure("RESYNC_REQUIRED", "会话身份不匹配");
                 const item = result.thread.turns?.find(t => t.id === params.turnId)?.items?.find(i => i.id === params.itemId);
@@ -651,6 +699,7 @@ class SessionObservers {
             return value;
         });
     }
+    /** @param {string} connectionId @param {string} [subscriptionId] */
     release(connectionId, subscriptionId) {
         const viewer = this.viewers.get(connectionId);
         if (!viewer || (subscriptionId !== undefined && viewer.id !== subscriptionId)) return false;
@@ -680,4 +729,8 @@ class SessionObservers {
         this.closed = true;
     }
 }
+/** @param {CoreProject|undefined} project @returns {project is ReadyProject} */
+function readyProject(project) { return !!project?.client?.ready && !project.client.closed && !!project.model.state.connected && !project.resourceInitializing; }
+/** @param {unknown} error */
+function errorCode(error) { return error && typeof error === 'object' && 'code' in error ? error.code : undefined; }
 module.exports = { SessionObservers, METHODS, LIMITS };

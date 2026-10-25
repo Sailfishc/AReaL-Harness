@@ -1,4 +1,9 @@
+// @ts-check
 "use strict";
+const {record} = require('./remote-core-decoder.cjs');
+/** @typedef {InstanceType<typeof import('./remote.cjs').RemoteControl>} Remote */
+/** @typedef {NonNullable<ReturnType<InstanceType<typeof import('./remote-relay.cjs').RelayTransport>['channels']['get']>>} RelayEndpoint */
+/** @typedef {(import('ws')|RelayEndpoint) & {wire?:ReturnType<typeof import('@areal/remote').byteChannel>,secure?:Awaited<ReturnType<typeof import('@areal/remote').secureChannel>>,authenticated?:boolean,awaitingApproval?:boolean,remotePeer?:string}} SessionSocket */
 const { randomUUID } = require("node:crypto");
 const { readOverview, METHODS: OVERVIEW_METHODS } = require("./remote-work-overview.cjs");
 const {
@@ -75,16 +80,19 @@ const COMMAND_ERRORS = Object.freeze({
     CAPACITY_EXCEEDED: "提交日志容量已满",
     UNSUPPORTED_PROFILE: "默认 Profile 不支持普通会话，请在桌面调整",
 });
+/** @param {unknown} value @param {string[]} keys @returns {value is Record<string,unknown>} */
 const exact = (value, keys) =>
-    value &&
+    !!value &&
     typeof value === "object" &&
     !Array.isArray(value) &&
     Object.keys(value).every((key) => keys.includes(key));
+/** @param {unknown} id @param {unknown} code @param {string} message */
 const fail = (id, code, message) => ({
     ...(id === undefined ? {} : { id }),
     error: { code, message },
 });
 
+/** @param {Remote} remote @param {string} peer */
 function currentGrant(remote, peer) {
     return remote.config?.deviceGrants?.find(
         (value) =>
@@ -95,16 +103,19 @@ function currentGrant(remote, peer) {
             value.capabilities.includes("observe"),
     );
 }
+/** @param {Remote} remote @param {import("./remote-config.cjs").DeviceGrant} grant */
 function projectViews(remote, grant) {
     const allowed = new Set(grant.projectIds);
-    const names = remote.backend.library?.value?.projects ?? {};
+    const rawNames = remote.backend.library?.value?.projects;
+    const names = record(rawNames) ? rawNames : {};
     return remote.backend.saved
         .filter((value) => allowed.has(value.id))
         .map((value) => {
             const live = remote.backend.projects?.get(value.id);
+            const name = names[value.id];
             return {
                 projectId: value.id,
-                name: String(names[value.id]?.name ?? basename(value.root)).slice(0, 200),
+                name: String((record(name) ? name.name : undefined) ?? basename(value.root)).slice(0, 200),
                 connectionState: live?.model?.state?.connected ? "online" : "offline",
                 serviceGeneration: live?.service?.generation ?? null,
             };
@@ -113,13 +124,14 @@ function projectViews(remote, grant) {
 
 // 同一 Host 的两个入口共享身份、观察者和预算；传输只提供字节与关闭事件。
 class SessionAcceptor {
+    /** @param {Remote} remote */
     constructor(remote) {
         this.remote = remote;
+        /** @type {Set<SessionSocket>} */
         this.sockets = new Set();
-        this.observers = new SessionObservers(remote);
-        this.observers.reviews = new InteractionReviews(this.observers);
-        this.observers.taskQuestions = new TaskQuestions(this.observers);
-        this.observers.resultReviews = new ResultReviews(this.observers);
+        const observers = new SessionObservers(remote);
+        this.observers = Object.assign(observers, {reviews:new InteractionReviews(observers), taskQuestions:new TaskQuestions(observers), resultReviews:new ResultReviews(observers)});
+        this.closed = false;
     }
     available() {
         return (
@@ -132,7 +144,7 @@ class SessionAcceptor {
     }
     receiveBufferedBytes() {
         return [...this.sockets].reduce(
-            (sum, socket) => sum + (socket.wire?.bufferedBytes ?? 0),
+            (sum, socket) => sum + (socket.wire?.bufferedBytes ?? 0) + (socket.secure?.receiveBufferedBytes ?? 0),
             0,
         );
     }
@@ -142,6 +154,7 @@ class SessionAcceptor {
             this.remote.relayTransport?.bufferedAmount ?? 0,
         );
     }
+    /** @param {SessionSocket} socket */
     accept(socket) {
         if (!this.available()) {
             socket.terminate();
@@ -158,6 +171,7 @@ class SessionAcceptor {
         });
         void observe(this.remote, socket, this).catch(() => socket.terminate());
     }
+    /** @param {string} peer */
     closePeer(peer) {
         for (const socket of this.sockets)
             if (socket.remotePeer === peer && socket.authenticated) socket.terminate();
@@ -169,6 +183,7 @@ class SessionAcceptor {
     }
 }
 
+/** @param {Remote} remote @param {SessionSocket} socket @param {SessionAcceptor} owner */
 async function observe(remote, socket, owner) {
     const { sockets, observers } = owner;
     const wire = remote.crypto.byteChannel(
@@ -186,25 +201,28 @@ async function observe(remote, socket, owner) {
         () => socket.close(),
     );
     socket.wire = wire;
-    socket.on("message", (bytes, binary) => {
+    socket.on("message", (/** @type {import("ws").RawData} */ data, /** @type {boolean} */ binary) => {
+        const size = Array.isArray(data) ? data.reduce((sum,part) => sum + part.length,0) : data instanceof ArrayBuffer ? data.byteLength : data.length;
         if (
             !binary ||
-            bytes.length > LIMITS.transportFrameBytes ||
-            owner.receiveBufferedBytes() + bytes.length > LIMITS.hostReceiveBufferedBytes
+            size > LIMITS.transportFrameBytes ||
+            owner.receiveBufferedBytes() + size > LIMITS.hostReceiveBufferedBytes
         ) {
             socket.terminate();
             wire.close();
             return;
         }
         try {
-            wire.receive(bytes);
+            wire.receive(Array.isArray(data) ? Buffer.concat(data) : data instanceof ArrayBuffer ? new Uint8Array(data) : data);
         } catch {
             socket.terminate();
             wire.close();
         }
     });
     socket.on("close", () => wire.close());
-    const secure = await remote.crypto.secureChannel(wire, remote.config.identity, undefined, {
+    const identity = remote.config.identity;
+    if (!identity) throw new Error("Host 身份尚未就绪");
+    const secure = await remote.crypto.secureChannel(wire, identity, undefined, {
         maxMessageBytes: LIMITS.applicationMessageBytes,
         maxBufferedBytes: LIMITS.sendPlaintextBufferedBytes,
     });
@@ -259,13 +277,13 @@ async function observe(remote, socket, owner) {
     const peer = secure.peer;
     if (hello.inviteSecret !== undefined) {
         try {
-            const approval = remote.claim(peer, hello, socket);
+            const approval = remote.claim(peer, {displayName:hello.displayName,inviteSecret:hello.inviteSecret}, socket);
             socket.awaitingApproval = true;
             secure.send({ event: "pairing", fingerprint: peer });
             await approval;
         } catch (error) {
             if (socket.readyState === 1)
-                secure.send(fail(undefined, error.code ?? "FORBIDDEN", error.message));
+                secure.send(fail(undefined, errorCode(error) ?? "FORBIDDEN", error instanceof Error ? error.message : "配对失败"));
             setTimeout(() => secure.close(), 25);
             return;
         } finally {
@@ -280,6 +298,7 @@ async function observe(remote, socket, owner) {
     }
     socket.authenticated = true;
     const connectionId = randomUUID();
+    /** @type {import("./remote-session-observer.cjs").RemoteConnection} */
     const connection = {
         connectionId,
         peer,
@@ -293,7 +312,7 @@ async function observe(remote, socket, owner) {
     secure.send({
         event: "ready",
         apiVersion: "areal.remote.v2",
-        hostId: remote.crypto.identityId(remote.config.identity),
+        hostId: remote.crypto.identityId(identity),
         gatewayGeneration: remote.gatewayGeneration,
         connectionId,
         grantRevision: grant.revision,
@@ -303,10 +322,12 @@ async function observe(remote, socket, owner) {
     });
     let windowStart = Date.now(),
         reads = 0,
+        /** @type {number} */
         writeTokens = LIMITS.writeBurst,
         writeRefilledAt = windowStart;
     try {
-        for await (const request of messages) {
+        for await (const raw of messages) {
+            const request = record(raw) ? raw : {};
             const active = currentGrant(remote, peer);
             if (!active || active.revision !== grant.revision) {
                 secure.send(fail(request?.id, "GRANT_CHANGED", "授权已变化"));
@@ -320,7 +341,7 @@ async function observe(remote, socket, owner) {
                 secure.send(fail(request?.id, "LIMIT_EXCEEDED", "请求过于频繁"));
                 continue;
             }
-            if (COMMAND_METHODS.includes(request?.method)) {
+            if (typeof request.method === "string" && COMMAND_METHODS.includes(request.method)) {
                 try {
                     if (typeof request.id !== "string" || !request.id || request.id.length > 64)
                         throw Object.assign(new Error("无效的请求标识"), {
@@ -347,22 +368,23 @@ async function observe(remote, socket, owner) {
                         remote,
                         connection,
                         request,
-                        (result) => secure.send({ id: request.id, result }),
+                        (/** @type {unknown} */ result) => secure.send({ id: request.id, result }),
                         observers.admission.bind(observers),
                         observers.reviews,
                         observers.taskQuestions,
                     );
                 } catch (error) {
-                    const known = Object.hasOwn(COMMAND_ERRORS, error.code);
-                    const code = known ? error.code : "CORE_UNAVAILABLE";
+                    const nativeCode = errorCode(error);
+                    const known = commandCode(nativeCode);
+                    const code = known ? nativeCode : "CORE_UNAVAILABLE";
                     secure.send({
                         id: request.id,
                         error: {
                             code,
                             message: COMMAND_ERRORS[code],
-                            ...(typeof error.code === "number" ? { coreCode: error.code } : {}),
-                            commandId: request.commandId ?? request.params?.commandId,
-                            submissionUnknown: !known || error.submissionUnknown === true,
+                            ...(typeof nativeCode === "number" ? { coreCode: nativeCode } : {}),
+                            commandId: request.commandId ?? (record(request.params) ? request.params.commandId : undefined),
+                            submissionUnknown: !known || record(error) && error.submissionUnknown === true,
                         },
                     });
                 }
@@ -438,13 +460,12 @@ async function observe(remote, socket, owner) {
                                 : request.method === "task.question.read"
                                   ? observers.taskQuestions
                                   : observers.reviews
-                    ).read(connection, request.context.projectId, request.params, (result) =>
+                    ).read(connection, request.context.projectId, request.params, (/** @type {unknown} */ result) =>
                         secure.send({ id: request.id, result }),
                     );
                 } catch (error) {
-                    const code = Object.hasOwn(COMMAND_ERRORS, error.code)
-                        ? error.code
-                        : "CORE_UNAVAILABLE";
+                    const nativeCode = errorCode(error);
+                    const code = commandCode(nativeCode) ? nativeCode : "CORE_UNAVAILABLE";
                     secure.send(
                         fail(
                             request.id,
@@ -473,7 +494,7 @@ async function observe(remote, socket, owner) {
                     (params.cursor !== undefined &&
                         (typeof params.cursor !== "string" || params.cursor.length > 1024)) ||
                     (params.limit !== undefined &&
-                        (!Number.isInteger(params.limit) ||
+                        (typeof params.limit !== "number" || !Number.isInteger(params.limit) ||
                             params.limit < 1 ||
                             params.limit > LIMITS.sessionItems))
                 ) {
@@ -481,21 +502,23 @@ async function observe(remote, socket, owner) {
                     continue;
                 }
                 try {
-                    const publish = (result) => secure.send({ id: request.id, result });
+                    /** @param {unknown} result */
+                    const publish = (/** @type {unknown} */ result) => secure.send({ id: request.id, result });
                     if (request.method === "session.open")
                         await observers.open(
                             connection,
                             request.context.projectId,
-                            params.threadId,
+                            id,
                             publish,
                         );
                     else if (request.method === "session.body")
-                        await observers.body(connection, request.context.projectId, params, publish);
+                        { if (typeof params.turnId !== "string" || typeof params.itemId !== "string") throw new Error("缺少正文身份");
+                        await observers.body(connection, request.context.projectId, {threadId:id,turnId:params.turnId,itemId:params.itemId,cursor:params.cursor}, publish); }
                     else if (request.method === "session.history")
                         await observers.history(
                             connection,
                             request.context.projectId,
-                            params,
+                            {threadId:id,cursor:params.cursor,limit:params.limit},
                             publish,
                         );
                     else {
@@ -507,10 +530,10 @@ async function observe(remote, socket, owner) {
                         // 已离线的观察也可释放；关闭不启动 Core，也不更改执行状态。
                         if (!active.projectIds.includes(request.context.projectId))
                             throw Object.assign(new Error("此项目未获授权"), { code: "FORBIDDEN" });
-                        publish({ closed: observers.release(connectionId, params.subscriptionId) });
+                        publish({ closed: observers.release(connectionId, id) });
                     }
                 } catch (error) {
-                    secure.send(fail(request.id, error.code ?? "CORE_UNAVAILABLE", request.method === "session.body" ? "正文读取失败，请重新读取或打开会话" : error.message));
+                    secure.send(fail(request.id, errorCode(error) ?? "CORE_UNAVAILABLE", request.method === "session.body" ? "正文读取失败，请重新读取或打开会话" : error instanceof Error ? error.message : "读取失败"));
                 }
                 continue;
             }
@@ -522,7 +545,7 @@ async function observe(remote, socket, owner) {
                 secure.send({
                     id: request.id,
                     result: {
-                        hostId: remote.crypto.identityId(remote.config.identity),
+                        hostId: remote.crypto.identityId(identity),
                         apiVersion: "areal.remote.v2",
                         capabilities: CAPABILITIES.filter((value) =>
                             grant.capabilities.includes(value),
@@ -538,30 +561,29 @@ async function observe(remote, socket, owner) {
                 if (
                     !exact(request.context, ["projectId"]) ||
                     typeof request.context.projectId !== "string" ||
-                    !Number.isInteger(limit) ||
+                    typeof limit !== "number" || !Number.isInteger(limit) ||
                     limit < 1 ||
                     limit > 100 ||
                     (cursor !== undefined &&
                         (typeof cursor !== "string" || cursor.length > 1024)) ||
-                    (filter !== undefined && !["all", "active", "attention"].includes(filter))
+                    (filter !== undefined && (typeof filter !== "string" || !["all", "active", "attention"].includes(filter)))
                 ) {
                     secure.send(fail(request.id, "INVALID_PARAMS", "无效的概览参数"));
                     continue;
                 }
                 try {
-                    await readOverview(remote, peer, grant.revision, request, (result) => {
+                    await readOverview(remote, peer, grant.revision, {method:request.method,context:{projectId:request.context.projectId},params:{cursor,limit,filter}}, (result) => {
                         secure.send({ id: request.id, result });
                     });
                 } catch (error) {
-                    secure.send(fail(request.id, error.code ?? "CORE_UNAVAILABLE", error.message));
+                    secure.send(fail(request.id, errorCode(error) ?? "CORE_UNAVAILABLE", error instanceof Error ? error.message : "读取失败"));
                 }
                 continue;
             }
             if (
                 request.method !== "project.list" ||
                 (request.context !== undefined &&
-                    (!exact(request.context, ["projectId"]) ||
-                        typeof request.context.projectId !== "string"))
+                    !projectContext(request.context))
             ) {
                 secure.send(fail(request.id, "INVALID_PARAMS", "不支持的字段或方法"));
                 continue;
@@ -569,14 +591,14 @@ async function observe(remote, socket, owner) {
             if (
                 request.context &&
                 (!active.projectIds.includes(request.context.projectId) ||
-                    !remote.backend.saved.some((value) => value.id === request.context.projectId))
+                    !remote.backend.saved.some((value) => projectContext(request.context) && value.id === request.context.projectId))
             ) {
                 secure.send(fail(request.id, "FORBIDDEN", "此项目未获授权"));
                 continue;
             }
             const { cursor, limit = LIMITS.projectPageDefault } = request.params;
             if (
-                !Number.isInteger(limit) ||
+                typeof limit !== "number" || !Number.isInteger(limit) ||
                 limit < 1 ||
                 limit > LIMITS.projectPageMaximum ||
                 (cursor !== undefined &&
@@ -606,4 +628,10 @@ async function observe(remote, socket, owner) {
     }
 }
 
+/** @param {unknown} value @returns {value is {projectId:string}} */
+function projectContext(value) { return exact(value,["projectId"]) && typeof value.projectId === "string"; }
+/** @param {unknown} error */
+function errorCode(error) { return record(error) ? error.code : undefined; }
+/** @param {unknown} code @returns {code is keyof typeof COMMAND_ERRORS} */
+function commandCode(code) { return typeof code === 'string' && Object.hasOwn(COMMAND_ERRORS,code); }
 module.exports = { SessionAcceptor, LIMITS };

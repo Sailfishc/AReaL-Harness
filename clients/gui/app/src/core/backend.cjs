@@ -1,4 +1,5 @@
 "use strict";
+const { parseProjectIndex } = require("./project-index.cjs");
 const { commandSemantics } = require("@areal/workbench/desktop-contract");
 const { startupTrace } = require("./startup-timing.cjs");
 
@@ -40,8 +41,10 @@ const { ProjectConnections } = require("./project-connections.cjs");
 const { HistoryObservation } = require("./history-observation.cjs");
 const { SubmissionRecovery, operationOf, isRemoteControl } = require("./submission-recovery.cjs");
 
+/** @typedef {{binary:string,home:string,applicationOwner?:import('./application-owner.cjs').ApplicationOwner,harnessHome?:string,config?:string,desktopConfig?:string,userHome?:string,toolExtensions?:string,workgroupPolicy?:string,workgroupToolchain?:string,sandboxProfile?:string,desktopProcesses?:boolean,defaultProfile?:import('@areal/workbench/desktop-contract').ResourceRef,encryption?:import('electron').SafeStorage,proxyEnvironment?:NodeJS.ProcessEnv,onChange?:()=>void}} CoreBackendOptions */
 /** 每个项目连接公开的共享 Core 服务；这里只保留可重建投影与客户端受理回执。 */
 class CoreBackend {
+  /** @param {CoreBackendOptions} options */
   constructor({
     binary,
     home,
@@ -79,8 +82,11 @@ class CoreBackend {
     this.userHome = userHome;
     this.desktopConfig = desktopConfig;
     this.onChange = onChange;
+    /** @type {Map<string,import('./project-state.cjs').CoreProject>} */
     this.projects = new Map();
+    /** @type {Map<string,Promise<import('./project-state.cjs').CoreProject>>} */
     this.starting = new Map();
+    /** @type {Map<string,Promise<void>>} */
     this.saves = new Map();
     this.closing = false;
     this.library = new CoreLibrary(this);
@@ -97,6 +103,7 @@ class CoreBackend {
     this.feedback = new UserFeedback(this);
     this.providers = new AppProviders(this, encryption);
     this.activeCommands = 0;
+    /** @type {WeakSet<object>} */
     this.awaitingResponses = new WeakSet();
     this.lifecycleOperations = new LifecycleOperations(this);
   }
@@ -294,8 +301,8 @@ class CoreBackend {
       await mkdir(this.home, { recursive: true, mode: 0o700 });
       await this.lifecycleOperations.init();
       try {
-        this.saved = JSON.parse(await readFile(join(this.home, "projects.json"), "utf8"));
-        if (!Array.isArray(this.saved)) throw new Error("Invalid project index");
+        /** @type {import('./project-index.cjs').SavedProject[]} */
+        this.saved = parseProjectIndex(JSON.parse(await readFile(join(this.home, "projects.json"), "utf8")));
       } catch (error) {
         if (error.code !== "ENOENT") throw error;
         this.saved = [];
@@ -325,6 +332,7 @@ class CoreBackend {
     }
   }
 
+  /** @param {string} name @param {unknown} value */
   save(name, value) {
     const contents = JSON.stringify(value);
     const task = (this.saves.get(name) ?? Promise.resolve())
@@ -339,6 +347,7 @@ class CoreBackend {
     return task;
   }
 
+  /** @param {string} path */
   async addProject(path) {
     this.lifecycleOperations.assertRegistration();
     if (this.providerUpdating || this.resourcesUpdating)
@@ -351,6 +360,7 @@ class CoreBackend {
     }
   }
 
+  /** @param {string} path @param {string} [worktreeResources] @param {string} [projectlessRequestId] */
   async addProjectPath(path, worktreeResources, projectlessRequestId) {
     this.lifecycleOperations.assertRegistration();
     if (this.providerUpdating || this.resourcesUpdating)
@@ -509,6 +519,7 @@ class CoreBackend {
     }
   }
 
+  /** @param {import('./project-state.cjs').CoreProject} project @param {ReturnType<typeof startupTrace>} trace */
   async prepareServiceLaunch(project, trace) {
     const directory = join(this.home, project.id);
     const dataDir = join(directory, "state");

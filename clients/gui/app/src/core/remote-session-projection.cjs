@@ -1,13 +1,26 @@
+// @ts-check
 "use strict";
+const { part } = require("./remote-core-decoder.cjs");
+/** @typedef {import('./remote-core-decoder.cjs').Fields} Fields */
+/** @typedef {import('./remote-core-decoder.cjs').Item} Item */
+/** @typedef {import('./remote-core-decoder.cjs').Turn} Turn */
+/** @typedef {import('./remote-core-decoder.cjs').Thread} Thread */
+/** @typedef {Array<string|undefined>} Scope */
+/** @typedef {{state:string,reason?:string,revision?:string,threadId?:string,turnId?:string,itemId?:string}} BodyDetail */
+/** @typedef {Fields & {id:string,type:string,preview:string,textBytes:number,truncated:boolean,bodyDetail:BodyDetail,body?:Fields|null}} ItemView */
+/** @typedef {Fields & {id:string,status?:string,items:ItemView[]}} TurnView */
+/** @typedef {Fields & {kind:string,threadId:string,turnId?:string,interactionId?:string}} Attention */
 const { createHash } = require("node:crypto");
 // Remote 仅保留可丢弃、有界的显示投影；完整历史与工具执行始终归 Core。
 const ITEM_LIMIT = 100,
     TEXT_BYTES = 1024,
     PAGE_BYTES = 192 * 1024;
+/** @param {Fields|null|undefined} value @param {string[]} keys */
 const pick = (value, keys) =>
     Object.fromEntries(
-        keys.filter((key) => value?.[key] !== undefined).map((key) => [key, value[key]]),
+        keys.filter((key) => value?.[key] !== undefined).map((key) => [key, value?.[key]]),
     );
+/** @param {unknown[]} parts @param {number} [maximum] @returns {{preview:string,textBytes:number,truncated:boolean,bodyDetail:BodyDetail}} */
 function preview(parts, maximum = TEXT_BYTES) {
     let text = "",
         bytes = 0,
@@ -37,13 +50,16 @@ function preview(parts, maximum = TEXT_BYTES) {
                 : { state: "inline" },
     };
 }
+/** @param {Item} item @returns {ItemView|null} */
 function itemView(item) {
     if (!item || item.type === "modelContext") return null;
-    const value = pick(item, ["id", "type", "phase", "status", "success"]);
+    /** @type {ItemView} */
+    const value = {...pick(item, ["id", "type", "phase", "status", "success"]), id:item.id, type:item.type, ...preview([])};
+    /** @type {unknown[]} */
     let parts = [];
     if (item.type === "agentMessage") parts = [item.text];
     else if (item.type === "userMessage")
-        parts = (item.content ?? []).filter((v) => v.type === "text").map((v) => v.text);
+        parts = (item.content ?? []).filter(part).filter((v) => v.type === "text").map((v) => v.text);
     else if (item.type === "reasoning") parts = [...(item.summary ?? []), ...(item.content ?? [])];
     else if (item.type === "dynamicToolCall") {
         value.tool = preview([item.tool], 200).preview;
@@ -63,7 +79,7 @@ function itemView(item) {
     }
     if (
         item.type === "agentMedia" ||
-        (item.type === "userMessage" && (item.content ?? []).some((v) => v.type !== "text")) ||
+        (item.type === "userMessage" && (item.content ?? []).filter(part).some((v) => v.type !== "text")) ||
         (item.type === "dynamicToolCall" &&
             (item.contentItems ?? []).some((v) => v.type !== "inputText" && v.type !== "text"))
     ) {
@@ -75,11 +91,12 @@ function itemView(item) {
 }
 // Only public conversation fields; no modelContext, credentials, configuration,
 // instruction snapshots, hook payloads or arbitrary native object passthrough.
+/** @param {Item} item @returns {Fields|null} */
 function publicBody(item) {
     const body = pick(item, ["id", "type"]);
     if (item.type === "agentMessage") body.text = item.text ?? "";
     else if (item.type === "userMessage")
-        body.content = (item.content ?? []).filter(v => v.type === "text").map(v => pick(v, ["type", "text"]));
+        body.content = (item.content ?? []).filter(part).filter(v => v.type === "text").map(v => pick(v, ["type", "text"]));
     else if (item.type === "reasoning") {
         body.summary = item.summary ?? [];
         body.content = item.content ?? [];
@@ -90,15 +107,17 @@ function publicBody(item) {
     } else return null;
     return body;
 }
+/** @param {Turn} turn @param {ItemView[]} items @returns {TurnView} */
 function turnView(turn, items) {
     return {
-        ...pick(turn, ["id", "status", "startedAt", "completedAt", "durationMs"]),
+        ...pick(turn, ["id", "status", "startedAt", "completedAt", "durationMs"]), id:turn.id, status:turn.status,
         // Shared GUI Messages uses Core's origin, never the input wording, to
         // distinguish scheduler continuations from user-authored messages.
         ...(turn.goal ? { goal: pick(turn.goal, ["origin", "sequence"]) } : {}),
         items,
     };
 }
+/** @param {import('./remote-core-decoder.cjs').Queue|null|undefined} queue */
 function queueView(queue) {
     return {
         pendingCount: (queue?.items ?? []).filter((v) => v.status === "pending").length,
@@ -107,11 +126,12 @@ function queueView(queue) {
         complete: (queue?.items ?? []).length <= 128,
         items: (queue?.items ?? []).filter(v => v.status === "pending").slice(0,128).map(item => {
             const body = preview((item.input ?? []).filter(part => part.type === "text").map(part => part.text));
-            return { ...pick(item, ["id", "status"]), input: [{type:"text", text:body.preview}], truncated:body.truncated,
+            return { ...pick(item, ["id", "status"]), id:item.id, input: [{type:"text", text:body.preview}], truncated:body.truncated,
                 hasAttachments:(item.input ?? []).some(part => part.type !== "text") };
         }),
     };
 }
+/** @param {import('./remote-core-decoder.cjs').Interaction} item @returns {Attention|null} */
 function interactionView(item) {
     if (item.status !== "pending") return null;
     return {
@@ -129,7 +149,9 @@ function interactionView(item) {
                       .preview,
     };
 }
+/** @param {Thread} thread @returns {Attention[]} */
 function unknownAttention(thread) {
+    /** @type {Attention[]} */
     const refs = [];
     for (const turn of thread.turns ?? [])
         for (const item of turn.items ?? []) {
@@ -160,9 +182,11 @@ function unknownAttention(thread) {
             });
     return refs;
 }
+/** @param {Scope} scope @param {string} itemId */
 function historyCursor(scope, itemId) {
     return Buffer.from(JSON.stringify([...scope, itemId])).toString("base64url");
 }
+/** @param {Thread} thread @param {Scope} scope @param {string} [cursor] @param {number} [limit] */
 function historyPage(thread, scope, cursor, limit = ITEM_LIMIT) {
     const rows = [];
     for (const turn of thread.turns ?? [])
@@ -170,6 +194,7 @@ function historyPage(thread, scope, cursor, limit = ITEM_LIMIT) {
             if (item.type !== "modelContext") rows.push({ turn, item });
     let end = rows.length;
     if (cursor !== undefined) {
+        /** @type {unknown} */
         let decoded;
         try {
             decoded = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
@@ -179,7 +204,7 @@ function historyPage(thread, scope, cursor, limit = ITEM_LIMIT) {
         if (
             !Array.isArray(decoded) ||
             decoded.length !== scope.length + 1 ||
-            scope.some((value, at) => decoded[at] !== value)
+            scope.some((value, at) => !Array.isArray(decoded) || decoded[at] !== value)
         )
             throw Object.assign(new Error("历史游标已失效，请重新打开会话"), {
                 code: "RESYNC_REQUIRED",
@@ -191,14 +216,16 @@ function historyPage(thread, scope, cursor, limit = ITEM_LIMIT) {
             });
     }
     const start = Math.max(0, end - limit),
+        /** @type {TurnView[]} */
         turns = [];
     for (const { turn, item } of rows.slice(start, end)) {
         let target = turns.at(-1);
-        if (target?.id !== turn.id) {
+        if (!target || target.id !== turn.id) {
             target = turnView(turn, []);
             turns.push(target);
         }
         const value = itemView(item);
+        if (!value) continue;
         if (value.bodyDetail.state === "unavailable")
             Object.assign(value.bodyDetail, {
                 threadId: thread.id,
@@ -216,17 +243,20 @@ function historyPage(thread, scope, cursor, limit = ITEM_LIMIT) {
         range: "coreAccessible",
     };
 }
+/** @param {import('./remote-core-decoder.cjs').Configuration|null|undefined} config */
 function configurationView(config) {
     if (!config) return null;
     return { ...pick(config,["revision","readOnly"]), model:config.model == null ? null : pick(config.model,["providerId","modelId"]), parameters:pick(config.parameters,["reasoningEffort"]),
       profile:config.profile == null ? null : pick(config.profile,["id","revision","readOnly"]), options:pick(config.options,["permissionPreset","readOnly","appendInstructions","approvalTools","preapprovedTools"]),
       ...(config.permissions ? { permissions: pick(config.permissions,["resources","reviewer","fullAccessAvailable"]) } : {}) };
 }
+/** @param {import('./remote-core-decoder.cjs').Goals|null|undefined} state @returns {{revision:number,eventSequence?:number,goal:(Fields & {objective:string})|null}} */
 function goalView(state) {
     if (!state) return {revision:0,eventSequence:0,goal:null};
     const goal=state.goal;
     return {revision:state.revision,eventSequence:state.eventSequence,goal:goal?{...pick(goal,["id","status","reason","settling","waitingForInput","waitingForAgents","waitingForCapacity","limits","usage"]),objective:preview([goal.objective],4096).preview}:null};
 }
+/** @param {Thread} thread @param {Scope} scope @param {Fields} ownership */
 function snapshot(thread, scope, ownership) {
     const page = historyPage(thread, scope);
     // 无正文的活动 Turn 也必须可见，不能把它当作空闲。
@@ -234,7 +264,7 @@ function snapshot(thread, scope, ownership) {
         if (!turn.items?.length && !page.turns.some((v) => v.id === turn.id))
             page.turns.push(turnView(turn, []));
     const refs = [
-        ...(thread.desktop?.interactions ?? []).map(interactionView).filter(Boolean),
+        ...(thread.desktop?.interactions ?? []).map(interactionView).filter(value => value !== null),
         ...unknownAttention(thread),
     ];
     return {
@@ -255,6 +285,7 @@ function snapshot(thread, scope, ownership) {
         history: { ...page, turns: undefined },
     };
 }
+/** @param {ReturnType<typeof snapshot>} state @param {Scope} scope */
 function constrain(state, scope) {
     let remaining = ITEM_LIMIT,
         removed = false;
@@ -293,6 +324,7 @@ function constrain(state, scope) {
     if (Buffer.byteLength(JSON.stringify(state)) > PAGE_BYTES)
         throw new Error("Session projection exceeds display budget");
 }
+/** @param {ReturnType<typeof snapshot>} state @param {string} method @param {import('./remote-core-decoder.cjs').Notification} params @param {Scope} scope */
 function update(state, method, params, scope) {
     if (method === "areal/thread/configured") {
         state.configRevision = params.configuration?.revision ?? state.configRevision;
@@ -321,8 +353,9 @@ function update(state, method, params, scope) {
         return true;
     }
     if (method === "turn/started" || method === "turn/completed") {
-        const turn = params.turn,
-            value = turnView(turn, (turn.items ?? []).map(itemView).filter(Boolean));
+        const turn = params.turn;
+        if (!turn) throw new Error("Core notification lacks turn");
+        const value = turnView(turn, (turn.items ?? []).map(itemView).filter(value => value !== null));
         const at = state.turns.findIndex((v) => v.id === turn.id);
         if (at < 0) state.turns.push(value);
         else state.turns[at] = value;
@@ -348,6 +381,7 @@ function update(state, method, params, scope) {
             ].includes(method)
         )
             return false;
+        if (!params.turnId) throw new Error("Core notification lacks turn identity");
         let turn = state.turns.find((v) => v.id === params.turnId);
         if (!turn) {
             turn = { id: params.turnId, status: "inProgress", items: [] };
@@ -360,13 +394,16 @@ function update(state, method, params, scope) {
             if (at < 0) turn.items.push(value);
             else turn.items[at] = value;
         } else {
+            if (!params.itemId) throw new Error("Core delta lacks item identity");
             let item = turn.items.find((v) => v.id === params.itemId);
             if (!item) {
-                item = itemView({
+                const created = itemView({
                     id: params.itemId,
                     type: method.startsWith("item/reasoning/") ? "reasoning" : "agentMessage",
                     text: "",
                 });
+                if (!created) throw new Error("Core delta item is unavailable");
+                item = created;
                 turn.items.push(item);
             }
             const total = item.textBytes + Buffer.byteLength(params.delta ?? "");

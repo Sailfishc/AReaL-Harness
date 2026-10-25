@@ -1,3 +1,4 @@
+// @ts-check
 'use strict';
 const { createHash } = require('node:crypto');
 const { existsSync, readFileSync, readdirSync, realpathSync, createReadStream } = require('node:fs');
@@ -5,6 +6,7 @@ const { join, dirname, basename, resolve } = require('node:path');
 const { homedir } = require('node:os');
 const { resolveCoreBinary, executables } = require('./bundle.cjs');
 // 独立应用身份避免接管旧安装；开发版按工作树隔离。
+/** @param {import('electron').App} app @param {NodeJS.ProcessEnv} [env] */
 function configureUserData(app, env = process.env) {
   const explicit = env.AREAL_GUI_USER_DATA;
   if (explicit) app.setPath('userData', explicit);
@@ -15,9 +17,11 @@ function configureUserData(app, env = process.env) {
   else app.setPath('userData', join(app.getPath('appData'), 'AReaL Harness GUI'));
   return app.getPath('userData');
 }
+/** @param {import('electron').App} app */
 function serviceHome(app) {
   return process.env.AREAL_CORE_HOME || join(app.getPath('userData'), 'areal-core');
 }
+/** @param {import('electron').App} app */
 function serviceOptions(app) {
   // 配置文件参与后台身份；环境变量选择也必须固定，避免新窗口复用另一份配置的后台。
   const config = process.env.AREAL_CORE_CONFIG || process.env.AREAL_HARNESS_CONFIG;
@@ -35,17 +39,19 @@ function serviceOptions(app) {
     desktopConfig: process.env.AREAL_CORE_DESKTOP_CONFIG || join(__dirname, 'desktop-profile.json'),
     desktopProcesses: true, defaultProfile: !process.env.AREAL_CORE_DESKTOP_CONFIG ? { id: 'areal-standard', revision: 'v1' } : undefined };
 }
+/** @param {string} path */
 function configurationIdentity(path) {
   // 默认文件可以尚不存在；规范已有祖先，使首次保存和目录别名不改变身份。
   const suffix = [];
   for (let current = resolve(path);;) {
     try { return join(realpathSync(current), ...suffix); }
-    catch (error) { if (!['ENOENT', 'ENOTDIR'].includes(error.code)) throw error; }
+    catch (error) { if (!(error instanceof Error) || !('code' in error) || (error.code !== 'ENOENT' && error.code !== 'ENOTDIR')) throw error; }
     const parent = dirname(current);
     if (parent === current) return resolve(path);
     suffix.unshift(basename(current)); current = parent;
   }
 }
+/** @param {import('./backend.cjs').CoreBackendOptions & {configHome?:string}} options */
 async function serviceIdentity(options) {
   const hash = createHash('sha256');
   for (const name of readdirSync(__dirname).filter(n => /\.(cjs|json)$/.test(n)).sort()) hash.update(name).update(readFileSync(join(__dirname, name)));
@@ -53,7 +59,9 @@ async function serviceIdentity(options) {
   for (const name of readdirSync(subscriptionRoot).filter(n => /\.(js|json)$/.test(n)).sort()) hash.update(name).update(readFileSync(join(subscriptionRoot, name)));
   const { CoreClient, CoreRpcError } = await import('@areal/runtime-client/core');
   hash.update(CoreClient.toString()).update(CoreRpcError.toString());
+  hash.update(readFileSync(require.resolve('@areal/runtime-client/capabilities')));
   hash.update(readFileSync(require.resolve('@areal/workbench/core-model')));
+  hash.update(readFileSync(require.resolve('@areal/workbench/core-model-contract')));
   hash.update(readFileSync(require.resolve('@areal/workbench/desktop-contract')));
   hash.update(readFileSync(require.resolve('@areal/workbench/state-projection')));
   hash.update(readFileSync(require.resolve('@areal/remote')));
@@ -67,7 +75,7 @@ async function serviceIdentity(options) {
       ? packagedHelper : join(dirname(options.binary), name);
     let actual;
     try { actual = realpathSync(path); }
-    catch (e) { if (name === 'areal' || !['ENOENT', 'ENOTDIR'].includes(e.code)) throw e; hash.update(name + ':absent'); continue; }
+    catch (e) { if (name === 'areal' || !(e instanceof Error) || !('code' in e) || (e.code !== 'ENOENT' && e.code !== 'ENOTDIR')) throw e; hash.update(name + ':absent'); continue; }
     hash.update(JSON.stringify([actual]));
     const content = createHash('sha256');
     for await (const chunk of createReadStream(actual)) content.update(chunk);

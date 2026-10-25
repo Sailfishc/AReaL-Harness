@@ -1,32 +1,35 @@
+// @ts-check
 "use strict";
+const {record} = require('./remote-core-decoder.cjs');
+/** @typedef {import('./remote-session-observer.cjs').RemoteConnection} Connection */
+/** @typedef {import('./remote-session-observer.cjs').ObserverEntry} Entry */
+/** @typedef {import('./remote-core-decoder.cjs').Interaction} Interaction */
+/** @typedef {{threadId:string,turnId:string,interactionId:string,[key:string]:unknown}} Target */
+/** @typedef {Target & {reviewToken?:string,decision?:'allowOnce'|'deny',argumentsDigest?:string,answers?:Record<string,string>}} ResponseParams */
 const { createHash, createHmac, randomBytes, timingSafeEqual } = require("node:crypto");
 const LIMITS = Object.freeze({
     interactionPageBytes: 16 * 1024,
     interactionQuestions: 8,
     interactionAnswerBytes: 4096,
 });
+/** @param {string} code @param {string} message */
 const failure = (code, message) => Object.assign(new Error(message), { code });
+/** @param {unknown} value @param {string[]} keys @returns {value is Record<string,unknown>} */
 const exact = (value, keys) =>
-    value &&
+    !!value &&
     typeof value === "object" &&
     !Array.isArray(value) &&
     Object.keys(value).every((key) => keys.includes(key));
-function target(params) {
-    if (
-        ["threadId", "turnId", "interactionId"].some(
-            (key) =>
-                typeof params?.[key] !== "string" ||
-                !params[key] ||
-                Buffer.byteLength(params[key]) > 128,
-        )
-    )
+/** @param {unknown} params @returns {asserts params is Target} */
+function assertTarget(params) {
+    if (!record(params) || !identity(params.threadId) || !identity(params.turnId) || !identity(params.interactionId))
         throw failure("INVALID_PARAMS", "缺少原交互身份");
-    return {
-        threadId: params.threadId,
-        turnId: params.turnId,
-        interactionId: params.interactionId,
-    };
 }
+/** @param {unknown} value @returns {value is string} */
+function identity(value) { return typeof value === 'string' && !!value && Buffer.byteLength(value) <= 128; }
+/** @param {Target} params */
+function target(params) { return {threadId:params.threadId,turnId:params.turnId,interactionId:params.interactionId}; }
+/** @param {Interaction} item */
 function content(item) {
     return {
         tool: item.tool ?? null,
@@ -37,15 +40,18 @@ function content(item) {
     };
 }
 class InteractionReviews {
+    /** @param {InstanceType<typeof import("./remote-session-observer.cjs").SessionObservers>} observers */
     constructor(observers) {
         this.observers = observers;
         // 仅本 Gateway 生命周期内的审阅游标签名；不保存正文、审批权限或第二套提交账本。
         this.key = randomBytes(32);
     }
+    /** @param {string} scope @param {number} offset */
     seal(scope, offset) {
         const body = Buffer.from(JSON.stringify([scope, offset])).toString("base64url");
         return `${body}.${createHmac("sha256", this.key).update(body).digest("base64url")}`;
     }
+    /** @param {unknown} token @param {string} scope @returns {number} */
     open(token, scope) {
         try {
             if (typeof token !== "string" || token.length > 2048) throw new Error();
@@ -54,13 +60,15 @@ class InteractionReviews {
                 expected = createHmac("sha256", this.key).update(body).digest();
             if (extra || actual.length !== expected.length || !timingSafeEqual(actual, expected))
                 throw new Error();
-            const [saved, offset] = JSON.parse(Buffer.from(body, "base64url"));
-            if (saved !== scope || !Number.isSafeInteger(offset) || offset < 0) throw new Error();
-            return offset;
+            /** @type {unknown} */
+            const parsed = JSON.parse(Buffer.from(body, "base64url").toString());
+            if (!Array.isArray(parsed) || parsed[0] !== scope || typeof parsed[1] !== 'number' || !Number.isSafeInteger(parsed[1]) || parsed[1] < 0) throw new Error();
+            return parsed[1];
         } catch {
             throw failure("TARGET_CHANGED", "审阅内容或连接已变化，请重新打开原交互");
         }
     }
+    /** @param {Connection} connection @param {Entry} entry @param {Interaction} item @param {string} body */
     scope(connection, entry, item, body) {
         return createHash("sha256")
             .update(
@@ -83,8 +91,9 @@ class InteractionReviews {
             )
             .digest("hex");
     }
+    /** @param {import("./remote-core-decoder.cjs").InteractionList} result @param {Target} params */
     lookup(result, params) {
-        target(params);
+        assertTarget(params);
         const item = result.data?.find(
             (item) =>
                 item.threadId === params.threadId &&
@@ -95,6 +104,7 @@ class InteractionReviews {
             throw failure("TARGET_CHANGED", "原交互已不存在");
         return item;
     }
+    /** @param {Connection} connection @param {string} projectId @param {ResponseParams} params */
     async prepare(connection, projectId, params) {
         // 拒绝不依赖正文完整可读；Core 对调用方给出的原标识和 digest 做最终原子校验。
         if (params.decision === "deny") return this.nativeParams(params);
@@ -120,7 +130,7 @@ class InteractionReviews {
                     )
                         throw failure("TARGET_CHANGED", "审批摘要已变化");
                 } else {
-                    const questions = item.questions;
+                    const questions = item.questions, answers = params.answers;
                     if (
                         params.decision !== undefined ||
                         params.argumentsDigest !== undefined ||
@@ -128,17 +138,17 @@ class InteractionReviews {
                         !questions.length ||
                         questions.length > LIMITS.interactionQuestions ||
                         !exact(
-                            params.answers,
+                            answers,
                             questions.map((q) => q.id),
                         ) ||
-                        Object.keys(params.answers).length !== questions.length ||
+                        Object.keys(answers).length !== questions.length ||
                         questions.some(
                             (q) =>
-                                !Object.hasOwn(params.answers, q.id) ||
-                                typeof params.answers[q.id] !== "string" ||
-                                Buffer.byteLength(params.answers[q.id]) >
+                                !Object.hasOwn(answers, q.id) ||
+                                typeof answers[q.id] !== "string" ||
+                                Buffer.byteLength(answers[q.id]) >
                                     LIMITS.interactionAnswerBytes ||
-                                (!q.allowFreeText && !q.options.includes(params.answers[q.id])),
+                                (!q.allowFreeText && !q.options.includes(answers[q.id])),
                         )
                     )
                         throw failure("INVALID_PARAMS", "答案必须匹配 Core 的题目和选项");
@@ -147,6 +157,7 @@ class InteractionReviews {
             },
         );
     }
+    /** @param {ResponseParams} params */
     nativeParams(params) {
         return {
             threadId: params.threadId,
@@ -157,7 +168,9 @@ class InteractionReviews {
                 : { answers: structuredClone(params.answers) }),
         };
     }
+    /** @param {Connection} connection @param {string} projectId @param {unknown} params */
     async observe(connection, projectId, params) {
+        assertTarget(params);
         return this.observers.interactions(connection, projectId, params.threadId, (result) => {
             const item = this.lookup(result, params);
             return {
@@ -169,10 +182,11 @@ class InteractionReviews {
             };
         });
     }
+    /** @template T @param {Connection} connection @param {string} projectId @param {unknown} params @param {(value:unknown)=>T} publish */
     async read(connection, projectId, params, publish) {
         if (!exact(params, ["threadId", "turnId", "interactionId", "cursor"]))
             throw failure("INVALID_PARAMS", "无效的交互读取参数");
-        target(params);
+        assertTarget(params);
         return this.observers.interactions(
             connection,
             projectId,
@@ -213,8 +227,9 @@ class InteractionReviews {
         );
     }
 }
+/** @param {unknown} params @returns {asserts params is ResponseParams} */
 function validateResponse(params) {
-    target(params);
+    assertTarget(params);
     if (
         params.reviewToken !== undefined &&
         (typeof params.reviewToken !== "string" || params.reviewToken.length > 2048)
@@ -222,7 +237,7 @@ function validateResponse(params) {
         throw failure("INVALID_PARAMS", "无效的审阅凭据");
     if (params.decision !== undefined) {
         if (
-            !["allowOnce", "deny"].includes(params.decision) ||
+            (params.decision !== "allowOnce" && params.decision !== "deny") ||
             params.answers !== undefined ||
             typeof params.argumentsDigest !== "string" ||
             !/^[a-f0-9]{64}$/i.test(params.argumentsDigest)
@@ -230,7 +245,7 @@ function validateResponse(params) {
             throw failure("INVALID_PARAMS", "远程审批仅支持本次允许或拒绝");
     } else if (
         params.argumentsDigest !== undefined ||
-        !exact(params.answers, Object.keys(params.answers ?? {})) ||
+        !record(params.answers) ||
         Object.keys(params.answers).length < 1 ||
         Object.keys(params.answers).length > LIMITS.interactionQuestions ||
         Object.values(params.answers).some(

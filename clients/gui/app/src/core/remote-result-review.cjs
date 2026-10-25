@@ -1,4 +1,13 @@
+// @ts-check
 "use strict";
+const {record} = require('./remote-core-decoder.cjs');
+/** @typedef {import('./remote-session-observer.cjs').RemoteConnection} Connection */
+/** @typedef {import('./remote-session-observer.cjs').ObserverEntry} Entry */
+/** @typedef {import('./remote-core-decoder.cjs').Thread} Thread */
+/** @typedef {import('./remote-core-decoder.cjs').Turn} Turn */
+/** @typedef {{threadId:string,turnId:string,itemId?:string,cursor?:unknown,limit?:number}} ReviewParams */
+/** @typedef {{kind:'review',scope:string,offset:number}} ReviewToken */
+/** @typedef {{kind:'artifact',identity:string,threadId:string,turnId:string,itemId:string,index:number,uri:string,mime:string,size:number}} ArtifactToken */
 const { randomBytes, createCipheriv, createDecipheriv, createHash } = require("node:crypto");
 const { reviewTurnFiles } = require("@areal/workspace-git");
 const LIMITS = Object.freeze({
@@ -7,15 +16,19 @@ const LIMITS = Object.freeze({
     artifactBytes: 16 * 1024 * 1024,
     artifactChunkBytes: 48 * 1024,
 });
+/** @param {string} [code] */
 const failure = (code = "RESOURCE_UNAVAILABLE") =>
     Object.assign(new Error("原结果不可用，请在桌面查看"), { code });
+/** @param {unknown} value @returns {value is string} */
 const id = (value) =>
     typeof value === "string" && value.length > 0 && Buffer.byteLength(value) <= 128;
+/** @param {unknown} value @param {string[]} keys @returns {value is Record<string,unknown>} */
 const exact = (value, keys) =>
-    value &&
+    !!value &&
     typeof value === "object" &&
     !Array.isArray(value) &&
     Object.keys(value).every((k) => keys.includes(k));
+/** @param {unknown} params @returns {asserts params is ReviewParams} */
 function target(params) {
     if (
         !exact(params, ["threadId", "turnId", "itemId", "cursor", "limit"]) ||
@@ -23,12 +36,13 @@ function target(params) {
         !id(params.turnId) ||
         (params.itemId !== undefined && !id(params.itemId)) ||
         (params.limit !== undefined &&
-            (!Number.isSafeInteger(params.limit) ||
+            (typeof params.limit !== "number" || !Number.isSafeInteger(params.limit) ||
                 params.limit < 1 ||
                 params.limit > LIMITS.reviewPageBytes))
     )
         throw failure("INVALID_PARAMS");
 }
+/** @param {Turn} turn @param {string} [itemId] */
 function mediaRecords(turn, itemId) {
     const records = [];
     for (const item of turn.items ?? []) {
@@ -63,6 +77,7 @@ function mediaRecords(turn, itemId) {
     }
     return records;
 }
+/** @param {Thread} thread @param {Pick<ReviewParams,"turnId"|"itemId">} params */
 function original(thread, params) {
     const turns = thread.turns?.filter((t) => t.id === params.turnId) ?? [];
     if (turns.length !== 1) throw failure();
@@ -75,19 +90,23 @@ function original(thread, params) {
     return turn;
 }
 class ResultReviews {
+    /** @param {InstanceType<typeof import("./remote-session-observer.cjs").SessionObservers>} observers */
     constructor(observers) {
         this.observers = observers;
         this.key = randomBytes(32);
+        /** @type {WeakMap<object,string>} */
         this.identities = new WeakMap();
     }
+    /** @param {Connection} connection @param {string} projectId */
     authorize(connection, projectId) {
         const project = this.observers.authorize(connection, projectId);
-        const grant = this.observers.remote.config.deviceGrants.find(
+        const grant = this.observers.remote.config.deviceGrants?.find(
             (g) => g.devicePeerId === connection.peer && g.status === "active",
         );
         if (!grant?.capabilities.includes("review")) throw failure("FORBIDDEN");
         return project;
     }
+    /** @param {Connection} connection @param {Entry} entry */
     identity(connection, entry) {
         if (!this.identities.has(entry.desktop))
             this.identities.set(entry.desktop, randomBytes(16).toString("hex"));
@@ -108,12 +127,14 @@ class ResultReviews {
             )
             .digest("hex");
     }
+    /** @param {ReviewToken|ArtifactToken} value */
     seal(value) {
         const nonce = randomBytes(12),
             cipher = createCipheriv("aes-256-gcm", this.key, nonce);
         const body = Buffer.concat([cipher.update(JSON.stringify(value)), cipher.final()]);
         return Buffer.concat([nonce, cipher.getAuthTag(), body]).toString("base64url");
     }
+    /** @param {unknown} token @returns {ReviewToken|ArtifactToken} */
     open(token) {
         try {
             if (typeof token !== "string" || token.length > 2048 || !/^[A-Za-z0-9_-]+$/.test(token))
@@ -121,23 +142,28 @@ class ResultReviews {
             const bytes = Buffer.from(token, "base64url"),
                 cipher = createDecipheriv("aes-256-gcm", this.key, bytes.subarray(0, 12));
             cipher.setAuthTag(bytes.subarray(12, 28));
-            return JSON.parse(Buffer.concat([cipher.update(bytes.subarray(28)), cipher.final()]));
+            /** @type {unknown} */
+            const value = JSON.parse(Buffer.concat([cipher.update(bytes.subarray(28)), cipher.final()]).toString());
+            if (!isToken(value)) throw failure();
+            return value;
         } catch {
             throw failure();
         }
     }
+    /** @template T @param {Connection} connection @param {string} projectId @param {unknown} params @param {(value:unknown)=>T} publish */
     async artifact(connection, projectId, params, publish) {
         if (
             !exact(params, ["artifactRef", "offset", "length"]) ||
-            !Number.isSafeInteger(params.offset) ||
+            typeof params.offset !== "number" || !Number.isSafeInteger(params.offset) ||
             params.offset < 0 ||
-            !Number.isSafeInteger(params.length) ||
+            typeof params.length !== "number" || !Number.isSafeInteger(params.length) ||
             params.length < 1 ||
             params.length > LIMITS.artifactChunkBytes
         )
             throw failure("INVALID_PARAMS");
+        const request = {artifactRef:params.artifactRef,offset:params.offset,length:params.length};
         this.authorize(connection, projectId);
-        const ref = this.open(params.artifactRef);
+        const ref = this.open(request.artifactRef);
         if (ref.kind !== "artifact" || params.offset >= ref.size) throw failure();
         const { rasterInfo } = await import("@areal/remote/raster");
         this.authorize(connection, projectId);
@@ -152,6 +178,7 @@ class ResultReviews {
                     if (ref.identity !== this.identity(connection, entry))
                         throw failure("RESYNC_REQUIRED");
                 };
+                /** @param {Thread} thread */
                 const membership = (thread) => {
                     guard();
                     const turn = original(thread, ref);
@@ -175,8 +202,9 @@ class ResultReviews {
                 url.hash = "";
                 url.searchParams.set("threadId", ref.threadId);
                 const controller = new AbortController();
-                let reader,
-                    timedOut = false;
+                /** @type {ReadableStreamDefaultReader<Uint8Array>|undefined} */
+                let reader;
+                let timedOut = false;
                 const timeout = setTimeout(() => {
                     timedOut = true;
                     controller.abort();
@@ -230,7 +258,7 @@ class ResultReviews {
                     const raster = rasterInfo(bytes, ref.mime);
                     membership(await read());
                     guard();
-                    const end = Math.min(ref.size, params.offset + params.length);
+                    const end = Math.min(ref.size, request.offset + request.length);
                     return publish({
                         projectId,
                         threadId: ref.threadId,
@@ -239,15 +267,15 @@ class ResultReviews {
                         connectionId: connection.connectionId,
                         gatewayGeneration: entry.gatewayGeneration,
                         serviceGeneration: entry.generation,
-                        artifactRef: params.artifactRef,
-                        offset: params.offset,
+                        artifactRef: request.artifactRef,
+                        offset: request.offset,
                         totalBytes: ref.size,
                         nextOffset: end < ref.size ? end : null,
-                        base64: bytes.subarray(params.offset, end).toString("base64"),
+                        base64: bytes.subarray(request.offset, end).toString("base64"),
                         raster,
                     });
                 } catch (error) {
-                    if (["FORBIDDEN", "GRANT_CHANGED", "RESYNC_REQUIRED"].includes(error.code))
+                    if (record(error) && typeof error.code === "string" && ["FORBIDDEN", "GRANT_CHANGED", "RESYNC_REQUIRED"].includes(error.code))
                         throw error;
                     throw failure();
                 } finally {
@@ -259,6 +287,7 @@ class ResultReviews {
             },
         );
     }
+    /** @template T @param {Connection} connection @param {string} projectId @param {unknown} params @param {(value:unknown)=>T} publish */
     async read(connection, projectId, params, publish) {
         target(params);
         this.authorize(connection, projectId);
@@ -271,9 +300,10 @@ class ResultReviews {
                 const turn = original(thread, params);
                 let diff;
                 try {
-                    const review = reviewTurnFiles(entry.project.root, turn, {
-                        itemId: params.itemId,
-                    });
+                    /** @type {unknown} */
+                    const rawReview = reviewTurnFiles(entry.project.root, turn, {itemId:params.itemId});
+                    if (!record(rawReview) || !Array.isArray(rawReview.files) || !rawReview.files.every(record)) throw failure();
+                    const review = {files:rawReview.files,scope:rawReview.scope,base:rawReview.base,head:rawReview.head,notice:rawReview.notice};
                     // 二进制历史不进入文本审查；仅检查原生记录重建的版本，不读取当前工作区。
                     if (
                         review.files.some(
@@ -347,6 +377,7 @@ class ResultReviews {
                     .update(this.identity(connection, entry))
                     .update(body)
                     .digest("hex");
+                /** @type {ReviewToken|ArtifactToken} */
                 const cursor =
                     params.cursor === undefined
                         ? { kind: "review", scope, offset: 0 }
@@ -407,5 +438,15 @@ class ResultReviews {
             },
         );
     }
+}
+/** @param {unknown} value @returns {value is ReviewToken|ArtifactToken} */
+function isToken(value) {
+    if (!record(value)) return false;
+    if (value.kind === 'review') return typeof value.scope === 'string' && typeof value.offset === 'number' && Number.isSafeInteger(value.offset) && value.offset >= 0;
+    return value.kind === 'artifact' && typeof value.identity === 'string' && id(value.threadId) && id(value.turnId) && id(value.itemId)
+        && typeof value.index === 'number' && Number.isSafeInteger(value.index) && value.index >= 0
+        && typeof value.uri === 'string' && /^areal:\/\/blob\/[a-f0-9]{64}$/.test(value.uri)
+        && typeof value.mime === 'string' && ['image/png','image/jpeg','image/gif','image/webp'].includes(value.mime)
+        && typeof value.size === 'number' && Number.isSafeInteger(value.size) && value.size > 0 && value.size <= LIMITS.artifactBytes;
 }
 module.exports = { ResultReviews, LIMITS };

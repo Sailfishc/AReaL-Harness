@@ -1,8 +1,35 @@
+// @ts-check
 "use strict";
+const decoder = require('./remote-core-decoder.cjs');
+/** @typedef {InstanceType<typeof import('./remote.cjs').RemoteControl>} Remote */
+/** @typedef {import('./remote-session-observer.cjs').RemoteConnection} Connection */
+/** @typedef {import('./remote-session-observer.cjs').SessionState} SessionState */
+/** @typedef {import('./project-state.cjs').CoreProject} CoreProject */
+/** @typedef {{client:CoreProject['client'],endpoint:CoreProject['endpoint'],token:CoreProject['token'],serviceId?:string,generation?:string}} ProjectIdentity */
+/** @typedef {import('./remote-session-controls.cjs').ControlRequest} Control */
+/** @typedef {import('./remote-interactions.cjs').ResponseParams} InteractionResponse */
+/** @typedef {import('./remote-task-questions.cjs').ReplyParams} Reply */
+/** @typedef {import('./remote-task-questions.cjs').PauseParams} Pause */
+/** @typedef {{commandId?:string,threadId?:string,expectedTurnId?:string,expectedConfigRevision?:number,text?:string,enqueue?:boolean,taskId?:string,runId?:string,questionId?:string,answers?:Record<string,string>,turnId?:string,interactionId?:string,argumentsDigest?:string,decision?:'allowOnce'|'deny',reviewToken?:string,expectedRunId?:string,expectedRevision?:number,operation?:string,values?:Control['values']}} Params */
+/** @typedef {{projectId:string,gatewayGeneration:string,grantRevision:number,serviceGeneration:string}} WriteContext */
+/** @typedef {{commandId?:never,context:{projectId:string},method:'command.read',params:Params & {commandId:string}}|({commandId:string,context:WriteContext} & (
+ * {method:'session.create',params:Params}|{method:'session.control',params:Params & Control}|
+ * {method:'session.send',params:Params & {threadId:string,expectedConfigRevision:number,text:string}}|
+ * {method:'turn.stop',params:Params & {threadId:string,expectedTurnId:string}}|
+ * {method:'interaction.respond',params:Params & InteractionResponse}|{method:'task.question.reply',params:Params & Reply}|{method:'task.pause',params:Params & Pause}))} Request */
+/** @typedef {{method:string,capability:string,semanticDigest:string,target:Record<string,unknown>,[key:string]:unknown}} RemoteAssociation */
+/** @typedef {{method:string,operationId:string,remote:RemoteAssociation,params?:Record<string,unknown>,admissionState?:string,threadId?:string,turnId?:string,receipt?:unknown,error?:unknown,[key:string]:unknown}} CommandRecord */
+/** @typedef {Error & {code?:unknown,coreCode?:unknown,submissionUnknown?:unknown}} CommandError */
 const { createHash } = require("node:crypto");
-const { validateReply, validatePause } = require("./remote-task-questions.cjs");
-const { validateResponse } = require("./remote-interactions.cjs");
-const { validateControl, nativeControl } = require("./remote-session-controls.cjs");
+/** @type {(params:unknown)=>asserts params is Reply} */
+const validateReply = require("./remote-task-questions.cjs").validateReply;
+/** @type {(params:unknown)=>asserts params is Pause} */
+const validatePause = require("./remote-task-questions.cjs").validatePause;
+/** @type {(params:unknown)=>asserts params is InteractionResponse} */
+const validateResponse = require("./remote-interactions.cjs").validateResponse;
+/** @type {(params:unknown)=>asserts params is Control} */
+const validateControl = require("./remote-session-controls.cjs").validateControl;
+const {nativeControl} = require("./remote-session-controls.cjs");
 const METHODS = [
     "session.control",
     "session.create",
@@ -19,19 +46,24 @@ const LIMITS = {
     commandPendingBytes: 72 * 1024,
     commandOutcomeBytes: 4096,
 };
+/** @param {string} code @param {string} message */
 const failure = (code, message) => Object.assign(new Error(message), { code });
+/** @param {unknown} value @param {string[]} keys @returns {value is Record<string,unknown>} */
 const exact = (value, keys) =>
-    value &&
+    !!value &&
     typeof value === "object" &&
     !Array.isArray(value) &&
     Object.keys(value).every((key) => keys.includes(key));
+/** @param {unknown} value @returns {value is string} */
 const uuid = (value) =>
     typeof value === "string" &&
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+/** @param {unknown} request @returns {asserts request is Request} */
 function validate(request) {
+    if (!decoder.record(request)) throw failure("INVALID_PARAMS", "无效的命令参数");
     const read = request.method === "command.read";
     if (
-        !METHODS.includes(request.method) ||
+        typeof request.method !== "string" || !METHODS.includes(request.method) ||
         !exact(request, ["id", "method", "context", "params", ...(read ? [] : ["commandId"])]) ||
         !exact(
             request.context,
@@ -68,25 +100,22 @@ function validate(request) {
         !uuid(read ? request.params.commandId : request.commandId)
     )
         throw failure("INVALID_PARAMS", "无效的命令参数");
-    if (request.method === "session.control") validateControl(request.params);
     if (request.method === "session.send" && (request.params.enqueue !== undefined && typeof request.params.enqueue !== "boolean" || request.params.expectedTurnId !== undefined && (typeof request.params.expectedTurnId !== "string" || request.params.expectedTurnId.length > 128))) throw failure("INVALID_PARAMS", "无效的后续消息条件");
-    if (request.method === "task.pause") validatePause(request.params);
-    if (request.method === "interaction.respond") validateResponse(request.params);
-    if (request.method === "task.question.reply") validateReply(request.params);
     if (
         !read &&
         (typeof request.context.gatewayGeneration !== "string" ||
-            !Number.isSafeInteger(request.context.grantRevision) ||
+            typeof request.context.grantRevision !== "number" || !Number.isSafeInteger(request.context.grantRevision) ||
             typeof request.context.serviceGeneration !== "string")
     )
         throw failure("INVALID_PARAMS", "缺少当前连接身份");
+    const params = request.params;
     if (
         request.method === "turn.stop" &&
         ["threadId", "expectedTurnId"].some(
             (key) =>
-                typeof request.params[key] !== "string" ||
-                !request.params[key] ||
-                Buffer.byteLength(request.params[key]) > 128,
+                typeof params[key] !== "string" ||
+                !params[key] ||
+                Buffer.byteLength(params[key]) > 128,
         )
     )
         throw failure("INVALID_PARAMS", "缺少确切的会话和轮次");
@@ -95,14 +124,19 @@ function validate(request) {
         (typeof request.params.threadId !== "string" ||
             !request.params.threadId ||
             request.params.threadId.length > 128 ||
-            !Number.isSafeInteger(request.params.expectedConfigRevision) ||
+            typeof request.params.expectedConfigRevision !== "number" || !Number.isSafeInteger(request.params.expectedConfigRevision) ||
             request.params.expectedConfigRevision < 0 ||
             typeof request.params.text !== "string" ||
             !request.params.text.trim() ||
             Buffer.byteLength(request.params.text) > LIMITS.commandTextBytes)
     )
         throw failure("INVALID_PARAMS", "文本或会话条件无效");
+    if (request.method === "session.control") validateControl(request.params);
+    if (request.method === "task.pause") validatePause(request.params);
+    if (request.method === "interaction.respond") validateResponse(request.params);
+    if (request.method === "task.question.reply") validateReply(request.params);
 }
+/** @param {Remote} remote @param {Connection} connection @param {string} projectId @param {string} [capability] */
 function authorize(remote, connection, projectId, capability = "submit") {
     if (
         remote.closed ||
@@ -124,7 +158,9 @@ function authorize(remote, connection, projectId, capability = "submit") {
         throw failure("FORBIDDEN", "此命令未获授权");
     return grant;
 }
-function nativeError(error, method) {
+/** @param {unknown} raw @param {string} method */
+function nativeError(raw, method) {
+    const error = commandError(raw);
     if (method === "areal/thread/start" && error.code === -32004)
         return {
             code: "CONFIGURATION_UNAVAILABLE",
@@ -149,6 +185,7 @@ function nativeError(error, method) {
         message: "命令未受理，请刷新状态后检查草稿",
     };
 }
+/** @param {Remote["backend"]} backend @param {CommandRecord|null} record @param {string} commandId */
 function view(backend, record, commandId) {
     if (!record) return { commandId, admissionState: "notFound", submissionUnknown: true };
     return {
@@ -169,16 +206,20 @@ function view(backend, record, commandId) {
         ...(record.error ? { error: nativeError(record.error, record.method) } : {}),
     };
 }
+/** @template T @param {Remote} remote @param {Connection} connection @param {unknown} input @param {(value:unknown)=>T} publish
+ * @param {(connection:Connection,projectId:string,threadId:string)=>Promise<SessionState>} [observeAdmission]
+ * @param {InstanceType<typeof import('./remote-interactions.cjs').InteractionReviews>} [reviews]
+ * @param {InstanceType<typeof import('./remote-task-questions.cjs').TaskQuestions>} [taskQuestions] */
 async function sessionCommand(
     remote,
     connection,
-    request,
+    input,
     publish,
     observeAdmission,
     reviews,
     taskQuestions,
 ) {
-    request = structuredClone(request);
+    const request = structuredClone(input);
     validate(request);
     const backend = remote.backend,
         projectId = request.context.projectId;
@@ -199,17 +240,22 @@ async function sessionCommand(
               : "submit";
     const auth = () => authorize(remote, connection, projectId, capability);
     auth();
+    const hostIdentity = remote.config.identity;
+    if (!hostIdentity) throw failure("RESYNC_REQUIRED", "Host 身份尚未就绪");
     const association = {
-        hostId: remote.crypto.identityId(remote.config.identity),
+        hostId: remote.crypto.identityId(hostIdentity),
         devicePeerId: connection.peer,
         projectId,
-        commandId: (request.commandId ?? request.params.commandId).toLowerCase(),
+        commandId: (request.method === "command.read" ? request.params.commandId : request.commandId).toLowerCase(),
     };
     const project = await backend.loadProjectJournal(projectId);
     auth();
+    /** @type {ProjectIdentity|undefined} */
     let readIdentity;
-    const readRecord = () =>
-        backend.readRemoteRecord(project, association, (entry) => {
+    const readRecord = async () =>
+        commandRecord(await backend.readRemoteRecord(project, association, (/** @type {unknown} */ raw) => {
+            const entry = commandRecord(raw);
+            if (!entry) throw failure("RESOURCE_UNAVAILABLE", "提交关联不可用");
             authorize(remote, connection, projectId, entry.remote.capability);
             readIdentity = {
                 client: project.client,
@@ -218,7 +264,7 @@ async function sessionCommand(
                 endpoint: project.endpoint,
                 token: project.token,
             };
-        });
+        }));
     let record = await readRecord();
     auth();
     const semantic = control ? { method: request.method, ...request.params } : pause
@@ -279,6 +325,7 @@ async function sessionCommand(
         record.remote.semanticDigest !== semanticDigest
     )
         throw failure("COMMAND_CONFLICT", "命令标识已用于不同内容");
+    /** @type {ProjectIdentity|undefined} */
     let identity;
     const checkIdentity = () => {
         if (
@@ -314,7 +361,7 @@ async function sessionCommand(
                 serviceId: project.service?.serviceId,
                 generation: project.service?.generation,
             };
-            const nativeMethod = control ? controlCall.method : pause
+            const nativeMethod = controlCall ? controlCall.method : pause
                 ? "areal/task/pause"
                 : reply
                   ? "areal/channel/reply"
@@ -342,12 +389,12 @@ async function sessionCommand(
                 )
                     throw failure("RESYNC_REQUIRED", "提交条件已变化，请刷新状态");
                 if (
-                    (!control && !respond && !reply && !project.client.capabilities?.features?.[feature]) ||
-                    !project.client.capabilities?.methods?.includes(nativeMethod)
+                    (!control && !respond && !reply && !project.client?.capabilities?.features?.[feature]) ||
+                    !project.client?.capabilities?.methods?.includes(nativeMethod)
                 )
                     throw failure("CORE_INCOMPATIBLE", "Core 不支持安全提交，请在桌面升级");
                 if ((request.method === "session.create" || control && request.params.values.options?.permissionPreset !== undefined)
-                    && project.client.capabilities?.features?.permissionPresets !== true)
+                    && project.client?.capabilities?.features?.permissionPresets !== true)
                     throw failure("CORE_INCOMPATIBLE", "Core 不支持权限模式，请在桌面升级");
                 if (request.method === "session.send" || control) {
                     if (project.configurationChanges?.has(request.params.threadId))
@@ -358,6 +405,7 @@ async function sessionCommand(
                 }
             };
             check();
+            /** @type {SessionState|undefined} */
             let admissionState;
             if (request.method === "session.send" || stop || control) {
                 if (!observeAdmission) throw failure("CORE_INCOMPATIBLE", "缺少安全会话观察入口");
@@ -385,16 +433,19 @@ async function sessionCommand(
                     throw failure("TARGET_CHANGED", "配置或队列条件已变化，草稿已保留");
             }
             const profile = project.resourceProfile ?? backend.defaultProfile;
-            if (control) {
+            if (control && controlCall) {
+                if (!admissionState) throw failure("RESYNC_REQUIRED", "会话准入快照不可用");
                 const op = request.params.operation;
                 if (op === "configure" && (admissionState.activeTurnId || admissionState.configRevision !== request.params.expectedRevision)) throw failure("TARGET_CHANGED", "配置或轮次已变化");
                 if (["steer", "queueSteer"].includes(op) && admissionState.activeTurnId !== request.params.values.expectedTurnId) throw failure("TARGET_CHANGED", "原轮次已变化");
                 if (op === "configure") {
-                    const inspection = await project.client.request("areal/thread/inspect", {threadId:request.params.threadId});
+                    const client = project.client;
+                    if (!client) throw failure("CORE_UNAVAILABLE", "Core 连接不可用");
+                    const inspection = await client.request("areal/thread/inspect", {threadId:request.params.threadId});
                     check();
-                    if (inspection.configuration?.revision !== request.params.expectedRevision) throw failure("TARGET_CHANGED", "配置已变化");
-                    if (request.params.values.options) controlCall.params.options = { ...inspection.configuration.options, ...request.params.values.options };
-                    if (request.params.values.parameters) controlCall.params.parameters = { ...inspection.configuration.parameters, ...request.params.values.parameters };
+                    if (!decoder.record(inspection) || !decoder.record(inspection.configuration) || inspection.configuration.revision !== request.params.expectedRevision) throw failure("TARGET_CHANGED", "配置已变化");
+                    if (request.params.values.options) { if (!decoder.record(inspection.configuration.options)) throw failure("CORE_INCOMPATIBLE", "Core 配置不可用"); controlCall.params.options = { ...inspection.configuration.options, ...request.params.values.options }; }
+                    if (request.params.values.parameters) { if (!decoder.record(inspection.configuration.parameters)) throw failure("CORE_INCOMPATIBLE", "Core 参数不可用"); controlCall.params.parameters = { ...inspection.configuration.parameters, ...request.params.values.parameters }; }
                 }
                 if (op === "queueUpdate") {
                     const item = admissionState.queue.items?.find(item => item.id === request.params.values.queueItemId);
@@ -421,7 +472,7 @@ async function sessionCommand(
                 preparedParams = await taskQuestions.prepare(connection, projectId, request.params);
                 check();
             }
-            const params = control ? controlCall.params :
+            const params = controlCall ? controlCall.params :
                 respond || reply || pause
                     ? preparedParams
                     : stop
@@ -447,7 +498,7 @@ async function sessionCommand(
                                   ...(request.params.enqueue ? {expectedTurnId:request.params.expectedTurnId} : {}),
                               },
                           };
-            record = await backend.submit(project, nativeMethod, params, {
+            record = commandRecord(await backend.submit(project, nativeMethod, params, {
                 remote: {
                     ...association,
                     method: request.method,
@@ -483,7 +534,8 @@ async function sessionCommand(
                                   }
                                 : {},
                 },
-                dispatch: async (entry) => {
+                dispatch: async (/** @type {import('./project-state.cjs').PendingSubmission} */ entry) => {
+                    /** @type {Promise<{result?:unknown,error?:CommandError}>|undefined} */
                     let response;
                     // 与撤权共享队列；同步检查和 request 启动之间不得 await，RPC 回应在队列外等待。
                     const admission = (remote.writes ?? Promise.resolve())
@@ -491,19 +543,21 @@ async function sessionCommand(
                         .then(() => {
                             check();
                             try {
+                                if (!identity?.client) throw failure("CORE_UNAVAILABLE", "Core 连接不可用");
                                 response = identity.client.request(nativeMethod, entry.params).then(
                                     (result) => ({ result }),
-                                    (error) => ({ error }),
+                                    (error) => ({ error:commandError(error) }),
                                 );
                             } catch (error) {
                                 response = Promise.resolve({
-                                    error: Object.assign(error, { submissionUnknown: true }),
+                                    error: Object.assign(commandError(error), { submissionUnknown: true }),
                                 });
                             }
                         });
                     remote.writes = admission;
                     await admission;
                     const received = await response;
+                    if (!received) throw failure("SUBMISSION_UNKNOWN", "命令响应不可用");
                     if (received.error) {
                         const error = received.error;
                         if (typeof error.code !== "number" || error.code === -32603)
@@ -519,7 +573,7 @@ async function sessionCommand(
                     }
                     return received.result;
                 },
-            });
+            }));
         } catch (error) {
             // 异步预检查期间另一请求可能已持久受理；原关联优先于新命令的准入拒绝。
             auth();
@@ -534,16 +588,19 @@ async function sessionCommand(
             identity = undefined;
         }
     }
-    let observedState, observationIdentity;
+    /** @type {unknown} */
+    let observedState;
+    /** @type {ProjectIdentity|undefined} */
+    let observationIdentity;
     const observation =
-        record?.remote.method === "task.pause"
+        record?.remote.method === "task.pause" && taskQuestions
             ? { observe: taskQuestions.observePause.bind(taskQuestions) }
             : record?.remote.method === "task.question.reply"
               ? taskQuestions
               : record?.remote.method === "interaction.respond"
                 ? reviews
                 : null;
-    if (observation) {
+    if (observation && record) {
         authorize(remote, connection, projectId, record.remote.capability);
         observationIdentity = {
             client: project.client,
@@ -594,5 +651,24 @@ async function sessionCommand(
         ...view(backend, record, association.commandId),
         ...(observedState ? { observedState } : {}),
     });
+}
+/** @param {unknown} value @returns {CommandRecord|null} */
+function commandRecord(value) {
+    if (value == null) return null;
+    assertCommandRecord(value); return value;
+}
+/** @param {unknown} value @returns {asserts value is CommandRecord} */
+function assertCommandRecord(value) {
+    if (!decoder.record(value) || typeof value.method !== 'string' || typeof value.operationId !== 'string'
+        || !decoder.record(value.remote) || typeof value.remote.method !== 'string' || typeof value.remote.capability !== 'string'
+        || typeof value.remote.semanticDigest !== 'string' || !decoder.record(value.remote.target)
+        || (value.params !== undefined && !decoder.record(value.params)) || (value.admissionState !== undefined && typeof value.admissionState !== 'string')
+        || (value.threadId !== undefined && typeof value.threadId !== 'string') || (value.turnId !== undefined && typeof value.turnId !== 'string'))
+        throw failure('RESOURCE_UNAVAILABLE','提交关联不可用');
+}
+/** @param {unknown} value @returns {CommandError} */
+function commandError(value) {
+    if (value instanceof Error) return value;
+    return Object.assign(new Error('Core 请求失败'), decoder.record(value) ? value : {});
 }
 module.exports = { sessionCommand, METHODS, LIMITS, validate, view };

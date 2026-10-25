@@ -1,3 +1,4 @@
+// @ts-check
 'use strict';
 const { app, Tray, Menu, nativeImage } = require('electron');
 const { join } = require('node:path');
@@ -5,11 +6,13 @@ const { join } = require('node:path');
 // One GUI owns one native menu-bar item. Core execution and safe quit continue
 // through their existing owners; restoring the window never creates a task.
 class MenuBar {
+  /** @param {()=>void} openWindow @param {()=>void} [stopAndQuit] */
   constructor(openWindow, stopAndQuit = () => {}) {
     this.openWindow = openWindow; this.tray = null; this.error = null;
     this.stopAndQuit = stopAndQuit;
     this.supported = process.platform === 'darwin'; this.closed = false;
   }
+  /** @param {boolean} enabled */
   sync(enabled) {
     if (!this.supported || this.closed) return;
     try {

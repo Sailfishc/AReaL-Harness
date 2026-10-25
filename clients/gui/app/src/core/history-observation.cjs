@@ -1,17 +1,24 @@
+// @ts-check
 'use strict';
 const { randomUUID } = require('node:crypto');
+const { readObservationResult, readHistoryPage, readHistoryFragmentPage, readHistoryEntry, readThreadList, isDeferredItem, isHistoryNotification, readObservedTasks, readHistoryInteractions, historyFailure } = require('./history-contract.cjs');
 const { TaskNotificationMonitor } = require('./notifications.cjs');
+const { modelRecord } = require('@areal/workbench/core-model-contract');
 const { isTaskDraftConfiguration } = require('./task-draft.cjs');
 
 // Owns rebuildable history windows and read recovery. It cannot submit mutations.
-const isObservationSizeFailure = error => error?.code === 'RESPONSE_TOO_LARGE'
-  && ['thread/read', 'areal/thread/observe'].includes(error.method) && error.submissionUnknown === false;
+/** @param {unknown} error */
+const isObservationSizeFailure = error => modelRecord(error) && error.code === 'RESPONSE_TOO_LARGE'
+  && ['thread/read', 'areal/thread/observe'].includes(String(error.method)) && error.submissionUnknown === false;
+/** @param {number} ms */
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const historyPageBytes = 256 * 1024, historyMaxBytes = 1024 * 1024;
 const historyViewLimit = 8, historyPageLimit = 4, historyItemBytes = 128 * 1024 * 1024;
-const historyReason = error => error?.reason ?? error?.data?.reason;
-const historyFailure = message => Object.assign(new Error(message), { code: 'HISTORY_VIEW_UNAVAILABLE', outcome: { kind: 'noMutation' }, recovery: { kind: 'none' } });
+/** @param {unknown} error */
+const historyReason = error => modelRecord(error) ? error.reason ?? (modelRecord(error.data) ? error.data.reason : undefined) : undefined;
+/** @param {import('@areal/workbench/core-model-contract').CoreThread} thread @param {Array<Pick<import('./history-contract.cjs').HistoryEntry,'sourceTurnId'|'sourceItemId'|'turn'|'item'> & {sourceTurnStatus?:string}>} entries */
 function mergeHistory(thread, entries) {
+  /** @type {Map<string,import('./history-contract.cjs').HistoryTurn>} */
   const turns = new Map();
   for (const entry of entries) {
     const turn = turns.get(entry.sourceTurnId) ?? { ...entry.turn, id: entry.sourceTurnId, status: entry.sourceTurnStatus, items: [] };
@@ -21,27 +28,33 @@ function mergeHistory(thread, entries) {
   for (const current of thread.turns ?? []) {
     const older = turns.get(current.id);
     const currentIds = new Set((current.items ?? []).map(item => item.id));
-    turns.set(current.id, older ? { ...older, ...current, items: [...older.items.filter(item => !currentIds.has(item.id)), ...current.items] } : current);
+    turns.set(current.id, older ? { ...older, ...current, items: [...older.items.filter(item => !currentIds.has(item.id)), ...(current.items ?? [])] } : {...current,items:current.items ?? []});
   }
   return { ...thread, turns: [...turns.values()] };
 }
-const retryableRead = error => error?.recovery?.kind === 'retryRead'
-  || !error?.recovery && ['TIMEOUT', 'DISCONNECTED', 'CONNECTION_LOST', 'RESPONSE_UNKNOWN'].includes(error?.code);
+/** @param {unknown} error */
+const retryableRead = error => modelRecord(error) && (modelRecord(error.recovery) && error.recovery.kind === 'retryRead'
+  || !error.recovery && ['TIMEOUT', 'DISCONNECTED', 'CONNECTION_LOST', 'RESPONSE_UNKNOWN'].includes(String(error.code)));
 const observationDelays = [500, 1000, 2000, 4000, 8000];
 
 class HistoryObservation {
+  /** @param {import('./history-state.cjs').HistoryHost} host */
   constructor(host) {
     this.host = host;
+    /** @type {Map<string,import('./history-state.cjs').HistoryWindow>} */
+    this.historyWindows = new Map();
   }
 
+  /** @param {import('./project-state.cjs').CoreProject} project @param {import('@areal/runtime-client/core').CoreClient} client @param {string} method @param {unknown} params */
   notification(project, client, method, params) {
-    if (!this.host.currentConnection(project, client)) return;
+    if (!this.host.currentConnection(project, client) || !isHistoryNotification(params)) return;
     if (['thread/started', 'turn/started', 'turn/completed', 'areal/thread/configured', 'areal/task/changed', 'areal/queue/changed'].includes(method)) this.host.scheduleReconciliation(project);
     const threadId = params?.threadId ?? params?.thread?.id ?? params?.interaction?.threadId;
     if (threadId && project.observationErrors?.[threadId]?.code === 'RESPONSE_TOO_LARGE') return;
     if (method === 'areal/thread/configured' && params?.threadId && params.configuration) {
       project.configurations ??= {};
-      const previous = project.configurations[params.threadId];
+      const stored = project.configurations[params.threadId];
+      const previous = modelRecord(stored) ? stored : undefined;
       project.configurations[params.threadId] = { ...params.configuration,
         modelName: params.configuration.defaultModelRevision && params.configuration.defaultModelRevision === previous?.defaultModelRevision ? previous.modelName : undefined };
       this.host.onChange();
@@ -52,18 +65,18 @@ class HistoryObservation {
     }
     if (method === 'areal/mcp/app/notification') this.host.onMcpAppNotification?.({ projectId: project.logicalProjectId ?? project.id, ...params });
     this.host.analytics.observe(project.id, method, params);
-    if (method === 'areal/thread/edited' && this.supportsBoundedHistory(client)) {
+    if (threadId && method === 'areal/thread/edited' && this.supportsBoundedHistory(client)) {
       const window = this.historyWindow(project, threadId);
       if (window) { window.invalidated = true; window.epoch++; }
       void this.openThread(project, threadId).catch(() => {});
       return;
     }
     project.model.event(method, params);
-    if (params?.task) void this.host.taskWorkspaceOwners.observeProject(project).catch(error => { project.error = error.message; this.host.onChange(); });
+    if (params?.task) void this.host.taskWorkspaceOwners.observeProject(project).catch(/** @param {unknown} error */ error => { project.error = error instanceof Error ? error.message : String(error); this.host.onChange(); });
     if (method === 'areal/context/compacted' && params?.threadId) {
       void this.openThread(project, params.threadId).catch(() => {});
     }
-    if (!isTaskDraftConfiguration(project.configurations?.[params.threadId])) this.host.notifications.observe(project.logicalProjectId ? { ...project, id: project.logicalProjectId } : project, method, params, this.host.library.value);
+    if (!isTaskDraftConfiguration(project.configurations?.[params.threadId ?? ''])) this.host.notifications.observe(project.logicalProjectId ? { ...project, id: project.logicalProjectId } : project, method, params, this.host.library.value);
     if (method === 'thread/started' || method === 'turn/started' || method === 'turn/completed') {
       void this.host.library.recordThreadActivity(project.id, params.threadId ?? params.thread?.id,
         method === 'turn/completed' ? params.turn?.id ?? params.turnId : undefined).catch(() => {});
@@ -74,27 +87,32 @@ class HistoryObservation {
       void this.listThreads(project).catch(() => {});
     }
     if (method === 'turn/completed') this.host.providers.requestReconciliation();
-    if (method === 'turn/completed' && this.supportsBoundedHistory(client)
+    if (threadId && method === 'turn/completed' && this.supportsBoundedHistory(client)
       && Buffer.byteLength(JSON.stringify(project.model.state.threads[threadId] ?? {})) > historyMaxBytes)
       void this.openThread(project, threadId).catch(() => {});
   }
 
+  /** @param {import('./project-state.cjs').CoreProject} project @param {import('@areal/runtime-client/core').CoreClient} client */
   async startTaskMonitor(project, client) {
     project.taskNotificationMonitor = new TaskNotificationMonitor(client, project.logicalProjectId ?? project.id,
-      notice => { if (this.host.currentConnection(project, client)) this.host.notifications.publish(notice); }, error => console.warn(this.host.providers.redact(`任务通知读取失败：${error.message}`)),
-      async tasks => {
+      /** @param {unknown} notice */ notice => { if (this.host.currentConnection(project, client)) this.host.notifications.publish(notice); }, /** @param {unknown} error */ error => console.warn(this.host.providers.redact(`任务通知读取失败：${error instanceof Error ? error.message : String(error)}`)),
+      /** @param {unknown} values */ async values => {
+        const tasks = readObservedTasks(values);
         if (!this.host.currentConnection(project, client)) return;
         for (const task of tasks) project.model.setTask(task);
         const scheduled=tasks.filter(task=>task.mode==='scheduled');
-        if(scheduled.some(task=>task.runs.some(run=>run.threadId&&!project.summaries.some(thread=>thread.id===run.threadId)))) {
+        if(scheduled.some(task=>task.runs.some(run=>typeof run.threadId==='string'&&!project.summaries.some(thread=>thread.id===run.threadId)))) {
           await this.listThreads(project);
           this.host.requireConnection(project, client);
         }
+        /** @type {Record<string,unknown>} */
+        const records = this.host.library.value.threads;
         for(const task of scheduled)for(const run of task.runs) {
-          if(run.status!=='completed' || !run.threadId || this.host.library.value.threads[`${project.id}:${run.threadId}`]?.scheduledCompletionId===run.id)continue;
+          const metadata = records[`${project.id}:${run.threadId}`];
+          if(run.status!=='completed' || !run.threadId || modelRecord(metadata) && metadata.scheduledCompletionId===run.id)continue;
           const {thread}=this.supportsBoundedHistory(client)
             ? await this.readObservation(project,run.threadId,{client,install:false})
-            : await client.request('thread/read',{threadId:run.threadId,includeTurns:true});
+            : await client.request('thread/read',{threadId:run.threadId,includeTurns:true},{decode:readObservationResult});
           this.host.requireConnection(project,client);
           const completionId=thread.turns?.findLast(turn=>turn.status==='completed')?.id;
           await this.host.library.recordScheduledCompletion(project.id,run,completionId);
@@ -103,6 +121,7 @@ class HistoryObservation {
     await project.taskNotificationMonitor.start();
   }
 
+  /** @param {import('./project-state.cjs').CoreProject} project */
   listThreads(project) {
     const client = project.client;
     // Lifecycle refreshes and explicit reads can overlap. Serialize complete
@@ -110,12 +129,13 @@ class HistoryObservation {
     const task = (project.summaryReads ?? Promise.resolve()).catch(() => {}).then(async () => {
       if (!this.host.currentConnection(project, client)) return project.summaries;
       const data = [];
+      /** @type {string|null|undefined} */
       let cursor;
       do {
         const classified = client.capabilities?.methods?.includes('areal/conversation/list');
         const page = await client.request(classified ? 'areal/conversation/list' : 'thread/list', {
           limit: 100, ...(classified ? { view: 'main', includeArchived: true } : {}), ...(cursor ? { cursor } : {}),
-        });
+        }, {decode:readThreadList});
         data.push(...page.data.filter(thread => !isTaskDraftConfiguration(thread.desktop?.configuration)));
         cursor = page.nextCursor;
       } while (cursor);
@@ -132,27 +152,31 @@ class HistoryObservation {
     return task;
   }
 
+  /** @param {import('./project-state.cjs').CoreProject} project @param {string} threadId @param {unknown} error @param {{refreshPending?:boolean,id?:string}} [options] */
   observationFailure(project, threadId, error, { refreshPending = false, id = randomUUID() } = {}) {
     project.observationErrors ??= {};
     project.observationErrors[threadId] = { id, projectId: project.id, threadId,
-      connectionGeneration: project.connectionGeneration, code: error.code ?? 'OBSERVATION_FAILED',
-      reason: error.reason, message: this.host.providers.redact(error.message), retryable: retryableRead(error), refreshPending,
+      connectionGeneration: project.connectionGeneration, code: modelRecord(error) ? error.code ?? 'OBSERVATION_FAILED' : 'OBSERVATION_FAILED',
+      reason: modelRecord(error) ? error.reason : undefined, message: this.host.providers.redact(error instanceof Error ? error.message : String(error)), retryable: retryableRead(error), refreshPending,
       recovery: { kind: retryableRead(error) ? 'retryRead' : 'none' } };
     this.host.onChange();
   }
 
+  /** @param {import('./project-state.cjs').CoreProject} project @param {string} threadId */
   async openThread(project, threadId) {
     const client = project.client, generation = project.connectionGeneration;
     project.observationReads ??= new Map();
-    const existing = project.observationReads.get(threadId);
-    if (existing?.client === client && existing.generation === generation) return existing.promise;
-    const attempt = { client, generation, id: randomUUID() };
+    const existing = project.observationReads?.get(threadId);
+    if (existing && existing.client === client && existing.generation === generation) return existing.promise;
+    /** @type {import('./project-state.cjs').ObservationRead} */
+    let attempt;
+    const id = randomUUID();
     const current = () => this.host.currentConnection(project, client) && generation === project.connectionGeneration
-      && project.observationReads.get(threadId) === attempt;
+      && project.observationReads?.get(threadId) === attempt;
     const deadline = Date.now() + 30000;
     const promise = Promise.resolve().then(async () => {
       for (let retries = 0; ; retries++) {
-        if (!current()) throw Object.assign(new Error('连接已换代，请等待状态恢复'), { code: 'STALE_CONNECTION' });
+        if (!current() || !client) throw Object.assign(new Error('连接已换代，请等待状态恢复'), { code: 'STALE_CONNECTION' });
         try {
           await this.observeThread(project, threadId, { client, current, deadline });
           if (current()) { delete project.observationErrors?.[threadId]; this.host.onChange(); }
@@ -160,25 +184,28 @@ class HistoryObservation {
         } catch (error) {
           if (!current()) throw error;
           const delay = observationDelays[retries];
-          const retry = retryableRead(error) && client.ready && delay !== undefined && Date.now() + delay < deadline
+          const retry = retryableRead(error) && client?.ready && delay !== undefined && Date.now() + delay < deadline
             && !this.host.lifecycleOperations.blocking(project.id, threadId) && !this.host.lifecycleOperations.activeTargets.has(project.id);
           this.observationFailure(project, threadId, error, { refreshPending: retry, id: attempt.id });
           if (!retry) throw error;
           await sleep(delay);
         }
       }
-    }).finally(() => { if (project.observationReads.get(threadId) === attempt) project.observationReads.delete(threadId); });
-    attempt.promise = promise;
+    }).finally(() => { if (project.observationReads?.get(threadId) === attempt) project.observationReads?.delete(threadId); });
+    attempt = {client,generation,id,promise};
     project.observationReads.set(threadId, attempt);
     return promise;
   }
 
+  /** @param {import('@areal/runtime-client/core').CoreClient|null|undefined} client */
   supportsBoundedHistory(client) {
     return client?.capabilities?.features?.boundedObservation === true && client.capabilities.features.boundedHistory === true;
   }
 
+  /** @param {import('./project-state.cjs').CoreProject} project @param {string} threadId */
   historyWindow(project, threadId) { return this.historyWindows?.get(`${project.id}:${threadId}`); }
 
+  /** @param {import('./project-state.cjs').CoreProject} project @param {import('./history-state.cjs').HistoryWindow} window */
   publishHistory(project, window) {
     if (this.historyWindow(project, window.threadId) !== window) return;
     const thread = project.model.state.threads[window.threadId];
@@ -189,12 +216,15 @@ class HistoryObservation {
       baselineFirstItemId: window.baselineFirstItemId, viewGeneration: window.viewGeneration } });
   }
 
-  installObservation(project, result) {
+  /** @param {import('./project-state.cjs').CoreProject} project @param {import('./history-contract.cjs').ObservationResult} input @param {import('@areal/runtime-client/core').CoreClient|null} [client] */
+  installObservation(project, input, client = project.client) {
+    const result = input;
     const thread = result.thread;
     const previousThread = project.model.state.threads[thread.id];
     if (!result.history) {
       project.model.replace({ ...thread, displayHistory: { supported: false } });
     } else {
+      if (!client) throw historyFailure('会话连接尚未就绪。');
       this.historyWindows ??= new Map();
       for (const [key, window] of this.historyWindows) {
         if (this.host.projects.get(window.project.id) !== window.project) this.historyWindows.delete(key);
@@ -210,52 +240,58 @@ class HistoryObservation {
         const { [threadId]: queue, ...queues } = owner.model.state.queues;
         owner.model.publish({ threads, interactions: otherInteractions, queues });
       }
-      const latestId = thread.turns?.at(-1)?.id;
+      const latestTurn = thread.turns.at(-1);
+      const latestId = latestTurn?.id;
       const latestComplete = result.history.complete || !result.history.nextCursor || !latestId
         || thread.turns.some(turn => turn.id !== latestId);
       const preserve = !latestComplete && previous && !previous.invalidated && previous.client === project.client
         && previous.generation === project.connectionGeneration && previousThread?.turns?.at(-1)?.id === latestId;
-      const prefix = preserve ? previousThread.turns.at(-1).items.map(item => previous.loaded.get(item.id)?.placeholder ?? item) : [];
+      const prefix = preserve ? (previousThread.turns?.at(-1)?.items ?? []).map(item => previous.loaded.get(item.id)?.placeholder ?? item) : [];
       const seen = new Set(thread.turns?.flatMap(turn => turn.items ?? []).map(item => item.id));
       const knownUsers = new Map(prefix.filter(item => item.type === 'userMessage').map(item => [item.id, item]));
-      const observed = { ...thread, turns: (thread.turns ?? []).map(turn => ({ ...turn, items: turn.items.map(item =>
-        item.type === 'historyDeferred' && item.originalType === 'userMessage' && knownUsers.has(item.id) ? knownUsers.get(item.id) : item) })) };
+      const observed = { ...thread, turns: (thread.turns ?? []).map(turn => ({ ...turn, items: (turn.items ?? []).map(item =>
+        item.type === 'historyDeferred' && item.originalType === 'userMessage' && knownUsers.has(item.id) ? knownUsers.get(item.id) ?? item : item) })) };
+      /** @type {import('./history-state.cjs').HistoryWindow} */
       const window = { project, threadId: thread.id, ...result.history, views: previous?.views ?? new Set(), viewGeneration: randomUUID(),
-        client: project.client, generation: project.connectionGeneration, latestTurn: { id: latestId, complete: latestComplete, read: null },
+        client, generation: project.connectionGeneration, latestTurn: { id: latestId, complete: latestComplete, read: null },
         preservedLatestItems: new Map(prefix.filter(item => !seen.has(item.id)).map(item => [item.id, item])), latestSeen: seen,
         pages: [], loaded: new Map(), loading: new Map(), omitted: false, epoch: 0, baselineCursor: result.history.nextCursor,
         baselineComplete: result.history.complete, baselineFirstItemId: thread.turns?.flatMap(turn => turn.items ?? [])[0]?.id };
       this.historyWindows.delete(key); this.historyWindows.set(key, window);
-      project.model.replace(mergeHistory(observed, prefix.map(item => ({ sourceTurnId: latestId, sourceItemId: item.id,
-        sourceTurnStatus: thread.turns.at(-1).status, turn: thread.turns.at(-1), item }))));
+      project.model.replace(mergeHistory(observed, latestTurn ? prefix.map(item => ({ sourceTurnId: latestTurn.id, sourceItemId: item.id,
+        sourceTurnStatus: latestTurn.status, turn: latestTurn, item })) : []));
       this.publishHistory(project, window);
       if (window.views.size && !previous?.invalidated) void this.hydrateLatest(project, window).catch(() => {});
     }
     for (const turn of thread.turns ?? []) {
-      if (turn.id && ['completed', 'failed', 'interrupted'].includes(turn.status)
+      if (turn.id && ['completed', 'failed', 'interrupted'].includes(turn.status ?? '')
         && previousThread?.turns?.some(previous => previous.id === turn.id && previous.status === 'inProgress')) {
         void this.host.library.recordThreadActivity(project.id, thread.id, turn.id).catch(() => {});
       }
     }
   }
 
+  /** @param {import('./project-state.cjs').CoreProject} project @param {string} threadId @param {import('./history-state.cjs').ReadOptions} [options] */
   async readObservation(project, threadId, { client = project.client, current = () => this.host.currentConnection(project, client), timeoutMs, install = true, resume = false } = {}) {
+    if (!client) throw historyFailure('会话连接尚未就绪。');
     const bounded = this.supportsBoundedHistory(client);
-    if (resume && bounded && client.capabilities.features.boundedResume !== true)
+    if (resume && bounded && client.capabilities?.features?.boundedResume !== true)
       throw historyFailure('当前 Core 无法按页恢复浏览器连接，请更新 Core 后重试。');
     const method = resume ? 'thread/resume' : 'areal/thread/observe';
     for (const maxBytes of bounded ? [historyPageBytes, historyMaxBytes] : [undefined]) {
       try {
         return await client.request(method, { threadId, ...(bounded ? { mode: 'bounded', maxBytes } : {}) }, {
-          timeoutMs, ...(bounded ? { maxResponseBytes: maxBytes } : {}),
-          onResult: result => { if (current() && result.thread?.id === threadId && install) this.installObservation(project, result); },
+          decode: readObservationResult, timeoutMs, ...(bounded ? { maxResponseBytes: maxBytes } : {}),
+          onResult: result => { if (current() && result.thread?.id === threadId && install) this.installObservation(project, result, client); },
         });
       } catch (error) {
         if (!bounded || maxBytes === historyMaxBytes || historyReason(error) !== 'HISTORY_BUDGET_TOO_SMALL') throw error;
       }
     }
+    throw historyFailure('历史读取预算不可用。');
   }
 
+  /** @param {import('./project-state.cjs').CoreProject} project @param {import('./history-state.cjs').HistoryWindow} window @returns {Promise<void>} */
   hydrateLatest(project, window) {
     if (window.invalidated) return Promise.reject(historyFailure('历史视图已变化，请重新加载。'));
     if (window.latestTurn.read) return window.latestTurn.read;
@@ -268,13 +304,13 @@ class HistoryObservation {
         while (!window.latestTurn.complete) {
           if (!current()) throw historyFailure('历史视图已变化，请重新加载。');
           const cursor = window.baselineCursor;
-          const page = await client.request('areal/conversation/history', { threadId, view: 'own', cursor, maxBytes: historyPageBytes }, { maxResponseBytes: historyPageBytes });
+          const page = await client.request('areal/conversation/history', { threadId, view: 'own', cursor, maxBytes: historyPageBytes }, { decode: readHistoryPage, maxResponseBytes: historyPageBytes });
           if (!current()) throw historyFailure('历史视图已变化，请重新加载。');
           this.validateHistoryPage(window, page, cursor);
           for (const entry of page.data) window.latestSeen.add(entry.sourceItemId);
           const authoritative = new Map(page.data.map(entry => [entry.sourceItemId, entry.item]));
           const displayed = project.model.state.threads[threadId];
-          const reconciled = { ...displayed, turns: displayed.turns.map(turn => ({ ...turn, items: turn.items.map(item =>
+          const reconciled = { ...displayed, turns: (displayed.turns ?? []).map(turn => ({ ...turn, items: (turn.items ?? []).map(item =>
             item.type !== 'userMessage' && window.preservedLatestItems.get(item.id) === item
               ? authoritative.get(item.id) ?? item : item) })) };
           let thread = mergeHistory(reconciled, page.data);
@@ -282,11 +318,11 @@ class HistoryObservation {
           window.baselineCursor = window.nextCursor = page.nextCursor;
           window.baselineComplete = window.complete = page.complete;
           if (window.latestTurn.complete && window.preservedLatestItems.size) {
-            thread = { ...thread, turns: thread.turns.map(turn => ({ ...turn, items: turn.items.filter(item =>
+            thread = { ...thread, turns: (thread.turns ?? []).map(turn => ({ ...turn, items: (turn.items ?? []).filter(item =>
               !window.preservedLatestItems.has(item.id) || window.latestSeen.has(item.id)) })) };
             window.preservedLatestItems.clear();
           }
-          window.baselineFirstItemId = thread.turns.flatMap(turn => turn.items)[0]?.id;
+          window.baselineFirstItemId = (thread.turns ?? []).flatMap(turn => turn.items ?? [])[0]?.id;
           project.model.replace(thread);
           this.publishHistory(project, window);
         }
@@ -302,6 +338,7 @@ class HistoryObservation {
     return loading;
   }
 
+  /** @param {import('./project-state.cjs').CoreProject} project @param {import('./history-state.cjs').HistoryWindow} window */
   async refreshHistory(project, window) {
     window.invalidated = true; window.epoch++;
     await project.observationReads?.get(window.threadId)?.promise.catch(() => {});
@@ -309,26 +346,31 @@ class HistoryObservation {
       && project.connectionGeneration === window.generation) await this.openThread(project, window.threadId);
   }
 
-  validateHistoryPage(window, page, cursor) {
+  /** @param {import('./history-state.cjs').HistoryWindow} window @param {import('./history-contract.cjs').HistoryPage} value @param {string|null} cursor */
+  validateHistoryPage(window, value, cursor) {
+    const page = value;
     if (page.snapshotId !== window.snapshotId || !Array.isArray(page.data) || page.nextCursor === cursor
       || !page.complete && (!page.nextCursor || !page.data.length))
       throw historyFailure('历史页的版本或游标无效，请重新打开聊天。');
     if (page.data.some(entry => entry.sourceThreadId !== window.threadId || entry.fragment || entry.item?.id !== entry.sourceItemId))
       throw historyFailure('历史页与当前聊天不匹配。');
+    return page;
   }
 
+  /** @param {import('./project-state.cjs').CoreProject} project @param {import('@areal/workbench/desktop-contract').HistoryRequest} request @returns {Promise<unknown>} */
   async historyCommand(project, request) {
     const { threadId, viewId, operation } = request;
     let window = this.historyWindow(project, threadId);
     if (operation === 'release') {
       if (!window) return { released: true };
+      const released = window;
       window.views.delete(viewId);
       if (!window.views.size) {
         window.epoch++;
         const drop = new Set(window.pages.flatMap(page => page.data.map(entry => entry.sourceItemId)));
         const thread = project.model.state.threads[threadId];
-        if (thread) project.model.replace({ ...thread, turns: thread.turns.map(turn => ({ ...turn,
-          items: turn.items.filter(item => !drop.has(item.id)).map(item => window.loaded.get(item.id)?.placeholder ?? item),
+        if (thread) project.model.replace({ ...thread, turns: (thread.turns ?? []).map(turn => ({ ...turn,
+          items: (turn.items ?? []).filter(item => !drop.has(item.id)).map(item => released.loaded.get(item.id)?.placeholder ?? item),
         })).filter(turn => turn.items.length || turn.status === 'inProgress') });
         window.pages = []; window.loaded.clear(); window.loading.clear(); window.olderRead = null; window.latestTurn.read = null;
         window.nextCursor = window.baselineCursor; window.complete = window.baselineComplete; window.omitted = false;
@@ -351,8 +393,10 @@ class HistoryObservation {
       if (!window?.views.has(viewId)) throw historyFailure('历史视图已关闭，请重新打开聊天。');
     }
     const client = project.client, epoch = window.epoch;
+    if (!client) throw historyFailure('会话连接尚未就绪。');
     const current = () => this.host.currentConnection(project, client) && this.historyWindow(project, threadId) === window && window.epoch === epoch && window.views.has(viewId);
-    const read = (cursor, maxBytes = historyPageBytes) => client.request('areal/conversation/history', { threadId, view: 'own', cursor, maxBytes }, { maxResponseBytes: maxBytes });
+    /** @param {string|null} cursor @param {number} [maxBytes] */
+    const read = (cursor, maxBytes = historyPageBytes) => client.request('areal/conversation/history', { threadId, view: 'own', cursor, maxBytes }, { decode: readHistoryPage, maxResponseBytes: maxBytes });
     if (operation === 'loadOlder') {
       await this.hydrateLatest(project, window);
       if (!current()) throw historyFailure('历史视图已变化，请重新加载。');
@@ -367,8 +411,8 @@ class HistoryObservation {
           window.pages.push(page); window.nextCursor = page.nextCursor; window.complete = page.complete;
           let thread = mergeHistory(project.model.state.threads[threadId], page.data);
           if (window.pages.length > historyPageLimit) {
-            const removed = new Set(window.pages.shift().data.map(entry => entry.sourceItemId));
-            thread = { ...thread, turns: thread.turns.map(turn => ({ ...turn, items: turn.items.filter(item => !removed.has(item.id)) })).filter(turn => turn.items.length || turn.status === 'inProgress') };
+            const removed = new Set((window.pages.shift()?.data ?? []).map(entry => entry.sourceItemId));
+            thread = { ...thread, turns: (thread.turns ?? []).map(turn => ({ ...turn, items: (turn.items ?? []).filter(item => !removed.has(item.id)) })).filter(turn => turn.items.length || turn.status === 'inProgress') };
             for (const id of removed) window.loaded.delete(id);
             window.omitted = true;
           }
@@ -381,10 +425,10 @@ class HistoryObservation {
       window.olderRead = loading; this.publishHistory(project, window); return loading;
     }
     if (operation !== 'loadItem') throw historyFailure('不支持的历史读取操作。');
-    const placeholder = project.model.state.threads[threadId]?.turns.flatMap(turn => turn.items).find(item => item.id === request.itemId);
-    if (!placeholder || placeholder.type !== 'historyDeferred') return { loaded: true, itemId: request.itemId };
+    const placeholder = project.model.state.threads[threadId]?.turns?.flatMap(turn => turn.items ?? []).find(item => item.id === request.itemId);
+    if (!isDeferredItem(placeholder)) return { loaded: true, itemId: request.itemId };
     if (window.loading.has(placeholder.id)) throw historyFailure('此内容正在加载。');
-    let cursor = placeholder.cursor, version = placeholder.version, totalBytes = placeholder.totalBytes, offset = 0, chunks = [], restarted = false;
+    let cursor = placeholder.cursor, version = /** @type {string|undefined} */ (placeholder.version), totalBytes = placeholder.totalBytes, offset = 0, chunks = [], restarted = false;
     const reserved = () => [...this.historyWindows.values()].reduce((sum, view) => sum
       + [...view.loaded.values()].reduce((n, item) => n + item.bytes, 0)
       + [...view.loading.entries()].reduce((n, [id, item]) => n + (view === window && id === placeholder.id ? 0 : item.totalBytes), 0), 0);
@@ -398,9 +442,9 @@ class HistoryObservation {
       while (true) {
         if (!current()) throw historyFailure('历史视图已关闭或变化。');
         let page;
-        try { page = await read(cursor, historyMaxBytes); }
+        try { page = await client.request('areal/conversation/history', {threadId,view:'own',cursor,maxBytes:historyMaxBytes}, {decode:readHistoryFragmentPage,maxResponseBytes:historyMaxBytes}); }
         catch (error) {
-          if (historyReason(error) === 'HISTORY_ITEM_CHANGED' && error.data?.restartCursor && !restarted) {
+          if (historyReason(error) === 'HISTORY_ITEM_CHANGED' && modelRecord(error) && modelRecord(error.data) && typeof error.data.restartCursor === 'string' && !restarted) {
             cursor = error.data.restartCursor; offset = 0; chunks = []; version = undefined; restarted = true; continue;
           }
           if (current() && historyReason(error) === 'HISTORY_CURSOR_STALE') await this.refreshHistory(project, window);
@@ -419,15 +463,15 @@ class HistoryObservation {
         reserve();
         if (offset === totalBytes) {
           if (!page.complete || page.nextCursor) throw historyFailure('历史内容终点无效。');
-          const complete = JSON.parse(Buffer.concat(chunks, totalBytes).toString('utf8'));
+          const complete = readHistoryEntry(JSON.parse(Buffer.concat(chunks, totalBytes).toString('utf8')));
           if (complete.sourceThreadId !== threadId || complete.sourceItemId !== placeholder.id || complete.item?.id !== placeholder.id)
             throw historyFailure('完整历史内容与当前条目不匹配。');
           const thread = project.model.state.threads[threadId];
-          const stillDeferred = thread.turns.flatMap(turn => turn.items).find(item => item.id === placeholder.id);
+          const stillDeferred = (thread.turns ?? []).flatMap(turn => turn.items ?? []).find(item => item.id === placeholder.id);
           if (stillDeferred?.type === 'historyDeferred' && stillDeferred.cursor === placeholder.cursor) {
             window.loaded.set(placeholder.id, { placeholder, bytes: totalBytes });
-            project.model.replace({ ...thread, turns: thread.turns.map(turn => ({ ...turn,
-              items: turn.items.map(item => item.id === placeholder.id ? complete.item : item) })) });
+            project.model.replace({ ...thread, turns: (thread.turns ?? []).map(turn => ({ ...turn,
+              items: (turn.items ?? []).map(item => item.id === placeholder.id ? complete.item : item) })) });
           }
           return { loaded: true, itemId: placeholder.id };
         }
@@ -437,18 +481,20 @@ class HistoryObservation {
     } finally { window.loading.delete(placeholder.id); this.publishHistory(project, window); }
   }
 
+  /** @param {import('./project-state.cjs').CoreProject} project @param {string} threadId @param {import('./history-state.cjs').ObserveOptions} options */
   async observeThread(project, threadId, { client, current, deadline }) {
+    /** @param {import('./history-contract.cjs').ObservationResult} result */
     const acceptSnapshot = result => {
       if (!current() || result.thread?.id !== threadId) return;
       delete project.observationErrors?.[threadId];
-      this.installObservation(project, result);
+      this.installObservation(project, result, client);
     };
     try {
       if (!this.supportsBoundedHistory(client) && ((project.summaries ?? []).find(item => item.id === threadId)?.desktop?.archived || project.model.state?.threads?.[threadId]?.desktop?.archived)) {
-        const result = await client.request('thread/read', { threadId, includeTurns: true }, { onResult: acceptSnapshot, timeoutMs: Math.min(6000, Math.max(1, deadline - Date.now())) });
+        const result = await client.request('thread/read', { threadId, includeTurns: true }, { decode: readObservationResult, onResult: acceptSnapshot, timeoutMs: Math.min(6000, Math.max(1, deadline - Date.now())) });
         this.host.requireConnection(project, client);
         if (result.thread?.id !== threadId) throw new Error('恢复结果与目标会话不匹配');
-        project.configurations[threadId] = result.thread.desktop.configuration;
+        project.configurations[threadId] = result.thread.desktop?.configuration;
         this.host.onChange();
         return;
       }
@@ -460,6 +506,7 @@ class HistoryObservation {
       if (resumed.thread?.id !== threadId) throw new Error('恢复结果与目标会话不匹配');
       if (resumed.thread?.desktop?.archived) {
         project.configurations[threadId] = resumed.thread.desktop.configuration;
+        if (!resumed.thread.desktop.queue || resumed.thread.desktop.interactionRevision === undefined || !resumed.thread.desktop.interactions) throw historyFailure('归档会话状态不完整。');
         project.model.setQueue(threadId, resumed.thread.desktop.queue);
         project.model.setInteractions(threadId, { revision: resumed.thread.desktop.interactionRevision, data: resumed.thread.desktop.interactions });
         this.host.onChange();
@@ -473,7 +520,7 @@ class HistoryObservation {
       const timeoutMs = Math.min(6000, Math.max(1, deadline - Date.now()));
       const results = await Promise.allSettled([
         client.request('areal/interaction/list', { threadId }, {
-          timeoutMs, onResult: result => { if (current()) project.model.setInteractions(threadId, result); },
+          decode: readHistoryInteractions, timeoutMs, onResult: result => { if (current()) project.model.setInteractions(threadId, result); },
         }),
         this.host.refreshConfiguration(project, threadId, { client, timeoutMs, current }),
         this.host.refreshQueue(project, threadId, { client, timeoutMs, current }),

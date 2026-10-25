@@ -1,7 +1,10 @@
+// @ts-check
 "use strict";
 const { randomBytes, randomUUID, timingSafeEqual } = require("node:crypto");
 const { readFile } = require("node:fs/promises");
 const { join } = require("node:path");
+const {record} = require("./remote-core-decoder.cjs");
+const { parseRemoteConfig } = require("./remote-config.cjs");
 const { RelayTransport } = require("./remote-relay.cjs");
 const { request: httpsRequest } = require("node:https");
 const { createHash } = require("node:crypto");
@@ -13,9 +16,40 @@ const PRESETS = Object.freeze({
     Observer: ["observe", "review"],
     Operator: ["observe", "review", "submit", "interrupt", "answer", "pauseTask"],
 });
+/** @param {string} code @param {string} message */
 const pairingError = (code, message) => Object.assign(new Error(message), { code });
 
+/** @typedef {import('./remote-config.cjs').RemoteConfig} RemoteConfig */
+/** @typedef {import('./remote-config.cjs').DeviceGrant} DeviceGrant */
+/** @typedef {import('./remote-network.cjs').NetworkMapping} NetworkMapping */
+/** @typedef {Awaited<ReturnType<typeof startDirect>>} DirectServer */
+/** @typedef {{name:string,expiresAt:number,connected:()=>boolean,accept:(grant:DeviceGrant)=>void,reject:(error:Error)=>void,arm:()=>void,timer?:NodeJS.Timeout,approving?:boolean}} PendingPair */
+/** @typedef {{backend:InstanceType<typeof import('./backend.cjs').CoreBackend>,schedule:()=>void}} RemoteService */
+/** @typedef {Pick<typeof import('electron').safeStorage,'isEncryptionAvailable'|'encryptString'|'decryptString'> & {getSelectedStorageBackend?:()=>string}} RemoteEncryption */
 class RemoteControl {
+    /** @type {typeof import('@areal/remote')|null} */ transportModule = null;
+    get crypto() {
+        if (!this.transportModule) throw new Error('Remote transport is not initialized');
+        return this.transportModule;
+    }
+    /** @param {typeof import('@areal/remote')} value */
+    set crypto(value) { this.transportModule = value; }
+    /** @type {RemoteConfig} */ config = {enabled:false,devices:[]};
+    /** @type {NodeJS.Timeout|undefined} */ retry;
+    /** @type {DirectServer|null} */ direct = null;
+    /** @type {InstanceType<typeof RelayTransport>|null} */ relayTransport = null;
+    /** @type {string|null} */ relayError = null;
+    /** @type {string|null} */ directError = null;
+    /** @type {string|null} */ migrationError = null;
+    /** @type {string|null} */ networkOrigin = null;
+    /** @type {string|null} */ networkReconciliation = null;
+    /** @type {string|null} */ networkError = null;
+    /** @type {Record<string,unknown>|null} */ networkInspection = null;
+    /** @type {{record:NetworkMapping,proposalId?:string,config:RemoteConfig,direct:DirectServer|null}|null} */ networkProposal = null;
+    /** @type {{secret:string,expiresAt:number}|null} */ invite = null;
+    /** @type {Promise<unknown>|undefined} */ writes;
+    closed = false;
+    /** @param {RemoteService} service @param {RemoteEncryption} encryption @param {{networkAdapterFactory?:typeof createRemoteNetworkAdapter}} [options] */
     constructor(service, encryption, { networkAdapterFactory = createRemoteNetworkAdapter } = {}) {
         this.service = service;
         this.backend = service.backend;
@@ -24,20 +58,24 @@ class RemoteControl {
             verifyRemoteListener: (listener) => this.verifyListener(listener),
         });
         this.gatewayGeneration = randomUUID();
+        /** @type {InstanceType<typeof RelayTransport>["channels"]} */
         this.channels = new Map();
+        /** @type {Map<string,PendingPair>} */
         this.pending = new Map();
         this.connected = false;
         this.sessions = new SessionAcceptor(this);
     }
     async init() {
-        this.crypto = await import("@areal/remote");
+        this.transportModule = await import("@areal/remote");
         try {
+            /** @type {unknown} */
             const data = JSON.parse(await readFile(join(this.backend.home, "remote.json"), "utf8"));
-            this.config = JSON.parse(
+            if (!data || typeof data !== "object" || !("encrypted" in data) || typeof data.encrypted !== "string") throw new Error("远程配置格式无效");
+            this.config = parseRemoteConfig(JSON.parse(
                 this.encryption.decryptString(Buffer.from(data.encrypted, "base64")),
-            );
+            ));
         } catch (error) {
-            if (error.code !== "ENOENT") throw new Error("无法读取手机配对；请检查系统钥匙串");
+            if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw new Error("无法读取手机配对；请检查系统钥匙串");
             // 新配置尚未申请远程入口，不让安全存储的系统交互阻塞桌面与 Core 启动。
             // 已有加密配对仍按原路径读取；首次启用时再检查并使用系统安全存储。
             this.config = { enabled: false, devices: [] };
@@ -115,6 +153,7 @@ class RemoteControl {
             this.encryption.getSelectedStorageBackend?.() !== "basic_text"
         );
     }
+    /** @param {RemoteConfig} config */
     async save(config) {
         if (!this.storageAvailable()) throw new Error("系统安全存储不可用");
         await this.backend.save("remote.json", {
@@ -131,7 +170,7 @@ class RemoteControl {
             relayUrl:
                 this.config?.enabled &&
                 this.config?.relayProtocol === "areal.remote.v2" &&
-                this.config?.identity
+                this.config?.identity && this.config.room
                     ? `${this.config.relay}/#${new URLSearchParams({ host: this.crypto.identityId(this.config.identity), room: this.config.room })}`
                     : "",
             directEnabled: this.config?.directEnabled === true,
@@ -152,7 +191,7 @@ class RemoteControl {
                 inspection: this.networkInspection ?? null,
             },
             directHostId:
-                this.direct && this.config?.identity
+                this.direct && this.config?.identity && this.config.room
                     ? this.crypto.identityId(this.config.identity)
                     : "",
             directError: this.directError ?? "",
@@ -167,7 +206,9 @@ class RemoteControl {
             })),
         };
     }
+    /** @param {unknown} request */
     control(request) {
+        if (!isSettingsRequest(request)) throw new Error('无效手机设置参数');
         // Pairing and revocation are serialized with durable configuration writes.
         const task = (this.writes ?? Promise.resolve())
             .catch(() => {})
@@ -175,6 +216,7 @@ class RemoteControl {
         this.writes = task;
         return task;
     }
+    /** @param {RemoteSettingsRequest} request */
     async controlOnce(request) {
         switch (request.operation) {
             case "status":
@@ -220,10 +262,10 @@ class RemoteControl {
                 const candidate = { ...this.config, identity, directEnabled: true };
                 this.config = candidate;
                 try {
-                    await this.startDirect();
+                    this.direct = await startDirect(this);
                     await this.save({
                         ...candidate,
-                        directPort: this.direct.server.address().port,
+                        directPort: this.listener().port,
                     });
                     this.directError = null;
                     this.migrationError = null;
@@ -251,7 +293,7 @@ class RemoteControl {
             }
             case "pair": {
                 const transport = request.transport ?? "direct";
-                if (!["direct", "relay"].includes(transport))
+                if (transport !== "direct" && transport !== "relay")
                     throw new Error("请选择有效的配对入口");
                 if (transport === "direct" && !this.direct) throw new Error("请先启用本机入口");
                 if (transport === "relay" && (!this.config.enabled || !this.connected))
@@ -261,15 +303,20 @@ class RemoteControl {
                     secret: randomBytes(32).toString("hex"),
                     expiresAt: Date.now() + 120000,
                 };
+                if (!this.config.identity) throw new Error("Remote 身份不可用");
                 const fragment = new URLSearchParams({
                     host: this.crypto.identityId(this.config.identity),
                     invite: this.invite.secret,
                 });
-                if (transport === "relay") fragment.set("room", this.config.room);
+                if (transport === "relay") {
+                    if (!this.config.room) throw new Error("Relay 房间不可用");
+                    fragment.set("room", this.config.room);
+                }
                 const origin =
                     transport === "relay"
                         ? this.config.relay
-                        : this.networkOrigin || this.direct.origin;
+                        : this.networkOrigin || this.direct?.origin;
+                if (!origin) throw new Error("Remote 入口不可用");
                 const payload = `${origin}/#${fragment}`;
                 return {
                     payload,
@@ -303,18 +350,21 @@ class RemoteControl {
                 )
                     throw new Error("设备未获授权");
                 if (
-                    !Array.isArray(request.projects) ||
+                    !strings(request.projects) ||
                     !request.projects.length ||
                     request.projects.some(
                         (id) => !this.backend.saved.some((project) => project.id === id),
                     )
                 )
                     throw new Error("请至少选择一个已有项目");
-                if (!Object.hasOwn(PRESETS, request.preset))
+                if (request.preset !== "Observer" && request.preset !== "Operator")
                     throw new Error("请选择 Observer 或 Operator");
+                const displayName = entry?.name ?? previous?.displayName;
+                if (displayName === undefined) throw new Error("设备未获授权");
+                /** @type {DeviceGrant} */
                 const grant = {
                     devicePeerId: request.id,
-                    displayName: entry?.name ?? previous.displayName,
+                    displayName,
                     projectIds: [...new Set(request.projects)],
                     capabilities: [...PRESETS[request.preset]],
                     revision: (previous?.revision ?? 0) + 1,
@@ -353,7 +403,7 @@ class RemoteControl {
                 if (!previous) throw new Error("设备未获授权");
                 await this.save({
                     ...this.config,
-                    deviceGrants: this.config.deviceGrants.map((value) =>
+                    deviceGrants: (this.config.deviceGrants ?? []).map((value) =>
                         value !== previous
                             ? value
                             : { ...previous, status: "revoked", revision: previous.revision + 1 },
@@ -368,10 +418,12 @@ class RemoteControl {
         this.service.schedule();
         return this.state();
     }
+    /** @param {RemoteSettingsFields} request */
     async enableRelay(request) {
         this.validateNetworkRequest(request, ["relay", "code", "confirmed"], true);
         const relay = validateHttpsOrigin(request.relay);
         if (!this.storageAvailable()) throw new Error("系统安全存储不可用");
+        /** @type {{room:string,capability:string}} */
         let registration;
         if (request.code !== undefined) {
             if (typeof request.code !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(request.code))
@@ -389,6 +441,7 @@ class RemoteControl {
                         },
                     },
                     (response) => {
+                        /** @type {Buffer[]} */
                         const chunks = [];
                         let size = 0;
                         response.on("data", (chunk) => {
@@ -405,9 +458,11 @@ class RemoteControl {
                         );
                         response.on("end", () => {
                             try {
+                                /** @type {unknown} */
                                 const value = JSON.parse(Buffer.concat(chunks).toString());
                                 if (
                                     response.statusCode !== 201 ||
+                                    !value || typeof value !== "object" || !("capability" in value) || typeof value.capability !== "string" || !("room" in value) || typeof value.room !== "string" ||
                                     !/^[A-Za-z0-9_-]{43}$/.test(value.capability) ||
                                     createHash("sha256").update(value.capability).digest("hex") !==
                                         value.room
@@ -463,7 +518,7 @@ class RemoteControl {
         try {
             const snapshot = await this.network.inspect();
             this.networkInspection = Object.fromEntries(
-                [
+                /** @type {const} */ ([
                     "available",
                     "diagnostic",
                     "version",
@@ -472,16 +527,16 @@ class RemoteControl {
                     "login",
                     "https",
                     "policy",
-                ]
+                ])
                     .filter((key) => snapshot[key] !== undefined)
                     .map((key) => [key, snapshot[key]]),
             );
             this.networkError = null;
             await this.reconcileNetwork(false);
         } catch (error) {
-            this.networkInspection = { diagnostic: error.code || "network-unavailable" };
+            this.networkInspection = { diagnostic: failureCode(error, "network-unavailable") };
             if (this.config.network?.kind === "tailscale") this.changeNetworkOrigin(null);
-            this.networkError = error.code || "network-unavailable";
+            this.networkError = failureCode(error, "network-unavailable");
         }
     }
     async removeNetwork() {
@@ -500,26 +555,29 @@ class RemoteControl {
                     if (observation.state === "changed")
                         throw pairingError("mapping-changed", "映射已变化，不会覆盖外部配置");
                     if (observation.state === "source")
-                        record = { ...record, scope: record.sourceScope };
+                        record = { ...record, scope: record.sourceScope ?? record.scope };
                 }
                 // 转为撤销记录时保留已核对的实际范围，不保留范围变更专用字段。
                 const { sourceScope, ...removal } = record;
                 record = { ...removal, operation: "remove" };
                 // 撤销意图先保存，即使 CLI 不可用也不能在重启时重新发布入口。
+                /** @type {NetworkMapping} */
+                const pending = { ...record, state: "pending", operation: "remove" };
                 await this.save({
                     ...this.config,
                     network: {
                         ...network,
-                        mapping: { ...record, state: "pending", operation: "remove" },
+                        mapping: pending,
                     },
                 });
                 const ownership = await this.network.inspectOwnership(record);
                 if (ownership.state === "changed")
                     throw pairingError("mapping-changed", "映射已由其他配置更改，未进行撤销");
+                /** @type {NetworkMapping} */
                 const mapping =
                     ownership.state === "absent"
                         ? { ...record, state: "removed", operation: "remove" }
-                        : await this.network.remove(this.config.network.mapping, {
+                        : await this.network.remove(pending, {
                               persistPending: (mapping) =>
                                   this.save({ ...this.config, network: { ...network, mapping } }),
                           });
@@ -528,7 +586,7 @@ class RemoteControl {
             this.networkError = null;
             this.networkReconciliation = null;
         } catch (error) {
-            this.networkError = error.code || "persistence-failed";
+            this.networkError = failureCode(error, "persistence-failed");
         }
     }
     async reconcileNetwork(recover = true, recoverScope = false) {
@@ -572,7 +630,7 @@ class RemoteControl {
                 mapping = {
                     ...record,
                     operation: "apply",
-                    scope: observation.state === "source" ? sourceScope : record.scope,
+                    scope: observation.state === "source" ? sourceScope ?? record.scope : record.scope,
                     state: observation.state === "absent" ? "removed" : "pending",
                 };
                 if (observation.state === "absent") {
@@ -614,16 +672,17 @@ class RemoteControl {
             this.networkError = null;
         } catch (error) {
             this.changeNetworkOrigin(null);
-            this.networkError = error.code || "network-unavailable";
+            this.networkError = failureCode(error, "network-unavailable");
         }
     }
     listener() {
         const address = this.direct?.server.address();
-        const listener = { host: address?.address, port: address?.port };
+        const listener = { host: typeof address === "object" ? address?.address : undefined, port: typeof address === "object" ? address?.port : undefined };
         if (!this.verifyListener(listener))
             throw pairingError("unverified-listener", "Remote 入口已离线，请重新启用");
         return listener;
     }
+    /** @param {{host?:string,port?:number}} listener @returns {listener is import("./remote-network.cjs").RemoteListener} */
     verifyListener(listener) {
         const address = this.direct?.server.address();
         return (
@@ -631,17 +690,19 @@ class RemoteControl {
             this.config?.directEnabled === true &&
             !!this.config.identity &&
             this.direct?.server.listening === true &&
-            address?.address === "127.0.0.1" &&
+            typeof address === "object" && address?.address === "127.0.0.1" &&
             listener.host === "127.0.0.1" &&
             address.port === listener.port
         );
     }
+    /** @param {RemoteSettingsFields} request @param {string[]} keys */
     validateNetworkRequest(request, keys, confirmation = false) {
         if (Object.keys(request).some((key) => !["operation", ...keys].includes(key)))
             throw pairingError("invalid-network-request", "网络设置包含不支持的字段");
         if (confirmation && request.confirmed !== true)
             throw pairingError("confirmation-required", "请先确认本地网络配置范围");
     }
+    /** @param {RemoteSettingsFields} request */
     async proposeNetwork(request) {
         this.validateNetworkRequest(request, ["httpsPort"]);
         if (this.config.network?.mapping && this.config.network.mapping.state !== "removed")
@@ -657,6 +718,7 @@ class RemoteControl {
             confirmation: `将以持久 Tailscale Serve 映射发布 ${record.publicOrigin}，仅转发 Remote 入口。手机必须加入同一 tailnet；组织策略及手机可达性尚未验证。`,
         };
     }
+    /** @param {RemoteSettingsFields} request */
     async applyNetwork(request) {
         this.validateNetworkRequest(request, ["proposalId", "confirmed"], true);
         const proposal = this.networkProposal;
@@ -675,7 +737,7 @@ class RemoteControl {
                 persistPending: async (mapping) => {
                     await this.save({
                         ...this.config,
-                        directPort: this.direct.server.address().port,
+                        directPort: this.listener().port,
                         network: { kind: "tailscale", mapping },
                     });
                     this.changeNetworkOrigin(null);
@@ -686,17 +748,18 @@ class RemoteControl {
             this.networkReconciliation = null;
             this.networkError = null;
         } catch (error) {
-            this.networkError = error.code || "persistence-failed";
+            this.networkError = failureCode(error, "persistence-failed");
             throw pairingError(
                 this.networkError,
                 `网络配置未完成：${this.networkError}；请检测并恢复或移除映射`,
             );
         }
     }
+    /** @param {RemoteSettingsFields} request */
     async proposeNetworkScope(request) {
         this.validateNetworkRequest(request, ["scope"]);
         this.networkProposal = null;
-        if (!["private", "public"].includes(request.scope))
+        if (request.scope !== "private" && request.scope !== "public")
             throw pairingError("invalid-visibility", "请选择入口访问范围");
         const mapping = this.config.network?.mapping;
         if (this.config.network?.kind !== "tailscale" || mapping?.state !== "owned")
@@ -717,6 +780,7 @@ class RemoteControl {
                     : `将 ${record.publicOrigin} 从公网 Funnel 恢复为 tailnet 私人入口。当前邀请和连接将失效；请重新连接，配对时生成新邀请。`,
         };
     }
+    /** @param {RemoteSettingsFields} request */
     async changeNetworkScope(request) {
         this.validateNetworkRequest(request, ["proposalId", "confirmed", "publicConfirmed"], true);
         const proposal = this.networkProposal;
@@ -748,13 +812,14 @@ class RemoteControl {
             this.networkReconciliation = null;
             this.networkError = null;
         } catch (error) {
-            this.networkError = error.code || "persistence-failed";
+            this.networkError = failureCode(error, "persistence-failed");
             throw pairingError(
                 this.networkError,
                 `入口范围更改未完成：${this.networkError}；请核对或移除映射`,
             );
         }
     }
+    /** @param {RemoteSettingsFields} request */
     async configureOrganization(request) {
         this.validateNetworkRequest(
             request,
@@ -762,7 +827,7 @@ class RemoteControl {
             true,
         );
         const publicOrigin = validateHttpsOrigin(request.publicOrigin);
-        if (!["private", "public"].includes(request.visibility))
+        if (request.visibility !== "private" && request.visibility !== "public")
             throw pairingError("invalid-visibility", "请选择组织入口的访问范围");
         if (request.visibility === "public" && request.publicConfirmed !== true)
             throw pairingError("public-confirmation-required", "请明确确认组织入口可能公开访问");
@@ -771,12 +836,13 @@ class RemoteControl {
             throw pairingError("mapping-exists", "请先移除或恢复已有映射");
         await this.save({
             ...this.config,
-            directPort: this.direct.server.address().port,
+            directPort: this.listener().port,
             network: { kind: "organization", publicOrigin, visibility: request.visibility },
         });
         this.changeNetworkOrigin(publicOrigin);
         this.networkError = null;
     }
+    /** @param {string|null} origin */
     changeNetworkOrigin(origin, invalidate = false) {
         if (origin && (this.closed || !this.direct?.server.listening || !this.config.directEnabled))
             origin = null;
@@ -787,6 +853,7 @@ class RemoteControl {
         }
         this.networkOrigin = origin;
     }
+    /** @param {string} peer */
     closePeer(peer) {
         this.sessions.closePeer(peer);
     }
@@ -795,6 +862,7 @@ class RemoteControl {
         for (const entry of [...this.pending.values()])
             entry.reject(pairingError("PAIRING_CANCELLED", "配对已取消"));
     }
+    /** @param {string} peer @param {{displayName:string,inviteSecret?:unknown}} hello @param {{readyState:number,once:(event:"close",listener:()=>void)=>unknown,removeListener:(event:"close",listener:()=>void)=>unknown}} socket @returns {Promise<DeviceGrant>} */
     claim(peer, hello, socket) {
         const invite = this.invite;
         if (!invite) throw pairingError("PAIRING_USED", "邀请已使用或取消");
@@ -818,6 +886,7 @@ class RemoteControl {
                 if (!entry.approving)
                     entry.reject(pairingError("PAIRING_CANCELLED", "配对连接已断开"));
             };
+            /** @type {PendingPair} */
             const entry = {
                 name: hello.displayName.slice(0, 80),
                 expiresAt: invite.expiresAt,
@@ -883,4 +952,18 @@ class RemoteControl {
         this.direct = null;
     }
 }
+/** @typedef {Record<string,unknown>} RemoteSettingsFields */
+/** @typedef {RemoteSettingsFields & ({operation:'approve'|'updateGrant'|'reject'|'revoke',id:string}|{operation:'status'|'networkPropose'|'networkProposeScope'|'networkChangeScope'|'networkInspect'|'networkRecover'|'networkApply'|'networkConfigureOrganization'|'networkRemove'|'enable'|'disable'|'enableDirect'|'disableDirect'|'pair'|'cancelPair'})} RemoteSettingsRequest */
+/** @param {unknown} value @returns {value is RemoteSettingsRequest} */
+function isSettingsRequest(value) {
+    if (!record(value)) return false;
+    const input = value;
+    if (typeof input.operation !== 'string' || !['approve','updateGrant','reject','revoke','status','networkPropose','networkProposeScope','networkChangeScope','networkInspect','networkRecover','networkApply','networkConfigureOrganization','networkRemove','enable','disable','enableDirect','disableDirect','pair','cancelPair'].includes(input.operation)) return false;
+    if (['approve','updateGrant','reject','revoke'].includes(input.operation) && typeof input.id !== 'string') return false;
+    return true;
+}
+/** @param {unknown} value @returns {value is string[]} */
+function strings(value) { return Array.isArray(value) && value.every(item => typeof item === "string"); }
+/** @param {unknown} error @param {string} fallback */
+function failureCode(error, fallback) { return error && typeof error === 'object' && 'code' in error && typeof error.code === 'string' && error.code ? error.code : fallback; }
 module.exports = { RemoteControl };

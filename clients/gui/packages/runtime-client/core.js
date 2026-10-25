@@ -111,7 +111,7 @@ export class CoreClient {
     }
   }
 
-  request(method, params = {}, { onResult, timeoutMs = this.timeoutMs, maxResponseBytes = MAX_RESPONSE_BYTES } = {}) {
+  request(method, params = {}, { decode, onResult, timeoutMs = this.timeoutMs, maxResponseBytes = MAX_RESPONSE_BYTES } = {}) {
     if (!Number.isSafeInteger(maxResponseBytes) || maxResponseBytes < 1 || maxResponseBytes > MAX_RESPONSE_BYTES)
       return Promise.reject(new RangeError('Invalid Core response byte budget'));
     const semantics = this.capabilities?.methodSemantics;
@@ -133,7 +133,7 @@ export class CoreClient {
         this.pending.delete(id);
         reject(requestFailure('Core response timed out', request, 'TIMEOUT'));
       }, timeoutMs);
-      this.pending.set(id, { resolve, reject, timer, ...request, onResult, maxResponseBytes });
+      this.pending.set(id, { resolve, reject, timer, ...request, decode, onResult, maxResponseBytes });
       try { this.socket.send(JSON.stringify({ id, method, params })); }
       catch (cause) {
         clearTimeout(timer);
@@ -193,10 +193,18 @@ export class CoreClient {
         entry.reject(requestFailure(message.error.message, entry, oversized ? 'RESPONSE_TOO_LARGE' : message.error.code,
           { data: message.error.data, received: !oversized }));
       } else {
+        let result;
+        try { result = entry.decode ? entry.decode(message.result) : message.result; }
+        catch (cause) {
+          entry.reject(requestFailure('Core response does not match the requested contract', entry, 'RESPONSE_INVALID', {
+            cause, data: { reason: 'RESPONSE_INVALID', retryable: false, delivery: 'resultUnavailable' }, received: true,
+          }));
+          return;
+        }
         try {
-          // 同一 socket 批次可能紧跟增量；快照必须在消息分派栈内先建立。
-          entry.onResult?.(message.result);
-          entry.resolve(message.result);
+          // 同一 socket 批次可能紧跟增量；解码后的快照必须在消息分派栈内先建立。
+          entry.onResult?.(result);
+          entry.resolve(result);
         } catch (error) { entry.reject(error); }
       }
       return;

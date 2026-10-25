@@ -1,3 +1,4 @@
+// @ts-check
 'use strict';
 
 const operations = Object.freeze({
@@ -23,12 +24,14 @@ const definition = Object.freeze({
   inputSchema: { type: 'object', properties: { operation: { type: 'string' }, parameters: { type: 'object' } },
     required: ['operation', 'parameters'], additionalProperties: false },
 });
+/** @param {unknown} value @returns {value is {operation:keyof typeof operations,parameters:Record<string,unknown>}} */
 function validComputerInput(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)
     || Object.keys(value).some(key => !['operation', 'parameters'].includes(key))
-    || !Object.hasOwn(operations, value.operation)
+    || !('operation' in value) || typeof value.operation !== 'string' || !Object.hasOwn(operations, value.operation)
+    || !('parameters' in value)
     || !value.parameters || typeof value.parameters !== 'object' || Array.isArray(value.parameters)
-    || Object.keys(value.parameters).some(key => !operations[value.operation].includes(key))) return false;
+    || Object.keys(value.parameters).some(key => !operations[/** @type {keyof typeof operations} */ (value.operation)].some(field => field === key))) return false;
   try { return Buffer.byteLength(JSON.stringify(value)) <= 1024 * 1024; } catch { return false; }
 }
 module.exports = { definition, operations, validComputerInput };
