@@ -1321,7 +1321,7 @@ button.composer-project:hover > svg,
    Focus/scrollIntoView must never move the composer along with the transcript. */
 .conversation-pane:not(.draft-pane) { overflow: clip; }
 .tool-event { margin: 0; min-width: 0; }
-.tool-summary-row { display: flex; align-items: center; gap: 6px; max-width: 100%; min-height: 0; padding: 2px 0; border: 0; background: transparent; text-align: left; font-size: var(--text-conversation); line-height: var(--conversation-line); color: var(--activity-foreground); }
+.tool-summary-row { display: flex; align-items: center; gap: 6px; max-width: 100%; min-height: 0; padding: 0; border: 0; background: transparent; text-align: left; font-size: var(--text-conversation); line-height: var(--conversation-line); color: var(--activity-foreground); }
 .tool-summary-row > svg { flex-shrink: 0; }
 .tool-summary-detail { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: inherit; }
 .tool-result { font-size: var(--text-ui-caption); white-space: nowrap; color: var(--color-foreground-subtle); }
@@ -1507,9 +1507,11 @@ body { font-family: var(--font-sans); }
 
 
 .turn-execution { --activity-foreground: var(--color-foreground-subtle); margin: var(--conversation-gap) 0; font-weight: 400; min-width: 0; }
-/* 一个回合段内可有多个活动段（CONV-ACTIVITY-01）：相邻活动段与段内行同一节奏，连续读取、搜索、命令像一张列表；
-   每行自带上下 2px 命中区，段之间不再叠加块间距。过程说明等正文自带块间距，与活动行区分。 */
+/* 一个回合段内可有多个活动段（CONV-ACTIVITY-01）：段与段之间只隔一个块间距，与正文、子代理行同一节奏。 */
 .turn-execution > .areal-activity-group > .areal-disclosure { margin-block: 0; }
+.turn-execution > .areal-activity-group + .areal-activity-group { margin-top: var(--conversation-gap); }
+/* 展开的同类分组里，类型已由摘要图标说明；子项只保留动作与对象，不重复行首图标。 */
+.turn-execution .areal-activity-group:not([data-presentation="inline"]) .areal-activity-list :is(.tool-summary-row, .areal-image-disclosure .areal-disclosure-trigger) > svg[data-activity-icon]:first-child { display: none; }
 .tool-summary-row:hover { color: var(--color-foreground); }
 .execution-failures { font-size: var(--text-content-caption); color: var(--color-destructive); }
 .turn-execution .execution-row { min-width: 0; }

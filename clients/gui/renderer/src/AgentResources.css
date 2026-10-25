@@ -1,6 +1,6 @@
 .agent-avatar { flex: none; object-fit: contain; }
 /* CONV-PARALLEL-01: start and finish are two timeline events in the conversation rhythm; the row itself opens the child. */
-.agent-spawn-row { display: flex; align-items: center; gap: 8px; min-height: 24px; color: var(--color-foreground-subtle); font-size: var(--text-conversation); line-height: var(--conversation-line); }
+.agent-spawn-row { display: flex; align-items: center; gap: 8px; min-height: 0; color: var(--color-foreground-subtle); font-size: var(--text-conversation); line-height: var(--conversation-line); }
 .agent-spawn-link { flex: 1; display: inline-flex; align-items: center; justify-content: flex-start; height: auto; min-height: 0; gap: 8px; min-width: 0; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .agent-spawn-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-foreground); }
 .agent-spawn-status { flex-shrink: 0; }

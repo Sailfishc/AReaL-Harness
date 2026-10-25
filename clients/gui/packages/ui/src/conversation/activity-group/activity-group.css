@@ -1,7 +1,7 @@
-/* 活动组与活动行同一节奏：一行文字 + 上下 2px 命中区；摘要不加底色，展开态只靠箭头表达。 */
-.areal-activity-group { --activity-row-padding: 2px; min-width: 0; }
+/* 摘要与活动行同为一行对话文字高；不加底色，展开态只靠箭头表达。 */
+.areal-activity-group { min-width: 0; }
 .areal-activity-group > .areal-disclosure { margin-block: 0; }
-.areal-activity-group > .areal-disclosure > .areal-disclosure-trigger { gap: 6px; width: auto; max-width: 100%; min-height: 0; padding: var(--activity-row-padding) 0; border: 0; font-size: var(--text-conversation); line-height: var(--conversation-line); color: var(--activity-foreground, var(--color-foreground-subtle)); }
+.areal-activity-group > .areal-disclosure > .areal-disclosure-trigger { gap: 6px; width: auto; max-width: 100%; min-height: 0; padding: 0; border: 0; font-size: var(--text-conversation); line-height: var(--conversation-line); color: var(--activity-foreground, var(--color-foreground-subtle)); }
 .areal-activity-group > .areal-disclosure > .areal-disclosure-trigger:is(:hover, [aria-expanded="true"]) { background: transparent; }
 .areal-activity-group > .areal-disclosure > .areal-disclosure-trigger:hover { color: var(--color-foreground); }
 /* 通用按钮会把内部图标压到 14px；活动图标与行内图标同为 16px，箭头 14px，保证文字起点对齐。 */
@@ -13,6 +13,8 @@
 .areal-activity-list :is(pre, code) { max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; word-break: normal; }
 .areal-activity-status { min-width: 0; font-size: var(--text-conversation); line-height: var(--conversation-line); color: var(--color-foreground-subtle); }
 .areal-activity-status p { margin-block: var(--spacing-inline); }
+/* 展开后子项与摘要文字对齐（16px 图标 + 6px 间距），标题与子项、子项之间各隔一个行内间距。 */
+.areal-activity-group:not([data-presentation="inline"]) .areal-activity-list { display: flex; flex-direction: column; gap: var(--spacing-inline); margin-top: var(--spacing-inline); padding-left: calc(16px + 6px); }
 .areal-activity-list:focus-visible { outline: var(--focus-width, 2px) solid var(--color-foreground); outline-offset: var(--focus-offset, 2px); }
 
 .areal-activity-group[data-presentation="inline"] .areal-activity-list { max-height: none; overflow: visible; padding: 0; }
