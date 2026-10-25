@@ -3,7 +3,7 @@ id: settings-section
 title: SettingsSection
 summary: 组织设置标题、说明、操作与正文。
 status: experimental
-entry: wip
+entry: compositions
 layer: settings
 category: settings
 aliases: ["设置分区"]

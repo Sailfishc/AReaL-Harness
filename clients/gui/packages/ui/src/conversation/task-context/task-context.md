@@ -3,7 +3,7 @@ id: task-context
 title: TaskContext
 summary: 顶部按钮打开的任务上下文卡片，组织变更、项目、子任务和输入来源。
 status: experimental
-entry: wip
+entry: experimental
 layer: conversation
 category: context
 aliases: ["任务上下文卡片"]

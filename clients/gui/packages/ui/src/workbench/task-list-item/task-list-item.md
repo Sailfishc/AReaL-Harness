@@ -3,7 +3,7 @@ id: task-list-item
 title: MemoTaskItem
 summary: 任务行的标题、状态、工作区身份与动作。
 status: experimental
-entry: wip
+entry: experimental
 layer: workbench
 category: composition
 aliases: ["任务行的标题、状态、工作区身份与动作"]

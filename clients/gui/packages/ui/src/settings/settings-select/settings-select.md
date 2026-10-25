@@ -3,12 +3,13 @@ id: settings-select
 title: SettingsSelect
 summary: 设置值选择及辅助显示。
 status: experimental
-entry: wip
+entry: compositions
 layer: settings
 category: composition
 aliases: ["设置值选择及辅助显示"]
 related: ["button"]
 exports: ["SettingsSelect", "SettingsLockedValue", "SettingsBadge", "SettingsSwitch", "SettingsValueAction"]
+experimentalExports: ["SettingsLockedValue", "SettingsBadge", "SettingsSwitch", "SettingsValueAction"]
 ---
 
 # SettingsSelect 设置值选择及辅助显示
@@ -39,7 +40,7 @@ exports: ["SettingsSelect", "SettingsLockedValue", "SettingsBadge", "SettingsSwi
 
 ## 规则
 
-包不依赖renderer、Intl、Store、Core或Electron。原路径仅转接或注入宿主数据；保持experimental/wip，不自动提升稳定API。
+包不依赖renderer、Intl、Store、Core或Electron。原路径仅转接或注入宿主数据；API 保持 experimental；Base 准入不自动提升稳定 API。
 
 ## 示例
 

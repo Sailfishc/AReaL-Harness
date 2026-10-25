@@ -3,7 +3,7 @@ id: resource-controls
 title: ResourceScope
 summary: 资源作用范围选择与目录空态。
 status: experimental
-entry: wip
+entry: experimental
 layer: workbench
 category: composition
 aliases: ["资源作用范围选择与目录空态"]

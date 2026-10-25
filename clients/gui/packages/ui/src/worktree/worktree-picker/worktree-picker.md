@@ -3,7 +3,7 @@ id: worktree-picker
 title: WorktreePicker
 summary: 配置菜单行、同层返回页与键盘选项列表。
 status: experimental
-entry: wip
+entry: experimental
 layer: worktree
 category: worktree
 aliases: ["Worktree配置选择"]
@@ -38,7 +38,7 @@ Options方向键/Home/End移动焦点，Enter/Space激活真实按钮。选择�
 
 ## 规则
 
-从@areal/ui/wip导入，样式使用worktree.css。包不请求选项、不读localStorage、不认识projectId或environmentRevision；旧请求归属与数据校验留原宿主。
+从@areal/ui/experimental导入，样式使用worktree.css。包不请求选项、不读localStorage、不认识projectId或environmentRevision；旧请求归属与数据校验留原宿主。
 
 ## 示例
 

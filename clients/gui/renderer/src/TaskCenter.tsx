@@ -1,4 +1,4 @@
-import { ScheduledWorkspace } from "@areal/ui/wip";
+import { ScheduledWorkspace } from "@areal/ui/experimental";
 import { recoveredOutcome, recoveryMessage, type RecoveryFailure } from "./recoveryPresentation.js";
 import { FeedbackNotice } from "./FeedbackNotice.js";
 import {

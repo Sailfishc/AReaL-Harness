@@ -39,7 +39,7 @@ exports: ["Input", "inputVariants"]
 
 ## 规则
 
-从@areal/ui/wip导入，基础样式使用styles.css。原renderer路径转接同一实现；包不导入Intl、服务、凭据或存储。未提升稳定API或Base准入。
+从@areal/ui导入，基础样式使用styles.css。原renderer路径转接同一实现；包不导入Intl、服务、凭据或存储。未提升稳定API或Base准入。
 
 ## 示例
 

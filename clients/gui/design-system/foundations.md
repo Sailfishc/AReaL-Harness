@@ -31,3 +31,7 @@
 ## 可访问与内容
 
 共同要求见[设计基础](../../../design/foundations/README.md#状态动效与可达性)、[反馈与恢复](../../../design/patterns/feedback-and-recovery.md)及[控制与审批](../../../design/people-and-agents/control-and-approval.md)。GUI 由原生或公共控件提供标签、键盘和焦点，具体字段反馈、详情入口与权限动作由原业务组件接线。
+
+调色板角色与已有参数的登记归 `packages/ui/tokens.json` 的 `palette`，速查表由现有 foundations 生成器输出。登记区分语义角色、组件角色与现有别名，保留缺少截图编号的来源缺口。运行时派生仍归 `theme.ts`，本次登记不表示公式已全部数据化、状态语义已补齐或组件引用方向已收敛。
+
+`theme-baseline.json` 保存修改前真实 Chrome 解析的五套主题、三档 contrast、两种侧栏材料，共 30 组、每组 49 个颜色角色。`test:design` 比较 CSS 解析值及浏览器 sRGB 像素，不能用 `color-mix` 源码字符串相等代替。对比度报告使用具名的文字与表面配对，透明表面叠在报告列出的调色板背景上。原生模糊和非均匀底图仍需单独视觉取证。

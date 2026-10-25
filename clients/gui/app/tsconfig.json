@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": false,
+    "noEmit": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "target": "ES2022",
+    "module": "NodeNext",
+    "types": ["electron"]
+  },
+  "include": [
+    "src/core/preview/**/*.cjs",
+    "src/core/preview-residency.cjs",
+    "src/core/host-prerequisites.cjs"
+  ]
+}

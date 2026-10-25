@@ -3,7 +3,7 @@ id: settings-navigation
 title: SettingsNavigation
 summary: 设置分类、查询与返回入口。
 status: experimental
-entry: wip
+entry: experimental
 layer: workbench
 category: composition
 aliases: ["设置分类、查询与返回入口"]

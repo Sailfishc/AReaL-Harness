@@ -110,59 +110,75 @@
 | `--conversation-line` | `1.43` | 对话时间线行高（无单位比例）：14px 时为 20px；标题与更大的内容字号按比例增长 |
 | `--conversation-gap` | `12px` | 对话时间线块间距：段落、活动行、子代理行、状态行之间的统一节奏 |
 
+## 已有派生参数与来源
+
+角色登记保留现有运行时算法。未将未证实的截图来源或复杂分支改写为通用表达式语言。
+
+| 参数 | 记录 |
+| --- | --- |
+| `contrastBase` | {"light":45,"dark":60,"source":"themes.contrast，原有主题默认值"} |
+| `darkReferenceRange` | {"value":231,"source":"theme.ts 已有分母 231，来源未记录，保持原精度。"} |
+| `raisedReferenceMix` | {"value":"2100 / 231","source":"theme.ts 原注释的紧凑查看器与历史过程抬升层，截图编号未记录"} |
+| `shellReferenceMix` | {"value":"1200 / 231","source":"theme.ts 原注释的已接受 #242424 深色外壳层，截图编号未记录。"} |
+| `navigationReferenceMix` | {"value":"600 / 231","source":"theme.ts 原注释的 #1e1e1e 导航层，截图编号未记录"} |
+| `settingsCardReferenceMix` | {"value":"1100 / 231","source":"theme.ts 原注释的 #232323 设置组层"} |
+| `secondaryTextMix` | {"value":69.5,"contrastSlope":0.15,"source":"design-system/exercises/settings-contrast.md 与 design-system-settings-exercise.mjs 已有独立验证"} |
+| `settingsDarkTextOpacity` | {"value":65,"contrastSlope":0.15,"source":"design-system/exercises/settings-contrast.md 的已接受 65% 暗色设置说明层"} |
+| `defaultOverrides` | {"background":{"light":"#ffffff","dark":"#181818"},"foreground":{"dark":"#ffffff"},"accent":"#3a83f7","source":"themes 与 theme.ts 已有默认主题分支，保持自定义输入分支"} |
+
 ## 调色板（由主题输入派生，用户可在外观设置中覆盖）
 
-| 变量 | 默认亮色 | 默认暗色 |
-| --- | --- | --- |
-| `--color-background` | `#ffffff` | `#181818` |
-| `--color-foreground` | `#1a1c1f` | `#ffffff` |
-| `--color-brand` | `#3a83f7` | `#3a83f7` |
-| `--color-file-reference` | `#2c67c5` | `color-mix(in srgb, #2c67c5 80%, #ffffff)` |
-| `--color-process-settled` | `color-mix(in srgb, #1a1c1f 69.5%, #ffffff)` | `color-mix(in srgb, #ffffff 50%, transparent)` |
-| `--color-result-card` | `color-mix(in srgb, #1a1c1f 3%, transparent)` | `color-mix(in srgb, color-mix(in srgb, #ffffff 9.090909090909092%, #181818) 50%, transparent)` |
-| `--shadow-result-card` | `0 0 0 .5px color-mix(in srgb, #1a1c1f 8%, transparent)` | `0 0 0 .5px color-mix(in srgb, #ffffff 15.6%, transparent)` |
-| `--color-result-icon` | `#ffffff` | `color-mix(in srgb, #181818 83.333333%, #000000)` |
-| `--color-history-comment` | `#ffffff` | `color-mix(in srgb, #ffffff 9.090909090909092%, #181818)` |
-| `--color-viewer-control` | `color-mix(in srgb, #1a1c1f 3%, transparent)` | `color-mix(in srgb, #ffffff 9.090909090909092%, #181818)` |
-| `--color-history-comment-hover` | `#ffffff` | `color-mix(in srgb, color-mix(in srgb, #ffffff 12.987012987012987%, #181818) 96%, transparent)` |
-| `--color-primary` | `#1a1c1f` | `#ffffff` |
-| `--color-primary-foreground` | `#ffffff` | `#2d2d2d` |
-| `--color-composer-action` | `var(--color-primary)` | `var(--color-primary)` |
-| `--color-composer-action-foreground` | `var(--color-primary-foreground)` | `var(--color-primary-foreground)` |
-| `--color-accent` | `color-mix(in srgb, #1a1c1f 6%, #ffffff)` | `color-mix(in srgb, #ffffff 6%, #181818)` |
-| `--color-secondary` | `color-mix(in srgb, #1a1c1f 5%, transparent)` | `color-mix(in srgb, #ffffff 5%, transparent)` |
-| `--color-user-message` | `#e8f3fe` | `#173e76` |
-| `--color-user-message-text` | `#0c274a` | `#f6fafe` |
-| `--color-background-win-alt` | `color-mix(in srgb, #1a1c1f 4%, #ffffff)` | `color-mix(in srgb, #ffffff 4%, #181818)` |
-| `--color-shell` | `color-mix(in srgb, #1a1c1f 4%, #ffffff)` | `color-mix(in srgb, #ffffff 5.194805194805195%, #181818)` |
-| `--color-navigation-background` | `color-mix(in oklab, #ffffff 70%, transparent)` | `color-mix(in srgb, #ffffff 2.5974025974025974%, #181818)` |
-| `--color-navigation-selected` | `color-mix(in srgb, #1a1c1f 5.5%, transparent)` | `color-mix(in srgb, #ffffff 10.38961038961039%, #181818)` |
-| `--shadow-page-surface` | `0 0 0 .5px color-mix(in srgb, #1a1c1f 8%, transparent), 0 4px 16px #0000000d` | `0 0 0 .5px color-mix(in srgb, #ffffff 6%, transparent), 0 4px 16px #0000000d` |
-| `--color-sidebar` | `color-mix(in srgb, #ffffff 70%, transparent)` | `rgb(40 40 40 / 0.7)` |
-| `--color-sidebar-item` | `color-mix(in srgb, #1a1c1f 5.5%, transparent)` | `rgba(255, 255, 255, 0.08)` |
-| `--color-composer` | `color-mix(in srgb, #ffffff 86.4706%, transparent)` | `color-mix(in srgb, color-mix(in srgb, #ffffff 12.987012987012987%, #181818) 96%, transparent)` |
-| `--shadow-composer` | `var(--composer-shadow-light)` | `var(--composer-shadow-dark)` |
-| `--color-background-alt` | `color-mix(in srgb, #1a1c1f 3%, #ffffff)` | `color-mix(in srgb, #ffffff 3%, #181818)` |
-| `--color-card` | `#ffffff` | `#181818` |
-| `--color-settings-card` | `#ffffff` | `color-mix(in srgb, #ffffff 4.761904761904762%, #181818)` |
-| `--color-header` | `#ffffff` | `#181818` |
-| `--color-panel` | `#ffffff` | `#181818` |
-| `--color-popover` | `#ffffff` | `#181818` |
-| `--color-menu` | `color-mix(in srgb, #ffffff 90%, transparent)` | `color-mix(in srgb, color-mix(in srgb, #ffffff 9.090909090909092%, #181818) 90%, transparent)` |
-| `--color-menu-border` | `color-mix(in srgb, #1a1c1f 8%, transparent)` | `color-mix(in srgb, #ffffff 8.2%, transparent)` |
-| `--color-menu-hover` | `color-mix(in srgb, #1a1c1f 5.5%, transparent)` | `color-mix(in srgb, #ffffff 5.5%, transparent)` |
-| `--color-composer-catalog` | `#ffffff` | `color-mix(in srgb, #ffffff 8.658008658008658%, #181818)` |
-| `--color-input` | `#ffffff` | `#181818` |
-| `--color-input-focused` | `#ffffff` | `#181818` |
-| `--color-input-border` | `var(--color-border)` | `var(--color-border)` |
-| `--color-input-border-hover` | `var(--color-border-hover)` | `var(--color-border-hover)` |
-| `--color-foreground-subtle` | `color-mix(in srgb, #1a1c1f 69.5%, #ffffff)` | `color-mix(in srgb, #ffffff 69.5%, #181818)` |
-| `--color-foreground-subtlest` | `color-mix(in srgb, #1a1c1f 49.5%, #ffffff)` | `color-mix(in srgb, #ffffff 49.5%, #181818)` |
-| `--color-settings-secondary` | `color-mix(in srgb, #1a1c1f 69.5%, #ffffff)` | `color-mix(in srgb, #ffffff 65%, transparent)` |
-| `--color-border` | `color-mix(in srgb, #1a1c1f 7.8%, transparent)` | `color-mix(in srgb, #ffffff 8.4%, transparent)` |
-| `--color-border-hover` | `color-mix(in srgb, #1a1c1f 11.7%, transparent)` | `color-mix(in srgb, #ffffff 11.7%, transparent)` |
-| `--color-hover` | `color-mix(in srgb, #1a1c1f 5.5%, transparent)` | `color-mix(in srgb, #ffffff 5.5%, transparent)` |
-| `--color-selected` | `color-mix(in srgb, #1a1c1f 5.5%, transparent)` | `color-mix(in srgb, #ffffff 5.5%, transparent)` |
-| `--color-surface` | `color-mix(in srgb, #1a1c1f 3%, transparent)` | `color-mix(in srgb, #ffffff 3%, transparent)` |
-| `--color-surface-hover` | `color-mix(in srgb, #1a1c1f 5.5%, transparent)` | `color-mix(in srgb, #ffffff 5.5%, transparent)` |
-| `--color-input-border-focused` | `#3a83f7` | `#3a83f7` |
+| 变量 | 层与角色 | 引用与来源 | 默认亮色 | 默认暗色 |
+| --- | --- | --- | --- | --- |
+| `--color-background` | semantic · 阅读表面 | src/theme.ts#paletteVariables | `#ffffff` | `#181818` |
+| `--color-foreground` | semantic · 默认正文 | src/theme.ts#paletteVariables | `#1a1c1f` | `#ffffff` |
+| `--color-brand` | semantic · 用户强调色 | src/theme.ts#paletteVariables | `#3a83f7` | `#3a83f7` |
+| `--color-file-reference` | semantic · 文件引用文字 | src/theme.ts#paletteVariables | `#2c67c5` | `color-mix(in srgb, #2c67c5 80%, #ffffff)` |
+| `--color-process-settled` | component · 已结算过程元信息 | src/theme.ts#paletteVariables | `color-mix(in srgb, #1a1c1f 69.5%, #ffffff)` | `color-mix(in srgb, #ffffff 50%, transparent)` |
+| `--color-result-card` | component · 已完成文件结果表面 | src/theme.ts#paletteVariables | `color-mix(in srgb, #1a1c1f 3%, transparent)` | `color-mix(in srgb, color-mix(in srgb, #ffffff 9.090909090909092%, #181818) 50%, transparent)` |
+| `--shadow-result-card` | component · 文件结果半像素描边 | src/theme.ts#paletteVariables | `0 0 0 .5px color-mix(in srgb, #1a1c1f 8%, transparent)` | `0 0 0 .5px color-mix(in srgb, #ffffff 15.6%, transparent)` |
+| `--color-result-icon` | component · 已完成文件结果图标底色 | src/theme.ts#paletteVariables | `#ffffff` | `color-mix(in srgb, #181818 83.333333%, #000000)` |
+| `--color-history-comment` | component · 历史过程表面 | src/theme.ts#paletteVariables | `#ffffff` | `color-mix(in srgb, #ffffff 9.090909090909092%, #181818)` |
+| `--color-viewer-control` | component · 紧凑查看器控件表面 | src/theme.ts#paletteVariables | `color-mix(in srgb, #1a1c1f 3%, transparent)` | `color-mix(in srgb, #ffffff 9.090909090909092%, #181818)` |
+| `--color-history-comment-hover` | component · 历史过程悬停表面 | src/theme.ts#paletteVariables | `#ffffff` | `color-mix(in srgb, color-mix(in srgb, #ffffff 12.987012987012987%, #181818) 96%, transparent)` |
+| `--color-primary` | semantic · 主动作底色 | src/theme.ts#paletteVariables | `#1a1c1f` | `#ffffff` |
+| `--color-primary-foreground` | semantic · 主动作文字 | src/theme.ts#paletteVariables | `#ffffff` | `#2d2d2d` |
+| `--color-composer-action` | component · 输入区主动作 | --color-primary | `var(--color-primary)` | `var(--color-primary)` |
+| `--color-composer-action-foreground` | component · 输入区主动作文字 | --color-primary-foreground | `var(--color-primary-foreground)` | `var(--color-primary-foreground)` |
+| `--color-accent` | semantic · accent | src/theme.ts#paletteVariables | `color-mix(in srgb, #1a1c1f 6%, #ffffff)` | `color-mix(in srgb, #ffffff 6%, #181818)` |
+| `--color-secondary` | semantic · secondary | src/theme.ts#paletteVariables | `color-mix(in srgb, #1a1c1f 5%, transparent)` | `color-mix(in srgb, #ffffff 5%, transparent)` |
+| `--color-user-message` | component · 用户消息气泡 | src/theme.ts#paletteVariables | `#e8f3fe` | `#173e76` |
+| `--color-user-message-text` | component · 用户消息文字 | src/theme.ts#paletteVariables | `#0c274a` | `#f6fafe` |
+| `--color-background-win-alt` | semantic · background win alt | src/theme.ts#paletteVariables | `color-mix(in srgb, #1a1c1f 4%, #ffffff)` | `color-mix(in srgb, #ffffff 4%, #181818)` |
+| `--color-shell` | semantic · 标题栏与边栏外壳 | src/theme.ts#paletteVariables | `color-mix(in srgb, #1a1c1f 4%, #ffffff)` | `color-mix(in srgb, #ffffff 5.194805194805195%, #181818)` |
+| `--color-navigation-background` | semantic · 导航表面 | src/theme.ts#paletteVariables | `color-mix(in oklab, #ffffff 70%, transparent)` | `color-mix(in srgb, #ffffff 2.5974025974025974%, #181818)` |
+| `--color-navigation-selected` | semantic · 导航选中层 | src/theme.ts#paletteVariables | `color-mix(in srgb, #1a1c1f 5.5%, transparent)` | `color-mix(in srgb, #ffffff 10.38961038961039%, #181818)` |
+| `--shadow-page-surface` | component · 页面表面阴影 | src/theme.ts#paletteVariables | `0 0 0 .5px color-mix(in srgb, #1a1c1f 8%, transparent), 0 4px 16px #0000000d` | `0 0 0 .5px color-mix(in srgb, #ffffff 6%, transparent), 0 4px 16px #0000000d` |
+| `--color-sidebar` | component · 设置侧栏材料 | src/theme.ts#paletteVariables | `color-mix(in srgb, #ffffff 70%, transparent)` | `rgb(40 40 40 / 0.7)` |
+| `--color-sidebar-item` | component · 设置侧栏行悬停层 | src/theme.ts#paletteVariables | `color-mix(in srgb, #1a1c1f 5.5%, transparent)` | `rgba(255, 255, 255, 0.08)` |
+| `--color-composer` | component · 输入区材料 | src/theme.ts#paletteVariables | `color-mix(in srgb, #ffffff 86.4706%, transparent)` | `color-mix(in srgb, color-mix(in srgb, #ffffff 12.987012987012987%, #181818) 96%, transparent)` |
+| `--shadow-composer` | component · 输入区阴影 | src/theme.ts#paletteVariables | `var(--composer-shadow-light)` | `var(--composer-shadow-dark)` |
+| `--color-background-alt` | semantic · background alt | src/theme.ts#paletteVariables | `color-mix(in srgb, #1a1c1f 3%, #ffffff)` | `color-mix(in srgb, #ffffff 3%, #181818)` |
+| `--color-card` | semantic · card | src/theme.ts#paletteVariables | `#ffffff` | `#181818` |
+| `--color-settings-card` | component · 设置组表面 | src/theme.ts#paletteVariables | `#ffffff` | `color-mix(in srgb, #ffffff 4.761904761904762%, #181818)` |
+| `--color-header` | semantic · header | src/theme.ts#paletteVariables | `#ffffff` | `#181818` |
+| `--color-panel` | semantic · panel | src/theme.ts#paletteVariables | `#ffffff` | `#181818` |
+| `--color-popover` | semantic · popover | src/theme.ts#paletteVariables | `#ffffff` | `#181818` |
+| `--color-menu` | component · 菜单材料 | src/theme.ts#paletteVariables | `color-mix(in srgb, #ffffff 90%, transparent)` | `color-mix(in srgb, color-mix(in srgb, #ffffff 9.090909090909092%, #181818) 90%, transparent)` |
+| `--color-menu-border` | component · 菜单描边 | src/theme.ts#paletteVariables | `color-mix(in srgb, #1a1c1f 8%, transparent)` | `color-mix(in srgb, #ffffff 8.2%, transparent)` |
+| `--color-menu-hover` | component · 菜单悬停层 | src/theme.ts#paletteVariables | `color-mix(in srgb, #1a1c1f 5.5%, transparent)` | `color-mix(in srgb, #ffffff 5.5%, transparent)` |
+| `--color-composer-catalog` | component · 输入区目录表面 | src/theme.ts#paletteVariables | `#ffffff` | `color-mix(in srgb, #ffffff 8.658008658008658%, #181818)` |
+| `--color-input` | semantic · input | src/theme.ts#paletteVariables | `#ffffff` | `#181818` |
+| `--color-input-focused` | semantic · input focused | src/theme.ts#paletteVariables | `#ffffff` | `#181818` |
+| `--color-input-border` | semantic · input border | --color-border | `var(--color-border)` | `var(--color-border)` |
+| `--color-input-border-hover` | semantic · input border hover | --color-border-hover | `var(--color-border-hover)` | `var(--color-border-hover)` |
+| `--color-foreground-subtle` | semantic · 次要文字 | src/theme.ts#paletteVariables | `color-mix(in srgb, #1a1c1f 69.5%, #ffffff)` | `color-mix(in srgb, #ffffff 69.5%, #181818)` |
+| `--color-foreground-subtlest` | semantic · 最弱元信息文字，不保证正文对比度 | src/theme.ts#paletteVariables | `color-mix(in srgb, #1a1c1f 49.5%, #ffffff)` | `color-mix(in srgb, #ffffff 49.5%, #181818)` |
+| `--color-settings-secondary` | component · 设置说明文字 | src/theme.ts#paletteVariables | `color-mix(in srgb, #1a1c1f 69.5%, #ffffff)` | `color-mix(in srgb, #ffffff 65%, transparent)` |
+| `--color-border` | semantic · border | src/theme.ts#paletteVariables | `color-mix(in srgb, #1a1c1f 7.8%, transparent)` | `color-mix(in srgb, #ffffff 8.4%, transparent)` |
+| `--color-border-hover` | semantic · border hover | src/theme.ts#paletteVariables | `color-mix(in srgb, #1a1c1f 11.7%, transparent)` | `color-mix(in srgb, #ffffff 11.7%, transparent)` |
+| `--color-hover` | semantic · hover | src/theme.ts#paletteVariables | `color-mix(in srgb, #1a1c1f 5.5%, transparent)` | `color-mix(in srgb, #ffffff 5.5%, transparent)` |
+| `--color-selected` | semantic · selected | src/theme.ts#paletteVariables | `color-mix(in srgb, #1a1c1f 5.5%, transparent)` | `color-mix(in srgb, #ffffff 5.5%, transparent)` |
+| `--color-surface` | semantic · surface | src/theme.ts#paletteVariables | `color-mix(in srgb, #1a1c1f 3%, transparent)` | `color-mix(in srgb, #ffffff 3%, transparent)` |
+| `--color-surface-hover` | semantic · surface hover | src/theme.ts#paletteVariables | `color-mix(in srgb, #1a1c1f 5.5%, transparent)` | `color-mix(in srgb, #ffffff 5.5%, transparent)` |
+| `--color-input-border-focused` | semantic · 输入与焦点强调 | src/theme.ts#paletteVariables | `#3a83f7` | `#3a83f7` |

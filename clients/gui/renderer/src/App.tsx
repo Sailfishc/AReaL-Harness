@@ -1,3 +1,10 @@
+import { StartupScreen } from "./views/StartupScreen.js";
+import { useBackendRecovery } from "./state/useBackendRecovery.js";
+import { ConversationUsage } from "./views/ConversationUsage.js";
+import { TaskResourcesPopover } from "./views/TaskResourcesPopover.js";
+import { useStartupPresentation } from "./state/useStartupPresentation.js";
+import { useRecoveryNotices } from "./state/useRecoveryNotices.js";
+import { useWorkbenchAppearance } from "./state/useWorkbenchAppearance.js";
 import { ExecutableSideChatPane } from "./ExecutableSideChatPane.js";
 import {
   useSideChatTabs,
@@ -17,7 +24,6 @@ import { useConversationEscape } from "./useConversationEscape.js";
 import { ComputerControlContext } from "./ComputerControlEntry.js";
 import { ComputerSettings } from "./settings/ComputerSettings.js";
 import { GenUiWorkspace } from "./GenUiWorkspace.js";
-import startupIcon from "../../app/assets/icon-1024.png";
 import { useI18n } from "./i18n/IntlProvider.js";
 import { WorkspaceFileTree } from "./workspace-file-tree/WorkspaceFileTree.js";
 import {
@@ -49,8 +55,7 @@ import {
 } from "./interfaceIcons.js";
 import { ReviewPanelIcon } from "./app-shell/panelIcons.js";
 import { ModelTrajectoryPane } from "./ModelTrajectoryPane.js";
-import { useAppearance, useApplicationPreferences } from "./settings/applicationPreferences.js";
-import { ConversationStatusCard } from "./ConversationStatusCard.js";
+import { useApplicationPreferences } from "./settings/applicationPreferences.js";
 import { SidePane } from "./app-shell/SidePane.js";
 import {
   useBrowserWorkspace,
@@ -60,10 +65,8 @@ import {
 } from "./app-shell/useBrowserWorkspace.js";
 import { Button } from "./components/ui/button.js";
 import { ToastHost } from "./ToastHost.js";
-import { BackendStatusNotice, type BackendStatusAction } from "./BackendStatusNotice.js";
+import { BackendStatusNotice } from "./BackendStatusNotice.js";
 import { FeedbackNotice } from "./FeedbackNotice.js";
-import { SettingsDisclosure } from "./settings/SettingsDisclosure.js";
-import { Popover, PopoverContent, PopoverTrigger } from "./components/ui/popover.js";
 import {
   ApplicationRail,
   SidebarSectionToggle,
@@ -102,7 +105,6 @@ import {
   ProjectOpenFolderIcon,
   SidePanelIcon,
   SidebarToggleIcon,
-  TaskSummaryIcon,
 } from "./homeChromeIcons.js";
 import { UpdateIndicator } from "./UpdateIndicator.js";
 import { QuitProgressDialog } from "./QuitProgressDialog.js";
@@ -134,12 +136,10 @@ import { Composer, attachmentDrafts, sending, subscribeSending } from "./Compose
 import {
   isIndependentCreation,
   isTechnicalErrorMessage,
-  recoveredOutcome,
   recoveryMessage,
   recoverySettings,
   sameRecoveryOwner,
   type RecoveryFailure,
-  type RecoveryNotice,
   type RecoveryOwner,
 } from "./recoveryPresentation.js";
 import { DraftComposer } from "./DraftComposer.js";
@@ -288,176 +288,6 @@ type RestorationAttempt = RestorationOwner & {
   promise: Promise<void>;
 };
 const sameRestorationOwner = sameRecoveryOwner;
-function Usage({ thread }: { thread: Data }) {
-  const turns = thread.turns ?? [];
-  const known = turns.filter((t: Data) => t.usage);
-  const sum = (key: string) =>
-    known.every((t: Data) => typeof t.usage[key] === "number")
-      ? known.reduce((n: number, t: Data) => n + t.usage[key], 0)
-      : null;
-  return (
-    <div className="utility-content">
-      <h2>实际用量</h2>
-      <p className="text-foreground-subtle">
-        Core 已确认的当前任务用量；未报告轮次的消费未知，以下数字不代表最终总消费。
-      </p>
-      <div className="usage-grid">
-        {[
-          ["输入 Token", sum("inputTokens")],
-          ["缓存输入", sum("cachedInputTokens")],
-          ["输出 Token", sum("outputTokens")],
-        ].map(([label, value]) => (
-          <article key={label}>
-            <small>{label}</small>
-            <strong>
-              {!known.length ? "—" : value == null ? "未知" : Number(value).toLocaleString()}
-            </strong>
-          </article>
-        ))}
-      </div>
-      <p>
-        {known.length} / {turns.length} 轮有用量记录
-      </p>
-      {known.length < turns.length && (
-        <p role="status">还有 {turns.length - known.length} 轮消费未知；未计入已确认用量。</p>
-      )}
-      {turns.map((t: Data, i: number) => (
-        <div className="utility-actions" key={t.id}>
-          <span>
-            第 {i + 1} 轮 · {t.status}
-          </span>
-          <span>
-            {t.usage
-              ? `${t.usage.inputTokens ?? "未知"} 输入 / ${t.usage.outputTokens ?? "未知"} 输出`
-              : "用量未知"}
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function TaskResourcesPopover({
-  project,
-  thread,
-  action,
-  onPanel,
-  onAgent,
-  onFile,
-  scheduledTask,
-  runHistory,
-  revealKey,
-  onReveal,
-  onAddSchedule,
-  onOpenSchedule,
-  onReadAgents,
-  onAddSource,
-  onLink,
-}: {
-  onAddSource?: () => void;
-  onLink?: (url: string) => void;
-  onReadAgents?: (restore: () => void) => void;
-  project: Data;
-  thread: Data;
-  action: Action;
-  scheduledTask?: Data;
-  runHistory?: React.ReactNode;
-  revealKey?: string;
-  onReveal?: (key: string) => void;
-  onPanel: (name: string) => void;
-  onAgent: (id: string) => void;
-  onFile: (path: string) => void;
-  onAddSchedule?: () => void;
-  onOpenSchedule?: (task: Data) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const trigger = React.useRef<HTMLButtonElement>(null);
-  const composerHandoff = React.useRef(false);
-  useEffect(() => {
-    if (revealKey) {
-      setOpen(true);
-      onReveal?.(revealKey);
-    }
-  }, [revealKey, onReveal]);
-  const navigate =
-    <T,>(callback: (value: T) => void) =>
-    (value: T) => {
-      setOpen(false);
-      callback(value);
-    };
-  return (
-    <Popover
-      open={open}
-      onOpenChange={(next, details) => {
-        if (!next && ["outside-press", "focus-out"].includes(details.reason)) return;
-        setOpen(next);
-      }}
-    >
-      <PopoverTrigger
-        render={
-          <button
-            ref={trigger}
-            className={`icon-button ${open ? "active" : ""}`}
-            aria-label="任务资源"
-          />
-        }
-      >
-        <TaskSummaryIcon />
-      </PopoverTrigger>
-      <PopoverContent
-        keepMounted
-        finalFocus={() => {
-          if (composerHandoff.current) {
-            composerHandoff.current = false;
-            return false;
-          }
-          return trigger.current;
-        }}
-        align="end"
-        sideOffset={8}
-        className="task-resources-popup"
-        aria-label="任务资源面板"
-      >
-        <React.Activity mode={open ? "visible" : "hidden"}>
-          <ConversationStatusCard
-            onLink={onLink}
-            onAddSource={
-              onAddSource
-                ? () => {
-                    setOpen(false);
-                    onAddSource();
-                  }
-                : undefined
-            }
-            project={project}
-            thread={thread}
-            action={action}
-            scheduledTask={scheduledTask}
-            runHistory={runHistory}
-            onAddSchedule={
-              onAddSchedule
-                ? () => {
-                    composerHandoff.current = true;
-                    setOpen(false);
-                    onAddSchedule();
-                  }
-                : undefined
-            }
-            onOpenSchedule={onOpenSchedule ? navigate(onOpenSchedule) : undefined}
-            onAgents={() => {
-              setOpen(false);
-              if (onReadAgents) onReadAgents(() => setOpen(true));
-              else onPanel("子代理");
-            }}
-            onPanel={navigate(onPanel)}
-            onAgent={navigate(onAgent)}
-            onFile={navigate(onFile)}
-          />
-        </React.Activity>
-      </PopoverContent>
-    </Popover>
-  );
-}
 export function App({ services }: { services: PlatformServices }) {
   const [quitProgress, setQuitProgress] = useState<QuitProgress>({ state: "idle" });
   useEffect(() => services.onQuitProgress?.(setQuitProgress), [services]);
@@ -496,28 +326,6 @@ function AppContent({ services }: { services: PlatformServices }) {
   const [worktreeSelections, setWorktreeSelections] = useState<
     Record<string, WorktreeSelection | undefined>
   >({});
-  const backendActionInFlight = React.useRef(false);
-  const [backendActionPending, setBackendActionPending] = useState(false);
-  const [backendActionError, setBackendActionError] = useState("");
-  useEffect(() => {
-    setBackendActionError("");
-  }, [
-    snapshot.connection?.state,
-    snapshot.connection?.message,
-    snapshot.connection?.recovery,
-    snapshot.backendUpdate?.state,
-    snapshot.backendUpdate?.message,
-    snapshot.desktopCapabilities?.currentCommands,
-    snapshot.lifecycle?.phase,
-    snapshot.lifecycle?.message,
-  ]);
-  const [themeReady, setThemeReady] = useState(false);
-  const [shellReady, setShellReady] = useState(false);
-  const [initialPresentation, setInitialPresentation] = useState<"pending" | "failed" | "ready">(
-    "pending",
-  );
-  const initialReleased = initialPresentation === "ready";
-  const [startupDelayed, setStartupDelayed] = useState(false);
   const [trajectoryAttention, setTrajectoryAttention] = useState(false);
   const [restoration, setRestoration] = useState<RestorationState>();
   const restorationAttempt = React.useRef<RestorationAttempt | undefined>(undefined);
@@ -654,54 +462,8 @@ function AppContent({ services }: { services: PlatformServices }) {
   };
   const [searchOpen, setSearchOpen] = useState(false);
   const [terminalOpen, setTerminalOpen] = useState(false);
-  const [uiFontSize, setUiFontSize] = useState(
-    () => Number(localStorage.getItem("areal-gui:font-size")) || 14,
-  );
-  useEffect(() => {
-    document.documentElement.style.setProperty("--ui-font-size", `${uiFontSize}px`);
-    localStorage.setItem("areal-gui:font-size", String(uiFontSize));
-  }, [uiFontSize]);
   const [search, setSearch] = useState("");
   const [archived, setArchived] = useState(false);
-  const [notices, setNotices] = useState<RecoveryNotice[]>([]);
-  const [dismissedNotices, setDismissedNotices] = useState<Set<string>>(() => new Set());
-  const selectedRecoveryOwner = React.useRef<RecoveryOwner>({
-    projectId: "",
-    threadId: "",
-    connectionGeneration: 0,
-  });
-  const recoverySnapshot = React.useRef(snapshot);
-  recoverySnapshot.current = snapshot;
-  const setError = useCallback(
-    (message: string) => {
-      if (message)
-        setNotices((previous) => [
-          ...previous,
-          {
-            ...selectedRecoveryOwner.current,
-            id: crypto.randomUUID(),
-            kind: "error",
-            message: isTechnicalErrorMessage(message) ? t("recovery.operationFailed") : message,
-            detail: isTechnicalErrorMessage(message) ? message : undefined,
-          },
-        ]);
-    },
-    [t],
-  );
-  const dismissNotice = (id: string) =>
-    setDismissedNotices((previous) => new Set(previous).add(id));
-  const [dark, setDark] = useState(false);
-  useAppearance(dark);
-  const [theme, setTheme] = useState(() => localStorage.getItem("areal-gui:theme") ?? "system");
-  const [sidebar, setSidebar] = useState(() => !matchMedia("(max-width: 640px)").matches);
-  const [sidebarWidth, setSidebarWidth] = useState(() => {
-    const saved = Number(localStorage.getItem("areal-gui:sidebar-width"));
-    return Number.isFinite(saved) && saved >= 240 && saved <= 520 ? saved : 320;
-  });
-  useEffect(() => {
-    localStorage.setItem("areal-gui:sidebar-width", String(sidebarWidth));
-  }, [sidebarWidth]);
-  const previousSidebar = React.useRef(sidebar);
   const previousSettingsOpen = React.useRef(settingsOpen);
   useEffect(() => {
     if (previousSettingsOpen.current === settingsOpen) return;
@@ -728,30 +490,6 @@ function AppContent({ services }: { services: PlatformServices }) {
     });
     return () => cancelAnimationFrame(frame);
   }, [settingsOpen]);
-  useEffect(() => {
-    if (previousSidebar.current === sidebar) return;
-    previousSidebar.current = sidebar;
-    document
-      .querySelector<HTMLButtonElement>(`[aria-label="${sidebar ? "收起侧栏" : "展开侧栏"}"]`)
-      ?.focus();
-  }, [sidebar]);
-  const [collapsedProjects, setCollapsedProjects] = useState<Record<string, boolean>>(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem("areal-gui:collapsed-sidebar") ?? "{}");
-      return saved && typeof saved === "object" && !Array.isArray(saved)
-        ? (Object.fromEntries(
-            Object.entries(saved).filter(([, value]) => typeof value === "boolean"),
-          ) as Record<string, boolean>)
-        : {};
-    } catch {
-      return {};
-    }
-  });
-  useEffect(() => {
-    localStorage.setItem("areal-gui:collapsed-sidebar", JSON.stringify(collapsedProjects));
-  }, [collapsedProjects]);
-  const toggleSidebarGroup = (id: string) =>
-    setCollapsedProjects((current) => ({ ...current, [id]: !current[id] }));
   const [projectVisibleCounts, setProjectVisibleCounts] = useState<Record<string, number>>({});
   const [rename, setRename] = useState<Data | null>(null);
   const [forkIntent, setForkIntent] = useState<{
@@ -776,34 +514,8 @@ function AppContent({ services }: { services: PlatformServices }) {
             : { ...previous, connection: { state: "unavailable", message: e.message } },
         );
       });
-    const off = services.onTheme((t) => {
-      setDark(t.dark);
-      document.documentElement.classList.toggle("platform-mac-desktop", t.platform === "darwin");
-      document.documentElement.classList.toggle("dark", t.dark);
-      document.documentElement.classList.toggle("theme-areal-light", !t.dark);
-      document.documentElement.classList.toggle("theme-areal-dark", t.dark);
-      document.documentElement.style.colorScheme = t.dark ? "dark" : "light";
-    });
-    return () => {
-      unsubscribe();
-      off();
-    };
+    return unsubscribe;
   }, [services]);
-  useEffect(() => {
-    localStorage.setItem("areal-gui:theme", theme);
-    void services
-      .theme(theme)
-      .then((t) => {
-        setDark(t.dark);
-        document.documentElement.classList.toggle("platform-mac-desktop", t.platform === "darwin");
-        document.documentElement.classList.toggle("dark", t.dark);
-        document.documentElement.classList.toggle("theme-areal-light", !t.dark);
-        document.documentElement.classList.toggle("theme-areal-dark", t.dark);
-        document.documentElement.style.colorScheme = t.dark ? "dark" : "light";
-      })
-      .catch((e) => setError(e.message))
-      .finally(() => setThemeReady(true));
-  }, [theme, services]);
   const library = snapshot.library ?? {
     projects: {},
     threads: {},
@@ -849,7 +561,23 @@ function AppContent({ services }: { services: PlatformServices }) {
   };
   const selectedRestoration = React.useRef(restorationOwner);
   selectedRestoration.current = restorationOwner;
-  selectedRecoveryOwner.current = restorationOwner;
+  const { operationNotices, dismissedNotices, dismissNotice, setError, action } =
+    useRecoveryNotices(services, snapshot, restorationOwner);
+  const {
+    dark,
+    theme,
+    setTheme,
+    themeReady,
+    uiFontSize,
+    setUiFontSize,
+    sidebar,
+    setSidebar,
+    sidebarWidth,
+    setSidebarWidth,
+    collapsedProjects,
+    setCollapsedProjects,
+    toggleSidebarGroup,
+  } = useWorkbenchAppearance(services, setError);
   const selectionReady = selectedProject === (project?.id ?? "");
   const currentRestoration = sameRestorationOwner(restoration, restorationOwner)
     ? restoration
@@ -861,13 +589,10 @@ function AppContent({ services }: { services: PlatformServices }) {
       observationFailure.connectionGeneration === restorationOwner.connectionGeneration)
       ? observationFailure
       : undefined;
-  const viewFailure =
-    currentObservationFailure ?? (threadId ? currentRestoration?.failure : undefined);
+  const viewFailure = currentObservationFailure ?? currentRestoration?.failure;
   const restorationError = viewFailure
     ? recoveryMessage(viewFailure, "view")
-    : threadId
-      ? currentRestoration?.error || ""
-      : "";
+    : currentRestoration?.error || "";
   const reconnectingView =
     snapshot.connection?.state === "connecting" &&
     !!viewFailure &&
@@ -901,80 +626,30 @@ function AppContent({ services }: { services: PlatformServices }) {
   const viewRefreshing =
     !!currentObservationFailure?.refreshPending || !!currentRestoration?.pending;
   const restorationFailed = !!restorationError && !viewRefreshing && !reconnectingView;
+  const startupLifecycle = snapshot.lifecycle;
+  const startupLifecycleBlocked =
+    !!startupLifecycle?.error ||
+    !!startupLifecycle?.recovery ||
+    ["acceptedPending", "admissionUnconfirmed", "partial", "settlementIncomplete"].includes(
+      startupLifecycle?.phase ?? "",
+    );
+  const startupReady =
+    themeReady &&
+    snapshot.connection?.state === "ready" &&
+    selectionReady &&
+    !restorationFailed &&
+    !startupLifecycleBlocked &&
+    (!project || (currentRestoration && !currentRestoration.pending && (!threadId || !!thread)));
+  const { shellReady, initialReleased, startupDelayed } = useStartupPresentation(
+    services,
+    { themeReady, startupReady, restorationFailed },
+    restoration,
+    restorationOwner,
+  );
   const restorationNoticeId =
     currentObservationFailure?.id ??
     currentRestoration?.failureId ??
     `connection:${restorationOwner.projectId}:${restorationOwner.connectionGeneration}:${restorationError}`;
-  useEffect(() => {
-    setNotices((previous) => {
-      let changed = false;
-      const observed = [...previous];
-      for (const owner of snapshot.projects)
-        for (const entry of owner.pending ?? []) {
-          const requestId = entry.params?.requestId;
-          const ownerThreadId = entry.params?.threadId ?? entry.params?.sourceThreadId ?? "";
-          if (
-            !requestId ||
-            entry.awaitingResponse ||
-            observed.some(
-              (notice) => notice.projectId === owner.id && notice.requestId === requestId,
-            ) ||
-            recoveredOutcome(owner, requestId, ownerThreadId, entry.operation)
-          )
-            continue;
-          changed = true;
-          observed.push({
-            projectId: owner.id,
-            threadId: ownerThreadId,
-            connectionGeneration: owner.core?.connectionGeneration ?? 0,
-            id: `operation:${owner.id}:${requestId}`,
-            kind: "unconfirmed",
-            requestId,
-            operation: entry.operation,
-            message: "操作结果尚未确认。正在核对原请求，不会自动重发。",
-          });
-        }
-      const next = observed.flatMap<RecoveryNotice>((notice) => {
-        if (notice.kind !== "unconfirmed" || !notice.requestId) return [notice];
-        const owner = snapshot.projects.find((item) => item.id === notice.projectId);
-        const operation =
-          notice.operation ??
-          owner?.pending?.find((entry: Data) => entry.params?.requestId === notice.requestId)
-            ?.operation;
-        const outcome =
-          owner && recoveredOutcome(owner, notice.requestId, notice.threadId, operation);
-        if (!outcome) {
-          if (operation && !notice.operation) {
-            changed = true;
-            return [{ ...notice, operation }];
-          }
-          return [notice];
-        }
-        changed = true;
-        return outcome.status === "failed" || outcome.accepted === false
-          ? [
-              {
-                ...notice,
-                id: `failed:${notice.id}`,
-                kind: "error" as const,
-                message:
-                  outcome.message ||
-                  (outcome.accepted === false
-                    ? "操作未受理，输入已保留，请检查后重试。"
-                    : "操作已受理，但执行失败，请检查结果。"),
-              },
-            ]
-          : [];
-      });
-      return changed ? next : previous;
-    });
-  }, [snapshot.projects, notices]);
-  const operationNotices = notices.filter(
-    (notice) =>
-      notice.projectId === restorationOwner.projectId &&
-      notice.threadId === restorationOwner.threadId &&
-      !dismissedNotices.has(notice.id),
-  );
   const activeConversation = React.useRef("");
   activeConversation.current = `${project?.id ?? ""}:${thread?.id ?? ""}`;
   const recordWorkspaceLocation = useCallback(
@@ -1173,88 +848,6 @@ function AppContent({ services }: { services: PlatformServices }) {
       ...terminalState.ids.filter((id) => !tabs.includes(id)),
     ]);
   }, [terminalState.ids]);
-  const action: Action = useCallback(
-    async (name: import("./services.js").CommandName, params: Data = {}) => {
-      const selected = selectedRecoveryOwner.current;
-      const target = recoverySnapshot.current.projects.find(
-        (item) => item.id === (params.projectId ?? selected.projectId),
-      );
-      const owner = {
-        projectId: params.projectId ?? selected.projectId,
-        threadId: params.threadId ?? selected.threadId,
-        connectionGeneration: target?.core?.connectionGeneration ?? selected.connectionGeneration,
-      };
-      const scoped =
-        name === "workspace" &&
-        threadId &&
-        params.projectId === project?.id &&
-        !params.threadId &&
-        !String(params.operation).startsWith("worktree")
-          ? { ...params, threadId }
-          : params;
-      const request = ["create", "configure"].includes(name)
-        ? { ...scoped, requestId: params.requestId ?? crypto.randomUUID() }
-        : scoped;
-      try {
-        return await call(services, name, request);
-      } catch (cause) {
-        const failure = cause as RecoveryFailure;
-        // Composer owns confirmed send refusals and clears them on acceptance.
-        // Unconfirmed/admitted sends still keep their global recovery notice.
-        const composerRefusal = name === "send" && failure.outcome?.kind === "rejected";
-        if (
-          !composerRefusal &&
-          !["providers", "chatgpt", "prediction"].includes(name) &&
-          !(name === "respond" && params.answers) &&
-          name !== "media" &&
-          name !== "feedback" &&
-          !(name === "manage" && params.operation === "goalCreate")
-        ) {
-          const operation =
-            failure.outcome && "operation" in failure.outcome
-              ? failure.outcome.operation
-              : undefined;
-          const requestId = operation?.requestId ?? failure.requestId ?? request.requestId;
-          const unconfirmed =
-            failure.submissionUnknown === true ||
-            failure.outcome?.kind === "admitted" ||
-            failure.outcome?.kind === "unconfirmed";
-          const id =
-            unconfirmed && requestId
-              ? `operation:${owner.projectId}:${requestId}`
-              : crypto.randomUUID();
-          const latest = recoverySnapshot.current.projects.find(
-            (item) => item.id === owner.projectId,
-          );
-          if (
-            (latest?.core?.connectionGeneration ?? owner.connectionGeneration) ===
-            owner.connectionGeneration
-          ) {
-            const pendingOperation = latest?.pending?.find(
-              (entry: Data) => entry.params?.requestId === requestId,
-            )?.operation;
-            setNotices((previous) => [
-              ...previous.filter((notice) => notice.id !== id),
-              {
-                ...owner,
-                id,
-                requestId,
-                operation: operation ?? pendingOperation,
-                kind: unconfirmed ? "unconfirmed" : "error",
-                message: recoveryMessage(failure),
-                settings: recoverySettings(failure),
-                detail: [failure.message, failure.code, failure.reason, operation?.method]
-                  .filter((value) => value !== undefined)
-                  .join("\n"),
-              },
-            ]);
-          }
-        }
-        throw cause;
-      }
-    },
-    [services, project?.id, threadId],
-  );
   const cancelledPredictions = React.useRef(new Set<string>());
   useEffect(() => {
     if (nextPromptSuggestions) {
@@ -1595,32 +1188,11 @@ function AppContent({ services }: { services: PlatformServices }) {
       });
     } else await resourceAction("connectService");
   };
-  const runBackendAction = async (kind: BackendStatusAction) => {
-    if (backendActionInFlight.current) return;
-    backendActionInFlight.current = true;
-    setBackendActionPending(true);
-    setBackendActionError("");
-    try {
-      if (kind === "status") {
-        setSettingsTab("后台服务");
-        setSettingsOpen(true);
-      } else if (kind === "update") {
-        await resourceAction("serviceLifecycle", { operation: "update" });
-      } else if (kind === "recover") {
-        const result = await resourceAction("serviceLifecycle", { operation: "recover" });
-        if (result?.recovered) await reconnectService();
-      } else if (kind === "check") {
-        await resourceAction("serviceLifecycle", { operation: "check" });
-      } else {
-        await reconnectService();
-      }
-    } catch (cause) {
-      setBackendActionError((cause as Error).message);
-    } finally {
-      backendActionInFlight.current = false;
-      setBackendActionPending(false);
-    }
-  };
+  const { backendActionPending, backendActionError, runBackendAction, quitStartup } =
+    useBackendRecovery(snapshot, resourceAction, reconnectService, () => {
+      setSettingsTab("后台服务");
+      setSettingsOpen(true);
+    });
   const choose = async () => {
     if (!initialReleased) return;
     try {
@@ -1824,60 +1396,6 @@ function AppContent({ services }: { services: PlatformServices }) {
     snapshot.connection?.state,
     restoreConversation,
   ]);
-  const startupLifecycle = snapshot.lifecycle;
-  const startupLifecycleBlocked =
-    !!startupLifecycle?.error ||
-    !!startupLifecycle?.recovery ||
-    ["acceptedPending", "admissionUnconfirmed", "partial", "settlementIncomplete"].includes(
-      startupLifecycle?.phase ?? "",
-    );
-  const startupReady =
-    themeReady &&
-    snapshot.connection?.state === "ready" &&
-    selectionReady &&
-    !restorationFailed &&
-    !startupLifecycleBlocked &&
-    (!project || (currentRestoration && !currentRestoration.pending && (!threadId || !!thread)));
-  useEffect(() => {
-    if (restorationFailed || startupReady)
-      setInitialPresentation((previous) =>
-        previous === "ready" ? previous : startupReady ? "ready" : "failed",
-      );
-  }, [startupReady, restorationFailed]);
-  useEffect(() => {
-    setStartupDelayed(false);
-    if (initialReleased) return;
-    const timer = window.setTimeout(() => setStartupDelayed(true), 15000);
-    return () => window.clearTimeout(timer);
-  }, [
-    initialReleased,
-    restoration,
-    restorationOwner.projectId,
-    restorationOwner.threadId,
-    restorationOwner.connectionGeneration,
-  ]);
-  const presented = React.useRef(false);
-  useEffect(() => {
-    if (!themeReady || presented.current) return;
-    let active = true,
-      frame = 0;
-    // Wait for layout/fonts and a painted frame, not just receipt of a snapshot.
-    void document.fonts.ready.then(() => {
-      if (!active) return;
-      frame = requestAnimationFrame(() => {
-        frame = requestAnimationFrame(() => {
-          if (!active) return;
-          presented.current = true;
-          setShellReady(true);
-          void services.presentReady?.().catch(() => {});
-        });
-      });
-    });
-    return () => {
-      active = false;
-      cancelAnimationFrame(frame);
-    };
-  }, [themeReady, services]);
   const retryRestoration = async () => {
     if (!project) return;
     await restoreConversation(restorationOwner, project.state?.connected ? "open" : "connect", {
@@ -2948,7 +2466,7 @@ function AppContent({ services }: { services: PlatformServices }) {
           }
         />
       );
-    if (panel === "用量") return <Usage thread={thread} />;
+    if (panel === "用量") return <ConversationUsage thread={thread} />;
     if (panel === "队列")
       return queue ? (
         <Queue
@@ -3507,34 +3025,6 @@ function AppContent({ services }: { services: PlatformServices }) {
       )}
     </SettingsPage>
   );
-  const startupRecovery =
-    restorationFailed ||
-    snapshot.connection?.state === "unavailable" ||
-    startupLifecycleBlocked ||
-    startupDelayed;
-  const startupBusy =
-    backendActionPending || viewRefreshing || snapshot.connection?.state === "connecting";
-  const startupDetails =
-    backendActionError ||
-    viewFailure?.message ||
-    restorationError ||
-    startupLifecycle?.error ||
-    startupLifecycle?.recovery?.message ||
-    startupLifecycle?.message ||
-    snapshot.connection?.message;
-  const quitStartup = async () => {
-    if (backendActionInFlight.current) return;
-    backendActionInFlight.current = true;
-    setBackendActionPending(true);
-    try {
-      await resourceAction("serviceLifecycle", { operation: "quitInterface" });
-    } catch (cause) {
-      setBackendActionError((cause as Error).message);
-    } finally {
-      backendActionInFlight.current = false;
-      setBackendActionPending(false);
-    }
-  };
   return (
     <ComputerControlContext.Provider
       value={{
@@ -3594,114 +3084,31 @@ function AppContent({ services }: { services: PlatformServices }) {
           onAction={(kind) => void runBackendAction(kind)}
         />
         {!initialReleased ? (
-          <div className="startup-screen" data-testid="startup-loading">
-            <div className="startup-drag-region" aria-hidden="true" />
-            {settingsOpen ? (
-              <div className="startup-settings">
-                <Button variant="ghost" size="sm" onClick={() => setSettingsOpen(false)}>
-                  {t("startup.back")}
-                </Button>
-                {settingsPage}
-              </div>
-            ) : (
-              <div className="startup-content">
-                <img src={startupIcon} alt="AReaL Harness" width={40} height={40} />
-                <p
-                  role={
-                    restorationFailed ||
-                    snapshot.connection?.state === "unavailable" ||
-                    startupLifecycleBlocked
-                      ? "alert"
-                      : "status"
-                  }
-                >
-                  {t(
-                    startupRecovery
-                      ? startupDelayed &&
-                        !restorationFailed &&
-                        snapshot.connection?.state !== "unavailable" &&
-                        !startupLifecycleBlocked
-                        ? "startup.delayed"
-                        : "startup.failed"
-                      : "startup.loading",
-                  )}
-                </p>
-                {startupRecovery && (
-                  <>
-                    <div className="startup-actions">
-                      {restorationFailed && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled={startupBusy}
-                          onClick={() => void retryRestoration()}
-                        >
-                          {t("recovery.retryView")}
-                        </Button>
-                      )}
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={startupBusy}
-                        onClick={() =>
-                          void runBackendAction(
-                            snapshot.connection?.state === "unavailable" &&
-                              snapshot.connection?.recovery !== "check" &&
-                              !startupLifecycleBlocked
-                              ? "reconnect"
-                              : "check",
-                          )
-                        }
-                      >
-                        {t(
-                          snapshot.connection?.state === "unavailable" &&
-                            snapshot.connection?.recovery !== "check" &&
-                            !startupLifecycleBlocked
-                            ? "startup.reconnect"
-                            : "startup.check",
-                        )}
-                      </Button>
-                      {startupLifecycle?.recovery && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled={startupBusy}
-                          onClick={() => void runBackendAction("recover")}
-                        >
-                          {t("startup.recover")}
-                        </Button>
-                      )}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          setSettingsTab(
-                            (viewFailure && recoverySettings(viewFailure)) || "后台服务",
-                          );
-                          setSettingsOpen(true);
-                        }}
-                      >
-                        {t("recovery.checkSettings")}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled={backendActionPending}
-                        onClick={() => void quitStartup()}
-                      >
-                        {t("startup.quit")}
-                      </Button>
-                    </div>
-                    {startupDetails && (
-                      <SettingsDisclosure title={t("recovery.details")}>
-                        <pre>{startupDetails}</pre>
-                      </SettingsDisclosure>
-                    )}
-                  </>
-                )}
-              </div>
-            )}
-          </div>
+          <StartupScreen
+            services={services}
+            state={{
+              connection: snapshot.connection,
+              lifecycle: startupLifecycle,
+              lifecycleBlocked: startupLifecycleBlocked,
+              delayed: startupDelayed,
+              restoration: {
+                failed: restorationFailed,
+                refreshing: viewRefreshing,
+                error: restorationError,
+                failure: viewFailure,
+              },
+              backend: { pending: backendActionPending, error: backendActionError },
+            }}
+            settingsPage={settingsOpen ? settingsPage : undefined}
+            onCloseSettings={() => setSettingsOpen(false)}
+            onRetry={() => void retryRestoration()}
+            onBackendAction={(kind) => void runBackendAction(kind)}
+            onSettings={() => {
+              setSettingsTab((viewFailure && recoverySettings(viewFailure)) || "后台服务");
+              setSettingsOpen(true);
+            }}
+            onQuit={() => void quitStartup()}
+          />
         ) : (
           <>
             {!sidebar && !settingsOpen && (

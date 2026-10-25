@@ -1,5 +1,6 @@
 import { defineConfig, type Plugin, type UserConfig } from "vite-plus";
 import { remoteStaticAssets } from "../scripts/remote-static-assets.mjs";
+import { bundleAnalysis } from "../scripts/bundle-analysis.mjs";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { fileURLToPath } from "node:url";
@@ -66,6 +67,7 @@ export default defineConfig(({ mode }): UserConfig => ({
   plugins: [
     react(),
     tailwindcss(),
+    bundleAnalysis(),
     ...(mode === "design-system" ? [designLibraryAssets] : [remoteShell]),
   ],
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },

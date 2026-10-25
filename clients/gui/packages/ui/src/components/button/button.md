@@ -34,7 +34,7 @@ Tab 进入可用按钮，Enter/Space 触发；disabled 不执行。调用方处�
 
 ## 内容
 
-可见文字命名动作；纯图标按钮提供 aria-label。使用原有限变体，不用 className 补齐基本外观。
+可见文字命名动作；纯图标按钮提供 aria-label。普通动作使用原有限变体，不用 className 补齐基本外观。
 
 ## 可访问性
 
@@ -45,6 +45,8 @@ Tab 进入可用按钮，Enter/Space 触发；disabled 不执行。调用方处�
 沿包内语义 Token，保留既有视觉。
 
 变体只表达通用动作层级：`default`、`secondary`、`outline`、`ghost`、`link`、`destructive`、`destructive-subtle`、`warning`。某个产品区域专用的外观放在所属组合里，例如输入区主动作用 conversation 层的 `ComposerActionButton`，不新增 Button 变体。
+
+`unstyled` 保留 Base UI 的原生按钮、键盘、disabled、ref 和 `render` 组合行为，不应用 recipe、variant 或 size 样式。仅用于已有完整外观的组合，例如需要自然换行的 Markdown 链接、网页预览卡片动作和工作台资源入口。组合负责布局、hover、focus-visible 和 disabled 外观；普通文字或图标动作仍使用现有 variant 和 size。
 
 尺寸：文字按钮 `xs`/`sm`/`default`/`lg`；纯图标按钮 `icon-xs`/`icon-sm`/`icon`/`icon-lg`。一个尺寸只对应一种高度，不增加同高的别名。
 

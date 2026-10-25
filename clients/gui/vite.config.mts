@@ -1,6 +1,10 @@
 import { defineConfig } from "vite-plus";
 
 export default defineConfig({
+  test: {
+    include: ["renderer/src/**/*.test.{ts,tsx}", "packages/ui/src/**/*.test.{ts,tsx}"],
+    environment: "node",
+  },
   lint: {
     ignorePatterns: [
       "**/dist/**",
@@ -103,10 +107,14 @@ export default defineConfig({
           "pnpm --filter @areal/ui check",
           "node scripts/verify-public.mjs",
           "node scripts/verify-i18n.mjs",
+          "node scripts/test-manifest.mjs",
           "node scripts/design-system-audit.mjs",
           "node scripts/state-projection-smoke.mjs",
           "node --test scripts/conversation-content.test.mjs scripts/activity-runs.test.mjs scripts/bundle.test.mjs scripts/provider-affinity.test.mjs scripts/provider-status.test.cjs scripts/side-restore.test.mjs scripts/operation-contract.test.cjs scripts/side-model-intent.test.mjs scripts/startup-recovery.test.mjs scripts/service-connection-recovery.test.mjs scripts/core-read-recovery.test.mjs scripts/bounded-history-client.test.mjs scripts/desktop-projection-transport.test.mjs scripts/lifecycle-bounded-history.test.mjs scripts/backend-status.test.mjs scripts/system-proxy.test.mjs scripts/history.test.mjs scripts/macos-service.test.mjs scripts/macos-signing-paths.test.mjs scripts/feedback.test.mjs",
           "pnpm test:worktree",
+          "pnpm test:health",
+          "pnpm test:manifest",
+          "pnpm test:unit",
         ],
         dependsOn: ["ui-build", "desktop-build"],
         cache: false,
@@ -114,7 +122,7 @@ export default defineConfig({
       "design-suite": {
         command: [
           "pnpm --filter @areal/ui check",
-          "node --test scripts/design-system-catalog.test.mjs scripts/design-system-changes.test.mjs",
+          "node --test scripts/design-system-catalog.test.mjs scripts/design-system-changes.test.mjs scripts/design-system-accessibility.test.mjs",
           "node scripts/design-system-audit.mjs",
         ],
         dependsOn: ["ui-build"],
@@ -124,6 +132,7 @@ export default defineConfig({
         command: [
           "pnpm --filter @areal/gen-ui typecheck",
           "pnpm --filter @areal/gui-renderer typecheck",
+          "pnpm --filter @areal/gui-renderer exec tsc --ignoreConfig --project ../app/tsconfig.json",
           "pnpm --filter @areal/gui-renderer exec tsc --ignoreConfig --allowJs --checkJs --noEmit --skipLibCheck --target ES2022 --module NodeNext ../packages/workbench/client/desktop-contract.cjs",
         ],
         dependsOn: ["ui-build"],

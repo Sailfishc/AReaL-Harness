@@ -3,7 +3,7 @@ id: question-card
 title: QuestionCard
 summary: 聚焦一个问题的选择卡；选中与提交分离，长选项完整可读。
 status: experimental
-entry: wip
+entry: experimental
 layer: conversation
 category: decision
 aliases: ["Ask User", "问题卡片", "追问"]

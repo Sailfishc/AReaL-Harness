@@ -3,7 +3,7 @@ id: disclosure
 title: Disclosure
 summary: 原地展开附加信息并保留同一组件身份下的阅读选择。
 status: experimental
-entry: wip
+entry: experimental
 layer: core
 category: disclosure
 aliases: ["折叠"]

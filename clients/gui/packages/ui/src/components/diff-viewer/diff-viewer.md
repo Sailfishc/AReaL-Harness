@@ -3,7 +3,7 @@ id: diff-viewer
 title: DiffViewer
 summary: 变更对比与行级批注呈现。
 status: experimental
-entry: wip
+entry: experimental
 layer: core
 category: reading
 aliases: ["变更对比与行级批注呈现"]
@@ -39,7 +39,7 @@ exports: ["DiffViewer"]
 
 ## 规则
 
-包不依赖renderer、Intl、Store、Core或Electron。原路径仅转接或注入宿主数据；保持experimental/wip，不自动提升稳定API。
+包不依赖renderer、Intl、Store、Core或Electron。原路径仅转接或注入宿主数据；API 保持 experimental，不自动提升稳定 API。
 
 ## 示例
 

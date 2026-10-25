@@ -2,7 +2,7 @@
 
 ## 1. 背景与当前问题
 
-- `@areal/ui` 只有两个入口：稳定入口 `@areal/ui`（[index.ts](../packages/ui/src/index.ts)，12 条导出语句，都是 core 控件）和 `@areal/ui/wip`（[wip.ts](../packages/ui/src/wip.ts)，52 条导出语句）。
+- 原始评估时 `@areal/ui` 只有稳定入口（[index.ts](../packages/ui/src/index.ts)，12 条导出语句，都是 core 控件）和 `@areal/ui/wip`（历史 `src/wip.ts`，52 条导出语句）。迁移后入口见 [compositions.ts](../packages/ui/src/compositions.ts) 和 [experimental.ts](../packages/ui/src/experimental.ts)。
 - 按 [包说明](../packages/ui/README.md)，`wip` 同时承担两种语义："实验入口"和"领域组合"（settings、conversation、workbench、worktree），另外还有不满 3 个消费者、尚未毕业的 core 控件。
 - 矛盾：已经在 [Base](../design-system/base.md) 以 `frozen-beta` 状态准入的成员（`SettingsPage`、`SettingsSection`、`SettingsGroupCard`、`SettingsRow` 等）只能从 `@areal/ui/wip` 导入。入口名称暗示"不稳定"，Base 却声明"冻结"。
 - 56 个生产文件引用 `@areal/ui/wip`。使用者和 Agent 没法从导入路径判断某个导出是稳定合同还是实验品，评审也无法判断一次修改是否破坏了冻结成员。

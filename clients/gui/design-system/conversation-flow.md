@@ -35,7 +35,7 @@
 | SubagentPanel | [子代理面板合同](../packages/ui/src/conversation/subagent-panel/subagent-panel.md) | 入口→分状态全部列表→子任务历史→原列表；过多完成项展开 |
 | ThinkingStatus | [思考提示合同](../packages/ui/src/conversation/thinking-status/thinking-status.md) | 左到右扫光、静态减少动效、不可见/后台停止 |
 
-这些组件均从 `@areal/ui/wip` 消费，独立样式为 `@areal/ui/conversation.css`。[UI 包预览](../renderer/design-system.html?ui-library)用普通活动文本、原生图片和本地动作独立消费同一组件，不加载 renderer 工作台样式。API、组件索引、Agent 索引和 Markdown 来自包构建，尚未提升为稳定入口或 Base 准入。
+这些组件均从 `@areal/ui/experimental` 消费，独立样式为 `@areal/ui/conversation.css`。[UI 包预览](../renderer/design-system.html?ui-library)用普通活动文本、原生图片和本地动作独立消费同一组件，不加载 renderer 工作台样式。API、组件索引、Agent 索引和 Markdown 来自包构建，尚未提升为稳定入口或 Base 准入。
 
 相关检查：`pnpm --dir clients/gui design:build`，然后 `pnpm --dir clients/gui test:design --conversation-system`。专项沿既有浏览器 runner 检查默认折叠、人工选择跨完成保留、纵向滚动、图片加载与查看、来源状态以及窄窗返回，保留截图与 manifest。浏览器结果不代表真实执行、完整应用生命周期、安装包或用户视觉认可；下面的目标合同仍需分别按实际覆盖验收。
 

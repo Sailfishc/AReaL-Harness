@@ -8,7 +8,8 @@ Foundations, React components and component contracts for the AReaL GUI. A priva
 
 ```tsx
 import { Button, Select, Tooltip } from "@areal/ui";          // stable entry
-import { ComposerActionButton, SettingsRow } from "@areal/ui/wip"; // experimental entry and domain compositions
+import { SettingsRow } from "@areal/ui/compositions";       // Base-admitted composition
+import { ComposerActionButton } from "@areal/ui/experimental"; // experimental API
 ```
 
 The host uses React 19, Base UI and Tailwind 4. Import `@areal/ui/styles.css` (foundations and core component styles) and `@areal/ui/themes.css` (default light/dark palette) after Tailwind. Domain compositions import their own styles: `conversation.css`, `settings.css`, `workbench.css`, `worktree.css`, `notifications.css`.
@@ -25,7 +26,9 @@ The host uses React 19, Base UI and Tailwind 4. Import `@areal/ui/styles.css` (f
 
 `src/components` (core) holds general controls; `src/settings`, `src/conversation`, `src/workbench` and `src/worktree` hold domain compositions. Core cannot import other layers, and no component may import the renderer, Core, Node or Electron.
 
-A core component used by three or more production files moves to the stable entry `@areal/ui`; domain compositions stay in `@areal/ui/wip`. `dist/components.json` lists the current members.
+A core component used by three or more production files is assessed for the stable entry `@areal/ui`. Admitted package compositions use `@areal/ui/compositions`; other members use `@areal/ui/experimental`. Base `frozen-beta` freezes a finite GUI slice and does not promote public API stability. Component contracts separately own entries, API status and exports. The GUI registry owns admission. `dist/components.json` lists the current members.
+
+Each production experimental import records its file, symbol, owner and exit condition in [experimental-allowlist.json](experimental-allowlist.json). Checks reject unlisted imports and stale allowances; design previews are excluded from production consumers. The former `wip` entry and deep source imports are disabled. The SettingsSelect contract uses `experimentalExports` to identify auxiliary symbols that still use the experimental entry.
 
 ## Changing the system
 

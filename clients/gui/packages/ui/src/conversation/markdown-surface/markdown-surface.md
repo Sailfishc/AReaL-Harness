@@ -3,7 +3,7 @@ id: markdown-surface
 title: MarkdownSurface
 summary: 静态与流式Markdown渲染表面和错误回退。
 status: experimental
-entry: wip
+entry: experimental
 layer: conversation
 category: composition
 aliases: ["静态与流式Markdown渲染表面和错误回退"]

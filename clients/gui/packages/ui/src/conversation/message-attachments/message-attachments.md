@@ -3,7 +3,7 @@ id: message-attachments
 title: Attachments
 summary: 消息媒体、文件与来源附件。
 status: experimental
-entry: wip
+entry: experimental
 layer: conversation
 category: composition
 aliases: ["消息媒体、文件与来源附件"]

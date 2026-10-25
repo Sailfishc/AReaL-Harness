@@ -3,7 +3,7 @@ id: task-title-overflow
 title: TaskTitleOverflowText
 summary: 任务长标题的测量、渐隐与滚动。
 status: experimental
-entry: wip
+entry: experimental
 layer: workbench
 category: composition
 aliases: ["任务长标题的测量、渐隐与滚动"]

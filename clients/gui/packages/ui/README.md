@@ -8,7 +8,8 @@ AReaL GUI 的基础值、React 组件和组件合同。私有 workspace 包，�
 
 ```tsx
 import { Button, Select, Tooltip } from "@areal/ui";          // 稳定入口
-import { ComposerActionButton, SettingsRow } from "@areal/ui/wip"; // 实验入口与领域组合
+import { SettingsRow } from "@areal/ui/compositions";       // Base 准入组合
+import { ComposerActionButton } from "@areal/ui/experimental"; // 实验 API
 ```
 
 宿主使用 React 19、Base UI 与 Tailwind 4，在 Tailwind 之后导入 `@areal/ui/styles.css`（基础值与 core 组件样式）和 `@areal/ui/themes.css`（默认明暗调色板）。领域组合各自导入样式：`conversation.css`、`settings.css`、`workbench.css`、`worktree.css`、`notifications.css`。
@@ -25,7 +26,9 @@ import { ComposerActionButton, SettingsRow } from "@areal/ui/wip"; // 实验入�
 
 `src/components`（core）放通用控件；`src/settings`、`src/conversation`、`src/workbench`、`src/worktree` 放领域组合。core 不能导入其他层，组件不能导入 renderer、Core、Node 或 Electron。
 
-core 组件在 3 个及以上生产文件使用后进入稳定入口 `@areal/ui`；领域组合留在 `@areal/ui/wip`。当前成员以 `dist/components.json` 为准。
+core 组件在 3 个及以上生产文件使用后评估进入稳定入口 `@areal/ui`。已准入的包内组合使用 `@areal/ui/compositions`；其余成员使用 `@areal/ui/experimental`。Base 的 `frozen-beta` 固定有限 GUI 切片，不自动升级公共 API 稳定性。入口、API 状态与导出由组件合同分别记录，准入归 GUI registry；当前成员以 `dist/components.json` 为准。
+
+生产代码的每个实验导入在 [experimental-allowlist.json](experimental-allowlist.json) 记录文件、符号、所有者和退出条件。检查拒绝未登记导入及失效名单；设计预览不计生产消费者。旧 `wip` 入口和源码深层导入已禁用。SettingsSelect 合同中的 `experimentalExports` 单独标明仍从实验入口导出的辅助符号。
 
 ## 修改
 

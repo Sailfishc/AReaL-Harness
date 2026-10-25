@@ -44,6 +44,71 @@ jobs:
       - id: scope
         run: python3 scripts/ci-scope.py
 
+  gui-health:
+    name: Linux GUI health and portable contracts
+    needs: scope
+    if: needs.scope.outputs.gui == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '24.22.1'
+      - name: Install locked GUI dependencies
+        run: |
+          npm install --global pnpm@11.7.0
+          pnpm --dir clients/gui install --frozen-lockfile
+      - name: Build portable package inputs
+        run: |
+          pnpm --dir clients/gui build:desktop
+          pnpm --dir clients/gui --filter @areal/ui build
+          pnpm --dir clients/gui --filter @areal/gui-renderer build
+      - name: Check health against the reviewed baseline
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BASE: ${{ github.event.before }}
+          COMPARISON_BASE: ${{ inputs.comparison_base }}
+        run: |
+          mkdir -p target/ci/gui
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            health_base="$(git merge-base "$PR_BASE" HEAD)"
+          elif [ "$GITHUB_EVENT_NAME" = "push" ] && [ -n "$PUSH_BASE" ] && [[ ! "$PUSH_BASE" =~ ^0+$ ]]; then
+            health_base="$PUSH_BASE"
+          elif [ -n "$COMPARISON_BASE" ]; then
+            health_base="$(git rev-parse --verify --end-of-options "$COMPARISON_BASE^{commit}")"
+          else
+            health_base="$(git rev-parse HEAD^)"
+          fi
+          git merge-base --is-ancestor "$health_base" HEAD
+          if git cat-file -e "$health_base:clients/gui/health-baseline.json" 2>/dev/null; then
+            node clients/gui/scripts/gui-health.mjs --check --base="$health_base"
+          else
+            node clients/gui/scripts/gui-health.mjs --check
+          fi
+          node clients/gui/scripts/gui-health.mjs > target/ci/gui/health.json
+      - name: Validate registered portable tests
+        working-directory: clients/gui
+        run: |
+          node scripts/test-manifest.mjs
+          node scripts/run-portable-tests.mjs
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '24.2.0'
+      - name: Verify Relay contracts with their required runtime
+        run: |
+          npm --prefix services/remote-relay ci --ignore-scripts
+          pnpm --dir clients/gui run test:remote-relay
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: linux-gui-health
+          path: target/ci/gui/health.json
+          if-no-files-found: warn
+
   gui:
     needs: scope
     if: needs.scope.outputs.gui == 'true'
@@ -129,6 +194,8 @@ jobs:
           make gui-build 2>&1 | tee target/ci/gui/gui-build.log
       - name: Check registered desktop RPC routes
         run: cargo test --locked -p areal-app-server --lib desktop_registered_methods_have_dispatch_routes 2>&1 | tee target/ci/gui/rpc-routes.log
+      - name: Check renderer bundle budgets
+        run: node clients/gui/scripts/bundle-budget.mjs --check > target/ci/gui/bundle-report.json
       - name: Archive smoke inputs from this exact build
         run: |
           git rev-parse HEAD > target/ci/gui/source.sha
@@ -148,6 +215,8 @@ jobs:
           path: |
             target/ci/gui/*.log
             target/ci/gui/fingerprint.json
+            target/ci/gui/bundle-report.json
+            clients/gui/renderer/dist/bundle-analysis.json
             /private/tmp/areal-core-process-*/
             /private/tmp/areal-browser-*/
             /private/tmp/shared-browser-06-evidence-*/
@@ -242,7 +311,7 @@ jobs:
 
   gate:
     name: GUI gate
-    needs: [scope, gui, smoke]
+    needs: [scope, gui-health, gui, smoke]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -255,5 +324,6 @@ jobs:
           SCOPE_RESULT: ${{ needs.scope.result }}
           WORK_RESULT: ${{ needs.gui.result }}
           SMOKE_RESULT: ${{ needs.scope.outputs.gui == 'false' && 'success' || needs.smoke.result }}
+          HEALTH_RESULT: ${{ needs.scope.outputs.gui == 'false' && 'success' || needs.gui-health.result }}
           NEEDED: ${{ needs.scope.outputs.gui }}
         run: python3 scripts/ci-gate.py

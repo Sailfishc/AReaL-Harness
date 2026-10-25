@@ -3,7 +3,7 @@ id: settings-dialog
 title: SettingsDialog
 summary: 设置弹窗、工具栏与空态。
 status: experimental
-entry: wip
+entry: experimental
 layer: settings
 category: composition
 aliases: ["设置弹窗、工具栏与空态"]
@@ -39,7 +39,7 @@ exports: ["SettingsDialog", "SettingsToolbar", "EmptySettings"]
 
 ## 规则
 
-包不依赖renderer、Intl、Store、Core或Electron。原路径仅转接或注入宿主数据；保持experimental/wip，不自动提升稳定API。
+包不依赖renderer、Intl、Store、Core或Electron。原路径仅转接或注入宿主数据；API 保持 experimental，不自动提升稳定 API。
 
 ## 示例
 

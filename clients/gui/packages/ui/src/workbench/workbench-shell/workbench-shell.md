@@ -3,7 +3,7 @@ id: workbench-shell
 title: WorkbenchShell
 summary: 工作台框架、页头、侧栏和面板宽度过渡。
 status: experimental
-entry: wip
+entry: experimental
 layer: workbench
 category: composition
 aliases: ["工作台框架、页头、侧栏和面板宽度过渡"]

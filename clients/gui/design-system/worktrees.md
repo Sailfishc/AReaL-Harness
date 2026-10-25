@@ -256,6 +256,6 @@ Variables 入口打开小型只读说明，列出 `AREAL_WORKTREE_PATH`、`AREAL
 
 ## UI包采用
 
-WorktreePicker、WorktreeStatus、WorktreeDirectory、WorktreeSettings、WorktreeWorkspace从私有@areal/ui/wip消费，样式入口为worktree.css，各自有同目录MD及独立可操作实例。原WorktreeStarter、WorktreeStatus/Actions与WorktreesSettings仍拥有选项读取、事件投影、草稿、版本校验、确认及实际执行。包内不请求服务、不保存配置、不自动重放未知请求。
+WorktreePicker、WorktreeStatus、WorktreeDirectory、WorktreeSettings、WorktreeWorkspace从私有@areal/ui/experimental消费，样式入口为worktree.css，各自有同目录MD及独立可操作实例。原WorktreeStarter、WorktreeStatus/Actions与WorktreesSettings仍拥有选项读取、事件投影、草稿、版本校验、确认及实际执行。包内不请求服务、不保存配置、不自动重放未知请求。
 
 操作失败/成功通知采用统一NotificationToast；提示自动消失不清除原记录或目录详情中的受阻原因。

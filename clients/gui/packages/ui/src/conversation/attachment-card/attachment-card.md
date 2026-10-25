@@ -3,7 +3,7 @@ id: attachment-card
 title: AttachmentCard
 summary: 草稿与队列附件卡、移除与标注入口。
 status: experimental
-entry: wip
+entry: experimental
 layer: conversation
 category: composition
 aliases: ["草稿与队列附件卡、移除与标注入口"]

@@ -3,7 +3,7 @@ id: markdown-blockquote
 title: MarkdownBlockquote
 summary: Markdown引用正文。
 status: experimental
-entry: wip
+entry: experimental
 layer: conversation
 category: composition
 aliases: ["Markdown引用正文"]

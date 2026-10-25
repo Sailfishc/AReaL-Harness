@@ -3,7 +3,7 @@ id: feedback-notice
 title: FeedbackNotice
 summary: 带恢复动作与详情的持久状态。
 status: experimental
-entry: wip
+entry: experimental
 layer: core
 category: composition
 aliases: ["带恢复动作与详情的持久状态"]

@@ -25,10 +25,6 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
-    "./wip": {
-      "types": "./dist/wip.d.ts",
-      "default": "./dist/wip.js"
-    },
     "./cn": {
       "types": "./dist/lib/utils.d.ts",
       "default": "./dist/lib/utils.js"
@@ -76,7 +72,15 @@
       "types": "./dist/lib/code-comment-types.d.ts",
       "default": "./dist/lib/code-comment-types.js"
     },
-    "./workbench.css": "./dist/workbench.css"
+    "./workbench.css": "./dist/workbench.css",
+    "./compositions": {
+      "types": "./dist/compositions.d.ts",
+      "default": "./dist/compositions.js"
+    },
+    "./experimental": {
+      "types": "./dist/experimental.d.ts",
+      "default": "./dist/experimental.js"
+    }
   },
   "scripts": {
     "generate": "node scripts/foundations.mjs",

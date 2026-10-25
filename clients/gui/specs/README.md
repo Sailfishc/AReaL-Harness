@@ -4,6 +4,8 @@
 
 本 Spec 包只描述整改目标与约束，不代表已实现能力；实际行为仍以 [GUI 指南](../README.md)、[设计系统](../design-system/README.md) 与 [架构文档](../../../docs/design/architecture.md) 为准。
 
+实施前核查与原 spec 存在差异时，先读取[源码核查与实施决定](implementation-decisions.md)。该记录保留原目标，明确已有机制、错误假设及尚未取得的验收证据。
+
 ## 任务索引
 
 | ID | 级别 | 任务 | 依赖 | 主要不确定性 |

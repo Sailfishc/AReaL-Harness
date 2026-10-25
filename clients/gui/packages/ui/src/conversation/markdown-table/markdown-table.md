@@ -3,7 +3,7 @@ id: markdown-table
 title: MarkdownTable
 summary: Markdown表格、虚拟横向阅读及复制导出。
 status: experimental
-entry: wip
+entry: experimental
 layer: conversation
 category: composition
 aliases: ["Markdown表格、虚拟横向阅读及复制导出"]

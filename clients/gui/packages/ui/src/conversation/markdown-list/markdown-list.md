@@ -3,7 +3,7 @@ id: markdown-list
 title: MarkdownUnorderedList
 summary: Markdown有序与无序列表。
 status: experimental
-entry: wip
+entry: experimental
 layer: conversation
 category: composition
 aliases: ["Markdown有序与无序列表"]

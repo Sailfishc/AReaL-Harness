@@ -1,5 +1,11 @@
 # 自动化设计系统：来源核对与 v1 取舍
 
+## 工程检查入口
+
+`node scripts/gui-health.mjs` 在 GUI 工作目录输出生产范围、计数口径、源码摘要与指标证据。`--check` 对照 `health-baseline.json`，逐文件限制存量大文件增长，并拒绝新增超过 800 行的生产源码。`--write` 只收紧基线；明确的 `--allow-regression=<metric>` 会输出豁免项，CI 仍检查基准提交中的上限。Main 总行数与 UI 包 CSS 总行数只报告，避免阻止类型注释和样式归属迁移。
+
+测试元数据归 `scripts/test-manifest.json`，命令仍归根 `package.json`。`node scripts/test-manifest.mjs --list --platform=linux --layer=contract --available=git,gui-build` 只选择声明可运行且前提满足的测试；它不执行或证明其他平台的测试。实际跨进程、原生界面和安装包证据仍由原 runner 保留。
+
 ## 核对结论
 
 减少页面单点设计依靠四个环节相接：唯一设计源、有限组件/组合、可执行约束、独立效果验证。只统一颜色不限制组合；只做截图又会退回逐页修补。结构化数据负责消除歧义和驱动派生物，不能自动替人决定产品任务与视觉质量。
@@ -79,3 +85,13 @@ AReaL 在[设置迁移题](exercises/settings-reflow.md)中复用现有 renderer
 `Q-CONVERSATION-VIDEO-AB-07`采用相同任务/Base/三段录像比较独立生成与视频分析后集成。核查拒绝了对既有子面板、完成收敛、主动回看和人工工具展开的误判，确认图片缺少缩放控制，并沿共享附件所有者修复；实际验收和规则采纳见[复合题](exercises/conversation-flow.md#视频分析辅助的双路线实验)。样本用于选择可审查的工作流程，不用于推导模型准确率、供应商排名或整体效率结论。
 
 视频观察器与页面实现者分工：前者提名视觉事件/差异，后者结合合同、原件和日志裁决并实现。工具可以复用本机已授权的Antigravity或其它可处理视频的接口；启动前确认当前能力与素材范围，保留实际模型、强度、输入读取方式和采样限制。页面实现/采集不因采用本流程而获得新的外发、登录、执行或发布权限。
+
+## 无障碍与主题证据
+
+正常 `test:design` 在既有交互验收后运行 axe 与主题检查。`node scripts/design-system-smoke.mjs --accessibility` 复用同一个隔离 Chrome runner，只重跑该检查。报告沿用 runner 的临时证据目录。
+
+- `theme-snapshot.json` 比较修改前基线的 30 组、49 个颜色角色。此比较阻断颜色回归。
+- `contrast-matrix.json` 记录明确用途、前景、表面、底图与最低对比度，保留默认及自定义主题的失败行。浏览器解析 `color-mix`，并用 canvas 叠加透明颜色，再计算 WCAG 比值。
+- `accessibility.json` 记录 axe 版本、页面、主题、已挂载状态、组件位置、严重问题及需人工核对的 incomplete 项。当前为报告模式，尚未启用 serious、critical 的零问题阻断。颜色债务不会自动获得例外或触发改色。
+
+键盘与 reduced-motion 继续由现有设计及桌面 smoke 拥有。axe 不证明 VoiceOver 朗读、所有菜单展开态、真实 Core 行为或任意自定义颜色可读。默认主题颜色债务、额外状态和自定义颜色处理策略仍按 D4 保留为未完成验收。

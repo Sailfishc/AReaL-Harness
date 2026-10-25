@@ -105,6 +105,8 @@ Task 持久化的唯一提交点为版本 5 的 `desktop/task-mode.json`。紧�
 
 `clients/cli` 提供 Rust 命令入口 `areal`，分派到 TUI、非交互客户端、Core server 和服务宿主的库入口；Core 不依赖客户端。`core/service-host` 的 Rust launcher 持有独立 Core/Runtime 进程与私有生命周期管道，Linux 不依赖 Python；macOS 的可信 service-host、launcher、Core 和 Runtime 由 `/usr/bin/python3` 作为实际父进程启动，以满足本地可执行文件的启动约束；`core/local-service/native_process` 只适配服务链的进程身份、显式描述符与生命周期，不参与 Runtime sandbox 或权限决策。`scripts/launch.py` 保留用于开发脚本与独立评测入口。发行目录 `bin` 只含 `areal`，Runtime daemon/file helper 放在 `libexec/areal`，不并入客户端进程。命令契约见[客户端指南](../guides/clients.md)。
 
+历史记录只证实直接 Rust 启动曾收到 SIGKILL、Python 路径成功，以及后续直接启动也曾成功。发送信号的一方仍未归因，不能据此认定 AMFI、TCC、隔离属性或某个安全产品是根因。GUI 的依赖预检只在启动新后台前检查所选开发工具及系统 Python，不改变父进程身份、描述符、信号、退出回执或 Runtime 权限。
+
 macOS Runtime 还随包提供独立 Bash，作为受限命令的私有 shell 资源，并在进入沙箱前解析系统 Git 的真实工具链路径；这些适配只解决工具启动与临时目录兼容，不改变 Core 的任务执行循环或 Scope 隔离。资源布局、第三方许可证与边界见 [Runtime 契约](../api/runtime.md#macos-受限命令的系统工具)。
 
 ## 状态与执行

@@ -3,7 +3,7 @@ id: subagent-panel
 title: SubagentPanel
 summary: 从分状态列表进入子任务历史，返回保留展开、滚动和焦点。
 status: experimental
-entry: wip
+entry: experimental
 layer: conversation
 category: agents
 aliases: ["子代理面板"]

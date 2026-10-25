@@ -3,7 +3,7 @@ id: decision-card
 title: DecisionCard
 summary: 审批和问答的决策表面。
 status: experimental
-entry: wip
+entry: compositions
 layer: conversation
 category: composition
 aliases: ["审批和问答的决策表面"]

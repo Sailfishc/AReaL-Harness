@@ -1,4 +1,39 @@
 export const commonMessages = {
+  "decision.deny": { "zh-CN": "拒绝", en: "Deny" },
+  "decision.denyShortcut": { "zh-CN": "{label} Esc", en: "{label} Esc" },
+  "content.imageFallback": { "zh-CN": "[图片：{description}]", en: "[Image: {description}]" },
+  "content.imageInAttachments": { "zh-CN": "请在附件中查看", en: "View in attachments" },
+  "content.webPreview": { "zh-CN": "网页预览", en: "Web preview" },
+  "content.openWebPage": { "zh-CN": "打开网页 {title}", en: "Open web page {title}" },
+  "content.open": { "zh-CN": "打开", en: "Open" },
+  "chat.resources.trigger": { "zh-CN": "任务资源", en: "Task resources" },
+  "chat.resources.panel": { "zh-CN": "任务资源面板", en: "Task resources panel" },
+  "chat.usage.actual": { "zh-CN": "实际用量", en: "Actual usage" },
+  "chat.usage.confirmedNote": {
+    "zh-CN": "Core 已确认的当前任务用量；未报告轮次的消费未知，以下数字不代表最终总消费。",
+    en: "Usage confirmed by Core for the current task. Usage for unreported turns is unknown. The figures below do not represent the final total usage.",
+  },
+  "chat.usage.inputTokens": { "zh-CN": "输入 Token", en: "Input tokens" },
+  "chat.usage.cachedTokens": { "zh-CN": "缓存输入", en: "Cached input" },
+  "chat.usage.outputTokens": { "zh-CN": "输出 Token", en: "Output tokens" },
+  "chat.usage.unknown": { "zh-CN": "未知", en: "Unknown" },
+  "chat.usage.reportedTurns": {
+    "zh-CN": "{known, number} / {total, number} 轮有用量记录",
+    en: "{known, number} / {total, plural, one {# turn has reported usage} other {# turns have reported usage}}",
+  },
+  "chat.usage.unknownTurns": {
+    "zh-CN": "还有 {count, number} 轮消费未知；未计入已确认用量。",
+    en: "Usage for {count, plural, one {# more turn is} other {# more turns is}} unknown and excluded from confirmed usage.",
+  },
+  "chat.usage.turnStatus": {
+    "zh-CN": "第 {number, number} 轮 · {status}",
+    en: "Turn {number, number} · {status}",
+  },
+  "chat.usage.turnTokens": {
+    "zh-CN": "{input} 输入 / {output} 输出",
+    en: "{input} input / {output} output",
+  },
+  "chat.usage.unknownUsage": { "zh-CN": "用量未知", en: "Usage unknown" },
   "recovery.operationUnconfirmed": {
     "zh-CN": "操作结果待确认。",
     en: "The operation is unconfirmed.",

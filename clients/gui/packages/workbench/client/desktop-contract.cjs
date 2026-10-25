@@ -178,6 +178,23 @@ function commandSemantics(name, request) {
 }
 /** @typedef {keyof typeof commandDefinitions} CommandName */
 /** @template {CommandName} N @typedef {N extends 'history' ? HistoryRequest : N extends 'serviceLifecycle' ? {operation:'update'|'stop'|'check'|'recover'|'quitInterface'|'stopAndQuit'} : N extends 'stop' ? {projectId:string,threadId:string,turnId:string,requestId:string} : N extends 'continue' ? ContinueRequest : N extends 'prepareCreator' ? PrepareCreatorRequest : N extends 'fork' ? ForkRequest : N extends 'configure' ? ConfigureRequest : N extends 'side' ? SideRequest : N extends 'trajectory' ? TrajectoryRequest : Record<string,unknown>} CommandParams */
+/** @typedef {{projectId:string,profile:ResourceRef,skill:ResourceRef & {name:string,description:string},provenance:{upstream:string,revision:string,contentDigest:string}}} PrepareCreatorResponse */
+/** @typedef {Record<string,unknown> & ({turn:Record<string,unknown> & {id:string}}|{queueRevision:number})} ContinueResponse */
+/** @typedef {Record<string,unknown> & {threadId:string,requestId:string}} ForkResponse */
+/** @template {SideRequest} P
+ * @typedef {Record<string,unknown> & (P extends {operation:'start'} ? ForkResponse
+ * : P extends {operation:'create'} ? ForkResponse & {turnId?:string}
+ * : P extends {operation:'close'} ? ForkResponse & {accepted:boolean,cleanupConfirmed:boolean}
+ * : P extends {operation:'recover'} ? {confirmed:false}|{confirmed:true,threadId:string}
+ * : P extends {operation:'list'} ? {data:Record<string,unknown>[],nextCursor?:string|null}
+ * : P extends {operation:'context'} ? {snapshotId:string,evidence:Record<string,unknown>[],nextCursor?:string|null}
+ * : {turn:Record<string,unknown> & {id:string}})} SideResponse */
+/** Only guarantees checked by validateCommandResponse are exposed. Other commands remain unknown.
+ * @template {CommandName} N
+ * @template {CommandParams<N>} [P=CommandParams<N>]
+ * @typedef {N extends 'prepareCreator' ? PrepareCreatorResponse : N extends 'continue' ? ContinueResponse
+ * : N extends 'fork' ? ForkResponse : N extends 'configure' ? Record<string,unknown> & {projects:unknown[]}
+ * : N extends 'side' ? SideResponse<Extract<P,SideRequest>> : unknown} CommandResponse */
 /** @typedef {'show'|'navigate'|'back'|'forward'|'reload'|'stop'|'state'|'external'|'devtools'|'openLink'|'release'|'claim'|'takeover'|'captureRegion'|'captureElement'|'selectElement'|'cancelElementSelection'|'checkElement'|'endRegion'|'beginStyleTrial'|'applyStyleTrial'|'undoStyleTrial'|'redoStyleTrial'|'styleTrialState'|'captureStyleTrialAfter'|'clearStyleTrial'|'newPage'|'selectPage'|'subscribe'|'unsubscribe'|'allowNextDownload'|'cancelFileHandoff'|'cancelDownload'|'authorizeFrameOrigin'|'reloadFrameOrigin'|'revokeFrameOrigin'} OwnedPreviewOperation */
 /** @typedef {{operation:'hide',projectId?:string,threadId?:string,pageId?:string,captureId?:string}|{operation:OwnedPreviewOperation,projectId:string,threadId:string,pageId?:string,captureId?:string,x?:number,y?:number,elementId?:string,trialId?:string,property?:string,value?:string,downloadId?:string,url?:string,userIntent?:boolean,visible?:boolean,bounds?:{x:number,y:number,width:number,height:number}}} PreviewRequest */
 /** @param {unknown} value @returns {value is Record<string,unknown>} */
@@ -1301,6 +1318,8 @@ function desktopError(error) {
   };
 }
 
+/** @template {CommandName} N @template {CommandParams<N>} P @overload
+ * @param {N} name @param {P} params @param {unknown} value @returns {asserts value is CommandResponse<N,P>} */
 /** @param {string} name @param {unknown} params @param {unknown} value */
 function validateCommandResponse(name, params, value) {
   if (!record(params)) invalid();
