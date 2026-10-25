@@ -292,6 +292,8 @@ For signing, notarization and archives without post-signing functional tests, ad
 
 The current support matrix contains **native macOS arm64 only**. Linux, Windows, x64 and cross-compilation fail explicitly until their package and service owners implement support behind this entry point. ZIP has no DMG size budget. Local DMG export and release assembly enforce **≤250 MiB (262,144,000 bytes)**; exceeding it fails. Do not create delivery images outside the dedicated exporter. Check an existing artifact with `node clients/gui/scripts/dmg-size.mjs /absolute/package.dmg`. GUI CI retains DMG staging tests and does not build a complete release DMG. Installation packages are built, validated and uploaded locally. Candidate build success does not establish installation or GUI acceptance.
 
+The workspace excludes only the `app-builder-lib@26.15.3` Squirrel.Windows backend because this packaging entry point supports macOS arm64 only. macOS automatic updates retain `electron-updater` and Electron's `autoUpdater`.
+
 ```sh
 make release
 AREAL_CORE_PROFILE=release AREAL_GUI_PACKAGE_DIR=/absolute/new-package make gui-package

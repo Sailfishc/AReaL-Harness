@@ -151,7 +151,6 @@ import { ComposerWorkspaceContext } from "./ComposerWorkspaceContext.js";
 import { Queue } from "./Queue.js";
 import { browserAnnotationTitle } from "./browserAnnotations.js";
 import { Preview } from "./Preview.js";
-import { TerminalPane } from "./terminal/TerminalPane.js";
 import {
   addTerminal,
   closeTerminal,
@@ -199,6 +198,10 @@ import { useTrajectoryPolling } from "./settings/useTrajectoryPolling.js";
 import type { TrajectoryStatus } from "@areal/workbench/desktop-contract";
 import { CoreCapabilitiesSettings } from "./settings/CoreCapabilitiesSettings.js";
 import { MobileSettings } from "./settings/MobileSettings.js";
+const TerminalPane = React.lazy(async () => {
+  const { TerminalPane } = await import("./terminal/TerminalPane.js");
+  return { default: TerminalPane };
+});
 const settingsNavigationGroups = [
   {
     id: "personal",
@@ -2949,14 +2952,22 @@ function AppContent({ services }: { services: PlatformServices }) {
       ) : null;
     if (isTerminalTab(panel))
       return (
-        <TerminalPane
-          key={`${project.id}:${threadId}:${panel}`}
-          {...props}
-          terminalId={panel}
-          canStart={!admitting && !pending && !!project.state?.connected}
-          onError={setError}
-          onLink={onLink}
-        />
+        <React.Suspense
+          fallback={
+            <p role="status" className="p-3 text-ui-base text-foreground-subtle">
+              {t("common.loading")}
+            </p>
+          }
+        >
+          <TerminalPane
+            key={`${project.id}:${threadId}:${panel}`}
+            {...props}
+            terminalId={panel}
+            canStart={!admitting && !pending && !!project.state?.connected}
+            onError={setError}
+            onLink={onLink}
+          />
+        </React.Suspense>
       );
     return null;
   };
@@ -4595,18 +4606,26 @@ function AppContent({ services }: { services: PlatformServices }) {
                               <X size={16} />
                             </button>
                           </div>
-                          <TerminalPane
-                            key={`${project.id}:${threadId}`}
-                            project={project}
-                            thread={thread}
-                            action={action}
-                            onClosed={(id) =>
-                              setPanelTabs((tabs) => tabs.filter((tab) => tab !== id))
+                          <React.Suspense
+                            fallback={
+                              <p role="status" className="p-3 text-ui-base text-foreground-subtle">
+                                {t("common.loading")}
+                              </p>
                             }
-                            canStart={!admitting && !pending && !!project.state?.connected}
-                            onError={setError}
-                            onLink={onLink}
-                          />
+                          >
+                            <TerminalPane
+                              key={`${project.id}:${threadId}`}
+                              project={project}
+                              thread={thread}
+                              action={action}
+                              onClosed={(id) =>
+                                setPanelTabs((tabs) => tabs.filter((tab) => tab !== id))
+                              }
+                              canStart={!admitting && !pending && !!project.state?.connected}
+                              onError={setError}
+                              onLink={onLink}
+                            />
+                          </React.Suspense>
                         </section>
                       )}
                     </div>
