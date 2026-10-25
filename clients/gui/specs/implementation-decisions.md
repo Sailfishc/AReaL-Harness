@@ -71,3 +71,5 @@ D4 的 axe 与主题配对矩阵先以报告形式接入。已有主题包含严
 现有合同与 source characterization 覆盖这些顺序中的只读计划部分。删除计划消费语句的隔离变体被重复执行检查捕获。整页 reducer 会增加 effect queue、操作身份和回执迁移，当前证据不足以承担这项改写。因此本轮止于已有纯模块抽取，不用 mixin、方法绑定位移或巨型 context 参数凑行数。
 
 后续最小切片是只读计划的构造和匹配规则。Map 删除位置、实时 owner 检查与所有 await 保留在 Main。现有诊断中的 60 秒定时偏差不等于事件循环 p99；实际 Main histogram 尚未测量，不能据此引入 `utilityProcess` 或宣布无需隔离。
+
+主工作树随后完成的 `7b19ee69` 已合入本特性分支。它增加任务上下文的共享行布局、明确的来源收起文案和生产组件预览。预览直接导入已提取的 `views/TaskResourcesPopover.tsx`，不把该组件重新放回 App。共享 Item 和 Sources 的 accessible name 包含可见文字。`TaskContext` 保留实验身份，其新增代理摘要消费者登记到既有名单，不扩大 Base 准入。合并时格式器展开 `AgentResources.css`，首次 Renderer CSS 基线因此包含新的物理行数；这不是样式采用率改善或新增几百条样式的证据。

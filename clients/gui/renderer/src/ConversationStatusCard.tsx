@@ -266,6 +266,8 @@ export function ConversationStatusCard({
           summary={{ onOpen: onAgents ?? (() => onPanel("子代理")) }}
         />
         <TaskContext.Sources
+          collapseLabel={t("chat.context.collapseSources")}
+          expandLabel={t("chat.context.expandSources")}
           items={entries}
           onAdd={onAddSource}
           onViewAll={() => setAllSources(true)}

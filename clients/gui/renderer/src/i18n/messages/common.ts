@@ -60,6 +60,8 @@ export const commonMessages = {
   "decision.requestDetails": { "zh-CN": "查看完整请求", en: "View full request" },
   "decision.commandPreview": { "zh-CN": "命令预览", en: "Command preview" },
   "decision.answerLater": { "zh-CN": "稍后回答", en: "Answer later" },
+  "chat.context.collapseSources": { "zh-CN": "收起", en: "Collapse" },
+  "chat.context.expandSources": { "zh-CN": "展开", en: "Expand" },
   "chat.context.allSources": { "zh-CN": "全部来源", en: "All sources" },
   "chat.context.sourceRegion": { "zh-CN": "全部输入来源", en: "All input sources" },
   "chat.context.backSources": { "zh-CN": "返回来源概览", en: "Back to sources" },

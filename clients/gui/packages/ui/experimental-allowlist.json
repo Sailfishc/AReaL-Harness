@@ -6,6 +6,12 @@
     "exitCondition": "Evaluate SubagentPanel against its component contract and Base admission before graduation, or remove this consumer."
   },
   {
+    "file": "renderer/src/AgentsPane.tsx",
+    "symbol": "TaskContext",
+    "owner": "renderer/src/AgentsPane.tsx",
+    "exitCondition": "Evaluate TaskContext against its component contract and Base admission before graduation, or remove this consumer."
+  },
+  {
     "file": "renderer/src/AskUserQuestion.tsx",
     "symbol": "QuestionCard",
     "owner": "renderer/src/AskUserQuestion.tsx",

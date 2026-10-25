@@ -7,7 +7,7 @@ import {
   type Ref,
 } from "react";
 import { Collapsible } from "@base-ui/react/collapsible";
-import { ArrowLeftIcon, ChevronRightIcon, PlusIcon, NetworkIcon } from "lucide-react";
+import { ArrowLeftIcon, PlusIcon, NetworkIcon } from "lucide-react";
 import { Button } from "../../components/button/button.js";
 
 export type TaskContextProps = {
@@ -72,7 +72,7 @@ function ContextSection({
 }
 type ContextItemProps = Omit<
   ComponentProps<typeof Button>,
-  "children" | "className" | "variant" | "size" | "title"
+  "children" | "className" | "variant" | "size" | "title" | "unstyled"
 > & {
   title: string;
   description?: string;
@@ -85,20 +85,23 @@ function ContextItem({ title, description, tooltip, icon, meta, ...props }: Cont
     <Button
       {...props}
       aria-label={
-        props["aria-label"] && description
-          ? `${props["aria-label"]} ${description}`
-          : props["aria-label"]
+        props["aria-label"]
+          ? [title, description, typeof meta === "string" ? meta : undefined].reduce<string>(
+              (label, text) => (text && !label.includes(text) ? `${label} ${text}` : label),
+              props["aria-label"],
+            )
+          : undefined
       }
       title={tooltip ?? title}
       variant="ghost"
       className="areal-context-item"
     >
-      {icon}
+      {icon && <span className="areal-context-item-icon">{icon}</span>}
       <span className="areal-context-item-body">
         <span>{title}</span>
         {description && <small>{description}</small>}
       </span>
-      {meta}
+      {meta && <span className="areal-context-item-meta">{meta}</span>}
     </Button>
   );
 }
@@ -107,12 +110,16 @@ type ContextSourcesProps<T> = {
   children: (item: T) => ReactNode;
   onViewAll: () => void;
   onAdd?: () => void;
+  collapseLabel?: string;
+  expandLabel?: string;
 };
 function ContextSources<T extends { id: string }>({
   items,
   children,
   onViewAll,
   onAdd,
+  collapseLabel = "收起",
+  expandLabel = "展开",
 }: ContextSourcesProps<T>) {
   const [open, setOpen] = useState(true);
   const id = useId();
@@ -122,11 +129,11 @@ function ContextSources<T extends { id: string }>({
         <div className="areal-sources-heading">
           <Collapsible.Trigger
             render={<Button variant="ghost" className="areal-sources-trigger" />}
-            aria-label={open ? "折叠来源 Sources" : "展开来源 Sources"}
+            aria-label={`${open ? "折叠来源" : "展开来源"} Sources ${open ? collapseLabel : expandLabel}`}
             aria-controls={id}
           >
             <span>Sources</span>
-            <ChevronRightIcon size={14} className="areal-sources-indicator" />
+            <span className="areal-sources-toggle-label">{open ? collapseLabel : expandLabel}</span>
           </Collapsible.Trigger>
           {onAdd && (
             <Button variant="ghost" size="icon-sm" aria-label="添加来源" onClick={onAdd}>

@@ -231,6 +231,12 @@
       "source": "packages/ui/src/settings/settings-search-input/settings-search-input.tsx",
       "purpose": "带可读清除动作的资源搜索输入",
       "importFrom": "@areal/ui/compositions"
+    },
+    {
+      "id": "TaskContext",
+      "source": "packages/ui/src/conversation/task-context/task-context.tsx",
+      "importFrom": "@areal/ui/experimental",
+      "purpose": "顶部任务上下文：紧凑分区、资源预览与深入查看入口，数据和导航由宿主拥有"
     }
   ],
   "patterns": [

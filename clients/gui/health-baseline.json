@@ -1,6 +1,6 @@
 {
   "$schemaVersion": 1,
-  "$revision": "44e3b0fab3c0eef15c871e06f811c47d5a6afd66",
+  "$revision": "9a22251cf99acad98909fd3320e63aeb819a5125",
   "mainCheckedFiles": {
     "value": 6,
     "direction": "up",
@@ -27,7 +27,7 @@
     "owner": "renderer/src"
   },
   "rendererCssLines": {
-    "value": 6575,
+    "value": 6894,
     "direction": "down",
     "owner": "renderer/src"
   },
@@ -273,8 +273,8 @@
     "packages/ui/src/conversation/question-card/question-card.tsx": 23,
     "packages/ui/src/conversation/subagent-panel/subagent-panel.css": 23,
     "packages/ui/src/conversation/subagent-panel/subagent-panel.tsx": 58,
-    "packages/ui/src/conversation/task-context/task-context.css": 30,
-    "packages/ui/src/conversation/task-context/task-context.tsx": 166,
+    "packages/ui/src/conversation/task-context/task-context.css": 169,
+    "packages/ui/src/conversation/task-context/task-context.tsx": 173,
     "packages/ui/src/conversation/thinking-status/thinking-status.css": 10,
     "packages/ui/src/conversation/thinking-status/thinking-status.tsx": 19,
     "packages/ui/src/experimental.ts": 160,
@@ -332,8 +332,8 @@
     "renderer/src/AgentConversationPane.tsx": 45,
     "renderer/src/AgentHistoryPane.tsx": 15,
     "renderer/src/AgentIdentity.tsx": 38,
-    "renderer/src/AgentResources.css": 82,
-    "renderer/src/AgentsPane.tsx": 760,
+    "renderer/src/AgentResources.css": 401,
+    "renderer/src/AgentsPane.tsx": 748,
     "renderer/src/AnnotationNoteEditor.css": 100,
     "renderer/src/AnnotationNoteEditor.tsx": 44,
     "renderer/src/App.tsx": 4501,
@@ -375,7 +375,7 @@
     "renderer/src/ConversationHistory.tsx": 46,
     "renderer/src/ConversationReferences.tsx": 27,
     "renderer/src/ConversationSelectionReferences.tsx": 55,
-    "renderer/src/ConversationStatusCard.tsx": 362,
+    "renderer/src/ConversationStatusCard.tsx": 364,
     "renderer/src/CorePanels.js": 1,
     "renderer/src/DecisionCard.css": 1,
     "renderer/src/DecisionCard.tsx": 20,

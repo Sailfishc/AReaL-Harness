@@ -38,6 +38,7 @@
 | SettingsNavigation | [SettingsNavigation](../packages/ui/src/workbench/settings-navigation/settings-navigation.tsx) | 定位、筛选设置分类并沿原导航守卫返回 |
 | SidePane | [SidePane](../renderer/src/app-shell/SidePane.tsx) | 窗口局部的面板标签、视图切换与关闭焦点；资源生命周期沿原所有者 |
 | SettingsSearchInput | [SettingsSearchInput](../packages/ui/src/settings/settings-search-input/settings-search-input.tsx) | 带可读清除动作的资源搜索输入 |
+| TaskContext | [TaskContext](../packages/ui/src/conversation/task-context/task-context.tsx) | 顶部任务上下文：紧凑分区、资源预览与深入查看入口，数据和导航由宿主拥有 |
 
 <!-- END GENERATED: components -->
 
