@@ -23,7 +23,7 @@ The production UI package adoption scenario is `node clients/gui/scripts/migrati
 
 ## Development
 
-Run from the repository root with Node.js 22.19+ on 22 LTS, 24.11+ on 24 LTS, or 26+, pnpm 11.7.0 and the repository Rust toolchain. Use the same Node.js 22 LTS version as CI for both packaging and validation:
+Run from the repository root with Node.js 22.19+ on 22 LTS, 24.11+ on 24 LTS, or 26+, pnpm 11.7.0 and the repository Rust toolchain. Use the same Node.js 24.22.1 LTS version as CI for both packaging and validation:
 
 ```sh
 make build

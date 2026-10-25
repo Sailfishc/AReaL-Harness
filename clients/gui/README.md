@@ -19,7 +19,7 @@ Web/PWA Remote v2 的实施边界见[架构](../../docs/design/remote-control.md
 
 ## 开发
 
-从仓库根执行，需 Node.js 22.19+（22 LTS）、24.11+（24 LTS）或 26+、pnpm 11.7.0 及仓库 Rust 工具链；建议构建和验收均使用与 CI 一致的 Node.js 22 LTS：
+从仓库根执行，需 Node.js 22.19+（22 LTS）、24.11+（24 LTS）或 26+、pnpm 11.7.0 及仓库 Rust 工具链；建议构建和验收均使用与 CI 一致的 Node.js 24.22.1 LTS：
 
 ```sh
 make build
