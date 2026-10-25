@@ -143,6 +143,7 @@ import {
   type RecoveryOwner,
 } from "./recoveryPresentation.js";
 import { DraftComposer } from "./DraftComposer.js";
+import { stageComposerDraft } from "./composerDraftStorage.js";
 import { ProjectlessDraft } from "./ProjectlessDraft.js";
 import { WorktreesSettings } from "./settings/WorktreesSettings.js";
 import { WorktreeActions } from "./WorktreeStatus.js";
@@ -371,6 +372,7 @@ function TaskResourcesPopover({
 }) {
   const [open, setOpen] = useState(false);
   const trigger = React.useRef<HTMLButtonElement>(null);
+  const composerHandoff = React.useRef(false);
   useEffect(() => {
     if (revealKey) {
       setOpen(true);
@@ -404,7 +406,13 @@ function TaskResourcesPopover({
       </PopoverTrigger>
       <PopoverContent
         keepMounted
-        finalFocus={trigger}
+        finalFocus={() => {
+          if (composerHandoff.current) {
+            composerHandoff.current = false;
+            return false;
+          }
+          return trigger.current;
+        }}
         align="end"
         sideOffset={8}
         className="task-resources-popup"
@@ -429,6 +437,7 @@ function TaskResourcesPopover({
             onAddSchedule={
               onAddSchedule
                 ? () => {
+                    composerHandoff.current = true;
                     setOpen(false);
                     onAddSchedule();
                   }
@@ -3966,17 +3975,10 @@ function AppContent({ services }: { services: PlatformServices }) {
                               thread={thread}
                               action={resourceAction}
                               onAddSchedule={() => {
-                                const key = `areal-gui:draft:${project.id}:${thread.id}`;
-                                const text = localStorage.getItem(key) ?? "";
-                                const intent = t("operations.schedules.creationIntent");
-                                localStorage.setItem(
-                                  key,
-                                  text.trim() ? `${text}\n${intent}` : intent,
-                                );
-                                requestAnimationFrame(() =>
-                                  window.dispatchEvent(
-                                    new CustomEvent("areal-draft-change", { detail: key }),
-                                  ),
+                                stageComposerDraft(
+                                  { kind: "thread", projectId: project.id, threadId: thread.id },
+                                  t("operations.schedules.creationIntent"),
+                                  true,
                                 );
                               }}
                               onOpenSchedule={(task) => {
@@ -4197,14 +4199,26 @@ function AppContent({ services }: { services: PlatformServices }) {
                   <TaskCenter
                     target={taskNotification}
                     initialProjectId={taskScope}
-                    defaultProjectId={project?.projectless ? undefined : project?.id}
+                    defaultProjectId={taskScope}
                     projects={snapshot.projects.map((p) => ({
                       ...p,
-                      name: library.projects?.[p.id]?.title || p.root.split(/[\\/]/).pop(),
+                      name:
+                        library.projects?.[p.id]?.title ||
+                        (p.projectless
+                          ? t("operations.schedules.newTitle")
+                          : p.root.split(/[\\/]/).pop()),
                     }))}
                     connected={snapshot.connection?.state === "ready"}
                     action={resourceAction}
                     onOpenThread={(pid, id) => void open(pid, id)}
+                    onStartDraft={(pid, text) => {
+                      stageComposerDraft(
+                        pid ? { kind: "project", projectId: pid } : { kind: "projectless" },
+                        text,
+                        true,
+                      );
+                      newTask(pid ?? "");
+                    }}
                     onOpenModelSettings={() => showPanel("设置")}
                     renderConversation={(owner, managementThread, beforeTurns, options) => (
                       <>
@@ -4331,7 +4345,9 @@ function AppContent({ services }: { services: PlatformServices }) {
                                   projectName={
                                     project
                                       ? library.projects?.[project.id]?.title ||
-                                        project.root.split("/").pop()
+                                        (project.projectless
+                                          ? thread?.title || t("operations.schedules.newTitle")
+                                          : project.root.split("/").pop())
                                       : undefined
                                   }
                                 />
@@ -4370,7 +4386,9 @@ function AppContent({ services }: { services: PlatformServices }) {
                                       <ProjectFolderIcon />
                                       <span>
                                         {library.projects?.[project.id]?.title ||
-                                          project.root.split("/").pop()}
+                                          (project.projectless
+                                            ? thread?.title || t("operations.schedules.newTitle")
+                                            : project.root.split("/").pop())}
                                       </span>
                                     </div>
                                     <ComposerWorkspaceContext
@@ -4473,7 +4491,9 @@ function AppContent({ services }: { services: PlatformServices }) {
                                 projectName={
                                   project
                                     ? library.projects?.[project.id]?.title ||
-                                      project.root.split("/").pop()
+                                      (project.projectless
+                                        ? thread?.title || t("operations.schedules.newTitle")
+                                        : project.root.split("/").pop())
                                     : undefined
                                 }
                               />
@@ -4488,7 +4508,7 @@ function AppContent({ services }: { services: PlatformServices }) {
                                           className="composer-project"
                                           aria-label={
                                             project
-                                              ? `在 ${library.projects?.[project.id]?.title || project.root.split("/").pop()} 中开始新聊天`
+                                              ? `在 ${library.projects?.[project.id]?.title || (project.projectless ? thread?.title || t("operations.schedules.newTitle") : project.root.split("/").pop())} 中开始新聊天`
                                               : "不在项目中工作"
                                           }
                                         >
@@ -4496,7 +4516,10 @@ function AppContent({ services }: { services: PlatformServices }) {
                                           <span>
                                             {project
                                               ? library.projects?.[project.id]?.title ||
-                                                project.root.split("/").pop()
+                                                (project.projectless
+                                                  ? thread?.title ||
+                                                    t("operations.schedules.newTitle")
+                                                  : project.root.split("/").pop())
                                               : "不在项目中工作"}
                                           </span>
                                         </button>

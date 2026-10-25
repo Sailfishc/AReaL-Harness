@@ -130,8 +130,8 @@ const commandDefinitions = Object.freeze({
       ...operations(mutation, "hooksSave skillToggle skillSave mcpSave mcpConnect mcpDisconnect"),
     },
   ],
-  projectless: ["service", "app", { directory: mutation, prepare: recoverable }],
-  tasks: ["service", "app", operations(read, "list inbox preview")],
+  projectless: ["service", "app", { catalog: read, directory: mutation, prepare: recoverable }],
+  tasks: ["service", "app", operations(read, "list inbox preview observe")],
   trajectory: ["service", "app", { status: read, ...operations(mutation, "retry setEnabled") }],
   feedback: [
     "service",
@@ -681,7 +681,7 @@ function validateCommand(name, params, { serviceOnly = false } = {}) {
     invalid();
   if (
     name === "tasks" &&
-    (!["list", "inbox", "preview"].includes(String(params.operation)) ||
+    (!["list", "inbox", "preview", "observe"].includes(String(params.operation)) ||
       Object.keys(params).some(
         (key) =>
           !["operation", "projectId", "sourceThreadId", "limit", "requestId", "viewEpoch"].includes(
@@ -690,7 +690,7 @@ function validateCommand(name, params, { serviceOnly = false } = {}) {
       ) ||
       (params.projectId !== undefined && !identifier(params.projectId)) ||
       (params.sourceThreadId !== undefined &&
-        (!["list", "preview"].includes(String(params.operation)) ||
+        (!["list", "preview", "observe"].includes(String(params.operation)) ||
           !identifier(params.sourceThreadId) ||
           !identifier(params.projectId))) ||
       (params.limit !== undefined &&
@@ -1373,8 +1373,21 @@ function validateCommandResponse(name, params, value) {
       invalid();
     return;
   }
+  if (name === "projectless" && params.operation === "catalog") {
+    if (
+      !record(value) ||
+      !Array.isArray(value.models) ||
+      value.models.some(
+        (model) =>
+          !record(model) || !identifier(model.modelId) || typeof model.available !== "boolean",
+      )
+    )
+      invalid();
+    return;
+  }
   if (name === "tasks") {
     const preview = params.operation === "preview";
+    const passive = preview || params.operation === "observe";
     const owner = record(value) && Array.isArray(value.owners) ? value.owners[0] : undefined;
     if (
       params.projectId !== undefined &&
@@ -1401,12 +1414,32 @@ function validateCommandResponse(name, params, value) {
       (params.projectId !== undefined &&
         (value.data.some((row) => row.projectId !== params.projectId) ||
           value.errors.some((error) => error.projectId !== params.projectId) ||
-          !(preview ? ["unobserved", "error"] : ["ready", "error"]).includes(
+          !(passive ? ["ready", "unobserved", "error"] : ["ready", "error"]).includes(
             String(owner.status),
           ) ||
           (owner.status === "ready" &&
             (!Number.isSafeInteger(owner.connectionGeneration) ||
               owner.connectionGeneration < 0)))) ||
+      (params.operation === "observe" &&
+        (!Array.isArray(value.owners) ||
+          value.owners.some(
+            (owner) =>
+              !record(owner) ||
+              !identifier(owner.projectId) ||
+              !["ready", "unobserved", "error"].includes(String(owner.status)) ||
+              (owner.status !== "error" &&
+                (!Number.isSafeInteger(owner.readAt) ||
+                  Number(owner.readAt) < 0 ||
+                  !record(owner.coverage) ||
+                  !(owner.status === "ready"
+                    ? owner.source === "live" && owner.coverage.kind === "complete"
+                    : owner.source === "published" &&
+                      (["empty", "snapshot"].includes(String(owner.coverage.kind)) ||
+                        (owner.coverage.kind === "requiresCore" &&
+                          ["unbound", "legacyFormat", "readBudgetExceeded"].includes(
+                            String(owner.coverage.reason),
+                          )))))),
+          ))) ||
       (preview &&
         (value.source !== "published" ||
           value.executionState !== "unobserved" ||
