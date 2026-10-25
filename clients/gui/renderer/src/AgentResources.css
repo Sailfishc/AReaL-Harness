@@ -13,7 +13,7 @@
 .agent-conversation-pane .message-column { width: 100%; padding: 16px; }
 .agent-pane-notice { padding: 8px 16px; font-size: var(--text-ui-sm); color: var(--color-foreground-subtle); }
 .agent-pane-notice button { margin-left: 8px; text-decoration: underline; }
-.task-resources-popup { width: 332px; padding: 0; gap: 0; background: linear-gradient(var(--color-menu), var(--color-menu)), var(--color-background); }
+.task-resources-popup { width: max(312px, calc(var(--ui-font-size) * 22)); padding: 0; gap: 0; background: var(--color-menu); }
 .task-resources { padding: 8px 12px; font-size: var(--text-ui-caption); }
 .task-resources-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 2px 8px 10px; }
 .task-resources-header .icon-button { width: 18px; height: 18px; padding: 0; }
@@ -66,3 +66,14 @@
 .agent-history-reader > .areal-subagent-panel { flex: 1; min-height: 0; border: 0; }
 .agent-history-reader .areal-subagent-history:has(> .agent-conversation-pane) { padding: 0; overflow: hidden; }
 .agent-history-reader .areal-subagent-name { white-space: nowrap; }
+
+/* 资源卡片复用上下文分区节奏，次级状态不与标题争夺层级。 */
+.areal-task-context .task-resources-section { padding-block: var(--spacing-inline); border-top: 0; border-bottom: 1px solid var(--color-border); }
+.areal-task-context .task-resources-section:last-child { border-bottom: 0; }
+.areal-task-context .task-resources-heading { padding: 0; min-height: var(--spacing-control-sm); font-size: var(--text-ui-base); }
+.areal-task-context .task-resources-heading > button { margin-left: auto; }
+.areal-task-context .task-resource-note { margin: 0; padding-block: 4px; }
+.areal-task-context .task-agent-summary { min-height: var(--spacing-control-lg); padding: 4px var(--spacing-inline); margin-inline: calc(-1 * var(--spacing-inline)); width: calc(100% + 2 * var(--spacing-inline)); gap: var(--spacing-inline); font-size: var(--text-ui-base); }
+.task-agent-summary .task-resource-identity:empty { display: none; }
+.task-agent-completed { flex: none; color: var(--color-foreground-subtle); }
+.areal-task-context .diff-count { flex: none; gap: 6px; font-size: var(--text-ui-base); font-variant-numeric: tabular-nums; }

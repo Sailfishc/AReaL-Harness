@@ -9,6 +9,7 @@ import { ReviewPanelIcon, TerminalPanelIcon, DocumentPanelIcon } from "./app-she
 import { AgentsPane } from "./AgentsPane.js";
 import { SentAttachment } from "./MessageAttachment.js";
 import { verifiedFileReceipts } from "./TurnFileSummary.js";
+import { LinkIcon, RefreshCwIcon } from "lucide-react";
 import { ProjectFolderIcon } from "./homeChromeIcons.js";
 import { ActivityIcon } from "./ActivityIcon.js";
 import type { Action, Data } from "./services.js";
@@ -19,7 +20,7 @@ export function ConversationStatusCard({ project, thread, action, onPanel, onAge
   onAgent: (id: string) => void; onFile: (path: string) => void;
   onAddSource?: () => void; onLink?: (url: string) => void; onAgents?: () => void; scheduledTask?: Data; runHistory?: ReactNode; onAddSchedule?: () => void; onOpenSchedule?: (task: Data) => void;
 }) {
-  const { t } = useI18n();
+  const { t, intl } = useI18n();
   const [allSources, setAllSources] = useState(false);
   const [git, setGit] = useState<Data>({ loading: true });
   const [processes, setProcesses] = useState<Data[]>([]);
@@ -74,16 +75,16 @@ export function ConversationStatusCard({ project, thread, action, onPanel, onAge
   const entries: Source[] = [...attachments.map(part => ({ id: `media:${part.url ?? part.uri}`, part })), ...sources.map(source => ({ id: `file:${source.path}`, path: source.path })), ...[...links].map(url => ({ id: `web:${url}`, url }))];
   const renderSource = (entry: Source) => entry.part
     ? <SentAttachment part={entry.part} projectId={project.id} threadId={thread.id} action={action} compact />
-    : entry.url ? <TaskContext.Item title={entry.url} description={t("chat.context.webSource")} onClick={() => onLink?.(entry.url!)} disabled={!onLink} />
-    : <TaskContext.Item title={entry.path!.split("/").at(-1) || entry.path!} description={entry.path} icon={<DocumentPanelIcon />} onClick={() => onFile(entry.path!)} />;
+    : entry.url ? <TaskContext.Item title={entry.url} icon={<LinkIcon size={16} />} onClick={() => onLink?.(entry.url!)} disabled={!onLink} />
+    : <TaskContext.Item title={entry.path!.split("/").at(-1) || entry.path!} tooltip={entry.path} aria-label={entry.path} icon={<DocumentPanelIcon />} onClick={() => onFile(entry.path!)} />;
   return <TaskContext title={allSources ? t("chat.context.allSources") : workspaceName} onBack={allSources ? () => setAllSources(false) : undefined}
-    actions={<button className="icon-button" aria-label="刷新任务资源" title="刷新任务资源" disabled={!connected || git.loading} onClick={() => refresh(n => n + 1)}><ProjectFolderIcon /></button>}>
+    actions={<Button variant="ghost" size="icon-sm" aria-label="刷新任务资源" title="刷新任务资源" disabled={!connected || git.loading} onClick={() => refresh(n => n + 1)}><RefreshCwIcon size={14} /></Button>}>
     <div hidden={allSources}>
     {!connected && <p role="status" className="task-resource-note">连接不可用，资源可能已过期。</p>}
     {git.error && <p role="alert" className="task-resource-note">工作区改动读取失败：{git.error}</p>}
     {git.loading && !git.review && <p role="status" className="task-resource-note">{t("chat.context.readingChanges")}</p>}
-    {git.review && <TaskContext.Section label="工作区变更"><TaskContext.Item title={t("chat.context.changes")} description={t("chat.context.changeScope", { count: files.length })} icon={<ReviewPanelIcon />} onClick={() => onPanel("改动")}
-      meta={<span className="diff-count"><b>+{total("additions")}</b><em>−{total("deletions")}</em></span>} /></TaskContext.Section>}
+    {git.review && <TaskContext.Section label="工作区变更"><TaskContext.Item title={t("chat.context.changes")} aria-label={`${t("chat.context.changes")} · ${t("chat.context.changeScope", { count: files.length })} · +${intl.formatNumber(total("additions"))} −${intl.formatNumber(total("deletions"))}`} icon={<ReviewPanelIcon />} onClick={() => onPanel("改动")}
+      meta={<span className="diff-count"><b>+{intl.formatNumber(total("additions"))}</b><em>−{intl.formatNumber(total("deletions"))}</em></span>} /></TaskContext.Section>}
     {thread.worktree && <TaskContext.Section label={t("chat.context.projects")}><Disclosure label={workspaceName} textRole="interface" icon={<ProjectFolderIcon />} keepMounted>
       <p className="task-resource-note">{thread.worktree.sourceRoot}</p><p className="task-resource-note">{thread.worktree.directory} · {thread.worktree.branch}</p>
     </Disclosure></TaskContext.Section>}

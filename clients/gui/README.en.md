@@ -55,6 +55,8 @@ The macOS GUI backend reads static system HTTP, HTTPS and SOCKS proxies for Core
 
 ## Composer
 
+The task resources popover uses compact sections: Changes shows unstaged workspace additions and deletions on one row, with file and scope details in the review panel; Subagents separates the heading from avatars and running, completed, or unconfirmed status; Sources starts expanded and retains add, collapse, and view-all actions. Scheduled tasks and background processes keep their existing entry points.
+
 Next-prompt predictions use smaller, regular-weight text without a Tab hint; Tab still only accepts the prediction into the draft without sending it. Turn file summaries place the file count and total line changes on separate lines, with muted directories and prominent filenames. Closing the last right-panel tab, including Close all tabs, hides the panel and preserves the main draft; a rejected close confirmation leaves it unchanged.
 
 The `+` beside Projects opens an existing project directory without first creating a chat. Canceling the directory picker preserves the current project, chat, panel, and draft. Opening the same directory again keeps one project registration.
