@@ -179,7 +179,7 @@ export function conversationJourney(scratch, workspace, { motion = false, stage2
       const allTools = await latest().locator(".tool-event").count();
       const childTrigger = latest().getByRole("button", { name: `打开 ${childId} 子对话`, exact: true });
       assert.equal(await childTrigger.locator(".agent-spawn-title").innerText(), "E1_CHILD：独立核对水果数量", "child task is identifiable before opening its conversation");
-      assert.equal(await childTrigger.locator(".agent-spawn-status").innerText(), "已创建", "a creation receipt is not an unknown operation or a live status claim");
+      assert.equal(await childTrigger.locator(".agent-spawn-status").innerText(), "开始工作", "the accepted spawn is a start event, not an unknown operation or a live status claim");
       mark("parallel-identities", { parent: mainId, child: childId, processId, allTools });
       await capture("e1-01-parallel", "actual Runtime command and Core child both in progress");
       if (motion) {
@@ -271,7 +271,7 @@ export function conversationJourney(scratch, workspace, { motion = false, stage2
       await segment("child-open", () => latest().getByRole("button", { name: `打开 ${childId} 子对话`, exact: true }).click());
       const childPane = () => page.locator(`[data-agent-conversation="${childId}"]`);
       await childPane().locator('[data-turn-status="inProgress"]').waitFor();
-      assert.equal(await childTrigger.locator(".agent-spawn-status").innerText(), "执行中", "loaded child state replaces creation receipt");
+      assert.equal(await childTrigger.locator(".agent-spawn-status").innerText(), "开始工作", "loading the child does not turn the start event into a live status");
       await capture("e1-03-child", "independent child conversation opened while parent remains active");
       if (stage2) {
         mark("stage2-child-heading", {title: await childPane().locator('.agent-conversation-heading strong').innerText()});
@@ -311,7 +311,7 @@ export function conversationJourney(scratch, workspace, { motion = false, stage2
       assert.equal((await readFile(join(workspace, "e1-command-finished"), "utf8")), "finished");
       await capture("e1-04-command-done", "command completed while child still running and parent streams final");
       release("child"); await childPane().locator('[data-turn-status="completed"]').waitFor();
-      assert.equal(await childTrigger.locator(".agent-spawn-status").innerText(), "已完成");
+      assert.equal(await childTrigger.locator(".agent-spawn-status").innerText(), "开始工作", "a finish the parent has not observed is not drawn into the parent timeline");
       await capture("e1-05-child-done", "child complete independently; parent still active");
       await segment("child-close", () => button("关闭面板").click());
       if (stage2) {

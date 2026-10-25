@@ -114,7 +114,7 @@ Worktree 的配置菜单、准备状态和项目环境按[领域设计规范](wo
 
 `CONV-COMMAND-01`：命令入口展示原始命令与工作目录；详情将同一进程的开始、输出读取、结束投影为一份连续记录，stdout/stderr不以模型正文替代。只有明确且无歧义的processId关系才能归并；输出读取不是重新执行。运行、已结束、退出码、输出未收集完整、失败和未知分别表达，不能用工具调用返回成功推断进程已经退出。详情展开由原ToolEvent和CommandDetails拥有，不能由场景脚本预设展开结果。
 
-`CONV-PARALLEL-01`：创建子代理的回执与子代理执行状态分开。子代理入口绑定明确的父子Thread关系。尚未读取子对话时，标题可先用真实委派的 prompt / input 内容，成功创建回执只显示“已创建”；不能只放不具辨识度的短ID，也不能将创建回执推断为当前执行中或已完成。读取后使用该子对话的标题、权威状态和独立消息；父任务命令结束不将子任务改为完成，子任务完成也不将父任务改为完成。打开子对话复用AgentConversationPane，父消息阅读所有者保持挂载。关闭面板只结束阅读，不能停止、重启或重放任务；窄容器可以覆盖主视图，但返回须保留父聊天与人工展开。
+`CONV-PARALLEL-01`：子代理在父时间线里是两条事件行，不是带状态的卡片。成功的创建回执画为“<标题> 开始工作”；父对话通过 agent_wait / agent_wait_any / agent_wait_all 观察到子代理已结束（回执 `settled: true` 且非超时）时，在那条等待回执的位置画“<标题> 已完成 / 已中断 / 失败”。没有这样的回执就不画完成行：读取子对话、子任务在别处完成、或父任务命令结束，都不改写父时间线；实时状态归子代理面板与任务上下文。两行与正文同字号同节奏（`--text-conversation` / `--conversation-line`），各自成段、不并入同类工具分组；整行即打开子对话的入口，不另放“查看”或运行中按钮，原始记录箭头只在悬停或聚焦时出现。标题优先用该子对话的标题，其次是真实委派的 prompt / input 内容，不能只放不具辨识度的短ID。子对话与父任务互不推断完成。打开子对话复用AgentConversationPane，父消息阅读所有者保持挂载。关闭面板只结束阅读，不能停止、重启或重放任务；窄容器可以覆盖主视图，但返回须保留父聊天与人工展开。理由：开始与结束是父对话里真实发生过的两件事，画在发生的位置，阅读顺序就是执行顺序；把实时状态塞进创建行会让历史行随时间变化，和时间线的含义冲突。
 
 `CONV-SCENARIO-01`：复杂信息流必须有一条有意义的复合任务作为组合样板，包含命令增量、并行子代理、资源查看和最终收敛。固定输入沿既有投影接口到达，场景仅拥有到达顺序及面板选择；分组、进程归并、阅读锚点与详情状态仍由生产所有者处理。每个关键状态关联参考证据、实现帧和差异判断；缺少对应参考的时序标为产品选择，不能把独立采样拼成一次真实参考旅程。规则/目录检查、行为通过和视觉一致分别报告。视频候选、关键帧核查和差异裁决按[默认设计流程](structured-flow.md#执行顺序与每步完成条件)及[准入合同](governance.md#差异筛选准入)执行；本规则仅拥有信息流组合，候选意见不直接改变过程、阅读或业务状态所有权。
 
@@ -158,7 +158,7 @@ Worktree 的配置菜单、准备状态和项目环境按[领域设计规范](wo
 | CONV-READ-01 | OBS-CONV-READ：生成中可见锚点和返回后的连续样本；目标规则不复制测量常量 | Messages既有阅读逻辑 | reading-history、following-latest |
 | CONV-RESOURCE-01 | OBS-CONV-RESOURCE：图片/子对话入口直接观察；独立网页面板仍未知 | ToolEvent及既有父聊天/资源面板所有者 | busy、completed；资源返回按复验题追加 |
 | CONV-COMMAND-01 | OBS-CONV-TOOL支持Shell输入/输出与终态；分批读取的节奏由本仓公开进程投影构造，不声称参考已连续采齐 | processItems / ToolEvent / CommandDetails | command-streaming、tool-details、completed |
-| CONV-PARALLEL-01 | OBS-CONV-RESOURCE支持独立子对话；父子不同步完成是本产品显式约束 | AgentIdentity / AgentConversationPane / 原父聊天宿主 | parallel-working、child-conversation、completed |
+| CONV-PARALLEL-01 | OBS-CONV-RESOURCE支持独立子对话；父子不同步完成是本产品显式约束 | AgentIdentity / conversationPresentation.agentSettlements / ToolEvent / AgentConversationPane / 原父聊天宿主 | parallel-working、child-conversation、completed |
 | CONV-SCENARIO-01 | 原动态题仅有命令和重复段落，遗漏资源及子对话路径；复合题用于阻止同类范围遗漏 | ConversationFlowExercise及其输入fixture；生产所有者不迁移 | 全部复合检查点及逐状态对照 |
 
 ### 组合与变化边界

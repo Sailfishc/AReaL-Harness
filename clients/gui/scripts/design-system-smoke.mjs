@@ -474,9 +474,13 @@ try {
   await page.getByRole("button", { name: "关闭图片预览", exact: true }).waitFor();
   await page.keyboard.press("Escape");
   await timeline.getByRole("button", { name: "预览图片 工具图片", exact: true }).waitFor();
-  const child = timeline.getByRole("button", { name: "打开 preview-child 子对话", exact: true });
+  // CONV-PARALLEL-01: start and finish are separate events; each row opens the child and carries no extra "view" control.
+  const childStarted = timeline.locator('[data-agent-event="started"]').getByRole("button", { name: "打开 preview-child 子对话", exact: true });
+  const child = timeline.locator('[data-agent-event="settled"]').getByRole("button", { name: "打开 preview-child 子对话", exact: true });
+  assert.ok((await childStarted.innerText()).includes("检查消息投影") && (await childStarted.innerText()).includes("开始工作"));
   assert.ok((await child.innerText()).includes("检查消息投影"));
   assert.ok((await child.innerText()).includes("已完成"));
+  assert.ok(!(await childStarted.innerText()).includes("查看"));
   await child.click();
   await timeline.getByRole("status").filter({ hasText: "预览打开：preview-child" }).waitFor();
   const command = timeline.locator('[data-tool-id="timeline-command"]');
