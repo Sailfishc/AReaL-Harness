@@ -72,9 +72,11 @@ export async function runConversationDemo(page, scratch, checks) {
   const scrollOwners = await command.locator(".command-card").evaluate(el => ({
     output: getComputedStyle(el.querySelector(".command-output")).overflowY,
     group: getComputedStyle(el.closest(".areal-activity-list")).overflowY,
+    grouped: el.closest(".areal-activity-group")?.getAttribute("data-presentation") === "collapsible",
   }));
   assert.equal(scrollOwners.output, "auto");
-  assert.equal(scrollOwners.group, "auto", "expanded groups retain the approved bounded vertical activity list");
+  // CONV-ACTIVITY-01：多项合并的段保留有界纵向列表；单项段直接显示，不再嵌一层滚动。
+  assert.equal(scrollOwners.group, scrollOwners.grouped ? "auto" : "visible", "only merged runs own a bounded vertical activity list");
   await capture("04-command");
   const fileSummary = timeline.getByTestId("turn-file-summary");
   assert.equal(await fileSummary.isVisible(), true);

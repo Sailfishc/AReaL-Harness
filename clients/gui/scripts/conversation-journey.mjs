@@ -164,9 +164,13 @@ export function conversationJourney(scratch, workspace, { motion = false, stage2
       const children = (await call("manage", { projectId, parentThreadId: mainId, operation: "agents", limit: 30 })).data;
       assert.equal(children.length, 1); const childId = children[0].id;
       const activityGroup = latest().locator('[data-testid="turn-execution"] .areal-activity-group').first();
-      await activityGroup.getByRole("button").first().waitFor();
-      assert.equal(await activityGroup.getByRole("button").first().getAttribute("aria-expanded"), "false", "production activities start collapsed");
-      await activityGroup.getByRole("button").first().click();
+      await activityGroup.waitFor();
+      // CONV-ACTIVITY-01：多项合并的段默认收起；单项段直接显示该项，没有段级展开。
+      if (await activityGroup.getAttribute("data-presentation") === "collapsible") {
+        const groupToggle = activityGroup.locator(":scope > .areal-disclosure > button");
+        assert.equal(await groupToggle.getAttribute("aria-expanded"), "false", "production activity runs start collapsed");
+        await groupToggle.click();
+      }
       const commandItem = projectOf(await state()).state.threads[mainId].turns.at(-1).items.find(item => item.type === "dynamicToolCall" && item.tool === "run_command");
       const command = () => latest().locator(`[data-tool-id="${commandItem.id}"]`);
       await command().locator(".tool-summary-row").first().click();
