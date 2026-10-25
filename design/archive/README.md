@@ -13,3 +13,5 @@
 | [content/interactive-content-research.md](content/interactive-content-research.md) | 交互内容调研 | 同上 |
 
 归档文件不再随实现更新。需要恢复其中的规则时，把规则写回所属主题，不在这里修改。
+
+D5 的[迁移路径](d5/migrations.json)记录旧入口与新位置。[组件归属迁移](d5/contract-owner-migrations.json)保留现行规则的移动范围；这些合同仍在组件旁维护，没有作为历史证据归档。[研究与固定题目迁移](d5/observation-migrations.json)记录被后续生产接线取代的观察和冻结开发题。[实验协议](d5/experiment-protocol.md)区分待执行计划与实际 18 次结果。

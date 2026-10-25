@@ -8,8 +8,11 @@ import { test } from "node:test";
 
 const cli = fileURLToPath(new URL("./gui-health.mjs", import.meta.url));
 async function fixture(t) {
-  const root = await mkdtemp(join(tmpdir(), "areal-health-test-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  const directory = await mkdtemp(join(tmpdir(), "areal-health-test-"));
+  const root = join(directory, "clients/gui");
+  await mkdir(join(directory, "design"), { recursive: true });
+  await writeFile(join(directory, "design/principles.md"), "# Principles\n");
+  t.after(() => rm(directory, { recursive: true, force: true }));
   const put = async (file, text) => {
     await mkdir(dirname(join(root, file)), { recursive: true });
     await writeFile(join(root, file), text);
@@ -32,7 +35,21 @@ async function fixture(t) {
     JSON.stringify({ total: { color: 2, radius: 3, typography: 1 }, files: {} }),
   );
   await put("packages/ui/experimental-allowlist.json", "[]\n");
-  await put("design-system/accessibility-baseline.json", JSON.stringify({moderateIssues:0,contrastExceptions:[]}));
+  await put(
+    "design-system/accessibility-baseline.json",
+    JSON.stringify({ moderateIssues: 0, contrastExceptions: [] }),
+  );
+  await put(
+    "design-system/rule-registry.json",
+    JSON.stringify({
+      entryDocuments: [
+        "clients/gui/packages/ui/README.md",
+        "clients/gui/packages/ui/token-reference.md",
+      ],
+    }),
+  );
+  await put("packages/ui/README.md", "# UI\n");
+  await put("packages/ui/token-reference.md", "# Tokens\n");
   await put("app/src/main.cjs", "module.exports = {};\n");
   await put("renderer/src/App.tsx", 'import { useState } from "react";\nuseState(1);\n');
   await put(
@@ -173,7 +190,6 @@ test("type suppression and experimental debt are counted by their existing owner
   assert.equal(report.metrics.experimentalImports.value, 1);
 });
 
-
 test("package root and client implementations share production caps while build tools do not", async (t) => {
   const f = await fixture(t);
   assert.equal(f.run("--write").status, 0);
@@ -190,4 +206,30 @@ test("package root and client implementations share production caps while build 
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /connections\.cjs/);
   assert.match(result.stderr, /client\/model\.js/);
+});
+
+test("Main coverage detects a new unchecked file even when checked file count is unchanged", async (t) => {
+  const f = await fixture(t);
+  await f.put("app/src/main.cjs", "// @ts-check\nmodule.exports = {};\n");
+  assert.equal(f.run("--write").status, 0);
+  const before = JSON.parse(f.run().stdout);
+  assert.equal(before.metrics.mainTypeCoverage.value, 1);
+  await f.put("app/src/new.cjs", "module.exports = {};\n");
+  const after = JSON.parse(f.run().stdout);
+  assert.equal(after.metrics.mainCheckedFiles.value, before.metrics.mainCheckedFiles.value);
+  assert.equal(after.metrics.mainTypeCoverage.value, 0.5);
+  assert.notEqual(f.run("--check").status, 0);
+});
+
+test("active design document growth is tracked while the user entry has a separate ceiling", async (t) => {
+  const f = await fixture(t);
+  assert.equal(f.run("--write").status, 0);
+  const before = JSON.parse(f.run().stdout);
+  assert.ok(before.metrics.activeDesignDocBytes.value > 0);
+  assert.ok(before.counts.userEntryDocBytes > 0);
+  await f.put("design-system/new-rule.md", "# New rule\n");
+  const after = JSON.parse(f.run().stdout);
+  assert.ok(after.metrics.activeDesignDocBytes.value > before.metrics.activeDesignDocBytes.value);
+  assert.equal(after.counts.userEntryDocBytes, before.counts.userEntryDocBytes);
+  assert.notEqual(f.run("--check").status, 0);
 });

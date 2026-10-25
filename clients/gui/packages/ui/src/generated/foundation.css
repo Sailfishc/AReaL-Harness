@@ -106,6 +106,15 @@
   --text-compact-caption--line-height: 1rem;
   --text-compact-body: 0.875rem;
   --text-compact-body--line-height: 1.25rem;
+  --text-user-message-heading: 1.5em;
+  --radius-status-dot: 99px;
+  --radius-composer-queue-menu: 17px;
+  --radius-turn-marker: 1px;
+  --radius-inspection-dialog: 24px;
+  --radius-context-category-dot: 2px;
+  --browser-file-status-max-height: 112px;
+  --browser-file-status-inline-gap: 6px;
+  --browser-file-status-block-padding: 3px;
 }
 .dark {
   --color-destructive: #ff5c5c;

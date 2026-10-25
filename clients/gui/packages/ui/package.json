@@ -10,7 +10,8 @@
     "tokens.json",
     "agent-guide.md",
     "README.md",
-    "README.en.md"
+    "README.en.md",
+    "token-reference.md"
   ],
   "exports": {
     "./content": {
@@ -83,9 +84,9 @@
     }
   },
   "scripts": {
-    "generate": "node scripts/foundations.mjs",
-    "build": "node scripts/foundations.mjs --check && tsc && node scripts/documents.mjs",
-    "check": "node scripts/foundations.mjs --check && node scripts/documents.mjs --check && node --test scripts/assets.test.mjs"
+    "generate": "node scripts/foundations.mjs && node scripts/token-reference.mjs --write",
+    "build": "node scripts/foundations.mjs --check && node scripts/token-reference.mjs && tsc && node scripts/documents.mjs",
+    "check": "node scripts/foundations.mjs --check && node scripts/token-reference.mjs && node scripts/documents.mjs --check && node --test scripts/assets.test.mjs"
   },
   "dependencies": {
     "@base-ui/react": "1.8.0",

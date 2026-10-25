@@ -319,7 +319,9 @@ export function ConversationStatusCard({
               </span>
             </h3>
             {processes.map((process) => (
-              <button
+              <Button
+                unstyled
+                data-slot={undefined}
                 type="button"
                 key={process.id}
                 className="task-resource-row"
@@ -344,7 +346,7 @@ export function ConversationStatusCard({
                   </small>
                 </span>
                 <ActivityIcon kind="chevron" size={14} />
-              </button>
+              </Button>
             ))}
           </section>
         )}

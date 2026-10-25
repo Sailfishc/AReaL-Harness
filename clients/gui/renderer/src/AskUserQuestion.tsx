@@ -7,7 +7,7 @@ import { useApplicationPreferences } from "./settings/applicationPreferences.js"
 import { Button } from "./components/ui/button.js";
 import { Textarea } from "./components/ui/textarea.js";
 import type { Action, Data } from "./services.js";
-import "./AskUserQuestion.css";
+import "@areal/ui/conversation.css";
 
 type Draft = { mode: "option" | "custom"; option: string; text: string };
 const empty: Draft = { mode: "option", option: "", text: "" };

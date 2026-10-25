@@ -1,7 +1,7 @@
 import type { ComponentProps } from "react";
 import { DecisionCard as View } from "@areal/ui/compositions";
 import { Feedback } from "./components/ui/feedback.js";
-import "./DecisionCard.css";
+import "@areal/ui/conversation.css";
 export function DecisionCard({
   error,
   message,

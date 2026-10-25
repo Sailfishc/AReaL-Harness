@@ -27,6 +27,24 @@ export const PALETTE_REFERENCES = {
   "result-shadow-near": "#0000000a",
   "result-shadow-ambient": "#0000000d",
   "settings-attention": "#f59e0b",
+  "workbench-dialog-backdrop": "#0006",
+  "workbench-control-thumb": "white",
+  "workbench-diff-count-added": "#16a45d",
+  "workbench-diff-count-removed": "#df515b",
+  "workbench-trajectory-match-ink": "#e8a838",
+  "workbench-inspection-scrim": "rgb(0 0 0 / 15%)",
+  "workbench-shortcut-border": "rgb(255 255 255 / 5%)",
+  "workbench-shortcut-surface": "#1b1b1b",
+  "workbench-shortcut-foreground": "#fff",
+  "workbench-markdown-list-marker-dark": "#ffffff7f",
+  "workbench-review-comment-surface": "light-dark(rgba(0, 0, 0, 0.032), rgba(255, 255, 255, 0.032))",
+  "workbench-review-tree-guide-ink": "#84848a",
+  "workbench-diff-modified": "light-dark(#009fff, #69b1ff)",
+  "workbench-diff-added": "#40c977",
+  "workbench-diff-removed": "#fa423e",
+  "workbench-slider-selected-track": "#ffffff80",
+  "workbench-annotation-selected-foreground": "#91c5ff",
+  "workbench-annotation-selected-surface": "#4795ff26",
 } as const;
 
 export function derivePaletteVariables(p: Palette, dark: boolean, readableForeground: (background: string) => string): Record<string, string> {
@@ -80,6 +98,24 @@ export function derivePaletteVariables(p: Palette, dark: boolean, readableForegr
   const statusError = PALETTE_REFERENCES["error"];
   const shadowResultRaised = `0 0 0 .5px ${borderResult}, 0 3px 7.5px ${PALETTE_REFERENCES["result-shadow-near"]}, 0 0 20px ${PALETTE_REFERENCES["result-shadow-ambient"]}`;
   const settingsAttentionIndicator = PALETTE_REFERENCES["settings-attention"];
+  const surfaceDialogScrim = PALETTE_REFERENCES["workbench-dialog-backdrop"];
+  const surfaceControlThumb = PALETTE_REFERENCES["workbench-control-thumb"];
+  const textDiffCountAdded = PALETTE_REFERENCES["workbench-diff-count-added"];
+  const textDiffCountRemoved = PALETTE_REFERENCES["workbench-diff-count-removed"];
+  const highlightTrajectoryMatch = PALETTE_REFERENCES["workbench-trajectory-match-ink"];
+  const surfaceInspectionScrim = PALETTE_REFERENCES["workbench-inspection-scrim"];
+  const borderDarkShortcut = PALETTE_REFERENCES["workbench-shortcut-border"];
+  const surfaceDarkShortcut = PALETTE_REFERENCES["workbench-shortcut-surface"];
+  const textDarkShortcut = PALETTE_REFERENCES["workbench-shortcut-foreground"];
+  const textContentListMarkerDark = PALETTE_REFERENCES["workbench-markdown-list-marker-dark"];
+  const surfaceReviewComment = PALETTE_REFERENCES["workbench-review-comment-surface"];
+  const borderReviewTreeGuide = PALETTE_REFERENCES["workbench-review-tree-guide-ink"];
+  const contentDiffModified = PALETTE_REFERENCES["workbench-diff-modified"];
+  const contentDiffAdded = PALETTE_REFERENCES["workbench-diff-added"];
+  const contentDiffRemoved = PALETTE_REFERENCES["workbench-diff-removed"];
+  const interactionSliderSelectedTrack = PALETTE_REFERENCES["workbench-slider-selected-track"];
+  const textAnnotationSelected = PALETTE_REFERENCES["workbench-annotation-selected-foreground"];
+  const surfaceAnnotationSelected = PALETTE_REFERENCES["workbench-annotation-selected-surface"];
   const interactionPressed = interactionSelected;
   return {
     "--color-background": surfaceBase,
@@ -142,5 +178,23 @@ export function derivePaletteVariables(p: Palette, dark: boolean, readableForegr
     "--color-status-settled": statusSettled,
     "--shadow-result-raised": shadowResultRaised,
     "--color-settings-attention-indicator": settingsAttentionIndicator,
+    "--color-dialog-backdrop": surfaceDialogScrim,
+    "--color-control-thumb": surfaceControlThumb,
+    "--color-diff-count-added": textDiffCountAdded,
+    "--color-diff-count-removed": textDiffCountRemoved,
+    "--color-trajectory-match-ink": highlightTrajectoryMatch,
+    "--color-inspection-scrim": surfaceInspectionScrim,
+    "--color-shortcut-border": borderDarkShortcut,
+    "--color-shortcut-surface": surfaceDarkShortcut,
+    "--color-shortcut-foreground": textDarkShortcut,
+    "--color-markdown-list-marker-dark": textContentListMarkerDark,
+    "--color-review-comment-surface": surfaceReviewComment,
+    "--color-review-tree-guide-ink": borderReviewTreeGuide,
+    "--color-diff-modified": contentDiffModified,
+    "--color-diff-added": contentDiffAdded,
+    "--color-diff-removed": contentDiffRemoved,
+    "--color-slider-selected-track": interactionSliderSelectedTrack,
+    "--color-annotation-selected-foreground": textAnnotationSelected,
+    "--color-annotation-selected-surface": surfaceAnnotationSelected,
   };
 }

@@ -13,8 +13,17 @@ async function fixture(t) {
   t.after(() => rm(root, { recursive: true, force: true }));
   await cp(join(gui, "design-system"), join(root, "design-system"), { recursive: true });
   const registry = JSON.parse(await readFile(join(root, "design-system/registry.json"), "utf8"));
+  const ruleRegistry = JSON.parse(await readFile(join(root, registry.ruleRegistry), "utf8"));
+  const referencedRules = new Set([
+    ...registry.patterns.flatMap((item) => item.rules ?? []),
+    ...registry.interactionFamilies.flatMap((item) => item.rules),
+    "CONV-READ-01",
+  ]);
   const sources = [
     ...registry.tokenSources,
+    ...ruleRegistry.rules
+      .filter((rule) => referencedRules.has(rule.id))
+      .map((rule) => rule.owner.split("#")[0].replace(/^clients\/gui\//, "")),
     ...registry.components.map((item) => item.source),
     ...registry.patterns.map((item) => item.reference),
     "renderer/src/design-system/catalog.ts",
@@ -77,7 +86,7 @@ async function fixture(t) {
       JSON.stringify(surface),
     );
   };
-  return { root, registry, pattern, surface, save };
+  return { root, registry, ruleRegistry, pattern, surface, save };
 }
 
 test("规则引用合法且旧设置合同无需补字段", async (t) => {
@@ -249,4 +258,20 @@ test("Base package admission rejects experimental entry migration", async (t) =>
     verifyDesignCatalog({ root: f.root, write: true }),
     /admitted package member SettingsRow.*experimental/,
   );
+});
+
+test("pattern references follow the registered component rule owner", async (t) => {
+  const f = await fixture(t);
+  const rule = f.ruleRegistry.rules.find((rule) => rule.id === "CONV-READ-01");
+  const previous = rule.owner.split("#")[0].replace(/^clients\/gui\//, "");
+  const document = await readFile(join(f.root, previous), "utf8");
+  await writeFile(join(f.root, previous), document.replace("`CONV-READ-01`：", "历史规则引用："));
+  rule.owner = "clients/gui/renderer/src/owned-rule.md#rule";
+  await writeFile(
+    join(f.root, "renderer/src/owned-rule.md"),
+    "# rule\n\n`CONV-READ-01`：保持历史阅读位置。\n",
+  );
+  await writeFile(join(f.root, f.registry.ruleRegistry), JSON.stringify(f.ruleRegistry));
+  await f.save();
+  await verifyDesignCatalog({ root: f.root, write: true });
 });

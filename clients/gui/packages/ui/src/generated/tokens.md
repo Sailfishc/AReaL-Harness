@@ -41,6 +41,7 @@
 | `--text-compact-caption--line-height` | `1rem` | 紧凑说明行高，保持既有 text-xs 的 1rem。 |
 | `--text-compact-body` | `0.875rem` | 紧凑正文，保持既有 text-sm 的 rem 缩放。 |
 | `--text-compact-body--line-height` | `1.25rem` | 紧凑正文行高，保持既有 text-sm 的 1.25rem。 |
+| `--text-user-message-heading` | `1.5em` | 用户消息 Markdown 一级标题相对于该消息正文的字号关系。 D2 保留 renderer/src/workbench.css 原几何。 |
 
 ## 行高与字重
 
@@ -90,6 +91,11 @@
 | `--radius-feedback` | `11px` | 输入反馈与提示卡片圆角。D3 保留原几何。 |
 | `--radius-full` | `9999px` | 全圆角胶囊，保留原最大半径。D3 保留原几何。 |
 | `--radius-composer-large` | `28px` | 大输入区外框圆角。D3 保留原几何。 |
+| `--radius-status-dot` | `99px` | 供应商状态点的原固定圆角。 D2 保留 renderer/src/workbench.css 原几何。 |
+| `--radius-composer-queue-menu` | `17px` | 输入器队列菜单的原圆角。 D2 保留 renderer/src/workbench.css 原几何。 |
+| `--radius-turn-marker` | `1px` | 轮次导航细标记的原圆角。 D2 保留 renderer/src/workbench.css 原几何。 |
+| `--radius-inspection-dialog` | `24px` | Hook 统计检查对话框的原圆角。 D2 保留 renderer/src/workbench.css 原几何。 |
+| `--radius-context-category-dot` | `2px` | 上下文组成类别标记的原圆角。 D2 保留 renderer/src/workbench.css 原几何。 |
 
 ## 阴影
 
@@ -148,6 +154,9 @@
 | `--font-mono` | `ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", monospace` | 代码字体及CJK无衬线回退 |
 | `--conversation-line` | `1.43` | 对话时间线行高（无单位比例）：14px 时为 20px；标题与更大的内容字号按比例增长 |
 | `--conversation-gap` | `12px` | 对话时间线块间距：段落、活动行、子代理行、状态行之间的统一节奏 |
+| `--browser-file-status-max-height` | `112px` | 浏览器文件交接状态列表的既有最大高度；来自renderer/src/BrowserFileHandoff.layout.css，D2保持原几何。 |
+| `--browser-file-status-inline-gap` | `6px` | 浏览器文件交接状态项的既有内容间距；来自renderer/src/BrowserFileHandoff.layout.css，D2保持原几何。 |
+| `--browser-file-status-block-padding` | `3px` | 浏览器文件交接状态项的既有纵向内边距；来自renderer/src/BrowserFileHandoff.layout.css，D2保持原几何。 |
 
 ## 派生参数与来源
 
@@ -221,6 +230,24 @@
 | `result-shadow-near` | `#0000000a` | renderer/src/workbench.css 的原 review-comment-card 阴影，D3 保留。 |
 | `result-shadow-ambient` | `#0000000d` | renderer/src/workbench.css 的原 review-comment-card 阴影，D3 保留。 |
 | `settings-attention` | `#f59e0b` | 原 App.tsx 的 bg-amber-500 设置关注指示点；Tailwind amber-500 原值。 |
+| `workbench-dialog-backdrop` | `#0006` | renderer/src/workbench.css .dialog-backdrop；D2 精确迁移，值来自原字面量债务。 |
+| `workbench-control-thumb` | `white` | renderer/src/workbench.css .settings-page input[role="switch"]::after; .resource-switch::after; .composer-slider-shell input::-webkit-slider-thumb；D2 精确迁移，值来自原字面量债务。 |
+| `workbench-diff-count-added` | `#16a45d` | renderer/src/workbench.css .diff-count b；D2 精确迁移，值来自原字面量债务。 |
+| `workbench-diff-count-removed` | `#df515b` | renderer/src/workbench.css .diff-count em；D2 精确迁移，值来自原字面量债务。 |
+| `workbench-trajectory-match-ink` | `#e8a838` | renderer/src/workbench.css .trajectory-content mark；D2 精确迁移，值来自原字面量债务。 |
+| `workbench-inspection-scrim` | `rgb(0 0 0 / 15%)` | renderer/src/workbench.css .hook-stats-overlay；D2 精确迁移，值来自原字面量债务。 |
+| `workbench-shortcut-border` | `rgb(255 255 255 / 5%)` | renderer/src/workbench.css .new-task-shortcut；D2 精确迁移，值来自原字面量债务。 |
+| `workbench-shortcut-surface` | `#1b1b1b` | renderer/src/workbench.css .new-task-shortcut；D2 精确迁移，值来自原字面量债务。 |
+| `workbench-shortcut-foreground` | `#fff` | renderer/src/workbench.css .new-task-shortcut；D2 精确迁移，值来自原字面量债务。 |
+| `workbench-markdown-list-marker-dark` | `#ffffff7f` | renderer/src/workbench.css .dark .workspace-file-markdown .workspace-markdown-list-marker；D2 精确迁移，值来自原字面量债务。 |
+| `workbench-review-comment-surface` | `light-dark(rgba(0, 0, 0, 0.032), rgba(255, 255, 255, 0.032))` | renderer/src/workbench.css .review-comment-editor; .review-comment-card；D2 精确迁移，值来自原字面量债务。 |
+| `workbench-review-tree-guide-ink` | `#84848a` | renderer/src/workbench.css .review-tree-guide；D2 精确迁移，值来自原字面量债务。 |
+| `workbench-diff-modified` | `light-dark(#009fff, #69b1ff)` | renderer/src/workbench.css --diffs-modified-color-override；D2 精确迁移，值来自原字面量债务。 |
+| `workbench-diff-added` | `#40c977` | renderer/src/workbench.css --diffs-addition-color-override；D2 精确迁移，值来自原字面量债务。 |
+| `workbench-diff-removed` | `#fa423e` | renderer/src/workbench.css --diffs-deletion-color-override；D2 精确迁移，值来自原字面量债务。 |
+| `workbench-slider-selected-track` | `#ffffff80` | renderer/src/workbench.css .composer-slider-track i[data-selected=true]；D2 精确迁移，值来自原字面量债务。 |
+| `workbench-annotation-selected-foreground` | `#91c5ff` | renderer/src/workbench.css .browser-annotation-trigger[aria-pressed="true"]；D2 精确迁移，值来自原字面量债务。 |
+| `workbench-annotation-selected-surface` | `#4795ff26` | renderer/src/workbench.css .browser-annotation-trigger[aria-pressed="true"]；D2 精确迁移，值来自原字面量债务。 |
 
 | 语义角色 | 派生公式 | 默认主题覆盖 | 用途与来源 |
 | --- | --- | --- | --- |
@@ -274,6 +301,24 @@
 | `shadow-result-raised` | `{"shadows":[{"geometry":"0 0 0 .5px","color":{"semantic":"border-result"}},{"geometry":"0 3px 7.5px","color":{"reference":"result-shadow-near"}},{"geometry":"0 0 20px","color":{"reference":"result-shadow-ambient"}}]}` | `[]` | 结果悬停层在语义结果边框上叠加近场与环境投影。 renderer/src/workbench.css 的原 review-comment-card box-shadow。 |
 | `interaction-pressed` | `{"semantic":"interaction-selected"}` | `[]` | 按下状态沿用既有选中前景层，不新增配色。 D3 D1 的 interaction.pressed 语义，保留现有 interaction-selected 同色关系。 |
 | `settings-attention-indicator` | `{"reference":"settings-attention"}` | `[]` | 设置入口的任务关注指示点，保留明暗主题下既有固定 amber 色。 renderer/src/views/WorkbenchChrome.tsx 从 App.tsx 提取的设置入口。 |
+| `surface-dialog-scrim` | `{"reference":"workbench-dialog-backdrop"}` | `[]` | 对话框遮罩，保留原 40% 黑色覆盖度。 renderer/src/workbench.css .dialog-backdrop；D2 精确迁移，值来自原字面量债务。 |
+| `surface-control-thumb` | `{"reference":"workbench-control-thumb"}` | `[]` | 原生开关与滑块的固定白色把手，独立于当前主题前景。 renderer/src/workbench.css .settings-page input[role="switch"]::after; .resource-switch::after; .composer-slider-shell input::-webkit-slider-thumb；D2 精确迁移，值来自原字面量债务。 |
+| `text-diff-count-added` | `{"reference":"workbench-diff-count-added"}` | `[]` | 差异行数中新增行的内容色。 renderer/src/workbench.css .diff-count b；D2 精确迁移，值来自原字面量债务。 |
+| `text-diff-count-removed` | `{"reference":"workbench-diff-count-removed"}` | `[]` | 差异行数中删除行的内容色。 renderer/src/workbench.css .diff-count em；D2 精确迁移，值来自原字面量债务。 |
+| `highlight-trajectory-match` | `{"reference":"workbench-trajectory-match-ink"}` | `[]` | 轨迹搜索高亮的墨色，调用方保持既有 35% srgb 透明混色。 renderer/src/workbench.css .trajectory-content mark；D2 精确迁移，值来自原字面量债务。 |
+| `surface-inspection-scrim` | `{"reference":"workbench-inspection-scrim"}` | `[]` | Hook 统计检查浮层的轻遮罩，保留原 15% 黑色。 renderer/src/workbench.css .hook-stats-overlay；D2 精确迁移，值来自原字面量债务。 |
+| `border-dark-shortcut` | `{"reference":"workbench-shortcut-border"}` | `[]` | 深色新建任务快捷入口的细边框。 renderer/src/workbench.css .new-task-shortcut；D2 精确迁移，值来自原字面量债务。 |
+| `surface-dark-shortcut` | `{"reference":"workbench-shortcut-surface"}` | `[]` | 新建任务快捷入口的固定深色背景。 renderer/src/workbench.css .new-task-shortcut；D2 精确迁移，值来自原字面量债务。 |
+| `text-dark-shortcut` | `{"reference":"workbench-shortcut-foreground"}` | `[]` | 固定深色快捷入口的白色文字。 renderer/src/workbench.css .new-task-shortcut；D2 精确迁移，值来自原字面量债务。 |
+| `text-content-list-marker-dark` | `{"reference":"workbench-markdown-list-marker-dark"}` | `[]` | 暗色可编辑 Markdown 列表标记的半透明白色。 renderer/src/workbench.css .dark .workspace-file-markdown .workspace-markdown-list-marker；D2 精确迁移，值来自原字面量债务。 |
+| `surface-review-comment` | `{"reference":"workbench-review-comment-surface"}` | `[]` | 批注编辑器与卡片的低对比表面，继续由浏览器 color-scheme 选择 light-dark 分支。 renderer/src/workbench.css .review-comment-editor; .review-comment-card；D2 精确迁移，值来自原字面量债务。 |
+| `border-review-tree-guide` | `{"reference":"workbench-review-tree-guide-ink"}` | `[]` | 文件评审树的引导线墨色，调用方保持既有 25% lab 透明混色。 renderer/src/workbench.css .review-tree-guide；D2 精确迁移，值来自原字面量债务。 |
+| `content-diff-modified` | `{"reference":"workbench-diff-modified"}` | `[]` | 代码差异阅读器的修改色，继续由浏览器 color-scheme 选择分支。 renderer/src/workbench.css --diffs-modified-color-override；D2 精确迁移，值来自原字面量债务。 |
+| `content-diff-added` | `{"reference":"workbench-diff-added"}` | `[]` | 代码差异阅读器的新增色，不等同于状态成功色。 renderer/src/workbench.css --diffs-addition-color-override；D2 精确迁移，值来自原字面量债务。 |
+| `content-diff-removed` | `{"reference":"workbench-diff-removed"}` | `[]` | 代码差异阅读器的删除色，不等同于危险操作色。 renderer/src/workbench.css --diffs-deletion-color-override；D2 精确迁移，值来自原字面量债务。 |
+| `interaction-slider-selected-track` | `{"reference":"workbench-slider-selected-track"}` | `[]` | 输入器推理档位中已选轨道的半透明填充。 renderer/src/workbench.css .composer-slider-track i[data-selected=true]；D2 精确迁移，值来自原字面量债务。 |
+| `text-annotation-selected` | `{"reference":"workbench-annotation-selected-foreground"}` | `[]` | 浏览器标注模式已选入口的文字色。 renderer/src/workbench.css .browser-annotation-trigger[aria-pressed="true"]；D2 精确迁移，值来自原字面量债务。 |
+| `surface-annotation-selected` | `{"reference":"workbench-annotation-selected-surface"}` | `[]` | 浏览器标注模式已选入口的透明背景色。 renderer/src/workbench.css .browser-annotation-trigger[aria-pressed="true"]；D2 精确迁移，值来自原字面量债务。 |
 
 ## 调色板（由主题输入派生，用户可在外观设置中覆盖）
 
@@ -339,3 +384,21 @@
 | `--color-status-settled` | semantic · 已结算过程元信息，保留暗色半透明与浅色次要文字的区别。 | status-settled  | `color-mix(in srgb, #1a1c1f 75%, #ffffff)` | `color-mix(in srgb, #ffffff 55%, transparent)` |
 | `--shadow-result-raised` | semantic · 结果悬停投影，全部依赖语义边框与已有参考色。 | shadow-result-raised  | `0 0 0 .5px color-mix(in srgb, #1a1c1f 8%, transparent), 0 3px 7.5px #0000000a, 0 0 20px #0000000d` | `0 0 0 .5px color-mix(in srgb, #ffffff 15.6%, transparent), 0 3px 7.5px #0000000a, 0 0 20px #0000000d` |
 | `--color-settings-attention-indicator` | component · 设置入口的任务关注指示点。 | settings-attention-indicator 设置入口只引用对应语义角色，保留原 bg-amber-500 像素值。 | `#f59e0b` | `#f59e0b` |
+| `--color-dialog-backdrop` | semantic · 对话框遮罩，保留原 40% 黑色覆盖度。 | surface-dialog-scrim  | `#0006` | `#0006` |
+| `--color-control-thumb` | semantic · 原生开关与滑块的固定白色把手，独立于当前主题前景。 | surface-control-thumb  | `white` | `white` |
+| `--color-diff-count-added` | component · 差异行数中新增行的内容色。 | text-diff-count-added 仅引用对应内容或控件语义角色，保留原值与浏览器色彩空间。 | `#16a45d` | `#16a45d` |
+| `--color-diff-count-removed` | component · 差异行数中删除行的内容色。 | text-diff-count-removed 仅引用对应内容或控件语义角色，保留原值与浏览器色彩空间。 | `#df515b` | `#df515b` |
+| `--color-trajectory-match-ink` | component · 轨迹搜索高亮的墨色，调用方保持既有 35% srgb 透明混色。 | highlight-trajectory-match 仅引用对应内容或控件语义角色，保留原值与浏览器色彩空间。 | `#e8a838` | `#e8a838` |
+| `--color-inspection-scrim` | semantic · Hook 统计检查浮层的轻遮罩，保留原 15% 黑色。 | surface-inspection-scrim  | `rgb(0 0 0 / 15%)` | `rgb(0 0 0 / 15%)` |
+| `--color-shortcut-border` | component · 深色新建任务快捷入口的细边框。 | border-dark-shortcut 仅引用对应内容或控件语义角色，保留原值与浏览器色彩空间。 | `rgb(255 255 255 / 5%)` | `rgb(255 255 255 / 5%)` |
+| `--color-shortcut-surface` | component · 新建任务快捷入口的固定深色背景。 | surface-dark-shortcut 仅引用对应内容或控件语义角色，保留原值与浏览器色彩空间。 | `#1b1b1b` | `#1b1b1b` |
+| `--color-shortcut-foreground` | component · 固定深色快捷入口的白色文字。 | text-dark-shortcut 仅引用对应内容或控件语义角色，保留原值与浏览器色彩空间。 | `#fff` | `#fff` |
+| `--color-markdown-list-marker-dark` | component · 暗色可编辑 Markdown 列表标记的半透明白色。 | text-content-list-marker-dark 仅引用对应内容或控件语义角色，保留原值与浏览器色彩空间。 | `#ffffff7f` | `#ffffff7f` |
+| `--color-review-comment-surface` | component · 批注编辑器与卡片的低对比表面，继续由浏览器 color-scheme 选择 light-dark 分支。 | surface-review-comment 仅引用对应内容或控件语义角色，保留原值与浏览器色彩空间。 | `light-dark(rgba(0, 0, 0, 0.032), rgba(255, 255, 255, 0.032))` | `light-dark(rgba(0, 0, 0, 0.032), rgba(255, 255, 255, 0.032))` |
+| `--color-review-tree-guide-ink` | component · 文件评审树的引导线墨色，调用方保持既有 25% lab 透明混色。 | border-review-tree-guide 仅引用对应内容或控件语义角色，保留原值与浏览器色彩空间。 | `#84848a` | `#84848a` |
+| `--color-diff-modified` | component · 代码差异阅读器的修改色，继续由浏览器 color-scheme 选择分支。 | content-diff-modified 仅引用对应内容或控件语义角色，保留原值与浏览器色彩空间。 | `light-dark(#009fff, #69b1ff)` | `light-dark(#009fff, #69b1ff)` |
+| `--color-diff-added` | component · 代码差异阅读器的新增色，不等同于状态成功色。 | content-diff-added 仅引用对应内容或控件语义角色，保留原值与浏览器色彩空间。 | `#40c977` | `#40c977` |
+| `--color-diff-removed` | component · 代码差异阅读器的删除色，不等同于危险操作色。 | content-diff-removed 仅引用对应内容或控件语义角色，保留原值与浏览器色彩空间。 | `#fa423e` | `#fa423e` |
+| `--color-slider-selected-track` | component · 输入器推理档位中已选轨道的半透明填充。 | interaction-slider-selected-track 仅引用对应内容或控件语义角色，保留原值与浏览器色彩空间。 | `#ffffff80` | `#ffffff80` |
+| `--color-annotation-selected-foreground` | component · 浏览器标注模式已选入口的文字色。 | text-annotation-selected 仅引用对应内容或控件语义角色，保留原值与浏览器色彩空间。 | `#91c5ff` | `#91c5ff` |
+| `--color-annotation-selected-surface` | component · 浏览器标注模式已选入口的透明背景色。 | surface-annotation-selected 仅引用对应内容或控件语义角色，保留原值与浏览器色彩空间。 | `#4795ff26` | `#4795ff26` |

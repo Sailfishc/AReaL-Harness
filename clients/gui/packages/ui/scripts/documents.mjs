@@ -158,6 +158,21 @@ export async function verifyExperimentalImports(guiRoot, allowlist) {
     assert.ok(used.has(key), `stale experimental allowance: ${key}`);
   return used.size;
 }
+export function rewriteDocumentLinks(markdown, source, targets) {
+  return markdown
+    .split(/(```[\s\S]*?```|~~~[\s\S]*?~~~)/g)
+    .map((part, index) =>
+      index % 2
+        ? part
+        : part.replace(/(\[[^\]\n]+\]\()([^\s)]+)(\))/g, (match, label, href, close) => {
+            if (/^(?:[a-z][a-z\d+.-]*:|\/|#)/i.test(href)) return match;
+            const [, path, suffix] = href.match(/^([^?#]+)(.*)$/) ?? [];
+            const target = path && targets.get(resolve(dirname(source), path));
+            return target ? `${label}${target}${suffix}${close}` : match;
+          }),
+    )
+    .join("");
+}
 export async function buildDocuments(check = false) {
   const pkg = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
   assert.equal(pkg.private, true, "workspace UI package stays private");
@@ -203,6 +218,13 @@ export async function buildDocuments(check = false) {
     }
   }
   const components = [];
+  const documents = new Map([
+    [resolve(root, "agent-guide.md"), "agent-guide.md"],
+    [resolve(root, "README.md"), "README.md"],
+    [resolve(root, "README.en.md"), "README.en.md"],
+    [resolve(root, "token-reference.md"), "token-reference.md"],
+    [resolve(root, "src/generated/tokens.md"), "tokens.md"],
+  ]);
   for (const path of srcFiles.filter(
     (path) => path.endsWith(".md") && !path.includes("/src/generated/"),
   )) {
@@ -246,8 +268,14 @@ export async function buildDocuments(check = false) {
     const api = await readFile(resolve(root, declaration), "utf8");
     const document = `clients/gui/packages/ui/${relative(root, path)}`;
     components.push({ ...data, source, document, api });
-    await writeOrCheck(resolve(root, `dist/docs/${data.id}.md`), markdown, check);
+    documents.set(path, `${data.id}.md`);
   }
+  for (const [source, output] of documents)
+    await writeOrCheck(
+      resolve(root, "dist/docs", output),
+      rewriteDocumentLinks(await readFile(source, "utf8"), source, documents),
+      check,
+    );
   components.sort((a, b) => a.id.localeCompare(b.id));
   for (const component of components)
     for (const id of component.related)
@@ -295,16 +323,6 @@ export async function buildDocuments(check = false) {
       .join("\n") +
     "\n";
   await writeOrCheck(resolve(root, "dist/llms.txt"), index, check);
-  await writeOrCheck(
-    resolve(root, "dist/docs/agent-guide.md"),
-    await readFile(resolve(root, "agent-guide.md"), "utf8"),
-    check,
-  );
-  await writeOrCheck(
-    resolve(root, "dist/docs/tokens.md"),
-    await readFile(resolve(root, "src/generated/tokens.md"), "utf8"),
-    check,
-  );
   if (!check)
     for (const path of srcFiles.filter((path) => path.endsWith(".css"))) {
       const output = resolve(root, "dist", relative(resolve(root, "src"), path));

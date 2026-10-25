@@ -1,3 +1,4 @@
+import { SettingsGroupCard, SettingsRow, SettingsSection } from "@areal/ui/compositions";
 import { toast } from "../components/ui/toast.js";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { LoaderCircle, Plus, RefreshCw, Trash2 } from "lucide-react";
@@ -9,12 +10,7 @@ import { Textarea } from "../components/ui/textarea.js";
 import { useI18n } from "../i18n/IntlProvider.js";
 import type { Action, Data } from "../services.js";
 import { SettingsDisclosure } from "./SettingsDisclosure.js";
-import {
-  SettingsGroupCard,
-  SettingsRow,
-  SettingsSection,
-  SettingsSwitch,
-} from "./SettingsPageParts.js";
+import { SettingsSwitch } from "./SettingsPageParts.js";
 import { SettingsSegmentedTabs } from "./SettingsSegmentedTabs.js";
 import { useDraftBlocker, useGuardedNavigation } from "./UnsavedChanges.js";
 import { WorktreeDirectory, WorktreeSettings } from "@areal/ui/experimental";

@@ -1,3 +1,4 @@
+import { Input } from "@areal/ui";
 import { useI18n } from "./i18n/IntlProvider.js";
 import { SubagentPanel, TaskContext } from "@areal/ui/experimental";
 import "@areal/ui/conversation.css";
@@ -585,7 +586,9 @@ export function AgentsPane({
                 <div className="flex flex-col gap-2">
                   {skills.map((skill) => (
                     <label key={versionKey(skill)} className="flex items-center gap-2">
-                      <input
+                      <Input
+                        unstyled
+                        data-slot={undefined}
                         type="checkbox"
                         checked={options.skills.includes(versionKey(skill))}
                         onChange={(event) =>

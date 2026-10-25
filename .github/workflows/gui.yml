@@ -83,6 +83,9 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: '24.22.1'
+      - name: Check dependency-free health contracts
+        working-directory: clients/gui
+        run: node --test scripts/gui-health.test.mjs scripts/design-system-maturity.test.mjs
       - name: Check health against the reviewed baseline
         env:
           PR_BASE: ${{ github.event.pull_request.base.sha }}

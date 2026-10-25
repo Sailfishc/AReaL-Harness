@@ -741,5 +741,12 @@
     "platforms": ["darwin", "linux"],
     "areas": ["renderer", "ui"],
     "requires": []
+  },
+  {
+    "script": "test:design-rules",
+    "layer": "contract",
+    "platforms": ["darwin", "linux", "win32"],
+    "areas": ["design"],
+    "requires": []
   }
 ]

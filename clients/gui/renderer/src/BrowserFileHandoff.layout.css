@@ -1,13 +1,13 @@
 .preview-file-status {
   display: block;
-  max-height: 112px;
+  max-height: var(--browser-file-status-max-height);
   overflow: auto;
 }
 
 .preview-file-status [role="listitem"] {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--browser-file-status-inline-gap);
   overflow-wrap: anywhere;
-  padding: 3px 0;
+  padding: var(--browser-file-status-block-padding) 0;
 }

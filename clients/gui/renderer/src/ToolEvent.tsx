@@ -242,7 +242,9 @@ export function ToolEvent({
               ))}
             </div>
           </ImageDisclosure>
-          <button
+          <Button
+            unstyled
+            data-slot={undefined}
             type="button"
             className="agent-spawn-record"
             aria-label="查看工具原始记录"
@@ -255,7 +257,7 @@ export function ToolEvent({
               size={14}
               className={open ? "tool-chevron open" : "tool-chevron"}
             />
-          </button>
+          </Button>
         </div>
       ) : file ? (
         <div className="tool-summary-row tool-file-row">
@@ -314,7 +316,10 @@ export function ToolEvent({
           </Button>
         </div>
       ) : (
-        <button
+        <Button
+          unstyled
+          data-slot={undefined}
+          type="submit"
           className="tool-summary-row"
           aria-expanded={open}
           onClick={toggle}
@@ -348,7 +353,7 @@ export function ToolEvent({
             size={14}
             className={open ? "tool-chevron open" : "tool-chevron"}
           />
-        </button>
+        </Button>
       )}
       {eligibleResult && (
         <Button

@@ -43,19 +43,22 @@ async function consumers(list, root = gui) {
     ),
   );
   const shim = (source) =>
-    /^export \{[^}]+\} from "@areal\/ui(?:\/[\w-]+)?";?\s*$/m.test(source) &&
-    source.trim().split("\n").length <= 3;
+    /^(?:\s*export\s*\{[^}]+\}\s*from\s*["']@areal\/ui(?:\/[\w-]+)?["'];?\s*)+$/.test(
+      source.replace(/\/\*[\s\S]*?\*\/|^\s*\/\/[^\n]*$/gm, ""),
+    );
   const shims = new Set(
     [...sources].filter(([, source]) => shim(source)).map(([file]) => file.replace(/\.tsx?$/, "")),
   );
   const users = new Map(list.map((component) => [component.id, new Set()]));
   for (const [file, source] of sources) {
     if (shims.has(file.replace(/\.tsx?$/, ""))) continue;
-    for (const [, body, from] of source.matchAll(
-      /import\s*(?:type\s*)?\{([^}]+)\}\s*from\s*"([^"]+)"/g,
+    for (const [, body, , from] of source.matchAll(
+      /import\s*(?:type\s*)?\{([^}]+)\}\s*from\s*(["'])([^"']+)\2/g,
     )) {
-      if (from.startsWith(".")) {
-        const target = posix.normalize(posix.join(dirname(file), from)).replace(/\.js$/, "");
+      if (from.startsWith(".") || from.startsWith("@/")) {
+        const target = (
+          from.startsWith("@/") ? from.slice(2) : posix.normalize(posix.join(dirname(file), from))
+        ).replace(/\.js$/, "");
         if (!shims.has(target)) continue;
       } else if (!from.startsWith("@areal/ui")) continue;
       const names = body

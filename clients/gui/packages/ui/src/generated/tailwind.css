@@ -128,4 +128,22 @@
   --color-status-settled: color-mix(in srgb, #1a1c1f 75%, #ffffff);
   --shadow-result-raised: 0 0 0 .5px color-mix(in srgb, #1a1c1f 8%, transparent), 0 3px 7.5px #0000000a, 0 0 20px #0000000d;
   --color-settings-attention-indicator: #f59e0b;
+  --color-dialog-backdrop: #0006;
+  --color-control-thumb: white;
+  --color-diff-count-added: #16a45d;
+  --color-diff-count-removed: #df515b;
+  --color-trajectory-match-ink: #e8a838;
+  --color-inspection-scrim: rgb(0 0 0 / 15%);
+  --color-shortcut-border: rgb(255 255 255 / 5%);
+  --color-shortcut-surface: #1b1b1b;
+  --color-shortcut-foreground: #fff;
+  --color-markdown-list-marker-dark: #ffffff7f;
+  --color-review-comment-surface: light-dark(rgba(0, 0, 0, 0.032), rgba(255, 255, 255, 0.032));
+  --color-review-tree-guide-ink: #84848a;
+  --color-diff-modified: light-dark(#009fff, #69b1ff);
+  --color-diff-added: #40c977;
+  --color-diff-removed: #fa423e;
+  --color-slider-selected-track: #ffffff80;
+  --color-annotation-selected-foreground: #91c5ff;
+  --color-annotation-selected-surface: #4795ff26;
 }

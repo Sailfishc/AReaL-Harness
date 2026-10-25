@@ -1,3 +1,4 @@
+import { SettingsGroupCard, SettingsRow, SettingsSection } from "@areal/ui/compositions";
 import { TaskContextPreview } from "./TaskContextPreview.js";
 import { ContentSystemPreview } from "./ContentSystemPreview.js";
 import { ToastHost } from "../ToastHost.js";
@@ -21,12 +22,7 @@ import { Switch } from "../components/ui/switch.js";
 import { SettingsSegmentedTabs } from "../settings/SettingsSegmentedTabs.js";
 import { SettingsDisclosure } from "../settings/SettingsDisclosure.js";
 import { SettingsPage } from "../settings/SettingsWorkspace.js";
-import {
-  SettingsGroupCard,
-  SettingsRow,
-  SettingsSelect,
-  SettingsSection,
-} from "../settings/SettingsPageParts.js";
+import { SettingsSelect } from "../settings/SettingsPageParts.js";
 import { Button } from "../components/ui/button.js";
 import { Feedback } from "../components/ui/feedback.js";
 import { TooltipProvider } from "../components/ui/tooltip.js";

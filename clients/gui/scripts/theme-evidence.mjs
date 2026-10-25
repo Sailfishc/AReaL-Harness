@@ -167,23 +167,33 @@ export async function verifyThemeEvidence(browser, scratch) {
   const baseline = JSON.parse(await readFile(baselinePath, "utf8"));
   const revision = JSON.parse(await readFile(revisionPath, "utf8"));
   assert.equal(revision.baseVersion, "0.4.1");
-  assert.deepEqual(revision.roles.map(role => role.name).sort(), [
-    "--color-foreground-subtle", "--color-foreground-subtlest", "--color-process-settled", "--color-settings-secondary",
+  assert.deepEqual(revision.roles.map((role) => role.name).sort(), [
+    "--color-foreground-subtle",
+    "--color-foreground-subtlest",
+    "--color-process-settled",
+    "--color-settings-secondary",
   ]);
-  assert.ok(revision.roles.every(role => role.reason?.trim()), "accessibility color changes need reasons");
+  assert.ok(
+    revision.roles.every((role) => role.reason?.trim()),
+    "accessibility color changes need reasons",
+  );
   assert.equal(revision.samples.length, baseline.samples.length);
-  const revisedRoles = new Set(revision.roles.map(role => role.name));
+  const revisedRoles = new Set(revision.roles.map((role) => role.name));
   for (const [index, sample] of observed.samples.entries()) {
     assert.deepEqual(sample.input, baseline.samples[index].input);
     assert.deepEqual(sample.input, revision.samples[index].input);
     for (const [role, expected] of Object.entries(baseline.samples[index].colors)) {
-      assert.deepEqual(sample.colors[role], revisedRoles.has(role) ? revision.samples[index].colors[role] : expected,
-        `${sample.input.id} ${role} differs from its reviewed palette value`);
+      assert.deepEqual(
+        sample.colors[role],
+        revisedRoles.has(role) ? revision.samples[index].colors[role] : expected,
+        `${sample.input.id} ${role} differs from its reviewed palette value`,
+      );
     }
   }
   return {
     samples: observed.samples.length,
-    variables: Object.keys(baseline.samples[0].colors).length,
+    variables: Object.keys(observed.samples[0].colors).length,
+    legacyVariables: Object.keys(baseline.samples[0].colors).length,
     addedVariables: Object.keys(observed.samples[0].colors).filter(
       (name) => !(name in baseline.samples[0].colors),
     ).length,

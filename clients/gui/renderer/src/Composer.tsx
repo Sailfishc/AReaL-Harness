@@ -1,3 +1,4 @@
+import { Input } from "@areal/ui";
 import { ComposerActionButton } from "@areal/ui/experimental";
 import { parseMentionMarkdown } from "./mentions/mentionMarkdown.js";
 import { stopConversationTurn, releaseSettledStops } from "./conversationStop.js";
@@ -786,7 +787,9 @@ export function Composer({
           onEdit={() => onPanel("编辑目标")}
         />
       )}
-      <input
+      <Input
+        unstyled
+        data-slot={undefined}
         ref={upload}
         type="file"
         multiple

@@ -83,6 +83,17 @@ export async function verifyDesignCatalog({ write = false, root = guiRoot } = {}
   const dataRoot = join(root, "design-system");
   const registry = JSON.parse(await readFile(join(dataRoot, "registry.json"), "utf8"));
   assert.equal(registry.schemaVersion, 1, "registry.schemaVersion must be 1");
+  const ruleRegistry = JSON.parse(await source(root, registry.ruleRegistry));
+  const ruleOwners = new Map(ruleRegistry.rules.map((rule) => [rule.id, rule.owner]));
+  assert.equal(ruleOwners.size, ruleRegistry.rules.length, "duplicate canonical rule IDs");
+  const ruleDocument = async (id, context) => {
+    const owner = ruleOwners.get(id);
+    assert.ok(
+      typeof owner === "string" && owner.startsWith("clients/gui/"),
+      `${context}: rule ${id} needs one canonical definition`,
+    );
+    return source(root, owner.split("#")[0].slice("clients/gui/".length));
+  };
   unique(registry.tokenSources, "tokenSources");
   const tokenSources = await Promise.all(registry.tokenSources.map((path) => source(root, path)));
   const sharedFocus = await readFile(
@@ -160,8 +171,9 @@ export async function verifyDesignCatalog({ write = false, root = guiRoot } = {}
     if (pattern.rules !== undefined || pattern.ruleSource !== undefined) {
       unique(pattern.rules, `${pattern.id}.rules`);
       rules += pattern.rules.length;
-      const document = await source(root, pattern.ruleSource);
+      await source(root, pattern.ruleSource);
       for (const id of pattern.rules) {
+        const document = await ruleDocument(id, pattern.id);
         assert.ok(/^[A-Z]+(?:-[A-Z]+)+-\d{2}$/.test(id), `${pattern.id}: invalid rule id ${id}`);
         assert.equal(
           document.split(`\`${id}\`：`).length - 1,
@@ -187,13 +199,15 @@ export async function verifyDesignCatalog({ write = false, root = guiRoot } = {}
       assert.ok(patterns.has(id), `${family.id}: unknown pattern ${id}`);
     for (const id of family.components)
       assert.ok(components.has(id), `${family.id}: unknown component ${id}`);
-    const document = await source(root, family.ruleSource);
-    for (const id of family.rules)
+    await source(root, family.ruleSource);
+    for (const id of family.rules) {
+      const document = await ruleDocument(id, family.id);
       assert.equal(
         document.split(`\`${id}\`：`).length - 1,
         1,
         `${family.id}: rule ${id} needs one canonical definition`,
       );
+    }
   }
   const base = registry.baseCandidate;
   assert.ok(
@@ -412,17 +426,12 @@ export async function verifyDesignCatalog({ write = false, root = guiRoot } = {}
   }
   unique(surfaceIds, "surface ids");
   const componentTable =
-    "## 生产组件（生成）\n\n| ID | 生产所有者 | 用途 |\n| --- | --- | --- |\n" +
-    registry.components
-      .map((item) => `| ${item.id} | [${item.id}](../${item.source}) | ${cells(item.purpose)} |`)
-      .join("\n");
+    "## 生产组件（生成）\n\n用途和完整事实归 [registry.json](registry.json) 的 `components`；行为归就近合同。\n\n| 生产成员与源码 |\n| --- |\n" +
+    registry.components.map((item) => `| [${item.id}](../${item.source}) |`).join("\n");
   const patternTable =
-    "| ID / 用户任务 | 最小组合 / 生产参考 | 允许变化 | 验收重点 |\n| --- | --- | --- | --- |\n" +
+    "完整组合、允许变化和验收重点归 [registry.json](registry.json) 的 `patterns`。\n\n| ID / 用户任务 | 生产参考 |\n| --- | --- |\n" +
     registry.patterns
-      .map(
-        (item) =>
-          `| ${item.id} ${cells(item.intent)} | ${item.components.join(" + ")}；[参考](../${item.reference}) | ${cells(item.variation)} | ${cells(item.acceptance)} |`,
-      )
+      .map((item) => `| ${item.id} ${cells(item.intent)} | [参考](../${item.reference}) |`)
       .join("\n");
   const catalog =
     "// 由 design-system/registry.json 生成；运行 pnpm --dir clients/gui design:sync。\n// 只记录角色与定义名，数值始终从生产 CSS 读取。\nexport const tokenGroups = " +
@@ -444,14 +453,11 @@ export async function verifyDesignCatalog({ write = false, root = guiRoot } = {}
       .join("\n") + "\n";
   outputs.set("renderer/src/design-system/base-components.ts", sourceEntry);
   const admissionTable =
-    "| 成员 | 合同 / 生产消费者 | 有限变体 | 状态 | 证据ID |\n| --- | --- | --- | --- | --- |\n" +
+    "| 成员 | 合同 | 证据ID |\n| --- | --- | --- |\n" +
     base.admissions
-      .map(
-        (item) =>
-          `| ${item.id} | [合同](../${item.contract})；${item.consumers.map((path) => `[消费者](../${path})`).join("、")} | ${item.variants.join(", ")} | ${item.states.join(", ")} | ${item.evidence.join(", ")} |`,
-      )
+      .map((item) => `| ${item.id} | [合同](../${item.contract}) | ${item.evidence.join(", ")} |`)
       .join("\n");
-  const baseSummary = `候选 ID：\`${base.id}\`；版本：\`${base.version}\`；状态：\`${base.status}\`。\n\n来源快照：${base.snapshot.revision ? `\`${base.snapshot.revision}\`` : "待最终验收后记录"}；冻结与兼容所有者：[${base.snapshot.owner}](../${base.snapshot.owner})。\n\n| 层 | 准入范围 |\n| --- | --- |\n| Foundations | ${base.foundations.join("、")} |\n| Primitives | ${base.primitives.join("、")} |\n| Compositions | ${base.compositions.join("、")} |\n| Patterns | ${base.patterns.join("、")} |\n\n### 成员准入\n\n${admissionTable}\n\n证据ID统一映射到 [Base证据索引](base-evidence.md)。路径验证只确认引用存在，不解析JSX证明消费者采用；真实符号导出由TypeScript检查。\n\n### 验收条件\n\n${base.acceptance.map((value) => `- ${value}`).join("\n")}\n\n### 边界\n\n${base.limits.map((value) => `- ${value}`).join("\n")}`;
+  const baseSummary = `候选 ID：\`${base.id}\`；版本：\`${base.version}\`；状态：\`${base.status}\`。\n\n来源快照：${base.snapshot.revision ? `\`${base.snapshot.revision}\`` : "待最终验收后记录"}；冻结与兼容所有者：[${base.snapshot.owner}](../${base.snapshot.owner})。\n\n完整准入归 [registry.json](registry.json) 的 \`baseCandidate\`。\n\n### 成员准入\n\n${admissionTable}\n\n证据见 [Base索引](base-evidence.md)。\n\n### 验收条件\n\n完整准入条件归 [registry.json](registry.json) 的 \`baseCandidate.acceptance\`。\n\n### 边界\n\n范围与限制归 [registry.json](registry.json) 的 \`baseCandidate.limits\`。冻结历史验收不能由当前生成索引扩张。`;
   for (const [file, name, body] of [
     ["inventory.md", "components", componentTable],
     ["patterns.md", "patterns", patternTable],

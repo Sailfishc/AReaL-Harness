@@ -2,8 +2,7 @@ import type { ComponentProps } from "react";
 import { SettingsValueAction as Value } from "@areal/ui/experimental";
 import { SettingsSelect as Select } from "@areal/ui/compositions";
 import { useI18n } from "../i18n/IntlProvider.js";
-import "./SettingsPageParts.css";
-export { SettingsSection, SettingsRow, SettingsGroupCard } from "@areal/ui/compositions";
+import "@areal/ui/settings.css";
 export { SettingsLockedValue, SettingsBadge, SettingsSwitch } from "@areal/ui/experimental";
 export function SettingsValueAction(props: ComponentProps<typeof Value>) {
   const { t } = useI18n();

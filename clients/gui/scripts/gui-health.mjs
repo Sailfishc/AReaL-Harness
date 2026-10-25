@@ -5,6 +5,7 @@ import { resolve, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { collectUiAdoption } from "./design-system-maturity.mjs";
 import { readTestManifest } from "./test-manifest.mjs";
+import { collectDesignRuleMetrics } from "./design-rules.mjs";
 
 const gui = fileURLToPath(new URL("../", import.meta.url));
 const sourceExtension = /\.(?:cjs|mjs|js|jsx|ts|tsx|css)$/;
@@ -19,10 +20,12 @@ async function filesAt(root, dir) {
   const entries = await readdir(resolve(root, dir), { recursive: true });
   return entries
     .filter((file) => sourceExtension.test(file) && !excluded.test(`${dir}/${file}`))
-    .filter((file) =>
-      dir !== "packages" ||
-      /^[^/]+\/(?:src|client)\//.test(file) ||
-      (/^[^/]+\/[^/]+$/.test(file) && !/(?:^|\/)(?:build\.[^/]+|[^/]+\.config\.[^/]+|[^/]+\.d\.[cm]?ts)$/.test(file)),
+    .filter(
+      (file) =>
+        dir !== "packages" ||
+        /^[^/]+\/(?:src|client)\//.test(file) ||
+        (/^[^/]+\/[^/]+$/.test(file) &&
+          !/(?:^|\/)(?:build\.[^/]+|[^/]+\.config\.[^/]+|[^/]+\.d\.[cm]?ts)$/.test(file)),
     )
     .sort()
     .map((file) => `${dir}/${file}`);
@@ -66,6 +69,7 @@ export async function collectHealth({ root = gui } = {}) {
     JSON.parse(await readFile(resolve(root, "package.json"), "utf8")).scripts ?? {},
   ).filter((script) => script.startsWith("test:"));
   const adoption = await collectUiAdoption({ root });
+  const documentMetrics = await collectDesignRuleMetrics({ root: resolve(root, "../..") });
   const experimentalSource = await readFile(
     resolve(root, "packages/ui/experimental-allowlist.json"),
     "utf8",
@@ -76,18 +80,30 @@ export async function collectHealth({ root = gui } = {}) {
   const experimental = experimentalSource === null ? null : JSON.parse(experimentalSource);
   if (experimental !== null && !Array.isArray(experimental))
     throw new Error("Invalid experimental import allowance");
-  const accessibilitySource = await readFile(resolve(root, "design-system/accessibility-baseline.json"), "utf8").catch(error => {
+  const accessibilitySource = await readFile(
+    resolve(root, "design-system/accessibility-baseline.json"),
+    "utf8",
+  ).catch((error) => {
     if (error.code === "ENOENT") return null;
     throw error;
   });
   const accessibility = accessibilitySource === null ? null : JSON.parse(accessibilitySource);
   const lintSources = [...files.map((file) => file.source), ...scriptSources];
+  const checkedMainFiles = main.filter(
+    (file) => /@ts-check\b/.test(file.source) || /\.tsx?$/.test(file.path),
+  ).length;
   const metrics = {
     mainCheckedFiles: row(
-      main.filter((file) => /@ts-check\b/.test(file.source) || /\.tsx?$/.test(file.path)).length,
+      checkedMainFiles,
       "up",
       "app/src",
       "Files with @ts-check or TypeScript extension",
+    ),
+    mainTypeCoverage: row(
+      main.length ? checkedMainFiles / main.length : null,
+      "up",
+      "app/src",
+      "Checked Main source files / all owned Main source files; native typecheck separately validates the program",
     ),
     appLines: row(
       app ? app.lines : null,
@@ -160,7 +176,8 @@ export async function collectHealth({ root = gui } = {}) {
       "Physical CSS lines excluding design previews",
     ),
     nonLayoutCssFiles: row(
-      renderer.filter((file) => file.path.endsWith(".css") && !file.path.endsWith(".layout.css")).length,
+      renderer.filter((file) => file.path.endsWith(".css") && !file.path.endsWith(".layout.css"))
+        .length,
       "down",
       "renderer/src",
       "Production CSS files other than explicitly owned layout styles",
@@ -177,14 +194,22 @@ export async function collectHealth({ root = gui } = {}) {
       "scripts",
       "Number of script source files containing /private/tmp, including tests",
     ),
+    activeDesignDocBytes: row(
+      documentMetrics.activeDesignDocBytes,
+      "down",
+      "design/ clients/gui/design-system",
+      "Actual active Markdown bytes excluding archive; identical original D5 scope",
+    ),
     a11yModerateIssues: row(
       accessibility?.moderateIssues ?? null,
-      "down", "design-system/accessibility-baseline.json",
+      "down",
+      "design-system/accessibility-baseline.json",
       "Reviewed moderate issue budget; test:design validates actual mounted preview findings",
     ),
     contrastExceptions: row(
       accessibility?.contrastExceptions.length ?? null,
-      "down", "design-system/accessibility-baseline.json",
+      "down",
+      "design-system/accessibility-baseline.json",
       "Registered default-theme contrast exceptions; custom diagnostics do not count as exceptions",
     ),
     lintDisables: row(
@@ -251,6 +276,7 @@ export async function collectHealth({ root = gui } = {}) {
       uiConsumerFiles: adoption.consumers,
       testScripts: packageScripts.length,
       scriptSourceFiles: allScripts.length,
+      userEntryDocBytes: documentMetrics.userEntryDocBytes,
     },
     literals: literal.total,
     largeFiles: Object.fromEntries(

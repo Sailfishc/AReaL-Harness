@@ -44,9 +44,17 @@ export function summarizeAxe(result) {
 
 export function assertAccessibleReport(report, moderateBaseline = 0) {
   assert.ok(report.scans.length > 0, "axe must execute on mounted previews");
-  assert.equal(report.scans.flatMap(scan => scan.blocking).length, 0, "serious or critical accessibility violations");
+  assert.equal(
+    report.scans.flatMap((scan) => scan.blocking).length,
+    0,
+    "serious or critical accessibility violations",
+  );
   assert.equal(report.contrast.defaultFailures, 0, "default theme contrast failures");
-  assert.equal(report.scans.reduce((sum, scan) => sum + scan.moderate, 0), moderateBaseline, "moderate accessibility issues exceed the zero baseline");
+  assert.equal(
+    report.scans.reduce((sum, scan) => sum + scan.moderate, 0),
+    moderateBaseline,
+    "moderate accessibility issues exceed the zero baseline",
+  );
 }
 
 export async function runThemeContrast(browser, scratch) {
@@ -327,14 +335,20 @@ export async function runAccessibility(page, scratch, gui, checks, samples) {
     },
   });
   checks.push(
-    `palette snapshot: ${palette.samples} samples × ${palette.variables} browser-resolved roles checked against the frozen baseline and explicit accessibility revision`,
+    `palette snapshot: ${palette.samples} samples × ${palette.legacyVariables} legacy roles checked against the frozen baseline and explicit accessibility revision; ${palette.addedVariables} new roles recorded`,
   );
   checks.push(
     `accessibility gate: ${scans.length} axe scans and default-theme contrast matrix; custom themes remain diagnostic`,
   );
-  const accessibilityBaseline = JSON.parse(await readFile(join(gui, "design-system/accessibility-baseline.json"), "utf8"));
-  assert.equal(accessibilityBaseline.contrastExceptions.length, 0, "default contrast exceptions require an explicit gate implementation");
-  assertAccessibleReport({scans, contrast}, accessibilityBaseline.moderateIssues);
+  const accessibilityBaseline = JSON.parse(
+    await readFile(join(gui, "design-system/accessibility-baseline.json"), "utf8"),
+  );
+  assert.equal(
+    accessibilityBaseline.contrastExceptions.length,
+    0,
+    "default contrast exceptions require an explicit gate implementation",
+  );
+  assertAccessibleReport({ scans, contrast }, accessibilityBaseline.moderateIssues);
   await runAccessibilityKeyboard(page, checks);
   const metadata = JSON.parse(await readFile(join(gui, "packages/ui/tokens.json"), "utf8"));
   assert.equal(

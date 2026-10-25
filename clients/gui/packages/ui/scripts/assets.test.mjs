@@ -177,12 +177,44 @@ test("theme source only retains documented color algorithms", async () => {
   assert.throws(() => verifyThemeSource(source.replace("0.2126", "0.2")), /algorithm constant/);
 });
 
-
 test("every duration token has a system and explicit reduced-motion override", () => {
   const future = structuredClone(tokens);
   future.foundation["motion-panel"] = { ...future.foundation["motion-fast"] };
   const css = renderFoundations(future).foundation;
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
-  for (const name of Object.keys(future.foundation).filter(name => name.startsWith("motion-")))
-    assert.equal(css.split(`--${name}: 0ms;`).length - 1, 2, `${name} must follow both preference sources`);
+  for (const name of Object.keys(future.foundation).filter((name) => name.startsWith("motion-")))
+    assert.equal(
+      css.split(`--${name}: 0ms;`).length - 1,
+      2,
+      `${name} must follow both preference sources`,
+    );
+});
+
+test("published component contracts retain known document links after flattening", async () => {
+  const { rewriteDocumentLinks } = await import("./documents.mjs");
+  const targets = new Map([
+    ["/ui/README.md", "README.md"],
+    ["/ui/src/components/disclosure/disclosure.md", "disclosure.md"],
+  ]);
+  const source = [
+    "[Common](../../../README.md#共同合同)",
+    "[Disclosure](../disclosure/disclosure.md)",
+    "[External](https://example.com/README.md#contract)",
+    "[Other](../../unknown.md)",
+    "```md",
+    "[example](../../../README.md)",
+    "```",
+  ].join("\n");
+  assert.equal(
+    rewriteDocumentLinks(source, "/ui/src/components/button/button.md", targets),
+    [
+      "[Common](README.md#共同合同)",
+      "[Disclosure](disclosure.md)",
+      "[External](https://example.com/README.md#contract)",
+      "[Other](../../unknown.md)",
+      "```md",
+      "[example](../../../README.md)",
+      "```",
+    ].join("\n"),
+  );
 });

@@ -1,3 +1,4 @@
+import { Input } from "@areal/ui";
 import { ScheduledWorkspace } from "@areal/ui/experimental";
 import { recoveredOutcome, recoveryMessage, type RecoveryFailure } from "./recoveryPresentation.js";
 import { FeedbackNotice } from "./FeedbackNotice.js";
@@ -1794,17 +1795,27 @@ export function TaskCenter({
     >
       <div className="task-center-toolbar">
         {navigation}
-        <button className="icon-button" aria-label="前进" disabled>
+        <Button
+          unstyled
+          data-slot={undefined}
+          type="submit"
+          className="icon-button"
+          aria-label="前进"
+          disabled
+        >
           <ArrowRight size={16} />
-        </button>
-        <button
+        </Button>
+        <Button
+          unstyled
+          data-slot={undefined}
+          type="submit"
           className="icon-button"
           aria-label="切换任务侧栏"
           aria-expanded={!navCollapsed}
           onClick={() => setNavCollapsed(!navCollapsed)}
         >
           <SidebarToggleIcon />
-        </button>
+        </Button>
       </div>
       <ScheduledWorkspace>
         <div
@@ -1814,12 +1825,20 @@ export function TaskCenter({
         >
           <header className="task-list-heading">
             <h1>定时任务</h1>
-            <button aria-label="搜索定时任务" onClick={() => setSearching(!searching)}>
+            <Button
+              unstyled
+              data-slot={undefined}
+              type="submit"
+              aria-label="搜索定时任务"
+              onClick={() => setSearching(!searching)}
+            >
               <Search size={16} />
-            </button>
+            </Button>
           </header>
           {searching && (
-            <input
+            <Input
+              unstyled
+              data-slot={undefined}
               autoFocus
               className="task-search"
               aria-label="搜索定时任务"
@@ -1834,7 +1853,10 @@ export function TaskCenter({
               }}
             />
           )}
-          <button
+          <Button
+            unstyled
+            data-slot={undefined}
+            type="submit"
             className="task-new"
             aria-label="新建自动化"
             aria-pressed={creating}
@@ -1843,7 +1865,7 @@ export function TaskCenter({
           >
             <Plus size={18} />
             {t("operations.schedules.newTitle")}
-          </button>
+          </Button>
 
           <Select
             value={projectScope || "all"}

@@ -1,3 +1,4 @@
+import { Textarea } from "@areal/ui";
 import { ResourceScope as ScopeView, CatalogEmpty as EmptyView } from "@areal/ui/experimental";
 import { useI18n, type UiMessage } from "../i18n/IntlProvider.js";
 import { useState } from "react";
@@ -206,7 +207,10 @@ export function ScopedSkillsSettings({
               key={`standalone:${scope}:${item.id}`}
               aria-label={`${item.name || item.id} · ${source}`}
             >
-              <button
+              <Button
+                unstyled
+                data-slot={undefined}
+                type="submit"
                 className="resource-card"
                 aria-label={t("settings.scopedSkillsSettings.viewSkillValue", { value0: item.id })}
                 disabled={busy || !!item.error}
@@ -229,7 +233,7 @@ export function ScopedSkillsSettings({
                       t("settings.scopedSkillsSettings.viewSkillContent")}
                   </small>
                 </span>
-              </button>
+              </Button>
               {item.overridden && (
                 <SettingsBadge>
                   {t("settings.scopedSkillsSettings.overriddenByProject")}
@@ -359,7 +363,9 @@ export function ScopedSkillsSettings({
               </label>
               <label>
                 {t("settings.scopedSkillsSettings.skillInstructions")}
-                <textarea
+                <Textarea
+                  unstyled
+                  data-slot={undefined}
                   required
                   rows={8}
                   value={draft.content}

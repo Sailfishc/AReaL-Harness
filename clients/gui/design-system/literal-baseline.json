@@ -1,9 +1,9 @@
 {
   "$description": "生产 UI 字面量存量上限，由 scripts/design-system-baseline.mjs --write 生成；只允许减少。",
   "total": {
-    "color": 95,
-    "radius": 9,
-    "typography": 6
+    "color": 63,
+    "radius": 4,
+    "typography": 5
   },
   "files": {
     "renderer/src/AnnotationNoteEditor.css": {
@@ -26,7 +26,7 @@
       "color": 1
     },
     "renderer/src/settings/SettingsWorkspace.css": {
-      "color": 29
+      "color": 26
     },
     "renderer/src/settings/trajectory-settings.css": {
       "color": 8
@@ -37,12 +37,7 @@
       "radius": 3
     },
     "renderer/src/styles.css": {
-      "color": 6
-    },
-    "renderer/src/workbench.css": {
-      "typography": 1,
-      "color": 25,
-      "radius": 5
+      "color": 2
     },
     "packages/ui/src/components/dialog/dialog.tsx": {
       "color": 1
@@ -164,27 +159,6 @@
       "occurrence": 1,
       "reason": "这是配对二维码底板。保留固定白色保证二维码像素的原有对比，不跟随应用背景。",
       "exitCondition": "二维码组件公开固定底板 Token 时迁移。"
-    },
-    {
-      "file": "renderer/src/settings/SettingsWorkspace.css",
-      "finding": "literal color: background: #f3f3f3",
-      "occurrence": 1,
-      "reason": "这是主题选择器的固定主题样本或 Diff 语法示例。示例必须展示被选主题，不能继承当前活动调色板。",
-      "exitCondition": "主题预览改用统一主题样本数据时随该所有者收敛。"
-    },
-    {
-      "file": "renderer/src/settings/SettingsWorkspace.css",
-      "finding": "literal color: background: #9f9f9f",
-      "occurrence": 1,
-      "reason": "这是主题选择器的固定主题样本或 Diff 语法示例。示例必须展示被选主题，不能继承当前活动调色板。",
-      "exitCondition": "主题预览改用统一主题样本数据时随该所有者收敛。"
-    },
-    {
-      "file": "renderer/src/settings/SettingsWorkspace.css",
-      "finding": "literal color: background: #232323",
-      "occurrence": 1,
-      "reason": "这是主题选择器的固定主题样本或 Diff 语法示例。示例必须展示被选主题，不能继承当前活动调色板。",
-      "exitCondition": "主题预览改用统一主题样本数据时随该所有者收敛。"
     },
     {
       "file": "renderer/src/settings/SettingsWorkspace.css",
@@ -524,34 +498,6 @@
     },
     {
       "file": "renderer/src/styles.css",
-      "finding": "literal color: background-image: linear-gradient(to bottom right, #191a1d, #747689)",
-      "occurrence": 1,
-      "reason": "保留现有装饰渐变或更新动作的固定参考色。它与用户可调的 accent 或 primary 不等色。",
-      "exitCondition": "装饰或更新控件进入组件颜色合同后等价迁移。"
-    },
-    {
-      "file": "renderer/src/styles.css",
-      "finding": "literal color: background-color: #484a58",
-      "occurrence": 1,
-      "reason": "保留现有装饰渐变或更新动作的固定参考色。它与用户可调的 accent 或 primary 不等色。",
-      "exitCondition": "装饰或更新控件进入组件颜色合同后等价迁移。"
-    },
-    {
-      "file": "renderer/src/styles.css",
-      "finding": "literal color: -webkit-mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.35), #000 40%),\n    linear-gradient(90deg, #000 82%, transparent)",
-      "occurrence": 1,
-      "reason": "黑色只定义 alpha 遮罩的覆盖度，颜色不进入最终前景。保持现有扫光和遮罩范围。",
-      "exitCondition": "遮罩形状变更时以动画像素证据复核，不映射到主题前景色。"
-    },
-    {
-      "file": "renderer/src/styles.css",
-      "finding": "literal color: mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.35), #000 40%),\n    linear-gradient(90deg, #000 82%, transparent)",
-      "occurrence": 1,
-      "reason": "黑色只定义 alpha 遮罩的覆盖度，颜色不进入最终前景。保持现有扫光和遮罩范围。",
-      "exitCondition": "遮罩形状变更时以动画像素证据复核，不映射到主题前景色。"
-    },
-    {
-      "file": "renderer/src/styles.css",
       "finding": "literal color: color: white",
       "occurrence": 1,
       "reason": "保留现有装饰渐变或更新动作的固定参考色。它与用户可调的 accent 或 primary 不等色。",
@@ -563,223 +509,6 @@
       "occurrence": 1,
       "reason": "保留现有装饰渐变或更新动作的固定参考色。它与用户可调的 accent 或 primary 不等色。",
       "exitCondition": "装饰或更新控件进入组件颜色合同后等价迁移。"
-    },
-    {
-      "file": "renderer/src/workbench.css",
-      "finding": "literal typography: font-size: 1.5em",
-      "occurrence": 1,
-      "reason": "保留该具体内容或标题的局部字号关系。当前通用 text-ui/content 角色没有完全相同的固定值或相对关系。",
-      "exitCondition": "该组件在 D2 采用统一排版合同后复核，不能只为减少计数改变字号。"
-    },
-    {
-      "file": "renderer/src/workbench.css",
-      "finding": "literal color: background: #0006",
-      "occurrence": 1,
-      "reason": "该浮层的原遮罩透明度与公共 Dialog 遮罩不同，保留当前叠层强度。",
-      "exitCondition": "浮层准入时明确其遮罩合同后迁移。"
-    },
-    {
-      "file": "renderer/src/workbench.css",
-      "finding": "literal color: background: white",
-      "occurrence": 1,
-      "reason": "控件滑块固定白色。现有 foreground-inverse 在暗色主题会变黑，不能直接替代。",
-      "exitCondition": "共享 Switch 或 Slider 定义固定滑块语义角色后迁移。"
-    },
-    {
-      "file": "renderer/src/workbench.css",
-      "finding": "literal color: background: white",
-      "occurrence": 2,
-      "reason": "控件滑块固定白色。现有 foreground-inverse 在暗色主题会变黑，不能直接替代。",
-      "exitCondition": "共享 Switch 或 Slider 定义固定滑块语义角色后迁移。"
-    },
-    {
-      "file": "renderer/src/workbench.css",
-      "finding": "literal color: background: #d68712",
-      "occurrence": 1,
-      "reason": "供应商启用点沿用独立琥珀色，既有 warning 与该颜色不同。",
-      "exitCondition": "供应商状态指示合入统一状态合同后等价迁移。"
-    },
-    {
-      "file": "renderer/src/workbench.css",
-      "finding": "literal color: color: #16a45d",
-      "occurrence": 1,
-      "reason": "Diff 视图的内容增删或修改色由原内容配色合同决定，不替换为不同色的通用状态。",
-      "exitCondition": "Diff 内容配色在现有 Diff 所有者中集中参考值后迁移。"
-    },
-    {
-      "file": "renderer/src/workbench.css",
-      "finding": "literal color: color: #df515b",
-      "occurrence": 1,
-      "reason": "Diff 视图的内容增删或修改色由原内容配色合同决定，不替换为不同色的通用状态。",
-      "exitCondition": "Diff 内容配色在现有 Diff 所有者中集中参考值后迁移。"
-    },
-    {
-      "file": "renderer/src/workbench.css",
-      "finding": "literal color: background: color-mix(in srgb, #e8a838 35%, transparent)",
-      "occurrence": 1,
-      "reason": "轨迹搜索命中使用独立黄色透明高亮，其原色和 35% alpha 均不同于 warning。",
-      "exitCondition": "搜索高亮定义共享内容角色后保留混色空间与 alpha 迁移。"
-    },
-    {
-      "file": "renderer/src/workbench.css",
-      "finding": "literal color: background: #eee",
-      "occurrence": 1,
-      "reason": "固定主题缩略图必须展示候选主题自身颜色，不能继承当前活动主题。",
-      "exitCondition": "主题缩略图统一读取主题样本数据时迁移。"
-    },
-    {
-      "file": "renderer/src/workbench.css",
-      "finding": "literal color: background: #b8b8b8",
-      "occurrence": 1,
-      "reason": "固定主题缩略图必须展示候选主题自身颜色，不能继承当前活动主题。",
-      "exitCondition": "主题缩略图统一读取主题样本数据时迁移。"
-    },
-    {
-      "file": "renderer/src/workbench.css",
-      "finding": "literal color: background: #242424",
-      "occurrence": 1,
-      "reason": "固定主题缩略图必须展示候选主题自身颜色，不能继承当前活动主题。",
-      "exitCondition": "主题缩略图统一读取主题样本数据时迁移。"
-    },
-    {
-      "file": "renderer/src/workbench.css",
-      "finding": "literal color: background: linear-gradient(90deg,#eee 50%,#242424 50%)",
-      "occurrence": 1,
-      "reason": "固定主题缩略图必须展示候选主题自身颜色，不能继承当前活动主题。",
-      "exitCondition": "主题缩略图统一读取主题样本数据时迁移。"
-    },
-    {
-      "file": "renderer/src/workbench.css",
-      "finding": "literal color: background: rgb(0 0 0 / 15%)",
-      "occurrence": 1,
-      "reason": "该浮层的原遮罩透明度与公共 Dialog 遮罩不同，保留当前叠层强度。",
-      "exitCondition": "浮层准入时明确其遮罩合同后迁移。"
-    },
-    {
-      "file": "renderer/src/workbench.css",
-      "finding": "literal color: border: 1px solid rgb(255 255 255 / 5%)",
-      "occurrence": 1,
-      "reason": "该固定深色快捷入口保留成组的前景、背景和描边，不与活动用户主题绑定。",
-      "exitCondition": "快捷入口准入时建立成组表面语义后等价迁移。"
-    },
-    {
-      "file": "renderer/src/workbench.css",
-      "finding": "literal color: background: #1b1b1b",
-      "occurrence": 1,
-      "reason": "该固定深色快捷入口保留成组的前景、背景和描边，不与活动用户主题绑定。",
-      "exitCondition": "快捷入口准入时建立成组表面语义后等价迁移。"
-    },
-    {
-      "file": "renderer/src/workbench.css",
-      "finding": "literal color: color: #fff",
-      "occurrence": 1,
-      "reason": "该固定深色快捷入口保留成组的前景、背景和描边，不与活动用户主题绑定。",
-      "exitCondition": "快捷入口准入时建立成组表面语义后等价迁移。"
-    },
-    {
-      "file": "renderer/src/workbench.css",
-      "finding": "literal color: color: #ffffff7f",
-      "occurrence": 1,
-      "reason": "内容列表标记或树结构引导线保留既有透明度与色彩空间，不与普通正文或边框混同。",
-      "exitCondition": "内容结构线建立语义角色后保留当前颜色和混色空间迁移。"
-    },
-    {
-      "file": "renderer/src/workbench.css",
-      "finding": "literal color: background: light-dark(rgba(0, 0, 0, 0.032), rgba(255, 255, 255, 0.032))",
-      "occurrence": 1,
-      "reason": "评论表面使用 light-dark 的 3.2% 中性层，当前 palette surface 的 contrast 斜率与它不同。",
-      "exitCondition": "评论表面准入时明确固定层和可调层的关系后迁移。"
-    },
-    {
-      "file": "renderer/src/workbench.css",
-      "finding": "literal color: border-left: 1px solid color-mix(in lab, #84848a 25%, transparent)",
-      "occurrence": 1,
-      "reason": "内容列表标记或树结构引导线保留既有透明度与色彩空间，不与普通正文或边框混同。",
-      "exitCondition": "内容结构线建立语义角色后保留当前颜色和混色空间迁移。"
-    },
-    {
-      "file": "renderer/src/workbench.css",
-      "finding": "literal color: --diffs-modified-color-override: light-dark(#009fff, #69b1ff)",
-      "occurrence": 1,
-      "reason": "Diff 视图的内容增删或修改色由原内容配色合同决定，不替换为不同色的通用状态。",
-      "exitCondition": "Diff 内容配色在现有 Diff 所有者中集中参考值后迁移。"
-    },
-    {
-      "file": "renderer/src/workbench.css",
-      "finding": "literal color: --diffs-addition-color-override: #40c977",
-      "occurrence": 1,
-      "reason": "Diff 视图的内容增删或修改色由原内容配色合同决定，不替换为不同色的通用状态。",
-      "exitCondition": "Diff 内容配色在现有 Diff 所有者中集中参考值后迁移。"
-    },
-    {
-      "file": "renderer/src/workbench.css",
-      "finding": "literal color: --diffs-deletion-color-override: #fa423e",
-      "occurrence": 1,
-      "reason": "Diff 视图的内容增删或修改色由原内容配色合同决定，不替换为不同色的通用状态。",
-      "exitCondition": "Diff 内容配色在现有 Diff 所有者中集中参考值后迁移。"
-    },
-    {
-      "file": "renderer/src/workbench.css",
-      "finding": "literal color: background: #ffffff80",
-      "occurrence": 1,
-      "reason": "滑块轨道的选中段固定白色半透明层，不能改成随主题翻转的 inverse。",
-      "exitCondition": "共享 Slider 公开选中轨道角色后迁移。"
-    },
-    {
-      "file": "renderer/src/workbench.css",
-      "finding": "literal color: background: white",
-      "occurrence": 3,
-      "reason": "控件滑块固定白色。现有 foreground-inverse 在暗色主题会变黑，不能直接替代。",
-      "exitCondition": "共享 Switch 或 Slider 定义固定滑块语义角色后迁移。"
-    },
-    {
-      "file": "renderer/src/workbench.css",
-      "finding": "literal color: color: #91c5ff",
-      "occurrence": 1,
-      "reason": "浏览器批注叠层使用固定标记或选区样式，以保持对任意网页和截图的辨识。活动主题 accent 与这些原色不等价。",
-      "exitCondition": "批注覆盖层集中参考值后逐项保持相同颜色与 alpha 迁移。"
-    },
-    {
-      "file": "renderer/src/workbench.css",
-      "finding": "literal color: background: #4795ff26",
-      "occurrence": 1,
-      "reason": "浏览器批注叠层使用固定标记或选区样式，以保持对任意网页和截图的辨识。活动主题 accent 与这些原色不等价。",
-      "exitCondition": "批注覆盖层集中参考值后逐项保持相同颜色与 alpha 迁移。"
-    },
-    {
-      "file": "renderer/src/workbench.css",
-      "finding": "literal radius: border-radius: 99px",
-      "occurrence": 1,
-      "reason": "保留该具体菜单、提示框或微型标记的局部几何。现有公共圆角没有精确相同值。",
-      "exitCondition": "对应组件采用公共几何合同或出现第二个共享消费者后收敛。"
-    },
-    {
-      "file": "renderer/src/workbench.css",
-      "finding": "literal radius: border-radius: 17px",
-      "occurrence": 1,
-      "reason": "保留该具体菜单、提示框或微型标记的局部几何。现有公共圆角没有精确相同值。",
-      "exitCondition": "对应组件采用公共几何合同或出现第二个共享消费者后收敛。"
-    },
-    {
-      "file": "renderer/src/workbench.css",
-      "finding": "literal radius: border-radius: 1px",
-      "occurrence": 1,
-      "reason": "保留该具体菜单、提示框或微型标记的局部几何。现有公共圆角没有精确相同值。",
-      "exitCondition": "对应组件采用公共几何合同或出现第二个共享消费者后收敛。"
-    },
-    {
-      "file": "renderer/src/workbench.css",
-      "finding": "literal radius: border-radius: 24px",
-      "occurrence": 1,
-      "reason": "保留该具体菜单、提示框或微型标记的局部几何。现有公共圆角没有精确相同值。",
-      "exitCondition": "对应组件采用公共几何合同或出现第二个共享消费者后收敛。"
-    },
-    {
-      "file": "renderer/src/workbench.css",
-      "finding": "literal radius: border-radius: 2px",
-      "occurrence": 1,
-      "reason": "保留该具体菜单、提示框或微型标记的局部几何。现有公共圆角没有精确相同值。",
-      "exitCondition": "对应组件采用公共几何合同或出现第二个共享消费者后收敛。"
     },
     {
       "file": "packages/ui/src/components/dialog/dialog.tsx",

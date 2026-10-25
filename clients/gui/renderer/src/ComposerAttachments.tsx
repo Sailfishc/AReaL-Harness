@@ -1,3 +1,4 @@
+import { Button } from "@areal/ui";
 import { AttachmentCard } from "@areal/ui/experimental";
 import { useI18n } from "./i18n/IntlProvider.js";
 import { useEffect, useState } from "react";
@@ -122,7 +123,9 @@ export function ComposerAttachment({
           <AttachmentCard.Text>
             <span title={name}>{name}</span>
             {!actualFile || isText(actualFile) ? (
-              <button
+              <Button
+                unstyled
+                data-slot={undefined}
                 type="button"
                 disabled={disabled || reading}
                 onClick={async () => {
@@ -155,7 +158,7 @@ export function ComposerAttachment({
                 }}
               >
                 {reading ? "正在读取…" : "在文本框中显示"} ›
-              </button>
+              </Button>
             ) : (
               <small>{Math.ceil(actualFile.size / 1024)} KB</small>
             )}

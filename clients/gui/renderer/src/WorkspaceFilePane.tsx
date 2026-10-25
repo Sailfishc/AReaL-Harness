@@ -1,3 +1,4 @@
+import { Textarea } from "@areal/ui";
 // ZCode PreviewPane breadcrumb/header composition + its CodeViewer.
 // AReaL's optional edit mode uses the existing revision-checked workspace API.
 import { Fragment, lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
@@ -444,7 +445,9 @@ export function WorkspaceFilePane({
       <div className="workspace-file-layout min-h-0 min-w-0 flex flex-1">
         <div className="min-h-0 min-w-0 flex-1 overflow-auto">
           {doc?.editing ? (
-            <textarea
+            <Textarea
+              unstyled
+              data-slot={undefined}
               className="workspace-file-editor"
               aria-label={`编辑 ${path}`}
               spellCheck={false}

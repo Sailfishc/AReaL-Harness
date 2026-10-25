@@ -1,3 +1,4 @@
+import { Input } from "@areal/ui";
 import { validateWorkspaceFileReference } from "./lib/workspaceFileComposer.js";
 import {
   imageAnnotationBlocked,
@@ -679,7 +680,9 @@ export function DraftComposer({
           />
         </div>
       )}
-      <input
+      <Input
+        unstyled
+        data-slot={undefined}
         ref={upload}
         type="file"
         multiple
