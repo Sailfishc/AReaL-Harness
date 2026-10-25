@@ -4202,6 +4202,7 @@ function AppContent({ services }: { services: PlatformServices }) {
                           afterTurns={options?.afterTurns}
                           embedded={options?.embedded}
                           readOnly={options?.readOnly}
+                          decisionShown={!options?.embedded && !options?.readOnly}
                           reserveResponseSpace={!options?.embedded && !options?.afterTurns}
                           project={owner}
                           thread={managementThread}
@@ -4329,6 +4330,7 @@ function AppContent({ services }: { services: PlatformServices }) {
                                 project={project}
                                 thread={thread}
                                 action={action}
+                                decisionShown
                                 onOpenResult={mcpWorkspace.openResult}
                                 resultStates={mcpWorkspace.resultStates}
                                 onFork={forkFromTurn}

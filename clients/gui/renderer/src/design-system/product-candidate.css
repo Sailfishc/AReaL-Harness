@@ -42,7 +42,9 @@
 .product-candidate .candidate-turn-footer:empty { display: none; }
 .product-candidate .candidate-turn-footer .decision-card { margin-top: 16px; }
 .product-candidate .candidate-proposal { margin-bottom: var(--spacing-field); }
-.product-candidate .candidate-proposal summary { width: fit-content; cursor: pointer; font-size: var(--text-ui-sm); }
+.product-candidate .candidate-proposal summary { width: fit-content; list-style: none; cursor: pointer; color: var(--color-foreground-subtle); font-size: var(--text-ui-sm); }
+.product-candidate .candidate-proposal summary::-webkit-details-marker { display: none; }
+.product-candidate .candidate-proposal summary:hover { color: var(--color-foreground); text-decoration: underline; text-underline-offset: 2px; }
 .product-candidate .candidate-proposal-content { max-height: 240px; overflow: auto; padding: var(--spacing-field); margin-top: var(--spacing-inline); border: var(--border-width-default) solid var(--color-border); border-radius: var(--radius-control); font-size: var(--content-font-size); }
 .product-candidate .candidate-composer-dock { flex: none; }
 .product-candidate .candidate-execution { display: flex; min-height: 34px; align-items: center; justify-content: space-between; color: var(--color-foreground-subtle); font-size: var(--text-ui-sm); }

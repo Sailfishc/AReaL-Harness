@@ -137,7 +137,7 @@ export function ExecutableSideChatPane({ tab, project, projects, services, dark,
     {error && <p role="alert" className="notice">{error}</p>}
     {tab.closeRequestId && <p role="status" className="notice">{tab.closeError || t("chat.side.closing")}<Button variant="ghost" size="sm" onClick={onInspectClose}>{t("chat.side.inspectClose")}</Button></p>}
     {resource || annotation ? <div className="side-chat-resource">{renderResource()}</div> : owned ? <>
-      <div className="side-chat-transcript"><Messages project={project} thread={thread} action={action} dark={dark}
+      <div className="side-chat-transcript"><Messages project={project} thread={thread} action={action} decisionShown dark={dark}
         onLink={onLink} onFile={onFile} onReview={onReview} readTurnReview={readTurnReview} onAgent={id => setResource(`agent:${id}`)}
         onOpenResult={apps.openResult} resultStates={apps.resultStates}
         onAddSelection={reference => {
