@@ -27,6 +27,7 @@ const items: Data[] = [
   tool("timeline-browser", "browser_v1", { operation: "navigate", parameters: { url: "http://127.0.0.1:4198/design-system.html?conversation" } }, { pageId: "preview-page", url: "http://127.0.0.1:4198/design-system.html?conversation" }),
   tool("timeline-agent", "agent_spawn", { input: [{ type: "text", text: "检查消息投影" }] }, { threadId: "preview-child" }),
   { id: "timeline-long-progress", type: "agentMessage", phase: "commentary", text: Array.from({ length: 10 }, (_, i) => `检查记录 ${i + 1}：过程文字完整显示，随对话一起滚动阅读。`).join("\n\n") },
+  tool("timeline-agent-wait", "agent_wait", { threadId: "preview-child", timeoutMs: 30000 }, { threadId: "preview-child", status: "completed", settled: true, timedOut: false, text: "消息投影检查完成。" }),
   tool("timeline-write", "fs_write", { path: "src/conversation.tsx" }, receipt),
   ...writtenPaths.slice(1).map((path, index) => tool(`timeline-write-${index}`, "fs_write", { path }, { ...receipt, path: `workspace://repo/${path}` })),
   { id: "timeline-final", type: "agentMessage", phase: "final_answer", text: "已完成对话交互调整，类型检查通过。\n\n![交互截图](areal://blob/preview-image)\n\n[**![链接图片](areal://blob/preview-image)**](https://example.com/linked-report)\n\n[验证说明](https://example.com/report)\n\n[对话交互预览](http://127.0.0.1:4198/design-system.html?conversation)\n\n最终回答保留完整内容。" },

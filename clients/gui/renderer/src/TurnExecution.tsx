@@ -5,7 +5,7 @@ import "@areal/ui/conversation.css";
 import { spawnedAgent } from "./AgentIdentity.js";
 import { ActivityIcon } from "./ActivityIcon.js";
 import { ReasoningGroup } from "./ReasoningGroup.js";
-import { activityLabel, activityRunLabel, activityRuns, executionOutcome, processItems, timelineItems, toolPresentation } from "./conversationPresentation.js";
+import { activityLabel, activityRunLabel, activityRuns, agentSettlements, executionOutcome, processItems, timelineItems, toolPresentation } from "./conversationPresentation.js";
 import type { Data } from "./services.js";
 
 function canAnimateTurn(project: Data, threadId: string, turn: Data) {
@@ -49,7 +49,7 @@ export function TurnExecution({ items, turn, project, threadId, renderItem }: {
   const status = unconfirmed ? <p role="status">结果待确认</p>
     : unfinished && turn.status !== "inProgress" ? <p role="status">仍在运行</p>
     : turn.status === "failed" ? <p role="status">回合失败</p> : null;
-  const runs = activityRuns(rows, item => !!spawnedAgent(item));
+  const runs = activityRuns(rows, item => !!spawnedAgent(item) || agentSettlements(item).length > 0);
   const row = (item: Data) => <div key={item.id} className="execution-row">{item.type === "reasoningGroup"
     ? <ReasoningGroup items={item.items} />
     : renderItem(item, { animate: canAnimate })}</div>;

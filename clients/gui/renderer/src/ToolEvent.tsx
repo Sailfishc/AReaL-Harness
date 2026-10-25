@@ -5,10 +5,10 @@ import { useEffect, useId, useState } from "react";
 import { ImageDisclosure } from "@areal/ui/wip";
 import "@areal/ui/conversation.css";
 import { Collapsible } from "@base-ui/react/collapsible";
-import { AgentAvatar, agentName, agentStatus, agentTask, spawnedAgent } from "./AgentIdentity.js";
+import { AgentAvatar, agentName, agentTask, spawnedAgent } from "./AgentIdentity.js";
 import { GlobeIcon } from "lucide-react";
 import { ActivityIcon } from "./ActivityIcon.js";
-import { toolPresentation } from "./conversationPresentation.js";
+import { agentSettlements, toolPresentation } from "./conversationPresentation.js";
 import { CommandDetails } from "./CommandDetails.js";
 import { ToolCallDuration } from "./ToolCallDuration.js";
 import { Button } from "./components/ui/button.js";
@@ -18,10 +18,10 @@ import { MessageActions } from "./MessageActions.js";
 import { SentAttachment } from "./MessageAttachment.js";
 import type { McpResultSource, McpResultState } from "./mcp-app-services.js";
 import type { Action, Data } from "./services.js";
-export function ToolEvent({ item, onFile, onAgent, agents, turnId, readTurnReview, action, projectId, threadId, animate = false, onOpenResult, resultState }: {
+export function ToolEvent({ item, onFile, onAgent, agents, agentTaskOf, turnId, readTurnReview, action, projectId, threadId, animate = false, onOpenResult, resultState }: {
   onOpenResult?: (source: McpResultSource) => Promise<void>; resultState?: McpResultState;
   animate?: boolean;
-  item: Data; onAgent?: (id: string) => void; agents?: Data; onFile?: (path: string) => void; turnId?: string;
+  item: Data; onAgent?: (id: string) => void; agents?: Data; agentTaskOf?: (id: string) => string | undefined; onFile?: (path: string) => void; turnId?: string;
   readTurnReview?: (turnId: string, itemId?: string) => Promise<Data>;
   action?: Action; projectId?: string; threadId?: string;
 }) {
@@ -38,8 +38,9 @@ export function ToolEvent({ item, onFile, onAgent, agents, turnId, readTurnRevie
   const child = childId && agents?.[childId];
   const ownedChild = child?.id === childId && child?.parentThreadId === threadId ? child : undefined;
   const childTitle = ownedChild?.preview || agentTask(item) || (childId ? agentName(childId) : "");
-  // The accepted spawn proves creation, not a live running/completed state.
-  const childStatus = ownedChild ? agentStatus(ownedChild.turns?.at(-1)?.status) : "已创建";
+  // The accepted spawn proves the child started; its finish is a separate event (agentSettlements).
+  const settlements = onAgent ? agentSettlements(item) : [];
+  const settledTitle = (id: string) => { const known = agents?.[id]; return (known?.id === id && known?.parentThreadId === threadId && known?.preview) || agentTaskOf?.(id) || agentName(id); };
   const images: Data[] = item.status === "completed" && item.success === true
     ? (item.contentItems ?? []).filter((part: Data) => part.type === "arealMedia" && part.modality === "image" && part.media?.uri) : [];
   const isCommand = ["run_command", "verify_command", "read_process", "terminate_process"].includes(item.tool);
@@ -65,10 +66,13 @@ export function ToolEvent({ item, onFile, onAgent, agents, turnId, readTurnRevie
   const current = review?.itemId === item.id ? review : undefined;
   return (
     <Collapsible.Root open={open} className="tool-event" data-tool-id={item.id} data-tool-status={view.status}>
-      {childId ? <div className="agent-spawn-row">
-        <button type="button" className="agent-spawn-link" aria-label={t("chat.agent.openConversation", { id: childId })} title={childTitle} onClick={() => onAgent?.(childId)}><AgentAvatar id={childId} size={14} /><span className="agent-spawn-kind">{t("chat.agent.kind")}</span><span className="agent-spawn-title">{childTitle}</span><span className="agent-spawn-status">{childStatus}</span><span className="conversation-disclosure-action" aria-hidden="true">{t("chat.agent.view")}</span></button>
-        <button type="button" className="agent-spawn-record" aria-label="查看工具原始记录" aria-expanded={open} aria-controls={recordId} onClick={toggle}><ActivityIcon kind="chevron" size={14} className={open ? "tool-chevron open" : "tool-chevron"} /></button>
-      </div> : images.length && action && projectId && threadId ? <div className="tool-summary-row tool-image-row">
+      {childId ? <div className="agent-spawn-row agent-event-row" data-agent-event="started">
+        <Button variant="ghost" className="agent-spawn-link" aria-label={t("chat.agent.openConversation", { id: childId })} title={childTitle} onClick={() => onAgent?.(childId)}><AgentAvatar id={childId} size={14} /><span className="agent-spawn-title">{childTitle}</span><span className="agent-spawn-status">{t("chat.agent.started")}</span></Button>
+        <Button variant="ghost" className="agent-spawn-record" aria-label="查看工具原始记录" aria-expanded={open} aria-controls={recordId} onClick={toggle}><ActivityIcon kind="chevron" size={14} className={open ? "tool-chevron open" : "tool-chevron"} /></Button>
+      </div> : settlements.length ? <div className="agent-event-list">{settlements.map(({ threadId: id, label }, index) => <div key={id} className="agent-spawn-row agent-event-row" data-agent-event="settled">
+        <Button variant="ghost" className="agent-spawn-link" aria-label={t("chat.agent.openConversation", { id })} title={settledTitle(id)} onClick={() => onAgent?.(id)}><AgentAvatar id={id} size={14} /><span className="agent-spawn-title">{settledTitle(id)}</span><span className="agent-spawn-status">{label}</span></Button>
+        {index === 0 && <Button variant="ghost" className="agent-spawn-record" aria-label="查看工具原始记录" aria-expanded={open} aria-controls={recordId} onClick={toggle}><ActivityIcon kind="chevron" size={14} className={open ? "tool-chevron open" : "tool-chevron"} /></Button>}
+      </div>)}</div> : images.length && action && projectId && threadId ? <div className="tool-summary-row tool-image-row">
         <ImageDisclosure label={t("chat.tool.images", { count: images.length })} state="available">
           <div className="tool-image-preview">{images.map(part => <SentAttachment key={part.media.uri} onError={setImageError} part={{ type: "image", uri: part.media.uri, name: "工具图片" }} projectId={projectId} threadId={threadId} action={action} />)}</div>
         </ImageDisclosure>

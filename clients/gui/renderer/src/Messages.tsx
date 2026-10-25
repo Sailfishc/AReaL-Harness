@@ -23,6 +23,7 @@ import { MessageActions } from "./MessageActions.js";
 import { CollapsibleText } from "./CollapsibleText.js";
 import { UserFeedback } from "./UserFeedback.js";
 import { TurnHookStats } from "./TurnHookStats.js";
+import { agentAssignment } from "./AgentIdentity.js";
 import { ToolEvent } from "./ToolEvent.js";
 import { TurnActivity, TurnExecution } from "./TurnExecution.js";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
@@ -666,7 +667,7 @@ export function Messages({
               </div>;
               return <TurnExecution key={item.id} items={item.items} turn={turn} project={project} threadId={thread.id}
                 renderItem={(entry: Data, disclosure) => {
-                  if (entry.type === "dynamicToolCall") return <div data-side-item-id={entry.id} key={entry.id}><ToolEvent item={entry} {...disclosure} onOpenResult={(ordinary || localThread.conversation?.policy?.kind === "sideExecutableV2") && !readOnly && !isInherited && !localThread.desktop?.archived ? onOpenResult : undefined} resultState={resultStates?.[mcpResultKey({ projectId: project.id, threadId: thread.id, turnId: turn.id, itemId: entry.id })]} onFile={onFile} onAgent={isInherited ? undefined : onAgent} agents={isInherited ? undefined : project.state?.threads} turnId={turn.id} action={action} projectId={project.id} threadId={thread.id} readTurnReview={turn.status === "completed" ? readTurnReview : undefined} /></div>;
+                  if (entry.type === "dynamicToolCall") return <div data-side-item-id={entry.id} key={entry.id}><ToolEvent item={entry} {...disclosure} onOpenResult={(ordinary || localThread.conversation?.policy?.kind === "sideExecutableV2") && !readOnly && !isInherited && !localThread.desktop?.archived ? onOpenResult : undefined} resultState={resultStates?.[mcpResultKey({ projectId: project.id, threadId: thread.id, turnId: turn.id, itemId: entry.id })]} onFile={onFile} onAgent={isInherited ? undefined : onAgent} agents={isInherited ? undefined : project.state?.threads} agentTaskOf={id => agentAssignment(thread, id)} turnId={turn.id} action={action} projectId={project.id} threadId={thread.id} readTurnReview={turn.status === "completed" ? readTurnReview : undefined} /></div>;
                   if (entry.type === "modelContext") return null;
                   return <details className="tool-call" data-side-item-id={entry.id} key={entry.id}><summary>{entry.type}</summary><pre>{JSON.stringify(entry, null, 2)}</pre></details>;
                 }} />;

@@ -1,4 +1,4 @@
-// CONV-ACTIVITY-01：连续同一动作的工具合成一段；其他行各自成段，顺序不变。
+// CONV-ACTIVITY-01 / CONV-PARALLEL-01：连续同一动作的工具合成一段；子代理开始与完成是各自成段的事件。
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
@@ -35,4 +35,15 @@ test("labels are past-tense verb phrases without counts; running uses the progre
   const running = { key: "运行命令", items: [tool("c1", "run_command"), tool("c2", "run_command", { status: "inProgress", success: undefined })] };
   assert.equal(activityRunLabel(running), "正在运行命令");
   assert.doesNotMatch(activityRunLabel(done), /\d/);
+});
+
+test("a child's finish is drawn only from a settled wait receipt", async () => {
+  const { agentSettlements } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
+  const receipt = (name, value) => tool("w", name, { contentItems: [{ type: "inputText", text: JSON.stringify(value) }] });
+  assert.deepEqual(agentSettlements(receipt("agent_wait", { threadId: "c1", status: "completed", settled: true, timedOut: false })), [{ threadId: "c1", label: "已完成" }]);
+  assert.deepEqual(agentSettlements(receipt("agent_wait", { threadId: "c1", status: "inProgress", settled: false, timedOut: true })), []);
+  assert.deepEqual(agentSettlements(receipt("agent_wait_any", { completed: [{ threadId: "c1", status: "completed", settled: true }, { threadId: "c2", status: "cancelled", settled: true }], pending: [] })),
+    [{ threadId: "c1", label: "已完成" }, { threadId: "c2", label: "已中断" }]);
+  assert.deepEqual(agentSettlements(receipt("agent_read", { threadId: "c1", status: "completed", settled: true })), [], "reading a child is not observing its finish");
+  assert.deepEqual(agentSettlements({ ...receipt("agent_wait", { threadId: "c1", status: "completed", settled: true }), status: "failed", success: false }), []);
 });

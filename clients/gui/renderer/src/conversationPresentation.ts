@@ -284,3 +284,25 @@ export function turnFailureMessage(turn: Data): string {
   )) return `${message}。这条消息包含图片，请确认所选模型支持图片输入，或移除图片后重试。`;
   return message ?? JSON.stringify(turn.error);
 }
+
+const settledLabels: Record<string, string> = { completed: "已完成", failed: "失败", interrupted: "已中断", cancelled: "已中断" };
+
+/** CONV-PARALLEL-01: a child's finish appears where the parent observed it — a
+ * successful agent_wait / agent_wait_any / agent_wait_all whose receipt says the
+ * child settled. A timeout or an unsettled snapshot is not a finish. */
+export function agentSettlements(item: Data): { threadId: string; label: string }[] {
+  if (!["agent_wait", "agent_wait_any", "agent_wait_all"].includes(item.tool) || item.status !== "completed" || item.success !== true) return [];
+  const found: { threadId: string; label: string }[] = [];
+  for (const part of item.contentItems ?? []) {
+    if (!["inputText", "text"].includes(part.type)) continue;
+    let value: Data;
+    try { value = JSON.parse(part.text); } catch { continue; }
+    const reports = Array.isArray(value?.completed) ? value.completed : [value];
+    for (const report of reports) {
+      const label = settledLabels[report?.status];
+      if (typeof report?.threadId === "string" && report.threadId && report.settled === true && report.timedOut !== true && label
+        && !found.some(entry => entry.threadId === report.threadId)) found.push({ threadId: report.threadId, label });
+    }
+  }
+  return found;
+}

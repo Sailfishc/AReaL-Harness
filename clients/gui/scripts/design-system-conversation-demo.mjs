@@ -42,9 +42,13 @@ export async function runConversationDemo(page, scratch, checks) {
   await page.getByRole("button", { name: "关闭图片预览", exact: true }).waitFor();
   await page.keyboard.press("Escape");
   await imageToggle.waitFor();
-  const child = timeline.getByRole("button", { name: "打开 preview-child 子对话", exact: true });
+  // CONV-PARALLEL-01: start and finish are separate events; each row opens the child and carries no extra "view" control.
+  const childStarted = timeline.locator('[data-agent-event="started"]').getByRole("button", { name: "打开 preview-child 子对话", exact: true });
+  const child = timeline.locator('[data-agent-event="settled"]').getByRole("button", { name: "打开 preview-child 子对话", exact: true });
+  assert.ok((await childStarted.innerText()).includes("检查消息投影") && (await childStarted.innerText()).includes("开始工作"));
   assert.ok((await child.innerText()).includes("检查消息投影"));
   assert.ok((await child.innerText()).includes("已完成"));
+  assert.ok(!(await childStarted.innerText()).includes("查看"));
   await capture("02-expanded");
   const draft = timeline.getByTestId("timeline-composer");
   await draft.fill("保留未发送草稿");

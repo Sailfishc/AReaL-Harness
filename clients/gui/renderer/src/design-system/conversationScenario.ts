@@ -240,7 +240,7 @@ export function scenarioProjection(
         "flow-wait",
         "agent_wait",
         { threadId: childId },
-        { status: "completed", result: "Apples: 16; Pears: 16; total: 32" },
+        { threadId: childId, status: "completed", settled: true, timedOut: false, text: "Apples: 16; Pears: 16; total: 32" },
       ),
     );
   if (at >= 7)
