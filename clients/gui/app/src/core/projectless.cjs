@@ -1,58 +1,189 @@
-'use strict';
-const { readFile, mkdir, realpath, stat } = require('node:fs/promises');
-const { join, isAbsolute } = require('node:path');
-const { homedir } = require('node:os');
+"use strict";
+const { readFile, mkdir, realpath, stat } = require("node:fs/promises");
+const { join, isAbsolute } = require("node:path");
+const { homedir } = require("node:os");
 
 // Desktop reserves workspace roots; Core remains the sole owner of threads and
 // execution. Repeating a preparation ID never creates another root or a turn.
 class ProjectlessWorkspaces {
-  constructor(backend) { this.backend = backend; this.records = {}; this.pending = Promise.resolve(); }
-  async init() {
-    try { this.records = JSON.parse(await readFile(join(this.backend.home, 'projectless-drafts.json'), 'utf8')); }
-    catch (error) { if (error.code !== 'ENOENT') throw error; }
+  constructor(backend) {
+    this.backend = backend;
+    this.records = {};
+    this.pending = Promise.resolve();
   }
-  snapshot() { return { directory: this.backend.library.value.settings.projectlessDirectory ?? join(this.backend.userHome ?? homedir(), 'Documents', 'AReaL') }; }
+  async init() {
+    try {
+      this.records = JSON.parse(
+        await readFile(join(this.backend.home, "projectless-drafts.json"), "utf8"),
+      );
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+  }
+  snapshot() {
+    return {
+      directory:
+        this.backend.library.value.settings.projectlessDirectory ??
+        join(this.backend.userHome ?? homedir(), "Documents", "AReaL"),
+    };
+  }
   async command(request) {
-    if (request.operation === 'directory') {
-      if (typeof request.path !== 'string' || !isAbsolute(request.path)) throw new Error('请选择绝对目录路径');
+    if (request.operation === "catalog") {
+      const providers = this.backend.providers;
+      const config = await providers.config.current();
+      const selected = config.effective.model;
+      // 与 Core model_catalog 的 HTTP 适配器缺省允许值一致；发送时再核对目标 Core。
+      const efforts = ["none", "minimal", "low", "medium", "high", "xhigh"];
+      const data = config.data
+        .filter((provider) => provider.enabled)
+        .flatMap((provider) => {
+          const models = provider.models.filter((model) => model.enabled);
+          if (
+            provider.id === selected.provider &&
+            selected.name &&
+            !models.some((model) => model.id === selected.name)
+          )
+            models.push({ id: selected.name, parameters: {} });
+          return models.map((model) => ({
+            providerId: provider.id,
+            modelId: model.id,
+            displayName: model.displayName ?? model.id,
+            available: config.credentialStates[provider.id] !== "unavailable",
+            credentialState: config.credentialStates[provider.id],
+            isDefault: provider.id === selected.provider && model.id === selected.name,
+            parameters: {
+              ...provider.parameters,
+              ...model.parameters,
+              ...(provider.id === selected.provider &&
+              model.id === selected.name &&
+              selected.reasoning_effort
+                ? { reasoningEffort: selected.reasoning_effort }
+                : {}),
+            },
+            capabilities: model.capabilities,
+            reasoningEffortOptions:
+              model.capabilities?.reasoning === false
+                ? []
+                : model.capabilities?.reasoningEffortOptions?.length
+                  ? model.capabilities.reasoningEffortOptions
+                  : efforts,
+          }));
+        });
+      if (selected.name) {
+        const configured = data.find(
+          (model) => model.providerId === selected.provider && model.modelId === selected.name,
+        );
+        data.unshift({
+          providerId: null,
+          modelId: selected.name,
+          displayName: configured?.displayName ?? selected.name,
+          available:
+            configured?.available ??
+            (!!selected.endpoint &&
+              (!selected.api_key_env ||
+                !!providers.config.key({ apiKeyEnv: selected.api_key_env }))),
+          isDefault: !data.some((model) => model.isDefault),
+          parameters: {
+            temperature: selected.temperature,
+            maxOutputTokens: selected.max_output_tokens,
+            contextWindowTokens: selected.context_window_tokens,
+            reasoningEffort: selected.reasoning_effort,
+            reasoningSummary: selected.reasoning_summary,
+          },
+          capabilities: configured?.capabilities,
+          reasoningEffortOptions: configured?.reasoningEffortOptions ?? efforts,
+        });
+      }
+      const service = providers.openaiService;
+      if (service?.catalog?.metadata()?.fresh)
+        data.push(
+          ...service.models.map((model) => ({
+            providerId: "areal_openai",
+            modelId: model.id,
+            displayName: model.displayName ?? model.id,
+            available: true,
+            isDefault:
+              config.defaultModel?.providerId === "areal_openai" &&
+              config.defaultModel.modelId === model.id,
+            parameters: model.parameters ?? {},
+            capabilities: model.capabilities,
+            reasoningEffortOptions:
+              model.capabilities?.reasoning === false
+                ? []
+                : model.reasoningEffortOptions?.length
+                  ? model.reasoningEffortOptions
+                  : efforts,
+          })),
+        );
+      return { models: data, lastAcceptedModel: providers.lastAcceptedModel ?? null };
+    }
+    if (request.operation === "directory") {
+      if (typeof request.path !== "string" || !isAbsolute(request.path))
+        throw new Error("请选择绝对目录路径");
       const directory = await realpath(request.path);
-      if (!(await stat(directory)).isDirectory()) throw new Error('请选择文件夹');
-      await this.backend.library.change(state => { state.settings.projectlessDirectory = directory; });
+      if (!(await stat(directory)).isDirectory()) throw new Error("请选择文件夹");
+      await this.backend.library.change((state) => {
+        state.settings.projectlessDirectory = directory;
+      });
       return this.snapshot();
     }
-    if (request.operation !== 'prepare' || typeof request.requestId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(request.requestId)) throw new Error('无效项目外草稿标识');
-    const next = this.pending.catch(() => {}).then(async () => {
-      const id = request.requestId;
-      let selected;
-      if (request.directory !== undefined) {
-        if (typeof request.directory !== 'string' || !isAbsolute(request.directory) || request.directory.split(/[\\/]/).includes('..')) throw new Error('请选择现有文件夹的绝对路径');
-        selected = await realpath(request.directory);
-        if (!(await stat(selected)).isDirectory()) throw new Error('请选择现有文件夹');
-      }
-      let record = this.records[id];
-      if (record && selected !== undefined && selected !== record.root) throw new Error('此草稿已绑定原工作目录，不能重新绑定；请创建新草稿');
-      const normalProject = root => this.backend.saved.find(project => project.root === root && !project.projectless);
-      if (normalProject(record?.root ?? selected)) throw new Error('此目录已属于已有项目，请选择该项目创建任务');
-      if (!record) {
-        if (selected === undefined) {
-          const base = this.snapshot().directory;
-          await mkdir(base, { recursive: true, mode: 0o700 });
-          selected = join(await realpath(base), id);
+    if (
+      request.operation !== "prepare" ||
+      typeof request.requestId !== "string" ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(request.requestId)
+    )
+      throw new Error("无效项目外草稿标识");
+    const next = this.pending
+      .catch(() => {})
+      .then(async () => {
+        const id = request.requestId;
+        let selected;
+        if (request.directory !== undefined) {
+          if (
+            typeof request.directory !== "string" ||
+            !isAbsolute(request.directory) ||
+            request.directory.split(/[\\/]/).includes("..")
+          )
+            throw new Error("请选择现有文件夹的绝对路径");
+          selected = await realpath(request.directory);
+          if (!(await stat(selected)).isDirectory()) throw new Error("请选择现有文件夹");
         }
-        record = { root: selected, ...(request.directory !== undefined ? { existing: true } : {}) };
-        if (normalProject(record.root)) throw new Error('此目录已属于已有项目，请选择该项目创建任务');
-        const records = { ...this.records, [id]: record };
-        await this.backend.save('projectless-drafts.json', records);
-        this.records = records;
-      }
-      if (record.existing || this.backend.saved.some(project => project.projectlessRequestId === id)) {
-        if (!(await stat(record.root)).isDirectory()) throw new Error('原项目外目录不可用');
-      } else await mkdir(record.root, { recursive: true, mode: 0o700 });
-      if (await realpath(record.root) !== record.root) throw new Error('项目外目录已被替换，请检查原目录后重试');
-      const projectId = await this.backend.addProjectPath(record.root, undefined, id);
-      if (normalProject(record.root)) throw new Error('此目录已属于已有项目，请选择该项目创建任务');
-      return { projectId, cwd: record.root };
-    });
+        let record = this.records[id];
+        if (record && selected !== undefined && selected !== record.root)
+          throw new Error("此草稿已绑定原工作目录，不能重新绑定；请创建新草稿");
+        const normalProject = (root) =>
+          this.backend.saved.find((project) => project.root === root && !project.projectless);
+        if (normalProject(record?.root ?? selected))
+          throw new Error("此目录已属于已有项目，请选择该项目创建任务");
+        if (!record) {
+          if (selected === undefined) {
+            const base = this.snapshot().directory;
+            await mkdir(base, { recursive: true, mode: 0o700 });
+            selected = join(await realpath(base), id);
+          }
+          record = {
+            root: selected,
+            ...(request.directory !== undefined ? { existing: true } : {}),
+          };
+          if (normalProject(record.root))
+            throw new Error("此目录已属于已有项目，请选择该项目创建任务");
+          const records = { ...this.records, [id]: record };
+          await this.backend.save("projectless-drafts.json", records);
+          this.records = records;
+        }
+        if (
+          record.existing ||
+          this.backend.saved.some((project) => project.projectlessRequestId === id)
+        ) {
+          if (!(await stat(record.root)).isDirectory()) throw new Error("原项目外目录不可用");
+        } else await mkdir(record.root, { recursive: true, mode: 0o700 });
+        if ((await realpath(record.root)) !== record.root)
+          throw new Error("项目外目录已被替换，请检查原目录后重试");
+        const projectId = await this.backend.addProjectPath(record.root, undefined, id);
+        if (normalProject(record.root))
+          throw new Error("此目录已属于已有项目，请选择该项目创建任务");
+        return { projectId, cwd: record.root };
+      });
     this.pending = next.catch(() => {});
     return next;
   }

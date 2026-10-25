@@ -40,7 +40,7 @@ Thread 快照和 Item 通知支持可选 `agentMessage.phase`，生命周期、�
 
 后续请求继续使用逻辑 `projectId`，由 `threadId`、`sourceThreadId`、`parentThreadId`、任务归属或原请求收据定位执行宿主。跨宿主目标不能混在一次请求中。任务归属索引持久记录实际宿主及可选的 Core 线程锚点；无索引时查询同一逻辑项目的宿主，任何离线、超时或冲突均不能当作任务不存在而回退。宿主注入可信线程锚点，调用者提供不一致的 `threadId` 会被拒绝。无法确认归属时返回 `TASK_WORKSPACE_UNAVAILABLE`；`taskRunNow`、`taskResumeRun`、`taskReply` 和 `taskResume` 缺少锚点也不派发。
 
-`manage.taskCreate` 的 `scheduled` 模式及 `manage.taskDraftConfirm` 使用专用调度准入。一个任务家庭须预约自动分配、非已有的项目外目录，共用目录作者登记；先预约，再创建或核对执行锚点和任务，并绑定原创建收据。只读规划和自动保存确认继续可用。宿主在 `areal/task/prepare` 的 `start` 与 `resume` 回调核对 Task、run、锚点和实际 cwd 后才放行。共享或用户选择的已有目录、没有原预约的旧安排不能启用，返回 `SCHEDULE_WORKSPACE_REQUIRED` 或相应作者错误；暂停与取消保留。可信锚点的 foreground/background 操作继续沿普通准入。原生 Core 及已准备的旧自主调度不因此获得追溯保证。每次目录作者准入均分页读取同 checkout 的权威 Task 目录；未取消的 scheduled 任务即使暂停或休眠也不释放未来执行资格，仅原预约 token、绑定 Task 与锚点可匹配该家庭。读取失败或分页不完整时不派发。
+`manage.taskCreate` 的 `scheduled` 模式及 `manage.taskDraftConfirm` 使用专用调度准入。一个任务家庭须预约自动分配、非已有的项目外目录，共用目录作者登记；先预约，再创建或核对执行锚点和任务，并绑定原创建收据。只读规划和自动保存确认继续可用。宿主在 `areal/task/prepare` 的 `start` 与 `resume` 回调核对 Task、run、锚点和实际 cwd 后才放行。普通会话经 Core 工具创建的安排使用派生共享准入：核对桌面 owner、来源 Thread、执行锚点及同一实际 cwd 后，允许在当前项目或已选 Worktree 中执行，同一来源可有多个安排。它不创建或迁移独占预约。既无可核对普通来源身份、也无原预约的旧安排不能启用，返回 `SCHEDULE_WORKSPACE_REQUIRED` 或相应作者错误；暂停与取消保留。可信锚点的 foreground/background 操作继续沿普通准入。原生 Core 及已准备的旧自主调度不因此获得追溯保证。每次目录作者准入均分页读取同 checkout 的权威 Task 目录；未取消的旧独占 scheduled 任务即使暂停或休眠也不释放未来执行资格，仅原预约 token、绑定 Task 与锚点可匹配该家庭；普通来源安排须重新核对 Core 身份才能与目录内其他会话共享。读取失败或分页不完整时不派发。
 
 `ScheduleAdmission.authorForSession` 只为 `respond` 和 `continue` 核对当前任务家庭，要求唯一活动 Run、精确 goal/Turn/cwd、已登记 worker 及有界父链。`respond` 还要求精确且未过期的 pending interaction（thread、Turn、requestId、回答种类）；其他 Session、旧请求、取消或暂停 Run 不映射。send、编辑及普通 manage 不能使用调度家庭作者映射，native Task Agent 的研究和工具限制不变，不授权递归委派。
 
