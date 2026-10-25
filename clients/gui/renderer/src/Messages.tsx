@@ -221,7 +221,11 @@ export function Messages({
   useEffect(() => {
     const invalidate = () => { const chosen = selectionSnapshot.current; if (chosen && !selectionIsCurrent(chosen)) setSelectedSideText(null); };
     const dismiss = () => setSelectedSideText(null);
-    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") dismiss(); };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || !selectionSnapshot.current) return;
+      event.preventDefault();
+      dismiss();
+    };
     document.addEventListener("selectionchange", invalidate);
     document.addEventListener("keydown", escape);
     window.addEventListener("scroll", dismiss, true);
@@ -672,14 +676,14 @@ export function Messages({
                 || item.items?.some((entry: Data) => entry.id === localThread.displayHistory.baselineFirstItemId)) &&
                 <p role="status" className="notice">{t("chat.history.omitted")}</p>}
               {hasInterruption && groupIndex === stopHeaderIndex && stopHeading}
-              {group.progress ? <TurnProgress summaryAvailable running={turn.status === "inProgress"}
+              {group.progress ? <TurnProgress summaryAvailable
                 turn={groupIndex === firstProgress ? turn : undefined} connected={!!project.state?.connected}
                 label={legacyReply ? "早前消息与活动" : "本轮过程"}
                 settled={turn.status === "completed" && hasReadingSummary && !outcome.unfinished && !pendingInput}
                 failureDetails={group.entries.flatMap(({ item }) => item.items ?? []).filter((entry: Data) => entry.type === "dynamicToolCall" && toolPresentation(entry).failed).map((entry: Data) => <div key={entry.id}><p>{entry.tool}</p><pre>{JSON.stringify(entry, null, 2)}</pre></div>)}
                 {...outcome}>{contents}</TurnProgress> : contents}
               {group.entries.some(({ item }) => item === initialUser) &&
-                firstProgress < 0 && turn.status !== "inProgress" &&
+                firstProgress < 0 &&
                 <TurnElapsed turn={turn} connected={!!project.state?.connected} />}
             </Fragment>;
             })}

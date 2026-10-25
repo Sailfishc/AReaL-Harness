@@ -110,7 +110,7 @@ const server = createServer(async (req, res) => {
   for await (const chunk of req) raw += chunk;
   const body = JSON.parse(raw);
   if (respondToSessionName(body, res)) return;
-  if (referencesRegression && body.messages?.some(message => message.role === "system"
+  if (body.messages?.some(message => message.role === "system"
     && typeof message.content === "string" && message.content.startsWith("Predict the next user prompt from the conversation data."))) {
     assert.ok(!body.tools?.length, "prompt prediction must not receive conversation tools");
     predictionRequests++;
@@ -1019,9 +1019,9 @@ try {
     && !(typeof message.content === "string" && message.content.startsWith("AReaL runtime context (not a user request):"))).at(-1).content;
   assert.equal(firstPluginMessage.split("COMPOSER_PLUGIN_EXACT_BODY").length - 1, 1);
   await selectConversation(page, tid);
-  await input().fill("/side");
-  await page.getByRole("option", { name: /侧边聊天/ }).waitFor();
-  await input().press("Enter");
+  // This compatibility journey protects the persisted read-only Side policy.
+  await button("任务操作").click();
+  await page.getByRole("menuitem", { name: "历史旁路讨论", exact: true }).click();
   const sideInput = page.getByTestId("side-chat-input");
   await sideInput.fill("side plugin @composer");
   const beforeSidePlugin = received.length;
@@ -1066,7 +1066,7 @@ try {
   assert.equal(project(sideFollowUpCompleted).configurations[sidePluginThread.id].readOnly, true);
 
   await page.getByRole("region", { name: "旁路讨论" }).getByRole("button", { name: "返回主会话", exact: true }).click();
-  checks.push("canonical paste resolves Core metadata; removing chip preserves manual Skill; first-message plugin draft survives navigation/reload; new and existing Side send reference intent under read-only Core policy");
+  checks.push("canonical paste resolves Core metadata; removing chip preserves manual Skill; first-message plugin draft survives navigation/reload; new and existing legacy Side send reference intent under read-only Core policy");
   await checkComposition(`areal-gui:draft:${pid}:${tid}`, "chat");
   // Use native typing: fill() uses the editor bridge and repairs the selection itself.
   for (const theme of ["dark", "light"]) {

@@ -1548,8 +1548,11 @@ body { font-family: var(--font-sans); }
 @scope (:root[data-reduced-motion="true"]) { .execution-chevron, .tool-chevron, .turn-progress-summary > svg { transition: none; } }
 
 
-.turn-progress { margin: var(--conversation-gap) 0; }
-.turn-elapsed { margin: var(--spacing-inline) 0; }
+.turn-progress { margin: var(--conversation-gap) 0 0; }
+/* 过程之后的内容（最终回答、状态行）与过程只隔一个块间距。 */
+.turn-progress + * { margin-top: var(--conversation-gap); }
+.turn-elapsed { margin: var(--conversation-gap) 0 0; }
+.turn-progress > .turn-elapsed { margin: 0; }
 .turn-progress-heading { display: flex; flex-direction: column; }
 .turn-progress-label { display: flex; font-size: var(--text-conversation); font-weight: 400; line-height: var(--conversation-line); }
 .turn-progress-summary { display: inline-flex; vertical-align: middle; align-items: center; flex-wrap: wrap; gap: 4px; max-width: 100%; padding: 0; margin: 0; border: 0; border-radius: 0; background: transparent; color: var(--color-process-settled, var(--color-foreground-subtle)); font: inherit; text-align: left; }
@@ -1559,6 +1562,7 @@ body { font-family: var(--font-sans); }
 .turn-progress-summary > svg.open { transform: rotate(90deg); }
 .turn-progress-summary .execution-failures { margin-left: auto; }
 .turn-progress-body[hidden] { display: none; }
+.turn-progress-heading + .turn-progress-body { padding-top: var(--conversation-gap); }
 .turn-progress-heading + .turn-progress-body > :first-child { padding-top: 0; }
 /* 过程体首尾不叠加外边距：块间距只由 --conversation-gap 提供一次。 */
 .turn-progress-body > :first-child { margin-top: 0; }
