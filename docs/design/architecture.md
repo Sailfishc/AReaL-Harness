@@ -113,6 +113,8 @@ macOS Runtime 还随包提供独立 Bash，作为受限命令的私有 shell 资
 
 GUI 首次展示与后台就绪分别判定。Renderer 在主题和图标加载页可绘制后，通过现有窄 IPC 通知 Main；Main 结合原生绘制事件，只消费一次自动展示机会。关闭窗口取消尚未发生的自动展示，后续恢复不能重新打开或抢焦点。后台、项目及原会话沿现有观察链恢复。初始恢复成功前只显示图标与加载状态，不挂载首页、侧栏、新会话或 Projectless 准备入口；成功后一次性挂载完整工作台。失败留在加载页，通过现有所有者恢复。执行入口继续受连接、会话恢复及 Core 准入约束。恢复失败保留原选择和草稿，并使用现有重试、后台详情及退出路径。
 
+Renderer 的 `state/` 所有者分别管理启动、导航、工作区、任务、外观与通知的界面状态，领域 store 通过 `useSyncExternalStore` 订阅；持久化沿用原偏好键和所有者。`App.tsx` 保留读取与写入跨领域状态的编排 effect，不能把 Core 收据、历史或 UNKNOWN 恢复变成 store 内的重发逻辑。视图组合归 `app-shell/`，原生预览的 Electron 适配归 `app/src/core/preview-native/`，不依赖 Electron 的 URL、坐标、观察与计划逻辑归 `preview/`。窗口、WebContentsView 与后台焦点仍由 Main 的既有所有者管理。
+
 GUI 的 Desktop 服务和 Main 使用 `workbench/client/state-projection` 编码可重建状态。每条连接先发送当前显示窗口的基线，之后按 Project、Thread、Turn、Item 身份发送变化和顺序；未变化的正文不重复传输。Main 只编码筛选后的桌面状态，Renderer 在 contextBridge 之后重组显示快照。缺失基线或序号不连续时重新读取状态，不重发执行请求。支持有界历史的 Core 通过 `areal/thread/observe` 提供近期窗口，较早历史和超大条目由显式分页与分片读取；显示窗口不包含另一份完整权威历史。正在变化的单个 Item 通知仍整体替换，单条记录解析与活动条目增长的限制见 [Core 历史契约](../api/core.md)。
 
 Renderer 文档重载或崩溃不拥有后台执行生命周期。显式刷新后，新文档从新的投影基线挂接原应用会话，不能重放已受理输入。`test:service-reopen` 用原模型连接上的新增片段和生产 App 的显示验证挂接，并区分文档恢复与应用重启后的新 owner、代际。

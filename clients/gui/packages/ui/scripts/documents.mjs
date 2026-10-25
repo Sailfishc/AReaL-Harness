@@ -224,6 +224,8 @@ export async function buildDocuments(check = false) {
     [resolve(root, "README.en.md"), "README.en.md"],
     [resolve(root, "token-reference.md"), "token-reference.md"],
     [resolve(root, "src/generated/tokens.md"), "tokens.md"],
+    [resolve(root, "tokens.json"), "tokens.json"],
+    [resolve(root, "experimental-allowlist.json"), "experimental-allowlist.json"],
   ]);
   for (const path of srcFiles.filter(
     (path) => path.endsWith(".md") && !path.includes("/src/generated/"),
@@ -273,7 +275,9 @@ export async function buildDocuments(check = false) {
   for (const [source, output] of documents)
     await writeOrCheck(
       resolve(root, "dist/docs", output),
-      rewriteDocumentLinks(await readFile(source, "utf8"), source, documents),
+      source.endsWith(".md")
+        ? rewriteDocumentLinks(await readFile(source, "utf8"), source, documents)
+        : await readFile(source, "utf8"),
       check,
     );
   components.sort((a, b) => a.id.localeCompare(b.id));

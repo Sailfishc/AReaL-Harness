@@ -193,7 +193,7 @@ export function WorkgroupPlanEditor({
     });
   const configChange = (index: number, patch: Data) =>
     taskChange(index, {
-      configuration: { ...(draft.plan.tasks[index].configuration ?? {}), ...patch },
+      configuration: { ...draft.plan.tasks[index].configuration, ...patch },
     });
   const restore = () => {
     const base = fromRecord(record);

@@ -1095,7 +1095,7 @@ export function Messages({
                   const outcome = executionOutcome(
                     group.entries.flatMap(({ item }) => item.items ?? []),
                   );
-                  const contents = group.entries.map(({ item, index }) => {
+                  const contents = group.entries.map(({ item }) => {
                     if (item.type === "historyDeferred")
                       return (
                         <DeferredHistoryItem

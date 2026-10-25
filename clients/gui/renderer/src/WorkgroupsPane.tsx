@@ -483,7 +483,14 @@ export function WorkgroupsPane({ project, action }: { project: Data; action: Act
         let preview: string | null;
         try {
           const decoded = text.decode(new Uint8Array(bytes), { stream: !value.complete });
-          preview = /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(decoded) ? null : decoded;
+          preview = decoded;
+          for (let offset = 0; offset < decoded.length; offset++) {
+            const code = decoded.charCodeAt(offset);
+            if (code < 32 && code !== 9 && code !== 10 && code !== 13) {
+              preview = null;
+              break;
+            }
+          }
         } catch {
           preview = null;
         }

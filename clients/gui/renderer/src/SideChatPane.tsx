@@ -183,7 +183,6 @@ function SideChatEditor({
   workspace,
   selected,
   onSelected,
-  onPanel,
   contextOpen,
 }: {
   project: Data;

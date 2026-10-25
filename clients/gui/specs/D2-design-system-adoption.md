@@ -61,7 +61,7 @@
 | `workbench.css` 字面量 | 144 | 0 | 0 |
 | 非 `*.layout.css` 的 renderer CSS 文件 | 37 | ≤ 25 | ≤ 5 |
 
-本轮经用户确认按真实样式归属收敛。控件采用率≥70%、工作台字面量为0，并完成现有公共DOM规则迁移；必要域样式的来源、消费者与退出条件登记在 [style-exceptions.json](../design-system/style-exceptions.json)。本轮CSS上限按当前5313行、25份非布局文件设棘轮；原阶段2的3500行/5份保留为后续目标，不把业务样式改名为布局或搬进无真实消费者的组件。新增renderer CSS仍只能是Token化的`.layout.css`，新增字面量仍阻断。
+本轮经用户确认按真实样式归属收敛。控件采用率≥70%、工作台字面量为0，并完成现有公共DOM规则迁移；必要域样式的来源、消费者与退出条件登记在 [style-exceptions.json](../design-system/style-exceptions.json)。本轮CSS上限按仓库格式器规范化后的9094行、25份非布局文件设棘轮（同格式迁移前12429行；迁移完成、格式化前为5313行）；原阶段2的3500行/5份保留为后续目标，不把业务样式改名为布局或搬进无真实消费者的组件。新增renderer CSS仍只能是Token化的`.layout.css`，新增字面量仍阻断。
 
 - [ ] 每个迁移 PR 的 `verify:design`、`test:design` 和受影响 smoke 都通过。
 - [ ] 各项指标只朝改善方向变化（棘轮）。

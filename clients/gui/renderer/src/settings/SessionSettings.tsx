@@ -34,8 +34,8 @@ const fromConfig = (configuration: Data): Data => {
       : null,
     skillMode: skills.length ? "custom" : "profile",
     skills,
-    options: { ...(configuration.options ?? {}) },
-    parameters: { ...(configuration.parameters ?? {}) },
+    options: { ...configuration.options },
+    parameters: { ...configuration.parameters },
     unknown: false,
   };
 };

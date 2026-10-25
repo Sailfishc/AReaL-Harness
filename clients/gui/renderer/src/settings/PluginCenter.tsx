@@ -45,7 +45,6 @@ import { PluginConnectionPanel } from "./PluginConnectionPanel.js";
 import { Button } from "../components/ui/button.js";
 import { Input } from "../components/ui/input.js";
 import { Feedback, SettingsDialog } from "./common.js";
-import { SettingsBadge } from "./SettingsPageParts.js";
 import { SettingsSearchInput } from "./SettingsSearchInput.js";
 import { SettingsSegmentedTabs } from "./SettingsSegmentedTabs.js";
 import { ResourceScope, type ScopedProps } from "./ScopedSkillsSettings.js";

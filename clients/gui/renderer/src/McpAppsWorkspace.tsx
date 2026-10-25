@@ -4,7 +4,6 @@ import { Button } from "./components/ui/button.js";
 import { SettingsSelect } from "./settings/SettingsPageParts.js";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ProtocolError, type ContentBlock } from "@modelcontextprotocol/client";
-import type { McpUiHostContext } from "@modelcontextprotocol/ext-apps/app-bridge";
 import {
   McpAppHost,
   type McpAppMessage,
@@ -26,7 +25,6 @@ import {
   McpAppEntrypoints,
   McpAppsSettings,
   McpAppsMentions,
-  toolTitle,
   type McpAppServer,
   type McpAppTool,
 } from "./settings/McpAppsSettings.js";

@@ -7,7 +7,9 @@ const icon = z
   .object({
     src: z
       .string()
-      .refine((src) => /^https:\/\//.test(src) || /^data:image\/[a-z0-9.+-]+;base64,/i.test(src)),
+      .refine(
+        (src) => src.startsWith("https://") || /^data:image\/[a-z0-9.+-]+;base64,/i.test(src),
+      ),
     mimeType: z.string().optional(),
     sizes: z.array(z.string()).optional(),
     theme: z.enum(["light", "dark"]).optional(),

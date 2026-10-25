@@ -197,7 +197,8 @@ export function WorkspaceFileTree({
   const keyDown = (event: KeyboardEvent<HTMLDivElement>, row: FileRow) => {
     if (event.key === "Enter") {
       event.preventDefault();
-      row.dir ? toggle(row.path) : open(row.path);
+      if (row.dir) toggle(row.path);
+      if (!row.dir) open(row.path);
     }
     if (event.key === "ArrowRight" && row.dir && !row.expanded) {
       event.preventDefault();

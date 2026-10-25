@@ -32,13 +32,13 @@ function classFindings(value) {
     .filter(Boolean)
     .flatMap((token) => {
       const utility = token
-        .split(/:(?![^\[]*\])/)
+        .split(/:(?![^[]*\])/)
         .at(-1)
         .replace(/^!/, "");
       if (
         /^text-(?:xs|sm|base|lg|xl|[2-9]xl)(?:\/.*)?$/.test(utility) ||
         /^text-\[(?:length:)?\d/.test(utility) ||
-        /^\[font-size:/.test(utility)
+        utility.startsWith("[font-size:")
       )
         return [`literal typography class: ${token}`];
       if (

@@ -45,10 +45,10 @@ export function ruleBlocks(document) {
       section = anchor(text.split("\n")[0].replace(/^#+ /, ""));
       continue;
     }
-    if (!text || /^<!--(?! rule:)/.test(text) || /^<a id=/.test(text)) continue;
+    if (!text || /^<!--(?! rule:)/.test(text) || text.startsWith("<a id=")) continue;
     const parts = /^[-*] |^\d+\. |^\|/.test(text) ? text.split("\n") : [text];
     for (const [index, part] of parts.entries()) {
-      if (part.startsWith("|") && /^\|[\s:|\-]+$/.test(parts[index + 1] ?? "")) continue;
+      if (part.startsWith("|") && /^\|[\s:|-]+$/.test(parts[index + 1] ?? "")) continue;
       const marker = /<!-- rule:([A-Z0-9-]+) -->\s*/.exec(part);
       const prefix = /^(?:[-*] |\d+\. |\| )?`(R-[A-Z0-9-]+-\d{3})` /.exec(part);
       const legacy = /^(?:[-*] |\d+\. |\| )?`([A-Z]+(?:-[A-Z]+)+-\d{2})`[：:(（]/.exec(part);

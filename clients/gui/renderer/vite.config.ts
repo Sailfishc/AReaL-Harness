@@ -14,9 +14,15 @@ async function libraryFiles() {
   return new Map([
     ["components.json", "components.json"],
     ["llms.txt", "llms.txt"],
-    ...["agent-guide.md", "README.md", "README.en.md", "token-reference.md", "tokens.md"].map(
-      (file) => [`docs/ui/${file}`, `docs/${file}`] as const,
-    ),
+    ...[
+      "agent-guide.md",
+      "README.md",
+      "README.en.md",
+      "token-reference.md",
+      "tokens.md",
+      "tokens.json",
+      "experimental-allowlist.json",
+    ].map((file) => [`docs/ui/${file}`, `docs/${file}`] as const),
     ...manifest.components.map(({ id }) => [`docs/ui/${id}.md`, `docs/${id}.md`] as const),
   ]);
 }
