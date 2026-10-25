@@ -1,6 +1,6 @@
 {
   "$schemaVersion": 1,
-  "$revision": "aa1f0c73c5dfa10e2d49da5edbe1908847a13de0",
+  "$revision": "89b2a931fd13a817e8f7fc9b45d327b109f2b3bc",
   "mainCheckedFiles": {
     "value": 152,
     "direction": "up",
@@ -463,7 +463,7 @@
     "packages/workbench/client/desktop-contract/mcp-page.cjs": 140,
     "packages/workbench/client/desktop-contract/provider.cjs": 690,
     "packages/workbench/client/desktop-contract/resource.cjs": 437,
-    "packages/workbench/client/desktop-contract/shared.cjs": 682,
+    "packages/workbench/client/desktop-contract/shared.cjs": 684,
     "packages/workbench/client/desktop-contract/trajectory.cjs": 217,
     "packages/workbench/client/desktop-contract/transport.cjs": 281,
     "packages/workbench/client/desktop-contract/workspace-worktrees.cjs": 280,
@@ -768,7 +768,7 @@
     "renderer/src/settings/preferences.ts": 49,
     "renderer/src/settings/provider-ui-state.js": 41,
     "renderer/src/settings/settingsNavIcons.tsx": 113,
-    "renderer/src/settings/settingsNavigation.tsx": 73,
+    "renderer/src/settings/settingsNavigation.tsx": 74,
     "renderer/src/settings/trajectory-settings.css": 25,
     "renderer/src/settings/usage.css": 291,
     "renderer/src/settings/useApiKeyReveal.ts": 30,

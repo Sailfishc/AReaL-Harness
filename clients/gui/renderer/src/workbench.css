@@ -3818,8 +3818,8 @@ button[aria-label="停止"] {
 }
 /* Diff colors must not replace the theme's destructive-action color. */
 .dark .workspace-review {
-  --diffs-addition-color-override: var(--color-diff-added);
-  --diffs-deletion-color-override: var(--color-diff-removed);
+  --diffs-addition-color-override: var(--color-content-diff-added);
+  --diffs-deletion-color-override: var(--color-content-diff-removed);
 }
 .dark .workspace-review .review-totals .text-success {
   color: var(--diffs-addition-color-override);

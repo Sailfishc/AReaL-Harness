@@ -6,6 +6,14 @@ export default defineConfig({
     environment: "node",
   },
   lint: {
+    settings: {
+      "jsx-a11y": {
+        components: {
+          Input: "input",
+          Textarea: "textarea",
+        },
+      },
+    },
     ignorePatterns: [
       "**/dist/**",
       "**/vendor/**",

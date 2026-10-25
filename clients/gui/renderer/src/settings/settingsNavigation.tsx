@@ -65,9 +65,10 @@ export const settingsNavigationGroups = [
 ] as const satisfies readonly SettingsNavigationGroup[];
 
 export function settingsLabel(name: string, t: ReturnType<typeof useI18n>["t"]) {
-  const id = ["Skills", "MCP"].includes(name) ? "插件" : name;
   const item = settingsNavigationGroups
     .flatMap((group) => group.items.map((item) => ({ id: item.id, label: item.label })))
-    .find((item) => item.id === id);
+    .find((item) =>
+      ["Skills", "MCP"].includes(name) ? item.label === "settings.plugins.title" : item.id === name,
+    );
   return item ? t(item.label) : name;
 }

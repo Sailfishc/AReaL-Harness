@@ -141,8 +141,8 @@
   --color-review-comment-surface: light-dark(rgba(0, 0, 0, 0.032), rgba(255, 255, 255, 0.032));
   --color-review-tree-guide-ink: #84848a;
   --color-diff-modified: light-dark(#009fff, #69b1ff);
-  --color-diff-added: #40c977;
-  --color-diff-removed: #fa423e;
+  --color-content-diff-added: #40c977;
+  --color-content-diff-removed: #fa423e;
   --color-slider-selected-track: #ffffff80;
   --color-annotation-selected-foreground: #91c5ff;
   --color-annotation-selected-surface: #4795ff26;

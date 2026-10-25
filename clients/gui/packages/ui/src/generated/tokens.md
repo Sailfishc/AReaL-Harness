@@ -397,8 +397,8 @@
 | `--color-review-comment-surface` | component · 批注编辑器与卡片的低对比表面，继续由浏览器 color-scheme 选择 light-dark 分支。 | surface-review-comment 仅引用对应内容或控件语义角色，保留原值与浏览器色彩空间。 | `light-dark(rgba(0, 0, 0, 0.032), rgba(255, 255, 255, 0.032))` | `light-dark(rgba(0, 0, 0, 0.032), rgba(255, 255, 255, 0.032))` |
 | `--color-review-tree-guide-ink` | component · 文件评审树的引导线墨色，调用方保持既有 25% lab 透明混色。 | border-review-tree-guide 仅引用对应内容或控件语义角色，保留原值与浏览器色彩空间。 | `#84848a` | `#84848a` |
 | `--color-diff-modified` | component · 代码差异阅读器的修改色，继续由浏览器 color-scheme 选择分支。 | content-diff-modified 仅引用对应内容或控件语义角色，保留原值与浏览器色彩空间。 | `light-dark(#009fff, #69b1ff)` | `light-dark(#009fff, #69b1ff)` |
-| `--color-diff-added` | component · 代码差异阅读器的新增色，不等同于状态成功色。 | content-diff-added 仅引用对应内容或控件语义角色，保留原值与浏览器色彩空间。 | `#40c977` | `#40c977` |
-| `--color-diff-removed` | component · 代码差异阅读器的删除色，不等同于危险操作色。 | content-diff-removed 仅引用对应内容或控件语义角色，保留原值与浏览器色彩空间。 | `#fa423e` | `#fa423e` |
+| `--color-content-diff-added` | component · 代码差异阅读器的新增色，不等同于状态成功色。 | content-diff-added 仅引用对应内容或控件语义角色，保留原值与浏览器色彩空间。 | `#40c977` | `#40c977` |
+| `--color-content-diff-removed` | component · 代码差异阅读器的删除色，不等同于危险操作色。 | content-diff-removed 仅引用对应内容或控件语义角色，保留原值与浏览器色彩空间。 | `#fa423e` | `#fa423e` |
 | `--color-slider-selected-track` | component · 输入器推理档位中已选轨道的半透明填充。 | interaction-slider-selected-track 仅引用对应内容或控件语义角色，保留原值与浏览器色彩空间。 | `#ffffff80` | `#ffffff80` |
 | `--color-annotation-selected-foreground` | component · 浏览器标注模式已选入口的文字色。 | text-annotation-selected 仅引用对应内容或控件语义角色，保留原值与浏览器色彩空间。 | `#91c5ff` | `#91c5ff` |
 | `--color-annotation-selected-surface` | component · 浏览器标注模式已选入口的透明背景色。 | surface-annotation-selected 仅引用对应内容或控件语义角色，保留原值与浏览器色彩空间。 | `#4795ff26` | `#4795ff26` |
