@@ -207,7 +207,7 @@ export function useSidebarNavigation(props: SidebarNavigationProps) {
     requestNavigation: props.requestNavigation,
     choose: props.choose,
     newTask: props.newTask,
-    open,
+    open: props.open,
     action,
     sidebarKey,
     sidebarGroup,

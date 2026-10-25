@@ -19,7 +19,7 @@ import {
   validateMcpPageDeclaration,
   validateMcpPageCall,
   validateMcpPageReply,
-} from "@areal/workbench/desktop-contract";
+} from "@areal/workbench/desktop-contract/mcp-page";
 const pageReplySchema = z.record(z.string(), z.unknown()).superRefine((value, ctx) => {
   try {
     validateMcpPageReply(value);

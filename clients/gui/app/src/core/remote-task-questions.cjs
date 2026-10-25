@@ -186,7 +186,7 @@ class TaskQuestions {
       throw failure("INVALID_PARAMS", "无效的问题读取参数");
     assertTarget(params);
     return this.observers.taskQuestion(connection, projectId, params, (value, entry) => {
-      const { item } = this.lookup(value, params);
+      const { item, run } = this.lookup(value, params);
       const complete =
         value.complete &&
         !!item &&
@@ -215,7 +215,7 @@ class TaskQuestions {
     params = structuredClone(params);
     validateReply(params);
     return this.observers.taskQuestion(connection, projectId, params, (value) => {
-      const { item } = this.lookup(value, params);
+      const { item, run } = this.lookup(value, params);
       if (
         !value.complete ||
         !item ||

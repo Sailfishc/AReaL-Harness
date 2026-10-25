@@ -9,6 +9,7 @@ const { spawnSync } = require("node:child_process");
 const rendererRequire = createRequire(resolve("renderer/package.json"));
 const ts = rendererRequire("typescript");
 const contractPath = resolve("packages/workbench/client/desktop-contract.cjs");
+const commandDefinitionPath = resolve("packages/workbench/client/desktop-contract/transport.cjs");
 const mainPath = resolve("app/src/core/main.cjs");
 const preloadPath = resolve("app/src/core/preload.cjs");
 const { commandDefinitions } = require(contractPath);
@@ -236,13 +237,16 @@ function assertCommands(file) {
   );
 }
 test("deleting a command from the validator owner fails the actual dispatch consistency gate", () => {
-  const file = source(contractPath);
+  const file = source(commandDefinitionPath);
   assertCommands(file);
   const property = commandNames(file).find((item) => item.name.text === "prepareCreator");
   assert.ok(property);
   const changed =
     file.text.slice(0, property.getStart(file)) + file.text.slice(property.getEnd() + 1);
-  assert.throws(() => assertCommands(source(contractPath, changed)), /Desktop command owner/);
+  assert.throws(
+    () => assertCommands(source(commandDefinitionPath, changed)),
+    /Desktop command owner/,
+  );
 });
 
 // Parse the Rust catalog macro's literal grammar, not a second list of Core methods.

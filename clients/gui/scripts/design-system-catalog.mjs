@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { readFile, writeFile, readdir, stat } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -480,14 +481,26 @@ export async function verifyDesignCatalog({ write = false, root = guiRoot } = {}
   );
   const stale = [];
   for (const [path, content] of outputs) {
+    const expected = path.endsWith(".ts")
+      ? execFileSync(
+          process.execPath,
+          [
+            join(guiRoot, "node_modules/vite-plus/bin/vp"),
+            "fmt",
+            "--stdin-filepath",
+            join(guiRoot, path),
+          ],
+          { input: content, encoding: "utf8", cwd: guiRoot, stdio: ["pipe", "pipe", "ignore"] },
+        )
+      : content;
     let previous;
     try {
       previous = await readFile(join(root, path), "utf8");
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
     }
-    if (previous === content) continue;
-    if (write) await writeFile(join(root, path), content);
+    if (previous === expected) continue;
+    if (write) await writeFile(join(root, path), expected);
     else stale.push(path);
   }
   assert.equal(

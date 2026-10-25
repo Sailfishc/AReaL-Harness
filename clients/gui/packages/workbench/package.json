@@ -9,6 +9,14 @@
       "import": "./client/desktop-contract.js",
       "require": "./client/desktop-contract.cjs"
     },
+    "./desktop-contract/transport": {
+      "types": "./client/desktop-contract/transport.cjs",
+      "default": "./client/desktop-contract/transport.cjs"
+    },
+    "./desktop-contract/mcp-page": {
+      "types": "./client/desktop-contract/mcp-page.cjs",
+      "default": "./client/desktop-contract/mcp-page.cjs"
+    },
     "./model-selection": {
       "import": "./client/model-selection.js",
       "require": "./client/model-selection.cjs"

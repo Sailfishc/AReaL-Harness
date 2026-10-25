@@ -16,6 +16,21 @@ const feedback = require("./desktop-contract/feedback.cjs");
 const management = require("./desktop-contract/management.cjs");
 const workspace = require("./desktop-contract/workspace.cjs");
 const libraryMedia = require("./desktop-contract/library-media.cjs");
+const {
+  commandDefinitions,
+  commandSemantics,
+  desktopError,
+  commandResponseError,
+  record,
+  identifier,
+} = require("./desktop-contract/transport.cjs");
+/** @type {typeof import("./desktop-contract/transport.cjs").invalid} */
+const invalid = require("./desktop-contract/transport.cjs").invalid;
+const {
+  validateMcpPageDeclaration,
+  validateMcpPageCall,
+  validateMcpPageReply,
+} = require("./desktop-contract/mcp-page.cjs");
 
 /** Raw Electron payloads have no precision until the receiving owner validates them.
  * @typedef {{
@@ -98,167 +113,7 @@ const libraryMedia = require("./desktop-contract/library-media.cjs");
 /** @typedef {import('./desktop-contract/trajectory.cjs').TrajectoryModelCallSummary} TrajectoryModelCallSummary */
 /** @typedef {import('./desktop-contract/trajectory.cjs').TrajectoryStatus} TrajectoryStatus */
 
-/** @typedef {{effect:'read'|'subscription'|'mutation',requestId?:'requestId'|'draftId'}} CommandEffect */
-/** @type {CommandEffect} */
-const read = Object.freeze({ effect: "read" });
-/** @type {CommandEffect} */
-const subscription = Object.freeze({ effect: "subscription" });
-/** @type {CommandEffect} */
-const mutation = Object.freeze({ effect: "mutation" });
-/** @type {CommandEffect} */
-const recoverable = Object.freeze({ effect: "mutation", requestId: "requestId" });
-/** @param {CommandEffect} semantics @param {string} names */
-const operations = (semantics, names) =>
-  Object.fromEntries(names.split(" ").map((name) => [name, semantics]));
-/** @satisfies {Record<keyof Requests,readonly ['main'|'service','app'|'project'|'thread',CommandEffect|Record<string,CommandEffect>]>} */
-const commandDefinitions = Object.freeze({
-  connect: ["service", "project", subscription],
-  list: ["service", "project", read],
-  open: ["service", "thread", subscription],
-  history: ["service", "thread", operations(read, "acquire loadOlder loadItem release")],
-  create: ["service", "project", recoverable],
-  prepareCreator: ["service", "project", mutation],
-  fork: ["service", "project", recoverable],
-  side: [
-    "service",
-    "project",
-    {
-      ...operations(read, "recover context list"),
-      ...operations(recoverable, "start send create close"),
-    },
-  ],
-  prediction: ["service", "thread", mutation],
-  send: ["service", "thread", recoverable],
-  editMessage: ["service", "thread", recoverable],
-  continue: ["service", "thread", recoverable],
-  stop: ["service", "thread", recoverable],
-  attachBrowser: ["service", "thread", recoverable],
-  respond: ["service", "thread", mutation],
-  reconcile: ["service", "project", read],
-  configure: ["service", "thread", recoverable],
-  queue: ["service", "thread", read],
-  queueEdit: ["service", "thread", recoverable],
-  library: [
-    "service",
-    "app",
-    operations(
-      mutation,
-      "dropSidebar renameProject renameThread pinThread pinProject createSection renameSection removeSection orderSection moveThread moveProject readThread markAllRead orderSidebarThread hideProject orderProject orderThread settings",
-    ),
-  ],
-  manage: [
-    "service",
-    "project",
-    {
-      ...operations(
-        read,
-        "pluginHooks pluginMcp mcpApps genUiSource mcpForms mcpToolResult plugins plugin providers mcp profile skills skill inspect context inheritedHistory plan processes process processWait goal permissions interactions processOutput executions execution executionArtifact executionWait agents agentWait workflows server workflow workgroupPolicy workgroups workgroup workgroupWait workgroupArtifact workgroupArtifactStatus workgroupCapabilities workgroupSubmission pluginCapabilities pluginReadiness pluginSubmission processSubmission agentSubmission mcpFormResourceSubmission tasks task taskInbox taskChannel taskDraftHistory taskDraftRead taskSchedulePreview taskScheduleContext taskHistoryCapabilities taskRuns taskRun",
-      ),
-      ...operations(subscription, "taskWatch taskUnwatch"),
-      ...operations(
-        recoverable,
-        "pluginArchiveImport mcpFormResourceStage pluginHooksConfigure hookAcknowledge marketplaceAdd marketplaceAddGit marketplaceRemove marketplaceUpdate pluginResolve pluginAuthConfigure pluginConnection connectorConfigure connectorCredential pluginInstall pluginConfigure pluginComponentConfigure pluginUninstall pluginSetup providerSave providerRemove mcpSave mcpConnect mcpDisconnect archive unarchive processCloseStdin processStart processWrite processResize processTerminate goalCreate goalUpdate goalPause goalResume goalClear workgroupStart workflowStart workgroupRevise agentSpawn taskCreate taskUpdate taskRunNow taskPause taskResume taskStopRun taskResumeRun taskCancel taskDelete taskReply taskDraftSend",
-      ),
-      ...operations(
-        mutation,
-        "pluginArchivePick pluginAuth pluginAuthCredential mcpAppOpen mcpAppOpenFromResult mcpAppRequest mcpAppClose mcpExtensionCall mcpFormRespond mcpFormPreview mcpFormResourcePrepare mcpFormResourceRelease executionCancel executionApply serverDrain serverGc workgroupApplyArtifact workgroupCancel closeResources planUpdate toolAcknowledge contextCompact permissionsForget providerProbe taskDraftConfirm",
-      ),
-      taskDraftStart: { effect: "mutation", requestId: "draftId" },
-    },
-  ],
-  workspace: [
-    "service",
-    "project",
-    {
-      ...operations(
-        read,
-        "worktreeList worktreeOptions worktreeRead list search read review reviewCommits reviewBranches turnReview status info gitState",
-      ),
-      ...operations(recoverable, "worktreeCreate worktreeAction worktreeDelete"),
-      ...operations(
-        mutation,
-        "worktreeSettings worktreeEnvironmentSave worktreeEnvironmentDelete worktreeCancel worktreeOpen save gitStage gitUnstage gitCommit gitPush",
-      ),
-    },
-  ],
-  media: [
-    "service",
-    "thread",
-    { ...operations(read, "list read"), upload: mutation, release: recoverable },
-  ],
-  steer: ["service", "thread", recoverable],
-  dismissRecovery: ["service", "project", mutation],
-  providers: [
-    "service",
-    "app",
-    {
-      ...operations(read, "list revealKey discover"),
-      ...operations(
-        mutation,
-        "probe apply save saveAndApply removeAndApply defaultAndApply remove default",
-      ),
-    },
-  ],
-  chatgpt: [
-    "service",
-    "app",
-    operations(mutation, "status login forget logout selectAccount cancel probe"),
-  ],
-  analytics: ["service", "app", { ...operations(read, "read sync") }],
-  resources: [
-    "service",
-    "app",
-    {
-      ...operations(read, "hooks builtinSkill skills mcp skillRead"),
-      ...operations(mutation, "hooksSave skillToggle skillSave mcpSave mcpConnect mcpDisconnect"),
-    },
-  ],
-  projectless: ["service", "app", { catalog: read, directory: mutation, prepare: recoverable }],
-  tasks: ["service", "app", operations(read, "list inbox preview observe")],
-  trajectory: ["service", "app", { status: read, ...operations(mutation, "retry setEnabled") }],
-  feedback: [
-    "service",
-    "app",
-    {
-      ...operations(read, "status read"),
-      ...operations(mutation, "preference prepare draft refine submit close"),
-    },
-  ],
-  serviceLifecycle: [
-    "main",
-    "app",
-    { check: read, ...operations(mutation, "update stop recover quitInterface stopAndQuit") },
-  ],
-  serviceStatus: ["main", "app", read],
-  stopService: ["main", "app", mutation],
-  recoverResources: ["main", "app", mutation],
-  browserData: [
-    "main",
-    "app",
-    { status: read, ...operations(mutation, "importChrome clearCache clearAll") },
-  ],
-  computerControl: [
-    "main",
-    "app",
-    { status: read, ...operations(mutation, "requestAccess openSettings restart stop") },
-  ],
-  exportDiagnostics: ["main", "app", read],
-  connectService: ["main", "app", subscription],
-  export: ["main", "thread", read],
-  remoteControl: ["main", "app", mutation],
-});
-/** @param {string} name @param {Record<string,unknown>} request @returns {CommandEffect} */
-function commandSemantics(name, request) {
-  const definition = commandDefinitions[/** @type {CommandName} */ (name)];
-  if (!definition) invalid();
-  const declared = /** @type {CommandEffect|Record<string,CommandEffect>} */ (definition[2]);
-  const selected =
-    typeof declared.effect === "string"
-      ? /** @type {CommandEffect} */ (declared)
-      : /** @type {Record<string,CommandEffect>} */ (declared)[String(request.operation)];
-  if (!selected || !["read", "subscription", "mutation"].includes(selected.effect)) invalid();
-  return selected;
-}
+/** @typedef {import("./desktop-contract/transport.cjs").CommandEffect} CommandEffect */
 /** @typedef {keyof typeof commandDefinitions} CommandName */
 /** @typedef {import('./desktop-contract/conversation.cjs').Requests & import('./desktop-contract/desktop-control.cjs').Requests & {
  * providers:import('./desktop-contract/provider.cjs').Request<'providers'>,
@@ -320,18 +175,6 @@ function isCommandInvocation(invocation, options) {
 /** Hide without a capture deliberately allows unscoped owner fields; Main decides global hiding.
  * @typedef {OwnedPreviewRequest | {operation:'hide',captureId:string,projectId:string,threadId:string,pageId:string,[key:string]:unknown}
  * | {operation:'hide',captureId?:undefined,projectId?:unknown,threadId?:unknown,pageId?:unknown,[key:string]:unknown}} PreviewRequest */
-/** @param {unknown} value @returns {value is Record<string,unknown>} */
-function record(value) {
-  return !!value && typeof value === "object" && !Array.isArray(value);
-}
-/** @param {unknown} value @returns {value is string} */
-function identifier(value) {
-  return typeof value === "string" && !!value.trim() && value.length <= 256;
-}
-/** @returns {never} */
-function invalid() {
-  throw Object.assign(new Error("无效桌面操作或参数"), { code: "INVALID_DESKTOP_REQUEST" });
-}
 /** @template {string} N @overload @param {N} name @param {unknown} params @param {{serviceOnly?:boolean}} [options] @returns {asserts params is CommandParams<N>} */
 /** @param {string} name @param {unknown} params @param {{serviceOnly?:boolean}} [options] */
 function validateCommand(name, params, { serviceOnly = false } = {}) {
@@ -581,99 +424,6 @@ const validatePreview = (request) => {
     invalid();
 };
 
-/** @param {unknown} error @returns {DesktopError} */
-function desktopError(error) {
-  const value = record(error) || error instanceof Error ? error : {};
-  const code = "code" in value ? value.code : undefined;
-  const requestId = "requestId" in value ? value.requestId : undefined;
-  const reason =
-    "data" in value && record(value.data) && typeof value.data.reason === "string"
-      ? value.data.reason
-      : "reason" in value && typeof value.reason === "string"
-        ? value.reason
-        : undefined;
-  const data = "data" in value && record(value.data) ? value.data : {};
-  const rawOutcome = "outcome" in value ? value.outcome : data.outcome;
-  const rawRecovery = "recovery" in value ? value.recovery : data.recovery;
-  /** @type {DesktopError['outcome']} */
-  let outcome;
-  if (record(rawOutcome) && (rawOutcome.kind === "noMutation" || rawOutcome.kind === "rejected"))
-    outcome = { kind: rawOutcome.kind };
-  if (
-    record(rawOutcome) &&
-    (rawOutcome.kind === "admitted" || rawOutcome.kind === "unconfirmed") &&
-    record(rawOutcome.operation)
-  ) {
-    const op = rawOutcome.operation;
-    const target = op.target;
-    if (
-      typeof op.method === "string" &&
-      /^[A-Za-z][A-Za-z0-9/]*$/.test(op.method) &&
-      op.method.length <= 128 &&
-      (op.requestId === undefined || identifier(op.requestId)) &&
-      record(target)
-    ) {
-      /** @type {import('../../runtime-client/core.js').OperationTarget | undefined} */
-      let safeTarget;
-      if (target.kind === "project") safeTarget = { kind: "project" };
-      if (target.kind === "thread" && identifier(target.threadId))
-        safeTarget = { kind: "thread", threadId: String(target.threadId) };
-      if (target.kind === "task" && identifier(target.taskId))
-        safeTarget = { kind: "task", taskId: String(target.taskId) };
-      if (safeTarget)
-        outcome = {
-          kind: rawOutcome.kind,
-          operation: {
-            method: op.method,
-            ...(typeof op.requestId === "string" ? { requestId: op.requestId } : {}),
-            target: safeTarget,
-          },
-        };
-    }
-  }
-  /** @type {DesktopError['recovery']} */
-  const recovery =
-    record(rawRecovery) &&
-    ["retryRead", "queryOriginal", "needsUser", "none"].includes(String(rawRecovery.kind))
-      ? { kind: /** @type {NonNullable<DesktopError['recovery']>['kind']} */ (rawRecovery.kind) }
-      : undefined;
-  const originalId = outcome && "operation" in outcome ? outcome.operation.requestId : requestId;
-  const unknown = outcome
-    ? outcome.kind === "admitted" || outcome.kind === "unconfirmed"
-    : "submissionUnknown" in value && value.submissionUnknown === true;
-  return {
-    message: typeof value.message === "string" ? value.message.slice(0, 4096) : "桌面操作失败",
-    ...(typeof code === "string" || typeof code === "number" ? { code } : {}),
-    ...(unknown ? { submissionUnknown: true } : {}),
-    ...(typeof originalId === "string" && identifier(originalId) ? { requestId: originalId } : {}),
-    ...(reason ? { reason: reason.slice(0, 128) } : {}),
-    ...(("delivery" in value ? value.delivery : data.delivery) === "resultUnavailable"
-      ? { delivery: /** @type {const} */ ("resultUnavailable") }
-      : {}),
-    ...(outcome ? { outcome } : {}),
-    ...(recovery ? { recovery } : {}),
-  };
-}
-
-/** A malformed response does not establish whether a write was admitted. */
-/** @param {string} name @param {Record<string,unknown>} params @param {unknown} cause */
-function commandResponseError(name, params, cause) {
-  const semantics = commandSemantics(name, params);
-  const write = semantics.effect === "mutation";
-  const requestId = semantics.requestId ? params[semantics.requestId] : undefined;
-  return Object.assign(new Error("Invalid Desktop command response", { cause }), {
-    code: "DESKTOP_RESPONSE_INVALID",
-    ...(typeof requestId === "string" ? { requestId } : {}),
-    ...(write
-      ? {
-          submissionUnknown: true,
-          outcome: { kind: "unconfirmed" },
-          recovery: { kind: "queryOriginal" },
-        }
-      : { outcome: { kind: "noMutation" }, recovery: { kind: "retryRead" } }),
-  });
-}
-
 /** @template {CommandName} N @template {CommandParams<N>} P @overload
  * @param {N} name @param {P} params @param {unknown} value @returns {asserts value is CommandResponse<N,P>} */
 /** @param {string} name @param {unknown} params @param {unknown} value */
@@ -749,141 +499,6 @@ function validateCommandResponse(name, params, value) {
   throw Object.assign(new Error("Invalid Desktop command response"), {
     code: "DESKTOP_RESPONSE_INVALID",
   });
-}
-/** @param {unknown} value @param {number} maximum */
-function pageBounded(value, maximum) {
-  if (new TextEncoder().encode(JSON.stringify(value)).length > maximum)
-    throw new Error("Invalid page tool size");
-}
-/** @param {unknown} value @param {string[]} keys @returns {value is Record<string,unknown>} */
-function pageFields(value, keys) {
-  return (
-    record(value) &&
-    Object.keys(value).length === keys.length &&
-    keys.every((key) => Object.hasOwn(value, key))
-  );
-}
-/** @param {unknown} value */
-function pageRevision(value) {
-  return Number.isSafeInteger(value) && Number(value) >= 0;
-}
-/** @param {unknown} value */
-function pageOffset(value) {
-  return pageRevision(value) && Number(value) <= 65536;
-}
-/** @param {unknown} value */
-function validateMcpPageDeclaration(value) {
-  if (
-    !pageFields(value, ["version", "documentId", "tools"]) ||
-    value.version !== 1 ||
-    !identifier(value.documentId) ||
-    value.documentId.length > 128 ||
-    !Array.isArray(value.tools) ||
-    value.tools.length < 1 ||
-    value.tools.length > 2 ||
-    new Set(value.tools).size !== value.tools.length ||
-    value.tools.some((kind) => !["getSelection", "applyPatch"].includes(kind))
-  )
-    throw new Error("Invalid page tool declaration");
-  pageBounded(value, 1024);
-}
-/** @param {unknown} value */
-function validateMcpPageCall(value) {
-  if (
-    !pageFields(value, ["callId", "kind", "documentId", "arguments"]) ||
-    !identifier(value.callId) ||
-    !identifier(value.documentId)
-  )
-    throw new Error("Invalid page tool call");
-  const args = value.arguments;
-  if (value.kind === "getSelection" && pageFields(args, [])) return;
-  if (
-    value.kind !== "applyPatch" ||
-    !pageFields(args, ["expectedDocumentRevision", "patch"]) ||
-    !pageRevision(args.expectedDocumentRevision) ||
-    !pageFields(args.patch, ["from", "to", "insert"]) ||
-    !pageOffset(args.patch.from) ||
-    !pageOffset(args.patch.to) ||
-    Number(args.patch.from) > Number(args.patch.to) ||
-    typeof args.patch.insert !== "string" ||
-    args.patch.insert.length > 4096 ||
-    args.patch.insert.includes("\r")
-  )
-    throw new Error("Invalid page tool arguments");
-  pageBounded(args, 32768);
-}
-/** @param {unknown} value */
-function validateMcpPageReply(value) {
-  pageBounded(value, 32768);
-  if (pageFields(value, ["status"]) && value.status === "unknown") return;
-  if (
-    pageFields(value, ["status", "reason"]) &&
-    value.status === "noEffect" &&
-    ["cancelled", "closed", "unavailable"].includes(String(value.reason))
-  )
-    return;
-  if (
-    !pageFields(value, ["status", "result"]) ||
-    value.status !== "completed" ||
-    !record(value.result)
-  )
-    throw new Error("Invalid page tool reply");
-  const result = value.result;
-  if (!identifier(result.documentId) || !pageRevision(result.documentRevision))
-    throw new Error("Invalid page tool result");
-  if (
-    result.kind === "selection" &&
-    pageFields(result, [
-      "kind",
-      "documentId",
-      "documentRevision",
-      "anchor",
-      "head",
-      "selectedText",
-      "truncated",
-      "dirty",
-    ]) &&
-    pageOffset(result.anchor) &&
-    pageOffset(result.head) &&
-    typeof result.selectedText === "string" &&
-    result.selectedText.length <= 4096 &&
-    typeof result.truncated === "boolean" &&
-    typeof result.dirty === "boolean"
-  )
-    return;
-  if (
-    result.kind === "applied" &&
-    pageFields(result, [
-      "kind",
-      "documentId",
-      "previousDocumentRevision",
-      "documentRevision",
-      "from",
-      "to",
-      "insertedLength",
-      "dirty",
-    ]) &&
-    pageRevision(result.previousDocumentRevision) &&
-    pageOffset(result.from) &&
-    pageOffset(result.to) &&
-    pageOffset(result.insertedLength) &&
-    Number(result.insertedLength) <= 4096 &&
-    typeof result.dirty === "boolean"
-  )
-    return;
-  if (
-    result.kind === "conflict" &&
-    pageFields(result, ["kind", "documentId", "expectedDocumentRevision", "documentRevision"]) &&
-    pageRevision(result.expectedDocumentRevision)
-  )
-    return;
-  if (
-    result.kind === "rejected" &&
-    pageFields(result, ["kind", "documentId", "documentRevision", "reason"]) &&
-    ["invalidRange", "documentTooLarge", "noChange"].includes(String(result.reason))
-  )
-    return;
-  throw new Error("Invalid page tool result");
 }
 module.exports = {
   commandDefinitions,

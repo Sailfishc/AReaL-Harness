@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { desktopError } from "@areal/workbench/desktop-contract";
+import { desktopError } from "@areal/workbench/desktop-contract/transport";
 import type { DesktopResult } from "@areal/workbench/desktop-contract";
 import type { FileOpenTargets, Snapshot, UpdateState } from "./services.js";
 

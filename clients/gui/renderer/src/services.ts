@@ -1,9 +1,4 @@
 // The renderer consumes only the narrow preload contract. Execution facts remain in Core.
-import {
-  validateCommand,
-  validateCommandResponse,
-  commandResponseError,
-} from "@areal/workbench/desktop-contract";
 import type {
   CommandName,
   CommandParams,
@@ -141,13 +136,15 @@ export async function call<N extends CommandName, P extends CommandParams<N>>(
   name: N,
   params: P,
 ): Promise<CommandResponse<N, P>> {
-  validateCommand(name, params);
+  const contract: typeof import("@areal/workbench/desktop-contract") =
+    await import("@areal/workbench/desktop-contract");
+  contract.validateCommand(name, params);
   const result = await services.command(name, params);
   if (!result.ok) throw Object.assign(new Error(result.error.message), result.error);
   try {
-    validateCommandResponse(name, params, result.value);
+    contract.validateCommandResponse(name, params, result.value);
   } catch (error) {
-    throw commandResponseError(name, params, error);
+    throw contract.commandResponseError(name, params, error);
   }
   return result.value;
 }

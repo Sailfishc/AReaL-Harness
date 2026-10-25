@@ -1,4 +1,4 @@
-import { commandResponseError } from "@areal/workbench/desktop-contract";
+import { commandResponseError } from "@areal/workbench/desktop-contract/transport";
 import { ProjectionReader } from "@areal/workbench/state-projection";
 import type { DesktopBridge, PreviewRequest } from "@areal/workbench/desktop-contract";
 import type { PlatformServices, Snapshot, Data } from "./services.js";
