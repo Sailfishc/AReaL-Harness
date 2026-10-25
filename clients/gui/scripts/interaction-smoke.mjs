@@ -117,7 +117,7 @@ await writeFile(
   }),
 );
 const received = [];
-let releaseWrite, releaseSliceWrite;
+let releaseWrite, releaseSliceWrite, releaseInitialization;
 const manualWrites = new Map();
 let manualSequence = 0;
 const messageText = (message) =>
@@ -138,7 +138,9 @@ const server = createServer(async (req, res) => {
       m.role === "user" &&
       (manual
         ? !messageText(m).startsWith("AReaL runtime context (not a user request):")
-        : /(?:write:|question:|browser:|appearance:|resource:)/.test(messageText(m))),
+        : /(?:write:|question:|browser:|appearance:|resource:|^initialize approval fixture$)/.test(
+            messageText(m),
+          )),
   );
   const text = messageText(messages[index]);
   const responded = messages.slice(index + 1).some((m) => m.role === "tool");
@@ -147,6 +149,10 @@ const server = createServer(async (req, res) => {
     res.write(
       `data: ${JSON.stringify({ id: "fixture", choices: [{ index: 0, delta, finish_reason }] })}\n\n`,
     );
+  if (runMode === "verify" && text === "initialize approval fixture")
+    await new Promise((resolve) => {
+      releaseInitialization = resolve;
+    });
   if (
     resourceSlice &&
     !messages.some(
@@ -957,6 +963,9 @@ try {
     if (!focusOnly && !taskSlice) {
       // 本专项覆盖 ASK_PERMISSIONS 的单次/任务/项目授权；新草稿的 autoReview 预设不会要求普通工作区写入审批。
       await send("initialize approval fixture");
+      await until(() => !!releaseInitialization, "model holds initialization response");
+      releaseInitialization();
+      releaseInitialization = undefined;
       await done();
       const configuration = project(await state()).configurations[tid];
       await call("configure", {
@@ -1237,6 +1246,7 @@ try {
 } finally {
   releaseWrite?.();
   releaseSliceWrite?.();
+  releaseInitialization?.();
   if (manual) {
     process.off("SIGINT", onInterrupt);
     process.off("SIGTERM", onTerminate);
