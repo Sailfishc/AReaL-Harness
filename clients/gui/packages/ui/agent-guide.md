@@ -39,7 +39,7 @@
 
 Worktree界面从[选择合同](src/worktree/worktree-picker/worktree-picker.md)与related进入；业务适配仍归原Worktree模块。短时提示采用[NotificationToast合同](src/components/notification-toast/notification-toast.md)，通过原ToastHost发送；任务状态与恢复动作按原权威记录提供。
 
-工作台组合使用workbench.css；基础设置组合的控件样式使用styles.css，页面/分区使用settings.css。纯组件允许局部展开、焦点和阅读交互；已保存偏好、I18n、业务请求、历史投影、上传与本地文件处理、拖拽身份、关闭守卫及原生面板生命周期由renderer适配注入。所有包化组件保留原视觉，提升稳定状态和Base准入仍须独立决定。迁移范围见[组件迁移](../../design-system/component-migration.md)。
+工作台组合使用workbench.css；基础设置组合的控件样式使用styles.css，页面/分区使用settings.css。纯组件允许局部展开、焦点和阅读交互；已保存偏好、I18n、业务请求、历史投影、上传与本地文件处理、拖拽身份、关闭守卫及原生面板生命周期由renderer适配注入。所有包化组件保留原视觉，提升稳定状态和Base准入仍须独立决定。迁移范围见[组件迁移](../../../../design/archive/gui/component-migration.md)。
 
 
 混合内容从`@areal/ui/content`的严格`areal-ui`注册表进入，NativeContent只展示六类只读数据。普通说明优先Markdown；不要为单个事实强制生成卡片。无效/未知数据必须保留原文入口，不新增HTML、URL、样式、动作脚本或任意组件名。Gen UI和MCP Apps继续走原制品/工具宿主，不能用原生内容目录绕过审批。

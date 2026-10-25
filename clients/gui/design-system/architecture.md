@@ -1,10 +1,10 @@
 # GUI 设计系统实现与准入
 
-本文件定义 GUI v1 实现职责与阶段准入。共享设计原则、意图、Token 地图与决策从 [Design Docs](../../../design/README.md)进入；当前 GUI 落地范围见[候选交付](delivery.md)。源码事实、目录原型、计划中的 Base 和题目实验分别标明；不以文档完成代替 Base 或视觉验收。调研依据见 [automation.md](automation.md)。
+本文件定义 GUI v1 实现职责与阶段准入。共享设计原则、意图、Token 地图与决策从 [Design Docs](../../../design/README.md)进入；当前 GUI 落地范围见[候选交付](../../../design/archive/gui/delivery.md)。源码事实、目录原型、计划中的 Base 和题目实验分别标明；不以文档完成代替 Base 或视觉验收。调研依据见 [automation.md](automation.md)。
 
 共享知识与平台职责见[设计系统架构](../../../design/architecture.md)，下一轮产品建设见[建设计划](../../../design/roadmap.md)。整体候选与真实路径迁移仍按各自条件准入，不由文档整理自动通过。
 
-2026-10-24 按 [D-004](../../../design/decisions/004-local-ui-package.md)采用私有 @areal/ui 包的首批闭环：源、生成 CSS/主题、控件、类型/文档与 Agent 索引、独立示例及守卫。共享控件与组合的包化范围、生产适配和验证边界见[组件迁移](component-migration.md)。业务页面与平台所有者继续保留；包化不自动提升Base准入。
+2026-10-24 按 [D-004](../../../design/decisions/004-local-ui-package.md)采用私有 @areal/ui 包的首批闭环：源、生成 CSS/主题、控件、类型/文档与 Agent 索引、独立示例及守卫。共享控件与组合的包化范围、生产适配和验证边界见[组件迁移](../../../design/archive/gui/component-migration.md)。业务页面与平台所有者继续保留；包化不自动提升Base准入。
 
 ## 目标与质量场景
 

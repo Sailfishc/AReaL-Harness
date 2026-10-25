@@ -49,6 +49,10 @@
   --text-ui-base: var(--ui-font-size);
   --text-ui-caption: calc(var(--ui-font-size) - 1px);
   --text-content-caption: max(12px, calc(var(--content-font-size, 14px) - 1px));
+  --text-content-h1: calc(var(--content-font-size, 14px) + 10px);
+  --text-content-h2: calc(var(--content-font-size, 14px) + 6px);
+  --text-content-h3: calc(var(--content-font-size, 14px) + 4px);
+  --text-content-h4: calc(var(--content-font-size, 14px) + 2px);
   --text-ui-sm: calc(var(--ui-font-size) - 2px);
   --text-ui-xs: max(11px, calc(var(--ui-font-size) - 3px));
   --text-ui-2xs: calc(var(--ui-font-size) - 5px);

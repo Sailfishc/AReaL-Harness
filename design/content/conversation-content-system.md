@@ -6,9 +6,9 @@
 
 现有系统具备承载多种内容的基础：Streamdown正文、公式/图形插件、原生React组合，以及复用MCP Apps宿主的Gen UI页面。当前组件足以组成第一条混合内容路径，但尚不足以保证所有内容在字体、尺寸、加载、展开、返回、状态恢复和交互回写上保持一致。
 
-设计对象提升为“对话内容呈现系统”。Markdown是其中一种阅读方式，iframe是交互页面的隔离载体；两者都不独自承担整套内容模型。延续[开源复用决策](markdown-reuse-review.md)，复用成熟渲染器，设计自己的内容选择、外壳和产品适配合同。
+设计对象提升为“对话内容呈现系统”。Markdown是其中一种阅读方式，iframe是交互页面的隔离载体；两者都不独自承担整套内容模型。延续[开源复用决策](../archive/content/markdown-reuse-review.md)，复用成熟渲染器，设计自己的内容选择、外壳和产品适配合同。
 
-用户提到的ChatGPT智能UI可能涉及交互可视化与Apps两条路径。官方Visualizations介绍图表、地图、计算器和仿真，并提示结果通常是生成时的快照；公开Apps接入采用MCP Apps桥。没有证据表明ChatGPT自有可视化的内部运行时就是对外SDK，也不能由外观推断全部实现。[Visualizations](https://learn.chatgpt.com/docs/visualizations)、[MCP Apps接入](https://developers.openai.com/plugins/build/chatgpt-ui)。更多官方资料及版本边界见[调研附件](interactive-content-research.md)。
+用户提到的ChatGPT智能UI可能涉及交互可视化与Apps两条路径。官方Visualizations介绍图表、地图、计算器和仿真，并提示结果通常是生成时的快照；公开Apps接入采用MCP Apps桥。没有证据表明ChatGPT自有可视化的内部运行时就是对外SDK，也不能由外观推断全部实现。[Visualizations](https://learn.chatgpt.com/docs/visualizations)、[MCP Apps接入](https://developers.openai.com/plugins/build/chatgpt-ui)。更多官方资料及版本边界见[调研附件](../archive/content/interactive-content-research.md)。
 
 ## 当前能力与缺口
 
@@ -75,7 +75,7 @@ Gen UI在已完成的助手消息上解析并核对引用，随后打开已发�
 
 ## 最小落地顺序与验收
 
-当前实现与后续边界如下。新增来源核验见[外部建议复核](native-content-reference-review.md)，区分已发布能力、开放PR和小样本观察。
+当前实现与后续边界如下。新增来源核验见[外部建议复核](../archive/content/native-content-reference-review.md)，区分已发布能力、开放PR和小样本观察。
 
 1. **先做混合内容预览题**：同一回复交错文字、长公式/矩阵、表格、Mermaid、参数可调图、MCP结果入口与失败摘要。先复用现有renderer，不同时更换Markdown内核。
 2. **统一轻量外壳和状态**：逐步让GenUiCard与MCP工具结果采用同一展示合同；运行时和执行所有者保持原位。纯外壳及其MD、状态实例可进入`@areal/ui`；不把整个iframe宿主迁进UI包。
@@ -84,7 +84,7 @@ Gen UI在已完成的助手消息上解析并核对引用，随后打开已发�
 
 必须覆盖的验收场景：流式中不完整公式与引用；结束后静态一致；重复打开不重新执行业务；本地调参不请求模型；追问确认与取消、只读/离线/过期实例；privateContent不泄露给模型；重载后恢复；后台/隐藏页面不能提交；撤权与关闭释放；缩放与列表虚拟化保留身份；内容失败仍可读原文。现有[Gen UI验收脚本](../../clients/gui/scripts/gen-ui-smoke.mjs)、[MCP Apps生命周期脚本](../../clients/gui/scripts/mcp-app-lifecycle-smoke.mjs)和设计预览沿用既有入口；首轮实施已复验混合内容、Gen UI主聊/Side及恢复链，未将其等同于全部MCP应用或真实供应商验收。
 
-这条内容系统规范与本轮审批/Ask User共享同一展示边界；字体核对见[记录](codex-typography-review.md)。执行机制继续以[系统架构](../../docs/design/architecture.md)及实际源码为准；本文件不扩展当前权限、协议或Base准入。
+这条内容系统规范与本轮审批/Ask User共享同一展示边界；字体核对见[记录](../archive/content/codex-typography-review.md)。执行机制继续以[系统架构](../../docs/design/architecture.md)及实际源码为准；本文件不扩展当前权限、协议或Base准入。
 
 
 ## 首轮实现合同

@@ -39,9 +39,13 @@ GUI 的基础值只有一个可编辑来源。写样式时按用途选变量，�
 | 字面量基线（[literal-baseline.json](../../clients/gui/design-system/literal-baseline.json)） | 某个文件写死的字号、颜色或圆角比基线多；改用变量。数量减少后运行 `node clients/gui/scripts/design-system-baseline.mjs --write` 锁定新上限 |
 | 增量检查 | 本次改动新增了字号或颜色字面量，见[增量设计检查](../../clients/gui/design-system/automation.md#增量设计检查) |
 
+## 阅读内容的字号
+
+文件阅读器等长文阅读表面的正文用 `--text-conversation`，标题用 `--text-content-h1`…`--text-content-h4`，全部跟随内容字号；14px 时标题为 24/20/18/16px。
+
 ## 有意保留的字面量
 
-以下位置不跟随界面字号，留在基线中：`:root` 的 `font-size: 16px`（rem 基准）；文件阅读器 Markdown 标题（属于内容字号，待内容排印决定）；远程与移动配对界面（`remote.css`、`MobileSettings.css`，按手机尺寸设计）；以及没有对应角色的 10/15/20/23/28px。新增角色时先在 tokens.json 定义，再替换这些值。
+以下位置不跟随界面字号，留在基线中：`:root` 的 `font-size: 16px`（rem 基准）；远程与移动配对界面（`remote.css`、`MobileSettings.css`，按手机尺寸设计）；以及没有对应角色的 10/15/20/23/28px。新增角色时先在 tokens.json 定义，再替换这些值。
 
 ## 平台映射
 

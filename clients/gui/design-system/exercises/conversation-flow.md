@@ -115,7 +115,7 @@ node clients/gui/scripts/migration-smoke.mjs --conversation-journey
 
 Codex参考继续通过已授权的常驻CDP实例采集，逐次记录真实版本与条件。参考媒体与实现媒体分别归属运行；参考编码失败保留原件并标注，再在独立运行中调整采集参数。低帧率完整旅程可用于行为顺序核查，不能据此通过百毫秒级连续动效验收。
 
-当前E1已在macOS、暗色代表条件中通过。已确认并修复的规则切片为 `CONV-PARALLEL-01` 的创建入口辨识，以及 `CONV-OWNER-01` 的暂停原因/UNKNOWN独立表达；主旅程和暂停/继续既有回归分别验收。完整P-CONVERSATION、Base冻结、所有主题/字号/宽度、原生宿主及连续动效仍按[推进计划](../roadmap.md)保留后续准入。
+当前E1已在macOS、暗色代表条件中通过。已确认并修复的规则切片为 `CONV-PARALLEL-01` 的创建入口辨识，以及 `CONV-OWNER-01` 的暂停原因/UNKNOWN独立表达；主旅程和暂停/继续既有回归分别验收。完整P-CONVERSATION、Base冻结、所有主题/字号/宽度、原生宿主及连续动效仍按[推进计划](../../../../design/archive/gui/roadmap.md)保留后续准入。
 
 
 ## 真实 Electron 连续动效专项 E2

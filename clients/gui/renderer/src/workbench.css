@@ -1741,7 +1741,7 @@ body { font-family: var(--font-sans); }
 .file-preview-icon[aria-pressed="true"] { background: var(--color-selected); }
 .workspace-markdown-reading { position: relative; height: 100%; min-height: 0; }
 .workspace-file-markdown, .workspace-file-markdown .cm-editor { height: 100%; min-height: 0; }
-.workspace-file-markdown .cm-editor { color: var(--color-foreground); font-size: var(--text-ui-base); font-weight: 430; }
+.workspace-file-markdown .cm-editor { color: var(--color-foreground); font-size: var(--text-conversation); font-weight: 430; }
 .workspace-file-markdown .cm-editor.cm-focused { outline: none; }
 .workspace-file-markdown .cm-scroller { overflow: auto; box-sizing: border-box; font-family: var(--font-sans); line-height: 1.4; padding: 0 16px 64px; }
 .workspace-file-markdown .cm-content { padding: 0; min-height: 100%; }
@@ -1750,10 +1750,10 @@ body { font-family: var(--font-sans); }
 .workspace-file-markdown .workspace-markdown-list-marker { color: var(--color-foreground-subtle); }
 .dark .workspace-file-markdown .workspace-markdown-list-marker { color: #ffffff7f; }
 .workspace-file-markdown .workspace-markdown-heading { color: var(--color-foreground); font-weight: 500; }
-.workspace-file-markdown .workspace-markdown-heading-1 { font-size: 24px; }
-.workspace-file-markdown .workspace-markdown-heading-2 { font-size: 20px; }
-.workspace-file-markdown .workspace-markdown-heading-3 { font-size: 18px; }
-.workspace-file-markdown .workspace-markdown-heading-4 { font-size: 16px; }
+.workspace-file-markdown .workspace-markdown-heading-1 { font-size: var(--text-content-h1); }
+.workspace-file-markdown .workspace-markdown-heading-2 { font-size: var(--text-content-h2); }
+.workspace-file-markdown .workspace-markdown-heading-3 { font-size: var(--text-content-h3); }
+.workspace-file-markdown .workspace-markdown-heading-4 { font-size: var(--text-content-h4); }
 .workspace-file-markdown strong.workspace-markdown-inline { font-weight: 500; }
 .workspace-file-markdown em.workspace-markdown-inline { font-style: italic; }
 .workspace-file-markdown code.workspace-markdown-inline { font-family: var(--font-mono); }

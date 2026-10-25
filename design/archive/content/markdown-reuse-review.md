@@ -2,7 +2,7 @@
 
 调研日期：2026-10-24。结论状态：选型建议，尚未进行替换试点、升级或性能对比。本次只读取当前源码、已安装包与官方资料，没有安装候选依赖或改变生产渲染。
 
-本评估是[对话内容呈现系统](conversation-content-system.md)中的正文子系统。Gen UI、MCP Apps、公式与交互可视化的共同容器、状态和动作合同由该文统一设计；表格试点放入混合内容验收，不把Markdown当作全部内容的唯一入口。
+本评估是[对话内容呈现系统](../../content/conversation-content-system.md)中的正文子系统。Gen UI、MCP Apps、公式与交互可视化的共同容器、状态和动作合同由该文统一设计；表格试点放入混合内容验收，不把Markdown当作全部内容的唯一入口。
 
 ## 建议决策
 
@@ -16,15 +16,15 @@
 
 | 职责 | 当前实现与版本 | 事实来源 |
 | --- | --- | --- |
-| 正文与流式处理 | `streamdown` 2.6.0；`MarkdownSurface`包裹实际Streamdown，生产`MessageResponse`传入插件与元素覆盖 | [workspace依赖](../../clients/gui/packages/ui/package.json)、[渲染表面](../../clients/gui/packages/ui/src/conversation/markdown-surface/markdown-surface.tsx)、[生产适配](../../clients/gui/renderer/src/components/ai-elements/message.tsx) |
-| 中文、数学与图 | `@streamdown/cjk`、`@streamdown/math`、`@streamdown/mermaid`已接入；静态/streaming模式分开 | [生产适配](../../clients/gui/renderer/src/components/ai-elements/message.tsx)、[renderer依赖](../../clients/gui/renderer/package.json) |
-| 代码与Diff | `@pierre/diffs` 1.4.3、Shiki 4.4.3；宿主注入保存的代码偏好，继续承担批注与阅读需要 | [CodeViewer适配](../../clients/gui/renderer/src/components/ui/code-viewer.tsx)、[DiffViewer适配](../../clients/gui/renderer/src/components/ui/diff-viewer.tsx)、[包依赖](../../clients/gui/packages/ui/package.json) |
-| 表格 | 约1411行自有呈现、测量与交互实现，包括复制Markdown、导出CSV、预览对话框、扩展横滚、虚拟滚动条与位置观察 | [MarkdownTable](../../clients/gui/packages/ui/src/conversation/markdown-table/markdown-table.tsx)；行数为调研时快照，不作为维护指标 |
-| 真实资源边界 | `a`由宿主分流外部URL与文件阅读；`img`交给`onRenderImage`，精确`areal://blob/…`由原授权读取链处理；插件标签与相对文件链接有产品转换 | [MessageResponse](../../clients/gui/renderer/src/components/ai-elements/message.tsx) |
+| 正文与流式处理 | `streamdown` 2.6.0；`MarkdownSurface`包裹实际Streamdown，生产`MessageResponse`传入插件与元素覆盖 | [workspace依赖](../../../clients/gui/packages/ui/package.json)、[渲染表面](../../../clients/gui/packages/ui/src/conversation/markdown-surface/markdown-surface.tsx)、[生产适配](../../../clients/gui/renderer/src/components/ai-elements/message.tsx) |
+| 中文、数学与图 | `@streamdown/cjk`、`@streamdown/math`、`@streamdown/mermaid`已接入；静态/streaming模式分开 | [生产适配](../../../clients/gui/renderer/src/components/ai-elements/message.tsx)、[renderer依赖](../../../clients/gui/renderer/package.json) |
+| 代码与Diff | `@pierre/diffs` 1.4.3、Shiki 4.4.3；宿主注入保存的代码偏好，继续承担批注与阅读需要 | [CodeViewer适配](../../../clients/gui/renderer/src/components/ui/code-viewer.tsx)、[DiffViewer适配](../../../clients/gui/renderer/src/components/ui/diff-viewer.tsx)、[包依赖](../../../clients/gui/packages/ui/package.json) |
+| 表格 | 约1411行自有呈现、测量与交互实现，包括复制Markdown、导出CSV、预览对话框、扩展横滚、虚拟滚动条与位置观察 | [MarkdownTable](../../../clients/gui/packages/ui/src/conversation/markdown-table/markdown-table.tsx)；行数为调研时快照，不作为维护指标 |
+| 真实资源边界 | `a`由宿主分流外部URL与文件阅读；`img`交给`onRenderImage`，精确`areal://blob/…`由原授权读取链处理；插件标签与相对文件链接有产品转换 | [MessageResponse](../../../clients/gui/renderer/src/components/ai-elements/message.tsx) |
 
-当前代码存在一处值得在试点中消除的重复策略：[STREAMDOWN_CONTROLS](../../clients/gui/renderer/src/components/ai-elements/streamdown-controls.ts)关闭了表格fullscreen，并写明避免打断阅读；自有`MarkdownTable`仍无条件提供预览按钮和Dialog。配置只控制上游默认实现，不能自动约束被完全覆盖的自有表格。这说明把功能移入包不等于已减少维护成本。
+当前代码存在一处值得在试点中消除的重复策略：[STREAMDOWN_CONTROLS](../../../clients/gui/renderer/src/components/ai-elements/streamdown-controls.ts)关闭了表格fullscreen，并写明避免打断阅读；自有`MarkdownTable`仍无条件提供预览按钮和Dialog。配置只控制上游默认实现，不能自动约束被完全覆盖的自有表格。这说明把功能移入包不等于已减少维护成本。
 
-源码保留ZCode与Vercel来源说明，许可沿[第三方声明](../../clients/gui/THIRD-PARTY-NOTICES.md)和[ZCode许可](../../clients/gui/renderer/ZCODE-LICENSE)。包化时仍需保留这些来源。
+源码保留ZCode与Vercel来源说明，许可沿[第三方声明](../../../clients/gui/THIRD-PARTY-NOTICES.md)和[ZCode许可](../../../clients/gui/renderer/ZCODE-LICENSE)。包化时仍需保留这些来源。
 
 ## 候选比较
 

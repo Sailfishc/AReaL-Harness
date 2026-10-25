@@ -1,7 +1,7 @@
 {
   "$description": "生产 UI 字面量存量上限，由 scripts/design-system-baseline.mjs --write 生成；只允许减少。",
   "total": {
-    "typography": 86,
+    "typography": 82,
     "color": 145,
     "radius": 164
   },
@@ -101,21 +101,12 @@
       "radius": 3
     },
     "renderer/src/workbench.css": {
-      "typography": 24,
+      "typography": 20,
       "color": 37,
       "radius": 88
     },
     "packages/ui/src/components/dialog/dialog.tsx": {
       "color": 1
-    },
-    "packages/ui/src/settings/settings-page/settings-page.css": {
-      "typography": 1
-    },
-    "packages/ui/src/settings/settings-row/settings-row.css": {
-      "radius": 1
-    },
-    "packages/ui/src/settings/settings-segmented-tabs/settings-segmented-tabs.css": {
-      "radius": 2
     },
     "packages/ui/src/components/switch/switch.tsx": {
       "color": 1
@@ -149,6 +140,15 @@
     },
     "packages/ui/src/conversation/thinking-status/thinking-status.css": {
       "color": 1
+    },
+    "packages/ui/src/settings/settings-page/settings-page.css": {
+      "typography": 1
+    },
+    "packages/ui/src/settings/settings-row/settings-row.css": {
+      "radius": 1
+    },
+    "packages/ui/src/settings/settings-segmented-tabs/settings-segmented-tabs.css": {
+      "radius": 2
     },
     "packages/ui/src/workbench/settings-navigation/settings-navigation.css": {
       "typography": 1,
