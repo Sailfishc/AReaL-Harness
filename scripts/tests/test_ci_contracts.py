@@ -185,6 +185,8 @@ class PreflightExecution(unittest.TestCase):
             **os.environ,
             "PATH": f"{self.bin}{os.pathsep}{os.environ['PATH']}",
             "COMMAND_LOG": str(self.log),
+            # 此夹具使用自有假 Core，不能继承真实 pre-push 的固定产物路径。
+            "AREAL_CORE_BIN": "",
         }
         self.git("init", "-q")
         self.git("config", "user.email", "fixture@example.invalid")
@@ -229,12 +231,15 @@ class PreflightExecution(unittest.TestCase):
             selected = [call for call in calls if script in call["args"]]
             self.assertEqual(len(selected), 1, script)
             self.assertEqual(selected[0]["base"], self.base)
-        result = self.make("ci-gui-health", f"CI_BASE={self.comparison}")
+        result = self.make(
+            "ci-gui-health", f"CI_BASE={self.comparison}", AREAL_DESIGN_BASE=self.comparison
+        )
         self.assertEqual(result.returncode, 0, result.stderr)
         health = [
             call for call in self.calls() if "clients/gui/scripts/gui-health.mjs" in call["args"]
         ]
         self.assertTrue(any("--check" in call["args"] for call in health))
+        self.assertTrue(all(not call["base"] for call in health))
         self.assertFalse(
             any(any(arg.startswith("--base") for arg in call["args"]) for call in health)
         )
@@ -289,6 +294,7 @@ class PreflightExecution(unittest.TestCase):
             "scripts/check-workflows.py",
             "scripts/check-docs.py",
             "scripts.tests.test_ci_contracts",
+            "scripts.tests.test_git_hooks",
             "test:browser-contracts",
             "audit",
             "--core-contracts",
