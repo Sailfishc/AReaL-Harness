@@ -132,6 +132,7 @@ ci-gui-health: ## 无依赖安装的 GUI 健康合同与基线检查
 	@set -eu; \
 	test -n "$(CI_BASE)" || { echo 'CI_BASE is required' >&2; exit 1; }; \
 	base="$$(git merge-base "$(CI_BASE)" HEAD)"; \
+	unset AREAL_DESIGN_BASE; \
 	mkdir -p target/ci/gui; \
 	node --test clients/gui/scripts/gui-health.test.mjs clients/gui/scripts/design-system-maturity.test.mjs; \
 	if git cat-file -e "$$base:clients/gui/health-baseline.json" 2>/dev/null; then \
@@ -159,7 +160,7 @@ ci-preflight: ## 推送前门禁；显式 CI_BASE，包含本机 Core 合同，�
 	$(MAKE) fmt-check workflow-lint; \
 	$(MAKE) lint; \
 	python3 scripts/check-docs.py; \
-	python3 -m unittest scripts.tests.test_ci_contracts; \
+	python3 -m unittest scripts.tests.test_ci_contracts scripts.tests.test_git_hooks; \
 	$(MAKE) ci-gui-health ci-gui-static CI_BASE="$$base"; \
 	pnpm --dir clients/gui test:browser-contracts; \
 	pnpm --dir clients/gui audit; \

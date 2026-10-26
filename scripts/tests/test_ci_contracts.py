@@ -229,12 +229,15 @@ class PreflightExecution(unittest.TestCase):
             selected = [call for call in calls if script in call["args"]]
             self.assertEqual(len(selected), 1, script)
             self.assertEqual(selected[0]["base"], self.base)
-        result = self.make("ci-gui-health", f"CI_BASE={self.comparison}")
+        result = self.make(
+            "ci-gui-health", f"CI_BASE={self.comparison}", AREAL_DESIGN_BASE=self.comparison
+        )
         self.assertEqual(result.returncode, 0, result.stderr)
         health = [
             call for call in self.calls() if "clients/gui/scripts/gui-health.mjs" in call["args"]
         ]
         self.assertTrue(any("--check" in call["args"] for call in health))
+        self.assertTrue(all(not call["base"] for call in health))
         self.assertFalse(
             any(any(arg.startswith("--base") for arg in call["args"]) for call in health)
         )
@@ -289,6 +292,7 @@ class PreflightExecution(unittest.TestCase):
             "scripts/check-workflows.py",
             "scripts/check-docs.py",
             "scripts.tests.test_ci_contracts",
+            "scripts.tests.test_git_hooks",
             "test:browser-contracts",
             "audit",
             "--core-contracts",
