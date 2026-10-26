@@ -616,13 +616,12 @@ try {
     await resources.getByRole("button", { name: /^查看全部子代理（3） / }).waitFor();
     await resources.getByRole("button").filter({ hasText: "Changes" }).waitFor();
     await resources.getByRole("heading", { name: "后台进程", exact: false }).waitFor();
-    assert.equal(
-      await resources
-        .getByRole("region", { name: "子智能体", exact: true })
-        .locator("[data-agent-avatar]")
-        .count(),
-      3,
-    );
+    const agentSummary = resources.getByRole("region", { name: "子智能体", exact: true });
+    await agentSummary.locator(`[data-agent-avatar="${liveChild.id}"]`).waitFor();
+    await agentSummary.getByText("1 个已完成", { exact: true }).waitFor();
+    // 摘要头像优先展示仍运行的子任务，总数由“查看全部”入口表达。
+    assert.equal(await agentSummary.locator("[data-agent-avatar]").count(), 2);
+    assert.equal(await agentSummary.locator(`[data-agent-avatar="${doneChild.id}"]`).count(), 0);
     assert.equal(
       await page
         .locator("[data-testid=chat-view]")

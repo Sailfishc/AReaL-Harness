@@ -1444,7 +1444,10 @@ try {
           await waiting.evaluate((element, time) => {
             element.getAnimations()[0].currentTime = time;
           }, animations[0].duration * fraction);
-          const frame = await waiting.screenshot({ animations: "allow" });
+          const frame = await waiting.screenshot({
+            animations: "allow",
+            path: join(scratch, `${theme}-sweep-${fraction}.png`),
+          });
           frames.push(frame.toString("base64"));
           sweep.push({
             fraction,
@@ -1452,6 +1455,7 @@ try {
             sha256: createHash("sha256").update(frame).digest("hex"),
           });
         }
+        await writeFile(join(scratch, `${theme}-sweep.json`), JSON.stringify(sweep, null, 2));
         for (let index = 1; index < 6; index++)
           assert.notEqual(
             sweep[index].sha256,

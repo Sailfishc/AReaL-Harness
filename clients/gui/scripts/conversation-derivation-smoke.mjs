@@ -1926,10 +1926,12 @@ try {
       .getByTestId("turn-elapsed")
       .getByRole("button");
     if ((await rawProgress.getAttribute("aria-expanded")) === "false") await rawProgress.click();
-    await rawHistory
+    const rawGroup = rawHistory
       .locator(`[data-turn-id="${activeTurnId}"]`)
-      .locator(".areal-activity-group > .areal-disclosure > button")
-      .click();
+      .locator(".areal-activity-group")
+      .filter({ has: page.locator(`[data-tool-id="${completedTool.id}"]`) })
+      .locator(":scope > .areal-disclosure > button");
+    if ((await rawGroup.getAttribute("aria-expanded")) === "false") await rawGroup.click();
     await rawHistory
       .locator(`[data-tool-id="${completedTool.id}"]`)
       .getByRole("button")
