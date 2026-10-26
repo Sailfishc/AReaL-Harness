@@ -10,7 +10,7 @@ const { modelRecord } = require("@areal/workbench/core-model-contract");
 const {
   readTask,
   readTaskAdmission,
-} = require("../../../packages/workbench/client/desktop-contract/management-tasks.cjs");
+} = require("@areal/workbench/desktop-contract/management-tasks");
 const { readTaskDraftTarget, taskDraftTarget } = require("./task-draft-target.cjs");
 const { readReceipts, receiptResult } = require("./receipt-contract.cjs");
 const { readObservationResult, readThreadMetadata } = require("./history-contract.cjs");
@@ -270,7 +270,7 @@ function receiptFor(project, threadId, turnId) {
       value.taskId,
   );
 }
-/** @param {string} method @param {import("../../../packages/workbench/client/desktop-contract/management-tasks.cjs").Task} task @param {string} fallbackZone */
+/** @param {string} method @param {import("@areal/workbench/desktop-contract/management-tasks").Task} task @param {string} fallbackZone */
 function savedMessage(method, task, fallbackZone) {
   /** @type {Record<string,string>} */
   const statuses = {
@@ -436,7 +436,7 @@ async function committed(project, threadId, turnId) {
     : null;
 }
 
-/** @param {InstanceType<typeof import("./backend.cjs").CoreBackend>} backend @param {Project} project @param {import("../../../packages/workbench/client/desktop-contract/management-tasks.cjs").TaskRequest} request @returns {Promise<unknown>} */
+/** @param {InstanceType<typeof import("./backend.cjs").CoreBackend>} backend @param {Project} project @param {import("@areal/workbench/desktop-contract/management-tasks").TaskRequest} request @returns {Promise<unknown>} */
 async function manageTaskDraft(backend, project, request) {
   const client = project.client;
   if (!client) throw new Error("Core 未连接");

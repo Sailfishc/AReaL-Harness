@@ -1,9 +1,7 @@
 // @ts-check
 "use strict";
 const { modelRecord } = require("@areal/workbench/core-model-contract");
-const {
-  schedule,
-} = require("../../../packages/workbench/client/desktop-contract/management-tasks.cjs");
+const { schedule } = require("@areal/workbench/desktop-contract/management-tasks");
 /** @typedef {ReturnType<typeof taskDraftTarget>} Target */
 
 // Saved editing context is a projection, not a complete runtime Task snapshot.
@@ -38,7 +36,7 @@ function readTaskDraftTarget(value) {
   };
 }
 
-/** @param {import('../../../packages/workbench/client/desktop-contract/management-tasks.cjs').Task} task */
+/** @param {import('@areal/workbench/desktop-contract/management-tasks').Task} task */
 const taskDraftTarget = (task) => ({
   taskId: task.id,
   expectedRevision: task.revision,
