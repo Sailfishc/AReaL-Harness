@@ -551,15 +551,15 @@ impl Engine {
                     .and_then(|id| state.bindings.get(id))
                     .map(|binding| &binding.0)
             });
-            if !(request.task_ids.is_none() && request.thread_ids.is_none())
-                && !request
-                    .task_ids
-                    .as_ref()
-                    .is_some_and(|ids| task.is_some_and(|id| ids.contains(id)))
-                && !request
+            if !(request
+                .task_ids
+                .as_ref()
+                .is_some_and(|ids| task.is_some_and(|id| ids.contains(id)))
+                || request
                     .thread_ids
                     .as_ref()
                     .is_some_and(|ids| row.thread_id.as_ref().is_some_and(|id| ids.contains(id)))
+                || request.task_ids.is_none() && request.thread_ids.is_none())
             {
                 continue;
             }
