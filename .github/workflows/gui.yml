@@ -257,6 +257,12 @@ jobs:
         run: |
           make build 2>&1 | tee target/ci/gui/core-build.log
           make gui-build 2>&1 | tee target/ci/gui/gui-build.log
+          pnpm --dir clients/gui design:build 2>&1 | tee target/ci/gui/design-build.log
+      - name: Verify registered Core-dependent contracts
+        env:
+          AREAL_CORE_BIN: ${{ github.workspace }}/target/debug/areal
+          AREAL_PORTABLE_TEST_REPORT: ${{ github.workspace }}/target/ci/gui/core-contracts.json
+        run: node clients/gui/scripts/run-portable-tests.mjs --core-contracts 2>&1 | tee target/ci/gui/core-contracts.log
       - name: Check registered desktop RPC routes
         run: cargo test --locked -p areal-app-server --lib desktop_registered_methods_have_dispatch_routes 2>&1 | tee target/ci/gui/rpc-routes.log
       - name: Check renderer bundle budgets
@@ -266,7 +272,7 @@ jobs:
           git rev-parse HEAD > target/ci/gui/source.sha
           tar -czf target/ci/gui/gui-smoke-inputs.tar.gz \
             target/ci/gui/source.sha target/debug/areal target/debug/areal-runtime \
-            target/debug/areal-runtime-fs target/debug/shells clients/gui/renderer/dist
+            target/debug/areal-runtime-fs target/debug/shells clients/gui/renderer/dist clients/gui/dist/design-system
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: macos-gui-smoke-inputs
@@ -281,6 +287,7 @@ jobs:
             target/ci/gui/*.log
             target/ci/gui/fingerprint.json
             target/ci/gui/bundle-report.json
+            target/ci/gui/core-contracts.json
             clients/gui/renderer/dist/bundle-analysis.json
             ${{ runner.temp }}/gui-build/
           retention-days: 7

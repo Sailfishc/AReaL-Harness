@@ -596,7 +596,8 @@
     "layer": "e2e",
     "platforms": ["darwin", "linux"],
     "areas": ["design"],
-    "requires": ["browser", "git", "gui-build"]
+    "requires": ["browser", "git", "gui-build"],
+    "ciSmoke": "design"
   },
   {
     "script": "test:regressions",

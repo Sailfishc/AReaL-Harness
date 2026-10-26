@@ -40,6 +40,7 @@ pnpm verify:tests
 pnpm test:unit
 node scripts/test-manifest.mjs --list --platform=linux --layer=contract --available=git,python3,gui-build
 node scripts/run-portable-tests.mjs
+AREAL_CORE_BIN=/absolute/fixed/areal node scripts/run-portable-tests.mjs --core-contracts
 node scripts/test-manifest.mjs --ci-matrix --base=<commit>
 node scripts/repeat-tests.mjs --profile=linux-feasibility --plan
 AREAL_CORE_BIN=/absolute/fixed/areal xvfb-run -a node scripts/repeat-tests.mjs --profile=linux-feasibility
@@ -47,6 +48,8 @@ AREAL_CORE_BIN=/absolute/fixed/areal node scripts/repeat-tests.mjs --profile=mac
 ```
 
 先运行 `make gui-build` 准备 portable runner 所需的 Desktop/UI/Renderer 产物。该 runner 全量运行当前平台上满足前提的单元和契约测试，记录每个结果、耗时，以及因 Core、原生工具或精确 Node 版本缺失而未选择的命令。报告默认写入 `target/ci/gui/portable-tests.json`，`AREAL_PORTABLE_TEST_REPORT` 可指定路径。Relay 完整传输契约另外需要其锁定的 Node 24.2.0 和 `services/remote-relay` 依赖，CI 使用独立步骤执行。
+
+`--core-contracts` 要求可执行的 `AREAL_CORE_BIN`，运行登记的 Core 依赖契约。macOS 构建任务在匹配的 Core/Runtime bundle 构建完成后运行该集合，记录 `core-contracts.json`；Linux portable lane 保持不依赖 Core。必跑 smoke 矩阵还对匹配的设计构建执行 `test:design`，包含真实浏览器无障碍和键盘检查。活跃 `design/**` 改动会触发 GUI 检查。
 
 `ciSmoke` 绑定现有 macOS smoke 矩阵。领域映射只裁剪已知的局部 Renderer 改动；共享所有者、测试脚本、未知路径及没有对应 smoke 的领域保留完整矩阵。没有比较基准的运行也使用完整矩阵。Linux 单元与契约不按领域裁剪。
 

@@ -40,6 +40,7 @@ pnpm verify:tests
 pnpm test:unit
 node scripts/test-manifest.mjs --list --platform=linux --layer=contract --available=git,python3,gui-build
 node scripts/run-portable-tests.mjs
+AREAL_CORE_BIN=/absolute/fixed/areal node scripts/run-portable-tests.mjs --core-contracts
 node scripts/test-manifest.mjs --ci-matrix --base=<commit>
 node scripts/repeat-tests.mjs --profile=linux-feasibility --plan
 AREAL_CORE_BIN=/absolute/fixed/areal xvfb-run -a node scripts/repeat-tests.mjs --profile=linux-feasibility
@@ -47,6 +48,8 @@ AREAL_CORE_BIN=/absolute/fixed/areal node scripts/repeat-tests.mjs --profile=mac
 ```
 
 Run `make gui-build` first to prepare Desktop/UI/Renderer inputs. The portable runner executes every unit and contract test whose prerequisites are available on the current platform. It records results, elapsed times, and commands excluded for missing Core, native tools, or an exact Node version. The report defaults to `target/ci/gui/portable-tests.json`; set `AREAL_PORTABLE_TEST_REPORT` to override it. Full Relay transport contracts also require their pinned Node 24.2.0 and `services/remote-relay` dependencies. CI runs them in a separate step.
+
+`--core-contracts` requires a working `AREAL_CORE_BIN` and runs the registered contracts that depend on Core. The macOS build job runs this set after building the matching Core/Runtime bundle and records `core-contracts.json`; the Linux portable lane remains independent of Core. The required smoke matrix also runs `test:design` against the matching design build, including actual browser accessibility and keyboard checks. Active `design/**` changes trigger GUI checks.
 
 `ciSmoke` binds the existing macOS smoke matrix. Area selection narrows only known local Renderer changes. Shared owners, test scripts, unmapped paths, and areas without matching smoke coverage retain the full matrix. Runs without a comparison base also use the full matrix. Linux units and contracts are not narrowed by area.
 
