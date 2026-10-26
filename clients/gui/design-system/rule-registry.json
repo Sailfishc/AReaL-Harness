@@ -4757,7 +4757,7 @@
       "title": "默认展开状态和用户选择分别记录",
       "owner": "clients/gui/renderer/src/Messages.md#对话信息流",
       "strength": "must",
-      "textSha256": "64a05ec1a38cecb1e0d668a714cc1d752305d22eb431d8c6ee8161d3733a01b9"
+      "textSha256": "28fb3e4f6a3d079322ea8b3703ceaf58f741c3e80403162589b26b0a80697cb8"
     },
     {
       "id": "R-LAYOUT-009",
@@ -4771,7 +4771,7 @@
       "title": "跟随最新时，新内容可推进视口",
       "owner": "clients/gui/renderer/src/Messages.md#对话信息流",
       "strength": "default",
-      "textSha256": "a61a74981356500077169809cd57cc181c1ff90503d42f9f9e2357b927387aaf"
+      "textSha256": "6672abc1fa63a14a5b64ca803d8f2e1be22be823e474553f9a9f45a844083b89"
     },
     {
       "id": "CONV-RESOURCE-01",
