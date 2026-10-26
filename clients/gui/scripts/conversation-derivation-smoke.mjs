@@ -11,7 +11,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { captureSmokeFailure, selectConversation } from "./smoke-navigation.mjs";
 import { withSmokeDeadline } from "./smoke-deadline.mjs";
-import { closeSmokeApplication } from "./application-cleanup.mjs";
+import { closeRecordedSmokeApplication } from "./application-cleanup.mjs";
 
 const sharedWorkspace = process.argv.includes("--shared-workspace");
 const baselineLayout = process.argv.includes("--baseline");
@@ -2425,7 +2425,7 @@ try {
     );
     assert.equal(new Set(forkResults.map((entry) => entry.requestId)).size, 4);
     videoPath = await page.video()?.path();
-    await closeSmokeApplication(app);
+    await closeRecordedSmokeApplication(app);
     app = null;
     await stopService(env);
     // 复用持久状态故障接缝：只在隔离 Core 安全停止后标记既有来源工具为 UNKNOWN。
@@ -2707,16 +2707,12 @@ try {
         events.push({ requestCaptureError: error.message });
       }
     try {
-      await closeSmokeApplication({
-        process: () => app.process(),
-        close: async () => {
-          await app.evaluate(({ dialog }) => {
-            dialog.showMessageBox = async () => ({ response: 1 });
-          });
-          if (videoPath) restartVideoPath = await page?.video()?.path();
-          else videoPath = await page?.video()?.path();
-          await app.close();
-        },
+      await closeRecordedSmokeApplication(app, 20000, async () => {
+        await app.evaluate(({ dialog }) => {
+          dialog.showMessageBox = async () => ({ response: 1 });
+        });
+        if (videoPath) restartVideoPath = await page?.video()?.path();
+        else videoPath = await page?.video()?.path();
       });
     } catch (error) {
       events.push({ electronCloseError: error.message });

@@ -2,6 +2,15 @@
 
 # Testing
 
+Recorded smoke journeys request normal `app.quit()` before awaiting Playwright `close()`, allowing product shutdown and recording settlement to proceed together while still awaiting completion of `close()`. Playwright otherwise drains recording before requesting quit, consuming the same 20-second deadline serially. A controlled recording gate verifies this ordering; incomplete shutdown still fails at the original deadline. Draft confirmation, failure reporting and recording evidence remain required.
+
+The Side Chat Escape fallback test waits for the outer task-resources popup to leave layout before checking that the main turn stops. Hiding its inner `Activity` precedes the closing animation of the `keepMounted` popup; that animation must continue protecting the main turn. The test explicitly slows this animation and records popup state for both main/Side start orders, without a fixed sleep or repeated Escape presses to hide the race.
+
+Model-usage observer non-interference tests await the `drained` settlement signal while disk writes remain blocked, then inspect the in-memory ledger under the observer lock. Receiving HTTP EOF does not establish that the server's `finally` block has completed; longer sleeps or releasing the blocked disk first cannot substitute for that ordering.
+
+
+The release smoke fixture handles auxiliary session titles separately from solve requests. Main-task exit may cancel an unfinished title request; BrokenPipe/ConnectionReset while replying to that title must not turn successful read/write acceptance into failure. Interrupted solve responses, tools on naming requests and other protocol errors still fail. `scripts/fixture_session_title.py` is a local fixture helper and does not change production retries, timeouts or model usage.
+
 Install dependencies using the [development guide](README.en.md). Regular tests use temporary directories, dynamic loopback ports and deterministic models without real model credentials.
 
 | Entry point | Coverage |
@@ -109,6 +118,8 @@ python3 scripts/native-agents-smoke.py --bin-dir target/debug --sandbox-profile 
 ```
 
 Native tools/agent smoke tests use a local fixed-response HTTP model, the standard launcher and temporary workspaces without external model services. They cover file CAS, search, verification receipts, images, no delegation, a single Worker, synchronous waits, budget failures, parent cancellation and default asynchronous dispatch. The asynchronous case requires parent progress before three Worker requests finish and checks parent/child sampling parameters. Stream tests cover same-frame/tail length usage, EOF/cancellation, no UNKNOWN replay, post-compaction handles and cross-Turn boundaries.
+
+Local HTTP fixtures must add `127.0.0.1,localhost,::1` to both `NO_PROXY` and `no_proxy` for the test process, preserving existing entries so a proxy cannot alter truncated responses or introduce waits. Real HTTP tests check parameters, history and terminal events; an argument-only stream uses a handshake gate that releases the terminal event only after Activity is observed. Frozen-clock tests retain the 150 ms idle boundary and separately cover 40 ms activity, host stalls and 220 ms of actual silence. Silence retries only the incomplete response, with confirmed tools executed once. Fixtures that serve solve requests reject auxiliary purposes through `RequestPurpose`; separate tests cover session naming limits and lifecycle. Do not resolve test failures by raising production timeouts, SSE limits or budgets.
 
 
 Request-budget tests cover `MAX_MODEL_ROUNDS` classification when Chat Completions or Responses returns tools in the final round, with no tool execution or retries and the original budget audit preserved. Ordinary tool-call budget exhaustion and invalid indices must retain their own classifications. Desktop CLI acceptance also checks the corresponding `error_max_turns` result. Goal HTTP regressions verify that output-token caps and tool count/buffer budgets survive shared pools, while unknown usage from failed requests prevents retries and tool execution.
