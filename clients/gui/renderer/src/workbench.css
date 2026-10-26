@@ -1503,7 +1503,7 @@ button.composer-project:hover > svg,
   align-items: center;
   gap: 6px;
   max-width: 100%;
-  min-height: 21px;
+  min-height: 0;
   padding: 0;
   border: 0;
   background: transparent;
@@ -2153,12 +2153,20 @@ button[aria-label="停止"] {
   font-weight: 400;
   min-width: 0;
 }
-/* 一个回合段内可有多个活动段（CONV-ACTIVITY-01）：段与段之间只隔一个块间距。 */
+/* 一个回合段内可有多个活动段（CONV-ACTIVITY-01）：段与段之间只隔一个块间距，与正文、子代理行同一节奏。 */
 .turn-execution > .areal-activity-group > .areal-disclosure {
   margin-block: 0;
 }
 .turn-execution > .areal-activity-group + .areal-activity-group {
   margin-top: var(--conversation-gap);
+}
+/* 展开的同类分组里，类型已由摘要图标说明；子项只保留动作与对象，不重复行首图标。 */
+.turn-execution
+  .areal-activity-group:not([data-presentation="inline"])
+  .areal-activity-list
+  :is(.tool-summary-row, .areal-image-disclosure .areal-disclosure-trigger)
+  > svg[data-activity-icon]:first-child {
+  display: none;
 }
 .tool-summary-row:hover {
   color: var(--color-foreground);
@@ -2234,6 +2242,7 @@ button[aria-label="停止"] {
 }
 .tool-image-row {
   justify-content: space-between;
+  padding: 0;
 }
 .tool-image-preview {
   display: flex;
@@ -2281,7 +2290,7 @@ button[aria-label="停止"] {
   white-space: nowrap;
 }
 .tool-file-row {
-  gap: 4px;
+  gap: 6px;
 }
 .tool-file-row .tool-file-link {
   display: block;
@@ -2297,12 +2306,16 @@ button[aria-label="停止"] {
   font: inherit;
   text-overflow: ellipsis;
   white-space: nowrap;
-  text-decoration: underline dotted;
   text-underline-offset: 2px;
+}
+.tool-file-row .tool-file-link:hover {
+  background: transparent;
+  color: var(--color-foreground);
+  text-decoration: underline;
 }
 .tool-file-row .tool-file-record {
   width: 18px;
-  height: 21px;
+  height: auto;
   flex-shrink: 0;
   padding: 0;
   border: 0;
@@ -2315,7 +2328,7 @@ button[aria-label="停止"] {
 }
 .tool-file-row .tool-file-diff-toggle {
   height: auto;
-  min-height: 21px;
+  min-height: 0;
   padding: 0;
   border: 0;
   gap: 4px;

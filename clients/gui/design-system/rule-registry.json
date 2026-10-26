@@ -3087,6 +3087,20 @@
       "textSha256": "74d2acc9465377653f6f1132702a3dddec62ed5e9935d50183869da03bb8abcd"
     },
     {
+      "id": "R-ACTIVITYGROUP-032",
+      "title": "活动行、摘要、图片入口与子代理行共用对话节奏",
+      "owner": "clients/gui/packages/ui/src/conversation/activity-group/activity-group.md#组成",
+      "strength": "default",
+      "textSha256": "6c1b9338135fdd9a6613ce7e07cf603c343ffcf34bf94693ac93802cbbe98820"
+    },
+    {
+      "id": "R-ACTIVITYGROUP-033",
+      "title": "活动图形集沿用16单位网格并保持文字起点对齐",
+      "owner": "clients/gui/packages/ui/src/conversation/activity-group/activity-group.md#组成",
+      "strength": "default",
+      "textSha256": "6bc7c7611501836eef829ee5c4468a815a3dc4b339e4da9626c6f5515e564aa7"
+    },
+    {
       "id": "R-ATTACHMENTCARD-001",
       "title": "仅拥有Root/Open/Remove/Icon/Text/Error/WithNote/Note的外观和语义",
       "owner": "clients/gui/packages/ui/src/conversation/attachment-card/attachment-card.md#规则",

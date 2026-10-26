@@ -41,7 +41,7 @@ const items: Data[] = [
     text: "我会先检查消息投影，再调整工具详情、图片与子智能体的展示。",
   },
   tool("timeline-read", "fs_read", { path: "src/conversation.tsx" }, receipt),
-  ...Array.from({ length: 8 }, (_, index) =>
+  ...Array.from({ length: 12 }, (_, index) =>
     tool(
       `timeline-extra-read-${index}`,
       "fs_read",

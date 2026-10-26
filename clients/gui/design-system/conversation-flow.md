@@ -43,6 +43,8 @@
 
 见[组件合同](../packages/ui/src/conversation/activity-group/activity-group.md#活动行的有限变体)。
 
+活动行视觉节奏与图标约定见 `R-ACTIVITYGROUP-032`、`R-ACTIVITYGROUP-033` 及[组件组成合同](../packages/ui/src/conversation/activity-group/activity-group.md#组成)。
+
 ### 折叠与状态
 
 见[组件合同](../packages/ui/src/conversation/activity-group/activity-group.md#折叠与状态)。

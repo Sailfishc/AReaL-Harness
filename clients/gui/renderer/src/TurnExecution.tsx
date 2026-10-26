@@ -136,9 +136,9 @@ export function TurnExecution({
       {runs.map((run, index) => {
         const last = index === runs.length - 1;
         const grouped = run.key !== null && run.items.length > 1;
-        const kind = toolPresentation(
+        const icon = toolPresentation(
           run.items.find((item) => toolPresentation(item).running) ?? run.items[0],
-        ).kind;
+        ).icon;
         return (
           <ActivityGroup
             key={run.items[0].id}
@@ -150,7 +150,7 @@ export function TurnExecution({
                   ? "思考过程"
                   : "执行活动"
             }
-            icon={grouped ? <ActivityIcon kind={kind} /> : undefined}
+            icon={grouped ? <ActivityIcon kind={icon} /> : undefined}
             status={last ? status : undefined}
           >
             {run.items.map(row)}

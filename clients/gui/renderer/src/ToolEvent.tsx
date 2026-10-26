@@ -6,7 +6,6 @@ import { ImageDisclosure } from "@areal/ui/experimental";
 import "@areal/ui/conversation.css";
 import { Collapsible } from "@base-ui/react/collapsible";
 import { AgentAvatar, agentName, agentTask, spawnedAgent } from "./AgentIdentity.js";
-import { GlobeIcon } from "lucide-react";
 import { ActivityIcon } from "./ActivityIcon.js";
 import { agentSettlements, toolPresentation } from "./conversationPresentation.js";
 import { CommandDetails } from "./CommandDetails.js";
@@ -325,11 +324,7 @@ export function ToolEvent({
           onClick={toggle}
           title={item.tool}
         >
-          {item.tool === "browser_v1" ? (
-            <GlobeIcon size={16} aria-hidden="true" />
-          ) : (
-            <ActivityIcon kind={view.kind} />
-          )}
+          <ActivityIcon kind={view.icon} />
           <span className="tool-summary-text" data-running={view.running || undefined}>
             <span>
               {view.running ? "正在" : view.status === "已完成" ? "已" : ""}

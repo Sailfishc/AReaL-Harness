@@ -20,6 +20,10 @@ related: ["disclosure", "image-disclosure", "thinking-status"]
 
 `R-ACTIVITYGROUP-002` 具名摘要、可聚焦的有界滚动区、折叠外的 status 插槽。children 保留原顺序，实际分组与事件身份归宿主投影。
 
+`R-ACTIVITYGROUP-032` 活动行、活动组摘要、图片入口与子代理行共用对话节奏：每行高度为一行对话文字（`--text-conversation` × `--conversation-line`），相邻块之间隔 `--conversation-gap`，与正文段落一致。摘要不加底色，展开与否只由箭头方向表达；箭头在悬停、键盘焦点或展开时出现。展开的同类分组中，子项与摘要文字左对齐、彼此间隔 `--spacing-inline`，类型已由摘要图标说明，子项不重复行首图标。文件名不加常驻下划线，悬停时才提示可打开。
+
+`R-ACTIVITYGROUP-033` 行首图标统一为 16px、约 1.05 线宽的活动图形集（`ActivityIcon`），箭头 14px：读取、编辑、搜索、列出、命令来自 Codex 采样；图片、浏览器、等待与通用工具为按同一网格补齐的图形。没有语义类别的插件或 MCP 工具使用通用工具图形，保持文字起点对齐，名称仍显示真实工具名。
+
 ## 状态
 
 `R-ACTIVITYGROUP-003` 默认收起；手动选择在同一实例中保留。父组收起保留子详情，追加输出或完成不重置展开。失败、审批和 UNKNOWN 在 status 中可发现。
