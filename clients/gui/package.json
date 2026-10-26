@@ -68,6 +68,7 @@
     "test:architecture": "node scripts/architecture-smoke.mjs",
     "test:conversation-continue": "node scripts/conversation-continue-smoke.mjs",
     "test:conversation-derivation": "node scripts/conversation-derivation-smoke.mjs",
+    "test:conversation-flow": "node scripts/conversation-flow-smoke.mjs",
     "test:trajectory": "node --test scripts/trajectory.test.mjs scripts/trajectory-polling.test.mjs scripts/trajectory-toggle.test.mjs",
     "test:trajectory-config": "node scripts/trajectory-config-smoke.mjs",
     "test:trajectory-ui": "node scripts/trajectory-ui-smoke.mjs",

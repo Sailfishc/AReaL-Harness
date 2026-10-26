@@ -343,6 +343,14 @@
     "ciSmoke": "conversation-derivation"
   },
   {
+    "script": "test:conversation-flow",
+    "layer": "e2e",
+    "platforms": ["darwin", "linux"],
+    "areas": ["conversation", "design"],
+    "requires": ["browser", "gui-build"],
+    "notes": "Runs against dist/design-system; build it with design:build first."
+  },
+  {
     "script": "test:trajectory",
     "layer": "contract",
     "platforms": ["darwin", "linux"],

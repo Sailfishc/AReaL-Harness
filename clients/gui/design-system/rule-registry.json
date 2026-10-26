@@ -4743,7 +4743,7 @@
       "title": "对话时间线以 Core 的 commentary / final_answer 为边界，不按文字内容猜测思考或工具事件",
       "owner": "clients/gui/renderer/src/Messages.md#对话信息流",
       "strength": "default",
-      "textSha256": "85f11b0476a0ba41ac19022197c12930041da0bb35db8d16d0553b03eb4be8b5"
+      "textSha256": "222ec1145bc808d575fe9df9b423c96fd6be8c6025dda545a206e989febec7ed"
     },
     {
       "id": "CONV-STATUS-01",

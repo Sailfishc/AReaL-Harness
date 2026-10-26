@@ -22,7 +22,7 @@ import {
   goalContinuationLabel,
   turnFailureMessage,
 } from "./conversationPresentation.js";
-import { TurnProgress } from "./TurnProgress.js";
+import { progressAutoCollapse, TurnProgress } from "./TurnProgress.js";
 import { TurnElapsed } from "./TurnElapsed.js";
 import { ForkIcon } from "./interfaceIcons.js";
 import { UserPromptEdit } from "./UserPromptEdit.js";
@@ -817,6 +817,21 @@ export function Messages({
         updateReading();
       }
     };
+    // 回合完成时过程组自动收起：跟随底部的读者继续跟随；离开底部的读者以该过程标题为锚，
+    // 标题已滚出视口时把它放到视口顶部，最终回答紧随其后，而不是被截断落在中间。
+    const autoCollapse = (event: Event) => {
+      if (follow.current || !(event.target instanceof HTMLElement)) return;
+      const control = event.target.querySelector<HTMLElement>(".turn-progress-summary");
+      if (!control) return;
+      disclosureReading.current = {
+        control,
+        offset: Math.max(
+          0,
+          control.getBoundingClientRect().top - element.getBoundingClientRect().top,
+        ),
+      };
+    };
+    element.addEventListener(progressAutoCollapse, autoCollapse);
     element.addEventListener("wheel", wheel, { passive: false });
     element.addEventListener("pointerdown", cancelPendingReading);
     element.addEventListener("keydown", cancelPendingReading);
@@ -828,6 +843,7 @@ export function Messages({
     if (element.firstElementChild) resize.observe(element.firstElementChild);
     return () => {
       resize.disconnect();
+      element.removeEventListener(progressAutoCollapse, autoCollapse);
       element.removeEventListener("wheel", wheel);
       element.removeEventListener("pointerdown", cancelPendingReading);
       element.removeEventListener("keydown", cancelPendingReading);
