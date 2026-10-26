@@ -1,13 +1,14 @@
-import type { Action, Data } from "./services.js";
+import type { Attachment } from "@areal/workbench/desktop-contract/conversation";
+import type { Action } from "./services.js";
 // 发送和队列更新共用上传边界，编辑中现存 Core 引用不经过此函数。
 export async function uploadComposerFiles(
   action: Action,
   projectId: string,
   threadId: string,
   files: File[],
-  accepted?: Map<File, Data>,
+  accepted?: Map<File, Attachment>,
 ) {
-  const attachments = [];
+  const attachments: Attachment[] = [];
   for (const file of files) {
     const existing = accepted?.get(file);
     if (existing) {
@@ -28,7 +29,7 @@ export async function uploadComposerFiles(
       mime: file.type || "application/octet-stream",
       bytes,
     });
-    const attachment = {
+    const attachment: Attachment = {
       type: media.mimeType.startsWith("image/")
         ? "image"
         : media.mimeType.startsWith("audio/")

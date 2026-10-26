@@ -12,16 +12,39 @@ export function useCloudEnvironment(project: Data, action: Action) {
     let active = true;
     const refresh = () => {
       setSelected(localStorage.getItem(key) ?? "local");
-      void request.current("cloud", { operation: "status" }).then(value => {
-        if (active) { setConfigured(!!value.baseURL && value.tokenConfigured); setCheckedKey(key); }
-      }).catch(() => { if (active) { setConfigured(false); setCheckedKey(key); } });
+      void request
+        .current("cloud", { operation: "status" })
+        .then((value) => {
+          if (active) {
+            setConfigured(!!value.baseURL && value.tokenConfigured);
+            setCheckedKey(key);
+          }
+        })
+        .catch(() => {
+          if (active) {
+            setConfigured(false);
+            setCheckedKey(key);
+          }
+        });
     };
     refresh();
     window.addEventListener("areal-cloud-config", refresh);
     window.addEventListener("areal-cloud-environment", refresh);
-    return () => { active = false; window.removeEventListener("areal-cloud-config", refresh); window.removeEventListener("areal-cloud-environment", refresh); };
+    return () => {
+      active = false;
+      window.removeEventListener("areal-cloud-config", refresh);
+      window.removeEventListener("areal-cloud-environment", refresh);
+    };
   }, [key]);
   const available = checkedKey === key && configured && project.id !== "projectless";
-  return { available, ready: checkedKey === key, environment: available && selected === "cloud" ? "cloud" : "local",
-    select: (value: string) => { localStorage.setItem(key, value); setSelected(value); window.dispatchEvent(new Event("areal-cloud-environment")); } };
+  return {
+    available,
+    ready: checkedKey === key,
+    environment: available && selected === "cloud" ? "cloud" : "local",
+    select: (value: string) => {
+      localStorage.setItem(key, value);
+      setSelected(value);
+      window.dispatchEvent(new Event("areal-cloud-environment"));
+    },
+  };
 }

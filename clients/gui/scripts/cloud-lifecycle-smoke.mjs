@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import { once } from "node:events";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve, join, extname, sep } from "node:path";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
 // 真实 Renderer 与适配器；显式 WS 协议替身只验证资源准入，不代表 ARCA 验收。
@@ -13,7 +14,7 @@ const { chromium } = require("playwright-core");
 const { WebSocketServer } = require("ws");
 const { CloudSettings } = require("../app/src/core/cloud-settings.cjs");
 const { CloudConversations } = require("../app/src/core/cloud-conversations.cjs");
-const scratch = await mkdtemp("/private/tmp/cloud-lifecycle-");
+const scratch = await mkdtemp(join(tmpdir(), "cloud-lifecycle-"));
 const projectId = "cloud-fixture-project";
 const errors = [],
   calls = [],
@@ -21,6 +22,7 @@ const errors = [],
 let allocations = 0,
   queries = 0,
   deferNext = false,
+  malformedNext = false,
   page,
   browser,
   publishing = Promise.resolve();
@@ -75,7 +77,8 @@ sockets.on("connection", (socket, request) => {
       );
     } else {
       state.thread.turns.push(turn);
-      reply({ turn });
+      reply(malformedNext ? {} : { turn });
+      malformedNext = false;
       socket.send(
         JSON.stringify({ method: "turn/completed", params: { threadId: state.thread.id, turn } }),
       );
@@ -166,7 +169,15 @@ try {
       else value = { data: [], projects: [], pendingApply: false };
       return { ok: true, value };
     } catch (error) {
-      return { ok: false, error: { message: error.message } };
+      return {
+        ok: false,
+        error: {
+          message: error.message,
+          submissionUnknown: error.submissionUnknown,
+          outcome: error.outcome,
+          recovery: error.recovery,
+        },
+      };
     }
   });
   await page.addInitScript(
@@ -208,6 +219,8 @@ try {
         command: (name, params) => window.cloudCommand(name, params),
         theme: async () => ({ platform: "darwin", dark: false, id: "light" }),
         onTheme: () => () => {},
+        onPreviewEvent: () => () => {},
+        onUpdate: () => () => {},
         onMcpAppEvent: () => () => {},
         presentReady: async () => {},
         preview: async () => ({}),
@@ -297,12 +310,21 @@ try {
     localStorage.setItem(key, newValue);
     window.dispatchEvent(new StorageEvent("storage", { key, newValue }));
   });
+  // 成功体畸形仍按未知提交处理，文本和附件草稿不能清空或自动重发。
+  malformedNext = true;
+  await page.getByTestId("cloud-chat-input").fill("keep this unknown draft");
+  await page.getByTestId("cloud-chat-send").click();
+  await page.getByText("QUERY_OK_5", { exact: true }).waitFor();
+  await page.getByRole("alert").filter({ hasText: "提交结果未知" }).waitFor();
+  assert.equal(await page.getByTestId("cloud-chat-input").innerText(), "keep this unknown draft");
+  assert.equal(queries, 5);
+  await page.screenshot({ path: join(scratch, "unknown-receipt-draft.png") });
   await page.getByRole("button", { name: "新聊天", exact: true }).click();
   await page.getByRole("status").filter({ hasText: "Cloud 已连接" }).waitFor();
   assert.equal(allocations, 3);
   assert.equal(manager.records.length, 2);
   assert.notEqual(manager.records[0].binding.workspace, manager.records[1].binding.workspace);
-  assert.equal(queries, 4);
+  assert.equal(queries, 5);
   assert.deepEqual(errors, []);
   await writeFile(
     join(scratch, "evidence.json"),

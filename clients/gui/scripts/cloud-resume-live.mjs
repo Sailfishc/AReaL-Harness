@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import { createServer } from "node:http";
 import { readFile, writeFile, mkdtemp } from "node:fs/promises";
 import { dirname, resolve, join, extname, sep } from "node:path";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { once } from "node:events";
 
@@ -15,7 +16,7 @@ const { CloudClient } = require("../app/src/core/cloud-client.cjs");
 const { CloudConversations } = require("../app/src/core/cloud-conversations.cjs");
 const config = JSON.parse(await readFile(process.env.AREAL_CLOUD_TEST_CONFIG, "utf8"));
 const binding = JSON.parse(await readFile(process.env.AREAL_CLOUD_TEST_BINDING, "utf8"));
-const scratch = await mkdtemp("/private/tmp/areal-cloud-live-");
+const scratch = await mkdtemp(join(tmpdir(), "areal-cloud-live-"));
 const projectId = "cloud-live-project";
 const platform = new CloudClient(config);
 let page,
@@ -134,6 +135,8 @@ try {
         },
         theme: async () => ({ platform: "darwin", dark: false, id: "light" }),
         onTheme: () => () => {},
+        onPreviewEvent: () => () => {},
+        onUpdate: () => () => {},
         onMcpAppEvent: () => () => {},
         presentReady: async () => {},
         preview: async () => ({}),
