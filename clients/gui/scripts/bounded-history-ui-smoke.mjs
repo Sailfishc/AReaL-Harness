@@ -134,14 +134,21 @@ try {
         outcomes: {},
         configurations: {},
         summaries: [{ id: threadId, name: "History fixture", status: "idle" }],
-        core: {},
       };
       const snapshot = {
         revision: 1,
         desktopCapabilities: { currentCommands: true },
         projects: [project],
         connection: { state: "ready" },
-        library: { projects: {}, threads: {}, settings: {}, projectOrder: [] },
+        library: {
+          projects: {},
+          threads: {},
+          settings: {},
+          projectOrder: [],
+          sidebarThreadOrder: [],
+          sidebarRevision: 0,
+          sections: [],
+        },
       };
       let listener,
         projectionListener,
@@ -201,6 +208,13 @@ try {
             },
           }),
         theme: async () => ({ platform: "darwin", dark: false, id: "light" }),
+        setInterfaceLocale: async () => {},
+        onQuitRequested: () => () => {},
+        onQuitProgress: () => () => {},
+        onPreviewEvent: () => () => {},
+        onUpdate: () => () => {},
+        onNotificationOpen: () => () => {},
+        onMcpAppDeepLink: () => () => {},
         onTheme: () => () => {},
         onMcpAppEvent: () => () => {},
         presentReady: async () => {},
@@ -233,11 +247,16 @@ try {
               thread.displayHistory.complete = true;
               publish();
             }
-            return {
-              ok: true,
-              value: { supported: true, data: [], complete: thread.displayHistory.complete },
-            };
+            if (params.operation === "release") return { ok: true, value: { released: true } };
+            if (params.operation === "acquire")
+              return {
+                ok: true,
+                value: { supported: true, complete: thread.displayHistory.complete },
+              };
+            return { ok: true, value: { data: [], complete: true, nextCursor: null } };
           }
+          if (["connect", "list", "open"].includes(name))
+            return { ok: true, value: structuredClone(snapshot) };
           if (name === "workspace") return { ok: true, value: { git: true, branch: "main" } };
           if (name === "trajectory")
             return {
@@ -437,8 +456,41 @@ try {
     delta: "_CONTINUED",
   });
   await page.getByText("ACTIVE_LIVE_SENTINEL_CONTINUED", { exact: true }).waitFor();
+  // 重新观察（打开会话、上下文压缩）期间，已显示的对话不随历史窗口重建而位移，
+  // 渲染端只重新登记视图，不先释放再获取。
+  const before = await page.evaluate(() => window.calls.length);
+  await page.evaluate(() => {
+    const live = () =>
+      [...document.querySelectorAll(".message-column *")].find(
+        (node) => node.childElementCount === 0 && node.textContent.includes("ACTIVE_LIVE_SENTINEL"),
+      );
+    window.liveTops = [];
+    window.sampling = true;
+    const sample = () => {
+      const node = live();
+      if (node) window.liveTops.push(Math.round(node.getBoundingClientRect().top));
+      if (window.sampling) requestAnimationFrame(sample);
+    };
+    sample();
+  });
   backend.installObservation(project, latest());
   await projection;
+  await page.waitForTimeout(500);
+  const liveTops = await page.evaluate(() => {
+    window.sampling = false;
+    return window.liveTops;
+  });
+  assert.ok(
+    Math.max(...liveTops) - Math.min(...liveTops) <= 1,
+    `re-observation moves displayed messages: ${[...new Set(liveTops)].join(",")}`,
+  );
+  assert.deepEqual(
+    (await page.evaluate(() => window.calls))
+      .slice(before)
+      .filter((call) => call.name === "history")
+      .map((call) => call.params.operation),
+    ["acquire"],
+  );
   await page.getByText("ACTIVE_USER_SENTINEL", { exact: true }).waitFor();
   await page.waitForFunction(
     () => !document.querySelector(".message-column")?.textContent.includes("加载更早的消息"),
@@ -446,7 +498,7 @@ try {
   await page.screenshot({ path: join(scratch, "03-active-turn.png"), animations: "disabled" });
   assert.ok(rpc.every((call) => call.method === "areal/conversation/history"));
   checks.push(
-    "real Desktop history owner automatically restores six-page active turn, retains prompt after refresh, and streaming continues without send or manual pagination",
+    "real Desktop history owner automatically restores six-page active turn, retains prompt after refresh without moving displayed messages or releasing the view, and streaming continues without send or manual pagination",
   );
   await projection;
   assert.deepEqual(errors, []);
