@@ -375,7 +375,12 @@ const changed = new Set([
 ]);
 let incrementalFiles = 0;
 for (const repoFile of changed) {
-  if (!/\.(tsx?|jsx)$/.test(repoFile) || /\/(?:i18n|design-system)\//.test(repoFile)) continue;
+  if (
+    !/\.(tsx?|jsx)$/.test(repoFile) ||
+    /\.test\.[tj]sx?$/.test(repoFile) ||
+    /\/(?:i18n|design-system)\//.test(repoFile)
+  )
+    continue;
   const file = relative(gui, join(repo, repoFile));
   if (settingsFiles.includes(file) || shared.includes(file)) continue;
   let source;

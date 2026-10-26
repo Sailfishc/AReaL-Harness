@@ -4603,7 +4603,7 @@
       "title": "TurnElapsed使用Core起始时间和终态durationMs，所有语言均为 Working for … ",
       "owner": "clients/gui/renderer/src/DecisionCard.md#ask-user与过程展示",
       "strength": "default",
-      "textSha256": "21e2173b8bd8f53853460b25a4117175ce2d5d09838986372da57bf8a083d2cf"
+      "textSha256": "a1b6c0c014aa60f34540e802fec0984c264ec7118736ff35c6b6d11458feafe3"
     },
     {
       "id": "R-MESSAGES-001",
@@ -4820,7 +4820,7 @@
       "title": "过程耗时跨语言统一显示 Working for 15m 29s ，作为可折叠的过程标题在运行中与完成后都显示",
       "owner": "clients/gui/renderer/src/Messages.md#混合内容与过程标题",
       "strength": "default",
-      "textSha256": "994f2d743313bf2711e8e8d234c636aa0f2319a00b7418890be97604c9f7292a"
+      "textSha256": "b7cf0aad58af5df90f5687a35be71c5ad90afaad6d4cc9005781970792ffb2c2"
     },
     {
       "id": "R-ACTIONBUTTON-005",

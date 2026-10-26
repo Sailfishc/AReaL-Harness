@@ -491,6 +491,12 @@ button.composer-project:hover > svg,
   margin: 0 auto;
   padding: var(--message-reading-inset) var(--spacing-field);
 }
+/* 恢复提示、分页与全部加载完毕共享同一高度，避免状态切换推动正文。 */
+.message-history-controls {
+  display: flex;
+  align-items: center;
+  min-height: var(--spacing-control-sm);
+}
 .message-column > section {
   display: flex;
   flex-direction: column;

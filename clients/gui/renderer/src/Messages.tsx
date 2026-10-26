@@ -890,27 +890,29 @@ export function Messages({
           {beforeTurns}
           {inherited.loading && <p role="status">正在加载继承历史…</p>}
           {inherited.error && <p role="alert">继承历史读取失败：{inherited.error}</p>}
-          {localThread.displayHistory?.loadingLatest && (
-            <p role="status">{t("chat.history.loadingLatest")}</p>
+          {localThread.displayHistory?.supported && (
+            <div className="message-history-controls" aria-live="polite">
+              {localThread.displayHistory.loadingLatest ? (
+                <span role="status">{t("chat.history.loadingLatest")}</span>
+              ) : localThread.displayHistory.latestTurnComplete !== false &&
+                !localThread.displayHistory.complete ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={localThread.displayHistory.loadingOlder}
+                  onClick={() => {
+                    readHere();
+                    void history.load();
+                  }}
+                >
+                  {localThread.displayHistory.loadingOlder
+                    ? t("chat.history.loadingOlder")
+                    : t("chat.history.loadOlder")}
+                </Button>
+              ) : null}
+            </div>
           )}
-          {localThread.displayHistory?.supported &&
-            localThread.displayHistory.latestTurnComplete !== false &&
-            !localThread.displayHistory.complete && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                disabled={localThread.displayHistory.loadingOlder}
-                onClick={() => {
-                  readHere();
-                  void history.load();
-                }}
-              >
-                {localThread.displayHistory.loadingOlder
-                  ? t("chat.history.loadingOlder")
-                  : t("chat.history.loadOlder")}
-              </Button>
-            )}
           {history.failure && !history.failure.itemId && (
             <div>
               <p role="alert">{history.failure.message}</p>
@@ -1365,18 +1367,6 @@ export function Messages({
                             !outcome.unfinished &&
                             !pendingInput
                           }
-                          failureDetails={group.entries
-                            .flatMap(({ item }) => item.items ?? [])
-                            .filter(
-                              (entry: Data) =>
-                                entry.type === "dynamicToolCall" && toolPresentation(entry).failed,
-                            )
-                            .map((entry: Data) => (
-                              <div key={entry.id}>
-                                <p>{entry.tool}</p>
-                                <pre>{JSON.stringify(entry, null, 2)}</pre>
-                              </div>
-                            ))}
                           {...outcome}
                         >
                           {contents}

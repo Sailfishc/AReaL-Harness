@@ -1,6 +1,6 @@
 import { toast } from "./components/ui/toast.js";
 import { useEffect, useRef, useState } from "react";
-import { GitBranch, GitFork, Settings } from "lucide-react";
+import { GitBranch, GitFork, LoaderCircle, Settings } from "lucide-react";
 import { Button } from "./components/ui/button.js";
 import { SettingsSearchInput } from "./settings/SettingsSearchInput.js";
 import { Popover, PopoverContent, PopoverTrigger } from "./components/ui/popover.js";
@@ -159,7 +159,15 @@ export function WorktreeStarter({
         <WorktreePicker>
           {page === "main" ? (
             <>
-              <p className="worktree-picker-heading">{t("worktree.configureLocal")}</p>
+              <p className="worktree-picker-heading flex items-center gap-2">
+                {t("worktree.configureLocal")}
+                {loading && (
+                  <LoaderCircle
+                    className="size-3 shrink-0 animate-spin motion-reduce:animate-none"
+                    aria-hidden="true"
+                  />
+                )}
+              </p>
               <WorktreePicker.Row
                 icon={<GitFork aria-hidden="true" />}
                 label={t("worktree.new")}
@@ -304,7 +312,7 @@ export function WorktreeStarter({
             </>
           )}
           {loading && (
-            <p role="status" className="worktree-picker-feedback">
+            <p role="status" className="sr-only">
               {t("worktree.loading")}
             </p>
           )}

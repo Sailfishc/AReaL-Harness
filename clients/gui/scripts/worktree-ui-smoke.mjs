@@ -53,6 +53,7 @@ const action=async(name,params={})=>{
  if(name==='create'&&params.requestId&&window.fixturePending)return {threadId:'fresh-created'};
  if(window.fixtureRecovery)throw Object.assign(new Error('Original request still uncertain'),{submissionUnknown:true,requestId:params.requestId});
  if(window.fixtureFail)throw new Error('Fixture directory unavailable');
+ if(params.operation==='worktreeOptions'&&window.fixtureHoldOptions)await new Promise(resolve=>{window.fixtureResolveOptions=resolve;});
  if(params.operation==='worktreeOptions')return {worktrees:[{root:'/fixture/source',branch:'main',head:'a'.repeat(40),dirty:true},{root:'/fixture/existing',branch:'feature/source',head:'b'.repeat(40)}],branches:['main','release','feature/a-very-long-branch-name-that-must-remain-readable-when-focused',...Array.from({length:30},(_,index)=>'feature/local-'+index),'origin/main','origin/release'],settings:listing.settings,environments,environmentRevision:1};
  if(params.operation==='worktreeList')return structuredClone(listing);
  if(params.operation==='worktreeDelete')return {deleted:false,deletion:{blockers:['Fixture blocker: uncommitted changes remain in this directory']}};
@@ -270,6 +271,24 @@ try {
     await page.goto(base);
     await trigger().waitFor();
     await capture("picker-closed");
+    for (const phase of ["initial", "refresh"]) {
+      await page.evaluate(() => { window.fixtureHoldOptions = true; });
+      await trigger().click();
+      await page.getByRole("status").filter({ hasText: "正在读取 Worktree 与分支…" }).waitFor();
+      assert.equal(await branch().isDisabled(), true);
+      await capture("picker-loading-" + phase);
+      const loadingBox = await page.getByRole("dialog").boundingBox();
+      await page.evaluate(() => { window.fixtureHoldOptions = false; window.fixtureResolveOptions(); });
+      await branch().and(page.locator(":enabled")).waitFor();
+      await capture("picker-loaded-" + phase);
+      const loadedBox = await page.getByRole("dialog").boundingBox();
+      for (const key of ["x", "y", "width", "height"]) {
+        assert.ok(Math.abs(loadedBox[key] - loadingBox[key]) <= 1,
+          `${phase}: loading must not change popup ${key}: ${loadingBox[key]} -> ${loadedBox[key]}`);
+      }
+      await page.keyboard.press("Escape");
+    }
+    checks.push("initial and refreshed worktree options preserve popup geometry while loading and keep controls disabled until ready");
     await trigger().click();
     await branch().waitFor();
     await environment().waitFor();

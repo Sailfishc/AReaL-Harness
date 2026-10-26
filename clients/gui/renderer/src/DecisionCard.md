@@ -21,4 +21,4 @@
 
 `R-DECISIONCARD-014` AskUserQuestion保留业务草稿、问题导航、输入法处理与提交锁，使用包内QuestionCard。单选/数字选择只修改草稿，明确发送才提交；多题回答一次提交。稍后回答与关闭只折叠并保留草稿，原Core请求保持pending。UNKNOWN核对不自动重发。
 
-`R-DECISIONCARD-015` TurnElapsed使用Core起始时间和终态durationMs，所有语言均为`Working for …`。失败工具记录不进入默认活动行；TurnProgress用一个可展开标识提供原始记录，结果待确认与恢复动作继续沿原所有者展示。
+`R-DECISIONCARD-015` TurnElapsed使用Core起始时间和终态durationMs，所有语言均为`Working for …`。失败工具记录不进入默认活动行；TurnProgress标题只保留Working耗时与展开箭头，不展示任务状态和警示图标；具体活动中的结果待确认与恢复动作继续沿原所有者展示。

@@ -8,11 +8,8 @@ export async function runContentSystem(page, scratch, checks) {
   const records = region.getByLabel('预览调用记录', { exact: true });
   const progress = region.getByRole('region', { name: '过程预览', exact: true });
   assert.equal(await progress.locator('.turn-progress-summary').innerText(), 'Working for 15m 29s');
-  assert.equal(await progress.locator('.turn-failure-indicator').count(), 1);
+  assert.equal(await progress.locator('.turn-failure-indicator').count(), 0);
   assert.equal(await progress.getByText('不应默认出现的失败工具行').count(), 0);
-  await progress.locator('.turn-failure-indicator > summary').click();
-  assert.match(await progress.locator('.turn-failure-details').innerText(), /审批拒绝/);
-  await progress.locator('.turn-failure-indicator > summary').click();
   assert.equal(await approval.locator('.decision-card-details').getAttribute('open'), null);
   const command = await approval.locator('.approval-command-summary > code').evaluate(el => ({ height: el.clientHeight, line: parseFloat(getComputedStyle(el).lineHeight) }));
   assert.ok(command.height <= command.line * 2 + 1, JSON.stringify(command));
@@ -29,7 +26,7 @@ export async function runContentSystem(page, scratch, checks) {
   assert.match(await records.innerText(), /响应次数：1/);
   await approval.screenshot({ path: join(scratch, 'approval-compact.png'), animations: 'disabled' });
   await progress.screenshot({ path: join(scratch, 'working-compact.png'), animations: 'disabled' });
-  checks.push('Working duration; one inspectable failure indicator; collapsed original approval; explicit question submit and draft retention');
+  checks.push('Working duration without task status or warning indicator; collapsed original approval; explicit question submit and draft retention');
   assert.equal(await region.locator('.areal-native-content').count(), 6);
   const diagram = region.getByRole('region', { name: 'mermaid 代码', exact: true });
   await diagram.scrollIntoViewIfNeeded();

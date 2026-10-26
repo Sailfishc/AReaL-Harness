@@ -31,8 +31,6 @@ export function TurnElapsed({
   disclosure?: {
     expanded: boolean;
     controls: string;
-    failures?: number;
-    unfinished?: boolean;
     onToggle: () => void;
   };
 }) {
@@ -71,7 +69,6 @@ export function TurnElapsed({
             onClick={disclosure.onToggle}
           >
             <span>{label ?? t("chat.progress.defaultLabel")}</span>
-            {disclosure.unfinished && <span>{t("chat.progress.unconfirmed")}</span>}
             <ActivityIcon kind="chevron" size={14} className={disclosure.expanded ? "open" : ""} />
           </Button>
         ) : (

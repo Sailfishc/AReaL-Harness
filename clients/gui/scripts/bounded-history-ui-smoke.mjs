@@ -254,6 +254,53 @@ try {
   await page.getByText("LATEST_USER_SENTINEL", { exact: true }).waitFor();
   const older = page.getByRole("button", { name: labels.older, exact: true });
   await older.waitFor({ timeout: 3000 });
+  // 固定消息内容，只切换恢复/分页状态，避免把正文增长误判为控件引起的跳动。
+  const historyPosition = () =>
+    page.locator('[data-turn-id="latest"]').evaluate((element) => ({
+      top: element.getBoundingClientRect().top,
+      left: element.getBoundingClientRect().left,
+      composerTop: document.querySelector(".composer-dock")?.getBoundingClientRect().top,
+    }));
+  const initialPosition = await historyPosition();
+  const positions = [initialPosition];
+  for (const displayHistory of [
+    { supported: true, complete: false, latestTurnComplete: false, loadingLatest: true },
+    { supported: true, complete: false, latestTurnComplete: true, loadingLatest: false },
+    { supported: true, complete: false, latestTurnComplete: true, loadingOlder: true },
+    { supported: true, complete: true, latestTurnComplete: true },
+  ]) {
+    await page.evaluate(
+      (displayHistory) => window.installActiveHistory({ displayHistory }),
+      displayHistory,
+    );
+    await page.evaluate(
+      () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+    );
+    positions.push(await historyPosition());
+  }
+  await page.screenshot({ path: join(scratch, "00-history-controls.png"), animations: "disabled" });
+  await writeFile(join(scratch, "history-positions.json"), JSON.stringify(positions, null, 2));
+  for (const position of positions) {
+    assert.ok(
+      Math.abs(position.top - initialPosition.top) <= 1,
+      "history controls do not move message content",
+    );
+    assert.equal(position.left, initialPosition.left, "history controls preserve column alignment");
+    assert.equal(
+      position.composerTop,
+      initialPosition.composerTop,
+      "history controls do not move composer",
+    );
+  }
+  checks.push(
+    "restoring, older-page loading and exhausted history preserve message and composer positions",
+  );
+  await page.evaluate(() =>
+    window.installActiveHistory({
+      displayHistory: { supported: true, complete: false, latestTurnComplete: true },
+    }),
+  );
+  await older.waitFor();
   assert.equal(
     (await page.evaluate(() => window.calls)).filter(
       (call) => call.name === "history" && call.params.operation === "loadItem",
