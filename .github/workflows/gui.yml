@@ -239,11 +239,6 @@ jobs:
           make build 2>&1 | tee target/ci/gui/core-build.log
           make gui-build 2>&1 | tee target/ci/gui/gui-build.log
           pnpm --dir clients/gui design:build 2>&1 | tee target/ci/gui/design-build.log
-      - name: Verify registered Core-dependent contracts
-        env:
-          AREAL_CORE_BIN: ${{ github.workspace }}/target/debug/areal
-          AREAL_PORTABLE_TEST_REPORT: ${{ github.workspace }}/target/ci/gui/core-contracts.json
-        run: node clients/gui/scripts/run-portable-tests.mjs --core-contracts 2>&1 | tee target/ci/gui/core-contracts.log
       - name: Check registered desktop RPC routes
         run: cargo test --locked -p areal-app-server --lib desktop_registered_methods_have_dispatch_routes 2>&1 | tee target/ci/gui/rpc-routes.log
       - name: Check renderer bundle budgets
@@ -268,9 +263,70 @@ jobs:
             target/ci/gui/*.log
             target/ci/gui/fingerprint.json
             target/ci/gui/bundle-report.json
-            target/ci/gui/core-contracts.json
             clients/gui/renderer/dist/bundle-analysis.json
             ${{ runner.temp }}/gui-build/
+          retention-days: 7
+
+  core-contracts:
+    name: macOS Core contracts
+    needs: [scope, gui]
+    if: needs.scope.outputs.gui == 'true'
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - name: Prepare isolated contract temporary root
+        run: |
+          mkdir -p "$RUNNER_TEMP/gui-core-contracts"
+          echo "TMPDIR=$RUNNER_TEMP/gui-core-contracts" >> "$GITHUB_ENV"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '24.22.1'
+      - name: Locate GUI dependency cache
+        id: tools
+        run: |
+          npm install --global pnpm@11.7.0
+          echo "store=$(pnpm --dir clients/gui store path --silent)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25
+        with:
+          path: |
+            ${{ steps.tools.outputs.store }}
+            ~/Library/Caches/electron
+            ~/Library/Caches/ms-playwright
+          key: gui-deps-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('clients/gui/pnpm-lock.yaml') }}
+      - name: Prepare locked GUI dependencies
+        run: |
+          mkdir -p "$TMPDIR"
+          pnpm --dir clients/gui install --frozen-lockfile
+      - name: Build desktop package entry points
+        run: pnpm --dir clients/gui build:desktop
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: macos-gui-smoke-inputs
+          path: target/ci/gui
+      - name: Restore and verify matching build
+        run: |
+          tar -xzf target/ci/gui/gui-smoke-inputs.tar.gz
+          test "$(cat target/ci/gui/source.sha)" = "$(git rev-parse HEAD)"
+          test -x target/debug/areal
+          test -x target/debug/areal-runtime
+          test -x target/debug/areal-runtime-fs
+      - name: Verify registered Core-dependent contracts
+        env:
+          AREAL_CORE_BIN: ${{ github.workspace }}/target/debug/areal
+          AREAL_PORTABLE_TEST_REPORT: ${{ github.workspace }}/target/ci/gui/core-contracts.json
+        run: node clients/gui/scripts/run-portable-tests.mjs --core-contracts 2>&1 | tee target/ci/gui/core-contracts.log
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: macos-core-contracts-evidence
+          path: |
+            target/ci/gui/core-contracts.log
+            target/ci/gui/core-contracts.json
+            ${{ runner.temp }}/gui-core-contracts/
           retention-days: 7
 
   smoke:
@@ -444,7 +500,7 @@ jobs:
 
   gate:
     name: GUI gate
-    needs: [scope, gui-health, gui-portable, gui, smoke]
+    needs: [scope, gui-health, gui-portable, gui, core-contracts, smoke]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -457,6 +513,7 @@ jobs:
           SCOPE_RESULT: ${{ needs.scope.result }}
           WORK_RESULT: ${{ needs.gui.result }}
           SMOKE_RESULT: ${{ needs.scope.outputs.gui == 'false' && 'success' || needs.smoke.result }}
+          CORE_RESULT: ${{ needs.scope.outputs.gui == 'false' && 'success' || needs.core-contracts.result }}
           HEALTH_RESULT: ${{ needs.scope.outputs.gui == 'false' && 'success' || needs.gui-health.result }}
           PORTABLE_RESULT: ${{ needs.scope.outputs.gui == 'false' && 'success' || needs.gui-portable.result }}
           NEEDED: ${{ needs.scope.outputs.gui }}
