@@ -9,7 +9,7 @@ const project = { state: { connected: true, threads: { thread: { executionConnec
 const command = [
   "python3 - <<'PY'",
   "import pathlib,json",
-  "base=pathlib.Path('/Users/someone/Library/Application Support/areal-core')",
+  "base=pathlib.Path('/example/Library/Application Support/areal-core')",
   "print(json.dumps(json.loads((base/'projects.json').read_text()))[:7000])",
   "PY",
 ].join("\n");
