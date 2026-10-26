@@ -237,6 +237,17 @@ TUI 与共享服务 PTY 检查共用终端画面解析器，处理增量重绘�
 
 ## CI 门禁与冷启动
 
+PR #111 在初始 G0 快照后整合历史恢复与定时任务所有权。以下六个存量文件上限按集成提交 `9297968c` 的实测值明确修订；指标方向、新文件 800 行上限和 CI 阻断继续生效。这些例外接受模块增长，不代表结构已经改善。
+
+| 所有者 | 原行数 → 当前行数 | 原因 |
+| --- | --- | --- |
+| `app/src/core/backend.cjs` | 2270 → 2284 | 连接任务目录与定时 owner 生命周期 |
+| `app/src/core/history-observation.cjs` | 1072 → 1175 | 协调有界历史读取、owner 任务与恢复 |
+| `app/src/core/lifecycle-operations.cjs` | 845 → 878 | 持久化调度抑制并支持显式恢复 |
+| `renderer/src/Composer.tsx` | 1564 → 1580 | 通过 owner 任务目录定位 worker 的原任务运行 |
+| `renderer/src/Messages.tsx` | 1561 → 1718 | 加载早期历史时保持阅读锚点 |
+| `renderer/src/TaskCenter.tsx` | 2356 → 2380 | 观察任务目录修订与共享 owner 激活 |
+
 推送 GUI/Core 集成分支前，先获取目标远程引用，通过 `make setup` 和 `make gui-install` 准备锁定依赖，再运行 `make ci-preflight CI_BASE=upstream-readonly/main`。`CI_BASE` 必须显式指向实际 PR 比较引用；入口先计算一次 merge-base，再将同一提交传给设计、文案和健康检查。若该提交尚无 `clients/gui/health-baseline.json`，健康检查按 CI 规则使用当前已审查基线，不传 `--base`。入口顺序运行格式、workflow/actionlint、Rust/Python 静态检查、文档、预检合同、GUI 健康与静态检查、浏览器契约、实时 GUI 依赖审计、portable 合同，最后构建匹配的 Core/Runtime 并运行登记的 10 项 Core 合同。任一步失败都会阻止后续步骤。保持原有全锁文件依赖审计和远端 CI 门禁。
 
 共享入口供本机与 CI 复用：`make ci-gui-static CI_BASE=<ref>` 构建 Desktop/UI 输入并运行 GUI `check`、设计检查、类型检查、公开边界和快速回归；`make ci-gui-health CI_BASE=<ref>` 无需安装 GUI 依赖，检查健康合同和基线并写入 `target/ci/gui/health.json`；`make ci-gui-portable` 独立构建 Desktop/UI/Renderer，校验 manifest 并运行 portable 集合，显式隔离环境中的 Core 路径。`make ci-core-contracts AREAL_CORE_BIN=/absolute/matching/areal` 只运行 Core 依赖集合，缺失或不可执行的显式路径必须失败，不允许静默跳过。`ci-preflight` 始终先构建，默认传入 `target/debug/areal`；本机可用 `make ci-preflight CI_BASE=<ref> AREAL_CORE_BIN=/absolute/fixed/areal` 选择已部署的固定槽。显式路径的 SHA-256 必须与刚构建的 `target/debug/areal` 一致，否则门禁失败并要求先部署新产物；入口不会自动复制或绕过系统防护。本机 macOS 原生执行应先按固定产物路径验证流程准备。

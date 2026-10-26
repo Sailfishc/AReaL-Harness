@@ -237,6 +237,17 @@ After building Core and the GUI, run `pnpm -C clients/gui test:remote-gui-quit`.
 
 ## CI gates and cold starts
 
+PR #111 integrates history recovery and scheduled-task ownership after the initial G0 snapshot. The following six existing source caps are explicitly revised to the measured integration at `9297968c`; metric directions, the 800-line cap for new files, and CI enforcement remain active. These exceptions accept module growth; they do not establish a structural improvement.
+
+| Owner | Previous → current lines | Reason |
+| --- | --- | --- |
+| `app/src/core/backend.cjs` | 2270 → 2284 | Connect task catalog and scheduled-owner lifecycle |
+| `app/src/core/history-observation.cjs` | 1072 → 1175 | Coordinate bounded-history reads, owner tasks and restoration |
+| `app/src/core/lifecycle-operations.cjs` | 845 → 878 | Persist scheduling suppression and explicit resume |
+| `renderer/src/Composer.tsx` | 1564 → 1580 | Locate a worker's original TaskRun through the owner task catalog |
+| `renderer/src/Messages.tsx` | 1561 → 1718 | Preserve reading anchors while loading earlier history |
+| `renderer/src/TaskCenter.tsx` | 2356 → 2380 | Observe task-directory revisions and shared owner activation |
+
 Before pushing a GUI/Core integration branch, fetch the target remote and prepare locked dependencies with `make setup` and `make gui-install`, then run `make ci-preflight CI_BASE=upstream-readonly/main`. Set `CI_BASE` explicitly to the actual PR comparison ref. Preflight computes its merge base once and passes that same commit to design, copy, and health checks. If that commit has no `clients/gui/health-baseline.json`, health follows CI and checks the current reviewed baseline without `--base`. The entry runs formatting, workflow/actionlint, Rust/Python static checks, documentation, preflight contracts, GUI health and static checks, browser contracts, the live GUI dependency audit, and portable contracts, then builds the matching Core/Runtime bundle and runs the ten registered Core contracts. Any failure stops later steps. Full lockfile dependency auditing and remote CI gates remain required.
 
 Local execution and CI share these entries: `make ci-gui-static CI_BASE=<ref>` builds Desktop/UI inputs and runs GUI `check`, design checks, types, public boundaries, and fast regressions; `make ci-gui-health CI_BASE=<ref>` needs no GUI dependency installation, checks health contracts and the baseline, and writes `target/ci/gui/health.json`; `make ci-gui-portable` independently builds Desktop/UI/Renderer inputs, validates the manifest, and runs the portable set with the ambient Core path cleared. `make ci-core-contracts AREAL_CORE_BIN=/absolute/matching/areal` runs only the Core-dependent set. A missing or non-executable explicit path must fail rather than skip. Preflight always builds first and supplies `target/debug/areal` by default. Locally, `make ci-preflight CI_BASE=<ref> AREAL_CORE_BIN=/absolute/fixed/areal` selects an already deployed fixed slot. Its SHA-256 must match the freshly built `target/debug/areal`; otherwise the gate fails and asks you to deploy the new artifact first. The entry never copies it automatically or bypasses system protection. On local macOS, prepare native execution through the fixed artifact path validation procedure.

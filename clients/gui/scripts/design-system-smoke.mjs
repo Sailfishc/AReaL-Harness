@@ -939,17 +939,6 @@ try {
         false,
         "completed progress starts folded under the duration heading",
       );
-      assert.ok(
-        await durationToggle.evaluate(
-          (el) =>
-            !!(
-              el.compareDocumentPosition(
-                document.querySelector('[data-side-item-id="timeline-progress"]'),
-              ) & Node.DOCUMENT_POSITION_FOLLOWING
-            ),
-        ),
-        "duration precedes the process content",
-      );
       const finalOutput = timeline.locator('[data-side-item-id="timeline-final"]');
       await finalOutput.getByRole("button", { name: "预览图片 交互截图", exact: true }).waitFor();
       await finalOutput.getByRole("button", { name: "预览图片 链接图片", exact: true }).click();
@@ -981,6 +970,17 @@ try {
       await durationToggle.click();
       await settleLayout();
       assert.equal(await earlier.isVisible(), true);
+      assert.ok(
+        await durationToggle.evaluate(
+          (el) =>
+            !!(
+              el.compareDocumentPosition(
+                document.querySelector('[data-side-item-id="timeline-progress"]'),
+              ) & Node.DOCUMENT_POSITION_FOLLOWING
+            ),
+        ),
+        "duration precedes the process content after its first expansion",
+      );
       const longProgress = timeline.locator('[data-side-item-id="timeline-long-progress"]');
       const progressText = longProgress.locator(".conversation-markdown");
       const progressSize = await progressText.evaluate((el) => ({
@@ -1153,9 +1153,14 @@ try {
       checks.push("production editor submit=false retains draft without desktop bridge");
       const composer = page.getByRole("region", { name: "Composer 预览", exact: true });
       await composer.getByRole("button", { name: "模型", exact: true }).click();
-      await page.getByRole("dialog", { name: "模型与思考强度" }).waitFor();
+      const modelDialog = page.getByRole("dialog", { name: "模型与思考强度" });
+      await modelDialog.waitFor();
       await page.keyboard.press("Escape");
-      await input.waitFor();
+      await modelDialog.waitFor({ state: "detached" });
+      await page.waitForFunction(
+        (element) => element === document.activeElement,
+        await input.elementHandle(),
+      );
       assert.equal(await input.innerText(), "保留这份草稿 Keep this draft");
       checks.push("production model menu opens/closes with draft retained");
       const longText = page.getByRole("region", { name: "长文本预览", exact: true });
@@ -1190,6 +1195,15 @@ try {
         "expanded content uses the conversation scroll",
       );
       assert.ok(expanded.text.includes("END_OF_LONG_MESSAGE"));
+      exercise.steps.push({
+        id: "long-text-before-space",
+        ...(await collapse.evaluate((element) => ({
+          focused: element === document.activeElement,
+          activeElement: document.activeElement?.outerHTML.slice(0, 500),
+          expanded: element.getAttribute("aria-expanded"),
+          modelDialogs: document.querySelectorAll('[role="dialog"]').length,
+        }))),
+      });
       await page.keyboard.press("Space");
       await expand.waitFor();
       assert.equal(
