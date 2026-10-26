@@ -4,7 +4,7 @@ import { normalizeApplicationSettings } from "./applicationSettings.js";
 test("new installations keep the current language, typography and interaction defaults", () => {
   const settings = normalizeApplicationSettings(null);
   expect(settings.locale).toBe("zh-CN");
-  expect(settings.contentSize).toBe(14);
+  expect(settings.contentSize).toBe(12);
   expect(settings.sendShortcut).toBe("enter");
   expect(settings.defaultPermissionPreset).toBe("autoReview");
   expect(settings.reducedMotion).toBe("system");

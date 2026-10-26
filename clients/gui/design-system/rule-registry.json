@@ -5706,17 +5706,17 @@
     },
     {
       "id": "R-ROLE-004",
-      "title": "默认排印采用用户指定的 Codex 参考图右侧（“字体 2”）方向：常规字重、清晰且克制的无衬线文字",
+      "title": "默认排印采用用户指定的 Codex 参考方向：常规字重、清晰且克制的无衬线文字",
       "owner": "design/foundations/roles.md#文字与空间密度",
       "strength": "must",
-      "textSha256": "291fc94e1a1957ca9a27c046fac4af41dcb8da37edd4b7d9c2fec448de9fc6d5"
+      "textSha256": "6fe87a93e42bd73f529956ea79cb3eb58521964e4f558b06941c9322a9194a2f"
     },
     {
       "id": "R-ROLE-005",
       "title": "当前实现使用系统 UI 字体，macOS 由系统西文字体与苹方简体中文混排，其他平台采用所属系统的无衬线回退",
       "owner": "design/foundations/roles.md#文字与空间密度",
       "strength": "default",
-      "textSha256": "895d264868b5cc84e5f70861e7b7d55ee8bc1cc75dbe044ffa0c3abf34d03c26"
+      "textSha256": "c8c0e93425497e2a3d4201d0bbf8815c64cf8eb7f11f741c1e132a5bec2b6e81"
     },
     {
       "id": "R-ROLE-006",

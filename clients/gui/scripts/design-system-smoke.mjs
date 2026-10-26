@@ -1243,6 +1243,8 @@ try {
         "collapsed copy retains original Markdown and tail text; focusing clipped links expands; font changes preserve manual expansion",
       );
       for (const sample of [
+        { theme: "light", font: "12", width: "wide" },
+        { theme: "dark", font: "12", width: "wide" },
         { theme: "light", font: "14", width: "wide" },
         { theme: "dark", font: "14", width: "wide" },
         { theme: "light", font: "18", width: "narrow" },
@@ -1286,12 +1288,12 @@ try {
         assert.equal(measured.card.radius, "20px");
         assert.equal(measured.feedback.fontSize, `${sample.font}px`);
         if (!baseline) {
-          assert.equal(measured.sideHeading.fontSize, `${Number(sample.font) - 2}px`);
-          assert.equal(measured.sideInfo.fontSize, `${Number(sample.font) - 3}px`);
+          assert.equal(measured.sideHeading.fontSize, `${Math.max(12, Number(sample.font) - 2)}px`);
+          assert.equal(measured.sideInfo.fontSize, `${Math.max(11, Number(sample.font) - 3)}px`);
         }
         assert.equal(
           measured.composer.fontSize,
-          "14px",
+          "12px",
           "composer content font stays independent of the interface font fixture",
         );
         assert.equal(

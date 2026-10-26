@@ -45,7 +45,7 @@
   caret-color: var(--color-foreground);
 }
 .composer-editor :is([contenteditable], textarea) {
-  /* CONV-COMPOSER-01: typed text matches the conversation it becomes (14px / 20px at default). */
+  /* CONV-COMPOSER-01: typed text matches the conversation it becomes (12px / ~17px at default). */
   font-size: var(--text-conversation);
   line-height: var(--conversation-line);
 }

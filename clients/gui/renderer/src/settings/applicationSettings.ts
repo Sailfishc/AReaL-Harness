@@ -59,7 +59,7 @@ export type ApplicationSettings = {
 };
 export const DEFAULT_APPLICATION_SETTINGS: ApplicationSettings = {
   locale: "zh-CN",
-  contentSize: 14,
+  contentSize: 12,
   pointerCursor: false,
   fontSmoothing: true,
   reducedMotion: "system",
@@ -83,7 +83,7 @@ export function normalizeApplicationSettings(raw: any): ApplicationSettings {
     saved.contentSize >= 12 &&
     saved.contentSize <= 24
       ? saved.contentSize
-      : 14;
+      : DEFAULT_APPLICATION_SETTINGS.contentSize;
   result.nextPromptSuggestions = saved.nextPromptSuggestions !== false;
   result.sendShortcut =
     saved.sendShortcut === "modifier" ? "modifier" : "enter";

@@ -162,7 +162,7 @@ function Preview() {
       new URLSearchParams(window.location.search).has(name),
     ),
   );
-  const [fontSize, setFontSize] = useState("14");
+  const [fontSize, setFontSize] = useState("12");
   const [width, setWidth] = useState("wide");
   const [state, setState] = useState<PreviewState>("ready");
   const [text, setText] = useState("");
@@ -300,6 +300,7 @@ function Preview() {
             value={fontSize}
             onChange={(event) => setFontSize(event.target.value)}
           >
+            <option value="12">12</option>
             <option value="14">14</option>
             <option value="18">18</option>
           </select>
