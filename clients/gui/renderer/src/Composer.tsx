@@ -41,6 +41,7 @@ import { ControlHintTooltip } from "./ControlHintTooltip.js";
 import { Button } from "./components/ui/button.js";
 import { ComposerQueue } from "./ComposerQueue.js";
 import { useComposerQueueEdit } from "./useComposerQueueEdit.js";
+import { useComposerConfiguration } from "./useComposerConfiguration.js";
 import { ComposerQueueAttachment } from "./ComposerQueueAttachment.js";
 import { AskUserQuestion } from "./AskUserQuestion.js";
 import { ApprovalRequest } from "./ApprovalRequest.js";
@@ -194,8 +195,8 @@ export function Composer({
     api.current?.focus();
   };
   const busy = useSyncExternalStore(subscribeSending, () => sending.has(key));
-  const [configurationRequestId, setConfigurationRequestId] = useState<string | null>(null);
-  const configuring = configurationRequestId !== null;
+  const configuration = useComposerConfiguration(project, thread.id, busy);
+  const configuring = configuration.requestId !== undefined;
   const [files, setFiles] = useState<ComposerDraftAttachment[]>(
     () => attachmentDrafts.get(key) ?? [],
   );
@@ -226,7 +227,8 @@ export function Composer({
     releaseSettledStops(project.id, thread);
   }, [project.id, thread]);
   const pending = project.pending.some(
-    (p: Data) => p.params?.threadId === thread.id && p.params?.requestId !== configurationRequestId,
+    (p: Data) =>
+      p.params?.threadId === thread.id && p.params?.requestId !== configuration.requestId,
   );
   const archived = thread.desktop?.archived;
   const questions = (project.state?.interactions?.[thread.id]?.data ?? []).filter(
@@ -587,10 +589,8 @@ export function Composer({
     }
   };
   const configure = async (values: Data) => {
-    if (queueEditor.edit) return;
-    if (disabled || running || sending.has(key)) return;
-    const requestId = crypto.randomUUID();
-    setConfigurationRequestId(requestId);
+    if (queueEditor.edit || disabled || running || sending.has(key) || !config) return;
+    const requestId = configuration.begin(config.revision);
     markSending(key, true);
     try {
       await action("configure", {
@@ -601,6 +601,7 @@ export function Composer({
         ...values,
       });
     } catch (cause) {
+      configuration.clear();
       const failure = cause as Error & { submissionUnknown?: boolean; requestId?: string };
       if (failure.submissionUnknown) {
         const originalId = failure.requestId ?? requestId;
@@ -615,7 +616,6 @@ export function Composer({
           );
       } else setAdmissionError(recoveryMessage(failure));
     } finally {
-      setConfigurationRequestId(null);
       markSending(key, false);
     }
   };
