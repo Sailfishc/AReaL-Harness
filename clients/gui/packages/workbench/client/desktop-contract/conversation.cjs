@@ -30,7 +30,7 @@ const { modelRef, parameters, strings } = require("./provider.cjs");
 /** @typedef {{kind:'itemRange',turnId:string,itemId:string,startUtf8:number,endUtf8:number,textSha256:string}|{kind:'userQuote',text:string,claimedTurnId?:string|null,claimedItemId?:string|null}} SideSelection */
 /** @typedef {{kind:string,turnId?:string|null,boundary?:string|null}} SideAnchor */
 /** @typedef {ProjectRequest & ({operation:'start',sourceThreadId:string,requestId?:string,text:string,workspaceAccess?:'none'|'readOnly',model?:import('./provider.cjs').ModelRef,resetModel?:boolean,anchor?:SideAnchor,selection?:SideSelection,parameters?:import('./provider.cjs').ModelParameters}|{operation:'create',sourceThreadId:string,requestId:string,firstInput?:{text:string}}|{operation:'close',threadId:string,requestId:string}|{operation:'recover',requestId:string,sourceThreadId?:string,threadId?:string,method?:'areal/side/start'|'areal/side/create'|'areal/side/close'}|{operation:'send',threadId:string,text:string,requestId?:string}|{operation:'context',threadId:string,cursor?:string,evidenceRef?:string,maxBytes?:number}|{operation:'list',sourceThreadId:string,includeArchived?:boolean,cursor?:string})} SideRequest */
-/** @typedef {ThreadRequest & {viewId:string} & ({operation:'acquire'}|{operation:'loadOlder'}|{operation:'release'}|{operation:'loadItem',itemId:string})} HistoryRequest */
+/** @typedef {ThreadRequest & {viewId:string} & ({operation:'acquire'}|{operation:'loadOlder',pageId?:string}|{operation:'release'}|{operation:'loadItem',itemId:string})} HistoryRequest */
 /** @typedef {ThreadRequest & ({requestId?:never,operation?:never}|{requestId:string,operation:'update'|'remove'|'reorder'|'pause'|'resume'|'steer'})} QueueRequest */
 /** @typedef {ThreadRequest & {expectedRevision:number,requestId?:string} & ({operation:'update',queueItemId:string,retainedInput?:Array<Record<string,unknown>>}&Message|{operation:'remove',queueItemId:string}|{operation:'steer',queueItemId:string,expectedTurnId:string}|{operation:'reorder',queueItemIds:string[]}|{operation:'pause'|'resume'})} QueueEditRequest */
 /** @typedef {ThreadRequest & ({requestId:string,decision:'deny'|'allowOnce'|'allowSession'|'allowProject',answers?:never}|{requestId:string,answers:Record<string,string>,decision?:never})} RespondRequest */
@@ -239,12 +239,14 @@ function isRequest(name, value) {
           (entry) => value.operation === entry,
         ) &&
         (value.operation !== "loadItem" || identifier(value.itemId)) &&
+        (value.pageId === undefined || identifier(value.pageId)) &&
         only(value, [
           "projectId",
           "threadId",
           "viewId",
           "operation",
           ...(value.operation === "loadItem" ? ["itemId"] : []),
+          ...(value.operation === "loadOlder" ? ["pageId"] : []),
         ])
       );
     case "create":

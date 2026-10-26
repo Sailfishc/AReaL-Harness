@@ -90,6 +90,70 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
+test("capture restart fences configuration changes during original Host cleanup", async () => {
+  for (const scenario of ["changed", "unchanged", "ordinary", "cleanup-incomplete"]) {
+    const stopped = deferred();
+    const calls = [];
+    const project = { id: "project", service: { serviceId: "service", generation: "original" } };
+    let current = "capture-revision";
+    const backend = {
+      lifecycleOperations: {
+        generation: "desktop",
+        assertProject: (id) => assert.equal(id, project.id),
+        request: async (request) => {
+          assert.equal(request.kind, "updateProject");
+          assert.equal(request.mode, "ifIdle");
+          assert.deepEqual(request.expectedTargets, [
+            { projectId: project.id, serviceId: "service", generation: "original" },
+          ]);
+          calls.push("stop");
+          await stopped.promise;
+          return { phase: scenario === "cleanup-incomplete" ? "acceptedPending" : "completed" };
+        },
+      },
+      providers: {
+        config: {
+          current: async () => {
+            calls.push("read");
+            return { revision: current };
+          },
+        },
+      },
+      launch: async () => calls.push("launch"),
+      connect: async () => calls.push("connect"),
+      reconcile: async () => calls.push("reconcile"),
+      resources: { worktrees: { apply: async () => calls.push("worktree") } },
+    };
+    const restarting = CoreBackend.prototype.restartProject.call(
+      backend,
+      project,
+      scenario === "ordinary" ? undefined : { expectedRevision: current },
+    );
+    assert.deepEqual(calls, ["stop"]);
+    if (scenario === "changed" || scenario === "ordinary") current = "unrelated-model-edit";
+    stopped.resolve();
+    if (scenario === "changed") {
+      await assert.rejects(restarting, /配置已有其它变化/);
+      assert.deepEqual(calls, ["stop", "read"]);
+      continue;
+    }
+    if (scenario === "cleanup-incomplete") {
+      await assert.rejects(restarting, { code: "LIFECYCLE_INCOMPLETE" });
+      assert.deepEqual(calls, ["stop"]);
+      continue;
+    }
+    await restarting;
+    assert.deepEqual(calls, [
+      "stop",
+      ...(scenario === "unchanged" ? ["read"] : []),
+      "launch",
+      "connect",
+      "reconcile",
+      "worktree",
+    ]);
+  }
+});
+
 async function backendFixture(t) {
   const home = await mkdtemp(join(tmpdir(), "areal-trajectory-backend-"));
   t.after(() => rm(home, { recursive: true, force: true }));

@@ -62,7 +62,7 @@ function readConfigured(value) {
 }
 
 /** Consumed identities from Core thread/turn admission receipts; payload extensions stay opaque. */
-/** @typedef {Record<string,unknown> & {thread?:import("../core-model-contract.js").CoreThread,turn?:import("../core-model-contract.js").CoreTurn,threadId?:string,turnId?:string,requestId?:string,queueItemId?:string|null,queueRevision?:number,configRevision?:number,accepted?:boolean,cleanupConfirmed?:boolean}} Admission */
+/** @typedef {Record<string,unknown> & {thread?:import("../core-model-contract.js").CoreThread,turn?:import("../core-model-contract.js").CoreTurn|null,threadId?:string,turnId?:string,requestId?:string,queueItemId?:string|null,queueRevision?:number,configRevision?:number,accepted?:boolean,cleanupConfirmed?:boolean}} Admission */
 /** @param {unknown} value @returns {Admission} */
 function readAdmission(value) {
   if (!admission(value))
@@ -95,7 +95,7 @@ function admission(value) {
     ) &&
     (value.queueItemId == null || typeof value.queueItemId === "string") &&
     (value.thread === undefined || isCoreThread(value.thread)) &&
-    (value.turn === undefined || isCoreTurn(value.turn)) &&
+    (value.turn == null || isCoreTurn(value.turn)) &&
     ["queueRevision", "configRevision"].every(
       (key) => value[key] === undefined || count(value[key]),
     ) &&

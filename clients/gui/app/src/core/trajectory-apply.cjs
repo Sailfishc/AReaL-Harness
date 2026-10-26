@@ -92,6 +92,7 @@ class TrajectoryApply {
       return;
     }
     this.running = true;
+    backend.providerUpdating = true;
     try {
       const current = await backend.providers.config.current();
       if (this.revision !== revision) return;
@@ -128,21 +129,20 @@ class TrajectoryApply {
           return;
         }
       }
-      /** @type {unknown} */
-      const result = await backend.providers.command({
-        operation: "apply",
-        expectedRevision: current.revision,
-      });
-      if (this.revision !== revision) return;
-      if (record(result) && (result.pendingApply || result.warning)) {
-        this.error =
-          (typeof result.warning === "string" ? result.warning : undefined) ||
-          "部分 Core 尚未应用采集配置，请重新连接后台服务。";
-        this.revision = null;
-      } else {
-        this.revision = null;
-        this.error = null;
+      // Capture is a startup assembly, outside the model-only hot-apply contract.
+      // restartProject owns ifIdle admission and requires the original Host cleanup receipt.
+      for (const project of projects) {
+        if (this.revision !== revision) return;
+        if ((await backend.providers.config.current()).revision !== revision)
+          throw new Error("配置已有其它变化，请在后台服务中安全应用当前配置。");
+        if (project.client?.ready && project.providerRevision === revision) continue;
+        await backend.restartProject(project, { expectedRevision: revision });
+        if (this.revision !== revision) return;
+        if (project.providerRevision !== revision)
+          throw new Error("部分 Core 尚未应用采集配置，请重新连接后台服务。");
       }
+      this.revision = null;
+      this.error = null;
     } catch (error) {
       if (this.revision !== revision) return;
       // 准入竞态交回已有安全应用机制；不取消任务或重复重放客户端操作。
@@ -159,6 +159,7 @@ class TrajectoryApply {
         );
       }
     } finally {
+      backend.providerUpdating = false;
       this.running = false;
       if (this.revision && !this.error) this.later();
       else clearTimeout(this.timer);

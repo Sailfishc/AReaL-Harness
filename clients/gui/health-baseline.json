@@ -105,7 +105,7 @@
     "app/src/core/agent-dialog-presentation.cjs": 183,
     "app/src/core/analytics.cjs": 354,
     "app/src/core/application-owner.cjs": 66,
-    "app/src/core/backend.cjs": 2265,
+    "app/src/core/backend.cjs": 2270,
     "app/src/core/browser-host-request.cjs": 37,
     "app/src/core/browser-network.cjs": 199,
     "app/src/core/browser-style-trial.cjs": 130,

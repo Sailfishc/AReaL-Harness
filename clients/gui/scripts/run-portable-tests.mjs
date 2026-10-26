@@ -6,8 +6,15 @@ import { readTestManifest, selectTests } from "./test-manifest.mjs";
 
 const gui = fileURLToPath(new URL("../", import.meta.url));
 const manifest = await readTestManifest();
+const coreContracts = process.argv.includes("--core-contracts");
+const coreAvailable =
+  !!process.env.AREAL_CORE_BIN &&
+  spawnSync(process.env.AREAL_CORE_BIN, ["build-info"], { stdio: "ignore" }).status === 0;
+if (coreContracts && !coreAvailable)
+  throw new Error("Core contracts require AREAL_CORE_BIN pointing to the matching executable");
 const available = [
   "gui-build",
+  ...(coreAvailable ? ["core-binary"] : []),
   `node-${process.versions.node}`,
   ...["git", "python3", "openssl"].filter(
     (command) =>
@@ -16,7 +23,9 @@ const available = [
   ),
 ];
 const selected = selectTests(
-  manifest.filter((entry) => entry.layer !== "e2e"),
+  manifest.filter(
+    (entry) => entry.layer !== "e2e" && (!coreContracts || entry.requires.includes("core-binary")),
+  ),
   { platform: process.platform, available },
 );
 if (!selected.length) throw new Error(`No portable tests registered for ${process.platform}`);
@@ -25,6 +34,7 @@ const output = resolve(
 );
 await mkdir(dirname(output), { recursive: true });
 const report = {
+  mode: coreContracts ? "core-contracts" : "portable",
   platform: process.platform,
   node: process.version,
   startedAt: new Date().toISOString(),

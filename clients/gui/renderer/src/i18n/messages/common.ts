@@ -362,9 +362,9 @@ export const commonMessages = {
       "{kind, select, userMessage {这条消息} dynamicToolCall {这条工具记录} other {这段历史内容}}较大（{size, number} MiB），可按需加载完整内容。",
     en: "{kind, select, userMessage {This message} dynamicToolCall {This tool record} other {This historical content}} is large ({size, number} MiB). Load the full content when needed.",
   },
-  "chat.history.omitted": {
-    "zh-CN": "中间部分历史未保留在当前阅读窗口中；下方是最新消息。重新打开聊天可从最新位置加载。",
-    en: "Some history between these messages is outside the reading window. The latest messages are below. Reopen the chat to load from the latest point.",
+  "chat.history.reloadPage": {
+    "zh-CN": "加载此处历史消息",
+    en: "Load messages in this gap",
   },
   "chat.composer.actionMenu": { "zh-CN": "添加上下文", en: "Add context" },
   "chat.composer.commandsGroup": { "zh-CN": "命令", en: "Commands" },

@@ -2061,7 +2061,9 @@ export function TaskCenter({
                       <ScheduledWorkspace.Item
                         key={taskKey(row)}
                         data-task-id={row.id}
-                        aria-label={`打开自动化 ${row.objectivePreview ?? row.objective}`}
+                        aria-label={t("operations.schedules.openLabel", {
+                          title: row.objectivePreview ?? row.objective,
+                        })}
                         aria-pressed={taskKey(row) === selected}
                         disabled={!connected}
                         title={row.objectivePreview ?? row.objective}

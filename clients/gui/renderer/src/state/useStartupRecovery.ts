@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { recoveryMessage, recoverySettings, sameRecoveryOwner } from "../recoveryPresentation.js";
 import type { useSessionNavigation } from "./useSessionNavigation.js";
 
@@ -40,13 +39,6 @@ export function useStartupRecovery(
         /连接中断|已断开|正在恢复|disconnect|timeout|connection|transport/i.test(
           viewFailure.message,
         )));
-  const [viewRecoveryVisible, setViewRecoveryVisible] = useState(false);
-  const observeRecoveryDelay = () => {
-    setViewRecoveryVisible(false);
-    if (!reconnectingView) return;
-    const timer = window.setTimeout(() => setViewRecoveryVisible(true), 1200);
-    return () => window.clearTimeout(timer);
-  };
   const viewRefreshing =
     !!currentObservationFailure?.refreshPending || !!currentRestoration?.pending;
   const restorationFailed = !!restorationError && !viewRefreshing && !reconnectingView;
@@ -73,13 +65,11 @@ export function useStartupRecovery(
     viewFailure,
     restorationError,
     reconnectingView,
-    viewRecoveryVisible,
     viewRefreshing,
     restorationFailed,
     startupLifecycle,
     startupLifecycleBlocked,
     startupReady,
     restorationNoticeId,
-    observeRecoveryDelay,
   };
 }

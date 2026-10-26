@@ -84,13 +84,29 @@ try {
       ],
       configurations: {},
       outcomes: {},
-      core: {},
+      core: {
+        binary: "fixture-core",
+        apiVersion: null,
+        runtimeEpoch: null,
+        instanceId: null,
+        runtimeAvailable: null,
+        connectionGeneration: 0,
+        features: null,
+      },
     };
     const snapshot = {
       revision: 1,
       projects: [project],
       connection: { state: "ready" },
-      library: { projects: {}, threads: {}, settings: {}, projectOrder: [] },
+      library: {
+        projects: {},
+        threads: {},
+        settings: {},
+        projectOrder: [],
+        sidebarThreadOrder: [],
+        sidebarRevision: 0,
+        sections: [],
+      },
     };
     let listener,
       projectionListener,
@@ -149,7 +165,7 @@ try {
       publish();
     };
     window.resetAdapterProjection = () => {
-      project.core = { connectionGeneration: 0 };
+      project.core = { ...project.core, connectionGeneration: 0 };
       project.state.connected = false;
       project.state.threads = {};
       publish();
@@ -180,7 +196,12 @@ try {
       };
       publish();
     };
-    window.setViewRecovery = (code = "DISCONNECTED", kind = "retryRead", state = "connecting") => {
+    window.setViewRecovery = (
+      code = "DISCONNECTED",
+      kind = "retryRead",
+      state = "connecting",
+      refreshPending = false,
+    ) => {
       snapshot.connection = { state };
       project.state.connected = false;
       project.error = "后台服务已断开，请重新连接";
@@ -192,6 +213,7 @@ try {
           connectionGeneration: 0,
           message: "TRANSPORT_DISCONNECTED_SENTINEL",
           code,
+          refreshPending,
           recovery: { kind },
         },
       };
@@ -344,6 +366,9 @@ try {
       theme: async () => ({ platform: "darwin", dark: false, id: "light" }),
       onTheme: () => () => {},
       onMcpAppEvent: () => () => {},
+      onPreviewEvent: () => () => {},
+      onUpdate: () => () => {},
+      updateState: async () => ({ enabled: false, status: "idle" }),
       presentReady: async () => {},
       preview: async () => ({}),
       command: async (name, params) => {
@@ -360,14 +385,61 @@ try {
         if (name === "connect") {
           project.state.connected = true;
           publish();
+          return { ok: true, value: structuredClone(snapshot) };
         }
         if (name === "reconcile")
           return { ok: true, value: { outcomes: structuredClone(project.outcomes) } };
+        if (name === "library") return { ok: true, value: structuredClone(snapshot.library) };
+        if (name === "manage" && params.operation === "mcpApps")
+          return { ok: true, value: { data: [], requestEpoch: "fixture-epoch" } };
+        if (name === "manage" && params.operation === "pluginCapabilities")
+          return { ok: true, value: { enabled: true } };
+        if (name === "manage" && params.operation === "plugins")
+          return { ok: true, value: { data: [], errors: [], marketplaces: [], revision: 0 } };
+        if (name === "resources" && params.operation === "skills")
+          return { ok: true, value: { data: [], revision: 0, customDeployment: false } };
+        if (name === "feedback")
+          return {
+            ok: true,
+            value: {
+              enabled: false,
+              connected: false,
+              opted_in: false,
+              installation: null,
+              account: null,
+              destination: null,
+            },
+          };
         if (name === "queue")
           return { ok: true, value: structuredClone(project.state.queues[params.threadId]) };
         if (name === "workspace") return { ok: true, value: { git: true, branch: "main" } };
         if (name === "trajectory")
-          return { ok: true, value: { enabled: false, state: "disabled", queue: {}, records: [] } };
+          return {
+            ok: true,
+            value: {
+              enabled: false,
+              state: "disabled",
+              endpoint: "",
+              configPath: null,
+              spool_dir: "/isolated/trajectory",
+              worker_running: false,
+              queue: {
+                pending: 0,
+                uploading: 0,
+                failed: 0,
+                uploaded: 0,
+                evicted: 0,
+                bytes: 0,
+                max_bytes: 0,
+                dropped_memory: 0,
+                dropped_oversize: 0,
+              },
+              last_error: null,
+              last_success_at: null,
+              records: [],
+              limits: { max_retries: 0, upload_interval_ms: 0, max_memory_bytes: 0 },
+            },
+          };
         if (name === "send") {
           const requestId = `00000000-0000-4000-8000-${String(++sendSequence).padStart(12, "0")}`;
           if (sendSequence === 3)
@@ -409,6 +481,7 @@ try {
           project.state.threads[params.threadId] = history(params.threadId);
           snapshot.revision++;
           listener(structuredClone(snapshot));
+          return { ok: true, value: structuredClone(snapshot) };
         }
         return { ok: true, value: { data: [] } };
       },
@@ -416,7 +489,7 @@ try {
   });
   await page.goto(origin);
   const failure = page.getByText("暂时无法完成加载，请重试或检查后台。", { exact: true });
-  const banner = page.locator('[data-testid="feedback-notice"][data-tone="error"]');
+  const banner = page.locator('[data-testid="toast"][data-tone="error"]');
   await failure.waitFor();
   check(
     !(await page
@@ -428,7 +501,11 @@ try {
   await page.evaluate(() => window.recoverProject());
   await page.getByText("RESTORED_HISTORY_SENTINEL", { exact: true }).waitFor({ timeout: 5000 });
   assert.equal(await failure.count(), 0, "the restored transcript replaces the failure screen");
-  assert.equal(await banner.count(), 0, "successful restoration clears its own disconnect error");
+  assert.equal(
+    await banner.count(),
+    0,
+    `successful restoration clears its own disconnect error. Visible errors: ${await banner.allTextContents()}`,
+  );
   const calls = await page.evaluate(() => window.calls);
   assert.equal(
     calls.filter((call) => call.name === "open" && call.params.threadId === "synthetic-history")
@@ -503,9 +580,7 @@ try {
         2,
       ),
     );
-    await page
-      .locator(".composer-dock [data-composer-recovery-request-id]")
-      .waitFor({ timeout: 5000 });
+    await page.locator("[data-testid=toast] [data-recovery-request-id]").waitFor({ timeout: 5000 });
   };
   const requestId = "00000000-0000-4000-8000-000000000001";
   await send("KEEP_DRAFT_SENTINEL");
@@ -514,12 +589,14 @@ try {
     "An unconfirmed send retains its original draft.",
   );
   check(
-    (await page.locator(`.work-area [data-recovery-request-id="${requestId}"]`).count()) === 1,
+    (await page
+      .locator(`[data-testid="toast"] [data-recovery-request-id="${requestId}"]`)
+      .count()) === 1,
     "The operation notice exposes its original request identity.",
   );
   check(
-    (await page.locator(".composer-dock [data-composer-recovery-request-id]").innerText()).includes(
-      "发送结果尚未确认，草稿已保留，正在核对原请求。",
+    (await page.locator("[data-testid=toast] [data-recovery-request-id]").innerText()).includes(
+      "发送结果待确认，输入已保留。",
     ),
     "The retained draft explains verification without Core or reconciliation jargon.",
   );
@@ -527,16 +604,13 @@ try {
     !(await page.locator("body").innerText()).includes(requestId),
     "Request identity stays out of the default visible recovery notices.",
   );
-  const operationNotice = page.locator(`.work-area [data-recovery-request-id="${requestId}"]`);
-  const details = operationNotice.locator("summary");
-  if (await details.count()) {
-    await details.click();
-    check(
-      (await operationNotice.innerText()).includes(requestId),
-      "Original request identity remains available in on-demand details.",
-    );
-    await details.click();
-  } else check(false, "Original request identity remains available in on-demand details.");
+  const operationNotice = page.locator(
+    `[data-testid="toast"] [data-recovery-request-id="${requestId}"]`,
+  );
+  check(
+    await operationNotice.getByRole("button", { name: "检查操作状态", exact: true }).isVisible(),
+    "The unconfirmed submission offers a query of its original operation.",
+  );
   await page.evaluate(() => window.setViewRecovery());
   await page.evaluate(
     () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
@@ -547,8 +621,12 @@ try {
   );
   await page.waitForTimeout(1300);
   check(
-    await page.getByText("正在重新加载对话，历史和草稿已保留…", { exact: true }).isVisible(),
-    "A continuing automatic retry becomes a progress status after the quiet interval.",
+    (await page.getByText("正在重新加载对话，历史和草稿已保留…", { exact: true }).count()) === 0,
+    "A continuing automatic connection retry never becomes a progress toast after the quiet interval.",
+  );
+  check(
+    (await operationNotice.count()) === 1,
+    "Automatic connection recovery preserves the unknown-write notice and its original request identity.",
   );
   check(
     (await page.getByRole("button", { name: "重试加载对话", exact: true }).count()) === 0,
@@ -562,9 +640,30 @@ try {
     path: join(scratch, "03a-automatic-recovery.png"),
     animations: "disabled",
   });
+  await page.evaluate(() => window.setViewRecovery("DISCONNECTED", "retryRead", "ready", true));
+  await page.waitForTimeout(1300);
+  check(
+    (await page.getByText("正在重新加载对话，历史和草稿已保留…", { exact: true }).count()) === 0 &&
+      (await banner.count()) === 0,
+    "A ready connection with a pending history refresh never emits a recovery toast.",
+  );
+  check(
+    (await operationNotice.count()) === 1 &&
+      (await input.innerText()) === "KEEP_DRAFT_SENTINEL" &&
+      (await page.evaluate(
+        () =>
+          window.calls.filter((call) => ["send", "create", "steer", "enqueue"].includes(call.name))
+            .length,
+      )) === 1,
+    "Pending history refresh preserves the unknown-write notice and draft without replaying a mutation.",
+  );
+  await page.screenshot({
+    path: join(scratch, "03b-pending-history-refresh.png"),
+    animations: "disabled",
+  });
   await page.evaluate(() => window.setViewRecovery(-32003, "needsUser"));
   await page
-    .locator('[data-testid="feedback-notice"][data-tone="error"]')
+    .locator('[data-testid="toast"][data-tone="error"]')
     .filter({ hasText: "当前权限不允许" })
     .waitFor();
   check(
@@ -573,13 +672,19 @@ try {
   );
   await page.evaluate(() => window.setViewRecovery("HISTORY_BUDGET_TOO_SMALL", "none"));
   await page
-    .locator('[data-testid="feedback-notice"][data-tone="error"]')
+    .locator('[data-testid="toast"][data-tone="error"]')
     .filter({ hasText: "对话内容超过当前加载范围" })
     .waitFor();
   check(true, "A history budget error remains actionable during connection recovery.");
+  await page.evaluate(() => window.setViewRecovery("AUTH_REQUIRED", "needsUser", "ready"));
+  await banner.filter({ hasText: "请检查模型服务的登录或凭据设置" }).waitFor();
+  check(
+    await banner.getByRole("button", { name: "检查设置", exact: true }).isVisible(),
+    "A settings failure retains its settings action after automatic recovery.",
+  );
   await page.evaluate(() => window.setViewRecovery("DISCONNECTED", "retryRead", "unavailable"));
   await page
-    .locator('[data-testid="feedback-notice"][data-tone="error"]')
+    .locator('[data-testid="toast"][data-tone="error"]')
     .filter({ hasText: "暂时无法加载对话" })
     .waitFor();
   check(
@@ -589,13 +694,13 @@ try {
   await page.evaluate(() => window.finishViewRecovery());
   await page.evaluate(() => window.settleSend("00000000-0000-4000-8000-000000000099"));
   check(
-    (await page.locator(".composer-dock [data-composer-recovery-request-id]").count()) === 1,
+    (await page.evaluate(() =>
+      localStorage.getItem("areal-gui:draft:restore-fixture:synthetic-history:pending"),
+    )) === requestId,
     "An unrelated outcome cannot settle the pending submission.",
   );
   await page.evaluate((id) => window.settleSend(id), requestId);
-  await page
-    .locator(".composer-dock [data-composer-recovery-request-id]")
-    .waitFor({ state: "hidden" });
+  await page.locator("[data-testid=toast] [data-recovery-request-id]").waitFor({ state: "hidden" });
   check(
     (await banner
       .filter({ hasText: "Core disconnected; request outcome may be unknown" })
@@ -605,9 +710,7 @@ try {
   await send("SECOND_DRAFT_SENTINEL");
   await page.evaluate(() => window.unrelatedError());
   await page.evaluate(() => window.settleSend("00000000-0000-4000-8000-000000000002"));
-  await page
-    .locator(".composer-dock [data-composer-recovery-request-id]")
-    .waitFor({ state: "hidden" });
+  await page.locator("[data-testid=toast] [data-recovery-request-id]").waitFor({ state: "hidden" });
   check(
     (await page.getByTestId("toast").filter({ hasText: "UNRELATED_ERROR_SENTINEL" }).count()) === 1,
     "Settling a send preserves an unrelated transient notification.",
@@ -629,14 +732,14 @@ try {
     "Only explicit rejection can describe an operation as not admitted.",
   );
   for (const close of await page
-    .locator('[data-testid="feedback-notice"][data-tone="error"]')
+    .locator('[data-testid="toast"][data-tone="error"]')
     .getByRole("button", { name: "关闭提示", exact: true })
     .all())
     await close.click();
   await page.evaluate(() => window.failObservation());
   await page.getByText("暂时无法加载这段对话，请查看详情。", { exact: true }).waitFor();
   await page
-    .getByTestId("feedback-notice")
+    .getByTestId("toast")
     .filter({ hasText: "暂时无法加载这段对话，请查看详情。" })
     .getByRole("button", { name: "关闭提示", exact: true })
     .click();
@@ -665,7 +768,7 @@ try {
   );
   await page.evaluate(() => window.permissionFailure());
   await page
-    .locator('[data-testid="feedback-notice"][data-tone="error"]')
+    .locator('[data-testid="toast"][data-tone="error"]')
     .filter({ hasText: "请检查" })
     .waitFor();
   check(
@@ -689,7 +792,9 @@ try {
       method,
       requestId,
     });
-    const creationNotice = page.locator(`.work-area [data-recovery-request-id="${requestId}"]`);
+    const creationNotice = page.locator(
+      `[data-testid="toast"] [data-recovery-request-id="${requestId}"]`,
+    );
     await creationNotice.waitFor();
     await page.evaluate(
       ({ method, requestId }) => window.creationOutcome(method, requestId, "wrong-source"),
@@ -715,6 +820,7 @@ try {
   await page.getByText("Other fixture history", { exact: true }).first().click();
   await page.getByText("Synthetic history restoration", { exact: true }).first().click();
   await page.getByRole("button", { name: "核对队列操作", exact: true }).click();
+  await page.getByText("QUEUE_FAILED_SENTINEL", { exact: true }).waitFor();
   check(
     (await page.getByText("QUEUE_FAILED_SENTINEL", { exact: true }).count()) === 1,
     "An admitted failed queue operation remains a failure after receipt reconciliation.",
@@ -725,6 +831,7 @@ try {
   );
   await page.evaluate(() => window.failedQueue(true));
   await page.getByRole("button", { name: "核对编辑操作", exact: true }).click();
+  await page.getByText("QUEUE_EDIT_FAILED_SENTINEL", { exact: true }).waitFor();
   check(
     (await input.innerText()) === "QUEUE_EDIT_DRAFT_SENTINEL",
     "A failed admitted queue edit preserves the edited draft.",
@@ -762,6 +869,8 @@ try {
         "ComposerQueue.tsx",
         "useComposerQueueEdit.ts",
         "recoveryPresentation.ts",
+        "state/useStartupRecovery.ts",
+        "views/RecoveryNotices.tsx",
       ].map(async (file) => [
         file,
         createHash("sha256")

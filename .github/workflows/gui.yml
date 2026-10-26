@@ -49,6 +49,8 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+      - name: Validate workflow definitions before scheduling builds
+        run: python3 scripts/check-workflows.py
       - id: scope
         run: python3 scripts/ci-scope.py
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -83,32 +85,26 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: '24.22.1'
-      - name: Check dependency-free health contracts
-        working-directory: clients/gui
-        run: node --test scripts/gui-health.test.mjs scripts/design-system-maturity.test.mjs
-      - name: Check health against the reviewed baseline
+      - name: Select design audit baseline
         env:
           PR_BASE: ${{ github.event.pull_request.base.sha }}
           PUSH_BASE: ${{ github.event.before }}
           COMPARISON_BASE: ${{ inputs.comparison_base }}
         run: |
-          mkdir -p target/ci/gui
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-            health_base="$(git merge-base "$PR_BASE" HEAD)"
+            design_base="$(git merge-base "$PR_BASE" HEAD)"
           elif [ "$GITHUB_EVENT_NAME" = "push" ] && [ -n "$PUSH_BASE" ] && [[ ! "$PUSH_BASE" =~ ^0+$ ]]; then
-            health_base="$PUSH_BASE"
-          elif [ -n "$COMPARISON_BASE" ]; then
-            health_base="$(git rev-parse --verify --end-of-options "$COMPARISON_BASE^{commit}")"
+            design_base="$PUSH_BASE"
+          elif [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ -n "$COMPARISON_BASE" ]; then
+            design_base="$(git rev-parse --verify --end-of-options "$COMPARISON_BASE^{commit}")"
           else
-            health_base="$(git rev-parse HEAD^)"
+            design_base="$(git rev-parse HEAD^)"
           fi
-          git merge-base --is-ancestor "$health_base" HEAD
-          if git cat-file -e "$health_base:clients/gui/health-baseline.json" 2>/dev/null; then
-            node clients/gui/scripts/gui-health.mjs --check --base="$health_base"
-          else
-            node clients/gui/scripts/gui-health.mjs --check
-          fi
-          node clients/gui/scripts/gui-health.mjs > target/ci/gui/health.json
+          git cat-file -e "$design_base^{commit}"
+          git merge-base --is-ancestor "$design_base" HEAD
+          echo "AREAL_DESIGN_BASE=$design_base" >> "$GITHUB_ENV"
+      - name: Check dependency-free health contracts and reviewed baseline
+        run: make ci-gui-health CI_BASE="$AREAL_DESIGN_BASE"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
@@ -137,16 +133,28 @@ jobs:
         run: |
           npm install --global pnpm@11.7.0
           pnpm --dir clients/gui install --frozen-lockfile
-      - name: Build portable package inputs
+      - name: Select design audit baseline
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BASE: ${{ github.event.before }}
+          COMPARISON_BASE: ${{ inputs.comparison_base }}
         run: |
-          pnpm --dir clients/gui build:desktop
-          pnpm --dir clients/gui --filter @areal/ui build
-          pnpm --dir clients/gui --filter @areal/gui-renderer build
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            design_base="$(git merge-base "$PR_BASE" HEAD)"
+          elif [ "$GITHUB_EVENT_NAME" = "push" ] && [ -n "$PUSH_BASE" ] && [[ ! "$PUSH_BASE" =~ ^0+$ ]]; then
+            design_base="$PUSH_BASE"
+          elif [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ -n "$COMPARISON_BASE" ]; then
+            design_base="$(git rev-parse --verify --end-of-options "$COMPARISON_BASE^{commit}")"
+          else
+            design_base="$(git rev-parse HEAD^)"
+          fi
+          git cat-file -e "$design_base^{commit}"
+          git merge-base --is-ancestor "$design_base" HEAD
+          echo "AREAL_DESIGN_BASE=$design_base" >> "$GITHUB_ENV"
+      - name: Check portable GUI source before native builds
+        run: make ci-gui-static CI_BASE="$AREAL_DESIGN_BASE"
       - name: Validate registered portable tests
-        working-directory: clients/gui
-        run: |
-          node scripts/test-manifest.mjs
-          node scripts/run-portable-tests.mjs
+        run: make ci-gui-portable
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: '24.2.0'
@@ -171,7 +179,7 @@ jobs:
           if-no-files-found: warn
 
   gui:
-    needs: scope
+    needs: [scope, gui-health, gui-portable]
     if: needs.scope.outputs.gui == 'true'
     name: macOS GUI build and contracts
     runs-on: macos-15
@@ -185,24 +193,6 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-      - name: Select design audit baseline
-        env:
-          PR_BASE: ${{ github.event.pull_request.base.sha }}
-          PUSH_BASE: ${{ github.event.before }}
-          COMPARISON_BASE: ${{ inputs.comparison_base }}
-        run: |
-          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-            design_base="$(git merge-base "$PR_BASE" HEAD)"
-          elif [ "$GITHUB_EVENT_NAME" = "push" ] && [ -n "$PUSH_BASE" ] && [[ ! "$PUSH_BASE" =~ ^0+$ ]]; then
-            design_base="$PUSH_BASE"
-          elif [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ -n "$COMPARISON_BASE" ]; then
-            design_base="$(git rev-parse --verify --end-of-options "$COMPARISON_BASE^{commit}")"
-          else
-            design_base="$(git rev-parse HEAD^)"
-          fi
-          git cat-file -e "$design_base^{commit}"
-          git merge-base --is-ancestor "$design_base" HEAD
-          echo "AREAL_DESIGN_BASE=$design_base" >> "$GITHUB_ENV"
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: '24.22.1'
@@ -212,6 +202,7 @@ jobs:
         run: |
           npm install --global pnpm@11.7.0
           echo "store=$(pnpm --dir clients/gui store path --silent)" >> "$GITHUB_OUTPUT"
+          echo "node=$(node --version)" >> "$GITHUB_OUTPUT"
       - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25
         with:
           path: |
@@ -229,23 +220,13 @@ jobs:
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25
         with:
           path: clients/gui/node_modules/.vite/task-cache
-          key: gui-tasks-${{ runner.os }}-${{ runner.arch }}-node22-${{ hashFiles('clients/gui/pnpm-lock.yaml') }}-${{ github.sha }}
+          key: gui-tasks-${{ runner.os }}-${{ runner.arch }}-${{ steps.tools.outputs.node }}-${{ hashFiles('clients/gui/pnpm-lock.yaml') }}-${{ github.sha }}
           restore-keys: |
-            gui-tasks-${{ runner.os }}-${{ runner.arch }}-node22-${{ hashFiles('clients/gui/pnpm-lock.yaml') }}-
-      - name: Check changed GUI source with Vite+
-        run: pnpm --dir clients/gui check 2>&1 | tee target/ci/gui/check.log
+            gui-tasks-${{ runner.os }}-${{ runner.arch }}-${{ steps.tools.outputs.node }}-${{ hashFiles('clients/gui/pnpm-lock.yaml') }}-
       - name: Build desktop package entry points
         run: pnpm --dir clients/gui build:desktop
-      - name: Verify design contracts and incremental audit
-        run: pnpm --dir clients/gui verify:design 2>&1 | tee target/ci/gui/design.log
-      - name: Verify fast GUI regressions
-        run: pnpm --dir clients/gui run test:regressions
       - name: Record tool and cache fingerprints
         run: python3 scripts/ci-fingerprint.py > target/ci/gui/fingerprint.json
-      - name: Check GUI types and public boundaries
-        run: |
-          pnpm --dir clients/gui typecheck 2>&1 | tee target/ci/gui/typecheck.log
-          pnpm --dir clients/gui run verify 2>&1 | tee target/ci/gui/public.log
       - name: Verify native Core process lifecycle
         run: pnpm --dir clients/gui run test:core-process 2>&1 | tee target/ci/gui/core-process.log
       - name: Verify macOS DMG staging
@@ -257,6 +238,12 @@ jobs:
         run: |
           make build 2>&1 | tee target/ci/gui/core-build.log
           make gui-build 2>&1 | tee target/ci/gui/gui-build.log
+          pnpm --dir clients/gui design:build 2>&1 | tee target/ci/gui/design-build.log
+      - name: Verify registered Core-dependent contracts
+        env:
+          AREAL_CORE_BIN: ${{ github.workspace }}/target/debug/areal
+          AREAL_PORTABLE_TEST_REPORT: ${{ github.workspace }}/target/ci/gui/core-contracts.json
+        run: node clients/gui/scripts/run-portable-tests.mjs --core-contracts 2>&1 | tee target/ci/gui/core-contracts.log
       - name: Check registered desktop RPC routes
         run: cargo test --locked -p areal-app-server --lib desktop_registered_methods_have_dispatch_routes 2>&1 | tee target/ci/gui/rpc-routes.log
       - name: Check renderer bundle budgets
@@ -266,7 +253,7 @@ jobs:
           git rev-parse HEAD > target/ci/gui/source.sha
           tar -czf target/ci/gui/gui-smoke-inputs.tar.gz \
             target/ci/gui/source.sha target/debug/areal target/debug/areal-runtime \
-            target/debug/areal-runtime-fs target/debug/shells clients/gui/renderer/dist
+            target/debug/areal-runtime-fs target/debug/shells clients/gui/renderer/dist clients/gui/dist/design-system
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: macos-gui-smoke-inputs
@@ -281,6 +268,7 @@ jobs:
             target/ci/gui/*.log
             target/ci/gui/fingerprint.json
             target/ci/gui/bundle-report.json
+            target/ci/gui/core-contracts.json
             clients/gui/renderer/dist/bundle-analysis.json
             ${{ runner.temp }}/gui-build/
           retention-days: 7

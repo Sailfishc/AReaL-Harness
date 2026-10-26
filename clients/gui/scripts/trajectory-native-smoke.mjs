@@ -23,6 +23,7 @@ const binarySHA256 = createHash("sha256")
 const config = join(root, "config.toml");
 const checks = [],
   errors = [],
+  diagnostics = [],
   bodies = [],
   queries = [];
 let backend,
@@ -208,6 +209,50 @@ try {
   passed = true;
 } catch (error) {
   errors.push(error.stack);
+  if (backend) {
+    // 只保存配置版本、生命周期和已脱敏错误，不复制凭据或完整供应商配置。
+    for (const value of backend.projects.values()) {
+      const pending = backend.providers.pendingApplications.get(value.id);
+      const proof = await value.client
+        ?.request("areal/server/modelConfiguration/read", {
+          expectedGeneration: value.service?.generation,
+          ...(pending ? { requestId: pending.requestId } : {}),
+        })
+        .catch((failure) => ({ error: backend.providers.redact(failure.message) }));
+      diagnostics.push({
+        projectId: value.id,
+        providerRevision: value.providerRevision,
+        providerError: backend.providers.redact(value.providerError ?? ""),
+        application: backend.providers.applicationState(value),
+        pending: pending
+          ? {
+              requestId: pending.requestId,
+              targetRevision: pending.targetRevision,
+              expectedApplied: pending.expectedApplied,
+            }
+          : null,
+        proof: proof
+          ? {
+              applied: proof.applied,
+              modelRevision: proof.modelRevision,
+              operation: proof.operation
+                ? {
+                    requestId: proof.operation.requestId,
+                    state: proof.operation.state,
+                    error: proof.operation.error
+                      ? {
+                          code: proof.operation.error.code,
+                          message: backend.providers.redact(proof.operation.error.message),
+                        }
+                      : null,
+                  }
+                : null,
+              error: proof.error,
+            }
+          : null,
+      });
+    }
+  }
   process.exitCode = 1;
 } finally {
   release?.();
@@ -234,6 +279,7 @@ try {
     passed,
     checks,
     errors,
+    diagnostics,
     binarySHA256,
     root,
     scope:

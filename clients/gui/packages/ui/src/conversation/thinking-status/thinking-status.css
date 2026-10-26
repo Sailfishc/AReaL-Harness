@@ -66,6 +66,7 @@
 }
 .areal-thinking[data-lines="single"] .areal-thinking-message {
   display: grid;
+  width: fit-content;
 }
 .areal-thinking[data-lines="single"] .areal-thinking-message > span {
   min-width: 0;
