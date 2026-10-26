@@ -250,7 +250,7 @@
     "script": "test:subscription-send",
     "layer": "e2e",
     "platforms": ["darwin", "linux"],
-    "areas": ["provider"],
+    "areas": ["provider", "worktree"],
     "requires": ["electron", "core-binary", "gui-build", "git"]
   },
   {

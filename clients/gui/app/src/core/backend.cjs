@@ -1544,6 +1544,23 @@ class CoreBackend {
     this.assertThreadCreationAvailable(project, request);
     try {
       await this.resources.beforeCreate(project);
+      const configured = request.model;
+      if (modelRecord(configured) && configured.providerId === "areal_openai") {
+        const available = () => {
+          const model = project.models?.find(
+            (item) =>
+              item.providerId === configured.providerId && item.modelId === configured.modelId,
+          );
+          return (
+            model &&
+            model.available !== false &&
+            this.providers.subscriptionAvailable(model, project)
+          );
+        };
+        if (!available()) await this.providers.refreshSubscription(project);
+        if (!available())
+          throw new Error("当前 ChatGPT 模型不可用，请在模型设置中刷新登录状态或选择其他模型");
+      }
     } catch (error) {
       throw Object.assign(error instanceof Error ? error : new Error(String(error)), {
         submissionUnknown: false,

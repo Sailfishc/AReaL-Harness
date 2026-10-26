@@ -15,12 +15,31 @@ const root = resolve(gui, "../..");
 const require = createRequire(join(gui, "app/package.json"));
 const { _electron: electron } = require("playwright-core");
 const startupMode = process.argv.includes("--startup");
+const worktreeMode = process.argv.includes("--worktree");
+assert.ok(!(startupMode && worktreeMode), "Choose one subscription regression mode");
 const binary = process.env.AREAL_CORE_BIN;
 assert.ok(binary && isAbsolute(binary), "Set AREAL_CORE_BIN to an absolute fixed Core binary");
 const scratch = await makeTempDir("subscription-send-");
 const workspace = join(scratch, "workspace");
 await mkdir(workspace);
 execFileSync("git", ["init", "-b", "main"], { cwd: workspace, stdio: "ignore" });
+if (worktreeMode) {
+  await writeFile(join(workspace, "README.md"), "Committed subscription Worktree fixture.\n");
+  execFileSync("git", ["add", "README.md"], { cwd: workspace });
+  execFileSync(
+    "git",
+    [
+      "-c",
+      "user.name=Fixture",
+      "-c",
+      "user.email=fixture@example.invalid",
+      "commit",
+      "-m",
+      "Seed Worktree fixture",
+    ],
+    { cwd: workspace, stdio: "ignore" },
+  );
+}
 const env = { ...process.env };
 for (const key of Object.keys(env))
   if (/^(AREAL_|OPENAI_|ANTHROPIC_)/.test(key) || key === "ELECTRON_RUN_AS_NODE") delete env[key];
@@ -136,6 +155,7 @@ const server = createServer(async (request, response) => {
 const auditPath = join(scratch, "subscription.jsonl");
 const controlPath = join(scratch, "catalog-control.json");
 const catalogGate = join(scratch, "catalog.gate");
+const worktreeGate = join(scratch, "worktree-subscription.gate");
 const bootstrap = (endpoint) => `
 const { AppProviders } = require(${JSON.stringify(join(gui, "app/src/core/providers.cjs"))});
 const { CoreBackend } = require(${JSON.stringify(join(gui, "app/src/core/backend.cjs"))});
@@ -152,10 +172,61 @@ if (!process.argv.includes('--areal-core-service')) {
     return showMessageBox(...args);
   };
 }
+${
+  worktreeMode
+    ? `
+const gatedOwners = new Map();
+const appliedOwners = new Set();
+const applySubscription = AppProviders.prototype.applySubscription;
+AppProviders.prototype.applySubscription = async function(scope, ...args) {
+  const project = scope.target.project;
+  const sample = existsSync(${JSON.stringify(worktreeGate)}) ? readFileSync(${JSON.stringify(worktreeGate)}, 'utf8') : undefined;
+  if (sample && project.logicalProjectId && !appliedOwners.has(project.id)) {
+    if (!gatedOwners.has(sample)) gatedOwners.set(sample, project.id);
+    if (gatedOwners.get(sample) === project.id) {
+      stamp({ boundary: 'worktree.subscription', phase: 'held', sample, projectId: project.id, logicalProjectId: project.logicalProjectId, root: project.root, coreServiceId: project.service?.serviceId });
+      while (existsSync(${JSON.stringify(worktreeGate)}) && readFileSync(${JSON.stringify(worktreeGate)}, 'utf8') === sample)
+        await new Promise(resolve => setTimeout(resolve, 20));
+      stamp({ boundary: 'worktree.subscription', phase: 'released', sample, projectId: project.id, logicalProjectId: project.logicalProjectId });
+    }
+  }
+  const result = await applySubscription.call(this, scope, ...args);
+  appliedOwners.add(project.id);
+  stamp({ boundary: 'worktree.subscription', phase: 'applied', sample, projectId: project.id, logicalProjectId: project.logicalProjectId, providerId: result?.id });
+  return result;
+};
+let instrumented = false;
+const connect = CoreBackend.prototype.connect;
+CoreBackend.prototype.connect = async function(...args) {
+  if (!instrumented) {
+    const { CoreClient } = await import(${JSON.stringify(join(gui, "packages/runtime-client/core.js"))});
+    const backend = this;
+    const request = CoreClient.prototype.request;
+    CoreClient.prototype.request = function(method, params, ...options) {
+      if (!['areal/thread/start', 'areal/provider/upsert'].includes(method))
+        return request.call(this, method, params, ...options);
+      const project = [...backend.projects.values()].find(project => project.client === this);
+      const owner = { projectId: project?.id, logicalProjectId: project?.logicalProjectId, root: project?.root, coreServiceId: project?.service?.serviceId };
+      stamp({ boundary: 'worktree.rpc', phase: 'dispatch', method, ...owner, requestId: params?.requestId, model: params?.model, providerId: params?.provider?.id });
+      return request.call(this, method, params, ...options).then(result => {
+        stamp({ boundary: 'worktree.rpc', phase: 'response', method, ...owner, requestId: params?.requestId, threadId: result?.thread?.id });
+        return result;
+      }, error => {
+        stamp({ boundary: 'worktree.rpc', phase: 'error', method, ...owner, requestId: params?.requestId, code: error.code, message: error.message, data: error.data });
+        throw error;
+      });
+    };
+    instrumented = true;
+  }
+  return connect.call(this, ...args);
+};
+`
+    : ""
+}
 let catalogControl;
-const execute = CoreBackend.prototype.executeCommand;
-CoreBackend.prototype.executeCommand = async function(name, ...args) {
-  if (name === 'send' && existsSync(${JSON.stringify(controlPath)})) {
+const dispatch = CoreBackend.prototype.dispatchCommand;
+CoreBackend.prototype.dispatchCommand = async function(invocation, ...args) {
+  if (invocation.name === 'send' && existsSync(${JSON.stringify(controlPath)})) {
     catalogControl = JSON.parse(readFileSync(${JSON.stringify(controlPath)}, 'utf8'));
     unlinkSync(${JSON.stringify(controlPath)});
     const service = await this.providers.openai();
@@ -163,7 +234,7 @@ CoreBackend.prototype.executeCommand = async function(name, ...args) {
     stamp({ boundary: 'catalog.expire', sample: catalogControl.sample, models: service.models.map(model => model.id), metadata: service.catalog.metadata(), revision: service.account.revision });
     if (catalogControl.background) void service.discover().catch(error => stamp({ boundary: 'catalog.background.error', code: error.code }));
   }
-  return execute.call(this, name, ...args);
+  return dispatch.call(this, invocation, ...args);
 };
 AppProviders.prototype.openai = function() {
   if (!this.openaiPromise) this.openaiPromise = import(${JSON.stringify(join(gui, "packages/chatgpt-provider/core.js"))}).then(({ CoreSubscription }) => {
@@ -589,6 +660,196 @@ async function startup() {
     "Releasing the second catalog gate preserves the exact draft, enables Send without restart and completes exactly one real subscription-transport POST with the restored history",
   );
 }
+async function worktree() {
+  for (const subscription of [false, true]) {
+    const sample = subscription ? "subscription-worktree" : "normal-worktree";
+    const text = `First prompt in ${sample}.`;
+    const reply = `${sample.toUpperCase()}_COMPLETE`;
+    await createProjectConversation(page, "workspace");
+    await page.getByRole("button", { name: "模型", exact: true }).click();
+    const picker = page.getByRole("button", { name: "选择模型", exact: true });
+    if (await picker.isVisible()) await picker.click();
+    await page
+      .locator(
+        `[role="radio"][data-model-value="${subscription ? "areal_openai/gpt-6.1-sol" : "fixture/fixture"}"]`,
+      )
+      .click();
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "新会话工作区", exact: true }).click();
+    const toggle = page.getByRole("switch", { name: "在新 Worktree 中工作", exact: true });
+    await until(async () => await toggle.isEnabled(), "Worktree options load");
+    if ((await toggle.getAttribute("aria-checked")) !== "true") await toggle.click();
+    assert.equal(
+      await toggle.getAttribute("aria-checked"),
+      "true",
+      "Fresh project draft selects Worktree before Send",
+    );
+    await page.keyboard.press("Escape");
+    expected.set(text, { subscription, history: [text], reply });
+    await writeFile(worktreeGate, sample);
+    await page.getByTestId("chat-input").fill(text);
+    await page.getByTestId("chat-send-button").click();
+    const held = await until(
+      async () =>
+        (await audit()).find(
+          (item) =>
+            item.boundary === "worktree.subscription" &&
+            item.phase === "held" &&
+            item.sample === sample,
+        ),
+      `${sample} reaches execution-owner subscription synchronization`,
+    );
+    try {
+      assert.equal(
+        held.logicalProjectId,
+        projectOf(await snapshot()).id,
+        "Gate belongs to the logical project's execution owner",
+      );
+      assert.notEqual(held.projectId, held.logicalProjectId, "Worktree owns a distinct real Core");
+      assert.notEqual(held.root, workspace, "Execution owner uses the created Git Worktree");
+      assert.equal(
+        execFileSync("git", ["rev-parse", "HEAD"], { cwd: held.root, encoding: "utf8" }).trim(),
+        execFileSync("git", ["rev-parse", "HEAD"], { cwd: workspace, encoding: "utf8" }).trim(),
+        "Worktree starts from the committed fixture",
+      );
+      if (!subscription) {
+        await until(
+          async () => turnFor(projectOf(await snapshot()), text)?.turn.status === "completed",
+          "Normal-provider Worktree first prompt completes while subscription sync stays held",
+          8000,
+        );
+        assert.equal(
+          requests.filter((item) => item.text === text).length,
+          1,
+          "Normal Worktree first prompt reaches inference exactly once before subscription release",
+        );
+        checks.push(
+          "Normal-provider Worktree first prompt completes once while its execution-owner subscription synchronization is held",
+        );
+      }
+      if (subscription) {
+        const deadline = Date.now() + 750;
+        do {
+          const events = await audit();
+          assert.equal(
+            events.some(
+              (item) =>
+                item.boundary === "worktree.rpc" &&
+                item.phase === "dispatch" &&
+                item.method === "areal/thread/start" &&
+                item.projectId === held.projectId,
+            ),
+            false,
+            "Subscription Worktree never dispatches thread/start to an execution Core before its provider is synchronized",
+          );
+          assert.equal(
+            events.some(
+              (item) =>
+                item.boundary === "worktree.rpc" &&
+                item.phase === "dispatch" &&
+                item.method === "areal/provider/upsert" &&
+                item.providerId === "areal_openai" &&
+                item.projectId === held.projectId,
+            ),
+            false,
+            "Gate holds the real provider application before provider upsert",
+          );
+          assert.equal(
+            requests.some((item) => item.text === text),
+            false,
+            "Held subscription creation never falls back to another inference provider",
+          );
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        } while (Date.now() < deadline);
+      }
+    } finally {
+      await writeFile(
+        join(scratch, `${sample}-held.json`),
+        JSON.stringify(
+          { held, snapshot: await snapshot(), audit: await audit(), requests },
+          null,
+          2,
+        ),
+      );
+      await page.screenshot({ path: join(scratch, `${sample}-held.png`) });
+    }
+    await rm(worktreeGate);
+    if (subscription) {
+      await until(
+        () => heldResponses.has(text),
+        "Released subscription Worktree reaches real subscription inference",
+      );
+      respond(heldResponses.get(text), reply);
+      heldResponses.delete(text);
+    }
+    const completed = await until(async () => {
+      const result = turnFor(projectOf(await snapshot()), text);
+      return result?.turn.status === "completed" &&
+        result.thread.status?.type === "idle" &&
+        result.turn.items?.some((item) => item.type === "agentMessage" && item.text === reply)
+        ? result
+        : false;
+    }, `${sample} completes its first prompt and returns to authoritative idle`);
+    const current = projectOf(await snapshot());
+    assert.deepEqual(
+      current.configurations[completed.thread.id].model,
+      {
+        providerId: subscription ? "areal_openai" : "fixture",
+        modelId: subscription ? "gpt-6.1-sol" : "fixture",
+      },
+      "Core preserves the selected Worktree model",
+    );
+    const events = await audit();
+    const starts = events.filter(
+      (item) =>
+        item.boundary === "worktree.rpc" &&
+        item.phase === "dispatch" &&
+        item.method === "areal/thread/start" &&
+        item.projectId === held.projectId,
+    );
+    assert.equal(starts.length, 1, "Worktree creates exactly one thread in its execution Core");
+    assert.equal(
+      events.some(
+        (item) =>
+          item.boundary === "worktree.rpc" &&
+          item.phase === "error" &&
+          item.projectId === held.projectId,
+      ),
+      false,
+      "Execution Core reports no thread creation or provider errors",
+    );
+    assert.equal(
+      requests.filter((item) => item.text === text).length,
+      1,
+      "First Worktree prompt completes with exactly one inference POST",
+    );
+    const operation = current.worktreeOperations.find(
+      (item) => item.executionProjectId === held.projectId,
+    );
+    assert.equal(
+      operation.threadId,
+      completed.thread.id,
+      "Worktree journal binds the authoritative created thread",
+    );
+    assert.equal(operation.state, "ready", "Worktree journal reaches ready");
+    assert.equal(operation.setup, undefined, "First-prompt regression uses no environment script");
+    await page.getByText(reply, { exact: true }).waitFor();
+    await page.screenshot({ path: join(scratch, `${sample}-complete.png`) });
+    await until(
+      async () =>
+        (await audit()).some(
+          (item) =>
+            item.boundary === "worktree.subscription" &&
+            item.phase === "applied" &&
+            item.projectId === held.projectId,
+        ),
+      "Released provider synchronization finishes before next scenario",
+    );
+    checks.push(
+      `${sample} creates one thread in its distinct execution Core and completes the first prompt once with the selected model and ready Worktree journal`,
+    );
+  }
+}
 async function send(mode, kind, history) {
   const sample = `${mode}-${kind}`;
   const text = `Exact subscription send ${sample}.`;
@@ -777,7 +1038,18 @@ try {
       ),
     "Startup publishes the real subscription catalog",
   );
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await page
+    .locator(".settings-category-navigation")
+    .getByRole("button", { name: "常规", exact: true })
+    .click();
+  const predictions = page.getByRole("switch", { name: "预测下一条提示词", exact: true });
+  if ((await predictions.getAttribute("aria-checked")) === "true") await predictions.click();
+  assert.equal(await predictions.getAttribute("aria-checked"), "false");
+  await page.getByRole("button", { name: "返回应用", exact: true }).click();
+  await createProjectConversation(page, "workspace");
   if (startupMode) await startup();
+  else if (worktreeMode) await worktree();
   else {
     await page.getByRole("button", { name: "模型", exact: true }).click();
     const picker = page.getByRole("button", { name: "选择模型", exact: true });
@@ -883,6 +1155,7 @@ try {
 } finally {
   await rm(controlPath, { force: true });
   await rm(catalogGate, { force: true });
+  await rm(worktreeGate, { force: true });
   for (const response of heldResponses.values()) response.destroy();
   if (app) {
     await app
@@ -924,10 +1197,12 @@ try {
         failure,
         cleanup,
         errors,
-        mode: startupMode ? "startup" : "send",
-        boundary: startupMode
-          ? "Source Electron and two fresh owned restarts with saved project, real Core history and persisted Composer drafts. Normal-provider selection remains sendable during held subscription discovery. Persisted subscription selection stays unavailable with editable draft and normal-model choices until catalog release, then sends without restart. Real AppProviders, CoreSubscription, OpenAIAccount and ModelCatalog. Synthetic in-memory grant and custom external catalog fetch held by independent file-gate samples. Native folder picker and application quit confirmation stubbed. Inference uses real normal-provider Core HTTP and subscription custom fetch transports."
-          : "Source Electron, real isolated Core, AppProviders, CoreSubscription, OpenAIAccount and ModelCatalog. Synthetic in-memory grant and custom external fetch. Native folder picker and application quit confirmation stubbed. Catalog expiry is injected at the send command boundary. Held case starts a real background catalog discovery. Rejected case arms a rejecting external GET that sending must not consult. Inference replies stay held until UI and authoritative Core admission assertions pass.",
+        mode: startupMode ? "startup" : worktreeMode ? "worktree" : "send",
+        boundary: worktreeMode
+          ? "Source Electron and isolated real Core services. Committed Git fixture, real Worktree creation, UI model selection and first prompt. Execution-owner AppProviders.applySubscription is held before real provider upsert. Real Core RPC dispatch, response and error records include logical and execution owner identities. Ordinary provider first prompt completes while subscription synchronization is held. Subscription first prompt waits for provider application and completes exactly once after release. Synthetic external grant, catalog and inference only. No environment scripts."
+          : startupMode
+            ? "Source Electron and two fresh owned restarts with saved project, real Core history and persisted Composer drafts. Normal-provider selection remains sendable during held subscription discovery. Persisted subscription selection stays unavailable with editable draft and normal-model choices until catalog release, then sends without restart. Real AppProviders, CoreSubscription, OpenAIAccount and ModelCatalog. Synthetic in-memory grant and custom external catalog fetch held by independent file-gate samples. Native folder picker and application quit confirmation stubbed. Inference uses real normal-provider Core HTTP and subscription custom fetch transports."
+            : "Source Electron, real isolated Core, AppProviders, CoreSubscription, OpenAIAccount and ModelCatalog. Synthetic in-memory grant and custom external fetch. Native folder picker and application quit confirmation stubbed. Catalog expiry is injected at the send command boundary. Held case starts a real background catalog discovery. Rejected case arms a rejecting external GET that sending must not consult. Inference replies stay held until UI and authoritative Core admission assertions pass.",
         limits:
           "No real account, OAuth exchange, external network or packaged application acceptance. This is a dependency regression test, not a latency benchmark. Isolated state and evidence are retained; owned services must stop.",
       },

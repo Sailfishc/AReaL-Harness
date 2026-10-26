@@ -237,6 +237,10 @@ Renderer 的 `[composer-skills]` JSON 将 Skills 读取分为 `core` 与可选�
 
 已有订阅账号的状态检查在本地转发就绪后与项目 Core 启动并行。项目恢复本地配置、历史和草稿后即可进入工作台，远端订阅目录在后台完成同步；目录尚未就绪时，订阅模型不可发送，其他可用模型不受影响。相同订阅服务、账号 revision 和 lifetime 下，项目共享仍有效的在途或已完成检查结果。就绪结果必须匹配当前且未过期的模型目录，其他状态最多复用 30 秒；账号、诊断或刷新状态变化、目录过期和关闭使旧结果失效，刷新中的结果不复用。迟到结果只应用到原项目连接与账号。`verify` 中的 `provider-status.test.cjs` 验证共享读取、失效和迟到结果隔离，账号查询与 Core RPC 使用受控替代。`AREAL_CORE_BIN=/absolute/path/to/areal node clients/gui/scripts/subscription-send-smoke.mjs --startup` 从仓库根运行隔离 Electron/Core 启动回归，保持合成订阅目录请求未完成，检查历史、草稿及模型可用性；不代替真实供应商或安装包验收。
 
+新会话显式选择 ChatGPT 订阅模型时，创建会等待该模型在目标 Core 完成同步与就绪校验。新 Worktree 的独立 Core 也遵循此规则；普通模型不等待订阅同步，已就绪模型不重复查询账号。
+
+从 `clients/gui` 运行 `AREAL_CORE_BIN=/absolute/path/to/areal node scripts/subscription-send-smoke.mjs --worktree`，验证订阅同步延迟期间的普通模型首发，以及同步完成后的订阅模型 Worktree 首发。测试使用隔离 Electron/Core、真实 Git Worktree 和合成订阅服务，检查创建与首发各发生一次；不代替真实供应商或安装包验收。
+
 经验证的本机 HTTP 服务探测不加载未使用的 TLS 根证书；远端 HTTPS 的证书验证保持原样。
 
 订阅网络适配器的构造和关闭不读取系统证书；首次实际请求才创建 TLS/代理传输，仍合并默认与系统信任根并验证证书和主机名。未联网的模型元数据读取或测试不会因提前访问 macOS Keychain 而退出。需要系统信任根的真实请求仍受执行环境授权约束。
