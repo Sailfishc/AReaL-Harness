@@ -409,7 +409,7 @@ export function TerminalSession({
       const localDisposers: IDisposable[] = [];
 
       const term = new XTerm({
-        fontSize: 13,
+        fontSize: 12,
         fontFamily: DEFAULT_TERMINAL_FONT_FAMILY,
         theme: mergeTerminalTheme(terminalProfileThemeRef.current),
         linkHandler: {
@@ -771,7 +771,7 @@ export function TerminalSession({
     terminalProfileThemeRef.current = undefined;
 
     const term = new XTerm({
-      fontSize: 13,
+      fontSize: 12,
       fontFamily: DEFAULT_TERMINAL_FONT_FAMILY,
       theme: mergeTerminalTheme(terminalProfileThemeRef.current),
       linkHandler: {
