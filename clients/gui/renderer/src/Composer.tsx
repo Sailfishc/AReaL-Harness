@@ -12,10 +12,12 @@ import {
 } from "./conversationSelectionReference.js";
 import { parseSideSlashCommand } from "./sideSlashCommand.js";
 import { composerDraftStorage } from "./composerDraftStorage.js";
+import { composerPending } from "./composerPending.js";
 import { validateWorkspaceFileReference } from "./lib/workspaceFileComposer.js";
 import { stripGenUiModelContext } from "@areal/gen-ui/contract";
 import { useI18n } from "./i18n/IntlProvider.js";
 import { FeedbackNotice } from "./FeedbackNotice.js";
+import { useToolInspection } from "./UnknownToolInspection.js";
 import { CircleAlert } from "lucide-react";
 import { useComposerPrediction } from "./useComposerPrediction.js";
 import { ContextMeter } from "./ContextMeter.js";
@@ -196,7 +198,11 @@ export function Composer({
   };
   const busy = useSyncExternalStore(subscribeSending, () => sending.has(key));
   const configuration = useComposerConfiguration(project, thread.id, busy);
-  const configuring = configuration.requestId !== undefined;
+  const { configuring, pending } = composerPending(
+    project.pending,
+    thread.id,
+    configuration.requestId ?? null,
+  );
   const [files, setFiles] = useState<ComposerDraftAttachment[]>(
     () => attachmentDrafts.get(key) ?? [],
   );
@@ -220,16 +226,13 @@ export function Composer({
     composerDraftStorage.getItem(`${key}:pending`),
   );
   const [deliveryError, setDeliveryError] = useState("");
+  const inspection = useToolInspection(project, thread, action, () => api.current?.focus());
   const [returnError, setReturnError] = useState("");
   const [returning, setReturning] = useState(false);
   const running = thread.turns?.find((t: Data) => t.status === "inProgress");
   useEffect(() => {
     releaseSettledStops(project.id, thread);
   }, [project.id, thread]);
-  const pending = project.pending.some(
-    (p: Data) =>
-      p.params?.threadId === thread.id && p.params?.requestId !== configuration.requestId,
-  );
   const archived = thread.desktop?.archived;
   const questions = (project.state?.interactions?.[thread.id]?.data ?? []).filter(
     (item: Data) => item.status === "pending" && item.kind !== "approval" && !archived,
@@ -477,6 +480,7 @@ export function Composer({
     if (approvePlan && (!planReady || input.text.trim() || input.files.length || comments.length))
       return;
     if (creatingGoal && (running || thread.parentThreadId || !submittedInput.text.trim())) return;
+    if (!running && inspection.request()) return;
     setAdmissionError("");
     markSending(key, true);
     setGoalError("");
@@ -567,6 +571,7 @@ export function Composer({
   const continueExecution = async () => {
     if (desktopUnsupported || !canContinue || disabled || modelUnavailable || sending.has(key))
       return;
+    if (inspection.request()) return;
     markSending(key, true);
     setDeliveryError("");
     try {
@@ -829,6 +834,7 @@ export function Composer({
           onDismiss={() => setDeliveryError("")}
         />
       )}
+      {inspection.notice}
       {unknown && (
         <FeedbackNotice
           tone="warning"
@@ -1014,15 +1020,7 @@ export function Composer({
                 : undefined
           }
           submitting={busy && !configuring}
-          submitLabel={
-            queueEditor.edit
-              ? "保存排队消息"
-              : creatingGoal
-                ? "开始目标"
-                : canContinue
-                  ? "继续执行"
-                  : "发送"
-          }
+          submitLabel={inspection.submitLabel(!!queueEditor.edit, creatingGoal, canContinue)}
           enterSubmits={prefs.sendShortcut === "enter"}
           enableMentionPanel={false}
           pluginMentionCatalog={{

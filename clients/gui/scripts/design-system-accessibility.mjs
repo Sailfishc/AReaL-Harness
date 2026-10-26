@@ -264,7 +264,7 @@ export async function runAccessibility(page, scratch, gui, checks, samples) {
         const states = route ? ["ready"] : ["ready", "busy", "failed", "unknown"];
         for (const state of states) {
           if (!route) await scenario.getByLabel("状态", { exact: true }).selectOption(state);
-          // Theme classes change before the controls finish their color transitions.
+          // 主题切换先稳定布局，再等有限过渡结束，避免混合新文字和旧背景取样。
           await scenario.evaluate(async () => {
             await new Promise((resolve) =>
               requestAnimationFrame(() => requestAnimationFrame(resolve)),

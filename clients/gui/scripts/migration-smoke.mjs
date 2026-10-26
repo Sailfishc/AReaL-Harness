@@ -785,6 +785,7 @@ try {
     const doneAvatar = await page
       .locator(`[data-testid=chat-view] [data-agent-avatar="${doneChild.id}"]`)
       .getAttribute("src");
+    assert.ok(doneAvatar.startsWith("data:image/svg+xml"));
     assert.equal(
       await agentsPanel.locator(`header [data-agent-avatar="${doneChild.id}"]`).getAttribute("src"),
       doneAvatar,
@@ -1104,6 +1105,7 @@ try {
       await page
         .locator(`[data-agent-conversation="${doneChild.id}"] [data-turn-status=completed]`)
         .waitFor();
+      // 重新挂载的已完成过程组默认收起，先展开再等恢复的工具记录出现。
       const restoredProgress = donePane.locator(".turn-progress-summary");
       if ((await restoredProgress.getAttribute("aria-expanded")) === "false")
         await restoredProgress.click();
