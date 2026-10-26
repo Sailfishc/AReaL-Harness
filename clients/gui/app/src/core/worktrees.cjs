@@ -171,6 +171,8 @@ class CoreWorktrees {
   /** @param {string} name @param {unknown} input */
   async resolveRequest(name, input) {
     let request = readRouteRequest(input);
+    // Catalogs aggregate execution owners themselves; sourceThreadId is a filter, not a route.
+    if (name === "tasks") return request;
     if (!request?.projectId || name === "library" || name === "create") {
       if (
         name === "create" &&

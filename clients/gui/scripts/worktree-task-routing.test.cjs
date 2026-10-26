@@ -166,7 +166,10 @@ test("scoped and unscoped catalogs aggregate hosts under one logical project and
   const { backend, records } = await fixture(t);
   records.get(source).set("local-task", task("local-task", "local-thread"));
   records.get(isolated).set("hidden-task", task("hidden-task", "hidden-thread"));
-  const scoped = await taskCatalog(backend, { operation: "list", projectId: source });
+  const scoped = await taskCatalog(
+    backend,
+    await backend.worktrees.resolveRequest("tasks", { operation: "list", projectId: source }),
+  );
   assert.deepEqual(
     scoped.data.map((value) => [value.id, value.projectId, value.projectName]),
     [
@@ -187,6 +190,21 @@ test("scoped and unscoped catalogs aggregate hosts under one logical project and
   backend.taskWorkspaceOwners = new TaskWorkspaceOwners(backend);
   await backend.taskWorkspaceOwners.init();
   assert.equal(await backend.taskWorkspaceOwners.resolve(source, "hidden-task"), isolated);
+});
+
+test("catalog reads preserve logical scope without resolving a cold source thread", async (t) => {
+  const { backend } = await fixture(t);
+  for (const operation of ["list", "preview", "observe", "inbox"]) {
+    const request = {
+      operation,
+      projectId: source,
+      requestId: "11111111-1111-4111-a111-111111111111",
+      viewEpoch: 1,
+      limit: 30,
+      ...(operation === "inbox" ? {} : { sourceThreadId: "cold-source-thread" }),
+    };
+    assert.deepEqual(await backend.worktrees.resolveRequest("tasks", request), request);
+  }
 });
 
 test("unknown task discovers exact authoritative host without widening to other logical projects", async (t) => {
