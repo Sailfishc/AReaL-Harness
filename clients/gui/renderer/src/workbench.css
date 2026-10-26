@@ -4680,6 +4680,12 @@ button[aria-label="停止"] {
   line-height: var(--conversation-line);
   overflow-wrap: anywhere;
 }
+/* 回合末尾实时状态固定一行（CONV-STATUS-01）：状态变化只换文字，不改变高度。 */
+.turn-activity > .execution-status {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .tool-image-row > .areal-image-disclosure {
   min-width: 0;
   flex: 1;

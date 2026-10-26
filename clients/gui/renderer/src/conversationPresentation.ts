@@ -91,6 +91,20 @@ export function activityRunLabel(run: { key: string | null; items: Data[] }): st
   return run.items.some((item) => toolPresentation(item).running) ? `正在${action}` : `已${action}`;
 }
 
+/**
+ * 回合末尾状态只用一行（CONV-STATUS-01）：对象取第一条非空行并折叠空白；
+ * heredoc 保留到起始标记为止，脚本正文不进入状态。完整对象仍在活动行和命令详情里。
+ */
+export function statusTarget(detail: string | undefined): string | undefined {
+  const lines = (detail ?? "").split(/\r?\n/);
+  const index = lines.findIndex((line) => line.trim());
+  if (index < 0) return undefined;
+  const first = lines[index].trim().replace(/\s+/g, " ");
+  const heredoc = /^(.*?<<-?\s*(['"]?)[A-Za-z_][\w-]*\2)/.exec(first);
+  if (heredoc) return heredoc[1];
+  return lines.slice(index + 1).some((line) => line.trim()) ? `${first} …` : first;
+}
+
 /** Counts projected activities, not output polls or raw invocation records. */
 export function executionOutcome(items: Data[]) {
   const views = items.filter((item) => item.type === "dynamicToolCall").map(toolPresentation);

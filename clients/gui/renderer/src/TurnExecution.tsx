@@ -12,6 +12,7 @@ import {
   agentSettlements,
   executionOutcome,
   processItems,
+  statusTarget,
   timelineItems,
   toolPresentation,
 } from "./conversationPresentation.js";
@@ -55,7 +56,7 @@ export function TurnActivity({
   const currentTool =
     animate &&
     items.findLast((item) => item.type === "dynamicToolCall" && toolPresentation(item).running);
-  const detail = currentTool ? toolPresentation(currentTool).detail : undefined;
+  const detail = currentTool ? statusTarget(toolPresentation(currentTool).detail) : undefined;
   const unconfirmed = items.some(
     (item) => item.type === "dynamicToolCall" && toolPresentation(item).status === "结果待确认",
   );
@@ -70,9 +71,10 @@ export function TurnActivity({
   return (
     <div className="turn-activity" data-testid="turn-activity">
       {currentTool ? (
-        <ThinkingStatus label={detail ? `${label} ${detail}` : label} />
+        <ThinkingStatus lines="single" label={detail ? `${label} ${detail}` : label} />
       ) : animate && !unconfirmed ? (
         <ThinkingStatus
+          lines="single"
           label={summary || (/^(等待模型|正在思考)/.test(label) ? undefined : label)}
         />
       ) : (

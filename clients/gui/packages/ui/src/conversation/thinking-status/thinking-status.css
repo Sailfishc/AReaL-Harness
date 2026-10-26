@@ -8,3 +8,7 @@
 @media (prefers-reduced-motion: reduce) { .areal-thinking-message { animation: none; } .areal-thinking[data-animating] .areal-thinking-sweep { animation: none; opacity: 0; } }
 :root[data-reduced-motion="true"] .areal-thinking-message { animation: none; }
 :root[data-reduced-motion="true"] .areal-thinking[data-animating] .areal-thinking-sweep { animation: none; opacity: 0; }
+/* 单行：状态变化只换文字不换高度；底层文字与扫光层同宽省略。 */
+.areal-thinking[data-lines="single"] { white-space: nowrap; overflow: hidden; }
+.areal-thinking[data-lines="single"] .areal-thinking-message { display: grid; }
+.areal-thinking[data-lines="single"] .areal-thinking-message > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
