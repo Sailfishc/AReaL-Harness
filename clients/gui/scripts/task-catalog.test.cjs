@@ -643,3 +643,149 @@ test("baseline completion metadata recovers older hot Runs after host-ready with
   assert.deepEqual(notices, []);
   assert.equal(owner.calls.filter((call) => call.method === "areal/task/read").length, 1);
 });
+
+test("failed completion metadata retries without a new owner event or directory refresh", async (t) => {
+  const { backend, owners } = await fixture(t);
+  const owner = owners.owner;
+  await taskCatalog(backend, { operation: "observe" });
+  const baselineReads = owner.calls.filter(
+    (call) => call.method === "areal/task/directory/list",
+  ).length;
+  let attempts = 0;
+  owner.monitor.reconcile = async () => {
+    attempts++;
+    if (attempts === 1) throw new Error("temporary metadata failure");
+  };
+  owner.monitor.ready();
+  await until(() => owner.errors.length === 1);
+  assert.equal(owner.monitor.observation.ready, true);
+  await until(() => attempts === 2);
+  assert.equal(owner.sequence, 0, "no new event is required for retry");
+  assert.equal(
+    owner.calls.filter((call) => call.method === "areal/task/directory/list").length,
+    baselineReads,
+  );
+  assert.equal(owner.monitor.baselineTasks.size, 0);
+  assert.deepEqual(owner.notices, []);
+});
+
+test("stopping the completion monitor cancels its pending retry", async (t) => {
+  const { backend, owners } = await fixture(t);
+  const owner = owners.owner;
+  await taskCatalog(backend, { operation: "observe" });
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let attempts = 0;
+  owner.monitor.reconcile = async () => {
+    attempts++;
+    throw new Error("metadata remains unavailable");
+  };
+  owner.monitor.ready();
+  await owner.monitor.pending;
+  assert.equal(attempts, 1);
+  owner.monitor.stop();
+  t.mock.timers.tick(120000);
+  await setImmediate();
+  assert.equal(attempts, 1);
+});
+
+for (const mode of ["scheduled", "foreground"])
+  test(`a completion fact resolves tombstone ${mode} mode after its directory row is removed`, async (t) => {
+    const { HistoryObservation } = require("../app/src/core/history-observation.cjs");
+    const { backend, owners } = await fixture(t);
+    const owner = owners.owner;
+    const recorded = [];
+    const fact = completion("compacted-completion");
+    owner.rows = [];
+    owner.project.summaries = [{ id: fact.threadId }];
+    const task = {
+      id: "owner",
+      revision: 2,
+      channelSequence: 0,
+      mode,
+      owner: "desktop",
+      objective: "Deleted task",
+      interactionMode: "interactive",
+      paused: true,
+      cancelled: false,
+      deletedAt: 1,
+      runCount: 1,
+      archivedRunCount: 1,
+      runsComplete: false,
+      pendingQuestions: 0,
+      runs: [],
+    };
+    owner.read = async (method, params, base) => {
+      if (method === "areal/task/read") return task;
+      if (method === "thread/read")
+        return {
+          thread: {
+            id: params.threadId,
+            turns: [{ id: "completed-turn", status: "completed", items: [] }],
+          },
+        };
+      return base();
+    };
+    const history = new HistoryObservation({
+      ownerTasks: backend.ownerTasks,
+      currentConnection: backend.currentConnection.bind(backend),
+      requireConnection(project, client) {
+        assert.ok(backend.currentConnection(project, client));
+      },
+      notifications: { publish() {} },
+      providers: backend.providers,
+      library: {
+        value: { threads: {} },
+        async recordScheduledCompletion(_projectId, run, completionId) {
+          recorded.push([run.id, run.threadId, completionId]);
+        },
+      },
+    });
+    await history.startTaskMonitor(owner.project, owner.project.client);
+    owner.project.taskNotificationMonitor.ready();
+    owner.publish({ changedTasks: ["owner"], facts: [fact] });
+    await until(() => owner.calls.some((call) => call.method === "areal/task/read"));
+    await until(() => owner.project.taskNotificationMonitor.pending === null);
+    assert.equal(owner.project.taskNotificationMonitor.observation.rows.size, 0);
+    assert.deepEqual(
+      recorded,
+      mode === "scheduled" ? [[fact.runId, fact.threadId, "completed-turn"]] : [],
+    );
+    assert.equal(owner.calls.filter((call) => call.method === "areal/task/read").length, 1);
+    assert.ok(!owner.calls.some((call) => call.method === "areal/task/run/read"));
+  });
+
+test("completion metadata retry backs off and keeps each retry delay within thirty seconds", async (t) => {
+  const { backend, owners } = await fixture(t);
+  const owner = owners.owner;
+  await taskCatalog(backend, { operation: "observe" });
+  const baselineReads = owner.calls.filter(
+    (call) => call.method === "areal/task/directory/list",
+  ).length;
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let attempts = 0;
+  owner.monitor.reconcile = async () => {
+    attempts++;
+    throw new Error("metadata remains unavailable");
+  };
+  owner.monitor.ready();
+  await owner.monitor.pending;
+  t.mock.timers.tick(200);
+  await setImmediate();
+  assert.equal(attempts, 1, "failure must not trigger an immediate retry loop");
+  for (let step = 0; step < 10; step++) {
+    const before = attempts;
+    t.mock.timers.tick(30000);
+    await setImmediate();
+    assert.equal(
+      attempts,
+      before + 1,
+      "an outstanding metadata batch must retry within the capped delay",
+    );
+  }
+  assert.equal(owner.monitor.observation.ready, true);
+  assert.equal(
+    owner.calls.filter((call) => call.method === "areal/task/directory/list").length,
+    baselineReads,
+  );
+  owner.monitor.stop();
+});

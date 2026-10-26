@@ -76,6 +76,9 @@ class TaskNotificationMonitor {
     this.baselineTasks = new Set();
     /** @type {Promise<void>|null} */
     this.pending = null;
+    /** @type {NodeJS.Timeout|undefined} */
+    this.retryTimer = undefined;
+    this.retryAttempt = 0;
     this.observation = owner.attach(
       project,
       client,
@@ -128,6 +131,7 @@ class TaskNotificationMonitor {
   refresh() {
     if (!this.hostReady || this.stopped) return Promise.resolve();
     if (this.pending) return this.pending;
+    if (this.retryTimer) return Promise.resolve();
     const status = { failed: false };
     this.pending = Promise.resolve()
       .then(async () => {
@@ -143,6 +147,7 @@ class TaskNotificationMonitor {
           this.completions.clear();
           try {
             await this.reconcile(rows, facts, baselineTaskIds);
+            this.retryAttempt = 0;
           } catch (error) {
             for (const row of rows) if (!this.rows.has(row.id)) this.rows.set(row.id, row);
             for (const fact of facts) this.completions.set(`${fact.taskId}:${fact.runId}`, fact);
@@ -155,17 +160,25 @@ class TaskNotificationMonitor {
       })
       .finally(() => {
         this.pending = null;
-        if (
-          !status.failed &&
-          !this.stopped &&
-          (this.rows.size || this.completions.size || this.baselineTasks.size)
-        )
-          void this.refresh();
+        if (this.stopped) return;
+        if (status.failed) {
+          this.retryTimer = setTimeout(
+            () => {
+              this.retryTimer = undefined;
+              void this.refresh();
+            },
+            Math.min(250 * 2 ** Math.min(this.retryAttempt++, 7), 30000),
+          );
+          return;
+        }
+        if (this.rows.size || this.completions.size || this.baselineTasks.size) void this.refresh();
       });
     return this.pending;
   }
   stop() {
     this.stopped = true;
+    clearTimeout(this.retryTimer);
+    this.retryTimer = undefined;
     this.observation.stop();
   }
 }

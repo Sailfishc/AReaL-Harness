@@ -9,7 +9,6 @@ const {
   readThreadList,
   isDeferredItem,
   isHistoryNotification,
-  readObservedTasks,
   readHistoryInteractions,
   historyFailure,
 } = require("./history-contract.cjs");
@@ -213,7 +212,12 @@ class HistoryObservation {
               : [],
           ),
         );
-        for (const taskId of baselineTaskIds) {
+        /** @type {Set<string>} */
+        const scheduledTasks = new Set();
+        for (const taskId of new Set([
+          ...baselineTaskIds,
+          ...facts.flatMap((fact) => (fact.taskId ? [fact.taskId] : [])),
+        ])) {
           this.host.requireConnection(project, client);
           const task = await client
             .request("areal/task/read", { taskId }, { decode: readTask })
@@ -223,12 +227,13 @@ class HistoryObservation {
             });
           this.host.requireConnection(project, client);
           if (task?.mode !== "scheduled") continue;
-          for (const run of task.runs) if (run.status === "completed") completed.set(run.id, run);
+          scheduledTasks.add(taskId);
+          if (baselineTaskIds.includes(taskId))
+            for (const run of task.runs) if (run.status === "completed") completed.set(run.id, run);
         }
         for (const fact of facts) {
           if (!fact.taskId || !fact.runId || !fact.threadId) continue;
-          const task = this.host.ownerTasks.observations.get(project.id)?.rows.get(fact.taskId);
-          if (task?.mode === "scheduled")
+          if (scheduledTasks.has(fact.taskId))
             completed.set(fact.runId, {
               id: fact.runId,
               threadId: fact.threadId,
