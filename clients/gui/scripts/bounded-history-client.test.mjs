@@ -455,6 +455,57 @@ test("retained old-page window stays finite and reports its omitted interval", a
   );
 });
 
+// Failure modes: restoring an evicted page must use its original cursor, keep
+// chronological order, and retain only four page bodies, including same-turn pages.
+test("evicted pages can be revisited in both directions without losing the live tail", async () => {
+  const cursors = [];
+  const f = fixture(async (method, params) => {
+    if (method === "areal/thread/observe") return baseline();
+    cursors.push(params.cursor);
+    const n = params.cursor === "older" ? 0 : Number(params.cursor.slice(5));
+    return {
+      snapshotId: "snapshot",
+      data: [entry("shared", item(`page-item-${n}`))],
+      nextCursor: n === 9 ? null : `page:${n + 1}`,
+      complete: n === 9,
+    };
+  });
+  await f.backend.openThread(f.project, "thread");
+  await f.history("acquire");
+  for (let n = 0; n < 10; n++) await f.history("loadOlder");
+  const state = () => f.project.model.state.threads.thread;
+  assert.ok(state().displayHistory.gaps.length);
+  const gap = state().displayHistory.gaps[0];
+  await f.history("loadOlder", { pageId: gap.id });
+  assert.equal(cursors.at(-1), "page:5");
+  for (let n = 0; n < 5; n++) {
+    const gap = state().displayHistory.gaps.find((gap) => gap.beforeItemId === "i2");
+    await f.history("loadOlder", { pageId: gap.id });
+  }
+  assert.ok(
+    state()
+      .turns.flatMap((t) => t.items)
+      .some((i) => i.id === "page-item-0"),
+  );
+  await f.history("loadOlder");
+  assert.equal(
+    cursors.at(-1),
+    "page:4",
+    "top navigation revisits known older pages before frontier",
+  );
+  assert.ok(f.backend.historyWindow(f.project, "thread").pages.length <= 4);
+  const values = state()
+    .turns.find((t) => t.id === "shared")
+    .items.map((i) => Number(i.id.slice(10)));
+  assert.deepEqual(
+    values,
+    [...values].sort((a, b) => b - a),
+  );
+  assert.equal(state().turns.at(-1).items[0].id, "i2");
+  await f.history("release");
+  assert.deepEqual(state().displayHistory.gaps, []);
+});
+
 const partialBaseline = () => ({
   ...baseline(),
   thread: { ...baseline().thread, turns: [turn("t2", [item("i2")], "inProgress")] },

@@ -72,6 +72,32 @@ function mergeHistory(thread, entries) {
     turns: [...[...turns.values()].filter((turn) => !shown.has(turn.id)), ...merged],
   };
 }
+/** Only cursors survive eviction; Core remains the authority for page bodies.
+ * @param {import('./history-state.cjs').HistoryWindow} window */
+function historyGaps(window) {
+  const cached = new Map(window.pages.map((page) => [page.pageId, page]));
+  const gaps = [];
+  let beforeItemId = window.baselineFirstItemId;
+  for (let index = 0; index < window.pageRecords.length; index++) {
+    const record = window.pageRecords[index];
+    const page = cached.get(record.id);
+    if (page) {
+      beforeItemId = page.data[0]?.sourceItemId ?? beforeItemId;
+      continue;
+    }
+    // Consecutive unloaded pages share one entry point. From older content,
+    // restore the adjacent newer page; at the top restore the adjacent older one.
+    const start = index;
+    while (index + 1 < window.pageRecords.length && !cached.has(window.pageRecords[index + 1].id))
+      index++;
+    gaps.push({
+      id: window.pageRecords[index === window.pageRecords.length - 1 ? start : index].id,
+      beforeItemId,
+      atTop: index === window.pageRecords.length - 1,
+    });
+  }
+  return gaps;
+}
 /** @param {unknown} error */
 const retryableRead = (error) =>
   modelRecord(error) &&
@@ -386,7 +412,10 @@ class HistoryObservation {
       ...thread,
       displayHistory: {
         supported: true,
-        complete: window.displayed?.complete ?? window.complete,
+        complete:
+          window.displayed?.complete ??
+          (window.complete && !historyGaps(window).some((gap) => gap.atTop)),
+        gaps: historyGaps(window),
         omitted: window.displayed?.omitted ?? window.omitted,
         loadingOlder: !!window.olderRead,
         loadingLatest: !window.displayed && !!window.latestTurn.read,
@@ -505,6 +534,7 @@ class HistoryObservation {
         ),
         latestSeen: seen,
         pages: [],
+        pageRecords: [],
         loaded: new Map(),
         loading: new Map(),
         omitted: false,
@@ -736,6 +766,7 @@ class HistoryObservation {
               .filter((turn) => turn.items.length || turn.status === "inProgress"),
           });
         window.pages = [];
+        window.pageRecords = [];
         window.loaded.clear();
         window.loading.clear();
         window.olderRead = null;
@@ -785,34 +816,78 @@ class HistoryObservation {
       await this.hydrateLatest(project, window);
       if (!current()) throw historyFailure("历史视图已变化，请重新加载。");
       if (window.olderRead) return window.olderRead;
-      if (!window.nextCursor) return { data: [], complete: true, nextCursor: null };
-      const cursor = window.nextCursor;
+      const oldest = Math.max(
+        -1,
+        ...window.pages.map((page) =>
+          window.pageRecords.findIndex((record) => record.id === page.pageId),
+        ),
+      );
+      const revisit = request.pageId
+        ? window.pageRecords.find((record) => record.id === request.pageId)
+        : window.pageRecords[oldest + 1];
+      if (request.pageId && !revisit) throw historyFailure("历史占位已变化，请重新加载。");
+      if (!revisit && !window.nextCursor) return { data: [], complete: true, nextCursor: null };
+      const cursor = revisit?.cursor ?? window.nextCursor;
+      if (!cursor) throw historyFailure("历史游标不可用，请重新加载。");
       const loading = Promise.resolve().then(async () => {
         try {
           const page = await read(cursor);
           if (!current()) throw historyFailure("历史视图已变化，请重新加载。");
           this.validateHistoryPage(window, page, cursor);
-          window.pages.push(page);
-          window.nextCursor = page.nextCursor;
-          window.complete = page.complete;
-          let thread = mergeHistory(project.model.state.threads[threadId], page.data);
-          if (window.pages.length > historyPageLimit) {
-            const removed = new Set(
-              (window.pages.shift()?.data ?? []).map((entry) => entry.sourceItemId),
-            );
-            thread = {
-              ...thread,
-              turns: (thread.turns ?? [])
-                .map((turn) => ({
-                  ...turn,
-                  items: (turn.items ?? []).filter((item) => !removed.has(item.id)),
-                }))
-                .filter((turn) => turn.items.length || turn.status === "inProgress"),
-            };
-            for (const id of removed) window.loaded.delete(id);
-            window.omitted = true;
+          const record = revisit ?? { id: randomUUID(), cursor };
+          if (!revisit) {
+            window.pageRecords.push(record);
+            window.nextCursor = page.nextCursor;
+            window.complete = page.complete;
           }
-          project.model.replace(thread);
+          const removed = new Set(
+            window.pages.flatMap((cached) => cached.data.map((entry) => entry.sourceItemId)),
+          );
+          const baseline = project.model.state.threads[threadId];
+          const shown = new Map(
+            (baseline.turns ?? []).flatMap((turn) =>
+              (turn.items ?? []).map((item) => [item.id, item]),
+            ),
+          );
+          let thread = {
+            ...baseline,
+            turns: (baseline.turns ?? [])
+              .map((turn) => ({
+                ...turn,
+                items: (turn.items ?? []).filter((item) => !removed.has(item.id)),
+              }))
+              .filter((turn) => turn.items.length || turn.status === "inProgress"),
+          };
+          window.pages = [
+            ...window.pages.filter((cached) => cached.pageId !== record.id),
+            { ...page, pageId: record.id },
+          ];
+          const target = window.pageRecords.indexOf(record);
+          if (window.pages.length > historyPageLimit) {
+            const evicted = [...window.pages].sort(
+              (a, b) =>
+                Math.abs(window.pageRecords.findIndex((entry) => entry.id === b.pageId) - target) -
+                Math.abs(window.pageRecords.findIndex((entry) => entry.id === a.pageId) - target),
+            )[0];
+            window.pages = window.pages.filter((cached) => cached !== evicted);
+            for (const entry of evicted.data) window.loaded.delete(entry.sourceItemId);
+          }
+          window.pages.sort(
+            (a, b) =>
+              window.pageRecords.findIndex((entry) => entry.id === a.pageId) -
+              window.pageRecords.findIndex((entry) => entry.id === b.pageId),
+          );
+          for (const cached of window.pages) {
+            thread = mergeHistory(
+              thread,
+              cached.data.map((entry) => ({
+                ...entry,
+                item: shown.get(entry.sourceItemId) ?? entry.item,
+              })),
+            );
+          }
+          window.omitted = window.pageRecords.length > window.pages.length;
+          this.publishHistory(project, window, thread);
           return page;
         } catch (error) {
           if (current() && historyReason(error) === "HISTORY_CURSOR_STALE")
