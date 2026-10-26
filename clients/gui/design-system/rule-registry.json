@@ -4211,7 +4211,7 @@
       "title": "读取选项中 / 失败 原值保留",
       "owner": "clients/gui/packages/ui/src/worktree/worktree-picker/worktree-picker.md#composer上下文条与配置菜单",
       "strength": "must",
-      "textSha256": "b142758f4538d0d066113d942a3447212df6968de291b0fee9a369fc2ac31785"
+      "textSha256": "c6eff3b9a45d0f5416536251eb030d201dc826550ff5939861102229a7c2794e"
     },
     {
       "id": "R-WORKTREEPICKER-011",
