@@ -85,10 +85,16 @@ export function activityRuns(
   return runs;
 }
 
-/** 合并段的标题：过去时动词短语；仍有运行中的项时用进行时。不显示数量。 */
-export function activityRunLabel(run: { key: string | null; items: Data[] }): string {
+/**
+ * 合并段的标题：过去时动词短语；进行中用进行时。不显示数量。
+ * 段的进行与完成看阶段边界，不看瞬时子项：子项仍在运行，或它是运行中回合最新一段的最后一段
+ * （后面还没有出现可见的其他内容），都算进行中，避免模型在两次调用之间思考时标题来回翻转。
+ */
+export function activityRunLabel(run: { key: string | null; items: Data[] }, open = false): string {
   const action = run.key ?? "执行活动";
-  return run.items.some((item) => toolPresentation(item).running) ? `正在${action}` : `已${action}`;
+  return open || run.items.some((item) => toolPresentation(item).running)
+    ? `正在${action}`
+    : `已${action}`;
 }
 
 /**

@@ -4736,7 +4736,7 @@
       "title": "两条消息之间的工具活动按\"连续同一动作\"分段，不再把整段混合成一组",
       "owner": "clients/gui/renderer/src/Messages.md#对话信息流",
       "strength": "default",
-      "textSha256": "d50799fccd49155680606bb2a987e5a18037c0653a8ee2b57d4377eb5aa8c236"
+      "textSha256": "943d9eff55c7945a2fd3154735f17d885e93ce402f72841febbc9761b7d2b593"
     },
     {
       "id": "CONV-PROCESS-01",

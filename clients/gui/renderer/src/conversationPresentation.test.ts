@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { statusTarget } from "./conversationPresentation.js";
+import { activityRunLabel, statusTarget } from "./conversationPresentation.js";
 
 describe("statusTarget", () => {
   it("keeps a one-line command as is, with collapsed whitespace", () => {
@@ -22,5 +22,29 @@ describe("statusTarget", () => {
   it("returns undefined for empty targets", () => {
     expect(statusTarget(undefined)).toBeUndefined();
     expect(statusTarget("  \n ")).toBeUndefined();
+  });
+});
+
+describe("activityRunLabel stage boundary", () => {
+  const read = (id: string, status = "completed") => ({
+    id,
+    type: "dynamicToolCall",
+    tool: "fs_read",
+    status,
+    success: status === "completed" ? true : undefined,
+    arguments: { path: `${id}.ts` },
+    contentItems: [],
+  });
+  it("stays in progress between calls while the segment is still open", () => {
+    const run = { key: "读取文件", items: [read("a"), read("b")] };
+    expect(activityRunLabel(run, true)).toBe("正在读取文件");
+  });
+  it("completes once later visible content closes the segment", () => {
+    const run = { key: "读取文件", items: [read("a"), read("b")] };
+    expect(activityRunLabel(run, false)).toBe("已读取文件");
+  });
+  it("still reports a running child even when not the open segment", () => {
+    const run = { key: "读取文件", items: [read("a"), read("b", "inProgress")] };
+    expect(activityRunLabel(run, false)).toBe("正在读取文件");
   });
 });

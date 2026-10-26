@@ -1280,6 +1280,7 @@ export function Messages({
                       <TurnExecution
                         key={item.id}
                         items={item.items}
+                        live={turn.status === "inProgress" && item === segments.at(-1)}
                         turn={turn}
                         project={project}
                         threadId={thread.id}

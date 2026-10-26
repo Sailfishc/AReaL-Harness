@@ -93,12 +93,15 @@ export function TurnActivity({
  */
 export function TurnExecution({
   items,
+  live = false,
   turn,
   project,
   threadId,
   renderItem,
 }: {
   items: Data[];
+  /** 运行中回合的最新执行段：其最后一段在出现后续可见内容前保持进行中。 */
+  live?: boolean;
   turn: Data;
   project: Data;
   threadId: string;
@@ -147,7 +150,7 @@ export function TurnExecution({
             presentation={grouped ? "collapsible" : "inline"}
             label={
               run.key !== null
-                ? activityRunLabel(run)
+                ? activityRunLabel(run, live && last)
                 : run.items[0].type === "reasoningGroup"
                   ? "思考过程"
                   : "执行活动"
