@@ -363,7 +363,7 @@ class CatalogSmoke(unittest.TestCase):
                 catalog = self.invoke()["catalog"]
                 marker = "old" if catalog["rootDigest"] == digest(roots[0]) else "new"
                 self.assertIn(catalog["rootDigest"], [digest(root) for root in roots])
-                self.assertEqual([row["objective"] for row in catalog["data"]], [marker] * 3)
+                self.assertEqual([row["objectivePreview"] for row in catalog["data"]], [marker] * 3)
         finally:
             stopped.set()
             thread.join(timeout=5)
