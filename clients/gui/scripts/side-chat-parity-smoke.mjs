@@ -89,6 +89,7 @@ const checks = [],
   errors = [],
   coreReads = [];
 const streams = new Map();
+let advanceSelectionStream;
 let marker = join(workspace, "parent-tool.txt");
 let release = join(workspace, "release-parent-tool");
 const sourceText = "PARITY_SELECTION_🌊_汉字";
@@ -141,7 +142,10 @@ const model = createServer((request, response) => {
       const emit = () =>
         response.write(chunk({ content: ` ${prompt.replace("PARITY:", "")}_${++sequence}` }));
       emit();
-      const timer = setInterval(emit, 120);
+      // This case verifies a captured quote survives later deltas, not a race
+      // between focusing its action and the next DOM selection replacement.
+      const timer = prompt === "PARITY:STREAM_SELECTION" ? null : setInterval(emit, 120);
+      if (prompt === "PARITY:STREAM_SELECTION") advanceSelectionStream = emit;
       const settle = () => {
         clearInterval(timer);
         if (!response.destroyed) finish(response, " STREAM_SETTLED");
@@ -1054,6 +1058,11 @@ async function selectionReferences() {
   await streamed.waitFor();
   const streamRequests = requests.length;
   await addReference(streamed, "STREAM_SELECTION_1");
+  await until(
+    async () => (await referenceCount(main)) === 1,
+    "streamed quote accepted before the next delta",
+  );
+  advanceSelectionStream();
   await until(
     async () => (await streamed.innerText()).includes("STREAM_SELECTION_2"),
     "stream advances after selection",
