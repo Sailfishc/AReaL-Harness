@@ -95,7 +95,8 @@ try {
   );
   await page.goto(url);
   await page.getByRole("button", { name: "打开自动化 每日进展", exact: true }).waitFor();
-  assert.equal(await page.getByRole("combobox", { name: "筛选项目" }).count(), 0);
+  assert.equal(await page.getByRole("combobox", { name: "运行位置筛选" }).count(), 0);
+  assert.equal(await page.getByLabel("筛选任务", { exact: true }).count(), 0);
   assert.equal(await page.getByText("项目加载状态", { exact: true }).count(), 0);
   await page
     .getByRole("group", { name: "已开启", exact: true })

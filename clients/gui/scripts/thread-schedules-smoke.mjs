@@ -707,10 +707,8 @@ async function verifyGlobalDraftAndRun(existingTasks = []) {
   await page.getByRole("button", { name: "项目操作 workspace", exact: true }).focus();
   await page.getByRole("button", { name: "项目操作 workspace", exact: true }).click();
   await page.getByRole("menuitem", { name: "定时任务", exact: true }).click();
-  assert.match(
-    await page.getByRole("combobox", { name: "运行位置筛选", exact: true }).innerText(),
-    /workspace/,
-  );
+  assert.equal(await page.getByRole("combobox", { name: "运行位置筛选", exact: true }).count(), 0);
+  assert.equal(await page.getByLabel("筛选任务", { exact: true }).count(), 0);
   await page.getByRole("button", { name: "新建自动化", exact: true }).click();
   assert.equal(
     await page.getByTestId("areal-workbench").getAttribute("data-project-id"),
@@ -722,10 +720,8 @@ async function verifyGlobalDraftAndRun(existingTasks = []) {
     "ordinary draft initializes its creation intent",
   );
   await page.getByRole("button", { name: "定时任务", exact: true }).click();
-  assert.match(
-    await page.getByRole("combobox", { name: "运行位置筛选", exact: true }).innerText(),
-    /全部项目/,
-  );
+  assert.equal(await page.getByRole("combobox", { name: "运行位置筛选", exact: true }).count(), 0);
+  assert.equal(await page.getByLabel("筛选任务", { exact: true }).count(), 0);
   await recoverScheduledCreation();
   const independentThread = await send("THREAD_SCHEDULE_CREATE_C 每天九点在独立工作目录检查。");
   facts.ui.draftTiming.acceptedAt = await page.evaluate(
