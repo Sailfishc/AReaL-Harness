@@ -7,7 +7,7 @@ const { join, dirname } = require("node:path");
 const { TaskWorkspaceOwners } = require("../app/src/core/task-workspace-owners.cjs");
 const { CoreWorktrees } = require("../app/src/core/worktrees.cjs");
 const { manageTask } = require("../app/src/core/tasks.cjs");
-const { taskCatalog } = require("../app/src/core/task-catalog.cjs");
+const { taskCatalog, OwnerTasks } = require("../app/src/core/task-catalog.cjs");
 const { ScheduleAdmission } = require("../app/src/core/schedule-admission.cjs");
 const source = "a".repeat(24),
   isolated = "b".repeat(24),
@@ -28,6 +28,33 @@ const task = (id, threadId) => ({
   runsComplete: true,
   pendingQuestions: 0,
   runs: [],
+});
+
+const directoryRow = (value) => ({
+  id: value.id,
+  threadId: value.threadId,
+  mode: value.mode,
+  revision: value.revision,
+  channelSequence: value.channelSequence,
+  sourceThreadId: null,
+  objectivePreview: "Scheduled report",
+  objectiveTruncated: false,
+  paused: false,
+  cancelled: false,
+  deletedAt: null,
+  enabled: true,
+  nextRunAt: null,
+  schedule: null,
+  scheduleV2: null,
+  skippedRuns: 0,
+  lastSkippedAt: null,
+  lastTriggerDecision: null,
+  runCount: 0,
+  latestRun: null,
+  activeRun: null,
+  hasUnsettledWork: false,
+  pendingQuestions: 1,
+  pendingQuestionExpiresAt: null,
 });
 
 async function fixture(t) {
@@ -52,6 +79,10 @@ async function fixture(t) {
     providers: { redact: (value) => value },
     lifecycleOperations: { assertProject() {} },
     projectless: { records: {} },
+    onChange() {},
+    currentConnection(project, client) {
+      return project.client === client && !client.closed;
+    },
     async save(name, value) {
       const path = join(home, name);
       await mkdir(dirname(path), { recursive: true });
@@ -89,9 +120,45 @@ async function fixture(t) {
     };
     project.client = {
       ready: true,
+      closed: false,
+      onNotification() {
+        return () => {};
+      },
       capabilities: { methods: ["areal/task/runNow"] },
-      async request(method, params) {
+      async request(method, params, options = {}) {
         calls.push({ host: owner.id, method, params });
+        if (method === "areal/owner/watch")
+          return { generation: owner.id, sequence: 0, directoryRevision: 1, attentionRevision: 1 };
+        if (method === "areal/owner/unwatch") return { removed: true };
+        if (method === "areal/task/directory/list") {
+          const value = {
+            generation: owner.id,
+            revision: 1,
+            data: [...records.get(owner.id).values()].map(directoryRow),
+            nextCursor: null,
+          };
+          return options.decode ? options.decode(value) : value;
+        }
+        if (method === "areal/task/attention/read") {
+          const value = {
+            generation: owner.id,
+            revision: 1,
+            nextCursor: null,
+            data: [...records.get(owner.id).values()].map((task) => ({
+              id: task.id + ":message",
+              kind: "asyncQuestion",
+              taskId: task.id,
+              runId: "run",
+              threadId: task.threadId,
+              questionId: "message",
+              interactionId: null,
+              objectivePreview: "Scheduled report",
+              summary: "Question",
+              expiresAt: null,
+            })),
+          };
+          return options.decode ? options.decode(value) : value;
+        }
         if (method === "areal/task/list")
           return { data: [...records.get(owner.id).values()], nextCursor: null };
         if (method === "areal/inbox/list")
@@ -108,7 +175,28 @@ async function fixture(t) {
           if (!value) throw Object.assign(new Error("missing"), { code: -32004 });
           return value;
         }
-        if (method === "areal/channel/read") return { data: [] };
+        if (method === "areal/channel/read")
+          return {
+            data: [
+              {
+                id: "message",
+                sequence: 1,
+                runId: "run",
+                author: "assistant",
+                kind: "question",
+                status: "pending",
+                createdAt: 1,
+                expiresAt: null,
+                questions: [],
+                required: true,
+                inReplyTo: null,
+                answers: null,
+                text: "Question",
+              },
+            ],
+            hasMore: false,
+            nextSequence: 1,
+          };
         throw new Error(`unexpected RPC: ${method}`);
       },
     };
@@ -116,6 +204,18 @@ async function fixture(t) {
   }
   backend.taskWorkspaceOwners = new TaskWorkspaceOwners(backend);
   await backend.taskWorkspaceOwners.init();
+  backend.ownerTasks = new OwnerTasks(backend);
+  for (const project of backend.projects.values())
+    backend.ownerTasks.attach(
+      project,
+      project.client,
+      () => {},
+      async () => {},
+      (error) => {
+        throw error;
+      },
+    );
+  t.after(() => backend.ownerTasks.stop());
   backend.worktrees = new CoreWorktrees(backend);
   backend.scheduleAdmission = new ScheduleAdmission(backend);
   return { backend, records, calls };
@@ -177,9 +277,17 @@ test("scoped and unscoped catalogs aggregate hosts under one logical project and
       ["hidden-task", source, "Logical project"],
     ],
   );
-  assert.deepEqual(scoped.owners, [
-    { projectId: source, status: "ready", connectionGeneration: 0 },
-  ]);
+  assert.deepEqual(
+    scoped.owners.map(({ projectId, status, connectionGeneration }) => ({
+      projectId,
+      status,
+      connectionGeneration,
+    })),
+    [{ projectId: source, status: "ready", connectionGeneration: 0 }],
+  );
+  assert.equal(scoped.owners[0].source, "live");
+  assert.deepEqual(scoped.owners[0].coverage, { kind: "complete" });
+  assert.ok(Number.isSafeInteger(scoped.owners[0].readAt));
   assert.equal(scoped.data[1].executionProjectId, isolated);
   const all = await taskCatalog(backend, { operation: "list" });
   assert.deepEqual(

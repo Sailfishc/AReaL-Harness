@@ -94,7 +94,7 @@ class TaskWorkspaceOwners {
   async observeProject(project) {
     await this.observeTasks(project, Object.values(project.model.state.tasks ?? {}));
   }
-  /** @param {import('./project-state.cjs').CoreProject} project @param {Array<import("@areal/workbench/core-model-contract").CoreTask|import("../../../packages/workbench/client/desktop-contract/management-tasks.cjs").InboxEntry>} tasks */
+  /** @param {import('./project-state.cjs').CoreProject} project @param {Array<{id:string,threadId?:string|null}|import("../../../packages/workbench/client/desktop-contract/management-tasks.cjs").InboxEntry>} tasks */
   async observeTasks(project, tasks) {
     this.registered(project.id);
     let changed = false;
@@ -102,7 +102,7 @@ class TaskWorkspaceOwners {
       changed =
         this.remember(project.id, {
           ...task,
-          id: task.taskId ?? ("id" in task ? task.id : undefined),
+          id: "taskId" in task ? task.taskId : task.id,
         }) || changed;
     if (changed) this.dirty.add(project.id);
     if (this.dirty.has(project.id)) {
@@ -129,11 +129,9 @@ class TaskWorkspaceOwners {
     if (
       tasks.some(
         (task) =>
-          (this.owners.get(String(task.taskId ?? ("id" in task ? task.id : undefined)))?.size ??
-            0) > 1 ||
-          this.hosts
-            .get(project.id)
-            ?.get(String(task.taskId ?? ("id" in task ? task.id : undefined)))?.ambiguous,
+          (this.owners.get(String("taskId" in task ? task.taskId : task.id))?.size ?? 0) > 1 ||
+          this.hosts.get(project.id)?.get(String("taskId" in task ? task.taskId : task.id))
+            ?.ambiguous,
       )
     )
       throw unavailable("任务执行归属不唯一，未向任何工作区发送操作");

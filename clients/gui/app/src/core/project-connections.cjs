@@ -45,6 +45,10 @@ class ProjectConnections {
     try {
       this.host.worktrees?.assertAvailable(id);
       this.host.lifecycleOperations.assertProject(id);
+      if (this.host.lifecycleOperations.schedulingSuppressed(id))
+        throw Object.assign(new Error("后台已由用户停止，请明确启动后继续"), {
+          code: "CORE_STOPPED",
+        });
     } catch (error) {
       return Promise.reject(error);
     }
@@ -613,11 +617,18 @@ class ProjectConnections {
       trace.advance("task_monitor");
       await this.host.startTaskMonitor(project, client);
       this.requireConnection(project, client);
+      this.host.lifecycleOperations.assertProject(project.id);
+      if (this.host.lifecycleOperations.schedulingSuppressed(project.id))
+        throw Object.assign(new Error("后台已由用户停止，请明确启动后继续"), {
+          code: "CORE_STOPPED",
+        });
       trace.advance("host_ready");
       if (client.capabilities?.methods?.includes("areal/task/host/ready")) {
         await client.request("areal/task/host/ready", {});
         this.requireConnection(project, client);
       }
+      project.taskNotificationMonitor?.ready();
+      this.requireConnection(project, client);
       trace.advance("connected");
       project.model.connection(true);
       this.host.scheduleReconciliation(project);

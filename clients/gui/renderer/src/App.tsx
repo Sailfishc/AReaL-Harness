@@ -273,6 +273,7 @@ function AppContent({ services }: { services: PlatformServices }) {
     if (project) {
       await restoreConversation(restorationOwner, project.state?.connected ? "open" : "connect", {
         connectService: true,
+        resumeScheduling: true,
       });
     } else await resourceAction("connectService", {});
   };

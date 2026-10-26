@@ -34,7 +34,7 @@ const { modelRef, parameters, strings } = require("./provider.cjs");
 /** @typedef {ThreadRequest & ({requestId?:never,operation?:never}|{requestId:string,operation:'update'|'remove'|'reorder'|'pause'|'resume'|'steer'})} QueueRequest */
 /** @typedef {ThreadRequest & {expectedRevision:number,requestId?:string} & ({operation:'update',queueItemId:string,retainedInput?:Array<Record<string,unknown>>}&Message|{operation:'remove',queueItemId:string}|{operation:'steer',queueItemId:string,expectedTurnId:string}|{operation:'reorder',queueItemIds:string[]}|{operation:'pause'|'resume'})} QueueEditRequest */
 /** @typedef {ThreadRequest & ({requestId:string,decision:'deny'|'allowOnce'|'allowSession'|'allowProject',answers?:never}|{requestId:string,answers:Record<string,string>,decision?:never})} RespondRequest */
-/** @typedef {{connect:ProjectRequest,list:ProjectRequest,open:ThreadRequest,history:HistoryRequest,create:CreateRequest,prepareCreator:ProjectRequest & {profile?:ResourceRef},fork:ForkRequest,side:SideRequest,prediction:ThreadRequest & {sourceTurnId:string,operation:'request'|'cancel'},send:ThreadRequest & Message & {requestId?:string},editMessage:ThreadRequest & Message & {expectedTurnId:string,itemId:string,text:string,expectedConfigRevision:number,requestId:string},"continue":ThreadRequest & {expectedTurnId:string,expectedConfigRevision?:number,requestId?:string},stop:ThreadRequest & {turnId:string,requestId:string},attachBrowser:ThreadRequest & {expectedToolsetRevision:number,requestId?:string},respond:RespondRequest,reconcile:ReconcileRequest,configure:ConfigureRequest,queue:QueueRequest,queueEdit:QueueEditRequest,steer:ThreadRequest & Message & {expectedTurnId:string,requestId?:string},dismissRecovery:ProjectRequest & {requestId:string}}} Requests */
+/** @typedef {{connect:ProjectRequest & {resumeScheduling?:boolean},list:ProjectRequest,open:ThreadRequest,history:HistoryRequest,create:CreateRequest,prepareCreator:ProjectRequest & {profile?:ResourceRef},fork:ForkRequest,side:SideRequest,prediction:ThreadRequest & {sourceTurnId:string,operation:'request'|'cancel'},send:ThreadRequest & Message & {requestId?:string},editMessage:ThreadRequest & Message & {expectedTurnId:string,itemId:string,text:string,expectedConfigRevision:number,requestId:string},"continue":ThreadRequest & {expectedTurnId:string,expectedConfigRevision?:number,requestId?:string},stop:ThreadRequest & {turnId:string,requestId:string},attachBrowser:ThreadRequest & {expectedToolsetRevision:number,requestId?:string},respond:RespondRequest,reconcile:ReconcileRequest,configure:ConfigureRequest,queue:QueueRequest,queueEdit:QueueEditRequest,steer:ThreadRequest & Message & {expectedTurnId:string,requestId?:string},dismissRecovery:ProjectRequest & {requestId:string}}} Requests */
 /** @typedef {keyof Requests} Name */
 /** @template {Name} N @typedef {Requests[N]} Request */
 /** @typedef {{threadId:string,requestId:string}} Created */
@@ -211,6 +211,10 @@ function isRequest(name, value) {
   if (["send", "editMessage", "steer", "queueEdit"].includes(name) && !message(value)) return false;
   switch (name) {
     case "connect":
+      return (
+        (value.resumeScheduling === undefined || typeof value.resumeScheduling === "boolean") &&
+        only(value, ["projectId", "resumeScheduling"])
+      );
     case "list":
       return only(value, ["projectId"]);
     case "reconcile":

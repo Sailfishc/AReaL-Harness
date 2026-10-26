@@ -14,6 +14,7 @@ const {
   historyFailure,
 } = require("./history-contract.cjs");
 const { TaskNotificationMonitor } = require("./notifications.cjs");
+const { readTask } = require("@areal/workbench/desktop-contract/management-tasks");
 const { modelRecord } = require("@areal/workbench/core-model-contract");
 const { isTaskDraftConfiguration } = require("./task-draft.cjs");
 
@@ -190,56 +191,78 @@ class HistoryObservation {
   /** @param {import('./project-state.cjs').CoreProject} project @param {import('@areal/runtime-client/core').CoreClient} client */
   async startTaskMonitor(project, client) {
     project.taskNotificationMonitor = new TaskNotificationMonitor(
+      this.host.ownerTasks,
+      project,
       client,
-      project.logicalProjectId ?? project.id,
-      /** @param {unknown} notice */ (notice) => {
+      (notice) => {
         if (this.host.currentConnection(project, client)) this.host.notifications.publish(notice);
       },
-      /** @param {unknown} error */ (error) =>
+      (error) =>
         console.warn(
           this.host.providers.redact(
             `任务通知读取失败：${error instanceof Error ? error.message : String(error)}`,
           ),
         ),
-      /** @param {unknown} values */ async (values) => {
-        const tasks = readObservedTasks(values);
+      async (tasks, facts, baselineTaskIds) => {
         if (!this.host.currentConnection(project, client)) return;
-        for (const task of tasks) project.model.setTask(task);
-        const scheduled = tasks.filter((task) => task.mode === "scheduled");
+        /** @type {Map<string,{id:string,status:string,threadId?:string|null}>} */
+        const completed = new Map(
+          tasks.flatMap((task) =>
+            task.mode === "scheduled" && task.latestRun?.status === "completed"
+              ? [[task.latestRun.id, task.latestRun]]
+              : [],
+          ),
+        );
+        for (const taskId of baselineTaskIds) {
+          this.host.requireConnection(project, client);
+          const task = await client
+            .request("areal/task/read", { taskId }, { decode: readTask })
+            .catch((error) => {
+              if (modelRecord(error) && error.code === -32004) return null;
+              throw error;
+            });
+          this.host.requireConnection(project, client);
+          if (task?.mode !== "scheduled") continue;
+          for (const run of task.runs) if (run.status === "completed") completed.set(run.id, run);
+        }
+        for (const fact of facts) {
+          if (!fact.taskId || !fact.runId || !fact.threadId) continue;
+          const task = this.host.ownerTasks.observations.get(project.id)?.rows.get(fact.taskId);
+          if (task?.mode === "scheduled")
+            completed.set(fact.runId, {
+              id: fact.runId,
+              threadId: fact.threadId,
+              status: "completed",
+            });
+        }
         if (
-          scheduled.some((task) =>
-            task.runs.some(
-              (run) =>
-                typeof run.threadId === "string" &&
-                !project.summaries.some((thread) => thread.id === run.threadId),
-            ),
+          [...completed.values()].some(
+            (run) =>
+              run.threadId && !project.summaries.some((thread) => thread.id === run.threadId),
           )
         ) {
           await this.listThreads(project);
           this.host.requireConnection(project, client);
         }
-        /** @type {Record<string,unknown>} */
-        const records = this.host.library.value.threads;
-        for (const task of scheduled)
-          for (const run of task.runs) {
-            const metadata = records[`${project.id}:${run.threadId}`];
-            if (
-              run.status !== "completed" ||
-              !run.threadId ||
-              (modelRecord(metadata) && metadata.scheduledCompletionId === run.id)
-            )
-              continue;
-            const { thread } = this.supportsBoundedHistory(client)
-              ? await this.readObservation(project, run.threadId, { client, install: false })
-              : await client.request(
-                  "thread/read",
-                  { threadId: run.threadId, includeTurns: true },
-                  { decode: readObservationResult },
-                );
-            this.host.requireConnection(project, client);
-            const completionId = thread.turns?.findLast((turn) => turn.status === "completed")?.id;
-            await this.host.library.recordScheduledCompletion(project.id, run, completionId);
-          }
+        for (const run of completed.values()) {
+          if (
+            !run.threadId ||
+            this.host.library.value.threads[
+              `${project.logicalProjectId ?? project.id}:${run.threadId}`
+            ]?.scheduledCompletionId === run.id
+          )
+            continue;
+          const { thread } = this.supportsBoundedHistory(client)
+            ? await this.readObservation(project, run.threadId, { client, install: false })
+            : await client.request(
+                "thread/read",
+                { threadId: run.threadId, includeTurns: true },
+                { decode: readObservationResult },
+              );
+          this.host.requireConnection(project, client);
+          const completionId = thread.turns?.findLast((turn) => turn.status === "completed")?.id;
+          await this.host.library.recordScheduledCompletion(project.id, run, completionId);
+        }
       },
     );
     await project.taskNotificationMonitor.start();

@@ -10,6 +10,7 @@ const { startupTrace } = require("./startup-timing.cjs");
 
 const { connectService } = require("./local-service.cjs");
 const { LifecycleOperations } = require("./lifecycle-operations.cjs");
+const { ScheduledOwnerActivation } = require("./schedule-owner-activation.cjs");
 const { randomUUID, createHash } = require("node:crypto");
 const { isDeepStrictEqual } = require("node:util");
 const { mkdir, readFile, writeFile, rename, realpath } = require("node:fs/promises");
@@ -23,7 +24,7 @@ const { UsageAnalytics } = require("./analytics.cjs");
 const { CoreLibrary } = require("./library.cjs");
 const { CoreNotifications } = require("./notifications.cjs");
 const { manage } = require("./management.cjs");
-const { taskCatalog } = require("./task-catalog.cjs");
+const { taskCatalog, OwnerTasks } = require("./task-catalog.cjs");
 const {
   isTaskDraftConfiguration,
   manageTaskDraft,
@@ -136,6 +137,8 @@ class CoreBackend {
     /** @type {InstanceType<typeof SubmissionRecovery>|undefined} */
     this._submissions = undefined;
     this.closing = false;
+    this.ownerTasks = new OwnerTasks(this);
+    this.scheduleOwners = new ScheduledOwnerActivation(this);
     this.library = new CoreLibrary(this);
     this.worktrees = new CoreWorktrees(this);
     this.worktreeAdmission = new WorktreeAdmission(this);
@@ -264,6 +267,7 @@ class CoreBackend {
     if (!this._observations) {
       const backend = this;
       this._observations = new HistoryObservation({
+        ownerTasks: backend.ownerTasks,
         get analytics() {
           return backend.analytics;
         },
@@ -486,6 +490,7 @@ class CoreBackend {
               ...projectCoreCapabilities(this.binary, live?.client?.capabilities),
               instanceId: live?.service?.serviceId ?? null,
               connectionGeneration: live?.connectionGeneration ?? 0,
+              taskDirectoryRevision: this.ownerTasks.revision,
             },
             state: state && live?.resourceInitializing ? { ...state, connected: false } : state,
             pending: (live?.pending ?? [])
@@ -1665,6 +1670,13 @@ class CoreBackend {
       return workspaceCommand(this, request);
     }
     if (typeof projectId !== "string") throw new Error("缺少项目标识");
+    if (name === "connect" && request.resumeScheduling === true)
+      for (const owner of this.worktrees.owners(
+        "logicalProjectId" in request && typeof request.logicalProjectId === "string"
+          ? request.logicalProjectId
+          : projectId,
+      ))
+        await this.lifecycleOperations.resumeScheduling(owner.id);
     const project = await this.start(projectId);
     if (this.closing) throw new Error("应用正在退出");
     await this.worktreeAdmission.admit(project, name, request);
@@ -2244,6 +2256,8 @@ class CoreBackend {
 
   async disconnect() {
     this.closing = true;
+    this.ownerTasks.stop();
+    this.scheduleOwners?.stop();
     for (const project of new Set([
       ...this.projects.values(),
       ...[...this.ownedEngines.values()].map((entry) => entry.project),

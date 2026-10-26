@@ -1,13 +1,8 @@
 // @ts-check
 "use strict";
 const { modelRecord } = require("@areal/workbench/core-model-contract");
-const { readObservedTasks } = require("./history-contract.cjs");
-const { workOverview } = require("./remote-core-decoder.cjs");
 /** @typedef {{kind:'completion'|'approval'|'question',projectId:string,threadId?:string,taskId?:string,runId?:string|null,questionId?:string,body:string,silent?:boolean}} NotificationContent */
 /** @typedef {NotificationContent & {id:string}} Notice */
-/** @typedef {import('@areal/workbench/core-model-contract').CoreTask & {mode?:string,objective:string,runs:Array<import('./history-contract.cjs').ObservedTask['runs'][number] & {objective?:string|null}>}} NotificationTask */
-/** @typedef {{taskId:string,objective:string,message:{id:string,status:string,runId:string,expiresAt?:number|null}}} InboxRow */
-
 // 通知来自 Core 活动事件或定时投影的变化；去重提示不替代执行状态。
 class CoreNotifications {
   /** @param {(notice:Notice)=>void} deliver */
@@ -62,161 +57,116 @@ class CoreNotifications {
   }
 }
 
-// Core exposes per-Task subscriptions (shared 128-connection quota), not a
-// project-wide Task feed. Observe paged public Task/Inbox snapshots centrally;
-// never poll from a renderer or infer execution from GUI visibility.
+// Notice facts cover every committed event after the watch barrier. The first
+// directory snapshot is only a baseline and never generates historical alerts.
 class TaskNotificationMonitor {
-  /** @param {import('@areal/runtime-client/core').CoreClient} client @param {string} projectId @param {(notice:Notice)=>void} deliver @param {(error:unknown)=>void} report @param {(tasks:NotificationTask[])=>Promise<void>} [onTasks] */
-  constructor(client, projectId, deliver, report, onTasks) {
-    this.client = client;
-    this.projectId = projectId;
+  /** @param {InstanceType<typeof import('./task-catalog.cjs').OwnerTasks>} owner @param {import('./project-state.cjs').CoreProject} project @param {import('@areal/runtime-client/core').CoreClient} client @param {(notice:Notice)=>void} deliver @param {(error:unknown)=>void} report @param {(rows:import('@areal/workbench/desktop-contract/management-tasks').TaskDirectoryRow[],facts:import('@areal/workbench/desktop-contract/management-tasks').OwnerNoticeFact[],baselineTaskIds:string[])=>Promise<void>} reconcile */
+  constructor(owner, project, client, deliver, report, reconcile) {
+    this.projectId = project.logicalProjectId ?? project.id;
     this.deliver = deliver;
     this.report = report;
-    this.onTasks = onTasks;
-    /** @type {Set<string>|null} */
-    this.previous = null;
+    this.reconcile = reconcile;
+    this.hostReady = false;
     this.stopped = false;
+    /** @type {Map<string,import('@areal/workbench/desktop-contract/management-tasks').TaskDirectoryRow>} */
+    this.rows = new Map();
+    /** @type {Map<string,import('@areal/workbench/desktop-contract/management-tasks').OwnerNoticeFact>} */
+    this.completions = new Map();
+    /** @type {Set<string>} */
+    this.baselineTasks = new Set();
     /** @type {Promise<void>|null} */
     this.pending = null;
-    /** @type {NodeJS.Timeout|undefined} */
-    this.timer = undefined;
-  }
-  async start() {
-    await this.refresh();
-    if (!this.stopped)
-      this.timer = setInterval(() => {
-        void this.refresh();
-      }, 2000);
-  }
-  stop() {
-    this.stopped = true;
-    clearInterval(this.timer);
-  }
-  /** @template T @param {string} method @param {(value:unknown)=>{data:T[],nextCursor?:string|null}} decode */
-  async pages(method, decode) {
-    /** @type {T[]} */
-    const rows = [];
-    /** @type {string|null|undefined} */
-    let after;
-    do {
-      const page = await this.client.request(
-        method,
-        { limit: 100, ...(after ? { after } : {}) },
-        { decode },
-      );
-      rows.push(...page.data);
-      if (page.nextCursor && page.nextCursor === after) throw new Error("任务通知分页未前进");
-      after = page.nextCursor;
-    } while (after && !this.stopped);
-    return rows;
-  }
-  refresh() {
-    if (this.stopped) return Promise.resolve();
-    if (this.pending) return this.pending;
-    this.pending = (async () => {
-      const [tasks, inbox] = await Promise.all([
-        this.pages("areal/task/list", readTaskPage),
-        this.pages("areal/inbox/list", readInboxPage),
-      ]);
-      if (this.stopped) return;
-      await this.onTasks?.(tasks);
-      if (this.stopped) return;
-      /** @type {Map<string,Notice>} */
-      const current = new Map();
-      for (const task of tasks)
-        for (const run of task.runs ?? []) {
-          if (run.status !== "completed") continue;
-          const id = JSON.stringify([this.projectId, "task-completion", task.id, run.id]);
-          current.set(id, {
+    this.observation = owner.attach(
+      project,
+      client,
+      (facts) => {
+        for (const fact of facts) {
+          if (fact.kind === "taskCompleted" && fact.taskId && fact.runId)
+            this.completions.set(`${fact.taskId}:${fact.runId}`, fact);
+          const kind =
+            fact.kind === "taskCompleted"
+              ? "completion"
+              : fact.interactionKind === "approval"
+                ? "approval"
+                : "question";
+          const id =
+            fact.kind === "taskCompleted"
+              ? JSON.stringify([this.projectId, "task-completion", fact.taskId, fact.runId])
+              : fact.kind === "questionPending"
+                ? JSON.stringify([this.projectId, "task-question", fact.taskId, fact.questionId])
+                : JSON.stringify([this.projectId, kind, fact.threadId, fact.interactionId]);
+          if (fact.expiresAt != null && fact.expiresAt * 1000 <= Date.now()) continue;
+          this.deliver({
             id,
-            kind: "completion",
+            kind,
             projectId: this.projectId,
-            taskId: task.id,
-            runId: run.id,
-            body: task.objective.slice(0, 200),
+            ...(fact.taskId ? { taskId: fact.taskId } : {}),
+            ...(fact.runId ? { runId: fact.runId } : {}),
+            ...(fact.threadId ? { threadId: fact.threadId } : {}),
+            ...(fact.questionId ? { questionId: fact.questionId } : {}),
+            body: fact.objectivePreview.slice(0, 200),
           });
         }
-      for (const row of inbox) {
-        const message = row.message;
-        if (
-          message.status !== "pending" ||
-          (message.expiresAt != null && message.expiresAt * 1000 <= Date.now())
-        )
-          continue;
-        const id = JSON.stringify([this.projectId, "task-question", row.taskId, message.id]);
-        current.set(id, {
-          id,
-          kind: "question",
-          projectId: this.projectId,
-          taskId: row.taskId,
-          runId: message.runId,
-          questionId: message.id,
-          body: row.objective.slice(0, 200),
-        });
-      }
-      if (this.client.capabilities?.methods?.includes("areal/work/overview")) {
-        const schedules = new Map(
-          tasks.filter((task) => task.mode === "scheduled").map((task) => [task.id, task]),
-        );
-        /** @type {string|null|undefined} */
-        let cursor;
-        const cursors = new Set();
-        do {
-          const page = await this.client.request(
-            "areal/work/overview",
-            { filter: "attention", limit: 100, ...(cursor ? { cursor } : {}) },
-            { decode: workOverview },
-          );
-          if (this.stopped) return;
-          for (const row of page.data)
-            for (const attention of row.attentionRefs ?? []) {
-              const task =
-                typeof attention.taskId === "string" ? schedules.get(attention.taskId) : undefined;
-              if (
-                !task ||
-                (attention.kind !== "approval" && attention.kind !== "syncQuestion") ||
-                typeof attention.interactionId !== "string" ||
-                typeof attention.threadId !== "string" ||
-                (attention.runId != null && typeof attention.runId !== "string")
-              )
-                continue;
-              const kind = attention.kind === "approval" ? "approval" : "question";
-              const id = JSON.stringify([
-                this.projectId,
-                kind,
-                attention.threadId,
-                attention.interactionId,
-              ]);
-              current.set(id, {
-                id,
-                kind,
-                projectId: this.projectId,
-                taskId: task.id,
-                runId: attention.runId,
-                threadId: attention.threadId,
-                body: (
-                  task.runs.find((run) => run.id === attention.runId)?.objective ?? task.objective
-                ).slice(0, 200),
-              });
-            }
-          cursor = page.nextCursor;
-          if (cursor && cursors.has(cursor)) throw new Error("任务关注分页未前进");
-          cursors.add(cursor);
-        } while (cursor && !this.stopped);
-      }
-      const previous = this.previous;
-      this.previous = new Set(current.keys());
-      // The first successful read on every Core connection is a baseline. A
-      // disconnected interval is not evidence of a new live notification.
-      if (previous) for (const [id, notice] of current) if (!previous.has(id)) this.deliver(notice);
-    })()
-      .catch((error) => {
-        if (!this.stopped) this.report(error);
+      },
+      async (rows, baseline) => {
+        for (const row of rows) {
+          this.rows.set(row.id, row);
+          if (baseline && row.mode === "scheduled") this.baselineTasks.add(row.id);
+        }
+        void this.refresh();
+      },
+      report,
+    );
+  }
+  start() {
+    return this.observation.start();
+  }
+  ready() {
+    this.hostReady = true;
+    void this.refresh();
+  }
+  refresh() {
+    if (!this.hostReady || this.stopped) return Promise.resolve();
+    if (this.pending) return this.pending;
+    const status = { failed: false };
+    this.pending = Promise.resolve()
+      .then(async () => {
+        while (
+          !this.stopped &&
+          (this.rows.size || this.completions.size || this.baselineTasks.size)
+        ) {
+          const rows = [...this.rows.values()];
+          const facts = [...this.completions.values()];
+          const baselineTaskIds = [...this.baselineTasks];
+          this.baselineTasks.clear();
+          this.rows.clear();
+          this.completions.clear();
+          try {
+            await this.reconcile(rows, facts, baselineTaskIds);
+          } catch (error) {
+            for (const row of rows) if (!this.rows.has(row.id)) this.rows.set(row.id, row);
+            for (const fact of facts) this.completions.set(`${fact.taskId}:${fact.runId}`, fact);
+            for (const id of baselineTaskIds) this.baselineTasks.add(id);
+            status.failed = true;
+            this.report(error);
+            return;
+          }
+        }
       })
       .finally(() => {
         this.pending = null;
+        if (
+          !status.failed &&
+          !this.stopped &&
+          (this.rows.size || this.completions.size || this.baselineTasks.size)
+        )
+          void this.refresh();
       });
     return this.pending;
+  }
+  stop() {
+    this.stopped = true;
+    this.observation.stop();
   }
 }
 
@@ -312,60 +262,6 @@ function isNotificationContent(value) {
     (value.runId == null || typeof value.runId === "string") &&
     (value.silent === undefined || typeof value.silent === "boolean")
   );
-}
-/** @param {unknown} value */
-function page(value) {
-  if (
-    !modelRecord(value) ||
-    !Array.isArray(value.data) ||
-    (value.nextCursor != null && typeof value.nextCursor !== "string")
-  )
-    throw new Error("任务通知分页结构无效");
-  return { data: value.data, nextCursor: value.nextCursor };
-}
-/** @param {unknown} value @returns {{data:NotificationTask[],nextCursor?:string|null}} */
-function readTaskPage(value) {
-  const result = page(value);
-  const data = readObservedTasks(result.data).map((task) => {
-    if (typeof task.objective !== "string") throw new Error("任务通知目标无效");
-    const runs = task.runs.map((run) => {
-      if (run.objective != null && typeof run.objective !== "string")
-        throw new Error("任务通知轮次目标无效");
-      return { ...run, objective: run.objective };
-    });
-    return { ...task, objective: task.objective, runs };
-  });
-  return { ...result, data };
-}
-/** @param {unknown} value @returns {{data:InboxRow[],nextCursor?:string|null}} */
-function readInboxPage(value) {
-  const result = page(value);
-  const data = result.data.map((/** @type {unknown} */ row) => {
-    if (
-      !modelRecord(row) ||
-      typeof row.taskId !== "string" ||
-      typeof row.objective !== "string" ||
-      !modelRecord(row.message) ||
-      typeof row.message.id !== "string" ||
-      typeof row.message.status !== "string" ||
-      typeof row.message.runId !== "string" ||
-      (row.message.expiresAt != null && typeof row.message.expiresAt !== "number")
-    )
-      throw new Error("任务收件箱通知结构无效");
-    return {
-      ...row,
-      taskId: row.taskId,
-      objective: row.objective,
-      message: {
-        ...row.message,
-        id: row.message.id,
-        status: row.message.status,
-        runId: row.message.runId,
-        expiresAt: row.message.expiresAt,
-      },
-    };
-  });
-  return { ...result, data };
 }
 module.exports = {
   CoreNotifications,

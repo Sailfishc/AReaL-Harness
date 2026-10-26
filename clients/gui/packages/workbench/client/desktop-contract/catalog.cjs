@@ -21,7 +21,7 @@ const tasks = require("./management-tasks.cjs");
 /** @typedef {{projectId:string,executionProjectId?:string} & ({status:'ready',connectionGeneration:number,source:'live',coverage:{kind:'complete'},readAt:number}|{status:'unobserved',source:'published',coverage:Coverage,readAt:number,connectionGeneration?:never}|Extract<CatalogOwner,{status:'error'}>)} ObservedCatalogOwner */
 /** @typedef {{projectId:string,executionProjectId?:string,projectName?:string,code:string,message:string,stage?:string}} CatalogError */
 /** @typedef {{projectId:string,executionProjectId?:string,projectName?:string,scope:'independent'|'project'}} CatalogScope */
-/** @typedef {import('./management-tasks.cjs').Task & CatalogScope} CatalogTask */
+/** @typedef {import('./management-tasks.cjs').TaskDirectoryRow & CatalogScope} CatalogTask */
 /** @typedef {import('./management-tasks.cjs').InboxEntry & CatalogScope} CatalogInbox */
 /** @typedef {{data:(CatalogTask|CatalogInbox)[],errors:CatalogError[],hasMore:boolean,owners:CatalogOwner[],projectId?:string,requestId?:string,viewEpoch?:number,source?:'published',executionState?:'unobserved'}} TasksResponse */
 /** @typedef {{since:number,today:string,yesterday:string,days:Record<string,{activeMs:number,tokens:number,skillCalls:number}>,activeMs:number,activeDays:number,streak:number,longestStreak:number,tokens:number,undatedTokens:number,reportedTurns:number,skillCalls:number,undatedSkills:number,skills:Array<{name:string,calls:number}>,syncing:boolean,error:string|null}} AnalyticsSummary */
@@ -135,6 +135,16 @@ function rowScope(value) {
     (value.scope === "project" || value.scope === "independent")
   );
 }
+/** @param {unknown} value @returns {value is CatalogTask} */
+function catalogTask(value) {
+  if (!rowScope(value)) return false;
+  const row = Object.fromEntries(
+    Object.entries(value).filter(
+      ([key]) => !["projectId", "executionProjectId", "projectName", "scope"].includes(key),
+    ),
+  );
+  return tasks.taskDirectoryRow(row);
+}
 /** @param {Record<string,unknown>} request @param {unknown} value @returns {value is TasksResponse} */
 function taskCatalog(request, value) {
   if (
@@ -153,10 +163,9 @@ function taskCatalog(request, value) {
     (value.viewEpoch !== undefined && !integer(value.viewEpoch))
   )
     return false;
-  if (!value.data.every(request.operation === "inbox" ? tasks.inboxEntry : tasks.task))
+  if (!value.data.every(request.operation === "inbox" ? tasks.inboxEntry : catalogTask))
     return false;
   const preview = request.operation === "preview";
-  const passive = preview || request.operation === "observe";
   if (request.projectId !== undefined) {
     const selected = value.owners[0];
     if (
@@ -167,9 +176,7 @@ function taskCatalog(request, value) {
       selected.projectId !== request.projectId ||
       value.data.some((row) => row.projectId !== request.projectId) ||
       value.errors.some((error) => error.projectId !== request.projectId) ||
-      !(passive ? ["ready", "unobserved", "error"] : ["ready", "error"]).includes(
-        selected.status,
-      ) ||
+      !["ready", "unobserved", "error"].includes(selected.status) ||
       (selected.status === "ready" && !integer(selected.connectionGeneration))
     )
       return false;

@@ -67,7 +67,7 @@ export function ComposerWorkspaceContext({
                     state={preparation}
                     onRetry={
                         preparation.kind === "unavailable"
-                            ? () => request.current("connect", { projectId: project.id })
+                            ? () => request.current("connect", { projectId: project.id, resumeScheduling: true })
                             : undefined
                     }
                 />
