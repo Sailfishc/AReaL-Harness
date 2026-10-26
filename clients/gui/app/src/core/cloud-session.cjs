@@ -4,11 +4,19 @@ const { randomUUID } = require("node:crypto");
 
 /** 一个桌面会话绑定远端原生 thread，连接方式与运行平台无关。 */
 class CloudSession {
-    constructor({ platform, binding, save, onNotification = () => {}, onClose = () => {} }) {
+    constructor({
+        platform,
+        binding,
+        save,
+        onNotification = () => {},
+        onSnapshot = () => {},
+        onClose = () => {},
+    }) {
         this.platform = platform;
         this.binding = binding;
         this.save = save;
         this.onNotification = onNotification;
+        this.onSnapshot = onSnapshot;
         this.onClose = onClose;
         this.client = null;
         this.connecting = null;
@@ -91,10 +99,16 @@ class CloudSession {
     async read({ signal } = {}) {
         const client = await this.connect({ signal });
         // 读取和订阅权威历史；重连不重放任何 turn/start。
+        // 在响应分派栈安装快照，避免覆盖同批到达的后续通知。
+        const options = { onResult: (result) => this.onSnapshot(result.thread) };
         if (client.capabilities?.methods?.includes("areal/thread/observe")) {
-            return client.request("areal/thread/observe", { threadId: this.binding.threadId });
+            return client.request(
+                "areal/thread/observe",
+                { threadId: this.binding.threadId },
+                options,
+            );
         }
-        return client.request("thread/resume", { threadId: this.binding.threadId });
+        return client.request("thread/resume", { threadId: this.binding.threadId }, options);
     }
 
     async query(input, { signal } = {}) {

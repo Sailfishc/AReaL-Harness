@@ -105,6 +105,8 @@ TUI 顶部和 Web 显示 YOLO/ASK_PERMISSIONS，以 Core 状态为准。TUI 审�
 
 `--prompt` 只输出本次 Turn 的文本，Thread ID 写 stderr；失败返回非零，不读取 TUI 偏好。外观配置见[配置指南](configuration.md#tui)。
 
+`--prompt` 和 `--input-file` 可显式加 `--no-session-name`，关闭展示用自动命名并保留持久历史；`areal serve --tui` 同样传递该选项。客户端先检查 Core 能力，再按原入口创建或恢复会话，仅修改命名选项，等待配置成功后提交任务；配置冲突会报错，不自动重试。省略开关不会改写已有选择。该开关不适用于全屏 TUI 或 `--goal`；`areal exec/-p` 的同名选项见 [CLI 契约](../api/claude-cli.md)。这只省去可选命名请求，不表示任务 token 或耗时已有测量收益。
+
 ## 思考与等待状态
 
 Web 将 Chat Completions / Responses 返回的思考文本放在可展开的“模型思考”区域，只有摘要时标为“思考摘要”，正文独立展示。等待正文期间显示“正在等待模型回复”或“已收到模型思考”，并显示本页观察到的等待秒数；超过 30 秒提示可继续等待、刷新或停止。这是界面提醒，不表示模型超时或停止。刷新当前任务保留同一请求的观察计时，重新打开页面从当前观察时刻计时。
@@ -208,3 +210,5 @@ areal cloud artifact TASK_ID artifact.json --output ./artifact.json
 token 文件只包含原始 token；Unix 权限须为 `0600` 或更严格。也可以通过 `AREAL_CLOUD_TOKEN` 注入，不提供会暴露在进程参数中的 token 参数。`--url` 和 `--token-file` 可覆盖环境变量。GUI token 独立使用系统安全存储加密，不将其导出给 CLI。
 
 `exec` 省略 prompt 时读取标准输入，最多 1 MiB；默认等待最多 900 秒，可通过 `--timeout-seconds` 调整。输出为 JSON：先给受理身份，完成后给 TaskResult 和产物清单。仅作业 DONE 不算成功，结果还必须为 OK。`--no-wait` 只证明受理，不代表任务完成。等待超时或退出 CLI 不取消远端任务；可使用返回的 ID 查询。网络中断不会自动重发 POST，stderr 的请求 UUID 用于核对未知提交。
+
+查询和下载时直接使用受理回执中的原始 ID；CLI 会转义 URL 路径段，包括 Task ID 中的冒号，以兼容 API Space 网关。不要手动将 ID 预编码为 `%3A`。

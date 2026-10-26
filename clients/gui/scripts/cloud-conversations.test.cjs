@@ -74,7 +74,7 @@ test("原生 WS 协议夹具：并发创建去重、流式投影、重启复用�
         token: "token",
     });
     const backend = {
-        textInput: text => [{type:"text",text}],
+        textInput: (text) => [{ type: "text", text }],
         saved: [{ id: "project" }],
         cloud: { client: async () => platform },
         save: async (_name, value) => {
@@ -129,4 +129,139 @@ test("原生 WS 协议夹具：并发创建去重、流式投影、重启复用�
         /另一个 Cloud/,
     );
     assert.equal(queries, 1);
+});
+
+async function recoveryFixture(t, onObserve = (_socket, reply, thread) => reply({ thread })) {
+    const thread = { id: "recovery-thread", turns: [], status: { type: "idle" } };
+    const state = { thread, connections: 0, queries: 0, observe: onObserve };
+    const http = createServer();
+    const ws = new WebSocketServer({ server: http });
+    ws.on("connection", (socket) => {
+        state.connections++;
+        socket.on("message", (raw) => {
+            const { id, method } = JSON.parse(raw);
+            if (!id) return;
+            const reply = (result) => socket.send(JSON.stringify({ id, result }));
+            if (method === "initialize") return reply({});
+            if (method === "areal/capabilities")
+                return reply({
+                    apiVersion: "areal.core.v1",
+                    methods: ["areal/thread/start", "areal/thread/observe"],
+                });
+            if (method === "areal/profile/list") return reply({ data: [] });
+            if (method === "areal/thread/start") return reply({ thread });
+            if (method === "areal/thread/observe") return state.observe(socket, reply, thread);
+            assert.equal(method, "turn/start");
+            state.queries++;
+            const turn = { id: `new-${state.queries}`, status: "completed", items: [] };
+            thread.turns.push(turn);
+            reply({ turn });
+            socket.send(
+                JSON.stringify({ method: "turn/completed", params: { threadId: thread.id, turn } }),
+            );
+        });
+    });
+    http.listen(0, "127.0.0.1");
+    await once(http, "listening");
+    const platform = new CloudClient({
+        baseURL: `http://127.0.0.1:${http.address().port}/api`,
+        token: "token",
+    });
+    const backend = {
+        home: "/unused",
+        saved: [{ id: "project" }],
+        textInput: (text) => [{ type: "text", text }],
+        cloud: { client: async () => platform },
+        save: async () => {},
+        onChange() {},
+        snapshot: () => ({}),
+    };
+    const manager = new CloudConversations(backend);
+    t.after(() => {
+        manager.close();
+        for (const socket of ws.clients) socket.terminate();
+        ws.close();
+        http.closeAllConnections();
+        http.close();
+    });
+    await manager.create({ projectId: "project", requestId: randomUUID() });
+    return { ...state, state, manager, record: manager.records[0], ws };
+}
+
+test("observe 快照与完成通知同批到达时保留最终历史", async (t) => {
+    const { manager, record, state } = await recoveryFixture(t);
+    state.thread.turns = [{ id: "existing-turn", status: "inProgress", items: [] }];
+    state.observe = (socket, reply, thread) => {
+        // 同一 TCP 批次：先发旧快照，再发随后产生的权威完成通知。
+        socket._socket.cork();
+        reply({ thread });
+        thread.turns[0] = {
+            id: "existing-turn",
+            status: "completed",
+            items: [{ id: "answer", type: "agentMessage", text: "finished" }],
+        };
+        socket.send(
+            JSON.stringify({
+                method: "turn/completed",
+                params: { threadId: thread.id, turn: thread.turns[0] },
+            }),
+        );
+        socket._socket.uncork();
+    };
+    await manager.open(record, true);
+    await new Promise((resolve) => setImmediate(resolve));
+    const turn = manager.projection("project").threads[state.thread.id].turns[0];
+    assert.equal(turn.status, "completed");
+    assert.equal(turn.items[0].text, "finished");
+});
+
+test("在途断线后显式恢复读取远端完成历史，再允许发送下一轮", async (t) => {
+    const { manager, record, state, ws } = await recoveryFixture(t);
+    state.thread.turns = [{ id: "offline-turn", status: "inProgress", items: [] }];
+    await manager.open(record, true);
+    const live = manager.live.get(record.id);
+    live.session.client.close();
+    for (const socket of ws.clients) socket.terminate();
+    state.thread.turns[0].status = "completed";
+    await manager.command({ operation: "open", projectId: "project", threadId: state.thread.id });
+    assert.equal(state.connections, 1, "导航不会隐式唤醒云端运行时");
+    await manager.command({
+        operation: "reconnect",
+        projectId: "project",
+        threadId: state.thread.id,
+    });
+    assert.equal(
+        manager.projection("project").threads[state.thread.id].turns[0].status,
+        "completed",
+    );
+    await manager.command({
+        operation: "send",
+        projectId: "project",
+        threadId: state.thread.id,
+        text: "next turn",
+    });
+    assert.equal(state.queries, 1, "恢复只读取历史，不重放上一轮查询");
+    assert.equal(state.connections, 2);
+});
+
+test("Cloud 读取超过 4 MiB 的合法原生历史快照", async (t) => {
+    const { manager, record, state } = await recoveryFixture(t);
+    state.thread.turns = [
+        {
+            id: "large-turn",
+            status: "completed",
+            items: [
+                {
+                    id: "large-answer",
+                    type: "agentMessage",
+                    text: "x".repeat(4 * 1024 * 1024 + 1024),
+                },
+            ],
+        },
+    ];
+    await manager.open(record, true);
+    assert.equal(
+        manager.projection("project").threads[state.thread.id].turns[0].items[0].text.length,
+        4 * 1024 * 1024 + 1024,
+    );
 });

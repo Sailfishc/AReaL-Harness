@@ -69,9 +69,12 @@ class CloudConversations {
         if (!record.binding.workspace && record.binding.baseURL !== service.baseURL.href) {
             const bound = new URL(record.binding.baseURL);
             const suffix = bound.pathname.slice(service.baseURL.pathname.length).replace(/\/$/, "");
-            if (bound.origin === service.baseURL.origin && bound.pathname.startsWith(service.baseURL.pathname)
-                && /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(suffix))
-                platform = new CloudClient({baseURL: bound.href, token: service.token});
+            if (
+                bound.origin === service.baseURL.origin &&
+                bound.pathname.startsWith(service.baseURL.pathname) &&
+                /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(suffix)
+            )
+                platform = new CloudClient({ baseURL: bound.href, token: service.token });
         }
         if (record.binding.baseURL !== platform.baseURL.href)
             throw new Error("此会话属于另一个 Cloud 后端，请恢复原后端配置");
@@ -93,6 +96,7 @@ class CloudConversations {
                 record.binding = binding;
                 await this.save();
             },
+            onSnapshot: (thread) => model.replace(thread),
             onNotification: (method, params) => {
                 model.event(method, params);
                 if (method === "turn/completed") {
@@ -119,8 +123,7 @@ class CloudConversations {
         const live = await this.context(record);
         if (!wake && record.binding.threadId && !live.session.client?.ready) return live;
         try {
-            const result = await live.session.read();
-            live.model.replace(result.thread);
+            await live.session.read();
             live.model.connection(true);
             live.error = null;
             this.backend.onChange();
@@ -150,7 +153,12 @@ class CloudConversations {
                     projectId: request.projectId,
                     title: "Cloud",
                     createdAt: Math.floor(Date.now() / 1000),
-                    binding: { baseURL: platform.baseURL.href, workspace: id, createId: id, threadRequestId: id },
+                    binding: {
+                        baseURL: platform.baseURL.href,
+                        workspace: id,
+                        createId: id,
+                        threadRequestId: id,
+                    },
                 };
                 this.records.push(record);
                 await this.save();
@@ -162,15 +170,29 @@ class CloudConversations {
         return task;
     }
     async media(request) {
-        const record = this.records.find(value => value.projectId === request.projectId && value.binding.threadId === request.threadId);
+        const record = this.records.find(
+            (value) =>
+                value.projectId === request.projectId &&
+                value.binding.threadId === request.threadId,
+        );
         if (!record) throw new Error("未知 Cloud 会话");
         const live = await this.open(record, true);
         const platform = live.session.platform;
-        if (request.operation === "upload" && !live.session.client.capabilities?.features?.blobUpload)
+        if (
+            request.operation === "upload" &&
+            !live.session.client.capabilities?.features?.blobUpload
+        )
             throw new Error("远端尚不支持附件上传，请升级运行包");
-        return mediaCommand({model: live.model, client: live.session.client,
-            endpoint: platform.baseURL.href, token: platform.token}, request,
-            {submit: (project, method, params) => project.client.request(method, params)});
+        return mediaCommand(
+            {
+                model: live.model,
+                client: live.session.client,
+                endpoint: platform.baseURL.href,
+                token: platform.token,
+            },
+            request,
+            { submit: (project, method, params) => project.client.request(method, params) },
+        );
     }
     async command(request) {
         if (request.operation === "create") return this.create(request);
@@ -180,22 +202,22 @@ class CloudConversations {
                 value.binding.threadId === request.threadId,
         );
         if (!record) throw new Error("未知 Cloud 会话");
-        if (request.operation === "open") {
-            await this.open(record);
+        if (request.operation === "open" || request.operation === "reconnect") {
+            await this.open(record, request.operation === "reconnect");
             return this.backend.snapshot();
         }
         const live = await this.context(record);
         if (request.operation === "send") {
-            if (
-                live.submitting ||
-                live.model.state.threads[request.threadId]?.turns?.some(
-                    (turn) => turn.status === "inProgress",
-                )
-            )
-                throw new Error("请等待当前 Cloud 查询完成");
+            if (live.submitting) throw new Error("请等待当前 Cloud 查询完成");
             live.submitting = true;
             try {
                 await this.open(record, true);
+                if (
+                    live.model.state.threads[request.threadId]?.turns?.some(
+                        (turn) => turn.status === "inProgress",
+                    )
+                )
+                    throw new Error("请等待当前 Cloud 查询完成");
                 const result = await live.session.query(messageInput(this.backend, request));
                 if (record.title === "Cloud") {
                     record.title = `Cloud · ${(request.text?.trim() || request.attachments?.[0]?.name || "附件").slice(0, 60)}`;

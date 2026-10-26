@@ -172,6 +172,8 @@ thread/configure 使用 expectedRevision，仅空闲且不压缩时生效。rese
 
 options.readOnly 收窄 Scope 写根和网络；toolAllowlist 收窄 Profile；preapprovedTools 不能取消部署强制审批，且只匹配当前工具名；预批准读取工具不会豁免它触发的 hook。maxModelRounds 为 1–1024，最后一轮仅交接，不等于团队请求预算。Profile/Workflow 定义使用不可变 id/revision；Skill 引用不冻结资源内容，见下文。
 
+`features.automaticSessionName` 表示支持 `options.automaticSessionName: boolean`；`areal/thread/start` 与 `areal/thread/configure` 使用同一选项，省略或 true 保留自动命名，false 禁止后续命名请求。配置替换时客户端应保留已有选择；来源 Turn 的冻结配置、在途请求和恢复边界见 [Core 会话名称](core.md#会话名称)。
+
 <a id="skills"></a>
 ### 有界历史显示
 
@@ -515,4 +517,4 @@ Core 的 `externalCua` 能力表示支持原始 CUA 工具结果与轮次清理�
 
 ## Cloud 配置与会话生命周期
 
-Cloud 设置只接受 `status` 和 `save`，不提供会分配资源的 `check`。固定地址为 `/openapi/v1/app-server/`；桌面可信适配器用持久化的 Cloud Session UUID 派生 workspace endpoint。新建会话时建立原生 thread 并投影真实连接状态，query 直接使用该连接。服务端回收后的断线不自动重连；下一条用户消息恢复原 endpoint、thread 和 UPFS。已提交但结果未知的 Turn 不自动重发。旧会话 endpoint 保持绑定，不因修改服务地址而迁移到新工作区。
+Cloud 设置只接受 `status` 和 `save`，不提供会分配资源的 `check`。固定地址为 `/openapi/v1/app-server/`；桌面可信适配器用持久化的 Cloud Session UUID 派生 workspace endpoint。新建会话时建立原生 thread 并投影真实连接状态，query 直接使用该连接。服务端回收后的断线不自动重连；下一条用户消息或显式“恢复连接”恢复原 endpoint、thread 和 UPFS；断线前仍显示运行中时可显式恢复并读取权威历史，避免旧状态阻塞发送。已提交但结果未知的 Turn 不自动重发。旧会话 endpoint 保持绑定，不因修改服务地址而迁移到新工作区。

@@ -113,6 +113,13 @@
             },
             "type": "array"
           },
+          "automaticSessionName": {
+            "description": "显式关闭展示用命名推理；缺失时保留既有自动命名行为。",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
           "externalCua": {
             "type": "boolean"
           },
@@ -2989,6 +2996,13 @@
                   },
                   "type": "array"
                 },
+                "automaticSessionName": {
+                  "description": "显式关闭展示用命名推理；缺失时保留既有自动命名行为。",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
                 "externalCua": {
                   "type": "boolean"
                 },
@@ -4840,6 +4854,13 @@
                   },
                   "type": "array"
                 },
+                "automaticSessionName": {
+                  "description": "显式关闭展示用命名推理；缺失时保留既有自动命名行为。",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
                 "externalCua": {
                   "type": "boolean"
                 },
@@ -5511,6 +5532,13 @@
                     "type": "string"
                   },
                   "type": "array"
+                },
+                "automaticSessionName": {
+                  "description": "显式关闭展示用命名推理；缺失时保留既有自动命名行为。",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
                 },
                 "externalCua": {
                   "type": "boolean"
@@ -10720,6 +10748,13 @@
                   },
                   "type": "array"
                 },
+                "automaticSessionName": {
+                  "description": "显式关闭展示用命名推理；缺失时保留既有自动命名行为。",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
                 "externalCua": {
                   "type": "boolean"
                 },
@@ -14079,6 +14114,13 @@
                   },
                   "type": "array"
                 },
+                "automaticSessionName": {
+                  "description": "显式关闭展示用命名推理；缺失时保留既有自动命名行为。",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
                 "externalCua": {
                   "type": "boolean"
                 },
@@ -15754,6 +15796,13 @@
                     "type": "string"
                   },
                   "type": "array"
+                },
+                "automaticSessionName": {
+                  "description": "显式关闭展示用命名推理；缺失时保留既有自动命名行为。",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
                 },
                 "externalCua": {
                   "type": "boolean"
@@ -17845,6 +17894,13 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "automaticSessionName": {
+            "description": "显式关闭展示用命名推理；缺失时保留既有自动命名行为。",
+            "type": [
+              "boolean",
+              "null"
+            ]
           },
           "externalCua": {
             "type": "boolean"
@@ -25409,6 +25465,13 @@
               },
               "type": "array"
             },
+            "automaticSessionName": {
+              "description": "显式关闭展示用命名推理；缺失时保留既有自动命名行为。",
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
             "externalCua": {
               "type": "boolean"
             },
@@ -25894,6 +25957,13 @@
                 "type": "string"
               },
               "type": "array"
+            },
+            "automaticSessionName": {
+              "description": "显式关闭展示用命名推理；缺失时保留既有自动命名行为。",
+              "type": [
+                "boolean",
+                "null"
+              ]
             },
             "externalCua": {
               "type": "boolean"
@@ -29058,6 +29128,13 @@
                       "type": "string"
                     },
                     "type": "array"
+                  },
+                  "automaticSessionName": {
+                    "description": "显式关闭展示用命名推理；缺失时保留既有自动命名行为。",
+                    "type": [
+                      "boolean",
+                      "null"
+                    ]
                   },
                   "externalCua": {
                     "type": "boolean"
@@ -32511,6 +32588,13 @@
                       },
                       "type": "array"
                     },
+                    "automaticSessionName": {
+                      "description": "显式关闭展示用命名推理；缺失时保留既有自动命名行为。",
+                      "type": [
+                        "boolean",
+                        "null"
+                      ]
+                    },
                     "externalCua": {
                       "type": "boolean"
                     },
@@ -35860,6 +35944,13 @@
                         "type": "string"
                       },
                       "type": "array"
+                    },
+                    "automaticSessionName": {
+                      "description": "显式关闭展示用命名推理；缺失时保留既有自动命名行为。",
+                      "type": [
+                        "boolean",
+                        "null"
+                      ]
                     },
                     "externalCua": {
                       "type": "boolean"
@@ -40013,6 +40104,13 @@
                       "type": "string"
                     },
                     "type": "array"
+                  },
+                  "automaticSessionName": {
+                    "description": "显式关闭展示用命名推理；缺失时保留既有自动命名行为。",
+                    "type": [
+                      "boolean",
+                      "null"
+                    ]
                   },
                   "externalCua": {
                     "type": "boolean"
@@ -55429,6 +55527,13 @@
                   },
                   "type": "array"
                 },
+                "automaticSessionName": {
+                  "description": "显式关闭展示用命名推理；缺失时保留既有自动命名行为。",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
                 "externalCua": {
                   "type": "boolean"
                 },
@@ -58775,6 +58880,13 @@
                     "type": "string"
                   },
                   "type": "array"
+                },
+                "automaticSessionName": {
+                  "description": "显式关闭展示用命名推理；缺失时保留既有自动命名行为。",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
                 },
                 "externalCua": {
                   "type": "boolean"
@@ -62530,6 +62642,13 @@
               },
               "type": "array"
             },
+            "automaticSessionName": {
+              "description": "显式关闭展示用命名推理；缺失时保留既有自动命名行为。",
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
             "externalCua": {
               "type": "boolean"
             },
@@ -63337,6 +63456,13 @@
                 "type": "string"
               },
               "type": "array"
+            },
+            "automaticSessionName": {
+              "description": "显式关闭展示用命名推理；缺失时保留既有自动命名行为。",
+              "type": [
+                "boolean",
+                "null"
+              ]
             },
             "externalCua": {
               "type": "boolean"
@@ -64146,6 +64272,13 @@
               },
               "type": "array"
             },
+            "automaticSessionName": {
+              "description": "显式关闭展示用命名推理；缺失时保留既有自动命名行为。",
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
             "externalCua": {
               "type": "boolean"
             },
@@ -64954,6 +65087,13 @@
               },
               "type": "array"
             },
+            "automaticSessionName": {
+              "description": "显式关闭展示用命名推理；缺失时保留既有自动命名行为。",
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
             "externalCua": {
               "type": "boolean"
             },
@@ -65761,6 +65901,13 @@
                 "type": "string"
               },
               "type": "array"
+            },
+            "automaticSessionName": {
+              "description": "显式关闭展示用命名推理；缺失时保留既有自动命名行为。",
+              "type": [
+                "boolean",
+                "null"
+              ]
             },
             "externalCua": {
               "type": "boolean"
@@ -66594,6 +66741,13 @@
                 "type": "string"
               },
               "type": "array"
+            },
+            "automaticSessionName": {
+              "description": "显式关闭展示用命名推理；缺失时保留既有自动命名行为。",
+              "type": [
+                "boolean",
+                "null"
+              ]
             },
             "externalCua": {
               "type": "boolean"
@@ -69046,6 +69200,13 @@
                     "type": "string"
                   },
                   "type": "array"
+                },
+                "automaticSessionName": {
+                  "description": "显式关闭展示用命名推理；缺失时保留既有自动命名行为。",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
                 },
                 "externalCua": {
                   "type": "boolean"
@@ -72396,6 +72557,13 @@
                       },
                       "type": "array"
                     },
+                    "automaticSessionName": {
+                      "description": "显式关闭展示用命名推理；缺失时保留既有自动命名行为。",
+                      "type": [
+                        "boolean",
+                        "null"
+                      ]
+                    },
                     "externalCua": {
                       "type": "boolean"
                     },
@@ -74148,6 +74316,13 @@
                     "type": "string"
                   },
                   "type": "array"
+                },
+                "automaticSessionName": {
+                  "description": "显式关闭展示用命名推理；缺失时保留既有自动命名行为。",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
                 },
                 "externalCua": {
                   "type": "boolean"
@@ -77495,6 +77670,13 @@
                     "type": "string"
                   },
                   "type": "array"
+                },
+                "automaticSessionName": {
+                  "description": "显式关闭展示用命名推理；缺失时保留既有自动命名行为。",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
                 },
                 "externalCua": {
                   "type": "boolean"
@@ -90892,6 +91074,13 @@
               },
               "type": "array"
             },
+            "automaticSessionName": {
+              "description": "显式关闭展示用命名推理；缺失时保留既有自动命名行为。",
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
             "externalCua": {
               "type": "boolean"
             },
@@ -91556,6 +91745,13 @@
                     "type": "string"
                   },
                   "type": "array"
+                },
+                "automaticSessionName": {
+                  "description": "显式关闭展示用命名推理；缺失时保留既有自动命名行为。",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
                 },
                 "externalCua": {
                   "type": "boolean"
@@ -94917,6 +95113,13 @@
                   },
                   "type": "array"
                 },
+                "automaticSessionName": {
+                  "description": "显式关闭展示用命名推理；缺失时保留既有自动命名行为。",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
                 "externalCua": {
                   "type": "boolean"
                 },
@@ -96056,6 +96259,13 @@
                     "type": "string"
                   },
                   "type": "array"
+                },
+                "automaticSessionName": {
+                  "description": "显式关闭展示用命名推理；缺失时保留既有自动命名行为。",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
                 },
                 "externalCua": {
                   "type": "boolean"
@@ -99614,6 +99824,13 @@
                   },
                   "type": "array"
                 },
+                "automaticSessionName": {
+                  "description": "显式关闭展示用命名推理；缺失时保留既有自动命名行为。",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
                 "externalCua": {
                   "type": "boolean"
                 },
@@ -103019,6 +103236,13 @@
                   },
                   "type": "array"
                 },
+                "automaticSessionName": {
+                  "description": "显式关闭展示用命名推理；缺失时保留既有自动命名行为。",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
                 "externalCua": {
                   "type": "boolean"
                 },
@@ -104692,6 +104916,13 @@
                         "type": "string"
                       },
                       "type": "array"
+                    },
+                    "automaticSessionName": {
+                      "description": "显式关闭展示用命名推理；缺失时保留既有自动命名行为。",
+                      "type": [
+                        "boolean",
+                        "null"
+                      ]
                     },
                     "externalCua": {
                       "type": "boolean"
@@ -116209,6 +116440,13 @@
                     },
                     "type": "array"
                   },
+                  "automaticSessionName": {
+                    "description": "显式关闭展示用命名推理；缺失时保留既有自动命名行为。",
+                    "type": [
+                      "boolean",
+                      "null"
+                    ]
+                  },
                   "externalCua": {
                     "type": "boolean"
                   },
@@ -119648,6 +119886,13 @@
                     "type": "string"
                   },
                   "type": "array"
+                },
+                "automaticSessionName": {
+                  "description": "显式关闭展示用命名推理；缺失时保留既有自动命名行为。",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
                 },
                 "externalCua": {
                   "type": "boolean"
@@ -123181,6 +123426,13 @@
                   },
                   "type": "array"
                 },
+                "automaticSessionName": {
+                  "description": "显式关闭展示用命名推理；缺失时保留既有自动命名行为。",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
                 "externalCua": {
                   "type": "boolean"
                 },
@@ -126689,6 +126941,13 @@
                   },
                   "type": "array"
                 },
+                "automaticSessionName": {
+                  "description": "显式关闭展示用命名推理；缺失时保留既有自动命名行为。",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
                 "externalCua": {
                   "type": "boolean"
                 },
@@ -130059,6 +130318,13 @@
                   },
                   "type": "array"
                 },
+                "automaticSessionName": {
+                  "description": "显式关闭展示用命名推理；缺失时保留既有自动命名行为。",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
                 "externalCua": {
                   "type": "boolean"
                 },
@@ -132114,6 +132380,13 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "automaticSessionName": {
+            "description": "显式关闭展示用命名推理；缺失时保留既有自动命名行为。",
+            "type": [
+              "boolean",
+              "null"
+            ]
           },
           "externalCua": {
             "type": "boolean"
@@ -135461,6 +135734,13 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "automaticSessionName": {
+            "description": "显式关闭展示用命名推理；缺失时保留既有自动命名行为。",
+            "type": [
+              "boolean",
+              "null"
+            ]
           },
           "externalCua": {
             "type": "boolean"

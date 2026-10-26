@@ -112,6 +112,9 @@ impl Backend {
                 path.push(segment);
             }
         }
+        // URL 路径段默认保留冒号，但网关会将其解释为路由语法。
+        // 在路径段转义后补编码，不改变 ID 中原有百分号和斜杠的含义。
+        url.set_path(&url.path().replace(':', "%3A"));
         Ok(url)
     }
     async fn request(
@@ -460,6 +463,30 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn task_result_escapes_colons_for_gateway_routes() {
+        let (url, receipt) = http_fixture("200 OK", r#"{"status":"OK"}"#).await;
+        let token = token_file();
+        let backend = Backend::new(&url, Some(&token.path().to_path_buf())).unwrap();
+        backend
+            .request(Method::GET, &["tasks", "job:env:0", "result"], None, None)
+            .await
+            .unwrap();
+        assert!(
+            receipt
+                .await
+                .unwrap()
+                .starts_with("GET /api/tasks/job%3Aenv%3A0/result HTTP/1.1")
+        );
+        assert_eq!(
+            backend
+                .resource(&["tasks", "job%3Aenv:0", "artifacts", "dir/file.txt"])
+                .unwrap()
+                .path(),
+            "/api/tasks/job%253Aenv%3A0/artifacts/dir%2Ffile.txt"
+        );
+    }
+
+    #[tokio::test]
     async fn artifact_download_preserves_bytes_and_never_overwrites() {
         let content = "artifact\0内容\n";
         let (url, receipt) = http_fixture("200 OK", content).await;
@@ -473,7 +500,12 @@ mod tests {
             .unwrap();
         assert_eq!(std::fs::read(&output).unwrap(), content.as_bytes());
         assert_eq!(result["bytes"], content.len());
-        assert!(receipt.await.unwrap().contains("attempt=1"));
+        assert!(
+            receipt
+                .await
+                .unwrap()
+                .starts_with("GET /api/tasks/task%3Aone/artifacts/output.bin?attempt=1 HTTP/1.1")
+        );
         assert!(
             backend
                 .artifact("task:one", "output.bin", output.clone(), 1)

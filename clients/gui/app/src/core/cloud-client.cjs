@@ -32,14 +32,14 @@ class CloudClient {
         return new CloudClient({ baseURL: url.href, token: this.token });
     }
     async connect({ onNotification = () => {}, onClose = () => {} } = {}) {
-        const { CoreClient } = await import("@areal/runtime-client/core");
+        const { CoreClient, MAX_RESPONSE_BYTES } = await import("@areal/runtime-client/core");
         const client = new CoreClient({
             timeoutMs: 180_000,
             createSocket: () =>
                 new WebSocket(this.baseURL.href, {
                     headers: { Authorization: `Bearer ${this.token}` },
                     followRedirects: false,
-                    maxPayload: 4 * 1024 * 1024,
+                    maxPayload: MAX_RESPONSE_BYTES,
                 }),
         });
         client.onNotification(onNotification);
@@ -70,7 +70,9 @@ function cloudServiceURL(value) {
     const url = backendURL(value);
     if (url.pathname === "/") url.pathname = "/openapi/v1/app-server/";
     if (!url.pathname.endsWith("/app-server/"))
-        throw new Error("请填写固定服务地址，例如 https://host/openapi/v1/app-server/，不要附加 workspace");
+        throw new Error(
+            "请填写固定服务地址，例如 https://host/openapi/v1/app-server/，不要附加 workspace",
+        );
     return url;
 }
 module.exports = { CloudClient, backendURL, cloudServiceURL };

@@ -1,6 +1,29 @@
-.cloud-composer { display: flex; flex-direction: column; gap: 8px; }
-.cloud-composer > [role="alert"] { padding: 8px 12px; font-size: 13px; color: var(--destructive); }
-.cloud-connection-status { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--muted-foreground); }
-.cloud-connection-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted-foreground); }
-.cloud-connection-status[data-state="connected"] .cloud-connection-dot { background: #22a06b; }
-.cloud-connection-status[data-state="failed"] .cloud-connection-dot { background: var(--destructive); }
+.cloud-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cloud-composer > [role="alert"] {
+  padding: 8px 12px;
+  font-size: var(--text-ui-sm);
+  color: var(--destructive);
+}
+.cloud-connection-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: var(--text-ui-sm);
+  color: var(--muted-foreground);
+}
+.cloud-connection-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted-foreground);
+}
+.cloud-connection-status[data-state="connected"] .cloud-connection-dot {
+  background: var(--color-success);
+}
+.cloud-connection-status[data-state="failed"] .cloud-connection-dot {
+  background: var(--destructive);
+}

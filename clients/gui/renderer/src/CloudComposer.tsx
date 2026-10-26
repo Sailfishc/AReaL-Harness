@@ -5,13 +5,15 @@ import { uploadComposerFiles } from "./ComposerUploads.js";
 import { useEffect, useRef, useState } from "react";
 import type { Action, Data } from "./services.js";
 import { Button } from "./components/ui/button.js";
+import { Input } from "./components/ui/input.js";
+import { useI18n, formatUiMessage, type UiMessage } from "./i18n/IntlProvider.js";
 import { ChatPromptEditor } from "./prompt-editor/ChatPromptEditor.js";
 import type { LexicalChatInputHandle } from "./LexicalChatInput.js";
 import { useApplicationPreferences } from "./settings/applicationPreferences.js";
 
 const fileDrafts = new Map<string, File[]>();
 const uploadReceipts = new Map<string, Map<File, Data>>();
-const draftErrors = new Map<string, string>();
+const draftErrors = new Map<string, string | UiMessage>();
 
 export function CloudComposer({
     project,
@@ -24,6 +26,7 @@ export function CloudComposer({
     action: Action;
     onOpen?: (projectId: string, threadId: string) => Promise<void>;
 }) {
+    const { t } = useI18n();
     const input = useRef<LexicalChatInputHandle | null>(null);
     const prefs = useApplicationPreferences();
     const key = `areal-cloud-draft:${project.id}:${thread?.id ?? "new"}`;
@@ -37,11 +40,11 @@ export function CloudComposer({
     const addFiles = (incoming: File[]) => {
         if (busy || running || unknown) return;
         if (files.length + incoming.length > 16) {
-            setError("每条消息最多 16 个附件");
+            setError({ id: "cloud.attachmentsLimit" });
             return;
         }
         if (incoming.some((file) => !file.size || file.size > 16 * 1024 * 1024)) {
-            setError("附件必须为 1 B–16 MiB");
+            setError({ id: "cloud.attachmentSize" });
             return;
         }
         updateFiles([...files, ...incoming]);
@@ -49,8 +52,8 @@ export function CloudComposer({
     };
     const [busy, setBusy] = useState(false);
     const [connectionAttempt, setConnectionAttempt] = useState(0);
-    const [error, setErrorState] = useState(() => draftErrors.get(key) ?? "");
-    const setError = (message: string) => {
+    const [error, setErrorState] = useState<string | UiMessage>(() => draftErrors.get(key) ?? "");
+    const setError = (message: string | UiMessage) => {
         if (message) draftErrors.set(key, message);
         else draftErrors.delete(key);
         setErrorState(message);
@@ -63,18 +66,47 @@ export function CloudComposer({
         const requestId = localStorage.getItem(`${key}:create`) ?? crypto.randomUUID();
         localStorage.setItem(`${key}:create`, requestId);
         void action("cloudSession", { operation: "create", projectId: project.id, requestId })
-            .then(created => {
+            .then((created) => {
                 if (!active) return;
-                localStorage.setItem(`areal-cloud-draft:${project.id}:${created.threadId}`, localStorage.getItem(key) ?? "");
-                if (fileDrafts.has(key)) fileDrafts.set(`areal-cloud-draft:${project.id}:${created.threadId}`, fileDrafts.get(key)!);
+                localStorage.setItem(
+                    `areal-cloud-draft:${project.id}:${created.threadId}`,
+                    localStorage.getItem(key) ?? "",
+                );
+                if (fileDrafts.has(key))
+                    fileDrafts.set(
+                        `areal-cloud-draft:${project.id}:${created.threadId}`,
+                        fileDrafts.get(key)!,
+                    );
                 localStorage.removeItem(`${key}:create`);
                 return onOpen(project.id, created.threadId);
             })
-            .catch(cause => { if (active) setError(cause.message); })
-            .finally(() => { if (active) setBusy(false); });
-        return () => { active = false; };
+            .catch((cause) => {
+                if (active) setError(cause.message);
+            })
+            .finally(() => {
+                if (active) setBusy(false);
+            });
+        return () => {
+            active = false;
+        };
     }, [project.id, thread?.id, connectionAttempt]);
     const running = thread?.turns?.find((turn: Data) => turn.status === "inProgress");
+    const reconnect = async () => {
+        if (busy || !thread) return;
+        setBusy(true);
+        setError("");
+        try {
+            await action("cloudSession", {
+                operation: "reconnect",
+                projectId: project.id,
+                threadId: thread.id,
+            });
+        } catch (cause) {
+            setError((cause as Error).message);
+        } finally {
+            setBusy(false);
+        }
+    };
     const send = async () => {
         if (busy || running || unknown || (!text.trim() && !files.length)) return;
         setBusy(true);
@@ -142,16 +174,26 @@ export function CloudComposer({
     };
     return (
         <div className="composer-dock cloud-composer">
-            <span role="status" className="cloud-connection-status" data-state={thread?.cloud?.connected ? "connected" : "idle"}>
-                <span className="cloud-connection-dot" aria-hidden="true"/>
-                {thread?.cloud?.connected ? "Cloud 已连接" : busy ? "正在连接 Cloud…" : "Cloud 未连接，发送消息时恢复"}
+            <span
+                role="status"
+                className="cloud-connection-status"
+                data-state={thread?.cloud?.connected ? "connected" : "idle"}
+            >
+                <span className="cloud-connection-dot" aria-hidden="true" />
+                {t(
+                    thread?.cloud?.connected
+                        ? "cloud.connected"
+                        : busy
+                          ? "cloud.connecting"
+                          : "cloud.disconnected",
+                )}
             </span>
-            <input
+            <Input
                 ref={upload}
                 type="file"
                 multiple
                 hidden
-                aria-label="Cloud 附件"
+                aria-label={t("cloud.attachments")}
                 onChange={(event) => {
                     addFiles(Array.from(event.target.files ?? []));
                     event.target.value = "";
@@ -164,7 +206,7 @@ export function CloudComposer({
                 inputApiRef={input}
                 inputTestId="cloud-chat-input"
                 submitTestId="cloud-chat-send"
-                placeholder="随心输入"
+                placeholder={t("cloud.prompt")}
                 disabled={busy || !!running || unknown}
                 submitDisabled={busy || !!running || unknown || (!text.trim() && !files.length)}
                 submitting={busy}
@@ -188,8 +230,8 @@ export function CloudComposer({
                     entries: [
                         {
                             value: "upload",
-                            label: "上传文件",
-                            description: "添加图片、音频或文档",
+                            label: t("cloud.upload"),
+                            description: t("cloud.uploadDescription"),
                             group: "功能",
                             icon: <AttachmentIcon />,
                             run: () => upload.current?.click(),
@@ -212,7 +254,7 @@ export function CloudComposer({
                         </div>
                     ) : undefined
                 }
-                submitLabel="发送"
+                submitLabel={t("cloud.send")}
                 onChange={(value) => {
                     setText(value);
                     localStorage.setItem(key, value);
@@ -235,27 +277,44 @@ export function CloudComposer({
                                 }).catch((cause) => setError(cause.message));
                             }}
                         >
-                            停止
+                            {t("cloud.stop")}
                         </Button>
                     ) : undefined
                 }
             />
             {unknown && (
                 <p role="alert">
-                    提交结果未知，不会自动重发。请重新打开会话并核对历史。
-                    <button
+                    {t("cloud.submissionUnknown")}
+                    <Button
                         type="button"
                         onClick={() => {
                             setUnknown(false);
                             localStorage.removeItem(`${key}:unknown`);
                         }}
                     >
-                        已核对，编辑后续消息
-                    </button>
+                        {t("cloud.acknowledgeUnknown")}
+                    </Button>
                 </p>
             )}
-            {!thread && !busy && error && <Button type="button" onClick={() => { setError(""); setConnectionAttempt(value => value + 1); }}>重试连接</Button>}
-            {(error || thread?.cloud?.error) && <p role="alert">{error || thread?.cloud?.error}</p>}
+            {!thread && !busy && error && (
+                <Button
+                    type="button"
+                    onClick={() => {
+                        setError("");
+                        setConnectionAttempt((value) => value + 1);
+                    }}
+                >
+                    {t("cloud.retryConnection")}
+                </Button>
+            )}
+            {thread && !thread.cloud?.connected && (
+                <Button type="button" disabled={busy} onClick={() => void reconnect()}>
+                    {t("cloud.reconnect")}
+                </Button>
+            )}
+            {(error || thread?.cloud?.error) && (
+                <p role="alert">{formatUiMessage(t, error || thread?.cloud?.error)}</p>
+            )}
         </div>
     );
 }

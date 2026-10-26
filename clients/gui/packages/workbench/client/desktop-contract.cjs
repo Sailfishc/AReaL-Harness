@@ -60,7 +60,7 @@ const commandDefinitions = Object.freeze({
   computerControl: ['main', 'app', { status: read, ...operations(mutation, 'requestAccess openSettings restart stop') }],
   exportDiagnostics: ['main', 'app', read], connectService: ['main', 'app', subscription], export: ['main', 'thread', read], remoteControl: ['main', 'app', mutation],
   cloud: ['service', 'app', {status: read, save: mutation}],
-  cloudSession: ['service', 'project', {...operations(subscription, 'open'), ...operations(mutation, 'create send stop')}],
+  cloudSession: ['service', 'project', {...operations(subscription, 'open'), ...operations(mutation, 'create reconnect send stop')}],
 });
 /** @param {string} name @param {Record<string,unknown>} request @returns {CommandEffect} */
 function commandSemantics(name, request) {
@@ -180,7 +180,7 @@ function validateCommand(name, params, { serviceOnly = false } = {}) {
     || params.expectedToolsetRevision < 0)) invalid();
 
   // 导出目标与配置路径只由可信启动配置选择，Renderer 不能扩展 CLI 参数。
-  if (name === 'cloudSession' && (!['create', 'open', 'send', 'stop'].includes(String(params.operation))
+  if (name === 'cloudSession' && (!['create', 'open', 'reconnect', 'send', 'stop'].includes(String(params.operation))
     || Object.keys(params).some(key => !['operation', 'projectId', 'threadId', 'requestId', 'text', 'turnId', 'attachments'].includes(key))
     || params.operation !== 'create' && !identifier(params.threadId)
     || params.operation === 'create' && (typeof params.requestId !== 'string' || !/^[0-9a-f-]{36}$/.test(params.requestId))

@@ -31,7 +31,7 @@ const server = createServer(async (request, response) => {
     assert.match(request.headers["idempotency-key"], /^[a-f0-9-]{36}$/);
     submits++;
     const job = `job-${submits}`,
-      task = `task-${submits}`;
+      task = `task-${submits}:env:0`;
     jobs.set(job, { prompt: body.prompt, task, polls: 0 });
     if (body.prompt === "unknown") return request.socket.destroy();
     return reply({ accepted: true, job_id: job, task_id: task }, 202);
@@ -41,14 +41,14 @@ const server = createServer(async (request, response) => {
     const record = jobs.get(job[1]);
     return reply({ job: { status: record.prompt === "waiting" ? "RUNNING" : "DONE" } });
   }
-  const result = url.pathname.match(/^\/api\/tasks\/(task-\d+)\/result$/);
+  const result = url.pathname.match(/^\/api\/tasks\/(task-\d+%3Aenv%3A0)\/result$/);
   if (result) {
-    const record = [...jobs.values()].find((value) => value.task === result[1]);
+    const record = [...jobs.values()].find((value) => value.task === decodeURIComponent(result[1]));
     return reply({ status: record.prompt === "failed" ? "HARNESS_FAILED" : "OK" });
   }
-  if (/^\/api\/tasks\/task-\d+\/artifacts$/.test(url.pathname))
+  if (/^\/api\/tasks\/task-\d+%3Aenv%3A0\/artifacts$/.test(url.pathname))
     return reply({ data: [{ name: "proof.txt" }] });
-  if (/^\/api\/tasks\/task-\d+\/artifacts\/proof.txt$/.test(url.pathname)) {
+  if (/^\/api\/tasks\/task-\d+%3Aenv%3A0\/artifacts\/proof.txt$/.test(url.pathname)) {
     assert.equal(url.searchParams.get("attempt"), "1");
     response.writeHead(200, { "Content-Type": "application/octet-stream" });
     return response.end(artifact);

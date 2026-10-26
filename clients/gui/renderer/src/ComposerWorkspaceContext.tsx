@@ -1,6 +1,12 @@
 import { useCloudEnvironment } from "./cloudEnvironment.js";
+import { Button } from "./components/ui/button.js";
 import { Cloud } from "lucide-react";
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "./components/ui/dropdown-menu.js";
+import {
+    DropdownMenu,
+    DropdownMenuTrigger,
+    DropdownMenuContent,
+    DropdownMenuItem,
+} from "./components/ui/dropdown-menu.js";
 import { useEffect, useRef, useState } from "react";
 import { GitBranch, GitFork } from "lucide-react";
 import { WorkspaceLocalIcon } from "./homeChromeIcons.js";
@@ -70,13 +76,38 @@ export function ComposerWorkspaceContext({
             role="group"
             aria-label={t("workspace.context")}
         >
-            {selectable && choice.available ? <DropdownMenu>
-                <DropdownMenuTrigger render={<button type="button" className="composer-workspace-location" aria-label="会话运行环境">{inCloud ? <Cloud size={16} /> : <WorkspaceLocalIcon />}{inCloud ? "Cloud" : t("workspace.local")}</button>} />
-                <DropdownMenuContent align="start">
-                    <DropdownMenuItem onClick={() => choice.select("local")}><WorkspaceLocalIcon />{t("workspace.local")}</DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => choice.select("cloud")}><Cloud size={16} />Cloud</DropdownMenuItem>
-                </DropdownMenuContent>
-            </DropdownMenu> : inCloud ? <span className="composer-workspace-location"><Cloud size={16} />Cloud</span> : null}
+            {selectable && choice.available ? (
+                <DropdownMenu>
+                    <DropdownMenuTrigger
+                        render={
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                className="composer-workspace-location"
+                                aria-label={t("workspace.environment")}
+                            >
+                                {inCloud ? <Cloud size={16} /> : <WorkspaceLocalIcon />}
+                                {inCloud ? t("workspace.cloud") : t("workspace.local")}
+                            </Button>
+                        }
+                    />
+                    <DropdownMenuContent align="start">
+                        <DropdownMenuItem onClick={() => choice.select("local")}>
+                            <WorkspaceLocalIcon />
+                            {t("workspace.local")}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => choice.select("cloud")}>
+                            <Cloud size={16} />
+                            {t("workspace.cloud")}
+                        </DropdownMenuItem>
+                    </DropdownMenuContent>
+                </DropdownMenu>
+            ) : inCloud ? (
+                <span className="composer-workspace-location">
+                    <Cloud size={16} />
+                    {t("workspace.cloud")}
+                </span>
+            ) : null}
             {inCloud ? null : !connected ? (
                 <WorkspacePreparationStatus
                     key={owner}
