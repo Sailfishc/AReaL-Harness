@@ -19,6 +19,7 @@ SCOPES = {
         "Makefile",
         "scripts/**",
         ".github/workflows/**",
+        ".githooks/**",
     ],
     "release": [
         "design/tokens/**",
