@@ -114,6 +114,24 @@ async function serviceIdentity(options) {
   hash.update(readFileSync(require.resolve("@areal/workbench/core-model")));
   hash.update(readFileSync(require.resolve("@areal/workbench/core-model-contract")));
   hash.update(readFileSync(require.resolve("@areal/workbench/desktop-contract")));
+  // 入口只负责转接；拆分协议同样决定旧后台能否接收新界面的请求。
+  const contracts = join(
+    dirname(require.resolve("@areal/workbench/desktop-contract")),
+    "desktop-contract",
+  );
+  /** @param {string} directory */
+  function hashContracts(directory) {
+    for (const entry of readdirSync(directory, { withFileTypes: true }).sort((a, b) =>
+      a.name.localeCompare(b.name, "en"),
+    )) {
+      const path = join(directory, entry.name);
+      hash.update(entry.name);
+      if (entry.isDirectory()) hashContracts(path);
+      else if (entry.isFile() && /\.(cjs|js|json)$/.test(entry.name))
+        hash.update(readFileSync(path));
+    }
+  }
+  hashContracts(contracts);
   hash.update(readFileSync(require.resolve("@areal/workbench/state-projection")));
   hash.update(readFileSync(require.resolve("@areal/remote")));
   hash.update(readFileSync(require.resolve("../workspace-files")));

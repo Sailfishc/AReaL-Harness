@@ -686,14 +686,19 @@ export function TaskCenter({
   const historyEpoch = useRef(0);
   const readRuns = useRef<(mode?: HistoryReadMode) => Promise<void>>(async () => {});
   const rows = projects.flatMap((project) => ownerRows(catalog[project.id])?.data ?? []);
+  const catalogSupported = projects.every(
+    (project) => project.desktopCapabilities?.currentCommands !== false,
+  );
   const failedProjects = projects
     .filter((project) => catalog[project.id]?.status === "error")
     .map((project) => project.id);
   const loading =
     connected &&
+    catalogSupported &&
     projects.some((project) => !catalog[project.id] || catalog[project.id].status === "pending");
   const initialLoading =
     connected &&
+    catalogSupported &&
     projects.some(
       (project) =>
         !catalog[project.id] ||
@@ -701,6 +706,7 @@ export function TaskCenter({
     );
   const fresh =
     connected &&
+    catalogSupported &&
     projects.every(
       (project) =>
         catalog[project.id]?.status === "ready" &&
@@ -1018,7 +1024,7 @@ export function TaskCenter({
       ),
     );
     const read = async (more = false, retryProjectId?: string) => {
-      if (!active || !connected) return;
+      if (!active || !connected || !catalogSupported) return;
       if (reading) {
         queued.add(retryProjectId ?? "");
         return;
@@ -1196,7 +1202,7 @@ export function TaskCenter({
       for (const identity of batches) catalogTrace("abandoned", identity);
       batches.clear();
     };
-  }, [action, connected, projectIds]);
+  }, [action, connected, catalogSupported, projectIds]);
   useEffect(() => {
     setConfirmedWatch(null);
     if (!task || !connected || !project?.state?.connected || ownerFailed) return;
@@ -1945,7 +1951,10 @@ export function TaskCenter({
               </div>
             )}
             {error && <p role="alert">{error}</p>}
-            {failedProjects.length > 0 && (
+            {connected && !catalogSupported && (
+              <p role="status">{t("operations.schedules.backendUpdateRequired")}</p>
+            )}
+            {catalogSupported && failedProjects.length > 0 && (
               <div className="task-catalog-error" role="status">
                 <p>{t("operations.schedules.partialLoad")}</p>
                 <Button
@@ -1978,7 +1987,7 @@ export function TaskCenter({
             {projects
               .filter(
                 (owner) =>
-                  catalog[owner.id]?.status === "error" ||
+                  (catalogSupported && catalog[owner.id]?.status === "error") ||
                   (ownerRows(catalog[owner.id])?.source === "published" &&
                     (ownerRows(catalog[owner.id])?.data.length ||
                       ownerRows(catalog[owner.id])?.coverage.kind !== "empty")),
@@ -2000,7 +2009,9 @@ export function TaskCenter({
                   <Button
                     size="sm"
                     variant="ghost"
-                    disabled={!connected || catalog[owner.id]?.status === "pending"}
+                    disabled={
+                      !connected || !catalogSupported || catalog[owner.id]?.status === "pending"
+                    }
                     onClick={() => void refresh(false, owner.id)}
                   >
                     {t("operations.schedules.refreshProject")}

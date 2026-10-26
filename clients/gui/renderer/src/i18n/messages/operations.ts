@@ -430,6 +430,11 @@ export const operationMessages = {
     "zh-CN": "让 AReaL 按计划处理持续性任务。",
     en: "Let AReaL handle ongoing tasks on a schedule.",
   },
+  "operations.schedules.backendUpdateRequired": {
+    "zh-CN":
+      "当前后台不支持此版本的任务目录。已加载的任务会保留，现有任务继续运行。请在设置的“后台服务”中安全更新后台后重试。",
+    en: "This backend does not support the current task catalog. Loaded tasks are kept and existing work continues. Safely update the backend in Settings > Background service, then retry.",
+  },
   "operations.schedules.partialLoad": {
     "zh-CN": "部分任务未能加载",
     en: "Some tasks could not be loaded",

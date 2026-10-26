@@ -10,6 +10,12 @@ Web/PWA Remote 使用独立的受限 [areal.remote.v2 契约](remote-control.md)
 
 Thread 快照和 Item 通知支持可选 `agentMessage.phase`，生命周期、示例与旧数据兼容规则见 [Core 消息阶段](core.md#agent-message-phase)。此响应字段为兼容性新增，保持 `areal.core.v1` 版本。
 
+## 桌面宿主任务目录兼容性
+
+桌面后台的 `service.commandContract` 为 `areal.desktop-commands.v3` 时，支持带 `requestId`、`viewEpoch` 的 `tasks.preview` 与 `tasks.observe`。`preview` 只读已发布快照；`observe` 对已连接 owner 读取实时目录，对冷 owner 读取快照，不启动项目 Core。旧后台可以继续连接和承载已有任务，但 Main 不向缺失或不同命令契约的后台发送这两种查询，返回 `SERVICE_COMMAND_UNSUPPORTED`，不改用可能启动项目的 `list`。
+
+任务中心发现命令契约不兼容时保留已加载任务，显示通过设置“后台服务”安全更新的提示，不逐项目重试或声称没有任务。更新仍需显式操作，并使用已有生命周期资源检查和结算流程，不自动停止运行中的工作。部署身份包含 `desktop-contract` 入口及其拆分目录的协议文件内容；修改拆分协议也会使旧后台显示待更新，而不是继续冒充同一部署。
+
 ## 桌面宿主 Worktree 契约
 
 本节属于 `clients/gui` 的认证桌面宿主 `command` 合同，不新增 `areal.core.v1` Rust RPC。宿主继续通过现有 Core 方法管理每个执行目录，Core 仍持有线程和执行历史。共享桌面类型与校验位于 `clients/gui/packages/workbench/client/desktop-contract.cjs`。

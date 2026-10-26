@@ -1,7 +1,19 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createRequire } from "node:module";
-import { mkdtemp, mkdir, readFile, writeFile, rm, realpath, stat, utimes } from "node:fs/promises";
+import {
+  cp,
+  mkdtemp,
+  mkdir,
+  readFile,
+  readdir,
+  writeFile,
+  rm,
+  realpath,
+  stat,
+  symlink,
+  utimes,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { once } from "node:events";
@@ -768,6 +780,42 @@ test("subscription-selected turn submission uses its original receipt without re
   assert.equal(f.calls.length, 1, "reusing a settled request ID never repeats the turn");
 });
 
+test("legacy task catalog is blocked without starting owners and recovers with the current contract", async (t) => {
+  const result = { data: [], errors: [], owners: [], hasMore: false };
+  const f = await fixture(t, {
+    commandContract: "areal.desktop-commands.v2",
+    commandResult: result,
+  });
+  await f.publish();
+  await f.backend.attach();
+  assert.equal(f.backend.snapshot().desktopCapabilities.currentCommands, false);
+  for (const operation of ["preview", "observe"]) {
+    await assert.rejects(f.backend.command("tasks", { operation, projectId: "p" }), {
+      code: "SERVICE_COMMAND_UNSUPPORTED",
+    });
+  }
+  assert.deepEqual(
+    f.calls.map((call) => call.method),
+    ["hello"],
+  );
+  assert.equal(f.backend.status.connected, true, "existing work stays connected");
+  f.updateContract(COMMAND_CONTRACT);
+  await until(() => f.backend.status.commandContract === COMMAND_CONTRACT);
+  for (const operation of ["preview", "observe"]) {
+    assert.deepEqual(await f.backend.command("tasks", { operation, projectId: "p" }), result);
+  }
+  assert.deepEqual(
+    f.calls
+      .filter((call) => call.method === "command")
+      .map((call) => call.params.request.operation),
+    ["preview", "observe"],
+  );
+  assert.equal(
+    f.calls.some((call) => call.method === "lifecycleRequest"),
+    false,
+  );
+});
+
 test("public command availability comes only from the current service contract", async (t) => {
   const f = await fixture(t, { commandContract: null });
   await f.publish();
@@ -780,8 +828,8 @@ test("public command availability comes only from the current service contract",
   f.updateContract(COMMAND_CONTRACT);
   await until(() => f.backend.status.commandContract === COMMAND_CONTRACT);
   assert.deepEqual(capabilities(), [{ currentCommands: true }, { currentCommands: true }]);
-  f.updateContract("areal.desktop-commands.v3");
-  await until(() => f.backend.status.commandContract === "areal.desktop-commands.v3");
+  f.updateContract("areal.desktop-commands.future");
+  await until(() => f.backend.status.commandContract === "areal.desktop-commands.future");
   assert.deepEqual(capabilities(), [{ currentCommands: false }, { currentCommands: false }]);
   f.updateContract(null);
   await until(() => f.backend.status.commandContract === undefined);
@@ -1215,6 +1263,45 @@ test("deployment identity tracks actual executable content and ignores mtime alo
     );
     await writeFile(path, original);
   }
+});
+
+test("deployment identity includes split desktop contract content", async (t) => {
+  const f = await startupFixture(t);
+  const deployment = join(f.home, "deployment");
+  const core = join(deployment, "src/core");
+  await mkdir(core, { recursive: true });
+  for (const name of ["bundle.cjs", "service-config.cjs"])
+    await cp(require.resolve("../app/src/core/" + name), join(core, name));
+  await cp(
+    require.resolve("../app/src/workspace-files"),
+    join(deployment, "src/workspace-files.js"),
+  );
+  const modules = join(deployment, "node_modules/@areal");
+  await mkdir(modules, { recursive: true });
+  const originalModules = require
+    .resolve("../app/package.json")
+    .replace(/package\.json$/, "node_modules/@areal");
+  for (const name of await readdir(originalModules)) {
+    if (name === "workbench") {
+      await mkdir(join(modules, name));
+      await cp(join(originalModules, name, "client"), join(modules, name, "client"), {
+        recursive: true,
+      });
+      await cp(join(originalModules, name, "package.json"), join(modules, name, "package.json"));
+    } else await symlink(join(originalModules, name), join(modules, name), "dir");
+  }
+  const { serviceIdentity: identity } = require(join(core, "service-config.cjs"));
+  const before = await identity(f.backend.options);
+  const catalog = join(modules, "workbench/client/desktop-contract/catalog.cjs");
+  const content = await readFile(catalog, "utf8");
+  await writeFile(catalog, content + "\n// 兼容性回归：模拟拆分协议变更。\n");
+  assert.notEqual(
+    await identity(f.backend.options),
+    before,
+    "split protocol edits must mark the retained backend for update",
+  );
+  await writeFile(catalog, content);
+  assert.equal(await identity(f.backend.options), before);
 });
 
 test("automatic same-deployment reopen silently retains the existing service", async (t) => {

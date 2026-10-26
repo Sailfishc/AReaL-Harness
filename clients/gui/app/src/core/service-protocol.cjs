@@ -52,7 +52,7 @@ const {
 /** @typedef {RetiredPageOwner & Partial<Omit<LivePageOwner,keyof RetiredPageOwner>>} PageOwner */
 /** @typedef {{key:string,plan:import('./service-transport-contract.cjs').DiscoveryPlan,claim:BrowserClaim|undefined,entry:BrowserEntry|null,socket:ServiceSocket,pages:PageClaim[]}} DiscoveryRecord */
 const PROTOCOL = "areal.desktop-service.v1";
-const COMMAND_CONTRACT = "areal.desktop-commands.v2";
+const COMMAND_CONTRACT = "areal.desktop-commands.v3";
 /** @param {unknown} projectId @param {unknown} threadId */
 const browserKey = (projectId, threadId) => JSON.stringify([projectId, threadId]);
 /** @param {string} name @param {Fields} request */

@@ -13,12 +13,13 @@ import React from 'react';import {createRoot} from 'react-dom/client';
 import {TaskCenter} from '/src/TaskCenter.tsx';import {ApplicationIntlProvider} from '/src/i18n/IntlProvider.tsx';import '/src/styles.css';
 const project={id:'00000000-0000-4000-a000-000000000001',name:'Fixture project',root:'/fixture',state:{connected:true,threads:{}},core:{connectionGeneration:1},pending:[],outcomes:{}};
 const recovery=new URLSearchParams(location.search).get('recovery');
+project.desktopCapabilities={currentCommands:!new URLSearchParams(location.search).has('legacy')};
 window.calls=[];window.opened=[];window.fail=new URLSearchParams(location.search).has('fail');
 const originalThread='00000000-0000-4000-a000-000000000002';
 const completedOutcome=requestId=>({accepted:true,status:'completed',threadId:originalThread,operation:{requestId,method:'areal/thread/start',target:{kind:'thread',threadId:originalThread}}});
 const rows=new URLSearchParams(location.search).has('empty')?[]:[['active','每日进展',false],['paused','每周回顾',true]].map(([id,objective,paused])=>({projectId:project.id,id,objective,paused,mode:'scheduled',sourceThreadId:id+'-thread',runs:[],nextRunAt:2000000000,schedule:{kind:'once',at:2000000000},scope:'workspace'}));
-const action=async(name,params)=>{window.calls.push({name,params});if(name==='projectless')return {projectId:project.id};if(name==='create'&&recovery)throw Object.assign(Error('Fixture create response lost'),{submissionUnknown:true,requestId:params.requestId});if(name==='workspace'&&params.operation==='worktreeRead')return {state:'missing'};if(name==='reconcile'){const requestId=window.calls.find(call=>call.name==='create')?.params.requestId;return {outcomes:recovery==='completed'?{[requestId]:completedOutcome(requestId)}:{}};}if(name==='tasks'){if(window.fail)throw Error('Fixture catalog unavailable');return {projectId:project.id,requestId:params.requestId,viewEpoch:params.viewEpoch,data:rows,hasMore:false,errors:[],owners:[{connectionGeneration:1}]};}if(name==='open'){project.state.threads[params.threadId]={id:params.threadId};return {};}return {data:[],enabled:false,runNow:false};};
-function Fixture(){const [projects,setProjects]=React.useState([project]);window.publishOutcome=()=>{const requestId=window.calls.find(call=>call.name==='create').params.requestId;setProjects([{...project,worktreeOperations:[{requestId,state:'missing'}],outcomes:{[requestId]:completedOutcome(requestId)}}]);};return <ApplicationIntlProvider><div style={{height:'100vh',display:'flex'}}><TaskCenter projects={projects} connected action={action} onOpenThread={(projectId,threadId)=>window.opened.push({projectId,threadId})} onOpenModelSettings={()=>{}} navigation={null} renderConversation={()=> <p>会话详情</p>} renderResources={()=>null}/></div></ApplicationIntlProvider>;}
+const action=async(name,params)=>{window.calls.push({name,params});if(name==='projectless')return {projectId:project.id};if(name==='create'&&recovery)throw Object.assign(Error('Fixture create response lost'),{submissionUnknown:true,requestId:params.requestId});if(name==='workspace'&&params.operation==='worktreeRead')return {state:'missing'};if(name==='reconcile'){const requestId=window.calls.find(call=>call.name==='create')?.params.requestId;return {outcomes:recovery==='completed'?{[requestId]:completedOutcome(requestId)}:{}};}if(name==='tasks'){if(window.fail)throw Error('Fixture catalog unavailable');return {projectId:project.id,requestId:params.requestId,viewEpoch:params.viewEpoch,data:rows,hasMore:false,errors:[],owners:[{projectId:project.id,status:'ready',source:'live',coverage:{kind:'complete'},readAt:Date.now(),connectionGeneration:1}]};}if(name==='open'){project.state.threads[params.threadId]={id:params.threadId};return {};}return {data:[],enabled:false,runNow:false};};
+function Fixture(){const [projects,setProjects]=React.useState([project]);window.publishContract=currentCommands=>setProjects([{...project,desktopCapabilities:{currentCommands}}]);window.publishOutcome=()=>{const requestId=window.calls.find(call=>call.name==='create').params.requestId;setProjects([{...project,worktreeOperations:[{requestId,state:'missing'}],outcomes:{[requestId]:completedOutcome(requestId)}}]);};return <ApplicationIntlProvider><div style={{height:'100vh',display:'flex'}}><TaskCenter projects={projects} connected action={action} onOpenThread={(projectId,threadId)=>window.opened.push({projectId,threadId})} onOpenModelSettings={()=>{}} navigation={null} renderConversation={()=> <p>会话详情</p>} renderResources={()=>null}/></div></ApplicationIntlProvider>;}
 createRoot(document.getElementById('root')).render(<Fixture/>);
 `;
 const virtual = "\0scheduled-fixture";
@@ -66,6 +67,32 @@ try {
   page = await browser.newPage({ viewport: { width: 1100, height: 800 } });
   page.on("pageerror", (e) => errors.push(e.message));
   const url = `http://127.0.0.1:${vite.httpServer.address().port}/__scheduled.html`;
+  await page.goto(url + "?legacy");
+  await page.getByText("当前后台不支持此版本的任务目录。", { exact: false }).waitFor();
+  assert.equal(
+    (await page.evaluate(() => window.calls)).filter((call) => call.name === "tasks").length,
+    0,
+  );
+  assert.equal(await page.getByText("尚无定时任务", { exact: true }).count(), 0);
+  assert.equal(await page.getByRole("button", { name: "重新加载任务", exact: true }).count(), 0);
+  await page.screenshot({ path: join(evidence, "00-legacy-catalog.png") });
+  await page.evaluate(() => window.publishContract(true));
+  await page.getByRole("button", { name: "打开自动化 每日进展", exact: true }).waitFor();
+  await page.evaluate(() => window.publishContract(false));
+  await page.getByText("当前后台不支持此版本的任务目录。", { exact: false }).waitFor();
+  const readsBeforeFocus = (await page.evaluate(() => window.calls)).filter(
+    (call) => call.name === "tasks",
+  ).length;
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  assert.equal(
+    (await page.evaluate(() => window.calls)).filter((call) => call.name === "tasks").length,
+    readsBeforeFocus,
+  );
+  assert.equal(
+    await page.getByRole("button", { name: "打开自动化 每日进展", exact: true }).count(),
+    1,
+    "loaded tasks survive an incompatible backend",
+  );
   await page.goto(url);
   await page.getByRole("button", { name: "打开自动化 每日进展", exact: true }).waitFor();
   assert.equal(await page.getByRole("combobox", { name: "筛选项目" }).count(), 0);

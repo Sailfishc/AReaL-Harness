@@ -10,6 +10,12 @@ Web/PWA Remote uses a separate restricted [areal.remote.v2 contract](remote-cont
 
 Thread snapshots and Item notifications accept the optional `agentMessage.phase` field; see [Core message phases](core.en.md#agent-message-phase) for lifecycle, examples and legacy compatibility. This additive response field keeps `areal.core.v1` unchanged.
 
+## Desktop host task catalog compatibility
+
+The desktop backend supports `tasks.preview` and `tasks.observe` with `requestId` and `viewEpoch` when `service.commandContract` is `areal.desktop-commands.v3`. `preview` reads published snapshots only. `observe` reads live catalogs for connected owners and snapshots for cold owners without starting project Core services. An older backend may stay connected and continue existing work, but Main rejects these queries with `SERVICE_COMMAND_UNSUPPORTED` when the command contract is absent or different. It does not substitute `list`, which may start a project.
+
+When the command contract is incompatible, the task manager retains loaded tasks and directs users to safely update through Settings > Background service. It neither retries each project nor claims that no tasks exist. Updating remains explicit and uses the existing lifecycle resource inspection and settlement flow; running work is not stopped automatically. Deployment identity includes the `desktop-contract` entry and protocol file contents in its split directory, so split protocol changes also mark a retained backend for update.
+
 ## Desktop host worktree contract
 
 This section describes the authenticated desktop host `command` contract in `clients/gui`. It does not add a Rust `areal.core.v1` RPC. The host uses existing Core methods for each execution directory. Core retains ownership of threads and execution history. Shared desktop types and validation are in `clients/gui/packages/workbench/client/desktop-contract.cjs`.
