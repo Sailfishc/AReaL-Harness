@@ -264,6 +264,22 @@ export async function runAccessibility(page, scratch, gui, checks, samples) {
         const states = route ? ["ready"] : ["ready", "busy", "failed", "unknown"];
         for (const state of states) {
           if (!route) await scenario.getByLabel("状态", { exact: true }).selectOption(state);
+          // Theme classes change before the controls finish their color transitions.
+          await scenario.evaluate(async () => {
+            await new Promise((resolve) =>
+              requestAnimationFrame(() => requestAnimationFrame(resolve)),
+            );
+            await Promise.all(
+              document
+                .getAnimations()
+                .filter(
+                  (animation) =>
+                    animation.playState === "running" &&
+                    Number.isFinite(animation.effect?.getComputedTiming().endTime),
+                )
+                .map((animation) => animation.finished),
+            );
+          });
           const result = await new AxeBuilder({ page: scenario })
             .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
             .analyze();
