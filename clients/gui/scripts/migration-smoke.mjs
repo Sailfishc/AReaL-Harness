@@ -1,5 +1,5 @@
 import { makeTempDir } from "./support/temp.mjs";
-import { closeRecordedSmokeApplication } from "./application-cleanup.mjs";
+import { closeSmokeApplication } from "./application-cleanup.mjs";
 import { withSmokeDeadline } from "./smoke-deadline.mjs";
 import assert from "node:assert/strict";
 
@@ -429,7 +429,7 @@ async function quit() {
       );
     } finally {
       // 退出先等待已受理操作（20s），再核查停服和原进程退出；不能共用单阶段 20s 预算。
-      await closeRecordedSmokeApplication(current, 60000);
+      await closeSmokeApplication(current, 60000);
     }
   } finally {
     app = null;
