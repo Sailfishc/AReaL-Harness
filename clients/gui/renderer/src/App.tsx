@@ -162,19 +162,12 @@ function AppContent({ services }: { services: PlatformServices }) {
   const {
     viewFailure,
     restorationError,
-    reconnectingView,
     viewRefreshing,
     restorationFailed,
     startupLifecycle,
     startupLifecycleBlocked,
     startupReady,
   } = startup;
-  useEffect(startup.observeRecoveryDelay, [
-    reconnectingView,
-    restorationOwner.projectId,
-    restorationOwner.threadId,
-    restorationOwner.connectionGeneration,
-  ]);
   const { shellReady, initialReleased, startupDelayed } = useStartupPresentation(
     services,
     { themeReady, startupReady, restorationFailed },

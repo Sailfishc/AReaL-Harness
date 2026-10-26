@@ -159,7 +159,7 @@ Connection health, display synchronization, request admission and execution outc
 
 | Situation | System behavior | User visibility |
 |---|---|---|
-| Brief disconnect or retryable read failure | Bounded backoff, resubscription and an authoritative baseline | Quiet for brief interruptions; recovery status if they persist |
+| Brief disconnect or retryable read failure | Bounded backoff, resubscription and an authoritative baseline | Keep automatic reconnection and read retries quiet; show failure and a retry action only after automatic recovery stops |
 | Unknown mutation outcome | Keep the original requestId and query only its receipt | Preserve the draft and explain that its outcome is being checked; no automatic resubmission |
 | Known success followed by a list or view refresh failure | Return the known identity or result and retry reads separately | Preserve operation success; scope the notice to the unrestored view |
 | Permission, credential or configuration change required | Preserve the structured reason and affected operation | Show actionable localized guidance and the relevant entry point |
