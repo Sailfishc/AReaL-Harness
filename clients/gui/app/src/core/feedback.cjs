@@ -182,11 +182,10 @@ class UserFeedback {
   save(draft) {
     return this.backend.save(`feedback-${draft.id}.json`, draft);
   }
-  /** @param {Record<string,unknown>} value */
-  command(value) {
-    if (!feedbackRequest(value)) throw new Error("评价请求结构无效");
-    const request = value;
-    if (!request.id) return this.perform(request);
+  /** @param {import("@areal/workbench/desktop-contract/feedback").FeedbackRequest} request */
+  command(request) {
+    // CoreBackend validates the public payload before resolving its execution owner.
+    if (!("id" in request)) return this.perform(request);
     const id = request.id;
     const previous = this.writes.get(id) ?? Promise.resolve();
     const task = previous.catch(() => {}).then(() => this.perform(request));
@@ -399,9 +398,5 @@ class UserFeedback {
     }
     throw new Error("未知评价操作");
   }
-}
-/** @param {Record<string,unknown>} value @returns {value is FeedbackRequest} */
-function feedbackRequest(value) {
-  return feedbackContract.isRequest("feedback", value);
 }
 module.exports = { UserFeedback };

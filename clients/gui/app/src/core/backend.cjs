@@ -753,8 +753,8 @@ class CoreBackend {
     }
   }
 
-  /** @param {Project} project */
-  async restartProject(project) {
+  /** @param {Project} project @param {{expectedRevision?:string}} [options] */
+  async restartProject(project, { expectedRevision } = {}) {
     this.lifecycleOperations.assertProject(project.id);
     if (project.service) {
       const receipt = await this.lifecycleOperations.request({
@@ -777,6 +777,11 @@ class CoreBackend {
           lifecycle: receipt,
         });
     }
+    if (
+      expectedRevision !== undefined &&
+      (await this.providers.config.current()).revision !== expectedRevision
+    )
+      throw new Error("配置已有其它变化，请在后台服务中安全应用当前配置。");
     await this.launch(project);
     await this.connect(project);
     await this.reconcile(project);
