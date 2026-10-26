@@ -185,6 +185,8 @@ class PreflightExecution(unittest.TestCase):
             **os.environ,
             "PATH": f"{self.bin}{os.pathsep}{os.environ['PATH']}",
             "COMMAND_LOG": str(self.log),
+            # 此夹具使用自有假 Core，不能继承真实 pre-push 的固定产物路径。
+            "AREAL_CORE_BIN": "",
         }
         self.git("init", "-q")
         self.git("config", "user.email", "fixture@example.invalid")
