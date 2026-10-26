@@ -10,15 +10,15 @@ const { modelRecord } = require("@areal/workbench/core-model-contract");
 const {
   readTask,
   readTaskAdmission,
-  schedule,
 } = require("../../../packages/workbench/client/desktop-contract/management-tasks.cjs");
+const { readTaskDraftTarget, taskDraftTarget } = require("./task-draft-target.cjs");
 const { readReceipts, receiptResult } = require("./receipt-contract.cjs");
 const { readObservationResult, readThreadMetadata } = require("./history-contract.cjs");
 const { readAdmission, readThreadAdmission } = require("./submission-results.cjs");
 /** @typedef {import('./project-state.cjs').CoreProject} Project */
 /** @typedef {import('@areal/workbench/core-model-contract').CoreThread} Thread */
 /** @typedef {import('@areal/workbench/core-model-contract').CoreTurn} Turn */
-/** @typedef {ReturnType<typeof targetContext>} Target */
+/** @typedef {ReturnType<typeof taskDraftTarget>} Target */
 /** @typedef {Record<string,unknown> & {action?:string,taskId?:string,expectedRevision?:number,objective?:string,scheduleV2?:Record<string,unknown>,mode?:string,threadId?:string}} Proposal */
 const marker = "AREAL_TASK_DRAFT_V1";
 const operations = new Set([
@@ -56,47 +56,7 @@ function targetOf(thread, project) {
   if (!line) return null;
   /** @type {unknown} */
   const value = JSON.parse(line.slice(targetPrefix.length));
-  if (
-    !modelRecord(value) ||
-    typeof value.taskId !== "string" ||
-    typeof value.expectedRevision !== "number" ||
-    !Number.isSafeInteger(value.expectedRevision) ||
-    value.expectedRevision < 0 ||
-    typeof value.objective !== "string" ||
-    typeof value.paused !== "boolean" ||
-    (value.interactionMode !== "interactive" &&
-      value.interactionMode !== "asynchronous" &&
-      value.interactionMode !== "headless") ||
-    (value.nextRunAt != null &&
-      (typeof value.nextRunAt !== "number" || !Number.isSafeInteger(value.nextRunAt))) ||
-    (value.schedule != null && !isLegacySchedule(value.schedule)) ||
-    (value.scheduleV2 != null && !schedule(value.scheduleV2))
-  )
-    throw new Error("原安排身份无效");
-  return {
-    taskId: value.taskId,
-    expectedRevision: value.expectedRevision,
-    objective: value.objective,
-    schedule: value.schedule,
-    scheduleV2: value.scheduleV2,
-    nextRunAt: value.nextRunAt,
-    interactionMode: value.interactionMode,
-    paused: value.paused,
-  };
-}
-/** @param {unknown} value @returns {value is NonNullable<Target['schedule']>} */
-function isLegacySchedule(value) {
-  return (
-    modelRecord(value) &&
-    typeof value.at === "number" &&
-    Number.isSafeInteger(value.at) &&
-    (value.intervalSeconds == null ||
-      (typeof value.intervalSeconds === "number" &&
-        Number.isSafeInteger(value.intervalSeconds) &&
-        value.intervalSeconds >= 0)) &&
-    (value.timeZone == null || typeof value.timeZone === "string") &&
-    Object.keys(value).every((key) => ["at", "intervalSeconds", "timeZone"].includes(key))
-  );
+  return readTaskDraftTarget(value);
 }
 /** @param {Thread} thread @param {Project} [project] */
 function draftInstructions(thread, project) {
@@ -105,17 +65,6 @@ function draftInstructions(thread, project) {
     throw new Error("这不是有效的任务配置会话，请重新创建。");
   return configuration.options.appendInstructions;
 }
-/** @param {import('../../../packages/workbench/client/desktop-contract/management-tasks.cjs').Task} task */
-const targetContext = (task) => ({
-  taskId: task.id,
-  expectedRevision: task.revision,
-  objective: task.objective,
-  schedule: task.schedule,
-  scheduleV2: task.scheduleV2,
-  nextRunAt: task.nextRunAt,
-  interactionMode: task.interactionMode,
-  paused: task.paused,
-});
 
 /** @param {unknown} value @param {string} label @param {number} [max] */
 function text(value, label, max = 4000) {
@@ -527,7 +476,7 @@ async function manageTaskDraft(backend, project, request) {
               toolAllowlist: [],
               maxModelRounds: 1,
               systemPrompt: instructions(zone, true),
-              appendInstructions: `${marker}\nTime zone: ${zone}\n${workspaceContext(project, thread.cwd)}\n${targetPrefix}${JSON.stringify(targetContext(task))}`,
+              appendInstructions: `${marker}\nTime zone: ${zone}\n${workspaceContext(project, thread.cwd)}\n${targetPrefix}${JSON.stringify(taskDraftTarget(task))}`,
             },
           });
         }
@@ -635,7 +584,7 @@ async function manageTaskDraft(backend, project, request) {
             toolAllowlist: [],
             maxModelRounds: 1,
             systemPrompt: instructions(zone, !!task),
-            appendInstructions: `${marker}\nTime zone: ${zone}\n${workspaceContext(project, cwd)}${task ? `\n${targetPrefix}${JSON.stringify(targetContext(task))}` : ""}`,
+            appendInstructions: `${marker}\nTime zone: ${zone}\n${workspaceContext(project, cwd)}${task ? `\n${targetPrefix}${JSON.stringify(taskDraftTarget(task))}` : ""}`,
           },
         });
       } else await inspect(project, thread.id);
@@ -729,7 +678,7 @@ async function manageTaskDraft(backend, project, request) {
           toolAllowlist: [],
           maxModelRounds: 1,
           systemPrompt: instructions(zone, !!target),
-          appendInstructions: `${marker}\nTime zone: ${zone}\n${workspaceContext(project, thread.cwd)}\nCore current civil time: ${now.localDate}T${now.localTime} in ${now.timeZone}. Use structured civil rules; Core resolves and saves the original intent.${currentTask ? `\n${targetPrefix}${JSON.stringify(targetContext(currentTask))}` : ""}`,
+          appendInstructions: `${marker}\nTime zone: ${zone}\n${workspaceContext(project, thread.cwd)}\nCore current civil time: ${now.localDate}T${now.localTime} in ${now.timeZone}. Use structured civil rules; Core resolves and saves the original intent.${currentTask ? `\n${targetPrefix}${JSON.stringify(taskDraftTarget(currentTask))}` : ""}`,
         },
       });
       const result = readAdmission(
