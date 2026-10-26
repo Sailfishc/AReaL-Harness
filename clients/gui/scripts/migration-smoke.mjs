@@ -1,5 +1,5 @@
 import { makeTempDir } from "./support/temp.mjs";
-import { closeSmokeApplication } from "./application-cleanup.mjs";
+import { closeRecordedSmokeApplication } from "./application-cleanup.mjs";
 import { withSmokeDeadline } from "./smoke-deadline.mjs";
 import assert from "node:assert/strict";
 
@@ -429,7 +429,7 @@ async function quit() {
       );
     } finally {
       // 退出先等待已受理操作（20s），再核查停服和原进程退出；不能共用单阶段 20s 预算。
-      await closeSmokeApplication(current, 60000);
+      await closeRecordedSmokeApplication(current, 60000);
     }
   } finally {
     app = null;
@@ -669,10 +669,10 @@ try {
       .waitFor({ state: "hidden" });
     await resources.waitFor();
     await resources.getByRole("button").filter({ hasText: "Changes" }).waitFor();
-    assert.match(
-      await resources.getByRole("button").filter({ hasText: "Changes" }).innerText(),
-      /1 个文件/,
-    );
+    const changes = resources.getByRole("button").filter({ hasText: "Changes" });
+    assert.match(await changes.getAttribute("aria-label"), /1\s*个文件/);
+    assert.match(await changes.innerText(), /\+1/);
+    assert.match(await changes.innerText(), /−1/);
     await resources.getByRole("heading", { name: "workspace", exact: true }).click();
     await waitForPopupMotion(".task-resources-popup");
     await writeFile(
@@ -778,8 +778,8 @@ try {
     assert.equal(await input().innerText(), "主对话草稿保持");
     const donePane = page.locator(`[data-agent-conversation="${doneChild.id}"]`);
     assert.equal(await donePane.locator(".user-message").count(), 1);
-    assert.ok((await donePane.locator(".tool-event").count()) > 0);
     await donePane.locator(".turn-progress-summary").click();
+    await donePane.locator(".tool-event").first().waitFor();
     await donePane.getByRole("button", { name: "查看工具原始记录", exact: true }).click();
     await donePane.getByLabel("工具结果", { exact: true }).waitFor();
     await shot("02b-agent-completed");
