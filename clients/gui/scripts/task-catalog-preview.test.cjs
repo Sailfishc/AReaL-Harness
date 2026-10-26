@@ -9,7 +9,7 @@ const coreProcess = require("../app/src/core/core-process.cjs");
 const originalExecute = coreProcess.executeCore;
 let execute;
 coreProcess.executeCore = (...args) => execute(...args);
-const { taskCatalog } = require("../app/src/core/task-catalog.cjs");
+const { taskCatalog, OwnerTasks } = require("../app/src/core/task-catalog.cjs");
 const {
   validateCommand,
   validateCommandResponse,
@@ -44,12 +44,30 @@ async function fixture(t) {
     id: "scheduled",
     mode: "scheduled",
     sourceThreadId: "source",
-    objective: "Saved task",
+    objectivePreview: "Saved task",
+    objectiveTruncated: false,
     revision: 99,
-    runs: [],
+    channelSequence: 0,
+    threadId: null,
+    paused: false,
+    cancelled: false,
+    deletedAt: null,
+    enabled: true,
+    nextRunAt: null,
+    schedule: null,
+    scheduleV2: null,
+    skippedRuns: 0,
+    lastSkippedAt: null,
+    lastTriggerDecision: null,
+    runCount: 0,
+    latestRun: null,
+    activeRun: null,
+    hasUnsettledWork: false,
+    pendingQuestions: 0,
+    pendingQuestionExpiresAt: null,
   };
   const response = {
-    version: 1,
+    version: 2,
     target,
     source: "published",
     executionState: "unobserved",
@@ -89,6 +107,7 @@ async function fixture(t) {
       },
     },
   };
+  backend.ownerTasks = new OwnerTasks(backend);
   return { backend, response, calls, task };
 }
 
@@ -102,7 +121,15 @@ test("preview is a bounded read capability with an unobserved response", () => {
     hasMore: false,
     source: "published",
     executionState: "unobserved",
-    owners: [{ projectId: "owner", status: "unobserved" }],
+    owners: [
+      {
+        projectId: "owner",
+        status: "unobserved",
+        source: "published",
+        coverage: { kind: "empty" },
+        readAt: 1,
+      },
+    ],
   };
   validateCommandResponse("tasks", request, response);
   for (const extra of [
@@ -136,14 +163,15 @@ test("published preview uses only trusted CLI and keeps model and execution owne
     "--data-dir",
     join(f.backend.home, "owner", "state"),
     "--limit",
-    "12",
-    "--source-thread-id",
-    "source",
+    "1024",
     "--json",
   ]);
   assert.equal(f.calls[0].binary, "/trusted/areal");
   assert.ok(f.calls[0].options.timeout > 0 && f.calls[0].options.timeout <= 10000);
-  assert.ok(f.calls[0].options.maxBuffer <= 2 * 1024 * 1024);
+  assert.equal(f.calls[0].options.maxBuffer, 32 * 1024 * 1024);
+  const again = await taskCatalog(f.backend, { ...request, sourceThreadId: "source" });
+  assert.equal(again.data[0].id, f.task.id);
+  assert.equal(f.calls.length, 1, "same owner scopes share one bounded published cache");
 });
 
 test("preview rejects wrong target and observation metadata", async (t) => {
@@ -155,7 +183,7 @@ test("preview rejects wrong target and observation metadata", async (t) => {
     { ...valid, target: { ...valid.target, instanceId: "0".repeat(24) } },
     { ...valid, executionState: "ready" },
     { ...valid, source: "live" },
-    { ...valid, version: 2 },
+    { ...valid, version: 1 },
     { ...valid, catalog: { ...valid.catalog, rootDigest: "invalid" } },
     { ...valid, catalog: { ...valid.catalog, data: [{ id: "interactive", mode: "interactive" }] } },
   ]) {
@@ -167,32 +195,39 @@ test("preview rejects wrong target and observation metadata", async (t) => {
   }
 });
 
-test("missing and legacy catalog remain unobserved and preserve live fallback", async (t) => {
+test("missing catalog stays empty while migration failures preserve the previous snapshot", async (t) => {
   const f = await fixture(t);
-  for (const catalog of [
-    { kind: "empty" },
-    { kind: "requiresCore", reason: "unbound" },
-    { kind: "requiresCore", reason: "legacyFormat" },
-    { kind: "requiresCore", reason: "readBudgetExceeded" },
-  ]) {
-    f.response.catalog = catalog;
-    for (const operation of ["preview", "observe"]) {
-      validateCommand("tasks", { ...request, operation });
-      const result = await taskCatalog(f.backend, { ...request, operation });
-      assert.deepEqual(result.data, []);
-      assert.equal(result.owners[0].status, "unobserved");
-      assert.deepEqual(result.owners[0].coverage, catalog);
-      validateCommandResponse("tasks", { ...request, operation }, result);
-    }
+  f.response.catalog = { kind: "empty" };
+  const empty = await taskCatalog(f.backend, request);
+  assert.deepEqual(empty.data, []);
+  assert.equal(empty.owners[0].status, "unobserved");
+  assert.deepEqual(empty.owners[0].coverage, { kind: "empty" });
+  f.response.catalog = {
+    kind: "snapshot",
+    rootDigest: "a".repeat(64),
+    data: [f.task],
+    hasMore: false,
+  };
+  await taskCatalog(f.backend, { ...request, operation: "list" });
+  for (const reason of ["unbound", "legacyFormat", "readBudgetExceeded"]) {
+    f.response.catalog = { kind: "requiresCore", reason };
+    const query = { ...request, operation: "list" };
+    const result = await taskCatalog(f.backend, query);
+    assert.equal(result.data[0].id, f.task.id);
+    assert.equal(result.owners[0].status, "error");
+    assert.equal(result.errors.length, 1);
+    assert.match(result.errors[0].message, new RegExp(reason));
+    assert.equal(f.backend.ownerTasks.published.get("owner").data[0].id, f.task.id);
+    validateCommandResponse("tasks", query, result);
   }
 });
 
-test("preview rejects a different source Thread from the bounded source request", async (t) => {
+test("preview filters the shared bounded cache to the requested source Thread", async (t) => {
   const f = await fixture(t);
   f.response.catalog.data[0].sourceThreadId = "other-source";
   const result = await taskCatalog(f.backend, { ...request, sourceThreadId: "source" });
   assert.deepEqual(result.data, []);
-  assert.equal(result.errors.length, 1);
+  assert.deepEqual(result.errors, []);
 });
 
 test("removed or lifecycle-blocked execution owner cannot publish late preview", async (t) => {

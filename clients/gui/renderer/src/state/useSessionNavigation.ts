@@ -170,7 +170,7 @@ export function useSessionNavigation(
     (
       owner: RestorationOwner,
       operation: "connect" | "open",
-      options: { connectService?: boolean } = {},
+      options: { connectService?: boolean; resumeScheduling?: boolean } = {},
     ) => {
       const previous = restorationAttempt.current;
       if (
@@ -201,7 +201,10 @@ export function useSessionNavigation(
             if (!current()) return;
           }
           if (operation === "connect")
-            await resourceAction("connect", { projectId: owner.projectId });
+            await resourceAction("connect", {
+              projectId: owner.projectId,
+              ...(options.resumeScheduling ? { resumeScheduling: true } : {}),
+            });
           else if (owner.threadId) {
             await resourceAction("open", { projectId: owner.projectId, threadId: owner.threadId });
             if (!current()) return;
@@ -278,6 +281,7 @@ export function useSessionNavigation(
     if (!project) return;
     await restoreConversation(restorationOwner, project.state?.connected ? "open" : "connect", {
       connectService: snapshot.connection?.state !== "ready",
+      resumeScheduling: true,
     });
   };
   const selectConversation = async (pid: string, id: string) => {

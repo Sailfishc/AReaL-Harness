@@ -41,6 +41,8 @@
     "test:execution-artifact-ui": "node scripts/execution-artifact-ui-smoke.mjs",
     "test:task-catalog-cold": "node scripts/task-catalog-cold-smoke.mjs",
     "test:task-catalog-startup": "node scripts/task-catalog-startup-smoke.mjs",
+    "test:schedule-reliability": "node scripts/schedule-reliability-smoke.mjs",
+    "test:schedule-reliability-lifecycle": "node scripts/schedule-reliability-lifecycle-smoke.mjs",
     "test:stop-turn": "node scripts/stop-turn-smoke.mjs",
     "test:service-reopen": "node scripts/service-reopen-smoke.mjs",
     "test:lifecycle": "node scripts/startup-recovery-smoke.mjs && node scripts/lifecycle-smoke.mjs",

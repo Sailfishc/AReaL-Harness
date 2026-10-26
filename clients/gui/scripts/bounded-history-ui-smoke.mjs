@@ -11,6 +11,7 @@ const gui = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(join(gui, "app/package.json"));
 const { chromium, _electron: electron } = require("playwright-core");
 const { CoreBackend } = require("../app/src/core/backend.cjs");
+const { validateCommandResponse } = require("../packages/workbench/client/desktop-contract.cjs");
 const { CoreTaskModel } = await import("../packages/workbench/client/core-model.js");
 const dist = process.env.AREAL_RENDERER_DIST || join(gui, "renderer/dist");
 const scratch = await makeTempDir("areal-history-ui-");
@@ -59,7 +60,8 @@ let browser,
   desktop,
   passed = false;
 const checks = [],
-  errors = [];
+  errors = [],
+  fixtureDiagnostics = [];
 try {
   let page;
   if (process.env.AREAL_HISTORY_UI_ELECTRON === "1") {
@@ -89,6 +91,15 @@ try {
     });
   }
   page.on("pageerror", (error) => errors.push(error.message));
+  await page.exposeFunction("validateFixtureResponse", (name, params, value) => {
+    try {
+      validateCommandResponse(name, params, value);
+    } catch (error) {
+      const message = `fixture ${name}/${params.operation ?? "default"}: ${error.message}`;
+      if (name === "history") errors.push(message);
+      else fixtureDiagnostics.push(message);
+    }
+  });
   const origin = `http://127.0.0.1:${server.address().port}`;
   await page.route("**/*", (route) =>
     new URL(route.request().url()).origin === origin ? route.continue() : route.abort(),
@@ -265,6 +276,12 @@ try {
             };
           return { ok: true, value: { data: [] } };
         },
+      };
+      const command = window.arealDesktop.command;
+      window.arealDesktop.command = async (name, params) => {
+        const response = await command(name, params);
+        if (response.ok) await window.validateFixtureResponse(name, params, response.value);
+        return response;
       };
     },
     { locale },
@@ -502,6 +519,195 @@ try {
   );
   await projection;
   assert.deepEqual(errors, []);
+  // Real Renderer + Desktop owner: auto pagination must require fresh input,
+  // preserve the visible paragraph and stop retrying after a failed read.
+  let pageReads = 0;
+  let failNext = false;
+  let shortPages = false;
+  project.client.request = async (method, params) => {
+    assert.equal(method, "areal/conversation/history");
+    pageReads++;
+    if (failNext) {
+      failNext = false;
+      throw new Error("PAGING_FAILURE_SENTINEL");
+    }
+    const n = params.cursor === "paging:0" ? 0 : Number(params.cursor.split(":")[1]);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    return {
+      snapshotId: "paging-snapshot",
+      data: [
+        {
+          sourceThreadId: "history-thread",
+          sourceTurnId: `older-turn-${n}`,
+          sourceItemId: `older-item-${n}`,
+          sourceTurnStatus: "completed",
+          turn: { id: `older-turn-${n}`, status: "completed" },
+          item: {
+            id: `older-item-${n}`,
+            type: "agentMessage",
+            phase: "final_answer",
+            text: Array.from(
+              { length: shortPages ? 1 : 30 },
+              (_, i) => `OLDER_${n}_PARAGRAPH_${i}`,
+            ).join("\n\n"),
+          },
+        },
+      ],
+      nextCursor: `paging:${n + 1}`,
+      complete: false,
+    };
+  };
+  backend.installObservation(project, {
+    thread: {
+      id: "history-thread",
+      status: "idle",
+      turns: [
+        {
+          id: "head",
+          status: "completed",
+          items: [
+            {
+              id: "head-item",
+              type: "agentMessage",
+              phase: "final_answer",
+              text: "HEAD_SENTINEL\n\n" + "Reading paragraph.\n\n".repeat(40),
+            },
+          ],
+        },
+        {
+          id: "tail",
+          status: "completed",
+          items: [
+            {
+              id: "tail-item",
+              type: "agentMessage",
+              phase: "final_answer",
+              text: "TAIL_SENTINEL\n\n" + "Latest paragraph.\n\n".repeat(40),
+            },
+          ],
+        },
+      ],
+    },
+    history: { snapshotId: "paging-snapshot", nextCursor: "paging:0", complete: false },
+  });
+  await projection;
+  await page.getByText("TAIL_SENTINEL", { exact: true }).waitFor();
+  await page.waitForTimeout(150);
+  assert.equal(pageReads, 0, "following does not fetch older pages");
+  await page.locator(".messages").evaluate((element) => {
+    element.scrollTop = 80;
+  });
+  await page.waitForTimeout(100);
+  assert.equal(pageReads, 0, "layout/programmatic scroll does not authorize pagination");
+  const anchorTop = () =>
+    page
+      .locator('[data-side-item-id="head-item"]')
+      .evaluate((node) => node.getBoundingClientRect().top);
+  const anchorBefore = await anchorTop();
+  await page.locator(".messages").hover();
+  await page.mouse.wheel(0, -1);
+  await page.getByText("OLDER_0_PARAGRAPH_0", { exact: true }).waitFor();
+  await page.waitForTimeout(150);
+  assert.ok(
+    Math.abs((await anchorTop()) - anchorBefore - 1) <= 2,
+    "prepend preserves reading anchor",
+  );
+  assert.equal(pageReads, 1, "one gesture cannot cascade through pages");
+  for (let n = 1; n < 6; n++) {
+    await page.locator(".messages").evaluate((element) => {
+      element.scrollTop = 40;
+    });
+    await page.mouse.wheel(0, -1);
+    await page.getByText(`OLDER_${n}_PARAGRAPH_0`, { exact: true }).waitFor();
+    await page.waitForTimeout(80);
+  }
+  const gap = page.locator("[data-history-page-id]").last();
+  await gap.getByRole("button").click();
+  await page.getByText("OLDER_1_PARAGRAPH_0", { exact: true }).waitFor();
+  assert.ok(backend.historyWindow(project, "history-thread").pages.length <= 4);
+  assert.equal(await page.getByText("TAIL_SENTINEL", { exact: true }).count(), 1);
+  await page.screenshot({ path: join(scratch, "04-paging-gap.png"), animations: "disabled" });
+  failNext = true;
+  await older.click();
+  await page
+    .locator(".messages p[role=alert]")
+    .filter({ hasText: "PAGING_FAILURE_SENTINEL" })
+    .waitFor();
+  const failedReads = pageReads;
+  await page.locator(".messages").evaluate((element) => {
+    element.scrollTop = 0;
+  });
+  await page.mouse.wheel(0, -10);
+  await page.waitForTimeout(200);
+  assert.equal(pageReads, failedReads, "failed automatic loads wait for an explicit retry");
+  await older.click();
+  await page.waitForFunction(
+    () =>
+      !document
+        .querySelector('.messages p[role="alert"]')
+        ?.textContent.includes("PAGING_FAILURE_SENTINEL"),
+  );
+  shortPages = true;
+  backend.installObservation(project, {
+    thread: {
+      id: "history-thread",
+      status: "idle",
+      turns: [
+        {
+          id: "short-head",
+          status: "completed",
+          items: [
+            {
+              id: "short-head-item",
+              type: "agentMessage",
+              phase: "final_answer",
+              text: "SHORT_HEAD",
+            },
+          ],
+        },
+        {
+          id: "short-tail",
+          status: "completed",
+          items: [
+            {
+              id: "short-tail-item",
+              type: "agentMessage",
+              phase: "final_answer",
+              text: "SHORT_TAIL",
+            },
+          ],
+        },
+      ],
+    },
+    history: { snapshotId: "paging-snapshot", nextCursor: "paging:0", complete: false },
+  });
+  await projection;
+  await page.getByText("SHORT_TAIL", { exact: true }).waitFor();
+  const shortBefore = pageReads;
+  await page.locator(".messages").hover();
+  await page.mouse.wheel(0, -1);
+  await page.getByText("OLDER_0_PARAGRAPH_0", { exact: true }).waitFor();
+  await page.waitForTimeout(200);
+  assert.equal(
+    pageReads,
+    shortBefore + 1,
+    "underfilled viewport auto-loads at most one page per input",
+  );
+  for (let n = 0; n < 4; n++) {
+    await page.mouse.wheel(0, -1);
+    await page.waitForTimeout(100);
+  }
+  assert.equal(
+    pageReads,
+    shortBefore + 2,
+    "underfilled viewport stops after two auto pages across repeated input",
+  );
+  await page.screenshot({ path: join(scratch, "05-short-history.png"), animations: "disabled" });
+  checks.push(
+    "fresh upward input auto-loads exactly one page, programmatic scrolling and follow do not fetch, prepend keeps the paragraph, evicted pages reload via gap, failure requires manual retry, underfilled viewport stops at two automatic pages even across repeated input",
+  );
+  await projection;
+  assert.deepEqual(errors, []);
   passed = true;
 } finally {
   await desktop?.close();
@@ -522,9 +728,15 @@ try {
       ]),
     ),
   );
-  hashes["app/src/core/backend.cjs"] = createHash("sha256")
-    .update(await readFile(join(gui, "app/src/core/backend.cjs")))
-    .digest("hex");
+  for (const file of [
+    "app/src/core/backend.cjs",
+    "app/src/core/history-observation.cjs",
+    "packages/workbench/client/desktop-contract/conversation.cjs",
+  ]) {
+    hashes[file] = createHash("sha256")
+      .update(await readFile(join(gui, file)))
+      .digest("hex");
+  }
   const sourceCommit = execFileSync("git", ["rev-parse", "HEAD"], {
     cwd: gui,
     encoding: "utf8",
@@ -537,10 +749,11 @@ try {
         locale,
         checks,
         errors,
+        fixtureDiagnostics: [...new Set(fixtureDiagnostics)],
         hashes,
         sourceCommit,
         node: process.version,
-        scope: `${desktop ? "Electron" : "Chrome"} production Renderer with actual Desktop history owner and controlled Core responses; no actual Core or packaged-app acceptance`,
+        scope: `${desktop ? "Electron" : "Chrome"} production Renderer with actual Desktop history owner and controlled Core responses; no actual Core or packaged-app acceptance; auxiliary capability fixture diagnostics are recorded separately`,
       },
       null,
       2,

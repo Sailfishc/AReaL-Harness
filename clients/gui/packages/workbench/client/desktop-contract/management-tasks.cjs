@@ -1,6 +1,7 @@
 // @ts-check
 "use strict";
 const protocol = require("./generated/management-tasks-protocol.cjs");
+const ownerProtocol = require("./generated/management-owner-directory-protocol.cjs");
 const { isCoreThread, modelRecord } = require("../core-model-contract.js");
 
 /** @typedef {Schedule['rule']} ScheduleRule */
@@ -84,6 +85,13 @@ function readInboxPage(value) {
   return { ...value, data: value.data, nextCursor: value.nextCursor };
 }
 module.exports = {
+  taskDirectoryRow,
+  readTaskDirectoryRow,
+  readDirectoryPage,
+  readDirectoryRows,
+  readAttentionPage,
+  readOwnerBarrier,
+  readOwnerInvalidation,
   readTask,
   readTaskAdmission,
   readTaskRun,
@@ -278,4 +286,65 @@ function localTaskResponse(operation, value) {
       )
     );
   return false;
+}
+
+/** @typedef {import('./generated/management-owner-directory-protocol.cjs').RunDirectoryRow} RunDirectoryRow */
+/** @typedef {import('./generated/management-owner-directory-protocol.cjs').TaskDirectoryRow} TaskDirectoryRow */
+/** @typedef {import('./generated/management-owner-directory-protocol.cjs').OwnerAttention} OwnerAttention */
+/** @typedef {import('./generated/management-owner-directory-protocol.cjs').OwnerNoticeFact} OwnerNoticeFact */
+/** @typedef {import('./generated/management-owner-directory-protocol.cjs').OwnerWatch} OwnerBarrier */
+/** @typedef {import('./generated/management-owner-directory-protocol.cjs').OwnerInvalidation} OwnerInvalidation */
+/** @param {string|null|undefined} value @param {number} bytes */
+const boundedPreview = (value, bytes) =>
+  value == null || new TextEncoder().encode(value).length <= bytes;
+/** @param {unknown} value @returns {value is TaskDirectoryRow} */
+function taskDirectoryRow(value) {
+  return (
+    ownerProtocol.isTaskDirectoryRow(value) &&
+    boundedPreview(value.objectivePreview, 512) &&
+    boundedPreview(value.latestRun?.reasonPreview, 256) &&
+    boundedPreview(value.activeRun?.reasonPreview, 256)
+  );
+}
+/** @param {unknown} value @returns {TaskDirectoryRow} */
+function readTaskDirectoryRow(value) {
+  if (!taskDirectoryRow(value)) throw new Error("Core 任务摘要结构无效");
+  return value;
+}
+/** @param {unknown} value */
+function readOwnerBarrier(value) {
+  if (!ownerProtocol.isOwnerWatch(value)) throw new Error("Core owner watch 屏障结构无效");
+  return value;
+}
+/** @param {unknown} value */
+function readOwnerInvalidation(value) {
+  if (
+    !ownerProtocol.isOwnerInvalidation(value) ||
+    !value.facts.every((fact) => boundedPreview(fact.objectivePreview, 512))
+  )
+    throw new Error("Core owner 失效通知结构无效");
+  return value;
+}
+/** @param {unknown} value */
+function readDirectoryPage(value) {
+  if (!ownerProtocol.isTaskDirectoryPage(value) || !value.data.every(taskDirectoryRow))
+    throw new Error("Core 任务摘要分页结构无效");
+  return { ...value, nextCursor: value.nextCursor ?? null };
+}
+/** @param {unknown} value */
+function readDirectoryRows(value) {
+  if (!ownerProtocol.isTaskDirectoryRows(value) || !value.data.every(taskDirectoryRow))
+    throw new Error("Core 任务摘要定向读取结构无效");
+  return value;
+}
+/** @param {unknown} value */
+function readAttentionPage(value) {
+  if (
+    !ownerProtocol.isOwnerAttentionPage(value) ||
+    !value.data.every(
+      (row) => boundedPreview(row.objectivePreview, 512) && boundedPreview(row.summary, 256),
+    )
+  )
+    throw new Error("Core 任务关注分页结构无效");
+  return { ...value, nextCursor: value.nextCursor ?? null };
 }

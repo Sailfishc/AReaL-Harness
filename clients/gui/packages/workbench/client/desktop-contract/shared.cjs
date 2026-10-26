@@ -234,7 +234,7 @@ function parseSubmissionOutcomes(value) {
 /** @typedef {'ifIdle'|'cancel'} LifecycleMode */
 /** @typedef {'notAttempted'|'acceptedPending'|'blocked'|'admissionUnconfirmed'|'settlementIncomplete'|'completed'} TargetPhase */
 /** @typedef {{projectId:string,serviceId:string,generation:string}} LifecycleIdentity */
-/** @typedef {LifecycleIdentity & {requestId?:string,phase:TargetPhase,hostReceipt?:unknown,error?:unknown}} LifecycleTarget */
+/** @typedef {LifecycleIdentity & {requestId?:string,phase:TargetPhase,hostReceipt?:unknown,error?:unknown,scheduleActivationSuppressed?:boolean}} LifecycleTarget */
 /** @typedef {{version:1,requestId:string,desktopGeneration:string,kind:LifecycleKind,mode:LifecycleMode,targets:LifecycleTarget[],phase:Exclude<TargetPhase,'notAttempted'>|'partial',desktopExit:'notRequested'|'requested',threadId?:string,turnId?:string,message?:string,logicalProjectId?:string,harnessHome?:string,desktopError?:unknown}} LifecycleReceipt */
 /** @type {readonly LifecycleKind[]} */
 const KINDS = Object.freeze([
@@ -271,6 +271,8 @@ function isLifecycleReceipt(value) {
         modelRecord(target) &&
         ["projectId", "serviceId", "generation"].every((key) => typeof target[key] === "string") &&
         (target.requestId === undefined || typeof target.requestId === "string") &&
+        (target.scheduleActivationSuppressed === undefined ||
+          typeof target.scheduleActivationSuppressed === "boolean") &&
         [
           "notAttempted",
           "acceptedPending",

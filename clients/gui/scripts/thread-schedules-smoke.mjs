@@ -350,6 +350,10 @@ async function call(name, params) {
 const task = (taskId, ownerId = projectId) =>
   call("manage", { projectId: ownerId, operation: "task", taskId });
 const tasks = () => call("tasks", { operation: "list", limit: 100 });
+async function findTask(objective) {
+  const row = (await tasks()).data.find((entry) => entry.objectivePreview === objective);
+  return row ? { ...(await task(row.id, row.projectId)), projectId: row.projectId } : null;
+}
 async function shot(name) {
   await page.screenshot({
     path: join(evidence, `${name}.png`),
@@ -754,7 +758,7 @@ async function verifyGlobalDraftAndRun(existingTasks = []) {
   };
   await page.getByRole("button", { name: "允许一次", exact: true }).click();
   const C = await until(
-    async () => (await tasks()).data.find((task) => task.objective === objectives.C),
+    () => findTask(objectives.C),
     "global add saves through ordinary tool path",
   );
   await completed(independentThread, C.projectId);
@@ -901,7 +905,7 @@ try {
     );
     creationBarrier();
     const A = await until(
-      async () => (await tasks()).data.find((task) => task.objective === objectives.A),
+      () => findTask(objectives.A),
       "schedule commits after navigating away from source Thread",
     );
     assert.equal(A.sourceThreadId, sourceThreadId);
@@ -966,7 +970,7 @@ try {
     await send("THREAD_SCHEDULE_CREATE_B 另建一个每天九点检查未完成事项的安排。");
     await completed(sourceThreadId);
     const B = await until(
-      async () => (await tasks()).data.find((task) => task.objective === objectives.B),
+      () => findTask(objectives.B),
       "second schedule saved from same source Thread",
     );
     assert.equal(B.sourceThreadId, sourceThreadId);
@@ -1143,7 +1147,10 @@ try {
       let settled = false;
       while (Date.now() < deadline) {
         const rows = await tasks();
-        settled = rows.data.every(
+        const details = await Promise.all(
+          rows.data.map((entry) => task(entry.id, entry.projectId)),
+        );
+        settled = details.every(
           (entry) =>
             entry.cancelled &&
             entry.runs.every(

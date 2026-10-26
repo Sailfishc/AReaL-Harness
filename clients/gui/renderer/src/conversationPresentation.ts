@@ -463,7 +463,8 @@ export function executionSegments(items: Data[], turnStatus: string): Data[] {
       item.type === "userMessage" ||
       item.type === "agentMessage" ||
       item.type === "agentMedia" ||
-      item.type === "historyDeferred"
+      item.type === "historyDeferred" ||
+      item.type === "historyPageGap"
     ) {
       result.push(item);
       group = undefined;

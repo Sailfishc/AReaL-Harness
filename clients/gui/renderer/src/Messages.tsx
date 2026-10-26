@@ -286,7 +286,18 @@ export function Messages({
   const history = useConversationHistory(project.id, localThread, action);
   const thread: Data = {
     ...localThread,
-    turns: [...inherited.turns, ...(localThread.turns ?? [])],
+    turns: [
+      ...inherited.turns,
+      ...(localThread.turns ?? []).map((turn: Data) => ({
+        ...turn,
+        items: (turn.items ?? []).flatMap((item: Data) => [
+          ...(localThread.displayHistory?.gaps ?? [])
+            .filter((gap: Data) => gap.beforeItemId === item.id)
+            .map((gap: Data) => ({ ...gap, type: "historyPageGap" })),
+          item,
+        ]),
+      })),
+    ],
   };
   const inheritedIds = new Set(inherited.turns.map((turn) => turn.id));
   const creationAnchor =
@@ -305,6 +316,14 @@ export function Messages({
   const responseSpace = useRef<HTMLDivElement>(null);
   const container = useRef<HTMLDivElement>(null);
   const follow = useRef(true);
+  const olderSentinel = useRef<HTMLDivElement>(null);
+  const autoOlderIntent = useRef(false);
+  const shortAutoPages = useRef(0);
+  const olderInFlight = useRef<object | undefined>(undefined);
+  const scrollbarReading = useRef<number | undefined>(undefined);
+  const pageReading = useRef<{ owner: string; anchor?: ReadingAnchor; turns: Data } | undefined>(
+    undefined,
+  );
   const pendingReading = useRef<ReadingAnchor | undefined>(undefined);
   const disclosureReading = useRef<{ control: HTMLElement; offset: number } | undefined>(undefined);
   const readingViewport = useRef<{ width: number; height: number } | undefined>(undefined);
@@ -555,7 +574,7 @@ export function Messages({
   };
   const updateReading = () => {
     const element = container.current;
-    if (!element || pendingReading.current) return;
+    if (!element || pendingReading.current || pageReading.current) return;
     const space = reservation.current;
     const section = element.querySelector<HTMLElement>("[data-latest-turn=true]");
     const viewport = readingViewport.current;
@@ -595,7 +614,85 @@ export function Messages({
       !follow.current && element.scrollHeight - element.scrollTop - element.clientHeight >= 120,
     );
   };
+  const loadOlder = async (pageId?: string, automatic = false) => {
+    if (!automatic) shortAutoPages.current = 0;
+    if (olderInFlight.current || localThread.displayHistory?.loadingOlder) return;
+    autoOlderIntent.current = false;
+    readHere();
+    const element = container.current;
+    pageReading.current = {
+      owner,
+      anchor: element ? readingAnchor(element) : undefined,
+      turns: localThread.turns,
+    };
+    const request = {};
+    olderInFlight.current = request;
+    try {
+      await history.load(undefined, pageId);
+    } finally {
+      if (olderInFlight.current === request) olderInFlight.current = undefined;
+    }
+  };
+  const autoLoadOlder = () => {
+    const element = container.current;
+    const display = localThread.displayHistory;
+    if (
+      !element ||
+      !autoOlderIntent.current ||
+      follow.current ||
+      history.failure ||
+      !display?.supported ||
+      display.complete ||
+      display.loadingLatest ||
+      display.latestTurnComplete === false ||
+      display.loadingOlder ||
+      olderInFlight.current ||
+      element.scrollTop > element.clientHeight
+    )
+      return;
+    if (element.scrollHeight <= element.clientHeight) {
+      if (shortAutoPages.current >= 2) return;
+      shortAutoPages.current++;
+    } else shortAutoPages.current = 0;
+    void loadOlder(undefined, true);
+  };
+  const autoLoadCurrent = useRef(autoLoadOlder);
+  autoLoadCurrent.current = autoLoadOlder;
+  useEffect(() => {
+    autoOlderIntent.current = false;
+    shortAutoPages.current = 0;
+    olderInFlight.current = undefined;
+    pageReading.current = undefined;
+    const element = container.current;
+    const sentinel = olderSentinel.current;
+    if (embedded || !element || !sentinel) return;
+    const observer = new IntersectionObserver(() => autoLoadCurrent.current(), {
+      root: element,
+      rootMargin: "100% 0px 0px 0px",
+    });
+    observer.observe(sentinel);
+    const releaseScrollbar = () => {
+      scrollbarReading.current = undefined;
+    };
+    window.addEventListener("pointerup", releaseScrollbar);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("pointerup", releaseScrollbar);
+    };
+  }, [
+    owner,
+    embedded,
+    localThread.displayHistory?.supported,
+    localThread.displayHistory?.viewGeneration,
+  ]);
+  const requestOlderFromInput = () => {
+    autoOlderIntent.current = true;
+    follow.current = false;
+    requestAnimationFrame(() => autoLoadCurrent.current());
+  };
   const returnToBottom = () => {
+    autoOlderIntent.current = false;
+    pageReading.current = undefined;
     pendingReading.current = undefined;
     disclosureReading.current = undefined;
     releaseResponseSpace();
@@ -797,6 +894,7 @@ export function Messages({
     if (switched && !follow.current) element.scrollTop = remembered?.top ?? 0;
     layout();
     const cancelPendingReading = () => {
+      pageReading.current = undefined;
       pendingReading.current = undefined;
       disclosureReading.current = undefined;
       rememberReading();
@@ -857,6 +955,19 @@ export function Messages({
     }
     setReadingHistory(element.scrollHeight - element.scrollTop - element.clientHeight >= 120);
   });
+  useLayoutEffect(() => {
+    const reading = pageReading.current;
+    const element = container.current;
+    if (!reading || !element || reading.owner !== owner) return;
+    if (
+      history.failure ||
+      (reading.turns !== localThread.turns && !localThread.displayHistory?.loadingOlder)
+    ) {
+      if (reading.anchor) restoreReadingAnchor(element, reading.anchor);
+      pageReading.current = undefined;
+      rememberReading();
+    }
+  });
   return (
     <div className={embedded ? "messages-embedded" : "messages-shell"}>
       {!embedded && (
@@ -876,7 +987,52 @@ export function Messages({
       <div
         className={embedded ? "messages-embedded-content" : "messages"}
         ref={container}
-        onScroll={embedded ? undefined : updateReading}
+        onScroll={
+          embedded
+            ? undefined
+            : () => {
+                const element = container.current;
+                if (element && scrollbarReading.current !== undefined) {
+                  if (element.scrollTop < scrollbarReading.current) requestOlderFromInput();
+                  scrollbarReading.current = element.scrollTop;
+                }
+                updateReading();
+                autoLoadOlder();
+              }
+        }
+        onWheelCapture={
+          embedded
+            ? undefined
+            : (event) => {
+                if (event.deltaY < 0) requestOlderFromInput();
+                if (event.deltaY > 0) autoOlderIntent.current = false;
+              }
+        }
+        onKeyDownCapture={
+          embedded
+            ? undefined
+            : (event) => {
+                if (
+                  ["ArrowUp", "PageUp", "Home"].includes(event.key) ||
+                  (event.key === " " && event.shiftKey)
+                ) {
+                  if (
+                    event.target instanceof Element &&
+                    event.target.closest("input, textarea, [contenteditable=true]")
+                  )
+                    return;
+                  requestOlderFromInput();
+                }
+              }
+        }
+        onPointerDownCapture={
+          embedded
+            ? undefined
+            : (event) => {
+                if (event.clientX >= event.currentTarget.getBoundingClientRect().right - 16)
+                  scrollbarReading.current = event.currentTarget.scrollTop;
+              }
+        }
         onMouseUp={captureSideSelection}
         onKeyUp={(event) => {
           if (event.key !== "Escape" && event.key !== "Tab" && event.key !== "Enter")
@@ -906,7 +1062,7 @@ export function Messages({
           {inherited.loading && <p role="status">正在加载继承历史…</p>}
           {inherited.error && <p role="alert">继承历史读取失败：{inherited.error}</p>}
           {localThread.displayHistory?.supported && (
-            <div className="message-history-controls" aria-live="polite">
+            <div ref={olderSentinel} className="message-history-controls" aria-live="polite">
               {localThread.displayHistory.loadingLatest ? (
                 <span role="status">{t("chat.history.loadingLatest")}</span>
               ) : localThread.displayHistory.latestTurnComplete !== false &&
@@ -917,8 +1073,7 @@ export function Messages({
                   size="sm"
                   disabled={localThread.displayHistory.loadingOlder}
                   onClick={() => {
-                    readHere();
-                    void history.load();
+                    void loadOlder();
                   }}
                 >
                   {localThread.displayHistory.loadingOlder
@@ -1047,6 +1202,7 @@ export function Messages({
             segments.forEach((item: Data, index: number) => {
               const progress =
                 item.type !== "historyDeferred" &&
+                item.type !== "historyPageGap" &&
                 item.type !== "questionAnswer" &&
                 item.type !== "userMessage" &&
                 item.type !== "agentMedia" &&
@@ -1113,6 +1269,20 @@ export function Messages({
                     group.entries.flatMap(({ item }) => item.items ?? []),
                   );
                   const contents = group.entries.map(({ item }) => {
+                    if (item.type === "historyPageGap")
+                      return (
+                        <div key={item.id} className="notice" data-history-page-id={item.id}>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            disabled={localThread.displayHistory?.loadingOlder}
+                            onClick={() => void loadOlder(item.id)}
+                          >
+                            {t("chat.history.reloadPage")}
+                          </Button>
+                        </div>
+                      );
                     if (item.type === "historyDeferred")
                       return (
                         <DeferredHistoryItem
@@ -1357,19 +1527,6 @@ export function Messages({
                   });
                   return (
                     <Fragment key={group.id}>
-                      {localThread.displayHistory?.omitted &&
-                        group.entries.some(
-                          ({ item }) =>
-                            item.id === localThread.displayHistory.baselineFirstItemId ||
-                            item.items?.some(
-                              (entry: Data) =>
-                                entry.id === localThread.displayHistory.baselineFirstItemId,
-                            ),
-                        ) && (
-                          <p role="status" className="notice">
-                            {t("chat.history.omitted")}
-                          </p>
-                        )}
                       {hasInterruption && groupIndex === stopHeaderIndex && stopHeading}
                       {group.progress ? (
                         <TurnProgress

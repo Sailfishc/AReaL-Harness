@@ -143,6 +143,20 @@
     "requires": ["electron", "core-binary", "git", "gui-build"]
   },
   {
+    "script": "test:schedule-reliability",
+    "layer": "e2e",
+    "platforms": ["darwin", "linux"],
+    "areas": ["tasks", "schedules"],
+    "requires": ["electron", "core-binary", "git", "gui-build"]
+  },
+  {
+    "script": "test:schedule-reliability-lifecycle",
+    "layer": "e2e",
+    "platforms": ["darwin", "linux"],
+    "areas": ["tasks", "schedules", "lifecycle"],
+    "requires": ["electron", "core-binary", "git", "gui-build"]
+  },
+  {
     "script": "test:stop-turn",
     "layer": "e2e",
     "platforms": ["darwin", "linux"],

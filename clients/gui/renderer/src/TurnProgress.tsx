@@ -9,8 +9,8 @@ import type { Data } from "./services.js";
 /** 过程组因回合完成而自动收起前派发的事件名；冒泡到消息列表。 */
 export const progressAutoCollapse = "areal:progress-auto-collapse";
 
-/** Local disclosure only. The parent supplies ordered content; hidden children stay
- * mounted so inspecting history never resets command details or replays work. */
+/** Local disclosure only. The parent supplies ordered content; children mount on
+ * first expansion and stay mounted so collapsing never resets command details. */
 export function TurnProgress({
   settled,
   summaryAvailable,
@@ -39,6 +39,10 @@ export function TurnProgress({
   }, [settled]);
   const id = useId();
   const expanded = !summaryAvailable || open;
+  const [hasExpanded, setHasExpanded] = useState(expanded);
+  useEffect(() => {
+    if (expanded) setHasExpanded(true);
+  }, [expanded]);
   return (
     <Collapsible.Root ref={root} open={expanded} className="turn-progress">
       {summaryAvailable &&
@@ -81,7 +85,7 @@ export function TurnProgress({
           </div>
         ))}
       <Collapsible.Panel keepMounted id={id} className="turn-progress-body conversation-disclosure">
-        {children}
+        {expanded || hasExpanded ? children : null}
       </Collapsible.Panel>
     </Collapsible.Root>
   );

@@ -8,7 +8,8 @@ export const settledRun = (run: Data) =>
   ["completed", "failed", "cancelled", "skipped"].includes(run.status) &&
   !(run.workers ?? []).some((worker: Data) => !worker.settled);
 export const taskDeletionPending = (task: Data) =>
-  task.deletedAt != null && (task.runs ?? []).some((run: Data) => !settledRun(run));
+  task.deletedAt != null &&
+  (task.hasUnsettledWork ?? (task.runs ?? []).some((run: Data) => !settledRun(run)));
 export const activeScheduledTask = (task: Data) =>
   task.mode === "scheduled" && (task.deletedAt == null || taskDeletionPending(task));
 export const scheduledTaskStatus = (task: Data, t: Translate) =>
@@ -82,7 +83,7 @@ export function scheduleDescription(task: Data, t: Translate) {
 }
 export function ScheduledTaskSummary({ task, project }: { task: Data; project: Data }) {
   const { t } = useI18n();
-  const run = task.runs?.at(-1);
+  const run = task.latestRun ?? task.runs?.at(-1);
   return (
     <div className="scheduled-task-summary">
       <p
@@ -147,7 +148,7 @@ export function ScheduledTaskControls({
     (entry: Data) => entry.params?.taskId === task.id && entry.method?.startsWith("areal/task/"),
   );
   const blocked = disabled || busy || pending || !project.state?.connected;
-  const run = (task.runs ?? []).find((run: Data) => !settledRun(run));
+  const run = task.activeRun ?? (task.runs ?? []).find((run: Data) => !settledRun(run));
   const control = async (
     operation: "taskPause" | "taskResume" | "taskRunNow" | "taskDelete" | "taskStopRun",
   ) => {
@@ -209,7 +210,7 @@ export function ScheduledTaskControls({
         <Button
           size="sm"
           variant="ghost"
-          disabled={blocked || run.reason === "stopRequested"}
+          disabled={blocked || (run.reasonPreview ?? run.reason) === "stopRequested"}
           onClick={() => void control("taskStopRun")}
         >
           {t("operations.schedules.stopRun")}
@@ -271,7 +272,7 @@ export function ThreadScheduledTasks({
       reading = true;
       try {
         const result = await latest.current("tasks", {
-          operation: "list",
+          operation: "observe",
           projectId: project.id,
           sourceThreadId: thread.id,
           limit: 1024,
@@ -294,19 +295,25 @@ export function ThreadScheduledTasks({
       if ((event as CustomEvent).detail === project.id) void refresh();
     };
     void refresh();
-    const timer = window.setInterval(() => void refresh(), 3000);
     window.addEventListener("areal-scheduled-tasks-changed", listener);
     return () => {
       live = false;
-      clearInterval(timer);
       window.removeEventListener("areal-scheduled-tasks-changed", listener);
     };
-  }, [project.id, thread.id, project.state?.connected, project.core?.connectionGeneration, retry]);
+  }, [
+    project.id,
+    thread.id,
+    project.state?.connected,
+    project.core?.connectionGeneration,
+    project.core?.taskDirectoryRevision,
+    retry,
+  ]);
   const tasks = new Map(read.tasks.map((task) => [task.id, task]));
   for (const task of Object.values<Data>(project.state?.tasks ?? {})) {
     if (
       task.sourceThreadId === thread.id &&
-      (!tasks.has(task.id) || task.revision >= tasks.get(task.id)!.revision)
+      tasks.has(task.id) &&
+      task.revision >= tasks.get(task.id)!.revision
     )
       tasks.set(task.id, task);
   }
@@ -344,7 +351,7 @@ export function ThreadScheduledTasks({
             onClick={() => onOpen?.(task)}
             disabled={!onOpen}
           >
-            <span className="task-resource-label">{task.objective}</span>
+            <span className="task-resource-label">{task.objectivePreview ?? task.objective}</span>
           </Button>
           <ScheduledTaskSummary task={task} project={project} />
           <ScheduledTaskControls

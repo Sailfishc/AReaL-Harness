@@ -14,14 +14,7 @@ type RecoveryNoticesProps = {
 };
 export function RecoveryNotices({ recovery, startup, session, surfaces }: RecoveryNoticesProps) {
   const { operationNotices, dismissedNotices, dismissNotice } = recovery;
-  const {
-    restorationError,
-    reconnectingView,
-    viewRecoveryVisible,
-    restorationNoticeId,
-    viewRefreshing,
-    viewFailure,
-  } = startup;
+  const { restorationError, restorationFailed, restorationNoticeId, viewFailure } = startup;
   const { setSettingsTab, setSettingsOpen } = surfaces;
   const { resourceAction, retryRestoration } = session;
   const { t } = useI18n();
@@ -87,43 +80,37 @@ export function RecoveryNotices({ recovery, startup, session, surfaces }: Recove
           }
         />
       ))}
-      {restorationError &&
-        (!reconnectingView || viewRecoveryVisible) &&
-        !dismissedNotices.has(restorationNoticeId) && (
-          <FeedbackNotice
-            tone={viewRefreshing || reconnectingView ? "info" : "error"}
-            message={
-              viewRefreshing || reconnectingView ? t("recovery.loadingView") : restorationError
-            }
-            detail={
-              viewFailure && viewFailure.message !== restorationError
-                ? viewFailure.message
-                : undefined
-            }
-            onDismiss={() => dismissNotice(restorationNoticeId)}
-            actions={
-              <>
-                {viewFailure && recoverySettings(viewFailure) && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setSettingsTab(recoverySettings(viewFailure)!);
-                      setSettingsOpen(true);
-                    }}
-                  >
-                    {t("recovery.checkSettings")}
-                  </Button>
-                )}
-                {!viewRefreshing && !reconnectingView && (
-                  <Button variant="ghost" size="sm" onClick={() => void retryRestoration()}>
-                    {t("recovery.retryView")}
-                  </Button>
-                )}
-              </>
-            }
-          />
-        )}
+      {restorationFailed && !dismissedNotices.has(restorationNoticeId) && (
+        <FeedbackNotice
+          tone="error"
+          message={restorationError}
+          detail={
+            viewFailure && viewFailure.message !== restorationError
+              ? viewFailure.message
+              : undefined
+          }
+          onDismiss={() => dismissNotice(restorationNoticeId)}
+          actions={
+            <>
+              {viewFailure && recoverySettings(viewFailure) && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setSettingsTab(recoverySettings(viewFailure)!);
+                    setSettingsOpen(true);
+                  }}
+                >
+                  {t("recovery.checkSettings")}
+                </Button>
+              )}
+              <Button variant="ghost" size="sm" onClick={() => void retryRestoration()}>
+                {t("recovery.retryView")}
+              </Button>
+            </>
+          }
+        />
+      )}
     </>
   );
 }

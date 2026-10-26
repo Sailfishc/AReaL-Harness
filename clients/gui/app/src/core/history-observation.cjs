@@ -9,11 +9,11 @@ const {
   readThreadList,
   isDeferredItem,
   isHistoryNotification,
-  readObservedTasks,
   readHistoryInteractions,
   historyFailure,
 } = require("./history-contract.cjs");
 const { TaskNotificationMonitor } = require("./notifications.cjs");
+const { readTask } = require("@areal/workbench/desktop-contract/management-tasks");
 const { modelRecord } = require("@areal/workbench/core-model-contract");
 const { isTaskDraftConfiguration } = require("./task-draft.cjs");
 
@@ -71,6 +71,32 @@ function mergeHistory(thread, entries) {
     ...thread,
     turns: [...[...turns.values()].filter((turn) => !shown.has(turn.id)), ...merged],
   };
+}
+/** Only cursors survive eviction; Core remains the authority for page bodies.
+ * @param {import('./history-state.cjs').HistoryWindow} window */
+function historyGaps(window) {
+  const cached = new Map(window.pages.map((page) => [page.pageId, page]));
+  const gaps = [];
+  let beforeItemId = window.baselineFirstItemId;
+  for (let index = 0; index < window.pageRecords.length; index++) {
+    const record = window.pageRecords[index];
+    const page = cached.get(record.id);
+    if (page) {
+      beforeItemId = page.data[0]?.sourceItemId ?? beforeItemId;
+      continue;
+    }
+    // Consecutive unloaded pages share one entry point. From older content,
+    // restore the adjacent newer page; at the top restore the adjacent older one.
+    const start = index;
+    while (index + 1 < window.pageRecords.length && !cached.has(window.pageRecords[index + 1].id))
+      index++;
+    gaps.push({
+      id: window.pageRecords[index === window.pageRecords.length - 1 ? start : index].id,
+      beforeItemId,
+      atTop: index === window.pageRecords.length - 1,
+    });
+  }
+  return gaps;
 }
 /** @param {unknown} error */
 const retryableRead = (error) =>
@@ -190,56 +216,84 @@ class HistoryObservation {
   /** @param {import('./project-state.cjs').CoreProject} project @param {import('@areal/runtime-client/core').CoreClient} client */
   async startTaskMonitor(project, client) {
     project.taskNotificationMonitor = new TaskNotificationMonitor(
+      this.host.ownerTasks,
+      project,
       client,
-      project.logicalProjectId ?? project.id,
-      /** @param {unknown} notice */ (notice) => {
+      (notice) => {
         if (this.host.currentConnection(project, client)) this.host.notifications.publish(notice);
       },
-      /** @param {unknown} error */ (error) =>
+      (error) =>
         console.warn(
           this.host.providers.redact(
             `任务通知读取失败：${error instanceof Error ? error.message : String(error)}`,
           ),
         ),
-      /** @param {unknown} values */ async (values) => {
-        const tasks = readObservedTasks(values);
+      async (tasks, facts, baselineTaskIds) => {
         if (!this.host.currentConnection(project, client)) return;
-        for (const task of tasks) project.model.setTask(task);
-        const scheduled = tasks.filter((task) => task.mode === "scheduled");
+        /** @type {Map<string,{id:string,status:string,threadId?:string|null}>} */
+        const completed = new Map(
+          tasks.flatMap((task) =>
+            task.mode === "scheduled" && task.latestRun?.status === "completed"
+              ? [[task.latestRun.id, task.latestRun]]
+              : [],
+          ),
+        );
+        /** @type {Set<string>} */
+        const scheduledTasks = new Set();
+        for (const taskId of new Set([
+          ...baselineTaskIds,
+          ...facts.flatMap((fact) => (fact.taskId ? [fact.taskId] : [])),
+        ])) {
+          this.host.requireConnection(project, client);
+          const task = await client
+            .request("areal/task/read", { taskId }, { decode: readTask })
+            .catch((error) => {
+              if (modelRecord(error) && error.code === -32004) return null;
+              throw error;
+            });
+          this.host.requireConnection(project, client);
+          if (task?.mode !== "scheduled") continue;
+          scheduledTasks.add(taskId);
+          if (baselineTaskIds.includes(taskId))
+            for (const run of task.runs) if (run.status === "completed") completed.set(run.id, run);
+        }
+        for (const fact of facts) {
+          if (!fact.taskId || !fact.runId || !fact.threadId) continue;
+          if (scheduledTasks.has(fact.taskId))
+            completed.set(fact.runId, {
+              id: fact.runId,
+              threadId: fact.threadId,
+              status: "completed",
+            });
+        }
         if (
-          scheduled.some((task) =>
-            task.runs.some(
-              (run) =>
-                typeof run.threadId === "string" &&
-                !project.summaries.some((thread) => thread.id === run.threadId),
-            ),
+          [...completed.values()].some(
+            (run) =>
+              run.threadId && !project.summaries.some((thread) => thread.id === run.threadId),
           )
         ) {
           await this.listThreads(project);
           this.host.requireConnection(project, client);
         }
-        /** @type {Record<string,unknown>} */
-        const records = this.host.library.value.threads;
-        for (const task of scheduled)
-          for (const run of task.runs) {
-            const metadata = records[`${project.id}:${run.threadId}`];
-            if (
-              run.status !== "completed" ||
-              !run.threadId ||
-              (modelRecord(metadata) && metadata.scheduledCompletionId === run.id)
-            )
-              continue;
-            const { thread } = this.supportsBoundedHistory(client)
-              ? await this.readObservation(project, run.threadId, { client, install: false })
-              : await client.request(
-                  "thread/read",
-                  { threadId: run.threadId, includeTurns: true },
-                  { decode: readObservationResult },
-                );
-            this.host.requireConnection(project, client);
-            const completionId = thread.turns?.findLast((turn) => turn.status === "completed")?.id;
-            await this.host.library.recordScheduledCompletion(project.id, run, completionId);
-          }
+        for (const run of completed.values()) {
+          if (
+            !run.threadId ||
+            this.host.library.value.threads[
+              `${project.logicalProjectId ?? project.id}:${run.threadId}`
+            ]?.scheduledCompletionId === run.id
+          )
+            continue;
+          const { thread } = this.supportsBoundedHistory(client)
+            ? await this.readObservation(project, run.threadId, { client, install: false })
+            : await client.request(
+                "thread/read",
+                { threadId: run.threadId, includeTurns: true },
+                { decode: readObservationResult },
+              );
+          this.host.requireConnection(project, client);
+          const completionId = thread.turns?.findLast((turn) => turn.status === "completed")?.id;
+          await this.host.library.recordScheduledCompletion(project.id, run, completionId);
+        }
       },
     );
     await project.taskNotificationMonitor.start();
@@ -386,7 +440,10 @@ class HistoryObservation {
       ...thread,
       displayHistory: {
         supported: true,
-        complete: window.displayed?.complete ?? window.complete,
+        complete:
+          window.displayed?.complete ??
+          (window.complete && !historyGaps(window).some((gap) => gap.atTop)),
+        gaps: historyGaps(window),
         omitted: window.displayed?.omitted ?? window.omitted,
         loadingOlder: !!window.olderRead,
         loadingLatest: !window.displayed && !!window.latestTurn.read,
@@ -505,6 +562,7 @@ class HistoryObservation {
         ),
         latestSeen: seen,
         pages: [],
+        pageRecords: [],
         loaded: new Map(),
         loading: new Map(),
         omitted: false,
@@ -736,6 +794,7 @@ class HistoryObservation {
               .filter((turn) => turn.items.length || turn.status === "inProgress"),
           });
         window.pages = [];
+        window.pageRecords = [];
         window.loaded.clear();
         window.loading.clear();
         window.olderRead = null;
@@ -785,34 +844,78 @@ class HistoryObservation {
       await this.hydrateLatest(project, window);
       if (!current()) throw historyFailure("历史视图已变化，请重新加载。");
       if (window.olderRead) return window.olderRead;
-      if (!window.nextCursor) return { data: [], complete: true, nextCursor: null };
-      const cursor = window.nextCursor;
+      const oldest = Math.max(
+        -1,
+        ...window.pages.map((page) =>
+          window.pageRecords.findIndex((record) => record.id === page.pageId),
+        ),
+      );
+      const revisit = request.pageId
+        ? window.pageRecords.find((record) => record.id === request.pageId)
+        : window.pageRecords[oldest + 1];
+      if (request.pageId && !revisit) throw historyFailure("历史占位已变化，请重新加载。");
+      if (!revisit && !window.nextCursor) return { data: [], complete: true, nextCursor: null };
+      const cursor = revisit?.cursor ?? window.nextCursor;
+      if (!cursor) throw historyFailure("历史游标不可用，请重新加载。");
       const loading = Promise.resolve().then(async () => {
         try {
           const page = await read(cursor);
           if (!current()) throw historyFailure("历史视图已变化，请重新加载。");
           this.validateHistoryPage(window, page, cursor);
-          window.pages.push(page);
-          window.nextCursor = page.nextCursor;
-          window.complete = page.complete;
-          let thread = mergeHistory(project.model.state.threads[threadId], page.data);
-          if (window.pages.length > historyPageLimit) {
-            const removed = new Set(
-              (window.pages.shift()?.data ?? []).map((entry) => entry.sourceItemId),
-            );
-            thread = {
-              ...thread,
-              turns: (thread.turns ?? [])
-                .map((turn) => ({
-                  ...turn,
-                  items: (turn.items ?? []).filter((item) => !removed.has(item.id)),
-                }))
-                .filter((turn) => turn.items.length || turn.status === "inProgress"),
-            };
-            for (const id of removed) window.loaded.delete(id);
-            window.omitted = true;
+          const record = revisit ?? { id: randomUUID(), cursor };
+          if (!revisit) {
+            window.pageRecords.push(record);
+            window.nextCursor = page.nextCursor;
+            window.complete = page.complete;
           }
-          project.model.replace(thread);
+          const removed = new Set(
+            window.pages.flatMap((cached) => cached.data.map((entry) => entry.sourceItemId)),
+          );
+          const baseline = project.model.state.threads[threadId];
+          const shown = new Map(
+            (baseline.turns ?? []).flatMap((turn) =>
+              (turn.items ?? []).map((item) => [item.id, item]),
+            ),
+          );
+          let thread = {
+            ...baseline,
+            turns: (baseline.turns ?? [])
+              .map((turn) => ({
+                ...turn,
+                items: (turn.items ?? []).filter((item) => !removed.has(item.id)),
+              }))
+              .filter((turn) => turn.items.length || turn.status === "inProgress"),
+          };
+          window.pages = [
+            ...window.pages.filter((cached) => cached.pageId !== record.id),
+            { ...page, pageId: record.id },
+          ];
+          const target = window.pageRecords.indexOf(record);
+          if (window.pages.length > historyPageLimit) {
+            const evicted = [...window.pages].sort(
+              (a, b) =>
+                Math.abs(window.pageRecords.findIndex((entry) => entry.id === b.pageId) - target) -
+                Math.abs(window.pageRecords.findIndex((entry) => entry.id === a.pageId) - target),
+            )[0];
+            window.pages = window.pages.filter((cached) => cached !== evicted);
+            for (const entry of evicted.data) window.loaded.delete(entry.sourceItemId);
+          }
+          window.pages.sort(
+            (a, b) =>
+              window.pageRecords.findIndex((entry) => entry.id === a.pageId) -
+              window.pageRecords.findIndex((entry) => entry.id === b.pageId),
+          );
+          for (const cached of window.pages) {
+            thread = mergeHistory(
+              thread,
+              cached.data.map((entry) => ({
+                ...entry,
+                item: shown.get(entry.sourceItemId) ?? entry.item,
+              })),
+            );
+          }
+          window.omitted = window.pageRecords.length > window.pages.length;
+          this.publishHistory(project, window, thread);
           return page;
         } catch (error) {
           if (current() && historyReason(error) === "HISTORY_CURSOR_STALE")
