@@ -199,7 +199,7 @@ class CatalogSmoke(unittest.TestCase):
             ]
         )
         value = self.invoke("--source-thread-id", "origin", "--limit", "1")
-        self.assertEqual(value["version"], 1)
+        self.assertEqual(value["version"], 2)
         self.assertEqual(value["source"], "published")
         self.assertEqual(value["executionState"], "unobserved")
         self.assertEqual(
@@ -218,7 +218,8 @@ class CatalogSmoke(unittest.TestCase):
         row = catalog["data"][0]
         self.assertEqual(row["deletedAt"], 123)
         self.assertEqual(row["revision"], 7)
-        self.assertEqual(row["runs"][0]["status"], "running")
+        self.assertEqual(row["latestRun"]["status"], "running")
+        self.assertNotIn("runs", row)
         self.assertEqual(row["runCount"], 3)
         self.assertEqual(row["pendingQuestions"], 1)
         self.assertNotIn("messages", row)
