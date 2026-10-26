@@ -16,7 +16,6 @@ import { DeferredHistoryItem, useConversationHistory } from "./ConversationHisto
 import { UnknownToolInspection } from "./UnknownToolInspection.js";
 import { TurnNavigation } from "./TurnNavigation.js";
 import {
-  toolPresentation,
   executionOutcome,
   executionSegments,
   goalContinuationLabel,

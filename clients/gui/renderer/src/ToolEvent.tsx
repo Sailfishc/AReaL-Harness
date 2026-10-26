@@ -176,7 +176,7 @@ export function ToolEvent({
           <Button
             variant="ghost"
             className="agent-spawn-record"
-            aria-label="查看工具原始记录"
+            aria-label={t("common.tools.rawRecord")}
             aria-expanded={open}
             aria-controls={recordId}
             onClick={toggle}
@@ -302,7 +302,7 @@ export function ToolEvent({
             variant="ghost"
             className="tool-file-record"
             aria-label="查看工具原始记录"
-            title="查看工具原始记录"
+            title={t("common.tools.rawRecord")}
             aria-expanded={open}
             aria-controls={recordId}
             onClick={toggle}

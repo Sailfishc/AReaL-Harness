@@ -1,3 +1,4 @@
+import { useI18n } from "./i18n/IntlProvider.js";
 import type { ManagementResponseMap } from "@areal/workbench/desktop-contract/management";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Textarea } from "./components/ui/textarea.js";
@@ -41,6 +42,7 @@ export function ProcessesPane({
   action: Action;
   onOpenService: (url: string) => void;
 }) {
+  const { t } = useI18n();
   const [items, setItems] = useState<Process[]>([]),
     [selected, setSelected] = useState("");
   const [loading, setLoading] = useState(true),
@@ -682,10 +684,7 @@ export function ProcessesPane({
         <DialogContent className="max-w-lg" showCloseButton={!creating}>
           <DialogHeader>
             <DialogTitle>新建受管命令</DialogTitle>
-            <DialogDescription>
-              在当前项目中以 /bin/sh 执行非交互脚本，不分配终端。最长运行 24 小时，权限由 Core
-              判定。
-            </DialogDescription>
+            <DialogDescription>{t("common.processes.scriptHelp")}</DialogDescription>
           </DialogHeader>
           <Textarea
             aria-label="命令脚本"
@@ -713,10 +712,7 @@ export function ProcessesPane({
               <option value="thread">随会话保留</option>
             </select>
           </label>
-          <p className="text-foreground-subtle">
-            随本轮执行需要活动轮次，轮次结束由 Core
-            清理；随会话保留需要预设授权，直到明确清理会话资源。进程退出不代表资源已清理。
-          </p>
+          <p className="text-foreground-subtle">{t("common.processes.lifetimeHelp")}</p>
           {unknown && <p role="status">创建结果待核对；不能再次创建。</p>}
           {createError && <p role="alert">{createError}</p>}
           <DialogFooter>

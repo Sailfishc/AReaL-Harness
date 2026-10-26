@@ -18,9 +18,9 @@
   {
     "file": "renderer/src/views/ConversationNavigation.tsx",
     "rule": "jsx-a11y(click-events-have-key-events)",
-    "fingerprint": "2baf9ba6331f4b3405752a7a10abfb157c179fb3bbc0e03af311325410cc2a3d",
-    "snippet": "<section role=\"dialog\" aria-modal=\"true\" aria-label=\"搜索任务\" className=\"search-dialog\" onClick={(e) => e.stopPropagation()} >",
-    "reason": "Existing click containment or group focus behavior needs keyboard and semantics review at its production owner.",
+    "fingerprint": "95b3200b6e31b42cdd6d24079ae4c461ea883d8fe17500b1c9ef0f598a56d604",
+    "snippet": "<section role=\"dialog\" aria-modal=\"true\" aria-label={t(\"common.navigation.searchTasks\")} className=\"search-dialog\" onClick={(e) => e.stopPropagation()} >",
+    "reason": "Existing click containment is unchanged; only the accessible label now uses the paired locale catalog. Keyboard and semantics review remains required at this production owner.",
     "exitCondition": "Remove this exact finding when the owning surface is migrated or its semantic association is corrected; do not admit replacement findings."
   },
   {

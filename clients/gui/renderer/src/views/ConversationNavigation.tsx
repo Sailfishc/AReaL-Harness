@@ -1,3 +1,4 @@
+import { useI18n } from "../i18n/IntlProvider.js";
 import { Input } from "../components/ui/input.js";
 import { DndContext, DragOverlay } from "@dnd-kit/core";
 import { createContext, useContext } from "react";
@@ -53,6 +54,7 @@ export function ConversationNavigation(props: SidebarNavigationProps) {
   );
 }
 function SidebarTaskRow({ row }: { row: Data }) {
+  const { t } = useI18n();
   const {
     projectId,
     threadId,
@@ -112,7 +114,7 @@ function SidebarTaskRow({ row }: { row: Data }) {
               })
             }
           >
-            {row.unread ? "标为已读" : "标为未读"}
+            {row.unread ? t("common.navigation.markRead") : t("common.navigation.markUnread")}
           </DropdownMenuItem>
           {(
             [
@@ -188,6 +190,7 @@ function SidebarTaskRow({ row }: { row: Data }) {
   );
 }
 function SidebarProjectGroup({ owner }: { owner: Data }) {
+  const { t } = useI18n();
   const {
     services,
     setError,
@@ -264,7 +267,9 @@ function SidebarProjectGroup({ owner }: { owner: Data }) {
                 <Button
                   unstyled
                   className="icon-button"
-                  aria-label={`项目操作 ${library.projects?.[owner.id]?.title || owner.root.split("/").pop()}`}
+                  aria-label={t("common.navigation.projectActions", {
+                    project: library.projects?.[owner.id]?.title || owner.root.split("/").pop(),
+                  })}
                 >
                   <MoreOptionsIcon size={16} />
                 </Button>
@@ -278,7 +283,7 @@ function SidebarProjectGroup({ owner }: { owner: Data }) {
                   })
                 }
               >
-                定时任务
+                {t("operations.schedules.title")}
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() =>
@@ -288,7 +293,7 @@ function SidebarProjectGroup({ owner }: { owner: Data }) {
                   )
                 }
               >
-                重命名
+                {t("common.navigation.rename")}
               </DropdownMenuItem>
               <DropdownMenuItem
                 disabled={!services.fileOpen}
@@ -302,7 +307,7 @@ function SidebarProjectGroup({ owner }: { owner: Data }) {
                     .catch((cause) => setError(cause.message))
                 }
               >
-                在默认应用中打开
+                {t("common.navigation.openDefault")}
               </DropdownMenuItem>
               <DropdownMenuItem
                 disabled={!services.fileOpen}
@@ -316,7 +321,7 @@ function SidebarProjectGroup({ owner }: { owner: Data }) {
                     .catch((cause) => setError(cause.message))
                 }
               >
-                在文件管理器中显示
+                {t("common.navigation.reveal")}
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() =>
@@ -327,7 +332,9 @@ function SidebarProjectGroup({ owner }: { owner: Data }) {
                   })
                 }
               >
-                {library.projects?.[owner.id]?.pinned ? "取消置顶项目" : "置顶项目"}
+                {library.projects?.[owner.id]?.pinned
+                  ? t("common.navigation.unpinProject")
+                  : t("common.navigation.pinProject")}
               </DropdownMenuItem>
               {(
                 [
@@ -370,8 +377,12 @@ function SidebarProjectGroup({ owner }: { owner: Data }) {
             unstyled
             type="button"
             className="icon-button"
-            aria-label={`在项目 ${library.projects?.[owner.id]?.title || owner.root.split("/").pop()} 中新建对话`}
-            title={`在项目 ${library.projects?.[owner.id]?.title || owner.root.split("/").pop()} 中新建对话`}
+            aria-label={t("common.navigation.newProjectChat", {
+              project: library.projects?.[owner.id]?.title || owner.root.split("/").pop(),
+            })}
+            title={t("common.navigation.newProjectChat", {
+              project: library.projects?.[owner.id]?.title || owner.root.split("/").pop(),
+            })}
             onClick={() => newTask(owner.id)}
           >
             <ProjectNewChatIcon />
@@ -396,7 +407,7 @@ function SidebarProjectGroup({ owner }: { owner: Data }) {
               }))
             }
           >
-            Show more
+            {t("common.navigation.showMore")}
           </Button>
         )}
       </div>
@@ -465,8 +476,8 @@ function SidebarContent() {
                     )}
                   >
                     <SidebarSectionToggle
-                      label="置顶"
-                      ariaLabel="置顶分类"
+                      label={t("common.navigation.pinned")}
+                      ariaLabel={t("common.navigation.pinnedSection")}
                       controls="sidebar-pinned"
                       expanded={!collapsedProjects["sidebar:pinned"]}
                       onToggle={() => toggleSidebarGroup("sidebar:pinned")}
@@ -496,8 +507,8 @@ function SidebarContent() {
                   )}
                 >
                   <SidebarSectionToggle
-                    label={archived ? "已归档任务" : "项目"}
-                    ariaLabel="项目分类"
+                    label={archived ? t("common.navigation.archived") : t("worktree.project")}
+                    ariaLabel={t("common.navigation.projectSection")}
                     controls="sidebar-projects"
                     expanded={!collapsedProjects["sidebar:projects"]}
                     onToggle={() => toggleSidebarGroup("sidebar:projects")}
@@ -516,7 +527,11 @@ function SidebarContent() {
                   <DropdownMenu>
                     <DropdownMenuTrigger
                       render={
-                        <Button unstyled className="section-action-btn" aria-label="侧栏整理">
+                        <Button
+                          unstyled
+                          className="section-action-btn"
+                          aria-label={t("common.navigation.organize")}
+                        >
                           <MoreOptionsIcon size={16} />
                         </Button>
                       }
@@ -564,7 +579,7 @@ function SidebarContent() {
                       ))}
                       <DropdownMenuSeparator />
                       <DropdownMenuItem onClick={() => organize({ operation: "markAllRead" })}>
-                        全部标为已读
+                        {t("common.navigation.markAllRead")}
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -575,7 +590,9 @@ function SidebarContent() {
                     .map((owner) => (
                       <SidebarProjectGroup key={owner.id} owner={owner} />
                     ))}
-                  {!projects.length && <p className="empty-tasks">打开项目以开始</p>}
+                  {!projects.length && (
+                    <p className="empty-tasks">{t("common.navigation.openProject")}</p>
+                  )}
                 </div>
               </section>
               {visibleRows.some((row) => row.owner.projectless && !row.pinned) && (
@@ -590,8 +607,8 @@ function SidebarContent() {
                     )}
                   >
                     <SidebarSectionToggle
-                      label="任务"
-                      ariaLabel="独立任务分类"
+                      label={t("common.navigation.tasks")}
+                      ariaLabel={t("common.navigation.taskSection")}
                       controls="sidebar-chats"
                       expanded={!collapsedProjects["sidebar:chats"]}
                       onToggle={() => toggleSidebarGroup("sidebar:chats")}
@@ -620,6 +637,7 @@ function SidebarContent() {
   );
 }
 function SidebarSearch() {
+  const { t } = useI18n();
   const { search, searchOpen, setSearch, setSearchOpen, open, visibleRows } = useSidebarContext();
   return (
     <>
@@ -634,7 +652,7 @@ function SidebarSearch() {
           <section
             role="dialog"
             aria-modal="true"
-            aria-label="搜索任务"
+            aria-label={t("common.navigation.searchTasks")}
             className="search-dialog"
             onClick={(e) => e.stopPropagation()}
           >
@@ -643,15 +661,15 @@ function SidebarSearch() {
               <Input
                 unstyled
                 autoFocus
-                aria-label="搜索任务"
-                placeholder="搜索任务"
+                aria-label={t("common.navigation.searchTasks")}
+                placeholder={t("common.navigation.searchTasks")}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
               <Button
                 unstyled
                 className="icon-button"
-                aria-label="关闭搜索"
+                aria-label={t("common.navigation.closeSearch")}
                 onClick={() => {
                   setSearchOpen(false);
                   setSearch("");
@@ -678,7 +696,7 @@ function SidebarSearch() {
                   </Button>
                 ))
               ) : (
-                <p>没有匹配的任务</p>
+                <p>{t("common.navigation.noMatches")}</p>
               )}
             </div>
           </section>
@@ -688,6 +706,7 @@ function SidebarSearch() {
   );
 }
 function SidebarRename() {
+  const { t } = useI18n();
   const { action, rename, setRename, renameText, setRenameText } = useSidebarContext();
   return (
     <>
@@ -702,11 +721,11 @@ function SidebarRename() {
                 .catch(() => {});
             }}
           >
-            <h2>重命名</h2>
+            <h2>{t("common.navigation.rename")}</h2>
             <Input
               unstyled
               autoFocus
-              aria-label="名称"
+              aria-label={t("common.navigation.name")}
               maxLength={200}
               required
               value={renameText}
@@ -714,10 +733,10 @@ function SidebarRename() {
             />
             <div className="utility-actions">
               <Button unstyled type="button" onClick={() => setRename(null)}>
-                取消
+                {t("common.navigation.cancel")}
               </Button>
               <Button unstyled type="submit">
-                保存
+                {t("common.navigation.save")}
               </Button>
             </div>
           </form>

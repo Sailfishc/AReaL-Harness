@@ -61,7 +61,10 @@ async function fixture(t) {
     'import { Button } from "@areal/ui";\nexport const view = <Button />;\n',
   );
   const run = (...args) =>
-    spawnSync(process.execPath, [cli, "--root", root, ...args], { encoding: "utf8" });
+    spawnSync(process.execPath, [cli, "--root", root, ...args], {
+      encoding: "utf8",
+      env: { ...process.env, AREAL_DESIGN_BASE: "" },
+    });
   return {
     root,
     put,

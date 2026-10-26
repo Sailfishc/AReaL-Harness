@@ -1,4 +1,111 @@
 export const commonMessages = {
+  "common.contextProjection": {
+    "zh-CN":
+      "这里展示 Core 当前保留的消息与压缩摘要。工具定义、供应商私有上下文及下次请求配置不完整呈现在此。",
+    en: "This shows the messages and compacted summaries currently retained by Core. Tool definitions, provider-private context, and the next request configuration are not shown in full.",
+  },
+  "common.review.uncommitted": { "zh-CN": "未提交的更改", en: "Uncommitted changes" },
+  "common.review.unstaged": { "zh-CN": "未暂存的更改", en: "Unstaged changes" },
+  "common.review.staged": { "zh-CN": "已暂存的更改", en: "Staged changes" },
+  "common.review.committed": { "zh-CN": "已提交的更改", en: "Committed changes" },
+  "common.review.branch": { "zh-CN": "分支比较", en: "Branch comparison" },
+  "common.review.task": { "zh-CN": "任务工作区更改", en: "Task workspace changes" },
+  "common.review.lastTurn": { "zh-CN": "上一轮", en: "Last turn" },
+  "common.browser.manualFrame": {
+    "zh-CN": "· 仅人工操作，iframe 使用区域标注",
+    en: "· Manual control only; use region annotations for iframes",
+  },
+  "common.processes.scriptHelp": {
+    "zh-CN":
+      "在当前项目中以 /bin/sh 执行非交互脚本，不分配终端。最长运行 24 小时，权限由 Core 判定。",
+    en: "Run a non-interactive script with /bin/sh in the current project, without a terminal. The maximum duration is 24 hours. Core determines permissions.",
+  },
+  "common.processes.lifetimeHelp": {
+    "zh-CN":
+      "随本轮执行需要活动轮次，轮次结束由 Core 清理；随会话保留需要预设授权，直到明确清理会话资源。进程退出不代表资源已清理。",
+    en: "Turn-scoped execution requires an active turn and is cleaned up by Core when the turn ends. Session-scoped execution requires preset authorization and remains until session resources are explicitly cleaned up. Process exit does not establish resource cleanup.",
+  },
+  "common.schedules.credentialsHelp": {
+    "zh-CN":
+      "模型凭据不可用。请在模型设置中补充 API Key 并保存，或选择可用的新会话默认模型。完成后重试，或从“定时任务”重新打开“新建任务”。",
+    en: "Model credentials are unavailable. Add and save an API key in model settings, or choose an available default model for new conversations. Then retry, or reopen New task from Scheduled tasks.",
+  },
+  "common.tools.rawRecord": { "zh-CN": "查看工具原始记录", en: "View raw tool record" },
+  "common.turn.failed": { "zh-CN": "回合失败", en: "Turn failed" },
+  "common.turn.reasoning": { "zh-CN": "思考过程", en: "Reasoning" },
+  "common.turn.activity": { "zh-CN": "执行活动", en: "Execution activity" },
+  "common.feedback.contextHelp": {
+    "zh-CN":
+      "评价提交时会附上截至这条回复的上下文，理由选填。使用 Agent 润色时，讨论也会按数据飞轮设置采集。",
+    en: "Submitting feedback includes the context up to this reply. The reason is optional. When you use an agent to refine the feedback, the discussion is also collected according to your data flywheel settings.",
+  },
+  "common.workgroups.compatibilityHelp": {
+    "zh-CN":
+      "兼容产物只提供查看和基线核对。新的修改任务在普通输入区提交，由 Core 验证并交付整组改动。",
+    en: "Compatibility artifacts support viewing and baseline checks only. Submit new changes through the ordinary composer; Core validates and delivers the complete change set.",
+  },
+  "common.navigation.markRead": { "zh-CN": "标为已读", en: "Mark as read" },
+  "common.navigation.markUnread": { "zh-CN": "标为未读", en: "Mark as unread" },
+  "common.navigation.projectActions": {
+    "zh-CN": "项目操作 {project}",
+    en: "Actions for project {project}",
+  },
+  "common.navigation.rename": { "zh-CN": "重命名", en: "Rename" },
+  "common.navigation.openDefault": {
+    "zh-CN": "在默认应用中打开",
+    en: "Open in default application",
+  },
+  "common.navigation.reveal": { "zh-CN": "在文件管理器中显示", en: "Show in file manager" },
+  "common.navigation.unpinProject": { "zh-CN": "取消置顶项目", en: "Unpin project" },
+  "common.navigation.pinProject": { "zh-CN": "置顶项目", en: "Pin project" },
+  "common.navigation.newProjectChat": {
+    "zh-CN": "在项目 {project} 中新建对话",
+    en: "New conversation in project {project}",
+  },
+  "common.navigation.showMore": { "zh-CN": "Show more", en: "Show more" },
+  "common.navigation.pinned": { "zh-CN": "置顶", en: "Pinned" },
+  "common.navigation.pinnedSection": { "zh-CN": "置顶分类", en: "Pinned section" },
+  "common.navigation.archived": { "zh-CN": "已归档任务", en: "Archived tasks" },
+  "common.navigation.projectSection": { "zh-CN": "项目分类", en: "Project section" },
+  "common.navigation.organize": { "zh-CN": "侧栏整理", en: "Organize sidebar" },
+  "common.navigation.markAllRead": { "zh-CN": "全部标为已读", en: "Mark all as read" },
+  "common.navigation.openProject": {
+    "zh-CN": "打开项目以开始",
+    en: "Open a project to get started",
+  },
+  "common.navigation.tasks": { "zh-CN": "任务", en: "Tasks" },
+  "common.navigation.taskSection": { "zh-CN": "独立任务分类", en: "Independent tasks section" },
+  "common.navigation.searchTasks": { "zh-CN": "搜索任务", en: "Search tasks" },
+  "common.navigation.closeSearch": { "zh-CN": "关闭搜索", en: "Close search" },
+  "common.navigation.noMatches": { "zh-CN": "没有匹配的任务", en: "No matching tasks" },
+  "common.navigation.name": { "zh-CN": "名称", en: "Name" },
+  "common.navigation.cancel": { "zh-CN": "取消", en: "Cancel" },
+  "common.navigation.save": { "zh-CN": "保存", en: "Save" },
+  "common.conversation.unavailable": {
+    "zh-CN": "暂时无法加载对话，请重试或切换对话。",
+    en: "Unable to load the conversation right now. Retry or switch conversations.",
+  },
+  "common.navigation.closePanel": { "zh-CN": "关闭面板", en: "Close panel" },
+  "common.conversation.projectless": { "zh-CN": "不在项目中工作", en: "Work outside a project" },
+  "common.navigation.expandSidebar": { "zh-CN": "展开侧栏", en: "Expand sidebar" },
+  "common.navigation.backToChat": { "zh-CN": "返回对话", en: "Back to conversation" },
+  "common.navigation.home": { "zh-CN": "首页", en: "Home" },
+  "common.navigation.back": { "zh-CN": "后退", en: "Back" },
+  "common.navigation.backShortcut": { "zh-CN": "后退 (⌘[)", en: "Back (⌘[)" },
+  "common.navigation.forward": { "zh-CN": "前进", en: "Forward" },
+  "common.navigation.forwardShortcut": { "zh-CN": "前进 (⌘])", en: "Forward (⌘])" },
+  "common.navigation.collapseSidebar": { "zh-CN": "收起侧栏", en: "Collapse sidebar" },
+  "common.navigation.taskActions": { "zh-CN": "任务操作", en: "Task actions" },
+  "common.navigation.currentTask": { "zh-CN": "返回当前任务", en: "Return to current task" },
+  "common.navigation.viewArchive": { "zh-CN": "查看归档", en: "View archive" },
+  "common.navigation.viewTrajectory": { "zh-CN": "查看调用轨迹", en: "View call trace" },
+  "common.navigation.expandPanel": { "zh-CN": "展开侧边面板", en: "Expand side panel" },
+  "common.files.selectPreview": {
+    "zh-CN": "选择右侧文件以预览",
+    en: "Select a file on the right to preview",
+  },
+  "common.tasks.select": { "zh-CN": "请先选择任务。", en: "Select a task first." },
+  "common.navigation.newConversation": { "zh-CN": "新对话", en: "New conversation" },
   "chat.files.partial": {
     "zh-CN": "部分文件行数不可用",
     en: "Line counts unavailable for some files",

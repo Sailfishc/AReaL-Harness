@@ -88,7 +88,8 @@ const lifecycleMessage = (phase) =>
 function requiresCurrentCommands(name, request) {
   return (
     currentCommands.has(name) ||
-    (name === "tasks" && ["preview", "observe"].some((operation) => operation === request.operation)) ||
+    (name === "tasks" &&
+      ["preview", "observe"].some((operation) => operation === request.operation)) ||
     (name === "side" && ["create", "close"].some((operation) => operation === request.operation)) ||
     (["steer", "queueEdit"].includes(name) &&
       Array.isArray(request.mcpContent) &&

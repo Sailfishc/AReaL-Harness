@@ -176,11 +176,11 @@ jobs:
     name: macOS GUI build and contracts
     runs-on: macos-15
     timeout-minutes: 60
-    env:
-      TMPDIR: ${{ runner.temp }}/gui-build
     steps:
       - name: Prepare isolated build temporary root
-        run: mkdir -p "$TMPDIR"
+        run: |
+          mkdir -p "$RUNNER_TEMP/gui-build"
+          echo "TMPDIR=$RUNNER_TEMP/gui-build" >> "$GITHUB_ENV"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
@@ -291,15 +291,15 @@ jobs:
     if: needs.scope.outputs.gui == 'true'
     runs-on: macos-15
     timeout-minutes: 15
-    env:
-      TMPDIR: ${{ runner.temp }}/gui-smoke
     strategy:
       fail-fast: false
       max-parallel: 6
       matrix: ${{ fromJSON(needs.scope.outputs.smoke_matrix) }}
     steps:
       - name: Prepare isolated smoke temporary root
-        run: mkdir -p "$TMPDIR"
+        run: |
+          mkdir -p "$RUNNER_TEMP/gui-smoke"
+          echo "TMPDIR=$RUNNER_TEMP/gui-smoke" >> "$GITHUB_ENV"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false

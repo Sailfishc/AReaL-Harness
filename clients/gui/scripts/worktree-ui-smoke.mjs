@@ -272,23 +272,32 @@ try {
     await trigger().waitFor();
     await capture("picker-closed");
     for (const phase of ["initial", "refresh"]) {
-      await page.evaluate(() => { window.fixtureHoldOptions = true; });
+      await page.evaluate(() => {
+        window.fixtureHoldOptions = true;
+      });
       await trigger().click();
       await page.getByRole("status").filter({ hasText: "正在读取 Worktree 与分支…" }).waitFor();
       assert.equal(await branch().isDisabled(), true);
       await capture("picker-loading-" + phase);
       const loadingBox = await page.getByRole("dialog").boundingBox();
-      await page.evaluate(() => { window.fixtureHoldOptions = false; window.fixtureResolveOptions(); });
+      await page.evaluate(() => {
+        window.fixtureHoldOptions = false;
+        window.fixtureResolveOptions();
+      });
       await branch().and(page.locator(":enabled")).waitFor();
       await capture("picker-loaded-" + phase);
       const loadedBox = await page.getByRole("dialog").boundingBox();
       for (const key of ["x", "y", "width", "height"]) {
-        assert.ok(Math.abs(loadedBox[key] - loadingBox[key]) <= 1,
-          `${phase}: loading must not change popup ${key}: ${loadingBox[key]} -> ${loadedBox[key]}`);
+        assert.ok(
+          Math.abs(loadedBox[key] - loadingBox[key]) <= 1,
+          `${phase}: loading must not change popup ${key}: ${loadingBox[key]} -> ${loadedBox[key]}`,
+        );
       }
       await page.keyboard.press("Escape");
     }
-    checks.push("initial and refreshed worktree options preserve popup geometry while loading and keep controls disabled until ready");
+    checks.push(
+      "initial and refreshed worktree options preserve popup geometry while loading and keep controls disabled until ready",
+    );
     await trigger().click();
     await branch().waitFor();
     await environment().waitFor();

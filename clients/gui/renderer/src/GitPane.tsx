@@ -79,15 +79,6 @@ type ReviewScope =
     >
   | "last-turn"
   | "turn";
-const scopeItems: { value: ReviewScope; label: string }[] = [
-  { value: "last-turn", label: "上一轮" },
-  { value: "uncommitted", label: "未提交的更改" },
-  { value: "unstaged", label: "未暂存的更改" },
-  { value: "staged", label: "已暂存的更改" },
-  { value: "commit", label: "已提交的更改" },
-  { value: "branch", label: "分支比较" },
-  { value: "task", label: "任务工作区更改" },
-];
 type TurnReviewRequest = { turnId: string; scope?: never } | { scope: "unstaged"; turnId?: never };
 const views = new Map<
   string,
@@ -149,6 +140,17 @@ export function GitPane({
   filesOpen?: boolean;
   onToggleFiles?: () => void;
 }) {
+  const { t } = useI18n();
+  const scopeItems: { value: ReviewScope; label: string }[] = [
+    { value: "last-turn", label: t("common.review.lastTurn") },
+    { value: "uncommitted", label: t("common.review.uncommitted") },
+    { value: "unstaged", label: t("common.review.unstaged") },
+    { value: "staged", label: t("common.review.staged") },
+    { value: "commit", label: t("common.review.committed") },
+    { value: "branch", label: t("common.review.branch") },
+    { value: "task", label: t("common.review.task") },
+  ];
+
   const workspaceContextId = useId();
   const reviewRoot = useRef<HTMLElement>(null);
   const commentKey = reviewCommentKey(projectId, threadId);
@@ -362,7 +364,6 @@ export function GitPane({
   const reviewTurnId = scope === "turn" ? selectedTurnId : turnId;
   const reviewRef = scope === "turn" ? (selectedTurnId ?? "") : applied;
   const [files, setFiles] = useState<FileChange[]>([]);
-  const { t } = useI18n();
   const [unavailableFiles, setUnavailableFiles] = useState<Array<{ path: string; reason: string }>>(
     [],
   );
@@ -815,7 +816,7 @@ export function GitPane({
             >
               <span className="truncate">
                 {scope === "turn" && selectedTurnId === turnId
-                  ? "上一轮"
+                  ? t("common.review.lastTurn")
                   : availableScopes.find((item) => item.value === scope)?.label}
               </span>
               <ChevronDown />

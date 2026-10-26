@@ -119,6 +119,7 @@ export function TurnExecution({
   threadId: string;
   renderItem: (item: Data, disclosure: { animate: boolean }) => ReactNode;
 }) {
+  const { t } = useI18n();
   const { unfinished } = executionOutcome(items);
   // 失败的步骤留在原位，由所在活动行写明结果（CONV-ACTIVITY-01），过程标题不另作提示。
   const visibleItems = items;
@@ -132,7 +133,7 @@ export function TurnExecution({
   ) : unfinished && turn.status !== "inProgress" ? (
     <p role="status">仍在运行</p>
   ) : turn.status === "failed" ? (
-    <p role="status">回合失败</p>
+    <p role="status">{t("common.turn.failed")}</p>
   ) : null;
   const runs = activityRuns(
     rows,
@@ -161,8 +162,8 @@ export function TurnExecution({
               run.key !== null
                 ? activityRunLabel(run, live && last)
                 : run.items[0].type === "reasoningGroup"
-                  ? "思考过程"
-                  : "执行活动"
+                  ? t("common.turn.reasoning")
+                  : t("common.turn.activity")
             }
             icon={grouped ? <ActivityIcon kind={icon} /> : undefined}
             status={last ? status : undefined}

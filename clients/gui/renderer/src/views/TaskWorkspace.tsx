@@ -144,7 +144,7 @@ export function TaskWorkspace({
             <Button
               unstyled
               className="icon-button"
-              aria-label="展开侧栏"
+              aria-label={t("common.navigation.expandSidebar")}
               onClick={() => onShowSidebar()}
             >
               <SidebarToggleIcon />
@@ -153,7 +153,7 @@ export function TaskWorkspace({
           <Button
             unstyled
             className="icon-button"
-            aria-label="返回对话"
+            aria-label={t("common.navigation.backToChat")}
             onClick={() => {
               workspace.returnToConversation();
             }}

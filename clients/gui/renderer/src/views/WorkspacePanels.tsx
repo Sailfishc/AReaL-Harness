@@ -332,7 +332,7 @@ export function WorkspacePanels(props: WorkspacePanelsProps) {
           onKeepTab={workspacePanels.keepFile}
           workspaceView={{
             mode: workspaceView,
-            title: empty ? "新对话" : currentTitle,
+            title: empty ? t("common.navigation.newConversation") : currentTitle,
             onChange: (mode) => {
               if (
                 (panel === "旁路讨论" || isSideChatTab(panel)) &&
@@ -347,7 +347,7 @@ export function WorkspacePanels(props: WorkspacePanelsProps) {
               <Button
                 unstyled
                 className="icon-button"
-                aria-label="展开侧栏"
+                aria-label={t("common.navigation.expandSidebar")}
                 aria-expanded={false}
                 aria-controls="areal-sidebar"
                 onClick={() => setSidebar(true)}
