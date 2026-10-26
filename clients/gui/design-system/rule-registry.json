@@ -4750,7 +4750,7 @@
       "title": "一个回合只有一处实时状态，位于回合末尾，是一句话加左向右亮色扫光（ThinkingStatus）",
       "owner": "clients/gui/renderer/src/Messages.md#对话信息流",
       "strength": "default",
-      "textSha256": "0bfca59db649ca0041604cf7b33ff453250b9fd2e9cbab2485357739d6b5ae4d"
+      "textSha256": "f05baf7392eb96cfc8dd91ef2726d6feca469542729d8dca4b3a7e87427c0555"
     },
     {
       "id": "CONV-DISCLOSURE-01",

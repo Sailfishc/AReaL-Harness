@@ -39,3 +39,41 @@ describe("TurnActivity", () => {
     expect(markup).not.toContain("projects.json");
   });
 });
+
+describe("TurnActivity attention states", () => {
+  const render = (overrides: { project?: object; turn?: object }) =>
+    renderToStaticMarkup(
+      createElement(TurnActivity, {
+        turn: { ...turn, ...overrides.turn },
+        project: overrides.project ?? project,
+        threadId: "thread",
+      }),
+    );
+  it("marks a lost connection as needing attention", () => {
+    const markup = render({
+      project: { state: { connected: false, threads: { thread: { executionConnected: false } } } },
+    });
+    expect(markup).toContain('data-tone="attention"');
+    expect(markup).toContain("连接已中断");
+  });
+  it("marks a model retry as needing attention", () => {
+    expect(render({ turn: { modelRetry: { retry: 2, purpose: "model" } } })).toContain(
+      'data-tone="attention"',
+    );
+  });
+  it("marks an unconfirmed result as unknown", () => {
+    const unknown = {
+      id: "cmd",
+      type: "dynamicToolCall",
+      tool: "run_command",
+      status: "completed",
+      execution: { outcome: "unknown" },
+      arguments: { command: "ls" },
+      contentItems: [],
+    };
+    expect(render({ turn: { items: [unknown] } })).toContain('data-tone="unknown"');
+  });
+  it("keeps ordinary running work without an attention tone", () => {
+    expect(render({})).not.toContain("data-tone");
+  });
+});

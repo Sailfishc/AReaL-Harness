@@ -4663,6 +4663,8 @@ button[aria-label="停止"] {
 }
 .turn-progress-summary {
   gap: var(--spacing-inline);
+  /* 计时数字等宽，秒数变化不改变标题宽度。 */
+  font-variant-numeric: tabular-nums;
 }
 .turn-progress-summary:focus-visible {
   outline: var(--focus-width) solid var(--color-ring);
@@ -4682,9 +4684,27 @@ button[aria-label="停止"] {
 }
 /* 回合末尾实时状态固定一行（CONV-STATUS-01）：状态变化只换文字，不改变高度。 */
 .turn-activity > .execution-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  white-space: nowrap;
+}
+.turn-activity > .execution-status > span {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+}
+/* 需要注意的状态：橙色只用于图标，文字改用正文色保证对比度。 */
+.turn-activity > .execution-status[data-tone] {
+  color: var(--color-foreground);
+}
+.turn-activity > .execution-status > svg {
+  flex: none;
+  color: var(--color-status-attention);
+}
+.turn-activity > .execution-status[data-tone="unknown"] > svg {
+  color: var(--color-status-unknown);
 }
 .tool-image-row > .areal-image-disclosure {
   min-width: 0;

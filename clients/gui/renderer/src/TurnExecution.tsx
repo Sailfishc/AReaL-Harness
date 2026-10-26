@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { ActivityGroup, ThinkingStatus } from "@areal/ui/experimental";
 import "@areal/ui/conversation.css";
 import { spawnedAgent } from "./AgentIdentity.js";
+import { CircleAlert } from "lucide-react";
 import { ActivityIcon } from "./ActivityIcon.js";
 import { ReasoningGroup } from "./ReasoningGroup.js";
 import {
@@ -68,6 +69,15 @@ export function TurnActivity({
           .at(-1)
       : undefined;
   const label = activityLabel(project, threadId, turn);
+  // 需要你注意的状态只在这一行表达：图标着色、文字加深，不再在过程标题或其他位置重复。
+  const tone =
+    !(project.state?.threads?.[threadId]?.executionConnected ?? project.state?.connected) ||
+    turn.modelRetry ||
+    project.state?.interactions?.[threadId]?.data?.some((item: Data) => item.status === "pending")
+      ? "attention"
+      : unconfirmed
+        ? "unknown"
+        : undefined;
   return (
     <div className="turn-activity" data-testid="turn-activity">
       {currentTool ? (
@@ -78,8 +88,9 @@ export function TurnActivity({
           label={summary || (/^(等待模型|正在思考)/.test(label) ? undefined : label)}
         />
       ) : (
-        <p className="execution-status" role="status">
-          {unconfirmed && animate ? t("chat.tool.unconfirmed") : label}
+        <p className="execution-status" role="status" data-tone={tone}>
+          {tone && <CircleAlert size={14} aria-hidden="true" />}
+          <span>{unconfirmed && animate ? t("chat.tool.unconfirmed") : label}</span>
         </p>
       )}
     </div>
