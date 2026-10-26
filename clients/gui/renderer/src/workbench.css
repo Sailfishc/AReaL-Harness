@@ -1532,6 +1532,10 @@ button.composer-project:hover > svg,
   white-space: nowrap;
   color: var(--color-foreground-subtle);
 }
+/* 失败步骤在所在行尾写明结果（CONV-ACTIVITY-01），只给这段短语用错误色。 */
+.tool-result.tool-failed {
+  color: var(--color-status-error);
+}
 .tool-chevron {
   opacity: 0;
   flex-shrink: 0;

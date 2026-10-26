@@ -1,4 +1,4 @@
-// CONV-ACTIVITY-01 / CONV-PARALLEL-01：连续同一动作的工具合成一段；子代理开始与完成是各自成段的事件。
+// CONV-ACTIVITY-01 / CONV-PARALLEL-01：连续同一阶段的工具合成一段；子代理开始与完成是各自成段的事件。
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
@@ -13,9 +13,9 @@ const { activityRuns, activityRunLabel } = await import(`data:text/javascript;ba
 const tool = (id, name, extra = {}) => ({ id, type: "dynamicToolCall", tool: name, status: "completed", success: true, arguments: {}, contentItems: [], ...extra });
 const shape = runs => runs.map(run => [run.key, run.items.map(item => item.id)]);
 
-test("contiguous same-action tools merge; a different action starts a new run", () => {
-  const rows = [tool("c1", "run_command"), tool("c2", "run_command"), tool("r1", "fs_read"), tool("r2", "read_file"), tool("c3", "run_command")];
-  assert.deepEqual(shape(activityRuns(rows)), [["运行命令", ["c1", "c2"]], ["读取文件", ["r1", "r2"]], ["运行命令", ["c3"]]]);
+test("contiguous same-stage tools merge; a different stage starts a new run", () => {
+  const rows = [tool("c1", "run_command"), tool("c2", "run_command"), tool("r1", "fs_read"), tool("s1", "search_files"), tool("c3", "run_command")];
+  assert.deepEqual(shape(activityRuns(rows)), [["运行命令", ["c1", "c2"]], ["探索", ["r1", "s1"]], ["运行命令", ["c3"]]]);
 });
 
 test("reasoning groups and breaker rows stay on their own and split runs", () => {
@@ -29,12 +29,11 @@ test("unknown tools merge only with the same tool name", () => {
   assert.deepEqual(shape(activityRuns(rows)), [["调用 lookup_ticket", ["x1", "x2"]], ["调用 post_comment", ["y1"]]]);
 });
 
-test("labels are past-tense verb phrases without counts; running uses the progressive form", () => {
+test("labels count completed steps; running uses the progressive form", () => {
   const done = { key: "运行命令", items: [tool("c1", "run_command"), tool("c2", "run_command")] };
-  assert.equal(activityRunLabel(done), "已运行命令");
+  assert.equal(activityRunLabel(done), "已运行 2 条命令");
   const running = { key: "运行命令", items: [tool("c1", "run_command"), tool("c2", "run_command", { status: "inProgress", success: undefined })] };
   assert.equal(activityRunLabel(running), "正在运行命令");
-  assert.doesNotMatch(activityRunLabel(done), /\d/);
 });
 
 test("a child's finish is drawn only from a settled wait receipt", async () => {

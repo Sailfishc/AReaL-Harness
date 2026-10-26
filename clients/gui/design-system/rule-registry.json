@@ -3000,7 +3000,7 @@
       "title": "Mixed / 混合摘要 该段实际发生的类型，如“读取文件、编辑文件、运行命令” 展开原顺序活动 沿现有展示投影归类，不解析 s",
       "owner": "clients/gui/packages/ui/src/conversation/activity-group/activity-group.md#活动行的有限变体",
       "strength": "default",
-      "textSha256": "d187042bf7e71d63dfff04c7a008f36e76ac29b1a35e582b40da7fb5b1c258cd"
+      "textSha256": "fd870afa3e451d1736103d51670d2726180af0378bfc1f5bfa66d19d7b08e909"
     },
     {
       "id": "R-ACTIVITYGROUP-020",
@@ -4603,7 +4603,7 @@
       "title": "TurnElapsed使用Core起始时间和终态durationMs，所有语言均为 Working for … ",
       "owner": "clients/gui/renderer/src/DecisionCard.md#ask-user与过程展示",
       "strength": "default",
-      "textSha256": "a1b6c0c014aa60f34540e802fec0984c264ec7118736ff35c6b6d11458feafe3"
+      "textSha256": "7057a31438a14042314af3fc9d1cba7433e2bc5a7b7156594f628b57f3c7fed2"
     },
     {
       "id": "R-MESSAGES-001",
@@ -4736,7 +4736,7 @@
       "title": "两条消息之间的工具活动按\"连续同一动作\"分段，不再把整段混合成一组",
       "owner": "clients/gui/renderer/src/Messages.md#对话信息流",
       "strength": "default",
-      "textSha256": "943d9eff55c7945a2fd3154735f17d885e93ce402f72841febbc9761b7d2b593"
+      "textSha256": "66bd075b26d72c60b2914121df51436c34086f51a157868d1cf8d0163592e8e5"
     },
     {
       "id": "CONV-PROCESS-01",
@@ -4820,7 +4820,7 @@
       "title": "过程耗时跨语言统一显示 Working for 15m 29s ，作为可折叠的过程标题在运行中与完成后都显示",
       "owner": "clients/gui/renderer/src/Messages.md#混合内容与过程标题",
       "strength": "default",
-      "textSha256": "b7cf0aad58af5df90f5687a35be71c5ad90afaad6d4cc9005781970792ffb2c2"
+      "textSha256": "c1d59e08513f08327e164d47e2297ad2070191b0946e052413eb2ee457d2ad64"
     },
     {
       "id": "R-ACTIONBUTTON-005",

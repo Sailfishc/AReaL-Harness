@@ -9,6 +9,7 @@ import { ReasoningGroup } from "./ReasoningGroup.js";
 import {
   activityLabel,
   activityRunLabel,
+  activityStageIcon,
   activityRuns,
   agentSettlements,
   executionOutcome,
@@ -119,9 +120,8 @@ export function TurnExecution({
   renderItem: (item: Data, disclosure: { animate: boolean }) => ReactNode;
 }) {
   const { unfinished } = executionOutcome(items);
-  const visibleItems = items.filter(
-    (item) => item.type !== "dynamicToolCall" || !toolPresentation(item).failed,
-  );
+  // 失败的步骤留在原位，由所在活动行写明结果（CONV-ACTIVITY-01），过程标题不另作提示。
+  const visibleItems = items;
   const tools = visibleItems.filter((item) => item.type === "dynamicToolCall");
   const unconfirmed = tools.some((item) => toolPresentation(item).status === "结果待确认");
   const rows = timelineItems(visibleItems);
@@ -152,9 +152,7 @@ export function TurnExecution({
       {runs.map((run, index) => {
         const last = index === runs.length - 1;
         const grouped = run.key !== null && run.items.length > 1;
-        const icon = toolPresentation(
-          run.items.find((item) => toolPresentation(item).running) ?? run.items[0],
-        ).icon;
+        const icon = activityStageIcon(run.key);
         return (
           <ActivityGroup
             key={run.items[0].id}

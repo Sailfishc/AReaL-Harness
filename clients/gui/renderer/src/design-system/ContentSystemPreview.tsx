@@ -61,7 +61,7 @@ export function ContentSystemPreview({ dark }: { dark: boolean }) {
       <label>响应状态<select aria-label="响应状态" value={state} onChange={e => setState(e.target.value)}>{["ready", "busy", "failed", "unknown"].map(value => <option key={value}>{value}</option>)}</select></label>
       <label>问题类型<select aria-label="问题类型" value={questionMode} onChange={e => setQuestionMode(e.target.value)}>{["single", "multi", "free", "long"].map(value => <option key={value}>{value}</option>)}</select></label>
     </div>
-    <section aria-label="过程预览"><TurnProgress turn={{ id: "example", status: "completed", durationMs: 929000 }} connected settled summaryAvailable><TurnExecution items={[failed]} turn={{ status: "completed" }} project={{}} threadId="preview" renderItem={() => <p>不应默认出现的失败工具行</p>} /></TurnProgress></section>
+    <section aria-label="过程预览"><TurnProgress turn={{ id: "example", status: "completed", durationMs: 929000 }} connected settled summaryAvailable><TurnExecution items={[failed]} turn={{ status: "completed" }} project={{}} threadId="preview" renderItem={() => <p>失败步骤留在原位</p>} /></TurnProgress></section>
     <Decisions key={`${kind}:${state}:${questionMode}`} kind={kind} state={state} questionMode={questionMode} />
     <section aria-label="混合内容预览"><ConversationContentView blocks={blocks} markdown={text => <MessageResponse streaming={streaming} theme={dark ? "dark" : "light"}>{text}</MessageResponse>} interactive={() => <p>交互页面由原有制品宿主打开；此离线样例没有制品。</p>} /></section>
     <details><summary>查看文字降级</summary><pre className="content-system-plain">{conversationContentToText(blocks)}</pre></details>

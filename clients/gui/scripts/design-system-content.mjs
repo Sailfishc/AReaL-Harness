@@ -9,7 +9,8 @@ export async function runContentSystem(page, scratch, checks) {
   const progress = region.getByRole('region', { name: '过程预览', exact: true });
   assert.equal(await progress.locator('.turn-progress-summary').innerText(), 'Working for 15m 29s');
   assert.equal(await progress.locator('.turn-failure-indicator').count(), 0);
-  assert.equal(await progress.getByText('不应默认出现的失败工具行').count(), 0);
+  // 失败步骤留在原位，由所在活动行写明结果；过程标题不另作提示。
+  assert.equal(await progress.getByText('失败步骤留在原位').count(), 1);
   assert.equal(await approval.locator('.decision-card-details').getAttribute('open'), null);
   const command = await approval.locator('.approval-command-summary > code').evaluate(el => ({ height: el.clientHeight, line: parseFloat(getComputedStyle(el).lineHeight) }));
   assert.ok(command.height <= command.line * 2 + 1, JSON.stringify(command));

@@ -29,9 +29,34 @@ const render = (live: boolean) =>
 
 describe("TurnExecution stage boundary", () => {
   it("keeps the open segment in progress while the model thinks between calls", () => {
-    expect(render(true)).toContain("正在读取文件");
+    expect(render(true)).toContain("正在探索 · 2 个文件");
   });
   it("settles the segment once later visible content closed it", () => {
-    expect(render(false)).toContain("已读取文件");
+    expect(render(false)).toContain("已探索 · 2 个文件");
+  });
+});
+
+describe("TurnExecution failures", () => {
+  it("keeps a failed step in place instead of hiding it", () => {
+    const failed = {
+      id: "f",
+      type: "dynamicToolCall",
+      tool: "run_command",
+      status: "completed",
+      success: false,
+      execution: { exitCode: 1 },
+      arguments: { command: "pnpm test" },
+      contentItems: [],
+    };
+    const markup = renderToStaticMarkup(
+      createElement(TurnExecution, {
+        items: [failed],
+        turn: { id: "turn", status: "completed" },
+        project,
+        threadId: "thread",
+        renderItem: (item) => createElement("span", null, `row:${item.id}`),
+      }),
+    );
+    expect(markup).toContain("row:f");
   });
 });

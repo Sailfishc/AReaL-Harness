@@ -67,8 +67,50 @@ const categoryLabels: Record<ToolKind, string> = {
   tool: "调用工具",
 };
 
+const exploreTools = new Set([
+  "fs_read",
+  "read_file",
+  "skill_read",
+  "plan_read",
+  "fs_list",
+  "search_files",
+]);
 /**
- * 把时间线行切成"连续同一动作"的段：连续多次运行命令合成一段，读取文件另起一段。
+ * 工具所属的工作阶段（CONV-ACTIVITY-01）：只读的读取、搜索、列目录、读技能/计划合为“探索”，
+ * 命令与进程为“运行命令”，写入为“修改文件”；浏览器、图片结果、等待各自成阶段，
+ * 其他工具按同名合并。阶段只是展示派生，不改变条目身份与顺序。
+ */
+export function activityStage(item: Data): string {
+  if (hasToolImage(item)) return "查看图片";
+  if (exploreTools.has(item.tool)) return "探索";
+  if (item.tool === "browser_v1") return "使用浏览器";
+  if (Object.hasOwn(specificActions, item.tool) && item.tool.startsWith("agent_"))
+    return specificActions[item.tool];
+  const { kind } = toolPresentation(item);
+  if (kind === "command" || item.tool === "read_process") return "运行命令";
+  if (kind === "edit") return "修改文件";
+  if (kind === "wait") return "等待任务";
+  return item.tool ? `调用 ${item.tool}` : "调用工具";
+}
+
+/** 阶段段的图标与阶段一一对应，段内混合类型时不随首个子项变化。 */
+export function activityStageIcon(stage: string | null): string {
+  return (
+    (
+      {
+        探索: "search",
+        运行命令: "command",
+        修改文件: "edit",
+        使用浏览器: "globe",
+        查看图片: "image",
+        等待任务: "wait",
+      } as Record<string, string>
+    )[stage ?? ""] ?? "tool"
+  );
+}
+
+/**
+ * 把时间线行切成连续同一阶段的段：连续的读取、搜索、列目录合成一段“探索”，命令另起一段。
  * 只有普通工具调用参与合并；思考组、子代理创建等行各自成段，保持原有顺序。
  */
 export function activityRuns(
@@ -77,7 +119,7 @@ export function activityRuns(
 ): { key: string | null; items: Data[] }[] {
   const runs: { key: string | null; items: Data[] }[] = [];
   for (const item of rows) {
-    const key = item.type === "dynamicToolCall" && !isBreaker(item) ? toolAction(item) : null;
+    const key = item.type === "dynamicToolCall" && !isBreaker(item) ? activityStage(item) : null;
     const last = runs.at(-1);
     if (key !== null && last?.key === key) last.items.push(item);
     else runs.push({ key, items: [item] });
@@ -86,15 +128,51 @@ export function activityRuns(
 }
 
 /**
- * 合并段的标题：过去时动词短语；进行中用进行时。不显示数量。
+ * 合并段的标题：动词短语加已完成子项的真实计数；计数为零就省略，失败数单独写出。
  * 段的进行与完成看阶段边界，不看瞬时子项：子项仍在运行，或它是运行中回合最新一段的最后一段
  * （后面还没有出现可见的其他内容），都算进行中，避免模型在两次调用之间思考时标题来回翻转。
  */
 export function activityRunLabel(run: { key: string | null; items: Data[] }, open = false): string {
   const action = run.key ?? "执行活动";
-  return open || run.items.some((item) => toolPresentation(item).running)
-    ? `正在${action}`
-    : `已${action}`;
+  const views = run.items.map((item) => ({ item, view: toolPresentation(item) }));
+  const active = open || views.some(({ view }) => view.running);
+  const done = views.filter(({ view }) => view.status === "已完成").map(({ item }) => item);
+  const failures = views.filter(({ view }) => view.failed).length;
+  const count = (tools: string[]) => done.filter((item) => tools.includes(item.tool)).length;
+  const failed = failures ? `${failures} 个失败` : "";
+  const join = (head: string, parts: string[]) => {
+    const tail = parts.filter(Boolean).join("，");
+    return tail ? `${head} · ${tail}` : head;
+  };
+  if (action === "探索") {
+    const files = count(["fs_read", "read_file"]);
+    const searches = count(["search_files"]);
+    const lists = count(["fs_list"]);
+    const skills = count(["skill_read"]);
+    const plans = count(["plan_read"]);
+    return join(active ? "正在探索" : "已探索", [
+      files ? `${files} 个文件` : "",
+      searches ? `${searches} 次搜索` : "",
+      lists ? `${lists} 个目录` : "",
+      skills ? `${skills} 个技能` : "",
+      plans ? "计划" : "",
+      failed,
+    ]);
+  }
+  if (action === "运行命令")
+    return active
+      ? join("正在运行命令", [failed])
+      : join(done.length ? `已运行 ${done.length} 条命令` : "已运行命令", [failed]);
+  if (action === "修改文件") {
+    const paths = new Set(done.map((item) => toolPresentation(item).detail).filter(Boolean));
+    return active
+      ? join("正在修改文件", [failed])
+      : join(paths.size ? `已修改 ${paths.size} 个文件` : "已修改文件", [failed]);
+  }
+  return join(`${active ? "正在" : "已"}${action}`, [
+    !active && done.length > 1 ? `${done.length} 次` : "",
+    failed,
+  ]);
 }
 
 /**
@@ -184,22 +262,32 @@ export function toolPresentation(item: Data) {
     (result.commandStatus === "running" || result.state === "running");
   const running = !stopped && !unsettled && (item.status === "inProgress" || processRunning);
   const search = args.pattern ?? args.query;
+  // 对象只取人能认的参数；拿不到时留空，只显示动作，不回退成工具的内部名称。
   const target =
     kind === "search" && search != null
       ? `${search}${args.path ? ` · ${args.path}` : ""}`
-      : (args.path ??
-        args.file_path ??
-        args.command ??
-        args.argv?.join(" ") ??
-        args.query ??
-        args.pattern ??
-        name);
+      : name === "skill_read"
+        ? [args.skill?.id, args.resource].filter(Boolean).join(" · ")
+        : (args.path ??
+          args.file_path ??
+          args.command ??
+          args.argv?.join(" ") ??
+          args.query ??
+          args.pattern ??
+          "");
+  const exitCode =
+    typeof result.exitCode === "number"
+      ? result.exitCode
+      : typeof item.execution?.exitCode === "number"
+        ? item.execution.exitCode
+        : undefined;
   return {
     kind,
     // 图标只辅助识别：浏览器与图片结果有专门图形，其余沿语义类别；未知工具使用通用工具图形，保持行首对齐。
     icon: name === "browser_v1" ? "globe" : hasToolImage(item) ? "image" : kind,
     running,
     failed,
+    exitCode,
     label:
       specificActions[name] ??
       (kind === "tool"
@@ -210,13 +298,13 @@ export function toolPresentation(item: Data) {
               read: "读取",
               edit: "编辑",
               search: "搜索",
-              list: "列出",
+              list: target ? "列出" : "列出目录",
               command: "运行",
               wait: "等待",
             }[kind]),
     detail:
       name === "browser_v1"
-        ? String(args.parameters?.url ?? args.operation ?? "浏览器")
+        ? String(args.parameters?.url ?? args.operation ?? "")
         : name.startsWith("agent_") && Object.hasOwn(specificActions, name)
           ? ""
           : String(target),
