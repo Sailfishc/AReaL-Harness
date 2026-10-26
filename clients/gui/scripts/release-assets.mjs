@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
+import { execFileSync } from "node:child_process";
 import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve, join } from "node:path";
+import { checkDmgSize } from "./dmg-size.mjs";
 const require = createRequire(new URL("../app/package.json", import.meta.url));
 const { stringify } = require("yaml");
 const {
@@ -20,9 +22,14 @@ const input = resolve(inputArg),
   output = resolve(outputArg);
 const state = JSON.parse(await readFile(join(input, "notarization.json"), "utf8"));
 assert.equal(state.phase, "complete", "Signing and notarization must finish before release");
-assert.equal(state.packagedModelSelection, "passed", "Model configuration and Composer acceptance must pass on the signed package; build a new candidate with the current signing script");
+assert.equal(
+  state.packagedModelSelection,
+  "passed",
+  "Model configuration and Composer acceptance must pass on the signed package; build a new candidate with the current signing script",
+);
 assert.ok(stableVersion(state.version));
 const version = state.version;
+await checkDmgSize(join(input, `AReaLHarness-${version}-macos-arm64.dmg`));
 const resources = join(input, state.appName, "Contents/Resources");
 const config = JSON.parse(await readFile(join(resources, "areal-update.json"), "utf8"));
 assert.deepEqual(config, { engine: "electron", feedUrl: githubFeedUrl });
@@ -31,6 +38,17 @@ const core = require("../app/src/core/bundle.cjs").verifyCoreBundle(resources, {
 }).manifest;
 assert.equal(core.profile, "release");
 assert.equal(core.workingTree, false);
+const source = JSON.parse(
+  execFileSync(
+    "python3",
+    [
+      resolve(import.meta.dirname, "../../../scripts/release-source.py"),
+      "--revision",
+      core.sourceRevision,
+    ],
+    { encoding: "utf8" },
+  ),
+);
 const checksum = (bytes, algorithm = "sha256", encoding = "hex") =>
   createHash(algorithm).update(bytes).digest(encoding);
 await mkdir(output);
@@ -70,6 +88,7 @@ await writeFile(
       repository: "areal-project/AReaL-Harness",
       feedUrl: githubFeedUrl,
       sourceRevision: core.sourceRevision,
+      mergedMainRevision: source.mergedMainRevision,
       coreVersion: core.productVersion,
       platform: core.platform,
       notarization: Object.fromEntries(

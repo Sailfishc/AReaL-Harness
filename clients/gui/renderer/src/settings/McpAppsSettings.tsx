@@ -1,9 +1,11 @@
+import { useI18n, type UiMessage, formatUiMessage } from "../i18n/IntlProvider.js";
 import { SettingsSelect, SettingsGroupCard, SettingsRow, SettingsSwitch } from "./SettingsPageParts.js";
 import { ActionButton } from "../components/ui/action-button.js";
 import { Input } from "../components/ui/input.js";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 import { McpAppIcon } from "../McpAppIcon.js";
+import type { McpMetadataImageLoader } from "../mcp-app-services.js";
 export type McpAppTool = {
     name: string;
     title?: string;
@@ -21,6 +23,17 @@ export type McpAppServer = {
 };
 export type McpAppsCommand = (request: Record<string, unknown>) => Promise<unknown>;
 export const toolTitle = (tool: McpAppTool) => tool.title ?? tool.annotations?.title ?? tool.name;
+export function mcpAppEntrypoints<Server extends McpAppServer>(servers: readonly Server[], kind: "global" | "thread" | "file", fileName?: string) {
+    return servers.flatMap((server) => server.tools.filter((tool) => {
+        const meta = tool._meta?.["openai/ui"] as { entrypoints?: unknown } | undefined;
+        return Array.isArray(meta?.entrypoints) && meta.entrypoints.some((entry: unknown) => {
+            if (typeof entry !== "object" || !entry) return false;
+            const value = entry as { type?: unknown; extensions?: unknown };
+            return value.type === kind && (kind !== "file" || Array.isArray(value.extensions) &&
+                value.extensions.some(ext => typeof ext === "string" && /^\.[a-z0-9._-]+$/i.test(ext) && fileName?.toLowerCase().endsWith(ext.toLowerCase())));
+        });
+    }).map(tool => ({ server, tool })));
+}
 const base = { title: z.string().min(1), description: z.string().optional() };
 const fieldSchema = z.discriminatedUnion("type", [
     z.object({ ...base, type: z.literal("boolean") }).strict(),
@@ -150,9 +163,10 @@ export function McpAppsSettings({
     command: McpAppsCommand;
     onTool: (server: McpAppServer, tool: McpAppTool) => Promise<void>;
 }) {
+  const { t } = useI18n();
     const [data, setData] = useState<Settings | null>(null),
         [values, setValues] = useState<Record<string, string | number | boolean>>({}),
-        [error, setError] = useState(""),
+        [error, setError] = useState<UiMessage | string>(""),
         [busy, setBusy] = useState(false);
     const epoch = useRef(0);
     const call = (kind: string, args: Record<string, unknown>) =>
@@ -180,7 +194,7 @@ export function McpAppsSettings({
             })
             .catch(() => {
                 if (epoch.current === version)
-                    setError("此应用的设置格式不受支持，未应用任何更改。");
+                    setError({ id: "settings.mcpAppsSettings.thisAppUsesAnUnsupportedSettingsFormat" });
             })
             .finally(() => {
                 if (epoch.current === version) setBusy(false);
@@ -208,13 +222,13 @@ export function McpAppsSettings({
                 ? [
                       {
                           kind: "group" as const,
-                          title: declared.length ? "其他设置" : "设置",
+                          title: declared.length ? t("settings.mcpAppsSettings.otherSettings") : t("settings.mcpAppsSettings.settings"),
                           items: remaining,
                       },
                   ]
                 : []),
         ];
-    }, [data]);
+    }, [data, t]);
     async function save() {
         if (!data || busy) return;
         const version = epoch.current;
@@ -222,7 +236,7 @@ export function McpAppsSettings({
         const changed: Record<string, string | number | boolean> = {};
         for (const [name, field] of Object.entries(data.schema.properties)) {
             if (!validSetting(field, values[name])) {
-                setError(`请检查“${field.title}”的值。`);
+                setError({ id: "settings.mcpAppsSettings.checkTheValueOfValue", values: { value0: field.title } });
                 return;
             }
             if (values[name] !== data.values[name]) changed[name] = values[name];
@@ -237,15 +251,15 @@ export function McpAppsSettings({
                 setValues(next.values);
             }
         } catch {
-            if (version === epoch.current) setError("设置更新未确认。请刷新核对后再修改。");
+            if (version === epoch.current) setError({ id: "settings.mcpAppsSettings.theSettingsUpdateIsUnconfirmedRefreshAnd" });
         } finally {
             if (version === epoch.current) setBusy(false);
         }
     }
     return (
-        <section aria-label={`${server.title ?? server.serverId} 设置`}>
+        <section aria-label={t("settings.mcpAppsSettings.valueSettings", { value0: server.title ?? server.serverId })}>
             <h3>{server.title ?? server.serverId}</h3>
-            {error && <p role="alert">{error}</p>}
+            {error && <p role="alert">{formatUiMessage(t, error)}</p>}
             {groups.map((group, index) => (
                 <fieldset key={index} disabled={busy} className="m-0 border-0 p-0">
                     <legend className="settings-section-heading">{group.title}</legend>
@@ -254,11 +268,11 @@ export function McpAppsSettings({
                         if (item.kind === "tool") {
                             const tool = server.tools.find((tool) => tool.name === item.tool)!;
                             return <SettingsRow key={index} label={toolTitle(tool)} control={
-                                <ActionButton aria-label={`运行 ${toolTitle(tool)}`} disabled={busy} onClick={() => {
+                                <ActionButton aria-label={t("settings.mcpAppsSettings.runValue", { value0: toolTitle(tool) })} disabled={busy} onClick={() => {
                                     setBusy(true);
-                                    void onTool(server, tool).catch(() => setError("操作未完成，请重试。"))
+                                    void onTool(server, tool).catch(() => setError({ id: "settings.mcpAppsSettings.theOperationDidNotCompleteTryAgain" }))
                                         .finally(() => setBusy(false));
-                                }}>运行</ActionButton>
+                                }}>{t("settings.mcpAppsSettings.run")}</ActionButton>
                             } />;
                         }
                         const name = item.property,
@@ -281,7 +295,7 @@ export function McpAppsSettings({
                 </fieldset>
             ))}
             <ActionButton pending={busy} disabled={!data} onClick={() => void save()}>
-                {busy ? "处理中…" : "保存设置"}
+                {busy ? t("settings.mcpAppsSettings.working") : t("settings.mcpAppsSettings.saveSettings")}
             </ActionButton>
         </section>
     );
@@ -290,46 +304,25 @@ export function McpAppEntrypoints({
     servers,
     kind,
     fileName,
+    loadMetadataImage,
     onOpen,
 }: {
     servers: McpAppServer[];
     kind: "global" | "thread" | "file";
     fileName?: string;
+    loadMetadataImage?: McpMetadataImageLoader;
     onOpen: (server: McpAppServer, tool: McpAppTool) => void;
 }) {
-    const entries = servers.flatMap((server) =>
-        server.tools
-            .filter((tool) => {
-                const meta = tool._meta?.["openai/ui"] as { entrypoints?: unknown } | undefined;
-                return (
-                    Array.isArray(meta?.entrypoints) &&
-                    meta.entrypoints.some((entry: unknown) => {
-                        if (typeof entry !== "object" || !entry) return false;
-                        const value = entry as { type?: unknown; extensions?: unknown };
-                        if (value.type !== kind) return false;
-                        return (
-                            kind !== "file" ||
-                            (Array.isArray(value.extensions) &&
-                                value.extensions.some(
-                                    (ext) =>
-                                        typeof ext === "string" &&
-                                        /^\.[a-z0-9._-]+$/i.test(ext) &&
-                                        fileName?.toLowerCase().endsWith(ext.toLowerCase()),
-                                ))
-                        );
-                    })
-                );
-            })
-            .map((tool) => ({ server, tool })),
-    );
+  const { t } = useI18n();
+    const entries = mcpAppEntrypoints(servers, kind, fileName);
     return (
-        <nav aria-label="应用入口">
+        <nav aria-label={t("settings.mcpAppsSettings.appEntryPoints")}>
             {entries.map(({ server, tool }) => (
                 <button
                     key={`${server.serverId}:${tool.name}`}
                     onClick={() => onOpen(server, tool)}
                 >
-                    <McpAppIcon icon={tool.icons?.[0] ?? server.icons?.[0]} />
+                    <McpAppIcon icon={tool.icons?.[0] ?? server.icons?.[0]} loadMetadataImage={loadMetadataImage} />
                     {toolTitle(tool)}
                 </button>
             ))}
@@ -357,9 +350,10 @@ export function McpAppsMentions({
     command: McpAppsCommand;
     onSelect: (item: McpMentionResource) => void;
 }) {
+  const { t } = useI18n();
     const [query, setQuery] = useState(""),
         [items, setItems] = useState<McpMentionResource[]>([]),
-        [error, setError] = useState("");
+        [error, setError] = useState<UiMessage | string>("");
     const epoch = useRef(0);
     useEffect(() => {
         const version = ++epoch.current;
@@ -398,7 +392,7 @@ export function McpAppsMentions({
                     if (version === epoch.current) setItems(data.items);
                 })
                 .catch(() => {
-                    if (version === epoch.current) setError("无法搜索此应用，请重试。");
+                    if (version === epoch.current) setError({ id: "settings.mcpAppsSettings.couldNotSearchThisAppTryAgain" });
                 });
         }, 180);
         return () => {
@@ -407,12 +401,11 @@ export function McpAppsMentions({
         };
     }, [query, server.serverId, server.generation, projectId, threadId]);
     return (
-        <section aria-label="应用引用">
+        <section aria-label={t("settings.mcpAppsSettings.appReferences")}>
             <label>
-                搜索引用
-                <input value={query} onChange={(event) => setQuery(event.target.value)} />
+                {t("settings.mcpAppsSettings.searchReferences")}<input value={query} onChange={(event) => setQuery(event.target.value)} />
             </label>
-            {error && <p role="alert">{error}</p>}
+            {error && <p role="alert">{formatUiMessage(t, error)}</p>}
             <ul>
                 {items.map((item, index) => (
                     <li key={`${item.uri}:${index}`}>

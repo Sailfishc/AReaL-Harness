@@ -3,7 +3,12 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { definitions, connectionMetadata } from "../packages/provider-config/connections.cjs";
 import { ModelCatalog } from "../packages/chatgpt-provider/catalog.js";
-import { openaiRequest, protocolAdapters } from "../packages/chatgpt-provider/adapters.js";
+import {
+  openaiRequest,
+  subscriptionRequest,
+  subscriptionModelHints,
+  protocolAdapters,
+} from "../packages/chatgpt-provider/adapters.js";
 import { providerError } from "../packages/chatgpt-provider/errors.js";
 
 function session() {
@@ -58,9 +63,9 @@ test("account catalog shares fetch, retains order, filters hidden models and tra
       await new Promise((resolve) => setImmediate(resolve));
       return Response.json({
         models: [
-          { slug: "b", visibility: "list", display_name: "B" },
+          { slug: "b", visibility: "list", display_name: "B", context_window: 500000, max_context_window: 872000 },
           { slug: "hidden", visibility: "hide" },
-          { slug: "a", visibility: "list" },
+          { slug: "a", visibility: "list", context_window: -1 },
           { slug: "b", visibility: "list" },
         ],
       });
@@ -73,6 +78,8 @@ test("account catalog shares fetch, retains order, filters hidden models and tra
     results[0].map((m) => m.id),
     ["b", "a"],
   );
+  assert.deepEqual(results[0][0].parameters, { contextWindowTokens: 500000 });
+  assert.equal(results[0][1].parameters?.contextWindowTokens, undefined);
   assert.equal(catalog.metadata().source, "account");
   assert.equal(catalog.metadata().fresh, true);
   now += 101;
@@ -110,12 +117,93 @@ test("late catalog from switched account cannot overwrite new choices", async ()
   account.revision++;
   account.emit("changed");
   await catalog.discover();
-  finish(Response.json({ models: [{ slug: "old", visibility: "list" }] }));
+  finish(
+    Response.json({ models: [{ slug: "old", visibility: "list", use_responses_lite: true }] }),
+  );
   await assert.rejects(old, (error) => error.code === "account_changed");
   assert.deepEqual(
     catalog.models.map((m) => m.id),
     ["new"],
   );
+  assert.deepEqual(catalog.hintsFor("old"), {});
+});
+test("subscription adapter preserves explicit parallel tool control in both directions", () => {
+  const request = {
+    model: "fixture",
+    stream: true,
+    input: [],
+    tools: [{ type: "function", name: "read", parameters: {} }],
+  };
+  for (const parallel of [true, false]) {
+    assert.equal(
+      subscriptionRequest({ ...request, parallel_tool_calls: parallel }).parallel_tool_calls,
+      parallel,
+    );
+  }
+  assert.equal(Object.hasOwn(subscriptionRequest(request), "parallel_tool_calls"), false);
+});
+test("catalog capabilities supply supported defaults while explicit request controls win", () => {
+  const hints = subscriptionModelHints({
+    use_responses_lite: true,
+    support_verbosity: true,
+    default_verbosity: "low",
+  });
+  assert.deepEqual(hints, { reasoningContext: "all_turns", verbosity: "low" });
+  assert.ok(Object.isFrozen(hints));
+  assert.deepEqual(subscriptionModelHints({ slug: "gpt-anything", default_verbosity: "low" }), {});
+  assert.deepEqual(
+    subscriptionModelHints({
+      use_responses_lite: false,
+      support_verbosity: true,
+      default_verbosity: "invalid",
+    }),
+    {},
+  );
+  const request = { model: "fixture", stream: true, input: [], reasoning: { effort: "xhigh" } };
+  const original = structuredClone(request);
+  for (const encode of [subscriptionRequest, openaiRequest]) {
+    const encoded = encode(request, hints);
+    assert.deepEqual(encoded.reasoning, { effort: "xhigh", context: "all_turns" });
+    assert.deepEqual(encoded.text, { verbosity: "low" });
+    const explicit = encode(
+      { ...request, reasoning: { context: "current_turn" }, text: { verbosity: "high" } },
+      hints,
+    );
+    assert.deepEqual(explicit.reasoning, { context: "current_turn" });
+    assert.deepEqual(explicit.text, { verbosity: "high" });
+    assert.deepEqual(
+      encode({ ...request, reasoning: { context: null }, text: { verbosity: null } }, hints)
+        .reasoning,
+      { context: null },
+    );
+    assert.throws(() => encode({ ...request, text: [] }, hints), /对象/);
+  }
+  assert.deepEqual(request, original);
+  assert.equal(Object.hasOwn(subscriptionRequest(request), "text"), false);
+});
+test("catalog hints obey visibility, account revision and clear boundaries", async () => {
+  const account = session();
+  const catalog = new ModelCatalog(account, async () =>
+    Response.json({
+      models: [
+        {
+          slug: "m",
+          visibility: "list",
+          use_responses_lite: true,
+          support_verbosity: true,
+          default_verbosity: "low",
+        },
+        { slug: "hidden", visibility: "hide", use_responses_lite: true },
+      ],
+    }),
+  );
+  await catalog.discover();
+  assert.deepEqual(catalog.models, [{ id: "m", name: "m", source: "account" }]);
+  assert.deepEqual(catalog.hintsFor("m"), { reasoningContext: "all_turns", verbosity: "low" });
+  assert.deepEqual(catalog.hintsFor("hidden"), {});
+  account.revision++;
+  account.emit("changed");
+  assert.deepEqual(catalog.hintsFor("m"), {});
 });
 test("SIWC adapter namespaces tools and keeps call IDs, history and supported controls", () => {
   const body = {

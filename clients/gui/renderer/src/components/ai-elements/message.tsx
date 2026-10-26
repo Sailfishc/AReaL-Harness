@@ -1,3 +1,7 @@
+import { normalizeMessageSingleDollarMath } from "@areal/ui/math-text";
+import "katex/contrib/mhchem";
+import "katex/contrib/copy-tex";
+import { MarkdownSurface } from "@areal/ui/wip";
 /*
  * Derived from ZCode 872ad960 components/ai-elements/message.tsx, in turn derived
  * from vercel/ai-elements. Copyright 2023 Vercel, Inc. Apache-2.0.
@@ -6,7 +10,7 @@
  * no ZCode services, subscription, citations catalog or platform stores.
  * See ZCODE-LICENSE and ../../../THIRD-PARTY-NOTICES.md.
  */
-import { Component, memo, useMemo, useRef, type ComponentProps, type ReactNode } from 'react';
+import { memo, useMemo, useRef, type ComponentProps, type ReactNode } from 'react';
 import { Streamdown, defaultRehypePlugins, defaultRemarkPlugins, defaultUrlTransform, type ExtraProps } from 'streamdown';
 import { GlobeIcon } from 'lucide-react';
 import remarkBreaks from 'remark-breaks';
@@ -17,11 +21,11 @@ import { mermaid } from '@streamdown/mermaid';
 import { cn } from '../lib/utils.js';
 import { MessageCodeBlock } from './message-code-block.js';
 import { useCodePreferences } from '../../settings/preferences.js';
-import { useReducedMotion } from '../../settings/applicationPreferences.js';
 import { MarkdownBlockquote } from './markdown-blockquote.js';
 import { MarkdownListItem, MarkdownOrderedList, MarkdownUnorderedList } from './markdown-list.js';
 import { MarkdownTable, MarkdownTableBody, MarkdownTableCell, MarkdownTableHead, MarkdownTableHeader, MarkdownTableRow } from './markdown-table.js';
 import { STREAMDOWN_CONTROLS } from './streamdown-controls.js';
+import { parsePluginStableId } from '../../mentions/mentionMarkdown.js';
 // Markdown file resources often contain bare relative links; make their URL kind explicit
 // before Streamdown's URL hardening. Only resource readers opt in.
 function relativeFileLinks() {
@@ -33,22 +37,26 @@ function relativeFileLinks() {
         visit(tree);
     };
 }
-const plugins = { cjk, math: createMathPlugin(), mermaid };
-// 中文连续文本也逐字淡入；限制排队时长，避免突发大段输出拖慢实际阅读。
-const streamAnimation = { animation: 'fadeIn', duration: 360, easing: 'ease-out', sep: 'char', stagger: 12, maxBacklogMs: 80 } as const;
-class MarkdownBoundary extends Component<{
-    children: ReactNode;
-    text: string;
-}, {
-    failed: boolean;
-}> {
-    state = { failed: false };
-    static getDerivedStateFromError() { return { failed: true }; }
-    render() { return this.state.failed ? <div className="whitespace-pre-wrap break-words">{this.props.text}</div> : this.props.children; }
+function pluginReferenceLabels() {
+    return (tree: { type?: string; url?: string; value?: string; children?: any[] }) => {
+        const visit = (node: typeof tree) => {
+            if (node.type === 'link' && node.url && parsePluginStableId(node.url)) {
+                node.type = 'text';
+                node.value = node.children?.map(child => child.value ?? '').join('') ?? '';
+                delete node.url;
+                delete node.children;
+            }
+            node.children?.forEach(visit);
+        };
+        visit(tree);
+    };
 }
-export const MessageResponse = memo(function MessageResponse({ children, streaming = false, theme = 'light', onOpenExternalUrl, onOpenFileLink, onRenderImage, webPreviews = false, className, fileLinks = false, preserveLineBreaks = false }: {
+const plugins = { cjk, math: createMathPlugin({ singleDollarTextMath: true }), mermaid };
+export const MessageResponse = memo(function MessageResponse({ children, streaming = false, theme = 'light', onOpenExternalUrl, onOpenFileLink, onRenderImage, webPreviews = false, className, fileLinks = false, fileLinkBase, preserveLineBreaks = false }: {
     children: string;
     fileLinks?: boolean;
+    // 文档读取器以当前资源地址解析相对链接，再由 Streamdown 规范化路径。
+    fileLinkBase?: string;
     preserveLineBreaks?: boolean;
     streaming?: boolean;
     theme?: 'light' | 'dark';
@@ -59,21 +67,21 @@ export const MessageResponse = memo(function MessageResponse({ children, streami
     className?: string;
 }) {
     const { fontSizePx } = useCodePreferences();
-    const reducedMotion = useReducedMotion();
     // Snapshot refreshes can replace navigation callbacks. Keep Markdown component
     // types stable so a media read does not remount its own attachment on refresh.
     const callbacks = useRef({ onOpenExternalUrl, onOpenFileLink, onRenderImage });
     callbacks.current = { onOpenExternalUrl, onOpenFileLink, onRenderImage };
     // Preserve the host's authorized media references through sanitization.
     // The caller still validates the exact blob URI and reads it through Core.
-    const rehypePlugins = useMemo(() => onRenderImage ? Object.entries(defaultRehypePlugins).map(([name, plugin]): (typeof defaultRehypePlugins)[string] => {
-        if (name !== 'sanitize' || !Array.isArray(plugin)) return plugin;
+    const rehypePlugins = useMemo(() => onRenderImage || fileLinkBase ? Object.entries(defaultRehypePlugins).map(([name, plugin]): (typeof defaultRehypePlugins)[string] => {
+        if (name === 'harden' && fileLinkBase && Array.isArray(plugin)) return [plugin[0], { ...plugin[1], defaultOrigin: fileLinkBase }];
+        if (name !== 'sanitize' || !onRenderImage || !Array.isArray(plugin)) return plugin;
         const schema = plugin[1] ?? {};
         return [plugin[0], { ...schema, protocols: { ...schema.protocols, src: [...(schema.protocols?.src ?? []), 'areal'] } }];
-    }) : undefined, [Boolean(onRenderImage)]);
+    }) : undefined, [Boolean(onRenderImage), fileLinkBase]);
     const remarkPlugins = useMemo(() => preserveLineBreaks
-        ? [...Object.values(defaultRemarkPlugins), ...(fileLinks ? [relativeFileLinks] : []), remarkBreaks]
-        : fileLinks ? [relativeFileLinks] : undefined, [fileLinks, preserveLineBreaks]);
+        ? [...Object.values(defaultRemarkPlugins), pluginReferenceLabels, ...(fileLinks ? [relativeFileLinks] : []), remarkBreaks]
+        : fileLinks ? [...Object.values(defaultRemarkPlugins), relativeFileLinks] : undefined, [fileLinks, preserveLineBreaks]);
     const components = useMemo(() => ({
         a: ({ children, href, node: _node, ...props }: ComponentProps<'a'> & {
             node?: unknown;
@@ -116,10 +124,10 @@ export const MessageResponse = memo(function MessageResponse({ children, streami
                 return <code className={cn('rounded-md bg-markdown-inline-code/50 mx-0.5 px-1.5 py-0.5 font-mono text-ui-sm', codeClassName)} {...props}>{children}</code>;
             const codeText = String(children ?? '').replace(/\n+$/, '');
             const language = /language-([^\s]+)/.exec(codeClassName ?? '')?.[1] ?? 'text';
-            return <MessageCodeBlock code={codeText} language={language} streaming={streaming} fontSizePx={fontSizePx} />;
+            return <MessageCodeBlock code={codeText} language={language} streaming={streaming} theme={theme} fontSizePx={fontSizePx} />;
         },
         blockquote: MarkdownBlockquote, li: MarkdownListItem, ol: MarkdownOrderedList, ul: MarkdownUnorderedList,
         table: MarkdownTable, tbody: MarkdownTableBody, td: MarkdownTableCell, th: MarkdownTableHead, thead: MarkdownTableHeader, tr: MarkdownTableRow,
     }), [streaming, theme, Boolean(onOpenExternalUrl), Boolean(onOpenFileLink), Boolean(onRenderImage), webPreviews, fontSizePx]);
-    return <MarkdownBoundary key={streaming ? 'streaming' : `static:${children.length}`} text={children}><Streamdown key={theme} className={cn('size-full text-ui-base leading-[1.75] tracking-wide [&>*:first-child]:mt-0 [&>*:last-child]:mb-0', className)} mode={streaming ? 'streaming' : 'static'} components={components} parseIncompleteMarkdown={streaming} remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} plugins={plugins} controls={STREAMDOWN_CONTROLS} linkSafety={{ enabled: false }} urlTransform={(url, key, node) => onRenderImage && key === 'src' && /^areal:\/\/blob\/[A-Za-z0-9_-]+$/.test(url) ? url : defaultUrlTransform(url, key, node)} animated={streaming && !reducedMotion ? streamAnimation : false} isAnimating={streaming}>{children}</Streamdown></MarkdownBoundary>;
+    return <MarkdownSurface streaming={streaming} theme={theme} className={className} components={components} parseIncompleteMarkdown={streaming} remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} plugins={plugins} controls={STREAMDOWN_CONTROLS} linkSafety={{ enabled: false }} urlTransform={(url, key, node) => onRenderImage && key === 'src' && /^areal:\/\/blob\/[A-Za-z0-9_-]+$/.test(url) ? url : defaultUrlTransform(url, key, node)}>{normalizeMessageSingleDollarMath(children)}</MarkdownSurface>;
 });

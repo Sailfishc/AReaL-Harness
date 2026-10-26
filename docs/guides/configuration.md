@@ -10,9 +10,9 @@
 
 GUI 默认使用同一配置文件和 Core 读写接口；服务登记与运行数据保持隔离。`AREAL_HARNESS_SERVICE_HOME` 只选择共享服务登记及默认实例数据的非空绝对目录，不改变配置位置；省略时沿用 `AREAL_HARNESS_HOME` 或 `~/.areal`。GUI 自动选择自己的服务目录，无需为共享默认配置设置环境变量；路径覆盖见 [GUI 指南](../../clients/gui/README.md)。
 
-GUI 的模型设置提供“新会话默认模型”，可选择已保存且启用的供应商模型，以及当前账号目录中的 ChatGPT 模型。选择后按现有配置版本检查、空闲排空、保存和重启流程应用；任务仍在执行时拒绝保存，重启失败时尝试按版本回滚。ChatGPT 默认选择使用既有 `areal_openai` 模型引用，账号授权仍由桌面管理。显式 Profile 模型优先于全局默认。
+通过“设置 > 模型设置”配置模型。供应商导航只显示名称，已启用与未启用分组以间距和分隔线区分，凭据及可用状态显示在右侧详情。GUI 的模型设置可以在任务运行时保存供应商、API Key 和模型列表，也允许先保存没有模型的连接。连接字段填写完整后，页面使用未保存的地址和密钥自动获取模型；获取失败时可手动添加。文件保存使用版本检查，运行中的任务保留原模型与凭据，空闲 Core 随后自动应用。页面分别显示“已保存”和生效状态，应用失败不会回滚这次保存，结果未知时只核查原请求。普通模型配置与 API Key 保存不重启 Core 或 Runtime。“备用默认模型”可选择已保存且启用的供应商模型，以及当前账号目录中的 ChatGPT 模型。更改备用默认和删除供应商仍要求空闲并确认应用，已确认失败时尝试按版本回滚。ChatGPT 默认选择使用既有 `areal_openai` 模型引用，账号授权仍由桌面管理。显式 Profile 模型优先于最近使用偏好和备用默认。
 
-新会话在发送前显示具体模型和解析后的思考强度。强度完全未配置时显示“供应商默认”，`none` 显示“无”。“使用模型默认”清除当前会话的强度覆盖，保留其他参数，并重新使用模型或供应商默认；模型默认为 high 时仍显示“高”。未发送草稿可保留本次选择，创建成功后下次新会话重新采用全局默认。修改全局默认不会改写已有会话；会话中切换模型或强度会立即保存，重开及重启后沿用该选择，过去的 Turn 快照保持不变。
+新草稿在发送前显示具体模型和将要提交的思考强度。优先使用受支持的已选或最近受理强度，再依次使用模型配置默认、受支持的 medium、首个可选值。`none` 是具体强度，显示“无”；不支持推理的模型不显示或提交强度。已有会话未指定或已不支持的强度显示“未指定”，打开菜单不会改写配置；通过滑块或未指定时的档位选择后保存具体值。强度名称仅在悬停、聚焦或选择时提示，顶部保留当前值。显式切换模型时使用目标模型的配置默认或上述回退。Composer 不提供恢复默认或配置链接，没有可选模型时显示单行“暂无可用模型”，完整引导保留在提示中。新会话沿用用户主会话最后一次受理的供应商、模型和实际思考强度，跨项目及桌面/Core 重启保留。Core 在用户消息或继续请求受理时记录，排队消息在入队时记录；模型执行失败不会撤销已经受理的选择。未发送的选模/强度修改、打开历史、Side、子代理及后台调度不更新这项偏好。显式选过模型或强度的草稿保留本次选择。没有记录时使用备用默认；上次模型不可用时提示并显示备用默认，不支持的强度提示后按上述顺序选择支持的值。偏好只保存模型身份和强度，不修改供应商配置或服务默认，也不复制凭据。修改备用默认不会改写已有会话；会话中切换模型或强度会立即保存，重开及重启后沿用该选择，过去的 Turn 快照保持不变。
 
 共享 TUI/Web 入口使用按工作区隔离的默认数据目录；显式 dataDir 仍遵循上述优先级。历史迁移与配置兼容性见[本地服务契约](../api/local-service.md)。
 
@@ -20,6 +20,16 @@ GUI 的模型设置提供“新会话默认模型”，可选择已保存且启�
 
 <a id="permissions"></a>
 ## 权限模式
+
+桌面与 Remote 新聊天默认使用“请求审批”，Composer 还提供“帮我审批”和“完全访问”。前两档的受管命令及文件工具限制在工作区和任务 scratch，命令默认不能联网；工作区内的常规编辑和命令无需逐次审批。需要额外权限时，“请求审批”交给用户，“帮我审批”发起独立、无工具的模型审核；审核无法完成或无法确定时交给用户。明确拒绝与强制人工审批仍优先。
+
+“完全访问”使用部署允许的完整资源范围并省略常规审批。受限部署不会因切换菜单而扩权。计划模式独立叠加只读限制。设置仅影响当前聊天的新提交；已入队消息保留入队时的权限快照。旧聊天未设置新预设时保留原语义，不自动升级为完全访问。客户端必须确认 Core 公布 `features.permissionPresets` 后才能提交新预设。
+
+读取项目 `AGENTS.md` 使用与工具相同的受限 base Scope，不改变本轮可信 authority 上限。追加权限仍必须通过 `run_command.permissionRequest` 及相应审批，只作用于该次操作；规则文件的存在不应阻止申请，也不会授予工作区外权限。
+
+这些资源限制覆盖 Runtime 受管执行，不表示 Core、MCP、插件 Host 或浏览器共享命令沙箱。浏览器使用独立页面控制与逐次目标校验；详见[权限架构](../design/permissions.md)。
+
+以下部署级配置仍适用于未选择新聊天预设的入口，并为所有聊天提供显式工具规则。
 
 本地 TUI、Web、CLI 和 `scripts/launch.py` 默认 **YOLO**：普通任务可读写当前用户有权访问的文件（含工作区外和 `/tmp`），命令可联网，不逐次询问。无需再传 `--allow-write` / `--allow-network`。操作系统自身权限仍有效；显式 Profile、只读 Turn、工具拒绝规则和受限 Runtime 不能被 YOLO 覆盖。
 
@@ -55,9 +65,27 @@ launcher 自动创建与 dataDir 同级的 `scratch/`，为每个 Thread 设置�
 
 ## 自动协作与兼容验收策略
 
-普通 Agent 协作无需额外功能开关，也无需用户指定共享或隔离模式。Core 根据任务要求及有效权限选择共享只读、共享独占写入或隔离候选执行。自动隔离还要求可用的独立 Runtime/文件助手以及满足快照约束的工作区；普通修改不具备隔离条件时可在启动前采用共享独占写入。明确要求候选补丁或可信验收的任务不能降低要求。
+普通 Agent 协作无需额外功能开关，也无需用户指定共享或隔离模式。Core 根据任务要求及有效权限选择共享分析、共享独占写入或隔离候选执行。自动隔离还要求可用的独立 Runtime/文件助手以及满足快照约束的工作区；普通修改不具备隔离条件时可在启动前采用共享独占写入。明确要求候选补丁或可信验收的任务不能降低要求。
 
 宿主使用现有写授权和父任务限制构造内部执行边界。YOLO 不覆盖只读 Profile、工具拒绝或 Runtime 上限，项目里的说明或模型提供的计划不能新增授权。未配置可信检查时，自动隔离不宣称验收通过；现有 `--workgroup-policy` 继续表示由部署方提供的严格写范围和最终 checks，用于兼容 Workflow、显式工作组和要求可信验收的委派。普通使用不需要维护第二份策略 JSON，详见[执行选择](../design/multi-agent.md)与[兼容 Workgroup 配置](workgroups.md)。
+
+## 分析子任务的权限策略
+
+工作职责与执行权限分别表达：`intent="inspect", delivery="report"` 要求分析报告，不会授权修改；部署配置决定是否额外强制源码只读。
+
+```toml
+[delegation]
+inspection_permissions = "read-only" # 默认，强制只读
+# inspection_permissions = "inherit" # 显式候选，继承父任务有效权限
+```
+
+环境变量 `AREAL_HARNESS_INSPECTION_PERMISSIONS` 接受 `read-only` / `inherit`，覆盖 TOML；该部署策略启动时固定，修改后须安全重启服务。脱敏配置诊断的 `delegation.inspection_permissions` 和模型工作区事实 `inspectionPermissions` 显示实际选择。
+
+`read-only` 保留原行为：源码只读、独立 scratch 可写，受限 Scope 不可用则在子模型启动前拒绝。`inherit` 不因普通分析自动增加只读/禁网限制，原有父权限、Profile、工具拒绝和审批规则仍有效；父任务本就受限时仍需要可用的相应沙箱。它不承诺子任务无法修改源码，不能把行为指令当成 OS 保护。旧显式 `workspaceMode="sharedReadOnly"` 与研究 Agent 不受该配置影响。
+
+继承模式与共享作者在首次副作用前申请工作区独占租约。在无 hooks/未受管副作用且 Runtime 确认本轮进程已结算的模型等待边界让出，再次写入时重新申请；活动进程、UNKNOWN 与查询失败不让出。文件版本约束、权限、取消和递归限制保持生效，详细边界见[多 Agent 设计](../design/multi-agent.md)。
+
+该选项是显式部署候选，不因局部回归通过而替换默认值。两种模式及反例见[委派设计](../design/multi-agent.md)。
 
 ## 模型与限额
 
@@ -106,22 +134,23 @@ max_tool_buffer_bytes = 4194304
 
 [network]
 retry_mode = "persistent"
+model_request_timeout_seconds = 300
 stream_idle_timeout_seconds = 30
 [logging]
 filter = "info"
 ```
 
-endpoint 是完整 HTTP(S) 请求 URL；Core 只支持 `chat-completions` / `responses`，不自动补路径。配置只写密钥变量名；普通启动时，显式引用必须解析为非空且可用于 HTTP header 的值；未选中 provider 不要求密钥。省略引用为匿名，不从其他应用读取凭据。`--management` 允许选中模型的凭据暂不可用，以便启动管理和 Workspace 入口；该模型的请求会明确报 `MODEL_CREDENTIAL_UNAVAILABLE`，不会匿名发送或改用其他模型。模型名称、端点和协议仍须有效；设置凭据后需重启服务。
+endpoint 是完整 HTTP(S) 请求 URL；Core 只支持 `chat-completions` / `responses`，不自动补路径。配置只写密钥变量名；普通启动时，显式引用必须解析为非空且可用于 HTTP header 的值；未选中 provider 不要求密钥。省略引用为匿名，不从其他应用读取凭据。`--management` 允许选中模型的凭据暂不可用，以便启动管理和 Workspace 入口；该模型的请求会明确报 `MODEL_CREDENTIAL_UNAVAILABLE`，不会匿名发送或改用其他模型。模型名称、端点和协议仍须有效；通过外部进程环境补充凭据后需重启服务；GUI 保存的加密 API Key 使用受保护的热应用接口，无需重启。
 
-例如 Chat Completions 通常填写 `https://model.example.com/v1/chat/completions`，Responses 填写 `https://model.example.com/v1/responses`，以供应商实际接口为准。仅填 `/v1` 可能得到 HTTP 200 的 HTML 网页，触发 `model response must use text/event-stream`；Goal 模式还会因未知用量显示 `GOAL_USAGE_UNKNOWN`，并保留原始错误。修改启动配置后须[停止并重新启动共享服务](../api/local-service.md#公共入口)，只重开客户端不会重新加载配置。
+例如 Chat Completions 通常填写 `https://model.example.com/v1/chat/completions`，Responses 填写 `https://model.example.com/v1/responses`，以供应商实际接口为准。仅填 `/v1` 可能得到 HTTP 200 的 HTML 网页，触发 `model response must use text/event-stream`；Goal 模式还会因未知用量显示 `GOAL_USAGE_UNKNOWN`，并保留原始错误。修改非模型启动配置后须[停止并重新启动共享服务](../api/local-service.md#公共入口)，只重开客户端不会重新加载配置。
 
-`reasoning_effort` 可为 none/minimal/low/medium/high/xhigh，供应商需支持；`model.max_output_tokens` 默认 16384（16k），映射到协议对应字段；这是单次请求的可覆盖默认值，需大于零，不是整个 Turn 的累计预算。全局显式值、模型和供应商默认参数、环境变量仍按既有优先级覆盖；省略值（含旧模型快照中的空值）使用新默认。OpenAI 推理模型的额度包含推理与可见输出，复杂任务可按模型调大，例如 32768，并确保窗口留有输入空间。`max_retries` 为 0–8，控制接受流之前的有限 HTTP 重试，涵盖传输错误、HTTP 408/429 和全部 5xx。该额度耗尽后，默认启用的 Core watchdog 仍会继续网络恢复。
+`reasoning_effort` 可为 none/minimal/low/medium/high/xhigh/max，供应商需支持；`model.max_output_tokens` 默认 16384（16k），映射到协议对应字段；这是单次请求的可覆盖默认值，需大于零，不是整个 Turn 的累计预算。全局显式值、模型和供应商默认参数、环境变量仍按既有优先级覆盖；省略值（含旧模型快照中的空值）使用新默认。OpenAI 推理模型的额度包含推理与可见输出，复杂任务可按模型调大，例如 32768，并确保窗口留有输入空间。`max_retries` 为 0–8，控制接受流之前的有限 HTTP 重试，涵盖传输错误、HTTP 408/429 和全部 5xx。该额度耗尽后，默认启用的 Core watchdog 仍会继续网络恢复。
 
 可选 `model.reasoning_summary = "auto"`（也可为 `concise` / `detailed`）仅适用于 `responses`，映射到请求的 `reasoning.summary`；环境变量为 `AREAL_HARNESS_REASONING_SUMMARY`。默认省略，不向 Chat Completions 或未选择此功能的模型附加摘要参数。端点/模型必须支持所选摘要模式；是否返回摘要取决于供应商，不保证始终有思考文本。
 
 可选采样参数不配置时省略，显式 0 保留。`temperature` 为有限数 [0,2]，`top_p` / `min_p` 为 [0,1]，`top_k` 为正整数或 -1，`presence_penalty` 为 [-2,2]，`repetition_penalty` 大于 0。Chat 与 Responses 均接受 temperature/top_p；其余四项只支持 Chat，Responses 配置时拒绝。参数发送不证明供应商实际采纳。摘要默认继承求解采样/推理配置并禁用工具。可单独设置 `model.summary_reasoning_effort` 和 `model.summary_max_output_tokens`（环境变量 `AREAL_HARNESS_SUMMARY_REASONING_EFFORT` / `AREAL_HARNESS_SUMMARY_MAX_OUTPUT_TOKENS`），不会修改后续求解参数。摘要输出上限为全局输出上限、摘要专用上限、Goal 剩余额度与 16384 中的最小值；专用上限需大于零。未配置时兼容原行为；例如可在求解 high 时显式选择摘要 low/4096，需验证供应商支持和任务保留效果。
 
-`model.context_window_tokens` 声明当前模型的窗口（1–2000000），Provider/模型默认参数及 `parameters.contextWindowTokens` 同样支持。Core 不按模型名称猜测；未配置时使用旧全局字段的 131072（128k）token 兜底，诊断区分模型元数据与兜底。输出预留取 `context.output_reserve_tokens`（默认 8192）与当前模型输出上限的较大值；默认 HTTP 模型因此预留 16384 token，完整输入最多为 114688 token（其中还需容纳动态指令与工具 schema）。显式窗口和输出配置优先，省略字段采用新默认；不会按供应商名称推测实际能力，小窗口模型应同时调低输出上限和必要的预留。每次求解请求在发送前检查完整消息、动态指令和工具 schema 是否落在窗口减预留以内。估算按 ASCII 约 3 字节/token、非 ASCII 约 2 token/字符及媒体代理成本计算；已结算完整输入用量（含缓存）加 10% 余量校准追加历史，压缩后重置。估计不等于供应商 tokenizer 精确计数。
+`model.context_window_tokens` 设置当前模型的用户工作预算（1–2000000），Provider/模型默认参数及 `parameters.contextWindowTokens` 同样支持。服务报告窗口与用户预算分开解析，工作窗口取两者较小值。订阅账号缺少报告时使用全局 131072-token 兜底；其他端点缺少报告与预算时查完整型号默认表，再使用全局兜底。诊断分别显示报告来源、用户预算与实际窗口。输出预留取 `context.output_reserve_tokens`（默认 8192）与当前模型输出上限的较大值；默认 HTTP 模型因此预留 16384 token，完整输入最多为 114688 token（其中还需容纳动态指令与工具 schema）。显式输出配置优先，用户工作预算受服务报告窗口约束；省略字段采用默认值；不会按供应商名称推测实际能力，小窗口模型应同时调低输出上限和必要的预留。每次求解请求在发送前检查完整消息、动态指令和工具 schema 是否落在窗口减预留以内。估算按 ASCII 约 3 字节/token、非 ASCII 约 2 token/字符及媒体代理成本计算；已结算完整输入用量（含缓存）加 10% 余量校准追加历史，压缩后重置。估计不等于供应商 tokenizer 精确计数。
 
 常规使用只需设置模型窗口、输出上限和 `context.mode`。`context.target_tokens=0` 自动选择可用输入窗口的 60%；正数必须小于输入上限。`context.recent_tokens` 默认改为 0（自动），正数和旧 `context_recent_bytes` 仍作为兼容边界偏好，诊断保留配置来源；常用示例不再固定近期额度。Core 使用同一完整请求预算分配近期完整轮次、用户原文、摘要和历史证据，删除用户原文/证据各自的固定 8192 软配额，也不再永久优先首问。最新真实用户请求及附件必须完整保留；其他原文从近到远分配，旧附件超额时可保留其文字并明确标记附件省略。未完成或 UNKNOWN 工具操作不得纳入压缩前缀。旧原文与完整附件仍在磁盘，可通过 `read_history` 查回。
 
@@ -135,13 +164,20 @@ endpoint 是完整 HTTP(S) 请求 URL；Core 只支持 `chat-completions` / `res
 
 网络 watchdog 默认启用，网络错误没有重试次数上限。设置 `AREAL_HARNESS_WATCHDOG_DISABLE=1` 关闭，删除该变量或设为 `0` 恢复默认；也接受 `true`/`false`，对应 TOML `limits.watchdog_disable`。环境变量覆盖 TOML。watchdog 覆盖连接/传输失败、请求与流空闲超时、提前断流、HTTP 408/429/5xx，以及 SSE 明确报告的限流/服务不可用。求解、子 Agent 与上下文摘要采用同一策略，250 ms 指数退避、最长 30 秒；取消、显式 Goal/研究 worker 时间预算及显式 Workgroup 实际请求预算仍有效。401/403、无效请求、额度不足、长度上限和空回复不进入无限重试。
 
+求解和摘要的 HTTP 请求共用 Engine 与共享模型池容量；外层恢复和 HTTP 内部重试均先释放失败请求的全部许可，再退避、排队并重新计入请求额度。退避不计入模型池活动占用，活跃流仍持有许可。已准入但在取消时未观察到最终用量的尝试保持 UNKNOWN，不假设为零。`network.retry_mode="bounded"` 对每个当前求解或摘要请求最多执行五次 Core 网络恢复，再报告失败；`persistent` 仍保留持续恢复。五次额度耗尽后不借 `max_completion_retries` 继续网络重放；接受完整响应后新的逻辑请求重新计数。HTTP `model.max_retries` 仍独立存在，所有实际准入都参与原请求/任务预算。未知用量和已执行工具不因恢复而清零或重放。本地部署可以显式选择 bounded；这不宣称其在所有可用性条件下优于 persistent。
+
+`bounded` 不再等价于 `limits.watchdog_disable=true`：前者有限恢复断流和暂时网络失败，后者保留显式关闭 Core 网络恢复的旧语义。两者可以分别配置；关闭开关优先，环境变量 `AREAL_HARNESS_WATCHDOG_DISABLE=0` 恢复所选模式，而 `AREAL_HARNESS_NETWORK_RETRY_MODE` 可覆盖模式。默认仍为 persistent。持续模式和有限模式都在退避前释放求解/摘要容量，取消、Goal 未知用量及未结算工具仍禁止自动重放；次数上限不等于整个任务的墙钟期限。
+
+
 Goal 的共享预算与未知用量约束优先于重试配置。Goal 请求禁用 HTTP 内部重试；失败或超时产生未知消费时保留预算预留并停止自动推进，watchdog 与有限重试额度均不能绕过此限制。
 
 `limits.max_completion_retries` 默认为 0、范围 0–8，是每 Turn 的有限未完成响应恢复额度，与 HTTP `max_retries` 和网络 watchdog 分开；关闭 watchdog 不关闭已有的有限重试。恢复条件与审计见 [Core API](../api/core.md#recovery)。HTTPS 使用公开根证书和宿主系统信任库；私有 CA 应安装到信任库。工具调用仅来自协议结构化字段，正文中的 XML/JSON 不作为调用执行。
 
 `resources.max_tool_buffer_bytes` 默认 4 MiB，约束每个响应缓冲的工具 id、name、arguments；单调用参数仍最多 64 KiB。`resources.max_response_tool_calls` 默认 128，有效值取该保护与显式 Turn 剩余调用预算的较小者。`resources.max_response_bytes` 默认 4 MiB，约束单响应的文本、推理、provider context 和模型二进制输出。这些保护独立于累计执行预算。Chat/Responses 共用工具缓冲检查，重复的 Responses 终态条目不重复计数。新增环境变量后缀为 `MAX_RESPONSE_TOOL_CALLS`、`MAX_RESPONSE_BYTES`、`CONTEXT_MODE`、`CONTEXT_RECENT_TOKENS`、`CONTEXT_TARGET_TOKENS`、`MODEL_CONTEXT_WINDOW_TOKENS`；旧环境变量保留。
 
-`[budget]` 中 `max_tool_calls`、`max_output_bytes`、`max_history_bytes` 默认 0（无限）；正数分别显式限制每 Turn 调用数/累计输出和每 Thread 存储历史，压缩不会重置这些预算。历史计入热快照和引用的冷分段。旧配置中的显式有限值保持原意，两个 schema 版本中省略字段均采用新的无限默认。资源容量仍需正数，子任务数/深度可为 0。`max_threads=20000` 是部署会话容量，不是单会话长度预算。空闲超时用于检测停滞请求，不是整个任务的运行时长。`[network] retry_mode` 默认 persistent，也可为 bounded（对应关闭旧 watchdog）。`config show` 展示新分组并保留旧 `limits` 诊断对象；来源键仍使用归一化的旧名称。
+`[budget]` 中 `max_tool_calls`、`max_output_bytes`、`max_history_bytes` 默认 0（无限）；正数分别显式限制每 Turn 调用数/累计输出和每 Thread 存储历史，压缩不会重置这些预算。历史计入热快照和引用的冷分段。旧配置中的显式有限值保持原意，两个 schema 版本中省略字段均采用新的无限默认。资源容量仍需正数，子任务数/深度可为 0。`max_threads=20000` 是部署会话容量，不是单会话长度预算。空闲超时用于检测停滞请求，不是整个任务的运行时长。`[network] retry_mode` 默认 persistent，也可为 bounded（当前请求最多五次 Core 网络恢复）。`config show` 展示新分组并保留旧 `limits` 诊断对象；旧别名来源键继续归一化，`network.retry_mode` 保留独立来源。
+
+`network.model_request_timeout_seconds` 默认 300，限制每次模型请求到首个成功事件的总等待时间，包括共享模型许可等待、请求准备与 HTTP 重试。收到响应头不会重置该期限。首个事件之后，`network.stream_idle_timeout_seconds` 默认 30，限制相邻事件间的空闲时间。Activity 和用量事件即使没有可见文本也会刷新空闲期限。两项配置均接受 1–86400 秒，对求解与压缩摘要请求生效，也可使用 `[limits]` 下的同名字段。超时保留 `LLM_RESPONSE_TIMEOUT` 分类及现有 watchdog 恢复策略。这些限制不约束整个 Turn 的运行时长。
 
 | 环境变量（前缀 `AREAL_HARNESS_`） | 对应配置 |
 |---|---|
@@ -151,11 +187,29 @@ Goal 的共享预算与未知用量约束优先于重试配置。Goal 请求禁�
 | `CONTEXT_WINDOW_TOKENS`, `CONTEXT_OUTPUT_RESERVE_TOKENS`, `CONTEXT_COMPACTION_ENABLED` | 可选上下文 token 预算与压缩开关 |
 | `LISTEN`, `DATA_DIR`, `TOOL_EXTENSIONS`, `LOG_FILTER` | server、扩展文件与日志 |
 | `MODEL_CONCURRENCY`, `MAX_THREADS`, `MAX_ACTIVE_TURNS`, `MAX_CHILDREN_PER_TURN`, `MAX_AGENT_DEPTH` | 并发与任务容量 |
-| `STREAM_IDLE_TIMEOUT_SECONDS` | 时限 |
+| `MODEL_REQUEST_TIMEOUT_SECONDS`, `STREAM_IDLE_TIMEOUT_SECONDS` | 首个模型事件期限与后续流空闲期限 |
+| `NETWORK_RETRY_MODE` | `network.retry_mode`；persistent 或 bounded，默认 persistent |
 | `WATCHDOG_DISABLE` | `limits.watchdog_disable`；`1` 关闭，默认 `0` |
 | `MAX_HISTORY_BYTES`, `MAX_OUTPUT_BYTES`, `MAX_TOOL_CALLS`, `MAX_TOOL_BUFFER_BYTES`, `CONTEXT_WINDOW_BYTES`, `CONTEXT_RECENT_BYTES` | 历史、工具与上下文预算 |
 
 未知 `AREAL_HARNESS_*` 报错。旧 `AREAL_MODEL*` 与 `RUST_LOG` 为低优先级兼容别名。无 provider 文件记录的旧模型入口可使用可选 `AREAL_API_KEY`；显式文件 provider 不隐式继承它。
+
+### 桌面加载与执行限制
+
+传输限制与模型执行预算分别生效。提高其中一个不会放宽其他通道的限制。大小按编码后的字节计算，MiB 为 1,048,576 字节。
+
+| 边界 | 当前限制 | 达限后的行为 |
+|---|---|---|
+| Core 入站请求 / 出站消息 | 4 MiB / 64 MiB | 超大响应返回 `RESPONSE_TOO_LARGE`，其他聊天仍可读取，失败的缓存视图禁止发送新任务；超大通知关闭连接，停止被动重连。历史未被删除，也不会自动重放提交 |
+| 桌面共享服务聚合投影 | 256 MiB 接收；发送前缓冲检查为 32 MiB | 多个大聊天仍可能超出聚合传输能力；64 MiB 单消息限制不保证整体内存有界 |
+| Core RPC / 桌面后台 RPC | 默认 30 秒 / 150 秒 | 等待失败不表示后台已停止。只读失败不标记提交结果未知；写入结果未知时查询原 requestId，不自动重发 |
+| 每条 Core 连接的观察订阅 | 128 个，聊天与 Task 共用 | 达限拒绝新订阅。已缓存聊天全部恢复时仍可能耗尽容量；不是磁盘历史数量上限 |
+| 连接测试 / 模型目录获取 | 30 秒，响应 1 MiB | 探测失败不等于 Core 退出。API 目录最多返回 64 个模型，ChatGPT 目录最多 256 个，当前没有截断提示 |
+| ChatGPT 本地代理模型请求 | 16 MiB | 即使提高 `model.max_request_bytes`，此代理仍会拒绝更大的请求 |
+
+Core 发送队列为 256 条，聊天事件窗口为 128 条，单次 socket 写入限时 5 秒。队列过载或慢消费者会断开连接以防止不完整投影继续使用。桌面自动重连退避从 500 ms 增至最多 30 秒；明确的消息大小错误需要用户操作，不反复重连。
+
+这些桌面限制不可通过 `[budget]` 调整。历史加载目前仍会在编码前完整物化，尚未提供分页恢复。Core 协议和超大结果的处理见 [Core API](../api/core.md#传输与会话)。模型输出、上下文、网络重试和 Runtime 子进程预算继续按各自配置生效。
 
 <a id="proxies"></a>
 ## 出站网络代理
@@ -188,6 +242,20 @@ areal service restart --workspace /absolute/workspace --json
 已有 `HTTP_PROXY` / `HTTPS_PROXY` 及其小写值会覆盖对应目标的 `ALL_PROXY`；统一走 SOCKS 时需同步调整这些变量。共享服务保留启动环境，修改变量后必须在新环境中显式 restart，只重开 TUI/Web 不会刷新后台进程环境。自定义配置或部署参数按[共享服务契约](../api/local-service.md)传给 restart。本地服务发现和登录 HTTP 请求固定直连，避免将 loopback 认证发送到外部代理。
 
 可信 stdio MCP 与插件 Host 自动继承上述八个代理变量，包括代理 URL 中的认证信息；其他环境仍按各自白名单处理。`web_search` 等外部工具须使用支持相应代理协议与环境变量的 HTTP 库；Core 不拦截其自建 socket，也不替远程 MCP 服务配置它到搜索供应商的网络。Runtime 命令环境及网络授权保持独立，代理不扩大 Scope 权限。具体边界见 [MCP](mcp.md) 和[插件](../design/plugins.md)。
+
+## 桌面通用设置
+
+设置页的“终端”提供“继承系统终端 Profile”和字体覆盖。继承默认开启，尝试读取当前用户的 iTerm2、macOS Terminal 或 Kitty 外观配置。字体覆盖优先；清空后恢复自动选择。字体、字号和 ANSI 配色对新建或重新打开的终端生效，现有终端不重启。应用仍管理终端基础背景与文字颜色。检测失败使用默认外观。登录 shell 保留原有启动方式，受限 Runtime 的 HOME 和权限不会因此扩大。
+
+“网络”可保存 HTTP(S) 代理、逗号分隔的绕过地址和 PEM 根证书文件绝对路径。显式代理覆盖环境和系统代理；清空后恢复原有发现规则。应用代理字段不接受凭据，需认证的代理继续使用前述环境变量入口。绕过地址支持主机名、域名后缀、IP 和 CIDR。本机控制连接始终直连。自定义证书增加可信根，不关闭主机名、有效期或证书链校验。文件只接受自签名 CA 的 PEM bundle，最多 1 MiB、128 张证书。Chromium 的附加信任校验支持关键的基本约束、密钥用途、扩展密钥用途和主机名扩展，拒绝其他关键扩展。设置由 Desktop 保存，不修改系统代理或系统证书库。
+
+代理和证书供 Core HTTP 模型、模型连接测试、订阅连接、可信 MCP 与插件宿主使用。完整访问权限下允许联网的 Runtime 命令也接收代理与证书环境；第三方命令仍需支持相应环境变量。网络权限不会扩大。显式 Responses WebSocket 的直连限制保持不变。Chromium 主会话和共享内置浏览器也使用显式代理与证书；代理留空时浏览器跟随系统代理及其绕过规则，应用中的绕过列表只在显式代理下用于 Chromium。
+
+修改网络设置或“Chromium 硬件加速”后，等待活动任务完成，再完整退出并重新启动应用。保存不会自动重启任务。硬件加速默认开启，关闭可用于排查显卡驱动导致的渲染异常。
+
+“任务通知”是完成、权限审批和提问通知的总开关，关闭时保留分类和声音偏好。重新开启不补发关闭期间的旧通知。“交互行为”复用现有排队和调整方向功能。排队等当前运行结束后发送；调整方向请求中断当前输出并在同一轮继续，不承诺立即停止工具。⌘/Ctrl+点击发送临时反转所选行为。
+
+`pnpm --dir clients/gui run test:desktop-settings` 验证隔离 Electron/Core 设置保存、终端外观和重启行为；`pnpm --dir clients/gui run test:desktop-network` 验证本地代理与 TLS 边界。这些专项不代表安装包、真实供应商或其他平台验收。
 
 ## 诊断与运行时目录
 
@@ -253,9 +321,14 @@ JSON 使用 camelCase（`apiKeyEnv`、`displayName`、`maxOutputTokens`、`reaso
 
 写入先校验、检查整个文件 revision，再使用同目录临时文件、fsync 和原子替换；合作写入者通过锁串行，过期请求失败。默认缺失文件可以首次创建，显式缺失文件和写入符号链接拒绝。非合作编辑器不参与锁，多次摘要校验不等于文件系统原子 CAS。
 
-共享目录采用保存／应用分离：`catalog_version = 1` 的模型变更显示 restartRequired，由客户端在安全空闲时重启；未启动实例下次加载。运行中的模型及已有任务不被保存动作修改，新默认值仅用于应用后创建的任务。历史任务保留原配置和凭据引用，轮换时需继续提供旧引用所需的环境凭据。
 
-GUI 设置页分别显示 Core 已保存的启用状态、凭据来源与就绪状态、配置应用状态；未保存的开关或密钥输入保留为草稿。桌面适配器把安全存储中的凭据提供给 Core 诊断，Renderer 只接收状态。当前文件 revision 与项目已加载 revision 不一致时显示“待应用”；安全应用成功后刷新项目的 Core 模型目录。停用的供应商或模型不进入 Composer 的执行目录，启用但缺少凭据的模型仍显示名称与原因。GUI 数据目录隔离意味着共享配置中的凭据引用可能在另一个 GUI 实例中不可用，状态按当前实例诊断。
+自定义模型可设置 `capabilities = { tools = true, vision = false, reasoning = true, reasoning_effort_options = ["low", "high"] }`。这些字段只声明该模型支持的工具、图片输入和推理；不增加媒体生成能力。省略能力声明保留旧协议行为。GUI 新添加的模型默认开启工具和推理；没有明确的能力声明时预选低、中、高、极高四档。模板已声明的能力、用户显式关闭、自定义强度及模型／供应商默认参数保持不变；已知默认强度超出四档时也保留为可选值。新草稿按上述顺序选择并提交受支持的具体强度，不凭模型名称猜测供应商行为；已有会话不自动改写。已有模型不自动迁移；编辑时主动清空强度列表仍沿用原有六档。`max` 可作为显式允许值，仍须远端支持。关闭推理时不发送遗留的推理参数。
+
+共享目录采用保存／应用分离。仅写入 `catalog_version = 1` 文件不会改变运行实例；GUI 保存后通过[模型配置热应用接口](../api/desktop.md#模型配置热应用)把精确文件版本应用到已连接 Core，并由其重新读取和校验权威文件。新增的安全存储凭据通过受保护的本机请求注入，只追加不可变引用，不改变进程环境；Core、Runtime 和现有连接保持原代际。未启动实例下次加载。已有历史、活动请求和已受理队列保留原快照。旧会话的新请求可在端点、协议与凭据引用一致时刷新容量报告和模型能力；其他参数继续遵守会话覆盖规则；轮换后不得删除旧任务所需的凭据。旧 Core 不支持热应用时，GUI 在写入前提示更新后台。非模型部署变化仍要求显式安全重启。
+
+多个项目各自原子应用，不构成跨进程事务。只有全部确认目标版本且文件版本仍匹配时才完成保存。已确认的部分失败先对文件做 CAS 补偿，再应用实际产生的恢复版本；外部写入、活动任务或未知请求阻止恢复时保留“待应用”和草稿，不宣称全部恢复，不自动取消任务或重启。
+
+GUI 设置页分别显示 Core 已保存的启用状态、凭据来源与就绪状态、配置应用状态；未保存的开关或密钥输入保留为草稿。桌面适配器把安全存储中的凭据提供给 Core 诊断，Renderer 只接收状态。当前文件 revision 与项目已加载 revision 不一致时显示“待应用”；安全应用成功后刷新项目的 Core 模型目录。Composer 模型目录只显示已启用且可用的模型。停用或缺少凭据的模型不显示为选项，诊断保留在设置中。历史模型身份保留在入口，不自动切换。GUI 数据目录隔离意味着共享配置中的凭据引用可能在另一个 GUI 实例中不可用，状态按当前实例诊断。
 
 ## 模型配置热更新
 
@@ -290,6 +363,10 @@ turn_model_rounds = 0
 示例数字为默认值。`max_turns`、`max_active_seconds`、`turn_model_rounds` 的 0 表示无部署上限；正数分别接受 1–86400、1–86400、2–1024。显式请求/会话限制仍生效，并与正数部署上限取交集。未设置的 Goal token/轮次/时间预算保持无限。GUI 用 inferLimits 请求模型解释目标中的显式限制；需允许 goal_set_limits，有轮次限制时至少三轮。有上限的根 Turn 至少两轮，最后一轮禁用工具以交接。`max_unreported_turns` 仍默认 3（1–86400），属于进度完整性保护：连续根 Turn 未提交 goal_update 时暂停为 progressUnreported。
 
 活动时间包括根 Turn 的模型排队、执行、工具、交互等待和清理，子任务时间不叠加，轮次间容量等待、暂停和离线时间不计入。显式研究 worker 预算和 Runtime 硬限额继续生效；普通 Turn 没有总时限。Goal 请求禁用 HTTP 层隐式重试，以保留逐次消费的归因；未知消费会停止自动推进。使用与恢复见 [Goal 模式](clients.md#goals)。
+
+连续内置只读工具的并发候选也使用该 JSON：`{"policy":{"parallelReadCalls":4}}`。范围为 1–4，默认 1；显式选择 4 允许有界并发，不扩大模型、工具或输出总预算。未知后端和有状态工具保留屏障，匹配的 hooks 与有限输出等条件下保持串行，见[Core 契约](../api/core.md#工具并发与执行进度)。未经来源隔离确认，不作为全局性能默认值推广。
+
+`ToolPolicy.completionFocus`（JSON `completionFocus`）是默认 false 的显式行为实验。启用后提示 Agent 先完成用户要求的交付与必要验证，仅为具体未解问题增加复查，子任务按自身边界及时交接，空闲时使用较长等待与回执游标。计划应提前明确有限验收证据，让文档、检查准备与实现并行；后期集成验证须观察已应用输入，不能把隔离快照中准备的脚本当成最终验收。必需交付、相关验收及资源结算完成后及时答复，不把可选截图、额外检查或反复更新计划追加为收尾条件。它不强制 final、不免除验收、不扩大预算，也不推断题目要求。示例：`{"policy":{"parallelReadCalls":4,"completionFocus":true}}`。隔离 worker 继承纯工具策略；缺少未见来源证据时不推广为全局默认。
 
 工具结果视图通过 `[tools] extensions_file` 指向的 JSON 配置，在 `policy.resultViews` 下设置 `mode: off|observe|on`（默认 observe）及 `searchGroups`、`repeatLines` 开关。大结果快照与内置 rg 不依赖该开关；额度和回取行为见[工具指南](tools.md)。
 

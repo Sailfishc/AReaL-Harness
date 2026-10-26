@@ -14,28 +14,16 @@ import type {
     ContentBlock,
 } from "@modelcontextprotocol/client";
 import { z } from "zod";
+import { validateMcpPageDeclaration, validateMcpPageCall, validateMcpPageReply } from "@areal/workbench/desktop-contract";
+const pageReplySchema = z.record(z.string(), z.unknown()).superRefine((value, ctx) => {
+    try { validateMcpPageReply(value); }
+    catch { ctx.addIssue({ code: "custom", message: "Invalid page tool reply" }); }
+});
 import { McpAppIcon } from "./McpAppIcon.js";
+import type { PlatformServices } from "./services.js";
+import type { McpAppDescriptor, McpMetadataImageLoader } from "./mcp-app-services.js";
 
-export type McpAppDescriptor = {
-    token: string;
-    frameUrl: string;
-    instanceId: string;
-    serverId: string;
-    generation: string | number;
-    projectId: string;
-    threadId: string;
-    toolMetadata?: {
-        name?: string;
-        title?: string;
-        annotations?: { title?: string };
-        icons?: { src: string }[];
-    };
-    initialArguments: Record<string, unknown>;
-    initialResult?: CallToolResult;
-    hostContext: McpUiHostContext;
-    resourceMeta?: Record<string, unknown>;
-    fileResource?: boolean;
-};
+export type McpAppPlacement = { left: number; top: number; width: number; height: number };
 export type McpAppMessage = {
     instanceId: string;
     projectId: string;
@@ -51,46 +39,20 @@ export type McpAppModelContext = {
     content?: ContentBlock[];
     structuredContent?: Record<string, unknown>;
 };
-export type McpAppDesktop = {
-    onMcpAppDeepLink(
-        listener: (link: {
-            id: number;
-            pluginId: string;
-            marketplace?: string;
-            toolName: string;
-            path: string;
-        }) => Promise<void> | void,
-    ): () => void;
-    mcpApp(request: Record<string, unknown>): Promise<unknown>;
-    onMcpAppEvent(
-        listener: (event: { token: string; notification: JSONRPCMessage }) => void,
-    ): () => void;
-};
-export function mcpAppDesktop(): McpAppDesktop {
-    return (window as unknown as { arealDesktop: McpAppDesktop }).arealDesktop;
-}
-export async function openMcpApp(request: {
-    projectId: string;
-    threadId: string;
-    serverId: string;
-    expectedGeneration: string | number;
-    toolName: string;
-    arguments?: Record<string, unknown>;
-    deepLink?: string;
-    filePath?: string;
-}): Promise<McpAppDescriptor> {
-    return (await mcpAppDesktop().mcpApp({ operation: "open", ...request })) as McpAppDescriptor;
-}
 /** Source-bound SDK transport with a stricter initialization gate than MCP's generic transport. */
-class AppTransport extends PostMessageTransport {
+export class AppTransport extends PostMessageTransport {
+    boundedRequests = false;
+    private highestRequest = -1;
     ready = false;
     initialized = false;
     private initializing = false;
     private requests = new Map<string, { fingerprint: string; reply?: JSONRPCMessage }>();
     private receive?: (message: JSONRPCMessage) => void;
+    onPageError?: () => void;
     override async start() {
         this.receive = this.onmessage;
         this.onmessage = (message) => {
+            if ("method" in message && message.method === "areal/notifications/page-error") { this.onPageError?.(); return; }
             if ("method" in message && "id" in message) {
                 const key = JSON.stringify(message.id),
                     fingerprint = JSON.stringify(message),
@@ -104,6 +66,11 @@ class AppTransport extends PostMessageTransport {
                         });
                     else if (previous.reply) void super.send(previous.reply);
                     return;
+                }
+                if (this.boundedRequests && typeof message.id === "number") {
+                    if (message.id <= this.highestRequest) { void super.send({ jsonrpc: "2.0", id: message.id, error: { code: -32600, message: "Request expired" } }); return; }
+                    this.highestRequest = message.id;
+                    for (const [oldKey, old] of this.requests) { if (this.requests.size < 128) break; if (old.reply) this.requests.delete(oldKey); }
                 }
                 if (this.requests.size >= 512) {
                     void super.send({
@@ -172,14 +139,20 @@ function supported(content: ContentBlock[] | undefined) {
 }
 export function McpAppHost({
     app,
+    services,
+    loadMetadataImage,
     onMessage,
     onModelContext,
     onClose,
     onError,
     context,
     closeOnUnmount = true,
+    placement,
 }: {
     app: McpAppDescriptor;
+    services: Pick<PlatformServices, "mcpApp" | "onMcpAppEvent">;
+    loadMetadataImage?: McpMetadataImageLoader;
+    placement?: McpAppPlacement | null;
     onMessage?: (message: McpAppMessage) => Promise<void>;
     onModelContext?: (context: McpAppModelContext) => Promise<void>;
     onClose: () => void;
@@ -200,12 +173,15 @@ export function McpAppHost({
         [failure, setFailure] = useState("");
     useEffect(() => {
         const target = frame.current?.contentWindow;
-        if (!target) return;
+        const { mcpApp: appCommand, onMcpAppEvent } = services;
+        if (!target || !appCommand || !onMcpAppEvent) return;
+        const mcpApp = appCommand;
         let active = true,
             sequence = 0;
         const mountId = crypto.randomUUID();
-        const desktop = mcpAppDesktop(),
-            transport = new AppTransport(target, target);
+        const pageCalls = new Map<string, AbortController>();
+        let pageToolsEnabled = false;
+        const transport = new AppTransport(target, target);
         const error = (cause: unknown) => {
             if (active) {
                 setFailure("应用请求失败，请关闭后重新打开。");
@@ -214,12 +190,14 @@ export function McpAppHost({
                 );
             }
         };
+        if (app.resultSource) transport.onPageError = () => error(new Error("交互结果页面发生错误"));
         const capabilities: McpUiHostCapabilities = {
             serverTools: {},
             serverResources: {},
             sandbox: { permissions: {} },
             experimental: {
                 "openai/files": {},
+                "areal/page-tools": { version: 1 },
                 ...(app.fileResource ? { "openai/resource": {} } : {}),
             },
         };
@@ -240,15 +218,11 @@ export function McpAppHost({
         bridgeRef.current = bridge;
         async function request(method: string, params: unknown): Promise<Record<string, unknown>> {
             if (!active) throw Error("App is closed");
-            const reply = (await desktop.mcpApp({
+            const reply = await mcpApp({
                 operation: "request",
                 token: app.token,
                 request: { jsonrpc: "2.0", id: `${mountId}:${++sequence}`, method, params },
-            })) as {
-                result?: Record<string, unknown>;
-                error?: { message?: string };
-                notifications?: JSONRPCMessage[];
-            };
+            });
             if (!active) throw Error("App is closed");
             if (reply.error) throw Error("App request was rejected or could not be completed");
             for (const notification of reply.notifications ?? [])
@@ -324,7 +298,9 @@ export function McpAppHost({
             void bridge.sendSandboxResourceReady({ html: "" }).catch(error);
         };
         bridge.oninitialized = () => {
+            if (!active || initializedRef.current || !transport.ready || !transport.initialized) return;
             initializedRef.current = true;
+            clearTimeout(readyTimeout);
             void (async () => {
                 const declared = bridge.getAppCapabilities()?.availableDisplayModes;
                 const available = (
@@ -342,6 +318,12 @@ export function McpAppHost({
                 bridge.setHostContext(contextRef.current);
                 await bridge.sendToolInput({ arguments: app.initialArguments });
                 if (app.initialResult) await bridge.sendToolResult(app.initialResult);
+                const pageDeclaration = bridge.getAppCapabilities()?.experimental?.["areal/page-tools"];
+                if (pageDeclaration !== undefined) {
+                    validateMcpPageDeclaration(pageDeclaration);
+                    pageToolsEnabled = active;
+                    await mcpApp({ operation: "pageToolsReady", token: app.token, mountId, declaration: pageDeclaration });
+                }
             })().catch(error);
         };
         bridge.onrequestteardown = () => callbacks.current.onClose();
@@ -358,9 +340,40 @@ export function McpAppHost({
                     await request(method, { ...params, _meta: extra.mcpReq._meta }),
             );
         }
-        const unsubscribe = desktop.onMcpAppEvent((event) => {
-            if (active && event.token === app.token && transport.initialized)
-                void transport.send(event.notification).catch(error);
+        const readyTimeout = app.resultSource ? setTimeout(() => {
+            if (!initializedRef.current) error(new Error("交互结果未能完成初始化"));
+        }, 10_000) : undefined;
+        async function executePageTool(params: Record<string, unknown>) {
+            const { mountId: requestedMount, ...request } = params;
+            if (requestedMount !== mountId || !active || !pageToolsEnabled || !transport.initialized) return;
+            validateMcpPageCall(request);
+            const callId = request.callId as string;
+            if (pageCalls.has(callId) || pageCalls.size >= 2) return;
+            const abort = new AbortController();
+            pageCalls.set(callId, abort);
+            let reply: Record<string, unknown>;
+            try {
+                reply = await bridge.request({ method: "areal/page-tools/call", params: request }, pageReplySchema,
+                    { signal: abort.signal, timeout: 30_000 });
+            } catch {
+                // An aborted SDK request does not prove that the page made no edit.
+                reply = { status: "unknown" };
+            }
+            try { await mcpApp({ operation: "pageToolResult", token: app.token, mountId, callId, reply }); }
+            finally { pageCalls.delete(callId); }
+        }
+        const unsubscribe = onMcpAppEvent((event) => {
+            if (!active || event.token !== app.token || !("method" in event.notification)) return;
+            const { method, params } = event.notification;
+            if (method === "areal/notifications/page-tool-call") {
+                void executePageTool(params as Record<string, unknown>).catch(error);
+                return;
+            }
+            if (method === "areal/notifications/page-tool-cancelled") {
+                if (params?.mountId === mountId && typeof params.callId === "string") pageCalls.get(params.callId)?.abort();
+                return;
+            }
+            if (transport.initialized && method !== "ui/notifications/closed") void transport.send(event.notification).catch(error);
         });
         void bridge
             .connect(transport)
@@ -370,17 +383,21 @@ export function McpAppHost({
             .catch(error);
         return () => {
             active = false;
+            pageToolsEnabled = false;
+            for (const abort of pageCalls.values()) abort.abort();
+            void mcpApp({ operation: "pageToolsUnmount", token: app.token, mountId }).catch(() => {});
+            clearTimeout(readyTimeout);
             initializedRef.current = false;
             unsubscribe();
             bridgeRef.current = null;
             // Revoke immediately; teardown responses cannot authorize new effects.
-            if (closeOnUnmount) void desktop.mcpApp({ operation: "close", token: app.token }).catch(() => {});
+            if (closeOnUnmount) void mcpApp({ operation: "close", token: app.token }).catch(() => {});
             void bridge
                 .teardownResource({}, { timeout: 1000 })
                 .catch(() => {})
                 .finally(() => bridge.close());
         };
-    }, [app.token]);
+    }, [app.token, services.mcpApp, services.onMcpAppEvent]);
     useEffect(() => {
         contextRef.current = { ...(context ?? contextRef.current), displayMode: mode };
         if (initializedRef.current) bridgeRef.current?.setHostContext(contextRef.current);
@@ -388,21 +405,21 @@ export function McpAppHost({
     return (
         <section
             aria-label="MCP 应用"
-            style={
-                mode === "fullscreen"
-                    ? {
-                          position: "fixed",
-                          inset: 0,
-                          zIndex: 60,
-                          background: "var(--color-background, #202020)",
-                          display: "flex",
-                          flexDirection: "column",
-                      }
-                    : { height: "100%", minHeight: 360, display: "flex", flexDirection: "column" }
-            }
+            aria-hidden={placement === null || undefined}
+            inert={placement === null}
+            data-app-token={app.token}
+            style={{
+                ...(mode === "fullscreen" ? {
+                    position: "fixed", left: 0, top: 0, width: "100vw", height: "100vh", zIndex: 60,
+                    background: "var(--color-background)", minHeight: 0,
+                } : placement === undefined ? { height: "100%", minHeight: 360 } : {
+                    position: "fixed", ...placement, zIndex: 10, background: "var(--color-background)", minHeight: 0,
+                }),
+                display: placement === null ? "none" : "flex", flexDirection: "column",
+            }}
         >
             <header style={{ display: "flex", alignItems: "center", gap: 12, padding: 10 }}>
-                <McpAppIcon icon={app.toolMetadata?.icons?.[0]} />
+                <McpAppIcon icon={app.toolMetadata?.icons?.[0]} loadMetadataImage={loadMetadataImage} />
                 <strong style={{ flex: 1 }}>
                     {app.toolMetadata?.title ??
                         app.toolMetadata?.annotations?.title ??
@@ -431,10 +448,11 @@ export function McpAppHost({
             {failure && <p role="alert">{failure}</p>}
             <iframe
                 ref={frame}
+                onError={app.resultSource ? () => callbacks.current.onError?.("交互结果页面无法载入") : undefined}
                 title={app.toolMetadata?.title ?? "MCP 应用"}
                 sandbox="allow-scripts allow-same-origin"
                 referrerPolicy="no-referrer"
-                style={{ border: 0, flex: 1, width: "100%", minHeight: 300 }}
+                style={{ border: 0, flex: 1, width: "100%", minHeight: placement === undefined ? 300 : 0 }}
             />
         </section>
     );

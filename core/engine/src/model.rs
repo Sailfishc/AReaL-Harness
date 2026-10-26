@@ -1,7 +1,12 @@
 mod decoder;
 use decoder::{ChatDecoder, Decoder, ResponsesDecoder};
 
+mod affinity;
 mod audit;
+mod capacity;
+pub(crate) use capacity::{RequestCapacity, RequestPhase};
+mod context_windows;
+pub(crate) use context_windows::known_context_window;
 mod request_budget;
 mod telemetry;
 mod tool_calls;
@@ -27,11 +32,13 @@ pub type ModelStream = Pin<Box<dyn Stream<Item = Result<ModelEvent>> + Send>>;
 pub type AgentStream = ModelStream;
 
 /// Request policy belongs to Core; summaries never enable tool interpretation.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum RequestPurpose {
     #[default]
     Solve,
     Summary,
+    PromptPrediction,
+    PermissionReview,
 }
 
 /// Failures of inference, before any tool calls from that response are executed.
@@ -452,6 +459,8 @@ impl From<&str> for ModelEvent {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ModelCapabilities {
+    pub declared: Option<areal_protocol::desktop::ModelCapabilityConfig>,
+    pub context_window: Option<areal_protocol::context::ContextWindow>,
     pub input: Vec<Modality>,
     pub output: Vec<Modality>,
     pub context_window_tokens: Option<usize>,
@@ -462,6 +471,8 @@ pub struct ModelCapabilities {
 impl ModelCapabilities {
     pub fn text() -> Self {
         Self {
+            declared: None,
+            context_window: None,
             input: vec![Modality::Text],
             output: vec![Modality::Text],
             context_window_tokens: None,
@@ -569,6 +580,8 @@ impl ModelProtocol {
     pub fn capabilities(self) -> ModelCapabilities {
         match self {
             ModelProtocol::ChatCompletions => ModelCapabilities {
+                declared: None,
+                context_window: None,
                 input: vec![Modality::Text, Modality::Image, Modality::Audio],
                 output: vec![Modality::Text],
                 context_window_tokens: None,
@@ -576,6 +589,8 @@ impl ModelProtocol {
                 summary_output_tokens: None,
             },
             ModelProtocol::Responses => ModelCapabilities {
+                declared: None,
+                context_window: None,
                 input: vec![
                     Modality::Text,
                     Modality::Image,
@@ -602,10 +617,14 @@ pub struct HttpModel {
     audit_directory: Option<std::path::PathBuf>,
     temperature: Option<f64>,
     websocket_pool: Arc<tokio::sync::Mutex<websocket::Pool>>,
+    http_affinity: Arc<affinity::Pool>,
+    routing_scope: uuid::Uuid,
 }
 
 #[derive(Clone, Debug)]
 pub struct ModelOptions {
+    pub capabilities: Option<areal_protocol::desktop::ModelCapabilityConfig>,
+    pub context_window: Option<areal_protocol::context::ContextWindow>,
     pub reasoning_effort: Option<String>,
     pub summary_reasoning_effort: Option<String>,
     pub summary_max_output_tokens: Option<u64>,
@@ -626,6 +645,8 @@ pub struct ModelOptions {
 impl Default for ModelOptions {
     fn default() -> Self {
         Self {
+            capabilities: None,
+            context_window: None,
             reasoning_effort: None,
             summary_reasoning_effort: None,
             summary_max_output_tokens: None,
@@ -647,6 +668,56 @@ impl Default for ModelOptions {
 
 pub type ChatModel = HttpModel;
 
+#[derive(Default)]
+pub(crate) struct HttpModelFactory {
+    client: Option<reqwest::Client>,
+    affinity: Arc<affinity::Pool>,
+}
+
+impl HttpModelFactory {
+    pub(crate) fn build(
+        &mut self,
+        endpoint: String,
+        name: String,
+        key: Option<String>,
+        protocol: ModelProtocol,
+    ) -> Result<HttpModel> {
+        let url = reqwest::Url::parse(&endpoint).context("invalid model endpoint")?;
+        if !matches!(url.scheme(), "http" | "https")
+            || name.trim().is_empty()
+            || !url.username().is_empty()
+            || url.password().is_some()
+            || url.fragment().is_some()
+        {
+            bail!("model endpoint must be HTTP(S) and model name must not be empty");
+        }
+        let client = match &self.client {
+            Some(client) => client.clone(),
+            None => {
+                let client = reqwest::Client::builder()
+                    .connect_timeout(Duration::from_secs(10))
+                    .redirect(reqwest::redirect::Policy::none())
+                    .build()?;
+                self.client = Some(client.clone());
+                client
+            }
+        };
+        Ok(HttpModel {
+            client,
+            endpoint,
+            name,
+            key,
+            protocol,
+            options: ModelOptions::default(),
+            audit_directory: None,
+            temperature: None,
+            websocket_pool: Arc::new(tokio::sync::Mutex::new(websocket::Pool::default())),
+            http_affinity: self.affinity.clone(),
+            routing_scope: uuid::Uuid::new_v4(),
+        })
+    }
+}
+
 impl HttpModel {
     pub fn new(endpoint: String, name: String, key: Option<String>) -> Result<Self> {
         Self::with_protocol(endpoint, name, key, ModelProtocol::ChatCompletions)
@@ -658,29 +729,7 @@ impl HttpModel {
         key: Option<String>,
         protocol: ModelProtocol,
     ) -> Result<Self> {
-        let url = reqwest::Url::parse(&endpoint).context("invalid model endpoint")?;
-        if !matches!(url.scheme(), "http" | "https")
-            || name.trim().is_empty()
-            || !url.username().is_empty()
-            || url.password().is_some()
-            || url.fragment().is_some()
-        {
-            bail!("model endpoint must be HTTP(S) and model name must not be empty");
-        }
-        Ok(Self {
-            client: reqwest::Client::builder()
-                .connect_timeout(Duration::from_secs(10))
-                .redirect(reqwest::redirect::Policy::none())
-                .build()?,
-            endpoint,
-            name,
-            key,
-            protocol,
-            options: ModelOptions::default(),
-            audit_directory: None,
-            temperature: None,
-            websocket_pool: Arc::new(tokio::sync::Mutex::new(websocket::Pool::default())),
-        })
+        HttpModelFactory::default().build(endpoint, name, key, protocol)
     }
 
     /// The trusted host selects the audit directory. No headers, URLs or prompts
@@ -691,6 +740,43 @@ impl HttpModel {
     }
 
     pub fn with_options(mut self, mut options: ModelOptions) -> Result<Self> {
+        if let Some(capabilities) = &options.capabilities {
+            if let Some(efforts) = &capabilities.reasoning_effort_options {
+                anyhow::ensure!(
+                    efforts.len() <= 7
+                        && efforts
+                            .iter()
+                            .collect::<std::collections::BTreeSet<_>>()
+                            .len()
+                            == efforts.len()
+                        && efforts.iter().all(|effort| matches!(
+                            effort.as_str(),
+                            "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"
+                        ))
+                        && (capabilities.reasoning || efforts.is_empty()),
+                    "invalid model reasoning effort options"
+                );
+            }
+            if !capabilities.reasoning {
+                options.reasoning_effort = None;
+                options.summary_reasoning_effort = None;
+                options.reasoning_summary = None;
+            } else if let Some(efforts) = &capabilities.reasoning_effort_options
+                && !efforts.is_empty()
+            {
+                anyhow::ensure!(
+                    options
+                        .reasoning_effort
+                        .as_ref()
+                        .is_none_or(|effort| efforts.contains(effort))
+                        && options
+                            .summary_reasoning_effort
+                            .as_ref()
+                            .is_none_or(|effort| efforts.contains(effort)),
+                    "reasoning effort is not supported by the selected model"
+                );
+            }
+        }
         // 稀疏目录参数与旧快照中的省略值沿用统一默认，不交给供应商隐式决定。
         options.max_output_tokens = options
             .max_output_tokens
@@ -720,11 +806,11 @@ impl HttpModel {
                 .as_deref()
                 .is_none_or(|v| matches!(
                     v,
-                    "none" | "minimal" | "low" | "medium" | "high" | "xhigh"
+                    "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"
                 ))
                 && options.reasoning_effort.as_deref().is_none_or(|v| matches!(
                     v,
-                    "none" | "minimal" | "low" | "medium" | "high" | "xhigh"
+                    "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"
                 )),
             "invalid reasoning effort"
         );
@@ -920,7 +1006,38 @@ impl Model for HttpModel {
 
     fn capabilities(&self) -> ModelCapabilities {
         let mut capabilities = self.protocol.capabilities();
-        capabilities.context_window_tokens = self.options.context_window_tokens;
+        capabilities.declared = self.options.capabilities.clone();
+        if capabilities
+            .declared
+            .as_ref()
+            .is_some_and(|declared| !declared.vision)
+        {
+            capabilities
+                .input
+                .retain(|modality| *modality != Modality::Image);
+        }
+        capabilities.context_window = self.options.context_window.clone();
+        capabilities.context_window_tokens = capabilities
+            .context_window
+            .as_ref()
+            .map(|window| window.window_tokens)
+            .or(self.options.context_window_tokens)
+            .or_else(|| context_windows::known_context_window(&self.name));
+        if capabilities.context_window.is_none()
+            && let Some(window_tokens) = capabilities.context_window_tokens
+        {
+            capabilities.context_window = Some(areal_protocol::context::ContextWindow {
+                window_tokens,
+                source: if self.options.context_window_tokens.is_some() {
+                    areal_protocol::context::ContextWindowSource::User
+                } else {
+                    areal_protocol::context::ContextWindowSource::ModelDefault
+                },
+                reported_window_tokens: None,
+                reported_window_source: None,
+                user_budget_tokens: self.options.context_window_tokens,
+            });
+        }
         capabilities.max_output_tokens = self.options.max_output_tokens.map(|n| n as usize);
         capabilities.summary_output_tokens = Some(
             self.options
@@ -961,7 +1078,13 @@ impl Model for HttpModel {
             limits.max_buffer_bytes > 0,
             "tool buffer budget must be positive"
         );
-        if purpose == RequestPurpose::Summary {
+        if purpose != RequestPurpose::Solve
+            || self
+                .options
+                .capabilities
+                .as_ref()
+                .is_some_and(|capabilities| !capabilities.tools)
+        {
             limits.max_calls = 0;
             tools.clear();
         }
@@ -992,7 +1115,10 @@ impl Model for HttpModel {
         if let Some(summary) = &self.options.reasoning_summary {
             body["reasoning"] = json!({"summary":summary});
         }
-        if let Some(effort) = if purpose == RequestPurpose::Summary {
+        if let Some(effort) = if matches!(
+            purpose,
+            RequestPurpose::Summary | RequestPurpose::PromptPrediction
+        ) {
             self.options
                 .summary_reasoning_effort
                 .as_ref()
@@ -1009,7 +1135,10 @@ impl Model for HttpModel {
             (Some(configured), Some(cap)) => Some(configured.min(cap)),
             (configured, cap) => configured.or(cap),
         };
-        let output_tokens = if purpose == RequestPurpose::Summary {
+        let output_tokens = if matches!(
+            purpose,
+            RequestPurpose::Summary | RequestPurpose::PromptPrediction
+        ) {
             Some(
                 output_tokens
                     .unwrap_or(16384)
@@ -1042,7 +1171,13 @@ impl Model for HttpModel {
             };
             body["parallel_tool_calls"] = json!(true);
         }
-        if purpose == RequestPurpose::Summary || limits.max_calls == 0 {
+        if (purpose != RequestPurpose::Solve || limits.max_calls == 0)
+            && self
+                .options
+                .capabilities
+                .as_ref()
+                .is_none_or(|capabilities| capabilities.tools)
+        {
             body["tool_choice"] = json!("none");
         }
         // Retrying before accepting a stream cannot replay a tool operation.
@@ -1064,18 +1199,61 @@ impl Model for HttpModel {
         }
         let encoded = self.encode_request(&body, purpose)?;
         let mut audit = audit::Audit::new(self.audit_directory.as_deref(), &body, purpose);
+        let routing = (self.protocol == ModelProtocol::Responses)
+            .then(|| {
+                self.http_affinity.begin(
+                    self.routing_scope,
+                    REQUEST_OWNER.try_with(Clone::clone).ok(),
+                    purpose,
+                )
+            })
+            .flatten();
         let mut attempt = 0;
         let response = loop {
             audit.value["httpAttempts"] = json!(attempt + 1);
+            let routing_headers = routing.as_ref().map(affinity::Lease::headers);
+            let turn_state_sent = routing_headers
+                .as_ref()
+                .is_some_and(|headers| headers.contains_key("x-codex-turn-state"));
             let mut request = self
                 .client
                 .post(&self.endpoint)
                 .header(reqwest::header::CONTENT_TYPE, "application/json")
                 .body(encoded.clone());
+            if let Some(headers) = routing_headers {
+                request = request.headers(headers);
+            }
+            // 由可信 Core 标识请求所有者；订阅适配器据此隔离短期路由状态。
+            // 不插入模型正文，不在无所有者的探测/标题请求之间共享状态。
+            if self.protocol == ModelProtocol::Responses
+                && let Ok((thread, turn)) = REQUEST_OWNER.try_with(Clone::clone)
+            {
+                request = request
+                    .header("x-areal-thread-id", thread)
+                    .header("x-areal-turn-id", turn)
+                    .header(
+                        "x-areal-model-purpose",
+                        match purpose {
+                            RequestPurpose::Solve => "solve",
+                            RequestPurpose::Summary => "summary",
+                            RequestPurpose::PromptPrediction => "promptPrediction",
+                            RequestPurpose::PermissionReview => "permissionReview",
+                        },
+                    );
+            }
             if let Some(key) = &self.key {
                 request = request.bearer_auth(key);
             }
             let result = request.send().await;
+            if let Ok(response) = &result {
+                audit.value["sessionIdentitySent"] = json!(routing.is_some());
+                audit.value["turnStateSent"] = json!(turn_state_sent);
+                audit.value["turnStateReceived"] =
+                    json!(response.headers().contains_key("x-codex-turn-state"));
+                if let Some(routing) = &routing {
+                    routing.capture(response.status(), response.headers());
+                }
+            }
             audit.value["httpStatus"] = result
                 .as_ref()
                 .ok()
@@ -1102,7 +1280,13 @@ impl Model for HttpModel {
                     delay_ms = delay.as_millis() as u64,
                     "retrying model request before stream acceptance"
                 );
-                tokio::time::sleep(delay).await;
+                drop(result);
+                capacity::retry_after(delay).await.with_context(|| {
+                    format!(
+                        "HTTP retry after status {} was not admitted",
+                        audit.value["httpStatus"]
+                    )
+                })?;
                 continue;
             }
             break result.map_err(|error| {
@@ -1314,9 +1498,13 @@ async fn responses_items(
     mut message: Message,
     budget: &mut request_budget::MediaBudget,
 ) -> Result<Vec<Value>> {
-    // 内部状态角色不进入供应商协议；Responses 保持原有 system 语义与时序。
+    // 动态状态是请求位置上的数据，不提升为系统指令；与 Chat 的状态投影保持一致。
     if message.role == "areal_context" {
-        message.role = "system".into();
+        let text = message.text_content();
+        message.role = "user".into();
+        message.content = vec![ContentPart::Text(format!(
+            "AReaL runtime context (not a user request):\n{text}"
+        ))];
     }
 
     if let Some(context) = &message.provider_context {

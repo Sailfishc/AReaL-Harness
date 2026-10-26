@@ -26,6 +26,8 @@ pub struct Execution {
     pub trusted_executable: Option<PathBuf>,
     /// 允许命令的子进程执行这些精确文件，不授予其目录内容读取权。
     pub builtin_executables: Vec<PathBuf>,
+    /// 可信部署已接入的软件与动态库，只读执行，不由公开进程请求指定。
+    pub toolchain_roots: Vec<PathBuf>,
     pub tty: bool,
     pub pipe_stdin: bool,
     pub network: areal_runtime_protocol::NetworkRequest,
@@ -34,6 +36,11 @@ pub struct Execution {
 #[derive(Debug)]
 pub enum Event {
     Output(OutputStream, Vec<u8>),
+    /// 后端不能确认执行或清理；保留原因，不以正常退出回执代替。
+    Failed {
+        error: areal_runtime_protocol::Error,
+        cleanup_confirmed: bool,
+    },
     Exited {
         exit_code: Option<i32>,
         signal: Option<i32>,
@@ -52,6 +59,10 @@ pub trait Backend: Send + Sync {
     /// False unless restricted filesystem and network Scopes are enforced by the backend.
     fn restricted_scope_isolation(&self) -> bool {
         false
+    }
+    /// 检查收窄后的执行路径；不得启动任务程序或把不可用隔离降级为宿主执行。
+    fn check_scope(&self, _access: ScopeAccess, _has_read_only_paths: bool) -> Result<()> {
+        Ok(())
     }
     fn supports_input(&self) -> bool {
         false

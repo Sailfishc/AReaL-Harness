@@ -403,6 +403,10 @@ async fn side_selection_is_exact_and_frozen_after_source_advances() {
             rejected["error"]["data"]["reason"], "STALE_SELECTION",
             "{rejected}"
         );
+        assert_eq!(
+            rejected["error"]["data"]["outcome"]["kind"], "rejected",
+            "{rejected}"
+        );
     }
     let mut stale_digest = base.clone();
     stale_digest["requestId"] = json!("stale-digest");
@@ -902,6 +906,8 @@ impl Model for SlowModel {
     }
     fn capabilities(&self) -> ModelCapabilities {
         ModelCapabilities {
+            declared: None,
+            context_window: None,
             context_window_tokens: None,
             max_output_tokens: None,
             summary_output_tokens: None,
@@ -925,6 +931,8 @@ impl Model for TextModel {
     }
     fn capabilities(&self) -> ModelCapabilities {
         ModelCapabilities {
+            declared: None,
+            context_window: None,
             context_window_tokens: None,
             max_output_tokens: None,
             summary_output_tokens: None,

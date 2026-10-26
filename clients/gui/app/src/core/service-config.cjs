@@ -24,6 +24,7 @@ function serviceOptions(app) {
   const configHome = resolve(process.env.AREAL_HARNESS_HOME || join(process.env.AREAL_CORE_USER_HOME || homedir(), '.areal'));
   return { binary: resolveCoreBinary({ explicit: process.env.AREAL_CORE_BIN || (!app.isPackaged ? resolve(__dirname, '../../../../../target/debug/areal') : undefined), packaged: app.isPackaged, resourcesPath: process.resourcesPath }),
     home: serviceHome(app),
+    applicationOwner: process.env.AREAL_GUI_OWNER ? require('./application-owner.cjs').parseOwner(process.env.AREAL_GUI_OWNER) : undefined,
     // macOS Unix socket 长度有限，注册目录不能嵌入较长的 userData 路径。
     harnessHome: process.env.AREAL_HARNESS_SERVICE_HOME || process.env.AREAL_HARNESS_HOME || join(app.getPath('home'), '.areal', 'gui', createHash('sha256').update(resolve(serviceHome(app))).digest('hex').slice(0, 12)),
     userHome: process.env.AREAL_CORE_USER_HOME, config: config ? resolve(config) : undefined, configHome,
@@ -54,9 +55,12 @@ async function serviceIdentity(options) {
   hash.update(CoreClient.toString()).update(CoreRpcError.toString());
   hash.update(readFileSync(require.resolve('@areal/workbench/core-model')));
   hash.update(readFileSync(require.resolve('@areal/workbench/desktop-contract')));
+  hash.update(readFileSync(require.resolve('@areal/workbench/state-projection')));
   hash.update(readFileSync(require.resolve('@areal/remote')));
   hash.update(readFileSync(require.resolve('../workspace-files')));
   hash.update(readFileSync(require.resolve('@areal/workspace-git')));
+  hash.update(readFileSync(require.resolve('@areal/gen-ui/node')));
+  hash.update(readFileSync(join(dirname(require.resolve('@areal/workspace-git/package.json')), 'worktrees.js')));
   for (const name of executables) {
     const packagedHelper = join(dirname(options.binary), '..', 'libexec', 'areal', name);
     const path = name !== 'areal' && existsSync(packagedHelper)

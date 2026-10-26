@@ -1,7 +1,7 @@
 use areal_runtime_protocol::*;
 use areal_runtime_supervisor::{
     Config, Supervisor,
-    backend::{Backend, Event, Execution},
+    backend::{Backend, Event, Execution, ScopeAccess},
 };
 use async_trait::async_trait;
 use base64::{Engine, engine::general_purpose::STANDARD};
@@ -21,6 +21,7 @@ struct Executor {
     gate: Semaphore,
     entered: Semaphore,
     reject: AtomicBool,
+    reject_restricted: AtomicBool,
     lose_start_reply: AtomicBool,
     cleanup_start_failure: AtomicBool,
     fail_cleanup: AtomicBool,
@@ -35,6 +36,7 @@ impl Executor {
             gate: Semaphore::new(if gated { 0 } else { 100 }),
             entered: Semaphore::new(0),
             reject: AtomicBool::new(false),
+            reject_restricted: AtomicBool::new(false),
             lose_start_reply: AtomicBool::new(false),
             cleanup_start_failure: AtomicBool::new(false),
             fail_cleanup: AtomicBool::new(false),
@@ -64,6 +66,17 @@ impl Executor {
 }
 #[async_trait]
 impl Backend for Executor {
+    fn check_scope(&self, access: ScopeAccess, has_read_only_paths: bool) -> Result<()> {
+        if self.reject_restricted.load(Ordering::SeqCst)
+            && (access == ScopeAccess::Restricted || has_read_only_paths)
+        {
+            return Err(Error::new(
+                ErrorCode::Unsupported,
+                "fixture: restricted sandbox unavailable",
+            ));
+        }
+        Ok(())
+    }
     async fn start(&self, execution: Execution) -> Result<mpsc::Receiver<Event>> {
         self.starts.fetch_add(1, Ordering::SeqCst);
         self.executions.lock().unwrap().push(execution.clone());
@@ -112,6 +125,12 @@ impl Backend for Executor {
     }
     async fn shutdown(&self) -> Result<()> {
         self.routes.lock().unwrap().clear();
+        if self.fail_cleanup.load(Ordering::SeqCst) {
+            return Err(Error::new(
+                ErrorCode::CleanupFailed,
+                "fixture cleanup could not be confirmed",
+            ));
+        }
         Ok(())
     }
 }
@@ -122,6 +141,125 @@ fn op(runtime: &Supervisor) -> String {
         runtime.connection_info().runtime_epoch,
         uuid::Uuid::new_v4()
     )
+}
+
+#[tokio::test]
+async fn restricted_home_uses_authorized_scratch_without_importing_or_widening_permissions() {
+    let repo = tempfile::tempdir().unwrap();
+    let scratch = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let repo_path = repo.path().canonicalize().unwrap();
+    let scratch_path = scratch.path().canonicalize().unwrap();
+    let thread_scratch = scratch_path.join("thread");
+    std::fs::create_dir(&thread_scratch).unwrap();
+    let escape = repo_path.join("escape");
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(outside.path(), &escape).unwrap();
+    for requested in [
+        None,
+        Some(thread_scratch.clone()),
+        Some(outside.path().to_path_buf()),
+        Some(escape),
+        Some("relative".into()),
+    ] {
+        let executor = Executor::new(false);
+        let mut config = Config::read_only(repo_path.clone());
+        config.scratch = Some(scratch_path.clone());
+        let runtime = Supervisor::new(config, executor.clone()).unwrap();
+        let root = runtime.connection_info().root_scope_id;
+        let mut request = child(&runtime, &root);
+        request.permissions.read_roots = Some(vec![
+            "workspace://repo".into(),
+            "workspace://scratch/thread".into(),
+        ]);
+        request.permissions.write_roots = Some(vec!["workspace://scratch/thread".into()]);
+        request.permissions.network = NetworkRequest::Deny;
+        let scope = runtime.create_scope(request).unwrap();
+        let mut request = process(&runtime, &scope.scope_id);
+        if let Some(path) = &requested {
+            request
+                .env
+                .insert("TMPDIR".into(), path.to_string_lossy().into_owned());
+        }
+        let started = bounded(runtime.start(request)).await.unwrap();
+        let execution = executor.executions.lock().unwrap()[0].clone();
+        let expected = if requested.is_none() || requested.as_ref() == Some(&thread_scratch) {
+            &thread_scratch
+        } else {
+            &repo_path
+        };
+        assert_eq!(execution.env["HOME"], expected.to_string_lossy());
+        assert_eq!(execution.write_roots, vec![thread_scratch.clone()]);
+        assert_eq!(execution.network, NetworkRequest::Deny);
+        if requested.is_none() {
+            assert_eq!(execution.env["TMPDIR"], thread_scratch.to_string_lossy());
+        }
+        let mut expected_reads = vec![repo_path.clone(), thread_scratch.clone()];
+        expected_reads.sort();
+        assert_eq!(execution.read_roots, expected_reads);
+        executor.finish(&started.process_id, b"").await;
+        bounded(runtime.shutdown()).await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn full_access_preserves_the_deployment_path_and_explicit_command_overrides() {
+    let repo = tempfile::tempdir().unwrap();
+    let executor = Executor::new(false);
+    let mut config = Config::read_only(repo.path().into());
+    config.full_access = true;
+    config.writable = true;
+    config.allow_network = true;
+    config.command_search_path = Some("/deployment/bin:/usr/bin:/bin".into());
+    config.unrestricted_command_search_path =
+        Some("/host/shims:/deployment/bin:/usr/bin:/bin".into());
+    let runtime = Supervisor::new(config, executor.clone()).unwrap();
+    let root = runtime.connection_info().root_scope_id;
+    for override_path in [None, Some("/explicit/bin:/usr/bin")] {
+        let mut request = process(&runtime, &root);
+        if let Some(path) = override_path {
+            request.env.insert("PATH".into(), path.into());
+        }
+        let started = bounded(runtime.start(request)).await.unwrap();
+        let execution = executor.executions.lock().unwrap().last().unwrap().clone();
+        assert_eq!(
+            execution.env["PATH"],
+            override_path.unwrap_or("/host/shims:/deployment/bin:/usr/bin:/bin")
+        );
+        if let Ok(home) = std::env::var("HOME") {
+            assert_eq!(execution.env["HOME"], home);
+        }
+        executor.finish(&started.process_id, b"").await;
+    }
+    let child = runtime
+        .create_scope(CreateScope {
+            operation_id: op(&runtime),
+            parent_scope_id: root,
+            owner: Owner {
+                task_id: "restricted".into(),
+                plugin_instance_id: None,
+            },
+            permissions: PermissionRequest {
+                read_roots: Some(vec!["workspace://repo".into()]),
+                write_roots: Some(vec![]),
+                network: NetworkRequest::Deny,
+            },
+            limits: LimitRequest::default(),
+        })
+        .unwrap();
+    let started = runtime
+        .start(process(&runtime, &child.scope_id))
+        .await
+        .unwrap();
+    let execution = executor.executions.lock().unwrap().last().unwrap().clone();
+    assert_eq!(execution.env["PATH"], "/deployment/bin:/usr/bin:/bin");
+    assert_eq!(
+        execution.env["HOME"],
+        repo.path().canonicalize().unwrap().to_string_lossy()
+    );
+    assert!(!execution.env.contains_key("RUSTUP_HOME"));
+    executor.finish(&started.process_id, b"").await;
+    bounded(runtime.shutdown()).await.unwrap();
 }
 
 struct InputExecutor {
@@ -353,6 +491,288 @@ async fn file_responses_preserve_full_chunks_with_small_command_windows() {
 }
 
 #[tokio::test]
+async fn queued_process_start_retains_identity_and_runs_once_after_capacity_is_freed() {
+    let directory = tempfile::tempdir().unwrap();
+    let executor = Executor::new(false);
+    let mut config = Config::read_only(directory.path().into());
+    config.limits.max_processes = 1;
+    let runtime = Supervisor::new(config, executor.clone()).unwrap();
+    let root = runtime.connection_info().root_scope_id;
+    let background = runtime.start(process(&runtime, &root)).await.unwrap();
+    bounded(executor.entered()).await;
+    let request = process(&runtime, &root);
+    let first = {
+        let runtime = runtime.clone();
+        let request = request.clone();
+        tokio::spawn(async move { runtime.start_queued(request).await })
+    };
+    bounded(async {
+        while runtime.operation(&request.operation_id).is_err() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+    assert_eq!(
+        runtime.operation(&request.operation_id).unwrap().state,
+        OperationState::Accepted
+    );
+    first.abort();
+    let replay = {
+        let runtime = runtime.clone();
+        let request = request.clone();
+        tokio::spawn(async move { runtime.start_queued(request).await })
+    };
+    let mut conflict = request.clone();
+    conflict.argv.push("different".into());
+    assert_eq!(
+        runtime.start_queued(conflict).await.unwrap_err().code,
+        ErrorCode::Conflict
+    );
+    assert_eq!(executor.starts.load(Ordering::SeqCst), 1);
+    executor.finish(&background.process_id, b"").await;
+    let started = bounded(replay).await.unwrap().unwrap();
+    assert_eq!(
+        runtime
+            .start_queued(request.clone())
+            .await
+            .unwrap()
+            .process_id,
+        started.process_id
+    );
+    assert_eq!(executor.starts.load(Ordering::SeqCst), 2);
+    assert_eq!(
+        runtime.operation(&request.operation_id).unwrap().state,
+        OperationState::Succeeded
+    );
+    assert_eq!(runtime.scope(&root).unwrap().active_processes, 1);
+    executor.finish(&started.process_id, b"").await;
+    bounded(runtime.shutdown()).await.unwrap();
+}
+
+#[tokio::test]
+async fn queued_start_keeps_unknown_outcome_without_replaying_the_backend() {
+    let directory = tempfile::tempdir().unwrap();
+    let executor = Executor::new(false);
+    executor.lose_start_reply.store(true, Ordering::SeqCst);
+    let runtime =
+        Supervisor::new(Config::read_only(directory.path().into()), executor.clone()).unwrap();
+    let request = process(&runtime, &runtime.connection_info().root_scope_id);
+    for _ in 0..2 {
+        let error = bounded(runtime.start_queued(request.clone()))
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, ErrorCode::Unavailable);
+        assert_eq!(
+            runtime.operation(&request.operation_id).unwrap().state,
+            OperationState::Unknown
+        );
+    }
+    assert_eq!(executor.starts.load(Ordering::SeqCst), 1);
+    let _ = bounded(runtime.shutdown()).await;
+}
+
+#[tokio::test]
+async fn queued_process_start_records_cancellation_before_any_execution() {
+    let directory = tempfile::tempdir().unwrap();
+    let executor = Executor::new(false);
+    let mut config = Config::read_only(directory.path().into());
+    config.limits.max_processes = 1;
+    let runtime = Supervisor::new(config, executor.clone()).unwrap();
+    let root = runtime.connection_info().root_scope_id;
+    runtime.start(process(&runtime, &root)).await.unwrap();
+    let scope = runtime.create_scope(child(&runtime, &root)).unwrap();
+    let request = process(&runtime, &scope.scope_id);
+    let queued = {
+        let runtime = runtime.clone();
+        let request = request.clone();
+        tokio::spawn(async move { runtime.start_queued(request).await })
+    };
+    bounded(async {
+        while runtime.operation(&request.operation_id).is_err() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+    runtime.revoke(&scope.scope_id).unwrap();
+    assert_eq!(
+        bounded(queued).await.unwrap().unwrap_err().code,
+        ErrorCode::ScopeClosed
+    );
+    assert_eq!(
+        runtime.operation(&request.operation_id).unwrap().state,
+        OperationState::Cancelled
+    );
+    assert_eq!(executor.starts.load(Ordering::SeqCst), 1);
+    bounded(runtime.shutdown()).await.unwrap();
+}
+
+// 单个祖先名额被后台命令占用时，所有文件操作排队且每个 operation 只执行一次。
+#[tokio::test]
+async fn file_helpers_wait_for_shared_process_capacity_without_replay() {
+    let directory = tempfile::tempdir().unwrap();
+    let executor = Executor::new(false);
+    let mut config = Config::read_only(directory.path().into());
+    config.limits.max_processes = 1;
+    config.file_helper = Some(std::env::current_exe().unwrap());
+    let runtime = Supervisor::new(config, executor.clone()).unwrap();
+    let root = runtime.connection_info().root_scope_id;
+    let background = runtime.start(process(&runtime, &root)).await.unwrap();
+    bounded(executor.entered()).await;
+    let scope = runtime.create_scope(child(&runtime, &root)).unwrap();
+    let mut calls = Vec::new();
+    let mut requests = Vec::new();
+    for n in 0..8 {
+        let request = FileRequest {
+            operation_id: op(&runtime),
+            scope_id: scope.scope_id.clone(),
+            command: FileCommand::Read {
+                path: format!("workspace://repo/file-{n}"),
+                offset: 0,
+                max_bytes: 64,
+            },
+        };
+        // 并发重放相同 ID 必须复用等待和结果。
+        for _ in 0..2 {
+            let runtime = runtime.clone();
+            let request = request.clone();
+            calls.push(tokio::spawn(
+                async move { runtime.filesystem(request).await },
+            ));
+        }
+        requests.push(request);
+    }
+    bounded(async {
+        while requests
+            .iter()
+            .any(|request| runtime.operation(&request.operation_id).is_err())
+        {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    assert!(calls.iter().all(|call| !call.is_finished()));
+    assert_eq!(executor.starts.load(Ordering::SeqCst), 1);
+    // 显式命令保持原来的资源拒绝语义。
+    assert_eq!(
+        runtime
+            .start(process(&runtime, &root))
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::ResourceExhausted
+    );
+    executor.finish(&background.process_id, b"").await;
+    let result = serde_json::json!({"dataBase64":STANDARD.encode("value"),"eof":true});
+    let envelope = serde_json::to_vec(&serde_json::json!({"result":result})).unwrap();
+    for n in 1..=8 {
+        bounded(executor.entered()).await;
+        assert_eq!(executor.starts.load(Ordering::SeqCst), n + 1);
+        assert_eq!(runtime.scope(&root).unwrap().active_processes, 1);
+        let id = executor.executions.lock().unwrap()[n].process_id.clone();
+        executor.finish(&id, &envelope).await;
+    }
+    for call in calls {
+        assert_eq!(bounded(call).await.unwrap().unwrap(), result);
+    }
+    for request in requests {
+        assert_eq!(runtime.filesystem(request).await.unwrap(), result);
+    }
+    assert_eq!(executor.starts.load(Ordering::SeqCst), 9);
+    bounded(runtime.shutdown()).await.unwrap();
+}
+
+#[tokio::test]
+async fn queued_files_stop_on_scope_revocation_and_admission_deadline() {
+    for revoke in [true, false] {
+        let directory = tempfile::tempdir().unwrap();
+        let executor = Executor::new(false);
+        let mut config = Config::read_only(directory.path().into());
+        config.limits.max_processes = 1;
+        config.file_helper = Some(std::env::current_exe().unwrap());
+        let runtime = Supervisor::new(config, executor.clone()).unwrap();
+        let root = runtime.connection_info().root_scope_id;
+        runtime.start(process(&runtime, &root)).await.unwrap();
+        bounded(executor.entered()).await;
+        let mut request = child(&runtime, &root);
+        request.limits.wall_time_ms = Some(if revoke { 5000 } else { 80 });
+        let scope = runtime.create_scope(request).unwrap();
+        let request = FileRequest {
+            operation_id: op(&runtime),
+            scope_id: scope.scope_id.clone(),
+            command: FileCommand::Stat {
+                path: "workspace://repo/file".into(),
+            },
+        };
+        let call = {
+            let runtime = runtime.clone();
+            let request = request.clone();
+            tokio::spawn(async move { runtime.filesystem(request).await })
+        };
+        bounded(async {
+            while runtime.operation(&request.operation_id).is_err() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await;
+        if revoke {
+            runtime.revoke(&scope.scope_id).unwrap();
+        }
+        let error = bounded(call).await.unwrap().unwrap_err();
+        assert_eq!(
+            error.code,
+            if revoke {
+                ErrorCode::ScopeClosed
+            } else {
+                ErrorCode::ResourceExhausted
+            }
+        );
+        assert_eq!(
+            runtime.operation(&request.operation_id).unwrap().state,
+            if revoke {
+                OperationState::Cancelled
+            } else {
+                OperationState::Failed
+            }
+        );
+        assert_eq!(executor.starts.load(Ordering::SeqCst), 1);
+        bounded(runtime.shutdown()).await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn exhausted_output_is_not_treated_as_temporary_file_capacity() {
+    let directory = tempfile::tempdir().unwrap();
+    let executor = Executor::new(false);
+    let mut config = Config::read_only(directory.path().into());
+    config.limits.output_bytes = 1;
+    config.file_helper = Some(std::env::current_exe().unwrap());
+    let runtime = Supervisor::new(config, executor.clone()).unwrap();
+    let root = runtime.connection_info().root_scope_id;
+    let background = runtime.start(process(&runtime, &root)).await.unwrap();
+    executor.finish(&background.process_id, b"x").await;
+    bounded(async {
+        while runtime.scope(&root).unwrap().active_processes != 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+    let error = bounded(runtime.filesystem(FileRequest {
+        operation_id: op(&runtime),
+        scope_id: root,
+        command: FileCommand::Stat {
+            path: "workspace://repo/file".into(),
+        },
+    }))
+    .await
+    .unwrap_err();
+    assert_eq!(error.code, ErrorCode::ResourceExhausted);
+    assert!(error.message.contains("cumulative output"));
+    assert_eq!(executor.starts.load(Ordering::SeqCst), 1);
+    bounded(runtime.shutdown()).await.unwrap();
+}
+
+#[tokio::test]
 async fn handshake_reports_the_effective_root_network_grant() {
     for allow in [false, true] {
         let directory = tempfile::tempdir().unwrap();
@@ -494,6 +914,106 @@ fn child(runtime: &Supervisor, parent: &str) -> CreateScope {
         permissions: PermissionRequest::default(),
         limits: LimitRequest::default(),
     }
+}
+
+#[tokio::test]
+async fn unavailable_restricted_scope_is_side_effect_free_and_does_not_disable_full_access_parent()
+{
+    let directory = tempfile::tempdir().unwrap();
+    let executor = Executor::new(false);
+    executor.reject_restricted.store(true, Ordering::SeqCst);
+    let mut config = Config::read_only(directory.path().into());
+    config.full_access = true;
+    config.writable = true;
+    config.allow_network = true;
+    let runtime = Supervisor::new(config, executor.clone()).unwrap();
+    let info = runtime.connection_info();
+    assert_eq!(info.capabilities["restrictedScopes"]["available"], false);
+    let before = runtime.status();
+    assert!(
+        runtime
+            .check_scope(CheckScope {
+                parent_scope_id: info.root_scope_id.clone(),
+                permissions: PermissionRequest::default(),
+            })
+            .unwrap()
+            .available
+    );
+    let permissions = PermissionRequest {
+        read_roots: Some(vec!["workspace://repo".into()]),
+        write_roots: Some(Vec::new()),
+        network: NetworkRequest::Deny,
+    };
+    for _ in 0..2 {
+        assert_eq!(
+            runtime
+                .check_scope(CheckScope {
+                    parent_scope_id: info.root_scope_id.clone(),
+                    permissions: permissions.clone(),
+                })
+                .unwrap_err()
+                .code,
+            ErrorCode::Unsupported
+        );
+    }
+    let mut request = child(&runtime, &info.root_scope_id);
+    request.permissions = permissions;
+    assert_eq!(
+        runtime.create_scope(request).unwrap_err().code,
+        ErrorCode::Unsupported
+    );
+    assert_eq!(runtime.status()["scopes"], before["scopes"]);
+    assert_eq!(runtime.status()["operations"], before["operations"]);
+    assert_eq!(executor.starts.load(Ordering::SeqCst), 0);
+    let started = runtime
+        .start(process(&runtime, &info.root_scope_id))
+        .await
+        .unwrap();
+    executor
+        .finish(&started.process_id, b"parent remains usable")
+        .await;
+    bounded(runtime.wait_process(&started.process_id))
+        .await
+        .unwrap();
+    assert_eq!(
+        executor.executions.lock().unwrap()[0].scope_access,
+        ScopeAccess::Unrestricted
+    );
+    bounded(runtime.shutdown()).await.unwrap();
+}
+
+#[tokio::test]
+async fn scope_check_preserves_parent_permissions_and_closed_scope_admission() {
+    let directory = tempfile::tempdir().unwrap();
+    let executor = Executor::new(false);
+    let runtime = Supervisor::new(Config::read_only(directory.path().into()), executor).unwrap();
+    let root = runtime.connection_info().root_scope_id;
+    assert_eq!(
+        runtime
+            .check_scope(CheckScope {
+                parent_scope_id: root.clone(),
+                permissions: PermissionRequest {
+                    write_roots: Some(vec!["workspace://repo".into()]),
+                    ..Default::default()
+                },
+            })
+            .unwrap_err()
+            .code,
+        ErrorCode::PermissionDenied
+    );
+    let scope = runtime.create_scope(child(&runtime, &root)).unwrap();
+    runtime.revoke(&scope.scope_id).unwrap();
+    assert_eq!(
+        runtime
+            .check_scope(CheckScope {
+                parent_scope_id: scope.scope_id,
+                permissions: PermissionRequest::default(),
+            })
+            .unwrap_err()
+            .code,
+        ErrorCode::ScopeClosed
+    );
+    bounded(runtime.shutdown()).await.unwrap();
 }
 
 #[tokio::test]
@@ -1034,6 +1554,138 @@ async fn explicit_rejection_releases_reservation_but_lost_cleanup_remains_unknow
 }
 
 #[tokio::test]
+async fn confirmed_execution_cleanup_isolates_only_its_scope_and_never_replays() {
+    let dir = tempfile::tempdir().unwrap();
+    let executor = Executor::new(false);
+    let runtime = Supervisor::new(Config::read_only(dir.path().into()), executor.clone()).unwrap();
+    let root = runtime.connection_info().root_scope_id;
+    let first = runtime
+        .create_scope(child(&runtime, &root))
+        .unwrap()
+        .scope_id;
+    let sibling = runtime
+        .create_scope(child(&runtime, &root))
+        .unwrap()
+        .scope_id;
+    let request = process(&runtime, &first);
+    let broken = runtime.start(request.clone()).await.unwrap();
+    let running = runtime.start(process(&runtime, &sibling)).await.unwrap();
+    let sender = executor
+        .routes
+        .lock()
+        .unwrap()
+        .remove(&broken.process_id)
+        .unwrap();
+    sender
+        .send(Event::Failed {
+            error: Error::new(ErrorCode::Unavailable, "fixture output receipt lost"),
+            cleanup_confirmed: true,
+        })
+        .await
+        .unwrap();
+    drop(sender);
+    assert!(
+        bounded(runtime.wait_process(&broken.process_id))
+            .await
+            .is_err()
+    );
+    let info = runtime.process(&broken.process_id).unwrap();
+    assert_eq!(info.state, ProcessState::Unknown);
+    assert!(info.cleanup_confirmed);
+    assert!(info.cleanup_error.is_none());
+    bounded(runtime.wait_closed(&first)).await.unwrap();
+    assert_eq!(runtime.scope(&sibling).unwrap().state, ScopeState::Active);
+    assert_eq!(
+        runtime.process(&running.process_id).unwrap().state,
+        ProcessState::Running
+    );
+    assert_eq!(
+        runtime.start(request).await.unwrap().process_id,
+        broken.process_id
+    );
+    assert_eq!(executor.starts.load(Ordering::SeqCst), 2);
+    assert_eq!(runtime.status()["admissionOpen"], true);
+    assert!(runtime.status()["recovery"].is_null());
+    executor
+        .finish(&running.process_id, b"sibling complete")
+        .await;
+    bounded(runtime.wait_process(&running.process_id))
+        .await
+        .unwrap();
+    let next = runtime
+        .create_scope(child(&runtime, &root))
+        .unwrap()
+        .scope_id;
+    let next = runtime.start(process(&runtime, &next)).await.unwrap();
+    executor.finish(&next.process_id, b"fresh work").await;
+    bounded(runtime.wait_process(&next.process_id))
+        .await
+        .unwrap();
+    bounded(runtime.shutdown()).await.unwrap();
+}
+
+#[tokio::test]
+async fn backend_failure_preserves_the_cause_and_fences_new_work_without_replay() {
+    let dir = tempfile::tempdir().unwrap();
+    let executor = Executor::new(false);
+    executor.fail_cleanup.store(true, Ordering::SeqCst);
+    let runtime = Supervisor::new(Config::read_only(dir.path().into()), executor.clone()).unwrap();
+    let root = runtime.connection_info().root_scope_id;
+    let started = runtime.start(process(&runtime, &root)).await.unwrap();
+    let sender = executor
+        .routes
+        .lock()
+        .unwrap()
+        .remove(&started.process_id)
+        .unwrap();
+    sender
+        .send(Event::Failed {
+            error: Error::new(
+                ErrorCode::CleanupFailed,
+                "fixture cannot inspect owned descendant",
+            ),
+            cleanup_confirmed: false,
+        })
+        .await
+        .unwrap();
+    drop(sender);
+    let failure = bounded(runtime.wait_process(&started.process_id))
+        .await
+        .unwrap_err();
+    assert_eq!(failure.code, ErrorCode::CleanupFailed);
+    assert!(
+        failure
+            .message
+            .contains("fixture cannot inspect owned descendant"),
+        "{failure}"
+    );
+    let scope = runtime.scope(&root).unwrap();
+    assert_eq!(scope.state, ScopeState::Revoking);
+    assert_eq!(scope.active_processes, 1);
+    let error = bounded(runtime.wait_closed(&root)).await.unwrap_err();
+    assert!(
+        error
+            .message
+            .contains("fixture cannot inspect owned descendant"),
+        "{error}"
+    );
+    assert_eq!(
+        runtime.process(&started.process_id).unwrap().state,
+        ProcessState::Unknown
+    );
+    assert_eq!(
+        runtime
+            .start(process(&runtime, &root))
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::ScopeClosed
+    );
+    assert_eq!(executor.starts.load(Ordering::SeqCst), 1);
+    assert!(bounded(runtime.shutdown()).await.is_err());
+}
+
+#[tokio::test]
 async fn lost_start_reply_is_not_replayed_and_fences_the_connection() {
     assert_unknown_start(false).await;
 }
@@ -1046,6 +1698,7 @@ async fn startup_cleanup_failure_preserves_unknown_and_reservation() {
 async fn assert_unknown_start(cleanup_failed: bool) {
     let dir = tempfile::tempdir().unwrap();
     let executor = Executor::new(false);
+    executor.fail_cleanup.store(true, Ordering::SeqCst);
     executor.lose_start_reply.store(true, Ordering::SeqCst);
     executor
         .cleanup_start_failure
@@ -1195,11 +1848,19 @@ async fn exit_allows_output_drain_but_duplicate_exit_facts_fence_the_runtime() {
         let done = bounded(runtime.wait_process(&process.process_id)).await;
         if duplicate {
             assert_eq!(done.unwrap_err().code, ErrorCode::CleanupFailed);
-            assert_eq!(runtime.scope(&root).unwrap().active_processes, 1);
+            bounded(async {
+                while runtime.status()["recovery"]["cleanupConfirmed"] != true {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await;
+            assert_eq!(runtime.scope(&root).unwrap().active_processes, 0);
+            assert!(!runtime.status()["admissionOpen"].as_bool().unwrap());
             assert_eq!(
-                bounded(runtime.shutdown()).await.unwrap_err().code,
-                ErrorCode::CleanupFailed
+                runtime.process(&process.process_id).unwrap().state,
+                ProcessState::Unknown
             );
+            bounded(runtime.shutdown()).await.unwrap();
         } else {
             assert_eq!(done.unwrap().exit_code, Some(0));
             let page = runtime

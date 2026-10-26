@@ -1,3 +1,4 @@
+pub mod context;
 pub mod delegation;
 pub mod goals;
 pub mod plugin_runtime;
@@ -11,6 +12,7 @@ pub mod desktop;
 
 pub const CODEX_PROTOCOL_VERSION: &str = "0.145.0";
 pub const MAX_FRAME_BYTES: usize = 4 * 1024 * 1024;
+pub const MAX_RESPONSE_BYTES: usize = 64 * 1024 * 1024;
 /// 工具的文本/结构化原文接收上限；模型可见页仍单独限制为 16 KiB。
 pub const MAX_TOOL_RESULT_BYTES: usize = 8 * 1024 * 1024;
 
@@ -324,9 +326,20 @@ pub enum ToolOutcome {
 #[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ToolExecution {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permission_review: Option<Value>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub permission_scopes: Vec<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page: Option<plugin_runtime::PageExecution>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interactive_result: Option<bool>,
     /// 当前调用准许暴露的原始结果，引用保留在权威历史中以支持恢复与 GC。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub result_snapshot: Option<MediaRef>,
+    /// Exact file bytes captured before a conditional workspace write.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_before: Option<MediaRef>,
     /// 只记录转换度量，不持有另一份权威历史。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_projection: Option<Value>,
@@ -388,6 +401,8 @@ pub struct ToolDefinition {
 #[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DynamicToolResponse {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_mcp_result: Option<Value>,
     pub success: bool,
     pub content_items: Vec<ToolContent>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -445,6 +460,10 @@ pub struct Turn {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instruction_snapshot: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instruction_attribution: Option<context::InstructionAttribution>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generation: Option<context::GenerationStats>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub configuration: Option<desktop::EffectiveConfig>,
     pub id: String,
     pub items: Vec<Item>,
@@ -478,6 +497,9 @@ pub struct ContextCheckpoint {
     /// 保留的真实用户输入；缺省表示旧 checkpoint 的全量重放契约。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retained_inputs: Option<Vec<ContextInput>>,
+    /// 压缩前缀是否包含 App 引用；缺省时从原始历史恢复并保存。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app_reference_seen: Option<bool>,
     /// 有界的原始工具回执提示，不授予权限或恢复过期句柄。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub evidence: Vec<String>,
@@ -533,18 +555,67 @@ pub struct SideReference {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct SidePolicy {
-    pub kind: String,
-    pub workspace_access: String,
+#[serde(tag = "kind", deny_unknown_fields)]
+pub enum SidePolicy {
+    #[serde(rename = "sideReadOnlyV1")]
+    ReadOnlyV1 {
+        #[serde(rename = "workspaceAccess")]
+        workspace_access: SideWorkspaceAccess,
+    },
+    #[serde(rename = "sideExecutableV2")]
+    ExecutableV2,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum SideWorkspaceAccess {
+    None,
+    ReadOnly,
 }
 
 impl Thread {
     pub fn is_side(&self) -> bool {
         matches!(self.conversation, Some(Conversation::Side { .. }))
     }
+    pub fn is_read_only_side(&self) -> bool {
+        matches!(
+            &self.conversation,
+            Some(Conversation::Side {
+                policy: SidePolicy::ReadOnlyV1 { .. },
+                ..
+            })
+        )
+    }
+    pub fn is_executable_side(&self) -> bool {
+        matches!(
+            &self.conversation,
+            Some(Conversation::Side {
+                policy: SidePolicy::ExecutableV2,
+                ..
+            })
+        )
+    }
     pub fn side_workspace_read(&self) -> bool {
-        matches!(&self.conversation, Some(Conversation::Side { policy, .. }) if policy.workspace_access == "readOnly")
+        matches!(
+            &self.conversation,
+            Some(Conversation::Side {
+                policy: SidePolicy::ReadOnlyV1 {
+                    workspace_access: SideWorkspaceAccess::ReadOnly
+                },
+                ..
+            })
+        )
+    }
+    pub fn model_history_seed(&self) -> Option<&HistorySeed> {
+        match &self.conversation {
+            Some(Conversation::Fork { history_seed, .. }) => Some(history_seed),
+            Some(Conversation::Side {
+                reference_snapshot,
+                policy: SidePolicy::ExecutableV2,
+                ..
+            }) => Some(reference_snapshot),
+            _ => None,
+        }
     }
 }
 
@@ -581,6 +652,11 @@ pub struct Thread {
     pub session_id: String,
     pub parent_thread_id: Option<String>,
     pub preview: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    // 请求前持久化来源 Turn；失败、取消和重启均不再自动提交。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name_attempt_turn_id: Option<String>,
     pub model_provider: String,
     pub created_at: i64,
     pub updated_at: i64,

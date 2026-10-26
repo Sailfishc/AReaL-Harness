@@ -6,6 +6,7 @@ PREFIX ?= /usr/local
 DESTDIR ?=
 
 ARGS ?=
+CI_BASE ?= main
 PYTHON_SOURCES := scripts tests
 WORKGROUP_ENV = AREAL_WORKGROUP_RUNTIME="$(CURDIR)/target/debug/areal-runtime" AREAL_WORKGROUP_HELPER="$(CURDIR)/target/debug/areal-runtime-fs"
 
@@ -18,8 +19,8 @@ endif
 	test-protocol test-concurrency verify smoke server tui schemas docs clean \
 	capacity capacity-primitives capacity-core perf runtime test-runtime runtime-smoke verify-runtime \
 	cordis-pin update-cordis sdk-test harness harness-smoke verify-harness \
-	setup setup-node sdk-build script-test launcher-test workgroup-smoke unified-execution-smoke capacity-workgroup local-service-smoke \
-	verify-native integration-boundaries
+	setup setup-node sdk-build script-test launcher-test workgroup-smoke unified-execution-smoke delegation-permissions-smoke capacity-workgroup local-service-smoke upgrade-smoke tui-upgrade-smoke \
+	verify-native integration-boundaries ci-preflight
 
 help: ## 显示常用操作（默认目标）
 	@printf '%s\n' '用法：make <target> [ARGS="..."]' ''
@@ -38,9 +39,11 @@ fetch: ## 下载 Cargo.lock 中的依赖
 	cargo fetch --locked
 
 build: ## 构建整个 workspace（debug）
+	python3 scripts/prepare-runtime-shell.py --profile debug
 	cargo build --locked --workspace
 
 release: ## 构建整个 workspace（release）
+	python3 scripts/prepare-runtime-shell.py --profile release
 	cargo build --locked --workspace --release
 
 check: ## 类型检查整个 workspace 和测试目标
@@ -62,7 +65,8 @@ lint: ## Rust / Python 静态检查和 Web 语法检查
 	node --check clients/web/app.js
 
 test: ## 运行 workspace 测试（不含显式容量测试）
-	cargo test --locked --workspace $(CARGO_TEST_ARGS)
+	python3 scripts/prepare-runtime-shell.py --profile debug
+	cargo test --locked --workspace --no-fail-fast $(CARGO_TEST_ARGS)
 
 test-core: ## 运行 Core 模型、会话和并发测试
 	cargo test --locked -p areal-engine
@@ -81,14 +85,15 @@ update-cordis: ## 更新 Cordis main 并同步 pin；随后运行 verify 与 ver
 	python3 scripts/cordis-pin.py --write
 
 test-runtime: cordis-pin ## Runtime 组件、权限、去重、撤销竞态与私有传输测试
+	python3 scripts/prepare-runtime-shell.py --profile debug
 	cargo test --locked -p areal-runtime-protocol -p areal-runtime-client -p areal-runtime-fs -p areal-runtime-supervisor -p areal-runtime-exec-native -p areal-runtime
 
 runtime: ## 启动私有 stdio Runtime；ARGS 指定 --workspace
+	python3 scripts/prepare-runtime-shell.py --profile debug
 	cargo build --locked -p areal-runtime-exec-native --bin areal-runtime-reaper
 	cargo run --locked -p areal-runtime -- $(ARGS)
 
-runtime-smoke: cordis-pin ## 构建 Runtime 并验证原生执行后端
-	cargo build --locked -p areal-runtime -p areal-runtime-fs -p areal-runtime-exec-native
+runtime-smoke: cordis-pin build ## 构建 Runtime 并验证原生执行后端
 	python3 scripts/runtime-smoke.py $(ARGS)
 	python3 scripts/runtime-fs-smoke.py $(ARGS)
 
@@ -102,6 +107,18 @@ verify: ## 常规验收：格式、静态检查、Rust/SDK/Python 测试与 TUI 
 	$(MAKE) lint desktop-schema-check
 	$(MAKE) test
 	$(MAKE) launcher-test smoke
+
+ci-preflight: fmt-check ## 推送前快速检查；CI_BASE 指定 PR 目标分支，不替代原生与完整 CI
+	git merge-base "$(CI_BASE)" HEAD
+	$(MAKE) lint
+	python3 scripts/check-docs.py
+	python3 -m unittest scripts.tests.test_ci_contracts
+	pnpm --dir clients/gui typecheck
+	AREAL_DESIGN_BASE="$$(git merge-base "$(CI_BASE)" HEAD)" pnpm --dir clients/gui verify:design
+	AREAL_DESIGN_BASE="$$(git merge-base "$(CI_BASE)" HEAD)" pnpm --dir clients/gui run verify
+	pnpm --dir clients/gui test:regressions
+	pnpm --dir clients/gui test:browser-contracts
+	pnpm --dir clients/gui audit
 
 sdk-build: ## 编译两套 TypeScript SDK
 	npm --prefix runtime/sdk-typescript run build
@@ -122,6 +139,7 @@ script-test: integration-boundaries ## 无需产品二进制的脚本、Web 投�
 	node --test scripts/web-progress.test.mjs
 	node --test scripts/local-service-wait.test.mjs
 	node --test clients/gui/scripts/smoke-deadline.test.mjs
+	node --test clients/gui/scripts/update.test.cjs
 	python3 -m unittest discover -s scripts/tests
 	python3 tests/perf/perf.py self-test
 
@@ -135,17 +153,29 @@ harness-smoke: build sdk-build ## 原生 SDK 与完整读改测试/强杀恢复
 	node scripts/harness-smoke.mjs
 	node scripts/workgroup-smoke.mjs
 	node scripts/unified-execution-smoke.mjs
+	node scripts/delegation-permissions-smoke.mjs
 	node scripts/plugin-smoke.mjs
 	node scripts/permissions-smoke.mjs
 	node scripts/permission-modes-smoke.mjs
+	node scripts/permission-presets-smoke.mjs
 	python3 scripts/tui-local-smoke.py
 	node scripts/local-service-smoke.mjs
 
 unified-execution-smoke: build ## 真实 Runtime 的统一委派、组合交付、取消和恢复回归
 	node scripts/unified-execution-smoke.mjs
 
+delegation-permissions-smoke: build ## 验证只读强约束、不可用准入与继承权限的读取协作
+	node scripts/delegation-permissions-smoke.mjs
+
 local-service-smoke: build ## 验证共享服务、多个窗口与宿主故障恢复
 	node scripts/local-service-smoke.mjs
+
+upgrade-smoke: ## 构建真实 CLI 并隔离验证升级、旧版本保留与 Homebrew 保护
+	cargo build --locked -p areal-cli
+	uv run --locked --only-group dev python scripts/upgrade-smoke.py $(ARGS)
+
+tui-upgrade-smoke: ## 用两套固定真实产物验证新旧 TUI 共存与后台换代保护
+	uv run --locked --only-group dev python scripts/tui-upgrade-smoke.py $(ARGS)
 
 workgroup-smoke: build ## 真实 Runtime 的 Workgroup 写入、组合、期限与故障结算回归
 	$(WORKGROUP_ENV) cargo test --locked -p areal-engine --test workgroup real_core_workers_use_private_runtimes_and_final_combination_is_verified -- --ignored --exact
@@ -159,7 +189,7 @@ verify-harness: ## 全部常规与原生集成验收（容量测试单独运行�
 verify-native: build ## macOS 原生后端与 Harness 集成验收（通用回归由 Linux CI 执行）
 	cargo test --locked -p areal-runtime-exec-native
 	cargo test --locked -p areal-runtime --features native-tests --test native_transport
-	$(MAKE) launcher-test runtime-smoke harness-smoke examples-desktop-api workgroup-smoke
+	$(MAKE) -j4 launcher-test runtime-smoke harness-smoke examples-desktop-api workgroup-smoke
 
 smoke: build ## 构建后验证 TUI、HTTP/SSE、持久化、强杀恢复和异步轨迹补传
 	node scripts/smoke.mjs
@@ -170,6 +200,7 @@ server: ## 构建并启动 Core；读取用户 TOML、环境变量和显式 ARGS
 	cargo run --locked -p areal-cli -- app-server $(ARGS)
 
 tui: ## 启动本地 Core + Runtime + TUI；--endpoint/--remote 连接已有服务
+	python3 scripts/prepare-runtime-shell.py --profile debug
 	cargo build --locked -p areal-runtime -p areal-runtime-fs -p areal-runtime-exec-native -p areal-cli
 	cargo run --locked -p areal-cli -- $(ARGS)
 
@@ -202,7 +233,7 @@ perf: ## 交互式运行 Docker E2E/perf 工作流
 	./scripts/perf interactive
 
 .PHONY: examples-desktop-api desktop-schemas desktop-schema-check package
-examples-desktop-api: build ## 真实 Core/Runtime 的桌面 API 与 CLI 确定性验收
+examples-desktop-api: build sdk-build ## 真实 Core/Runtime 的桌面 API 与 CLI 确定性验收
 	node examples/desktop-api/run.mjs --all
 	node examples/desktop-api/task-controls.mjs
 	node examples/desktop-api/cli.mjs
@@ -228,7 +259,8 @@ gui-install: ## 安装 GUI 的公开锁定依赖（需 pnpm）
 	pnpm --dir clients/gui install --frozen-lockfile
 	pnpm --dir clients/gui --filter @areal/gui-desktop exec install-electron
 	pnpm --dir clients/gui --filter @areal/gui-desktop exec playwright-core install ffmpeg
-gui-build: ## 构建 GUI renderer
+gui-build: ## 同步锁定依赖并构建 GUI renderer
+	pnpm --dir clients/gui install --frozen-lockfile
 	pnpm --dir clients/gui build
 gui: gui-build ## 启动桌面 GUI（先 make build）
 	pnpm --dir clients/gui start
@@ -236,3 +268,7 @@ gui-package: gui-build ## 构建 macOS arm64 候选应用（先构建 Core，随
 	pnpm --dir clients/gui package
 gui-smoke: ## 隔离目录中验证真实 Electron/Core 和本地模型
 	pnpm --dir clients/gui test:e2e
+
+.PHONY: artifact-cleanup
+artifact-cleanup: ## 预览旧 GUI/Rust 产物和中间缓存；默认保留最近 5 轮
+	python3 scripts/artifact-cleanup.py $(ARGS)

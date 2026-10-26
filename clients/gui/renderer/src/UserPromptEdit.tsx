@@ -1,4 +1,5 @@
 import "./UserPromptEdit.css";
+import { stripGenUiModelContext } from "@areal/gen-ui/contract";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { ChatPromptEditor } from "./prompt-editor/ChatPromptEditor.js";
 import { EditMessageIcon } from "./interfaceIcons.js";
@@ -11,15 +12,19 @@ import type { Data, Action } from "./services.js";
 export function UserPromptEdit({ project, thread, item, action }: { project: Data; thread: Data; item: Data; action: Action }) {
   const key = `areal-gui:edit:${project.id}:${thread.id}:${item.id}`;
   const composerKey = `areal-gui:draft:${project.id}:${thread.id}`;
-  const original = (item.content ?? []).filter((part: Data) => part.type === "text" && !part.mcpContent).map((part: Data) => part.text).join("\n");
+  const original = stripGenUiModelContext((item.content ?? []).filter((part: Data) => part.type === "text" && !part.mcpContent).map((part: Data) => part.text).join("\n"));
   const [unknown, setUnknown] = useState<string | null>(() => localStorage.getItem(`${key}:pending`));
   const [open, setOpen] = useState(() => !!localStorage.getItem(`${key}:pending`));
   const [text, setText] = useState(() => localStorage.getItem(key) ?? original);
   const [error, setError] = useState("");
+  const [anchor, setAnchor] = useState(() => ({ expectedTurnId: thread.turns?.at(-1)?.id,
+    expectedConfigRevision: project.configurations?.[thread.id]?.revision }));
   const inFlight = useRef(false);
   const busy = useSyncExternalStore(subscribeSending, () => sending.has(composerKey));
   const pending = project.pending?.some((entry: Data) => entry.params?.threadId === thread.id);
+  const queued = (project.state?.queues?.[thread.id] ?? thread.desktop?.queue)?.items?.some((entry: Data) => ["pending", "running"].includes(entry.status));
   const disabled = busy || pending || !!unknown || !project.state?.connected || thread.desktop?.archived
+    || queued
     || thread.turns?.some((turn: Data) => turn.status === "inProgress");
   const close = () => { setOpen(false); setError(""); setText(original); localStorage.removeItem(key); };
   useEffect(() => {
@@ -35,7 +40,8 @@ export function UserPromptEdit({ project, thread, item, action }: { project: Dat
     inFlight.current = true; markSending(composerKey, true); setError("");
     try {
       const content: Data[] = item.content ?? [];
-      await action("send", { projectId: project.id, threadId: thread.id, text: value,
+      await action("editMessage", { projectId: project.id, threadId: thread.id, text: value,
+        requestId: crypto.randomUUID(), ...anchor, itemId: item.id,
         attachments: content.filter(part => part.type !== "text").map(part => ({ type: part.type, url: part.url,
           ...(part.name ? { name: part.name } : {}), ...(part.mime_type || part.mimeType ? { mimeType: part.mime_type ?? part.mimeType } : {}) })),
         mcpContent: content.filter(part => part.type === "text" && part.mcpContent).map(part => part.mcpContent),
@@ -52,7 +58,9 @@ export function UserPromptEdit({ project, thread, item, action }: { project: Dat
   return <>
     <ControlHintTooltip title="编辑消息">
       <button className="icon-button" type="button" aria-label="编辑消息" disabled={busy || pending || !project.state?.connected || thread.desktop?.archived}
-        onClick={() => { setText(localStorage.getItem(key) ?? original); setOpen(true); }}><EditMessageIcon size={14} /></button>
+        onClick={() => { setText(localStorage.getItem(key) ?? original);
+          setAnchor({ expectedTurnId: thread.turns?.at(-1)?.id, expectedConfigRevision: project.configurations?.[thread.id]?.revision });
+          setOpen(true); }}><EditMessageIcon size={14} /></button>
     </ControlHintTooltip>
     {open && <section role="region" aria-label="编辑用户消息" className="user-prompt-edit w-full">
       <ChatPromptEditor workspacePath={project.root} taskId={thread.id} initialValue={text} inputTestId="user-prompt-edit-input"
@@ -62,7 +70,7 @@ export function UserPromptEdit({ project, thread, item, action }: { project: Dat
         submitControl={<Button type="submit" variant="secondary" className="user-prompt-edit-send" aria-label="发送" disabled={disabled || !text.trim()}>{busy && <Spinner className="size-4" />}发送</Button>}
         onChange={value => { setText(value); localStorage.setItem(key, value); }}
         onSubmit={value => { void submit(value); return false; }} onCancel={unknown || busy ? undefined : close} />
-      <p className="user-prompt-edit-note">作为新消息发送，原回复与执行记录保留。</p>
+      <p className="user-prompt-edit-note">替换此消息及之后的回复并重新执行。已发生的文件和外部操作不会撤回。</p>
       {error && <p role="alert">{error}</p>}
       {unknown && <Button type="button" variant="ghost" disabled={!project.state?.connected || busy}
         onClick={() => void action("reconcile", { projectId: project.id }).catch(cause => setError(cause.message))}>核对提交结果</Button>}

@@ -56,7 +56,7 @@ export class CoreTaskModel {
     if (method === 'areal/plan/updated') { this.setPlan(params.threadId, params.plan); return; }
     if (method === 'areal/goal/updated') { this.setGoal(params.threadId, params); return; }
     if (method === 'areal/queue/updated') { this.setQueue(params.threadId, params.queue); return; }
-    if (method === 'thread/started') { this.replace(params.thread); return; }
+    if (method === 'thread/started' || method === 'areal/thread/edited') { this.replace(params.thread); return; }
     if (method.startsWith('areal/interaction/')) {
       const item = params.interaction;
       if (!item) return;
@@ -68,6 +68,10 @@ export class CoreTaskModel {
     }
     const thread = this.state.threads[params?.threadId];
     if (!thread) return;
+    if (method === 'areal/thread/predictionChanged') {
+      this.replace({ ...thread, desktop: { ...thread.desktop, promptPrediction: params.promptPrediction } });
+      return;
+    }
     if (method === 'areal/side/capacity' && thread.conversation?.kind === 'side'
       && ['waiting', 'available'].includes(params.status)) {
       this.replace({ ...thread, desktop: { ...thread.desktop, sideCapacityStatus: params.status } });

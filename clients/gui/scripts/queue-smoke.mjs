@@ -1,3 +1,5 @@
+import { assertApplicationStopped } from "./application-cleanup.mjs";
+import { respondToSessionName } from "./model-fixture.mjs";
 import {
   captureSmokeFailure,
   resizeConversation,
@@ -12,7 +14,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "node:http";
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 const gui = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const desktop = join(gui, "app");
 const require = createRequire(join(desktop, "package.json"));
@@ -68,7 +70,9 @@ const live = new Set();
 const server = createServer(async (req, res) => {
   let raw = "";
   for await (const chunk of req) raw += chunk;
-  received.push(JSON.parse(raw));
+  const body = JSON.parse(raw);
+  if (respondToSessionName(body, res)) return;
+  received.push(body);
   res.writeHead(200, { "Content-Type": "text/event-stream" });
   res.write(
     `data: ${JSON.stringify({ id: "fixture", choices: [{ index: 0, delta: { content: "等待队列验收" }, finish_reason: null }] })}\n\n`,
@@ -605,7 +609,7 @@ try {
     .click();
   await until((s) => pending(s).length === 0, "empty queue");
   await page.waitForFunction(() => !document.querySelector(".composer-queue-row"));
-  await call("stop", { projectId: pid, threadId: tid });
+  await call("stop", { projectId: pid, threadId: tid, turnId: project(await state()).state.threads[tid].turns.at(-1).id, requestId: randomUUID() });
   await until(
     (s) => project(s).state.threads[tid].turns.at(-1)?.status !== "inProgress",
     "turn stop",
@@ -621,19 +625,11 @@ try {
   );
   throw error;
 } finally {
+  const stoppingAdapter = await readFile(join(scratch, "core/service.json"), "utf8").then(JSON.parse).catch(error => { if (error.code === "ENOENT") return null; throw error; });
   await quit();
   try {
-    const { ServiceConnection } = require(join(desktop, "src/core/service-client.cjs"));
-    const connection = new ServiceConnection();
-    try {
-      await connection.connect(
-        JSON.parse(await readFile(join(scratch, "core/service.json"), "utf8")),
-      );
-      await connection.request("stopService", { protocol: "areal.desktop-service.v1" }, true);
-      checks.push("explicit safe service stop completes");
-    } finally {
-      connection.close();
-    }
+    await assertApplicationStopped(binary, env, stoppingAdapter);
+    checks.push("application quit stops the isolated adapter and all Core generations, including projectless");
   } catch (error) {
     console.error("Adapter fixture cleanup:", error.message);
     if (passed) {

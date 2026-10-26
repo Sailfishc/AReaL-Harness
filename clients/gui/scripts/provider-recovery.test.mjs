@@ -116,7 +116,7 @@ test("locked storage is diagnosable without reporting logout", async () => {
 });
 
 function providers() {
-  const service = new AppProviders({ onChange() {} }, {});
+  const service = new AppProviders({ projects: new Map(), onChange() {} }, {});
   service.config.value = {
     revision: "fixture",
     data: [
@@ -132,12 +132,13 @@ function providers() {
     ],
   };
   service.config.current = async () => service.config.value;
-  service.config.execute = async (_op, next) => ({ ...next, revision: "next" });
+  service.config.execute = async (_op, next) => ({ ...next, projects: [], revision: "next" });
   service.config.public = () => service.config.value;
   return service;
 }
-test("provider save preserves Core context budgets and rejects unknown parameters", async () => {
+test("provider save preserves Core context budgets and rejects unknown parameters", async (t) => {
   const service = providers();
+  t.after(() => service.close());
   const provider = {
     ...service.value.data[0],
     name: "Renamed",
@@ -148,6 +149,7 @@ test("provider save preserves Core context budgets and rejects unknown parameter
   assert.equal(service.value.data[0].parameters.contextWindowTokens, 200000);
   assert.equal(service.value.data[0].models[0].parameters.contextWindowTokens, 131072);
   const invalid = providers();
+  t.after(() => invalid.close());
   await assert.rejects(
     invalid.command({
       operation: "save",
@@ -380,6 +382,7 @@ test("status to Core sync retains provider while refreshing or storage is locked
   const app = new AppProviders({ submit: async (...args) => calls.push(args) }, {});
   const project = {
     client: {
+      ready: true,
       request: async () => ({
         data: [{ id: "areal_openai", revision: 1, models: ["fixture-model"] }],
       }),
@@ -389,7 +392,7 @@ test("status to Core sync retains provider while refreshing or storage is locked
   const rotation = f.account.accessToken();
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal((await f.account.status()).state, "refreshing");
-  await app.applySubscription(project, service);
+  await app.syncSubscription(project, service);
   assert.deepEqual(calls, []);
   finish();
   await rotation;
@@ -397,7 +400,7 @@ test("status to Core sync retains provider while refreshing or storage is locked
     throw Object.assign(new Error("fixture lock"), { code: "storage_locked" });
   };
   assert.equal((await f.account.status()).state, "storage_locked");
-  await app.applySubscription(project, service);
+  await app.syncSubscription(project, service);
   assert.deepEqual(calls, []);
 });
 
@@ -405,16 +408,19 @@ test("Core sync removes subscription only on explicit sign-out or confirmed empt
   const calls = [];
   const app = new AppProviders({ submit: async (_project, method) => calls.push(method) }, {});
   const project = {
-    client: { request: async () => ({ data: [{ id: "areal_openai", revision: 1 }] }) },
+    client: { ready: true, request: async () => ({ data: [{ id: "areal_openai", revision: 1 }] }) },
   };
   for (const status of [
     { state: "signed_out", authenticated: false },
     { state: "ready", authenticated: true, models: [] },
   ]) {
-    await app.applySubscription(project, {
+    const { account } = fixture();
+    account.status = async () => status;
+    await app.syncSubscription(project, {
       id: "areal_openai",
-      account: { status: async () => status },
+      account,
     });
+    await account.close();
   }
   assert.deepEqual(calls, ["areal/provider/remove", "areal/provider/remove"]);
 });
@@ -529,16 +535,24 @@ async function startupSubscription(t, { catalog, refresh, expired = false } = {}
     },
   });
   const mutations = [];
+  let provider = { id: "areal_openai", revision: 7, models: ["old-model"] };
   const backend = { home, projects: new Map(), onChange() {},
-    submit: async (_project, method, params) => { mutations.push({ method, params }); } };
+    submit: async (_project, method, params) => {
+      mutations.push({ method, params });
+      assert.equal(method, "areal/provider/upsert");
+      provider = { ...params.provider, revision: provider.revision + 1 };
+      return provider;
+    } };
   const app = new AppProviders(backend, {});
   app.openai = async () => service;
   app.openaiPromise = Promise.resolve(service);
-  const project = { id: "fixture", client: { request: async (method) => {
+  const project = { id: "fixture", client: { ready: true, request: async (method) => {
+    if (method === "areal/model/list") return { data: service.models };
     assert.equal(method, "areal/provider/list");
     await result.beforeRead?.();
-    return { data: [{ id: "areal_openai", revision: 7, models: ["old-model"] }] };
+    return { data: [provider] };
   } } };
+  backend.projects.set(project.id, project);
   const result = { app, service, project, mutations,
     get gets() { return gets; }, get exchanges() { return exchanges; },
     settled: async () => { await turn(); await Promise.allSettled([...service.account.active]); },
@@ -555,7 +569,7 @@ test("startup prepares the real catalog before Core sync and waits before upsert
   await turn();
   assert.equal(f.gets, 1, "prepare starts the catalog while Core may still be launching");
   assert.equal(f.service.server.listening, true);
-  const applied = f.app.applySubscription(f.project, f.service);
+  const applied = f.app.syncSubscription(f.project, f.service);
   await turn();
   assert.deepEqual(f.mutations, []);
   gate.resolve();
@@ -563,7 +577,7 @@ test("startup prepares the real catalog before Core sync and waits before upsert
   assert.equal(f.gets, 1);
   assert.deepEqual(f.mutations, [{ method: "areal/provider/upsert", params: {
     expectedRevision: 7, provider: { id: "areal_openai", revision: 7, protocol: "responses",
-      endpoint: f.service.endpoint, credentialRef: "areal_openai", models: ["fixture-model"], parameters: {} },
+      endpoint: f.service.endpoint, credentialRef: "areal_openai", contextSource: "account", models: ["fixture-model"], parameters: {} },
   } }]);
 });
 
@@ -592,12 +606,12 @@ test("fast failed startup catalog is consumed once and explicit later status ret
   await f.app.prepare();
   await f.settled();
   assert.equal(f.gets, 1);
-  await f.app.applySubscription(f.project, f.service);
+  await f.app.syncSubscription(f.project, f.service);
   assert.equal(f.gets, 1, "automatic consume retains the first failure without another GET");
   assert.deepEqual(f.mutations, []);
   assert.equal((await f.app.chatgpt({ operation: "status" })).state, "ready");
   assert.equal(f.gets, 2);
-  await f.app.applySubscription(f.project, f.service);
+  await f.app.syncSubscription(f.project, f.service);
   assert.deepEqual(f.mutations.map(({ method }) => method), ["areal/provider/upsert"]);
 });
 
@@ -613,7 +627,7 @@ for (const stage of ["provider read", "local ready"])
         const ready = f.service.ready.bind(f.service);
         f.service.ready = async () => { await ready(); await invalidate(); };
       }
-      await f.app.applySubscription(f.project, f.service);
+      await f.app.syncSubscription(f.project, f.service);
       assert.equal(f.gets, 1);
       assert.deepEqual(f.mutations, []);
     });
@@ -624,7 +638,7 @@ test("expired prepared ready catalog is refreshed before Core upsert", async (t)
   await f.settled();
   assert.equal(f.gets, 1);
   f.service.catalog.expiresAt = 0;
-  await f.app.applySubscription(f.project, f.service);
+  await f.app.syncSubscription(f.project, f.service);
   assert.equal(f.gets, 2);
   assert.deepEqual(f.mutations.map(({ params }) => params.provider.models), [["new-model"]]);
 });
@@ -635,7 +649,7 @@ test("a forced catalog replacement cannot restore the prepared models array", as
   await f.settled();
   assert.equal(f.gets, 1);
   await f.service.discover({ force: true });
-  await f.app.applySubscription(f.project, f.service);
+  await f.app.syncSubscription(f.project, f.service);
   assert.equal(f.gets, 2);
   assert.deepEqual(f.mutations.map(({ params }) => params.provider.models), [["new-model"]]);
 });
@@ -646,7 +660,7 @@ test("admission failure after preparation retains the existing Core provider", a
   await f.settled();
   assert.equal(f.gets, 1);
   f.service.account.fail(Object.assign(new Error("fixture denied"), { code: "subscription_sharing_usage_limit_exceeded" }), "admission");
-  await f.app.applySubscription(f.project, f.service);
+  await f.app.syncSubscription(f.project, f.service);
   assert.deepEqual(f.mutations, []);
   assert.equal(f.gets, 2);
 });
@@ -686,7 +700,7 @@ for (const change of ["admission failure", "refresh starting", "refresh completi
       assert.equal(await refreshing, "next-access");
     }
     directoryGate.resolve();
-    await f.app.applySubscription(f.project, f.service);
+    await f.app.syncSubscription(f.project, f.service);
     if (change === "refresh completing") {
       assert.deepEqual(f.mutations.map(({ method, params }) => [method, params.provider.models]),
         [["areal/provider/upsert", ["fixture-model"]]]);
@@ -704,7 +718,7 @@ test("nonready preparation expires and a later Core sync retries the catalog", a
   assert.equal(f.gets, 1);
   const now = Date.now();
   t.mock.method(Date, "now", () => now + 30_001);
-  await f.app.applySubscription(f.project, f.service);
+  await f.app.syncSubscription(f.project, f.service);
   assert.equal(f.gets, 2);
   assert.deepEqual(f.mutations.map(({ method }) => method), ["areal/provider/upsert"]);
 });

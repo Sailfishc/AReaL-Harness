@@ -1,12 +1,16 @@
 //! TUI、CLI 与可信 Desktop Main 共用的本地服务入口。
+mod catalog;
 mod client;
+pub use catalog::{CatalogTarget, catalog_target};
+pub mod gui_owner;
 pub mod native_process;
 mod spec;
 pub mod storage;
 
 pub use client::{
-    bind, browser_login_url, ensure, list, probe, reconnect, restart, rpc, select, status, stop,
-    stop_with_generation,
+    bind, browser_login_url, capabilities, ensure, ensure_with_lifetime, ensure_without_restart,
+    list, operation, probe, reconnect, recover_crashed, restart, rpc, select, status,
+    status_with_recovery, stop, stop_operation, stop_with_generation,
 };
 pub use spec::{LaunchSpec, LocalArgs, parse_agent_profile};
 

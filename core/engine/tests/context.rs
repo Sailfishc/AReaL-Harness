@@ -632,10 +632,31 @@ async fn screenshot_request_survives_failed_summary_then_successful_archival_and
         1,
         "HTTP 400 is not a summary validation retry"
     );
+    let mut after = serde_json::to_value(engine.read(&thread.id, true).await.unwrap()).unwrap();
+    let last = after["turns"].as_array().unwrap().len() - 1;
     assert_eq!(
-        before,
-        serde_json::to_value(engine.read(&thread.id, true).await.unwrap()).unwrap()
+        after["turns"][last]["generation"]["unmeasuredRequests"]
+            .as_u64()
+            .unwrap(),
+        before["turns"][last]["generation"]["unmeasuredRequests"]
+            .as_u64()
+            .unwrap()
+            + 1
     );
+    assert_eq!(
+        after["turns"][last]["generation"]["missingUsageRequests"]
+            .as_u64()
+            .unwrap(),
+        before["turns"][last]["generation"]["missingUsageRequests"]
+            .as_u64()
+            .unwrap()
+            + 1
+    );
+    after["turns"][last]["generation"]["unmeasuredRequests"] =
+        before["turns"][last]["generation"]["unmeasuredRequests"].clone();
+    after["turns"][last]["generation"]["missingUsageRequests"] =
+        before["turns"][last]["generation"]["missingUsageRequests"].clone();
+    assert_eq!(before, after);
     model
         .fail_summary
         .store(false, std::sync::atomic::Ordering::SeqCst);
@@ -703,10 +724,32 @@ async fn screenshot_request_survives_failed_summary_then_successful_archival_and
         model.summaries.load(std::sync::atomic::Ordering::SeqCst),
         attempts + 1
     );
+    let mut after_failure =
+        serde_json::to_value(engine.read(&thread.id, true).await.unwrap()).unwrap();
+    let last = after_failure["turns"].as_array().unwrap().len() - 1;
     assert_eq!(
-        before_failure,
-        serde_json::to_value(engine.read(&thread.id, true).await.unwrap()).unwrap()
+        after_failure["turns"][last]["generation"]["unmeasuredRequests"]
+            .as_u64()
+            .unwrap(),
+        before_failure["turns"][last]["generation"]["unmeasuredRequests"]
+            .as_u64()
+            .unwrap()
+            + 1
     );
+    assert_eq!(
+        after_failure["turns"][last]["generation"]["missingUsageRequests"]
+            .as_u64()
+            .unwrap(),
+        before_failure["turns"][last]["generation"]["missingUsageRequests"]
+            .as_u64()
+            .unwrap()
+            + 1
+    );
+    after_failure["turns"][last]["generation"]["unmeasuredRequests"] =
+        before_failure["turns"][last]["generation"]["unmeasuredRequests"].clone();
+    after_failure["turns"][last]["generation"]["missingUsageRequests"] =
+        before_failure["turns"][last]["generation"]["missingUsageRequests"].clone();
+    assert_eq!(before_failure, after_failure);
     // 模型投影不改写权威原文及其附件。
     let full = engine.read(&thread.id, true).await.unwrap();
     assert!(full.turns.iter().flat_map(|t| &t.items).any(|item| {
@@ -1191,6 +1234,7 @@ impl areal_engine::tools::DynamicToolHost for DesignHost {
         _: tokio_util::sync::CancellationToken,
     ) -> anyhow::Result<areal_protocol::DynamicToolResponse> {
         Ok(areal_protocol::DynamicToolResponse {
+            raw_mcp_result: None,
             success: true,
             structured_content: None,
             content_items: vec![areal_protocol::ToolContent::InputText {
@@ -1480,23 +1524,38 @@ async fn shared_budget_prioritizes_new_corrections_over_the_initial_question() {
     let model = continuity_model(
         "Preserve the newest correction; earlier project descriptions are obsolete.",
     );
-    let engine = Engine::open(
-        data.path(),
-        model.clone(),
-        Limits {
-            context_window_tokens: 30000,
-            context_output_reserve_tokens: 1000,
-            context_target_tokens: 6000,
-            ..Default::default()
-        },
-    )
-    .unwrap();
+    let limits = Limits {
+        context_window_tokens: 30000,
+        context_output_reserve_tokens: 1000,
+        ..Default::default()
+    };
+    let engine = Engine::open(data.path(), model.clone(), limits.clone()).unwrap();
     let thread = engine.create("/workspace".into()).await.unwrap();
     let initial = format!(
         "OBSOLETE INITIAL PROJECT SUMMARY {}",
         "old background details ".repeat(300)
     );
     turn(&engine, &thread.id, &initial).await;
+    let base_view = engine.context_read(&thread.id, 0, 32).await.unwrap();
+    let overhead = base_view["budget"]["estimatedInputTokens"]
+        .as_u64()
+        .unwrap()
+        - base_view["budget"]["historyEstimatedTokens"]
+            .as_u64()
+            .unwrap();
+    engine.shutdown().await;
+    drop(engine);
+    // 软、硬窗口都以实际指令/工具开销计量，确保原文确实竞争有限额度，而非全部可容纳。
+    let engine = Engine::open(
+        data.path(),
+        model.clone(),
+        Limits {
+            context_window_tokens: overhead as usize + 4000,
+            context_target_tokens: overhead as usize + 2400,
+            ..limits
+        },
+    )
+    .unwrap();
     for index in 0..8 {
         let current = format!(
             "Correction {index}: only repair current GUI scope. {}",
@@ -1532,4 +1591,44 @@ async fn shared_budget_prioritizes_new_corrections_over_the_initial_question() {
     }));
     assert!(state.turns[0].items.iter().any(|item| matches!(item, areal_protocol::Item::UserMessage { content, .. } if content[0].as_text() == initial)));
     engine.shutdown().await;
+}
+
+#[tokio::test]
+async fn manual_compaction_uses_single_model_capacity_without_nested_admission() {
+    let data = tempfile::tempdir().unwrap();
+    let model = continuity_model("Earlier implementation retained; use the latest correction.");
+    let engine = Engine::open(
+        data.path(),
+        model.clone(),
+        Limits {
+            model_concurrency: 1,
+            context_window_tokens: 30000,
+            context_output_reserve_tokens: 1000,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let thread = engine.create("/workspace".into()).await.unwrap();
+    turn(&engine, &thread.id, "Earlier implementation requirements").await;
+    turn(&engine, &thread.id, "Latest corrected requirements").await;
+    let result = tokio::time::timeout(
+        Duration::from_secs(5),
+        engine.context_compact(thread.id.clone()),
+    )
+    .await;
+    engine.shutdown().await;
+    assert!(
+        result.is_ok(),
+        "manual compaction nested the same single-slot model admission"
+    );
+    let view = result.unwrap().unwrap();
+    assert!(!view["checkpoint"].is_null());
+    assert!(
+        model
+            .requests
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(purpose, _)| *purpose == RequestPurpose::Summary)
+    );
 }

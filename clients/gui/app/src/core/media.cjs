@@ -25,7 +25,7 @@ async function mediaCommand(project, request, backend) {
     if (thread.desktop?.archived) throw new Error('归档会话只读，不能释放附件');
     if (!/^areal:\/\/blob\/[A-Za-z0-9_-]+$/.test(request.uri)) throw new Error('无效附件引用');
     try {
-      return await backend.submit(project, 'areal/blob/release', { threadId: request.threadId, uri: request.uri });
+      return await backend.submit(project, 'areal/blob/release', { threadId: request.threadId, uri: request.uri }, { requestId: request.requestId });
     } catch (error) {
       if (error.submissionUnknown) {
         error.message = `附件释放结果待核对；请检查发送状态并刷新上传记录，不会自动重发。${error.message}`;
@@ -86,6 +86,11 @@ function messageInput(backend, request) {
   const media = request.attachments ?? [];
   if (!Array.isArray(media) || media.length > 16) throw new Error('每条消息最多 16 个附件');
   const input = typeof request.text === 'string' && request.text.trim() ? backend.textInput(request.text) : [];
+  const quotes = request.conversationQuotes ?? [];
+  if (!Array.isArray(quotes) || quotes.length > 8 || quotes.some(quote => !quote || typeof quote.text !== 'string'
+    || !quote.text.trim() || quote.text.length > 8000 || Object.keys(quote).some(key => key !== 'text'))
+    || quotes.reduce((total, quote) => total + quote.text.length, 0) > 16000) throw new Error('引用超出限制');
+  if (quotes.length) input.push({ type: 'text', text: '# userselect:\n```userselect\n' + JSON.stringify(quotes.map(({ text }) => ({ text }))) + '\n```' });
   for (const item of media) {
     if (!['image', 'audio', 'file'].includes(item.type) || !/^areal:\/\/blob\/[A-Za-z0-9_-]+$/.test(item.url)) throw new Error('无效附件');
     input.push(item.type === 'file' ? { type: 'file', url: item.url, name: String(item.name ?? '').slice(0, 255), mime_type: item.mimeType } : { type: item.type, url: item.url });

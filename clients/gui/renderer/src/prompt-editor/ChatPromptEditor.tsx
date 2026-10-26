@@ -1,3 +1,5 @@
+import { ComposerActionButton } from "@areal/ui/wip";
+import { ComputerControlEntry } from '../ComputerControlEntry.js';
 /* oxlint-disable eslint(max-lines) -- 输入壳同时收口 Lexical 同步、拖拽和工具栏插槽，暂不拆组件。 */
 // 输入展示壳：纯 props 组件、无 store/协议依赖；mention 面板通过 enableMentionPanel 透传。
 import type {
@@ -7,7 +9,7 @@ import type {
   MutableRefObject,
   ReactNode,
 } from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { ComposerSurface, ComposerToolbar } from "./ComposerSurface.js";
 const TID_CHAT_SEND_BUTTON = "chat-send-button";
 import { AskPermissionIcon as Hand } from "../permissionIcons.js";
@@ -22,11 +24,14 @@ import {
   type ChatComposerPasteEvent,
   type LexicalChatInputHandle,
 } from "@/LexicalChatInput.js";
-import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+import { UiMessageError, useZCodeIntl } from "@/i18n/IntlProvider.js";
 import type { AppSlashCommand } from "@/slashCommandHelpers.js";
 import {
   hasWorkspaceFileDragPayload,
   readWorkspaceFileDragPayload,
+  WORKSPACE_FILE_ADD_TO_CHAT_EVENT,
+  isWorkspaceFileAddToChatEvent,
+  type WorkspaceFileDragPayload,
 } from "@/lib/workspaceFileDrag.js";
 import { appendWorkspaceFileMentionToComposer } from "@/lib/workspaceFileComposer.js";
 import { usePromptEditorDragState } from "@/prompt-editor/usePromptEditorDragState.js";
@@ -46,15 +51,18 @@ function runAfterFrame(callback: () => void) {
 export function ChatPromptEditor({
   workspacePath,
   workspaceIdentity,
+  referenceScope = "",
   taskId,
   skillCatalogSessionId,
   initialValue,
+  nextPrompt,
   syncInitialValueOnMount = true,
   placeholder,
   disabled = false,
   disabledReason,
   submitting = false,
   submitDisabled = false,
+  submitDisabledReason,
   allowSubmitWhenEmpty = false,
   enterSubmits = true,
   submitLabel,
@@ -63,6 +71,9 @@ export function ChatPromptEditor({
   showSlashButton = false,
   enableWorkspaceFileDrop = false,
   enableExternalFileDrop = false,
+  validateWorkspaceFile,
+  onFileDrop,
+  onWorkspaceReferencePendingChange,
   isDraggingOver = false,
   dragAttachmentHint,
   topContent,
@@ -70,6 +81,7 @@ export function ChatPromptEditor({
   attachmentAction,
   menuActions,
   composerCatalog,
+  pluginMentionCatalog,
   betweenCancelAndSubmitAction,
   submitControl,
   inputTestId,
@@ -81,6 +93,7 @@ export function ChatPromptEditor({
   promptHistory,
   className,
   shellClassName,
+  surfaceLayout = "default",
   compactPlaceholder = false,
   onChange,
   onSubmit,
@@ -98,6 +111,7 @@ export function ChatPromptEditor({
 }: {
   workspacePath: string;
   workspaceIdentity?: string;
+  referenceScope?: string;
   taskId: string | null;
   /** 仅供 Composer Skill catalog；可为草稿的 prewarm Session。 */
   skillCatalogSessionId?: string | null;
@@ -108,6 +122,7 @@ export function ChatPromptEditor({
   disabledReason?: string;
   submitting?: boolean;
   submitDisabled?: boolean;
+  submitDisabledReason?: string;
   allowSubmitWhenEmpty?: boolean;
   enterSubmits?: boolean;
   submitLabel: string;
@@ -116,6 +131,9 @@ export function ChatPromptEditor({
   showSlashButton?: boolean;
   enableWorkspaceFileDrop?: boolean;
   enableExternalFileDrop?: boolean;
+  validateWorkspaceFile?: (payload: WorkspaceFileDragPayload) => Promise<WorkspaceFileDragPayload>;
+  onFileDrop?: (files: File[]) => void;
+  onWorkspaceReferencePendingChange?: (pending: boolean) => void;
   isDraggingOver?: boolean;
   dragAttachmentHint?: string;
   topContent?: ReactNode;
@@ -127,6 +145,7 @@ export function ChatPromptEditor({
     menuItemTestId?: string;
   };
   composerCatalog?: ComposerCatalogData;
+  pluginMentionCatalog?: ComposerCatalogData;
   menuActions?: readonly import("./ChatPromptActionMenu.js").ComposerMenuAction[];
   /** 行内编辑专用：固定插在取消与主提交之间的第二动作。 */
   betweenCancelAndSubmitAction?: ReactNode;
@@ -137,9 +156,11 @@ export function ChatPromptEditor({
   inputApiRef?: MutableRefObject<LexicalChatInputHandle | null>;
   onModeSwitchContainerChange?: (container: HTMLSpanElement | null) => void;
   triggerPanelContainer?: HTMLElement | null;
+  nextPrompt?: string;
   promptHistory?: readonly string[];
   className?: string;
   shellClassName?: string;
+  surfaceLayout?: "default" | "compact";
   compactPlaceholder?: boolean;
   onChange?: (value: string) => void;
   // 适配：返回 false 表示业务层拒绝/延迟本次提交，Lexical 不自行 reset（草稿保留）。
@@ -159,13 +180,35 @@ export function ChatPromptEditor({
   enableMentionPanel?: boolean;
 }) {
   const { intl } = useZCodeIntl();
+  const submitDescriptionId = useId();
+  const submitBlockedReason = submitDisabled ? submitDisabledReason : undefined;
   const toolbarRef = useComposerToolbarFit();
   const internalInputApiRef = useRef<LexicalChatInputHandle | null>(null);
   const resolvedInputApiRef = inputApiRef ?? internalInputApiRef;
+  const catalogSelection = useRef<ReturnType<LexicalChatInputHandle["getEditorState"]> | undefined>(undefined);
   const [internalTriggerPanelContainer, setInternalTriggerPanelContainer] =
     useState<HTMLDivElement | null>(null);
   const resolvedTriggerPanelContainer = triggerPanelContainer ?? internalTriggerPanelContainer;
   const latestTextRef = useRef(initialValue ?? "");
+  const formRef = useRef<HTMLFormElement | null>(null);
+  const [dropError, setDropError] = useState("");
+  const [pendingReferences, setPendingReferences] = useState(0);
+  const pendingReferencesRef = useRef(0);
+  const inputScope = `${workspacePath}\n${workspaceIdentity ?? ""}\n${taskId ?? ""}\n${referenceScope}`;
+  const scopeRef = useRef({ key: inputScope });
+  if (scopeRef.current.key !== inputScope) {
+    pendingReferencesRef.current = 0;
+    scopeRef.current = { key: inputScope };
+  }
+  useEffect(() => {
+    setPendingReferences(0); setDropError("");
+    onWorkspaceReferencePendingChange?.(false);
+    return () => onWorkspaceReferencePendingChange?.(false);
+  }, [inputScope, onWorkspaceReferencePendingChange]);
+  const acceptsInputRef = useRef(!disabled);
+  acceptsInputRef.current = !disabled;
+  useEffect(() => () => { scopeRef.current = { key: "" }; }, []);
+
   const hasSyncedInitialValueRef = useRef(false);
   const userEditedSinceMount = useRef(false);
   const {
@@ -226,14 +269,15 @@ export function ChatPromptEditor({
   const handleSubmit: FormEventHandler<HTMLFormElement> = useCallback(
     (event) => {
       event.preventDefault();
-      onSubmit(resolvedInputApiRef.current?.getMarkdown() ?? latestTextRef.current);
+      if (!pendingReferencesRef.current) onSubmit(resolvedInputApiRef.current?.getMarkdown() ?? latestTextRef.current);
     },
     [onSubmit, resolvedInputApiRef],
   );
 
   const handleKeyDown: KeyboardEventHandler<HTMLFormElement> = useCallback(
     (event) => {
-      if (event.key !== "Escape" || !onCancel || submitting) {
+      if (event.key !== "Escape" || !onCancel || submitting ||
+        event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) {
         return;
       }
 
@@ -257,7 +301,7 @@ export function ChatPromptEditor({
   const handleEditorSubmit = useCallback(
     // 适配：透传业务层返回值（false = 不 reset 编辑器，草稿保留），
     // 吞掉返回值会让 Enter 路径总是清空。
-    (value: string) => onSubmit(value),
+    (value: string) => pendingReferencesRef.current ? false : onSubmit(value),
     [onSubmit],
   );
 
@@ -275,6 +319,8 @@ export function ChatPromptEditor({
         return;
       }
       if (enableExternalFileDrop && Array.from(event.dataTransfer.types).includes("Files")) {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "copy";
         setExternalFileDragging(true);
       }
 
@@ -296,46 +342,66 @@ export function ChatPromptEditor({
     [onDragLeave],
   );
 
-  const handleDrop: DragEventHandler<HTMLDivElement> = useCallback(
-    (event) => {
-      const workspaceFilePayload = enableWorkspaceFileDrop
-        ? readWorkspaceFileDragPayload(event.dataTransfer)
-        : null;
-      if (workspaceFilePayload) {
-        // file tree 拖拽不是系统文件，不能走附件分支；
-        // 这里统一转换成和 @ 文件一致的 mention，避免 contenteditable 插入纯文本。
-        event.preventDefault();
-        // 用户消息编辑器嵌套在 ChatView drop target 内；消费后必须停止冒泡，
-        // 否则同一条 mention 还会被底部主输入框再次接收。
-        event.stopPropagation();
-        setInternalDragging(false);
-        setWorkspaceFileDragging(false);
-        const currentMarkdown = resolvedInputApiRef.current?.getMarkdown() ?? latestTextRef.current;
-        appendWorkspaceFileMentionToComposer({
-          inputApiRef: resolvedInputApiRef,
-          currentMarkdown,
-          payload: workspaceFilePayload,
-          workspacePath,
-          workspaceIdentity,
-          onTextChange: handleTextChange,
-        });
-        return;
+  const insertWorkspaceFile = useCallback(async (payload: WorkspaceFileDragPayload) => {
+    if (!enableWorkspaceFileDrop || !validateWorkspaceFile || disabled || !formRef.current?.getClientRects().length) return;
+    const scope = scopeRef.current;
+    setDropError("");
+    pendingReferencesRef.current += 1;
+    setPendingReferences(pendingReferencesRef.current);
+    onWorkspaceReferencePendingChange?.(true);
+    try {
+      const validated = await validateWorkspaceFile(payload);
+      if (scope !== scopeRef.current || !acceptsInputRef.current || !formRef.current?.getClientRects().length) return;
+      appendWorkspaceFileMentionToComposer({ inputApiRef: resolvedInputApiRef,
+        currentMarkdown: resolvedInputApiRef.current?.getMarkdown() ?? latestTextRef.current,
+        payload: validated, workspacePath, workspaceIdentity, onTextChange: handleTextChange });
+    } catch (error) {
+      if (scope === scopeRef.current) setDropError(error instanceof UiMessageError ? intl.formatMessage(error.descriptor) : error instanceof Error ? error.message : String(error));
+    } finally {
+      if (scope === scopeRef.current) {
+        pendingReferencesRef.current -= 1;
+        setPendingReferences(pendingReferencesRef.current);
+        onWorkspaceReferencePendingChange?.(pendingReferencesRef.current > 0);
       }
+    }
+  }, [enableWorkspaceFileDrop, validateWorkspaceFile, disabled, resolvedInputApiRef, workspacePath, workspaceIdentity, handleTextChange, onWorkspaceReferencePendingChange, intl]);
 
-      setInternalDragging(false);
-      setWorkspaceFileDragging(false);
-      setExternalFileDragging(false);
-      onDrop?.(event);
-    },
-    [
-      enableWorkspaceFileDrop,
-      handleTextChange,
-      onDrop,
-      resolvedInputApiRef,
-      workspaceIdentity,
-      workspacePath,
-    ],
-  );
+  useEffect(() => {
+    if (!enableWorkspaceFileDrop || disabled) return;
+    const add = (event: Event) => {
+      if (!isWorkspaceFileAddToChatEvent(event) || event.defaultPrevented || !formRef.current?.getClientRects().length) return;
+      event.preventDefault();
+      void insertWorkspaceFile(event.detail);
+    };
+    window.addEventListener(WORKSPACE_FILE_ADD_TO_CHAT_EVENT, add);
+    return () => window.removeEventListener(WORKSPACE_FILE_ADD_TO_CHAT_EVENT, add);
+  }, [enableWorkspaceFileDrop, disabled, insertWorkspaceFile]);
+
+  const handleDrop: DragEventHandler<HTMLDivElement> = useCallback((event) => {
+    setInternalDragging(false);
+    setWorkspaceFileDragging(false);
+    setExternalFileDragging(false);
+    if (hasWorkspaceFileDragPayload(event.dataTransfer)) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (disabled || !enableWorkspaceFileDrop) return;
+      const payload = readWorkspaceFileDragPayload(event.dataTransfer);
+      if (!payload) setDropError(intl.formatMessage({ id: "chat.composer.workspaceReferenceInvalid" }));
+      else void insertWorkspaceFile(payload);
+      return;
+    }
+    if (enableExternalFileDrop && Array.from(event.dataTransfer.types).includes("Files")) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (disabled) return;
+      const directory = Array.from(event.dataTransfer.items).some(item => item.webkitGetAsEntry?.()?.isDirectory);
+      const files = Array.from(event.dataTransfer.files);
+      if (directory || !files.length) setDropError(intl.formatMessage({ id: "chat.composer.externalFolderUnsupported" }));
+      else { setDropError(""); onFileDrop?.(files); }
+      return;
+    }
+    onDrop?.(event);
+  }, [disabled, enableWorkspaceFileDrop, enableExternalFileDrop, insertWorkspaceFile, onFileDrop, onDrop, intl]);
 
   // file tree 拖进编辑框时走的是 mention 插入，不是附件上传。
   // 这里单独使用 workspace file 文案，并从拖拽开始事件就点亮可投放状态，避免必须 over 到输入框才有反馈。
@@ -349,6 +415,7 @@ export function ChatPromptEditor({
 
   return (
     <form
+      ref={formRef}
       onInputCapture={() => {
         userEditedSinceMount.current = true;
       }}
@@ -363,6 +430,7 @@ export function ChatPromptEditor({
         />
       )}
       <ComposerSurface
+        layout={surfaceLayout}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
@@ -377,15 +445,16 @@ export function ChatPromptEditor({
           </div>
         ) : null}
 
-        context={topContent}
+        context={<>{topContent}{submitBlockedReason && <p id={submitDescriptionId} className="composer-submit-feedback" role="status">{submitBlockedReason}</p>}{pendingReferences > 0 && <p role="status" className="notice">{intl.formatMessage({ id: "chat.composer.workspaceReferencePending" })}</p>}{dropError && <p role="alert" className="notice text-destructive">{dropError}</p>}</>}
         editor={<LexicalChatInput
           placeholder={placeholder}
+          nextPrompt={nextPrompt}
           disabled={disabled}
-          submitDisabled={submitDisabled}
+          submitDisabled={submitDisabled || pendingReferences > 0}
           allowSubmitWhenEmpty={allowSubmitWhenEmpty}
           enterSubmits={enterSubmits}
           onSubmit={handleEditorSubmit}
-          onModifiedSubmit={onModifiedSubmit}
+          onModifiedSubmit={onModifiedSubmit ? value => pendingReferencesRef.current ? false : onModifiedSubmit(value) : undefined}
           onChange={handleTextChange}
           onFocus={onFocus}
           triggerPanelContainer={resolvedTriggerPanelContainer}
@@ -402,11 +471,18 @@ export function ChatPromptEditor({
           excludedSlashCommandNames={excludedSlashCommandNames}
           appSlashCommands={appSlashCommands}
           composerCatalog={composerCatalog}
+          pluginMentionCatalog={pluginMentionCatalog}
           enableMentionPanel={enableMentionPanel}
         />}
         toolbar={<ComposerToolbar ref={toolbarRef}
           leading={<>
-              {composerCatalog ? <ComposerCatalogTrigger catalog={composerCatalog} anchor={resolvedTriggerPanelContainer} disabled={disabled} onClose={() => resolvedInputApiRef.current?.focus()} /> : hasActionMenu ? (
+              {composerCatalog ? <ComposerCatalogTrigger catalog={composerCatalog} anchor={resolvedTriggerPanelContainer} disabled={disabled}
+                onOpen={() => { catalogSelection.current = resolvedInputApiRef.current?.getEditorState(); }}
+                onChoose={entry => {
+                  if (entry.mention) resolvedInputApiRef.current?.insertMention(entry.mention, catalogSelection.current);
+                  entry.run();
+                }}
+                onClose={() => { catalogSelection.current = undefined; resolvedInputApiRef.current?.focus(); }} /> : hasActionMenu ? (
                 <ChatPromptActionMenu
                   actionMenuTitle={actionMenuTitle}
                   excludedSlashCommandNames={excludedSlashCommandNames}
@@ -445,20 +521,23 @@ export function ChatPromptEditor({
                 </Button>
               </ControlHintTooltip>
             ) : null}
+            <ComputerControlEntry />
             {betweenCancelAndSubmitAction}
             {submitControl ?? (
-              <ControlHintTooltip title={submitLabel} shortcut={enterSubmits ? "Enter" : "⌘/Ctrl+Enter"}>
-                <Button
-                  type="submit"
-                  variant="composer"
-                  size="icon-md"
-                  disabled={submitDisabled}
-                  data-testid={submitTestId ?? TID_CHAT_SEND_BUTTON}
-                  aria-label={submitLabel}
-                >
-                  {submitting ? <Spinner className="size-4" /> : <SendMessageIcon className="size-5" />}
-                  <span className="sr-only">{submitLabel}</span>
-                </Button>
+              <ControlHintTooltip title={submitBlockedReason ?? submitLabel} shortcut={submitBlockedReason ? undefined : enterSubmits ? "Enter" : "⌘/Ctrl+Enter"}>
+                <span className="inline-flex">
+                  <ComposerActionButton
+                    type="submit"
+                    size="icon"
+                    disabled={submitDisabled || pendingReferences > 0}
+                    data-testid={submitTestId ?? TID_CHAT_SEND_BUTTON}
+                    aria-label={submitLabel}
+                    aria-describedby={submitBlockedReason ? submitDescriptionId : undefined}
+                  >
+                    {submitting ? <Spinner className="size-4" /> : <SendMessageIcon className="size-5" />}
+                    <span className="sr-only">{submitLabel}</span>
+                  </ComposerActionButton>
+                </span>
               </ControlHintTooltip>
             )}
           </>}

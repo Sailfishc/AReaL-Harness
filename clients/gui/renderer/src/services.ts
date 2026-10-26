@@ -1,11 +1,12 @@
 // The renderer consumes only the narrow preload contract. Execution facts remain in Core.
 import { validateCommand, validateCommandResponse } from '@areal/workbench/desktop-contract';
 import type { CommandName, CommandParams, DesktopResult, PreviewRequest } from '@areal/workbench/desktop-contract';
+import type { McpAppCommand, McpAppDeepLink, McpAppEvent, McpFormResourceCommand } from "./mcp-app-services.js";
 export type { CommandName };
 export type Data = Record<string, any>;
 export type FileOpenTargets = { targets: { id: string; label: string }[]; preferred: string; preferredLabel: string };
 export type FileOpenRequest = { operation: 'targets' } | { operation: 'setDefault'; target: string }
-    | { operation: 'open' | 'reveal' | 'saveAs'; projectId: string; path: string };
+    | { operation: 'open' | 'reveal' | 'saveAs'; projectId: string; threadId?: string; path: string };
 export interface Snapshot {
     projects: Data[];
     desktopCapabilities?: { currentCommands: boolean };
@@ -14,8 +15,14 @@ export interface Snapshot {
     projectless?: { directory: string };
     revision?: number;
     connection?: { state: 'connecting' | 'ready' | 'unavailable'; message?: string; recovery?: 'check' };
+    serviceSummary?: { state: 'running' | 'stopped' | 'unknown'; busy: boolean };
     backendUpdate?: { state: 'applying' | 'pending' | 'failed'; message?: string };
+    lifecycle?: { recovery?: { canRecover: boolean; message: string; projects: { projectId: string; root: string; state: string; message: string }[] }; supported: boolean; phase?: string; message?: string; error?: string; requestId?: string; kind?: string; desktopExit?: string;
+      targets?: { projectId: string; phase: string; message?: string }[];
+      operations: { requestId: string; kind: string; phase: string; message?: string; threadId?: string; turnId?: string;
+        desktopExit?: string; targets: { projectId: string; phase: string; message?: string }[] }[] };
     library?: Data;
+    computerControl?: Data | null;
 }
 export interface UpdateState {
     enabled: boolean;
@@ -27,9 +34,16 @@ export interface UpdateState {
     detail?: string;
 }
 export type NotificationTarget = { projectId: string } & ({ threadId: string; taskId?: never } | { taskId: string; runId?: string; questionId?: string });
+export type QuitProgress = { state: 'idle' } | { state: 'quitting'; phase: 'checking' | 'stopping' | 'finishing' };
 export interface PlatformServices {
-    /** The initial selected view has committed; desktop may reveal its window. */
+    mcpApp?: McpAppCommand;
+    onMcpAppEvent?(listener: (event: McpAppEvent) => void): () => void;
+    onMcpAppDeepLink?(listener: (link: McpAppDeepLink) => Promise<void> | void): () => void;
+    mcpFormResource?: McpFormResourceCommand;
+    /** The themed initial window has painted; desktop may reveal before backend or history restoration. */
     presentReady?(): Promise<void>;
+    onQuitRequested?(listener: () => Promise<boolean>): () => void;
+    onQuitProgress?(listener: (progress: QuitProgress) => void): () => void;
     onNotificationOpen?(listener: (target: NotificationTarget) => void): () => void;
     updateState?(): Promise<UpdateState>;
     downloadUpdate?(): Promise<UpdateState>;
@@ -63,8 +77,9 @@ export type PreparedCreator = {
   provenance: { upstream: string; revision: string; contentDigest: string };
 };
 type SideResult<Operation extends SideRequest["operation"]> =
-  Operation extends "start" ? { threadId: string; requestId: string; turnId?: string } :
-  Operation extends "recover" ? { confirmed: false } | { confirmed: true; threadId: string } :
+  Operation extends "start" | "create" ? { threadId: string; requestId: string; turnId?: string } :
+  Operation extends "close" ? { requestId: string; threadId: string; accepted: boolean; cleanupConfirmed: boolean } :
+  Operation extends "recover" ? { confirmed: false } | { confirmed: true; requestId: string; threadId: string; turnId?: string; accepted?: boolean; cleanupConfirmed?: boolean } :
   Operation extends "list" ? { data: Record<string, unknown>[]; nextCursor?: string | null } :
   Operation extends "context" ? { snapshotId: string; evidence: Record<string, unknown>[]; nextCursor?: string | null } :
   { turn: { id: string } };

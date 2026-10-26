@@ -4,7 +4,7 @@ use super::*;
 
 // 读取与订阅快照共用当前执行状态；冻结历史不持久化模型容量等待。
 fn project_side_capacity(thread: &mut Thread, active: Option<&Active>) {
-    if thread.is_side()
+    if thread.is_read_only_side()
         && let Some(desktop) = thread.desktop.as_mut()
     {
         desktop.side_capacity_status = active.map(|active| {
@@ -29,7 +29,7 @@ impl Engine {
     pub async fn create(self: &Arc<Self>, cwd: String) -> Result<Thread> {
         self.mutate(move |engine| async move {
             engine
-                .create_inner(cwd, None, None, Vec::new(), None, None)
+                .create_inner(cwd, None, None, Vec::new(), None, None, false)
                 .await
                 .map(|(thread, _)| thread)
         })
@@ -44,7 +44,7 @@ impl Engine {
     ) -> Result<Thread> {
         self.mutate(move |engine| async move {
             engine
-                .create_inner(cwd, None, None, definitions, Some(host), None)
+                .create_inner(cwd, None, None, definitions, Some(host), None, false)
                 .await
                 .map(|(thread, _)| thread)
         })
@@ -59,6 +59,7 @@ impl Engine {
     ) -> Result<()> {
         let cell = self.cell(thread_id).await?;
         let state = cell.state.lock().await;
+        self.ensure_hook_session_open(&cell, &state.thread)?;
         if state.thread.dynamic_tools.is_empty() {
             return Ok(());
         }
@@ -77,6 +78,8 @@ impl Engine {
         Ok(())
     }
 
+    // TaskRun 的独立 Session 也需复用创建与回滚边界，预检不能延后到首个工具。
+    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn create_inner(
         self: &Arc<Self>,
         cwd: String,
@@ -85,6 +88,7 @@ impl Engine {
         dynamic_tools: Vec<areal_protocol::ToolDefinition>,
         host: Option<Arc<dyn tools::DynamicToolHost>>,
         desktop: Option<areal_protocol::desktop::DesktopState>,
+        check_execution: bool,
     ) -> Result<(Thread, Option<Turn>)> {
         let _admission = self.tasks.token();
         if !self.accepting_work() {
@@ -176,6 +180,8 @@ impl Engine {
             session_id: parent.map_or(thread_id.clone(), |p| p.session_id.clone()),
             parent_thread_id: parent.map(|p| p.id.clone()),
             preview: String::new(),
+            name: None,
+            name_attempt_turn_id: None,
             model_provider: self.model_provider(),
             created_at: now(),
             updated_at: now(),
@@ -214,7 +220,11 @@ impl Engine {
             None => None,
         };
         // 注册预留容量后释放目录锁；磁盘 I/O 不串行化不同会话。
-        let cell = Cell::new(thread.clone(), depth, bindings);
+        let parent_scratch = match parent {
+            Some(parent) => Some(self.raw_cell(&parent.id).await?.scratch_path.clone()),
+            None => None,
+        };
+        let cell = Cell::new(thread.clone(), depth, bindings, parent_scratch.as_deref());
         if let Some(hooks) = inherited_hooks
             && !research
         {
@@ -232,13 +242,43 @@ impl Engine {
             }
         }
         let mut scratch_reservation = PendingScratch(None);
-        if research {
-            let scratch = self
-                .command_scratch(&cell)
-                .ok_or_else(|| Error::Invalid("research agent scratch unavailable".into()))?;
+        let scratch = self.command_scratch(&cell);
+        if research && scratch.is_none() {
+            return Err(Error::Invalid("research agent scratch unavailable".into()));
+        }
+        if (research || check_execution || (parent.is_some() && initial.is_some()))
+            && let Some(scratch) = scratch
+        {
+            if let Some(parent) = scratch.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| Error::Storage(format!("create agent scratch parent: {e}")))?;
+            }
             std::fs::create_dir(&scratch)
                 .map_err(|e| Error::Storage(format!("create private agent scratch: {e}")))?;
             scratch_reservation.0 = Some(scratch);
+        }
+        if (check_execution || (parent.is_some() && initial.is_some()))
+            && let Some(runtime) = &self.runtime
+        {
+            // 子任务先证明收窄后的执行路径可用，再持久化和发送首个模型请求。
+            // 这是只读能力查询；拒绝不创建执行，也不改变父任务的权限和可用性。
+            let permissions = self.active_permissions(&cell).await.map_err(|error| {
+                Error::Invalid(format!("child scope preparation failed: {error}"))
+            })?;
+            let checked = runtime.client.check_scope(areal_runtime_protocol::CheckScope {
+                parent_scope_id: runtime.command_scope.as_ref().map_or_else(
+                    || runtime.client.info().root_scope_id.clone(),
+                    |scope| scope.scope_id.clone(),
+                ),
+                permissions,
+            }).await.map_err(|error| Error::Invalid(format!(
+                "child execution unavailable before model start: {error}; continue in the parent or use a deployment that supports this scope; do not widen permissions or retry unchanged"
+            )))?;
+            if !checked.available {
+                return Err(Error::Invalid(
+                    "child execution scope is unavailable; no child was started".into(),
+                ));
+            }
         }
         let mut guard = cell.state.lock().await;
         {
@@ -377,6 +417,79 @@ impl Engine {
         Ok((thread, ownership, cell.events.subscribe()))
     }
 
+    /// 有界显示与订阅仍在 Thread → Tasks 同一临界区；传输外壳由调用方提供并一起预算。
+    pub async fn snapshot_and_subscribe_bounded(
+        &self,
+        thread_id: &str,
+        identity: &str,
+        allowed: Option<&std::collections::BTreeSet<String>>,
+        max_bytes: usize,
+        mut envelope: Value,
+    ) -> Result<(Value, broadcast::Receiver<Value>)> {
+        let cell = self.raw_cell(thread_id).await?;
+        let state = cell.state.lock().await;
+        let (ownership, _tasks) = self.ownership_and_lock(&state.thread, allowed).await;
+        let mut thread = if state.thread.desktop.as_ref().is_some_and(|d| d.archived) {
+            self.store
+                .read_thread_record(thread_id)
+                .await
+                .map_err(|e| Error::Storage(e.to_string()))?
+        } else {
+            state.thread.clone()
+        };
+        project_side_capacity(&mut thread, state.active.as_ref());
+        self.refresh_goal_usage(&mut thread);
+        let mut metadata = thread.clone();
+        metadata.turns.clear();
+        metadata.context_checkpoint = None;
+        if let Some(desktop) = metadata.desktop.as_mut() {
+            desktop.receipts.clear();
+        }
+        envelope["cwd"] = json!(metadata.cwd);
+        envelope["thread"] = json!(metadata);
+        envelope["ownership"] = json!(ownership);
+        let empty_active_turn = thread
+            .turns
+            .last()
+            .filter(|turn| turn.status == TurnStatus::InProgress && turn.items.is_empty())
+            .cloned();
+        let result = self
+            .store
+            .own_history_page(
+                thread,
+                identity.into(),
+                None,
+                max_bytes,
+                Some(envelope),
+                empty_active_turn,
+            )
+            .await?;
+        Ok((result, cell.events.subscribe()))
+    }
+
+    /// 旧页仅构造显示投影；归档会话从持久 Record 读取，不能使用已释放 turns 的驻留副本。
+    pub async fn own_history(
+        &self,
+        identity: &str,
+        thread_id: &str,
+        cursor: Option<String>,
+        max_bytes: usize,
+    ) -> Result<Value> {
+        let cell = self.raw_cell(thread_id).await?;
+        let state = cell.state.lock().await;
+        let thread = if state.thread.desktop.as_ref().is_some_and(|d| d.archived) {
+            self.store
+                .read_thread_record(thread_id)
+                .await
+                .map_err(|e| Error::Storage(e.to_string()))?
+        } else {
+            state.thread.clone()
+        };
+        self.store
+            .own_history_page(thread, identity.into(), cursor, max_bytes, None, None)
+            .await
+    }
+
     pub async fn spawn_child(
         self: &Arc<Self>,
         parent_id: &str,
@@ -417,6 +530,7 @@ impl Engine {
         }
         let execution_policy = areal_protocol::delegation::ChildExecutionPolicy {
             exclusive_write: request.workspace_mode.as_deref() == Some("sharedWrite"),
+            ..Default::default()
         };
         self.mutate(move |engine| async move {
             engine
@@ -455,7 +569,11 @@ impl Engine {
                     Some(&parent_turn),
                     Some(&request),
                     max_model_rounds,
-                    areal_protocol::delegation::ChildExecutionPolicy { exclusive_write },
+                    areal_protocol::delegation::ChildExecutionPolicy {
+                        exclusive_write,
+                        deferred_write: !exclusive_write
+                            && request.workspace_mode.as_deref() == Some("sharedWrite"),
+                    },
                 )
                 .await
         })
@@ -492,7 +610,7 @@ impl Engine {
         model_parent_turn: Option<&str>,
         request: Option<&areal_protocol::desktop::AgentSpawn>,
         max_model_rounds: Option<usize>,
-        execution_policy: areal_protocol::delegation::ChildExecutionPolicy,
+        mut execution_policy: areal_protocol::delegation::ChildExecutionPolicy,
     ) -> Result<(Thread, Turn)> {
         let parent = self.cell(parent_id).await?;
         let mut state = parent.state.lock().await;
@@ -513,6 +631,18 @@ impl Engine {
         }
         let token = active.cancel.child_token();
         let mut configuration = self.child_configuration(&state.thread, request)?;
+        // 父配置或可信 Profile 的只读限制不能被继承模式解除。
+        if configuration
+            .as_ref()
+            .is_some_and(|config| config.read_only)
+        {
+            execution_policy.deferred_write = false;
+        }
+        if execution_policy.deferred_write {
+            configuration.get_or_insert_with(Default::default).instructions.push_str(
+                "\nThis is an inspection/report task. It inherits the parent's execution permissions, not a separate read-only OS sandbox. Do not modify source: those capabilities are not authorization to expand your assigned task. Use file reads and search where sufficient; commands and ambient tools may acquire an exclusive workspace lease. Return findings and evidence."
+            );
+        }
         if let Some(max) = max_model_rounds {
             let config = configuration.get_or_insert_with(Default::default);
             if max == 0
@@ -531,7 +661,7 @@ impl Engine {
             if state.thread.desktop.is_none() {
                 // 为预算创建配置不能顺带开放原父任务未启用的桌面工具。
                 let mut allowed: Vec<_> = self
-                    .visible_tools(&parent, config, false)
+                    .visible_tools(&parent, config, false, &state.thread)
                     .await
                     .iter()
                     .filter_map(|d| d["function"]["name"].as_str().map(str::to_owned))
@@ -579,6 +709,7 @@ impl Engine {
                     execution_policy,
                     ..Default::default()
                 }),
+                false,
             )
             .await?;
         let turn = turn.expect("child creation includes its initial turn");

@@ -9,6 +9,11 @@ use std::{
 
 const ENV: &[(&str, &str, &str)] = &[
     (
+        "AREAL_HARNESS_INSPECTION_PERMISSIONS",
+        "",
+        "delegation.inspection_permissions",
+    ),
+    (
         "AREAL_HARNESS_SUMMARY_REASONING_EFFORT",
         "",
         "model.summary_reasoning_effort",
@@ -96,6 +101,7 @@ const ENV: &[(&str, &str, &str)] = &[
         "model.repetition_penalty",
     ),
     ("AREAL_HARNESS_MODEL_MAX_RETRIES", "", "model.max_retries"),
+    ("AREAL_HARNESS_NETWORK_RETRY_MODE", "", "network.retry_mode"),
     (
         "AREAL_HARNESS_MODEL_MAX_REQUEST_BYTES",
         "",
@@ -105,6 +111,11 @@ const ENV: &[(&str, &str, &str)] = &[
         "AREAL_HARNESS_WATCHDOG_DISABLE",
         "",
         "limits.watchdog_disable",
+    ),
+    (
+        "AREAL_HARNESS_MODEL_REQUEST_TIMEOUT_SECONDS",
+        "",
+        "limits.model_request_timeout_seconds",
     ),
     (
         "AREAL_HARNESS_STREAM_IDLE_TIMEOUT_SECONDS",
@@ -358,7 +369,7 @@ pub(crate) fn valid(field: &str, entry: &Entry) -> Result<()> {
         "reasoning_effort" | "summary_reasoning_effort" => {
             if !matches!(
                 value.as_str(),
-                "none" | "minimal" | "low" | "medium" | "high" | "xhigh"
+                "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"
             ) {
                 return Err(reject("unsupported reasoning effort"));
             }
@@ -413,12 +424,24 @@ pub(crate) fn valid(field: &str, entry: &Entry) -> Result<()> {
                 return Err(reject("context mode must be auto, manual or disabled"));
             }
         }
+        "retry_mode" => {
+            if !matches!(value.as_str(), "persistent" | "bounded") {
+                return Err(reject("retry mode must be persistent or bounded"));
+            }
+        }
         "watchdog_disable"
         | "context_compaction_enabled"
         | "responses_websocket"
         | "command_stdin_closed" => {
             if !matches!(value.as_str(), "0" | "1" | "false" | "true") {
                 return Err(reject("boolean must be 0/1 or false/true"));
+            }
+        }
+        "inspection_permissions" => {
+            if !matches!(value.as_str(), "read-only" | "inherit") {
+                return Err(reject(
+                    "inspection permissions must be read-only or inherit",
+                ));
             }
         }
         "max_request_bytes" => {
@@ -459,7 +482,7 @@ pub(crate) fn valid(field: &str, entry: &Entry) -> Result<()> {
                 return Err(reject("goal limit is out of range"));
             }
         }
-        "stream_idle_timeout_seconds" => {
+        "model_request_timeout_seconds" | "stream_idle_timeout_seconds" => {
             if !value.bytes().all(|b| b.is_ascii_digit())
                 || value
                     .parse::<u64>()
@@ -612,6 +635,7 @@ pub(crate) fn load_mode(
     let catalog_managed = file.values.contains_key("model.catalog_version");
     let mut values = BTreeMap::new();
     for (field, value) in [
+        ("delegation.inspection_permissions", "read-only"),
         ("permissions.mode", "YOLO"),
         ("permissions.allow", "[]"),
         ("permissions.ask", "[]"),
@@ -632,6 +656,7 @@ pub(crate) fn load_mode(
         ("limits.max_side_turn_seconds", "300"),
         ("limits.max_children_per_turn", "64"),
         ("limits.max_agent_depth", "8"),
+        ("limits.model_request_timeout_seconds", "300"),
         ("limits.stream_idle_timeout_seconds", "30"),
         ("limits.max_history_bytes", "0"),
         ("limits.max_output_bytes", "0"),
@@ -657,6 +682,7 @@ pub(crate) fn load_mode(
         ("limits.max_repeated_tool_failures", "0"),
         ("limits.command_stdin_closed", "true"),
         ("limits.watchdog_disable", "false"),
+        ("network.retry_mode", "persistent"),
         ("logging.filter", "info"),
     ] {
         insert(
@@ -801,6 +827,16 @@ pub(crate) fn load_mode(
         }
     }
     let provider = values["model.provider"].value.clone();
+    let selected_capabilities = catalog
+        .iter()
+        .find(|entry| entry.id == provider)
+        .and_then(|entry| {
+            entry
+                .models
+                .iter()
+                .find(|model| model.id == values["model.name"].value)
+        })
+        .and_then(|model| model.capabilities.clone());
     // 参数按全局显式值、模型默认值、供应商默认值逐层补齐；环境和 CLI 已在上方覆盖。
     if let Some(entry) = catalog.iter().find(|p| p.id == provider) {
         let model = values
@@ -910,6 +946,10 @@ pub(crate) fn load_mode(
     sources.insert("home".into(), home_source);
     sources.insert("config_file".into(), selected_source);
     let result = ResolvedCoreConfig {
+        inspection_permissions: match values["delegation.inspection_permissions"].value.as_str() {
+            "inherit" => InspectionPermissions::Inherit,
+            _ => InspectionPermissions::ReadOnly,
+        },
         trajectory: TrajectoryConfig::resolve(
             &values,
             trajectory_source_id,
@@ -945,6 +985,7 @@ pub(crate) fn load_mode(
             .get("tools.extensions_file")
             .map(|v| PathBuf::from(&v.value)),
         model: SelectedModelConfig {
+            capabilities: selected_capabilities,
             context_window_tokens: values
                 .get("model.context_window_tokens")
                 .map(|v| v.value.parse().unwrap()),
@@ -1017,6 +1058,10 @@ pub(crate) fn load_mode(
             .parse()
             .unwrap(),
         max_agent_depth: values["limits.max_agent_depth"].value.parse().unwrap(),
+        model_request_timeout_seconds: values["limits.model_request_timeout_seconds"]
+            .value
+            .parse()
+            .unwrap(),
         stream_idle_timeout_seconds: values["limits.stream_idle_timeout_seconds"]
             .value
             .parse()
@@ -1089,6 +1134,10 @@ pub(crate) fn load_mode(
             values["limits.watchdog_disable"].value.as_str(),
             "1" | "true"
         ),
+        network_retry_mode: match values["network.retry_mode"].value.as_str() {
+            "bounded" => crate::NetworkRetryMode::Bounded,
+            _ => crate::NetworkRetryMode::Persistent,
+        },
         log_filter: values["logging.filter"].value.clone(),
         sources,
         warnings,

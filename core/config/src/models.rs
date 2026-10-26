@@ -74,6 +74,16 @@ impl Parameters {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ModelCapabilities {
+    pub tools: bool,
+    pub vision: bool,
+    pub reasoning: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort_options: Option<Vec<String>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ModelConfig {
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -82,6 +92,8 @@ pub struct ModelConfig {
     pub enabled: bool,
     #[serde(default)]
     pub parameters: Parameters,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<ModelCapabilities>,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -196,6 +208,36 @@ fn validate(data: &[ProviderConfig], default: Option<&ModelRef>, at: &ConfigSour
                 return Err(invalid(at, "invalid or duplicate model ID or display name"));
             }
             model.parameters.validate(at)?;
+            if let Some(capabilities) = &model.capabilities
+                && let Some(options) = &capabilities.reasoning_effort_options
+                && (options.len() > 7
+                    || options.iter().collect::<BTreeSet<_>>().len() != options.len()
+                    || options.iter().any(|value| {
+                        !matches!(
+                            value.as_str(),
+                            "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"
+                        )
+                    })
+                    || (!capabilities.reasoning && !options.is_empty()))
+            {
+                return Err(invalid(at, "invalid model reasoning effort options"));
+            }
+            if let Some(capabilities) = &model.capabilities
+                && capabilities.reasoning
+                && let Some(options) = &capabilities.reasoning_effort_options
+                && !options.is_empty()
+                && model
+                    .parameters
+                    .reasoning_effort
+                    .as_ref()
+                    .or(provider.parameters.reasoning_effort.as_ref())
+                    .is_some_and(|effort| !options.contains(effort))
+            {
+                return Err(invalid(
+                    at,
+                    "configured reasoning effort is not supported by the model",
+                ));
+            }
         }
     }
     if let Some(default) = default {
@@ -230,6 +272,7 @@ fn json_value(item: &Item, at: &ConfigSource) -> Result<Value> {
                 "max_output_tokens" => "maxOutputTokens",
                 "context_window_tokens" => "contextWindowTokens",
                 "reasoning_effort" => "reasoningEffort",
+                "reasoning_effort_options" => "reasoningEffortOptions",
                 value => value,
             };
             object.insert(key.to_owned(), json_value(value, at)?);
@@ -347,25 +390,28 @@ fn revision(path: &Path, layer: &file::FileLayer) -> String {
     hash.update(layer.text.as_bytes());
     format!("{:x}", hash.finalize())
 }
-fn snapshot(
+fn snapshot_resolved(
     inputs: &ConfigInputs,
     path: PathBuf,
     layer: file::FileLayer,
     stored_credential_envs: &[String],
-) -> Result<ModelConfiguration> {
-    // 共享编辑不能静默丢掉尚未补齐的旧供应商，也不能把临时覆盖当作文件值。
-    if layer.catalog.len() != layer.providers.len() {
-        return Err(invalid(
-            &file::source(&path, &layer.text, 0),
-            "shared model providers require endpoint in the configuration file",
-        ));
-    }
-    for provider in &layer.catalog {
-        if url::Url::parse(&provider.endpoint).is_ok_and(|url| url.query().is_some()) {
+    shared_edit: bool,
+) -> Result<(ModelConfiguration, crate::ResolvedCoreConfig)> {
+    if shared_edit {
+        // 共享编辑不能静默丢掉尚未补齐的旧供应商，也不能把临时覆盖当作文件值。
+        if layer.catalog.len() != layer.providers.len() {
             return Err(invalid(
                 &file::source(&path, &layer.text, 0),
-                "shared model endpoints cannot contain query parameters; use api_key_env for credentials",
+                "shared model providers require endpoint in the configuration file",
             ));
+        }
+        for provider in &layer.catalog {
+            if url::Url::parse(&provider.endpoint).is_ok_and(|url| url.query().is_some()) {
+                return Err(invalid(
+                    &file::source(&path, &layer.text, 0),
+                    "shared model endpoints cannot contain query parameters; use api_key_env for credentials",
+                ));
+            }
         }
     }
     let config = resolve::load_mode(inputs, true, Some(layer.clone()))?;
@@ -398,7 +444,7 @@ fn snapshot(
             ((provider.id.clone(), state), (provider.id.clone(), source))
         })
         .unzip();
-    Ok(ModelConfiguration {
+    let document = ModelConfiguration {
         revision: revision(&path, &layer),
         path,
         default_model: default_model(&layer),
@@ -406,8 +452,34 @@ fn snapshot(
         credential_states,
         credential_sources,
         effective: config.diagnostic(true),
-    })
+    };
+    Ok((document, config))
 }
+fn snapshot(
+    inputs: &ConfigInputs,
+    path: PathBuf,
+    layer: file::FileLayer,
+    stored_credential_envs: &[String],
+) -> Result<ModelConfiguration> {
+    snapshot_resolved(inputs, path, layer, stored_credential_envs, true)
+        .map(|(document, _)| document)
+}
+
+pub fn read_resolved(
+    inputs: &ConfigInputs,
+    stored_credential_envs: &[String],
+) -> Result<(ModelConfiguration, crate::ResolvedCoreConfig)> {
+    let location = resolve::location(inputs)?;
+    let layer = file::read(&location.selected, location.explicit)?;
+    snapshot_resolved(
+        inputs,
+        location.selected,
+        layer,
+        stored_credential_envs,
+        false,
+    )
+}
+
 pub fn read(
     inputs: &ConfigInputs,
     stored_credential_envs: &[String],
@@ -443,6 +515,7 @@ fn toml_value(value: Value) -> toml_edit::Value {
                     "maxOutputTokens" => "max_output_tokens",
                     "contextWindowTokens" => "context_window_tokens",
                     "reasoningEffort" => "reasoning_effort",
+                    "reasoningEffortOptions" => "reasoning_effort_options",
                     key => key,
                 };
                 table.insert(key, toml_value(value));

@@ -2,28 +2,85 @@
 
 use super::*;
 
+use crate::history::APP_REFERENCE_PREFIX;
+
+fn app_reference_message(
+    history: &[model::Message],
+    context: &[Value],
+    compacted_reference_seen: bool,
+) -> anyhow::Result<Option<model::Message>> {
+    let previous = history.iter().rev().find(|message| {
+        message.role == "areal_context" && message.text_content().starts_with(APP_REFERENCE_PREFIX)
+    });
+    // 没有 App 的会话不新增消息；已见快照的清空要明确交付，不能沿用旧引用。
+    if context.is_empty() && previous.is_none() && !compacted_reference_seen {
+        return Ok(None);
+    }
+    let current = json!(context);
+    if previous
+        .and_then(|message| {
+            serde_json::from_str::<Value>(
+                message.text_content().strip_prefix(APP_REFERENCE_PREFIX)?,
+            )
+            .ok()
+        })
+        .is_some_and(|value| value == current)
+    {
+        return Ok(None);
+    }
+    Ok(Some(model::Message::text(
+        "areal_context",
+        format!("{APP_REFERENCE_PREFIX}{}", serde_json::to_string(&current)?),
+    )))
+}
+
 // 已完整交给本次请求的结算回执，不应仅因自动汇总重复出现而使有效最终答复失效。
 // 只忽略等待与调用额度元数据；制品、交付、错误或正文有变化时仍须再次交给模型。
-fn execution_receipts_observed(messages: &[model::Message], reports: &[Value]) -> bool {
-    let normalize = |mut value: Value| -> Option<Value> {
+fn execution_receipts_observed(
+    messages: &[model::Message],
+    reports: &[Value],
+    trusted_tools: &HashSet<String>,
+) -> bool {
+    let normalize = |value: Value| -> Option<Value> {
+        // 工具交给模型的是公共 executionId 视图；底层所有者和线程身份不属于回执版本。
+        let mut value = agents::model_execution_view(value);
         if value["timedOut"] == true {
             return None;
         }
         let object = value.as_object_mut()?;
         object.remove("remainingToolCalls");
         object.remove("timedOut");
+        // 批量投影可省略静态描述与游标副本；来源、正文分页、交付与清理仍须完整一致。
+        for key in ["title", "reason", "receiptVersion"] {
+            object.remove(key);
+        }
+        if let Some(capabilities) = object
+            .get_mut("capabilities")
+            .and_then(Value::as_object_mut)
+        {
+            capabilities.remove("readHandoff");
+            capabilities.remove("supportsArtifact");
+        }
+        if let Some(artifact) = object.get_mut("artifact").and_then(Value::as_object_mut) {
+            artifact.remove("nextAction");
+        }
         Some(value)
     };
     if reports.is_empty()
         || reports.iter().any(|report| {
             !report["executionId"].is_string()
-                || report["status"] != "completed"
+                || !matches!(
+                    report["status"].as_str(),
+                    Some("completed" | "failed" | "cancelled")
+                )
                 || report["settled"] != true
                 || report["resourcesReleased"] != true
-                || !report["error"].is_null()
+                || report["offset"].as_u64().is_some_and(|offset| offset != 0)
                 || !matches!(
                     report["delivery"]["status"].as_str(),
-                    Some("applied" | "notRequired")
+                    Some(
+                        "applied" | "notRequired" | "cancelled" | "failed" | "conflict" | "partial"
+                    )
                 )
         })
     {
@@ -31,7 +88,13 @@ fn execution_receipts_observed(messages: &[model::Message], reports: &[Value]) -
     }
     let received: Vec<_> = messages
         .iter()
-        .filter(|message| message.role == "tool")
+        .filter(|message| {
+            message.role == "tool"
+                && message
+                    .tool_call_id
+                    .as_ref()
+                    .is_some_and(|id| trusted_tools.contains(id))
+        })
         .filter_map(|message| serde_json::from_str::<Value>(&message.text_content()).ok())
         .flat_map(
             |value| match value.get("completed").and_then(Value::as_array) {
@@ -41,9 +104,56 @@ fn execution_receipts_observed(messages: &[model::Message], reports: &[Value]) -
         )
         .filter_map(normalize)
         .collect();
-    reports
-        .iter()
-        .all(|report| normalize(report.clone()).is_some_and(|value| received.contains(&value)))
+    let header = |mut value: Value| {
+        for key in ["text", "offset", "nextOffset"] {
+            value.as_object_mut().unwrap().remove(key);
+        }
+        value
+    };
+    reports.iter().all(|report| {
+        let Some(value) = normalize(report.clone()) else {
+            return false;
+        };
+        if !received.contains(&value) {
+            return false;
+        }
+        if value["nextOffset"].is_null() {
+            return true;
+        }
+        let Some(total) = value["textBytes"].as_u64() else {
+            return false;
+        };
+        if value["sourceItemId"]
+            .as_str()
+            .is_none_or(|id| id.is_empty())
+        {
+            return false;
+        }
+        let expected = header(value);
+        let mut offset = 0;
+        while offset < total {
+            let Some(page) = received.iter().find(|page| {
+                page["offset"].as_u64() == Some(offset) && header((*page).clone()) == expected
+            }) else {
+                return false;
+            };
+            let Some(text) = page["text"].as_str() else {
+                return false;
+            };
+            let end = offset.saturating_add(text.len() as u64);
+            if end <= offset || end > total {
+                return false;
+            }
+            if end == total {
+                return page["nextOffset"].is_null();
+            }
+            if page["nextOffset"].as_u64() != Some(end) {
+                return false;
+            }
+            offset = end;
+        }
+        false
+    })
 }
 
 /// 取消后只排空流以结算尾部用量；不执行工具，不伪造缺失用量。
@@ -123,6 +233,47 @@ impl Engine {
         cancel: &CancellationToken,
         steer: &mut mpsc::Receiver<bool>,
     ) -> anyhow::Result<()> {
+        self.initialize_workspace_view(cell, cancel).await?;
+        let legacy_checkpoint = {
+            let state = cell.state.lock().await;
+            state
+                .thread
+                .context_checkpoint
+                .as_ref()
+                .filter(|checkpoint| checkpoint.app_reference_seen.is_none())
+                .map(|checkpoint| (checkpoint.through_item_id.clone(), state.thread.clone()))
+        };
+        if let Some((boundary, snapshot)) = legacy_checkpoint {
+            let hydrated = self.store.hydrate(snapshot).await?;
+            let logical = crate::history::logical_history(&hydrated, &self.store)?;
+            let count = logical
+                .turns
+                .iter()
+                .flat_map(|turn| &turn.items)
+                .position(|item| item.id() == boundary)
+                .context("invalid legacy context checkpoint boundary")?
+                + 1;
+            let seen = crate::history::has_app_reference(&logical, count);
+            let mut state = cell.state.lock().await;
+            if state
+                .thread
+                .context_checkpoint
+                .as_ref()
+                .is_some_and(|checkpoint| {
+                    checkpoint.through_item_id == boundary
+                        && checkpoint.app_reference_seen.is_none()
+                })
+            {
+                let mut candidate = state.thread.clone();
+                candidate
+                    .context_checkpoint
+                    .as_mut()
+                    .unwrap()
+                    .app_reference_seen = Some(seen);
+                self.persist(&candidate).await?;
+                state.thread = candidate;
+            }
+        }
         let model = cell
             .state
             .lock()
@@ -147,11 +298,15 @@ impl Engine {
         let mut group_results = Vec::<Value>::new();
         let mut child_results = Value::Null;
         let mut observed_children = HashSet::new();
-        let instructions = self.project_instructions(cell).await?;
+        let mut child_observations = agents::ChildResultObservations::default();
+        let projected = self.project_instructions(cell).await?;
+        let instructions = projected.as_ref().map(|(text, _)| text.clone());
         if instructions.is_some() {
             let mut state = cell.state.lock().await;
             let mut candidate = state.thread.clone();
             candidate.turns.last_mut().unwrap().instruction_snapshot = instructions.clone();
+            candidate.turns.last_mut().unwrap().instruction_attribution =
+                projected.map(|(_, attribution)| attribution);
             self.persist(&candidate).await?;
             state.thread = candidate;
         }
@@ -163,7 +318,7 @@ impl Engine {
                 .last()
                 .and_then(|t| t.configuration.as_ref())
                 .and_then(|c| c.options.max_model_rounds);
-            if state.thread.is_side() {
+            if state.thread.is_read_only_side() {
                 (
                     Some(
                         configured
@@ -184,8 +339,9 @@ impl Engine {
         };
         let mut model_rounds = 0;
         'restart: loop {
+            self.yield_settled_workspace_lease(cell).await;
             self.drain_hook_results(cell, true).await?;
-            if self.task_wait_requested(cell).await {
+            if self.task_wait_requested(cell).await? {
                 return Ok(());
             }
             if let Some(max) = max_rounds.filter(|max| model_rounds >= *max) {
@@ -213,37 +369,13 @@ impl Engine {
             // 只在模型请求期间持有许可；等待与停止不占其他会话的模型名额。
             let side_thread_id = {
                 let state = cell.state.lock().await;
-                state.thread.is_side().then(|| state.thread.id.clone())
+                state
+                    .thread
+                    .is_read_only_side()
+                    .then(|| state.thread.id.clone())
             };
-            let permit = match self.permits.try_acquire() {
-                Ok(permit) => permit,
-                Err(_) => {
-                    if let Some(thread_id) = &side_thread_id {
-                        if let Some(active) = cell.state.lock().await.active.as_mut() {
-                            active.waiting_for_model_capacity = true;
-                        }
-                        cell.emit(
-                            "areal/side/capacity",
-                            json!({"threadId":thread_id,"status":"waiting"}),
-                        );
-                    }
-                    tokio::select! {
-                        _ = cancel.cancelled() => anyhow::bail!("cancelled"),
-                        permit = self.permits.acquire() => permit?,
-                    }
-                }
-            };
-            if let Some(thread_id) = &side_thread_id {
-                if let Some(active) = cell.state.lock().await.active.as_mut() {
-                    active.waiting_for_model_capacity = false;
-                }
-                cell.emit(
-                    "areal/side/capacity",
-                    json!({"threadId":thread_id,"status":"available"}),
-                );
-            }
             while steer.try_recv().is_ok() {}
-            let (configuration, desktop_enabled) = {
+            let (configuration, thread) = {
                 let state = cell.state.lock().await;
                 (
                     state
@@ -252,19 +384,24 @@ impl Engine {
                         .last()
                         .and_then(|t| t.configuration.clone())
                         .unwrap_or_default(),
-                    state.thread.desktop.is_some(),
+                    state.thread.clone(),
                 )
             };
             // 工具声明参与缓存前缀；收尾轮仅禁用调用，不移除 schema。
             let tool_definitions = self
-                .visible_tools(cell, &configuration, desktop_enabled)
+                .visible_tools(cell, &configuration, thread.desktop.is_some(), &thread)
                 .await;
             // 使用现有请求上下文提供指引，保持持久工具定义及模型收到的声明不变。
             let browser_instructions = tool_definitions.iter()
                 .any(|tool| tool["function"]["name"] == "browser_v1")
-                .then_some("Built-in Browser guidance: Use browser_v1 for visible web requests. Every new user request must start with describe and empty parameters, then a fresh observe for an existing page. Never reuse snapshotId or refs from an earlier turn, even if history says they were fresh. Start with describe even when no page exists or Human previously took control; Core approval can create or reclaim the current page after a new user request. For an existing page, obtain a fresh observe before navigate; only a newly created about:blank page can navigate without an observation. Then navigate using pageId, observe again for current refs, fill the search field and press Enter to perform an approved public search. Do not ask the user to enable Browser manually or use development_service_inspect to create a Browser page. Reads and actions require Core approval. Respect denied, stale and UNKNOWN results without replay.");
-            let task_instructions = self.task_context(cell).await;
+                .then_some("Built-in Browser guidance: Invoke browser_v1 only when the current user task requires browser interaction. For ordinary chat and tasks that do not need a browser, do not call browser_v1 merely because it is available. Every new browser task must start with describe and empty parameters, then a fresh observe for an existing page. Never reuse snapshotId or refs from an earlier turn, even if history says they were fresh. Start with describe even when no page exists or Human previously took control; Core approval can create or reclaim the current page after a new user request. For an existing page, obtain a fresh observe before navigate; only a newly created about:blank page can navigate without an observation. Then navigate using pageId, observe again for current refs, fill the search field and press Enter to perform an approved public search. Do not ask the user to enable Browser manually or use development_service_inspect to create a Browser page. Reads and actions require Core approval. Respect denied, stale and UNKNOWN results without replay.");
+            let task_instructions = self.task_context(cell).await?;
             let goal_instructions = self.goal_instructions(cell).await?;
+            let app_context = self.app_model_context(&cell.id).await;
+            let reference_thread = cell.state.lock().await.thread.clone();
+            let conversation_reference = self
+                .conversation_reference_reminder(&reference_thread)
+                .await?;
             let (
                 messages,
                 live_context,
@@ -290,6 +427,19 @@ impl Engine {
                 let history_tokens = context::estimate_tokens(&messages);
                 // 已发送提示仍与其输出一起保留；未接受的新提示不能先挡住已结算尾轮的压缩边界。
                 let mut live_context = Vec::new();
+                let compacted_reference_seen = state
+                    .thread
+                    .context_checkpoint
+                    .as_ref()
+                    .is_some_and(|checkpoint| checkpoint.app_reference_seen == Some(true));
+                if let Some(reference) =
+                    app_reference_message(&messages, &app_context, compacted_reference_seen)?
+                {
+                    live_context.push(reference);
+                }
+                if let Some(reference) = &conversation_reference {
+                    live_context.push(Message::text("system", reference.clone()));
+                }
                 if let Some(browser) = browser_instructions {
                     live_context.push(Message::text("system", browser));
                 }
@@ -376,10 +526,17 @@ impl Engine {
                     let text = message.text_content();
                     let kind = if text.contains("Current authoritative goal: ") {
                         Some("Current authoritative goal: ")
+                    } else if text.starts_with("Selected conversation references: ") {
+                        Some("Selected conversation references: ")
                     } else if text.starts_with("Built-in Browser guidance: ") {
                         Some("Built-in Browser guidance: ")
+                    } else if text.starts_with("Choose checks that can falsify the implementation")
+                    {
+                        Some("Choose checks that can falsify the implementation")
                     } else if text.starts_with("This execution is headless.") {
                         Some("This execution is headless.")
+                    } else if text.starts_with("Settled child Agent results ") {
+                        Some("Settled child Agent results ")
                     } else {
                         None
                     };
@@ -519,9 +676,54 @@ impl Engine {
                 },
                 max_buffer_bytes: self.limits.max_tool_buffer_bytes,
             };
-            self.reserve_agent_model_request(cell)?;
+            self.publish_context_usage(
+                cell,
+                &messages,
+                &tool_definitions,
+                &configuration,
+                model.as_ref(),
+            )
+            .await?;
             let mut network_retries: usize = 0;
             'request: loop {
+                self.prediction_preemption.send_replace(());
+                let permit = match self.permits.clone().try_acquire_owned() {
+                    Ok(permit) => permit,
+                    Err(_) => {
+                        if let Some(thread_id) = &side_thread_id {
+                            if let Some(active) = cell.state.lock().await.active.as_mut() {
+                                active.waiting_for_model_capacity = true;
+                            }
+                            cell.emit(
+                                "areal/side/capacity",
+                                json!({"threadId":thread_id,"status":"waiting"}),
+                            );
+                        }
+                        tokio::select! {
+                            _ = cancel.cancelled() => anyhow::bail!("cancelled"),
+                            permit = self.permits.clone().acquire_owned() => permit?,
+                        }
+                    }
+                };
+                if let Some(thread_id) = &side_thread_id {
+                    if let Some(active) = cell.state.lock().await.active.as_mut() {
+                        active.waiting_for_model_capacity = false;
+                    }
+                    cell.emit(
+                        "areal/side/capacity",
+                        json!({"threadId":thread_id,"status":"available"}),
+                    );
+                }
+                self.reserve_agent_model_request(cell)?;
+                let engine = self.clone();
+                let request_cell = cell.clone();
+                let permit = model::RequestCapacity::new(
+                    self.permits.clone(),
+                    permit,
+                    Box::new(move || engine.reserve_agent_model_request(&request_cell)),
+                    None,
+                    Some(cancel.clone()),
+                );
                 let mut operation = trajectory::Operation::new(
                     info_span!(
                         target: trajectory::TARGET,
@@ -592,20 +794,37 @@ impl Engine {
                     emit_item(cell, "item/started", &thread_id, &turn_id, &item);
                 }
                 let mut completion_items = HashSet::from([item_id.clone()]);
+                let generation = cell
+                    .state
+                    .lock()
+                    .await
+                    .active
+                    .as_ref()
+                    .unwrap()
+                    .generation
+                    .clone();
+                let mut response_deadline = watchdog::ResponseDeadline::new(
+                    self.limits.model_request_timeout,
+                    self.limits.stream_idle_timeout,
+                );
                 let response = {
-                    let pending_response = tokio::time::timeout(
-                        self.limits.stream_idle_timeout,
+                    let pending_response = tokio::time::timeout_at(
+                        response_deadline.deadline(),
                         model::REQUEST_OWNER
-                            .scope(
-                                (thread_id.clone(), turn_id.clone()),
-                                model.chat_with_limits(
-                                    messages.clone(),
-                                    tool_definitions.clone(),
-                                    model::RequestPurpose::Solve,
-                                    tool_limits,
-                                    None,
-                                ),
-                            )
+                            .scope((thread_id.clone(), turn_id.clone()), async {
+                                anyhow::ensure!(!cancel.is_cancelled(), "cancelled");
+                                let meter = crate::request_meter::RequestMeter::new(generation);
+                                permit
+                                    .scope(model.chat_with_limits(
+                                        messages.clone(),
+                                        tool_definitions.clone(),
+                                        model::RequestPurpose::Solve,
+                                        tool_limits,
+                                        None,
+                                    ))
+                                    .await
+                                    .map(|stream| meter.wrap(stream))
+                            })
                             .instrument(model_span.clone()),
                     );
                     tokio::pin!(pending_response);
@@ -644,7 +863,7 @@ impl Engine {
                     Ok(stream) => stream,
                     Err(error) => Box::pin(futures_util::stream::once(async move { Err(error) })),
                 };
-                let mut calls = Vec::new();
+                let mut calls = Vec::<model::ToolCall>::new();
                 let mut tool_budget = model::ToolCallBudget::new(tool_limits);
                 let mut visible_output = false;
                 loop {
@@ -661,10 +880,10 @@ impl Engine {
                             complete_item(cell, &thread_id, &turn_id, &item_id).await;
                             continue 'restart;
                         },
-                        next = tokio::time::timeout(
-                            self.limits.stream_idle_timeout,
+                        next = tokio::time::timeout_at(
+                            response_deadline.deadline(),
                             stream.next().instrument(model_span.clone()),
-                        ) => match next { Ok(next) => next, Err(_) => Some(Err(watchdog::idle_error("model stream"))) },
+                        ) => match next { Ok(next) => next, Err(_) => Some(Err(response_deadline.idle_error("model"))) },
                     };
                     let Some(delta) = next else {
                         let state = cell.state.lock().await;
@@ -701,7 +920,7 @@ impl Engine {
                         // The shared model pool owns a permit in the stream itself.
                         // Release both permits before tools or child/group joins.
                         drop(stream);
-                        let state = cell.state.lock().await;
+                        let mut state = cell.state.lock().await;
                         if steered {
                             drop(state);
                             complete_reasoning(cell, &thread_id, &turn_id, &reasoning_items).await;
@@ -755,6 +974,27 @@ impl Engine {
                             }
                             return Err(error);
                         }
+                        // 冲突回执必须确实进入已接受的请求；恢复决策前不让出其保护租约。
+                        if state
+                            .active
+                            .as_ref()
+                            .unwrap()
+                            .workspace_conflict_call
+                            .as_ref()
+                            .is_some_and(|id| {
+                                messages.iter().any(|m| {
+                                    m.role == "tool" && m.tool_call_id.as_ref() == Some(id)
+                                })
+                            })
+                        {
+                            state.active.as_mut().unwrap().workspace_conflict_call = None;
+                        }
+                        // 仅已完成且被接受的响应确认输入消费；预检、断流或 steer 不提前确认。
+                        child_observations.observe_request(
+                            &state,
+                            &messages,
+                            &mut observed_children,
+                        );
                         if calls.is_empty() {
                             drop(state);
                             drop(permit);
@@ -768,9 +1008,12 @@ impl Engine {
                                 reports = self.join_model_children(cell, &mut observed_children, false) => reports?,
                             };
                             if reports != child_results {
+                                let already_observed = child_observations.covers(&reports);
                                 child_results = reports;
-                                complete_item(cell, &thread_id, &turn_id, &item_id).await;
-                                continue 'restart;
+                                if !already_observed {
+                                    complete_item(cell, &thread_id, &turn_id, &item_id).await;
+                                    continue 'restart;
+                                }
                             }
                             if self.workgroups.get().is_some()
                                 || self.automatic_workgroups.get().is_some()
@@ -784,8 +1027,59 @@ impl Engine {
                                     reports = self.settle_generation_groups(cell) => reports?,
                                 };
                                 if reports != group_results {
-                                    let already_observed =
-                                        execution_receipts_observed(&messages, &reports);
+                                    let state = cell.state.lock().await;
+                                    // 回放使用 provider callId；Core Item ID 不是工具结果的关联键。
+                                    // 同一 callId 在历史中复用时不确认消费，避免跨 Turn 的歧义。
+                                    let mut seen = HashSet::new();
+                                    let mut ambiguous = HashSet::new();
+                                    for item in
+                                        state.thread.turns.iter().flat_map(|turn| &turn.items)
+                                    {
+                                        if let Item::DynamicToolCall { call_id, .. } = item
+                                            && !seen.insert(call_id)
+                                        {
+                                            ambiguous.insert(call_id);
+                                        }
+                                    }
+                                    let trusted_tools = state
+                                        .thread
+                                        .turns
+                                        .last()
+                                        .unwrap()
+                                        .items
+                                        .iter()
+                                        .filter_map(|item| match item {
+                                            Item::DynamicToolCall {
+                                                call_id,
+                                                tool,
+                                                success: Some(true),
+                                                execution,
+                                                ..
+                                            } if execution.backend.as_deref()
+                                                == Some("coordination")
+                                                && !ambiguous.contains(call_id)
+                                                && execution.outcome
+                                                    == areal_protocol::ToolOutcome::Succeeded
+                                                && matches!(
+                                                    tool.as_str(),
+                                                    "agent_spawn"
+                                                        | "agent_read"
+                                                        | "agent_wait"
+                                                        | "agent_wait_any"
+                                                        | "agent_cancel"
+                                                ) =>
+                                            {
+                                                Some(call_id.clone())
+                                            }
+                                            _ => None,
+                                        })
+                                        .collect();
+                                    let already_observed = execution_receipts_observed(
+                                        &messages,
+                                        &reports,
+                                        &trusted_tools,
+                                    );
+                                    drop(state);
                                     group_results = reports;
                                     if !already_observed {
                                         complete_item(cell, &thread_id, &turn_id, &item_id).await;
@@ -831,10 +1125,53 @@ impl Engine {
                         overflow_recovered = false;
                         complete_reasoning(cell, &thread_id, &turn_id, &reasoning_items).await;
                         complete_item(cell, &thread_id, &turn_id, &item_id).await;
-                        for call in calls {
+                        let width = self.parallel_read_width(cell).await;
+                        let mut calls = calls.into_iter().peekable();
+                        while let Some(call) = calls.next() {
                             if !steer.is_empty() {
                                 continue 'restart;
                             }
+                            let mut batch = vec![call];
+                            if width > 1 {
+                                let registry = cell.bindings.read().await.registry.clone();
+                                if registry
+                                    .get(&batch[0].name)
+                                    .is_ok_and(|tool| self.supports_parallel_read_call(&tool))
+                                {
+                                    while calls.peek().is_some_and(|call| {
+                                        registry.get(&call.name).is_ok_and(|tool| {
+                                            self.supports_parallel_read_call(&tool)
+                                        })
+                                    }) {
+                                        batch.push(calls.next().unwrap());
+                                    }
+                                }
+                            }
+                            if batch.len() > 1 {
+                                let result = self
+                                    .parallel_read_tools(
+                                        cell,
+                                        cancel,
+                                        batch,
+                                        &mut tool_count,
+                                        steer,
+                                        (
+                                            tool_limit,
+                                            self.limits.remaining_output_bytes(text_output_bytes),
+                                        ),
+                                    )
+                                    .await?;
+                                text_output_bytes += result.bytes;
+                                if let Some(name) = result.unexecuted {
+                                    output_handoff = true;
+                                    recovery_hint = Some(format!(
+                                        "Output budget reached before executing {name}. This call and any later calls in the response were NOT executed. Give an explicit incomplete handoff based only on confirmed results; do not retry tools."
+                                    ));
+                                    break;
+                                }
+                                continue;
+                            }
+                            let call = batch.pop().unwrap();
                             let remaining = self.limits.remaining_output_bytes(text_output_bytes);
                             if remaining
                                 < self.tool_output_budget(cell, &call).await
@@ -872,6 +1209,8 @@ impl Engine {
                             drop(model_span);
                             // 先释放失败流及共享模型许可，再等待退避；绝不重放已执行的工具。
                             drop(stream);
+                            drop(permit);
+                            self.yield_settled_workspace_lease(cell).await;
                             // Goal 的未知消费阻止重试，但不能覆盖导致请求失败的原始诊断。
                             if let Err(blocker) = model.check_work() {
                                 let diagnostic = format!("{blocker}: {error}");
@@ -919,6 +1258,7 @@ impl Engine {
                             }
                             if let Some(delay) = watchdog::retry_delay(
                                 self.limits.watchdog_disable,
+                                self.limits.network_retry_mode,
                                 &error,
                                 network_retries,
                             ) {
@@ -950,6 +1290,15 @@ impl Engine {
                                 }
                                 continue 'request;
                             }
+                            if watchdog::exhausted(
+                                self.limits.network_retry_mode,
+                                &error,
+                                network_retries,
+                            ) {
+                                return Err(error.context(
+                                    "bounded Core network recovery exhausted after 5 retries",
+                                ));
+                            }
                             if self
                                 .recover_completion(
                                     cell,
@@ -980,6 +1329,7 @@ impl Engine {
                         response_bytes <= self.limits.max_response_bytes,
                         "model response byte limit exceeded"
                     );
+                    response_deadline.observe_event();
                     operation.observe(&delta);
                     match delta {
                         ModelEvent::Activity => continue,
@@ -1263,6 +1613,89 @@ async fn complete_reasoning(
 }
 
 #[cfg(test)]
+mod app_context_tests {
+    use super::*;
+
+    fn reference(value: &str) -> Vec<Value> {
+        vec![json!({"instanceId":"instance","serverId":"server","context":{"selected":value}})]
+    }
+
+    #[test]
+    fn app_snapshots_append_changes_without_rewriting_or_repeating_history() {
+        let mut history = vec![
+            model::Message::text("system", "fixed instructions"),
+            model::Message::text("user", "continue the same task"),
+        ];
+        assert!(
+            app_reference_message(&history, &[], false)
+                .unwrap()
+                .is_none()
+        );
+        for selected in ["A", "B", "A"] {
+            let before = history.clone();
+            let snapshot = app_reference_message(&history, &reference(selected), false)
+                .unwrap()
+                .unwrap();
+            assert_eq!(snapshot.role, "areal_context");
+            history.push(snapshot);
+            assert_eq!(&history[..before.len()], before.as_slice());
+            assert!(
+                app_reference_message(&history, &reference(selected), false)
+                    .unwrap()
+                    .is_none()
+            );
+            history.push(model::Message::text("assistant", "observed"));
+        }
+        let clear = app_reference_message(&history, &[], false)
+            .unwrap()
+            .unwrap();
+        assert_eq!(clear.text_content(), format!("{APP_REFERENCE_PREFIX}[]"));
+        history.push(clear);
+        assert!(
+            app_reference_message(&history, &[], false)
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn app_snapshot_deduplication_uses_semantics_and_only_trusted_context_records() {
+        let text = format!("{APP_REFERENCE_PREFIX}{{}}");
+        for role in ["system", "user", "assistant", "tool"] {
+            let history = vec![model::Message::text(role, text.clone())];
+            assert!(
+                app_reference_message(&history, &[], false)
+                    .unwrap()
+                    .is_none()
+            );
+            assert!(
+                app_reference_message(&history, &reference("A"), false)
+                    .unwrap()
+                    .is_some()
+            );
+        }
+        let reordered = model::Message::text(
+            "areal_context",
+            format!(
+                "{APP_REFERENCE_PREFIX}[{{\"context\":{{\"selected\":\"A\"}},\"serverId\":\"server\",\"instanceId\":\"instance\"}}]"
+            ),
+        );
+        assert!(
+            app_reference_message(&[reordered], &reference("A"), false)
+                .unwrap()
+                .is_none()
+        );
+        let malformed =
+            model::Message::text("areal_context", format!("{APP_REFERENCE_PREFIX}partial"));
+        assert!(
+            app_reference_message(&[malformed], &reference("A"), false)
+                .unwrap()
+                .is_some()
+        );
+    }
+}
+
+#[cfg(test)]
 mod cancellation_usage_tests {
     use super::*;
 
@@ -1384,6 +1817,23 @@ mod cancellation_usage_tests {
                 .unwrap();
             engine.shutdown().await;
             let turn = settled.turns.last().unwrap();
+            let stats = turn.generation.as_ref().unwrap();
+            assert_eq!(stats.usage_requests, 1, "{mode}");
+            assert_eq!(
+                stats.missing_usage_requests,
+                u64::from(mode != "cancel"),
+                "{mode}"
+            );
+            assert_eq!(
+                stats.measured_requests, 0,
+                "single-event streams cannot produce a rate: {mode}"
+            );
+            assert_eq!(
+                stats.unmeasured_requests,
+                if mode == "cancel" { 1 } else { 2 },
+                "{mode}"
+            );
+            assert_eq!((stats.output_tokens, stats.duration_ms), (0, 0), "{mode}");
             let usage = turn.usage.as_ref().unwrap();
             assert_eq!(
                 (
@@ -1439,7 +1889,18 @@ mod receipt_tests {
             "text":"Verified delivery","artifact":{"head":"head-one"},"timedOut":false})
     }
     fn message(value: &Value) -> model::Message {
-        model::Message::text("tool", value.to_string())
+        {
+            let mut message = model::Message::text("tool", value.to_string());
+            message.tool_call_id = Some("receipt-call".into());
+            message
+        }
+    }
+    fn observed(messages: &[model::Message], reports: &[Value]) -> bool {
+        super::execution_receipts_observed(
+            messages,
+            reports,
+            &HashSet::from(["receipt-call".to_owned()]),
+        )
     }
     #[test]
     fn delivered_receipts_can_be_observed_individually_or_in_wait_any() {
@@ -1447,11 +1908,11 @@ mod receipt_tests {
         let mut received = expected.clone();
         received.as_object_mut().unwrap().remove("timedOut");
         received["remainingToolCalls"] = json!(12);
-        assert!(execution_receipts_observed(
+        assert!(observed(
             &[message(&received)],
             std::slice::from_ref(&expected)
         ));
-        assert!(execution_receipts_observed(
+        assert!(observed(
             &[message(
                 &json!({"completed":[received],"pending":[],"timedOut":false})
             )],
@@ -1476,21 +1937,97 @@ mod receipt_tests {
                 .as_object_mut()
                 .unwrap()
                 .extend(change.as_object().unwrap().clone());
-            assert!(!execution_receipts_observed(&[message(&old)], &[changed]));
+            assert!(!observed(&[message(&old)], &[changed]));
         }
         let mut timed_out = old.clone();
         timed_out["timedOut"] = json!(true);
-        assert!(!execution_receipts_observed(
+        assert!(!observed(
             &[message(&timed_out)],
             std::slice::from_ref(&old)
         ));
-        assert!(!execution_receipts_observed(
+        assert!(!observed(
             &[model::Message::text("user", old.to_string())],
             std::slice::from_ref(&old)
         ));
-        assert!(!execution_receipts_observed(
+        assert!(!observed(
             &[message(&old)],
             &[old.clone(), json!({"executionId":"unseen"})]
         ));
+    }
+
+    #[test]
+    fn known_cancelled_and_failed_receipts_are_consumed_without_hiding_new_versions() {
+        for (status, delivery) in [
+            ("cancelled", "cancelled"),
+            ("failed", "notRequired"),
+            ("failed", "partial"),
+        ] {
+            let mut known = report();
+            known["status"] = json!(status);
+            known["delivery"]["status"] = json!(delivery);
+            known["error"] = json!("reported failure or cancellation");
+            assert!(observed(&[message(&known)], std::slice::from_ref(&known)));
+            let mut changed = known.clone();
+            changed["error"] = json!("a new failure");
+            assert!(!observed(&[message(&known)], &[changed]));
+        }
+    }
+
+    #[test]
+    fn unknown_unreleased_or_unread_pages_and_untrusted_tools_never_acknowledge_receipts() {
+        for change in [
+            json!({"status":"unknown"}),
+            json!({"resourcesReleased":false}),
+            json!({"delivery":{"status":"unknown"}}),
+            json!({"delivery":{"status":"pending"}}),
+            json!({"nextOffset":8192}),
+            json!({"offset":8192}),
+        ] {
+            let mut value = report();
+            value
+                .as_object_mut()
+                .unwrap()
+                .extend(change.as_object().unwrap().clone());
+            assert!(!observed(&[message(&value)], &[value]));
+        }
+        let value = report();
+        let mut untrusted = message(&value);
+        untrusted.tool_call_id = Some("external-tool".into());
+        assert!(!observed(&[untrusted], &[value]));
+    }
+
+    #[test]
+    fn only_a_complete_contiguous_same_version_handoff_can_be_consumed() {
+        let text = "交接".repeat(2000);
+        let mut first = report();
+        first["sourceItemId"] = json!("immutable-report");
+        first["textBytes"] = json!(text.len());
+        first["text"] = json!(&text[..8190]);
+        first["offset"] = json!(0);
+        first["nextOffset"] = json!(8190);
+        let mut last = first.clone();
+        last["text"] = json!(&text[8190..]);
+        last["offset"] = json!(8190);
+        last["nextOffset"] = Value::Null;
+        assert!(!observed(&[message(&first)], std::slice::from_ref(&first)));
+        assert!(observed(
+            &[message(&first), message(&last)],
+            std::slice::from_ref(&first)
+        ));
+        for change in [
+            json!({"sourceItemId":"another-version"}),
+            json!({"offset":8191}),
+            json!({"delivery":{"status":"partial"}}),
+        ] {
+            let mut stale = last.clone();
+            stale
+                .as_object_mut()
+                .unwrap()
+                .extend(change.as_object().unwrap().clone());
+            assert!(!observed(
+                &[message(&first), message(&stale)],
+                std::slice::from_ref(&first)
+            ));
+        }
     }
 }

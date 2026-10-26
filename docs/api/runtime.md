@@ -18,20 +18,57 @@ Runtime 装配失败时，完成启动回滚后通过 `connection.open` 返回�
 
 capabilities 描述实际 sandbox、fullAccess、rootNetwork、方法和 processLimits；不授予新权限。coreHostIsolated/processTreeCleanupVerified/directoryObjectIsolation/sandboxDenialAttribution 为 false。旧 Runtime 缺少 rootNetwork 时 Core 保守视为无网络。
 
+`restrictedScopes` 返回 `{available:true}` 或 `{available:false,error}`，表示当前部署的受限执行先决条件是否通过探测。full-access 父 Scope 可运行不代表只读子 Scope 可运行：收窄后仍需实际 OS 沙箱。Linux 探测 Bubblewrap namespaces，macOS 探测 Seatbelt；结果按 Runtime 进程缓存，环境能力改变后需要重新启动 Runtime。该字段不证明任意程序、路径或副作用必然成功。旧 `restrictedScopeIsolation` 标志也要求这项实测通过，不能只依据部署名称宣告可用。
+
+原生后端根据有效 Scope 选择准入、命令沙箱和 syscall 策略。full-access 部署下的受限 Scope 或固定只读输入使用 native 策略，Linux 不因父部署标记而跳过 seccomp；未收窄且无只读输入的完整授权仍保留 full-access 行为。
+
 标准部署的 capabilities.builtinTools.searchFiles 返回可信文件助手路径。Runtime 文件助手直接链接 ripgrep 搜索库，不读取宿主 rg 配置。Core 的 search_files 在现有 Runtime Scope 内调用该助手；旧外部 Runtime 未提供该能力时返回 UNSUPPORTED 并要求升级。
 
 macOS 的内置搜索助手与 fs.execute 复用系统 Python 启动桥接，再执行原有沙箱命令。process.start 仅在首个命令参数与部署配置的助手绝对路径完全一致时选择该桥接；这不会扩大 Scope 或助手所在目录的访问权限。
+
+## macOS 受限命令的系统工具
+
+完整 macOS Runtime 包含私有 `shells/bash` 和 `shells/sh`。受限执行的标准 Bash/sh 入口及 PATH 使用该程序，`sh` 保留 POSIX 启动方式；源码根、网络和 scratch 权限不变。系统 Bash 3.2 的 here-document 不使用 TMPDIR，不能通过设置环境变量获得私有临时目录保证；私有 Bash 使用已授权的 scratch，不开放共享 `/tmp`。缺失完整程序包时，标准 shell 入口返回 UNSUPPORTED，不回退到不受限执行。嵌套脚本硬编码系统 `/bin/bash` 仍调用系统版本；需依赖私有临时目录的脚本应通过 Runtime 标准入口或 `env bash` 执行。
+
+Runtime 在可信宿主解析 Apple Git shim，受限任务只读取/执行选定系统 Git 及其固定资源。它不为此开放开发工具链选择状态、宿主配置或整个工具链目录；默认不导入宿主 Git system/global 配置和系统 attributes，仓库配置仍按原路径权限读取。任务显式覆盖 Git 环境后仍受相同 OS 沙箱约束。Git 的索引、配置和源码写入在只读 Scope 中继续被拒绝。
+
+可信启动 PATH 保留绝对目录的显式顺序，但 PATH 本身不授予文件权限。macOS 桌面启动缺少标准路径时，补齐 `/opt/homebrew`、`/usr/local` 中实际存在的 bin/sbin；这些前缀不得重定向到用户目录。仅增加程序和动态库的只读资源，etc 下仅接入 OpenSSL 公共配置和 CA（openssl.cnf、cert.pem、certs），不开放 private、其他服务配置或 var。macOS 系统 LibreSSL 使用同样的规则逐项接入 `/private/etc/ssl` 的公共配置和证书，供 Cargo 等程序启动；不开放整个 `/etc`。
+
+用户级工具发现与系统工具使用同一个 Runtime 启动边界：
+
+| 安装方式 | 受限命令使用的资源与版本选择 |
+|---|---|
+| nvm | `NVM_DIR` 或默认安装树；解析 default/用户别名/LTS 别名，选择已安装的匹配版本 |
+| fnm | `FNM_DIR`、标准数据目录；解析 default 或已激活的 multishell 链接 |
+| mise、asdf | 数据/安装目录中的具体工具版本；读取全局配置的字面量版本，不求值模板、env、hooks 或插件 |
+| pyenv、rbenv | 已安装版本与全局 version 文件，保留显式部署版本提示 |
+| rustup / Cargo | 已选 toolchain 的真实 bin、lib 等安装资源；Cargo 自装命令只接入 bin，不读取 credentials.toml |
+| Volta | 已安装的默认 Node/npm/pnpm/Yarn 镜像；保留默认包管理器在 Node 附带 npm 之前的顺序 |
+| uv、pipx、Bun、Deno、独立 pnpm 等 CLI | 已存在的用户 bin；uv/pipx 链接只接入对应 venv 与已识别的解释器，不开放整个用户数据目录 |
+
+显式激活的具体安装路径优先于全局默认。没有默认时，仅在安装集合唯一时补齐；有多个版本、配置无效或版本缺失时不随意切换到最新版。发现只读取有界文件和固定层级目录，不执行 shell 配置、manager hooks，不安装或下载工具。受限路径将已识别 shim 替换为具体安装目录，避免独立 HOME 破坏工具启动；完整授权且继承网络时保留原始 shim 顺序与宿主项目选择语义。受限执行使用启动时的版本快照，不自动解释工作区版本文件、复杂 manager 配置或安装未存在的项目版本；需要其他版本时使用已获授权的显式工具路径，或在可信启动环境激活后重启 Runtime。
+
+桌面服务、Rust Client、独立 worker 和开发 launcher 透传同一组发现提示：HOME、XDG_DATA_HOME/XDG_CONFIG_HOME、NVM_DIR、FNM_DIR、VOLTA_HOME、MISE_DATA_DIR/MISE_CONFIG_DIR/MISE_INSTALLS_DIR、ASDF_DATA_DIR、PYENV_ROOT、RBENV_ROOT、RUSTUP_HOME、CARGO_HOME、PNPM_HOME、BUN_INSTALL、DENO_INSTALL，以及 RUSTUP_TOOLCHAIN/PYENV_VERSION/RBENV_VERSION。这些值用于可信启动发现，不直接注入受限任务。配置内容、宿主 home、凭据和 manager 状态目录不因此获得读取权限。具体安装根须解析到已识别安装树内，执行前再次拒绝被重定向或移除的根。模型进程自行设置 PATH 或 manager 变量不能增加授权根；源码写入、网络、只读输入和清理仍受原 Scope 约束。
+
+握手的 `commandEnvironment` 给出受限 `path`、完整授权 `unrestrictedPath`、`readOnlyToolchains` 和未能确定默认版本等 `notices`。发现按 Runtime 生命周期执行，不在每次工具调用时启动 shell 或重新扫描用户目录；更换工具安装或默认版本后重启服务。
+
+受限命令不会继承宿主 HOME。Runtime 在既有读取权限内选择 HOME：优先采用有效的 TMPDIR（Core 的每线程 scratch），未提供时尝试 Scope 可读的部署 scratch 或其已授权子目录，均不可用时退回当前工作目录；缺失的 TMPDIR 同步使用该目录。目录必须是已存在的绝对目录，解析符号链接后仍在 Scope 读取范围内；不增加读写根或网络权限。没有可写 scratch 的只读调用仍不能写缓存，应由可信调用方提供 scratch。完整授权且继承网络的宿主模式保留原有 HOME/TMPDIR 继承规则。
+
+Rust Client 的 `launch_with_limits` 投影可信 PATH 并向 Runtime 传递上述发现提示，不继承其他环境；`launch_with_command_path` 供可信部署显式接入已物化工具链，要求有界的绝对目录列表。NativeExecutor 为显式工具链把私有 .toolchain/bin 加在系统路径前。它不扩大源文件写集合。`launch_with_environment` 另接受可信调用方已授权的网络上限；已有 launch 入口仍默认禁网，子 Scope 可继续收窄为 deny。
+
+私有 Bash 是单独执行的 GPL-3.0-or-later 组件，完整包同时携带许可证、锁定对应源码和构建信息；不静态链接进 Rust。构建和升级须使用完整 bundle，见[开发指南](../development/README.md)和[发行流程](../development/releasing.md)。
 
 ## 方法
 
 | 方法 | params |
 |---|---|
 | connection.open / close | `{protocolVersion}` / `{}` |
+| scope.check | `{parentScopeId,permissions?}`；成功返回 `{available:true}` |
 | scope.create | `{operationId,parentScopeId,owner,permissions?,limits?}` |
 | scope.createParticipant | `{authorityScopeId,scope,participation}` |
 | scope.get / revoke / waitClosed | `{scopeId}` |
 | owner.revoke | `{pluginInstanceId}` |
-| process.start | `{operationId,scopeId,argv,cwd,env?,tty?,pipeStdin?,limits?}` |
+| process.start / startQueued | `{operationId,scopeId,argv,cwd,env?,tty?,pipeStdin?,limits?}` |
 | process.get / terminate / wait | `{processId}` |
 | process.write | `{operationId,processId,dataBase64}` |
 | process.resize / closeStdin | `{operationId,processId,cols,rows}` / `{operationId,processId}` |
@@ -44,6 +81,8 @@ macOS 的内置搜索助手与 fs.execute 复用系统 Python 启动桥接，再
 
 ## 权限与去重
 
+`scope.check` 根据父权限校验路径、读写根和网络收窄，并调用后端的实际执行先决条件探测；不创建 Scope、操作记录或任务进程，不占用累计配额。不能满足时返回 `UNSUPPORTED` 或原权限错误。检查结果不是授权或执行承诺；`scope.create` 再次校验。Core 在子任务的首个模型请求前使用此查询；Rust `Client::check_scope`、TypeScript `client.scopes.check` 使用同一契约。旧 Runtime 未宣告此方法时拒绝新子任务并提示升级，原有父任务和控制请求不因此中断。
+
 路径使用未编码 `workspace://repo[/path]`，拒绝百分号、问号、井号、反斜线、NUL 和 . / .. 段。子根须在父授权内，写根在读根内；network=inherit 继承父策略，deny 后不能恢复。owner 仅归因。argv 为 1–256 项，环境白名单见[部署](../guides/runtime.md)。
 
 配置独立 scratch 根后，文件与进程 cwd 可使用 `workspace://scratch[/path]`；未配置时拒绝。它与 repo 不重叠，scratch 根可写且独立于 repo 的 allow-write，子 Scope 仍只能收窄。目录身份检查、路径遍历和符号链接限制同样适用。Core 的短句柄在调用 Runtime 前解析，不改变 ProcessId、游标或 ExpectedFile wire 类型。
@@ -54,7 +93,11 @@ macOS 的内置搜索助手与 fs.execute 复用系统 Python 启动桥接，再
 
 默认每进程期限 30 秒，整个 Scope 后代累计 8 MiB 输出、4 个并发进程；连接保留 256 Scope/4096 操作。期限含写路径排队和启动，清理前不释放进程额度。部署可以配置，子 Scope 只能收窄。
 
+`fs.execute` 的内部文件进程和显式 `process.startQueued` 在祖先并发名额耗尽时等待释放；排队计入原进程期限，预留名额与检查在同一临界区完成，不提高并发上限。等待前登记并保留本 epoch 的操作回执；重复 ID 复用同一等待与结果，撤销 Scope 会终止等待。累计输出、权限或操作记录容量耗尽仍立即拒绝，不重试已有副作用。`process.start` 保持立即准入或拒绝的行为。Core 的短文件读取与搜索协商使用排队入口；旧 Runtime 未公布该方法时仍使用原入口，不在失败后重放。
+
 Runtime daemon 可用 `--cumulative-output-bytes` 独立设置部署及 Scope 后代累计输出上限；省略时等于 `--output-bytes`，且不得小于单进程上限。进程仍受 `--output-bytes` 限制，输出窗口另由 `--output-window-bytes` 约束。stdout/stderr 的真实接受字节对每个祖先累计一次；重复读取保留输出不再收费。文件助手的 JSON/base64 响应也是进程输出。
+
+Core 使用 `readForHistory` 捕获条件编辑的历史前像。仅这一经过校验的文件助手使用独立的 `MAX_FRAME_BYTES - 4096` 响应上限，不消耗命令或祖先输出额度。读取权限、文件大小、进程容量、时限和操作保留上限继续适用。普通 `read` 与 `process.start` 保留原有输出计量。
 
 ## 有界 hook 写入组
 
@@ -70,11 +113,15 @@ output.read 的 maxBytes 为 1–65536，waitMs 为 0–1000，每页最多 128 
 
 gap 表示旧前缀淘汰；truncated 表示预算/故障丢失；closed 表示输出结束且本页读到末尾，不表示命令成功。保留窗口默认 64 KiB/1024 chunks。必须继续读取 cursor，不以未满页判 EOF。
 
-revoke 先关闭后代准入再请求取消；waitClosed 只能在 revoke 后调用。terminate 的 accepted 不等于清理；process.wait 确认退出和输出关闭。事实丢失/清理失败封闭连接并返回 CLEANUP_FAILED，UNKNOWN 保留占额。
+revoke 先关闭后代准入再请求取消；waitClosed 只能在 revoke 后调用。terminate 的 accepted 不等于清理；process.wait 确认退出和输出关闭。进程结果与资源清理独立：`ProcessInfo.cleanupConfirmed` 仅表示当前平台受管资源已确认清理，`failureReason` 保留原始执行错误。旧 Runtime 缺少这些字段时，客户端不得推断已清理。
+
+握手的 `failureIsolationV1=true` 声明分级故障语义。后端已确认进程及平台跟踪资源退出，但输出读取或交付失败时，仅撤销该执行所属 Scope、释放其资源占额，保留进程 UNKNOWN 与原操作收据；其他 Scope 继续接受工作。不确定是否启动、清理未确认、无错误回执 EOF 或事件顺序违规时，封闭根 Scope 并收尾整个后端。只有后端 shutdown 的可信成功回执才能释放这些 UNKNOWN 的资源占额；根准入保持关闭，结果仍未知，不能重放。
+
+`runtime.status` 增加 `admissionOpen` 和可空的 `recovery`。故障包含 `state=restartRequired|inspectionRequired`、`reason`、`cleanupConfirmed`、可空的 `cleanupFailure`、最多 16 条未确认 `processes` 与总数 `unconfirmedProcesses`。原始故障与后端清理失败/超时分别保留，关闭等待受部署清理期限约束。前者允许可信宿主在资源及持久状态结算后更换 Runtime epoch，后者需人工核查；都不恢复旧句柄。Rust `backend::Event::Failed {error,cleanup_confirmed}` 替代单值失败事件，嵌入宿主须更新穷尽匹配，并仅在清理事实已知时传 true；`ProcessInfo` 的 Rust 结构体初始化需补充新字段。RPC 为增量字段扩展，TypeScript 对旧字段缺省保持兼容。
 
 Linux native 每次执行由独立的可信 Rust 二进制 `areal-runtime-reaper` 托管；部署须将它与 Runtime 放在同一目录，并提供可读的 `/proc`。嵌入 `NativeBackend` 的宿主也须在宿主可执行文件旁部署该 helper。回收器不依赖 Python，项目 launcher 和自定义工具的解释器要求另行适用。helper 在启动命令前成为 subreaper，独占其子进程的 wait，持续回收被收养的孤儿。命令正常退出、取消或私有生命周期管道 EOF 时，它清退并回收该执行的残留后代，包括调用 `setsid` 改变进程组的后代。Runtime 只等待自己的 helper，实际命令退出状态与清理结果由私有回执传回；helper 退出本身不能替代该回执和输出关闭确认。
 
-启动握手最多等待 3 秒；确认未创建命令且 helper 已回收的启动失败，只拒绝本次执行并释放登记。后端启动返回 `UNAVAILABLE` 或 `CLEANUP_FAILED` 时，Supervisor 将执行及操作保留为 UNKNOWN、封闭连接准入并保留占额，不能按确定未启动释放资源。已启动执行的清理超时会报告失败；helper 继续收养并等待尚未退出的后代，Runtime 保留其 waiter，不以强杀回收器替代回收完成。
+启动握手最多等待 3 秒；确认未创建命令且 helper 已回收的启动失败，只拒绝本次执行并释放登记。后端启动返回 `UNAVAILABLE` 或 `CLEANUP_FAILED` 时，Supervisor 将执行及操作保留为 UNKNOWN、封闭连接准入，在可信后端清理回执前保留占额，不能按确定未启动释放资源。已启动执行的清理超时会报告失败；helper 继续收养并等待尚未退出的后代，Runtime 保留其 waiter，不以强杀回收器替代回收完成。
 
 macOS 保留进程组清理，并在执行期间使用 `libproc` 约每 10 ms 发现后代，最多跟踪 4096 个进程身份。已发现后代即使调用 `setsid` 或重新归属，仍按 PID 与内核唯一进程 ID 核对后清退；确认这些身份消失后才完成输出收尾。唯一身份查询也适用于执行 setuid 程序的后代，避免因读取受限 BSD 进程信息而错误关闭后端；父身份同样使用内核唯一 ID 校验。发现、信号或退出观察失败会报告清理失败。它不具备 Linux subreaper 的收养能力：两次观察之间快速 fork、父进程退出和重新归属仍可能漏掉后代；身份检查与发信号也不是内核原子操作。该跟踪不提供任意进程树的完整清理保证，也不覆盖 Runtime 被强杀后的清理。
 
@@ -91,6 +138,7 @@ fs.execute 仅在配置可信 helper 时可用；command.kind：
 | kind | 其他字段 | 结果字段 |
 |---|---|---|
 | read | `path,offset?=0,maxBytes` | `dataBase64,sha256,size,nextOffset,eof` |
+| readForHistory | `path,offset?=0,maxBytes` | 与 `read` 相同，仅用于内部历史证据 |
 | stat | `path` | `kind,size` |
 | list | `path,after?,limit` | `entries,nextCursor` |
 | search | `path,pattern,glob?,context,limit` | `matches[{path,line,text,kind}],limited,guidance` |

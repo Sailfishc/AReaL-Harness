@@ -87,6 +87,67 @@ fn flaky(faults: Vec<Fault>, write_first: bool) -> Arc<Flaky> {
         history: Mutex::new(vec![]),
     })
 }
+
+#[tokio::test]
+async fn bounded_network_recovery_preserves_tools_and_usage_then_stops() {
+    for failures in [2, 6] {
+        let data = tempfile::tempdir().unwrap();
+        let model = flaky(vec![Fault::Error(ModelFailure::Transport); failures], true);
+        let writes = Arc::new(Writes::default());
+        let engine = Engine::open(
+            data.path(),
+            model.clone(),
+            Limits {
+                network_retry_mode: areal_config::NetworkRetryMode::Bounded,
+                max_completion_retries: 2,
+                ..Limits::default()
+            },
+        )
+        .unwrap();
+        let thread = engine
+            .create_with_tools(
+                "/workspace".into(),
+                vec![areal_protocol::ToolDefinition {
+                    name: "write_once".into(),
+                    description: "fixture mutation".into(),
+                    input_schema: json!({"type":"object"}),
+                    output_schema: None,
+                }],
+                writes.clone(),
+            )
+            .await
+            .unwrap();
+        engine
+            .start(&thread.id, vec![Input::text("Implement once")])
+            .await
+            .unwrap();
+        let result = settled(&engine, &thread.id).await;
+        assert_eq!(
+            result.turns[0].status,
+            if failures == 2 {
+                TurnStatus::Completed
+            } else {
+                TurnStatus::Failed
+            }
+        );
+        assert_eq!(
+            model.requests.load(Ordering::SeqCst),
+            if failures == 2 { 4 } else { 7 }
+        );
+        assert_eq!(
+            writes.0.load(Ordering::SeqCst),
+            1,
+            "accepted mutation must never be replayed"
+        );
+        assert_eq!(
+            result.turns[0].usage.as_ref().unwrap().input_tokens,
+            failures as u64 * 10
+        );
+        let history = model.history.lock().unwrap().clone();
+        assert!(history[2..].iter().all(|request| request == &history[1]));
+        engine.shutdown().await;
+    }
+}
 #[derive(Default)]
 struct Writes(AtomicUsize);
 #[async_trait]
@@ -100,6 +161,7 @@ impl DynamicToolHost for Writes {
     async fn call(&self, _: Value, _: CancellationToken) -> anyhow::Result<DynamicToolResponse> {
         self.0.fetch_add(1, Ordering::SeqCst);
         Ok(DynamicToolResponse {
+            raw_mcp_result: None,
             success: true,
             content_items: vec![],
             structured_content: Some(json!({"written":true})),
@@ -219,6 +281,7 @@ async fn request_and_stream_idle_timeouts_retry_and_release_model_permits() {
             pool.clone(),
             Limits {
                 stream_idle_timeout: Duration::from_millis(40),
+                model_request_timeout: Duration::from_millis(40),
                 ..Limits::default()
             },
         )
@@ -447,46 +510,52 @@ impl Model for SummaryNetwork {
 }
 #[tokio::test]
 async fn summary_network_retries_do_not_consume_semantic_attempts_or_change_input() {
-    let data = tempfile::tempdir().unwrap();
-    let model = Arc::new(SummaryNetwork {
-        attempts: AtomicUsize::new(0),
-        requests: Mutex::new(vec![]),
-    });
-    let engine = Engine::open(
-        data.path(),
-        model.clone(),
-        Limits {
-            context_window_bytes: 2200,
-            context_recent_bytes: 256,
-            ..Limits::default()
-        },
-    )
-    .unwrap();
-    let thread = engine.create("/workspace".into()).await.unwrap();
-    for prompt in ["Original", "Continue", "Verify"] {
-        engine
-            .start(&thread.id, vec![Input::text(prompt)])
-            .await
-            .unwrap();
-        assert_eq!(
-            settled(&engine, &thread.id)
+    for mode in [
+        areal_config::NetworkRetryMode::Persistent,
+        areal_config::NetworkRetryMode::Bounded,
+    ] {
+        let data = tempfile::tempdir().unwrap();
+        let model = Arc::new(SummaryNetwork {
+            attempts: AtomicUsize::new(0),
+            requests: Mutex::new(vec![]),
+        });
+        let engine = Engine::open(
+            data.path(),
+            model.clone(),
+            Limits {
+                network_retry_mode: mode,
+                context_window_bytes: 2200,
+                context_recent_bytes: 256,
+                ..Limits::default()
+            },
+        )
+        .unwrap();
+        let thread = engine.create("/workspace".into()).await.unwrap();
+        for prompt in ["Original", "Continue", "Verify"] {
+            engine
+                .start(&thread.id, vec![Input::text(prompt)])
                 .await
-                .turns
-                .last()
-                .unwrap()
-                .status,
-            TurnStatus::Completed
-        );
+                .unwrap();
+            assert_eq!(
+                settled(&engine, &thread.id)
+                    .await
+                    .turns
+                    .last()
+                    .unwrap()
+                    .status,
+                TurnStatus::Completed
+            );
+        }
+        let result = engine.read(&thread.id, true).await.unwrap();
+        let checkpoint = result.context_checkpoint.unwrap();
+        assert!(checkpoint.summary.starts_with("Confirmed"));
+        assert_eq!(checkpoint.usage.input_tokens, 9);
+        assert_eq!(model.attempts.load(Ordering::SeqCst), 4);
+        let history = model.requests.lock().unwrap().clone();
+        assert!(history[1..].iter().all(|request| request == &history[0]));
+        drop(history);
+        engine.shutdown().await;
     }
-    let result = engine.read(&thread.id, true).await.unwrap();
-    let checkpoint = result.context_checkpoint.unwrap();
-    assert!(checkpoint.summary.starts_with("Confirmed"));
-    assert_eq!(checkpoint.usage.input_tokens, 9);
-    assert_eq!(model.attempts.load(Ordering::SeqCst), 4);
-    let history = model.requests.lock().unwrap().clone();
-    assert!(history[1..].iter().all(|request| request == &history[0]));
-    drop(history);
-    engine.shutdown().await;
 }
 
 #[tokio::test]
@@ -507,6 +576,7 @@ async fn goal_unknown_usage_stops_before_network_backoff_and_keeps_reservations(
             pool.clone(),
             Limits {
                 stream_idle_timeout: Duration::from_millis(500),
+                model_request_timeout: Duration::from_millis(500),
                 max_completion_retries: 2,
                 ..Limits::default()
             },
@@ -805,5 +875,366 @@ async fn http_status_eof_and_sse_service_errors_recover_with_identical_requests(
         engine.shutdown().await;
         server.abort();
         let _ = server.await;
+    }
+}
+
+#[tokio::test]
+async fn network_backoff_releases_engine_capacity_to_healthy_threads() {
+    struct Routes {
+        healthy_started: tokio::sync::Semaphore,
+    }
+    #[async_trait]
+    impl Model for Routes {
+        fn name(&self) -> &str {
+            "independent-network-routes"
+        }
+        async fn stream(&self, messages: Vec<Message>) -> anyhow::Result<ModelStream> {
+            if messages.iter().any(|message| {
+                message.role == "user" && message.text_content() == "unavailable route"
+            }) {
+                return Err(ModelFailure::Transport.into());
+            }
+            self.healthy_started.add_permits(1);
+            Ok(Box::pin(stream::iter([Ok(ModelEvent::text(
+                "healthy result",
+            ))])))
+        }
+    }
+    let data = tempfile::tempdir().unwrap();
+    let model = Arc::new(Routes {
+        healthy_started: tokio::sync::Semaphore::new(0),
+    });
+    let engine = Engine::open(
+        data.path(),
+        model.clone(),
+        Limits {
+            model_concurrency: 1,
+            ..Limits::default()
+        },
+    )
+    .unwrap();
+    let failed = engine.create("/workspace".into()).await.unwrap();
+    let mut events = engine.subscribe(&failed.id).await.unwrap();
+    let failed_turn = engine
+        .start(&failed.id, vec![Input::text("unavailable route")])
+        .await
+        .unwrap();
+    // 第四次退避为两秒，留出明确窗口检查另一个会话，不依赖请求耗时。
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let event = events.recv().await.unwrap();
+            if event["method"] == "areal/model/watchdogRetry" && event["params"]["retry"] == 4 {
+                break;
+            }
+        }
+    })
+    .await
+    .unwrap();
+    let healthy = engine.create("/workspace".into()).await.unwrap();
+    engine
+        .start(&healthy.id, vec![Input::text("healthy route")])
+        .await
+        .unwrap();
+    let started_during_backoff =
+        tokio::time::timeout(Duration::from_secs(1), model.healthy_started.acquire())
+            .await
+            .is_ok();
+    engine.interrupt(&failed.id, &failed_turn.id).await.unwrap();
+    let result = settled(&engine, &healthy.id).await;
+    engine.shutdown().await;
+    assert_eq!(result.turns[0].status, TurnStatus::Completed);
+    assert!(
+        started_during_backoff,
+        "network backoff reserved the sole Engine model permit and blocked a healthy thread"
+    );
+}
+
+#[tokio::test]
+async fn summary_requests_share_capacity_but_release_it_before_network_backoff() {
+    struct Routes {
+        summary_started: tokio::sync::Semaphore,
+        release_summary: tokio::sync::Semaphore,
+        healthy_started: tokio::sync::Semaphore,
+        summaries: AtomicUsize,
+        healthy_after_summaries: AtomicUsize,
+    }
+    #[async_trait]
+    impl Model for Routes {
+        fn name(&self) -> &str {
+            "summary-capacity-routes"
+        }
+        async fn stream(&self, messages: Vec<Message>) -> anyhow::Result<ModelStream> {
+            let healthy = messages
+                .iter()
+                .any(|message| message.role == "user" && message.text_content() == "healthy route");
+            if healthy {
+                self.healthy_after_summaries
+                    .store(self.summaries.load(Ordering::SeqCst), Ordering::SeqCst);
+                self.healthy_started.add_permits(1);
+            }
+            Ok(Box::pin(stream::iter([Ok(ModelEvent::text(if healthy {
+                "healthy result".into()
+            } else {
+                "observed result ".repeat(95)
+            }))])))
+        }
+        async fn chat_for(
+            &self,
+            messages: Vec<Message>,
+            _: Vec<Value>,
+            purpose: RequestPurpose,
+        ) -> anyhow::Result<ModelStream> {
+            if purpose != RequestPurpose::Summary {
+                return self.stream(messages).await;
+            }
+            self.summaries.fetch_add(1, Ordering::SeqCst);
+            self.summary_started.add_permits(1);
+            self.release_summary.acquire().await?.forget();
+            Err(ModelFailure::Transport.into())
+        }
+    }
+    let data = tempfile::tempdir().unwrap();
+    let model = Arc::new(Routes {
+        summary_started: tokio::sync::Semaphore::new(0),
+        release_summary: tokio::sync::Semaphore::new(0),
+        healthy_started: tokio::sync::Semaphore::new(0),
+        summaries: AtomicUsize::new(0),
+        healthy_after_summaries: AtomicUsize::new(usize::MAX),
+    });
+    let engine = Engine::open(
+        data.path(),
+        model.clone(),
+        Limits {
+            model_concurrency: 1,
+            context_window_bytes: 2200,
+            context_recent_bytes: 256,
+            ..Limits::default()
+        },
+    )
+    .unwrap();
+    let source = engine.create("/workspace".into()).await.unwrap();
+    let mut events = engine.subscribe(&source.id).await.unwrap();
+    let drive = {
+        let engine = engine.clone();
+        let source_id = source.id.clone();
+        tokio::spawn(async move {
+            for prompt in ["Original", "Continue", "Verify"] {
+                engine
+                    .start(&source_id, vec![Input::text(prompt)])
+                    .await
+                    .unwrap();
+                if settled(&engine, &source_id)
+                    .await
+                    .turns
+                    .last()
+                    .unwrap()
+                    .status
+                    != TurnStatus::Completed
+                {
+                    break;
+                }
+            }
+        })
+    };
+    tokio::time::timeout(Duration::from_secs(5), model.summary_started.acquire())
+        .await
+        .unwrap()
+        .unwrap()
+        .forget();
+    let healthy = engine.create("/workspace".into()).await.unwrap();
+    engine
+        .start(&healthy.id, vec![Input::text("healthy route")])
+        .await
+        .unwrap();
+    let admitted_during_summary =
+        tokio::time::timeout(Duration::from_millis(100), model.healthy_started.acquire())
+            .await
+            .is_ok();
+    model.release_summary.add_permits(1);
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let event = events.recv().await.unwrap();
+            if event["method"] == "areal/model/watchdogRetry"
+                && event["params"]["purpose"] == "summary"
+            {
+                break;
+            }
+        }
+    })
+    .await
+    .unwrap();
+    let admitted_after_failure =
+        tokio::time::timeout(Duration::from_secs(1), model.healthy_started.acquire())
+            .await
+            .is_ok();
+    let current = engine.read(&source.id, true).await.unwrap();
+    engine
+        .interrupt(&source.id, &current.turns.last().unwrap().id)
+        .await
+        .unwrap();
+    model.release_summary.add_permits(8);
+    drive.await.unwrap();
+    assert_eq!(
+        settled(&engine, &healthy.id).await.turns[0].status,
+        TurnStatus::Completed
+    );
+    engine.shutdown().await;
+    assert!(
+        !admitted_during_summary,
+        "active summary bypassed Engine model capacity"
+    );
+    assert!(
+        admitted_after_failure,
+        "summary retry backoff blocked the healthy request"
+    );
+    assert_eq!(model.healthy_after_summaries.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn default_http_retries_release_nested_capacity_and_preserve_budget_and_cancellation() {
+    use areal_engine::model::{HttpModel, ModelProtocol};
+    use axum::{Json, Router, body::Body, http::StatusCode, response::IntoResponse, routing::post};
+    struct HttpState {
+        failed: tokio::sync::Semaphore,
+        healthy: tokio::sync::Semaphore,
+        finish: tokio::sync::Semaphore,
+        bad_requests: AtomicUsize,
+        healthy_requests: AtomicUsize,
+    }
+    for action in ["complete", "cancel", "budget"] {
+        let http = Arc::new(HttpState {
+            failed: tokio::sync::Semaphore::new(0),
+            healthy: tokio::sync::Semaphore::new(0),
+            finish: tokio::sync::Semaphore::new(0),
+            bad_requests: AtomicUsize::new(0),
+            healthy_requests: AtomicUsize::new(0),
+        });
+        let state = http.clone();
+        let app = Router::new().route("/", post(move |Json(body): Json<Value>| {
+            let state = state.clone();
+            async move {
+                if body["messages"].to_string().contains("failing HTTP route") {
+                    state.bad_requests.fetch_add(1, Ordering::SeqCst);
+                    state.failed.add_permits(1);
+                    return (StatusCode::SERVICE_UNAVAILABLE, [("retry-after", "2")], "temporary failure").into_response();
+                }
+                state.healthy_requests.fetch_add(1, Ordering::SeqCst);
+                state.healthy.add_permits(1);
+                let events = stream::once(async { Ok::<_, std::convert::Infallible>("data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"healthy\"}}]}\n\n") })
+                    .chain(stream::once(async move {
+                        state.finish.acquire().await.unwrap().forget();
+                        Ok("data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1}}\n\ndata: [DONE]\n\n")
+                    }));
+                axum::http::Response::builder().header("content-type", "text/event-stream").body(Body::from_stream(events)).unwrap()
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = format!("http://{}/", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        // 保留 HttpModel 默认两次 HTTP 重试，不能仅验证关闭内部重试的理想路径。
+        let inner = Arc::new(
+            HttpModel::with_protocol(
+                endpoint,
+                "fixture".into(),
+                None,
+                ModelProtocol::ChatCompletions,
+            )
+            .unwrap(),
+        );
+        let pool = if action == "budget" {
+            SharedModel::new(inner, 1, 2).unwrap()
+        } else {
+            SharedModel::pool(inner, 1).unwrap()
+        };
+        let data = tempfile::tempdir().unwrap();
+        let engine = Engine::open(
+            data.path(),
+            pool.clone(),
+            Limits {
+                model_concurrency: 1,
+                watchdog_disable: true,
+                ..Limits::default()
+            },
+        )
+        .unwrap();
+        let bad = engine.create("/workspace".into()).await.unwrap();
+        let bad_turn = engine
+            .start(&bad.id, vec![Input::text("failing HTTP route")])
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(5), http.failed.acquire())
+            .await
+            .unwrap()
+            .unwrap()
+            .forget();
+        let good = engine.create("/workspace".into()).await.unwrap();
+        engine
+            .start(&good.id, vec![Input::text("healthy HTTP route")])
+            .await
+            .unwrap();
+        let admitted =
+            tokio::time::timeout(Duration::from_millis(900), http.healthy.acquire()).await;
+        let progressed_during_backoff = admitted.is_ok();
+        if let Ok(Ok(permit)) = admitted {
+            permit.forget();
+        }
+        if action == "complete" && progressed_during_backoff {
+            let second = engine.create("/workspace".into()).await.unwrap();
+            engine
+                .start(&second.id, vec![Input::text("second healthy HTTP route")])
+                .await
+                .unwrap();
+            tokio::time::sleep(Duration::from_millis(60)).await;
+            assert_eq!(
+                http.healthy_requests.load(Ordering::SeqCst),
+                1,
+                "live streams must retain nested request capacity"
+            );
+        }
+        http.finish.add_permits(8);
+        if action == "cancel" {
+            engine.interrupt(&bad.id, &bad_turn.id).await.unwrap();
+        }
+        let good_done = settled(&engine, &good.id).await;
+        let bad_done = settled(&engine, &bad.id).await;
+        engine.shutdown().await;
+        server.abort();
+        assert!(
+            progressed_during_backoff,
+            "default HTTP retry held Engine or SharedModel capacity: {action}"
+        );
+        assert_eq!(good_done.turns[0].status, TurnStatus::Completed);
+        if action == "complete" {
+            assert_eq!(http.bad_requests.load(Ordering::SeqCst), 3);
+        } else {
+            assert_eq!(http.bad_requests.load(Ordering::SeqCst), 1);
+        }
+        assert_eq!(
+            bad_done.turns[0].status,
+            if action == "cancel" {
+                TurnStatus::Interrupted
+            } else {
+                TurnStatus::Failed
+            }
+        );
+        let usage = pool.usage();
+        let observed =
+            http.bad_requests.load(Ordering::SeqCst) + http.healthy_requests.load(Ordering::SeqCst);
+        if action == "cancel" {
+            // 取消可能落在本地准入与服务端观察之间；该次预留必须保留 UNKNOWN。
+            assert!((observed..=observed + 1).contains(&usage.requests));
+            assert!(usage.unknown_requests >= http.bad_requests.load(Ordering::SeqCst));
+        } else {
+            assert_eq!(usage.requests, observed, "{action}");
+            assert_eq!(
+                usage.unknown_requests,
+                http.bad_requests.load(Ordering::SeqCst),
+                "failed HTTP attempts remain UNKNOWN, not zero usage: {action}"
+            );
+        }
+        let load = pool.load().unwrap();
+        assert_eq!(load.in_flight, 0);
+        assert_eq!(load.waiting, 0);
+        assert_eq!(load.started_requests as usize, usage.requests);
     }
 }

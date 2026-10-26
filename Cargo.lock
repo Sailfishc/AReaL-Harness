@@ -113,11 +113,12 @@ dependencies = [
 
 [[package]]
 name = "areal-app-server"
-version = "0.1.4"
+version = "0.1.7-beta.3"
 dependencies = [
  "anyhow",
  "areal-engine",
  "areal-local-service",
+ "areal-plugins",
  "areal-protocol",
  "areal-runtime",
  "areal-runtime-client",
@@ -141,10 +142,11 @@ dependencies = [
 
 [[package]]
 name = "areal-cli"
-version = "0.1.4"
+version = "0.1.7-beta.3"
 dependencies = [
  "anyhow",
  "areal-config",
+ "areal-engine",
  "areal-local-service",
  "areal-protocol",
  "areal-server",
@@ -166,7 +168,7 @@ dependencies = [
 
 [[package]]
 name = "areal-config"
-version = "0.1.4"
+version = "0.1.7-beta.3"
 dependencies = [
  "anyhow",
  "fs2",
@@ -183,7 +185,7 @@ dependencies = [
 
 [[package]]
 name = "areal-engine"
-version = "0.1.4"
+version = "0.1.7-beta.3"
 dependencies = [
  "anyhow",
  "areal-config",
@@ -197,9 +199,12 @@ dependencies = [
  "async-trait",
  "axum",
  "base64 0.22.1",
+ "chrono",
+ "chrono-tz",
  "fs2",
  "futures-util",
  "gif",
+ "ignore",
  "image",
  "jsonschema",
  "libc",
@@ -225,7 +230,7 @@ dependencies = [
 
 [[package]]
 name = "areal-local-service"
-version = "0.1.4"
+version = "0.1.7-beta.3"
 dependencies = [
  "anyhow",
  "areal-config",
@@ -241,11 +246,12 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-tungstenite",
+ "uuid",
 ]
 
 [[package]]
 name = "areal-mcp"
-version = "0.1.4"
+version = "0.1.7-beta.3"
 dependencies = [
  "anyhow",
  "areal-config",
@@ -276,9 +282,10 @@ dependencies = [
 
 [[package]]
 name = "areal-plugins"
-version = "0.1.4"
+version = "0.1.7-beta.3"
 dependencies = [
  "anyhow",
+ "areal-mcp",
  "base64 0.22.1",
  "flate2",
  "fs2",
@@ -300,7 +307,7 @@ dependencies = [
 
 [[package]]
 name = "areal-protocol"
-version = "0.1.4"
+version = "0.1.7-beta.3"
 dependencies = [
  "schemars",
  "serde",
@@ -309,11 +316,12 @@ dependencies = [
 
 [[package]]
 name = "areal-runtime"
-version = "0.1.4"
+version = "0.1.7-beta.3"
 dependencies = [
  "anyhow",
  "areal-runtime-client",
  "areal-runtime-exec-native",
+ "areal-runtime-host-tools",
  "areal-runtime-protocol",
  "areal-runtime-supervisor",
  "async-trait",
@@ -330,8 +338,9 @@ dependencies = [
 
 [[package]]
 name = "areal-runtime-client"
-version = "0.1.4"
+version = "0.1.7-beta.3"
 dependencies = [
+ "areal-runtime-host-tools",
  "areal-runtime-protocol",
  "futures-util",
  "serde",
@@ -343,7 +352,7 @@ dependencies = [
 
 [[package]]
 name = "areal-runtime-exec-native"
-version = "0.1.4"
+version = "0.1.7-beta.3"
 dependencies = [
  "areal-runtime-host-tools",
  "areal-runtime-protocol",
@@ -357,7 +366,7 @@ dependencies = [
 
 [[package]]
 name = "areal-runtime-fs"
-version = "0.1.4"
+version = "0.1.7-beta.3"
 dependencies = [
  "areal-runtime-protocol",
  "base64 0.22.1",
@@ -375,14 +384,17 @@ dependencies = [
 
 [[package]]
 name = "areal-runtime-host-tools"
-version = "0.1.4"
+version = "0.1.7-beta.3"
 dependencies = [
+ "libc",
+ "serde_json",
  "tempfile",
+ "toml_edit",
 ]
 
 [[package]]
 name = "areal-runtime-protocol"
-version = "0.1.4"
+version = "0.1.7-beta.3"
 dependencies = [
  "schemars",
  "serde",
@@ -392,8 +404,9 @@ dependencies = [
 
 [[package]]
 name = "areal-runtime-supervisor"
-version = "0.1.4"
+version = "0.1.7-beta.3"
 dependencies = [
+ "areal-runtime-host-tools",
  "areal-runtime-protocol",
  "async-trait",
  "base64 0.22.1",
@@ -409,7 +422,7 @@ dependencies = [
 
 [[package]]
 name = "areal-server"
-version = "0.1.4"
+version = "0.1.7-beta.3"
 dependencies = [
  "anyhow",
  "areal-app-server",
@@ -445,11 +458,12 @@ dependencies = [
 
 [[package]]
 name = "areal-service-host"
-version = "0.1.4"
+version = "0.1.7-beta.3"
 dependencies = [
  "anyhow",
  "areal-local-service",
  "areal-protocol",
+ "areal-runtime-host-tools",
  "clap",
  "fs2",
  "libc",
@@ -462,7 +476,7 @@ dependencies = [
 
 [[package]]
 name = "areal-tui"
-version = "0.1.4"
+version = "0.1.7-beta.3"
 dependencies = [
  "anyhow",
  "areal-local-service",
@@ -732,6 +746,16 @@ dependencies = [
  "serde",
  "wasm-bindgen",
  "windows-link",
+]
+
+[[package]]
+name = "chrono-tz"
+version = "0.10.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a6139a8597ed92cf816dfb33f5dd6cf0bb93a6adc938f11039f371bc5bcd26c3"
+dependencies = [
+ "chrono",
+ "phf",
 ]
 
 [[package]]
@@ -2482,6 +2506,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
+name = "phf"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "913273894cec178f401a31ec4b656318d95473527be05c0752cc41cdc32be8b7"
+dependencies = [
+ "phf_shared",
+]
+
+[[package]]
+name = "phf_shared"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "06005508882fb681fd97892ecff4b7fd0fee13ef1aa569f8695dae7ab9099981"
+dependencies = [
+ "siphasher",
+]
+
+[[package]]
 name = "pin-project-lite"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3129,9 +3171,9 @@ checksum = "f87165f0995f63a9fbeea62b64d10b4d9d8e78ec6d7d51fb2125fda7bb36788f"
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.15"
+version = "0.103.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3c3cf1d8b1e7d4927e2d154c3fcb02979afb9939629c62cd9048d4f07b60ac2"
+checksum = "4443b1b6d39d7c663139942cc4558262562d2c84123bb6282ef177009ca8b281"
 dependencies = [
  "aws-lc-rs",
  "ring",
@@ -3339,6 +3381,16 @@ dependencies = [
  "cfg-if",
  "cpufeatures 0.2.17",
  "digest",
+ "sha2-asm",
+]
+
+[[package]]
+name = "sha2-asm"
+version = "0.6.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b845214d6175804686b2bd482bcffe96651bb2d1200742b712003504a2dac1ab"
+dependencies = [
+ "cc",
 ]
 
 [[package]]
@@ -3420,6 +3472,12 @@ dependencies = [
  "thiserror 2.0.18",
  "time",
 ]
+
+[[package]]
+name = "siphasher"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "33f4fe9184a62d842c9ef383018f3306d8ba224fd9d836f56d7288308847c256"
 
 [[package]]
 name = "slab"
@@ -4297,18 +4355,18 @@ dependencies = [
 
 [[package]]
 name = "webpki-root-certs"
-version = "1.0.9"
+version = "1.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b96554aa2acc8ccdb7e1c9a58a7a68dd5d13bccc69cd124cb09406db612a1c9b"
+checksum = "58ec80e73fd8baf57bf0d9615554c75348bda990d6d5bbeab964dd068319fecb"
 dependencies = [
  "rustls-pki-types",
 ]
 
 [[package]]
 name = "webpki-roots"
-version = "1.0.6"
+version = "1.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22cfaf3c063993ff62e73cb4311efde4db1efb31ab78a3e5c457939ad5cc0bed"
+checksum = "1c1c8e20c8a38fc7d65abfe74eb7280e4aa667e8eec8bc84996d2874810748d9"
 dependencies = [
  "rustls-pki-types",
 ]

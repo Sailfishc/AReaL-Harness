@@ -35,7 +35,7 @@ async function fixture(name) {
   const client = {
     ready: true,
     capabilities: {
-      features: { threadStartAdmissionGuard: true, turnStartAdmissionGuard: true },
+      features: { threadStartAdmissionGuard: true, turnStartAdmissionGuard: true, permissionPresets: true },
       methods: ["areal/thread/start", "areal/turn/start"],
     },
     request(method, params) {
@@ -48,7 +48,7 @@ async function fixture(name) {
           : { turn: { id: randomUUID() } };
       receipts.set(params.requestId, [
         {
-          method,
+          method, requestId: params.requestId,
           threadId: result.thread?.id ?? params.threadId,
           result: method === "areal/thread/start" ? null : result,
         },

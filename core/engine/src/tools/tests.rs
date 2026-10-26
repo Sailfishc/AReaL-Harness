@@ -377,6 +377,17 @@ async fn process_fixture_output(
     loss: bool,
     output: String,
 ) -> Arc<Client> {
+    process_fixture_exit(finish_ms, output_ms, stop_reason, loss, output, None).await
+}
+
+async fn process_fixture_exit(
+    finish_ms: u64,
+    output_ms: Option<u64>,
+    stop_reason: Option<&'static str>,
+    loss: bool,
+    output: String,
+    exit_facts: Option<Value>,
+) -> Arc<Client> {
     let (pipe, peer) = tokio::io::duplex(64 * 1024);
     let (read, write) = tokio::io::split(pipe);
     let (peer_read, mut peer_write) = tokio::io::split(peer);
@@ -389,8 +400,9 @@ async fn process_fixture_output(
             let method = req["method"].as_str().unwrap();
             let result = match method {
                 "connection.open" => {
-                    json!({"protocolVersion":rt::VERSION,"runtimeEpoch":"epoch","connectionId":"fixture","rootScopeId":"scope","capabilities":{"methods":["fs.execute"]}})
+                    json!({"protocolVersion":rt::VERSION,"runtimeEpoch":"epoch","connectionId":"fixture","rootScopeId":"scope","capabilities":{"methods":["scope.check","fs.execute"]}})
                 }
+                "scope.check" => json!({"available":true}),
                 "scope.create" | "scope.get" | "scope.revoke" | "scope.waitClosed" => {
                     json!({"scopeId":"scope","parentScopeId":null,"state":if method=="scope.waitClosed"{"closed"}else{"active"},"owner":{"taskId":"fixture"},"readRoots":["workspace://repo"],"writeRoots":["workspace://repo"],"network":"deny","limits":{"wallTimeMs":10000,"outputBytes":8388608,"maxProcesses":4},"activeProcesses":0,"outputBytes":0,"cleanupError":null})
                 }
@@ -407,7 +419,13 @@ async fn process_fixture_output(
                 }
                 "process.get" | "process.wait" => {
                     let exited = started.elapsed().as_millis() >= finish_ms.into();
-                    json!({"processId":"process","scopeId":"scope","state":if exited {"exited"} else {"running"},"exitCode":if exited {Some(if stop_reason.is_some() {1} else {0})} else {None},"signal":null,"sandboxDenied":false,"stopReason":if exited {stop_reason} else {None},"cleanupError":null})
+                    let mut info = json!({"processId":"process","scopeId":"scope","state":if exited {"exited"} else {"running"},"exitCode":if exited {Some(if stop_reason.is_some() {1} else {0})} else {None},"signal":null,"sandboxDenied":false,"stopReason":if exited {stop_reason} else {None},"cleanupError":null});
+                    if exited && let Some(facts) = &exit_facts {
+                        info.as_object_mut()
+                            .unwrap()
+                            .extend(facts.as_object().unwrap().clone());
+                    }
+                    info
                 }
                 "output.read" => {
                     let params = &req["params"];
@@ -489,6 +507,49 @@ async fn command_with_policy(
     )
     .await
     .unwrap()
+}
+
+#[tokio::test(start_paused = true)]
+async fn command_and_readback_preserve_exit_signal_without_guessing_its_source() {
+    for facts in [
+        json!({"exitCode":null,"signal":"9","sandboxDenied":false}),
+        json!({"exitCode":null,"signal":"15","sandboxDenied":true}),
+        json!({"exitCode":137,"signal":null,"sandboxDenied":false}),
+    ] {
+        for yield_ms in [None, Some(0)] {
+            let client =
+                process_fixture_exit(100, None, None, false, String::new(), Some(facts.clone()))
+                    .await;
+            let (mut success, mut result) = command(&client, yield_ms, false).await;
+            if yield_ms == Some(0) {
+                assert!(success);
+                assert!(result["signal"].is_null());
+                (success, result) = process_output(
+                    &client,
+                    "scope",
+                    ReadProcess {
+                        view: OutputView::Auto,
+                        process_id: "process".into(),
+                        after: None,
+                        wait_ms: 1000,
+                    },
+                    0,
+                    None,
+                    8192,
+                )
+                .await
+                .unwrap();
+            }
+            assert!(!success);
+            assert_eq!(result["commandStatus"], "failed");
+            assert!(result["stopReason"].is_null());
+            for key in ["exitCode", "signal", "sandboxDenied"] {
+                assert_eq!(result[key], facts[key]);
+            }
+            assert_eq!(result["outputReadComplete"], true);
+            client.shutdown().await.unwrap();
+        }
+    }
 }
 
 #[tokio::test(start_paused = true)]
@@ -1312,6 +1373,261 @@ struct ExternalAgentNamedHost {
     saw_read_lease: Arc<std::sync::atomic::AtomicBool>,
 }
 
+struct InheritedLeaseHost {
+    calls: std::sync::atomic::AtomicUsize,
+}
+
+#[async_trait::async_trait]
+impl DynamicToolHost for InheritedLeaseHost {
+    fn id(&self) -> &str {
+        "inherited-lease-host"
+    }
+    fn is_closed(&self) -> bool {
+        false
+    }
+    async fn call(
+        &self,
+        _: Value,
+        _: CancellationToken,
+    ) -> anyhow::Result<areal_protocol::DynamicToolResponse> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        Ok(areal_protocol::DynamicToolResponse {
+            raw_mcp_result: None,
+            success: true,
+            content_items: vec![],
+            structured_content: None,
+        })
+    }
+}
+
+async fn inherited_lease_fixture(
+    read_only: bool,
+) -> (
+    tempfile::TempDir,
+    Arc<Engine>,
+    Arc<Cell>,
+    Arc<Cell>,
+    Arc<InheritedLeaseHost>,
+) {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = Engine::open(
+        dir.path(),
+        Arc::new(PendingExecutionGuard),
+        Limits {
+            inspection_permissions: areal_config::InspectionPermissions::Inherit,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let host = Arc::new(InheritedLeaseHost {
+        calls: std::sync::atomic::AtomicUsize::new(0),
+    });
+    let parent = engine
+        .create_with_tools(
+            "/workspace".into(),
+            vec![areal_protocol::ToolDefinition {
+                // 与原生读取同名的外部回调仍可能写入，必须取得租约。
+                name: "read_file".into(),
+                description: "ambient callback named like a native read".into(),
+                input_schema: json!({"type":"object","properties":{},"additionalProperties":false}),
+                output_schema: None,
+            }],
+            host.clone(),
+        )
+        .await
+        .unwrap();
+    if read_only {
+        let cell = engine.cell(&parent.id).await.unwrap();
+        let mut state = cell.state.lock().await;
+        state.thread.desktop = Some(areal_protocol::desktop::DesktopState {
+            configuration: areal_protocol::desktop::EffectiveConfig {
+                read_only: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+    }
+    let turn = engine
+        .start(&parent.id, vec![Input::text("parent")])
+        .await
+        .unwrap();
+    let (child,_)=engine.spawn_delegated_child(serde_json::from_value(json!({
+        "parentThreadId":parent.id,"input":[{"type":"text","text":"inspection"}],"workspaceMode":"sharedWrite"
+    })).unwrap(),turn.id,false,None).await.unwrap();
+    let parent = engine.cell(&parent.id).await.unwrap();
+    let child = engine.cell(&child.id).await.unwrap();
+    (dir, engine, parent, child, host)
+}
+
+fn inherited_action(id: &str) -> ToolCall {
+    ToolCall {
+        id: id.into(),
+        name: "read_file".into(),
+        arguments: "{}".into(),
+    }
+}
+
+#[tokio::test]
+async fn inherited_inspection_takes_writer_lease_only_when_needed_and_releases_after_cancellation()
+{
+    let (_dir, engine, parent, child, host) = inherited_lease_fixture(false).await;
+    assert!(
+        engine.workspace_gate.try_write().is_ok(),
+        "model-only work eagerly blocked the parent"
+    );
+    engine
+        .tool(
+            &child,
+            &CancellationToken::new(),
+            inherited_action("child-action"),
+            usize::MAX,
+        )
+        .await
+        .unwrap();
+    assert!(
+        engine.workspace_gate.try_read().is_err(),
+        "ambient action ran without an exclusive lease"
+    );
+    assert_eq!(host.calls.load(Ordering::SeqCst), 1);
+    let pending = tokio::spawn({
+        let engine = engine.clone();
+        let parent = parent.clone();
+        async move {
+            engine
+                .tool(
+                    &parent,
+                    &CancellationToken::new(),
+                    inherited_action("parent-action"),
+                    usize::MAX,
+                )
+                .await
+        }
+    });
+    tokio::task::yield_now().await;
+    assert!(!pending.is_finished());
+    let turn = child.state.lock().await.active.as_ref().unwrap().id.clone();
+    engine.interrupt(&child.id, &turn).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(3), engine.wait(&child.id))
+        .await
+        .unwrap()
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(3), pending)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(host.calls.load(Ordering::SeqCst), 2);
+    assert!(engine.workspace_gate.try_write().is_ok());
+    engine.shutdown().await;
+}
+
+#[tokio::test]
+async fn inherited_writer_wait_can_cancel_without_the_other_writer_releasing() {
+    let (_dir, engine, _parent, child, host) = inherited_lease_fixture(false).await;
+    let writer = engine.workspace_gate.clone().write_owned().await;
+    let cancel = child
+        .state
+        .lock()
+        .await
+        .active
+        .as_ref()
+        .unwrap()
+        .cancel
+        .clone();
+    let pending = tokio::spawn({
+        let engine = engine.clone();
+        let child = child.clone();
+        async move {
+            engine
+                .tool(
+                    &child,
+                    &cancel,
+                    inherited_action("waiting-child"),
+                    usize::MAX,
+                )
+                .await
+        }
+    });
+    tokio::task::yield_now().await;
+    let turn = child.state.lock().await.active.as_ref().unwrap().id.clone();
+    engine.interrupt(&child.id, &turn).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(3), engine.wait(&child.id))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        tokio::time::timeout(Duration::from_secs(3), pending)
+            .await
+            .unwrap()
+            .unwrap()
+            .is_err()
+    );
+    assert_eq!(host.calls.load(Ordering::SeqCst), 0);
+    drop(writer);
+    engine.shutdown().await;
+}
+
+#[tokio::test]
+async fn inherited_inspection_preserves_read_only_parent_and_rejects_ambient_tools() {
+    let (_dir, engine, _parent, child, host) = inherited_lease_fixture(true).await;
+    assert!(
+        child
+            .state
+            .lock()
+            .await
+            .thread
+            .turns
+            .last()
+            .unwrap()
+            .configuration
+            .as_ref()
+            .unwrap()
+            .read_only
+    );
+    assert!(
+        !child
+            .state
+            .lock()
+            .await
+            .thread
+            .desktop
+            .as_ref()
+            .unwrap()
+            .execution_policy
+            .deferred_write
+    );
+    engine
+        .tool(
+            &child,
+            &CancellationToken::new(),
+            inherited_action("forbidden-child"),
+            usize::MAX,
+        )
+        .await
+        .unwrap();
+    assert_eq!(host.calls.load(Ordering::SeqCst), 0);
+    assert!(
+        child
+            .state
+            .lock()
+            .await
+            .thread
+            .turns
+            .last()
+            .unwrap()
+            .items
+            .iter()
+            .any(|item| matches!(
+                item,
+                Item::DynamicToolCall {
+                    success: Some(false),
+                    ..
+                }
+            ))
+    );
+    engine.shutdown().await;
+}
+
 #[async_trait::async_trait]
 impl DynamicToolHost for ExternalAgentNamedHost {
     fn id(&self) -> &str {
@@ -1328,6 +1644,7 @@ impl DynamicToolHost for ExternalAgentNamedHost {
         self.saw_read_lease
             .store(self.gate.try_write().is_err(), Ordering::Release);
         Ok(areal_protocol::DynamicToolResponse {
+            raw_mcp_result: None,
             success: true,
             content_items: vec![],
             structured_content: None,
@@ -1410,24 +1727,21 @@ async fn assert_child_creation_gate(exclusive: bool) {
     };
     let cell = engine.cell(&thread_id).await.unwrap();
     if exclusive {
-        tokio::time::timeout(Duration::from_secs(3), async {
-            loop {
-                if cell
-                    .state
-                    .lock()
-                    .await
-                    .active
-                    .as_ref()
-                    .unwrap()
-                    .workspace_exclusive
-                {
-                    break;
-                }
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .unwrap();
+        assert!(
+            cell.state
+                .lock()
+                .await
+                .thread
+                .desktop
+                .as_ref()
+                .unwrap()
+                .execution_policy
+                .exclusive_write
+        );
+        assert!(
+            engine.workspace_gate.try_read().is_ok(),
+            "model-only writer must not acquire a workspace lease"
+        );
     }
     {
         let mut bindings = cell.bindings.write().await;
@@ -1435,7 +1749,19 @@ async fn assert_child_creation_gate(exclusive: bool) {
             bindings.registry = bindings.registry.clone().with_workgroups(true).unwrap();
         }
         if bindings.registry.get("agent_spawn").is_err() {
-            bindings.registry = bindings.registry.clone().with_agents(true).unwrap();
+            let extra = Registry::default().with_agents(true, true).unwrap();
+            for definition in extra.definitions() {
+                let name = definition["function"]["name"].as_str().unwrap();
+                if bindings.registry.get(name).is_err() {
+                    bindings
+                        .registry
+                        .insert(
+                            extra.get(name).unwrap().definition.clone(),
+                            Backend::Coordination,
+                        )
+                        .unwrap();
+                }
+            }
         }
         for definition in agents::definitions() {
             bindings

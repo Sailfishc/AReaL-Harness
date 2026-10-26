@@ -254,6 +254,8 @@ impl Engine {
                 session_id: thread_id.clone(),
                 parent_thread_id: None,
                 preview: format!("分支 · {}", source.preview),
+                name: None,
+                name_attempt_turn_id: None,
                 model_provider: engine.model_provider(),
                 created_at: now(),
                 updated_at: now(),
@@ -275,6 +277,7 @@ impl Engine {
                     registry: engine.registry.clone(),
                     host: None,
                 },
+                None,
             );
             // 创建准入保护未发布目标的容量；目录锁不跨磁盘等待，现有控制仍可查找会话。
             let _creation = engine.thread_creation.lock().await;
@@ -326,6 +329,14 @@ impl Engine {
         cursor: Option<String>,
         max_bytes: Option<usize>,
     ) -> Result<Value> {
+        if view == "own" {
+            let max_bytes =
+                max_bytes.unwrap_or(areal_protocol::desktop::DEFAULT_HISTORY_PAGE_BYTES);
+            if !(1..=areal_protocol::desktop::MAX_HISTORY_PAGE_BYTES).contains(&max_bytes) {
+                return Err(invalid("maxBytes must be 1..1048576"));
+            }
+            return self.own_history("", thread_id, cursor, max_bytes).await;
+        }
         if !matches!(view, "inherited" | "reference") {
             return Err(invalid("invalid history view"));
         }
@@ -391,7 +402,7 @@ impl Engine {
         for (position, (turn, source_thread_id, item)) in entries.enumerate().skip(index) {
             let presentation = json!({"id":turn.id,"status":turn.status,"error":turn.error,
                 "startedAt":turn.started_at,"completedAt":turn.completed_at,
-                "durationMs":turn.duration_ms,"goal":turn.goal});
+                "durationMs":turn.duration_ms,"goal":turn.goal,"usage":turn.usage,"generation":turn.generation});
             let entry = json!({"sourceThreadId":source_thread_id,
                 "sourceTurnId":turn.id,"sourceItemId":item.id(),"sourceTurnStatus":turn.status,"turn":presentation,"item":item});
             let serialized = serde_json::to_string(&entry).map_err(invalid)?;
@@ -425,30 +436,8 @@ impl Engine {
                         next,
                     )
                 };
-                let mut low = 0;
-                let mut high = remaining.len().min(max_bytes);
-                let mut best = None;
-                while low <= high {
-                    let mid = low + (high - low) / 2;
-                    let mut end = mid;
-                    while !remaining.is_char_boundary(end) {
-                        end -= 1;
-                    }
-                    let page = fragment_page(&remaining[..end]);
-                    if page.to_string().len() <= max_bytes {
-                        best = Some((page, end));
-                        low = mid + 1;
-                    } else if mid == 0 {
-                        break;
-                    } else {
-                        high = mid - 1;
-                    }
-                }
-                let (page, consumed) =
-                    best.ok_or_else(|| invalid("history page budget too small"))?;
-                if consumed == 0 && !remaining.is_empty() {
-                    return Err(invalid("history page budget too small"));
-                }
+                let page = crate::store::fit_history_fragment(remaining, max_bytes, fragment_page)
+                    .ok_or_else(|| invalid("history page budget too small"))?;
                 if data.is_empty() {
                     return Ok(page);
                 }
@@ -478,9 +467,11 @@ impl Engine {
         host: Arc<dyn crate::tools::DynamicToolHost>,
     ) -> Result<Value> {
         self.mutate(move |engine| async move {
-            if request.bundle_id != BROWSER_V1_BUNDLE {
-                return Err(invalid("unsupported browser bundle"));
-            }
+            let tool = match request.bundle_id.as_str() {
+                BROWSER_V1_BUNDLE => areal_protocol::desktop::browser_v1_tool(),
+                areal_protocol::desktop::COMPUTER_V1_BUNDLE => areal_protocol::desktop::computer_v1_tool(),
+                _ => return Err(invalid("unsupported desktop tool bundle")),
+            };
             if host.is_closed() || host.identity() != identity {
                 return Err(Error::Conflict);
             }
@@ -499,7 +490,7 @@ impl Engine {
             }
             let cell = engine.cell(&request.thread_id).await?;
             let mut state = cell.state.lock().await;
-            if state.thread.is_side() { return Err(invalid("SIDE_POLICY_VIOLATION")); }
+            if state.thread.is_read_only_side() { return Err(invalid("SIDE_POLICY_VIOLATION")); }
             let mut data = desktop(&state.thread);
             if let Some(result) = receipt(&data, &identity, &request.request_id, method, &hash)? {
                 return Ok(result);
@@ -515,13 +506,13 @@ impl Engine {
             if bindings.host.as_ref().is_some_and(|old| old.id() != host.id() && !old.is_closed()) {
                 return Err(Error::Conflict);
             }
-            let tool = areal_protocol::desktop::browser_v1_tool();
             let present = state.thread.dynamic_tools.iter().find(|entry| entry.name == tool.name);
             if present.is_some_and(|entry| digest(entry).ok() != digest(&tool).ok()) {
                 return Err(Error::Conflict);
             }
             // 旧工具仅在原 live ToolHost 当前连接上继续执行；不能改绑给不认识它们的 GUI。
-            if state.thread.dynamic_tools.iter().any(|entry| entry.name != tool.name)
+            let deployed = [areal_protocol::desktop::browser_v1_tool(), areal_protocol::desktop::computer_v1_tool()];
+            if state.thread.dynamic_tools.iter().any(|entry| !deployed.iter().any(|known| digest(entry).ok() == digest(known).ok()))
                 && !bindings.host.as_ref().is_some_and(|old| old.id() == host.id() && !old.is_closed())
             {
                 return Err(invalid("existing client tools require their original live host; browser attachment unavailable"));
@@ -535,7 +526,7 @@ impl Engine {
                     .ok_or(Error::Conflict)?;
             }
             let result = json!({"threadId": candidate.id, "toolsetRevision":candidate.toolset_revision,
-                "bundleId":BROWSER_V1_BUNDLE});
+                "bundleId":request.bundle_id});
             remember(&mut data, &identity, &request.request_id, method, hash, result.clone());
             candidate.desktop = Some(data);
             engine.persist(&candidate).await?;
@@ -587,16 +578,20 @@ impl Engine {
             }
             let allow_plugin_skills = request.agent_profile.is_none();
             let mut data = DesktopState {
-                configuration: engine.resolve_config(
-                    request
-                        .agent_profile
-                        .or_else(|| engine.desktop.default_profile.read().unwrap().clone()),
-                    request.model,
-                    request.parameters,
-                    1,
-                )?,
+                configuration: engine
+                    .resolve_config(
+                        request
+                            .agent_profile
+                            .or_else(|| engine.desktop.default_profile.read().unwrap().clone()),
+                        request.model,
+                        request.parameters,
+                        1,
+                    )
+                    .map_err(|error| Error::Rejected(Box::new(error)))?,
                 ..Default::default()
             };
+            data.configuration.options = request.options.unwrap_or_default();
+            engine.apply_client_permissions(&mut data.configuration)?;
             engine.pin_desktop_default(&mut data.configuration);
             data.configuration.allow_plugin_skills = allow_plugin_skills
                 || data
@@ -656,6 +651,7 @@ impl Engine {
                     request.dynamic_tools,
                     Some(host),
                     Some(data),
+                    false,
                 )
                 .await?;
             engine.ensure_profile_workflow(thread, &hash).await
@@ -719,11 +715,32 @@ impl Engine {
         self: &Arc<Self>,
         request: ConfigureThread,
     ) -> Result<EffectiveConfig> {
+        self.configure_thread_as(String::new(), request).await
+    }
+    pub async fn configure_thread_as(
+        self: &Arc<Self>,
+        identity: String,
+        request: ConfigureThread,
+    ) -> Result<EffectiveConfig> {
         self.refresh_plugins().await?;
         self.mutate(move |engine| async move {
+            let _admission = engine.desktop.lifecycle.gate.lock().await;
+            let hash = digest(&request)?;
+            let request_id = request.request_id.clone();
             let cell = engine.cell(&request.thread_id).await?;
-            let is_side = cell.state.lock().await.thread.is_side();
+            let is_side = cell.state.lock().await.thread.is_read_only_side();
             let mut state = cell.state.lock().await;
+            if let Some(request_id) = &request_id
+                && let Some(result) = receipt(
+                    &desktop(&state.thread),
+                    &identity,
+                    request_id,
+                    "areal/thread/configure",
+                    &hash,
+                )?
+            {
+                return serde_json::from_value(result).map_err(invalid);
+            }
             if state.active.is_some() || state.compacting {
                 return Err(Error::Conflict);
             }
@@ -763,6 +780,7 @@ impl Engine {
                 configuration.instructions = previous.instructions;
                 configuration.tool_allowlist = previous.tool_allowlist;
                 configuration.read_only = true;
+                engine.project_permissions(&mut configuration);
                 if configuration.model.is_none() {
                     configuration.default_model_revision = previous.default_model_revision;
                 }
@@ -780,8 +798,20 @@ impl Engine {
                     .desktop
                     .get_or_insert_with(Default::default)
                     .configuration = configuration.clone();
+                candidate.desktop.as_mut().unwrap().prompt_prediction = None;
+                if let Some(request_id) = &request_id {
+                    remember(
+                        candidate.desktop.as_mut().unwrap(),
+                        &identity,
+                        request_id,
+                        "areal/thread/configure",
+                        hash.clone(),
+                        json!(configuration),
+                    );
+                }
                 engine.persist(&candidate).await?;
                 state.thread = candidate;
+                crate::prompt_prediction::invalidate(&mut state);
                 cell.emit(
                     "areal/thread/configured",
                     json!({"threadId":request.thread_id,"configuration":configuration}),
@@ -794,6 +824,11 @@ impl Engine {
             if request.reset_model && request.model.is_some() {
                 return Err(invalid("model and resetModel cannot be used together"));
             }
+            let reset_parameters = request.reset_model
+                || request
+                    .model
+                    .as_ref()
+                    .is_some_and(|model| Some(model) != previous.model.as_ref());
             let inherited_plugin_scope = request.agent_profile.is_none();
             let preserve_model =
                 request.model.is_none() && !request.reset_model && request.agent_profile.is_none();
@@ -832,7 +867,13 @@ impl Engine {
                     } else {
                         request.model.or(previous.model.clone())
                     },
-                    request.parameters.unwrap_or(previous.parameters.clone()),
+                    request.parameters.unwrap_or_else(|| {
+                        if reset_parameters {
+                            Default::default()
+                        } else {
+                            previous.parameters.clone()
+                        }
+                    }),
                     previous.revision + 1,
                 )?;
                 engine.pin_desktop_default(&mut configuration);
@@ -892,6 +933,7 @@ impl Engine {
                 }
             }
             configuration.selected_skills = selected_skills;
+            engine.apply_client_permissions(&mut configuration)?;
             let o = &configuration.options;
             configuration.read_only |= o.read_only;
             configuration.instructions = previous.instructions;
@@ -927,11 +969,23 @@ impl Engine {
                 .desktop
                 .get_or_insert_with(Default::default)
                 .configuration = configuration.clone();
+            candidate.desktop.as_mut().unwrap().prompt_prediction = None;
             let registry = engine
                 .managed_registry(&candidate, cell.research)
                 .map_err(invalid)?;
+            if let Some(request_id) = &request_id {
+                remember(
+                    candidate.desktop.as_mut().unwrap(),
+                    &identity,
+                    request_id,
+                    "areal/thread/configure",
+                    hash,
+                    json!(configuration),
+                );
+            }
             engine.persist(&candidate).await?;
             state.thread = candidate;
+            crate::prompt_prediction::invalidate(&mut state);
             cell.bindings.write().await.registry = registry;
             cell.emit(
                 "areal/thread/configured",
@@ -949,7 +1003,11 @@ impl Engine {
             .await
     }
     pub(super) async fn update_plan_inner(&self, request: PlanUpdate) -> Result<Plan> {
-        if self.read(&request.thread_id, false).await?.is_side() {
+        if self
+            .read(&request.thread_id, false)
+            .await?
+            .is_read_only_side()
+        {
             return Err(invalid("SIDE_POLICY_VIOLATION"));
         }
         let mut ids = HashSet::new();
@@ -994,9 +1052,40 @@ impl Engine {
         cell: &Cell,
         config: &EffectiveConfig,
         desktop_enabled: bool,
+        thread: &Thread,
     ) -> Vec<Value> {
+        let declared = match (&config.model, &config.provider) {
+            (Some(model), Some(provider)) => {
+                provider.model_capabilities.get(&model.model_id).cloned()
+            }
+            (None, None) => self
+                .default_model_for(config)
+                .ok()
+                .and_then(|model| model.capabilities().declared),
+            _ => None,
+        };
+        if declared.is_some_and(|capabilities| !capabilities.tools) {
+            return Vec::new();
+        }
         let goal_enabled = cell.goal_role.load(Ordering::Acquire) != 0;
         let exclusive = cell.exclusive_writer;
+        let restricted_unavailable = self.runtime.as_ref().is_some_and(|runtime| {
+            runtime.client.info().capabilities["restrictedScopes"]["available"] == false
+        });
+        let inspection_unavailable = restricted_unavailable
+            && (!self.inspection_inherits_permissions()
+                || config.read_only
+                || self
+                    .runtime
+                    .as_ref()
+                    .is_none_or(|runtime| !runtime.writable));
+        let writing_unavailable = config.read_only
+            || self
+                .runtime
+                .as_ref()
+                .is_none_or(|runtime| !runtime.writable);
+        let schedules_available =
+            desktop_enabled && self.schedule_tools_available(cell, config, thread).await;
         let bindings = cell.bindings.read().await;
         let mut definitions = bindings.registry.definitions();
         let core_names: Vec<_> = crate::desktop::definitions()
@@ -1005,7 +1094,25 @@ impl Engine {
             .collect();
         definitions.retain(|d| {
             let name = d["function"]["name"].as_str().unwrap_or("");
-            (!matches!(name, "task_spawn" | "task_wait" | "task_channel_read") || goal_enabled)
+            let native_research = bindings.registry.get(name).is_ok_and(|entry| {
+                matches!(entry.backend, crate::tools::Backend::Agent)
+            });
+            let native_coordination = bindings.registry.get(name).is_ok_and(|entry| {
+                matches!(entry.backend, crate::tools::Backend::Coordination)
+            });
+            // 只投影可信原生委派的已知能力；不按名称过滤外部工具，也不改变历史句柄的控制入口。
+            if restricted_unavailable && name == "delegate_tasks"
+                && native_research
+            {
+                return false;
+            }
+            if inspection_unavailable && writing_unavailable && name == "agent_spawn"
+                && native_coordination
+            {
+                return false;
+            }
+            (!name.starts_with("scheduled_task_") || schedules_available)
+                && (!matches!(name, "task_spawn" | "task_wait" | "task_channel_read") || goal_enabled)
                 && (!matches!(name, "task_spawn" | "task_wait")
                     || cell.goal_role.load(Ordering::Acquire) == 1)
                 && (!name.starts_with("goal_")
@@ -1023,9 +1130,9 @@ impl Engine {
                 // different spawn/wait contracts for the same Turn.
                 && (self.extensions.agents.is_none()
                     || !matches!(name, "agent_spawn_configured" | "agent_wait_all"))
-                && (name != "agent_report" || cell.depth > 0)
+                && (name != "agent_report" || cell.depth > 0 || cell.handoff_worker.load(Ordering::Acquire))
                 // 原文回取属于所有 Core 会话，不依赖桌面扩展状态。
-                && (desktop_enabled || matches!(name, "read_tool_result" | "read_history") || !core_names.iter().any(|n| n == name))
+                && (desktop_enabled || matches!(name, "read_tool_result" | "read_history" | "read_conversation_context") || !core_names.iter().any(|n| n == name))
                 && config
                     .tool_allowlist
                     .as_ref()
@@ -1041,6 +1148,61 @@ impl Engine {
                             )
                     }))
         });
+        if inspection_unavailable {
+            for definition in &mut definitions {
+                if definition["function"]["name"] == "agent_spawn"
+                    && bindings.registry.get("agent_spawn").is_ok_and(|entry| {
+                        matches!(entry.backend, crate::tools::Backend::Coordination)
+                    })
+                {
+                    // 可写协作仍按原授权准入；模型不能把不可用只读分析冒充为可写任务。
+                    definition["function"]["parameters"]["properties"]["intent"]["enum"] =
+                        json!(["modify"]);
+                    let description = definition["function"]["description"].as_str().unwrap_or("");
+                    definition["function"]["description"] = json!(format!(
+                        "{description} Read-only inspection is unavailable in this deployment. Do not use modify to bypass an inspection permission boundary."
+                    ));
+                }
+            }
+        }
+        if !goal_enabled {
+            for definition in &mut definitions {
+                if definition["function"]["name"] == "ask_user_question"
+                    && bindings
+                        .registry
+                        .get("ask_user_question")
+                        .is_ok_and(|entry| matches!(entry.backend, crate::tools::Backend::Core))
+                {
+                    // 普通会话没有持久 Task 通道，不向模型声明无法履行的异步契约。
+                    definition["function"]["parameters"]["properties"]["mode"]["enum"] =
+                        json!(["wait"]);
+                }
+            }
+        }
+        let trusted_checks = self
+            .workgroups
+            .get()
+            .is_some_and(|service| service.is_strict());
+        for definition in &mut definitions {
+            if definition["function"]["name"] == "agent_spawn"
+                && bindings
+                    .registry
+                    .get("agent_spawn")
+                    .is_ok_and(|entry| matches!(entry.backend, crate::tools::Backend::Coordination))
+            {
+                let guarantee =
+                    &mut definition["function"]["parameters"]["properties"]["requireTrustedChecks"];
+                guarantee["description"] = json!(if trusted_checks {
+                    "A host-owned trusted verifier is configured. Set true only when that guarantee is required; child self-checks alone are not trusted verification."
+                } else {
+                    "No host-owned trusted verifier is configured in this deployment. Omit or use false. Child self-checks remain available and are reported without trusted-verification claims."
+                });
+                if !trusted_checks {
+                    // 配置能力是稳定事实；不能暴露一个本部署必然拒绝的创建选项。
+                    guarantee["enum"] = json!([false]);
+                }
+            }
+        }
         if let Some(service) = self.workgroups.get() {
             for definition in &mut definitions {
                 if definition["function"]["name"] == "workgroup_start" {
@@ -1061,8 +1223,11 @@ impl Engine {
             .filter(|_| state.active.is_some())
             .and_then(|t| t.configuration.clone())
             .unwrap_or_else(|| desktop(&state.thread).configuration);
+        let thread = state.thread.clone();
+        let active_turn_id = state.active.as_ref().map(|active| active.id.clone());
+        drop(state);
         let tools = self
-            .visible_tools(&cell, &config, state.thread.desktop.is_some())
+            .visible_tools(&cell, &config, thread.desktop.is_some(), &thread)
             .await;
         let model_metadata = config
             .model
@@ -1075,11 +1240,11 @@ impl Engine {
             })
             .flatten();
         Ok(
-            json!({"modelName":model_metadata.as_ref().map(|(name, _)| name),"resolvedParameters":model_metadata.map(|(_, parameters)| super::catalog::merge_model_parameters(config.parameters.clone(), parameters)),"threadId":thread_id,"sessionId":state.thread.session_id,"parentThreadId":state.thread.parent_thread_id,
-            "activeTurnId":state.active.as_ref().map(|a| &a.id),"configuration":config,
-            "instructionSnapshot":state.thread.turns.last().and_then(|t|t.instruction_snapshot.as_ref()),"instructionSources":["runtime/defaultOrClientSystem","profile","childTask","clientAppend","workspace/AGENTS.md"],"tools":tools,"loadedSkills":state.thread.desktop.as_ref().map(|d| &d.loaded_skills),
-            "contextCheckpoint":state.thread.context_checkpoint,"usage":state.thread.turns.last().and_then(|t| t.usage.as_ref()),
-            "usageKnown":state.thread.turns.last().is_some_and(|t| t.usage.is_some()),
+            json!({"modelName":model_metadata.as_ref().map(|(name, _)| name),"resolvedParameters":model_metadata.map(|(_, parameters)| super::catalog::merge_model_parameters(config.parameters.clone(), parameters)),"threadId":thread_id,"sessionId":thread.session_id,"parentThreadId":thread.parent_thread_id,
+            "activeTurnId":active_turn_id,"configuration":config,
+            "instructionSnapshot":thread.turns.last().and_then(|t|t.instruction_snapshot.as_ref()),"instructionSources":["runtime/defaultOrClientSystem","profile","childTask","clientAppend","workspace/AGENTS.md"],"tools":tools,"loadedSkills":thread.desktop.as_ref().map(|d| &d.loaded_skills),
+            "contextCheckpoint":thread.context_checkpoint,"usage":thread.turns.last().and_then(|t| t.usage.as_ref()),
+            "usageKnown":thread.turns.last().is_some_and(|t| t.usage.is_some()),
             "limits":{"historyBytes":self.limits.max_history_bytes,"contextBytes":self.limits.context_window_bytes},
             "runtime":self.runtime_capabilities()}),
         )
@@ -1094,11 +1259,18 @@ impl Engine {
                     if receipt.identity == identity && receipt.request_id == request_id {
                         let mut v = json!(receipt);
                         v["threadId"] = json!(state.thread.id);
+                        normalize_thread_receipt(&mut v, &state.thread.id)?;
                         management["data"].as_array_mut().unwrap().push(v);
                     }
                 }
             }
         }
+        management["data"]
+            .as_array_mut()
+            .unwrap()
+            .extend(self.task_receipts(identity, request_id).await?);
+        management["retention"] = json!("threadAndDeploymentLifetime");
+        management["capacities"] = json!({"thread":1024,"management":4096,"task":8192});
         Ok(management)
     }
     pub async fn request_status(
@@ -1107,35 +1279,38 @@ impl Engine {
         thread_id: &str,
         request_id: &str,
     ) -> Result<Value> {
-        let thread = self.read(thread_id, false).await?;
-        let mut records: Vec<Value> = desktop(&thread)
-            .receipts
-            .into_iter()
-            .filter(|r| r.identity == identity && r.request_id == request_id)
-            .map(|r| json!(r))
-            .collect();
-        let management = self.management_receipts(identity, request_id).await;
-        records.extend(management["data"].as_array().into_iter().flatten().cloned());
-        Ok(json!({"data":records,"retention":"threadAndDeploymentLifetime","capacity":1024}))
+        self.raw_cell(thread_id).await?;
+        let mut records = self.find_request(identity, request_id).await?;
+        records["capacity"] = json!(1024);
+        records["data"]
+            .as_array_mut()
+            .unwrap()
+            .retain(|entry| entry["threadId"] == thread_id || entry["state"].is_string());
+        Ok(records)
     }
+
     pub(crate) async fn active_permissions(
         &self,
         cell: &Cell,
     ) -> anyhow::Result<areal_runtime_protocol::PermissionRequest> {
-        if !cell.state.lock().await.thread.is_side()
+        if !cell.state.lock().await.thread.is_read_only_side()
             && let Some(scratch) = self.command_scratch(cell)
         {
             // 目录由可信 Core 创建，Runtime 再绑定和校验目录身份。
             std::fs::create_dir_all(scratch).context("cannot create task scratch")?;
         }
         let state = cell.state.lock().await;
-        let readonly = state
-            .thread
-            .turns
-            .last()
+        let configuration = state
+            .active
+            .as_ref()
+            .and_then(|_| state.thread.turns.last())
             .and_then(|t| t.configuration.as_ref())
-            .is_some_and(|c| c.read_only);
-        let side = state.thread.is_side();
+            .or_else(|| state.thread.desktop.as_ref().map(|d| &d.configuration));
+        let workspace = configuration
+            .and_then(|c| c.options.permission_preset)
+            .is_some_and(|preset| preset != PermissionPreset::FullAccess);
+        let readonly = configuration.is_some_and(|c| c.read_only);
+        let side = state.thread.is_read_only_side();
         Ok(areal_runtime_protocol::PermissionRequest {
             read_roots: if side {
                 let configuration = desktop(&state.thread).configuration;
@@ -1158,7 +1333,7 @@ impl Engine {
                         Vec::new()
                     },
                 )
-            } else if readonly || cell.research {
+            } else if readonly || cell.research || workspace {
                 Some(
                     vec!["workspace://repo".into(), self.scratch_uri(cell)]
                         .into_iter()
@@ -1188,14 +1363,23 @@ impl Engine {
                         Vec::new()
                     },
                 )
+            } else if workspace && !cell.research {
+                Some(
+                    vec!["workspace://repo".into(), self.scratch_uri(cell)]
+                        .into_iter()
+                        .filter(|p| {
+                            p == "workspace://repo"
+                                || self
+                                    .runtime
+                                    .as_ref()
+                                    .is_some_and(|r| r.command_scratch.is_some())
+                        })
+                        .collect(),
+                )
             } else {
                 self.scope_permissions(cell).write_roots
             },
-            network: if readonly || side {
-                areal_runtime_protocol::NetworkRequest::Deny
-            } else {
-                areal_runtime_protocol::NetworkRequest::Inherit
-            },
+            network: crate::permissions::base_network_policy(configuration, side),
         })
     }
 }
@@ -1210,4 +1394,19 @@ fn profile_workgroup_start(
         workers: None,
         admission: Default::default(),
     }
+}
+
+fn normalize_thread_receipt(value: &mut Value, thread_id: &str) -> Result<()> {
+    value["operation"] = json!({"requestId":value["requestId"],"method":value["method"],"target":{"kind":"thread","threadId":thread_id}});
+    value["status"] = json!("completed");
+    if value["method"] == "areal/thread/configure" {
+        value["configurationHash"] = json!(digest(&value["result"])?);
+        value["expectedRevision"] = json!(
+            value["result"]["revision"]
+                .as_u64()
+                .and_then(|revision| revision.checked_sub(1))
+        );
+        value["resultingRevision"] = value["result"]["revision"].clone();
+    }
+    Ok(())
 }

@@ -9,7 +9,7 @@ use std::{
     process::Stdio,
     sync::{
         Arc, Mutex, OnceLock,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::Duration,
 };
@@ -40,6 +40,7 @@ pub struct Client {
     transport: Arc<Transport>,
     info: ConnectionInfo,
     shutdown: OnceLock<watch::Receiver<Option<Result<()>>>>,
+    admission_open: AtomicBool,
 }
 
 impl Client {
@@ -60,6 +61,61 @@ impl Client {
         writable: bool,
         limits: &Limits,
     ) -> Result<Arc<Self>> {
+        let environment = areal_runtime_host_tools::command_environment(
+            &std::env::var_os("PATH").unwrap_or_default(),
+        );
+        Self::launch_with_command_path(
+            binary,
+            helper,
+            workspace,
+            writable,
+            limits,
+            &environment.unrestricted_path,
+        )
+        .await
+    }
+
+    /// 仅供可信部署或已物化工具链使用；只传 PATH，不继承其余宿主环境。
+    pub async fn launch_with_command_path(
+        binary: &Path,
+        helper: &Path,
+        workspace: &Path,
+        writable: bool,
+        limits: &Limits,
+        command_path: &str,
+    ) -> Result<Arc<Self>> {
+        Self::launch_with_environment(
+            binary,
+            helper,
+            workspace,
+            writable,
+            limits,
+            command_path,
+            areal_runtime_protocol::NetworkRequest::Deny,
+        )
+        .await
+    }
+
+    /// 可信调用方传递已授权网络上限；不从模型参数或进程环境推断授权。
+    pub async fn launch_with_environment(
+        binary: &Path,
+        helper: &Path,
+        workspace: &Path,
+        writable: bool,
+        limits: &Limits,
+        command_path: &str,
+        network: areal_runtime_protocol::NetworkRequest,
+    ) -> Result<Arc<Self>> {
+        if command_path.len() > 32 * 1024
+            || command_path.is_empty()
+            || command_path.contains('\0')
+            || std::env::split_paths(command_path).any(|path| !path.is_absolute())
+        {
+            return Err(Error::new(
+                ErrorCode::InvalidArgument,
+                "trusted command PATH requires bounded absolute directories",
+            ));
+        }
         if limits.wall_time_ms == 0 || limits.output_bytes == 0 || limits.max_processes == 0 {
             return Err(Error::new(
                 ErrorCode::InvalidArgument,
@@ -91,13 +147,19 @@ impl Client {
             .arg(limits.max_processes.to_string())
             .current_dir(workspace)
             .env_clear()
-            .env("PATH", "/usr/bin:/bin")
+            .envs(areal_runtime_host_tools::deployment_environment())
+            .env("PATH", command_path)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
             .kill_on_drop(true);
         if writable {
             command.arg("--allow-write");
+        }
+        if network == areal_runtime_protocol::NetworkRequest::Inherit {
+            command
+                .arg("--allow-network")
+                .envs(areal_runtime_host_tools::network_environment());
         }
         let mut child = command.spawn().map_err(|_| {
             let mut error = unavailable("cannot launch Runtime");
@@ -200,6 +262,7 @@ impl Client {
                     transport,
                     info,
                     shutdown: OnceLock::new(),
+                    admission_open: AtomicBool::new(true),
                 }))
             }
             result => {
@@ -223,6 +286,9 @@ impl Client {
     pub fn is_closed(&self) -> bool {
         self.transport.stop.is_cancelled()
     }
+    pub fn admission_open(&self) -> bool {
+        !self.is_closed() && self.admission_open.load(Ordering::Acquire)
+    }
     pub fn operation_id(&self) -> String {
         format!("{}:op:{}", self.info.runtime_epoch, uuid::Uuid::new_v4())
     }
@@ -234,8 +300,10 @@ impl Client {
         let params = serde_json::to_value(params)
             .map_err(|_| Error::new(ErrorCode::InvalidArgument, "invalid RPC arguments"))?;
         let mut timeout = rpc_timeout(method);
-        if matches!(method, "fs.execute" | "process.start" | "process.wait")
-            && let Some(wall) = self.info.capabilities["processLimits"]["wallTimeMs"].as_u64()
+        if matches!(
+            method,
+            "fs.execute" | "process.start" | "process.startQueued" | "process.wait"
+        ) && let Some(wall) = self.info.capabilities["processLimits"]["wallTimeMs"].as_u64()
         {
             // A queued write/start and process.wait can last the full process
             // lifetime. The transport must not fence a valid long command.
@@ -252,6 +320,19 @@ impl Client {
         request: CreateParticipantScope,
     ) -> Result<ScopeInfo> {
         self.call("scope.createParticipant", request).await
+    }
+
+    pub async fn check_scope(&self, request: CheckScope) -> Result<ScopeCheck> {
+        if !self.info.capabilities["methods"]
+            .as_array()
+            .is_some_and(|methods| methods.iter().any(|method| method == "scope.check"))
+        {
+            return Err(Error::new(
+                ErrorCode::Unsupported,
+                "attached Runtime does not advertise scope.check; upgrade the complete Runtime bundle before starting children",
+            ));
+        }
+        self.call("scope.check", request).await
     }
     pub async fn create_scope(&self, request: CreateScope) -> Result<ScopeInfo> {
         self.call("scope.create", request).await
@@ -276,6 +357,18 @@ impl Client {
     pub async fn start(&self, request: StartProcess) -> Result<ProcessRef> {
         self.call("process.start", request).await
     }
+    /// 可选排队能力按握手协商；旧 Runtime 维持原准入行为，不失败后重放。
+    pub async fn start_queued(&self, request: StartProcess) -> Result<ProcessRef> {
+        let method = if self.info.capabilities["methods"]
+            .as_array()
+            .is_some_and(|methods| methods.iter().any(|method| method == "process.startQueued"))
+        {
+            "process.startQueued"
+        } else {
+            "process.start"
+        };
+        self.call(method, request).await
+    }
     pub async fn output(&self, request: ReadOutput) -> Result<OutputPage> {
         self.call("output.read", request).await
     }
@@ -299,7 +392,17 @@ impl Client {
         self.call("process.write", request).await
     }
     pub async fn status(&self) -> Result<Value> {
-        self.call("runtime.status", json!({})).await
+        // 健康读取超时只放弃本次观察；保留原请求关联，迟到响应不应封闭其他执行。
+        let status = tokio::time::timeout(
+            Duration::from_secs(3),
+            self.call::<_, Value>("runtime.status", json!({})),
+        )
+        .await
+        .map_err(|_| unavailable("Runtime health query timed out; cleanup is not confirmed"))??;
+        if let Some(open) = status["admissionOpen"].as_bool() {
+            self.admission_open.store(open, Ordering::Release);
+        }
+        Ok(status)
     }
     pub async fn resize(&self, request: ResizeProcess) -> Result<Value> {
         self.call("process.resize", request).await
@@ -376,7 +479,7 @@ async fn rpc(transport: &Transport, method: &str, params: Value) -> Result<Value
 fn rpc_timeout(method: &str) -> Duration {
     if matches!(
         method,
-        "fs.execute" | "process.start" | "process.wait" | "output.read"
+        "fs.execute" | "process.start" | "process.startQueued" | "process.wait" | "output.read"
     ) {
         TIMEOUT
     } else {
@@ -414,6 +517,8 @@ async fn rpc_timed(
             method,
             "connection.open"
                 | "connection.close"
+                | "runtime.status"
+                | "scope.check"
                 | "scope.get"
                 | "scope.revoke"
                 | "owner.revoke"

@@ -408,15 +408,37 @@ impl Engine {
     ) -> anyhow::Result<crate::tools::Registry> {
         let mut tools = self.desktop.mcp.tools();
         let config = desktop(thread).configuration;
-        if !thread.is_side() && !research && config.allow_plugin_skills && !config.read_only {
+        if !thread.is_read_only_side()
+            && !research
+            && config.allow_plugin_skills
+            && !config.read_only
+        {
             tools.extend(self.desktop.plugin_mcp.tools());
         }
-        let registry = self
-            .registry
-            .clone()
+        let mut registry = self.registry.clone();
+        // 报告能力只接入可信隔离 worker；禁用委派的普通 Engine 保留外部同名工具兼容。
+        if (self
+            .desktop
+            .worker_model
+            .load(std::sync::atomic::Ordering::Acquire)
+            || thread.source == "workgroupWorker")
+            && registry.get("agent_report").is_err()
+        {
+            registry = registry.with_agents(false, true)?;
+        }
+        let registry = registry
             .with_mcp(tools)?
             .with_dynamic(&thread.dynamic_tools)?;
-        Ok(if thread.is_side() {
+        let registry = if !thread.is_read_only_side()
+            && !research
+            && config.allow_plugin_skills
+            && !config.read_only
+        {
+            self.page_registry(registry, thread)?
+        } else {
+            registry
+        };
+        Ok(if thread.is_read_only_side() {
             registry.side_only(thread.side_workspace_read())
         } else if research {
             registry.research_only()
@@ -508,7 +530,25 @@ mod shutdown_tests {
         engine.shutdown().await;
         assert_eq!(engine.mcp_list()["data"][0]["state"], "cleanupFailed");
         drop(engine);
-        let reopened = Engine::open(root.path(), Arc::new(Pending), Limits::default()).unwrap();
+        // 已完成的 mutation 任务可能仍在释放最后的 Store 引用；等待实际锁释放，不能固定 sleep。
+        // 这里只重试明确的目录占用，持续泄漏仍须在有界期限内失败。
+        let reopened = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                match Engine::open(root.path(), Arc::new(Pending), Limits::default()) {
+                    Ok(engine) => break engine,
+                    Err(error)
+                        if error
+                            .to_string()
+                            .contains("another Core owns the data directory") =>
+                    {
+                        tokio::task::yield_now().await;
+                    }
+                    Err(error) => panic!("reopen failed: {error:#}"),
+                }
+            }
+        })
+        .await
+        .expect("old Core did not release its directory lock after shutdown");
         assert_eq!(reopened.mcp_list()["data"][0]["state"], "cleanupFailed");
         assert!(
             reopened

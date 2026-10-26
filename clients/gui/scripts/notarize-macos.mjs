@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
+import { preserveSignedPaths } from "./macos-signing-paths.mjs";
+import { buildMacOSDmg } from "./macos-dmg.mjs";
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
@@ -28,6 +30,9 @@ async function signCoreTools({ directory, manifest, identity, run }) {
     "bin/areal",
     "libexec/areal/areal-runtime",
     "libexec/areal/areal-runtime-fs",
+    ...["libexec/areal/shells/bash", "libexec/areal/shells/sh"].filter(
+      (relative) => relative in manifest.files,
+    ),
   ]) {
     const binary = join(directory, relative);
     assert.equal(hash(binary), manifest.files[relative], "Input Core digest differs: " + relative);
@@ -139,6 +144,7 @@ async function main() {
       "keychain-profile": { type: "string" },
       "history-source": { type: "string" },
       resume: { type: "boolean" },
+      "skip-tests": { type: "boolean" },
       "wait-seconds": { type: "string", default: "60" },
     },
   });
@@ -153,6 +159,7 @@ async function main() {
         "Identity/profile can also use CSC_NAME / APPLE_KEYCHAIN_PROFILE.\n" +
         "Requires macOS, Xcode notarytool, installed project dependencies and an existing\n" +
         "AReaL Core GUI .app. Copies input; produces notarized ZIP/DMG and JSON evidence.\n" +
+        "[--skip-tests] explicitly skips desktop/model acceptance, recorded in evidence; signing/notarization checks still run.\n" +
         "Exit 0: complete; 2: Apple still processing (resume); 1: failed, inspect logs.\n" +
         "Never publishes, changes update feeds, creates credentials, or replaces the source app.",
     );
@@ -330,13 +337,18 @@ async function main() {
       gatekeeperAssess: false,
       preAutoEntitlements: false,
       preEmbedProvisioningProfile: false,
-      ignore: (path) => ignored.includes(path),
+      ignore: preserveSignedPaths(ignored),
       optionsForFile: () => ({
         hardenedRuntime: true,
         entitlements: join(desktop, "scripts/entitlements.mac.plist"),
       }),
     });
     assertApp();
+    // 外层签名不得改变已签 Core 的字节；在任何 Apple 上传前检查，失败保留现场。
+    require(join(desktop, "app/src/core/bundle.cjs")).verifyCoreBundle(
+      join(app, "Contents/Resources"),
+      { hashes: true },
+    );
     run("/usr/bin/ditto", ["-c", "-k", "--keepParent", app, join(output, "app-submission.zip")]);
     state.phase = "signed";
     save();
@@ -464,34 +476,27 @@ async function main() {
       join(app, "Contents/Resources"),
       { hashes: true },
     );
-    run(process.execPath, [join(desktop, "scripts/migration-smoke.mjs")], {
-      env: { ...process.env, AREAL_GUI_EXECUTABLE: join(app, "Contents/MacOS/AReaL Harness GUI") },
-    });
-    state.packagedGui = "passed";
-    run(process.execPath, [join(desktop, "scripts/model-selection-smoke.mjs")], {
-      env: { ...process.env, AREAL_GUI_EXECUTABLE: join(app, "Contents/MacOS/AReaL Harness GUI") },
-    });
-    state.packagedModelSelection = "passed";
+    if (options["skip-tests"]) {
+      state.packagedGui = "skipped-by-request";
+      state.packagedModelSelection = "skipped-by-request";
+    } else {
+      run(process.execPath, [join(desktop, "scripts/migration-smoke.mjs")], {
+        env: { ...process.env, AREAL_GUI_EXECUTABLE: join(app, "Contents/MacOS/AReaL Harness GUI") },
+      });
+      state.packagedGui = "passed";
+      run(process.execPath, [join(desktop, "scripts/model-selection-smoke.mjs")], {
+        env: { ...process.env, AREAL_GUI_EXECUTABLE: join(app, "Contents/MacOS/AReaL Harness GUI") },
+      });
+      state.packagedModelSelection = "passed";
+    }
+    save();
     // These paths belong to this locked run and may contain interrupted output.
-    for (const path of [zip, dmg, join(output, "dmg-root")])
+    for (const path of [zip, dmg])
       rmSync(path, { recursive: true, force: true });
     run("/usr/bin/ditto", ["-c", "-k", "--keepParent", app, zip]);
-    const staging = join(output, "dmg-root");
-    mkdirSync(staging);
-    run("/usr/bin/ditto", [app, join(staging, state.appName)]);
-    run("/bin/ln", ["-s", "/Applications", join(staging, "Applications")]);
-    run("/usr/bin/hdiutil", [
-      "create",
-      "-volname",
-      "AReaL Harness " + state.version,
-      "-srcfolder",
-      staging,
-      "-format",
-      "UDZO",
-      "-fs",
-      "HFS+",
-      dmg,
-    ]);
+    state.dmgExport = await buildMacOSDmg({
+      app, destination: dmg, volumeName: "AReaL Harness " + state.version,
+    });
     run("/usr/bin/codesign", ["--force", "--sign", state.identity, "--timestamp", dmg]);
     run("/usr/bin/codesign", ["--verify", "--strict", dmg]);
     const detail = run("/usr/bin/codesign", ["--display", "--verbose=4", dmg]).stderr;

@@ -114,6 +114,34 @@ where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin + Send + 'static,
 {
+    let mut cleanup_report = match std::env::var("AREAL_RUNTIME_CLEANUP_FD") {
+        Ok(value) => {
+            use std::os::fd::FromRawFd;
+            let fd: i32 = value.parse().map_err(|_| {
+                Error::new(ErrorCode::InvalidArgument, "invalid cleanup descriptor")
+            })?;
+            if fd < 3 {
+                return Err(Error::new(
+                    ErrorCode::InvalidArgument,
+                    "invalid cleanup descriptor",
+                ));
+            }
+            let inherited = unsafe { std::fs::File::from_raw_fd(fd) };
+            // try_clone 的新描述符为 close-on-exec，工具不能继承清理证明的写端。
+            let owned = inherited
+                .try_clone()
+                .map_err(|_| Error::new(ErrorCode::Unavailable, "claim cleanup descriptor"))?;
+            drop(inherited);
+            Some(owned)
+        }
+        Err(std::env::VarError::NotPresent) => None,
+        Err(_) => {
+            return Err(Error::new(
+                ErrorCode::InvalidArgument,
+                "invalid cleanup descriptor",
+            ));
+        }
+    };
     let runtime = host.supervisor();
     let (responses, mut outgoing) = mpsc::channel::<Value>(64);
     let writer_stop = stop.clone();
@@ -297,6 +325,15 @@ where
     let cleanup = host.shutdown().await;
     requests.close();
     requests.wait().await;
+    if cleanup.is_ok()
+        && let Some(report) = &mut cleanup_report
+    {
+        use std::io::Write;
+        report
+            .write_all(b"{\"cleanupConfirmed\":true}\n")
+            .and_then(|_| report.sync_all())
+            .map_err(|_| Error::new(ErrorCode::Unavailable, "persist Runtime cleanup proof"))?;
+    }
     if let Some(id) = close_id {
         send(
             &responses,
@@ -332,6 +369,9 @@ fn immediate(runtime: &Supervisor, method: &str, params: Value) -> Option<Result
         "scope.createParticipant" => parse(params)
             .and_then(|request| runtime.create_participant_scope(request))
             .map(|value| json!(value)),
+        "scope.check" => parse(params)
+            .and_then(|request| runtime.check_scope(request))
+            .map(|v| json!(v)),
         "scope.create" => parse(params)
             .and_then(|request| runtime.create_scope(request))
             .map(|v| json!(v)),
@@ -354,8 +394,15 @@ fn immediate(runtime: &Supervisor, method: &str, params: Value) -> Option<Result
         "operation.get" => parse::<OperationId>(params)
             .and_then(|p| runtime.operation(&p.operation_id))
             .map(|v| json!(v)),
-        "process.start" | "process.write" | "process.resize" | "process.closeStdin"
-        | "scope.waitClosed" | "process.wait" | "output.read" | "fs.execute" => {
+        "process.start"
+        | "process.startQueued"
+        | "process.write"
+        | "process.resize"
+        | "process.closeStdin"
+        | "scope.waitClosed"
+        | "process.wait"
+        | "output.read"
+        | "fs.execute" => {
             return None;
         }
         _ => Err(Error::new(
@@ -371,6 +418,7 @@ async fn dispatch(runtime: Arc<Supervisor>, method: &str, params: Value) -> Resu
         "process.resize" => runtime.resize(parse(params)?).await,
         "process.closeStdin" => runtime.close_stdin(parse(params)?).await,
         "process.start" => Ok(json!(runtime.start(parse(params)?).await?)),
+        "process.startQueued" => Ok(json!(runtime.start_queued(parse(params)?).await?)),
         "scope.waitClosed" => Ok(json!(
             runtime
                 .wait_closed(&parse::<ScopeId>(params)?.scope_id)

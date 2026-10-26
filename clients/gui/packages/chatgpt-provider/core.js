@@ -10,7 +10,8 @@ import { probeResponse } from './probe.js'
 export { probeResponse } from './probe.js'
 import { subscriptionNetwork } from './network.js'
 import { ModelCatalog } from './catalog.js'
-import { protocolAdapters } from './adapters.js'
+import { protocolAdapters, subscriptionModelHints } from './adapters.js'
+import { ResponseAffinity } from './affinity.js'
 export { subscriptionRequest } from './adapters.js'
 
 export const CORE_PROVIDER_ID = 'areal_chatgpt'
@@ -85,8 +86,13 @@ export class CoreSubscription {
     this.id = kind === 'openai' ? 'areal_openai' : CORE_PROVIDER_ID
     this.onRequest = onRequest
     this.network = customFetch ? { fetch: customFetch, close() {} } : subscriptionNetwork()
-    this.models = models ?? openaiCodexProvider().getModels().filter(m => m.input.includes('text')).map(m => ({ id: m.id, name: m.name }))
+    this.models = models ?? openaiCodexProvider().getModels().filter(m => m.input.includes('text')).map(m => ({ id: m.id, name: m.name,
+      ...(Number.isSafeInteger(m.contextWindow) && m.contextWindow > 0 && m.contextWindow <= 2_000_000
+        ? { parameters: { contextWindowTokens: m.contextWindow } } : {}) }))
     this.account = kind === 'openai' ? new OpenAIAccount(store, { fetch: (...args) => this.network.fetch(...args) }) : new ChatGPTAccount(store, { oauth })
+    this.affinity = new ResponseAffinity()
+    this.resetAffinity = () => this.affinity.clear()
+    this.account.on('changed', this.resetAffinity)
     if (kind === 'openai') this.catalog = new ModelCatalog(this.account, (...args) => this.network.fetch(...args))
     this.account.models = async () => kind === 'openai' ? this.discover() : this.models
     if (kind === 'openai') { this.models = []; this.account.on('changed', () => { this.models = [] }) }
@@ -116,7 +122,7 @@ export class CoreSubscription {
       let size = 0; const chunks = []
       for await (const chunk of req) { size += chunk.length; if (size > 16 * 1024 * 1024) { deny(413, 'Request too large'); return } chunks.push(chunk) }
       let body, adjustments
-      try { const raw = JSON.parse(Buffer.concat(chunks)); body = protocolAdapters[this.kind].encode(raw); adjustments = protocolAdapters[this.kind].adjustments?.(raw) ?? [] } catch { deny(400, 'Invalid subscription request'); return }
+      try { const raw = JSON.parse(Buffer.concat(chunks)); const hints = this.catalog?.hintsFor(raw?.model) ?? subscriptionModelHints(this.models.find(m=>m.id===raw?.model)); body = protocolAdapters[this.kind].encode(raw, hints); adjustments = protocolAdapters[this.kind].adjustments?.(raw) ?? [] } catch { deny(400, 'Invalid subscription request'); return }
       if (!this.models.some(m => m.id === body.model)) { deny(400, 'Unknown subscription model'); return }
       if (this.onRequest) audit = { providerId: this.id, protocol: 'responses', model: body.model, startedAt: new Date().toISOString(), completedAt: null,
         upstreamHttpStatus: null, upstreamContentType: null, localHttpStatus: null, outcome: 'failed', failureKind: 'request', streamFailureReason: null, adjustments }
@@ -132,9 +138,16 @@ export class CoreSubscription {
         if (audit) { audit.outcome = controller.signal.aborted ? 'cancelled' : 'failed'; audit.failureKind = controller.signal.aborted ? 'cancelled' : 'auth'; Object.assign(audit, failure.diagnostic()) }
         deny(controller.signal.aborted ? 499 : failure.state === 'reauth_required' ? 401 : failure.state === 'permission_denied' ? 403 : 503, failure.message, failure); return
       }
+      const affinity = this.affinity.begin(req.headers, body.model, [this.account.revision, accountId ?? null])
       const send = token => this.network.fetch(this.kind === 'openai' ? 'https://api.openai.com/v1/responses' : ENDPOINT, { method: 'POST', redirect: 'error', signal: controller.signal,
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'text/event-stream', ...(this.kind === 'codex' ? { 'ChatGPT-Account-Id': accountId, 'OpenAI-Beta': 'responses=experimental', originator: 'areal-harness' } : {}) }, body: JSON.stringify(body) })
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'text/event-stream', ...affinity?.headers, ...(this.kind === 'codex' ? { 'ChatGPT-Account-Id': accountId, 'OpenAI-Beta': 'responses=experimental', originator: 'areal-harness' } : {}) }, body: JSON.stringify(body) })
       let response = await send(token)
+      if (!controller.signal.aborted) affinity?.capture(response)
+      if (audit) {
+        audit.sessionIdentitySent = Boolean(affinity)
+        audit.turnStateSent = Boolean(affinity?.headers['x-codex-turn-state'])
+        audit.turnStateReceived = response.headers.has('x-codex-turn-state')
+      }
       // POST 无已接纳状态的权威证明，认证拒绝也不自动重放推理。
       if (audit) {
         audit.upstreamHttpStatus = response.status
@@ -184,6 +197,8 @@ export class CoreSubscription {
   }
   async close() {
     await this.account.close()
+    this.account.off('changed', this.resetAffinity)
+    this.affinity.clear()
     this.server?.closeAllConnections()
     if (this.server?.listening) await new Promise(resolve => this.server.close(resolve))
     this.network.close()

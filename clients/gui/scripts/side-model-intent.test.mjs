@@ -16,6 +16,7 @@ const { sideStartConfiguration } = await import(
 );
 const appRequire = createRequire(new URL("../app/package.json", import.meta.url));
 const { CoreBackend } = appRequire("../app/src/core/backend.cjs");
+const { WorktreeAdmission } = appRequire("../app/src/core/worktree-admission.cjs");
 test("historical anchor A with current source C: renderer default intent reaches adapter as inherit, default B and explicit C remain distinct", async () => {
   const project = {
     configurations: { source: { model: { providerId: "p", modelId: "C" } } },
@@ -27,8 +28,9 @@ test("historical anchor A with current source C: renderer default intent reaches
     [{ model: { providerId: "p", modelId: "C" } }, { model: { providerId: "p", modelId: "C" } }],
   ]) {
     let sent;
-    const backend = {
+    const backend = Object.assign(Object.create(CoreBackend.prototype), {
       closing: false,
+      worktrees: { assertAvailable() {}, records: new Map() },
       start: async () => project,
       submit: async (_project, method, params) => {
         assert.equal(method, "areal/side/start");
@@ -37,7 +39,8 @@ test("historical anchor A with current source C: renderer default intent reaches
       },
       openThread: async () => {},
       listThreads: async () => {},
-    };
+    });
+    backend.worktreeAdmission = new WorktreeAdmission(backend);
     await CoreBackend.prototype.executeCommand.call(backend, "side", {
       projectId: "p",
       operation: "start",

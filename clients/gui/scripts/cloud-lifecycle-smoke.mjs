@@ -75,6 +75,7 @@ assets.listen(0,'127.0.0.1');await once(assets,'listening');
 try {
   browser=await chromium.launch({headless:true,channel:'chrome'});
   page=await browser.newPage({viewport:{width:1440,height:1000},serviceWorkers:'block'});
+  page.setDefaultTimeout(20_000);
   page.on('pageerror',error=>errors.push(error.message));
   await page.exposeFunction('cloudSnapshot',()=>backend.snapshot());
   await page.exposeFunction('cloudCommand',async(name,params)=>{
@@ -90,7 +91,12 @@ try {
   await page.addInitScript(({projectId})=>{
     localStorage.setItem('areal-gui:project',projectId);
     localStorage.setItem(`areal-draft-environment:${projectId}`,'cloud');
-    window.arealDesktop={snapshot:()=>window.cloudSnapshot(),command:(name,params)=>window.cloudCommand(name,params),onState:listener=>{window.cloudState=listener;return()=>{};},theme:async()=>({platform:'darwin',dark:false,id:'light'}),onTheme:()=>()=>{},onMcpAppEvent:()=>()=>{},presentReady:async()=>{},preview:async()=>({})};
+    let listener, sequence=0;
+    window.cloudState=snapshot=>listener?.({frame:{projection:1,stream:'cloud-lifecycle',sequence:++sequence,kind:'full',snapshot}});
+    window.arealDesktop={
+      onProjection:callback=>{listener=callback;return()=>{};},
+      requestProjection:requestId=>window.cloudSnapshot().then(snapshot=>listener?.({requestId,frame:{projection:1,stream:'cloud-lifecycle',sequence:++sequence,kind:'full',snapshot}})),
+      setInterfaceLocale:()=>{},snapshot:()=>window.cloudSnapshot(),command:(name,params)=>window.cloudCommand(name,params),theme:async()=>({platform:'darwin',dark:false,id:'light'}),onTheme:()=>()=>{},onMcpAppEvent:()=>()=>{},presentReady:async()=>{},preview:async()=>({})};
   },{projectId});
   await page.goto(`http://127.0.0.1:${assets.address().port}`);
   await page.getByRole('button',{name:'设置',exact:true}).click();
@@ -126,6 +132,11 @@ try {
   assert.equal(queries,2);assert.deepEqual(errors,[]);
   await writeFile(join(scratch,'evidence.json'),JSON.stringify({fixture:true,allocations,queries,workspaces:[...workspaces.keys()],calls},null,2));
   console.log(`PASS Cloud lifecycle GUI fixture: ${scratch}`);
+}catch(error){
+  await page?.screenshot({path:join(scratch,'failure.png')}).catch(()=>{});
+  await writeFile(join(scratch,'failure.json'),JSON.stringify({error:error.message,errors,calls,body:await page?.locator('body').innerText().catch(()=>'' )},null,2));
+  console.error(`Cloud lifecycle failure evidence: ${scratch}`);
+  throw error;
 }finally{
   manager.close();await browser?.close();
   for(const socket of sockets.clients)socket.terminate();sockets.close();native.closeAllConnections();native.close();assets.closeAllConnections();assets.close();

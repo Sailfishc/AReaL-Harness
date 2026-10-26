@@ -6,13 +6,17 @@ B-10–B-13 的原生 fixture 须检查 Core 交互包含实际准备的页面�
 
 B-24–B-26 的原生 fixture 通过公开 GUI/Core 入口验证：跨 Workspace 达到 8 个原生页和单 Workspace 4 个逻辑页，执行/接管/对话框页 pin 时新页被拒绝且原生对象数不增长；空闲驱逐必须显示状态损失。隐藏后核对原生对象、表单和 scroll；崩溃重开后核对 `pageGeneration`、旧 Ref/计划/回执拒绝以及已派发操作的 UNKNOWN。将延迟加载/接管回调与归档、隐藏项目、关闭窗口竞争，核对旧页不复活、共享 Session 在兄弟页存活时不清除，最后页面关闭后无孤儿 WebContents 或下载。各次真实原生验收结果单独记录。
 
-B-21–B-23 须通过公开 Core/GUI 路径，使用两个 Workspace 和合成回环登录服务。在一个 Workspace 设置 HTTPOnly Cookie、localStorage、IndexedDB 及 Service Worker；确认兄弟页在不重建已认领 WebContents 的情况下可见这些状态，第二个 Workspace 不可见。关闭一个兄弟页后第一页面仍保留状态；关闭最后一页后重建，确认临时状态已清除。可信精确 Origin 授权后才能导航。夹具探测另一个未授权的回环 Origin、实际 Core/适配器端点、内网/元数据目标，以及重定向、Frame、Worker fetch 与 WebSocket；禁止目标的服务端副作用计数必须为零。运行清单保留页面/Session 身份、请求及界面截图。各次原生场景的结果单独记录。
+B-21–B-23 须通过公开 Core/GUI 路径，使用两个 Workspace 和合成回环登录服务。在一个 Workspace 设置 HTTPOnly Cookie、localStorage、IndexedDB 及 Service Worker；确认兄弟页在不重建已认领 WebContents 的情况下可见这些状态，第二个 Workspace 也能通过同一共享 Profile 使用这些状态。关闭一个兄弟页、关闭最后一页后重建，以及使用相同隔离 GUI userData 重启后，均确认持久登录和站点数据保留，旧 Page 控制引用失效。显式清缓存保留登录数据，显式全部清理后 Cookie、localStorage 和 IndexedDB 为空。可信精确 Origin 授权后才能导航。夹具探测另一个未授权的回环 Origin、实际 Core/适配器端点、内网/元数据目标，以及重定向、Frame、Worker fetch 与 WebSocket；禁止目标的服务端副作用计数必须为零。运行清单保留页面/Session 身份、请求及界面截图。各次原生场景的结果单独记录。
 
 本文件定义完整 Browser 的测试契约。R0 原生实验已有独立入口，其结果以具体运行证据为准，不表示全部场景已经运行。后续主要测试切口沿用现有桌面 smoke/connection/architecture 的真实 Electron+Core+Runtime+确定性模型形态，参照[GUI指南](../../clients/gui/README.md)。
 
 当前同页读取切口运行 `make build`、`make gui-install`、`make gui-build` 后，以 `node clients/gui/scripts/browser-read-smoke.mjs` 验证 B-04/B-05/B-06。脚本仅用隔离 home、合成网页和本地确定性模型；记录 Core 动态工具 callId、真实原生 WebContents 身份与内存 sentinel、GUI/原生截图、服务端请求计数和跨 Thread/伪回执/宿主缺失结果。源码构建测试不代表安装包、真实账号或其他 OS 已验收。
 
 同一验收层使用 `node clients/gui/scripts/browser-evidence-smoke.mjs` 检查 B-07/B-08/B-09：部分观察后仍有效的 Ref、重复同名元素替换与 Frame 导航后的旧 Ref、iframe/Shadow 覆盖、语义状态和父节点关联、预算截断。脚本单独验证根页面/Frame/Shadow/明文敏感信息/跨源 Frame 的截图拒绝，检查截图期间视口变化与超大原生 PNG，并记录实际请求了哪种原生观察表面；随后验证模型图像输入、GUI 中的 Core 媒体回取及跨 Thread Blob 拒绝。仅脚本实际通过且保存运行清单时才能认定对应场景通过。
+
+B1 原生控件验收入口为 `node clients/gui/scripts/browser-actions-smoke.mjs b1`。它通过公开 Core 工具调用、真实审批 UI、原生页面和独立站点事件计数验证滚动加载 sentinel 与新观察、hover、有序不透明选项身份、同值替换、重排/类型/视口失效、disabled/重复值/多选控件、checkbox true/no-op/false、disabled 状态等待、已确认批量前缀和去重，以及接管期间 select ACK 丢失。选定成功场景保留审批面板 PNG 与独立原生 WebContents PNG，并绑定原 Core call、Page、Ref 和准备计划。Main 未捕获错误从 bootstrap 记录到自然退出。runner 保留私有服务身份，核对自有 Electron、adapter 和 Core 清理。相同命令加 `AREAL_BROWSER_B1_PUBLIC=1` 使用合成公网主机名，证明未声明的 scroll、hover、select 和 checkbox 仍要求人工接管。fixture 对话框响应和解析映射是明确替代边界。源码测试不证明真实供应商、物理输入、签名安装包或其他 OS。运行前通过 `AREAL_CORE_BIN` 指定已核对且不可变的候选产物。
+
+相同 B1 命令加 `AREAL_BROWSER_B1_PRIVACY=1` 聚焦验证动作回执隐私。页面 change handler 将合成私密字段值写入选中 OPTION 的 value/label。直接选择和批量选择必须保留 confirmed 输入与 `stateMatched:false`，而动作回执、Core 历史、模型收到结果和保留的批量回执不能包含该值。独立原生读数和站点计数确认一次选择、一组 input/change；普通 Notes 字段回显还经公开 observe 验证既有选项隐私过滤。
 
 ## 测试层级
 
@@ -22,6 +26,16 @@ B-21–B-23 须通过公开 Core/GUI 路径，使用两个 Workspace 和合成�
 4. **人工视觉/可访问性验收**针对native overlay、焦点、截图反馈、IME和安装版。自动测试不能证明完整主观视觉质量。
 
 Fixture 至少含：不同端口的A/B站点、HTTPOnly Cookie登录模拟、跨源iframe、Shadow DOM、重复同名元素、动态替换、Canvas、popup、阻塞dialog、下载/chooser、失败API、含测试令牌日志、延迟表单提交、HMR样式页。测试仅用合成数据，不导入真实Profile。访问Core/adapter控制端口的测试使用测试服务，不探测用户现有服务。
+
+## Agent JavaScript 对话框归属
+
+Main 的 [`agent-dialog-presentation.cjs`](../../clients/gui/app/src/core/agent-dialog-presentation.cjs) 只接管自己创建的 Preview WebContents 的展示。人工控制时原样调用 Electron 的原 handler，并在其 Promise 完成前拒绝 Agent 认领；Agent 控制时保留真实 `alert`/`confirm` callback，不展示原生消息框。正常回答仍通过原有 Core 审批、Main `dispatchInput` 和 CDP `Page.handleJavaScriptDialog`，CDP Opening/Closed 仍是对话框观察来源。批准计划只在 Main 本地绑定当时的对话框身份，旧批准不能回答同文档中新开的替代对话框；公共协议不增加字段。`prompt()` 继续不支持，`beforeunload` 保持原路径。
+
+这里依赖精确固定的 [Electron 44.5.0 私有事件实现](https://github.com/electron/electron/blob/v44.5.0/lib/browser/api/web-contents.ts#L768)：安装和认领检查唯一默认 `-run-dialog`/`-cancel-dialogs` listener 的形态，运行时检查事件参数。版本或契约不符时保留人工浏览，并拒绝 Agent 认领。升级 Electron 必须重新检查该实现并执行真实 pending、accept/reject 和生命周期验收，不能仅更新版本 guard 或用 listener 数量推断语义兼容。
+
+撤销控制先 fence 旧 epoch，再取消保留的 callback；主 Frame 文档替换、关闭和 dispose 同样先取走引用，再至多调用一次 `callback(false, '')`。同文档或子 Frame 导航不主动取消主页面对话框。CDP Closed、平台取消和销毁只释放引用，不再次回答。普通 Core `turnEnded` 不取消对话框，允许后续 Turn 调用 get/handle。CDP 回执丢失仍为 UNKNOWN，不以清理 callback 补报成功或重放回答。
+
+`pnpm --dir clients/gui run test:automation` 的对话框验收应记录真实网页结果、独立副作用计数、CDP Opening/Closed 和原生展示调用：在跨 Turn 的 get/handle 与拒绝审批期间保持 pending，批准后真实 JS 布尔值与 accept/reject 对应且完成一次。另验 pending 时撤销、导航、关闭、平台取消/销毁、回答与接管竞态、人工 handler 转交和不兼容契约拒绝。探针若只证明 Electron/CDP 闭环，不能据此宣称完整 Core 审批、人工输入或安装包验收通过；原生展示日志只能观察，不能替换 handler 或决定测试结果。
 
 ## 场景矩阵
 
@@ -155,3 +169,5 @@ pnpm --dir clients/gui run test:browser-feasibility
 ## 人工跨源 Frame 切片
 
 `node clients/gui/scripts/browser-frame-origin-smoke.mjs oopif boundaries` 使用真实 Core、独立 adapter、同一 Native 页面、确定性模型和两个本地 Origin。`same-process` 参数覆盖同进程跨源；实际进程身份与 FrameTree 区分 OOPIF，不能只看端口。覆盖显式重载、Main 确认取消与迟到失效、父页面借权拒绝、站点严格策略、全图敏感/瞬时变化/隔离上下文失败拒绝、Agent 截图拒绝、原 Thread 裁图 Blob 与模型 SHA、撤销销毁、标注隐藏保留同一 Native、普通关闭预览及随后切 Thread（不打开新预览）销毁旧授权、无效截图凭据拒绝保留，以及跨 Thread 隔离。Main 对话框由夹具对精确 Origin 回答，不算真人确认。以 `AREAL_CORE_BIN` 指定已冻结 Core；保存 fixture/源码散列、调用身份、图片与停止回执。
+
+共享 Profile 和 Chrome 导入包另外使用合成数据的真实 Electron 验收。记录两个独立进程、相同隔离 userData、不同项目/聊天以及 defaultSession/另一分区的隔离事实。导入验收不得读取个人 Chrome 或真实钥匙串；用受控源资料、数据库和密钥注入验证字节、计数、取消及临时窗口释放。

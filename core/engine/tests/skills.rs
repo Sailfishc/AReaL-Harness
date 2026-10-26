@@ -25,6 +25,7 @@ impl DynamicToolHost for ProfileHost {
         _: CancellationToken,
     ) -> anyhow::Result<DynamicToolResponse> {
         Ok(DynamicToolResponse {
+            raw_mcp_result: None,
             success: true,
             content_items: vec![],
             structured_content: Some(json!("profile-tool-ok")),
@@ -176,6 +177,7 @@ async fn profile_without_workflow_exposes_its_deployed_tool_allowlist() {
         .create_configured(
             "test-client".into(),
             areal_protocol::desktop::ThreadStart {
+                options: None,
                 admission_guard: None,
                 request_id: "start-1".into(),
                 cwd: Some("/workspace".into()),
@@ -228,6 +230,7 @@ async fn profile_without_workflow_exposes_its_deployed_tool_allowlist() {
         .create_configured(
             "test-client".into(),
             areal_protocol::desktop::ThreadStart {
+                options: None,
                 admission_guard: None,
                 request_id: "start-2".into(),
                 cwd: Some("/workspace".into()),

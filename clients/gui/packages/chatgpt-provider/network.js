@@ -2,6 +2,7 @@ import nodeFetch from "node-fetch";
 import { ProxyAgent } from "proxy-agent";
 import { ReadableStream } from "node:stream/web";
 import { getCACertificates } from "node:tls";
+import { readFileSync } from "node:fs";
 import { BlockList, isIP } from "node:net";
 
 export function proxyForUrl(url, source = process.env) {
@@ -62,15 +63,22 @@ export function proxyForUrl(url, source = process.env) {
 
 // 请求独占 agent，使用可信适配器传入的代理快照，不修改全局 fetch 或环境。
 export function subscriptionNetwork(source = process.env) {
-  // Electron's Node transport does not automatically use macOS Keychain roots.
-  // Keep bundled/extra roots and add OS-trusted roots, scoped to this provider.
-  // Never disable peer or hostname verification or mutate global TLS defaults.
-  const ca = [...new Set([...getCACertificates("default"), ...getCACertificates("system")])];
-  const agent = new ProxyAgent({ ca, getProxyForUrl: (url) => proxyForUrl(url, source) });
+  let agent;
+  // 构造适配器不应访问系统 Keychain；仅在真正发起请求时加载系统信任根。
+  // 继续保留系统、内置和额外 CA，绝不关闭 TLS 或主机名校验。
+  function transport() {
+    if (!agent) {
+      const extra = [...new Set([source.SSL_CERT_FILE, source.NODE_EXTRA_CA_CERTS].filter(Boolean))]
+        .map(path => readFileSync(path, "utf8"));
+      const ca = [...new Set([...getCACertificates("default"), ...getCACertificates("system"), ...extra])];
+      agent = new ProxyAgent({ ca, getProxyForUrl: (url) => proxyForUrl(url, source) });
+    }
+    return agent;
+  }
   return {
     async fetch(url, init = {}) {
       if (source.AREAL_CHATGPT_PROXY_ERROR) throw new Error("ChatGPT proxy unavailable");
-      const response = await nodeFetch(url, { ...init, agent, redirect: "error" });
+      const response = await nodeFetch(url, { ...init, agent: transport(), redirect: "error" });
       // Pull through the iterator: toWeb's data listener can enqueue after cancel.
       // Explicitly destroy on return, including cancellation before the first read.
       const body =
@@ -94,7 +102,7 @@ export function subscriptionNetwork(source = process.env) {
       });
     },
     close() {
-      agent.destroy();
+      agent?.destroy();
     },
   };
 }

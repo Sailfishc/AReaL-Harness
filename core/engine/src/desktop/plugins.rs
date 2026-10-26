@@ -7,6 +7,7 @@ pub(super) struct Manager {
     pub(super) store: Option<Arc<areal_plugins::Store>>,
     pub(super) enabled: Vec<areal_plugins::InstalledSkill>,
     pub(super) enabled_plugin_ids: BTreeSet<String>,
+    pub(super) eligible_skill_refs: BTreeSet<(String, String)>,
 }
 fn store_error(e: anyhow::Error) -> Error {
     match e.downcast_ref::<areal_plugins::StoreError>() {
@@ -22,6 +23,7 @@ struct Snapshot {
     skills: Vec<Skill>,
     enabled: Vec<areal_plugins::InstalledSkill>,
     enabled_plugin_ids: BTreeSet<String>,
+    eligible_skill_refs: BTreeSet<(String, String)>,
     hooks: Vec<crate::plugin_hooks::BoundHook>,
     hook_enabled: HashSet<String>,
     hook_sources: Vec<areal_plugins::hook_sources::HookSource>,
@@ -74,6 +76,7 @@ fn snapshot(
         skills,
         enabled,
         enabled_plugin_ids,
+        eligible_skill_refs: installed.eligible_skill_refs,
     })
 }
 
@@ -106,6 +109,7 @@ impl Engine {
         let mut manager = self.desktop.plugins.write().unwrap();
         manager.enabled = snapshot.enabled;
         manager.enabled_plugin_ids = snapshot.enabled_plugin_ids;
+        manager.eligible_skill_refs = snapshot.eligible_skill_refs;
     }
     pub(crate) fn plugin_store(&self) -> Result<Arc<areal_plugins::Store>> {
         self.desktop
@@ -142,6 +146,87 @@ impl Engine {
             {
                 return Err(invalid("plugin skill is disabled or uninstalled"));
             }
+        }
+        Ok(())
+    }
+    pub(super) fn check_plugin_skill_tools(
+        &self,
+        skill: &Skill,
+        config: &EffectiveConfig,
+        registry: &crate::tools::Registry,
+    ) -> Result<()> {
+        let Some(plugin) = &skill.plugin else {
+            return Ok(());
+        };
+        let missing: Vec<_> = plugin
+            .required_tools
+            .iter()
+            .filter(|name| {
+                if config
+                    .tool_allowlist
+                    .as_ref()
+                    .is_some_and(|allow| !allow.contains(name))
+                {
+                    return true;
+                }
+                registry.get(name).map_or(true, |entry| {
+                    config.read_only
+                        && matches!(
+                            entry.backend,
+                            crate::tools::Backend::Client
+                                | crate::tools::Backend::Page(_)
+                                | crate::tools::Backend::Mcp(_)
+                                | crate::tools::Backend::Plugin(_)
+                                | crate::tools::Backend::Coordination
+                        )
+                        && !crate::agents::read_only_tool(name, &entry.backend)
+                })
+            })
+            .cloned()
+            .collect();
+        if !missing.is_empty() {
+            return Err(invalid(format!(
+                "PLUGIN_HOST_REQUIREMENTS_UNAVAILABLE: {} requires tools admitted to this session: {}",
+                skill.metadata.name,
+                missing.join(", ")
+            )));
+        }
+        Ok(())
+    }
+    pub(crate) fn check_selected_plugin_tools(
+        &self,
+        thread: &Thread,
+        config: &EffectiveConfig,
+    ) -> Result<()> {
+        let Some(selected) = &config.selected_skills else {
+            return Ok(());
+        };
+        let skills: Vec<_> = {
+            let catalog = self.desktop.catalog.read().unwrap();
+            selected
+                .iter()
+                .filter_map(|r| catalog.skills.get(&format!("{}/{}", r.id, r.revision)))
+                .filter(|s| {
+                    s.plugin
+                        .as_ref()
+                        .is_some_and(|p| !p.required_tools.is_empty())
+                })
+                .cloned()
+                .collect()
+        };
+        if skills.is_empty() {
+            return Ok(());
+        }
+        let mut scoped = thread.clone();
+        scoped
+            .desktop
+            .get_or_insert_with(Default::default)
+            .configuration = config.clone();
+        let registry = self
+            .managed_registry(&scoped, thread.source == "nativeResearchAgent")
+            .map_err(invalid)?;
+        for skill in skills {
+            self.check_plugin_skill_tools(&skill, config, &registry)?;
         }
         Ok(())
     }
@@ -294,6 +379,60 @@ impl Engine {
         self.plugin_change(move |s| Ok(serde_json::to_value(s.uninstall(&id, expected)?)?))
             .await
     }
+    pub async fn plugin_component_configure(
+        self: &Arc<Self>,
+        id: String,
+        component: areal_plugins::PluginComponentId,
+        enabled: bool,
+        expected: u64,
+        expected_digest: String,
+    ) -> Result<Value> {
+        let store = self.plugin_store()?;
+        self.mutate(move |engine| async move {
+            let changes_mcp = matches!(
+                component,
+                areal_plugins::PluginComponentId::McpServer { .. }
+            );
+            let _connection = if changes_mcp {
+                Some(engine.desktop.plugin_mcp.operation.lock().await)
+            } else {
+                None
+            };
+            if let areal_plugins::PluginComponentId::McpServer { id: server } = &component {
+                let source = store.clone();
+                let plugin = id.clone();
+                let installed = tokio::task::spawn_blocking(move || {
+                    source
+                        .installed_components()?
+                        .into_iter()
+                        .find(|c| c.id == plugin)
+                        .ok_or_else(|| anyhow::anyhow!("plugin not installed"))
+                })
+                .await
+                .map_err(invalid)?
+                .map_err(store_error)?;
+                if installed.digest != expected_digest {
+                    return Err(Error::Conflict);
+                }
+                engine.validate_plugin_server_component(&installed, server)?;
+            }
+            let plugin = id.clone();
+            let result = tokio::task::spawn_blocking(move || {
+                store
+                    .configure_component(&id, &component, enabled, expected, &expected_digest)
+                    .and_then(|detail| Ok(serde_json::to_value(detail)?))
+            })
+            .await
+            .map_err(invalid)?
+            .map_err(store_error)?;
+            if changes_mcp {
+                engine.retire_plugin_component_connections(&plugin).await?;
+            }
+            engine.refresh_plugins().await?;
+            Ok(result)
+        })
+        .await
+    }
     pub async fn plugin_setup(
         self: &Arc<Self>,
         identity: String,
@@ -307,7 +446,7 @@ impl Engine {
         self.refresh_plugins().await?;
         let store = self.plugin_store()?;
         let (detail, installed) = tokio::task::spawn_blocking(move || {
-            Ok::<_, anyhow::Error>((store.read(&id)?, store.installed_skills()?))
+            Ok::<_, anyhow::Error>((store.read(&id)?, store.enabled_skills()?))
         })
         .await
         .map_err(invalid)?
@@ -326,7 +465,7 @@ impl Engine {
         let config = if let Some(id) = &thread_id {
             let cell = self.cell(id).await?;
             let state = cell.state.lock().await;
-            if state.thread.is_side()
+            if state.thread.is_read_only_side()
                 || state.thread.parent_thread_id.is_some()
                 || state.thread.source == "nativeTaskAgent"
             {
@@ -368,6 +507,23 @@ impl Engine {
             .map_err(invalid)?
             .map_err(invalid)?;
         self.check_plugin_skill(&skill).await?;
+        if skill
+            .plugin
+            .as_ref()
+            .is_some_and(|p| !p.required_tools.is_empty())
+        {
+            let registry = if let Some(id) = &thread_id {
+                let thread = self.read(id, false).await?;
+                self.managed_registry(&thread, false).map_err(invalid)?
+            } else {
+                let mut tools = self.desktop.mcp.tools();
+                if config.allow_plugin_skills && !config.read_only {
+                    tools.extend(self.desktop.plugin_mcp.tools());
+                }
+                self.registry.clone().with_mcp(tools).map_err(invalid)?
+            };
+            self.check_plugin_skill_tools(&skill, &config, &registry)?;
+        }
         let body = skill
             .read("SKILL.md", 0, 64 * 1024)
             .await

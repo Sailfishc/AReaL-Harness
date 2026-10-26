@@ -2,6 +2,7 @@
 use areal_protocol::{desktop::*, *};
 use serde_json::{Value, json};
 pub mod plugins;
+pub(super) mod standalone;
 fn schema<T: schemars::JsonSchema>() -> Value {
     serde_json::to_value(schemars::schema_for!(T)).unwrap()
 }
@@ -25,6 +26,15 @@ pub fn projections() -> (Value, Value) {
     let any_object = json!({"type":"object"});
     let turn = schema::<Turn>();
     let thread = schema::<Thread>();
+    let mut deferred = schema::<DeferredHistoryItem>();
+    deferred["properties"]["type"] = json!({"const":"historyDeferred"});
+    let display_item = json!({"anyOf":[schema::<Item>(),deferred.clone()]});
+    let mut display_thread = thread.clone();
+    let ordinary_item = display_thread["$defs"]["Item"].take();
+    display_thread["$defs"]["Item"] = json!({"anyOf":[ordinary_item,deferred]});
+    let history_window = object(
+        json!({"snapshotId":string,"nextCursor":nullable(string.clone()),"complete":boolean}),
+    );
     let provider = schema::<Provider>();
     let profile = schema::<AgentProfile>();
     let config = schema::<EffectiveConfig>();
@@ -35,8 +45,10 @@ pub fn projections() -> (Value, Value) {
     provider_view["properties"]["credentialState"] =
         json!({"enum":["notRequired","available","unavailable"]});
     provider_view["properties"]["connectionState"] = json!({"const":"unchecked"});
-    let mut receipt = schema::<RequestReceipt>();
-    receipt["additionalProperties"] = json!(true);
+    let receipt = object(json!({
+        "identity":string,"requestId":string,"method":string,"digest":string,
+        "operation":schema::<OperationRef>(),"status":{"enum":["admitted","completed","failed","unconfirmed"]}
+    }));
     let process_target = object(json!({"id":string,"runtimeEpoch":string}));
     let accepted = object(json!({"accepted":boolean,"operationId":string}));
     let group_entry = object(
@@ -56,8 +68,29 @@ pub fn projections() -> (Value, Value) {
     let mcp = object(
         json!({"id":string,"revision":number,"directoryRevision":number,"config":schema::<areal_mcp::ServerConfig>(),"state":{"enum":["disconnected","connecting","connected","failed","stale","cleanupFailed"]},"error":nullable(string.clone()),"tools":nullable(array(schema::<ToolDefinition>()))}),
     );
+    let resource = json!({"anyOf":[
+        object(json!({"threadId":string,"id":string,"state":string,"epoch":string})),
+        object(json!({"kind":{"const":"runtime"},"state":string,"epoch":string})),
+        object(json!({"kind":{"const":"hookTaskScope"},"threadId":string,
+            "state":{"const":"cleanupUnknown"},"operationId":nullable(string.clone()),
+            "scopeId":nullable(string.clone())}))
+    ]});
+    let lifecycle_assessment = object(json!({
+        "allowed":boolean,
+        "reasons":array(object(json!({
+            "code":{"enum":["activeTurn","resource","compaction","workgroup","activeGoal","queuedMessage","activeTask"]},
+            "count":number
+        })))
+    }));
+    let lifecycle = object(json!({
+        "version":{"const":1},
+        "admission":{"enum":["open","draining","closed"]},
+        "ifIdle":lifecycle_assessment,
+        "settled":lifecycle_assessment,
+        "executionOutcomes":object(json!({"uninspectedUnknown":number}))
+    }));
     let status = object(
-        json!({"configuration":nullable(object(json!({"modelRevision":string,"restartRequired":boolean,"error":nullable(string.clone())}))),"apiVersion":{"const":API_VERSION},"stateVersion":number,"productVersion":string,"draining":boolean,"closed":boolean,"acceptingWork":boolean,"activeTasks":number,"activeGoals":array(string.clone()),"pendingQueueItems":number,"activeTurns":array(object(json!({"threadId":string,"turnId":string}))),"resources":array(object(json!({"threadId":string,"id":string,"state":string,"epoch":string}))),"unresolvedTools":array(object(json!({"threadId":string,"itemId":string}))),"compactions":array(string.clone()),"workgroups":array(group_entry.clone()),"runtime":nullable(any_object.clone()),"capacity":object(json!({"threads":number,"maxThreads":number,"activeTurns":number,"maxActiveTurns":number,"historyBytesPerThread":number,"blobBytes":number})),"restartSafe":boolean,"idleForMs":number}),
+        json!({"configuration":nullable(object(json!({"modelRevision":string,"restartRequired":boolean,"error":nullable(string.clone())}))),"apiVersion":{"const":API_VERSION},"stateVersion":number,"productVersion":string,"draining":boolean,"closed":boolean,"acceptingWork":boolean,"activeTasks":number,"activeGoals":array(string.clone()),"pendingQueueItems":number,"activeTurns":array(object(json!({"threadId":string,"turnId":string}))),"resources":array(resource),"unresolvedTools":array(object(json!({"threadId":string,"itemId":string}))),"compactions":array(string.clone()),"workgroups":array(group_entry.clone()),"runtime":nullable(any_object.clone()),"capacity":object(json!({"threads":number,"maxThreads":number,"activeTurns":number,"maxActiveTurns":number,"historyBytesPerThread":number,"blobBytes":number})),"restartSafe":boolean,"lifecycle":lifecycle,"idleForMs":number}),
     );
     let context_budget = object(
         json!({"windowTokens":number,"outputReserveTokens":number,"inputLimitTokens":number,"targetTokens":number,"windowSource":{"enum":["model","fallback"]},"outputLimitTokens":nullable(number.clone()),"historyEstimatedTokens":number,"estimatedInputTokens":number,"estimateScope":{"const":"historyWithRecordedInstructionsAndCurrentTools"},"retentionStrategy":{"enum":["automatic","legacyRecentBoundary"]}}),
@@ -75,6 +108,14 @@ pub fn projections() -> (Value, Value) {
         &["work/overview"],
         schema::<areal_protocol::work::OverviewPage>(),
     );
+    insert(
+        &["task/schedule/context"],
+        schema::<areal_protocol::tasks::ScheduleContext>(),
+    );
+    insert(
+        &["task/schedule/preview"],
+        schema::<areal_protocol::tasks::SchedulePreviewed>(),
+    );
     let mut task_view = schema::<areal_protocol::tasks::Task>();
     task_view["properties"]
         .as_object_mut()
@@ -84,6 +125,12 @@ pub fn projections() -> (Value, Value) {
         .as_array_mut()
         .unwrap()
         .retain(|v| v != "messages");
+    for name in ["runCount", "archivedRunCount", "runsComplete"] {
+        task_view["required"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!(name));
+    }
     task_view["properties"]["pendingQuestions"] = number.clone();
     task_view["required"]
         .as_array_mut()
@@ -101,10 +148,24 @@ pub fn projections() -> (Value, Value) {
             "task/pause",
             "task/resume",
             "task/cancel",
+            "task/delete",
             "task/stopRun",
             "task/resumeRun",
         ],
         task_view.clone(),
+    );
+    let mut run_now = schema::<areal_protocol::tasks::TaskRunNowAccepted>();
+    run_now["properties"]["accepted"] = json!({"const":true});
+    insert(&["task/runNow"], run_now.clone());
+    let mut runs_page = schema::<areal_protocol::tasks::TaskRunsPage>();
+    runs_page["required"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!("nextCursor"));
+    insert(&["task/runs/list"], runs_page);
+    insert(
+        &["task/run/read"],
+        schema::<areal_protocol::tasks::TaskRun>(),
     );
     insert(&["task/host/ready"], object(json!({"ready":boolean})));
     insert(&["task/unsubscribe"], object(json!({"removed":boolean})));
@@ -152,7 +213,7 @@ pub fn projections() -> (Value, Value) {
     insert(
         &["capabilities"],
         object(
-            json!({"apiVersion":{"const":API_VERSION},"methods":array(string.clone()),"notifications":array(string.clone()),"serverRequests":array(string.clone()),"features":{"type":"object","properties":{"conversationDerivationV1":nullable(object(json!({"preview":{"const":false},"methods":array(string.clone()),"forkBoundaries":array(json!({"enum":["before","after"]})),"workspaceModes":array(json!({"const":"sharedCurrent"})),"sideWorkspaceAccess":array(json!({"enum":["none","readOnly"]})),"historyBytes":number.clone(),"limits":object(json!({"maxThreads":number.clone(),"maxActiveTurns":number.clone(),"maxSideTurnsPerSource":number.clone(),"maxSideTurnsPerDeployment":number.clone(),"maxSideModelRounds":number.clone(),"maxSideToolCalls":number.clone(),"maxSideTurnSeconds":number.clone()}))})))},"additionalProperties":{"type":"boolean"}},"limits":object(json!({"frameBytes":number,"subscriptions":number,"sendQueue":number,"threadEventWindow":number})),"runtime":nullable(any_object.clone())}),
+            json!({"apiVersion":{"const":API_VERSION},"methods":array(string.clone()),"methodSemantics":{"type":"object","additionalProperties":schema::<MethodSemantics>()},"notifications":array(string.clone()),"serverRequests":array(string.clone()),"features":{"type":"object","properties":{"mcpPageToolsV1":object(json!({"version":{"const":1},"kinds":array(json!({"enum":["getSelection","applyPatch"]}))})),"conversationDerivationV1":nullable(object(json!({"preview":{"const":false},"methods":array(string.clone()),"forkBoundaries":array(json!({"enum":["before","after"]})),"workspaceModes":array(json!({"const":"sharedCurrent"})),"sideWorkspaceAccess":array(json!({"enum":["none","readOnly"]})),"historyBytes":number.clone(),"limits":object(json!({"maxThreads":number.clone(),"maxActiveTurns":number.clone(),"maxSideTurnsPerSource":number.clone(),"maxSideTurnsPerDeployment":number.clone(),"maxSideModelRounds":number.clone(),"maxSideToolCalls":number.clone(),"maxSideTurnSeconds":number.clone()}))})))},"additionalProperties":{"type":"boolean"}},"limits":object(json!({"frameBytes":number,"subscriptions":number,"sendQueue":number,"threadEventWindow":number})),"runtime":nullable(any_object.clone())}),
         ),
     );
     insert(
@@ -160,11 +221,12 @@ pub fn projections() -> (Value, Value) {
         object(json!({"subscriptionCount":number})),
     );
     insert(&["thread/start"], object(json!({"thread":thread})));
-    insert(
-        &["thread/observe"],
-        object(json!({"thread":thread,"ownership":schema::<ThreadOwnership>()})),
-    );
+    let mut observation =
+        object(json!({"thread":display_thread,"ownership":schema::<ThreadOwnership>()}));
+    observation["properties"]["history"] = history_window.clone();
+    insert(&["thread/observe"], observation);
     insert(&["thread/configure"], config.clone());
+    insert(&["thread/prediction"], schema::<Option<PromptPrediction>>());
     insert(
         &["thread/inspect"],
         object(
@@ -274,6 +336,24 @@ pub fn projections() -> (Value, Value) {
     );
     insert(&["mcp/read"], mcp);
     insert(&["server/status", "server/drain"], status);
+    let model_configuration_proof = object(json!({
+        "serviceId":string,"generation":string,"applied":schema::<AppliedModelConfiguration>(),
+        "modelRevision":string,"credentialStates":{"type":"object","additionalProperties":{"enum":["notRequired","available","unavailable"]}}
+    }));
+    let mut model_configuration = model_configuration_proof.clone();
+    model_configuration["properties"]["operation"] = object(json!({
+        "requestId":string,"state":{"enum":["running","applied","rejected","unknown"]}
+    }));
+    model_configuration["properties"]["operation"]["properties"]["result"] =
+        model_configuration_proof;
+    model_configuration["properties"]["operation"]["properties"]["error"] = schema::<RpcError>();
+    insert(
+        &[
+            "server/modelConfiguration/read",
+            "server/modelConfiguration/apply",
+        ],
+        model_configuration,
+    );
     insert(
         &["server/gc"],
         object(json!({"deletedBlobs":number,"reclaimedBytes":number,"retainedBytes":number})),
@@ -386,9 +466,10 @@ pub fn projections() -> (Value, Value) {
     );
     insert(
         &["request/read"],
-        object(
-            json!({"data":array(json!({"oneOf":[receipt,object(json!({"identity":string,"requestId":string,"method":string,"digest":string,"state":{"enum":["accepted","completed","unknown"]},"response":{}}))]})),"retention":{"enum":["threadLifetime","deploymentLifetime"]},"capacity":number}),
-        ),
+        json!({"oneOf":[
+            object(json!({"data":array(receipt),"retention":{"enum":["threadLifetime","deploymentLifetime","threadAndDeploymentLifetime"]},"capacity":number})),
+            object(json!({"data":array(object(json!({"identity":string,"requestId":string,"method":{"const":"areal/task/runNow"},"digest":string,"result":run_now}))),"retention":{"const":"taskLifetime"}}))
+        ]}),
     );
     insert(&["tool/acknowledge"], object(json!({})));
     insert(
@@ -398,6 +479,18 @@ pub fn projections() -> (Value, Value) {
     insert(
         &["side/start"],
         object(json!({"thread":thread.clone(),"turn":turn.clone(),"requestId":string.clone()})),
+    );
+    insert(
+        &["side/create"],
+        object(
+            json!({"thread":thread.clone(),"turn":nullable(turn.clone()),"requestId":string.clone()}),
+        ),
+    );
+    insert(
+        &["side/close"],
+        object(
+            json!({"threadId":string.clone(),"requestId":string.clone(),"accepted":boolean.clone(),"cleanupConfirmed":boolean.clone()}),
+        ),
     );
     insert(
         &["side/context/read"],
@@ -412,12 +505,16 @@ pub fn projections() -> (Value, Value) {
             "nextCursor":nullable(string.clone()),"complete":boolean
         })),
     );
+    let mut history_fragment = object(
+        json!({"text":string,"offsetUtf8":number,"nextOffsetUtf8":number,"totalBytes":number}),
+    );
+    history_fragment["properties"]["version"] = string.clone();
     insert(
         &["conversation/history"],
         object(
             json!({"snapshotId":nullable(string.clone()),"data":array(json!({"oneOf":[
-                object(json!({"sourceThreadId":string.clone(),"sourceTurnId":string.clone(),"sourceItemId":string.clone(),"sourceTurnStatus":schema::<TurnStatus>(),"item":schema::<Item>()})),
-                object(json!({"sourceThreadId":string.clone(),"sourceTurnId":string.clone(),"sourceItemId":string.clone(),"sourceTurnStatus":schema::<TurnStatus>(),"fragment":object(json!({"text":string.clone(),"offsetUtf8":number.clone(),"nextOffsetUtf8":number.clone(),"totalBytes":number.clone()}))}))
+                object(json!({"sourceThreadId":string.clone(),"sourceTurnId":string.clone(),"sourceItemId":string.clone(),"sourceTurnStatus":schema::<TurnStatus>(),"item":display_item})),
+                object(json!({"sourceThreadId":string.clone(),"sourceTurnId":string.clone(),"sourceItemId":string.clone(),"sourceTurnStatus":schema::<TurnStatus>(),"fragment":history_fragment}))
             ]})),"nextCursor":nullable(string.clone()),"complete":boolean}),
         ),
     );
@@ -434,9 +531,12 @@ pub fn projections() -> (Value, Value) {
         object(json!({"threadId":string,"toolsetRevision":number,"bundleId":string})),
     );
     responses.insert("thread/read".into(), object(json!({"thread":thread})));
-    for name in ["thread/start", "thread/resume", "areal/thread/observe"] {
+    for name in ["thread/start", "thread/resume"] {
         responses.insert(name.into(),object(json!({"thread":thread,"cwd":string,"model":string,"modelProvider":string,"approvalPolicy":string,"permissionMode":{"enum":["YOLO","ASK_PERMISSIONS"]},"approvalsReviewer":string,"sandbox":any_object,"reasoningEffort":nullable(string.clone())})));
     }
+    responses["thread/resume"]["properties"]["thread"] = display_thread;
+    responses["thread/resume"]["properties"]["history"] = history_window;
+    responses["thread/resume"]["properties"]["ownership"] = schema::<ThreadOwnership>();
     responses.insert(
         "thread/list".into(),
         object(json!({"data":array(thread.clone()),"nextCursor":nullable(string.clone())})),
@@ -455,6 +555,14 @@ pub fn projections() -> (Value, Value) {
     notifications.insert("areal/goal/updated".into(), goal_view);
     notifications.insert("areal/goal/cleared".into(),object(json!({"threadId":string,"revision":number,"eventSequence":number,"goal":nullable(schema::<areal_protocol::goals::Goal>()),"goalId":string})));
     notifications.insert("thread/started".into(), object(json!({"thread":thread})));
+    notifications.insert(
+        "areal/thread/edited".into(),
+        object(json!({"threadId":string,"thread":thread})),
+    );
+    notifications.insert(
+        "areal/thread/predictionChanged".into(),
+        object(json!({"threadId":string,"promptPrediction":schema::<PromptPrediction>()})),
+    );
     for name in ["turn/started", "turn/completed"] {
         notifications.insert(name.into(), object(json!({"threadId":string,"turn":turn})));
     }
@@ -564,3 +672,6 @@ pub fn native_messages() -> Value {
     reply["oneOf"] = json!([{"required":["result"],"not":{"required":["error"]}},{"required":["error"],"not":{"required":["result"]}}]);
     json!({"oneOf":[call,reply]})
 }
+
+#[cfg(test)]
+mod tests;

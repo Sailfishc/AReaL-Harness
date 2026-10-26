@@ -5,6 +5,22 @@ pub const API_VERSION: &str = "areal.core.v1";
 pub const MAX_SUBSCRIPTIONS: usize = 128;
 
 pub const BROWSER_V1_BUNDLE: &str = "areal.browser.v1";
+pub const COMPUTER_V1_BUNDLE: &str = "areal.computer.v1";
+
+/// 本机电脑工具与浏览器分别启用，操作仍由 Core 审批和记录。
+pub fn computer_v1_tool() -> super::ToolDefinition {
+    super::ToolDefinition {
+        name: "computer_v1".into(),
+        description: "Control authorized local desktop applications. Call describe first. Get fresh app state before acting. OS permissions must be granted by the user in Computer control settings. Never replay an action whose dispatch is unknown.".into(),
+        input_schema: serde_json::json!({
+            "type":"object",
+            "properties":{"operation":{"type":"string"},"parameters":{"type":"object"}},
+            "required":["operation","parameters"],
+            "additionalProperties":false
+        }),
+        output_schema: None,
+    }
+}
 
 /// 已部署的 Browser 工具包；追加请求只选择此身份，不接受客户端定义。
 pub fn browser_v1_tool() -> super::ToolDefinition {
@@ -21,31 +37,146 @@ pub fn browser_v1_tool() -> super::ToolDefinition {
     }
 }
 
-pub const METHODS: &[&str] = &[
-    "initialize",
-    "model/list",
-    "thread/start",
-    "thread/list",
-    "thread/read",
-    "thread/resume",
-    "areal/thread/observe",
-    "turn/start",
-    "turn/steer",
-    "turn/interrupt",
-    "areal/capabilities",
-    "areal/subscription/remove",
-    "areal/thread/tools/attach",
-    "areal/agent/spawn",
-    "areal/agent/delegate",
-    "areal/execution/list",
-    "areal/execution/read",
-    "areal/execution/wait",
-    "areal/execution/cancel",
-    "areal/execution/apply",
-    "areal/execution/artifact",
-    "areal/agent/list",
-    "areal/tool/acknowledge",
-];
+#[derive(Clone, Copy, Debug, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum MethodEffect {
+    Read,
+    Subscription,
+    Mutation,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum ReceiptFamily {
+    Thread,
+    Task,
+    Management,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct MethodSemantics {
+    pub effect: MethodEffect,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub receipt: Option<ReceiptFamily>,
+}
+
+/// 方法声明同时产生语义，避免新增路由后客户端误判写入。
+#[macro_export]
+macro_rules! method_catalog {
+    ($($method:literal => $effect:ident $(, $receipt:ident)?;)+) => {
+        pub const METHODS: &[&str] = &[$($method),+];
+        pub fn method_semantics(method: &str) -> Option<$crate::desktop::MethodSemantics> {
+            match method {
+                $($method => Some($crate::desktop::MethodSemantics {
+                    effect: $crate::desktop::MethodEffect::$effect,
+                    receipt: $crate::method_catalog!(@receipt $($receipt)?),
+                }),)+
+                _ => None,
+            }
+        }
+    };
+    (@receipt) => { None };
+    (@receipt $receipt:ident) => { Some($crate::desktop::ReceiptFamily::$receipt) };
+}
+
+crate::method_catalog! {
+    "initialize" => Read;
+    "model/list" => Read;
+    "thread/start" => Mutation;
+    "thread/list" => Read;
+    "thread/read" => Read;
+    "thread/resume" => Subscription;
+    "areal/thread/observe" => Subscription;
+    "turn/start" => Mutation;
+    "turn/steer" => Mutation;
+    "turn/interrupt" => Mutation;
+    "areal/capabilities" => Read;
+    "areal/subscription/remove" => Subscription;
+    "areal/thread/tools/attach" => Mutation, Thread;
+    "areal/agent/spawn" => Mutation;
+    "areal/agent/delegate" => Mutation;
+    "areal/execution/list" => Read;
+    "areal/execution/read" => Read;
+    "areal/execution/wait" => Read;
+    "areal/execution/cancel" => Mutation;
+    "areal/execution/apply" => Mutation;
+    "areal/execution/artifact" => Read;
+    "areal/agent/list" => Read;
+    "areal/tool/acknowledge" => Mutation;
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
+pub enum OperationTarget {
+    Project,
+    Thread {
+        #[serde(rename = "threadId")]
+        thread_id: String,
+    },
+    Task {
+        #[serde(rename = "taskId")]
+        task_id: String,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct OperationRef {
+    pub request_id: String,
+    pub method: String,
+    pub target: OperationTarget,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
+pub enum FailureOutcome {
+    NoMutation,
+    Rejected,
+    Unconfirmed { operation: OperationRef },
+    Admitted { operation: OperationRef },
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
+pub enum Recovery {
+    RetryRead,
+    QueryOriginal,
+    NeedsUser,
+    None,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct OperationFailure {
+    pub reason: String,
+    pub outcome: FailureOutcome,
+    pub recovery: Recovery,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AppliedModelConfiguration {
+    pub revision: String,
+    pub sequence: u64,
+}
+
+#[derive(Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ModelConfigurationRead {
+    pub request_id: Option<String>,
+    pub expected_generation: Option<String>,
+}
+
+#[derive(Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ModelConfigurationApply {
+    pub request_id: String,
+    pub expected_generation: String,
+    pub expected_applied: AppliedModelConfiguration,
+    pub target_revision: String,
+    pub credentials: std::collections::BTreeMap<String, String>,
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -60,6 +191,32 @@ pub struct AttachBrowserTools {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ObserveThread {
     pub thread_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<ObservationMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 1, max = 1048576))]
+    pub max_bytes: Option<usize>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum ObservationMode {
+    Bounded,
+}
+
+pub const DEFAULT_HISTORY_PAGE_BYTES: usize = 256 * 1024;
+pub const MAX_HISTORY_PAGE_BYTES: usize = 1024 * 1024;
+
+/// 只用于显示 DTO；绝不进入执行域 Item 或持久 Thread。
+#[derive(Clone, Debug, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DeferredHistoryItem {
+    pub r#type: String,
+    pub id: String,
+    pub original_type: String,
+    pub cursor: String,
+    pub version: String,
+    pub total_bytes: usize,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
@@ -115,6 +272,22 @@ pub struct SideStart {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SideCreate {
+    pub request_id: String,
+    pub source_thread_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_input: Option<Vec<super::Input>>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SideClose {
+    pub request_id: String,
+    pub thread_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
 #[serde(
     tag = "kind",
     rename_all = "camelCase",
@@ -148,6 +321,14 @@ pub enum ThreadOwnership {
         run_id: Option<String>,
     },
 }
+pub const SERVER_REQUESTS: &[&str] = &[
+    "item/tool/call",
+    "areal/task/prepare",
+    "areal/browser/prepare",
+    "areal/computer/prepare",
+    "areal/cua/turnEnded",
+];
+
 pub const NOTIFICATIONS: &[&str] = &[
     "areal/mcp/app/notification",
     "areal/mcp/tool/result",
@@ -168,6 +349,8 @@ pub const NOTIFICATIONS: &[&str] = &[
     "areal/model/watchdogRetry",
     "areal/tool/cancelled",
     "areal/thread/configured",
+    "areal/thread/edited",
+    "areal/thread/predictionChanged",
     "areal/thread/archived",
     "areal/thread/unarchived",
     "areal/plan/updated",
@@ -224,6 +407,16 @@ pub struct ModelRef {
     pub model_id: String,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ModelCapabilityConfig {
+    pub tools: bool,
+    pub vision: bool,
+    pub reasoning: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort_options: Option<Vec<String>>,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Provider {
@@ -232,6 +425,12 @@ pub struct Provider {
     pub endpoint: String,
     pub protocol: String,
     pub models: Vec<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub model_parameters: BTreeMap<String, ModelParameters>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub model_capabilities: BTreeMap<String, ModelCapabilityConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_source: Option<super::context::ContextWindowSource>,
     #[serde(default)]
     pub credential_ref: Option<String>,
     #[serde(default)]
@@ -266,9 +465,44 @@ pub struct AgentProfile {
     pub workflow: Option<VersionRef>,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum PermissionPreset {
+    Ask,
+    AutoReview,
+    FullAccess,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum ResourcePolicy {
+    Workspace,
+    Deployment,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum ApprovalReviewer {
+    Human,
+    Model,
+    None,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EffectivePermissions {
+    pub resources: ResourcePolicy,
+    pub reviewer: ApprovalReviewer,
+    pub full_access_available: bool,
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ClientOptions {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub external_cua: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permission_preset: Option<PermissionPreset>,
     #[serde(default)]
     pub interaction_mode: crate::tasks::InteractionMode,
     #[serde(default)]
@@ -287,6 +521,10 @@ pub struct ClientOptions {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EffectiveConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permissions: Option<EffectivePermissions>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_window: Option<super::context::ContextWindow>,
     /// Core-owned scope marker; legacy snapshots conservatively keep explicit scope.
     #[serde(default)]
     pub allow_plugin_skills: bool,
@@ -316,6 +554,8 @@ pub struct EffectiveConfig {
 impl Default for EffectiveConfig {
     fn default() -> Self {
         Self {
+            permissions: None,
+            context_window: None,
             allow_plugin_skills: false,
             plugin_skills: None,
             default_model_revision: None,
@@ -419,9 +659,61 @@ pub struct PermissionGrant {
     pub arguments: Value,
 }
 
+/// Model preference captured in the same snapshot as a user submission receipt.
+#[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AcceptedModelSelection {
+    pub accepted_at: u64,
+    pub model: Option<ModelRef>,
+    pub model_id: String,
+    pub reasoning_effort: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(
+    tag = "status",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum PromptPrediction {
+    Pending {
+        source_turn_id: String,
+        configuration_revision: u64,
+    },
+    Ready {
+        source_turn_id: String,
+        configuration_revision: u64,
+        text: String,
+    },
+    Unavailable {
+        source_turn_id: String,
+        configuration_revision: u64,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PromptPredictionRequest {
+    pub thread_id: String,
+    pub source_turn_id: String,
+    pub operation: PromptPredictionOperation,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum PromptPredictionOperation {
+    Request,
+    Cancel,
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DesktopState {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_prediction: Option<PromptPrediction>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_accepted_model: Option<AcceptedModelSelection>,
     /// 只在读取活跃 Side 时由 Core 投影；历史快照不承载模型等待状态。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub side_capacity_status: Option<String>,
@@ -482,6 +774,8 @@ pub struct WorkflowRun {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ThreadStart {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub options: Option<ClientOptions>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub admission_guard: Option<ThreadStartAdmissionGuard>,
     pub request_id: String,
     pub cwd: Option<String>,
@@ -522,6 +816,13 @@ pub enum TurnSubmitIntent {
     Continue {
         #[serde(rename = "expectedTurnId")]
         expected_turn_id: String,
+    },
+    Edit {
+        #[serde(rename = "expectedTurnId")]
+        expected_turn_id: String,
+        #[serde(rename = "itemId")]
+        item_id: String,
+        input: Vec<Input>,
     },
 }
 #[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
@@ -567,6 +868,8 @@ pub struct QueueSteer {
 #[derive(Clone, Debug, Deserialize, Serialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ConfigureThread {
+    #[serde(default)]
+    pub request_id: Option<String>,
     pub options: Option<ClientOptions>,
     pub thread_id: String,
     pub expected_revision: u64,

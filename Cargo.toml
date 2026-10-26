@@ -4,7 +4,7 @@ members = ["core/plugins", "core/mcp", "core/config", "core/protocol", "core/eng
 resolver = "2"
 
 [workspace.package]
-version = "0.1.4"
+version = "0.1.7-beta.3"
 edition = "2024"
 rust-version = "1.94"
 license = "Apache-2.0"
@@ -66,6 +66,9 @@ areal-runtime-exec-native = { path = "runtime/exec-native" }
 lto = "thin"
 
 [profile.dev.package.sha2]
+opt-level = 3
+
+[profile.dev.package.jsonschema]
 opt-level = 3
 
 # 容器行为测试保留调试断言，省去调试符号和增量产物；性能镜像仍使用 release。

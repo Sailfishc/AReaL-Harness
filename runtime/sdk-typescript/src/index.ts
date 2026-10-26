@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Readable, Writable } from "node:stream";
 import type {
   ConnectionInfo,
+  CheckScope,
   CreateScope,
   FileCommand,
   FileRequest,
@@ -17,6 +18,7 @@ import type {
   ReadOutput,
   RuntimeErrorData,
   ScopeInfo,
+  ScopeCheck,
   StartProcess,
 } from "./types.js";
 export type * from "./types.js";
@@ -26,11 +28,12 @@ const MAX_FRAME = 128 * 1024;
 const MAX_PENDING = 128;
 const DEFAULT_TIMEOUT = 90000;
 const MAX_TIMEOUT = 2147483647;
-const EXECUTION = new Set(["process.start", "process.wait", "fs.execute"]);
+const EXECUTION = new Set(["process.start", "process.startQueued", "process.wait", "fs.execute"]);
 const CONTROL = new Set([
   "connection.open",
   "connection.close",
   "scope.get",
+  "scope.check",
   "scope.revoke",
   "owner.revoke",
   "process.terminate",
@@ -251,6 +254,8 @@ export class RuntimeClient {
     });
   }
   readonly scopes = {
+    check: (request: CheckScope, options?: WaitOptions) =>
+      this.#rpc<ScopeCheck>("scope.check", request, options),
     create: (request: CreateScope, options?: WaitOptions) =>
       this.#rpc<ScopeInfo>("scope.create", request, options),
     get: (scopeId: string, options?: WaitOptions) =>
@@ -271,6 +276,12 @@ export class RuntimeClient {
   readonly processes = {
     start: (request: StartProcess, options?: WaitOptions) =>
       this.#rpc<ProcessRef>("process.start", request, options),
+    startQueued: (request: StartProcess, options?: WaitOptions) =>
+      this.#rpc<ProcessRef>(
+        this.supports("process.startQueued") ? "process.startQueued" : "process.start",
+        request,
+        options,
+      ),
     get: (processId: string, options?: WaitOptions) =>
       this.#rpc<ProcessInfo>("process.get", { processId }, options),
     terminate: (processId: string, options?: WaitOptions) =>

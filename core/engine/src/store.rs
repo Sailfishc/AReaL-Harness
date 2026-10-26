@@ -10,13 +10,53 @@ use std::{
 use tokio::sync::Semaphore;
 mod archive;
 
+pub(crate) fn fit_history_fragment(
+    remaining: &str,
+    max_bytes: usize,
+    page_for: impl Fn(&str) -> serde_json::Value,
+) -> Option<serde_json::Value> {
+    let mut low = 0;
+    let mut high = remaining.len().min(max_bytes);
+    let mut best = None;
+    while low <= high {
+        let mid = low + (high - low) / 2;
+        let mut end = mid;
+        while !remaining.is_char_boundary(end) {
+            end -= 1;
+        }
+        let page = page_for(&remaining[..end]);
+        if serde_json::to_vec(&page)
+            .expect("history page serializes")
+            .len()
+            <= max_bytes
+        {
+            if end > 0 || remaining.is_empty() {
+                best = Some(page);
+            }
+            low = mid + 1;
+        } else if mid == 0 {
+            break;
+        } else {
+            high = mid - 1;
+        }
+    }
+    best
+}
+
 // 持久化版本与服务状态必须一致，避免客户端误判可恢复的数据格式。
-pub(crate) const STATE_VERSION: u32 = 14;
+pub(crate) const STATE_VERSION: u32 = 15;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Record {
     pub version: u32,
     pub thread: Thread,
+}
+
+struct CachedOwnHistoryEntry {
+    scope: String,
+    entry: serde_json::Value,
+    serialized: Arc<str>,
+    version: String,
 }
 
 pub struct Store {
@@ -27,6 +67,7 @@ pub struct Store {
     paused_write: tokio::sync::Notify,
     blob_write: Arc<tokio::sync::Mutex<()>>,
     fork_reads: Arc<Semaphore>,
+    own_history_entry: Arc<std::sync::Mutex<Option<Arc<CachedOwnHistoryEntry>>>>,
     #[cfg(test)]
     fork_fault: std::sync::Mutex<Option<ForkFault>>,
 }
@@ -51,7 +92,23 @@ impl Store {
             .read(true)
             .write(true)
             .open(root.join("owner.lock"))?;
-        fs2::FileExt::try_lock_exclusive(&lock).context("another Core owns the data directory")?;
+        // fork 到 exec 的短窗口可继承旧 owner 的文件描述符。仅等待独占锁交接，
+        // 不提前读写会话，也不取消或接管仍存活的 Core；其他错误立即返回。
+        let handoff = std::time::Instant::now() + std::time::Duration::from_millis(100);
+        loop {
+            match fs2::FileExt::try_lock_exclusive(&lock) {
+                Ok(()) => break,
+                Err(error)
+                    if error.kind() == std::io::ErrorKind::WouldBlock
+                        && std::time::Instant::now() < handoff =>
+                {
+                    std::thread::sleep(std::time::Duration::from_millis(2));
+                }
+                Err(error) => {
+                    return Err(error).context("another Core owns the data directory");
+                }
+            }
+        }
         // 独占 Store 后才移除崩溃遗留的原子写临时文件，不能与旧 Core 的写入竞争。
         cleanup_temps(&root)?;
         Ok(Self {
@@ -63,6 +120,7 @@ impl Store {
             blob_write: Arc::new(tokio::sync::Mutex::new(())),
             // 最多同时解析两份 64 MiB 快照；页请求不占满通用 Store 写入容量。
             fork_reads: Arc::new(Semaphore::new(2)),
+            own_history_entry: Arc::new(std::sync::Mutex::new(None)),
             #[cfg(test)]
             fork_fault: std::sync::Mutex::new(None),
         })
@@ -213,44 +271,54 @@ impl Store {
             }) = &record.thread.conversation
             {
                 anyhow::ensure!(
-                    *version == 1
-                        && record.version >= 14
-                        && policy.kind == "sideReadOnlyV1"
-                        && matches!(policy.workspace_access.as_str(), "none" | "readOnly"),
+                    record.version >= 14
+                        && matches!(
+                            (version, policy),
+                            (1, areal_protocol::SidePolicy::ReadOnlyV1 { .. })
+                                | (2, areal_protocol::SidePolicy::ExecutableV2)
+                        ),
                     "unsupported Side policy"
                 );
                 anyhow::ensure!(
                     record.thread.parent_thread_id.is_none()
                         && record.thread.session_id == record.thread.id
                         && record.thread.goal_owner.is_none()
-                        && record.thread.goals.is_empty()
-                        && record.thread.dynamic_tools.is_empty(),
+                        && record.thread.goals.is_empty(),
                     "Side execution authority mismatch"
                 );
-                anyhow::ensure!(
-                    record
-                        .thread
-                        .desktop
-                        .as_ref()
-                        .is_some_and(|d| d.queue.items.is_empty()
-                            && d.processes.is_empty()
-                            && d.configuration.read_only
-                            && d.configuration
-                                .tool_allowlist
-                                .as_ref()
-                                .is_some_and(|tools| {
-                                    tools.iter().any(|name| name == "side_context_read")
-                                        && tools.iter().all(|name| {
-                                            name == "side_context_read"
-                                                || (policy.workspace_access == "readOnly"
+                if let areal_protocol::SidePolicy::ReadOnlyV1 { workspace_access } = policy {
+                    anyhow::ensure!(
+                        record.thread.dynamic_tools.is_empty(),
+                        "legacy Side dynamic tools mismatch"
+                    );
+                    anyhow::ensure!(
+                        record
+                            .thread
+                            .desktop
+                            .as_ref()
+                            .is_some_and(|d| d.queue.items.is_empty()
+                                && d.processes.is_empty()
+                                && d.configuration.read_only
+                                && d.configuration
+                                    .tool_allowlist
+                                    .as_ref()
+                                    .is_some_and(|tools| {
+                                        tools.iter().any(|name| name == "side_context_read")
+                                            && tools.iter().all(|name| {
+                                                matches!(
+                                                    name.as_str(),
+                                                    "side_context_read" | "gen_ui_publish"
+                                                ) || (*workspace_access
+                                                    == areal_protocol::SideWorkspaceAccess::ReadOnly
                                                     && crate::tools::side_file_tool(
                                                         name,
                                                         &crate::tools::registry::Backend::Builtin,
                                                     ))
-                                        })
-                                })),
-                    "Side configuration authority mismatch"
-                );
+                                            })
+                                    })),
+                        "Side configuration authority mismatch"
+                    );
+                }
                 anyhow::ensure!(
                     origin.snapshot_id == reference_snapshot.snapshot_id,
                     "Side snapshot reference mismatch"
@@ -407,6 +475,36 @@ impl Store {
         Ok(threads)
     }
 
+    pub(crate) fn read_thread_snapshot_sync(
+        &self,
+        id: &str,
+        maximum_bytes: usize,
+        include_history: bool,
+    ) -> Result<Thread> {
+        anyhow::ensure!(uuid::Uuid::parse_str(id).is_ok(), "invalid thread ID");
+        let path = self.root.join(format!("{id}.json"));
+        anyhow::ensure!(
+            std::fs::metadata(&path)?.len() <= maximum_bytes as u64,
+            "Thread exceeds snapshot read bound"
+        );
+        let bytes = std::fs::read(path)?;
+        let mut thread = serde_json::from_slice::<Record>(&bytes)?.thread;
+        anyhow::ensure!(
+            include_history || thread.history_archive.is_none(),
+            "Thread requires archived history inspection"
+        );
+        if include_history {
+            archive::hydrate(&self.root, &mut thread)?;
+        }
+        Ok(thread)
+    }
+
+    pub(crate) async fn read_thread_record(&self, id: &str) -> Result<Thread> {
+        anyhow::ensure!(uuid::Uuid::parse_str(id).is_ok(), "invalid thread ID");
+        let bytes = tokio::fs::read(self.root.join(format!("{id}.json"))).await?;
+        Ok(serde_json::from_slice::<Record>(&bytes)?.thread)
+    }
+
     pub(crate) async fn read_thread(&self, id: &str) -> Result<Thread> {
         anyhow::ensure!(uuid::Uuid::parse_str(id).is_ok(), "invalid thread ID");
         let bytes = tokio::fs::read(self.root.join(format!("{id}.json"))).await?;
@@ -451,14 +549,50 @@ if keep.contains(&name){retained+=e.metadata()?.len();}else{reclaimed+=e.metadat
         }).await?
     }
 
+    pub(crate) async fn publish_gen_ui(
+        &self,
+        artifact_id: &str,
+        name: &str,
+        digest: &str,
+    ) -> Result<String> {
+        anyhow::ensure!(
+            artifact_id.len() == 64 && artifact_id.bytes().all(|c| c.is_ascii_hexdigit()),
+            "invalid artifact identity"
+        );
+        anyhow::ensure!(
+            !name.is_empty()
+                && name.len() <= 80
+                && name.split('-').all(|part| !part.is_empty()
+                    && part
+                        .bytes()
+                        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())),
+            "invalid artifact name"
+        );
+        let source = self.blob_path(digest)?;
+        let directory = self.root.join("gen-ui-output").join(artifact_id);
+        let path = directory.join(format!("{name}.html"));
+        tokio::task::spawn_blocking(move || {
+            std::fs::create_dir_all(&directory)?;
+            match std::fs::hard_link(source, &path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(error) => return Err(error.into()),
+            }
+            #[cfg(unix)]
+            File::open(directory)?.sync_all()?;
+            Ok(path.to_string_lossy().into_owned())
+        })
+        .await?
+    }
+
     pub(crate) async fn save_metadata(&self, name: &str, value: &impl Serialize) -> Result<()> {
         let bytes = serde_json::to_vec(value)?;
         let root = self.root.join("desktop");
         let name = name.to_owned();
-        tokio::task::spawn_blocking(move || atomic_metadata(&root, &name, &bytes)).await?
+        tokio::task::spawn_blocking(move || write_metadata(&root, &name, &bytes)).await?
     }
     pub(crate) fn save_metadata_sync(&self, name: &str, value: &impl Serialize) -> Result<()> {
-        atomic_metadata(
+        write_metadata(
             &self.root.join("desktop"),
             name,
             &serde_json::to_vec(value)?,
@@ -662,13 +796,55 @@ fn cleanup_temps(root: &Path) -> Result<()> {
     Ok(())
 }
 
-fn atomic_metadata(root: &Path, name: &str, bytes: &[u8]) -> Result<()> {
+pub(crate) fn write_immutable(root: &Path, bytes: &[u8]) -> Result<String> {
+    let digest = write_immutable_staged(root, bytes)?;
+    File::open(root)?.sync_all()?;
+    if let Some(parent) = root.parent() {
+        File::open(parent)?.sync_all()?;
+        if let Some(grandparent) = parent.parent() {
+            File::open(grandparent)?.sync_all()?;
+        }
+    }
+    Ok(digest)
+}
+
+pub(crate) fn write_immutable_staged(root: &Path, bytes: &[u8]) -> Result<String> {
+    use std::io::Write;
+    std::fs::create_dir_all(root)?;
+    let digest = format!("{:x}", Sha256::digest(bytes));
+    let path = root.join(&digest);
+    if path.exists() {
+        anyhow::ensure!(
+            std::fs::read(&path)? == bytes,
+            "immutable metadata checksum mismatch"
+        );
+        File::open(&path)?.sync_all()?;
+    } else {
+        let mut file = tempfile::NamedTempFile::new_in(root)?;
+        file.write_all(bytes)?;
+        file.as_file().sync_all()?;
+        file.persist_noclobber(&path)?;
+    }
+    Ok(digest)
+}
+
+pub(crate) fn write_metadata(root: &Path, name: &str, bytes: &[u8]) -> Result<()> {
+    write_metadata_after_replace(root, name, bytes, || Ok(()))
+}
+
+pub(crate) fn write_metadata_after_replace(
+    root: &Path,
+    name: &str,
+    bytes: &[u8],
+    after_replace: impl FnOnce() -> Result<()>,
+) -> Result<()> {
     use std::io::Write;
     std::fs::create_dir_all(root)?;
     let mut file = tempfile::NamedTempFile::new_in(root)?;
     file.write_all(bytes)?;
     file.as_file().sync_all()?;
     file.persist(root.join(format!("{name}.json")))?;
+    after_replace()?;
     #[cfg(unix)]
     File::open(root)?.sync_all()?;
     Ok(())
@@ -677,6 +853,69 @@ fn atomic_metadata(root: &Path, name: &str, bytes: &[u8]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn owner_handoff_waits_for_inherited_pre_exec_descriptor() {
+        use std::io::{Read, Write};
+        use std::os::fd::FromRawFd;
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::open(directory.path()).unwrap();
+        let mut ready = [0; 2];
+        let mut release = [0; 2];
+        // 子进程只调用 async-signal-safe 系统调用，不运行 Rust 析构或分配器。
+        let child = unsafe {
+            assert_eq!(libc::pipe(ready.as_mut_ptr()), 0);
+            assert_eq!(libc::pipe(release.as_mut_ptr()), 0);
+            let child = libc::fork();
+            if child == 0 {
+                libc::close(ready[0]);
+                libc::close(release[1]);
+                let byte = 1u8;
+                if libc::write(ready[1], (&byte as *const u8).cast(), 1) != 1 {
+                    libc::_exit(91);
+                }
+                let mut byte = 0u8;
+                if libc::read(release[0], (&mut byte as *mut u8).cast(), 1) != 1 {
+                    libc::_exit(92);
+                }
+                libc::_exit(0);
+            }
+            child
+        };
+        assert!(child > 0);
+        unsafe {
+            libc::close(ready[1]);
+            libc::close(release[0]);
+        }
+        let mut entered = unsafe { File::from_raw_fd(ready[0]) };
+        entered.read_exact(&mut [0]).unwrap();
+        drop(entered);
+        drop(store);
+        let released = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            let mut release = unsafe { File::from_raw_fd(release[1]) };
+            release.write_all(&[1]).unwrap();
+            let mut status = 0;
+            assert_eq!(unsafe { libc::waitpid(child, &mut status, 0) }, child);
+            assert_eq!(status, 0);
+        });
+        let replacement = Store::open(directory.path());
+        released.join().unwrap();
+        assert!(replacement.is_ok(), "{:#?}", replacement.err());
+    }
+
+    #[test]
+    fn owner_handoff_never_cleans_an_active_owners_pending_write() {
+        let directory = tempfile::tempdir().unwrap();
+        let owner = Store::open(directory.path()).unwrap();
+        let pending = directory.path().join(".tmp-owned-write");
+        std::fs::write(&pending, b"pending").unwrap();
+        assert!(Store::open(directory.path()).is_err());
+        assert_eq!(std::fs::read(&pending).unwrap(), b"pending");
+        drop(owner);
+        let _replacement = Store::open(directory.path()).unwrap();
+        assert!(!pending.exists());
+    }
 
     #[test]
     fn recovered_plugin_operations_preserve_facts_and_block_replay() {

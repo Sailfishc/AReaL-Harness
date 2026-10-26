@@ -29,9 +29,9 @@ export async function uploadComposerFiles(
       bytes,
     });
     const attachment = {
-      type: file.type.startsWith("image/")
+      type: media.mimeType.startsWith("image/")
         ? "image"
-        : file.type.startsWith("audio/")
+        : media.mimeType.startsWith("audio/")
           ? "audio"
           : "file",
       url: media.uri,

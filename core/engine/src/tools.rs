@@ -14,6 +14,32 @@ pub(super) const HANDOFF_OUTPUT_RESERVE: usize = 8 * 1024;
 // escaped. Control-heavy output can expand several times in the model payload.
 const MODEL_OUTPUT_HEADROOM: usize = 4096;
 
+fn unexecuted_workspace_conflict(item: &Item) -> bool {
+    let Item::DynamicToolCall {
+        status: ToolStatus::Failed,
+        success: Some(false),
+        execution,
+        content_items: Some(content),
+        ..
+    } = item
+    else {
+        return false;
+    };
+    execution.outcome == ToolOutcome::Failed
+        && execution.backend.as_deref() == Some("core")
+        && content.iter().any(|part| {
+            part["text"]
+                .as_str()
+                .and_then(|text| serde_json::from_str::<Value>(text).ok())
+                .is_some_and(|result| {
+                    result["error"]["code"] == "CONFLICT"
+                        && result["error"]["message"].as_str().is_some_and(|message| {
+                            message.starts_with("WORKSPACE_CHANGED_BEFORE_EXECUTION:")
+                        })
+                })
+        })
+}
+
 fn previous_matching_failures(items: &[Item], call: &ToolCall, current_id: &str) -> usize {
     let arguments = serde_json::from_str(&call.arguments)
         .unwrap_or_else(|_| Value::String(call.arguments.clone()));
@@ -22,6 +48,7 @@ fn previous_matching_failures(items: &[Item], call: &ToolCall, current_id: &str)
     items
         .iter()
         .rev()
+        .filter(|item| !unexecuted_workspace_conflict(item))
         .filter_map(|item| match item {
             Item::DynamicToolCall {
                 id,
@@ -47,6 +74,9 @@ fn consecutive_matching_failures(items: &[Item], call: &ToolCall) -> usize {
         .unwrap_or_else(|_| Value::String(call.arguments.clone()));
     let mut count = 0;
     for item in items.iter().rev() {
+        if unexecuted_workspace_conflict(item) {
+            continue;
+        }
         let Item::DynamicToolCall {
             tool,
             arguments: previous,
@@ -79,6 +109,7 @@ fn consecutive_matching_failures(items: &[Item], call: &ToolCall) -> usize {
                 | "read_tool_result"
                 | "task_state"
                 | "read_history"
+                | "read_conversation_context"
         ) {
             break;
         }
@@ -92,6 +123,7 @@ pub(crate) fn side_file_tool(name: &str, backend: &registry::Backend) -> bool {
 #[derive(Default)]
 pub(crate) struct Handles {
     processes: BTreeMap<String, String>,
+    process_scopes: BTreeMap<String, String>,
     process_commands: BTreeMap<String, Vec<String>>,
     cursors: BTreeMap<String, (String, String)>,
     versions: BTreeMap<String, (String, String)>,
@@ -289,15 +321,19 @@ impl Handles {
     }
 }
 mod agents;
+mod conversation_context;
 mod extensions;
+mod file_before;
 mod images;
 mod navigation;
 mod output;
+mod page;
 mod plugin_execution;
 pub mod plugins;
 pub(crate) mod registry;
 mod results;
 pub(crate) use registry::Backend;
+mod scheduling;
 mod verification;
 pub(crate) use registry::Registry;
 pub use registry::{
@@ -334,7 +370,7 @@ fn definitions_with_policy(policy: &ToolPolicy) -> Vec<Value> {
     let mut definitions = vec![
         tool(
             "task_state",
-            "Inspect this Turn's authoritative process/file handles and owned agents after compaction or a stale-handle error. Reports bounded observations, not model-written notes; no workflow decisions or file mutations.",
+            "Inspect this Turn's authoritative process/file handles, owned agents and executionId handles after compaction or a stale-handle error. Reports bounded observations and actual workspace/scratch paths, not model-written notes; no workflow decisions or file mutations.",
             json!({"pendingAfter":{"type":"string","maxLength":128,"description":"Continue the independent pendingVerifications page after its nextAfter alias; omit for the first page."}}),
             &[],
         ),
@@ -432,6 +468,13 @@ fn definitions_with_policy(policy: &ToolPolicy) -> Vec<Value> {
     for definition in &mut definitions {
         let f = &mut definition["function"];
         if f["name"] == "run_command" {
+            f["parameters"]["properties"]["permissionRequest"] =
+                crate::permissions::additional_schema();
+            if let Some(description) = f["description"].as_str() {
+                f["description"] = json!(format!(
+                    "{description} With an explicit permission preset, permissionRequest asks for only the additional readRoots, writeRoots or network needed by this operation, with a justification. It never retries a previously failed command automatically."
+                ));
+            }
             // Core 的执行契约分别排除另一种入口；注册表单独投影模型可接受的描述。
             let branches: Vec<_> = [("command", "argv"), ("argv", "command")]
                 .into_iter()
@@ -615,6 +658,7 @@ fn request_with_policy(
                 json!(["/bin/bash", "-o", "pipefail", "-c", command]),
             );
         }
+        fields.remove("permissionRequest");
         fields.entry("cwd").or_insert(json!("workspace://repo"));
         fields.entry("timeoutMs").or_insert(json!(600_000));
         let command: Command = serde_json::from_value(args)?;
@@ -737,6 +781,18 @@ impl Engine {
         call: ToolCall,
         remaining: usize,
     ) -> anyhow::Result<usize> {
+        self.start_tool(cell, cancel, call, remaining, None)
+            .await?
+            .await?
+    }
+    async fn start_tool(
+        self: &Arc<Self>,
+        cell: &Arc<Cell>,
+        cancel: &CancellationToken,
+        call: ToolCall,
+        remaining: usize,
+        started: Option<tokio::sync::oneshot::Sender<()>>,
+    ) -> anyhow::Result<tokio::sync::oneshot::Receiver<anyhow::Result<usize>>> {
         anyhow::ensure!(
             remaining >= self.tool_output_budget(cell, &call).await,
             "turn tool/output budget exhausted before execution"
@@ -751,27 +807,32 @@ impl Engine {
             anyhow::ensure!(!active.sealed && !cancel.is_cancelled(), "cancelled");
             active.tools.spawn(
                 async move {
-                    let result =
-                        std::panic::AssertUnwindSafe(engine.tool_owned(&owned_cell, &token, call))
-                            .catch_unwind()
-                            .await
-                            .unwrap_or_else(|_| {
-                                Err(anyhow::anyhow!(
-                                    "tool task panicked; outcome may be UNKNOWN"
-                                ))
-                            });
+                    let result = std::panic::AssertUnwindSafe(engine.tool_owned(
+                        &owned_cell,
+                        &token,
+                        call,
+                        started,
+                    ))
+                    .catch_unwind()
+                    .await
+                    .unwrap_or_else(|_| {
+                        Err(anyhow::anyhow!(
+                            "tool task panicked; outcome may be UNKNOWN"
+                        ))
+                    });
                     let _ = sent.send(result);
                 }
                 .instrument(tracing::Span::current()),
             );
         }
-        received.await?
+        Ok(received)
     }
     async fn tool_owned(
         self: &Arc<Self>,
         cell: &Arc<Cell>,
         cancel: &CancellationToken,
         call: ToolCall,
+        ready: Option<tokio::sync::oneshot::Sender<()>>,
     ) -> anyhow::Result<usize> {
         let (session_id, turn_id, turn_number) = {
             let state = cell.state.lock().await;
@@ -823,7 +884,7 @@ impl Engine {
         let span = operation.span.clone();
         let result = async {
             tracing::event!(target: trajectory::TARGET, tracing::Level::INFO, { "event.name" = "areal.tool.call" });
-            self.tool_inner(cell, cancel, call).await
+            self.tool_inner(cell, cancel, call, ready).await
         }
         .instrument(span)
         .await;
@@ -842,18 +903,37 @@ impl Engine {
         cell: &Arc<Cell>,
         cancel: &CancellationToken,
         call: ToolCall,
+        ready: Option<tokio::sync::oneshot::Sender<()>>,
     ) -> anyhow::Result<usize> {
-        let mut rejection = self.goal_tool_guard(cell, &call.name).await?;
+        let blocked_by_workspace_conflict = cell
+            .state
+            .lock()
+            .await
+            .active
+            .as_ref()
+            .is_some_and(|active| active.workspace_conflict_call.is_some());
+        let mut rejection = if blocked_by_workspace_conflict {
+            Some(rt::Error::new(
+                rt::ErrorCode::Conflict,
+                "WORKSPACE_CHANGED_BEFORE_EXECUTION: this call was NOT executed. A previous call from this response observed a shared workspace conflict. Inspect that receipt and current inputs before a new decision; no mutation was replayed.",
+            ))
+        } else {
+            self.goal_tool_guard(cell, &call.name).await?
+        };
         let bindings = cell.bindings.read().await.clone();
         let entry = bindings.registry.get(&call.name);
+        let native_metadata = entry
+            .as_ref()
+            .is_ok_and(|tool| matches!(tool.backend, Backend::Builtin));
         let repeat_limit = self.limits.max_repeated_tool_failures;
-        let repeats = if repeat_limit > 0 {
+        let repeats = if repeat_limit > 0 && !blocked_by_workspace_conflict {
             let state = cell.state.lock().await;
             consecutive_matching_failures(&state.thread.turns.last().unwrap().items, &call)
         } else {
             0
         };
-        let repeat_blocked = repeat_limit > 0 && repeats >= repeat_limit;
+        let repeat_blocked =
+            !blocked_by_workspace_conflict && repeat_limit > 0 && repeats >= repeat_limit;
         if rejection.is_none() && repeat_blocked {
             rejection = Some(rt::Error::new(
                 rt::ErrorCode::InvalidArgument,
@@ -861,19 +941,21 @@ impl Engine {
             ));
         }
         let side_read = cell.state.lock().await.thread.side_workspace_read();
-        if cell.state.lock().await.thread.is_side()
-            && !(call.name == "side_context_read"
+        if !blocked_by_workspace_conflict
+            && cell.state.lock().await.thread.is_read_only_side()
+            && !(matches!(call.name.as_str(), "side_context_read" | "gen_ui_publish")
                 && entry
                     .as_ref()
-                    .is_ok_and(|e| matches!(e.backend, Backend::Core)))
-            && !(side_read
-                && entry
-                    .as_ref()
-                    .is_ok_and(|e| side_file_tool(&call.name, &e.backend)))
+                    .is_ok_and(|e| matches!(e.backend, Backend::Core))
+                || side_read
+                    && entry
+                        .as_ref()
+                        .is_ok_and(|e| side_file_tool(&call.name, &e.backend)))
         {
             anyhow::bail!("SIDE_POLICY_VIOLATION");
         }
-        if side_read
+        if !blocked_by_workspace_conflict
+            && side_read
             && entry
                 .as_ref()
                 .is_ok_and(|e| side_file_tool(&call.name, &e.backend))
@@ -897,7 +979,19 @@ impl Engine {
             .is_some_and(|a| a.workspace_exclusive);
         // 隐藏模型 schema 不构成执行门禁：旧调用仍可能进入同一后端。
         // 写租约内递归创建会让父子相互等待；隔离 worker 的零子任务上限也不能绕过。
-        if (exclusive || cell.exclusive_writer || self.limits.max_children_per_turn == 0)
+        let assigned_writer = cell
+            .state
+            .lock()
+            .await
+            .thread
+            .desktop
+            .as_ref()
+            .is_some_and(|d| d.execution_policy.exclusive_write);
+        if !blocked_by_workspace_conflict
+            && (assigned_writer
+                || exclusive
+                || cell.exclusive_writer
+                || self.limits.max_children_per_turn == 0)
             && entry
                 .as_ref()
                 .is_ok_and(|tool| creates_child_execution(&call.name, &tool.backend))
@@ -907,6 +1001,119 @@ impl Engine {
                 "CHILD_EXECUTION_DISABLED: exclusive writers and bounded isolated workers must return a handoff instead of recursively creating child executions",
             ));
         }
+        let deferred = cell
+            .state
+            .lock()
+            .await
+            .thread
+            .desktop
+            .as_ref()
+            .is_some_and(|d| {
+                d.execution_policy.deferred_write || d.execution_policy.exclusive_write
+            });
+        if !blocked_by_workspace_conflict
+            && deferred
+            && call.name == "development_service_start"
+            && entry
+                .as_ref()
+                .is_ok_and(|tool| matches!(tool.backend, Backend::Core))
+        {
+            rejection = Some(rt::Error::new(
+                rt::ErrorCode::PermissionDenied,
+                "inspection workers cannot start Thread-lifetime services; ask the parent to own the service",
+            ));
+        }
+        let pure_read = self.extensions.hooks.is_empty()
+            && entry.as_ref().is_ok_and(|tool| {
+                // 包括使用固定 Python 助手的行读取；不能因实现为命令就误占整轮写租约。
+                matches!(tool.backend, Backend::Builtin)
+                    && matches!(
+                        call.name.as_str(),
+                        "read_file"
+                            | "image_read"
+                            | "fs_read"
+                            | "fs_list"
+                            | "fs_stat"
+                            | "search_files"
+                    )
+            });
+        if deferred && !coordination && rejection.is_none() {
+            // 受管命令由 Runtime 证明结算；外部宿主与 hooks 的延迟副作用不可猜测。
+            let pin = !self.extensions.hooks.is_empty()
+                || cell
+                    .state
+                    .lock()
+                    .await
+                    .active
+                    .as_ref()
+                    .is_some_and(|active| !active.hooks.is_empty())
+                || entry.as_ref().is_ok_and(|tool| {
+                    !matches!(
+                        tool.backend,
+                        Backend::Builtin | Backend::Coordination | Backend::Agent
+                    ) && !matches!(
+                        call.name.as_str(),
+                        "plan_read"
+                            | "plan_update"
+                            | "task_state"
+                            | "read_history"
+                            | "read_conversation_context"
+                            | "read_tool_result"
+                    )
+                });
+            if pin {
+                cell.state
+                    .lock()
+                    .await
+                    .active
+                    .as_mut()
+                    .unwrap()
+                    .workspace_lease_pinned = true;
+            }
+        }
+        if deferred && !exclusive && !coordination && rejection.is_none() && !pure_read {
+            // 租约由 Turn 持有，覆盖 yield 后仍运行的进程及清理；不能凭 inspect 标签判断无副作用。
+            let _resources = tokio::select! {biased;
+                _=cancel.cancelled()=>anyhow::bail!("cancelled before inherited writer admission"),
+                guard=cell.resource_gate.lock()=>guard,
+            };
+            if !cell
+                .state
+                .lock()
+                .await
+                .active
+                .as_ref()
+                .unwrap()
+                .workspace_exclusive
+            {
+                let guard = tokio::select! {biased;
+                    _=cancel.cancelled()=>anyhow::bail!("cancelled before inherited writer admission"),
+                    guard=self.workspace_gate.clone().write_owned()=>guard,
+                };
+                self.ensure_workspace_processes_settled().await?;
+                anyhow::ensure!(
+                    !cancel.is_cancelled(),
+                    "cancelled before inherited writer execution"
+                );
+                let mut state = cell.state.lock().await;
+                let active = state.active.as_mut().unwrap();
+                active.workspace_exclusive = true;
+                active.deferred_workspace_guard = Some(guard);
+                drop(state);
+                if let Some(conflict) = self.check_workspace_version(cell, &call.id).await {
+                    rejection = Some(conflict);
+                }
+            }
+        }
+        let exclusive = exclusive
+            || cell
+                .state
+                .lock()
+                .await
+                .active
+                .as_ref()
+                .unwrap()
+                .workspace_exclusive;
         // 旧研究 Agent 的等待也不能持读租约，否则排队作者会阻止其子任务继续读取。
         // 它仍保留原 Runtime scope 与 hooks；每个 hook 单独取得执行租约。
         let _workspace_guard = if coordination || agent_control || exclusive || rejection.is_some()
@@ -927,12 +1134,12 @@ impl Engine {
                 permit = self.tool_permits.acquire() => permit?,
             })
         };
-        let runtime = if coordination || rejection.is_some() {
+        let mut runtime = if coordination || rejection.is_some() {
             None
         } else {
             self.runtime.as_ref()
         };
-        let (thread_id, turn_id, existing_scope) = {
+        let (thread_id, turn_id) = {
             let state = cell.state.lock().await;
             let active = state.active.as_ref().unwrap();
             anyhow::ensure!(
@@ -941,38 +1148,17 @@ impl Engine {
                 ),
                 "duplicate tool call ID; refusing replay"
             );
-            (
-                state.thread.id.clone(),
-                active.id.clone(),
-                active.scope.clone(),
-            )
+            (state.thread.id.clone(), active.id.clone())
         };
-        let scope = match (runtime, if coordination { None } else { existing_scope }) {
-            (_, Some(scope)) => scope,
-            (Some(runtime), None) => {
-                let client = &runtime.client;
-                let scope = client
-                    .create_scope(rt::CreateScope {
-                        operation_id: client.operation_id(),
-                        parent_scope_id: self.runtime_task_parent(cell).await?,
-                        owner: rt::Owner {
-                            task_id: format!("{thread_id}/{turn_id}"),
-                            plugin_instance_id: None,
-                        },
-                        permissions: self.active_permissions(cell).await?,
-                        limits: rt::LimitRequest::default(),
-                    })
-                    .await?
-                    .scope_id;
-                cell.state.lock().await.active.as_mut().unwrap().scope = Some(scope.clone());
-                scope
-            }
-            (None, None) => String::new(),
-        };
+        let mut scope = String::new();
         anyhow::ensure!(!cancel.is_cancelled(), "cancelled");
         let started = std::time::Instant::now();
         let item_id = id();
         let operation_id = runtime.map_or_else(id, |r| r.client.operation_id());
+        let coordination = rejection.is_none()
+            && entry
+                .as_ref()
+                .is_ok_and(|entry| matches!(entry.backend, Backend::Coordination));
         let item = Item::DynamicToolCall {
             id: item_id.clone(),
             tool: call.name.clone(),
@@ -985,7 +1171,20 @@ impl Engine {
             content_items: None,
             call_id: call.id.clone(),
             execution: Box::new(ToolExecution {
+                permission_review: None,
+                permission_scopes: Vec::new(),
+                page: entry.as_ref().ok().and_then(|t| match &t.backend {
+                    Backend::Page(p) => Some(areal_protocol::plugin_runtime::PageExecution {
+                        binding: p.binding.clone(),
+                        dispatch: areal_protocol::plugin_runtime::PageDispatch::Pending {
+                            arguments_digest: None,
+                        },
+                    }),
+                    _ => None,
+                }),
+                interactive_result: None,
                 result_snapshot: None,
+                file_before: None,
                 output_projection: None,
                 backend: if rejection.is_some() {
                     Some("core".into())
@@ -998,6 +1197,7 @@ impl Engine {
                             Backend::Core => "core",
                             Backend::Command(_) => "command",
                             Backend::Client => "client",
+                            Backend::Page(_) => "page",
                             Backend::Mcp(_) => "mcp",
                             Backend::Plugin(_) => "plugin",
                         }
@@ -1032,6 +1232,28 @@ impl Engine {
                 .insert(item_id.clone());
             emit_item(cell, "item/started", &thread_id, &turn_id, &item);
         }
+        if runtime.is_some() {
+            match self.ensure_turn_scope(cell, Some(&call.id)).await {
+                Ok(created) => scope = created,
+                Err(error)
+                    if matches!(
+                        error.code,
+                        rt::ErrorCode::Unsupported
+                            | rt::ErrorCode::PermissionDenied
+                            | rt::ErrorCode::InvalidArgument
+                            | rt::ErrorCode::ResourceExhausted
+                    ) =>
+                {
+                    rejection = Some(error);
+                    runtime = None;
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
+        if let Some(ready) = ready {
+            let _ = ready.send(());
+        }
+
         let intent_ms = started.elapsed().as_secs_f64() * 1000.0;
         let invocation_started = std::time::Instant::now();
         let submitted = !cancel.is_cancelled() && rejection.is_none();
@@ -1050,6 +1272,7 @@ impl Engine {
                 cancel,
                 call: &call,
                 scope: &scope,
+                granted_scope: None,
                 operation: &operation_id,
                 item_id: &item_id,
                 thread_id: &thread_id,
@@ -1067,7 +1290,7 @@ impl Engine {
         };
         let invocation_ms = invocation_started.elapsed().as_secs_f64() * 1000.0;
         let projection_started = std::time::Instant::now();
-        let (outcome, success, mut result) = match result {
+        let (mut outcome, mut success, mut result) = match result {
             Ok((success, value)) => (
                 if success {
                     ToolOutcome::Succeeded
@@ -1093,6 +1316,26 @@ impl Engine {
                 (outcome, false, json!({"error":error}))
             }
         };
+        {
+            let state = cell.state.lock().await;
+            if let Some(Item::DynamicToolCall {
+                execution,
+                success: saved_success,
+                ..
+            }) = state
+                .thread
+                .turns
+                .last()
+                .unwrap()
+                .items
+                .iter()
+                .find(|i| i.id() == item_id)
+                && execution.page.as_ref().is_some_and(|p| p.is_terminal())
+            {
+                outcome = execution.outcome.clone();
+                success = saved_success == &Some(true);
+            }
+        }
         if !success {
             tracing::Span::current().record("otel.status_code", "ERROR");
             tracing::Span::current().record(
@@ -1183,6 +1426,23 @@ impl Engine {
                     runtime,
                 );
         }
+        // 原生结果附带本轮真实已用时间；不插入额外用户消息或改变回执版本。
+        // 协调回执不装饰该字段，避免把动态计时误判为新的交接结论。
+        if runtime.is_some() && native_metadata {
+            let elapsed = cell
+                .state
+                .lock()
+                .await
+                .active
+                .as_ref()
+                .unwrap()
+                .started
+                .elapsed()
+                .as_secs();
+            if let Some(object) = result.as_object_mut() {
+                object.insert("turnElapsedSeconds".into(), json!(elapsed));
+            }
+        }
         if let Some(object) = result.as_object_mut() {
             let state = cell.state.lock().await;
             let items = &state.thread.turns.last().unwrap().items;
@@ -1233,9 +1493,13 @@ impl Engine {
         {
             content.push(json!({"type":"inputText","text":format!("previousMatchingFailures={}: {note}", result["previousMatchingFailures"])}));
         }
-        let prepared = self
-            .prepare_tool_result(cell, &item_id, &call.name, &result, output_argv.as_deref())
-            .await?;
+        let prepared = if coordination && call.name == "agent_wait_any" {
+            self.prepare_coordination_result(cell, &item_id, &call.name, &result)
+                .await?
+        } else {
+            self.prepare_tool_result(cell, &item_id, &call.name, &result, output_argv.as_deref())
+                .await?
+        };
         trajectory::record_json(
             &tracing::Span::current(),
             "areal.tool.result.projected",
@@ -1248,6 +1512,11 @@ impl Engine {
         {
             custom_content = None;
         }
+        let interactive_result = (success
+            && matches!(outcome, ToolOutcome::Succeeded)
+            && result["mcpServer"]["source"]["version"] == 1
+            && crate::desktop::mcp_apps::tool_uri(&result["mcpServer"]["toolMetadata"]).is_some())
+        .then_some(true);
         let result = bounded_result(serde_json::to_string(&prepared.value)?);
         let projection_ms = projection_started.elapsed().as_secs_f64() * 1000.0;
         let commit_started = std::time::Instant::now();
@@ -1269,18 +1538,31 @@ impl Engine {
             ..
         } = item
         {
-            *status = if success {
-                ToolStatus::Completed
-            } else {
-                ToolStatus::Failed
-            };
-            *saved_success = Some(success);
-            *content_items = Some(
-                custom_content.unwrap_or_else(|| vec![json!({"type":"inputText","text":result})]),
-            );
-            execution.outcome = outcome;
-            execution.result_snapshot = prepared.snapshot;
-            execution.output_projection = Some(prepared.metrics);
+            if !execution.page.as_ref().is_some_and(|p| p.is_terminal()) {
+                *status = if success {
+                    ToolStatus::Completed
+                } else {
+                    ToolStatus::Failed
+                };
+                *saved_success = Some(success);
+                *content_items = Some(
+                    custom_content
+                        .unwrap_or_else(|| vec![json!({"type":"inputText","text":result})]),
+                );
+                execution.interactive_result =
+                    interactive_result.filter(|_| execution.backend.as_deref() == Some("mcp"));
+                execution.outcome = outcome;
+                execution.result_snapshot = prepared.snapshot;
+                execution.output_projection = Some(prepared.metrics);
+
+                if execution.backend.as_deref() == Some("coordination")
+                    && call.name.starts_with("agent_")
+                {
+                    // Pin the first settlement's identity version; retain old provider receipts.
+                    execution.output_projection.as_mut().unwrap()["executionIdentityVersion"] =
+                        json!(if call.name == "agent_wait_any" { 2 } else { 1 });
+                }
+            }
             execution.duration_ms = Some(started.elapsed().as_millis() as u64);
         }
         let bytes = serde_json::to_vec(item)?.len();
@@ -1781,7 +2063,8 @@ async fn process_output(
     };
     let stdout_text = String::from_utf8_lossy(&stdout).into_owned();
     let stderr_text = String::from_utf8_lossy(&stderr).into_owned();
-    let mut result = json!({"processId":read.process_id, "state":info.state, "returnReason":return_reason, "exitCode":info.exit_code, "stopReason":info.stop_reason, "stdout":stdout_text, "stderr":stderr_text, "stdoutBytes":stdout.len(), "stderrBytes":stderr.len(), "outputPageBytes":output_page_bytes, "nextCursor":after, "outputClosed":closed, "gap":gap, "truncated":truncated,
+    // 保留 Runtime 的退出事实；137 也可能是程序自行返回，不能据此猜测信号或终止来源。
+    let mut result = json!({"processId":read.process_id, "state":info.state, "returnReason":return_reason, "exitCode":info.exit_code, "signal":info.signal, "sandboxDenied":info.sandbox_denied, "stopReason":info.stop_reason, "stdout":stdout_text, "stderr":stderr_text, "stdoutBytes":stdout.len(), "stderrBytes":stderr.len(), "outputPageBytes":output_page_bytes, "nextCursor":after, "outputClosed":closed, "gap":gap, "truncated":truncated,
         "commandStatus":command_status,"outputReadComplete":closed,
         "outputIntegrity":if gap || truncated { "incomplete" } else { "retained" },
         "nextAction":if !closed { "Read this process again to collect remaining/new output; omit after to continue." } else { "Retained output has been read to its end. Evaluate the actual checks; exit zero alone does not prove correctness." }});

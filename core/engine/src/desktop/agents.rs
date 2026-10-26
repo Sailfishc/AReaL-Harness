@@ -125,6 +125,7 @@ impl Engine {
                     .collect(),
             );
         }
+        self.apply_client_permissions(&mut config)?;
         Ok(Some(config))
     }
     pub async fn wait_children(
@@ -241,6 +242,7 @@ impl Engine {
             configuration.default_model_revision = task.default_model_revision.clone();
         }
         configuration.read_only |= task.read_only;
+        configuration.options.permission_preset = task.permission_preset;
         if task.approval_tools.len() > 256
             || task
                 .system_prompt
@@ -295,6 +297,7 @@ impl Engine {
             }
             configuration.tool_allowlist = Some(names.clone());
         }
+        self.project_permissions(&mut configuration);
         Ok(configuration)
     }
     pub(crate) async fn create_worker(
@@ -303,24 +306,36 @@ impl Engine {
         task: &crate::workgroup::TaskConfiguration,
         cwd: String,
     ) -> Result<Thread> {
-        let configuration = self.worker_configuration(task)?;
+        let mut configuration = self.worker_configuration(task)?;
+        worker.project_permissions(&mut configuration);
         // 隔离实例继承部署的 ask/deny 边界，不复制会话或项目授权记忆。
         worker
             .set_permissions(self.permission_config(), None)
             .map_err(invalid)?;
         *worker.desktop.catalog.write().unwrap() = self.desktop.catalog.read().unwrap().clone();
-        worker
-            .desktop
-            .worker_model
-            .store(true, std::sync::atomic::Ordering::Release);
+        worker.prepare_worker_instance().await?;
         let data = DesktopState {
             configuration,
             ..Default::default()
         };
         worker
-            .create_inner(cwd, None, None, vec![], None, Some(data))
+            .create_inner(cwd, None, None, vec![], None, Some(data), false)
             .await
             .map(|(t, _)| t)
+    }
+
+    /// 仅用于新建的隔离实例，避免给禁用委派的用户 Engine 保留同名工具。
+    pub(crate) async fn prepare_worker_instance(&self) -> Result<()> {
+        let threads = self.threads.read().await;
+        if !threads.is_empty() {
+            return Err(invalid(
+                "worker preparation requires a fresh dedicated Engine",
+            ));
+        }
+        self.desktop
+            .worker_model
+            .store(true, std::sync::atomic::Ordering::Release);
+        Ok(())
     }
 }
 
@@ -348,7 +363,11 @@ impl Engine {
                 "exclusive writers must return a handoff instead of recursively creating child executions",
             ));
         }
-        if self.read(&request.parent_thread_id, false).await?.is_side() {
+        if self
+            .read(&request.parent_thread_id, false)
+            .await?
+            .is_read_only_side()
+        {
             return Err(invalid("SIDE_POLICY_VIOLATION"));
         }
         if request.workspace_mode.as_deref() != Some("isolatedWrite") {
@@ -415,6 +434,7 @@ impl Engine {
             integration_depends: vec![],
             checks: vec![],
             configuration: Some(crate::workgroup::TaskConfiguration {
+                permission_preset: configuration.options.permission_preset,
                 default_model_revision: configuration.default_model_revision,
                 agent_profile: configuration.profile.as_ref().map(|p| VersionRef {
                     id: p.id.clone(),

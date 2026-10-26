@@ -26,6 +26,16 @@ pub const PROXY_ENV_VARS: [&str; 8] = [
     "no_proxy",
 ];
 
+/// Additional certificate roots for trusted network clients.
+pub const TLS_ENV_VARS: [&str; 6] = [
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+    "NODE_EXTRA_CA_CERTS",
+    "REQUESTS_CA_BUNDLE",
+    "CURL_CA_BUNDLE",
+    "GIT_SSL_CAINFO",
+];
+
 /// Contains secrets: deliberately does not implement Debug or Serialize.
 #[derive(Clone, Default)]
 pub struct ConfigInputs {
@@ -71,6 +81,42 @@ pub enum PermissionMode {
     Yolo,
     #[serde(rename = "ASK_PERMISSIONS", alias = "ask_permissions")]
     AskPermissions,
+}
+
+/// 分析职责与执行权限分开；继承模式只由可信部署显式选择。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum InspectionPermissions {
+    #[default]
+    ReadOnly,
+    Inherit,
+}
+
+/// 持续恢复与有限恢复分开；显式 watchdog_disable 仍可完全关闭 Core 恢复。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NetworkRetryMode {
+    #[default]
+    Persistent,
+    Bounded,
+}
+
+impl NetworkRetryMode {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Persistent => "persistent",
+            Self::Bounded => "bounded",
+        }
+    }
+}
+
+impl InspectionPermissions {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ReadOnly => "read-only",
+            Self::Inherit => "inherit",
+        }
+    }
 }
 
 impl PermissionMode {
@@ -161,6 +207,8 @@ pub enum ModelProtocolConfig {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SelectedModelConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<models::ModelCapabilities>,
     pub provider: String,
     pub name: String,
     pub endpoint: String,
@@ -232,6 +280,7 @@ pub struct GoalConfig {
 }
 
 pub struct ResolvedCoreConfig {
+    pub inspection_permissions: InspectionPermissions,
     pub trajectory: TrajectoryConfig,
     pub model_catalog: Vec<models::ProviderConfig>,
     pub model_catalog_managed: bool,
@@ -253,6 +302,7 @@ pub struct ResolvedCoreConfig {
     pub max_side_turn_seconds: u64,
     pub max_children_per_turn: usize,
     pub max_agent_depth: usize,
+    pub model_request_timeout_seconds: u64,
     pub stream_idle_timeout_seconds: u64,
     pub max_history_bytes: usize,
     pub max_output_bytes: usize,
@@ -275,6 +325,7 @@ pub struct ResolvedCoreConfig {
     pub max_empty_completion_retries: usize,
     pub max_completion_retries: usize,
     pub watchdog_disable: bool,
+    pub network_retry_mode: NetworkRetryMode,
     pub log_filter: String,
     pub sources: BTreeMap<String, ConfigSource>,
     pub warnings: Vec<String>,
@@ -298,6 +349,7 @@ impl ResolvedCoreConfig {
             endpoint.to_string()
         };
         let mut result = serde_json::json!({
+            "delegation": {"inspection_permissions":self.inspection_permissions},
             "trajectory": self.trajectory.diagnostic(),
             "permissions": self.permissions,
             "goals": self.goals,
@@ -318,7 +370,7 @@ impl ResolvedCoreConfig {
                 "max_output_tokens": self.model.max_output_tokens, "context_window_tokens": self.model.context_window_tokens, "max_request_bytes": self.model.max_request_bytes, "max_retries": self.model.max_retries },
             "budget": {"max_history_bytes":self.max_history_bytes,"max_output_bytes":self.max_output_bytes,"max_tool_calls":self.max_tool_calls},
             "resources": {"model_concurrency":self.model_concurrency,"max_threads":self.max_threads,"max_active_turns":self.max_active_turns,"max_children_per_turn":self.max_children_per_turn,"max_agent_depth":self.max_agent_depth,"max_response_tool_calls":self.max_response_tool_calls,"max_response_bytes":self.max_response_bytes,"max_tool_buffer_bytes":self.max_tool_buffer_bytes},
-            "network": {"stream_idle_timeout_seconds":self.stream_idle_timeout_seconds,"retry_mode":if self.watchdog_disable {"bounded"} else {"persistent"}},
+            "network": {"stream_idle_timeout_seconds":self.stream_idle_timeout_seconds,"retry_mode":self.network_retry_mode.as_str()},
             "context": {"mode":if !self.context_compaction_enabled {"disabled"} else if self.context_auto_compaction {"auto"} else {"manual"},"recent_tokens":self.context_recent_tokens,"target_tokens":self.context_target_tokens,"output_reserve_tokens":self.context_output_reserve_tokens},
             "limits": { "max_active_turns": self.max_active_turns, "max_side_turns_per_source": self.max_side_turns_per_source, "max_side_turns_per_deployment": self.max_side_turns_per_deployment, "max_side_model_rounds": self.max_side_model_rounds, "max_side_tool_calls": self.max_side_tool_calls, "max_side_turn_seconds": self.max_side_turn_seconds, "max_children_per_turn": self.max_children_per_turn, "max_agent_depth": self.max_agent_depth, "model_concurrency": self.model_concurrency, "max_threads": self.max_threads,
                 "stream_idle_timeout_seconds": self.stream_idle_timeout_seconds,
@@ -327,6 +379,10 @@ impl ResolvedCoreConfig {
                 "max_completion_retries": self.max_completion_retries, "watchdog_disable": self.watchdog_disable },
             "logging": { "filter": self.log_filter },
         });
+        result["network"]["model_request_timeout_seconds"] =
+            serde_json::json!(self.model_request_timeout_seconds);
+        result["limits"]["model_request_timeout_seconds"] =
+            serde_json::json!(self.model_request_timeout_seconds);
         result["context"]["reference_tokens"] = serde_json::json!(self.context_reference_tokens);
         result["limits"]["context_reference_tokens"] =
             serde_json::json!(self.context_reference_tokens);

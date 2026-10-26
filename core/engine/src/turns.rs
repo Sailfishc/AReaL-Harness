@@ -50,11 +50,14 @@ impl Engine {
         }) {
             return Err(Error::Conflict);
         }
-        if state.thread.is_side() && (input.len() != 1 || !matches!(&input[0], Input::Text { .. }))
+        if state.thread.is_read_only_side()
+            && (input.len() != 1 || !matches!(&input[0], Input::Text { .. }))
         {
             return Err(Error::Invalid("SIDE_POLICY_VIOLATION".into()));
         }
-        if let Some(areal_protocol::Conversation::Side { origin, .. }) = &state.thread.conversation
+        if state.thread.is_read_only_side()
+            && let Some(areal_protocol::Conversation::Side { origin, .. }) =
+                &state.thread.conversation
         {
             self.check_side_capacity(&origin.source_thread_id, Some(&state.thread.id))
                 .await?;
@@ -114,28 +117,43 @@ impl Engine {
         input: Vec<Input>,
         skill: Option<&areal_protocol::desktop::VersionRef>,
     ) -> Result<(Thread, Turn)> {
-        self.validate_uploads(thread, &input)?;
-        let mut configuration = thread
-            .desktop
-            .as_ref()
-            .map(|d| d.configuration.clone())
-            .unwrap_or_default();
+        let configuration = self.next_request_configuration(
+            thread
+                .desktop
+                .as_ref()
+                .map(|d| d.configuration.clone())
+                .unwrap_or_default(),
+        );
+        self.prepare_turn_from_configuration(thread, input, skill, configuration)
+    }
+
+    pub(super) fn prepare_turn_from_configuration(
+        &self,
+        thread: &Thread,
+        input: Vec<Input>,
+        skill: Option<&areal_protocol::desktop::VersionRef>,
+        mut configuration: areal_protocol::desktop::EffectiveConfig,
+    ) -> Result<(Thread, Turn)> {
         if let Some(skill) = skill {
             configuration.selected_skills = Some(vec![skill.clone()]);
         } else {
             self.select_plugin_attachments(
                 &mut configuration,
                 &input,
-                !thread.is_side()
+                !thread.is_read_only_side()
                     && thread.parent_thread_id.is_none()
                     && thread.source != "nativeTaskAgent",
             )?;
         }
+        self.check_selected_plugin_tools(thread, &configuration)?;
         let configuration = self.freeze_configuration(configuration);
         let model = self.configured_model(&configuration)?;
         self.validate_fork_model_compatibility(thread, model.as_ref())?;
-        validate_input(&input, &model.capabilities())?;
+        self.validate_thread_input(thread, &input, &model.capabilities())?;
         let mut candidate = thread.clone();
+        if let Some(data) = &mut candidate.desktop {
+            data.prompt_prediction = None;
+        }
         let text = input
             .iter()
             .map(Input::as_text)
@@ -157,6 +175,8 @@ impl Engine {
             duration_ms: None,
             goal: None,
             instruction_snapshot: None,
+            instruction_attribution: None,
+            generation: None,
             configuration: (thread.desktop.is_some()
                 || configuration.default_model_revision.is_some())
             .then_some(configuration),
@@ -230,6 +250,7 @@ impl Engine {
         ),
     ) {
         let (direct_tool, tool_meta) = direct_tool;
+        prompt_prediction::invalidate(state);
         self.spawn_goal_scheduler();
         self.start_task_scheduler();
         let (tx, rx) = mpsc::channel(self.limits.mailbox_capacity);
@@ -257,6 +278,9 @@ impl Engine {
         }
         cell.cancel_grace_ms.store(1000, Ordering::Release);
         state.active = Some(Active {
+            context_usage: None,
+            context_sequence: 0,
+            generation: Default::default(),
             registry: cell.inherited_registry.clone().map(Ok).unwrap_or_else(|| {
                 self.managed_registry(&state.thread, cell.research)
                     .map_err(|e| e.to_string())
@@ -272,10 +296,15 @@ impl Engine {
             direct_tool,
             tool_meta,
             tool_calls: 0,
+            cua_used: false,
             waiting_for_model_capacity: false,
             started: std::time::Instant::now(),
             isolated_children: 0,
             workspace_exclusive: false,
+            deferred_workspace_guard: None,
+            workspace_lease_pinned: false,
+            workspace_version: None,
+            workspace_conflict_call: None,
             _admission: admission,
             id: turn.id.clone(),
             cancel: cancel.clone(),
@@ -285,6 +314,7 @@ impl Engine {
             open_items: HashSet::new(),
             sealed: false,
             scope: None,
+            base_scope: None,
             model,
             tools: TaskTracker::new(),
             process_cursors: BTreeMap::new(),
@@ -330,7 +360,7 @@ impl Engine {
     ) -> Result<()> {
         let thread_id = thread_id.to_owned();
         let turn_id = turn_id.to_owned();
-        if self.read(&thread_id, false).await?.is_side() {
+        if self.read(&thread_id, false).await?.is_read_only_side() {
             return Err(Error::Invalid("SIDE_POLICY_VIOLATION".into()));
         }
         self.mutate(move |engine| async move {
@@ -344,13 +374,21 @@ impl Engine {
         thread_id: &str,
         turn_id: &str,
         input: Vec<Input>,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         let thread_id = thread_id.to_owned();
         let turn_id = turn_id.to_owned();
-        self.mutate(move |engine| async move {
-            engine.steer_inner(&thread_id, &turn_id, input, true).await
-        })
-        .await
+        let result = self
+            .mutate(move |engine| async move {
+                engine.steer_inner(&thread_id, &turn_id, input, true).await
+            })
+            .await;
+        // 读取回执和持久化输入之间子任务可能已封闭；不启动新 Turn 或重放修订。
+        // 只有目标生命周期冲突属于未送达回执，其余校验/存储/额度错误仍向上传播。
+        match result {
+            Ok(()) => Ok(true),
+            Err(Error::Conflict) => Ok(false),
+            Err(error) => Err(error),
+        }
     }
 
     async fn steer_inner(
@@ -395,8 +433,7 @@ impl Engine {
             .as_ref()
             .filter(|a| a.id == turn_id && !a.cancel.is_cancelled() && !a.sealed)
             .ok_or(Error::Conflict)?;
-        validate_input(&input, &active.model.capabilities())?;
-        self.validate_uploads(&state.thread, &input)?;
+        self.validate_thread_input(&state.thread, &input, &active.model.capabilities())?;
         let permit = active
             .steer
             .clone()
@@ -501,7 +538,7 @@ impl Engine {
         } else if state.thread.desktop.is_some() {
             let mut candidate = state.thread.clone();
             if state.active.is_some()
-                && !state.thread.is_side()
+                && !state.thread.is_read_only_side()
                 && state.thread.parent_thread_id.is_none()
                 && state.thread.goal_owner.is_none()
                 && state.thread.source != "nativeTaskAgent"
@@ -549,12 +586,35 @@ impl Engine {
             ));
         }
         self.mutate(move |engine| async move {
-            let cell = engine.cell(&thread_id).await?;
+            let cell = engine.raw_cell(&thread_id).await?;
             let mut state = cell.state.lock().await;
+            if state
+                .thread
+                .desktop
+                .as_ref()
+                .is_some_and(|data| data.archived)
+                && !state.thread.is_executable_side()
+            {
+                return Err(Error::Invalid("THREAD_ARCHIVED".into()));
+            }
             if state.active.is_some() || state.compacting {
                 return Err(Error::Conflict);
             }
-            let mut candidate = state.thread.clone();
+            let mut candidate = if state.thread.is_executable_side()
+                && state
+                    .thread
+                    .desktop
+                    .as_ref()
+                    .is_some_and(|data| data.archived)
+            {
+                engine
+                    .store
+                    .read_thread(&thread_id)
+                    .await
+                    .map_err(|error| Error::Storage(error.to_string()))?
+            } else {
+                state.thread.clone()
+            };
             let item = candidate
                 .turns
                 .iter_mut()
@@ -584,6 +644,7 @@ impl Engine {
             }
             engine.persist(&candidate).await?;
             state.thread = candidate;
+            engine.finish_side_close(&cell, &mut state).await?;
             Ok(())
         })
         .await
@@ -622,7 +683,7 @@ impl Engine {
             .as_ref()
             .filter(|_| cell.research)
             .map(|a| tokio::time::Instant::now() + Duration::from_secs(a.worker_timeout_seconds));
-        let side_deadline = cell.state.lock().await.thread.is_side().then(|| {
+        let side_deadline = cell.state.lock().await.thread.is_read_only_side().then(|| {
             tokio::time::Instant::now() + Duration::from_secs(self.limits.max_side_turn_seconds)
         });
         let goal_budget = {
@@ -647,14 +708,6 @@ impl Engine {
                 None => std::future::pending::<()>().await,
             }
         };
-        let exclusive = cell
-            .state
-            .lock()
-            .await
-            .thread
-            .desktop
-            .as_ref()
-            .is_some_and(|d| d.execution_policy.exclusive_write);
         let mut workspace_guard = None;
         let side_expired = async {
             match side_deadline {
@@ -669,10 +722,17 @@ impl Engine {
                     self.prepare_turn_plugins(cell.clone(), turn_id, pending).await?;
                 }
                 anyhow::ensure!(!cancel.is_cancelled(), "cancelled before turn preparation completed");
-                if exclusive {
+                // 继承分析者的已冻结插件 hooks 可能在首个工具之前产生副作用，沿用整轮作者租约。
+                let writer_hooks = {
+                    let state = cell.state.lock().await;
+                    state.thread.desktop.as_ref().is_some_and(|d| d.execution_policy.deferred_write || d.execution_policy.exclusive_write)
+                        && state.active.as_ref().is_some_and(|active| !active.hooks.is_empty())
+                };
+                if writer_hooks {
                     let guard=tokio::select! {biased; _=cancel.cancelled()=>anyhow::bail!("cancelled before writer admission"), guard=self.workspace_gate.clone().write_owned()=>guard};
                     self.ensure_workspace_processes_settled().await?;
                     cell.state.lock().await.active.as_mut().unwrap().workspace_exclusive=true;
+                    cell.state.lock().await.active.as_mut().unwrap().workspace_lease_pinned=true;
                     workspace_guard=Some(guard);
                 }
                 let (registry, direct) = {
@@ -839,6 +899,31 @@ impl Engine {
                 result = Err(anyhow::anyhow!("goal ledger persistence failed: {error}"));
             }
         }
+        if cell
+            .state
+            .lock()
+            .await
+            .active
+            .as_ref()
+            .is_some_and(|active| active.cua_used)
+        {
+            let host = cell.bindings.read().await.host.clone();
+            let cleanup = async {
+                let host =
+                    host.ok_or_else(|| anyhow::anyhow!("CUA host disappeared before cleanup"))?;
+                host.end_cua_turn(json!({"threadId": cell.id, "turnId": active_id,
+                    "hostGeneration": host.id(), "event": if result.is_err() { "Interrupt" } else { "Stop" }})).await
+            };
+            match tokio::time::timeout(Duration::from_secs(135), cleanup).await {
+                Ok(Ok(())) => {}
+                failure => {
+                    cleanup_failed = true;
+                    result = Err(anyhow::anyhow!(
+                        "External CUA cleanup is unresolved: {failure:?}"
+                    ));
+                }
+            }
+        }
         let mut state = cell.state.lock().await;
         if dependency_failed
             && state.thread.goals.goal.as_ref().is_some_and(|g| {
@@ -863,7 +948,18 @@ impl Engine {
             .elapsed()
             .as_millis()
             .min(u64::MAX as u128) as u64;
+        let generation = state
+            .active
+            .as_ref()
+            .unwrap()
+            .generation
+            .lock()
+            .unwrap()
+            .clone();
         let turn = state.thread.turns.last_mut().unwrap();
+        if generation.measured_requests + generation.unmeasured_requests > 0 {
+            turn.generation = Some(generation);
+        }
         turn.completed_at = Some(now());
         turn.duration_ms = Some(elapsed_ms);
         for item in &mut turn.items {
@@ -976,6 +1072,14 @@ impl Engine {
         }
         // 副作用与清理均已结束；必须先释放写租约，再发布资源已结算的观察结果。
         drop(workspace_guard);
+        drop(
+            state
+                .active
+                .as_mut()
+                .unwrap()
+                .deferred_workspace_guard
+                .take(),
+        );
         // 轨迹发送仅观察最终结算，不参与请求成败；时间来自执行记录而非上传时钟。
         if let Some(turn) = state.thread.turns.last() {
             let status = match turn.status {
@@ -995,6 +1099,18 @@ impl Engine {
             });
         }
         let active = state.active.take().unwrap();
+        let name_model = active.model.clone();
+        prompt_prediction::capture(
+            &mut state,
+            active.model.clone(),
+            self.shutdown.child_token(),
+        );
+        let name_turn = state
+            .thread
+            .turns
+            .last()
+            .filter(|turn| turn.status == TurnStatus::Completed && !state.poisoned)
+            .cloned();
         if state.poisoned {
             state.quarantined_admission = Some(active._admission);
         } else {
@@ -1017,5 +1133,8 @@ impl Engine {
         self.goals.request(&cell.id);
         self.goals.wake();
         self.wake_tasks();
+        if let Some(turn) = name_turn {
+            self.schedule_session_name(cell.clone(), turn, name_model);
+        }
     }
 }

@@ -10,6 +10,7 @@ pub(super) struct Generation {
     pub tools: Vec<McpTool>,
     pub servers: Vec<areal_mcp::McpServer>,
     pub configs: BTreeMap<String, PluginServerConfig>,
+    pub disabled_mcp_servers: BTreeSet<String>,
 }
 impl Generation {
     fn model_tools(&self) -> impl Iterator<Item = McpTool> + '_ {
@@ -101,7 +102,7 @@ pub(crate) struct Manager {
     // Private startup challenges are scoped to installed snapshot and named server.
     auth_challenges: std::sync::RwLock<BTreeMap<(String, String, String), String>>,
     wire: std::sync::RwLock<BTreeMap<String, Value>>,
-    operation: Mutex<()>,
+    pub(super) operation: Mutex<()>,
     known: std::sync::RwLock<BTreeMap<u64, (String, bool)>>,
     watching: std::sync::atomic::AtomicBool,
     preparations: std::sync::atomic::AtomicUsize,
@@ -187,43 +188,13 @@ fn server_id(plugin: &str, name: &str) -> String {
     )
 }
 fn app_declarations(c: &areal_plugins::InstalledComponents) -> Vec<Value> {
-    let mut rows = vec![];
-    for document in &c.app_documents {
-        let apps = document.value.get("apps").unwrap_or(&document.value);
-        let values = if let Some(array) = apps.as_array() {
-            array.clone()
-        } else if apps.get("id").is_some() {
-            vec![apps.clone()]
-        } else if let Some(object) = apps.as_object() {
-            object
-                .iter()
-                .map(|(key, value)| {
-                    let mut value = value.clone();
-                    if value.is_object() && value.get("id").is_none() {
-                        value["id"] = json!(key);
-                    }
-                    value
-                })
-                .collect()
-        } else {
-            vec![]
-        };
-        for value in values {
-            if let Some(id) = value["id"].as_str() {
-                let mut summary = json!({"id":id,"name":value["name"].as_str().unwrap_or(id)});
-                for key in ["description", "installUrl", "category"] {
-                    summary[key] = value
-                        .get(key)
-                        .cloned()
-                        .filter(Value::is_string)
-                        .unwrap_or(Value::Null);
-                }
-                rows.push(summary);
-            }
-        }
-    }
-    rows
+    c.app_documents
+        .iter()
+        .flat_map(|document| areal_plugins::app_declarations(&document.value))
+        .filter_map(|declaration| declaration.summary)
+        .collect()
 }
+
 fn connector_ids(c: &areal_plugins::InstalledComponents) -> Vec<String> {
     app_declarations(c)
         .iter()
@@ -313,13 +284,10 @@ impl Engine {
         .map_err(invalid)?;
         let mut names = vec![];
         for document in &component.mcp_documents {
-            let normalized = areal_mcp::normalize_plugin_document(
-                document.portable,
-                &document.value,
-                &component.root,
-                &component.data_root,
-            )
-            .map_err(|_| invalid("invalid MCP document"))?;
+            let normalized = document
+                .declaration
+                .normalize(&component.root, &component.data_root)
+                .map_err(|_| invalid("invalid MCP document"))?;
             names.extend(normalized.servers.into_keys());
         }
         let apps = app_declarations(&component);
@@ -350,13 +318,10 @@ impl Engine {
         let mut result = BTreeMap::new();
         let mut diagnostics = vec![];
         for document in &c.mcp_documents {
-            let normalized = areal_mcp::normalize_plugin_document(
-                document.portable,
-                &document.value,
-                &c.root,
-                &c.data_root,
-            )
-            .map_err(|_| invalid("invalid plugin MCP document"))?;
+            let normalized = document
+                .declaration
+                .normalize(&c.root, &c.data_root)
+                .map_err(|_| invalid("invalid plugin MCP document"))?;
             diagnostics.extend(normalized.diagnostics.iter().map(|d| json!({"serverId":server_id(&c.id,&d.server),"server":d.server,"class":if normalized.servers.contains_key(&d.server){"policy"}else{"configuration"},"message":"MCP declaration has a host policy restriction or invalid configuration; inspect the trusted package"})));
             for (name, config) in normalized.servers {
                 let name = server_id(&c.id, &name);
@@ -382,7 +347,41 @@ impl Engine {
                     .ok_or_else(|| invalid("GitHub adapter configuration rejected"))?,
             );
         }
+        for (name, config) in &mut result {
+            config.restrict_enabled(!c.disabled_mcp_servers.contains(name));
+        }
         Ok((result, diagnostics))
+    }
+    pub(super) fn validate_plugin_server_component(
+        &self,
+        component: &areal_plugins::InstalledComponents,
+        server: &str,
+    ) -> Result<()> {
+        if !self.component_configs(component)?.contains_key(server) {
+            return Err(invalid("plugin MCP server not found"));
+        }
+        Ok(())
+    }
+    async fn require_enabled_plugin_server(&self, plugin: &str, server: &str) -> Result<()> {
+        let component = self.plugin_component(plugin).await?;
+        if component.disabled_mcp_servers.contains(server) {
+            return Err(invalid("plugin MCP server disabled or unavailable"));
+        }
+        Ok(())
+    }
+    pub(super) async fn retire_plugin_component_connections(&self, plugin: &str) -> Result<()> {
+        self.desktop
+            .plugin_mcp
+            .trusted
+            .write()
+            .unwrap()
+            .remove(plugin);
+        let trusted = self.desktop.plugin_mcp.trusted.read().unwrap().clone();
+        self.store
+            .save_metadata("plugin-trust", &trusted)
+            .await
+            .map_err(invalid)?;
+        self.revoke_plugin_mcp(plugin).await
     }
     pub(super) async fn plugin_component(
         &self,
@@ -408,14 +407,19 @@ impl Engine {
             return Ok(());
         };
         anyhow::ensure!(!revoked, "plugin generation revoked");
-        if self.plugin_component(&plugin).await.is_err() {
+        if self
+            .require_enabled_plugin_server(&plugin, tool.server_name())
+            .await
+            .is_err()
+        {
             self.revoke_plugin_mcp(&plugin).await?;
-            anyhow::bail!("plugin disabled or uninstalled");
+            anyhow::bail!("plugin MCP server disabled, unavailable or uninstalled");
         }
         anyhow::ensure!(!tool.is_stale(), "plugin generation is revoked or stale");
         Ok(())
     }
     async fn revoke_plugin_mcp(&self, id: &str) -> Result<()> {
+        let app_guard = self.desktop.mcp_apps.mutation.lock().await;
         self.desktop.plugin_mcp.live.write().unwrap().remove(id);
         self.desktop
             .plugin_mcp
@@ -432,6 +436,14 @@ impl Engine {
         for o in owners.iter().filter(|o| o.view.plugin == id) {
             o.connection.revoke();
         }
+        let generations = owners
+            .iter()
+            .filter(|owner| owner.view.plugin == id)
+            .flat_map(|owner| owner.view.servers.iter().map(|server| server.generation()))
+            .collect();
+        self.revoke_plugin_apps_without_mutation_lock(id, &generations)
+            .await?;
+        drop(app_guard);
         // Losing a failed startup/drain handle is not proof of process exit.
         // A later Disconnect must retain the UNKNOWN gate instead of clearing it
         // merely because there are no remaining owners to join.
@@ -471,7 +483,7 @@ impl Engine {
         let Some(store) = self.desktop.plugins.read().unwrap().store.clone() else {
             return Ok(());
         };
-        let current = tokio::task::spawn_blocking(move || store.enabled_revisions())
+        let current = tokio::task::spawn_blocking(move || store.enabled_components())
             .await
             .map_err(invalid)
             .and_then(|result| result.map_err(invalid));
@@ -482,33 +494,53 @@ impl Engine {
                 return Err(error);
             }
         };
-        self.plugin_hooks.revoke_disabled_packages(&current);
-        let owners: BTreeSet<_> = self
+        let current: BTreeMap<_, _> = current
+            .into_iter()
+            .map(|component| (component.id.clone(), component))
+            .collect();
+        let revisions = current
+            .iter()
+            .map(|(id, component)| (id.clone(), component.digest.clone()))
+            .collect();
+        self.plugin_hooks.revoke_disabled_packages(&revisions);
+        let owners: Vec<_> = self
             .desktop
             .plugin_mcp
             .owners
             .lock()
             .await
             .iter()
-            .map(|o| o.view.plugin.clone())
+            .map(|o| o.view.clone())
             .collect();
-        for id in owners {
-            if !current.contains_key(&id) {
-                self.revoke_plugin_mcp(&id).await?;
+        let mut revoked = BTreeSet::new();
+        for owner in owners {
+            if revoked.contains(&owner.plugin) {
+                continue;
             }
+            if let Some(component) = current.get(&owner.plugin) {
+                if component.disabled_mcp_servers == owner.disabled_mcp_servers {
+                    continue;
+                }
+                self.retire_plugin_component_connections(&owner.plugin)
+                    .await?;
+            } else {
+                self.revoke_plugin_mcp(&owner.plugin).await?;
+            }
+            revoked.insert(owner.plugin);
         }
+        self.retire_changed_page_tools().await?;
         self.desktop
             .plugin_mcp
             .live
             .write()
             .unwrap()
-            .retain(|id, g| current.get(id) == Some(&g.digest));
+            .retain(|id, g| revisions.get(id) == Some(&g.digest));
         self.desktop
             .plugin_mcp
             .auth_challenges
             .write()
             .unwrap()
-            .retain(|(plugin, _, digest), _| current.get(plugin) == Some(digest));
+            .retain(|(plugin, _, digest), _| revisions.get(plugin) == Some(digest));
         let Ok(_retirement_guard) = self.desktop.plugin_mcp.operation.try_lock() else {
             return Ok(());
         };
@@ -628,7 +660,7 @@ impl Engine {
             };
             rows.push(json!({"pluginId":c.id,"installedDigest":c.digest,"state":state,"authenticationTiming":c.policy["authentication"],"trusted":self.desktop.plugin_mcp.trusted.read().unwrap().get(&c.id)==Some(&c.digest),"servers":configs.iter().map(|(name,cfg)|{
                 let state=if !cfg.policy().enabled {"disabled"} else if installation_auth.contains(name) {"authRequired"} else if let Some(server)=live.as_ref().and_then(|g|g.servers.iter().find(|s|s.name()==name)){if server.authentication_required(){"authRequired"}else{"connected"}}else{match outcomes.get(name).map(String::as_str).unwrap_or("disconnected") {"startup"|"discovery"=>"failed","authentication"=>"authRequired",state=>state}};
-                json!({"serverId":name,"state":state,"config":cfg.redacted_view(),"policy":cfg.policy(),"authenticationTiming":c.policy["authentication"],"authentication":match cfg.auth_policy().map(|p|p.mode()){Some("mixed")=>"optional",Some(_)=>"required",None=>"none"}})
+                json!({"serverId":name,"projectEnabled":!c.disabled_mcp_servers.contains(name),"state":state,"config":cfg.redacted_view(),"policy":cfg.policy(),"authenticationTiming":c.policy["authentication"],"authentication":match cfg.auth_policy().map(|p|p.mode()){Some("mixed")=>"optional",Some(_)=>"required",None=>"none"}})
             }).collect::<Vec<_>>(),"connectors":connector_ids(&c).iter().map(|id|json!({"id":id,"state":self.connector_state(&c.id,&c.digest,id)})).collect::<Vec<_>>(),"diagnostics":diagnostics}));
         }
         Ok(json!({"data":rows}))
@@ -920,11 +952,9 @@ impl Engine {
                 .insert(id.clone(), state.into());
             return Ok(());
         }
-        if self
-            .plugin_component(&id)
-            .await
-            .map_or(true, |c| c.digest != expected_digest)
-        {
+        if self.plugin_component(&id).await.map_or(true, |c| {
+            c.digest != expected_digest || c.disabled_mcp_servers != component.disabled_mcp_servers
+        }) {
             if connection.shutdown().await.is_err() {
                 self.desktop
                     .plugin_mcp
@@ -966,6 +996,7 @@ impl Engine {
             tools,
             servers: connection.servers(),
             configs,
+            disabled_mcp_servers: component.disabled_mcp_servers,
         };
         for server in &generation.servers {
             self.desktop
@@ -1281,6 +1312,32 @@ impl Engine {
             .map_err(invalid)?;
         Ok(json!({"pluginId":id,"connectorId":connector_id,"provider":provider,"state":"mapped"}))
     }
+    pub(crate) async fn mcp_result_source(
+        &self,
+        tool: &McpTool,
+        thread_id: &str,
+        cwd: &str,
+    ) -> Option<super::mcp_apps::ResultProvenance> {
+        let owners = self.desktop.plugin_mcp.owners.lock().await;
+        let owner = owners.iter().find(|owner| {
+            owner.view.tools.iter().any(|original| {
+                original.server_name() == tool.server_name()
+                    && original.generation() == tool.generation()
+                    && original.original_name() == tool.original_name()
+            })
+        })?;
+        Some(super::mcp_apps::ResultProvenance {
+            version: 1,
+            apps_epoch: self.desktop.mcp_apps.runtime_epoch.clone(),
+            thread_id: thread_id.into(),
+            cwd: cwd.into(),
+            plugin_id: owner.view.plugin.clone(),
+            installed_digest: owner.view.digest.clone(),
+            server_id: tool.server_name().into(),
+            generation: tool.generation(),
+            original_tool_name: tool.original_name().into(),
+        })
+    }
     pub(super) async fn plugin_server(
         &self,
         id: &str,
@@ -1297,10 +1354,8 @@ impl Engine {
             })
         }
         .ok_or(Error::NotFound)?;
-        if self.plugin_component(&found.0.plugin).await.is_err() {
-            self.revoke_plugin_mcp(&found.0.plugin).await?;
-            return Err(invalid("plugin disabled or uninstalled"));
-        }
+        self.require_enabled_plugin_server(&found.0.plugin, id)
+            .await?;
         if found.1.is_revoked() {
             return Err(invalid("server generation revoked"));
         }
@@ -1308,7 +1363,7 @@ impl Engine {
     }
 }
 fn wire_snapshot(store: &areal_plugins::Store) -> anyhow::Result<BTreeMap<String, Value>> {
-    Ok(store.list()?.data.into_iter().filter(|p|p.installed).map(|p|(p.id.clone(),json!({"id":p.id,"digest":p.installed_digest,"enabled":p.enabled,"components":p.components}))).collect())
+    Ok(store.list()?.data.into_iter().filter(|p|p.installed).map(|p|(p.id.clone(),json!({"id":p.id,"digest":p.installed_digest,"enabled":p.enabled,"components":p.components,"componentChoices":p.component_choices}))).collect())
 }
 impl Engine {
     pub(super) fn watch_plugin_state(self: &Arc<Self>) {
@@ -1354,7 +1409,7 @@ impl Engine {
         let Some(config) = &turn.configuration else {
             return vec![];
         };
-        if thread.is_side()
+        if thread.is_read_only_side()
             || cell.research
             || thread.parent_thread_id.is_some()
             || thread.source == "nativeTaskAgent"

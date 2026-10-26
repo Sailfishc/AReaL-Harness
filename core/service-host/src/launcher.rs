@@ -280,8 +280,12 @@ fn push_option(
     }
 }
 
-fn runtime_env(command: &mut tokio::process::Command, credentials: bool) {
+fn runtime_env(command: &mut tokio::process::Command, credentials: bool, network: bool) {
     command.env_clear();
+    command.envs(areal_runtime_host_tools::deployment_environment());
+    if network {
+        command.envs(areal_runtime_host_tools::network_environment());
+    }
     for name in ["PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "TERM"] {
         if let Some(value) = std::env::var_os(name) {
             command.env(name, value);
@@ -320,6 +324,28 @@ fn pipe() -> Result<(OwnedFd, OwnedFd)> {
         );
     }
     Ok((read, write))
+}
+
+enum RuntimeSettlement {
+    CleanExit,
+    OutputFailureAfterCleanup,
+    Unconfirmed,
+}
+
+impl RuntimeSettlement {
+    fn classify(status: &std::process::ExitStatus, receipt: &Path) -> Self {
+        let cleanup_confirmed = areal_local_service::storage::read::<serde_json::Value>(receipt)
+            .is_ok_and(|value| value == serde_json::json!({"cleanupConfirmed":true}));
+        match (cleanup_confirmed, status.success(), status.code()) {
+            (true, true, _) => Self::CleanExit,
+            (true, false, Some(1)) => Self::OutputFailureAfterCleanup,
+            _ => Self::Unconfirmed,
+        }
+    }
+
+    fn cleanup_confirmed(&self) -> bool {
+        matches!(self, Self::CleanExit | Self::OutputFailureAfterCleanup)
+    }
 }
 
 async fn finish(
@@ -617,6 +643,9 @@ async fn launch(
         .ready_metadata_file
         .clone()
         .unwrap_or_else(|| temporary.path().join("ready.json"));
+    let runtime_cleanup_path = temporary.path().join("runtime-cleanup.json");
+    let runtime_cleanup = areal_local_service::storage::open_private(&runtime_cleanup_path, true)?;
+    let cleanup_fd = runtime_cleanup.as_raw_fd();
     let (request_read, request_write) = pipe()?;
     let (response_read, response_write) = pipe()?;
     let (supervisor, keepalive) = pipe()?;
@@ -635,7 +664,7 @@ async fn launch(
     #[cfg(target_os = "macos")]
     let mut runtime_command = {
         let mut command = tokio::process::Command::new("/usr/bin/python3");
-        command.args(["-I", "-S", "-c", "import subprocess,sys; p=subprocess.run(sys.argv[1:]); sys.exit(p.returncode if p.returncode>=0 else 128-p.returncode)"]);
+        command.args(["-I", "-S", "-c", "import os,subprocess,sys; p=subprocess.run(sys.argv[1:],pass_fds=(int(os.environ['AREAL_RUNTIME_CLEANUP_FD']),)); sys.exit(p.returncode if p.returncode>=0 else 128-p.returncode)"]);
         command.arg(&runtime).process_group(0);
         command
     };
@@ -687,7 +716,17 @@ async fn launch(
     runtime_env(
         &mut runtime_command,
         !args.task_credential_command.is_empty(),
+        args.allow_network,
     );
+    runtime_command.env("AREAL_RUNTIME_CLEANUP_FD", cleanup_fd.to_string());
+    unsafe {
+        runtime_command.pre_exec(move || {
+            if libc::fcntl(cleanup_fd, libc::F_SETFD, 0) < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
     runtime_command
         .stdin(Stdio::from(request_read))
         .stdout(Stdio::from(response_write))
@@ -695,6 +734,7 @@ async fn launch(
     let mut core_command = TrustedCommand::supervised(binary, &[supervisor_fd])?;
     let mut runtime_child = Child::direct(runtime_command.spawn().context("start Runtime")?);
     drop(runtime_command);
+    drop(runtime_cleanup);
     eprintln!(
         "AReaL launcher {} PID: {}",
         if cfg!(target_os = "macos") {
@@ -781,9 +821,28 @@ async fn launch(
             if let Some(path) = &args.ready_metadata_file {
                 let _ = fs::remove_file(path);
             }
-            let cancelled_during_startup = result?;
+            let (cancelled_during_startup, unexpected_core_exit) = result?;
             let core_status = core_status?;
             let runtime_status = runtime_status?;
+            let runtime_settlement =
+                RuntimeSettlement::classify(&runtime_status, &runtime_cleanup_path);
+            if unexpected_core_exit
+                && runtime_settlement.cleanup_confirmed()
+                && let Some(info) = &args.service_info
+            {
+                let identity = areal_local_service::storage::read(info)?;
+                areal_local_service::storage::write(
+                    &info
+                        .parent()
+                        .context("missing service generation")?
+                        .join("cleanup.json"),
+                    &areal_local_service::storage::LauncherCleanup {
+                        identity,
+                        unexpected_core_exit: true,
+                        runtime_cleanup_confirmed: true,
+                    },
+                )?;
+            }
             ensure!(
                 cancelled_during_startup || (core_status.success() && runtime_status.success()),
                 "Core cleanup exited {core_status}; Runtime cleanup exited {runtime_status}"
@@ -830,7 +889,7 @@ async fn supervise(
     log: Option<&Path>,
     core: &mut Child,
     runtime: &mut Child,
-) -> Result<bool> {
+) -> Result<(bool, bool)> {
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     let mut interrupt = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
     let deadline = Instant::now() + Duration::from_secs_f64(args.startup_timeout);
@@ -844,9 +903,9 @@ async fn supervise(
         }
         ensure!(Instant::now() < deadline, "local Harness startup timed out");
         if !owner_alive(args.parent_pid) {
-            return Ok(true);
+            return Ok((true, false));
         }
-        tokio::select! { _ = terminate.recv() => return Ok(true), _ = interrupt.recv() => return Ok(true), _ = tokio::time::sleep(Duration::from_millis(50)) => {} }
+        tokio::select! { _ = terminate.recv() => return Ok((true, false)), _ = interrupt.recv() => return Ok((true, false)), _ = tokio::time::sleep(Duration::from_millis(50)) => {} }
         bound_log(log);
         if last_log_cleanup.elapsed() >= Duration::from_secs(60) {
             if let Some(path) = log {
@@ -907,18 +966,21 @@ async fn supervise(
     } else {
         None
     };
-    loop {
+    let unexpected_core_exit = loop {
         let tui_exited = match tui.as_mut() {
             Some(child) => child.try_wait()?.is_some(),
             None => false,
         };
-        if core.try_wait()?.is_some() || runtime.try_wait()?.is_some() || tui_exited {
-            break;
-        }
         if !owner_alive(args.parent_pid) {
-            break;
+            break false;
         }
-        tokio::select! { _ = terminate.recv() => break, _ = interrupt.recv() => break, _ = tokio::time::sleep(Duration::from_millis(50)) => {} }
+        if core.try_wait()?.is_some() {
+            break true;
+        }
+        if runtime.try_wait()?.is_some() || tui_exited {
+            break false;
+        }
+        tokio::select! { _ = terminate.recv() => break false, _ = interrupt.recv() => break false, _ = tokio::time::sleep(Duration::from_millis(50)) => {} }
         bound_log(log);
         if last_log_cleanup.elapsed() >= Duration::from_secs(60) {
             if let Some(path) = log {
@@ -926,7 +988,7 @@ async fn supervise(
             }
             last_log_cleanup = Instant::now();
         }
-    }
+    };
     if let Some(mut child) = tui {
         let status = finish(&mut child, 10, true, false).await?;
         ensure!(status.success(), "TUI exited with {status}");
@@ -934,7 +996,7 @@ async fn supervise(
     terminal
         .restore_foreground()
         .context("restore terminal foreground ownership")?;
-    Ok(false)
+    Ok((false, unexpected_core_exit))
 }
 
 fn bound_log(path: Option<&Path>) {

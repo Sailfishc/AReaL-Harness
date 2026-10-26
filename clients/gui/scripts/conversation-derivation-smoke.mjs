@@ -1,3 +1,4 @@
+import { respondToSessionName } from "./model-fixture.mjs";
 // M1/M2 公开路径：集成且 GUI、Core 构建完成后运行一次。
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -9,7 +10,10 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { captureSmokeFailure, selectConversation } from "./smoke-navigation.mjs";
 import { withSmokeDeadline } from "./smoke-deadline.mjs";
+import { closeSmokeApplication } from "./application-cleanup.mjs";
 
+const sharedWorkspace = process.argv.includes("--shared-workspace");
+const baselineLayout = process.argv.includes("--baseline");
 const gui = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const root = resolve(gui, "../..");
 const desktop = join(gui, "app");
@@ -69,37 +73,41 @@ const toolSse = (name, args) => [
   { id: "scf-tool", object: "chat.completion.chunk", choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }], usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 } },
 ].map(value => `data: ${JSON.stringify(value)}\n\n`).join("") + "data: [DONE]\n\n";
 
-// 只剔除与草稿动作无关的精确只读轮询，保留原始 RPC 证据与全部变更命令。
-const isBackgroundStatusRead = entry => ["trajectory", "feedback"].includes(entry.command)
-  && entry.parameters?.operation === "status" && Object.keys(entry.parameters).length === 1;
-const isBackgroundMcpFormsRead = (entry, owner) => entry.command === "manage"
-  && typeof owner?.projectId === "string" && owner.projectId.length > 0
-  && typeof owner?.threadId === "string" && owner.threadId.length > 0
-  && entry.parameters?.operation === "mcpForms"
-  && Object.keys(entry.parameters).sort().join(",") === "operation,projectId,threadId"
-  && entry.parameters.projectId === owner.projectId && entry.parameters.threadId === owner.threadId;
-for (const command of ["trajectory", "feedback"])
-  assert.ok(isBackgroundStatusRead({ command, parameters: { operation: "status" } }));
+// Use the production effect catalog instead of a second, drifting read whitelist.
+const { commandSemantics, validateCommand } = require("@areal/workbench/desktop-contract");
+const isNonMutatingObservation = (entry, owner) => {
+  if (![owner?.projectId, owner?.sourceThreadId, owner?.sideThreadId].every(id => typeof id === "string" && id.length > 0)) return false;
+  try {
+    validateCommand(entry.command, entry.parameters);
+    if (commandSemantics(entry.command, entry.parameters).effect !== "read" || entry.mutation === true) return false;
+    if (entry.parameters.projectId !== undefined && entry.parameters.projectId !== owner.projectId) return false;
+    return [entry.parameters.threadId, entry.parameters.sourceThreadId].every(id =>
+      id === undefined || [owner.sourceThreadId, owner.sideThreadId].includes(id));
+  } catch { return false; }
+};
+const observationOwner = { projectId: "project", sourceThreadId: "source", sideThreadId: "side" };
+const observationHistory = { command: "history", parameters: { projectId: "project", threadId: "side", viewId: "view", operation: "acquire" } };
+assert.ok(isNonMutatingObservation(observationHistory, observationOwner), "history view ownership is observation, not a business mutation");
 for (const entry of [
-  ...["trajectory", "feedback"].flatMap(command => ["retry", "preference", "prepare", "draft", "refine", "submit", "close", "configure", "send", "queue", "steer"].map(operation => ({ command, parameters: { operation } }))),
-  ...["side", "configure", "send", "queue", "steer", "unknown"].map(command => ({ command, parameters: { operation: "status" } })),
-  { command: "trajectory", parameters: { operation: "status", retry: true } },
-  { command: "feedback", parameters: { operation: "status", enabled: true } },
-  { command: "trajectory", parameters: {} },
-]) assert.equal(isBackgroundStatusRead(entry), false, "only exact background trajectory and feedback status reads may be excluded");
-const classifierOwner = { projectId: "classifier-project", threadId: "classifier-source" };
-const classifierForms = { command: "manage", parameters: { operation: "mcpForms", ...classifierOwner } };
-assert.ok(isBackgroundMcpFormsRead(classifierForms, classifierOwner));
-for (const entry of [
-  ...["mcpApps", "mcpFormRespond", "mcpFormPreview", "mcpFormResourceStage", "mcpFormResourceSubmission", "mcpFormResourcePrepare", "mcpFormResourceRelease", "mcpExtensionCall", "mcpSave", "mcpConnect", "mcpDisconnect"].map(operation => ({ command: "manage", parameters: { operation, ...classifierOwner } })),
-  { ...classifierForms, command: "side" },
-  { command: "manage", parameters: { operation: "mcpForms", projectId: "other-project", threadId: classifierOwner.threadId } },
-  { command: "manage", parameters: { operation: "mcpForms", projectId: classifierOwner.projectId, threadId: "other-thread" } },
-  { command: "manage", parameters: { operation: "mcpForms", projectId: classifierOwner.projectId } },
-  ...["requestId", "response", "selectionToken", "retry"].map(key => ({ ...classifierForms, parameters: { ...classifierForms.parameters, [key]: true } })),
-]) assert.equal(isBackgroundMcpFormsRead(entry, classifierOwner), false, "only the exact source-owned MCP forms query may be excluded");
-for (const owner of [undefined, {}, { projectId: "", threadId: classifierOwner.threadId }, { projectId: classifierOwner.projectId, threadId: "" }])
-  assert.equal(isBackgroundMcpFormsRead(classifierForms, owner), false, "background MCP forms queries require a complete owner");
+  ...["send", "configure", "queueEdit", "steer", "fork"].map(command => ({ command, parameters: { projectId: "project", threadId: "source", requestId: "00000000-0000-4000-8000-000000000001" } })),
+  ...["start", "send"].map(operation => ({ command: "side", parameters: { projectId: "project", threadId: "side", sourceThreadId: "source", operation, text: "mutation" } })),
+  ...["mcpFormRespond", "mcpExtensionCall", "mcpConnect", "contextCompact", "processStart"].map(operation => ({ command: "manage", parameters: { projectId: "project", threadId: "source", operation } })),
+  { command: "feedback", parameters: { operation: "preference", enabled: true } },
+  { command: "trajectory", parameters: { operation: "retry" } },
+  { command: "unknown", parameters: {} },
+  { ...observationHistory, parameters: { ...observationHistory.parameters, projectId: "other" } },
+  { ...observationHistory, parameters: { ...observationHistory.parameters, threadId: "other" } },
+  { ...observationHistory, parameters: { ...observationHistory.parameters, requestId: "mutation" } },
+  { command: "manage", parameters: { projectId: "project", threadId: "other", operation: "context", offset: 0, limit: 1 } },
+]) assert.equal(isNonMutatingObservation(entry, observationOwner), false, JSON.stringify(entry));
+
+// Effective snapshots also contain resolved provider/plugin metadata; model ownership
+// is the durable configuration revision and the user's selected configuration.
+const modelConfiguration = config => {
+  assert.ok(config && Number.isSafeInteger(config.revision), "Core configuration is required");
+  const { revision, model, defaultModelRevision, parameters, profile, options, selectedSkills } = config;
+  return structuredClone({ revision, model, defaultModelRevision, parameters, profile, options, selectedSkills });
+};
 
 async function state() { return page.evaluate(() => window.arealDesktop.snapshot()); }
 const project = (snapshot) =>
@@ -118,8 +126,53 @@ async function showSideConversation() {
     await input.waitFor();
   }
 }
-async function selectMessageExcerpt(body, excerpt) {
-  const selected = await body.evaluate((element, text) => {
+// Legacy selection producers were replaced by executable Side Chat. Restore the old
+// persisted draft format here; current selection-to-Side UI is covered by side-chat-parity.
+async function restoreLegacySelection(text, turnId = anchorTurnId, persisted = true) {
+  const source = project(await state()).state.threads[sourceThreadId];
+  const turn = source.turns.find(turn => turn.id === turnId);
+  assert.ok(turn, "legacy fixture must refer to a real source Turn");
+  const item = persisted ? turn.items.find(item => item.type === "agentMessage" && item.text?.includes(text)) : undefined;
+  if (persisted) assert.ok(item, "legacy itemRange must come from actual Core source text");
+  const selection = persisted ? {
+    kind: "itemRange", turnId, itemId: item.id,
+    startUtf8: Buffer.byteLength(item.text.slice(0, item.text.indexOf(text))),
+    endUtf8: Buffer.byteLength(item.text.slice(0, item.text.indexOf(text))) + Buffer.byteLength(text),
+    textSha256: createHash("sha256").update(text).digest("hex"),
+  } : { kind: "userQuote", text, claimedTurnId: turnId };
+  await page.evaluate(() => window.getSelection()?.removeAllRanges());
+  await page.getByTestId("transcript-selection-actions").waitFor({ state: "hidden" });
+  await page.getByRole("button", { name: "任务操作", exact: true }).click();
+  await page.getByRole("menuitem", { name: "历史旁路讨论", exact: true }).click();
+  const pane = page.getByRole("region", { name: "旁路讨论", exact: true });
+  const owner = await pane.locator("[data-side-owner]").getAttribute("data-side-owner");
+  const previous = await page.evaluate(owner => localStorage.getItem(`${owner}:selection`), owner);
+  if (/:side:[^:]+$/.test(owner) || previous) {
+    const input = pane.getByTestId("side-chat-input");
+    const draft = await input.innerText();
+    await input.fill(draft ? `${draft}\n\n${text}` : text);
+  } else {
+    await page.evaluate(({ owner, selection, text, anchor }) => {
+      localStorage.setItem(`${owner}:selection`, JSON.stringify(selection));
+      localStorage.setItem(`${owner}:selection-preview`, text);
+      if (anchor) localStorage.setItem(`${owner}:anchor`, JSON.stringify(anchor));
+      else localStorage.removeItem(`${owner}:anchor`);
+      window.dispatchEvent(new CustomEvent("areal-side-selection", { detail: { owner } }));
+    }, { owner, selection, text, anchor: persisted ? { kind: "turn", turnId, boundary: "after" } : null });
+  }
+  events.push({ legacySelectionFixture: { owner, selection, source: persisted ? "actual Core source item" : "observed live streamed text", boundary: "saved legacy draft restoration; no legacy selection UI claim" } });
+}
+async function selectMessageExcerpt(body, excerpt, keyboard = false) {
+  await body.evaluate(async element => {
+    element.scrollIntoView({ block: "center", behavior: "instant" });
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
+  if (keyboard) {
+    await page.bringToFront();
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].focus());
+    await body.evaluate(element => { element.tabIndex = -1; element.focus({ preventScroll: true }); });
+  }
+  const selected = await body.evaluate((element, { text, keyboard }) => {
     // 流式动画会把文字拆进多个 span；选区按完整正文定位，再映射到原生 Range。
     const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
     const nodes = [];
@@ -142,12 +195,33 @@ async function selectMessageExcerpt(body, excerpt) {
       }
       offset = next;
     }
+    const selectedText = range.toString();
+    // 非编辑正文的键盘扩选需要已有非空选区；以一个字符为起点保留真实 Shift+方向键验证。
+    if (keyboard) {
+      const initialEnd = start + [...text][0].length;
+      let consumed = 0;
+      for (const node of nodes) {
+        const next = consumed + node.textContent.length;
+        if (initialEnd <= next) { range.setEnd(node, initialEnd - consumed); break; }
+        consumed = next;
+      }
+    }
     const selection = window.getSelection();
     selection.removeAllRanges(); selection.addRange(range);
-    element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
-    return selection.toString();
-  }, excerpt);
+    if (!keyboard) element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    return selectedText;
+  }, { text: excerpt, keyboard });
   assert.equal(selected, excerpt, "native selection preserves the complete source excerpt across text nodes");
+  if (keyboard) {
+    assert.equal(await page.evaluate(() => window.getSelection().toString()), [...excerpt][0], "keyboard extension starts from one selected character");
+    await page.keyboard.down("Shift");
+    try {
+      for (const character of [...excerpt].slice(1)) await page.keyboard.press("ArrowRight");
+      await body.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    } finally { await page.keyboard.up("Shift"); }
+    assert.equal(await page.evaluate(() => window.getSelection().toString()), excerpt, "keyboard selection preserves Unicode text");
+    await page.getByTestId("transcript-selection-actions").waitFor();
+  }
 }
 async function until(predicate, label) {
   const end = Date.now() + 45000;
@@ -200,6 +274,10 @@ async function showRelated(pane) {
   await page.getByRole("region", { name: "相关讨论" }).waitFor();
 }
 async function openSideContext(pane) {
+  if (!await pane.locator(".side-chat-information").isVisible()) {
+    await showRelated(pane);
+    await page.getByRole("button", { name: "上下文与文件访问", exact: true }).click();
+  }
   if (!await pane.locator("details.side-chat-context").getAttribute("open").then(value => value !== null)) await pane.getByText("会话上下文与文件访问", { exact: true }).click();
 }
 async function composeText(input, text, label, append = false) {
@@ -327,6 +405,7 @@ try {
       let raw = "";
       for await (const chunk of req) raw += chunk;
       const body = JSON.parse(raw);
+      if (respondToSessionName(body, res)) return;
       requests.push({ sequence: requests.length + 1, method: req.method, path: req.url, body });
       const lastUser = body.messages?.findLast(message => message.role === "user"
         && !(typeof message.content === "string" && message.content.startsWith("AReaL runtime context (not a user request):")));
@@ -337,7 +416,14 @@ try {
           res.write(`data: ${JSON.stringify({ id: "scf-held", object: "chat.completion.chunk", choices: [{ index: 0,
             delta: { content: streamExcerpt }, finish_reason: null }] })}\n\n`);
         }
-        heldResponses.set(lastUser.content, () => res.end(sse(answer)));
+        // This fixture holds capacity, not an idle transport. UI/evidence work
+        // may outlast the real stream idle deadline; comments add no model text.
+        const heartbeat = setInterval(() => res.write(": fixture awaiting explicit release\n\n"), 1000);
+        res.once("close", () => clearInterval(heartbeat));
+        heldResponses.set(lastUser.content, () => {
+          clearInterval(heartbeat);
+          res.end(sse(answer));
+        });
         return;
       }
       if (lastUser?.content === sideFileQuestion && !body.messages.some(message => message.role === "tool")) {
@@ -398,6 +484,18 @@ try {
   page.on("console", message => { if (message.type() === "error") events.push({ rendererConsoleError: message.text() }); });
   page.on("crash", () => events.push({ rendererCrashed: true }));
   await page.getByTestId("areal-workbench").waitFor({ timeout: 120000 });
+  // 本专项统计执行请求；提示预测由独立专项验收，避免辅助请求混入不重放断言。
+  const preferencesChanged = await page.evaluate(() => {
+    const key = "areal-gui:application-preferences";
+    const preferences = JSON.parse(localStorage.getItem(key) ?? "{}");
+    if (preferences.nextPromptSuggestions === false) return false;
+    localStorage.setItem(key, JSON.stringify({ ...preferences, nextPromptSuggestions: false }));
+    return true;
+  });
+  if (preferencesChanged) {
+    await page.reload();
+    await page.getByTestId("areal-workbench").waitFor({ timeout: 120000 });
+  }
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 960));
   windowBounds = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getBounds());
   sandbox = await app.evaluate(({ BrowserWindow }) => {
@@ -410,8 +508,10 @@ try {
   await page.getByRole("menuitem", { name: "新建项目", exact: true }).click();
   await until(s => project(s)?.state?.connected, "project connection");
   projectId = project(await state()).id;
+  const sourceModelTrigger = page.getByRole("button", { name: "模型", exact: true }).filter({ hasText: "fixture" });
+  await sourceModelTrigger.waitFor();
   // 新草稿需显式选择目录中的模型，再开始本专项的来源对话。
-  await page.getByRole("button", { name: "模型", exact: true }).click();
+  await sourceModelTrigger.click();
   await page.getByRole("button", { name: "选择模型", exact: true }).click();
   await page.getByRole("radio", { name: "fixture", exact: true }).and(page.locator('[data-model-value="fixture/fixture"]')).click();
   await page.keyboard.press("Escape");
@@ -438,7 +538,7 @@ try {
         parameters = { ...parameters, request: { ...parameters.request, workspaceAccess: "readOnly" } };
         globalThis.__scfRejectNext = null;
       }
-      const entry = { command: parameters.name, parameters: parameters.request, accepted: false };
+      const entry = { command: parameters.name, parameters: parameters.request, mutation: mutation === true, accepted: false };
       if (fixture && !globalThis.__scfRejectNext) entry.fixture = fixture;
       globalThis.__scfMutations.push(entry);
       try {
@@ -476,6 +576,7 @@ try {
   await anchor.getByRole("button", { name: "从此轮创建聊天分支", exact: true }).click();
   let forkDialog = page.getByRole("dialog", { name: "从这里创建聊天分支", exact: true });
   await forkDialog.waitFor();
+  assert.equal(await page.getByRole("menuitem", { name: /在此轮(之前|之后)分支/ }).count(), 0, "Branch opens its target dialog directly");
   assert.equal(await forkDialog.getByText("在当前工作区中创建", { exact: true }).count(), 1);
   assert.equal(await forkDialog.getByText("在新工作树中创建", { exact: true }).count(), 0);
   assert.equal(await forkDialog.getByRole("button").count(), 1);
@@ -537,8 +638,7 @@ try {
   await shot("02-fork-empty.png");
   checks.push("AC01/02/06: older Turn GUI fork is idle, empty, source-owned, current shared workspace and bounded inherited history");
   const requestsBeforeNested = requests.length;
-  await inherited.locator(`[data-turn-id="${anchorTurnId}"]`).getByRole("button", { name: /^轮次操作 / }).click();
-  await page.getByRole("menuitem", { name: "在此轮之后分支", exact: true }).click();
+  await inherited.locator(`[data-turn-id="${anchorTurnId}"]`).getByRole("button", { name: "从此轮创建聊天分支", exact: true }).click();
   await forkDialog.getByRole("button", { name: "创建分支", exact: true }).click();
   await page.waitForFunction(id => {
     const current = document.querySelector('[data-testid="areal-workbench"]')?.dataset.threadId;
@@ -552,10 +652,25 @@ try {
   assert.equal(requests.length, requestsBeforeNested);
   await selectConversation(page, targetThreadId);
   checks.push("AC09: inherited Turn menu creates one flattened logical prefix and an empty independent Fork without execution");
-  await send(forkQuestion, targetThreadId);
+  const forkDraftPrefix = "已有主会话文字";
+  await page.getByTestId("chat-input").fill(forkDraftPrefix);
+  await page.waitForFunction(() => {
+    const primary = document.querySelector(".composer-dock:not(.side-chat-composer) .composer-primary-action");
+    return primary && !primary.disabled;
+  });
+  const requestsBeforeMainQuote = requests.length;
+  await selectMessageExcerpt(inherited.locator(`[data-turn-id="${anchorTurnId}"] [data-side-item-id] .conversation-markdown`).first(), unicodeExcerpt, true);
+  await page.getByTestId("transcript-selection-actions").getByRole("button", { name: "添加到聊天", exact: true }).click();
+  assert.equal(await page.getByTestId("chat-input").innerText(), forkDraftPrefix);
+  await composeText(page.getByTestId("chat-input"), forkQuestion, "main question after selection", true);
+  assert.equal(requests.length, requestsBeforeMainQuote, "selection and further typing must not call the model");
+  await send(await page.getByTestId("chat-input").innerText(), targetThreadId);
   const branchRequest = requests.at(-1)?.body;
   const branchInput = JSON.stringify(branchRequest?.messages ?? []);
-  assert.ok(branchInput.includes(head) && branchInput.includes(forkQuestion), "model input must include selected source prefix and explicit new input");
+  assert.ok(branchInput.includes(head) && branchInput.includes(forkQuestion) && branchInput.includes(forkDraftPrefix), "model input must include selected source prefix and preserved/extended explicit input");
+  const branchUserMessage = project(await state()).state.threads[targetThreadId].turns.at(-1).items.find(item => item.type === "userMessage");
+  const branchUserText = (branchUserMessage.content ?? []).filter(part => part.type === "text").map(part => part.text).join("\n");
+  assert.ok(branchUserText.includes(forkDraftPrefix) && branchUserText.includes(forkQuestion) && branchUserText.includes(unicodeExcerpt), "explicit main send includes staged quote and extra typing in actual accepted user input");
   assert.ok(!branchInput.includes(future), "model input must exclude future source Turn");
   assert.deepEqual(project(await state()).state.threads[sourceThreadId].turns.map(turn => turn.id), sourceTurns);
   assert.equal(await hash(fixturePath), workspaceBefore);
@@ -586,8 +701,42 @@ try {
   const selectSideExcerpt = () => selectMessageExcerpt(
     page.locator(`[data-turn-id="${anchorTurnId}"] [data-side-item-id] .conversation-markdown`).first(), unicodeExcerpt);
   await selectSideExcerpt();
-  const sideTrigger = page.getByRole("button", { name: "在旁路中询问所选内容" });
+  let sideTrigger = page.getByRole("button", { name: "在旁路中询问所选内容", exact: true });
+  const selectionActions = page.getByTestId("transcript-selection-actions");
+  const addToChat = selectionActions.getByRole("button", { name: "添加到聊天", exact: true });
+  await selectionActions.waitFor();
   await sideTrigger.waitFor();
+  assert.equal(await sideTrigger.count(), 1, "选区浮层只显示一个旁路入口");
+  assert.equal(await page.locator(".message-actions").getByRole("button", { name: "在旁路中询问所选内容", exact: true }).count(), 0);
+  await shot("04a-selection-floating-actions.png");
+  const beforeStaging = requests.length;
+  await addToChat.click();
+  await page.locator(".composer-dock:not(.side-chat-composer) [data-conversation-selection-reference-count]").click();
+  const stagedMain = page.getByTestId("conversation-selection-reference").filter({ hasText: unicodeExcerpt });
+  await stagedMain.waitFor();
+  assert.equal(await page.getByTestId("chat-input").innerText(), mainDraftSentinel);
+  assert.equal(await page.getByTestId("composer-attachment").filter({ hasText: "main-attachment.txt" }).count(), 1);
+  assert.equal(requests.length, beforeStaging, "staging a quote must not send or steer");
+  await stagedMain.getByRole("button", { name: "移除引用", exact: true }).click();
+  await selectSideExcerpt();
+  await addToChat.click();
+  await page.locator(".composer-dock:not(.side-chat-composer) [data-conversation-selection-reference-count]").click();
+  await stagedMain.waitFor();
+  await stagedMain.getByRole("button", { name: "移除引用", exact: true }).click();
+  await selectSideExcerpt();
+  await page.keyboard.press("Escape");
+  await selectionActions.waitFor({ state: "hidden" });
+  assert.equal(project(await state()).state.threads[sourceThreadId].turns.at(-1).status, "inProgress", "dismissing selection actions must not stop the source Turn");
+  await selectSideExcerpt();
+  await page.evaluate(() => window.getSelection().removeAllRanges());
+  await selectionActions.waitFor({ state: "hidden" });
+  await selectSideExcerpt();
+  await page.getByTestId("chat-input").click();
+  await selectionActions.waitFor({ state: "hidden" });
+  await selectSideExcerpt();
+  await page.locator(".messages").evaluate(element => element.dispatchEvent(new Event("scroll")));
+  await selectionActions.waitFor({ state: "hidden" });
+  await selectSideExcerpt();
   await selectConversation(page, targetThreadId);
   assert.equal(await sideTrigger.count(), 0, "来源 A 的选区不能在切换后的 B 会话显示或提交");
   await selectConversation(page, sourceThreadId);
@@ -597,23 +746,47 @@ try {
     return configuration?.model?.providerId === "fixture" && configuration.model.modelId === "fixture"
       || configuration?.model === null && typeof configuration.defaultModelRevision === "string" && configuration.defaultModelRevision.length > 0;
   }, "source configured fixture model restored after navigation");
-  const mainConfigBefore = JSON.stringify(project(refreshedSource).configurations[sourceThreadId]);
+  const mainConfigBefore = modelConfiguration(project(refreshedSource).configurations[sourceThreadId]);
+  // 路由身份先于历史恢复发布；等待 Composer 解除恢复阻塞后再建立选区。
+  await page.waitForFunction(() => {
+    const primary = document.querySelector(".composer-dock:not(.side-chat-composer) .composer-primary-action");
+    return primary && !primary.disabled;
+  });
   await selectSideExcerpt();
-  checks.push("AC55: switching the source Thread invalidates the prior Side selection owner");
-  await sideTrigger.focus();
+  checks.push("AC55: floating selection actions and Add to Chat preserve main text/files, remove/readd quotes without sending, dismiss on Escape/collapse/outside/scroll, and invalidate on source navigation");
   await sideTrigger.evaluate(element => { window.__scfSideTrigger = element; });
-  await sideTrigger.press("Enter");
-  const sidePane = page.getByRole("region", { name: "旁路讨论" });
-  await sidePane.getByText("会话上下文与文件访问", { exact: true }).click();
-  await sidePane.locator("blockquote.notice").filter({ hasText: unicodeExcerpt }).waitFor();
-  assert.match(await sidePane.innerText(), /已持久化选区/);
+  await restoreLegacySelection(unicodeExcerpt);
+  let sidePane = page.getByRole("region", { name: "旁路讨论" });
+  assert.equal(await sidePane.locator(".side-chat-information").isVisible(), false);
+  const stagedSide = sidePane.getByTestId("side-selection-quote");
+  await stagedSide.filter({ hasText: unicodeExcerpt }).waitFor();
+  assert.match(await stagedSide.innerText(), /已持久化选区/);
+  assert.equal(await sidePane.getByTestId("side-chat-input").textContent(), "", "empty Lexical paragraph contains no draft text");
+  assert.equal(await sidePane.getByTestId("side-chat-send").isEnabled(), true, "a staged quote can be explicitly sent without extra text");
+  const sideDraftBeforeSelection = "已有旁路草稿";
+  await sidePane.getByTestId("side-chat-input").fill(sideDraftBeforeSelection);
+  await stagedSide.getByRole("button", { name: "移除所选引文", exact: true }).click();
+  await stagedSide.waitFor({ state: "hidden" });
+  await showMainConversation();
+  await selectSideExcerpt();
+  await restoreLegacySelection(unicodeExcerpt);
+  await stagedSide.waitFor();
+  assert.equal(await sidePane.getByTestId("side-chat-input").innerText(), sideDraftBeforeSelection, "staging into current Side draft preserves typed text");
+  const sideSelectionOwner = await sidePane.locator("[data-side-owner]").getAttribute("data-side-owner");
+  const firstSelection = await page.evaluate(owner => localStorage.getItem(`${owner}:selection`), sideSelectionOwner);
+  await showMainConversation();
+  await selectSideExcerpt();
+  await restoreLegacySelection(unicodeExcerpt);
+  assert.equal(await sidePane.getByTestId("side-chat-input").innerText(), `${sideDraftBeforeSelection}\n\n${unicodeExcerpt}`);
+  assert.equal(await page.evaluate(owner => localStorage.getItem(`${owner}:selection`), sideSelectionOwner), firstSelection, "additional selection must not replace first frozen provenance");
+  assert.equal(requests.length, beforeStaging, "legacy restored draft staging and removal must not call a model");
   await openSideContext(sidePane);
   await sidePane.getByLabel("文件访问范围").selectOption("none");
   assert.equal(await sidePane.getByLabel("文件访问范围").inputValue(), "none");
   const sideInput = sidePane.getByRole("textbox", { name: "随心输入" });
   assert.equal(await sideInput.getAttribute("contenteditable"), "true", "Side must use the shared Lexical editor");
   assert.ok(await sidePane.locator(".composer-surface").isVisible());
-  const sourceConfigBeforeSideModel = JSON.stringify(project(await state()).configurations[sourceThreadId]);
+  const sourceConfigBeforeSideModel = modelConfiguration(project(await state()).configurations[sourceThreadId]);
   await sidePane.getByRole("button", { name: "模型", exact: true }).click();
   const modelPage = page.getByRole("button", { name: "选择模型", exact: true });
   if (await modelPage.isVisible()) await modelPage.click();
@@ -624,6 +797,7 @@ try {
   const narrowBounds = await app.evaluate(({ BrowserWindow }) => { const win = BrowserWindow.getAllWindows()[0]; win.setSize(980, 800); return win.getBounds(); });
   events.push({ narrowBounds });
   assert.equal(narrowBounds.width, 980, "native window should reach its configured minimum width");
+  await page.getByRole("button", { name: "进入完整视图", exact: true }).click();
   assert.ok(await sidePane.getByRole("textbox", { name: "随心输入" }).isVisible());
   await page.waitForFunction(() => document.querySelector('[data-workspace-view]')?.dataset.workspaceView === "panel");
   const narrowSideDraft = await sidePane.getByRole("textbox", { name: "随心输入" }).innerText();
@@ -633,13 +807,15 @@ try {
     ? window.__scfSideTrigger : document.querySelector('[data-testid="chat-input"]')));
   await page.getByRole("button", { name: "展开侧边面板", exact: true }).click();
   assert.equal(await sidePane.getByRole("textbox", { name: "随心输入" }).innerText(), narrowSideDraft);
+  await page.getByRole("button", { name: "进入完整视图", exact: true }).click();
   await page.waitForFunction(() => document.querySelector('[data-workspace-view]')?.dataset.workspaceView === "panel");
 
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 960));
+  await page.getByRole("button", { name: "退出完整视图", exact: true }).click();
   const sideStartRequests = requests.length;
   await app.evaluate(() => { globalThis.__scfRejectNext = "selection"; });
   await sidePane.getByRole("button", { name: "发送", exact: true }).click();
-  await sidePane.getByRole("alert").filter({ hasText: "STALE_SELECTION" }).waitFor();
+  await page.getByRole("alert").filter({ hasText: "STALE_SELECTION" }).waitFor();
   assert.equal(await sidePane.getByRole("textbox", { name: "随心输入" }).innerText(), sideQuestion);
   assert.equal(requests.length, sideStartRequests);
   assert.ok(!Object.values(project(await state()).state.threads).some(thread => thread.conversation?.kind === "side"));
@@ -656,7 +832,7 @@ try {
   assert.ok(await page.locator(`#areal-sidebar [data-thread-id="${targetThreadId}"]`).count(),
     "main navigation must retain independent Fork conversations");
   assert.equal(project(sideStarted).configurations[sideThreadId].model.modelId, "fixture-alternate");
-  assert.equal(JSON.stringify(project(sideStarted).configurations[sourceThreadId]), sourceConfigBeforeSideModel);
+  assert.deepEqual(modelConfiguration(project(sideStarted).configurations[sourceThreadId]), sourceConfigBeforeSideModel);
   assert.ok(requests.slice(sideStartRequests).some(request => request.body.model === "fixture-alternate"), "first Side question uses the selected real Core model");
   checks.push("shared Lexical composer and Core model menu: alternate model applies to Side first question without configuring the source");
   assert.equal(side.conversation.policy?.workspaceAccess, "none", "frozen evidence journey uses session-only Side policy");
@@ -675,7 +851,7 @@ try {
   await page.keyboard.press("Escape");
   await sidePane.getByRole("textbox", { name: "随心输入" }).click();
   await until(s => project(s).configurations[sideThreadId]?.revision > firstSideRevision && project(s).configurations[sideThreadId]?.model?.modelId === "fixture", "Side model update through Core configure");
-  assert.equal(JSON.stringify(project(await state()).configurations[sourceThreadId]), sourceConfigBeforeSideModel);
+  assert.deepEqual(modelConfiguration(project(await state()).configurations[sourceThreadId]), sourceConfigBeforeSideModel);
   assert.equal(project(await state()).state.threads[sideThreadId].conversation.policy.workspaceAccess, "none");
   checks.push("shared model menu configures only an idle Side and preserves its Core read-only policy");
   await openSideContext(sidePane);
@@ -683,7 +859,51 @@ try {
   await sidePane.getByRole("region", { name: "冻结证据" }).locator("pre").filter({ hasText: unicodeExcerpt }).first().waitFor();
   await shot("05-side-answered-frozen.png");
   checks.push("AC30/39: Side answers during a live source Runtime command; Unicode source selection is verified and frozen evidence is visible");
-  const bringBackOwner = { projectId, threadId: sourceThreadId };
+  const bringBackContextOwner = { projectId, sourceThreadId, sideThreadId };
+  if (sharedWorkspace) {
+    const currentModels = project(await state()).configurations;
+    const modelOwners = Object.fromEntries([sourceThreadId, sideThreadId].map(id =>
+      [id, modelConfiguration(currentModels[id])]));
+    const sample = async name => {
+      await page.waitForFunction(() => !document.querySelector('.work-surface')?.hasAttribute('data-panel-transition'));
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      const facts = await page.evaluate(() => {
+        const inspect = selector => { const input=document.querySelector(selector); if(!input) return null; const root=input.closest('.composer-surface'),css=getComputedStyle(root);return {layout:root.dataset.layout,display:css.display,padding:css.padding,font:getComputedStyle(input).fontSize,draft:input.textContent,width:root.clientWidth,overflow:root.scrollWidth-root.clientWidth}; };
+        return {mode:document.querySelector('[data-workspace-view]')?.dataset.workspaceView,theme:document.documentElement.classList.contains('dark')?'dark':'light',font:getComputedStyle(document.documentElement).getPropertyValue('--ui-font-size'),viewport:[innerWidth,innerHeight],main:inspect('[data-testid="chat-input"]'),side:inspect('[data-testid="side-chat-input"]')};
+      });
+      events.push({sharedCheckpoint:name,facts,hostTime:Date.now()});await shot(name+'.png');await writeFile(join(scratch,'shared-events.json'),JSON.stringify(events.filter(e=>e.sharedCheckpoint),null,2));return facts;
+    };
+    await showMainConversation();
+    const mainInput=page.getByTestId('chat-input');await composeText(mainInput,'共享主草稿：继续检查返回','shared main draft');
+    const mainEditor = await mainInput.elementHandle();
+    await showSideConversation();await composeText(sidePane.getByTestId('side-chat-input'),'共享Side草稿：暂不发送','shared side draft');
+    const exitFull=page.getByRole('button',{name:'退出完整视图',exact:true});if(await exitFull.isVisible())await exitFull.click();
+    const split=await sample('shared-01-split');
+    await page.getByRole('button',{name:'进入完整视图',exact:true}).click();
+    const full=await sample('shared-02-side-full');
+    if(!baselineLayout){assert.equal(full.side.padding,split.side.padding);assert.equal(full.side.display,split.side.display);assert.equal(full.side.layout,'default');}
+    await sidePane.getByRole('button',{name:'模型',exact:true}).click();await page.keyboard.press('Escape');
+    assert.equal(await sidePane.getByTestId('side-chat-input').innerText(),'共享Side草稿：暂不发送');
+    await sidePane.getByRole('button',{name:'返回主会话',exact:true}).click();assert.equal(await mainInput.innerText(),'共享主草稿：继续检查返回');
+    assert.ok(await mainEditor.evaluate(el => el === document.querySelector('[data-testid="chat-input"]')),
+      'panel navigation keeps the main editor mounted');
+    await sample('shared-03-main-return');
+    const settingsButton = page.getByRole('button',{name:'设置',exact:true});
+    await settingsButton.click();
+    await page.getByRole('button',{name:'返回应用',exact:true}).click();
+    assert.equal(await mainInput.innerText(),'共享主草稿：继续检查返回');
+    await page.waitForFunction(el => el === document.activeElement, await settingsButton.elementHandle());
+    await showSideConversation();assert.equal(await sidePane.getByTestId('side-chat-input').innerText(),'共享Side草稿：暂不发送');
+    const returned = project(await state());
+    for (const id of [sourceThreadId, sideThreadId]) assert.deepEqual(modelConfiguration(returned.configurations[id]), modelOwners[id],
+      'navigation preserves each Core model configuration');
+    await sample('shared-04-settings-return');
+    await writeFile(toolRelease,'release\n');await until(s=>project(s)?.state?.threads?.[sourceThreadId]?.turns?.at(-1)?.status==='completed','source command completes after shared UI inspection');
+    assert.equal(project(await state()).state.threads[sideThreadId].turns.length,1,'navigation never sends a draft');
+    assert.equal(await hash(fixturePath),workspaceBefore);
+    await sample('shared-05-completed');
+    checks.push('Shared UI: actual main/Side drafts and Core model ownership survive split/full, model-menu dismissal, panel return and settings return; real source Runtime command completes independently');
+  } else {
   const beforeBring = { requests: requests.length, commands: (await app.evaluate(() => globalThis.__scfMutations)).length,
     sourceTurns: project(sideStarted).state.threads[sourceThreadId].turns.length,
     sideTurns: side.turns.length, workspaceSha256: await hash(fixturePath) };
@@ -721,18 +941,18 @@ try {
   assert.equal(requests.length, beforeBring.requests, "bring-back must not send or steer");
   const bringCommands = await app.evaluate(() => globalThis.__scfMutations);
   const insertCommands = bringCommands.slice(commandsBeforeInsert);
-  assert.ok(insertCommands.some(entry => entry.command === "trajectory" && isBackgroundStatusRead(entry) && entry.accepted),
+  assert.ok(insertCommands.some(entry => entry.command === "trajectory" && entry.parameters.operation === "status" && isNonMutatingObservation(entry, bringBackContextOwner) && entry.accepted),
     "the raw RPC evidence must retain the successful injected trajectory status request");
-  assert.ok(insertCommands.some(entry => entry.command === "feedback" && isBackgroundStatusRead(entry) && entry.accepted),
+  assert.ok(insertCommands.some(entry => entry.command === "feedback" && entry.parameters.operation === "status" && isNonMutatingObservation(entry, bringBackContextOwner) && entry.accepted),
     "the raw RPC evidence must retain the successful injected feedback status request");
-  assert.deepEqual(insertCommands.filter(entry => !isBackgroundStatusRead(entry) && !isBackgroundMcpFormsRead(entry, bringBackOwner)), [],
-    "confirming bring-back may only overlap independent trajectory/feedback status and exact source-owned MCP forms reads, never queue or steer");
-  assert.ok(bringCommands.slice(beforeBring.commands).every(entry =>
-    isBackgroundStatusRead(entry) || isBackgroundMcpFormsRead(entry, bringBackOwner) || (entry.command === "side" && entry.parameters.operation === "list")),
-  "switching related discussions may only refresh the read-only list alongside independent status and exact source-owned MCP forms reads");
-  events.push({ bringBackCommandWindow: { owner: bringBackOwner, from: beforeBring.commands, insertionFrom: commandsBeforeInsert,
-    to: bringCommands.length, injectedStatusAccepted: true, injectedFeedbackStatusAccepted: true } });
-  checks.push("bring-back retains raw RPC evidence and tolerates exact background trajectory/status, feedback/status and source-owned MCP forms reads without allowing MCP or feedback mutation, retry, send, configure, queue or steer");
+  assert.deepEqual(insertCommands.filter(entry => !isNonMutatingObservation(entry, bringBackContextOwner)), [],
+    "confirming bring-back may overlap validated owner-scoped observations, never business mutations");
+  assert.deepEqual(bringCommands.slice(beforeBring.commands).filter(entry => !isNonMutatingObservation(entry, bringBackContextOwner)), [],
+    "related discussion navigation may observe its owners and manage history views without any business mutation");
+  events.push({ bringBackCommandWindow: { contextOwner: bringBackContextOwner, from: beforeBring.commands, insertionFrom: commandsBeforeInsert,
+    to: bringCommands.length, injectedStatusAccepted: true, injectedFeedbackStatusAccepted: true,
+    effectContract: "@areal/workbench/desktop-contract" } });
+  checks.push("bring-back retains all raw commands and validates their production read semantics and owner scope; no mutation, retry, send, configure, queue or steer occurs");
   assert.equal(project(await state()).state.threads[sourceThreadId].turns.length, beforeBring.sourceTurns);
   assert.equal(project(await state()).state.threads[sideThreadId].turns.length, beforeBring.sideTurns);
   assert.equal(await hash(fixturePath), beforeBring.workspaceSha256);
@@ -741,7 +961,7 @@ try {
   await page.getByTestId("composer-attachments").getByText("main-attachment.txt").waitFor();
   await composeText(page.getByTestId("chat-input"), " 输入法确认🌊汉字", "main IME", true);
   assert.ok((await page.getByTestId("chat-input").innerText()).includes(brought));
-  assert.equal(JSON.stringify(project(await state()).configurations?.[sourceThreadId] ?? null), mainConfigBefore,
+  assert.deepEqual(modelConfiguration(project(await state()).configurations?.[sourceThreadId]), mainConfigBefore,
     "main model configuration must survive Side and bring-back");
   // 关闭面板会记住当前任务的 lastPanel；主窗口的展开按钮恢复同一 Side 标签。
   await page.getByRole("button", { name: "展开侧边面板", exact: true }).click();
@@ -750,7 +970,6 @@ try {
   assert.equal(project(await state()).state.threads[sideThreadId].id, sideThreadId);
   checks.push("AC47/52/53/54/55/74: bring-back appends to the concurrent main draft with its attachment and model; edited preview survives Side switching; Chromium composition Enter submits neither editor; narrow return restores the original trigger or main editor fallback");
   const activeAnchor = page.locator(`[data-turn-id="${activeTurnId}"]`);
-  assert.equal(await activeAnchor.getByRole("button", { name: /^轮次操作 / }).count(), 0, "streaming turns have no menu");
   assert.equal(await activeAnchor.getByRole("button", { name: "从此轮创建聊天分支", exact: true }).count(), 0, "streaming turns have no Fork action");
   const requestsBeforeActiveFork = requests.length;
   // Core still supports the safe before boundary; the streaming GUI exposes no action row.
@@ -783,14 +1002,14 @@ try {
   const requestsBeforeRawFork = requests.length;
   const completedActions = activeAnchor.locator(".message-actions").filter({ has: page.getByRole("button", { name: "从此轮创建聊天分支", exact: true }) });
   assert.equal(await completedActions.getByRole("button", { name: "复制消息", exact: true }).count(), 1, "completed Fork and copy share one action row");
-  await activeAnchor.getByRole("button", { name: /^轮次操作 / }).click();
-  await page.getByRole("menuitem", { name: "在此轮之后分支", exact: true }).click();
+  await activeAnchor.getByRole("button", { name: "从此轮创建聊天分支", exact: true }).click();
   await forkDialog.getByRole("button", { name: "创建分支", exact: true }).click();
   await page.waitForFunction(id => document.querySelector('[data-testid="areal-workbench"]')?.dataset.threadId !== id, sourceThreadId);
   rawThreadId = await page.getByTestId("areal-workbench").getAttribute("data-thread-id");
   const rawHistory = page.locator(".messages .message-column");
-  await rawHistory.getByRole("button", { name: /^用时 / }).last().click();
-  await rawHistory.locator(`[data-turn-id="${activeTurnId}"]`).getByRole("button", { name: "执行过程", exact: true }).click();
+  const rawProgress = rawHistory.locator(`[data-turn-id="${activeTurnId}"]`).getByTestId("turn-elapsed").getByRole("button");
+  if (await rawProgress.getAttribute("aria-expanded") === "false") await rawProgress.click();
+  await rawHistory.locator(`[data-turn-id="${activeTurnId}"]`).locator(".areal-activity-group > .areal-disclosure > button").click();
   await rawHistory.locator(`[data-tool-id="${completedTool.id}"]`).getByRole("button").first().click();
   const rawDownload = rawHistory.getByRole("button", { name: "下载附件 原始结果", exact: true });
   await rawDownload.waitFor();
@@ -815,6 +1034,9 @@ try {
   await shot("07b-inherited-raw-result.png");
   checks.push("AC13/16: inherited raw Runtime result is read under the target identity and downloaded byte-for-byte; history has no source controls and the Fork has no local execution");
   await selectConversation(page, sourceThreadId);
+  // UTF-8 uploads are supported as Text; a PDF still requires File model capability.
+  await page.locator('.composer-dock:not(.side-chat-composer) input[type="file"]').setInputFiles({ name: "unsupported.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.7\nfixture\n%%EOF\n") });
+  await page.getByTestId("composer-attachments").getByText("unsupported.pdf").waitFor();
   const beforeFileRefusal = { requests: requests.length,
     turns: project(await state()).state.threads[sourceThreadId].turns.length };
   await page.getByTestId("chat-input").fill(lateSentinel);
@@ -826,19 +1048,28 @@ try {
   assert.ok(!(await sidePane.innerText()).includes("model does not support File input"));
   await page.getByTestId("composer-attachments").getByText("main-attachment.txt").waitFor();
   await shot("07a-main-error-isolated.png");
+  await page.getByRole("button", { name: "移除附件 unsupported.pdf", exact: true }).click();
   await page.getByRole("button", { name: "移除附件 main-attachment.txt", exact: true }).click();
   checks.push("AC74: real Core modality refusal preserves the main draft and attachment without a Turn/request; Side history and error state remain independent");
   const late = await send(lateSentinel, sourceThreadId);
   assert.ok(late.turnId);
+  await openSideContext(sidePane);
   assert.match(await sidePane.innerText(), /来源已推进/);
   const previousSideTurns = project(await state()).state.threads[sideThreadId].turns.length;
   const followStart = requests.length;
   await sidePane.getByRole("textbox", { name: "随心输入" }).fill(sideFollowUp);
+  await showMainConversation();
+  await selectSideExcerpt();
+  await restoreLegacySelection(unicodeExcerpt);
+  assert.equal(await sidePane.getByTestId("side-chat-input").innerText(), `${sideFollowUp}\n\n${unicodeExcerpt}`, "existing Side follow-up appends selection to current editable draft");
+  assert.equal(requests.length, followStart, "staging into existing Side never sends automatically");
   await sidePane.getByRole("button", { name: "发送", exact: true }).click();
   await until(s => project(s)?.state?.threads?.[sideThreadId]?.turns?.length > previousSideTurns &&
     project(s).state.threads[sideThreadId].turns.at(-1).status === "completed", "Side follow-up from frozen history");
   const followInput = JSON.stringify(requests.slice(followStart).flatMap(request => request.body.messages ?? []));
   assert.ok(followInput.includes(sideFollowUp) && followInput.includes(sideQuestion));
+  const followUser = project(await state()).state.threads[sideThreadId].turns.at(-1).items.find(item => item.type === "userMessage");
+  assert.ok(followUser.content.some(part => part.type === "text" && part.text.includes(sideFollowUp) && part.text.includes(unicodeExcerpt)), "explicit Side send contains current question and newly staged quote");
   assert.ok(!followInput.includes(lateSentinel), "later source Turn must never enter old Side model context");
   await openSideContext(sidePane);
   await sidePane.getByRole("button", { name: "查看冻结证据" }).click();
@@ -914,7 +1145,7 @@ try {
     await sidePane.getByRole("textbox", { name: "随心输入" }).fill(question);
     await app.evaluate(() => { globalThis.__scfRejectNext = "workspace-read"; });
     await sidePane.getByRole("button", { name: "发送", exact: true }).click();
-    await sidePane.getByRole("alert").filter({ hasText: "WORKSPACE_READ_UNAVAILABLE" }).waitFor();
+    await page.getByRole("alert").filter({ hasText: "WORKSPACE_READ_UNAVAILABLE" }).waitFor();
     assert.equal(await sidePane.getByRole("textbox", { name: "随心输入" }).innerText(), question);
     assert.equal(Object.keys(project(await state()).state.threads).length, before.count);
     assert.equal(requests.length, before.requests);
@@ -937,10 +1168,12 @@ try {
   const streamingTurnId = project(await state()).state.threads[sourceThreadId].turns.at(-1).id;
   const streamingBody = page.locator(`[data-turn-id="${streamingTurnId}"] .assistant-message .conversation-markdown`);
   await streamingBody.getByText(streamExcerpt, { exact: true }).waitFor();
+  await showSideConversation();
+  await sidePane.getByRole("button", { name: "新讨论", exact: true }).click();
+  await showMainConversation();
   await selectMessageExcerpt(streamingBody, streamExcerpt);
-  await page.getByRole("button", { name: "在旁路中询问所选内容" }).click();
-  await openSideContext(sidePane);
-  await sidePane.locator("blockquote.notice").filter({ hasText: "用户引文，来源未确认" }).waitFor();
+  await restoreLegacySelection(streamExcerpt, streamingTurnId, false);
+  await sidePane.getByTestId("side-selection-quote").filter({ hasText: "用户引文，来源未确认" }).waitFor();
   await openSideContext(sidePane);
   await sidePane.getByLabel("文件访问范围").selectOption("none");
   await sidePane.getByRole("textbox", { name: "随心输入" }).fill("等待模型名额的旁路问题");
@@ -965,7 +1198,7 @@ try {
   assert.ok(quotedEvidenceText.includes(capacitySourceQuestion) && quotedEvidenceText.includes("inProgress"));
   assert.ok(!quotedEvidenceText.includes(streamExcerpt), "unpersisted streamed text is only a user quote, not frozen source evidence");
   await shot("08e-streaming-user-quote.png");
-  checks.push("AC37: actual streamed plain text is an unverified userQuote; durable Side selection preserves the text while frozen inProgress evidence excludes the unpersisted delta");
+  checks.push("AC37: restored legacy draft of observed streamed plain text is an unverified userQuote; durable Side selection preserves the text while frozen inProgress evidence excludes the unpersisted delta");
   await sidePane.getByRole("status").filter({ hasText: "等待模型容量" }).waitFor();
   await shot("08a-side-waiting-capacity.png");
   await sidePane.getByRole("button", { name: "停止旁路", exact: true }).click();
@@ -991,17 +1224,39 @@ try {
   checks.push("AC34/50/72: visible single-slot waiting, independent Side Stop and source Stop, no deadlock or cancellation cascade");
   await showSideConversation();
   const beforeDisconnect = project(await state());
-  await app.evaluate(() => globalThis.__scfConnection.socket.terminate());
-  await until(s => s.connection?.state === "unavailable", "GUI-to-Core transport disconnect");
-  await openSideContext(sidePane);
-  await sidePane.getByText(/^来源：.*来源当前状态未知/).waitFor();
-  await page.getByRole("button", { name: "重新连接后台" }).click();
-  const reconnected = await until(s => s.connection?.state === "ready" && project(s)?.state?.connected &&
-    project(s)?.state?.threads?.[sourceThreadId]?.turns?.length === beforeDisconnect.state.threads[sourceThreadId].turns.length &&
-    project(s)?.state?.threads?.[sideThreadId]?.turns?.length === beforeDisconnect.state.threads[sideThreadId].turns.length,
-  "GUI-to-Core reconnection and authoritative source/Side snapshot");
-  assert.equal(project(reconnected).state.threads[sideThreadId].conversation.origin.sourceThreadId, sourceThreadId);
-  assert.equal(project(reconnected).state.threads[sourceThreadId].conversation?.kind ?? "main", "main");
+  // 保持本次真实断线，避免 500ms 被动重连抢在 React/Playwright 的离线断言之前完成。
+  try {
+    await app.evaluate(({ app }, connectionPath) => {
+      const read = process.getBuiltinModule("module").createRequire(app.getAppPath() + "/package.json");
+      const { SharedCoreBackend } = read(connectionPath);
+      const original = SharedCoreBackend.prototype.scheduleReconnect;
+      const connection = globalThis.__scfConnection;
+      let disconnectedBackend;
+      SharedCoreBackend.prototype.scheduleReconnect = function () {
+        if (this.connection === connection) disconnectedBackend = this;
+        // 手动重连会替换 connection；该后端仍不能靠被动重试掩盖手动恢复失败。
+        if (this !== disconnectedBackend) return original.call(this);
+      };
+      globalThis.__scfRestoreReconnect = () => { SharedCoreBackend.prototype.scheduleReconnect = original; };
+      connection.socket.terminate();
+    }, join(desktop, "src/core/service-client.cjs"));
+    await until(s => s.connection?.state === "unavailable" && project(s)?.state?.connected === false,
+      "GUI-to-Core transport disconnect and disconnected project projection");
+    await openSideContext(sidePane);
+    await sidePane.getByText(/^来源：.*来源当前状态未知/).waitFor();
+    await page.getByRole("button", { name: "设置", exact: true }).click();
+    await page.getByRole("button", { name: "后台服务", exact: true }).click();
+    await page.getByRole("button", { name: "重新连接后台", exact: true }).click();
+    const reconnected = await until(s => s.connection?.state === "ready" && project(s)?.state?.connected &&
+      project(s)?.state?.threads?.[sourceThreadId]?.turns?.length === beforeDisconnect.state.threads[sourceThreadId].turns.length &&
+      project(s)?.state?.threads?.[sideThreadId]?.turns?.length === beforeDisconnect.state.threads[sideThreadId].turns.length,
+    "GUI-to-Core manual reconnection and authoritative source/Side snapshot");
+    assert.equal(project(reconnected).state.threads[sideThreadId].conversation.origin.sourceThreadId, sourceThreadId);
+    assert.equal(project(reconnected).state.threads[sourceThreadId].conversation?.kind ?? "main", "main");
+    await page.getByRole("button", { name: "返回应用", exact: true }).click();
+  } finally {
+    await app.evaluate(() => { globalThis.__scfRestoreReconnect?.(); delete globalThis.__scfRestoreReconnect; });
+  }
   checks.push("AC49: real GUI transport disconnect/reconnect restored distinct source and Side identities without duplicate Turns");
   // 重启使用同一隔离状态目录，并另行标记第二段连续录屏。
   const preRestart = { sourceTurns: project(await state()).state.threads[sourceThreadId].turns.length,
@@ -1012,7 +1267,8 @@ try {
   assert.ok(forkResults.every(entry => typeof entry.requestId === "string" && entry.requestId.length > 0));
   assert.equal(new Set(forkResults.map(entry => entry.requestId)).size, 4);
   videoPath = await page.video()?.path();
-  await app.close();
+  await closeSmokeApplication(app);
+  app = null;
   await stopService(env);
   // 复用持久状态故障接缝：只在隔离 Core 安全停止后标记既有来源工具为 UNKNOWN。
   const sourceRecordPath = join(scratch, "core", projectId, "state", `${sourceThreadId}.json`);
@@ -1030,11 +1286,13 @@ try {
   page.setDefaultTimeout(15000);
   page.on("pageerror", error => pageErrors.push(error.message));
   forkDialog = page.getByRole("dialog", { name: "从这里创建聊天分支", exact: true });
+  sidePane = page.getByRole("region", { name: "旁路讨论" });
+  sideTrigger = page.getByRole("button", { name: "在旁路中询问所选内容", exact: true });
   await page.getByTestId("areal-workbench").waitFor({ timeout: 120000 });
   await until(s => s.projects.some(project => project.id === projectId && project.state?.connected), "restarted Core connection");
   await selectConversation(page, sourceThreadId);
   await page.getByRole("button", { name: "任务操作", exact: true }).click();
-  await page.getByRole("menuitem", { name: "旁路讨论", exact: true }).click();
+  await page.getByRole("menuitem", { name: "历史旁路讨论", exact: true }).click();
   await showRelated(page.getByRole("region", { name: "旁路讨论" }));
   await page.getByRole("region", { name: "相关讨论" }).getByRole("button", { name: new RegExp(sideQuestion) }).click();
   const restored = await until(s => project(s)?.state?.threads?.[sourceThreadId]?.turns?.length === preRestart.sourceTurns &&
@@ -1047,23 +1305,22 @@ try {
   const unknownDraft = "保持草稿，先检查来源未知结果";
   await showMainConversation();
   await page.getByTestId("chat-input").fill(unknownDraft);
-  await page.locator(`[data-turn-id="${activeTurnId}"]`).getByRole("button", { name: /^轮次操作 / }).click();
-  assert.ok(await page.getByRole("menuitem", { name: "在此轮之后分支", exact: true }).isDisabled());
-  await page.getByText("历史包含未结算或未核查的操作；请在来源核查或选择更早边界", { exact: true }).waitFor();
-  await page.getByRole("menuitem", { name: "查看来源轮次的核查入口", exact: true }).waitFor();
+  const unresolvedAnchor = page.locator(`[data-turn-id="${activeTurnId}"]`);
+  assert.ok(await unresolvedAnchor.getByRole("button", { name: "从此轮创建聊天分支", exact: true }).isDisabled());
+  await unresolvedAnchor.getByText("历史包含未结算或未核查的操作；请在来源核查或选择更早轮次", { exact: true }).waitFor();
+  await unresolvedAnchor.getByRole("button", { name: "查看来源轮次的核查入口", exact: true }).click();
   assert.equal(await page.getByTestId("chat-input").innerText(), unknownDraft);
   await shot("10-unknown-source-refusal.png");
-  await page.getByRole("menuitem", { name: "在此轮之前分支", exact: true }).click();
+  await page.locator(`[data-turn-id="${anchorTurnId}"]`).getByRole("button", { name: "从此轮创建聊天分支", exact: true }).click();
   await forkDialog.getByRole("button", { name: "创建分支", exact: true }).waitFor();
   await page.keyboard.press("Escape");
   await forkDialog.waitFor({ state: "hidden" });
   assert.equal(requests.length, preRestart.requests);
-  checks.push("AC21: real restarted Core restores persisted UNKNOWN; GUI disables the unsafe boundary, offers source inspection, retains the draft and leaves the earlier boundary available without execution");
+  checks.push("AC21: real restarted Core restores persisted UNKNOWN; GUI disables Branch with its reason, offers source inspection, retains the draft and lets an earlier completed turn open the target dialog without execution");
   await selectConversation(page, rawThreadId);
   await page.getByTestId("chat-input").fill("冷历史损坏时保留这份草稿");
   const corruptHistory = page.locator(".messages .message-column");
-  await corruptHistory.locator(`[data-turn-id="${activeTurnId}"]`).getByRole("button", { name: /^轮次操作 / }).click();
-  await page.getByRole("menuitem", { name: "在此轮之后分支", exact: true }).click();
+  await corruptHistory.locator(`[data-turn-id="${activeTurnId}"]`).getByRole("button", { name: "从此轮创建聊天分支", exact: true }).click();
   const rawSnapshot = project(await state()).state.threads[rawThreadId].conversation.historySeed.snapshotId;
   const snapshotPath = join(scratch, "core", projectId, "state", "history", rawSnapshot);
   const validSnapshotBytes = await readFile(snapshotPath);
@@ -1111,6 +1368,31 @@ try {
   events.push({ unknownFixtureInspection: { sourceThreadId, turnId: activeTurnId, itemId: unknownItem.id,
     processId: originalReceipt.processId, inspection, outcome: inspectedItem.execution.outcome } });
   checks.push("after AC21/AC11 refusals, public inspection preserves the injected UNKNOWN and original completed Runtime receipt without replay or a model request");
+  }
+  await selectConversation(page, sourceThreadId);
+  await showSideConversation();
+  await sidePane.getByRole("button", { name: "新讨论", exact: true }).click();
+  await showMainConversation();
+  await page.waitForFunction(() => {
+    const primary = document.querySelector(".composer-dock:not(.side-chat-composer) .composer-primary-action");
+    return primary && !primary.disabled;
+  });
+  await selectSideExcerpt();
+  await restoreLegacySelection(unicodeExcerpt);
+  assert.equal(await sidePane.getByTestId("side-chat-input").textContent(), "", "empty Lexical paragraph contains no draft text");
+  const threadsBeforeQuoteOnly = new Set(Object.keys(project(await state()).state.threads));
+  await sidePane.getByTestId("side-chat-send").click();
+  const quoteOnlyState = await until(snapshot => Object.values(project(snapshot)?.state?.threads ?? {}).some(thread =>
+    !threadsBeforeQuoteOnly.has(thread.id) && thread.conversation?.kind === "side"
+    && thread.conversation.origin?.sourceThreadId === sourceThreadId
+    && thread.turns?.at(-1)?.status === "completed"), "explicit selection-only Side send");
+  const quoteOnlyThread = Object.values(project(quoteOnlyState).state.threads).find(thread =>
+    !threadsBeforeQuoteOnly.has(thread.id) && thread.conversation?.kind === "side"
+    && thread.conversation.origin?.sourceThreadId === sourceThreadId);
+  const quoteOnlyUser = quoteOnlyThread.turns[0].items.find(item => item.type === "userMessage");
+  assert.equal(quoteOnlyUser.content.filter(part => part.type === "text").map(part => part.text).join("\n"), unicodeExcerpt,
+    "selection-only explicit send preserves the original excerpt as accepted input");
+  checks.push("selection-only Side draft sends the exact excerpt only after the send button is activated");
   assert.deepEqual(pageErrors, []);
   passed = true;
 } catch (error) {
@@ -1131,15 +1413,20 @@ try {
   if (app) {
     if (!firstMutations.length) try { firstMutations = await withSmokeDeadline("mutation evidence", () => app.evaluate(() => globalThis.__scfMutations ?? [])); } catch (error) { events.push({ requestCaptureError: error.message }); }
     try {
-      await withSmokeDeadline("Electron cleanup", async () => {
-        await app.evaluate(({ dialog }) => { dialog.showMessageBox = async () => ({ response: 1 }); });
-        if (videoPath) restartVideoPath = await page?.video()?.path();
-        else videoPath = await page?.video()?.path();
-        await app.close();
-      }, 20000);
+      await closeSmokeApplication({
+        process: () => app.process(),
+        close: async () => {
+          await app.evaluate(({ dialog }) => { dialog.showMessageBox = async () => ({ response: 1 }); });
+          if (videoPath) restartVideoPath = await page?.video()?.path();
+          else videoPath = await page?.video()?.path();
+          await app.close();
+        },
+      });
     } catch (error) {
-      events.push({ electronCloseError: error.message }); process.exitCode = 1;
-      try { app.process()?.kill("SIGTERM"); } catch {}
+      events.push({ electronCloseError: error.message });
+      failure ??= error.stack ?? String(error);
+      passed = false;
+      process.exitCode = 1;
     }
   }
   try {
@@ -1162,10 +1449,12 @@ try {
   const sourceDiff = execFileSync("git", ["diff", "--binary"], { cwd: root });
   const sourceStatus = execFileSync("git", ["status", "--porcelain=v1"], { cwd: root, encoding: "utf8" });
   const manifest = {
-    passed, failure, checks, events, pageErrors, electronStderr, frames, sourceCommit,
-    command: "pnpm --dir clients/gui run test:conversation-derivation",
+    passed, failure, scenario: sharedWorkspace ? "shared-workspace" : "conversation-derivation", baselineLayout, checks, events, pageErrors, electronStderr, frames, sourceCommit,
+    command: `pnpm --dir clients/gui run test:conversation-derivation${sharedWorkspace ? " --shared-workspace" : ""}${baselineLayout ? " --baseline" : ""}`,
     runtime: "source Electron renderer + Rust Core + actual Runtime run_command + deterministic local HTTP/SSE model",
-    limitations: ["local fixture model, not a real provider", "source build, not a copied installed package", "native project chooser, archive confirmation and download save location are fixtures and have no native-dialog acceptance claim", "Browser preview is outside this journey", "IME uses Chromium CDP composition and a candidate Enter event, not a physical input method", "UNKNOWN uses a persisted test record after safe Core stop, not an induced process crash"],
+    limitations: ["legacy Side selection uses saved draft/anchor fixtures from real Core source items or observed streamed text; current default Side UI is covered by side-chat-parity", "local fixture model, not a real provider", "source build, not a copied installed package", "native project chooser, archive confirmation and download save location are fixtures and have no native-dialog acceptance claim", "Browser preview is outside this journey", "IME uses Chromium CDP composition and a candidate Enter event, not a physical input method", ...(sharedWorkspace
+      ? ["bounded shared-workspace journey only; restart, bring-back and persisted UNKNOWN recovery matrix are not run"]
+      : ["UNKNOWN uses a persisted test record after safe Core stop, not an induced process crash"])],
     operatingSystem: { platform: process.platform, release: (await import("node:os")).release(), architecture: process.arch },
     windowBounds, videoPath, videoSegments: [{ path: videoPath, process: "initial Electron run", continuous: true },
       { path: restartVideoPath, process: "restarted Electron run", continuous: true }],
@@ -1179,7 +1468,7 @@ try {
       "04-source-tool-running.png": "Core/Runtime command marker exists and source Turn remains inProgress",
       "04a-stale-selection.png": "real Core stale-selection rejection retains the Side question without creating a Side",
       "05-side-answered-frozen.png": "Side first answer completed while source tool remains active; Unicode selection verified",
-      "06-bring-back-draft.png": "preview confirmed; local main draft includes Side text and insertion issues no command beyond independent trajectory/status, feedback/status and exact source-owned MCP forms reads",
+      "06-bring-back-draft.png": "preview confirmed; local main draft includes Side text and all overlapping commands are validated owner-scoped observations with no business mutation",
       "07-before-active.png": "before-active Fork has idle bounded inherited history",
       "07a-main-error-isolated.png": "Core refuses unsupported main attachment without sending or losing its draft; Side has no main Composer error",
       "07b-inherited-raw-result.png": "target-owned inherited raw result is displayed and downloaded with no source controls or local execution",

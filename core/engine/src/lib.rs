@@ -1,6 +1,7 @@
 mod agents;
 pub mod concurrency;
 mod context;
+mod context_usage;
 mod default_model;
 pub mod delegation;
 pub mod desktop;
@@ -13,15 +14,26 @@ mod observations;
 mod outcome;
 mod permissions;
 mod plugin_hooks;
+mod prompt_prediction;
+mod request_meter;
+mod session_name;
 mod sessions;
 mod store;
 mod task_mode;
+pub use areal_plugins::PluginComponentId;
+#[cfg(feature = "test-support")]
+pub use task_mode::TaskCommitFault;
+pub use task_mode::TaskRunNowAdmission;
+pub use task_mode::{
+    PublishedTaskCatalog, PublishedTaskCatalogFallback, read_published_task_catalog,
+};
 pub mod tools;
 mod trajectory;
 pub use trajectory::{configure_trajectory_capture_budget, record_json as record_trajectory_json};
 mod turns;
 mod watchdog;
 pub mod workgroup;
+mod workspace;
 
 use areal_protocol::{Input, Item, Modality, Thread, ThreadStatus, Turn, TurnStatus, notification};
 use futures_util::{FutureExt, StreamExt};
@@ -36,7 +48,7 @@ use std::{
     path::Path,
     sync::{
         Arc,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -46,6 +58,7 @@ use tracing::{Instrument, info_span};
 
 #[derive(Clone, Debug)]
 pub struct Limits {
+    pub inspection_permissions: areal_config::InspectionPermissions,
     pub goals: goals::Policy,
     pub max_threads: usize,
     pub model_concurrency: usize,
@@ -61,6 +74,7 @@ pub struct Limits {
     pub max_output_bytes: usize,
     pub max_media_output_bytes: usize,
     pub mailbox_capacity: usize,
+    pub model_request_timeout: Duration,
     pub stream_idle_timeout: Duration,
     pub max_tool_calls: usize,
     /// 单次响应的保护与整轮累计预算独立；累计预算为零表示不限制。
@@ -88,11 +102,14 @@ pub struct Limits {
     pub max_completion_retries: usize,
     /// 关闭默认启用的网络 watchdog；有限响应恢复额度仍独立生效。
     pub watchdog_disable: bool,
+    /// 有限模式允许每个当前请求最多五次 Core 网络恢复，不增加既有请求预算。
+    pub network_retry_mode: areal_config::NetworkRetryMode,
 }
 
 impl Default for Limits {
     fn default() -> Self {
         Self {
+            inspection_permissions: areal_config::InspectionPermissions::ReadOnly,
             goals: goals::Policy::default(),
             max_threads: 20_000,
             model_concurrency: 32,
@@ -108,6 +125,7 @@ impl Default for Limits {
             max_output_bytes: 0,
             max_media_output_bytes: 0,
             mailbox_capacity: 32,
+            model_request_timeout: Duration::from_secs(300),
             stream_idle_timeout: Duration::from_secs(30),
             max_tool_calls: 0,
             max_response_tool_calls: 128,
@@ -128,6 +146,7 @@ impl Default for Limits {
             max_empty_completion_retries: 0,
             max_completion_retries: 0,
             watchdog_disable: false,
+            network_retry_mode: areal_config::NetworkRetryMode::Persistent,
         }
     }
 }
@@ -148,6 +167,16 @@ impl Limits {
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("{0}")]
+    Rejected(Box<Error>),
+    #[error("operation outcome requires reconciliation: {0:?}")]
+    OperationOutcome(Box<areal_protocol::desktop::OperationFailure>),
+    #[error("history read unavailable: {reason}")]
+    HistoryRead {
+        reason: &'static str,
+        thread_id: String,
+        restart_cursor: Option<String>,
+    },
     #[error("thread not found")]
     NotFound,
     #[error("{0}")]
@@ -169,6 +198,9 @@ struct TrustedPlugin {
 }
 
 struct Active {
+    context_usage: Option<areal_protocol::context::ContextUsage>,
+    context_sequence: u64,
+    generation: request_meter::Generation,
     registry: std::result::Result<tools::Registry, String>,
     hooks: Vec<plugin_hooks::BoundHook>,
     hook_user_input: bool,
@@ -176,10 +208,15 @@ struct Active {
     direct_tool: Option<model::ToolCall>,
     tool_meta: Option<serde_json::Map<String, Value>>,
     tool_calls: usize,
+    cua_used: bool,
     waiting_for_model_capacity: bool,
     started: std::time::Instant,
     isolated_children: usize,
     workspace_exclusive: bool,
+    deferred_workspace_guard: Option<tokio::sync::OwnedRwLockWriteGuard<()>>,
+    workspace_lease_pinned: bool,
+    workspace_version: Option<workspace::Version>,
+    workspace_conflict_call: Option<String>,
     // Includes queued model work, tool waits and cleanup. Never wait for this
     // permit during admission: waiting parents must not deadlock their children.
     _admission: OwnedSemaphorePermit,
@@ -191,12 +228,14 @@ struct Active {
     open_items: HashSet<String>,
     sealed: bool,
     scope: Option<String>,
+    base_scope: Option<String>,
     model: Arc<dyn Model>,
     tools: TaskTracker,
     process_cursors: BTreeMap<String, String>,
     handles: tools::Handles,
 }
 struct State {
+    prediction_source: Option<prompt_prediction::PredictionSource>,
     thread: Thread,
     active: Option<Active>,
     poisoned: bool,
@@ -207,14 +246,18 @@ struct State {
     quarantined_admission: Option<OwnedSemaphorePermit>,
 }
 struct Cell {
+    browser_permits: Mutex<HashSet<String>>,
     hooks: plugin_hooks::Session,
     inherited_registry: Option<tools::Registry>,
     exclusive_writer: bool,
     // 工具投影可能已持有会话锁，原子角色避免为读取 Goal 可见性再次加锁。
     goal_role: AtomicUsize,
+    // 工具投影可能持有会话锁；隔离 worker 的交接角色与递归委派额度分开。
+    handoff_worker: AtomicBool,
     depth: usize,
     research: bool,
     id: String,
+    scratch_path: std::path::PathBuf,
     agent_requests: AtomicUsize,
     agent_tools: AtomicUsize,
     // 普通接管允许当前请求有界结算；强制取消仍使用短期限。
@@ -225,20 +268,41 @@ struct Cell {
     settled: watch::Sender<bool>,
     interaction_changed: watch::Sender<u64>,
     resource_gate: Mutex<()>,
+    delegation_creation: Mutex<()>,
 }
 impl Cell {
-    fn new(thread: Thread, depth: usize, bindings: tools::Bindings) -> Arc<Self> {
+    fn new(
+        mut thread: Thread,
+        depth: usize,
+        bindings: tools::Bindings,
+        parent_scratch: Option<&Path>,
+    ) -> Arc<Self> {
+        if let Some(data) = &mut thread.desktop
+            && let Some(areal_protocol::desktop::PromptPrediction::Pending {
+                source_turn_id,
+                configuration_revision,
+            }) = data.prompt_prediction.clone()
+        {
+            data.prompt_prediction = Some(areal_protocol::desktop::PromptPrediction::Unavailable {
+                source_turn_id,
+                configuration_revision,
+            });
+        }
         Arc::new(Self {
+            scratch_path: parent_scratch
+                .unwrap_or_else(|| Path::new(""))
+                .join(format!("agent-{}", thread.id)),
+            browser_permits: Mutex::new(HashSet::new()),
             hooks: plugin_hooks::Session::new(&thread),
             inherited_registry: thread
                 .parent_thread_id
                 .as_ref()
                 .map(|_| bindings.registry.clone()),
-            exclusive_writer: thread
-                .desktop
-                .as_ref()
-                .is_some_and(|d| d.execution_policy.exclusive_write),
+            exclusive_writer: thread.desktop.as_ref().is_some_and(|d| {
+                d.execution_policy.exclusive_write || d.execution_policy.deferred_write
+            }),
             goal_role: AtomicUsize::new(if thread.goal_owner.is_some() { 2 } else { 0 }),
+            handoff_worker: AtomicBool::new(thread.source == "workgroupWorker"),
             depth,
             research: thread.source == "nativeResearchAgent",
             id: thread.id.clone(),
@@ -247,6 +311,7 @@ impl Cell {
             cancel_grace_ms: AtomicUsize::new(1000),
             bindings: RwLock::new(bindings),
             state: Mutex::new(State {
+                prediction_source: None,
                 thread,
                 active: None,
                 poisoned: false,
@@ -258,6 +323,7 @@ impl Cell {
             settled: watch::channel(true).0,
             interaction_changed: watch::channel(0).0,
             resource_gate: Mutex::new(()),
+            delegation_creation: Mutex::new(()),
         })
     }
     fn emit(&self, method: &str, params: Value) {
@@ -280,6 +346,7 @@ pub struct Engine {
     store: store::Store,
     model: Arc<dyn Model>,
     limits: Limits,
+    prediction_preemption: watch::Sender<()>,
     permits: Arc<Semaphore>,
     active_turns: Arc<Semaphore>,
     shutdown: CancellationToken,
@@ -293,7 +360,6 @@ pub struct Engine {
     workgroups: std::sync::OnceLock<Arc<workgroup::service::Service>>,
     automatic_workgroups: std::sync::OnceLock<Arc<workgroup::service::Service>>,
     workspace_gate: Arc<RwLock<()>>,
-    delegation_creation: Mutex<()>,
     desktop: desktop::Desktop,
     plugin_hooks: plugin_hooks::Manager,
 }
@@ -316,6 +382,7 @@ fn restore_cells(
 ) -> anyhow::Result<BTreeMap<String, Arc<Cell>>> {
     let threads: BTreeMap<_, _> = threads.into_iter().map(|t| (t.id.clone(), t)).collect();
     let mut depths: BTreeMap<String, usize> = BTreeMap::new();
+    let mut scratch_paths: BTreeMap<String, std::path::PathBuf> = BTreeMap::new();
     for id in threads.keys() {
         let mut current = id.as_str();
         let mut path = Vec::new();
@@ -335,6 +402,7 @@ fn restore_cells(
                     "inconsistent root session ownership"
                 );
                 depths.insert(current.to_owned(), 0);
+                scratch_paths.insert(current.to_owned(), format!("agent-{current}").into());
                 break 0;
             };
             let parent = threads
@@ -349,6 +417,9 @@ fn restore_cells(
         };
         for child in path.into_iter().rev() {
             depth += 1;
+            let parent = threads[&child].parent_thread_id.as_ref().unwrap();
+            let scratch = scratch_paths[parent].join(format!("agent-{child}"));
+            scratch_paths.insert(child.clone(), scratch);
             depths.insert(child, depth);
         }
     }
@@ -356,7 +427,7 @@ fn restore_cells(
         .into_iter()
         .map(|(id, thread)| {
             let bindings = tools::Bindings {
-                registry: if thread.is_side() {
+                registry: if thread.is_read_only_side() {
                     registry.clone().side_only(thread.side_workspace_read())
                 } else if thread.source == "nativeResearchAgent" {
                     registry.clone().research_only()
@@ -366,7 +437,11 @@ fn restore_cells(
                 host: None,
             };
             let root_session = thread.parent_thread_id.is_none();
-            let cell = Cell::new(thread, depths[&id], bindings);
+            let parent_scratch = thread
+                .parent_thread_id
+                .as_ref()
+                .map(|parent| scratch_paths[parent].as_path());
+            let cell = Cell::new(thread, depths[&id], bindings, parent_scratch);
             if root_session {
                 *cell.hooks.pending.try_lock().expect("new hook session") = vec!["resume".into()];
             }
@@ -461,6 +536,7 @@ impl Engine {
                 && limits.max_repeated_tool_failures <= 8
                 && (limits.max_history_bytes == 0
                     || limits.max_output_bytes < limits.max_history_bytes)
+                && !limits.model_request_timeout.is_zero()
                 && !limits.stream_idle_timeout.is_zero(),
             "invalid Core limits"
         );
@@ -536,6 +612,7 @@ impl Engine {
                 extensions.agents.is_none()
                     && limits.max_children_per_turn > 0
                     && limits.max_agent_depth > 0,
+                false,
             )?
             .with_workgroups(limits.max_children_per_turn > 0)?;
         if let Some(runtime) = &runtime {
@@ -564,7 +641,7 @@ impl Engine {
         } else {
             permissions::ProjectGrants::default()
         };
-        let task_modes = task_mode::Tasks::open(root)?;
+        let task_modes = task_mode::Tasks::open(root, &store)?;
         Ok(Arc::new(Self {
             permissions: permissions::Permissions {
                 config: Default::default(),
@@ -582,6 +659,7 @@ impl Engine {
             fork_commit_barrier: Default::default(),
             store,
             model,
+            prediction_preemption: watch::channel(()).0,
             permits: Arc::new(Semaphore::new(limits.model_concurrency)),
             active_turns: Arc::new(Semaphore::new(limits.max_active_turns)),
             limits,
@@ -596,7 +674,6 @@ impl Engine {
             workgroups: std::sync::OnceLock::new(),
             automatic_workgroups: std::sync::OnceLock::new(),
             workspace_gate: Arc::new(RwLock::new(())),
-            delegation_creation: Mutex::new(()),
         }))
     }
     pub fn model_name(&self) -> String {

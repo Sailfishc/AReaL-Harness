@@ -55,7 +55,11 @@ fn grouped_configuration_keeps_explicit_budgets_and_model_window() {
     assert_eq!(c.max_output_bytes, 0);
     assert_eq!(c.max_response_tool_calls, 64);
     assert!(c.context_compaction_enabled && !c.context_auto_compaction);
-    assert!(c.watchdog_disable);
+    assert!(!c.watchdog_disable);
+    assert_eq!(
+        c.network_retry_mode,
+        areal_config::NetworkRetryMode::Bounded
+    );
     assert_eq!(c.context_target_tokens, 90000);
     assert_eq!(c.goals.max_turns, 0);
     assert_eq!(c.goals.turn_model_rounds, 0);
@@ -64,7 +68,6 @@ fn grouped_configuration_keeps_explicit_budgets_and_model_window() {
     for text in [
         "schema_version=2\n[budget]\nmax_tool_calls=2\n[limits]\nmax_tool_calls=3\n",
         "schema_version=2\n[context]\nmode='manual'\n[limits]\ncontext_compaction_enabled=false\n",
-        "schema_version=2\n[network]\nretry_mode='persistent'\n[limits]\nwatchdog_disable=false\n",
     ] {
         write(&mut i, text);
         assert_eq!(failure(&i).kind, ConfigErrorKind::Conflict);
@@ -72,6 +75,35 @@ fn grouped_configuration_keeps_explicit_budgets_and_model_window() {
 }
 fn set(i: &mut ConfigInputs, name: &str, value: &str) {
     i.env.insert(name.into(), value.into());
+}
+
+#[test]
+fn bounded_network_mode_keeps_recovery_and_explicit_disable_is_independent() {
+    let root = tempfile::tempdir().unwrap();
+    let mut i = inputs(root.path());
+    assert_eq!(
+        load_config(&i).unwrap().network_retry_mode,
+        NetworkRetryMode::Persistent
+    );
+    write(
+        &mut i,
+        "schema_version=2\n[network]\nretry_mode='bounded'\n[limits]\nwatchdog_disable=true\n",
+    );
+    let config = load_config(&i).unwrap();
+    assert_eq!(config.network_retry_mode, NetworkRetryMode::Bounded);
+    assert!(config.watchdog_disable);
+    assert_eq!(config.diagnostic(false)["network"]["retry_mode"], "bounded");
+    set(&mut i, "AREAL_HARNESS_WATCHDOG_DISABLE", "false");
+    let config = load_config(&i).unwrap();
+    assert_eq!(config.network_retry_mode, NetworkRetryMode::Bounded);
+    assert!(!config.watchdog_disable);
+    set(&mut i, "AREAL_HARNESS_NETWORK_RETRY_MODE", "persistent");
+    assert_eq!(
+        load_config(&i).unwrap().network_retry_mode,
+        NetworkRetryMode::Persistent
+    );
+    set(&mut i, "AREAL_HARNESS_NETWORK_RETRY_MODE", "invalid");
+    assert_eq!(failure(&i).field, "network.retry_mode");
 }
 fn write(i: &mut ConfigInputs, text: &str) {
     let path = i.cwd.join("config.toml");
@@ -83,6 +115,101 @@ fn failure(i: &ConfigInputs) -> ConfigError {
         Ok(_) => panic!("configuration unexpectedly accepted"),
         Err(e) => e,
     }
+}
+
+#[test]
+fn model_request_timeout_is_independent_and_preserves_configuration_sources() {
+    let root = tempfile::tempdir().unwrap();
+    let mut i = inputs(root.path());
+    let defaults = load_config(&i).unwrap();
+    assert_eq!(defaults.model_request_timeout_seconds, 300);
+    assert_eq!(defaults.stream_idle_timeout_seconds, 30);
+    assert!(matches!(
+        defaults.sources["limits.model_request_timeout_seconds"],
+        ConfigSource::Default
+    ));
+    for (schema, group) in [(1, "limits"), (2, "network")] {
+        write(
+            &mut i,
+            &format!(
+                "schema_version={schema}\n[{group}]\nmodel_request_timeout_seconds=600\nstream_idle_timeout_seconds=45\n"
+            ),
+        );
+        let config = load_config(&i).unwrap();
+        assert_eq!(config.model_request_timeout_seconds, 600);
+        assert_eq!(config.stream_idle_timeout_seconds, 45);
+        assert!(matches!(
+            config.sources["limits.model_request_timeout_seconds"],
+            ConfigSource::File { .. }
+        ));
+        for group in ["network", "limits"] {
+            assert_eq!(
+                config.diagnostic(false)[group]["model_request_timeout_seconds"],
+                600
+            );
+        }
+    }
+    let name = "AREAL_HARNESS_MODEL_REQUEST_TIMEOUT_SECONDS";
+    for value in ["1", "86400"] {
+        set(&mut i, name, value);
+        let config = load_config(&i).unwrap();
+        assert_eq!(
+            config.model_request_timeout_seconds,
+            value.parse::<u64>().unwrap()
+        );
+        assert_eq!(config.stream_idle_timeout_seconds, 45);
+        assert!(matches!(
+            &config.sources["limits.model_request_timeout_seconds"],
+            ConfigSource::Env { name: source } if source == name
+        ));
+    }
+    for value in ["0", "86401", "-1", "bad"] {
+        set(&mut i, name, value);
+        let error = failure(&i);
+        assert_eq!(error.kind, ConfigErrorKind::InvalidValue);
+        assert_eq!(error.field, "limits.model_request_timeout_seconds");
+    }
+    i.env.remove(std::ffi::OsStr::new(name));
+    write(
+        &mut i,
+        "schema_version=2\n[network]\nmodel_request_timeout_seconds=600\n[limits]\nmodel_request_timeout_seconds=300\n",
+    );
+    assert_eq!(failure(&i).kind, ConfigErrorKind::Conflict);
+    write(
+        &mut i,
+        "schema_version=2\n[network]\nmodel_request_timeout_seconds=0\n",
+    );
+    assert_eq!(failure(&i).kind, ConfigErrorKind::InvalidValue);
+}
+
+#[test]
+fn inspection_permissions_are_explicit_validated_and_keep_the_read_only_default() {
+    let root = tempfile::tempdir().unwrap();
+    let mut i = inputs(root.path());
+    assert_eq!(
+        load_config(&i).unwrap().inspection_permissions,
+        InspectionPermissions::ReadOnly
+    );
+    write(
+        &mut i,
+        "schema_version=2\n[delegation]\ninspection_permissions='inherit'\n",
+    );
+    let configured = load_config(&i).unwrap();
+    assert_eq!(
+        configured.inspection_permissions,
+        InspectionPermissions::Inherit
+    );
+    assert_eq!(
+        configured.diagnostic(false)["delegation"]["inspection_permissions"],
+        "inherit"
+    );
+    set(&mut i, "AREAL_HARNESS_INSPECTION_PERMISSIONS", "read-only");
+    assert_eq!(
+        load_config(&i).unwrap().inspection_permissions,
+        InspectionPermissions::ReadOnly
+    );
+    set(&mut i, "AREAL_HARNESS_INSPECTION_PERMISSIONS", "automatic");
+    assert_eq!(failure(&i).kind, ConfigErrorKind::InvalidValue);
 }
 
 #[test]
@@ -1280,4 +1407,33 @@ fn experimental_environment_values_enable_and_disable_each_policy() {
         set(&mut i, name, "invalid");
         assert!(load_config(&i).is_err());
     }
+}
+
+#[test]
+fn model_capabilities_preserve_explicit_false_and_reasoning_options() {
+    let root = tempfile::tempdir().unwrap();
+    let mut i = inputs(root.path());
+    i.overrides = ConfigOverrides::default();
+    write(
+        &mut i,
+        "schema_version=2\n[model]\nprovider='custom'\nname='opaque'\n[model.providers.custom]\nendpoint='http://127.0.0.1:9/v1/responses'\nprotocol='responses'\nmodels=[{id='opaque',capabilities={tools=false,vision=false,reasoning=true,reasoning_effort_options=['low','max']},parameters={reasoning_effort='max'}}]\n",
+    );
+    let config = load_config(&i).unwrap();
+    let value = serde_json::to_value(&config.model).unwrap();
+    assert_eq!(
+        value["capabilities"],
+        serde_json::json!({"tools":false,"vision":false,"reasoning":true,"reasoningEffortOptions":["low","max"]})
+    );
+    let catalog = serde_json::to_value(&config.model_catalog).unwrap();
+    assert_eq!(catalog[0]["models"][0]["capabilities"]["tools"], false);
+    let text = std::fs::read_to_string(i.config_file.as_ref().unwrap()).unwrap();
+    for invalid in ["['low','low']", "['unknown']", "['low']"] {
+        write(&mut i, &text.replace("['low','max']", invalid));
+        assert!(load_config(&i).is_err());
+    }
+    write(&mut i, &text.replace("['low','max']", "[]"));
+    assert_eq!(
+        load_config(&i).unwrap().model.reasoning_effort.as_deref(),
+        Some("max")
+    );
 }

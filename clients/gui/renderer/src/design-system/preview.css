@@ -17,6 +17,55 @@
 .design-preview-tokens dt span { color: var(--color-foreground-subtle); }
 .design-preview-tokens dd { margin: 0; max-width: 440px; overflow-wrap: anywhere; font: var(--text-ui-sm)/1.5 var(--font-mono); }
 
-.design-preview .settings-group-card { background-color: var(--color-settings-card, var(--color-card)) !important; }
 .design-preview[data-view="conversation"] > :not(.design-preview-header):not(#conversation-timeline) { display: none; }
 .design-preview[data-view="conversation"] #conversation-timeline { margin-inline: auto; }
+
+/* 仅题目容器尺寸；消息和输入区沿用生产样式。 */
+.design-preview-flow-panel { width: min(100%, 1100px); margin-inline: auto; }
+.design-preview-flow-chat { height: 660px; display: flex; flex-direction: column; min-width: 0; }
+.design-preview-flow-workspace { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); border: var(--border-width-default) solid var(--color-border); border-radius: var(--radius-panel); overflow: hidden; }
+.design-preview-flow-workspace[data-panel-open="true"] { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
+.design-preview-flow-toolbar { display: flex; align-items: center; justify-content: space-between; flex: none; min-height: var(--spacing-control); padding: var(--spacing-inline) var(--spacing-field); border-bottom: var(--border-width-default) solid var(--color-border); font-size: var(--text-ui-sm); color: var(--color-foreground-subtle); }
+.design-preview-flow-context { height: 660px; display: flex; flex-direction: column; min-width: 0; border-left: var(--border-width-default) solid var(--color-border); background: var(--color-background); }
+.design-preview-flow-context > .agent-conversation-pane { flex: 1; min-height: 0; }
+.design-preview-flow-diagnostics { margin-top: var(--spacing-field); font-size: var(--text-ui-sm); color: var(--color-foreground-subtle); }
+.design-preview-flow-diagnostics > div { margin-block: var(--spacing-inline); }
+.design-preview[data-width="narrow"] .design-preview-flow-workspace[data-panel-open="true"] { grid-template-columns: minmax(0, 1fr); }
+.design-preview[data-width="narrow"] .design-preview-flow-context { position: absolute; inset: 0; z-index: 1; border-left: 0; }
+
+/* 对话目录仅组合既有生产消息、输入区与资源查看器。 */
+#conversation-timeline > .design-preview-actions { margin-bottom: var(--spacing-field); }
+.design-preview-timeline-resource { min-height: 0; overflow: auto; padding: var(--spacing-field); }
+
+.design-preview[data-view="settings"] > :not(.design-preview-header):not(.design-settings-preview) { display: none; }
+.design-settings-preview { display: flex; flex-direction: column; gap: var(--spacing-section); }
+.design-settings-preview .settings-workspace { padding: 0; overflow: visible; }
+.design-settings-preview [data-settings-host] { min-width: 0; }
+.design-settings-state { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-inline); }
+.design-settings-state select { color: var(--color-foreground); background: var(--color-background); border: 1px solid var(--color-border); border-radius: var(--radius-control); padding: var(--spacing-inline); }
+
+/* 固定题目的布局容器，内容与面板仍使用生产组件。 */
+.design-shared-workspace { height: 720px; display: flex; min-width: 0; position: relative; }
+.design-shared-workspace .workspace-content, .design-shared-workspace .conversation-column, .design-shared-workspace .conversation-pane { height: 100%; min-height: 0; }
+.design-shared-workspace .conversation-pane { display: flex; flex-direction: column; }
+.design-shared-workspace .active-composer { flex: none; }
+
+.design-preview-navigation, .design-document-header nav { display: flex; flex-wrap: wrap; gap: var(--spacing-field); }
+.design-preview-navigation a, .design-document a { color: var(--color-foreground); text-decoration: underline; text-underline-offset: 3px; }
+.design-preview-navigation a:focus-visible, .design-document :is(a, button, select):focus-visible { outline: 2px solid var(--color-border); outline-offset: 3px; }
+.design-document { height: 100dvh; overflow: auto; padding: var(--spacing-section); background: var(--color-background); color: var(--color-foreground); font-family: var(--font-sans); font-size: var(--text-ui-base); overflow-wrap: anywhere; }
+.design-document-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--spacing-field); max-width: 900px; margin-inline: auto; }
+.design-document-header label { display: flex; align-items: center; gap: var(--spacing-inline); }
+.design-document-header select { padding: var(--spacing-inline); border: var(--border-width-default) solid var(--color-border); border-radius: var(--radius-control); color: inherit; background: var(--color-background); }
+.design-document-path { color: var(--color-foreground-subtle); font: var(--text-ui-sm)/1.5 var(--font-mono); }
+.design-document > :is(article, p) { max-width: 900px; margin-inline: auto; min-width: 0; }
+.design-document article :is(h1, h2, h3, h4, h5, h6) { scroll-margin-top: var(--spacing-section); }
+.design-document article :is(table, pre) { max-width: 100%; overflow: auto; }
+.design-document .markdown-file-reference { white-space: normal; text-align: left; overflow-wrap: anywhere; }
+.design-component-meta table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-block: var(--spacing-field); }
+.design-component-meta :is(th, td) { border: var(--border-width-default) solid var(--color-border); padding: var(--spacing-inline); text-align: left; overflow-wrap: anywhere; }
+.design-component-meta th { width: 110px; color: var(--color-foreground-subtle); font-weight: var(--ui-font-weight); }
+.design-component-meta td a { display: inline-block; margin-right: var(--spacing-inline); }
+.design-component-meta nav { display: flex; gap: var(--spacing-field); flex-wrap: wrap; }
+.design-component-example iframe { width: 100%; height: 420px; border: var(--border-width-default) solid var(--color-border); border-radius: var(--radius-panel); }
+.design-component-example pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--text-ui-sm); }

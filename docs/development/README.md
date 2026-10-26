@@ -33,6 +33,14 @@ make build
 
 仅二进制变化时，共享服务空闲会自动重启，无需每次手动操作。若报配置冲突，执行诊断中的完整重启命令；有后台任务时先等待结算，确需取消才加 `--cancel`。频繁切换开发版/安装版时，可给开发版指定独立的外部目录，例如 `--data-dir /tmp/areal-dev-state`，启动和重启都传入同一参数；该目录使用独立历史。服务兼容性见[本地服务契约](../api/local-service.md#实例兼容性与历史)。
 
+macOS 的 `make build/release` 还按 SHA-256 锁定的源码和补丁构建独立 Bash，并缓存到 `target/runtime-shell`、复制到 `target/<profile>/shells`；首次构建需要网络、C 编译器和 Python 3.11+（支持 tar 数据过滤器的补丁版本）。仅运行 `cargo build` 不生成这部分完整 Runtime 资源。运行任务时不下载 shell，不替换系统程序。该独立组件保留 GPL-3.0-or-later 许可证与完整对应源码，项目 Rust 代码继续采用 Apache-2.0；见[发行要求](releasing.md)。
+
+`python3 scripts/tool-capacity-smoke.py --report /tmp/tool-capacity.json` 用真实原生 Runtime 在两个后台进程占满名额后提交 16 个文件操作，并检查受限 Node 创建/关闭订阅适配器。先运行 `make build` 和 `make gui-install`。`node scripts/permission-presets-smoke.mjs` 同时覆盖带 `AGENTS.md` 的审批隔离，以及同一 Turn 的并发 `read_file`/`search_files`。均为确定性机制回归，不代表整体 Agent 收益。
+
+`scripts/managed-toolchains-smoke.py --help` 提供本机已有 Node/npm/pnpm 的输入参数。该测试并发检查常见安装布局，并在 NVM、mise 的父/子 Scope 中实际执行 `node --test`、`npm test`、`pnpm test` 及嵌套 Node 子进程；版本号查询不代替这些执行检查。它同时保留凭据读取、工具链写入、子 Scope 源码写入和网络访问的拒绝断言，不下载依赖。
+
+GUI 验收的服务清理检查复用产品的原生 Core 启动适配，并异步查询进程状态，让同进程内的模型 HTTP 夹具继续响应。验收必须同时确认任务结果、工具结果和所属服务退出；测试驱动完成不等于任务成功，预期权限拒绝或主动终止测试应单独断言。
+
 ## 验证入口
 
 | 修改范围 | 命令 |
@@ -43,6 +51,7 @@ make build
 | 常规回归 | `make verify` |
 | 原生集成 | `make verify-harness`，包含常规回归 |
 | 统一委派集成 | `make unified-execution-smoke`：真实 Runtime 的并行候选组合、交付回执、父任务权限、取消与恢复；已包含在 `make harness-smoke` / `make verify-native`；Linux CI 在允许 Bubblewrap user namespaces 的受控容器中执行，`make verify` 保持跨平台常规回归 |
+| 子任务权限集成 | `make delegation-permissions-smoke`：真实 Runtime 的强制只读、沙箱不可用提前拒绝、显式继承读取和父子读取协作；模型 fixture，不评价任务能力；已包含在 `make harness-smoke` |
 | CI 原生增量 | `make verify-native`，仅运行原生后端与 Harness 集成 smoke |
 | 容量 | `make capacity`，独立运行 |
 | 仅文档 | `python3 scripts/check-docs.py`，同时核对命令与实现 |
@@ -77,6 +86,55 @@ Homebrew/Linux 发行产物、安装验收与 draft 发布流程见[发行流程
 
 ## 桌面 GUI
 
+页面、组件、布局、样式、动效和 UI 文案变更先读[设计系统入口](../../clients/gui/design-system/README.md#开工顺序)。增量审计随 GUI `verify` 执行；本地和 CI 的比较基线、覆盖与限制见[增量设计检查](../../clients/gui/design-system/automation.md#增量设计检查)，交付按[完成条件](../../clients/gui/design-system/governance.md#完成条件)报告设计选择和证据。
+
 GUI 使用独立 pnpm 11.7.0 workspace。运行 `make gui-install`、`make gui-build`、`make gui-smoke`；启动、打包与隔离配置见 [GUI 指南](../../clients/gui/README.md)。
 
+PR CI 以包含 runner 排队的 10–15 分钟端到端反馈为目标。GUI smoke 复用绑定同一 SHA 的 debug 构建，最多六个场景并发。`make verify-native` 先构建，再以四个 Make worker 运行既有 launcher、Runtime、Harness、Desktop API 和 Workgroup 验收组；公共构建及 SDK 前置在对应消费者启动前完成。验收命令保持不变，PR 关键路径不执行发行打包。托管 runner 排队与冷缓存仍可能超出目标，应测量实际流水线耗时，不能用超时设置冒充性能达标。CLI/GUI 完整打包、安装升级验收、签名、公证、上传及频道同步归本地发行流程。
+
 `make setup-node` 仅安装锁定的 Node 开发依赖，供不运行格式检查的原生 CI 使用；本地完整开发仍使用 `make setup`。
+
+## 本机 Rust 共享缓存
+
+可选使用固定版本 [mr-boxington](https://github.com/jdx/mr-boxington) 复用不同工作树的编译结果。项目继续使用 `rust-toolchain.toml` 中的 Rust 版本；`.mbx.toml` 关闭 build.rs 执行结果缓存，保留 Git 修订、源码哈希等构建身份的正常生成与校验。普通 Cargo 和 CI 无需安装 mbx。
+
+```sh
+cargo install mbx --version 1.26.0 --locked
+mbx settings set build_script_execution false
+mbx settings set target.views false
+mbx settings set gc.max_total_size 40GiB
+mbx settings set gc.min_free_size 30GiB
+mbx settings set display plain
+mbx settings set savings plain
+mbx setup
+```
+
+这些 settings 写入本机用户配置，不属于项目 `.mbx.toml`；本机也关闭 build.rs 执行结果缓存，以覆盖尚未合并项目配置的旧工作树。按 `mbx setup` 输出将官方 Cargo shim 目录放到 `PATH` 前部；终端、Codex 和 Python/Node 子进程都需继承该路径。通过 `command -v cargo`、`mbx setup --status` 和 `mbx doctor` 确认入口，再继续使用 `make build`、`make check`、`make test` 等原命令。仅安装 mbx 不会接管现有 Cargo 调用；也不要将所有工作树指向同一个 `CARGO_TARGET_DIR`。
+
+`target.views=false` 保留各工作树的真实 `target` 目录，因此不会自动迁移、回收固定 Core/Runtime 路径，也没有独立的 check/clippy lane。40 GiB 是 mbx 所管理数据的逻辑容量回收目标，30 GiB 是空闲空间回收线，均非硬配额；普通 target、Electron 应用及完整发布包仍按下述规则清理。用 `mbx cache stats` 查看用量，`mbx gc --dry-run` 预览回收，`mbx explain --last` 查看当前工作树的复用情况。
+
+不要对常驻 Core、固定路径验收或发布产物执行递归 `mbx adopt`。托管目录的租约不保护直接从 target 启动的二进制和 mbx 退出后仍存活的子进程。Rust 1.94 可使用共享编译结果，但不支持要求 rustc 1.98 的跨工作树私有增量 seed 或要求 Cargo 1.100 的 target unit seed。移除 shim 的 PATH 激活即可恢复普通 Cargo；不会删除现有产物或共享缓存。
+
+### 临时工作树缓存回收
+
+共享缓存不会限制普通 `target` 的增长。临时工作树使用同一清理入口的预算模式，默认预览：
+
+```sh
+make artifact-cleanup ARGS='--temporary-worktrees --cache-budget-gib 40 --min-free-gib 30 --report /private/tmp/worktree-cache-preview.json'
+```
+
+审阅后追加 `--apply`，并为每次运行指定独立报告路径。该模式只选择本仓 Git 登记中仍存在的次级工作树，主工作树始终排除，不接受 `--root` 或 `--no-worktrees` 覆盖。它只回收已识别 Cargo profile 下的 `deps`、`incremental`、`build` 和 `.fingerprint`；保留 profile 中的可执行文件、shell、完整包、delivery 目录、依赖和符号链接。失效工作树登记只跳过，不移除。
+
+40 GiB 是所有次级工作树缓存的分配块估算总预算，独立于 mbx 共享缓存的 40 GiB。超预算或磁盘低于 30 GiB 时，按 profile 目录最近修改时间优先选择旧缓存；预算内保留，避免每轮全清。目录时间不是精确 LRU，APFS 共享块也使估算不同于实际释放量。删除前持有 Cargo 锁并重新检查占用；同一 profile 内任何打开文件或该工作树中的构建/调试进程都会阻止整组回收。单个 profile 无法统计时保留并记录，不阻断其他组。活动缓存和不属于本模式的数据可能使预算或空闲线无法满足，报告会列出剩余压力。
+
+可在 Codex 为本聊天配置每 30 分钟调用一次该命令的心跳，追加 `--apply` 并保存独立报告；无删除或无需处理的占用跳过保持安静，仅通知实际回收、失败或无法缓解的磁盘告急。自动化复用此模式，不调用全量包清理，也不停止构建或服务。它不会自动迁移 target；主工作树缓存和完整 GUI/Core 包继续使用下述按需清理入口。
+
+## 验证产物保留
+
+运行 `make artifact-cleanup` 预览 `~/Documents/Codex` 及本仓已登记工作树中的 AReaL 产物，默认只读。GUI 以打包记录识别轮次并检查可执行文件及 Core 的完整性，匹配的应用和 ZIP 副本归入同轮。独立 Core 则保留最新 5 个完整且通过清单校验的版本包，以构建身份和文件哈希去重。Cargo profile 是可变构建输出，不作为历史轮次计数。只有某 profile 的三个二进制均匹配已知完整包、且已有至少 5 个校验通过的版本包时，才清理其散装产物；无法识别的产物保留。
+
+Rust 的 `deps`、`incremental`、`build`、`.fingerprint` 独立于版本保留管理。仅把仓库当作工作目录不阻止缓存清理；构建/调试器进程、候选目录内打开的文件及持有的 Cargo 锁会阻止清理。使用中的 profile 产物会一起保护伴随二进制。保留版本包中的 GUI/Core 运行文件保留，清缓存可能损失生成的调试信息。无法识别的归档和小型打包验收记录保留。自定义 `target/delivery-*` 仅按已识别的包处理，不把整目录当作缓存。
+
+单独扫描使用 `python3 scripts/artifact-cleanup.py --root /path/to/artifacts --no-worktrees --json`；`--root` 可重复，`--keep` 修改保留上限。`--report /path/outside/scanned/roots/preview.json` 保存完整清单。空间按已分配块估算并排除路径重叠；硬链接、APFS 克隆和快照可能降低实际回收量。
+
+审阅预览后，显式使用 `--apply --report /path/outside/scanned/roots/result.json` 执行删除。执行会持有 profile 的 Cargo 锁文件排他锁、复查活动，并在每项删除前后记录结果；锁文件保留，检查失败时跳过路径。无法检查进程时阻止删除。命令不停止进程，不移除工作树、源码、配置和历史。失败以非零退出；结果文件记录已完成与可能中断的删除，部分失败后先检查记录并重新预览。命令本身不安装定时任务。

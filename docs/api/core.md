@@ -8,20 +8,35 @@ Core 提供固定 Codex app-server 0.145.0 的子集与 AReaL 扩展，不代表
 
 `Turn.interruption` 可选取 `userPause` 或 `coreRecovery`，记录主动暂停或重启修复的事实。旧记录缺省时不猜原因。可选 `continuedFromTurnId` 只标记用户显式继续所创建的新 Turn，不表示旧模型调用或进程恢复。暂停仍结算原 Turn，UNKNOWN 和失败分类保留。打开会话、重连和重启不自动继续；普通会话的提交与继续见[桌面提交契约](desktop.md#submissions)。
 
+## 下一条提示词预测
+
+`areal/thread/prediction {threadId,sourceTurnId,operation:"request"|"cancel"}` 是显式桌面需求驱动的变更方法。Core 只接受普通主会话或 Side 最新成功结算的用户轮次；活动轮次、目标、任务、委派子会话、归档及未确认结果不生成预测。完成时仅保留该轮实际模型实例，后台 CLI 或隐藏会话不会自动请求模型。Core 重启后不重建模型、不补发预测。
+
+每个 `Thread.desktop` 最多保存一个可选 `promptPrediction`。它包含 `status:"pending"|"ready"|"unavailable"`、`sourceTurnId` 和 `configurationRevision`，`ready` 另含 `text`。Core 在请求模型前持久化 `pending`，同源重复请求返回原槽；失败、超时、取消或不确定结果不重试，重启读取 `pending` 时投影为 `unavailable`。`ready` 原样恢复。新轮次、配置变化、手动压缩或归档清除候选并取消旧请求；发布前还要核对源轮次和当前 Cell。槽更新通过 `areal/thread/predictionChanged {threadId,promptPrediction}` 单独投影，不替换消息或使历史视图失效；普通快照仍是恢复依据。
+
+预测使用独立 `promptPrediction` 请求目的、同一模型、空工具及 `max_calls=0`，不复用 Solve continuation。输入只含最近最多四个本地轮次的文本，合计最多 8 KiB，每条消息最多 2 KiB。模型容量忙时直接跳过；新的普通模型请求会抢占在途预测。总期限 20 秒，输出上限 128 tokens、512 UTF-8 bytes，并验证为最多 240 字符的单行文本。无有效建议时保留 `unavailable`。预测指令、未接受候选与用量不写入 Turn、Item、正常模型历史或当前 Turn 用量。
+
+GUI 默认开启，可在“预测下一条提示词”设置中关闭。关闭抑制需求、隐藏候选并取消已观察到的在途请求，已有 `ready` 可保留。候选位于真实编辑器文档外，只有空编辑器及无附件、选择、审批、队列编辑或执行阻塞时显示。自行输入隐藏、删空恢复同一候选；非 IME 的裸 Tab 只填入可编辑草稿，用户明确发送后才成为普通历史。
+
 ## 传输与会话
 
-每个 WebSocket 文本帧是一条请求/响应/通知，上限 4 MiB。请求 `{id,method,params}`，id 为字符串或整数，params 为对象；可省略 jsonrpc，响应 result/error 二选一，不支持批处理。先请求 initialize，再发送 initialized 通知。
+每个 WebSocket 文本消息承载一条请求、响应或通知。Core 入站消息和帧上限为 4 MiB，出站完整 JSON 消息上限为 64 MiB，按编码后的 UTF-8 字节计量。`areal/capabilities` 的 `limits.frameBytes` 和 `limits.responseBytes` 分别报告这两个上限。请求 `{id,method,params}`，id 为字符串或整数，params 为对象；可省略 jsonrpc，响应 result/error 二选一，不支持批处理。先请求 initialize，再发送 initialized 通知。
+
+响应超限时，Core 返回相同 RPC ID 的 `-32001` 错误，data 为 `{reason:"RESPONSE_TOO_LARGE",limitBytes:67108864,retryable:false,delivery:"resultUnavailable"}`，连接继续可用。`thread/resume` 或 `areal/thread/observe` 的基线超限时，同一订阅停止转发，已排队的后续事件也不送达。该错误只表示结果无法送达，不表示命令未执行；变更请求沿用原 requestId 查询回执，不自动重放。通知或服务端请求超限时，Core 以关闭码 1009 和固定原因 `RESPONSE_TOO_LARGE` 断连，不丢弃消息后继续提供不完整投影。单次发送仍有 5 秒期限。
+
+上述上限约束 JSON 编码输出，不约束此前的完整历史还原和 JSON Value 构造。桌面共享服务的聚合投影另有 256 MiB 上限，多条大历史的合计仍可能超限。协议不协商分块，也不保证旧客户端能接收大于其自身上限的消息。
 
 | 方法 | 参数 |
 |---|---|
 | `model/list` | `{}` |
 | `thread/start` | `{cwd?,model?,dynamicTools?}` |
-| `areal/thread/start` | `{requestId,agentProfile:{id,revision},cwd?,model?,parameters?,dynamicTools?}`；自动启动 Profile 绑定的 Workflow |
+| `areal/thread/start` | `{requestId,agentProfile?:{id,revision},cwd?,model?,parameters?,options?,dynamicTools?}`；原子保存初始配置，自动启动 Profile 绑定的 Workflow |
 | `thread/list` | `{cursor?,limit?}`; 1–100, default 30 |
 | `thread/read` | `{threadId,includeTurns?}` |
-| `thread/resume` | `{threadId}` |
+| `thread/resume` | `{threadId,mode?:"bounded",maxBytes?}` |
 | `turn/start` | `{threadId,input}` |
 | `turn/steer` | `{threadId,expectedTurnId,input}` |
+| `areal/thread/prediction` | `{threadId,sourceTurnId,operation:"request"|"cancel"}` |
 | `turn/interrupt` | `{threadId,turnId,admissionGuard?}` |
 
 Core 拥有 Thread/Turn/Item 的稳定 ID 与历史。read 不订阅，resume 原子读取快照并建立增量边界，先返回基线再发事件。每连接最多 128 订阅，发送队列 256、Thread 事件窗口 128；落后时断连，重连后重新 resume。普通观察断连不取消任务。
@@ -34,7 +49,25 @@ input 为有序 text/image/audio/file 等内容，UTF-8 文本合计最多 1 MiB
 
 可选 `admissionGuard: {ordinarySession: true}` 要求指定 `turnId` 在 Core 获得 Thread → Tasks 锁时仍是活动 Turn，且当前所有权属于普通会话；锁持续到队列持久化和取消完成。目标已结束/更换或属于 Task、Goal、协调者/子会话时，在任何队列、Goal 或取消操作前返回冲突（-32009）；`ordinarySession: false` 无效（-32602）。能力标志为 `features.turnInterruptAdmissionGuard`，依赖此保证的客户端在缺失时必须拒绝停止。省略 guard 保留旧行为，包括历史终态 Turn 可暂停队列。返回成功仅表示取消已受理，客户端仍需等待原 Turn 的 terminal 事件；该方法没有提交收据。
 
-上下文压缩可能将活动 Turn 的前缀移入冷历史，因此 `turn/started` / `turn/completed` 的 `turn.items` 不能视为完整历史替换。客户端按稳定 Item ID 合并已观察条目，更新同 ID 内容与阶段，追加新条目，并保留事件中省略的旧条目及其顺序；已有 Turn 的重复开始回执不能覆盖已显示消息或把终态回退为运行中。`areal/model/completionDiscarded` 才显式移除指定的未提交模型响应。`thread/read(includeTurns:true)`、`thread/resume` 和 `areal/thread/observe` 还原冷历史，作为可替换本地投影的权威完整基线。压缩、正常完成、停止和失败均不应隐藏已保留的用户输入、steer 或 Agent 回复。
+上下文压缩可能将活动 Turn 的前缀移入冷历史，因此 `turn/started` / `turn/completed` 的 `turn.items` 不能视为完整历史替换。客户端按稳定 Item ID 合并已观察条目，更新同 ID 内容与阶段，追加新条目，并保留事件中省略的旧条目及其顺序；已有 Turn 的重复开始回执不能覆盖已显示消息或把终态回退为运行中。`areal/model/completionDiscarded` 才显式移除指定的未提交模型响应。`thread/read(includeTurns:true)`、旧模式 `thread/resume` 和 `areal/thread/observe` 还原冷历史，作为可替换本地投影的权威完整基线。压缩、正常完成、停止和失败均不应隐藏已保留的用户输入、steer 或 Agent 回复。
+
+`features.boundedObservation` 和 `features.boundedHistory` 支持协商后的有界显示读取。`areal/thread/observe {threadId,mode:"bounded",maxBytes?}` 在同一个 Thread → Tasks 锁内捕获显示基线、所有权与订阅；旧调用方不传 mode 时保持完整基线。默认 256 KiB，上限 1 MiB，预算覆盖完整 JSON-RPC 响应（包括 RPC ID、权限/模型字段、Thread 元数据、队列、交互、所有权和历史）。内部 `desktop.receipts` 在显示投影中为空，回执只经 `areal/request/read` 查询；权威记录不变。必要元数据本身放不下时返回确定性的 `HISTORY_BUDGET_TOO_SMALL`，不截断配置、队列或交互。
+
+`features.boundedResume` 允许 `thread/resume {threadId,mode:"bounded",maxBytes?}` 使用相同预算、投影与所有权字段；该入口仍按原语义重绑定动态工具 Host，再原子捕获快照与订阅。活动会话或仍在线的其他 Host 绑定仍按原规则冲突；只读观察继续使用 `areal/thread/observe`。不传 mode 的 resume 保持完整旧响应。
+
+有界结果附带 `history:{snapshotId,nextCursor,complete}`；`thread.turns` 只承载最近显示窗口。`areal/conversation/history {threadId,view:"own",cursor?,maxBytes?}` 读取更旧窗口，沿用 `{snapshotId,data,nextCursor,complete}`；每页条目按时间顺序排列，`nextCursor` 指向更旧页。own 只含目标会话自身历史，不合并 Fork inherited 或 Side reference 来源。超大条目在原位置表示为 `{type:"historyDeferred",id,originalType,cursor,version,totalBytes}`；该 item cursor 返回完整条目 JSON 的 UTF-8 分片，包含 `offsetUtf8/nextOffsetUtf8/totalBytes/version`，只在版本一致且重组完整后替换占位符。条目分片读完的 `complete:true` 只表示该条目完成，不替代旧页的 continuation。
+
+游标绑定 principal、Thread/session、own 视图、观察时最新持久用户输入和封口上界。正常追加、归档段移动保持游标有效；删除成员边界的编辑返回 `HISTORY_CURSOR_STALE` 与目标 `threadId/view/reset:true`，客户端重取该会话的基线。分片中的条目版本变化返回 `HISTORY_ITEM_CHANGED` 和 `restartCursor`；客户端丢弃旧字节并从该条目重读。活动模型输出留在当前窗口；已持久用户输入或结束工具可以作为进行中 Turn 的封口上界。基线先于后续增量发送，广播落后仍关闭连接并要求新观察。显式归档会话从持久 Record 读取，不先 hydrate 整段历史。每次读取仍可能解析一个最大 64 MiB 的既有归档段；线上的字节预算不承诺同等内存上限或总查找工作量上限。 Store 最多保留一个编码后不超过 128 MiB 的超大 own-history 条目及其完整比较值；每次读取先校验游标作用域与历史边界，再比较当前完整内容，仅完全一致时复用序列化和版本摘要。此缓存不拥有历史或执行权威，不持久化；编码载荷上限不是进程 RSS 上限。
+
+### 会话名称
+
+`Thread` 增加可选只读字段 `name`（自动总结的名称）和 `nameAttemptTurnId`（已领取命名请求的来源 Turn）。旧记录缺失时保持兼容；`preview` 仍保留原始首条输入的预览。普通、非临时的 `appServer` 根会话在首个成功用户 Turn 后异步尝试一次，排除子会话、Side、TaskRun 和 Goal 流程。名称通过 `thread/list`、`thread/read` 和 `areal/thread/edited` 返回。不会在启动时批量为已有会话补名。Workgroup 内部 worker 不参与命名，避免占用父 Goal 或 Workgroup 的模型预算。
+
+自动名称概括用户的任务或问题，避免直接引用或截断提示词。例如，输入包含重复数字并要求回复 `1` 时，可以概括为 `单字符回复测试`。
+
+Core 使用该 Turn 的模型和共享模型容量，仅发送有界文本，不提供工具。用户与 Agent 文本各最多 2048 字符，输出预算为 96 tokens，总时限为 20 秒。有效名称为单行、最多 60 字符；空白、控制字符、多行、超长、工具和二进制结果不提交。命名请求会产生额外模型用量，但不改写已完成 Turn 的历史、状态或 usage。沿用模型传输层的现有重试策略，不新增命名重试。
+
+Core 在请求前持久化领取标记。失败、取消、UNKNOWN 或重启均不再次自动提交，继续使用原有预览。提交只合并当前 Thread 的名称，并拒绝已删除、已归档或来源被修改的结果。GUI 显示优先级为手动名称、Core 自动名称、原有输入预览；自动总结不覆盖手动改名。
 
 ### 结构化终止原因
 
@@ -93,6 +126,11 @@ Responses 摘要通过可选 `reasoning_summary` / `reasoningSummary` 显式开�
 <a id="recovery"></a>
 统一委派的结算回执若已通过工具结果完整提供给当前模型请求，Core 不因自动汇总再次出现相同回执而额外请求一次最终答复。比较只忽略等待标记与剩余工具额度；执行身份、状态、资源清退、正文、验证、制品和交付事实仍须一致。新结果、失败、未知状态或未完成交付继续走原有收尾检查，不重放工具。
 
+
+`features.operationOutcomes` 声明结构化受理事实。错误的 `data.outcome.kind` 为 `noMutation`、`rejected`、`unconfirmed` 或 `admitted`。后两者携带 `operation:{method,requestId,target}`，其中 target 指向项目、Thread 或 Task。`admitted` 证明已受理，但不保证执行成功或没有部分副作用。`data.recovery.kind` 为 `retryRead`、`queryOriginal`、`needsUser` 或 `none`。管理操作最终回执落盘失败保留原始身份并返回已受理；初次保存若不能确认发布结果则保持未确认。完成的错误回执记录执行失败，不能作为零副作用证明。缺失回执、超时和普通 mutation RPC 错误均不能证明未受理。客户端仅从后两种 outcome 派生 `submissionUnknown`，不自动重放。已确认未受理的拒绝包装保留原始 `data.reason` 和诊断字段，同时补充结构化 rejected 事实；例如 `SIDE_POLICY_VIOLATION` 仍可与普通请求拒绝区分。 回执重放还须在 JSON 持久化往返后精确保留有限浮点用量值。
+
+`areal/capabilities.methodSemantics` 为每个已声明方法提供 `effect:read|subscription|mutation`，可恢复写入还声明 `receipt:thread|task|management`。Core 的方法定义同时生成这些语义。协商成功后客户端以此分类，未知方法保持保守；只有初始化和明确的旧版兼容路径使用本地分类。读取失败仅在传输故障或明确可重试时自动重试；权限、参数及 `RESPONSE_TOO_LARGE` 等确定性错误不触发重试。`delivery:resultUnavailable` 仍只描述响应无法取得。
+
 ## 执行与恢复
 
 工具只在完整模型流终态后执行。dynamicToolCall 保留原始 arguments、有效参数 effectiveArguments、callId、execution 后端与 running/succeeded/failed/cancelled/unknown。本地工具另记 epoch/scope/operationId；外部工具不伪造 Runtime 事实。hooks 和插件嵌套操作分别 journal，成功写入不因外层失败抹掉。
@@ -102,6 +140,11 @@ Responses 摘要通过可选 `reasoning_summary` / `reasoningSummary` 显式开�
 `execution.backend` 为 runtime/command/client/mcp/plugin/agent/coordination/core。可选 `modelArguments` 保存 hooks 之后、Runtime ID 展开之前的模型回放参数；`effectiveArguments` 保留真实 ID 供审计，旧记录回退使用后者。回放按 completion 保留一个 assistant 文本/工具调用批次，再接有序工具结果；不合并不同 completion。工具图像在结果批次后作为关联 callId 的 user 图像。Chat reasoning 归档但不回放，Responses 不透明上下文保持顺序。
 
 `Limits.watchdog_disable` 默认 false，Core 对已分类的网络故障无限次重试当前模型请求，包含传输错误、HTTP 408/429/5xx、提前断流、请求/流空闲超时与明确的 SSE 限流/不可用；不把长度、空回复、鉴权、额度或参数错误当成网络故障。启动配置与关闭方式见[配置指南](../guides/configuration.md)。主 Agent、子 Agent 与独立 Workgroup Engine 继承宿主开关；嵌入式调用方显式传入 Limits，Engine 不读取进程环境。Rust `Limits`、`NativeFactory` 和 `NativeExecutor` 新增 `watchdog_disable` 字段，显式结构体初始化需同步更新；`Limits::default()` 与 `NativeExecutor::new()` 默认启用。
+
+`Limits.network_retry_mode` 新增 `areal_config::NetworkRetryMode`，默认 `Persistent`；`Bounded` 对当前求解和摘要请求最多恢复五次，不改已确认工具和用量。显式 `watchdog_disable=true` 仍关闭网络 watchdog。子 Engine 通过宿主 Limits 继承该模式；Rust 显式构造 Limits 的调用方需增加字段或使用默认展开。公开通知形状与持久化状态版本不变。
+
+
+隔离 worker 的模型失败状态只保留当前调用的结果；Engine 已恢复的旧网络错误不能在最终成功后触发新一代执行。恢复请求仍完整计量，历史 UNKNOWN 不会因恢复成功而清零。
 
 watchdog 保留同一请求的 messages、tools、采样参数与模型轮次，不消耗 `max_completion_retries`；重试不会再次预留 Agent 逻辑请求额度，Workgroup 仍计入每次实际请求及部署预算。250 ms 指数退避封顶 30 秒，释放失败流持有的共享模型许可后等待；取消与显式任务预算仍能结束等待，求解请求还响应 steer。Core 审计并丢弃失败响应的文本、上下文与未执行工具调用，恢复该响应占用的输出字节额度，保留此前已执行工具和已观测 usage。发布 `areal/model/completionDiscarded`（新增 `retryKind=network|completion`）及 `areal/model/watchdogRetry {threadId,turnId,purpose:solve|summary,retry,delayMs}`。这里的丢弃不回滚已执行工具，也不重启整个 Turn。 这两个事件也包含在 `areal/capabilities.notifications` 与公开 JSON Schema 中；摘要重试的 `turnId` 可为 null。
 
@@ -132,6 +175,14 @@ Checkpoint 的 `retainedInputs: [{itemId, content}]` 与 `evidence: string[]` �
 `areal/context/compacted` 保留前后字节、估算 token、targetTokens/targetMet、摘要预算、degradationReason、retainedUserMessages、trigger（manual/tokens/bytes/storage）与用量；`degradationReason=storage_archive` 只标识未调用摘要器的存储归档。新增 `areal/context/compactionFailed {threadId,code:"LLM_CONTEXT_COMPACTION_FAILED",reason,checkpointPreserved:true,windowTokens,outputReserveTokens,inputLimitTokens,beforeEstimatedTokens}`，并登记于 capabilities 和 JSON Schema。它表示候选没有提交，不等同于 Turn 失败。
 
 `areal/context/read` 的 `budget` 新增 `outputLimitTokens`（自定义模型可为 null）、`historyEstimatedTokens`、`estimatedInputTokens`、`estimateScope:"historyWithRecordedInstructionsAndCurrentTools"` 与 `retentionStrategy:"automatic"|"legacyRecentBoundary"`，保留窗口、输出预留、输入上限、目标与窗口来源。估算包含已记录固定指令与当前工具，不声称包含下一次尚未构造的动态提示。求解与手动压缩复用固定指令装配和计量入口，最终求解额外计入实际动态提示。自动模式在任何输出/工具调用之前遇到明确提供方上下文溢出时，可恢复一次，仍受 Goal 计量约束。
+
+`areal/context/read` 同时提供 `contextUsage` 与 `sessionUsage`。`contextUsage` 的 `basis` 绑定 provider、model、配置 revision、默认模型 revision 和 Turn；运行时使用本轮冻结配置，空闲时使用桌面当前选择。`kind:"ready"` 提供 `budget`、`scope` 和 `estimate:{tokens,parts}`；`scope.kind:"assembledRequest"` 是最后一次完成组装与观察投影的实际请求（仅保存最新数字读数），`recordedHistory` 是保存的指令、历史和当前工具的估算。切换模型后不能复用旧指令估算时，返回 `kind:"unavailable"`、新容量及 `reason:"instructionBasisChanged"`；另有 `awaitingRequest` 和 `modelUnavailable`。此时旧 `budget.estimatedInputTokens` 省略，不能按零处理。旧 budget 的 `estimateScope` 与可用时的 `estimatedInputTokens` 继续表示历史、已保存指令和当前工具，不改为实时请求口径。模型切换省略 parameters 时采用新模型默认值；同模型更新和明确覆盖保留现有规则。
+
+`estimate.parts` 分为 systemPrompt、rules、skills、toolDefinitions、conversation、summary、attachments、toolResults、other，可含命名 children。父分类之和等于已有 Core 请求估算；请求和消息封套仅计一次。工具 schema 由 Registry backend 区分 CLI、MCP 与内置工具；`run_command` 仍是内置工具。Skills 正文只计仍在最终请求中的实际读取文本。已转换而失去来源、重复 call ID 无法唯一归属或旧记录没有来源信息时，只把剩余内容计入 other。估算不是供应商 tokenizer 精确值，也不是累计消费。可选 `Turn.instructionAttribution:{sha256,parts}` 绑定同轮保存的 `instructionSnapshot`，不重新读取当前文件推断旧指令来源。
+
+可选 `Turn.generation:{outputTokens,durationMs,measuredRequests,unmeasuredRequests,usageRequests,missingUsageRequests}` 随 Turn 保存并保留在继承/引用历史投影中；旧记录缺失时速率未知。每个实际 solve、summary 和重试请求只登记一次；取消、错误和超时的尾部用量仍由原消费路径累计。请求在确认正常 EOF、收到 usage、至少两个非空文本/推理事件且时长为正时，才把该请求的 output 和从首内容到 EOF 的时长配对计入 generation。速率为匹配 output 总和除以匹配 duration 总和，不包含首内容前等待，也不平均各请求速率。工具调用事件不算内容事件；单事件响应、无 usage、错误或未到 EOF 的请求保留 unmeasured。所有请求初始属于 unmeasured/missingUsage；观察到 usage 后移到 usageRequests，正常 EOF 再决定速率覆盖，未完成的请求不会被补造为完整计量。
+
+`sessionUsage:{usage,generation,knownTurns,unknownTurns,partialTurns,scope:"ownTurns"}` 由 Core 完整本地历史（含归档）计算，排除 fork 祖先的消费。`usage:null` 表示没有已确认用量；明确返回的零仍是已知零。`unknownTurns` 标出没有 usage 的轮次；已有 usage 但仍存在缺失请求用量、或旧记录无法确认覆盖的轮次计入 `partialTurns`。因此已确认消费可能只是小计。Token 总量为 inputTokens + outputTokens；cachedInputTokens 是输入子集。用量覆盖与速率覆盖独立，工具专用请求可能有完整 usage 而没有可报告的速率。手动压缩成功或失败后，GUI 重新读取权威 Thread 更新原轮次用量，不重放压缩提交。
 
 压缩后的求解上下文还包含 Core 从成功文件操作回执提取的历史路径、完整 SHA-256 与读取范围（最多 24 项、8 KiB）；不复制失效的 fileVersion 句柄，也不把分页读取推断为全文覆盖。摘要模型不再负责复述哈希。
 
@@ -168,7 +219,7 @@ JSONL 的 30 天期限按文件最后修改时间计算，不逐条检查行的�
 
 工具错误审计新增 `errorCode` 与 `toolCallError`：`invalid_tool_call_index` 附固定原因、协议、字段路径、从 1 开始的 SSE 数据事件序号、index JSON 类型及已缓冲调用数量；`tool_call_budget_exceeded` 附预算类别、上限和观测值。字段只含固定标签和有界数值，诊断不复制 SSE、参数、reasoning 或非法字段值，使用同一记录的本地 `requestId` 关联。`responseShape.toolArgumentBytes` 沿用旧名称，实际累计通过校验的 id/name/arguments 字节。
 
-快照写入格式 14，可读取无派生元数据的旧格式 1–14；Fork/Side 记录必须使用格式 14 并通过会话版本与持久权限校验。旧二进制不能读取新快照，不能通过降低版本号绕过角色检查。可选 `historyArchive` 引用 `history/` 中的不可变 SHA-256 分段，包含 head、throughItemId、completedTurns、items、bytes；单分段最多 32 MiB。先同步分段，再提交引用它的快照。热快照保留近期条目和 checkpoint；完整 thread 读取还原原始 Turn/Item，并省略存储清单。`read_history` 按 item ID 分页，无需加载全部归档。GC 同时追踪热快照与冷分段引用。工具意图持久化与 UNKNOWN 恢复不变，不重放归档副作用。usage/duration 缺失表示未知，不是 0。
+快照写入格式 14，可读取无派生元数据的旧格式 1–14；Fork/Side 记录必须使用格式 14 并通过会话版本与持久权限校验。旧二进制不能读取新快照，不能通过降低版本号绕过角色检查。可选 `historyArchive` 引用 `history/` 中的不可变 SHA-256 分段，包含 head、throughItemId、completedTurns、items、bytes；单分段最多 64 MiB。先同步分段，再提交引用它的快照。热快照保留近期条目和 checkpoint；完整 thread 读取还原原始 Turn/Item，并省略存储清单。`read_history` 按 item ID 分页，无需加载全部归档。GC 同时追踪热快照与冷分段引用。工具意图持久化与 UNKNOWN 恢复不变，不重放归档副作用。usage/duration 缺失表示未知，不是 0。
 
 `ToolExecution` 新增可选 `resultSnapshot: MediaRef` 与 `outputProjection` 度量对象，旧记录默认缺省。原文回取是模型 Core 工具 `read_tool_result`，不是新的 Runtime RPC；边界见[工具指南](../guides/tools.md)。模型请求审计另记 messageBlocks 的摘要/字节数、toolSchemaSha256 和 instructionsSha256，用于离线比较稳定前缀；不记录提示词正文，也不将前缀相同直接视为提供方缓存命中。`usageDetails` 记录提供方可选的缓存输入和推理 token；缺失时为 null，预算用量结构不变。
 
@@ -194,6 +245,8 @@ success/contentItems 必填；结构化成功结果按 outputSchema 校验，产
 <a id="agent-tools"></a>
 ## Agent 工具
 
+共享原生子任务的终态回执进入父模型输入并成功完成响应后，收尾不因同一版本再次请求模型。`agent_read`、`agent_wait`、`agent_wait_any` 与旧 threadId 调用遵循同一规则。等待超时、仅读取尾页、缺失关键字段的截断投影不确认未见终态；新报告、失败或资源释放变化仍需处理。此规则不修改返回字段、预算、隔离候选交付门禁或 TaskRun 生命周期，也不把“已提供结果”当作验收成功。
+
 模型使用一个委派入口，说明工作意图和交付要求；Core 选择共享只读、共享独占作者或隔离工作区。用户不选择后端。只有明确需要隔离或可信检查时才把它作为不可降级的要求。
 
 | 工具 | 参数 |
@@ -201,34 +254,60 @@ success/contentItems 必填；结构化成功结果按 outputSchema 校验，产
 | `agent_spawn` | `{prompt,intent:"inspect"\|"modify",delivery:"report"\|"changes"\|"patch",writes?,independent?,requiresCurrentEnvironment?,requireTrustedChecks?,maxModelRounds?}` |
 | `agent_read` | `{executionId,offset?:0}` |
 | `agent_wait` | `{executionId,timeoutMs?:10000}` |
-| `agent_wait_any` | `{executionIds,timeoutMs?:10000}` |
+| `agent_wait_any` | `{executionIds,timeoutMs?:10000,after?:{executionId:receiptVersion}}` |
 | `agent_artifact` | `{executionId,path?,offset?:0}` |
 | `agent_report` | `{summary,evidence,remaining}` |
 | `agent_send_input` | `{executionId,prompt}` |
 | `agent_cancel` | `{executionId,mode?:"graceful"}` |
 
-prompt 必须非空，委派输入文本合计最多 32000 字节。inspect 仅交付 report，不可请求写入或可信源码验收；modify 交付 changes 或 patch。writes 为至多 256 个不同的工作区相对文件路径，隔离执行必须提供。maxModelRounds 为 1–1024，不能扩大父上限；最后一轮仅交接。wait 超时 0–60000 ms 不取消子任务；wait_any 接受 1–16 个不同执行。report 仍仅限子 Agent，字段边界不变。
+prompt 必须非空，委派输入文本合计最多 32000 字节。inspect 仅交付 report，不可请求写入或可信源码验收；modify 交付 changes 或 patch。writes 为至多 256 个不同的精确工作区相对文件路径，隔离执行必须提供；目录尾斜杠、绝对路径和点路径分量被拒绝，错误指出具体数组项。maxModelRounds 为 1–1024，不能扩大父上限；最后一轮仅交接。wait 超时 0–60000 ms 不取消子任务；wait_any 接受 1–16 个不同执行。report 仅限子 Agent 和可信隔离 worker，字段边界不变。
+
+统一模型工具的结果只提供 `executionId` 作为控制身份，不再同时提供 owner、parentThreadId、threadId、turnId；客户端 read/list 和持久执行记录保留完整身份。旧 threadId 模型工具调用保持兼容。`agent_spawn` 返回 failed 时工具 success=false；读取失败子任务的报告仍是成功的读取操作，不能把其中失败状态当作任务成功。创建锁按父会话隔离，探针后的额度预留再次校验累计上限。
+
+`task_state.executions` 列出当前 Turn 或匹配 TaskRun Goal 的持久执行句柄，含 executionId、strategy、title、creationError，executionCount 为完整数量。最多 64 项并受总结果预算限制，截断明确标记；共享子任务的 agents 行同样使用 executionId，旧直接 spawn 行继续返回 threadId。该投影不探测执行器，实际控制仍校验所有权；压缩后可据此恢复正确的控制身份。
 
 Core 先检查父权限、Profile、写入授权、执行环境和源码快照能力。独立修改优先隔离；当前宿主环境依赖、紧耦合修改或可选隔离不可用时，选择共享独占作者。patch 或 requireTrustedChecks 不能因能力缺失变成共享写入。共享作者持有工作区独占租约，其他普通工具等待；它不能再次递归委派。隔离执行继承父工具和必须审批边界，采用 Headless，无法获得批准时拒绝执行。隔离源码快照、共享作者启动和交付都检查尚未结算的 Runtime 进程，不能把已返回句柄视作进程结束。
 
-`agent_send_input` 可纠正共享子任务；隔离任务契约已经冻结，需要先取消并确认结算，再提交新任务。取消会封闭共享子树准入并传播至后代；force 缩短收尾等待，不保证已发生的副作用回滚。统一执行历史记录中的 `cancelRequested` 持久化后不可撤销（查询投影字段为 `stopRequested`）：已完成但尚未交付的候选返回 `status=cancelled`、`delivery.status=cancelled`，等待、Turn 收尾及重启恢复均不再应用该候选。取消与交付并发时，已经开始的 Runtime 操作等待真实回执，之后不再启动下一项；`partial`、`unknown` 和已完成的 `applied` 回执保留，不伪装成未写入。取消候选仍可读取制品；需要修改或重新交付时提交新的执行。
+共享作者重新取得租约时若发现工作区版本冲突，同一模型响应的剩余调用均返回未执行的 `CONFLICT` 回执。模型成功观察原冲突回执后才能重新决策；这些准入拒绝不计入重复后端执行失败。隔离作者的制品采集同时保留真实基线文件和显式 `writes` 路径，包含被忽略的新交付文件。不存在的声明路径不会变成空文件，无关忽略产物仍不采集。
+
+`agent_wait` / `agent_wait_any` 在自动交付受阻时仍返回已确认的子任务结论和当前执行回执；`delivery.attemptError` 记录本次交付错误，`nextAction` 提供处理指引。权威交付状态、UNKNOWN、资源释放和完成门禁保持不变，等待返回成功不代表变更已应用。阻挡解除后复用原候选，不重新执行子任务。
+
+`agent_send_input` 可纠正共享子任务；回执中的 `capabilities.sendInput` 同时检查活动 Turn 是否封闭或已取消。调用返回 `inputAccepted:true` 表示修订已持久化；若读取状态后目标已关闭，则返回 `inputAccepted:false`、当前执行回执及 `nextAction`，不写入修订、不启动新 Turn、不增加重试。该未送达状态不能当作修订已执行。所有权、存储、额度和参数错误仍然报错，旧 threadId 协调入口使用同样语义。隔离任务契约已经冻结，需要先取消并确认结算，再提交新任务。取消会封闭共享子树准入并传播至后代；force 缩短收尾等待，不保证已发生的副作用回滚。统一执行历史记录中的 `cancelRequested` 持久化后不可撤销（查询投影字段为 `stopRequested`）：已完成但尚未交付的候选返回 `status=cancelled`、`delivery.status=cancelled`，等待、Turn 收尾及重启恢复均不再应用该候选。取消与交付并发时，已经开始的 Runtime 操作等待真实回执，之后不再启动下一项；`partial`、`unknown` 和已完成的 `applied` 回执保留，不伪装成未写入。取消候选仍可读取制品；需要修改或重新交付时提交新的执行。
+
+分析默认 `sharedReadOnly`；可信部署显式配置 `delegation.inspection_permissions="inherit"` 后为 `sharedInherited`。后者仍要求只交付报告，但不承诺源码不可写，不能取消父/Profile 的只读约束。可写继承子任务持久 `desktop.executionPolicy.deferredWrite=true`，首次潜在副作用取得工作区写租约直到该 Turn 资源与持久化结算；纯原生读取可并行，跨 Turn 服务和递归委派拒绝。`exclusiveWrite` 保留旧含义；旧快照缺失 deferredWrite 时按 false 读取。新快照和响应包含新增策略字段，客户端须使用同步 schema；不认识该字段的旧二进制不可降级打开，更不能删除字段以绕过执行策略。旧 sharedReadOnly 与研究 Agent 保持强制只读。TaskRun worker 同样在空 Thread 注册及首个模型请求前执行 scope.check。详见[权限配置](../guides/configuration.md#分析子任务的权限策略)。
 
 ### 统一客户端接口
+
+握手明确报告 `restrictedScopes.available=false` 时，可信原生 `agent_spawn` 的模型 schema 只宣告可执行的意图：默认只读分析不可用时保留 `modify`；父任务也不可写则隐藏创建。显式 inherit 不扩大父/Profile 权限。研究入口 `delegate_tasks` 隐藏，但任务历史和控制入口保留；同名外部工具不按名称套用该规则。显式调用仍由最终 Scope 预检裁决，模型 schema 不构成授权。
+
+模型身份精简只发生在新回执的模型历史投影中；持久工具原文、GUI 与 SDK 继续保留线程关联。首次结算记录 `execution.outputProjection.executionIdentityVersion=1`，只对可信 coordination 后端启用；没有该标记的旧历史按原字节回放，避免升级改写已经交给 provider 的上下文。
 
 `areal/agent/delegate` 接受 `{requestId,parentThreadId,input,intent?,delivery?,writes?,independent?,requiresCurrentEnvironment?,requireTrustedChecks?,maxModelRounds?,agentProfile?,instructions?,skills?,model?,toolAllowlist?}`，默认 inspect/report。必须有活跃父 Turn。父 Thread 内相同 requestId 和相同参数返回同一 executionId，参数不同拒绝；创建意图先持久化，未知结果不自动重派。历史最多 10000 个执行记录。
 
 | 方法 | 参数与行为 |
 |---|---|
 | `areal/execution/list` | `{parentThreadId,offset?:0,limit?:50}`；limit 为 1–100，返回 data/nextOffset |
-| `areal/execution/read` | `{parentThreadId,executionId,offset?:0}`；读取权威投影，共享子任务正文以 offset/nextOffset 分页，保留 source/sourceItemId/textBytes |
+| `areal/execution/read` | `{parentThreadId,executionId,offset?:0}`；读取权威投影，共享与隔离子任务正文均以 offset/nextOffset 分页，保留 source/sourceItemId/textBytes |
 | `areal/execution/wait` | `{parentThreadId,executionId,timeoutMs?:10000}`；只读，settled 或 awaitingDelivery 时提前返回，超时不取消 |
-| `areal/execution/artifact` | `{parentThreadId,executionId,path?,offset?:0}`；读取候选文件列表或分块内容，返回 head 和 verified |
+| `areal/execution/artifact` | `{parentThreadId,executionId,path?,offset?:0}`；读取候选文件列表或分块内容，返回 head 和 verified；未就绪时成功返回 `{ready:false,execution,nextAction}`，不返回文件列表或字节 |
 | `areal/execution/cancel` | 上述定位参数加 `mode?:"graceful"`；请求取消，响应不表示清理已完成 |
 | `areal/execution/apply` | `{parentThreadId,executionId}`；通过 Core 的整组交付流程应用候选，活跃 Turn 承接权限与取消；空闲时返回 requiresActiveTurn |
 
 list/read/wait/artifact 需要 observe，delegate/cancel/apply 需要 interact，均校验 parentThreadId 可见性及 execution 归属。长等待与同连接取消使用独立、有界的并发槽。公共 wait 不触发写入；模型等待、Turn 收尾及 TaskRun 调度器负责已请求 changes 的自动交付。
 
 客户端委派与写回也遵守 Goal 的预算确认和停止报告门禁；预算待确认或停止报告已受理时，不再创建执行或写入。旧执行及交付回执仍可查询，取消和制品读取仍可用于收尾。隔离 worker 继承部署的 ask/deny 规则与父 Profile 的必须审批约束，不复制会话或项目授权记忆。
+
+隔离 worker 的 Runtime 继承可信父 Runtime 已授予的网络上限；父任务禁网或无可信宿主时仍禁网，只读子 Scope 仍可进一步收窄。网络授权不授予宿主文件、凭据或额外源码写入。
+
+`sourceView=snapshotAtCreation` 表示创建时的隔离源码，后续父任务和兄弟任务的写回不会自动出现；`currentShared` 表示当前共享文件，`unavailable` 表示尚无可用执行。需要检查后期集成的任务可在输入应用后创建，并指定 `requiresCurrentEnvironment=true`；该标志不授予命令、网络或写入权限。准备检查脚本与在集成版本上执行验收是两项不同的交付。`networkPolicy` 与共享执行实际使用的基础权限请求共用判断：`deny` 也禁止本地监听和连接；`inherit` 仍受 Runtime 上限及既有单次授权约束。无法权威投影的隔离执行器返回 `unknown`，不推断已有访问权。模型执行设置通过 `baseNetworkPolicy` 暴露同一事实；这些字段不增加权限，也不替代准入校验。
+
+回执包含 `capabilities.{sendInput,readHandoff,readArtifact,supportsArtifact,contract,sourceView,networkPolicy}`。共享执行支持运行中补充输入，隔离契约保持 frozen。`sendInput=false` 表示当前不能接收输入，原因可能是契约冻结，也可能是 Turn 已封闭；应先读取当前交付，不能继续追加输入。冻结契约需在创建时给齐上下文；确需修订任务时先确认原执行已结算。能力字段不授予权限，也不恢复已结束的子任务。 `supportsArtifact` 表示后端支持，`readArtifact` 与 `artifact.available` 表示当前满足执行、清理和必要验收门禁；同一谓词保护制品字节。提前调用 `agent_artifact` 返回 `ready=false`、当前 execution 回执和等待指引，不读取未结算制品。`delivery.status=applied` 表示变更已在父工作区。
+
+回执新增 `receiptVersion`，绑定来源、执行、清理、错误、验收和交付版本，不包含轮询瞬时活动或分页偏移。`agent_wait_any` 返回 `nextAfter`；下次将其作为 `after` 传回时，相同的已结算回执只列入 `unchanged`，不再次立即唤醒。新版本仍返回 `completed`；未完成项在 `pending`，超时不确认完成。全部所选项已结算时立即返回 `allSettled=true`，不空等到超时。游标不确认正文已读或验收成功；长报告仍须按 nextOffset 读取。批量视图省略重复的 title/reason、能力描述和 receiptVersion 副本，生命周期、结论及分页字段保留，游标在 nextAfter。协调投影 v2 在 16 KiB 截断前生成，完整原文按既有快照/回取契约保留；不可回取时保守保留有界原文。可回取的批量交接仍超限时，先生成每项 UTF-8 正文预览，保留状态、来源、资源释放、验收、交付及 nextAfter；缩短正文时按实际字节数更新 nextOffset。预览不表示正文完整或验收通过。元数据本身仍超限时退回既有有界原文回取，不删除状态字段来伪造完整批次。已有 v1 回执仍使用 v1 投影，升级不追溯改写旧 provider 历史。`after` 只允许本次所选执行，不能扩大所有权；省略时保持旧调用行为。
+
+隔离 worker 可调用现有 `agent_report`，但不能递归委派。Core 保存已提交阶段报告与最终回复，正文按 8 KiB UTF-8 页面读取，持久交接序列化上限为 32 MiB；超限明确失败并保留原历史。`sourceItemId` 变化后从第一页重读。运行、失败和取消仍可返回阶段交接，`partial` 不代表完成；报告不能证明检查通过、制品应用或资源释放。隔离 activity 随已提交交接快照更新，不能仅凭未变化的活动计数判断 worker 是否停滞。旧隔离执行没有新增交接文件时返回空正文与 source=none。
+
+已完整交给本次模型请求的同版本成功、失败或取消回执不再使最终答复失效；只接受本 Turn 成功的可信 coordination 工具结果。所有页面必须连续且属于同一来源版本。新错误、新正文、未知交付、未释放资源、超时和未读完整分页仍需处理，既有 partial/unknown 交付不因取消变为成功。
 
 投影分别返回 status、settled、resourcesReleased、verification 和 delivery。verification.status=notRun 不代表通过；严格模式使用可信部署检查，自动隔离不会伪造验收。delivery=candidate 只表示候选就绪，只有 applied 表示改动已交付当前工作区。交付日志保留原 sourceHead、实际组合 head、基线及逐操作回执；不相交的改动可以组合，严格模式对变化后的组合树重新验收。同文件变化拒绝覆盖，partial/unknown 不视作成功，也不自动重放。验证与应用是历史事实，后续工作区变化不撤销旧回执。
 
@@ -331,7 +410,7 @@ Task Mode 在 Goal 之上提供 foreground/scheduled/background 任务、TaskRun
 
 普通 Turn 不设组合总时限。`thread/configuration/read` 的 `limits` 仅返回 `historyBytes`、`contextBytes`；已移除 `turnTimeoutMs`。模型、工具及显式任务预算继续独立生效。
 
-模型请求将固定指令与历史放在前缀，将轮次、Goal/Task 当前状态、子任务结果和预算提示作为 system 消息放在完整历史之后，保持工具调用与结果相邻。动态提示在请求前以 `modelContext.value.type=areal_request_context` 持久化，按原顺序保留在对应输出之前；最新快照替代旧快照的状态含义，但不删除旧输入。最后一轮禁用工具或上下文压缩仍可能改变缓存前缀。缓存命中还取决于供应商与路由，不能由消息顺序保证。
+模型请求将固定指令与历史放在前缀，将轮次、Goal/Task 当前状态、子任务结果和预算提示以内部 areal_context 角色保存在完整历史之后；Chat/Responses 按原位置将其投影为有来源标记的 user 状态数据，保持工具调用与结果相邻。动态提示在请求前以 `modelContext.value.type=areal_request_context` 持久化，按原顺序保留在对应输出之前；最新快照替代旧快照的状态含义，但不删除旧输入。最后一轮禁用工具或上下文压缩仍可能改变缓存前缀。缓存命中还取决于供应商与路由，不能由消息顺序保证。 App 参考数据使用同一追加上下文通路，不进入 Turn 的系统指令快照。变化的快照在完整历史之后以不可信 `areal_context` 数据追加；不重复未变化的快照，已观察到的清空追加空快照。只比较同类最近记录，保留 A→B→A 的每次变化；对象键顺序变化不增加副本。没有 App 引用的会话不新增消息。压缩检查点通过 `appReferenceSeen` 记录被压缩历史是否包含 App 引用。App 关闭后，即使旧快照已进入摘要，下一请求仍追加 `[]`。清空活跃 App 的内容则保留该实例及其空内容。旧检查点缺少此字段时，Core 首次从已保存的请求上下文记录解析该事实并持久化；摘要文字不能证明曾有 App 引用。旧指令快照和历史不改写。App 快照不证明当前仍然新鲜或已授权；压缩和宿主实时状态仍需既有的新鲜度及权限校验。
 
 `thread/read {threadId,includeTurns:true}` 返回持久化 Turn/Item 历史；`areal/thread/inspect` 返回执行配置与工具视图；`areal/context/read {threadId,offset,limit}` 返回分页历史投影（limit 为 1–32）与指令快照，并省略不透明 provider context。该投影包含持久化的请求状态快照；旧版本未保存的提示无法恢复。它仍不是过去某次 HTTP 请求的精确重放。每次模型调用在预算预检和摘要裁剪后提交的 Engine 消息通过 `areal::trajectory` 的 `gen_ai.input.messages` 记录；查询已导出的轨迹需使用部署的遥测后端。该字段是协议适配前的逻辑消息；完整适配后的请求使用以下独立字段，不能把两者混用。
 
@@ -370,7 +449,7 @@ Chat Completions 的 HTTP 适配会把所有纯文本 system 消息按原有相�
 
 摘要超过 16 KiB 时，Core 在既有空闲期限和取消规则内继续读取流到结束，收集尾部用量后再拒绝摘要并执行原有有限格式重试。不会仅因摘要超长而丢弃已到达的用量；确实缺失的用量仍保留为 UNKNOWN，不自动恢复 Goal。
 
-新请求状态使用内部 `areal_context` 角色持久化。Chat 将其按原位置投影为 user 状态数据，并在开头加入固定解释规则；这些状态不构成新增用户授权，权限和预算仍由 Core 强制执行。真正的 system 规则继续合并到开头以兼容仅支持首条 system 的模板。Responses 将内部状态角色映射回 system。旧历史中的 system 快照不自动迁移，因此旧会话可能直到压缩或新建会话后才能完全获得稳定前缀。仅完全相同的 headless 静态提示在可见历史中去重，动态状态回到旧值仍追加事件。
+新请求状态使用内部 `areal_context` 角色持久化。Chat 将其按原位置投影为 user 状态数据，并在开头加入固定解释规则；这些状态不构成新增用户授权，权限和预算仍由 Core 强制执行。真正的 system 规则继续合并到开头以兼容仅支持首条 system 的模板。Responses 同样在原位置投影为标明来源的 user 状态数据，不把动态轮数或子任务结果提升为全局系统指令。旧历史中的 system 快照不自动迁移，因此旧会话可能直到压缩或新建会话后才能完全获得稳定前缀。仅完全相同的 headless 静态提示在可见历史中去重，动态状态回到旧值仍追加事件。
 
 Goal 提示投影不携带 eventSequence 或逐请求累计用量/时钟，只保留 usage.turnsStarted；完整账本仍通过 goal_read 和 Goal API 读取。相同的最近 Goal 快照不重复注入；revision、报告或状态变化会追加新快照，A→B→A 不会误删最后一次变化。该裁剪仅影响模型提示，持久 Goal 账本与预算执行不变。
 
@@ -406,7 +485,7 @@ CLI 保持 `--input-file` 的 2 MiB 上限，以有界读取在 JSON 解析前�
 
 项目指令由 Engine 在每个 Turn 首次模型请求前加载，并保存为 `instructionSnapshot`。按工作区根到 Thread `cwd` 的目录链读取 `AGENTS.md`，来源路径随正文写入快照；不新增 API 字段，已有仅根文件项目保持兼容。正文合计超过 32 KiB、无效 UTF-8、符号链接或超过 64 层的目录链使 Turn 在请求模型前失败，不截断规则。作用域、优先级与 cwd 路径别名见[客户端指南](../guides/clients.md#历史恢复与观测)。
 
-Shared Browser 的旧 Thread 固定工具包追加已实现，方法为 `areal/thread/tools/attach`；请求、回执、存储版本与回退限制见[Browser 契约](browser.md#10-旧-thread-与多客户端新增-core-接口)。工具准备与只读观察订阅仍是设计契约；`thread/resume` 行为未改变。
+Shared Browser 的旧 Thread 固定工具包追加已实现，方法为 `areal/thread/tools/attach`；请求、回执、存储版本与回退限制见[Browser 契约](browser.md#10-旧-thread-与多客户端新增-core-接口)。工具准备仍是设计契约；只读观察使用 `areal/thread/observe`。`thread/resume` 保留 Host 绑定语义，并可协商上述有界显示响应。
 
 Core 可通过默认关闭的实验配置，在请求投影与检查点证据中有界保留完整文件参考；执行等待仍由 Runtime 管理。参考回取、非交互 stdin 和连续失败上限见[配置指南](../guides/configuration.md#参考保留与有界工具恢复)。
 
@@ -417,3 +496,20 @@ Rust `Limits` 与 `ResolvedCoreConfig` 增加上述实验控制字段及 `comman
 `areal/server/status` 返回 `idleForMs`，表示当前执行实例连续无工作的毫秒数。Core 重启、活动工作、持久 thread/turn 的最新变更都会收紧此值；只读观察和连接心跳不延长空闲时间。该字段不作为执行完成的独立凭据。
 
 `areal/server/drain` 新增可选 `idleTimeoutMs`（1–604800000），仅用于 `strategy:"ifIdle"`。Core 在同一准入锁中检查空闲时长和全部生命周期阻塞条件；不满足时拒绝且保持准入开放。满足时关闭新工作准入并执行既有安全排空。控制面必须继续验证排空响应和 writer 隔离凭据，再销毁沙箱。旧客户端省略此字段时行为保持不变；不支持该字段的旧 Core 不能用于自动空闲回收。
+## 工具并发与执行进度
+
+工具执行按注册后端分类，`ToolPolicy.parallelReadCalls` 范围 1–4，默认 1 保留串行；并发性能候选须通过部署显式开启。连续的可信内置 `read_file/fs_read/fs_list/fs_stat/search_files` 可并行；写入、进程输入与游标、协调状态及外部同名工具形成顺序屏障。连续安全区段内按空闲槽滚动补位，遇到屏障必须先排空。匹配调用的全局 hook（精确工具名或 `*`）会使该调用串行；不匹配的全局 hooks 不阻塞读取。本 Turn 插件 hooks 或重复失败门禁仍使整段串行。有限输出额度对可信读取逐调用预留有界收据与参数转义空间，并保留最终交接额度；空闲槽只使用尚未预留的容量，结算后回收未使用部分。余额不足以容纳并行收据时退回串行；不足以执行下一调用时返回未执行交接。收据违反预留约束时停止补位，保留已结算结果。每个调用独立准入、持久化意图和结算，部分失败先收齐在途结果；取消与 UNKNOWN 不自动重放。
+
+隔离 worker 继承父部署的纯 `ToolPolicy`，不复制外部工具、hooks、插件或凭据；父部署存在全局 hooks 时读取宽度保守为 1。订阅适配器保留 Core 的 `parallel_tool_calls` 布尔值，实际执行仍受 Core 屏障约束。
+
+订阅目录显式声明 `use_responses_lite=true` 时，适配器为未指定的 `reasoning.context` 补入 `all_turns`；目录声明 `support_verbosity=true` 且默认值有效时，补入 `text.verbosity`。显式请求值优先，不按模型名猜测。目录、账号切换与缓存失效同步清理能力提示；缺少能力声明时不补默认值。这只对齐请求协议，不能证明推理连续性或性能收益；响应中的实际模式仍须检查。
+
+Core 的通用 Responses HTTP 传输发送稳定的 `session-id/thread-id`，并保留上游首次成功返回的 `x-codex-turn-state`，覆盖自定义 provider 入口。状态按模型构建作用域（端点或凭据重建时改变）、Thread、Turn 和请求用途隔离；同一不可变模型的克隆共享作用域。一个模型工厂共享最多 128 项，空闲 30 分钟回收、单值上限 8 KiB；过期或被回收的旧租约不能回填新槽。无所有者时不发送路由头，Chat Completions 与 WebSocket 行为不变。不改请求正文或重试策略。Core 审计在收到响应时记录路由头存在性，不记录不透明值，也不据此证明服务端缓存命中。
+
+Responses HTTP 请求以 `x-areal-thread-id`、`x-areal-turn-id` 和 `x-areal-model-purpose=solve|summary|permissionReview` 携带可信 Core 的不透明所有者身份，不改写模型输入。无所有者的标题或探测请求不共享路由状态。订阅转发据此发送稳定的 `session-id/thread-id`；只在内存中保留服务端首次返回的 `x-codex-turn-state`，同一账号 revision、模型、Thread、Turn 和请求用途内复用，不跨 Turn。账号变更或关闭清空状态；迟到/取消响应不能重新填入已清理项。最多 128 项、空闲 30 分钟回收，单值上限 8 KiB；审计只记录 `sessionIdentitySent`、`turnStateSent` 和 `turnStateReceived` 三个布尔字段；可选桌面审计保留它们，不存储不透明路由值。不增加 POST 重试，不修改上下文、工具执行或用量未知的语义。缺少上游路由头时保持普通完整请求。
+
+Rust `ToolPolicy` 的穷举结构体字面量调用方需要补上 `parallel_read_calls` 和 `completion_focus`，或使用 `..ToolPolicy::default()`；旧部署 JSON 可省略该字段并保持串行。
+
+原生 Runtime 工具结果提供 `turnElapsedSeconds`，表示当前 Turn 的真实已用秒数，便于模型遵守用户显式时限。该事实不构成新任务、自动完成或验收结论；不额外插入用户消息，也不装饰协调回执，以保持已消费回执的版本判断。 Workgroup 重复成功检查点不把该时钟元数据计入结果身份；真实工具输出或已观察源码字节变化仍会阻止检查点。
+
+共享模型池的 `requests` 和 `ModelLoad.startedRequests` 统计本地请求准入，包括 HTTP 内部重试；`inFlight` 与 `occupiedSlotSeconds` 不包含退避，重新排队计入 `waiting`。取消可发生在准入与上游观察之间，这类预留仍保留 UNKNOWN。字段类型保持不变；统计不等于服务端实际推理或计费。

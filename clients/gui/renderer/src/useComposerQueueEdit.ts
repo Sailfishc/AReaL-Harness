@@ -1,6 +1,9 @@
+import { composerDraftStorage } from "./composerDraftStorage.js";
+import { imageAnnotationText, sentImageAnnotations, serializeImageAnnotations, snapshotImageAnnotations, type SentImageAnnotation } from "./imageAnnotations.js";
 import { useRef, useState, useEffect } from "react";
 import type { RefObject } from "react";
 import type { Action, Data } from "./services.js";
+import { recoveredOutcome } from "./recoveryPresentation.js";
 import type { LexicalChatInputHandle } from "./LexicalChatInput.js";
 import { composerInput, type ComposerDraftAttachment } from "./ComposerAttachments.js";
 
@@ -10,6 +13,7 @@ type QueueEdit = {
   wasPaused: boolean;
   phase: "opening" | "editing" | "saving" | "restoring";
   attachments: Data[];
+  imageNotes?: SentImageAnnotation[];
   original: { text: string; skills: string | null; goal: string | null };
   unknown?: { requestId: string; operation: "pause" | "update" | "resume" };
 };
@@ -29,6 +33,7 @@ export function useComposerQueueEdit({
   uploadFiles,
   inFlight,
   setInFlight,
+  annotationBlocked,
 }: {
   project: Data;
   threadId: string;
@@ -43,11 +48,12 @@ export function useComposerQueueEdit({
   uploadFiles: (files: File[]) => Promise<Data[]>;
   inFlight: boolean;
   setInFlight: (active: boolean) => void;
+  annotationBlocked: boolean;
 }) {
   const storageKey = `${draftKey}:queue-edit`;
   const backupKey = `${storageKey}:original`;
   const [edit, setEdit] = useState<QueueEdit | null>(() =>
-    JSON.parse(localStorage.getItem(storageKey) ?? "null"),
+    JSON.parse(composerDraftStorage.getItem(storageKey) ?? "null"),
   );
   const [localBusy, setLocalBusy] = useState(false);
   const busy = localBusy || inFlight;
@@ -66,7 +72,7 @@ export function useComposerQueueEdit({
   useEffect(() => {
     const refresh = (event: Event) => {
       if ((event as CustomEvent<string>).detail === draftKey)
-        setEdit(JSON.parse(localStorage.getItem(storageKey) ?? "null"));
+        setEdit(JSON.parse(composerDraftStorage.getItem(storageKey) ?? "null"));
     };
     window.addEventListener("areal-draft-change", refresh);
     return () => window.removeEventListener("areal-draft-change", refresh);
@@ -85,30 +91,30 @@ export function useComposerQueueEdit({
       ? "队列或消息已有更新，编辑内容已保留。请取消编辑后核对当前队列；不会覆盖新版本或自动继续。"
       : error;
   const saveRecord = (value: QueueEdit | null) => {
-    if (value) localStorage.setItem(storageKey, JSON.stringify(value));
-    else localStorage.removeItem(storageKey);
+    if (value) composerDraftStorage.setItem(storageKey, JSON.stringify(value));
+    else composerDraftStorage.removeItem(storageKey);
     if (owner.current) setEdit(value);
     window.dispatchEvent(new CustomEvent("areal-draft-change", { detail: draftKey }));
   };
   const sync = () => {
     window.dispatchEvent(new CustomEvent("areal-draft-change", { detail: draftKey }));
     if (owner.current) {
-      const text = localStorage.getItem(draftKey) ?? "";
+      const text = composerDraftStorage.getItem(draftKey) ?? "";
       api.current?.setText(text);
       setText(text);
       setFiles(draftFiles.get(draftKey) ?? []);
-      setGoalMode(localStorage.getItem(`${draftKey}:goal`) === "true");
+      setGoalMode(composerDraftStorage.getItem(`${draftKey}:goal`) === "true");
       api.current?.focus();
     }
   };
   const restoreLocal = (record: QueueEdit, message = "") => {
-    localStorage.setItem(draftKey, record.original.text);
+    composerDraftStorage.setItem(draftKey, record.original.text);
     for (const [suffix, value] of [
       ["skills", record.original.skills],
       ["goal", record.original.goal],
     ] as const) {
-      if (value !== null) localStorage.setItem(`${draftKey}:${suffix}`, value);
-      else localStorage.removeItem(`${draftKey}:${suffix}`);
+      if (value !== null) composerDraftStorage.setItem(`${draftKey}:${suffix}`, value);
+      else composerDraftStorage.removeItem(`${draftKey}:${suffix}`);
     }
     draftFiles.set(draftKey, draftFiles.get(backupKey) ?? []);
     draftFiles.delete(backupKey);
@@ -118,16 +124,11 @@ export function useComposerQueueEdit({
   };
   const enter = (record: QueueEdit, confirmed: Data, input: Data[]) => {
     if (!confirmed.paused) throw new Error("队列未确认暂停，原草稿已保留");
-    saveRecord({ ...record, revision: confirmed.revision, phase: "editing", unknown: undefined });
-    localStorage.setItem(
-      draftKey,
-      input
-        .filter((part) => part.type === "text")
-        .map((part) => part.text)
-        .join("\n"),
-    );
-    localStorage.removeItem(`${draftKey}:skills`);
-    localStorage.removeItem(`${draftKey}:goal`);
+    const parsed = sentImageAnnotations(input.filter(part => part.type === "text").map(part => part.text).join("\n"), record.attachments);
+    saveRecord({ ...record, imageNotes: parsed.notes, revision: confirmed.revision, phase: "editing", unknown: undefined });
+    composerDraftStorage.setItem(draftKey, parsed.text);
+    composerDraftStorage.removeItem(`${draftKey}:skills`);
+    composerDraftStorage.removeItem(`${draftKey}:goal`);
     draftFiles.set(draftKey, []);
     sync();
   };
@@ -162,7 +163,7 @@ export function useComposerQueueEdit({
     if (owner.current) setError(cause.message);
   };
   const begin = async (target: Data) => {
-    if (edit || busy || pending || !connected || target.status !== "pending") return;
+    if (edit || busy || pending || annotationBlocked || !connected || target.status !== "pending") return;
     const record: QueueEdit = {
       id: target.id,
       revision: queue.revision,
@@ -170,9 +171,9 @@ export function useComposerQueueEdit({
       phase: "opening",
       attachments: target.input.filter((part: Data) => part.type !== "text"),
       original: {
-        text: api.current?.getMarkdown() ?? localStorage.getItem(draftKey) ?? "",
-        skills: localStorage.getItem(`${draftKey}:skills`),
-        goal: localStorage.getItem(`${draftKey}:goal`),
+        text: api.current?.getMarkdown() ?? composerDraftStorage.getItem(draftKey) ?? "",
+        skills: composerDraftStorage.getItem(`${draftKey}:skills`),
+        goal: composerDraftStorage.getItem(`${draftKey}:goal`),
       },
     };
     saveRecord(record);
@@ -218,6 +219,7 @@ export function useComposerQueueEdit({
   };
   const save = async () => {
     if (
+      annotationBlocked ||
       !edit ||
       edit.phase !== "editing" ||
       edit.unknown ||
@@ -232,11 +234,12 @@ export function useComposerQueueEdit({
     const record = { ...edit, phase: "saving" as const };
     saveRecord(record);
     try {
-      const input = composerInput(localStorage.getItem(draftKey) ?? "", draftFiles.get(draftKey) ?? []);
+      const input = composerInput(composerDraftStorage.getItem(draftKey) ?? "", draftFiles.get(draftKey) ?? []);
+      const imageSnapshot = snapshotImageAnnotations(input.files);
       const additions = await uploadFiles(input.files);
       const updated = await mutation(record, "update", {
         queueItemId: record.id,
-        text: input.text,
+        text: [input.text, imageAnnotationText(record.imageNotes ?? []), serializeImageAnnotations(imageSnapshot, additions, record.attachments.length)].filter(Boolean).join("\n\n"),
         attachments: additions,
         retainedInput: record.attachments,
       });
@@ -261,7 +264,9 @@ export function useComposerQueueEdit({
     setBusy(true);
     try {
       const result = await action("reconcile", { projectId: project.id });
-      const known = result.outcomes?.[edit.unknown.requestId];
+      const known = recoveredOutcome({ outcomes: result.outcomes }, edit.unknown.requestId, threadId,
+        result.outcomes?.[edit.unknown.requestId]?.operation ? { requestId: edit.unknown.requestId,
+          method: `areal/queue/${edit.unknown.operation}`, target: { kind: "thread", threadId } } : undefined);
       const observed =
         known ??
         (await readAction("queue", {
@@ -276,11 +281,11 @@ export function useComposerQueueEdit({
         return;
       }
       const record = { ...edit, unknown: undefined };
-      if (!outcome.accepted) {
+      if (outcome.status === "failed" || outcome.accepted === false) {
         if (edit.unknown.operation === "resume") restoreLocal(record, outcome.message);
         else {
           saveRecord(record);
-          setError(outcome.message ?? "原请求被拒绝，输入已保留。");
+          setError(outcome.message ?? "队列操作执行失败，编辑内容已保留。");
         }
       } else if (edit.unknown.operation === "pause") {
         const latest = await readAction("queue", { projectId: project.id, threadId });
@@ -311,10 +316,10 @@ export function useComposerQueueEdit({
     reconcile,
     locked: !!edit && (edit.phase !== "editing" || !!edit.unknown),
     saveDisabled:
-      busy || pending || !connected || conflict || edit?.phase !== "editing" || !!edit?.unknown,
+      annotationBlocked || busy || pending || !connected || conflict || edit?.phase !== "editing" || !!edit?.unknown,
     removeAttachment: (index: number) => {
       if (edit && !busy && !edit.unknown)
-        saveRecord({ ...edit, attachments: edit.attachments.filter((_, at) => at !== index) });
+        saveRecord({ ...edit, attachments: edit.attachments.filter((_, at) => at !== index), imageNotes: (edit.imageNotes ?? []).filter(note => note.attachmentIndex !== index).map(note => ({ ...note, attachmentIndex: note.attachmentIndex > index ? note.attachmentIndex - 1 : note.attachmentIndex })) });
     },
   };
 }

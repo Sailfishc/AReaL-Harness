@@ -22,24 +22,27 @@ impl Engine {
         let parent_id = parent.id.clone();
         let requested_rounds = args["maxModelRounds"].as_u64();
         let exclusive_write = args["intent"] == "modify";
-        let configured_request =
-            if let Some(intent) = args["intent"].as_str() {
-                if !matches!(intent, "inspect" | "modify") {
-                    return Err(invalid("unsupported task worker intent"));
-                }
-                Some(serde_json::from_value::<areal_protocol::desktop::AgentSpawn>(json!({
-                "parentThreadId": parent_id,
-                "input": input,
-                "workspaceMode": if exclusive_write { "sharedWrite" } else { "sharedReadOnly" },
-                "agentProfile": args["agentProfile"],
-                "model": args["model"],
-                "instructions": args["instructions"],
-                "skills": args["skills"],
-                "toolAllowlist": args["toolAllowlist"],
-            })).map_err(invalid)?)
-            } else {
-                None
-            };
+        let inspection = args["intent"] == "inspect";
+        let configured_request = if let Some(intent) = args["intent"].as_str() {
+            if !matches!(intent, "inspect" | "modify") {
+                return Err(invalid("unsupported task worker intent"));
+            }
+            Some(
+                serde_json::from_value::<areal_protocol::desktop::AgentSpawn>(json!({
+                    "parentThreadId": parent_id,
+                    "input": input,
+                    "workspaceMode": self.shared_delegation_mode(exclusive_write),
+                    "agentProfile": args["agentProfile"],
+                    "model": args["model"],
+                    "instructions": args["instructions"],
+                    "skills": args["skills"],
+                    "toolAllowlist": args["toolAllowlist"],
+                }))
+                .map_err(invalid)?,
+            )
+        } else {
+            None
+        };
         self.mutate(move |engine| async move {
             let _gate=engine.desktop.lifecycle.gate.lock().await;
             let parent=engine.cell(&parent_id).await?;
@@ -50,6 +53,7 @@ impl Engine {
             }
             let goal=state.thread.goals.goal.as_ref().filter(|g|g.status==GoalStatus::Active).ok_or(Error::Conflict)?;
             let mut configuration=engine.child_configuration(&state.thread,configured_request.as_ref())?.unwrap_or_default();
+            let deferred_write=inspection && engine.inspection_inherits_permissions() && !configuration.read_only;
             validate_input(&input,&engine.configured_model(&configuration)?.capabilities())?;
             if exclusive_write && configuration.read_only {return Err(invalid("parent/profile does not authorize a shared writer"));}
             let rounds=requested_rounds.map(|n|n as usize).or(configuration.options.max_model_rounds);
@@ -66,13 +70,13 @@ impl Engine {
             };
             configuration.options.max_model_rounds=rounds;
             if configuration.options.interaction_mode == InteractionMode::Interactive { configuration.options.interaction_mode=InteractionMode::Asynchronous; }
-            let definitions=engine.visible_tools(&parent,&configuration,true).await;
+            let definitions=engine.visible_tools(&parent,&configuration,true,&state.thread).await;
             configuration.tool_allowlist=Some(definitions.iter().filter_map(|d|d["function"]["name"].as_str())
                 .filter(|n|!matches!(*n,"task_spawn"|"task_wait"|"goal_update"|"agent_spawn"|"agent_spawn_configured"|"delegate_tasks"))
                 .map(str::to_owned).collect());
             configuration.instructions.push_str("\nYou are a TaskRun worker. Perform only the assigned work and return evidence. Your lifetime is owned by the TaskRun, independent of its coordinator's current Turn. Do not delegate, change the root goal, or suspend the coordinator. Task channel replies are available for inspection.");
             let permit=engine.reserve_active_turn()?;
-            let (thread,_)=engine.create_inner(state.thread.cwd.clone(),None,None,vec![],None,Some(areal_protocol::desktop::DesktopState{configuration,execution_policy:areal_protocol::delegation::ChildExecutionPolicy{exclusive_write},..Default::default()})).await?;
+            let (thread,_)=engine.create_inner(state.thread.cwd.clone(),None,None,vec![],None,Some(areal_protocol::desktop::DesktopState{configuration,execution_policy:areal_protocol::delegation::ChildExecutionPolicy{exclusive_write,deferred_write},..Default::default()}),true).await?;
             let worker=engine.raw_cell(&thread.id).await?;
             let mut worker_state=worker.state.lock().await;
             let mut source=worker_state.thread.clone();
@@ -89,7 +93,7 @@ impl Engine {
                 execution:Some(ExecutionRef::Thread{thread_id:thread.id.clone(),turn_id:turn.id.clone()}),execution_id:None,
             });
             task.revision+=1;
-            engine.save_tasks(&mut tasks,next,&task_id).await?;
+            engine.save_tasks(&mut tasks,next,&task_id,true).await?;
             drop(tasks);
             worker_state.thread=candidate;
             engine.activate(&worker,&mut worker_state,&turn,engine.shutdown.child_token(),permit);
@@ -111,20 +115,20 @@ impl Engine {
         let Some(goal) = thread.goals.goal.as_ref() else {
             return Ok(());
         };
-        let workers = self
-            .task_modes
-            .state
-            .lock()
-            .await
+        let snapshot = self.task_modes.state.lock().await.clone();
+        let workers = if let Some(run) = snapshot
             .tasks
             .values()
-            .find_map(|t| {
-                t.runs
-                    .iter()
-                    .find(|r| r.goal_id.as_deref() == Some(&goal.id))
-                    .map(|r| r.workers.clone())
-            })
-            .unwrap_or_default();
+            .flat_map(|task| &task.runs)
+            .find(|run| run.goal_id.as_deref() == Some(&goal.id))
+        {
+            run.workers.clone()
+        } else {
+            if snapshot.cold_run(Some(&goal.id), None)?.is_some() {
+                return Err(Error::Conflict);
+            }
+            Vec::new()
+        };
         for worker in &workers {
             let outcome = self.task_worker_outcome(&thread.id, worker, false).await?;
             if !worker.settled
@@ -139,12 +143,15 @@ impl Engine {
     }
 
     pub(super) async fn settle_task_workers(self: &Arc<Self>, task: &Task) -> Result<()> {
-        // 创建意图与后端回执之间不能被调度器误判为丢失执行。
-        let creation = self.delegation_creation.lock().await;
-        drop(creation);
         let Some(run) = task.runs.last() else {
             return Ok(());
         };
+        // 只等待该 TaskRun 所属会话的创建回执，不阻塞其他任务的委派。
+        if let Some(thread_id) = &run.thread_id {
+            let parent = self.cell(thread_id).await?;
+            let creation = parent.delegation_creation.lock().await;
+            drop(creation);
+        }
         if run.workers.is_empty() {
             return Ok(());
         }
@@ -189,11 +196,14 @@ impl Engine {
                 {
                     // 隔离执行已经结束，但写回需要活跃轮次承接权限与取消边界。
                     // 唤醒原协调者继续交付，不能把候选视作完成或再次派发 worker。
+                    let snapshot = self.task_modes.state.lock().await.clone();
+                    let existed = snapshot
+                        .message_exists(&task.id, &format!("{execution_id}:delivery-ready"))?;
                     self.edit_task(&task.id, |task| {
                         let run = task.runs.iter_mut().find(|candidate| candidate.id == run.id).unwrap();
                         run.wait_requested = false;
                         let message_id = format!("{execution_id}:delivery-ready");
-                        if task.messages.len() < MAX_MESSAGES && !task.messages.iter().any(|message| message.id == message_id) {
+                        if !existed && !task.messages.iter().any(|message| message.id == message_id) {
                             task.channel_sequence += 1;
                             task.messages.push(ChannelMessage {
                                 id:message_id, sequence:task.channel_sequence, run_id:run.id.clone(), author:execution_id.clone(),
@@ -238,7 +248,7 @@ impl Engine {
                 w.status = status.clone();
                 w.settled = true;
                 run.wait_requested = false;
-                if task.messages.len() < MAX_MESSAGES {
+                {
                     task.channel_sequence += 1;
                     task.messages.push(ChannelMessage {
                         id: id(),

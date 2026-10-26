@@ -57,7 +57,7 @@ function runningToolLabel(item: Data): string {
 }
 
 export function activityLabel(project: Data, threadId: string, turn: Data) {
-  if (!project.state?.connected) return project.cloud ? "等待会话恢复…" : "连接已中断，任务状态待同步";
+  if (!(project.state?.threads?.[threadId]?.executionConnected ?? project.state?.connected)) return project.cloud ? "等待会话恢复…" : "连接已中断，任务状态待同步";
   if (project.state?.interactions?.[threadId]?.data?.some((i: Data) => i.status === "pending"))
     return "等待你的确认或回答";
   if (turn.modelRetry) {
@@ -213,7 +213,7 @@ export function executionSegments(items: Data[], turnStatus: string): Data[] {
   for (const item of processItems(items, turnStatus)) {
     if (item.processOwnerId) continue;
     if (item.type === "modelContext" || (item.type === "agentMessage" && !item.text?.trim())) continue;
-    if (item.type === "userMessage" || item.type === "agentMessage" || item.type === "agentMedia") {
+    if (item.type === "userMessage" || item.type === "agentMessage" || item.type === "agentMedia" || item.type === "historyDeferred") {
       result.push(item);
       group = undefined;
       continue;

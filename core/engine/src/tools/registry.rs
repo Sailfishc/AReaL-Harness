@@ -7,6 +7,10 @@ pub const MAX_ARGUMENT_BYTES: usize = crate::model::MAX_TOOL_ARGUMENT_BYTES;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields, default)]
 pub struct ToolPolicy {
+    /// 已知内置只读调用的并发上限；1 保留串行执行。
+    pub parallel_read_calls: usize,
+    /// 显式实验：按交付契约收敛验证与协作；不替模型判定任务已完成。
+    pub completion_focus: bool,
     pub result_views: ResultViewPolicy,
     pub command_wait_ms: u64,
     pub pty_wait_ms: u64,
@@ -22,6 +26,8 @@ pub struct ToolPolicy {
 impl Default for ToolPolicy {
     fn default() -> Self {
         Self {
+            parallel_read_calls: 1,
+            completion_focus: false,
             result_views: ResultViewPolicy::default(),
             command_wait_ms: 120_000,
             pty_wait_ms: 1000,
@@ -101,6 +107,7 @@ pub struct HookDefinition {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields, default)]
 pub struct ToolExtensions {
+    pub gen_ui: bool,
     /// Opt-in native research agents; budgets are shared by this Engine.
     pub agents: Option<AgentToolsConfig>,
     pub policy: ToolPolicy,
@@ -141,6 +148,27 @@ pub trait DynamicToolHost: Send + Sync {
     ) -> anyhow::Result<Option<Value>> {
         Ok(None)
     }
+    async fn prepare_computer(
+        &self,
+        _request: Value,
+        _cancel: CancellationToken,
+    ) -> anyhow::Result<Option<Value>> {
+        Ok(None)
+    }
+    async fn end_cua_turn(&self, _request: Value) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn page_tool_notice(
+        &self,
+        _notice: areal_protocol::plugin_runtime::PageToolNotice,
+    ) -> anyhow::Result<()> {
+        anyhow::bail!("page tools unsupported")
+    }
+    async fn wait_closed(&self) {
+        while !self.is_closed() {
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+    }
     async fn call(
         &self,
         request: Value,
@@ -156,6 +184,7 @@ pub(crate) enum Backend {
     Core,
     Command(CommandTool),
     Client,
+    Page(Arc<crate::desktop::mcp_apps::page_tools::FrozenPageTool>),
     Mcp(Box<areal_mcp::McpTool>),
     Plugin(super::plugins::PluginTool),
 }
@@ -168,6 +197,14 @@ pub(crate) struct RegisteredTool {
 }
 
 impl RegisteredTool {
+    pub(crate) fn supports_parallel_reads(&self) -> bool {
+        matches!(self.backend, Backend::Builtin)
+            && matches!(
+                self.definition.name.as_str(),
+                "read_file" | "fs_read" | "fs_list" | "fs_stat" | "search_files"
+            )
+    }
+
     pub fn validate_input(&self, arguments: &Value) -> anyhow::Result<()> {
         // 旧回放参数只兼容内置协调后端；同名外部工具仍严格使用自身 schema。
         if matches!(self.backend, Backend::Coordination)
@@ -222,7 +259,8 @@ fn compile(schema: &Value) -> anyhow::Result<jsonschema::Validator> {
 impl Registry {
     pub fn side_only(mut self, workspace_read: bool) -> Self {
         self.tools.retain(|name, tool| {
-            (name == "side_context_read" && matches!(tool.backend, Backend::Core))
+            (matches!(name.as_str(), "side_context_read" | "gen_ui_publish")
+                && matches!(tool.backend, Backend::Core))
                 || (workspace_read && super::side_file_tool(name, &tool.backend))
         });
         self.order.retain(|name| self.tools.contains_key(name));
@@ -268,6 +306,10 @@ impl Registry {
 
     pub fn new(runtime: bool, extensions: &ToolExtensions) -> anyhow::Result<Self> {
         anyhow::ensure!(
+            (1..=4).contains(&extensions.policy.parallel_read_calls),
+            "parallelReadCalls must be 1..4"
+        );
+        anyhow::ensure!(
             (1024..=MAX_ARGUMENT_BYTES / 2).contains(&extensions.policy.output_page_bytes),
             "outputPageBytes must be between 1024 and 32768"
         );
@@ -293,6 +335,9 @@ impl Registry {
             config.validate()?;
         }
         let mut registry = Self::default();
+        if extensions.gen_ui {
+            registry.insert(crate::desktop::gen_ui::definition(), Backend::Core)?;
+        }
         for definition in crate::desktop::definitions()
             .into_iter()
             .chain(crate::goals::definitions())
@@ -315,7 +360,11 @@ impl Registry {
                         input_schema: f["parameters"].clone(),
                         output_schema: None,
                     },
-                    Backend::Builtin,
+                    if f["name"] == "task_state" {
+                        Backend::Core
+                    } else {
+                        Backend::Builtin
+                    },
                 )?;
             }
         }
@@ -437,8 +486,10 @@ impl Registry {
     pub fn research_only(mut self) -> Self {
         self.tools.retain(|name, tool| {
             matches!(tool.backend, Backend::Builtin)
-                || (matches!(name.as_str(), "read_tool_result" | "read_history")
-                    && matches!(tool.backend, Backend::Core))
+                || (matches!(
+                    name.as_str(),
+                    "read_tool_result" | "read_history" | "task_state"
+                ) && matches!(tool.backend, Backend::Core))
         });
         self.order.retain(|name| self.tools.contains_key(name));
         self
@@ -480,6 +531,10 @@ pub(super) fn validate_command(argv: &[String], timeout_ms: u64) -> anyhow::Resu
 impl ToolExtensions {
     /// Validate configuration without starting Runtime or executing commands.
     pub fn validate(&self) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            (1..=4).contains(&self.policy.parallel_read_calls),
+            "parallelReadCalls must be 1..4"
+        );
         Registry::new(true, self).map(|_| ())
     }
 }
@@ -491,7 +546,7 @@ mod tests {
     fn legacy_coordination_arguments_are_bounded_and_never_relax_external_schemas() {
         let registry = Registry::new(true, &ToolExtensions::default())
             .unwrap()
-            .with_agents(true)
+            .with_agents(true, true)
             .unwrap();
         for (name, args) in [
             (

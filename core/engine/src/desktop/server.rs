@@ -1,4 +1,4 @@
-//! Drain 关闭准入后保留观察与取消；不隐式重建仍有资源或 UNKNOWN 的实例。
+//! Drain 将资源结算与历史执行结果分开报告。
 use super::*;
 use std::sync::atomic::{AtomicBool, Ordering};
 pub(crate) struct Lifecycle {
@@ -22,12 +22,15 @@ impl Default for Lifecycle {
         }
     }
 }
-fn lifecycle_assessment(status: &Value, unsettled_groups: bool) -> Value {
+fn lifecycle_assessment(
+    status: &Value,
+    unsettled_groups: bool,
+    uninspected_outcomes: usize,
+) -> Value {
     let mut settlement = Vec::new();
     for (field, code) in [
         ("activeTurns", "activeTurn"),
         ("resources", "resource"),
-        ("unresolvedTools", "uninspectedUnknown"),
         ("compactions", "compaction"),
     ] {
         let count = status[field].as_array().map_or(0, Vec::len);
@@ -55,7 +58,8 @@ fn lifecycle_assessment(status: &Value, unsettled_groups: bool) -> Value {
     json!({"version":1,"admission":if status["closed"] == true {"closed"}
         else if status["draining"] == true {"draining"} else {"open"},
         "ifIdle":{"allowed":idle.is_empty(),"reasons":idle},
-        "settled":{"allowed":settlement.is_empty(),"reasons":settlement}})
+        "settled":{"allowed":settlement.is_empty(),"reasons":settlement},
+        "executionOutcomes":{"uninspectedUnknown":uninspected_outcomes}})
 }
 impl Engine {
     pub(crate) fn accepting_work(&self) -> bool {
@@ -67,13 +71,17 @@ impl Engine {
         let mut active = Vec::new();
         let mut resources = Vec::new();
         let mut unknown = Vec::new();
+        let mut uninspected_outcomes = 0usize;
         let mut compacting = Vec::new();
         let mut active_goals = Vec::new();
         let mut pending_queue_items = 0usize;
         let mut latest_activity = 0i64;
         for cell in &cells {
             if let Some(scope) = self.hook_task_unknown(cell).await {
-                unknown.push(scope);
+                unknown.push(scope.clone());
+                let mut resource = scope;
+                resource["state"] = json!("cleanupUnknown");
+                resources.push(resource);
             }
             let s = cell.state.lock().await;
             latest_activity = latest_activity.max(s.thread.updated_at);
@@ -108,6 +116,7 @@ impl Engine {
                         resources.push(json!({"threadId":s.thread.id,"id":hook.id,"kind":"hook","state":"running"}));
                     }
                     if hook.outcome == "unknown" && hook.inspection.is_none() {
+                        uninspected_outcomes += 1;
                         unknown.push(
                             json!({"threadId":s.thread.id,"invocationId":hook.id,"kind":"hook"}),
                         );
@@ -135,6 +144,7 @@ impl Engine {
                                 .iter()
                                 .any(|h| h.outcome == areal_protocol::ToolOutcome::Unknown))
                     {
+                        uninspected_outcomes += 1;
                         unknown.push(json!({"threadId":s.thread.id,"itemId":item.id()}));
                     }
                 }
@@ -142,8 +152,40 @@ impl Engine {
         }
         let runtime = match &self.runtime {
             Some(r) => match r.client.status().await {
-                Ok(v) => v,
-                Err(_) => json!({"state":"unavailable","epoch":r.client.info().runtime_epoch}),
+                Ok(v) => {
+                    let scope_id = &r.client.info().root_scope_id;
+                    let scope: areal_runtime_protocol::Result<areal_runtime_protocol::ScopeInfo> =
+                        r.client
+                            .call("scope.get", json!({"scopeId":scope_id}))
+                            .await;
+                    match scope {
+                        Ok(scope) => {
+                            let active = v["activeProcesses"]
+                                .as_u64()
+                                .unwrap_or(0)
+                                .max(scope.active_processes as u64);
+                            if active > 0
+                                || scope.cleanup_error.is_some()
+                                || scope.state == areal_runtime_protocol::ScopeState::Revoking
+                            {
+                                resources.push(json!({"kind":"runtime","scopeId":scope_id,
+                                    "state":if scope.cleanup_error.is_some() {"cleanupUnknown"}
+                                        else if scope.state == areal_runtime_protocol::ScopeState::Revoking {"closing"}
+                                        else {"running"},
+                                    "activeProcesses":active,"cleanupError":scope.cleanup_error,
+                                    "epoch":r.client.info().runtime_epoch}));
+                            }
+                        }
+                        Err(_) => resources.push(json!({"kind":"runtime","scopeId":scope_id,
+                            "state":"cleanupUnknown","epoch":r.client.info().runtime_epoch})),
+                    }
+                    v
+                }
+                Err(_) => {
+                    resources.push(json!({"kind":"runtime","state":"unavailable",
+                        "epoch":r.client.info().runtime_epoch}));
+                    json!({"state":"unavailable","epoch":r.client.info().runtime_epoch})
+                }
             },
             None => Value::Null,
         };
@@ -180,7 +222,7 @@ impl Engine {
                 .push(json!({"kind":"pluginPreparation","state":"running","count":preparations}));
         }
         let mut status = json!({"configuration":self.configuration_status.read().unwrap().clone(),"activeTasks":active_tasks,"activeGoals":active_goals,"pendingQueueItems":pending_queue_items,"compactions":compacting,"workgroups":groups,"apiVersion":API_VERSION,"stateVersion":crate::store::STATE_VERSION,"productVersion":env!("CARGO_PKG_VERSION"),"draining":self.desktop.lifecycle.draining.load(Ordering::Acquire),"closed":self.is_closed(),"acceptingWork":self.accepting_work(),"activeTurns":active,"resources":resources,"unresolvedTools":unknown,"runtime":runtime,"capacity":{"threads":cells.len(),"maxThreads":self.limits.max_threads,"activeTurns":self.limits.max_active_turns-self.active_turns.available_permits(),"maxActiveTurns":self.limits.max_active_turns,"historyBytesPerThread":self.limits.max_history_bytes,"blobBytes":512*1024*1024u64}});
-        status["lifecycle"] = lifecycle_assessment(&status, unsettled);
+        status["lifecycle"] = lifecycle_assessment(&status, unsettled, uninspected_outcomes);
         status["restartSafe"] = status["lifecycle"]["settled"]["allowed"].clone();
         // 观察、轮询和 WebSocket 心跳不延长空闲时间；活动工作与持久 Turn 时间才计入。
         let mut idle_clock = self.desktop.lifecycle.idle_clock.lock().unwrap();
@@ -333,7 +375,9 @@ impl Engine {
         .await
         .map_err(|_| invalid("drain task failed"))?
     }
-    pub fn model_catalog(&self) -> Value {
+    pub async fn model_catalog(&self) -> Value {
+        let last_accepted_model = self.last_accepted_model().await;
+        let _configuration = self.desktop.model_configuration.read().unwrap();
         let mut data = Vec::new();
         // 这是现有 HTTP 适配器的允许值，不代表远端供应商已验证这些选项。
         let efforts = ["none", "minimal", "low", "medium", "high", "xhigh"];
@@ -350,23 +394,70 @@ impl Engine {
             .map(|(_, parameters)| parameters)
             .unwrap_or_default();
         if !model.name().is_empty() {
-            data.push(json!({"providerId":null,"providerRevision":null,"modelId":model.name(),"parameters":parameters,"isDefault":default_model.is_none(),"available":model.check_work().is_ok(),"transport":model.provider(),"reasoningEffortOptions":if matches!(model.provider(), "openai.responses" | "openai.chat_completions") {efforts.to_vec()} else {vec![]},"input":model.capabilities().input,"output":model.capabilities().output,"contextWindowTokens":model.capabilities().context_window_tokens,"effectiveContextWindowTokens":model.capabilities().context_window_tokens.unwrap_or(self.limits.context_window_tokens)}));
+            let model_capabilities = model.capabilities();
+            let declared = model_capabilities.declared.as_ref();
+            let reasoning_efforts: Vec<String> =
+                if declared.is_some_and(|declared| !declared.reasoning) {
+                    Vec::new()
+                } else {
+                    declared
+                        .and_then(|declared| declared.reasoning_effort_options.clone())
+                        .filter(|options| !options.is_empty())
+                        .unwrap_or_else(|| {
+                            if matches!(
+                                model.provider(),
+                                "openai.responses" | "openai.chat_completions"
+                            ) {
+                                efforts.iter().map(|effort| (*effort).into()).collect()
+                            } else {
+                                Vec::new()
+                            }
+                        })
+                };
+            data.push(json!({"providerId":null,"providerRevision":null,"modelId":model.name(),"parameters":parameters,"isDefault":default_model.is_none(),"available":model.check_work().is_ok(),"transport":model.provider(),"capabilities":declared,"reasoningEffortOptions":reasoning_efforts,"input":model.capabilities().input,"output":model.capabilities().output,"contextWindowTokens":model.capabilities().context_window_tokens,"effectiveContextWindowTokens":model.capabilities().context_window_tokens.unwrap_or(self.limits.context_window_tokens)}));
         }
+        let mut factory = model::HttpModelFactory::default();
         for p in self.desktop.catalog.read().unwrap().providers.values() {
             for name in &p.models {
                 let reference = ModelRef {
                     provider_id: p.id.clone(),
                     model_id: name.clone(),
                 };
-                let parameters = self.model_parameters(&reference, &p.parameters);
-                let result = self.provider_model(p, name, &parameters);
-                let capabilities = match p.protocol.as_str() {
+                let parameters = self.model_parameters(&reference, p);
+                let result =
+                    self.provider_model_with_factory(p, name, &parameters, None, &mut factory);
+                let mut capabilities = match p.protocol.as_str() {
                     "responses" => model::ModelProtocol::Responses.capabilities(),
                     _ => model::ModelProtocol::ChatCompletions.capabilities(),
                 };
-                data.push(json!({"providerId":p.id,"providerRevision":p.revision,"modelId":name,"parameters":parameters,"isDefault":default_model.as_ref() == Some(&reference),"transport":p.protocol,"input":capabilities.input,"output":capabilities.output,"available":result.is_ok(),"credentialState":self.provider_view(p)["credentialState"],"contextWindowTokens":parameters.context_window_tokens,"effectiveContextWindowTokens":parameters.context_window_tokens.unwrap_or(self.limits.context_window_tokens),"parameterCapabilities":if p.protocol == "responses" {vec!["temperature","maxOutputTokens","contextWindowTokens","reasoningEffort","reasoningSummary"]} else {vec!["temperature","maxOutputTokens","contextWindowTokens","reasoningEffort"]},"reasoningEffortOptions":efforts,"connectionState":"unchecked"}));
+                let declared = p.model_capabilities.get(name);
+                if declared.is_some_and(|declared| !declared.vision) {
+                    capabilities
+                        .input
+                        .retain(|modality| *modality != areal_protocol::Modality::Image);
+                }
+                let reasoning = declared.is_none_or(|declared| declared.reasoning);
+                let reasoning_efforts: Vec<String> = if reasoning {
+                    declared
+                        .and_then(|declared| declared.reasoning_effort_options.clone())
+                        .filter(|options| !options.is_empty())
+                        .unwrap_or_else(|| efforts.iter().map(|effort| (*effort).into()).collect())
+                } else {
+                    Vec::new()
+                };
+                let window =
+                    self.provider_context_window(p, name, parameters.context_window_tokens);
+                let mut parameter_capabilities =
+                    vec!["temperature", "maxOutputTokens", "contextWindowTokens"];
+                if reasoning {
+                    parameter_capabilities.push("reasoningEffort");
+                    if p.protocol == "responses" {
+                        parameter_capabilities.push("reasoningSummary");
+                    }
+                }
+                data.push(json!({"providerId":p.id,"providerRevision":p.revision,"modelId":name,"parameters":parameters,"isDefault":default_model.as_ref() == Some(&reference),"transport":p.protocol,"input":capabilities.input,"output":capabilities.output,"available":result.is_ok(),"credentialState":self.provider_view(p)["credentialState"],"contextWindowTokens":window.window_tokens,"effectiveContextWindowTokens":window.window_tokens,"reportedWindowTokens":window.reported_window_tokens,"reportedWindowSource":window.reported_window_source,"userBudgetTokens":window.user_budget_tokens,"windowSource":window.source,"capabilities":declared,"parameterCapabilities":parameter_capabilities,"reasoningEffortOptions":reasoning_efforts,"connectionState":"unchecked"}));
             }
         }
-        json!({"data":data})
+        json!({"data":data,"lastAcceptedModel":last_accepted_model})
     }
 }

@@ -33,6 +33,14 @@ make build
 
 Binary-only changes automatically restart an idle shared service, so manual restarts are not needed after every build. For configuration conflicts, use the complete restart command in the diagnostic. Wait for background work to settle; add `--cancel` only when cancellation is intended. If switching versions frequently, use a separate external directory for development, such as `--data-dir /tmp/areal-dev-state`, on both startup and restart; it has separate history. See [local service compatibility](../api/local-service.en.md#identity-compatibility-and-history).
 
+On macOS, `make build/release` also builds standalone Bash from SHA-256-pinned sources and patches, caching it under `target/runtime-shell` and copying it to `target/<profile>/shells`. The first build requires network access, a C compiler and Python 3.11+ with tar data-filter support. `cargo build` alone does not produce these complete Runtime assets. Tasks never download a shell or replace system programs. This separate component retains GPL-3.0-or-later licensing and complete corresponding source; the project Rust code remains Apache-2.0. See [release requirements](releasing.en.md).
+
+`python3 scripts/tool-capacity-smoke.py --report /tmp/tool-capacity.json` submits 16 file operations to a real native Runtime after two background processes occupy all slots, and checks subscription-adapter construction/closure in restricted Node. Run `make build` and `make gui-install` first. `node scripts/permission-presets-smoke.mjs` covers approval isolation with `AGENTS.md` present and concurrent `read_file`/`search_files` within one Turn. These are deterministic mechanism regressions, not evidence of overall Agent improvement.
+
+`scripts/managed-toolchains-smoke.py --help` lists inputs for locally installed Node/npm/pnpm. The test checks common installation layouts concurrently and actually runs `node --test`, `npm test`, `pnpm test` and nested Node children in both parent and child Scopes for NVM and mise. Version queries do not replace these execution checks. Credential reads, toolchain writes, child-Scope source writes and network access must still be denied. No dependencies are downloaded.
+
+GUI acceptance cleanup checks reuse the product's native Core launcher and query process state asynchronously so an in-process model HTTP fixture can continue responding. Acceptance must confirm task results, tool results, and owned service exit; runner completion is not task success. Expected permission denials and deliberate termination tests require separate assertions.
+
 ## Checks
 
 | Change | Command |
@@ -43,6 +51,7 @@ Binary-only changes automatically restart an idle shared service, so manual rest
 | Regular regression | `make verify` |
 | Native integration | `make verify-harness`, including regular regression |
 | Unified delegation integration | `make unified-execution-smoke`: real Runtime candidate composition, delivery receipts, parent ownership, cancellation, and recovery; included in `make harness-smoke` / `make verify-native`; Linux CI runs it in the supported container with Bubblewrap user namespaces, while `make verify` remains portable |
+| Child permission integration | `make delegation-permissions-smoke`: real Runtime enforced read-only, early rejection when unavailable, explicit inherited reads, and parent/child read cooperation; scripted model, no capability score; included in `make harness-smoke` |
 | CI native delta | `make verify-native`, native backend and Harness integration smoke only |
 | Capacity | `make capacity`, run separately |
 | Documentation only | `python3 scripts/check-docs.py`; also compare commands with implementation |
@@ -54,6 +63,8 @@ To test from a fixed artifact path, build and deploy Core and Runtime from the s
 `make integration-boundaries` checks that the product, release entry points and default Make dependency graph do not load optional platform adapters; `make script-test` includes it.
 
 See [testing](testing.en.md) for coverage. Pass arguments with `make tui ARGS='--prompt hello'`. `make release` writes to `target/release`; `make docs` generates Rust API documentation.
+
+For request-projection changes, also run `cargo test --locked -p areal-engine --test runtime_context_projection --test http_model` to check chronology, counters and guidance changes, guidance restoration after compaction, original user/tool content, provider reasoning and default protocol behavior. Validate this separately from capture coverage above: a stable prefix or fewer bytes cannot replace actual returned tokens, task acceptance and source-isolated comparisons.
 
 `python3 scripts/tui-local-smoke.py` injects an invalid trajectory destination in an isolated real owned TUI/Runtime. It verifies that the warning does not hide request status while multi-turn, tool, cancellation, and recovery interactions continue; no export worker starts. This check is included in `make harness-smoke`. See [GUI validation](../../clients/gui/README.en.md#lifecycle) for polling, protocol projection, and actual interface checks.
 
@@ -77,6 +88,55 @@ See the [release workflow](releasing.en.md) for Homebrew/Linux artifacts, instal
 
 ## Desktop GUI
 
+Before changing pages, components, layout, styling, motion or UI copy, read the [design-system workflow](../../clients/gui/design-system/README.md#开工顺序). GUI `verify` includes the incremental audit; see [audit baselines and limits](../../clients/gui/design-system/automation.md#增量设计检查) and report design choices and evidence under the [delivery criteria](../../clients/gui/design-system/governance.md#完成条件).
+
 The GUI uses a separate pnpm 11.7.0 workspace. Run `make gui-install`, `make gui-build`, and `make gui-smoke`; see the [GUI guide](../../clients/gui/README.en.md) for launch, packaging and isolation.
 
+PR CI targets a 10–15 minute end-to-end feedback window, including runner queueing. GUI smoke jobs reuse the exact SHA-bound debug build and run up to six scenarios concurrently. `make verify-native` builds before testing, then runs its existing launcher, Runtime, Harness, desktop API and Workgroup groups with four Make workers; common build and SDK prerequisites finish before their consumers start. This preserves the validation commands and avoids release packaging on the PR critical path. Hosted runner queues and cold caches can exceed the target; measure the actual workflow duration rather than treating a timeout as a performance result. Complete CLI/GUI packaging, installation/upgrade acceptance, signing, notarization, uploads and channel synchronization belong to the local release procedure.
+
 `make setup-node` installs only locked Node development dependencies for native CI that does not run formatting checks; use `make setup` for full local development.
+
+## Local shared Rust cache
+
+Optionally use a pinned [mr-boxington](https://github.com/jdx/mr-boxington) version to reuse compiler outputs across worktrees. Keep the Rust version in `rust-toolchain.toml`. The project's `.mbx.toml` disables caching build-script execution results, preserving normal generation and verification of Git revisions, source hashes and other build identity. Plain Cargo and CI do not require mbx.
+
+```sh
+cargo install mbx --version 1.26.0 --locked
+mbx settings set build_script_execution false
+mbx settings set target.views false
+mbx settings set gc.max_total_size 40GiB
+mbx settings set gc.min_free_size 30GiB
+mbx settings set display plain
+mbx settings set savings plain
+mbx setup
+```
+
+These settings belong to the local user configuration, not the project's `.mbx.toml`. Disabling build-script execution caching locally also covers older worktrees without the project configuration. Put the official Cargo shim directory printed by `mbx setup` first on `PATH`; terminals, Codex and Python/Node subprocesses must inherit it. Check `command -v cargo`, `mbx setup --status` and `mbx doctor`, then keep using existing commands such as `make build`, `make check` and `make test`. Installing mbx alone does not wrap existing Cargo calls. Do not point all worktrees at one shared `CARGO_TARGET_DIR`.
+
+`target.views=false` keeps each worktree's real `target` directory in place, without automatic migration, collection of fixed Core/Runtime paths, or a separate check/clippy lane. The 40 GiB setting is a logical-size collection target for mbx-managed data and 30 GiB is its free-space collection threshold; neither is a hard quota. Ordinary targets, Electron applications and complete release bundles still use the retention rules below. Inspect usage with `mbx cache stats`, preview collection with `mbx gc --dry-run`, and inspect the current worktree's reuse with `mbx explain --last`.
+
+Do not recursively run `mbx adopt` over long-running Core processes, fixed-path acceptance artifacts or release outputs. Managed-target leases do not protect binaries launched directly from target or children that survive the mbx process. Rust 1.94 supports shared compiler outputs, but not cross-checkout private incremental seeding requiring rustc 1.98 or target unit seeding requiring Cargo 1.100. Remove the shim's PATH activation to return to plain Cargo; this does not delete outputs or the shared cache.
+
+### Temporary worktree cache collection
+
+The shared cache does not bound ordinary `target` growth. Use the existing cleanup entry point's budget mode for temporary worktrees; the default is a preview:
+
+```sh
+make artifact-cleanup ARGS='--temporary-worktrees --cache-budget-gib 40 --min-free-gib 30 --report /private/tmp/worktree-cache-preview.json'
+```
+
+After reviewing the preview, add `--apply` and choose a separate report path for each run. This mode selects existing secondary worktrees registered with this repository's Git checkout. It always excludes the primary worktree and rejects `--root` and `--no-worktrees` overrides. It only collects `deps`, `incremental`, `build` and `.fingerprint` under identified Cargo profiles. Profile executables, shells, complete bundles, delivery directories, dependencies and symlinks remain. Missing worktree registrations are skipped, not removed.
+
+The 40 GiB budget covers estimated allocated blocks across secondary worktree caches, separately from the mbx shared-cache budget. When over budget or below 30 GiB free, older caches are selected by profile-directory modification time; caches within budget remain to avoid clearing them on every run. Directory times are not exact LRU, and APFS shared blocks make estimates differ from recovered space. Each deletion holds Cargo locks and rechecks activity. Any open file in the same profile, or a build/debug process in that worktree, protects the entire group. A profile that cannot be measured is retained and reported without blocking other groups. Active caches and unrelated data can prevent meeting either threshold; the report records remaining pressure.
+
+In Codex, a heartbeat attached to this chat can run the command every 30 minutes with `--apply` and separate reports. Stay quiet when nothing is deleted or normal activity prevents collection; notify only for actual collection, failure or unresolved disk pressure. The automation reuses this mode, without invoking full bundle cleanup or stopping builds or services. It does not migrate targets. Primary-worktree caches and complete GUI/Core bundles continue to use the on-demand cleanup below.
+
+## Validation artifact retention
+
+Run `make artifact-cleanup` to preview AReaL artifacts under `~/Documents/Codex` and this repository's registered worktrees. The default is read-only. GUI packaging evidence identifies rounds, with executable/Core completeness checks; matching app/ZIP copies belong to the same round. For standalone Core, the command retains the newest five complete, manifest-verified bundle versions, deduplicated by build identity and file hashes. Cargo profile directories are mutable build outputs and are never counted as historical rounds. Loose profile outputs are removed only when all three binaries match a known complete bundle and at least five verified bundle versions remain; unidentified outputs remain.
+
+Rust `deps`, `incremental`, `build`, and `.fingerprint` directories are managed independently of retained versions. Merely using a repository as a working directory does not block cache cleanup. Build/debugger processes, open files inside a candidate, and held Cargo locks do block it. Active profile outputs protect companion binaries as a group. Packaged GUI/Core runtime files remain with retained versions; generated debugging information can be lost when deleting caches. Unidentified archives and small packaging evidence records remain. Custom `target/delivery-*` contents are handled only as identified packages, never as an entire disposable cache.
+
+Use `python3 scripts/artifact-cleanup.py --root /path/to/artifacts --no-worktrees --json` for an isolated scan. `--root` is repeatable, and `--keep` changes the retention limit. `--report /path/outside/scanned/roots/preview.json` saves the complete plan. Sizes use allocated blocks and exclude overlapping paths; hard links, APFS clones and snapshots may reduce actual recovered space.
+
+After reviewing the preview, use `--apply --report /path/outside/scanned/roots/result.json` for explicit deletion. Execution takes exclusive locks on the profile's Cargo lock files, rechecks activity, and records each deletion before and after it happens. Locks are preserved; a failed check skips the path. Failed activity inspection blocks deletion. The command does not stop processes or remove worktrees, source, configuration or history. A failure exits nonzero; the result file records completed and potentially interrupted deletions. Inspect the receipt and rerun the preview after partial failure. The command itself does not install recurring tasks.

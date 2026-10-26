@@ -32,7 +32,7 @@ impl Engine {
             }
             if !engine.accepting_work() { return Err(Error::Closed); }
             let _ordinary = engine.ordinary_admission(&state.thread).await?;
-            if state.thread.is_side() || state.thread.goals.goal.is_some()
+            if state.thread.is_read_only_side() || state.thread.goals.goal.is_some()
                 || state.thread.goal_owner.is_some()
                 || state.poisoned || state.compacting || data.archived
                 || data.configuration.revision != request.expected_config_revision
@@ -42,9 +42,37 @@ impl Engine {
                 || data.configuration.options.append_instructions.starts_with("AREAL_TASK_DRAFT_V1\n")
             { return Err(invalid("ordinary submit requires an ordinary conversation profile")); }
             engine.check_turn_available(&cell, &state).await?;
+            if state.thread.is_side() && !matches!(&request.intent, TurnSubmitIntent::Message { .. }) {
+                return Err(invalid("SIDE_POLICY_VIOLATION"));
+            }
             let pending = data.queue.items.iter().any(|item| item.status == "pending");
+            let mut edit_source = None;
             let (input, continued_from) = match request.intent {
                 TurnSubmitIntent::Message { input } => (input, None),
+                TurnSubmitIntent::Edit { expected_turn_id, item_id, input } => {
+                    if state.active.is_some()
+                        || data.queue.items.iter().any(|item| matches!(item.status.as_str(), "pending" | "running"))
+                        || state.thread.turns.last().is_none_or(|turn| turn.id != expected_turn_id)
+                    { return Err(Error::Conflict); }
+                    // Rebuild from authoritative history, including compacted input.
+                    // Discard summaries as they may contain the replaced response.
+                    let mut source = engine.store.hydrate(state.thread.clone()).await
+                        .map_err(|error| Error::Storage(error.to_string()))?;
+                    let (turn_index, item_index) = source.turns.iter().enumerate().rev()
+                        .filter(|(_, turn)| turn.continued_from_turn_id.is_none() && turn.goal.is_none())
+                        .find_map(|(at, turn)| turn.items.iter().rposition(|item| matches!(item, Item::UserMessage { .. })).map(|index| (at, index)))
+                        .ok_or(Error::Conflict)?;
+                    if source.turns[turn_index].items[item_index].id() != item_id {
+                        return Err(Error::Conflict);
+                    }
+                    source.turns.truncate(turn_index + 1);
+                    source.turns[turn_index].items.truncate(item_index);
+                    if item_index == 0 { source.turns.pop(); }
+                    source.context_checkpoint = None;
+                    if source.turns.is_empty() { source.preview.clear(); }
+                    edit_source = Some(source);
+                    (input, None)
+                }
                 TurnSubmitIntent::Continue { expected_turn_id } => {
                     if state.active.is_some() { return Err(Error::Conflict); }
                     let turn = state.thread.turns.last().ok_or(Error::Conflict)?;
@@ -58,17 +86,18 @@ impl Engine {
                 }
             };
             let queued = pending || state.active.is_some();
-            let result;
+            let mut result;
+            let mut accepted_configuration = None;
             let mut candidate;
             let mut activation = None;
             if queued {
                 let queue_item = if continued_from.is_none() {
                     if data.queue.items.len() >= 128 { return Err(Error::Exhausted("queue history capacity reached".into())); }
-                    engine.validate_uploads(&state.thread, &input)?;
-                    let mut configuration = data.configuration.clone();
+                    let mut configuration = engine.next_request_configuration(data.configuration.clone());
                     engine.select_plugin_attachments(&mut configuration, &input, true)?;
                     let configuration = engine.freeze_configuration(configuration);
-                    validate_input(&input, &engine.configured_model(&configuration)?.capabilities())?;
+                    engine.validate_thread_input(&state.thread, &input, &engine.configured_model(&configuration)?.capabilities())?;
+                    accepted_configuration = Some(configuration.clone());
                     let item = QueueItem { id: id(), input, configuration, submitted_by: identity.clone(), status: "pending".into(), turn_id: None };
                     let item_id = item.id.clone();
                     data.queue.items.push(item);
@@ -82,7 +111,7 @@ impl Engine {
                 candidate = state.thread.clone();
                 candidate.desktop = Some(data);
             } else {
-                let (mut prepared, mut turn) = engine.prepare_turn(&state.thread, input)?;
+                let (mut prepared, mut turn) = engine.prepare_turn(edit_source.as_ref().unwrap_or(&state.thread), input)?;
                 turn.continued_from_turn_id = continued_from;
                 *prepared.turns.last_mut().unwrap() = turn.clone();
                 let queue = &mut prepared.desktop.get_or_insert_with(Default::default).queue;
@@ -92,13 +121,22 @@ impl Engine {
                     queue.revision += 1;
                 }
                 let permit = engine.reserve_active_turn()?;
+                accepted_configuration = turn.configuration.clone();
                 result = json!({"turn": turn});
                 candidate = prepared;
                 activation = Some((turn, permit));
             }
+            if let Some(configuration) = accepted_configuration {
+                engine.remember_accepted_model(&mut candidate, &configuration)?;
+                result["lastAcceptedModel"] = json!(candidate.desktop.as_ref().unwrap().last_accepted_model);
+            }
             remember(candidate.desktop.as_mut().unwrap(), &identity, &request.request_id, method, hash, result.clone());
             engine.persist(&candidate).await?;
             state.thread = candidate;
+            if edit_source.is_some() {
+                // A deletion is explicit, unlike partial turn/completed events.
+                cell.emit("areal/thread/edited", json!({"threadId": request.thread_id, "thread": state.thread}));
+            }
             cell.emit("areal/queue/updated", json!({"threadId": request.thread_id, "queue": state.thread.desktop.as_ref().unwrap().queue}));
             if let Some((turn, permit)) = activation {
                 engine.activate(&cell, &mut state, &turn, engine.shutdown.child_token(), permit);
@@ -142,7 +180,7 @@ impl Engine {
             let cell = engine.cell(&request.thread_id).await?;
             let mut state = cell.state.lock().await;
             engine.ensure_hook_session_open(&cell,&state.thread)?;
-            if state.thread.is_side() && (enqueue || request.interaction_mode.is_some() || request.input.len() != 1 || !matches!(&request.input[0], Input::Text { .. })) {
+            if state.thread.is_read_only_side() && (enqueue || request.interaction_mode.is_some() || request.input.len() != 1 || !matches!(&request.input[0], Input::Text { .. })) {
                 return Err(invalid("SIDE_POLICY_VIOLATION"));
             }
             let method = if enqueue {"areal/turn/enqueue"} else {"areal/turn/start"};
@@ -169,29 +207,33 @@ impl Engine {
                 }
                 Some(engine.ordinary_admission(&state.thread).await?)
             } else { None };
-            engine.validate_uploads(&state.thread,&request.input)?;
             let original_configuration = data.configuration.clone();
             if let Some(skill) = &skill {
-                if state.thread.is_side() { return Err(invalid("setup requires an ordinary session")); }
+                if state.thread.is_read_only_side() { return Err(invalid("setup requires an ordinary session")); }
                 let mut scope = data.configuration.clone(); scope.selected_skills = None;
                 if !engine.effective_skill_refs(&scope,false).contains(skill) { return Err(invalid("setup skill is outside the effective profile")); }
                 data.configuration.selected_skills = Some(vec![skill.clone()]);
             }
-            let mut configuration = data.configuration.clone();
+            let mut configuration = engine.next_request_configuration(data.configuration.clone());
             if skill.is_none() {
-                engine.select_plugin_attachments(&mut configuration, &request.input, !state.thread.is_side() && state.thread.parent_thread_id.is_none() && state.thread.source != "nativeTaskAgent")?;
+                engine.select_plugin_attachments(&mut configuration, &request.input, !state.thread.is_read_only_side() && state.thread.parent_thread_id.is_none() && state.thread.source != "nativeTaskAgent")?;
             }
             let mut configuration = engine.freeze_configuration(configuration);
             if let Some(mode) = request.interaction_mode { configuration.options.interaction_mode = mode; }
-            validate_input(&request.input,&engine.configured_model(&configuration)?.capabilities())?;
+            engine.validate_thread_input(&state.thread,&request.input,&engine.configured_model(&configuration)?.capabilities())?;
+            let accepted_configuration = configuration.clone();
             if enqueue {
                 if data.queue.items.len()>=128 { return Err(Error::Exhausted("queue history capacity reached".into())); }
                 let item = QueueItem {id:id(),input:request.input,configuration,submitted_by:identity.clone(),status:"pending".into(),turn_id:None};
                 data.queue.revision+=1;
-                let result = json!({"queueItemId":item.id,"queueRevision":data.queue.revision,"configRevision":item.configuration.revision});
+                let mut result = json!({"queueItemId":item.id,"queueRevision":data.queue.revision,"configRevision":item.configuration.revision});
                 data.queue.items.push(item);
-                remember(&mut data,&identity,&request.request_id,method,hash,result.clone());
                 let mut candidate=state.thread.clone();candidate.desktop=Some(data);
+                if skill.is_none() {
+                    engine.remember_accepted_model(&mut candidate, &accepted_configuration)?;
+                    result["lastAcceptedModel"] = json!(candidate.desktop.as_ref().unwrap().last_accepted_model);
+                }
+                remember(candidate.desktop.as_mut().unwrap(),&identity,&request.request_id,method,hash,result.clone());
                 if let Some(goal) = &mut candidate.goals.goal
                     && goal.status == areal_protocol::goals::GoalStatus::Active
                 {
@@ -208,19 +250,23 @@ impl Engine {
                 Ok(result)
             } else {
                 if state.active.is_some() || state.compacting { return Err(Error::Conflict); }
-                if let Some(areal_protocol::Conversation::Side { origin, .. }) = &state.thread.conversation {
+                if state.thread.is_read_only_side() && let Some(areal_protocol::Conversation::Side { origin, .. }) = &state.thread.conversation {
                     engine.check_side_capacity(&origin.source_thread_id, Some(&state.thread.id)).await?;
                 }
                 engine.check_turn_available(&cell,&state).await?;
                 let previous_mode = data.configuration.options.interaction_mode;
                 data.configuration.options.interaction_mode = configuration.options.interaction_mode;
                 let mut source=state.thread.clone();source.desktop=Some(data);
-                let (mut candidate,mut turn)=engine.prepare_turn_with_skill(&source,request.input,skill.as_ref())?;
+                let (mut candidate,mut turn)=engine.prepare_turn_from_configuration(&source,request.input,skill.as_ref(),configuration)?;
                 if let Some(mode) = request.interaction_mode { turn.configuration.get_or_insert_with(Default::default).options.interaction_mode = mode; *candidate.turns.last_mut().unwrap() = turn.clone(); }
                 candidate.desktop.as_mut().unwrap().configuration.options.interaction_mode = previous_mode;
                 if skill.is_some() { candidate.desktop.as_mut().unwrap().configuration = original_configuration; }
                 let permit=engine.reserve_active_turn()?;
-                let result=json!({"turn":turn});
+                let mut result=json!({"turn":turn});
+                if skill.is_none() {
+                    engine.remember_accepted_model(&mut candidate, &accepted_configuration)?;
+                    result["lastAcceptedModel"] = json!(candidate.desktop.as_ref().unwrap().last_accepted_model);
+                }
                 remember(candidate.desktop.as_mut().unwrap(),&identity,&request.request_id,method,hash,result.clone());
                 engine.persist(&candidate).await?;state.thread=candidate;
                 engine.activate(&cell,&mut state,&turn,engine.shutdown.child_token(),permit);
@@ -237,7 +283,7 @@ impl Engine {
         self.mutate(move |engine| async move {
             let cell = engine.cell(&request.thread_id).await?;
             let state = cell.state.lock().await;
-            if state.thread.is_side() { return Err(invalid("SIDE_POLICY_VIOLATION")); }
+            if state.thread.is_read_only_side() { return Err(invalid("SIDE_POLICY_VIOLATION")); }
             let method = "areal/queue/steer";
             let hash = digest(&request)?;
             let data = desktop(&state.thread);
@@ -331,7 +377,8 @@ impl Engine {
         self.mutate(move |engine| async move {
             let cell = engine.cell(&thread_id).await?;
             let mut state = cell.state.lock().await;
-            if state.thread.is_side() {
+            engine.ensure_hook_session_open(&cell, &state.thread)?;
+            if state.thread.is_read_only_side() {
                 return Err(invalid("SIDE_POLICY_VIOLATION"));
             }
             let mut candidate = state.thread.clone();
@@ -363,8 +410,8 @@ impl Engine {
                     } else {
                         let input: Vec<Input> =
                             serde_json::from_value(args["input"].clone()).map_err(invalid)?;
-                        engine.validate_uploads(&state.thread, &input)?;
-                        validate_input(
+                        engine.validate_thread_input(
+                            &state.thread,
                             &input,
                             &engine.configured_model(&item.configuration)?.capabilities(),
                         )?;
@@ -435,7 +482,7 @@ impl Engine {
                 .goal
                 .as_ref()
                 .is_some_and(|g| g.status == areal_protocol::goals::GoalStatus::Active);
-        if automatic && !self.task_allows_continuation(&state.thread).await {
+        if automatic && !self.task_allows_continuation(&state.thread).await? {
             return Ok(());
         }
         if (index.is_some() && data.queue.paused) || (index.is_none() && !automatic) {
@@ -449,7 +496,9 @@ impl Engine {
                 source.desktop.get_or_insert_with(Default::default).configuration = data.queue.items[index].configuration.clone();
                 data.queue.items[index].input.clone()
             } else { vec![Input::text("Continue the active goal from confirmed evidence and remaining work. This automatic continuation adds no new user authorization. Report progress or completion with goal_update.")] };
-            let (mut candidate, mut turn) = self.prepare_turn(&source, input)?;
+            let (mut candidate, mut turn) = if let Some(index) = index {
+                self.prepare_turn_from_configuration(&source, input, None, data.queue.items[index].configuration.clone())?
+            } else { self.prepare_turn(&source, input)? };
             if automatic { if let Some(goal) = &mut turn.goal { goal.origin = "continuation".into(); } *candidate.turns.last_mut().unwrap() = turn.clone(); }
             if let Some(index) = index {
                 turn.configuration.get_or_insert_with(Default::default).options.interaction_mode = data.queue.items[index].configuration.options.interaction_mode;

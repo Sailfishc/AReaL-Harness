@@ -22,6 +22,16 @@ pub fn projections(responses: &mut Map<String, Value>, notifications: &mut Map<S
             responses.insert(format!("areal/{name}"), value.clone());
         }
     };
+    insert(
+        &["genUi/source"],
+        object(json!({
+            "text":string,"readOnly":boolean,
+            "artifacts":array(object(json!({
+                "artifactId":string,"path":string,"digest":string,"blob":string,
+                "threadId":string,"turnId":string,"callId":string,"html":string
+            })))
+        })),
+    );
     let catalog = schema::<areal_plugins::PluginList>();
     insert(&["plugin/list"], catalog.clone());
     insert(
@@ -41,6 +51,7 @@ pub fn projections(responses: &mut Map<String, Value>, notifications: &mut Map<S
             "plugin/resolve",
             "plugin/install",
             "plugin/configure",
+            "plugin/component/configure",
         ],
         schema::<areal_plugins::PluginDetail>(),
     );
@@ -79,7 +90,7 @@ pub fn projections(responses: &mut Map<String, Value>, notifications: &mut Map<S
     }));
     let plugin_mcp = data(object(json!({
         "pluginId":string,"installedDigest":string,"state":string,"authenticationTiming":{"enum":["ON_INSTALL","ON_USE",null]},"trusted":boolean,
-        "servers":array(object(json!({"serverId":string,"state":string,"config":redacted_config,"policy":schema::<areal_mcp::PluginPolicy>(),"authenticationTiming":{"enum":["ON_INSTALL","ON_USE",null]},"authentication":{"enum":["optional","required","none"]}}))),
+        "servers":array(object(json!({"serverId":string,"projectEnabled":boolean,"state":string,"config":redacted_config,"policy":schema::<areal_mcp::PluginPolicy>(),"authenticationTiming":{"enum":["ON_INSTALL","ON_USE",null]},"authentication":{"enum":["optional","required","none"]}}))),
         "connectors":array(object(json!({"id":string,"state":string}))),
         "diagnostics":array(json!({"anyOf":[string,any_object]}))
     })));
@@ -108,23 +119,31 @@ pub fn projections(responses: &mut Map<String, Value>, notifications: &mut Map<S
         json!({"serverId":string,"generation":number,"toolMetadata":tool_metadata,"mcpResult":tool_result}),
     );
     insert(&["mcp/tool/result"], mcp_result.clone());
-    insert(
-        &["mcp/apps/list"],
-        data(object(json!({
-            "serverId":string,"generation":number,"protocolVersion":string,"pluginId":string,"installedDigest":string,
-            "tools":array(object(json!({"name":string,"inputSchema":any_object,"toolName":string}))),
-            "capabilities":any_object,"title":nullable(string.clone()),"icons":nullable(array(any_object.clone())),"instructions":nullable(string.clone())
-        }))),
-    );
-    insert(
-        &["mcp/app/open"],
-        object(json!({
-            "instanceId":string,"serverId":string,"generation":number,"toolMetadata":tool_metadata,
-            "resource":object(json!({"uri":string,"mimeType":{},"html":string,"_meta":{}})),
-            "initialArguments":any_object,"initialResult":nullable(tool_result.clone()),
-            "hostContext":object(json!({"threadId":string,"modelContext":{},"deepLink":nullable(string.clone())}))
-        })),
-    );
+    let mut apps = data(object(json!({
+        "serverId":string,"generation":number,"protocolVersion":string,"pluginId":string,"installedDigest":string,
+        "tools":array(object(json!({"name":string,"inputSchema":any_object,"toolName":string}))),
+        "capabilities":any_object,"title":nullable(string.clone()),"icons":nullable(array(any_object.clone())),"instructions":nullable(string.clone())
+    })));
+    apps["properties"]["requestEpoch"] = string.clone();
+    apps["required"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!("requestEpoch"));
+    insert(&["mcp/apps/list"], apps);
+    let app = object(json!({
+        "instanceId":string,"serverId":string,"generation":number,"toolMetadata":tool_metadata,
+        "resource":object(json!({"uri":string,"mimeType":{},"html":string,"_meta":{}})),
+        "initialArguments":any_object,"initialResult":nullable(tool_result.clone()),
+        "hostContext":object(json!({"threadId":string,"modelContext":{},"deepLink":nullable(string.clone())}))
+    }));
+    insert(&["mcp/app/open"], app.clone());
+    let mut result_open = schema::<areal_protocol::plugin_runtime::ResultOpenReply>();
+    for variant in result_open["oneOf"].as_array_mut().unwrap() {
+        if variant["properties"].get("instance").is_some() {
+            variant["properties"]["instance"] = app.clone();
+        }
+    }
+    insert(&["mcp/app/openFromResult"], result_open);
     insert(
         &["mcp/app/request"],
         json!({"oneOf":[
@@ -133,6 +152,22 @@ pub fn projections(responses: &mut Map<String, Value>, notifications: &mut Map<S
         ]}),
     );
     insert(&["mcp/app/close"], object(json!({"closed":{"const":true}})));
+    insert(
+        &["mcp/app/tools/register"],
+        schema::<areal_protocol::plugin_runtime::PageRegisterReply>(),
+    );
+    insert(
+        &["mcp/app/tools/revoke"],
+        schema::<areal_protocol::plugin_runtime::PageRevoked>(),
+    );
+    insert(
+        &["mcp/app/tools/claim"],
+        schema::<areal_protocol::plugin_runtime::PageClaimReply>(),
+    );
+    insert(
+        &["mcp/app/tools/resolve"],
+        schema::<areal_protocol::plugin_runtime::PageAccepted>(),
+    );
     insert(&["mcp/extension/call"], tool_result);
     insert(
         &["mcp/forms/list"],
@@ -180,6 +215,14 @@ pub fn projections(responses: &mut Map<String, Value>, notifications: &mut Map<S
             .push(json!(field));
     }
     notifications.insert("areal/mcp/tool/result".into(), result_event);
+    notifications.insert(
+        "areal/mcp/app/tools/pending".into(),
+        schema::<areal_protocol::plugin_runtime::PageCoordinates>(),
+    );
+    notifications.insert(
+        "areal/mcp/app/tools/cancelled".into(),
+        schema::<areal_protocol::plugin_runtime::PageCancelled>(),
+    );
     notifications.insert(
         "areal/mcp/form/requested".into(),
         object(json!({"threadId":string,"requestId":string,"serverId":string,"generation":number})),

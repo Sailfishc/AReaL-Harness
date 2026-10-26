@@ -6,6 +6,7 @@ use areal_engine::{Engine, Limits};
 use clap::{Parser, Subcommand};
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
+mod model_configuration;
 mod reload;
 mod telemetry;
 mod tool_extensions;
@@ -14,6 +15,7 @@ pub mod workgroup;
 
 fn engine_limits(config: &ResolvedCoreConfig) -> Limits {
     Limits {
+        inspection_permissions: config.inspection_permissions,
         goals: areal_engine::goals::Policy {
             max_turns: config.goals.max_turns,
             max_active_seconds: config.goals.max_active_seconds,
@@ -30,6 +32,7 @@ fn engine_limits(config: &ResolvedCoreConfig) -> Limits {
         max_side_turn_seconds: config.max_side_turn_seconds,
         max_children_per_turn: config.max_children_per_turn,
         max_agent_depth: config.max_agent_depth,
+        model_request_timeout: std::time::Duration::from_secs(config.model_request_timeout_seconds),
         stream_idle_timeout: std::time::Duration::from_secs(config.stream_idle_timeout_seconds),
         max_history_bytes: config.max_history_bytes,
         max_output_bytes: config.max_output_bytes,
@@ -52,6 +55,7 @@ fn engine_limits(config: &ResolvedCoreConfig) -> Limits {
         max_repeated_tool_failures: config.max_repeated_tool_failures,
         command_stdin_closed: config.command_stdin_closed,
         watchdog_disable: config.watchdog_disable,
+        network_retry_mode: config.network_retry_mode,
         ..Limits::default()
     }
 }
@@ -247,11 +251,20 @@ async fn run_configured(mut args: Args, diagnostic: Option<ConfigCommand>) -> Re
         }
         other => other,
     };
-    let config = Arc::new(if management {
-        areal_config::load_management_config(&inputs)?
+    let (resolved, model_document) = if args.service_info.is_some() {
+        let (document, config) = areal_config::models::read_resolved(&inputs, &[])?;
+        (config, Some(document))
     } else {
-        load_config(&inputs)?
-    });
+        (
+            if management {
+                areal_config::load_management_config(&inputs)?
+            } else {
+                load_config(&inputs)?
+            },
+            None,
+        )
+    };
+    let config = Arc::new(resolved);
     let mut extensions = tool_extensions::load(config.tool_extensions_file.as_deref())?;
     if no_deployment_mcp {
         extensions.mcp_servers.clear();
@@ -359,7 +372,16 @@ async fn run_configured(mut args: Args, diagnostic: Option<ConfigCommand>) -> Re
             }
         }
     });
-    let result = serve(args, config, model, stopping.clone(), extensions, inputs).await;
+    let result = serve(
+        args,
+        config,
+        model,
+        stopping.clone(),
+        extensions,
+        inputs,
+        model_document,
+    )
+    .await;
     stopping.cancel();
     let _ = diagnostics_task.await;
     signal_task.abort();
@@ -399,6 +421,7 @@ async fn serve(
     stopping: tokio_util::sync::CancellationToken,
     extensions: areal_engine::tools::ToolExtensions,
     inputs: ConfigInputs,
+    model_document: Option<areal_config::models::ModelConfiguration>,
 ) -> Result<()> {
     let mcp_env = inputs.env.clone();
     let homedir = inputs.homedir.clone();
@@ -502,7 +525,7 @@ async fn serve(
         );
         let engine = opened?;
         engine.set_permissions(config.permissions.clone(), config.sources.get("permissions.mode").cloned())?;
-        let reload = if args.service_info.is_some() { Some(reload::Reload::open(inputs, &config, &engine)?) } else { None };
+        let reload = if args.service_info.is_some() { Some(reload::Reload::open(inputs.clone(), &config, &engine)?) } else { None };
         if let Some(path) = &args.desktop_config { engine.install_deployment(path)?; }
         let workspace = PathBuf::from(engine.default_cwd());
         let skills = areal_config::skills::discover(Some(&workspace), homedir.as_deref())?;
@@ -524,7 +547,9 @@ async fn serve(
                 engine.register_credential(reference.into(), value.into())?;
             }
         }
-        engine.install_configured_models(configured_models(&config, &mcp_env, &engine)?)?;
+        let (configured, credentials) = configured_models(&config, &mcp_env)?;
+        for (reference, value) in credentials { engine.register_credential(reference, value)?; }
+        engine.install_configured_models(configured)?;
         engine.recover_desktop_default_models().await?;
         if let Some(policy_path) = &args.workgroup_policy {
             use areal_engine::workgroup::service::{NativeFactory, Policy, Service};
@@ -639,10 +664,15 @@ async fn serve(
                 && Some(&identity.workspace) == args.workspace.as_ref(), "service identity does not match deployment");
             Some(identity)
         } else { None };
-        let server = areal_app_server::serve_service(listener, engine.clone(), stop.clone(), Some(authentication), identity);
+        let controller = match (reload, identity.as_ref(), model_document) {
+            (Some(reload), Some(identity), Some(document)) => Some(model_configuration::Controller::new(reload, engine.clone(), identity.clone(), document).await),
+            _ => None,
+        };
+        let configuration = controller.as_ref().map(|controller| controller.clone() as Arc<dyn areal_app_server::configuration::ModelConfigurationControl>);
+        let server = areal_app_server::serve_service_with_configuration(listener, engine.clone(), stop.clone(), Some(authentication), identity, configuration);
         tokio::pin!(server);
         let reload = async {
-            if let Some(reload) = reload { reload.run(engine.clone()).await; }
+            if let Some(controller) = controller { controller.run().await; }
             std::future::pending::<()>().await;
         };
         tokio::pin!(reload);
@@ -693,8 +723,10 @@ async fn serve(
 fn configured_models(
     config: &ResolvedCoreConfig,
     env: &std::collections::BTreeMap<std::ffi::OsString, std::ffi::OsString>,
-    engine: &Engine,
-) -> Result<areal_engine::desktop::ConfiguredModels> {
+) -> Result<(
+    areal_engine::desktop::ConfiguredModels,
+    std::collections::BTreeMap<String, String>,
+)> {
     use areal_protocol::desktop::{ModelParameters, ModelRef, Provider};
     let parameters = |value: &areal_config::models::Parameters| ModelParameters {
         context_window_tokens: value.context_window_tokens,
@@ -704,6 +736,7 @@ fn configured_models(
         reasoning_summary: None,
     };
     let mut result = areal_engine::desktop::ConfiguredModels::default();
+    let mut credentials = std::collections::BTreeMap::new();
     for item in &config.model_catalog {
         result.provider_ids.insert(item.id.clone());
         if !item.enabled {
@@ -733,10 +766,13 @@ fn configured_models(
                 .unwrap_or(name)
                 .to_owned()
         });
-        if let (Some(name), Some(reference)) = (&key_env, &reference)
-            && let Some(value) = areal_config::credential_value(env, name)
-        {
-            engine.register_credential(reference.clone(), value.into())?;
+        if let (Some(name), Some(reference)) = (&key_env, &reference) {
+            result
+                .credential_environments
+                .insert((item.id.clone(), reference.clone()), name.clone());
+            if let Some(value) = areal_config::credential_value(env, name) {
+                credentials.insert(reference.clone(), value.into());
+            }
         }
         let protocol = if selected {
             config.model.protocol
@@ -758,6 +794,18 @@ fn configured_models(
             .into(),
             credential_ref: reference,
             models,
+            model_parameters: std::collections::BTreeMap::new(),
+            model_capabilities: item
+                .models
+                .iter()
+                .filter_map(|model| {
+                    model
+                        .capabilities
+                        .as_ref()
+                        .map(|capabilities| (model.id.clone(), model_capabilities(capabilities)))
+                })
+                .collect(),
+            context_source: None,
             parameters: parameters(&item.parameters),
         });
         for model in &item.models {
@@ -792,12 +840,23 @@ fn configured_models(
     if !config.model_catalog_managed {
         result.default_model = None;
     }
-    Ok(result)
+    Ok((result, credentials))
 }
 
 /// 返回输入二进制内嵌的构建身份，打包不能用当前 checkout 冒充。
 pub fn build_info() -> serde_json::Value {
     serde_json::json!({"sourceRevision":env!("AREAL_BUILD_REVISION"),"workingTree":env!("AREAL_BUILD_DIRTY"),"inputHash":env!("AREAL_BUILD_INPUT_HASH"),"apiVersion":areal_protocol::desktop::API_VERSION,"stateVersion":areal_engine::state_version()})
+}
+
+fn model_capabilities(
+    value: &areal_config::models::ModelCapabilities,
+) -> areal_protocol::desktop::ModelCapabilityConfig {
+    areal_protocol::desktop::ModelCapabilityConfig {
+        tools: value.tools,
+        vision: value.vision,
+        reasoning: value.reasoning,
+        reasoning_effort_options: value.reasoning_effort_options.clone(),
+    }
 }
 
 #[cfg(test)]

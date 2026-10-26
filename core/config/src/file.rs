@@ -207,7 +207,10 @@ fn walk(
             | "max_response_bytes"
             | "max_tool_buffer_bytes",
         ]
-        | ["network", "stream_idle_timeout_seconds"] => Some(format!("limits.{}", names[1])),
+        | [
+            "network",
+            "model_request_timeout_seconds" | "stream_idle_timeout_seconds",
+        ] => Some(format!("limits.{}", names[1])),
         ["context", "mode"] => Some("limits.context_mode".into()),
         ["context", "reference_tokens"] => Some("limits.context_reference_tokens".into()),
         ["context", "observation_tokens"] => Some("limits.context_observation_tokens".into()),
@@ -225,38 +228,15 @@ fn walk(
             layer,
         );
     }
-    if names.as_slice() == ["network", "retry_mode"] {
-        let value = match item.as_str() {
-            Some("persistent") => "false",
-            Some("bounded") => "true",
-            _ => {
-                return Err(error(
-                    Kind::InvalidValue,
-                    &key,
-                    &at,
-                    "retry mode must be persistent or bounded",
-                ));
-            }
-        };
-        if layer
-            .values
-            .insert(
-                "limits.watchdog_disable".into(),
-                Entry {
-                    value: value.into(),
-                    source: at.clone(),
-                },
-            )
-            .is_some()
-        {
-            return Err(error(
-                Kind::Conflict,
-                &key,
-                &at,
-                "duplicate configuration alias",
-            ));
-        }
-        return Ok(());
+    if names.as_slice() == ["network", "retry_mode"]
+        && !matches!(item.as_str(), Some("persistent" | "bounded"))
+    {
+        return Err(error(
+            Kind::InvalidValue,
+            &key,
+            &at,
+            "retry mode must be persistent or bounded",
+        ));
     }
     // 扩展目录字段由共享模型配置所有者做结构和语义校验。
     if matches!(
@@ -273,6 +253,7 @@ fn walk(
     let table = matches!(
         names.as_slice(),
         [] | ["server"]
+            | ["delegation"]
             | ["model"]
             | ["model", "providers"]
             | ["model", "providers", _]
@@ -368,6 +349,7 @@ fn walk(
                     | "max_side_turn_seconds"
                     | "max_children_per_turn"
                     | "max_agent_depth"
+                    | "model_request_timeout_seconds"
                     | "stream_idle_timeout_seconds"
                     | "max_history_bytes"
                     | "max_output_bytes"
@@ -423,6 +405,7 @@ fn walk(
             | ["logging", "filter"]
             | ["tools", "extensions_file"]
             | ["permissions", "mode"]
+            | ["delegation", "inspection_permissions"]
     );
     let decimal = matches!(
         names.as_slice(),
@@ -431,7 +414,9 @@ fn walk(
             "temperature" | "top_p" | "min_p" | "presence_penalty" | "repetition_penalty"
         ]
     );
-    let string = string || names.as_slice() == ["limits", "context_mode"];
+    let string = string
+        || names.as_slice() == ["limits", "context_mode"]
+        || names.as_slice() == ["network", "retry_mode"];
     let boolean = matches!(
         names.as_slice(),
         [

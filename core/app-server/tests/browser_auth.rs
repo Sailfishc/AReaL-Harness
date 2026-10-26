@@ -20,6 +20,8 @@ impl Model for NoModel {
     }
     fn capabilities(&self) -> ModelCapabilities {
         ModelCapabilities {
+            declared: None,
+            context_window: None,
             context_window_tokens: None,
             max_output_tokens: None,
             summary_output_tokens: None,
@@ -69,6 +71,7 @@ impl Fixture {
             config_fingerprint: "fixture".into(),
         };
         let service = Service {
+            owner: None,
             identity: identity.clone(),
             endpoint: format!("ws://{addr}"),
             web_url: format!("http://{addr}/ui"),

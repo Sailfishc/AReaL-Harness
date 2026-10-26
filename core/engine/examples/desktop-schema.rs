@@ -2,12 +2,23 @@ mod schema;
 use areal_protocol::desktop::*;
 use serde_json::{Value, json};
 fn main() {
-    if std::env::args().any(|arg| arg == "--native-host") {
-        let mut schema = json!({"protocolVersion":2,"ready":schemars::schema_for!(areal_engine::tools::plugins::NativeHostReady),"hostToCore":schemars::schema_for!(areal_engine::tools::plugins::NativeHostMessage),"coreToHost":schema::native_messages(),"toolResponse":schemars::schema_for!(areal_protocol::DynamicToolResponse),"runtimeError":schemars::schema_for!(areal_runtime_protocol::Error)});
-        inline(&mut schema, &Value::Null);
-        println!("{}", serde_json::to_string_pretty(&schema).unwrap());
-        return;
+    let output = if std::env::args().any(|arg| arg == "--native-host") {
+        native_host_schema()
+    } else {
+        desktop_schema()
+    };
+    println!("{}", serde_json::to_string_pretty(&output).unwrap());
+}
+fn native_host_schema() -> Value {
+    let mut output = json!({"protocolVersion":2,"ready":schemars::schema_for!(areal_engine::tools::plugins::NativeHostReady),"hostToCore":schemars::schema_for!(areal_engine::tools::plugins::NativeHostMessage),"coreToHost":schema::native_messages(),"toolResponse":schemars::schema_for!(areal_protocol::DynamicToolResponse),"runtimeError":schemars::schema_for!(areal_runtime_protocol::Error)});
+    for (name, value) in output.as_object_mut().unwrap() {
+        if name != "protocolVersion" {
+            schema::standalone::normalize(value);
+        }
     }
+    output
+}
+fn desktop_schema() -> Value {
     let mut methods = serde_json::Map::new();
     macro_rules! add {
         ($name:expr,$type:ty) => {
@@ -18,6 +29,35 @@ fn main() {
         };
     }
     add!("areal/capabilities", CapabilitiesRequest);
+    add!(
+        "areal/genUi/source",
+        areal_protocol::plugin_runtime::GenUiSource
+    );
+    add!("areal/thread/prediction", PromptPredictionRequest);
+    add!(
+        "areal/mcp/app/tools/register",
+        areal_protocol::plugin_runtime::PageRegister
+    );
+    add!(
+        "areal/mcp/app/tools/revoke",
+        areal_protocol::plugin_runtime::PageRevoke
+    );
+    add!(
+        "areal/mcp/app/tools/claim",
+        areal_protocol::plugin_runtime::PageCoordinates
+    );
+    add!(
+        "areal/mcp/app/tools/resolve",
+        areal_protocol::plugin_runtime::PageResolve
+    );
+    add!(
+        "areal/server/modelConfiguration/read",
+        ModelConfigurationRead
+    );
+    add!(
+        "areal/server/modelConfiguration/apply",
+        ModelConfigurationApply
+    );
     add!(
         "areal/plugin/hooks/list",
         areal_protocol::plugin_runtime::Empty
@@ -66,6 +106,10 @@ fn main() {
     add!("areal/mcp/apps/list", areal_protocol::plugin_runtime::Apps);
     add!("areal/mcp/app/open", areal_protocol::plugin_runtime::Open);
     add!(
+        "areal/mcp/app/openFromResult",
+        areal_protocol::plugin_runtime::OpenFromResult
+    );
+    add!(
         "areal/mcp/app/request",
         areal_protocol::plugin_runtime::AppRequest
     );
@@ -90,6 +134,19 @@ fn main() {
     add!("areal/goal/create", areal_protocol::goals::GoalCreate);
     add!("areal/task/create", areal_protocol::tasks::TaskCreate);
     add!("areal/task/update", areal_protocol::tasks::TaskUpdate);
+    add!(
+        "areal/task/schedule/context",
+        areal_protocol::tasks::ScheduleContextInput
+    );
+    add!(
+        "areal/task/schedule/preview",
+        areal_protocol::tasks::SchedulePreview
+    );
+    add!("areal/task/runNow", areal_protocol::tasks::TaskRunNow);
+    add!("areal/task/runs/list", areal_protocol::tasks::TaskRunsList);
+    methods.get_mut("areal/task/runs/list").unwrap()["properties"]["limit"] =
+        json!({"type":["integer","null"],"minimum":1,"maximum":100});
+    add!("areal/task/run/read", areal_protocol::tasks::TaskRunRead);
     add!("areal/task/pause", areal_protocol::tasks::TaskControl);
     for method in ["areal/task/stopRun", "areal/task/resumeRun"] {
         let mut control =
@@ -102,7 +159,11 @@ fn main() {
         control["properties"]["expectedRunId"] = json!({"type":"string"});
         methods.insert(method.into(), control);
     }
-    for action in ["areal/task/resume", "areal/task/cancel"] {
+    for action in [
+        "areal/task/resume",
+        "areal/task/cancel",
+        "areal/task/delete",
+    ] {
         let mut control =
             serde_json::to_value(schemars::schema_for!(areal_protocol::tasks::TaskControl))
                 .unwrap();
@@ -147,6 +208,8 @@ fn main() {
     );
     add!("areal/thread/fork", ForkThread);
     add!("areal/side/start", SideStart);
+    add!("areal/side/create", SideCreate);
+    add!("areal/side/close", SideClose);
     add!("areal/profile/read", VersionRef);
     add!("areal/workflow/read", VersionRef);
     add!(
@@ -259,6 +322,9 @@ fn main() {
     methods.insert("areal/plugin/configure".into(), object(
         json!({"id":string,"scope":scope,"enabled":{"type":"boolean"},"expectedRevision":integer,"requestId":string}),
         vec!["id","scope","enabled","expectedRevision","requestId"]));
+    methods.insert("areal/plugin/component/configure".into(), object(
+        json!({"id":string,"component":schemars::schema_for!(areal_plugins::PluginComponentId),"enabled":{"type":"boolean"},"expectedRevision":integer,"expectedDigest":{"type":"string","pattern":"^[0-9a-f]{64}$"},"requestId":string}),
+        vec!["id","component","enabled","expectedRevision","expectedDigest","requestId"]));
     methods.insert(
         "areal/plugin/uninstall".into(),
         object(
@@ -296,10 +362,10 @@ fn main() {
     methods.insert("areal/context/read".into(),object(json!({"threadId":string,"offset":integer,"limit":{"type":"integer","minimum":1,"maximum":32}}),vec!["threadId"]));
     methods.insert(
         "areal/request/read".into(),
-        object(
-            json!({"threadId":string,"requestId":string}),
-            vec!["requestId"],
-        ),
+        json!({"oneOf":[
+            object(json!({"threadId":string,"requestId":string}),vec!["requestId"]),
+            schemars::schema_for!(areal_protocol::tasks::TaskRunNow)
+        ]}),
     );
     methods.insert("areal/server/drain".into(),object(json!({"strategy":{"enum":["wait","cancel","ifIdle"]},"timeoutMs":{"type":"integer","minimum":0,"maximum":60000},"idleTimeoutMs":{"type":"integer","minimum":1,"maximum":604800000}}),vec!["strategy","timeoutMs"]));
     methods.insert(
@@ -419,10 +485,7 @@ fn main() {
     methods.insert("initialize".into(),object(json!({"clientInfo":object(json!({"name":string,"version":string,"title":nullable_string}),vec!["name","version"]),"capabilities":object(json!({"optOutNotificationMethods":{"type":"array","items":string},"experimentalApi":{"type":"boolean"}}),vec![])}),vec!["clientInfo"]));
     methods.insert("model/list".into(), empty.clone());
     methods.insert("thread/start".into(),object(json!({"cwd":nullable_string,"model":nullable_string,"dynamicTools":{"type":"array","items":schemars::schema_for!(areal_protocol::ToolDefinition)}}),vec![]));
-    methods.insert(
-        "thread/resume".into(),
-        object(json!({"threadId":string}), vec!["threadId"]),
-    );
+    add!("thread/resume", ObserveThread);
     methods.insert(
         "thread/read".into(),
         object(
@@ -440,7 +503,11 @@ fn main() {
         );
     }
     methods.insert("turn/start".into(),object(json!({"threadId":string,"input":{"type":"array","items":schemars::schema_for!(areal_protocol::Input)}}),vec!["threadId","input"]));
-    methods.insert("areal/conversation/history".into(),object(json!({"threadId":string,"view":{"enum":["inherited","reference"]},"cursor":string,"maxBytes":{"type":"integer","minimum":1,"maximum":262144}}),vec!["threadId","view"]));
+    methods.insert("areal/conversation/history".into(),object(json!({"threadId":string,"view":{"enum":["own","inherited","reference"]},"cursor":string,"maxBytes":{"type":"integer","minimum":1,"maximum":1048576}}),vec!["threadId","view"]));
+    methods.get_mut("areal/conversation/history").unwrap()["allOf"] = json!([{
+        "if":{"properties":{"view":{"enum":["inherited","reference"]}}},
+        "then":{"properties":{"maxBytes":{"maximum":262144}}}
+    }]);
     methods.insert("areal/conversation/list".into(),object(json!({"view":{"enum":["main","side","all"]},"sourceThreadId":string,"includeArchived":{"type":"boolean"},"limit":{"type":"integer","minimum":1,"maximum":100},"cursor":string}),vec![]));
     methods.insert(
         "areal/conversation/unarchive".into(),
@@ -506,46 +573,42 @@ fn main() {
     output["serverRequests"] = json!({"item/tool/call":browser_request,
         "areal/browser/prepare":object(json!({"threadId":string,"turnId":string,"callId":string,"tool":string,"arguments":{},"hostGeneration":string}),vec!["threadId","turnId","callId","tool","arguments","hostGeneration"])});
     output["serverRequests"]["item/tool/call"]["properties"]["browserApproval"] = json!({"type":"object","properties":{"plan":{"type":"object"}},"required":["plan"],"additionalProperties":false});
+    output["serverRequests"]["item/tool/call"]["properties"]["computerApproval"] =
+        output["serverRequests"]["item/tool/call"]["properties"]["browserApproval"].clone();
+    output["serverRequests"]["areal/computer/prepare"] =
+        output["serverRequests"]["areal/browser/prepare"].clone();
+    output["serverRequests"]["areal/computer/prepare"]["properties"]["discardPreparedPlan"] =
+        json!({"type":"boolean"});
+    output["serverRequests"]["areal/computer/prepare"]["properties"]["computerApproval"] =
+        output["serverRequests"]["item/tool/call"]["properties"]["computerApproval"].clone();
+    output["serverRequests"]["areal/cua/turnEnded"] = object(
+        json!({"threadId":string,"turnId":string,"hostGeneration":string,"event":{"enum":["Stop","Interrupt"]}}),
+        vec!["threadId", "turnId", "hostGeneration", "event"],
+    );
     output["serverRequests"]["areal/task/prepare"] = object(
         json!({"taskId":string,"runId":string,"threadId":string,"scheduledAt":integer,"intent":{"enum":["start","resume"]}}),
         vec!["taskId", "runId", "threadId", "scheduledAt", "intent"],
     );
     output["serverResponses"] = json!({"item/tool/call":schemars::schema_for!(areal_protocol::DynamicToolResponse),"areal/browser/prepare":{"type":"object"},"areal/task/prepare":{"type":"object"}});
-    inline(&mut output, &Value::Null);
-    println!("{}", serde_json::to_string_pretty(&output).unwrap());
-}
-// 每个生成的 schema 都有自己的定义域；内联后可独立编译嵌套请求。
-fn inline(value: &mut Value, inherited: &Value) {
-    let defs = value
-        .get("$defs")
-        .or_else(|| value.get("$schema").and_then(|_| value.get("definitions")))
-        .cloned()
-        .unwrap_or_else(|| inherited.clone());
-    if let Some(reference) = value.get("$ref").and_then(Value::as_str).and_then(|r| {
-        r.strip_prefix("#/$defs/")
-            .or_else(|| r.strip_prefix("#/definitions/"))
-    }) {
-        *value = defs[reference].clone();
-        assert!(!value.is_null(), "unresolved schema reference");
-        inline(value, &defs);
-        return;
+    output["serverResponses"]["areal/computer/prepare"] = json!({"type":"object"});
+    output["serverResponses"]["areal/cua/turnEnded"] = empty;
+    for method in SERVER_REQUESTS {
+        assert!(
+            output["serverRequests"].get(*method).is_some()
+                && output["serverResponses"].get(*method).is_some(),
+            "advertised server request lacks request or response schema: {method}"
+        );
     }
-    match value {
-        Value::Object(map) => {
-            map.remove("$defs");
-            if map.contains_key("$schema") {
-                map.remove("definitions");
+    for (name, value) in output.as_object_mut().unwrap() {
+        match name.as_str() {
+            "apiVersion" => {}
+            "requests" | "responses" | "notifications" | "serverRequests" | "serverResponses" => {
+                for schema in value.as_object_mut().unwrap().values_mut() {
+                    schema::standalone::normalize(schema);
+                }
             }
-            map.remove("$schema");
-            for child in map.values_mut() {
-                inline(child, &defs);
-            }
+            _ => schema::standalone::normalize(value),
         }
-        Value::Array(items) => {
-            for child in items {
-                inline(child, &defs);
-            }
-        }
-        _ => {}
     }
+    output
 }

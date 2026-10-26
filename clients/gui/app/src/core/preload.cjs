@@ -1,7 +1,48 @@
 'use strict';
 const { contextBridge, ipcRenderer } = require('electron');
+let quitSubscription = null;
+let quitProgress = { state: 'idle' };
+const quitProgressListeners = new Set();
+ipcRenderer.on('areal-core:quit-progress', (_event, value) => {
+  if (value?.state === 'idle') quitProgress = { state: 'idle' };
+  else if (value?.state === 'quitting' && ['checking', 'stopping', 'finishing'].includes(value.phase))
+    quitProgress = { state: 'quitting', phase: value.phase };
+  else return;
+  for (const listener of quitProgressListeners) listener(quitProgress);
+});
+function answerQuitRequest(subscription, allowed) {
+  if (subscription.pending === null) return;
+  const id = subscription.pending;
+  subscription.pending = null;
+  ipcRenderer.send('areal-core:quit-decision', { id, allowed });
+}
+ipcRenderer.on('areal-core:quit-request', (_event, id) => {
+  const subscription = quitSubscription;
+  if (!subscription || subscription.pending !== null) {
+    ipcRenderer.send('areal-core:quit-decision', { id, allowed: false });
+    return;
+  }
+  subscription.pending = id;
+  void Promise.resolve().then(() => subscription === quitSubscription ? subscription.listener() : false)
+    .then(allowed => answerQuitRequest(subscription, allowed === true), () => answerQuitRequest(subscription, false));
+});
 contextBridge.exposeInMainWorld('arealDesktop', {
+  setInterfaceLocale: locale => ipcRenderer.send('areal-core:interface-locale', locale),
   presentReady: () => ipcRenderer.invoke('areal-core:present-ready'),
+  onQuitProgress: listener => {
+    quitProgressListeners.add(listener);
+    listener(quitProgress);
+    return () => quitProgressListeners.delete(listener);
+  },
+  onQuitRequested: listener => {
+    if (quitSubscription) answerQuitRequest(quitSubscription, false);
+    const subscription = { listener, pending: null };
+    quitSubscription = subscription;
+    return () => {
+      if (quitSubscription === subscription) quitSubscription = null;
+      answerQuitRequest(subscription, false);
+    };
+  },
   updateState: () => ipcRenderer.invoke('areal-core:update-state'),
   downloadUpdate: () => ipcRenderer.invoke('areal-core:update-download'),
   recoverUpdateResources: () => ipcRenderer.invoke('areal-core:update-recover-resources'),
@@ -55,10 +96,11 @@ contextBridge.exposeInMainWorld('arealDesktop', {
     handler(); // A click while the renderer was loading stays pending in Main.
     return () => { active = false; ipcRenderer.removeListener('areal-core:notification-open', handler); };
   },
-  onState: listener => {
+  requestProjection: requestId => ipcRenderer.send('areal-core:projection-request', requestId),
+  onProjection: listener => {
     const handler = (_event, value) => listener(value);
-    ipcRenderer.on('areal-core:state', handler);
-    return () => ipcRenderer.removeListener('areal-core:state', handler);
+    ipcRenderer.on('areal-core:projection', handler);
+    return () => ipcRenderer.removeListener('areal-core:projection', handler);
   },
   onTheme: listener => {
     const handler = (_event, value) => listener(value);

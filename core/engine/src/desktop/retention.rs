@@ -5,7 +5,7 @@ impl Engine {
         self.mutate(move |engine| async move {
             let cell = engine.raw_cell(&thread_id).await?;
             let mut state = cell.state.lock().await;
-            if !state.thread.is_side() {
+            if !state.thread.is_read_only_side() {
                 return Err(invalid("only Side conversations can be restored here"));
             }
             if !state.thread.desktop.as_ref().is_some_and(|d| d.archived) {
@@ -33,6 +33,7 @@ impl Engine {
             let _resources = cell.resource_gate.lock().await;
             {
                 let state = cell.state.lock().await;
+                if state.thread.is_executable_side() { return Err(invalid("use areal/side/close for executable Side conversations")); }
                 validate_archive(&state)?;
             }
             engine.plugin_hooks_end(&cell).await.map_err(invalid)?;
@@ -40,7 +41,9 @@ impl Engine {
             validate_archive(&state)?;
             let mut candidate = state.thread.clone();
             candidate.desktop.get_or_insert_with(Default::default).archived = true;
+            candidate.desktop.as_mut().unwrap().prompt_prediction = None;
             engine.persist(&candidate).await?;
+            crate::prompt_prediction::invalidate(&mut state);
             candidate.turns.clear();
             candidate.context_checkpoint = None;
             state.thread = candidate;
@@ -119,7 +122,7 @@ impl Engine {
     }
 }
 
-fn validate_archive(state: &State) -> Result<()> {
+pub(super) fn validate_archive(state: &State) -> Result<()> {
     if state.active.is_some() || state.compacting || state.poisoned {
         return Err(Error::Conflict);
     }

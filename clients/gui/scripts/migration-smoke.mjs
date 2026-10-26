@@ -1,3 +1,5 @@
+import { closeSmokeApplication } from "./application-cleanup.mjs";
+import { withSmokeDeadline } from "./smoke-deadline.mjs";
 import assert from "node:assert/strict";
 
 import { createRequire } from "node:module";
@@ -12,6 +14,7 @@ const gui = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const desktop = join(gui, "app");
 const require = createRequire(join(desktop, "package.json"));
 const { _electron: electron } = require("playwright-core");
+const { executeCore } = require(join(desktop, "src/core/core-process.cjs"));
 const root = resolve(gui, "../..");
 const binary = process.env.AREAL_GUI_EXECUTABLE
   ? resolve(dirname(process.env.AREAL_GUI_EXECUTABLE), "../Resources/areal-core/bin/areal")
@@ -60,6 +63,16 @@ await writeFile(
     ],
   }),
 );
+const conversationStage2 = process.argv.includes("--conversation-stage2");
+const conversationProduction = process.argv.includes("--conversation-production");
+const settingsMode = process.argv.includes("--settings-stage1");
+const desktopSettingsMode = process.argv.includes("--desktop-settings");
+const i18nMode = process.argv.includes("--settings-i18n");
+const nativeI18nMode = process.argv.includes("--native-dialog-i18n");
+const hostMode = process.argv.includes("--conversation-host");
+const motionMode = hostMode || process.argv.includes("--conversation-motion");
+const journeyMode = desktopSettingsMode || conversationProduction || nativeI18nMode || i18nMode || conversationStage2 || settingsMode || motionMode || process.argv.includes("--conversation-journey");
+const journey = desktopSettingsMode ? (await import("./desktop-settings-smoke.mjs")).desktopSettingsSmoke(scratch, workspace) : nativeI18nMode ? (await import("./native-dialog-i18n.mjs")).nativeDialogI18n(scratch) : i18nMode ? (await import("./settings-i18n.mjs")).settingsI18n(scratch) : settingsMode ? (await import("./settings-stage1.mjs")).settingsStage1(scratch) : hostMode ? (await import("./conversation-host.mjs")).conversationHost(scratch, workspace) : journeyMode ? (await import("./conversation-journey.mjs")).conversationJourney(scratch, workspace, { motion: motionMode, stage2: conversationStage2, production: conversationProduction }) : null;
 const received = [];
 let finishBackground, finishAgentParent;
 const server = createServer(async (req, res) => {
@@ -80,7 +93,7 @@ const server = createServer(async (req, res) => {
     return;
   }
   const msgs = body.messages ?? [],
-    last = msgs.findLastIndex((m) => m.role === "user"),
+    last = msgs.findLastIndex((m) => m.role === "user" && (!journey || typeof m.content !== "string" || !m.content.startsWith("AReaL runtime context (not a user request):"))),
     content = msgs[last]?.content;
   const text =
     typeof content === "string" ? content : (content ?? []).map((x) => x.text ?? "").join("");
@@ -89,6 +102,7 @@ const server = createServer(async (req, res) => {
     res.write(
       `data: ${JSON.stringify({ id: "fixture", object: "chat.completion.chunk", choices: [{ index: 0, delta, finish_reason }] })}\n\n`,
     );
+  try { if (journey?.model(text, msgs, send, res)) return; } catch (error) { errors.push(error.stack); res.end("data: [DONE]\n\n"); return; }
   if (text.includes("后台持续执行")) {
     send({ content: "后台开始。" });
     finishBackground = () => {
@@ -211,6 +225,7 @@ const env = {
   AREAL_CORE_CONFIG: config,
   AREAL_CORE_DESKTOP_CONFIG: deployment,
   AREAL_GUI_USER_DATA: join(scratch, "electron"),
+  AREAL_HARNESS_SERVICE_HOME: join(scratch, "services"),
 };
 delete env.AREAL_CORE_WORKSPACE;
 if (process.env.AREAL_GUI_EXECUTABLE) delete env.AREAL_CORE_BIN;
@@ -233,7 +248,8 @@ async function call(name, params) {
   if (!result.ok) throw Error(result.error.message);
   return result.value;
 }
-async function until(predicate, label) {
+// Return the observed desktop snapshot, never the predicate's value.
+async function waitForSnapshot(predicate, label) {
   const end = Date.now() + 30000;
   while (Date.now() < end) {
     const s = await state();
@@ -241,6 +257,25 @@ async function until(predicate, label) {
     await new Promise((r) => setTimeout(r, 80));
   }
   throw Error("Timeout: " + label);
+}
+// 服务检查与清理使用产品原生启动入口，避免 Node 直接执行本地 Mach-O 被系统拒绝。
+const services = async () => JSON.parse((await executeCore(binary, ["service", "list", "--json"], { env, timeout: 20000 })).stdout);
+async function waitForApplicationStop(records) {
+  const end = Date.now() + 30000;
+  while (Date.now() < end) {
+    const current = await services();
+    const settled = records.every(original => {
+      const record = current.find(value => value.serviceId === original.serviceId);
+      return record?.generation === original.generation && record.state === "stopped"
+        && [original.hostPid, original.corePid].filter(pid => Number.isSafeInteger(pid) && pid > 1).every(pid => {
+          try { process.kill(pid, 0); return false; }
+          catch (error) { if (error.code === "ESRCH") return true; throw error; }
+        });
+    });
+    if (settled) return;
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  throw new Error("Application exit did not stop its original service generations and processes");
 }
 async function waitForPopupMotion(selector) {
   // Base UI 先移除起始样式，之后才创建过渡；此前 getAnimations() 可能为空。
@@ -259,9 +294,15 @@ async function shot(name) {
   frames.push(name + ".png");
 }
 async function launch() {
+  if (journey) await mkdir(join(scratch, "video"), { recursive: true });
   app = await electron.launch({
+    ...(journey && !motionMode ? { recordVideo: { dir: join(scratch, "video"), size: { width: 1509, height: 949 } } } : {}),
     executablePath: process.env.AREAL_GUI_EXECUTABLE || require("electron"),
-    args: process.env.AREAL_GUI_EXECUTABLE ? [] : [desktop],
+    // 原生恢复弹窗使用 bundle 级状态，独立 userData 仍会受之前崩溃影响；只在夹具忽略旧窗口。
+    args: [
+      ...(process.env.AREAL_GUI_EXECUTABLE ? [] : [desktop, ...(hostMode && process.env.AREAL_E3_CDP_PORT ? ["--remote-debugging-port=" + process.env.AREAL_E3_CDP_PORT] : [])]),
+      ...(process.platform === "darwin" ? ["-ApplePersistenceIgnoreState", "YES"] : []),
+    ],
     env,
     timeout: 120000,
   });
@@ -272,6 +313,18 @@ async function launch() {
   page.setDefaultTimeout(15000);
   page.on("pageerror", (e) => errors.push(e.message));
   await page.locator("[data-testid=areal-workbench]").waitFor({ timeout: 120000 });
+  // 本专项统计执行请求；提示预测由独立专项验收，避免辅助请求混入不重放断言。
+  const preferencesChanged = await page.evaluate(() => {
+    const key = "areal-gui:application-preferences";
+    const preferences = JSON.parse(localStorage.getItem(key) ?? "{}");
+    if (preferences.nextPromptSuggestions === false) return false;
+    localStorage.setItem(key, JSON.stringify({ ...preferences, nextPromptSuggestions: false }));
+    return true;
+  });
+  if (preferencesChanged) {
+    await page.reload();
+    await page.locator("[data-testid=areal-workbench]").waitFor({ timeout: 120000 });
+  }
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 960));
 }
 async function openPanel(name) {
@@ -285,11 +338,25 @@ async function openPanel(name) {
 }
 async function quit() {
   if (!app) return;
-  await app.evaluate(({ dialog }) => {
-    dialog.showMessageBox = async () => ({ response: 1 });
-  });
-  await app.close();
-  app = null;
+  const current = app;
+  try {
+    try {
+      await withSmokeDeadline("quit confirmation fixture", () => current.evaluate(({ dialog }) => {
+        dialog.showMessageBox = async () => ({ response: 1 });
+      }), 5000);
+    } finally {
+      // 退出先等待已受理操作（20s），再核查停服和原进程退出；不能共用单阶段 20s 预算。
+      await closeSmokeApplication(current, 60000);
+    }
+  } finally { app = null; }
+}
+async function hideWindow() {
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
+  await waitForSnapshot(async () => !await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible()), "window hidden after owned activity settles");
+}
+async function revealWindow() {
+  await app.evaluate(({ app }) => app.emit("activate"));
+  await waitForSnapshot(async () => await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible()), "window visible after activate");
 }
 console.log("GUI evidence:", scratch);
 console.log("Core binary SHA-256 at start:", binarySha256AtStart);
@@ -310,7 +377,7 @@ try {
   }, workspace);
   await button("不在项目中工作").click();
   await page.getByRole("menuitem", { name: "新建项目", exact: true }).click();
-  await until((s) => project(s)?.state?.connected, "project ready");
+  await waitForSnapshot((s) => project(s)?.state?.connected, "project ready");
   const pid = project(await state()).id;
   const selectFixtureProfile = async () => {
     await page.waitForFunction((id) => {
@@ -332,9 +399,12 @@ try {
     const count = turnCountOf(await state());
     await input().fill(text);
     await button("发送").click();
-    await until((s) => turnCountOf(s) > count, "turn admission");
+    await waitForSnapshot((s) => turnCountOf(s) > count, "turn admission");
   };
-  // 通过已有提示入口复现旧错误；后续真实发送不应继续展示它。
+  if (journey) {
+    await journey.run({ app: () => app, page: () => page, state, call, until: waitForSnapshot, button, launch, quit, received, checks, previewUrl });
+  } else {
+  // 通用提示入口是短暂 toast；后续真实发送不应把它升级为常驻错误。
   await page.evaluate(() =>
     document.dispatchEvent(
       new CustomEvent("areal:toast", {
@@ -342,16 +412,18 @@ try {
       }),
     ),
   );
-  await page.locator(".error-banner").waitFor();
+  const toast = page.getByTestId("toast");
+  await toast.filter({ hasText: "thread is busy or the target turn is stale" }).waitFor();
   await send("检查当前项目");
-  await until(
+  await waitForSnapshot(
     (s) =>
       Object.values(project(s).state.threads).some(
         (t) => t.turns?.at(-1)?.status === "completed",
       ),
     "first send",
   );
-  await page.waitForFunction(() => !document.querySelector(".error-banner"));
+  await toast.waitFor({ state: "hidden" });
+  assert.equal(await page.locator('[data-testid="feedback-notice"][data-tone="error"]').count(), 0);
   const tid = await page.locator("[data-testid=areal-workbench]").getAttribute("data-thread-id");
   assert.equal(project(await state()).configurations[tid].profile.id, "standard");
   assert.equal(project(await state()).configurations[tid].profile.revision, "v1");
@@ -359,7 +431,7 @@ try {
   assert.ok(tid);
   await shot("02-conversation");
   checks.push("sandboxed Electron; project picker; first send; real Core/Runtime and local SSE");
-  checks.push("new message clears previous error banner after real Core acceptance");
+  checks.push("transient toast clears without becoming persistent feedback after real Core acceptance");
   // 子对话只改变侧面板；真实子 Thread、工具记录与停止结果由 Core 提供。
   const reference = await page.evaluate(async ({ pid }) => {
     const response = await window.arealDesktop.command("media", { projectId: pid, threadId: document.querySelector("[data-testid=areal-workbench]").dataset.threadId, operation: "upload", mime: "image/png", bytes: Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aL1sAAAAASUVORK5CYII="), char => char.charCodeAt(0)) });
@@ -367,26 +439,30 @@ try {
     return response.value;
   }, { pid });
   await call("send", { projectId: pid, threadId: tid, text: "启动子任务", attachments: [{ type: "image", url: reference.uri }] });
-  await until(async () => (await call("manage", { projectId: pid, parentThreadId: tid, operation: "agents", limit: 30 })).data.length === 3, "three real children");
+  await waitForSnapshot(async () => (await call("manage", { projectId: pid, parentThreadId: tid, operation: "agents", limit: 30 })).data.length === 3, "three real children");
   const children = (await call("manage", { projectId: pid, parentThreadId: tid, operation: "agents", limit: 30 })).data;
   const doneChild = children.find(t => t.preview === "子任务完成");
   const liveChild = children.find(t => t.preview === "子任务等待停止");
   assert.ok(doneChild && liveChild);
-  const backgroundProcess = await call("manage", { projectId: pid, threadId: tid, operation: "processStart", requestId: randomUUID(), argv: ["/bin/sh", "-c", "printf 'Resource process ready\\n'; sleep 300"], cwd: "workspace://repo", lifetime: "thread", tty: false, timeoutMs: 600000 });
+  const backgroundProcess = await call("manage", { projectId: pid, threadId: tid, operation: "processStart", requestId: randomUUID(), argv: ["/bin/sh", "-c", "printf 'Resource process ready\\n'; sleep 300"], cwd: "workspace://repo", lifetime: "thread", tty: false });
   assert.ok(backgroundProcess.id);
+  const backgroundState = await call("manage", { projectId: pid, threadId: tid, operation: "process", id: backgroundProcess.id });
+  assert.equal(backgroundState.process.state, "running", JSON.stringify(backgroundState));
+  assert.ok(backgroundState.process.processId, "a start receipt alone does not prove Runtime execution");
   const mainWidth = await page.locator("[data-testid=chat-view]").evaluate(el => el.getBoundingClientRect().width);
   await button("任务资源").click();
-  const resources = page.getByRole("region", { name: "任务资源", exact: true });
-  await resources.getByRole("button", { name: `打开 ${liveChild.id} 子对话`, exact: true }).waitFor();
-  await resources.getByRole("region", { name: "工作区变更", exact: true }).waitFor();
+  const resources = page.getByRole("complementary", { name: "任务上下文", exact: true });
+  await resources.getByRole("button", { name: "查看全部子代理（3）", exact: true }).waitFor();
+  await resources.getByRole("button").filter({ hasText: "Changes" }).waitFor();
   await resources.getByRole("heading", { name: "后台进程", exact: false }).waitFor();
-  assert.equal(await resources.getByRole("button", { name: /子对话$/ }).count(), 3);
+  assert.equal(await resources.getByRole("region", { name: "子智能体", exact: true }).locator("[data-agent-avatar]").count(), 3);
   assert.equal(await page.locator("[data-testid=chat-view]").evaluate(el => el.getBoundingClientRect().width), mainWidth);
   // 等待入场缩放结束再检查最终宽度，避免把动画中的 98% 尺寸当成布局回归。
   await waitForPopupMotion(".task-resources-popup");
   assert.equal(await page.locator(".task-resources-popup").evaluate(el => el.getBoundingClientRect().width), 332);
   await page.keyboard.press("Escape");
   await resources.waitFor({ state: "hidden" });
+  await page.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "任务资源");
   assert.equal(await button("任务资源").evaluate(el => el === document.activeElement), true);
   await button("任务资源").click();
   await resources.getByRole("button", { name: "预览图片 消息图片", exact: true }).waitFor();
@@ -397,8 +473,8 @@ try {
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "关闭图片预览", exact: true }).waitFor({ state: "hidden" });
   await resources.waitFor();
-  await resources.getByRole("button", { name: /变更.*个文件/ }).waitFor();
-  assert.ok(await resources.getByRole("button", { name: /变更.*1 个文件/ }).count());
+  await resources.getByRole("button").filter({ hasText: "Changes" }).waitFor();
+  assert.match(await resources.getByRole("button").filter({ hasText: "Changes" }).innerText(), /1 个文件/);
   await resources.getByRole("heading", { name: "workspace", exact: true }).click();
   await waitForPopupMotion(".task-resources-popup");
   await writeFile(join(scratch, "resource-layout.json"), JSON.stringify(await page.locator(".task-resources-popup").evaluate(el => ({
@@ -414,27 +490,35 @@ try {
   assert.ok(liveAvatar.startsWith("data:image/svg+xml"));
   const liveAgentCard = page.locator("[data-testid=chat-view]").getByRole("button", { name: `打开 ${liveChild.id} 子对话`, exact: true });
   assert.equal(await liveAgentCard.count(), 1);
-  assert.match(await liveAgentCard.innerText(), new RegExp(`Agent · ${liveChild.id.slice(0, 8)}`));
-  await resources.getByRole("button", { name: `打开 ${liveChild.id} 子对话`, exact: true }).click();
+  assert.equal(await liveAgentCard.locator(".agent-spawn-title").innerText(), "子任务等待停止");
+  await resources.getByRole("button", { name: "查看全部子代理（3）", exact: true }).click();
+  const agentsPanel = page.getByRole("region", { name: "子代理面板", exact: true });
+  await agentsPanel.locator(`[data-agent-id="${liveChild.id}"]`).waitFor();
+  assert.deepEqual((await agentsPanel.locator("[data-agent-id]").evaluateAll(rows => rows.map(row => row.dataset.agentId))).sort(), children.map(child => child.id).sort());
+  await agentsPanel.locator(`[data-agent-id="${liveChild.id}"]`).click();
   await page.locator(`[data-agent-conversation="${liveChild.id}"] [data-turn-status=inProgress]`).waitFor();
   assert.equal(await page.locator("[data-testid=areal-workbench]").getAttribute("data-thread-id"), tid);
   assert.equal(await input().count(), 1);
   await input().fill("主对话草稿保持");
-  assert.equal(await page.locator(`.agent-conversation-heading [data-agent-avatar="${liveChild.id}"]`).getAttribute("src"), liveAvatar);
+  assert.equal(await agentsPanel.locator(`header [data-agent-avatar="${liveChild.id}"]`).getAttribute("src"), liveAvatar);
   assert.equal(await page.locator(`[data-testid=chat-view] [data-agent-avatar="${liveChild.id}"]`).getAttribute("src"), liveAvatar);
   await shot("02a-agent-running");
-  await page.locator(`[aria-label="关闭 Agent · ${liveChild.id.slice(0, 8)} 标签"]`).click();
+  await agentsPanel.getByRole("button", { name: "关闭子代理面板", exact: true }).click();
+  await resources.waitFor();
+  await page.keyboard.press("Escape");
+  await resources.waitFor({ state: "hidden" });
   const afterClose = await call("manage", { projectId: pid, parentThreadId: tid, operation: "agentWait", threadIds: [liveChild.id], timeoutMs: 0 });
   assert.equal(afterClose.data[0].status, "inProgress");
   await page.locator("[data-testid=chat-view]").getByRole("button", { name: `打开 ${liveChild.id} 子对话`, exact: true }).click();
   await page.locator(`[data-agent-conversation="${liveChild.id}"] [data-turn-status=inProgress]`).waitFor();
   await button("任务资源").click();
-  await resources.getByRole("button", { name: /变更.*个文件/ }).click();
+  await resources.getByRole("button").filter({ hasText: "Changes" }).click();
   assert.equal(await page.locator("[data-testid=workspace-review]").getAttribute("data-review-source"), "git");
   await page.getByRole("button", { name: "改动范围", exact: true }).waitFor();
   assert.equal(await page.getByRole("button", { name: "改动范围", exact: true }).innerText(), "未暂存的更改");
   await button("任务资源").click();
-  await resources.getByRole("button", { name: `打开 ${doneChild.id} 子对话`, exact: true }).click();
+  await resources.getByRole("button", { name: "查看全部子代理（3）", exact: true }).click();
+  await agentsPanel.locator(`[data-agent-id="${doneChild.id}"]`).click();
   await page.locator(`[data-agent-conversation="${doneChild.id}"] [data-turn-status=completed]`).waitFor();
   assert.equal(await input().innerText(), "主对话草稿保持");
   const donePane = page.locator(`[data-agent-conversation="${doneChild.id}"]`);
@@ -444,9 +528,12 @@ try {
   await donePane.getByRole("button", { name: "查看工具原始记录", exact: true }).click();
   await donePane.getByLabel("工具结果", { exact: true }).waitFor();
   await shot("02b-agent-completed");
-  await page.locator(`[aria-label="关闭 Agent · ${doneChild.id.slice(0, 8)} 标签"]`).click();
-  await page.getByRole("tab", { name: `Agent · ${liveChild.id.slice(0, 8)}`, exact: true }).click();
-  await call("stop", { projectId: pid, threadId: liveChild.id });
+  await agentsPanel.getByRole("button", { name: "关闭子代理面板", exact: true }).click();
+  await resources.waitFor();
+  await page.keyboard.press("Escape");
+  await resources.waitFor({ state: "hidden" });
+  await liveAgentCard.click();
+  await call("stop", { projectId: pid, threadId: liveChild.id, turnId: project(await state()).state.threads[liveChild.id].turns.at(-1).id, requestId: randomUUID() });
   await page.locator(`[data-agent-conversation="${liveChild.id}"] [data-turn-status=interrupted]`).waitFor();
   await button("新聊天").click();
   assert.equal(await page.locator("[data-agent-conversation]").count(), 0);
@@ -455,7 +542,7 @@ try {
   assert.equal(await input().innerText(), "主对话草稿保持");
   assert.ok(finishAgentParent);
   finishAgentParent();
-  await until(s => current(s).turns.at(-1)?.status === "completed", "parent completes after child stop");
+  await waitForSnapshot(s => current(s).turns.at(-1)?.status === "completed", "parent completes after child stop");
   await shot("02c-agent-interrupted");
   await button("关闭面板").click();
   await input().fill("");
@@ -488,16 +575,17 @@ try {
   if (!process.env.AREAL_GUI_RESOURCE_SMOKE_ONLY) {
   await send("审批写入");
   await button("允许一次").click();
-  await until((s) => current(s).turns.at(-1)?.status === "completed", "approved write");
+  await waitForSnapshot((s) => current(s).turns.at(-1)?.status === "completed", "approved write");
   assert.equal(await readFile(join(workspace, "approved.txt"), "utf8"), "approved once");
   await send("需要问答");
   await page.getByRole("radio", { name: /最小修改/ }).click();
-  await until((s) => current(s).turns.at(-1)?.status === "completed", "question resumed");
+  await page.getByRole("region", { name: "需要你的回答", exact: true }).getByRole("button", { name: "发送", exact: true }).click();
+  await waitForSnapshot((s) => current(s).turns.at(-1)?.status === "completed", "question resumed");
   checks.push("tool approval executes filesystem write; question reply resumes same turn");
   await send("等待停止");
-  await until((s) => current(s).turns.at(-1)?.status === "inProgress", "running");
-  await call("stop", { projectId: pid, threadId: tid });
-  await until((s) => current(s).turns.at(-1)?.status !== "inProgress", "stopped");
+  await waitForSnapshot((s) => current(s).turns.at(-1)?.status === "inProgress", "running");
+  await call("stop", { projectId: pid, threadId: tid, turnId: current(await state()).turns.at(-1).id, requestId: randomUUID() });
+  await waitForSnapshot((s) => current(s).turns.at(-1)?.status !== "inProgress", "stopped");
   checks.push("explicit turn cancellation");
   // 未完成的目标必须先暂停并结算，清除后同一聊天仍能接受普通消息。
   const beforeGoal = await call("manage", { projectId: pid, threadId: tid, operation: "goal" });
@@ -509,16 +597,16 @@ try {
     expectedRevision: beforeGoal.revision,
     maxTurns: 3,
   });
-  await until(
+  await waitForSnapshot(
     (s) => current(s).goals?.goal?.status === "active" && !!finishBackground,
     "goal running",
   );
   assert.equal(await button("清除目标").isDisabled(), true);
   await button("暂停目标").click();
-  await until((s) => current(s).goals?.goal?.settling === true, "goal cancellation settling");
+  await waitForSnapshot((s) => current(s).goals?.goal?.settling === true, "goal cancellation settling");
   assert.equal(await button("清除目标").isDisabled(), true);
   finishBackground();
-  await until(
+  await waitForSnapshot(
     (s) =>
       current(s).goals?.goal?.status === "paused" &&
       !current(s).goals.goal.settling &&
@@ -526,16 +614,16 @@ try {
     "goal paused and settled",
   );
   await button("清除目标").click();
-  await until(
+  await waitForSnapshot(
     (s) => current(s).goals?.goal === null && !project(s).pending.length,
     "unfinished goal cleared",
   );
   await send("目标清除后发送普通消息");
-  await until(
+  await waitForSnapshot(
     (s) => current(s).turns.at(-1)?.status === "completed",
     "message after clearing goal",
   );
-  assert.equal(await page.locator(".error-banner").count(), 0);
+  assert.equal(await page.locator('[data-testid="feedback-notice"][data-tone="error"]').count(), 0);
   assert.equal(current(await state()).goals.goal, null);
   checks.push(
     "unfinished Goal pause settles before clear; same chat accepts a normal message after clear",
@@ -555,7 +643,18 @@ try {
   checks.push("native file edit and Git diff panel");
   await openPanel("终端");
   const terminal = page.locator(".xterm-helper-textarea");
-  await terminal.waitFor();
+  await page.locator(".terminal-pane .xterm-screen").waitFor();
+  await terminal.waitFor({ state: "attached" });
+  let terminalProcess;
+  await waitForSnapshot(async () => {
+    const records = await call("manage", { projectId: pid, threadId: tid, operation: "processes" });
+    const process = records.data.find(item => item.id !== backgroundProcess.id);
+    if (process?.state === "failed") assert.fail(JSON.stringify(process));
+    if (process?.state !== "running" || !process.processId) return false;
+    terminalProcess = process;
+    return true;
+  }, "UI terminal Runtime process running");
+  await terminal.focus();
   await terminal.pressSequentially("printf 'AREAL_TERMINAL_OK\\n'");
   await terminal.press("Enter");
   let output = "";
@@ -570,7 +669,7 @@ try {
         projectId: pid,
         threadId: tid,
         operation: "processOutput",
-        id: processes.data.at(-1).id,
+        id: terminalProcess.id,
         maxBytes: 4096,
       });
       output = (result.chunks ?? [])
@@ -605,7 +704,7 @@ try {
   });
   let previewWindowState = null;
   try {
-    await until(async () => {
+    await waitForSnapshot(async () => {
       previewWindowState = await app.evaluate(({ app, BrowserWindow }) => {
         const window = BrowserWindow.getAllWindows()[0];
         return { id: window.id, visible: window.isVisible(), minimized: window.isMinimized(),
@@ -650,40 +749,47 @@ try {
   await button("返回应用").click();
   checks.push("settings navigation and appearance");
   await input().fill("保留未发送草稿");
+  // Turn 可先进入 inProgress；必须等本次请求抵达，不能复用之前 Goal 的完成回调。
+  finishBackground = undefined;
   await call("send", { projectId: pid, threadId: tid, text: "后台持续执行" });
-  await until(
+  await waitForSnapshot(
     (s) => current(s).turns.at(-1)?.status === "inProgress" && finishBackground,
     "background started",
   );
   const turnCount = current(await state()).turns.length;
   const requestCount = received.length;
   const adapter = JSON.parse(await readFile(join(scratch, "core/service.json"), "utf8"));
-  await quit();
+  const applicationPid = app.process().pid;
+  await hideWindow();
+  process.kill(applicationPid, 0);
   process.kill(adapter.pid, 0);
   finishBackground();
-  await launch();
-  await until(
+  await revealWindow();
+  await waitForSnapshot(
     (s) => project(s)?.state?.connected && current(s)?.turns.at(-1)?.status === "completed",
-    "recover after GUI exit",
+    "recover after window close",
   );
   assert.equal(current(await state()).turns.length, turnCount);
   assert.equal(received.length, requestCount);
   assert.equal(await input().textContent(), "保留未发送草稿");
   await shot("07-background-recovered");
   await button("任务资源").click();
-  await page.getByRole("region", { name: "任务资源", exact: true }).getByRole("button", { name: `打开 ${doneChild.id} 子对话`, exact: true }).click();
+  await resources.getByRole("button", { name: "查看全部子代理（3）", exact: true }).click();
+  await agentsPanel.locator(`[data-agent-id="${doneChild.id}"]`).click();
   await page.locator(`[data-agent-conversation="${doneChild.id}"] [data-turn-status=completed]`).waitFor();
   assert.ok(await page.locator(`[data-agent-conversation="${doneChild.id}"] .tool-event`).count() > 0);
-  assert.equal(await page.locator(`.agent-conversation-heading [data-agent-avatar="${doneChild.id}"]`).getAttribute("src"), await page.locator(`[data-testid=chat-view] [data-agent-avatar="${doneChild.id}"]`).getAttribute("src"));
+  assert.equal(await agentsPanel.locator(`header [data-agent-avatar="${doneChild.id}"]`).getAttribute("src"), await page.locator(`[data-testid=chat-view] [data-agent-avatar="${doneChild.id}"]`).getAttribute("src"));
   assert.equal(received.length, requestCount);
   await shot("07a-agent-restored");
   await button("关闭面板").click();
-  checks.push("child messages/tools and local avatar identity restore after GUI restart without provider replay");
+  checks.push("child messages/tools and local avatar identity restore after window reopen without provider replay");
   checks.push(
-    "running Core turn completes after GUI quit; reopen restores history/draft without replay",
+    "window close preserves the application and running Core turn; reopen restores history/draft without replay",
   );
-  await quit();
-  process.kill(adapter.pid, "SIGTERM");
+  const transport = JSON.parse(
+    await readFile(join(scratch, "core/subscription-transport.json"), "utf8"),
+  );
+  process.kill(adapter.pid, "SIGKILL");
   for (let i = 0; i < 100; i++) {
     try {
       process.kill(adapter.pid, 0);
@@ -692,17 +798,19 @@ try {
     }
     await new Promise((r) => setTimeout(r, 100));
   }
-  const transport = JSON.parse(
-    await readFile(join(scratch, "core/subscription-transport.json"), "utf8"),
-  );
-  await launch();
-  await until((s) => project(s)?.state?.connected, "recover after adapter exit");
+  assert.throws(() => process.kill(adapter.pid, 0), error => error.code === "ESRCH", "the fault-injected adapter has exited");
+  await waitForSnapshot(s => s.connection?.state !== "ready", "observe adapter disconnection");
+  await call("connectService", {});
+  await waitForSnapshot(async (s) => {
+    const next = JSON.parse(await readFile(join(scratch, "core/service.json"), "utf8"));
+    return next.pid !== adapter.pid && project(s)?.state?.connected;
+  }, "recover after adapter exit");
   const restored = JSON.parse(
     await readFile(join(scratch, "core/subscription-transport.json"), "utf8"),
   );
   assert.deepEqual(restored, transport);
   await send("适配器重连后继续");
-  await until(
+  await waitForSnapshot(
     (s) =>
       current(s).turns.length === turnCount + 1 && current(s).turns.at(-1)?.status === "completed",
     "continued after adapter exit",
@@ -713,8 +821,21 @@ try {
   checks.push(
     "adapter restart reuses Core history and local capability; no tokens exposed in renderer snapshot",
   );
+  const beforeQuit = (await services()).filter(record => record.workspace === workspace && record.state !== "stopped");
+  assert.ok(beforeQuit.length > 0, "cold reopen starts from a real live GUI service");
+  const requestsBeforeQuit = received.length;
+  await input().fill("冷启动保留草稿");
+  await quit();
+  await waitForApplicationStop(beforeQuit);
+  await launch();
+  await waitForSnapshot(s => project(s)?.state?.connected && current(s)?.turns.length === turnCount + 1, "cold application reopen restores history");
+  assert.equal(received.length, requestsBeforeQuit, "cold application reopen never replays model requests");
+  assert.equal(await input().textContent(), "冷启动保留草稿");
+  checks.push("application exit stops its original service generations and processes; cold reopen restores history and draft without replay");
+  const scheduledOwner = await call("projectless", { operation: "prepare", requestId: randomUUID() });
+  await writeFile(join(scheduledOwner.cwd, "hello.ts"), await readFile(join(workspace, "hello.ts")));
   const scheduled = await call("manage", {
-    projectId: pid,
+    projectId: scheduledOwner.projectId,
     operation: "taskCreate",
     mode: "scheduled",
     objective: "检查当前项目",
@@ -724,20 +845,20 @@ try {
     maxActiveSeconds: 60,
   });
   assert.ok(scheduled.id);
-  await quit();
+  await hideWindow();
   await new Promise((r) => setTimeout(r, 4500));
-  await launch();
-  await until((s) => project(s)?.state?.connected, "scheduled task reconnect");
+  await revealWindow();
+  await waitForSnapshot((s) => project(s)?.state?.connected, "scheduled task reconnect");
   let task;
   for (let i = 0; i < 100; i++) {
-    task = await call("manage", { projectId: pid, operation: "task", taskId: scheduled.id });
+    task = await call("manage", { projectId: scheduledOwner.projectId, operation: "task", taskId: scheduled.id });
     if (task.runs?.length && !["running", "queued"].includes(task.runs.at(-1).status)) break;
     await new Promise((r) => setTimeout(r, 100));
   }
   assert.equal(task.runs.length, 1);
   assert.ok(!["running", "queued"].includes(task.runs[0].status));
   await call("manage", {
-    projectId: pid,
+    projectId: scheduledOwner.projectId,
     operation: "taskCancel",
     taskId: task.id,
     expectedRevision: task.revision,
@@ -745,33 +866,29 @@ try {
   await button("定时任务").click();
   await shot("08-tasks");
   checks.push(
-    "Desktop Host recovery coalesces one missed schedule and preserves run history",
+    "window close preserves one scheduled execution and its run history",
   );
+  }
   }
   assert.deepEqual(errors, []);
   passed = true;
   console.log(JSON.stringify({ passed, scratch, checks }));
 } catch (error) {
   failure = error.stack || error.message;
+  await writeFile(join(scratch, "failure.txt"), failure);
+  console.error("GUI failure:", failure);
   console.error("renderer errors", errors);
   console.error(await page?.locator("body").innerText());
   await shot("failure").catch(() => {});
   if (page) await writeFile(join(scratch, "failure-state.json"), JSON.stringify(await state(), null, 2)).catch(() => {});
   throw error;
 } finally {
-  await quit();
   try {
-    const { ServiceConnection } = require(join(desktop, "src/core/service-client.cjs"));
-    const connection = new ServiceConnection();
-    try {
-      await connection.connect(
-        JSON.parse(await readFile(join(scratch, "core/service.json"), "utf8")),
-      );
-      await connection.request("stopService", { protocol: "areal.desktop-service.v1" }, true);
-      checks.push("explicit safe service stop completes");
-    } finally {
-      connection.close();
-    }
+    await quit();
+    await waitForApplicationStop(await services());
+    const metadata = await readFile(join(scratch, "core/service.json"), "utf8").then(JSON.parse).catch(error => { if (error.code === "ENOENT") return null; throw error; });
+    if (metadata) assert.throws(() => process.kill(metadata.pid, 0), error => error.code === "ESRCH", "the GUI adapter exits with its application");
+    checks.push("application lifecycle cleanup leaves no live adapter or original Core service");
   } catch (error) {
     console.error("Adapter fixture cleanup:", error.message);
     if (passed) {
@@ -781,15 +898,13 @@ try {
     }
     // 仅清理本次隔离 home 中的服务；失败不遗留模型任务或后台进程。
     try {
-      const instances = JSON.parse(
-        execFileSync(binary, ["service", "list", "--json"], { env, encoding: "utf8" }),
-      );
+      const instances = await services();
       for (const instance of instances)
-        if (instance.workspace === workspace && instance.state !== "stopped") {
-          execFileSync(
+        if (instance.state !== "stopped") {
+          await executeCore(
             binary,
             ["service", "stop", "--instance", instance.serviceId, "--cancel", "--json"],
-            { env, timeout: 120000, stdio: "pipe" },
+            { env, timeout: 120000 },
           );
         }
     } catch (failure) {
@@ -840,9 +955,11 @@ try {
         platform: process.platform,
         arch: process.arch,
         runtime: "real Electron + real Rust Core/Runtime + deterministic local HTTP/SSE model",
-        nativeDialogs: "project picker and archive/quit confirmations injected",
+        nativeDialogs: nativeI18nMode ? "initial project picker injected; archive/save/directory dialog options captured and canceled; OS appearance not verified" : "project picker and archive/quit confirmations injected",
+        scenario: desktopSettingsMode ? "desktop-settings" : conversationProduction ? "conversation-production" : nativeI18nMode ? "native-dialog-i18n" : i18nMode ? "settings-i18n" : conversationStage2 ? "conversation-stage2" : settingsMode ? "settings-stage1" : hostMode ? "conversation-host" : motionMode ? "conversation-motion" : journey ? "conversation-journey" : "migration",
         scratch,
-        frames,
+        frames: journey ? journey.frames() : frames,
+        journeyEvents: journey && !nativeI18nMode ? "journey-events.json" : null,
         checks,
         errors,
         failure,
