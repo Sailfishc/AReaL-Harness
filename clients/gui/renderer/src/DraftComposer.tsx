@@ -87,7 +87,7 @@ export function DraftComposer({
   project,
   backendReady = false,
   action,
-  readAction = action,
+  readAction,
   onOpen,
   onPanel,
   appEntries = [],
@@ -105,7 +105,7 @@ export function DraftComposer({
   project: Data;
   backendReady?: boolean;
   action: Action;
-  readAction?: Action;
+  readAction: Action;
   onOpen: (pid: string, tid: string) => Promise<void>;
   onPanel: (panel: string) => void;
   appEntries?: readonly ComposerCatalogEntry[];
@@ -292,41 +292,52 @@ export function DraftComposer({
   };
   const checkCreation = async () => {
     if (!unknown || checkingCreation) return;
+    const requestId = unknown;
     setCheckingCreation(true);
     setDraftError("");
     try {
       const frozen = JSON.parse(localStorage.getItem(`${key}:pending-create-request`) ?? "null");
-      if (!frozen) {
-        await action("reconcile", { projectId: project.id, requestId: unknown });
-        return;
-      }
-      if (frozen.requestId !== unknown || frozen.projectId !== project.id)
+      if (frozen && (frozen.requestId !== requestId || frozen.projectId !== project.id))
         throw new Error(t("worktree.recoveryMismatch"));
-      const worktreeRecord = await readAction("workspace", {
-        projectId: project.id,
-        operation: "worktreeRead",
-        requestId: unknown,
-      });
-      if (worktreeRecord) {
-        if (worktreeRecord.state === "ready" && worktreeRecord.threadId) {
-          finishRecoveredCreation(worktreeRecord.threadId);
-          return;
-        }
-        setCreationChecked(true);
-        throw Object.assign(new Error(t("worktree.unknown")), { submissionUnknown: true });
-      }
-      const result = await action("create", frozen);
-      if (!result?.threadId) throw new Error(t("worktree.unknown"));
-      finishRecoveredCreation(result.threadId);
-    } catch (cause) {
-      const failure = cause as RecoveryFailure;
-      setDraftError(recoveryMessage(failure));
-      if (failure.submissionUnknown === true) setCreationChecked(true);
-      if (failure.submissionUnknown === false) {
+      const result = await readAction("reconcile", { projectId: project.id, requestId });
+      if (!mounted.current || localStorage.getItem(`${key}:pending-create`) !== requestId) return;
+      const outcome = recoveredOutcome({ ...project, outcomes: result.outcomes }, requestId, "");
+      const creationOutcome =
+        outcome && (!outcome.operation || outcome.operation.method === "areal/thread/start")
+          ? outcome
+          : undefined;
+      if (creationOutcome?.status === "failed" || creationOutcome?.accepted === false) {
         localStorage.removeItem(`${key}:pending-create`);
         localStorage.removeItem(`${key}:pending-create-request`);
         setUnknown(null);
+        setDraftError(creationOutcome.message || "创建对话未完成，草稿已保留，请检查后重试。");
+        return;
       }
+      const worktreeRecord = await readAction("workspace", {
+        projectId: project.id,
+        operation: "worktreeRead",
+        requestId,
+      });
+      if (!mounted.current || localStorage.getItem(`${key}:pending-create`) !== requestId) return;
+      if (worktreeRecord.state === "ready" && worktreeRecord.threadId) {
+        finishRecoveredCreation(worktreeRecord.threadId);
+        return;
+      }
+      if (
+        worktreeRecord.state === "missing" &&
+        creationOutcome?.accepted === true &&
+        creationOutcome.threadId
+      ) {
+        finishRecoveredCreation(creationOutcome.threadId);
+        return;
+      }
+      setCreationChecked(true);
+      setDraftError(t("worktree.unknown"));
+    } catch (cause) {
+      if (!mounted.current || localStorage.getItem(`${key}:pending-create`) !== requestId) return;
+      const failure = cause as RecoveryFailure;
+      setDraftError(recoveryMessage(failure));
+      if (failure.submissionUnknown === true) setCreationChecked(true);
     } finally {
       setCheckingCreation(false);
     }
@@ -349,6 +360,7 @@ export function DraftComposer({
     localStorage.removeItem(`${key}:pending-create`);
     localStorage.removeItem(`${key}:pending-create-request`);
     setUnknown(null);
+    setActiveCreation(undefined);
     setCreationChecked(false);
     setDraftError("");
     onWorktreeCreated?.();
@@ -499,7 +511,7 @@ export function DraftComposer({
         text: value,
         worktree: selection?.mode === "worktree",
       });
-      const result = await action("create", creationRequest);
+      const result = await readAction("create", creationRequest);
       if (stoppedCreation.current.has(creationRequestId)) return;
       localStorage.removeItem(`${key}:pending-create-request`);
       onWorktreeCreated?.();
@@ -557,22 +569,21 @@ export function DraftComposer({
         setDraftError(recoveryMessage(failure));
         if (targetKey) attachmentErrors.set(targetKey, recoveryMessage(failure));
       }
-      const error = failure;
-      if (creationAttempted && error.submissionUnknown && error.requestId) {
+      const requestId = failure.requestId ?? (!targetKey ? creationRequestId : undefined);
+      if (creationAttempted && failure.submissionUnknown && requestId) {
         if (targetKey) {
-          localStorage.setItem(`${targetKey}:pending`, error.requestId);
-          if (error.outcome && "operation" in error.outcome)
+          localStorage.setItem(`${targetKey}:pending`, requestId);
+          if (failure.outcome && "operation" in failure.outcome)
             localStorage.setItem(
               `${targetKey}:pending-operation`,
-              JSON.stringify(error.outcome.operation),
+              JSON.stringify(failure.outcome.operation),
             );
-          if (goalMode) localStorage.setItem(`${targetKey}:pending-goal`, error.requestId);
+          if (goalMode) localStorage.setItem(`${targetKey}:pending-goal`, requestId);
         } else {
-          localStorage.setItem(`${key}:pending-create`, error.requestId);
-          setUnknown(error.requestId);
+          localStorage.setItem(`${key}:pending-create`, requestId);
+          setUnknown(requestId);
         }
       }
-      // action reports the error. Known-created tasks keep text and files for explicit retry.
     } finally {
       if (targetKey) markSending(targetKey, false);
       markSending(key, false);
@@ -590,7 +601,7 @@ export function DraftComposer({
     setCancellingCreation(true);
     setDraftError("");
     try {
-      const result = await action("workspace", {
+      const result = await readAction("workspace", {
         projectId: project.id,
         operation: "worktreeCancel",
         requestId: current.requestId,

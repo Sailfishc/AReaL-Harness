@@ -73,6 +73,13 @@
     "requires": ["core-binary"]
   },
   {
+    "script": "test:creation-recovery",
+    "layer": "e2e",
+    "platforms": ["darwin", "linux"],
+    "areas": ["recovery", "worktree"],
+    "requires": ["electron", "core-binary", "git", "gui-build"]
+  },
+  {
     "script": "test:service-connection",
     "layer": "contract",
     "platforms": ["darwin", "linux"],

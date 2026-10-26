@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n/IntlProvider.js";
 import { call, type Action, type Data, type PlatformServices, type Snapshot } from "../services.js";
 import {
+  isIndependentCreation,
   isTechnicalErrorMessage,
   recoveredOutcome,
   recoveryMessage,
@@ -55,6 +56,7 @@ export function useRecoveryNotices(
           const ownerThreadId = entry.params?.threadId ?? entry.params?.sourceThreadId ?? "";
           if (
             !requestId ||
+            isIndependentCreation(entry, []) ||
             entry.awaitingResponse ||
             observed.some(
               (notice) => notice.projectId === owner.id && notice.requestId === requestId,

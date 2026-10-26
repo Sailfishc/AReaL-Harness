@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { createHash, randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { mkdtemp, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,8 +12,10 @@ import { assertApplicationStopped, closeSmokeApplication } from "./application-c
 import { captureSmokeFailure, createProjectConversation } from "./smoke-navigation.mjs";
 import { respondToSessionName } from "./model-fixture.mjs";
 
-const gui = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const root = resolve(gui, "../..");
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+const gui = process.env.AREAL_RECOVERY_GUI_ROOT
+  ? resolve(process.env.AREAL_RECOVERY_GUI_ROOT, "clients/gui")
+  : join(root, "clients/gui");
 const require = createRequire(join(gui, "app/package.json"));
 const { _electron: electron } = require("playwright-core");
 const binary = process.env.AREAL_CORE_BIN;
@@ -23,6 +25,7 @@ assert.ok(
 );
 assert.ok(!process.env.AREAL_GUI_EXECUTABLE, "This runner validates source Electron");
 const red = process.argv.includes("--red");
+const recoveryNotices = process.argv.includes("--recovery-notices");
 const scratch = await makeTempDir("apending-");
 await mkdir(join(root, ".scratch/pending-project"), { recursive: true });
 const evidence = await mkdtemp(join(root, ".scratch/pending-project/run-"));
@@ -121,7 +124,13 @@ const binding = {
   createdAt: "2026-01-01T00:00:00.000Z",
   automatic: false,
   events: [],
-  record: { directory: execution, cwd: execution, branch: "legacy-fixture" },
+  record: {
+    directory: execution,
+    cwd: execution,
+    branch: "legacy-fixture",
+    base: execFileSync("git", ["rev-parse", "HEAD"], { cwd: workspace, encoding: "utf8" }).trim(),
+    target: workspace,
+  },
 };
 await json(join(env.AREAL_CORE_HOME, "projects.json"), [
   { id: projectId, root: workspace },
@@ -153,6 +162,11 @@ await writeFile(
   `schema_version=1\n[model]\nprovider="fixture"\nname="fixture"\n[model.providers.fixture]\nprotocol="chat-completions"\nendpoint="http://127.0.0.1:${model.address().port}/v1/chat/completions"\n`,
 );
 const tracePath = join(evidence, "core-calls.jsonl");
+const responseLossPath = join(evidence, "response-loss.json");
+const setResponseLoss = async (value) => {
+  await json(`${responseLossPath}.next`, value);
+  await rename(`${responseLossPath}.next`, responseLossPath);
+};
 await writeFile(tracePath, "");
 const application = await applicationFixture(
   gui,
@@ -160,10 +174,30 @@ const application = await applicationFixture(
   `
 if (process.argv.includes('--areal-core-service')) {
   const { CoreBackend } = require(${JSON.stringify(join(gui, "app/src/core/backend.cjs"))});
+  const { SubmissionRecovery } = require(${JSON.stringify(join(gui, "app/src/core/submission-recovery.cjs"))});
+  const fs = require('node:fs');
   const trace = value => require('node:fs').appendFileSync(${JSON.stringify(tracePath)}, JSON.stringify(value) + '\\n');
-  const execute = CoreBackend.prototype.executeCommand;
-  CoreBackend.prototype.executeCommand = async function(name, request, ...args) {
+  const loss = () => fs.existsSync(${JSON.stringify(responseLossPath)}) ? JSON.parse(fs.readFileSync(${JSON.stringify(responseLossPath)}, 'utf8')) : undefined;
+  const submission = SubmissionRecovery.prototype.requestSubmission;
+  SubmissionRecovery.prototype.requestSubmission = async function(project, method, params) {
+    const control = loss();
+    const result = await submission.call(this, project, method, params);
+    if (${recoveryNotices} && control?.armed && control.method === method) {
+      fs.writeFileSync(${JSON.stringify(`${responseLossPath}.next`)}, JSON.stringify({ ...control, armed: false, requestId: params.requestId, owner: project.id, result }));
+      fs.renameSync(${JSON.stringify(`${responseLossPath}.next`)}, ${JSON.stringify(responseLossPath)});
+      trace({ kind: 'response-lost', owner: project.id, submissionMethod: method, params, result });
+      throw Object.assign(new Error('Fixture lost response after real Core admission'), { submissionUnknown: true, requestId: params.requestId });
+    }
+    return result;
+  };
+  const execute = CoreBackend.prototype.command;
+  CoreBackend.prototype.command = async function(name, request, ...args) {
     trace({ kind: 'desktop-command', name, request });
+    const control = loss();
+    if (control?.releaseOnCheck && control.requestId === request.requestId && ['reconcile', 'workspace'].includes(name)) {
+      fs.writeFileSync(${JSON.stringify(`${responseLossPath}.next`)}, JSON.stringify({ ...control, hold: false, releaseOnCheck: false }));
+      fs.renameSync(${JSON.stringify(`${responseLossPath}.next`)}, ${JSON.stringify(responseLossPath)});
+    }
     const result = await execute.call(this, name, request, ...args);
     trace({ kind: 'desktop-result', name, request });
     return result;
@@ -173,9 +207,15 @@ if (process.argv.includes('--areal-core-service')) {
     const result = await connect.call(this, project, ...args);
     if (!project.client.__pendingTrace) {
       const request = project.client.request.bind(project.client);
-      project.client.request = (method, params, ...options) => {
+      project.client.request = async (method, params, ...options) => {
         trace({ owner: project.id, method, params });
-        return request(method, params, ...options);
+        const result = await request(method, params, ...options);
+        const control = loss();
+        if (method === 'areal/request/read' && control?.hold && control.requestId === params.requestId) {
+          trace({ kind: 'receipt-hidden', owner: project.id, method, params });
+          return { ...result, data: [] };
+        }
+        return result;
       };
       project.client.__pendingTrace = true;
     }
@@ -186,6 +226,7 @@ if (process.argv.includes('--areal-core-service')) {
 );
 const manifest = {
   red,
+  recoveryNotices,
   passed: false,
   checks,
   errors,
@@ -194,13 +235,14 @@ const manifest = {
   requestId,
   projectId,
   executionProjectId,
+  runtimeGui: gui,
   commit: execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim(),
   helperSHA256: sha(await readFile(fileURLToPath(import.meta.url))),
   diffSHA256: sha(execFileSync("git", ["diff", "--binary", "HEAD"], { cwd: root })),
   binary,
   coreSHA256: sha(await readFile(binary)),
   fixtureBoundary:
-    "Synthetic legacy pending journal, registered linked worktree owner, and binding seeded before startup; no original mutation was executed. Native project picker, retention confirmation and quit confirmation injected. Core request tracer forwards every real response unchanged.",
+    "Synthetic legacy pending journal, registered linked worktree owner, and binding seeded before startup; no original mutation was executed. Native project picker, retention confirmation and quit confirmation injected. Recovery-notices mode also drops one Desktop submission response after real Core admission and temporarily hides that exact request's real receipt, controlled by response-loss.json; all mutations reach real Core unchanged.",
   scope:
     "Source Electron Renderer → preload/Main → Desktop → real Core with deterministic local model; no real provider, package, physical input or native picker acceptance",
 };
@@ -261,7 +303,8 @@ try {
   }, workspace);
   await page.evaluate(() => window.arealDesktop.chooseProject());
   await until(async () => logical(await state())?.state?.connected, "logical Core ready");
-  await call("reconcile", { projectId, requestId });
+  if (recoveryNotices) await call("connect", { projectId: executionProjectId });
+  else await call("reconcile", { projectId, requestId });
   await until(
     async () =>
       logical(await state())?.pending.some((entry) => entry.params?.requestId === requestId),
@@ -370,6 +413,14 @@ try {
     );
   }
   await createProjectConversation(page, "workspace");
+  if (recoveryNotices) {
+    await capture("00-historical-request-fresh-draft");
+    assert.equal(
+      await page.getByTestId("toast").filter({ hasText: "操作结果待确认。" }).count(),
+      0,
+      "Historical Worktree request must not appear as the fresh draft's operation warning",
+    );
+  }
   const workspaceSettings = button("新会话工作区");
   await capture("00-workspace-settings");
   assert.equal(
@@ -523,11 +574,233 @@ try {
       /PENDING_SKILL_BODY/,
       "Selected Skill reaches actual provider request",
     );
+    await page.getByText("PENDING_PROJECT_OK", { exact: true }).waitFor();
     assert.equal(await page.getByText("PENDING_PROJECT_OK", { exact: true }).count(), 1);
     await capture("04-fresh-completed");
     checks.push(
       "Fresh GUI draft with selected Skill completes once without replaying original creation",
     );
+    if (recoveryNotices) {
+      await createProjectConversation(page, "workspace");
+      await setResponseLoss({ armed: true, hold: true, method: "areal/thread/start" });
+      const beforeLostCreate = (await trace()).length;
+      await page.getByTestId("chat-input").fill("Real admitted creation keeps this draft unsent");
+      await button("发送").click();
+      const lostCreate = await until(async () => {
+        const loss = JSON.parse(await readFile(responseLossPath, "utf8"));
+        return !loss.armed && loss;
+      }, "real creation response lost after admission");
+      manifest.lostCreation = lostCreate;
+      assert.notEqual(
+        lostCreate.requestId,
+        requestId,
+        "Current creation has its own request identity",
+      );
+      const creationWarning = page.getByTestId("toast").filter({ hasText: "任务创建结果待确认。" });
+      await creationWarning.waitFor();
+      assert.equal(
+        await button("发送").isEnabled(),
+        false,
+        "Current unknown creation cannot send again",
+      );
+      assert.equal(
+        await page.getByTestId("toast").filter({ hasText: "操作结果待确认。" }).count(),
+        0,
+        "Current creation uses its specialized warning without the generic operation notice",
+      );
+      await capture("05-real-creation-unknown");
+      const beforeHeldCheck = (await trace()).length;
+      await creationWarning.getByRole("button", { name: "检查操作状态", exact: true }).click();
+      await button("操作待确认").click();
+      await page.getByRole("menuitem", { name: "保留原结果，返回草稿", exact: true }).waitFor();
+      await page.keyboard.press("Escape");
+      const heldChecks = (await trace()).slice(beforeHeldCheck);
+      assert.ok(
+        heldChecks.some(
+          (entry) =>
+            entry.kind === "desktop-command" &&
+            entry.name === "workspace" &&
+            entry.request.operation === "worktreeRead" &&
+            entry.request.requestId === lostCreate.requestId,
+        ),
+        "Current creation check reads its exact worktree admission record",
+      );
+      assert.ok(
+        !heldChecks.some((entry) => entry.kind === "desktop-command" && entry.name === "create"),
+        "Checking current unknown creation never submits create again",
+      );
+      assert.equal(
+        requests.length,
+        1,
+        "Admitted creation and receipt checks leave its draft unsent",
+      );
+      await setResponseLoss({ ...lostCreate, releaseOnCheck: true });
+      await button("操作待确认").click();
+      await page.getByRole("menuitem", { name: "检查操作状态", exact: true }).click();
+      const recoveredThreadId = lostCreate.result.thread.id;
+      await page.waitForFunction(
+        (id) => document.querySelector('[data-testid="areal-workbench"]')?.dataset.threadId === id,
+        recoveredThreadId,
+      );
+      assert.equal(
+        await page.getByTestId("chat-input").innerText(),
+        "Real admitted creation keeps this draft unsent",
+        "Recovered real thread retains the original unsent draft",
+      );
+      const lostCreateCalls = (await trace()).slice(beforeLostCreate);
+      assert.equal(
+        lostCreateCalls.filter(
+          (entry) =>
+            entry.method === "areal/thread/start" &&
+            entry.params?.requestId === lostCreate.requestId,
+        ).length,
+        1,
+        "Lost creation is admitted exactly once through real Core",
+      );
+      assert.equal(
+        lostCreateCalls.filter(
+          (entry) => entry.kind === "desktop-command" && entry.name === "create",
+        ).length,
+        1,
+        "Recovery opens the known thread without issuing another create command",
+      );
+      assert.equal(requests.length, 1, "Receipt recovery never sends the retained draft");
+      await capture("06-real-creation-recovered");
+      checks.push(
+        "Real Core admits current creation once; hidden receipt keeps its warning and draft locked; release opens that same empty thread without sending or recreating",
+      );
+
+      const configureRequestId = randomUUID();
+      await setResponseLoss({ armed: true, hold: true, method: "areal/thread/configure" });
+      const beforeConfigure = (await trace()).length;
+      const configured = await page.evaluate(
+        (params) => window.arealDesktop.command("configure", params),
+        {
+          projectId,
+          threadId: recoveredThreadId,
+          requestId: configureRequestId,
+          model: { providerId: "fixture", modelId: "fixture" },
+        },
+      );
+      assert.equal(
+        configured.ok,
+        false,
+        "Fixture loses the response after actual thread configuration",
+      );
+      const lostConfigure = JSON.parse(await readFile(responseLossPath, "utf8"));
+      assert.equal(lostConfigure.requestId, configureRequestId);
+      const operationWarning = page.getByTestId("toast").filter({ hasText: "操作结果待确认。" });
+      await operationWarning.waitFor();
+      const beforeGlobalCheck = (await trace()).length;
+      await operationWarning.getByRole("button", { name: "检查操作状态", exact: true }).click();
+      await until(
+        async () =>
+          (await trace())
+            .slice(beforeGlobalCheck)
+            .some((entry) => entry.kind === "desktop-result" && entry.name === "reconcile"),
+        "thread operation check completes while receipt remains hidden",
+      );
+      const globalCheck = (await trace())
+        .slice(beforeGlobalCheck)
+        .find((entry) => entry.kind === "desktop-command" && entry.name === "reconcile");
+      assert.equal(
+        globalCheck.request.requestId,
+        configureRequestId,
+        "Global warning checks the exact thread-associated original request",
+      );
+      assert.notEqual(
+        globalCheck.request.requestId,
+        requestId,
+        "Thread operation check does not target historical creation",
+      );
+      assert.ok(
+        (await trace())
+          .slice(beforeGlobalCheck)
+          .some(
+            (entry) =>
+              entry.method === "areal/request/read" &&
+              entry.owner === projectId &&
+              entry.params?.requestId === configureRequestId &&
+              entry.params?.threadId === recoveredThreadId,
+          ),
+        "Global warning reads the original receipt from its real thread owner",
+      );
+      await capture("07-thread-operation-unknown");
+      await setResponseLoss({ ...lostConfigure, releaseOnCheck: true });
+      await operationWarning.getByRole("button", { name: "检查操作状态", exact: true }).click();
+      await until(
+        async () =>
+          !logical(await state()).pending.some(
+            (entry) => entry.params?.requestId === configureRequestId,
+          ),
+        "real configured thread receipt recovered",
+      );
+      assert.equal(
+        (await trace())
+          .slice(beforeConfigure)
+          .filter(
+            (entry) =>
+              entry.method === "areal/thread/configure" &&
+              entry.params?.requestId === configureRequestId,
+          ).length,
+        1,
+        "Checking global thread operation never repeats configuration",
+      );
+      assert.equal(requests.length, 1, "Thread-operation recovery sends no model request");
+      checks.push(
+        "Thread-associated global warning retains exact requestId routing and recovers the real configuration receipt without replay",
+      );
+
+      await createProjectConversation(page, "workspace");
+      await setResponseLoss({ armed: true, hold: true, method: "areal/thread/start" });
+      await page.getByTestId("chat-input").fill("Retain this live unknown creation without replay");
+      await button("发送").click();
+      const retainedLive = await until(async () => {
+        const loss = JSON.parse(await readFile(responseLossPath, "utf8"));
+        return !loss.armed && loss;
+      }, "second real creation response lost after admission");
+      manifest.retainedLiveCreation = retainedLive;
+      const liveWarning = page.getByTestId("toast").filter({ hasText: "任务创建结果待确认。" });
+      await liveWarning.waitFor();
+      await liveWarning.getByRole("button", { name: "检查操作状态", exact: true }).click();
+      await button("操作待确认").click();
+      const keepLive = page.getByRole("menuitem", { name: "保留原结果，返回草稿", exact: true });
+      await keepLive.waitFor();
+      await page.evaluate(() => {
+        window.confirm = () => true;
+      });
+      await keepLive.click();
+      await capture("08-live-creation-retained");
+      assert.equal(
+        await button("发送").isEnabled(),
+        true,
+        "Retaining a live unknown creation must release fresh draft admission",
+      );
+      assert.equal(
+        await page.getByTestId("toast").filter({ hasText: "操作结果待确认。" }).count(),
+        0,
+        "Retained live creation does not leave a generic warning",
+      );
+      assert.ok(
+        logical(await state()).pending.some(
+          (entry) => entry.params?.requestId === retainedLive.requestId,
+        ),
+        "Retained live request stays pending while its receipt is hidden",
+      );
+      assert.equal(
+        (await trace()).filter(
+          (entry) =>
+            entry.method === "areal/thread/start" &&
+            entry.params?.requestId === retainedLive.requestId,
+        ).length,
+        1,
+        "Retaining a live request never repeats its original mutation",
+      );
+      assert.equal(requests.length, 1, "Retaining live creation does not send its draft");
+      checks.push(
+        "Retaining live UNKNOWN releases the active creation owner while preserving original pending and unsent text",
+      );
+    }
     await createProjectConversation(page, "workspace");
     await page.evaluate(
       ({ projectId, requestId }) => {
@@ -557,6 +830,72 @@ try {
     assert.equal(requests.length, 1, "Reloading own UNKNOWN never sends a provider request");
     await capture("05-own-unknown-locked");
     checks.push("Persisted own-draft UNKNOWN stays locked and unsent after reload");
+    if (recoveryNotices) {
+      const ownWarning = page.getByTestId("toast").filter({ hasText: "任务创建结果待确认。" });
+      await ownWarning.waitFor();
+      assert.equal(
+        await page.getByTestId("toast").filter({ hasText: "操作结果待确认。" }).count(),
+        0,
+      );
+      const beforeOwnCheck = (await trace()).length;
+      await ownWarning.getByRole("button", { name: "检查操作状态", exact: true }).click();
+      await button("操作待确认").click();
+      const leave = page.getByRole("menuitem", { name: "保留原结果，返回草稿", exact: true });
+      await leave.waitFor();
+      await page.evaluate(() => {
+        window.confirm = () => true;
+      });
+      await leave.click();
+      const retained = await page.evaluate(
+        ({ projectId, requestId }) => {
+          const key = `areal-gui:draft:${projectId}:new`;
+          return {
+            active: localStorage.getItem(`${key}:pending-create`),
+            frozen: localStorage.getItem(`${key}:pending-create-request`),
+            retained: JSON.parse(
+              localStorage.getItem(`${key}:retained-create:${requestId}`) ?? "null",
+            ),
+          };
+        },
+        { projectId, requestId },
+      );
+      assert.equal(retained.active, null, "Leaving releases current creation recovery slot");
+      assert.equal(retained.frozen, null, "Leaving releases only the active frozen request slot");
+      assert.deepEqual(
+        retained.retained,
+        {
+          requestId,
+          request: JSON.stringify({ projectId, requestId, worktree: { mode: "worktree" } }),
+        },
+        "Leaving preserves the original frozen creation request for inspection",
+      );
+      await createProjectConversation(page, "workspace");
+      await until(
+        async () => button("发送").isEnabled(),
+        "retained old request leaves fresh draft usable",
+      );
+      assert.equal(
+        await page.getByTestId("toast").filter({ hasText: "操作结果待确认。" }).count(),
+        0,
+        "Fresh draft never inherits the retained operation notice",
+      );
+      assert.equal(
+        await page.getByTestId("toast").filter({ hasText: "任务创建结果待确认。" }).count(),
+        0,
+        "Fresh draft never inherits the prior current-creation warning",
+      );
+      assert.ok(
+        !(await trace())
+          .slice(beforeOwnCheck)
+          .some((entry) => entry.kind === "desktop-command" && entry.name === "create"),
+        "Check and leave never create or replay retained work",
+      );
+      assert.equal(requests.length, 1, "Check and leave keep retained text unsent");
+      await capture("08-retained-creation-fresh-draft");
+      checks.push(
+        "Persisted current creation keeps its specialized warning; check and leave retain frozen request without replay and fresh draft has no stale warning",
+      );
+    }
   }
   assert.deepEqual(
     JSON.parse(await readFile(pendingPath, "utf8")),

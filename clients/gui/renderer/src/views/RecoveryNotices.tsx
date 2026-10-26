@@ -76,6 +76,7 @@ export function RecoveryNotices({ recovery, startup, session, surfaces }: Recove
                   onClick={() =>
                     void resourceAction("reconcile", {
                       projectId: notice.projectId,
+                      requestId: notice.requestId,
                     }).catch(() => {})
                   }
                 >

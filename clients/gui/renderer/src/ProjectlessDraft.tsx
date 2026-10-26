@@ -21,7 +21,7 @@ export function ProjectlessDraft({
   snapshot: Snapshot;
   services: PlatformServices;
   action: Action;
-  readAction?: Action;
+  readAction: Action;
   onOpen: (pid: string, tid: string) => Promise<void>;
   onPanel: (panel: string) => void;
   onAnnotate?: (target: ImageAnnotationTarget) => void;
@@ -59,7 +59,7 @@ export function ProjectlessDraft({
   };
   useEffect(() => {
     if (ownerId && ready && !owner?.state?.connected)
-      void (readAction ?? action)("connect", { projectId: ownerId }).catch(() => {});
+      void readAction("connect", { projectId: ownerId }).catch(() => {});
   }, [ownerId, ready]);
   useEffect(() => {
     if (!ready || ownerId || deferred) return;
@@ -106,7 +106,7 @@ export function ProjectlessDraft({
   const retry = async () => {
     setError("");
     try {
-      if (ownerId) await (readAction ?? action)("connect", { projectId: ownerId });
+      if (ownerId) await readAction("connect", { projectId: ownerId });
       else if (deferred) setCatalog(await call(services, "projectless", { operation: "catalog" }));
       else await prepare();
     } catch (cause) {

@@ -31,6 +31,7 @@
     "test:diagnostics": "node scripts/diagnostics-storage-smoke.mjs && node scripts/diagnostics-smoke.mjs",
     "test:state-projection": "node scripts/state-projection-smoke.mjs",
     "test:recovery": "node --test scripts/desktop-reconciliation.test.cjs && node scripts/recovery-contract-smoke.mjs",
+    "test:creation-recovery": "node scripts/pending-project-smoke.mjs --recovery-notices",
     "test:service-connection": "node --test scripts/service-connection-recovery.test.mjs",
     "test:service-feedback": "node scripts/service-feedback-smoke.mjs",
     "test:backend-toast-ui": "node scripts/backend-toast-ui-smoke.mjs",
