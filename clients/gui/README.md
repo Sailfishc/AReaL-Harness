@@ -179,7 +179,7 @@ App 运行期间，共享 Desktop 后端独立发现启用安排，并连接其�
 
 旧版专用配置会话及其历史仍可读取，使用原有 proposal 与确认回执流程。新入口不创建这类标记会话。时间规则继续由 Core 计算，支持单次、间隔及按天、周、月安排。日历规则保留 IANA 时区；不存在的日期和夏令时跳空会跳过，重复当地时间只执行较早一次。每个安排显式保存漏执行策略；已受理 Run 保留原规则和说明。未知提交核对原 requestId，不自动重发。相关用户路径由 `pnpm --dir clients/gui run test:thread-schedules` 在隔离 Electron/Core 和确定性本地模型中验证，不替代真实供应商、物理输入或安装包验收。
 
-`pnpm --dir clients/gui run test:schedule-reliability` 使用隔离 Electron/Core、20 个逻辑项目和合成历史前置，检查完整目录、被动读取、更新与通知读取成本，并记录原始时间样本和源码、产物身份。`test:schedule-reliability-lifecycle` 使用本地确定性模型检查未打开项目的到期受理、显式停止、退出和重开后的漏执行处理。测试使用 `scripts/support/temp.mjs` 分配目录；需要较短本机 socket 路径时在调用环境设置 `TMPDIR=/tmp`。它们不替代真实供应商、签名安装包或其他平台验收。
+`pnpm --dir clients/gui run test:schedule-reliability` 默认使用隔离 Electron/Core、5 个逻辑项目、每项目 10 个定时 Task 和合成历史前置，检查完整目录、被动读取、摘要边界、新增删除和周期性全量读取，并记录原始时间样本及源码、产物身份。暖缓存完整列表的 p95 门槛为 300ms，清空 Desktop 目录缓存后的完整加载门槛为 1 秒；首行和修改耗时另列。设置 `AREAL_SCHEDULE_PROJECTS=20 AREAL_SCHEDULE_TASKS=200 AREAL_SCHEDULE_SCHEDULED=5` 可运行原大规模验收，不能以小规模结果替代。`test:schedule-reliability-lifecycle` 使用本地确定性模型检查未打开项目的到期受理、显式停止、退出和重开后的漏执行处理。测试使用 `scripts/support/temp.mjs` 分配目录；需要较短本机 socket 路径时在调用环境设置 `TMPDIR=/tmp`。它们不替代真实供应商、签名安装包或其他平台验收。
 
 `pnpm --dir clients/gui run test:task-catalog-cold` 使用 30 个无安排的独立聊天和 3 个安排 owner，记录点击到可读任务行的时间并检查冷 Core 没有被列表启动。`pnpm --dir clients/gui run test:task-catalog-startup` 使用隔离 Electron/Core，在认证握手后延迟供应商初始化，验证目录先显示、完整启动前管理入口仍禁用，以及启动完成后的恢复。
 

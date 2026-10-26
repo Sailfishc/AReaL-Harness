@@ -460,7 +460,11 @@ try {
   await page.evaluate((id) => localStorage.setItem("areal-gui:project", id), primaryId);
   await quit();
   assert.ok(Date.now() < quitAt * 1000, "app quit before the scheduled occurrence");
-  await until(() => Date.now() > quitAt * 1000 + 2500, "offline occurrence elapsed", 20000);
+  await until(
+    () => Date.now() > quitAt * 1000 + 2500,
+    "offline occurrence elapsed",
+    Math.max(1000, quitAt * 1000 + 5000 - Date.now()),
+  );
   await check("quit-has-no-new-admission", async () => {
     const read = await Promise.all([persisted(offline), persisted(skipped)]);
     assert.ok(read.every((value) => value.task.runCount === 0));

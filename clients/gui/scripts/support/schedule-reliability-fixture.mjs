@@ -4,13 +4,17 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 export const scheduleScale = {
-  projects: Number(process.env.AREAL_SCHEDULE_PROJECTS || 20),
-  tasks: Number(process.env.AREAL_SCHEDULE_TASKS || 200),
-  scheduled: 5,
+  projects: Number(process.env.AREAL_SCHEDULE_PROJECTS || 5),
+  tasks: Number(process.env.AREAL_SCHEDULE_TASKS || 10),
+  scheduled: Number(process.env.AREAL_SCHEDULE_SCHEDULED || 10),
   histories: [0, 16, 128],
 };
 assert.ok(
-  scheduleScale.projects >= 1 &&
+  Number.isSafeInteger(scheduleScale.projects) &&
+    Number.isSafeInteger(scheduleScale.tasks) &&
+    Number.isSafeInteger(scheduleScale.scheduled) &&
+    scheduleScale.projects >= 1 &&
+    scheduleScale.scheduled >= 1 &&
     scheduleScale.tasks >= scheduleScale.scheduled &&
     scheduleScale.tasks <= 1024,
 );

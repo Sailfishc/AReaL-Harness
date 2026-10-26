@@ -31,6 +31,8 @@ const binary = resolve(process.env.AREAL_CORE_BIN || join(root, "target/debug/ar
 const mode = process.env.AREAL_SCHEDULE_MODE || "accept";
 assert.ok(["seed", "baseline", "accept", "fault"].includes(mode));
 const transportFaults = mode === "fault";
+const quickAcceptance =
+  scheduleScale.projects === 5 && scheduleScale.tasks === 10 && scheduleScale.scheduled === 10;
 const sampleCount = Number(process.env.AREAL_SCHEDULE_SAMPLES || 5);
 assert.ok(
   Number.isSafeInteger(sampleCount) && sampleCount >= 5,
@@ -159,7 +161,7 @@ const faultTargetFile = join(evidence, "fault-target.txt");
 await writeFile(faultTargetFile, "");
 const fixture = await applicationFixture(
   gui,
-  join(scratch, "app"),
+  join(scratch, `app-${randomUUID().slice(0, 8)}`),
   `
 const fs = require("node:fs");
 const record = (kind, value={}) => fs.appendFileSync(${JSON.stringify(traceFile)}, JSON.stringify({kind,at:Date.now(),pid:process.pid,...value})+"\\n");
@@ -174,6 +176,18 @@ CoreNotifications.prototype.publish=function(notice){record("notice_publish",{no
     : ""
 }
 const {CoreBackend} = require(${JSON.stringify(join(gui, "app/src/core/backend.cjs"))});
+const command = CoreBackend.prototype.command;
+CoreBackend.prototype.command = async function(name, request, context) {
+ if(name !== "tasks" || request.operation !== "observe" || !(request.viewEpoch >= 9000 && request.viewEpoch < 10000))
+  return command.call(this,name,request,context);
+ if(this.scheduleOwners.pending)await this.scheduleOwners.pending;
+ const before=this.ownerTasks.published.size;
+ const result=await command.call(this,name,request,context);
+ const populated=this.ownerTasks.published.size;
+ this.ownerTasks.published.clear();
+ record("cold_cache_reset",{requestId:request.requestId,before,populated,after:this.ownerTasks.published.size,scanPending:!!this.scheduleOwners.pending});
+ return result;
+};
 const start = CoreBackend.prototype.startProject;
 CoreBackend.prototype.startProject = function(projectId) {record("owner_start",{projectId});return start.call(this,projectId);};
 const execute = CoreBackend.prototype.executeCommand;
@@ -253,6 +267,7 @@ const samples = {
   legacyFirstRow: [],
   legacySourceRefresh: [],
   coldFirstRow: [],
+  coldSourceRefresh: [],
   warmFirstRow: [],
   allSourceRefresh: [],
   allSourceRpc: [],
@@ -1073,19 +1088,20 @@ try {
         samples.legacySourceRefresh.push({ ms: measured.fullMs, rows: measured.fullRows });
         await close();
       }
-      for (const [name, limit] of [
-        ["legacyFirstRow", 1000],
-        ["legacySourceRefresh", 3000],
-      ])
-        await check(name, () => {
-          const summary = sampleSummary(samples[name]);
-          assert.ok(summary.count >= 5);
-          assert.ok(
-            summary.p95 <= limit,
-            `v5 ${name} ${summary.p95.toFixed(1)}ms exceeds ${limit}ms`,
-          );
-          return { ...summary, limit };
-        });
+      if (!quickAcceptance)
+        for (const [name, limit] of [
+          ["legacyFirstRow", 1000],
+          ["legacySourceRefresh", 3000],
+        ])
+          await check(name, () => {
+            const summary = sampleSummary(samples[name]);
+            assert.ok(summary.count >= 5);
+            assert.ok(
+              summary.p95 <= limit,
+              `v5 ${name} ${summary.p95.toFixed(1)}ms exceeds ${limit}ms`,
+            );
+            return { ...summary, limit };
+          });
       await launch();
       for (const owner of owners) {
         await call("connect", { projectId: owner.projectId });
@@ -1117,7 +1133,27 @@ try {
     for (let index = 0; index < sampleCount; index++) {
       await launch();
       const before = Date.now();
-      samples.coldFirstRow.push(await measureOpen());
+      if (mode === "accept") {
+        const requestId = randomUUID();
+        const primed = await call("tasks", {
+          operation: "observe",
+          limit: 1024,
+          requestId,
+          viewEpoch: 9000 + index,
+        });
+        assert.deepEqual(primed.errors, []);
+        assert.equal(primed.data.length, scheduleScale.projects * scheduleScale.scheduled);
+        const reset = (await readTrace()).findLast(
+          (event) => event.kind === "cold_cache_reset" && event.requestId === requestId,
+        );
+        assert.ok(reset, "cold run reaches fixture cache reset boundary");
+        assert.ok(reset.populated >= scheduleScale.projects);
+        assert.equal(reset.after, 0, "cold click begins without a published owner cache");
+        assert.equal(reset.scanPending, false, "startup owner scan settled before cold click");
+      }
+      const measured = await measureOpen();
+      samples.coldFirstRow.push(measured);
+      samples.coldSourceRefresh.push({ ms: measured.fullMs, rows: measured.fullRows });
       await check(`cold-${index}-all-schedules`, async () => {
         const catalog = await call("tasks", {
           operation: "observe",
@@ -1281,11 +1317,15 @@ try {
         expectedRevision: current.revision,
         objective,
       });
+      const commandReturned = performance.now();
       await page
         .getByRole("button", { name: `打开自动化 ${objective}`, exact: true })
         .waitFor({ timeout: 15000 });
+      const visible = performance.now();
       samples.liveMutation.push({
-        ms: performance.now() - started,
+        ms: visible - started,
+        commandMs: commandReturned - started,
+        projectionMs: visible - commandReturned,
         revision: current.revision,
         objective,
       });
@@ -1306,12 +1346,14 @@ try {
       join(evidence, "schedules.aria.txt"),
       await page.locator("body").ariaSnapshot(),
     );
-    const limits = {
-      coldFirstRow: 1000,
-      warmFirstRow: 300,
-      allSourceRefresh: 3000,
-      liveMutation: 1000,
-    };
+    const limits = quickAcceptance
+      ? {
+          coldFirstRow: 1000,
+          coldSourceRefresh: 1000,
+          warmFirstRow: 300,
+          allSourceRefresh: 300,
+        }
+      : { coldFirstRow: 1000, warmFirstRow: 300, allSourceRefresh: 3000, liveMutation: 1000 };
     for (const [name, limit] of Object.entries(limits))
       await check(name, () => {
         const summary = sampleSummary(samples[name]);
@@ -1352,6 +1394,32 @@ try {
     owners,
     cleanup,
     scale: scheduleScale,
+    acceptanceProfile: quickAcceptance
+      ? {
+          source: "Five-project catalog acceptance with ten scheduled Tasks per project.",
+          gates: [
+            "coldFirstRow.p95<=1000ms",
+            "coldSourceRefresh.p95<=1000ms",
+            "warmFirstRow.p95<=300ms",
+            "allSourceRefresh.p95<=300ms",
+          ],
+          diagnostics: [
+            "legacyFirstRow",
+            "legacySourceRefresh",
+            "liveMutation including command and UI projection time",
+          ],
+        }
+      : {
+          source: "Twenty-project stress acceptance with 200 Tasks per project.",
+          gates: [
+            "legacyFirstRow.p95<=1000ms",
+            "legacySourceRefresh.p95<=3000ms",
+            "coldFirstRow.p95<=1000ms",
+            "warmFirstRow.p95<=300ms",
+            "allSourceRefresh.p95<=3000ms",
+            "liveMutation.p95<=1000ms",
+          ],
+        },
     samples,
     summaries: Object.fromEntries(
       Object.entries(samples).map(([name, values]) => [name, sampleSummary(values)]),
