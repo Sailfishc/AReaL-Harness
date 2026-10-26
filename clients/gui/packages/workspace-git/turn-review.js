@@ -20,7 +20,7 @@ function applyRecordedPatches(before, patches) {
 
 // Core remains the historical authority. These are verified text versions from
 // public filesystem records, not current working-tree snapshots or undo data.
-function turnChanges(turn, { itemId, fileBefores } = {}) {
+function turnChanges(turn, { itemId, fileBefores, allowPartial = false } = {}) {
   if (!turn || turn.status !== 'completed') throw new Error('本轮尚未完成，无法比较文件版本');
   let items = turn.items ?? [];
   if (itemId !== undefined) {
@@ -32,7 +32,7 @@ function turnChanges(turn, { itemId, fileBefores } = {}) {
       || item.execution?.backend !== 'runtime' || item.execution?.outcome !== 'succeeded') throw new Error('指定工具不是已成功完成的文件写入');
     if (item.execution.fileBefore !== undefined) items = [item];
   }
-  const observed = new Map(), changed = new Map();
+  const observed = new Map(), changed = new Map(), unavailable = new Map();
   for (const item of items) {
     if (item.type !== 'dynamicToolCall' || item.status !== 'completed' || item.success !== true
       || item.execution?.backend !== 'runtime' || item.execution?.outcome !== 'succeeded') continue;
@@ -48,47 +48,57 @@ function turnChanges(turn, { itemId, fileBefores } = {}) {
       || !Number.isSafeInteger(result.size) || result.size < 0 || result.size > 8 * 1024 * 1024) throw new Error('本轮文件版本记录不完整，请使用工作区审查');
     const path = result.path.slice('workspace://repo/'.length);
     if (!path || /[\r\n\t]/.test(path) || path.split('/').some(part => ['..', '.', ''].includes(part))) throw new Error('本轮文件路径无法比较');
-    if (item.tool === 'fs_read') {
-      if ((args.offset ?? 0) !== 0 || !result.eof || typeof result.text !== 'string'
-        || Buffer.byteLength(result.text) !== result.size || sha(result.text) !== result.sha256) continue;
-      if (changed.has(path) && sha(changed.get(path).after) !== result.sha256) throw new Error('本轮文件在工具之间发生了外部变化，无法归并版本');
-      observed.set(path, { text: result.text, hash: result.sha256 });
-      continue;
+    if (unavailable.has(path)) continue;
+    try {
+      if (item.tool === 'fs_read') {
+        if ((args.offset ?? 0) !== 0 || !result.eof || typeof result.text !== 'string'
+          || Buffer.byteLength(result.text) !== result.size || sha(result.text) !== result.sha256) continue;
+        if (changed.has(path) && sha(changed.get(path).after) !== result.sha256) throw new Error('本轮文件在工具之间发生了外部变化，无法归并版本');
+        observed.set(path, { text: result.text, hash: result.sha256 });
+        continue;
+      }
+      const creation = !patchTool && (item.tool === 'fs_create' || args.expectedSha256 === null);
+      let previous = observed.get(path);
+      if (item.execution.fileBefore !== undefined) {
+        const reference = item.execution.fileBefore;
+        const bytes = fileBefores?.get(item.id);
+        if (creation || !reference || reference.mimeType !== 'application/octet-stream' || !(bytes instanceof Uint8Array)
+          || bytes.byteLength > 8 * 1024 * 1024 || bytes.byteLength !== reference.sizeBytes
+          || !/^[a-f0-9]{64}$/.test(args.expectedSha256) || reference.uri !== `areal://blob/${args.expectedSha256}`
+          || sha(bytes) !== args.expectedSha256) throw new Error('本轮写入前的文件证据无法验证，请使用工作区审查');
+        let text;
+        try { text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); }
+        catch { throw new Error('写入前的文件不是有效 UTF-8，历史文本比较不可用'); }
+        previous = { text, hash: args.expectedSha256 };
+        if (changed.has(path) && sha(changed.get(path).after) !== previous.hash) throw new Error('本轮文件在工具之间发生了外部变化，无法归并版本');
+      }
+      let after;
+      if (patchTool) {
+        if (typeof args.expectedSha256 !== 'string' || !previous || previous.hash !== args.expectedSha256) throw new Error('本轮缺少写入前的完整文件版本，请使用工作区审查');
+        after = applyRecordedPatches(previous.text, args.patches);
+        if (Buffer.byteLength(after) !== result.size || sha(after) !== result.sha256) throw new Error('本轮补丁结果与确认版本不一致');
+      } else {
+        if (typeof args.text !== 'string' || Buffer.byteLength(args.text) !== result.size || sha(args.text) !== result.sha256) throw new Error('本轮写入文本与确认版本不一致');
+        after = args.text;
+        if (creation && changed.has(path)) throw new Error('本轮文件重复创建，缺少完整版本链');
+        if (!creation && (!previous || previous.hash !== args.expectedSha256)) throw new Error('本轮缺少写入前的完整文件版本，请使用工作区审查');
+      }
+      const before = creation ? '' : previous.text;
+      if (itemId !== undefined && item.id === itemId) {
+        changed.clear();
+        changed.set(path, { before, after });
+        break;
+      }
+      changed.set(path, { before: changed.get(path)?.before ?? before, after });
+      observed.set(path, { text: after, hash: result.sha256 });
+    } catch (error) {
+      if (!allowPartial || itemId !== undefined) throw error;
+      // A broken version chain invalidates this file, not independent files.
+      // Keep it out of both the Diff and the totals; never substitute disk data.
+      changed.delete(path);
+      observed.delete(path);
+      unavailable.set(path, error instanceof Error ? error.message : String(error));
     }
-    const creation = !patchTool && (item.tool === 'fs_create' || args.expectedSha256 === null);
-    let previous = observed.get(path);
-    if (item.execution.fileBefore !== undefined) {
-      const reference = item.execution.fileBefore;
-      const bytes = fileBefores?.get(item.id);
-      if (creation || !reference || reference.mimeType !== 'application/octet-stream' || !(bytes instanceof Uint8Array)
-        || bytes.byteLength > 8 * 1024 * 1024 || bytes.byteLength !== reference.sizeBytes
-        || !/^[a-f0-9]{64}$/.test(args.expectedSha256) || reference.uri !== `areal://blob/${args.expectedSha256}`
-        || sha(bytes) !== args.expectedSha256) throw new Error('本轮写入前的文件证据无法验证，请使用工作区审查');
-      let text;
-      try { text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); }
-      catch { throw new Error('写入前的文件不是有效 UTF-8，历史文本比较不可用'); }
-      previous = { text, hash: args.expectedSha256 };
-      if (changed.has(path) && sha(changed.get(path).after) !== previous.hash) throw new Error('本轮文件在工具之间发生了外部变化，无法归并版本');
-    }
-    let after;
-    if (patchTool) {
-      if (typeof args.expectedSha256 !== 'string' || !previous || previous.hash !== args.expectedSha256) throw new Error('本轮缺少写入前的完整文件版本，请使用工作区审查');
-      after = applyRecordedPatches(previous.text, args.patches);
-      if (Buffer.byteLength(after) !== result.size || sha(after) !== result.sha256) throw new Error('本轮补丁结果与确认版本不一致');
-    } else {
-      if (typeof args.text !== 'string' || Buffer.byteLength(args.text) !== result.size || sha(args.text) !== result.sha256) throw new Error('本轮写入文本与确认版本不一致');
-      after = args.text;
-      if (creation && changed.has(path)) throw new Error('本轮文件重复创建，缺少完整版本链');
-      if (!creation && (!previous || previous.hash !== args.expectedSha256)) throw new Error('本轮缺少写入前的完整文件版本，请使用工作区审查');
-    }
-    const before = creation ? '' : previous.text;
-    if (itemId !== undefined && item.id === itemId) {
-      changed.clear();
-      changed.set(path, { before, after });
-      break;
-    }
-    changed.set(path, { before: changed.get(path)?.before ?? before, after });
-    observed.set(path, { text: after, hash: result.sha256 });
   }
   let diff = '';
   const contents = new Map();
@@ -97,6 +107,6 @@ function turnChanges(turn, { itemId, fileBefores } = {}) {
     contents.set(path, versions);
     diff += `diff --git a/${path} b/${path}\n` + createTwoFilesPatch(`a/${path}`, `b/${path}`, versions.before, versions.after, '', '');
   }
-  return { diff, contents };
+  return { diff, contents, unavailableFiles: [...unavailable].map(([path, reason]) => ({ path, reason })) };
 }
 module.exports = { turnChanges };

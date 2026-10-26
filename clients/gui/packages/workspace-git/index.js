@@ -118,12 +118,16 @@ async function reviewTrees(root, before, after, options = {}) {
   return { root, head: after, base: before, diff, files, scope: 'last-turn', conflicts: [], target: null, token: hash(JSON.stringify({ before, after, diff })) };
 }
 
-function reviewTurnFiles(root, turn, { itemId, fileBefores } = {}) {
-  const { diff, contents } = require('./turn-review').turnChanges(turn, { itemId, fileBefores });
+/**
+ * @param {{itemId?:unknown,fileBefores?:Map<string,Uint8Array>,allowPartial?:boolean}} [options]
+ */
+function reviewTurnFiles(root, turn, options = {}) {
+  const { itemId, fileBefores, allowPartial = false } = options;
+  const { diff, contents, unavailableFiles } = require('./turn-review').turnChanges(turn, { itemId, fileBefores, allowPartial });
   const version = `turn:${turn.id}${itemId === undefined ? '' : `:item:${itemId}`}`;
-  return { root, diff, files: reviewFiles(diff).map(file => ({ ...file, beforeText: contents.get(file.path)?.before, afterText: contents.get(file.path)?.after })), scope: itemId === undefined ? 'last-turn' : 'tool', turnId: turn.id, itemId,
+  return { root, diff, unavailableFiles, files: reviewFiles(diff).map(file => ({ ...file, beforeText: contents.get(file.path)?.before, afterText: contents.get(file.path)?.after })), scope: itemId === undefined ? 'last-turn' : 'tool', turnId: turn.id, itemId,
     head: `${version}:after`, base: `${version}:before`, token: hash(JSON.stringify({ turnId: turn.id, itemId, diff })),
-    notice: itemId === undefined ? '仅显示本轮可验证的文件工具修改；Shell 或外部编辑不计入。' : '仅显示该次可验证的文件工具修改，不使用当前磁盘版本。' };
+    notice: unavailableFiles.length ? `仅显示本轮可验证的文件工具修改；未包含 ${unavailableFiles.map(file => file.path).join('、')}：文件版本无法完整验证。` : itemId === undefined ? '仅显示本轮可验证的文件工具修改；Shell 或外部编辑不计入。' : '仅显示该次可验证的文件工具修改，不使用当前磁盘版本。' };
 }
 
 const restoring = new Set();

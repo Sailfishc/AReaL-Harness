@@ -14,7 +14,7 @@ const {
 /** @typedef {{kind:'add'|'del'|'context'|'meta',text:string,oldLine:number|null,newLine:number|null}} ReviewLine */
 /** @typedef {{oldStart:number,oldLines:number,newStart:number,newLines:number,lines:ReviewLine[]}} ReviewHunk */
 /** @typedef {{path:string,additions:number,deletions:number,hunks:ReviewHunk[],binary:boolean,beforeText?:string,afterText?:string}} ReviewFile */
-/** @typedef {{root:string,head:string,base:string,diff:string,files:ReviewFile[],scope:string,token:string,reference?:{id:string,label:string}|null,dirty?:boolean,target?:string|null,branch?:string,targetDirty?:boolean,conflicts?:string[],turnId?:string,itemId?:string,notice?:string}} Review */
+/** @typedef {{root:string,head:string,base:string,diff:string,files:ReviewFile[],scope:string,token:string,reference?:{id:string,label:string}|null,dirty?:boolean,target?:string|null,branch?:string,targetDirty?:boolean,conflicts?:string[],turnId?:string,itemId?:string,notice?:string,unavailableFiles?:Array<{path:string,reason:string}>}} Review */
 /** @typedef {{worktreeRoot:string,branchPrefix:string,fetchBeforeCreate:boolean,autoCleanup:boolean,keepCount:number}} Settings */
 /** @typedef {{environments:import('./workspace-worktrees.cjs').EnvironmentDefinition[],environmentRevision:number}} EnvironmentStore */
 /** @typedef {{root:string,head:string,branch:string,staged:string[],unstaged:string[],remotes:string[],token:string}} GitState */
@@ -66,6 +66,12 @@ function review(value) {
     ["root", "head", "base", "diff", "scope", "token"].every(
       (key) => typeof value[key] === "string",
     ) &&
+    (value.unavailableFiles === undefined ||
+      (Array.isArray(value.unavailableFiles) &&
+        value.unavailableFiles.every(
+          (file) =>
+            modelRecord(file) && typeof file.path === "string" && typeof file.reason === "string",
+        ))) &&
     Array.isArray(value.files) &&
     value.files.every(
       (file) =>

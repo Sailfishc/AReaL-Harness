@@ -1,6 +1,7 @@
 // Toolbar, empty state and change-card layout adapted from ZCode GitPane.
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button } from "./components/ui/button.js";
+import { useI18n } from "./i18n/IntlProvider.js";
 import {
   ReviewEmptyGlyph,
   ReviewDiffLayoutGlyph,
@@ -361,6 +362,10 @@ export function GitPane({
   const reviewTurnId = scope === "turn" ? selectedTurnId : turnId;
   const reviewRef = scope === "turn" ? (selectedTurnId ?? "") : applied;
   const [files, setFiles] = useState<FileChange[]>([]);
+  const { t } = useI18n();
+  const [unavailableFiles, setUnavailableFiles] = useState<Array<{ path: string; reason: string }>>(
+    [],
+  );
   const textFiles = files.filter((file) => !file.binary && !!file.patch);
   const hasFullTexts = textFiles.some(
     (file) => file.beforeText !== undefined && file.afterText !== undefined,
@@ -419,6 +424,7 @@ export function GitPane({
     setSelection(undefined);
     setError("");
     setNotice("");
+    setUnavailableFiles([]);
     const request =
       scope === "last-turn" || scope === "turn"
         ? reviewTurnId
@@ -449,6 +455,7 @@ export function GitPane({
             : undefined,
         );
         setNotice(result.notice ?? "");
+        setUnavailableFiles(result.unavailableFiles ?? []);
         const patches = result.diff.split(/(?=^diff --git )/m).filter(Boolean);
         const nextFiles: FileChange[] = result.files.map(
           (
@@ -1173,6 +1180,22 @@ export function GitPane({
           </Button>
         </form>
       )}
+      {!busy && !error && unavailableFiles.length > 0 && (
+        <details className="shrink-0 px-3 py-2 text-ui-sm text-foreground-subtle">
+          <summary>
+            <span role="status">
+              {t("chat.files.excluded", { count: unavailableFiles.length })}
+            </span>
+          </summary>
+          <ul className="max-h-32 overflow-auto">
+            {unavailableFiles.map((file) => (
+              <li key={file.path} className="break-words">
+                {file.path}：{file.reason}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
       {(storageError || commentError) && (
         <p role="alert" className="px-3 py-2 text-ui-sm text-destructive">
           {storageError || commentError}
@@ -1285,8 +1308,12 @@ export function GitPane({
                 <>
                   <ReviewEmptyGlyph className="review-empty-illustration" />
                   <div className="review-empty-copy">
-                    <p className="review-empty-heading">暂无文件改动</p>
-                    <p className="review-empty-description">此项目中的改动将显示在这里。</p>
+                    <p className="review-empty-heading">
+                      {unavailableFiles.length ? t("chat.files.unavailable") : "暂无文件改动"}
+                    </p>
+                    <p className="review-empty-description">
+                      {unavailableFiles.length ? notice : "此项目中的改动将显示在这里。"}
+                    </p>
                   </div>
                 </>
               )}

@@ -1,4 +1,17 @@
 export const commonMessages = {
+  "chat.files.partial": {
+    "zh-CN": "部分文件行数不可用",
+    en: "Line counts unavailable for some files",
+  },
+  "chat.files.unavailable": { "zh-CN": "行数不可用", en: "Line counts unavailable" },
+  "chat.files.partialTotals": {
+    "zh-CN": "已统计文件新增 {additions} 行，删除 {deletions} 行",
+    en: "Counted files: {additions} added, {deletions} deleted",
+  },
+  "chat.files.excluded": {
+    "zh-CN": "{count} 个文件的历史变更无法完整验证，未计入此比较",
+    en: "Historical changes for {count} files could not be fully verified and are excluded from this comparison",
+  },
   "decision.deny": { "zh-CN": "拒绝", en: "Deny" },
   "decision.denyShortcut": { "zh-CN": "{label} Esc", en: "{label} Esc" },
   "content.imageFallback": { "zh-CN": "[图片：{description}]", en: "[Image: {description}]" },

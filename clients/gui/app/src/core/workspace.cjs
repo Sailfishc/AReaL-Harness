@@ -220,7 +220,11 @@ async function executeWorkspaceCommand(backend, request) {
           await readFileBefore(live, request.threadId, item.execution.fileBefore),
         );
       }
-      return git.reviewTurnFiles(project.root, turn, { itemId: request.itemId, fileBefores });
+      return git.reviewTurnFiles(project.root, turn, {
+        itemId: request.itemId,
+        fileBefores,
+        allowPartial: true,
+      });
     }
     case "status":
       return git.fileStatus(project.root);

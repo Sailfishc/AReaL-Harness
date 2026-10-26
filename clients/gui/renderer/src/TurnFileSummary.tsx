@@ -2,6 +2,7 @@ import { FileChanges } from "./interfaceIcons.js";
 import { useEffect, useId, useState } from "react";
 import { Button } from "./components/ui/button.js";
 import type { Data } from "./services.js";
+import { useI18n } from "./i18n/IntlProvider.js";
 
 type ReviewState =
   | { kind: "loading"; identity: string }
@@ -9,6 +10,7 @@ type ReviewState =
       kind: "ready";
       identity: string;
       totals: Map<string, { additions: number; deletions: number }>;
+      unavailable: Map<string, string>;
     }
   | { kind: "unavailable"; identity: string; error: string };
 
@@ -77,6 +79,7 @@ export function TurnFileSummary({
   onFile: (path: string) => void;
   onReview: (turnId: string) => void;
 }) {
+  const { t } = useI18n();
   const files = verifiedWrittenFiles(turn.items ?? []);
   const identity = JSON.stringify([turn.id, turn.status, [...files.values()]]);
   const [expanded, setExpanded] = useState(false);
@@ -103,7 +106,18 @@ export function TurnFileSummary({
             throw Error("本轮文件行数无法验证");
           totals.set(file.path, { additions: file.additions, deletions: file.deletions });
         }
-        if (active) setReview({ kind: "ready", identity, totals });
+        if (active)
+          setReview({
+            kind: "ready",
+            identity,
+            totals,
+            unavailable: new Map(
+              (result.unavailableFiles ?? []).map((file: { path: string; reason: string }) => [
+                file.path,
+                file.reason,
+              ]),
+            ),
+          });
       })
       .catch((cause) => {
         if (active)
@@ -122,8 +136,11 @@ export function TurnFileSummary({
     review?.identity === identity ? review : { kind: "loading", identity };
   const entries = [...files.values()];
   const counts = current.kind === "ready" ? current.totals : undefined;
+  const unavailable = current.kind === "ready" ? current.unavailable : undefined;
+  const partial = entries.some((file) => unavailable?.has(file.path));
   const totals =
     counts &&
+    entries.some((file) => !unavailable?.has(file.path)) &&
     entries.reduce(
       (sum, file) => {
         const count = counts.get(file.path);
@@ -145,10 +162,19 @@ export function TurnFileSummary({
           {totals && (
             <span
               className="turn-file-summary-totals"
-              aria-label={`合计新增 ${totals.additions} 行，删除 ${totals.deletions} 行`}
+              aria-label={
+                partial
+                  ? t("chat.files.partialTotals", totals)
+                  : `合计新增 ${totals.additions} 行，删除 ${totals.deletions} 行`
+              }
             >
               <span className="added">+{totals.additions}</span>
               <span className="deleted">-{totals.deletions}</span>
+            </span>
+          )}
+          {partial && (
+            <span className="turn-file-summary-meta" role="status">
+              {t(totals ? "chat.files.partial" : "chat.files.unavailable")}
             </span>
           )}
           {current.kind !== "ready" && (
@@ -180,9 +206,10 @@ export function TurnFileSummary({
         {(expanded ? entries : entries.slice(0, 5)).map((file) => {
           // A verified comparison omits unchanged paths. Only that successful
           // result permits zero; pending or rejected reads never do.
-          const totals = counts
-            ? (counts.get(file.path) ?? { additions: 0, deletions: 0 })
-            : undefined;
+          const totals =
+            counts && !unavailable?.has(file.path)
+              ? (counts.get(file.path) ?? { additions: 0, deletions: 0 })
+              : undefined;
           const nameStart = file.path.lastIndexOf("/") + 1;
           return (
             <Button
@@ -207,9 +234,12 @@ export function TurnFileSummary({
               ) : (
                 <span
                   className="turn-file-summary-meta"
-                  title={current.kind === "unavailable" ? current.error : undefined}
+                  title={
+                    unavailable?.get(file.path) ??
+                    (current.kind === "unavailable" ? current.error : undefined)
+                  }
                 >
-                  {current.kind === "loading" ? "统计中" : "行数不可用"}
+                  {current.kind === "loading" ? "统计中" : t("chat.files.unavailable")}
                 </span>
               )}
             </Button>
