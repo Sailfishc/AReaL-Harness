@@ -11,8 +11,10 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def run(args, cwd=ROOT, capture=False):
-    result = subprocess.run(args, cwd=cwd, text=True, stdout=subprocess.PIPE if capture else None)
+def run(args, cwd=ROOT, capture=False, env=None):
+    result = subprocess.run(
+        args, cwd=cwd, env=env, text=True, stdout=subprocess.PIPE if capture else None
+    )
     if result.returncode:
         raise subprocess.CalledProcessError(result.returncode, args)
     return result.stdout.strip() if capture else None
@@ -162,7 +164,10 @@ def prepush():
     require_clean_head(head)
     # 使用抓取后的不可变 SHA，避免分支名进入 Make 的 shell 展开。
     revision = git("rev-parse", "--verify", f"{reference}^{{commit}}")
-    run(["make", "ci-preflight", f"CI_BASE={revision}"])
+    # Git hooks 继承调用者的仓库定位变量；不能把它们传给会创建独立仓库的检查。
+    local_variables = git("rev-parse", "--local-env-vars").splitlines()
+    environment = {key: value for key, value in os.environ.items() if key not in local_variables}
+    run(["make", "ci-preflight", f"CI_BASE={revision}"], env=environment)
     require_clean_head(head)
 
 

@@ -17,8 +17,15 @@ class GitHooks(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name) / "checkout"
         self.root.mkdir()
+        local_variables = subprocess.run(
+            ["git", "rev-parse", "--local-env-vars"],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=True,
+        ).stdout.splitlines()
         self.env = {
-            **os.environ,
+            **{key: value for key, value in os.environ.items() if key not in local_variables},
             "GIT_CONFIG_GLOBAL": os.devnull,
             "GIT_CONFIG_NOSYSTEM": "1",
         }
@@ -180,6 +187,43 @@ class GitHooks(unittest.TestCase):
         head = self.git("rev-parse", "HEAD").stdout.strip()
         self.assertEqual(self.install().returncode, 0)
         self.assertEqual(self.hook("pre-push", self.push_input(head)).returncode, 2)
+
+    def test_git_push_preflight_does_not_leak_caller_git_environment(self):
+        self.put(
+            "Makefile",
+            "fmt-check:\n\t@true\nci-preflight:\n\t@python3 scripts/nested-repository.py\n",
+        )
+        self.put(
+            "scripts/nested-repository.py",
+            "from pathlib import Path\nimport subprocess\n"
+            "Path('nested.git').mkdir()\n"
+            "subprocess.run(['git', 'init', '--bare', '-q'], cwd='nested.git', check=True)\n"
+            "subprocess.run(['git', '-C', 'nested.git', 'config', 'user.name', 'Nested'], check=True)\n"
+            "assert Path('nested.git/config').is_file()\n",
+        )
+        self.git("add", ".")
+        self.git("commit", "-qm", "nested repository preflight")
+        self.assertEqual(self.install().returncode, 0)
+        config = (self.root / ".git/config").read_bytes()
+        index = (self.root / ".git/index").read_bytes()
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+        result = subprocess.run(
+            ["git", "push", "-q", "upstream", "HEAD:refs/heads/topic"],
+            cwd=self.root,
+            env={**self.env, "GIT_DIR": str(self.root / ".git")},
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.root / ".git/config").read_bytes(), config)
+        self.assertEqual((self.root / ".git/index").read_bytes(), index)
+        self.assertEqual(self.git("rev-parse", "HEAD").stdout.strip(), head)
+        self.assertEqual(
+            self.git("ls-remote", "upstream", "refs/heads/topic").stdout.split()[0], head
+        )
+        self.assertEqual(
+            self.git("-C", "nested.git", "config", "user.name").stdout.strip(), "Nested"
+        )
 
     def test_git_commit_invokes_hook_and_retains_failed_index(self):
         self.assertEqual(self.install().returncode, 0)
