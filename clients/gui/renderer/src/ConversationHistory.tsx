@@ -12,17 +12,25 @@ export function useConversationHistory(projectId: string, thread: Data, action: 
   current.current = owner;
   const supported = thread.displayHistory?.supported === true;
   const [failure, setFailure] = useState<{ owner: string; itemId?: string; message: string }>();
+  const mounted = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (!supported) return;
-    let released = false;
     const request = { projectId, threadId: thread.id, viewId };
-    void action("history", { ...request, operation: "acquire" }).catch((error: Error) => {
-      if (!released) setFailure({ owner, message: error.message });
-    });
+    mounted.current = owner;
     return () => {
-      released = true;
+      mounted.current = undefined;
       void action("history", { ...request, operation: "release" }).catch(() => {});
     };
+  }, [action, owner, projectId, supported, thread.id, viewId]);
+  // 重新观察会换新的历史窗口（viewGeneration 变化），视图登记随窗口沿用。这里只重新登记，
+  // 不先释放：释放会清空已加载页并中断补全，随后再补回，顶部内容会反复消失、出现。
+  useEffect(() => {
+    if (!supported) return;
+    void action("history", { projectId, threadId: thread.id, viewId, operation: "acquire" }).catch(
+      (error: Error) => {
+        if (mounted.current === owner) setFailure({ owner, message: error.message });
+      },
+    );
   }, [
     action,
     owner,

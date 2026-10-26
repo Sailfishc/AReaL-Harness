@@ -890,27 +890,30 @@ export function Messages({
           {beforeTurns}
           {inherited.loading && <p role="status">正在加载继承历史…</p>}
           {inherited.error && <p role="alert">继承历史读取失败：{inherited.error}</p>}
-          {localThread.displayHistory?.loadingLatest && (
-            <p role="status">{t("chat.history.loadingLatest")}</p>
+          {/* 历史边界只占一个固定高度的位置：恢复本轮与加载更早在同一处切换文字，不推动下方对话。 */}
+          {(localThread.displayHistory?.loadingLatest ||
+            (localThread.displayHistory?.supported && !localThread.displayHistory.complete)) && (
+            <div className="history-boundary">
+              {localThread.displayHistory.loadingLatest ? (
+                <p role="status">{t("chat.history.loadingLatest")}</p>
+              ) : localThread.displayHistory.latestTurnComplete !== false ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={localThread.displayHistory.loadingOlder}
+                  onClick={() => {
+                    readHere();
+                    void history.load();
+                  }}
+                >
+                  {localThread.displayHistory.loadingOlder
+                    ? t("chat.history.loadingOlder")
+                    : t("chat.history.loadOlder")}
+                </Button>
+              ) : null}
+            </div>
           )}
-          {localThread.displayHistory?.supported &&
-            localThread.displayHistory.latestTurnComplete !== false &&
-            !localThread.displayHistory.complete && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                disabled={localThread.displayHistory.loadingOlder}
-                onClick={() => {
-                  readHere();
-                  void history.load();
-                }}
-              >
-                {localThread.displayHistory.loadingOlder
-                  ? t("chat.history.loadingOlder")
-                  : t("chat.history.loadOlder")}
-              </Button>
-            )}
           {history.failure && !history.failure.itemId && (
             <div>
               <p role="alert">{history.failure.message}</p>

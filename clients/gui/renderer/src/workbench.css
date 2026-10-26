@@ -491,6 +491,18 @@ button.composer-project:hover > svg,
   margin: 0 auto;
   padding: var(--message-reading-inset) var(--spacing-field);
 }
+/* 历史边界固定为一行控件高：恢复本轮、加载更早、加载中三种状态在同一位置切换。 */
+.history-boundary {
+  display: flex;
+  align-items: center;
+  min-height: var(--spacing-control-sm);
+}
+.history-boundary > p {
+  margin: 0;
+  padding-inline: var(--spacing-inline);
+  font-size: var(--text-ui-caption);
+  color: var(--color-foreground-subtle);
+}
 .message-column > section {
   display: flex;
   flex-direction: column;

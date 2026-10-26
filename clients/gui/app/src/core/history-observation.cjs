@@ -50,24 +50,27 @@ function mergeHistory(thread, entries) {
     if (!turn.items.some((item) => item.id === entry.sourceItemId)) turn.items.push(entry.item);
     turns.set(turn.id, turn);
   }
-  for (const current of thread.turns ?? []) {
+  // 只有页内新出现的轮次排在已显示轮次之前（向上分页）；已显示的轮次保持原顺序，
+  // 补全最新一轮时它不会越过已显示的上一轮。
+  const shown = new Set((thread.turns ?? []).map((turn) => turn.id));
+  const merged = (thread.turns ?? []).map((current) => {
     const older = turns.get(current.id);
     const currentIds = new Set((current.items ?? []).map((item) => item.id));
-    turns.set(
-      current.id,
-      older
-        ? {
-            ...older,
-            ...current,
-            items: [
-              ...older.items.filter((item) => !currentIds.has(item.id)),
-              ...(current.items ?? []),
-            ],
-          }
-        : { ...current, items: current.items ?? [] },
-    );
-  }
-  return { ...thread, turns: [...turns.values()] };
+    return older
+      ? {
+          ...older,
+          ...current,
+          items: [
+            ...older.items.filter((item) => !currentIds.has(item.id)),
+            ...(current.items ?? []),
+          ],
+        }
+      : { ...current, items: current.items ?? [] };
+  });
+  return {
+    ...thread,
+    turns: [...[...turns.values()].filter((turn) => !shown.has(turn.id)), ...merged],
+  };
 }
 /** @param {unknown} error */
 const retryableRead = (error) =>
@@ -374,20 +377,20 @@ class HistoryObservation {
     return this.historyWindows?.get(`${project.id}:${threadId}`);
   }
 
-  /** @param {import('./project-state.cjs').CoreProject} project @param {import('./history-state.cjs').HistoryWindow} window */
-  publishHistory(project, window) {
+  /** @param {import('./project-state.cjs').CoreProject} project @param {import('./history-state.cjs').HistoryWindow} window @param {import('@areal/workbench/core-model-contract').CoreThread} [thread] */
+  publishHistory(project, window, thread = project.model.state.threads[window.threadId]) {
     if (this.historyWindow(project, window.threadId) !== window) return;
-    const thread = project.model.state.threads[window.threadId];
     if (!thread) return;
+    // 会话内容与历史边界一次发布：中间态缺少 displayHistory 会让渲染端以为不再支持分页而释放视图。
     project.model.replace({
       ...thread,
       displayHistory: {
         supported: true,
-        complete: window.complete,
-        omitted: window.omitted,
+        complete: window.displayed?.complete ?? window.complete,
+        omitted: window.displayed?.omitted ?? window.omitted,
         loadingOlder: !!window.olderRead,
-        loadingLatest: !!window.latestTurn.read,
-        latestTurnComplete: window.latestTurn.complete,
+        loadingLatest: !window.displayed && !!window.latestTurn.read,
+        latestTurnComplete: !!window.displayed || window.latestTurn.complete,
         loadingItems: Object.fromEntries(window.loading),
         baselineFirstItemId: window.baselineFirstItemId,
         viewGeneration: window.viewGeneration,
@@ -442,6 +445,26 @@ class HistoryObservation {
             (item) => previous.loaded.get(item.id)?.placeholder ?? item,
           )
         : [];
+      // 补全本轮时最后一页常带上一轮的尾部条目；同一连接、未失效的重新观察会立刻重新读到它们。
+      // 先保留这些已显示的条目，避免顶部内容消失再出现造成整列跳动；“加载更早”分页仍随新窗口重置。
+      const paged = new Set(
+        (preserve ? previous.pages : []).flatMap((page) =>
+          page.data.map((entry) => entry.sourceItemId),
+        ),
+      );
+      const retained = preserve
+        ? (previousThread.turns ?? []).slice(0, -1).flatMap((turn) =>
+            (turn.items ?? [])
+              .filter((item) => !paged.has(item.id))
+              .map((item) => ({
+                sourceTurnId: turn.id,
+                sourceItemId: item.id,
+                sourceTurnStatus: turn.status,
+                turn,
+                item: previous.loaded.get(item.id)?.placeholder ?? item,
+              })),
+          )
+        : [];
       const seen = new Set(
         thread.turns?.flatMap((turn) => turn.items ?? []).map((item) => item.id),
       );
@@ -471,6 +494,12 @@ class HistoryObservation {
         client,
         generation: project.connectionGeneration,
         latestTurn: { id: latestId, complete: latestComplete, read: null },
+        // 已补全的窗口被重新观察时，屏幕上仍是上一窗口的完整内容；补全追上之前沿用其边界状态，
+        // 不让“恢复本轮/加载更早”提示在已显示的对话上方出现又消失。
+        displayed:
+          preserve && previous.latestTurn.complete && !previous.pages.length
+            ? { complete: previous.complete, omitted: previous.omitted }
+            : undefined,
         preservedLatestItems: new Map(
           prefix.filter((item) => !seen.has(item.id)).map((item) => [item.id, item]),
         ),
@@ -486,10 +515,12 @@ class HistoryObservation {
       };
       this.historyWindows.delete(key);
       this.historyWindows.set(key, window);
-      project.model.replace(
-        mergeHistory(
-          observed,
-          latestTurn
+      this.publishHistory(
+        project,
+        window,
+        mergeHistory(observed, [
+          ...retained,
+          ...(latestTurn
             ? prefix.map((item) => ({
                 sourceTurnId: latestTurn.id,
                 sourceItemId: item.id,
@@ -497,10 +528,9 @@ class HistoryObservation {
                 turn: latestTurn,
                 item,
               }))
-            : [],
-        ),
+            : []),
+        ]),
       );
-      this.publishHistory(project, window);
       if (window.views.size && !previous?.invalidated)
         void this.hydrateLatest(project, window).catch(() => {});
     }
@@ -602,6 +632,7 @@ class HistoryObservation {
           let thread = mergeHistory(reconciled, page.data);
           window.latestTurn.complete =
             page.complete || page.data.some((entry) => entry.sourceTurnId !== window.latestTurn.id);
+          if (window.latestTurn.complete) window.displayed = undefined;
           window.baselineCursor = window.nextCursor = page.nextCursor;
           window.baselineComplete = window.complete = page.complete;
           if (window.latestTurn.complete && window.preservedLatestItems.size) {
@@ -624,6 +655,8 @@ class HistoryObservation {
           this.publishHistory(project, window);
         }
       } catch (error) {
+        // 补全失败时公开真实边界，让恢复提示与重试入口出现。
+        window.displayed = undefined;
         if (current() && historyReason(error) === "HISTORY_CURSOR_STALE") {
           window.invalidated = true;
           window.epoch++;
@@ -707,6 +740,7 @@ class HistoryObservation {
         window.loading.clear();
         window.olderRead = null;
         window.latestTurn.read = null;
+        window.displayed = undefined;
         window.nextCursor = window.baselineCursor;
         window.complete = window.baselineComplete;
         window.omitted = false;

@@ -286,7 +286,10 @@ test('refresh preserves the shown latest prefix until authoritative hydration re
   await f.backend.openThread(f.project, 'thread');
   assert.equal(ids(f).includes('prompt'), true, 'context refresh does not hide the known prompt');
   await new Promise(resolve => setImmediate(resolve));
-  assert.equal(f.project.model.state.threads.thread.displayHistory.loadingLatest, true);
+  // 已补全的视图在重新观察时仍显示原内容：权威补全在后台进行，不在已显示的对话上方再出现恢复提示。
+  assert.equal(typeof resolvePage, 'function', 'authoritative hydration is still requested');
+  assert.equal(f.project.model.state.threads.thread.displayHistory.loadingLatest, false);
+  assert.equal(f.project.model.state.threads.thread.displayHistory.latestTurnComplete, true);
   resolvePage(page([entry('t1', item('spill')), entry('t2', { id: 'huge', type: 'historyDeferred', originalType: 'agentMessage' }), entry('t2', { id: 'prompt', type: 'historyDeferred', originalType: 'userMessage' })], 'old'));
   await f.history('acquire');
   const restored = f.project.model.state.threads.thread.turns.at(-1).items;
