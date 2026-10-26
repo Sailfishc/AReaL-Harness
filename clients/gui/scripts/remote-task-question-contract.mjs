@@ -29,6 +29,7 @@ async function fixture(name) {
   project.model.connection(true);
   const task = {
     id: "task",
+    revision: 1,
     paused: false,
     cancelled: false,
     runs: [{ id: "run", status: "running" }],
