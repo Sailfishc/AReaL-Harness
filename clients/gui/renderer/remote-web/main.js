@@ -1,12 +1,15 @@
 import { createRemoteWorkbench } from "../src/remote/RemoteWorkbench.tsx";
-import { SessionBodyReader } from "./session-bodies.mjs";
+import {
+  SessionBodyReader,
+  CommandState,
+  acceptSessionMessage,
+  RemoteConnection,
+} from "@areal/remote-client";
 const sessionBodies = new SessionBodyReader();
-import { createRemoteWire, remoteLocator, publicLocator } from "../../packages/remote/src/wire.mjs";
+import { remoteLocator, publicLocator } from "@areal/remote/wire";
 import { ResultReviewView } from "./result-review.mjs";
 import { BrowserState } from "./browser-state.mjs";
-import { CommandState } from "./command-state.mjs";
-import { acceptSessionMessage } from "./session-state.mjs";
-import { createIdentity, identityId, secureChannel } from "../../packages/remote/src/channel.mjs";
+import { createIdentity, identityId } from "@areal/remote";
 
 const status = document.getElementById("status");
 const device = document.getElementById("device");
@@ -461,19 +464,10 @@ async function connectHost(automatic = false) {
   const target = { host: expectedHost, room: relayRoom, invite: inviteSecret, error: locatorError };
   let token = browserState.current(),
     socket,
-    wire,
-    deadline;
+    connection;
   const current = () => attempt === connectionAttempt && browserState.current() === token;
   const check = () => {
     if (!current()) throw new Error("此连接尝试已失效");
-  };
-  const pending = new Map();
-  const rejectPending = () => {
-    for (const value of pending.values()) {
-      clearTimeout(value.timer);
-      value.reject(new Error("Host 已断开，原提交需核对"));
-    }
-    pending.clear();
   };
   try {
     token ??= await browserState.guest();
@@ -496,57 +490,40 @@ async function connectHost(automatic = false) {
       `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/remote/socket`,
     );
     activeSocket = socket;
-    rejectActive = rejectPending;
-    const transport = createRemoteWire(socket, { room: target.room });
-    wire = transport.wire;
-    socket.onclose = () => {
-      clearTimeout(deadline);
-      wire?.close();
-      rejectPending();
-      if (activeSocket === socket && current())
-        stopConnection("Host 已断开；任务状态未知，恢复后只核对原命令", true);
-    };
-    deadline = setTimeout(() => socket.close(), 15000);
-    await transport.ready;
-    check();
-    const secure = await secureChannel(wire, token.identity, target.host, {
-      maxMessageBytes: 256 * 1024,
-      maxBufferedBytes: 2 * 1024 * 1024,
+    connection = new RemoteConnection({
+      socket,
+      identity: token.identity,
+      host: target.host,
+      room: target.room,
+      hello: { displayName: "Web browser", ...(target.invite ? { inviteSecret: target.invite } : {}) },
+      isCurrent: () => activeSocket === socket && current(),
+      onClose: () => {
+        if (activeSocket === socket && current())
+          stopConnection("Host 已断开；任务状态未知，恢复后只核对原命令", true);
+      },
     });
-    check();
-    secure.send({
-      method: "hello",
-      apiVersion: "areal.remote.v2",
-      clientVersion: "0.1.0",
-      displayName: "Web browser",
-      ...(target.invite ? { inviteSecret: target.invite } : {}),
+    rejectActive = () => connection.rejectPending();
+    connectionIdentity = await connection.connect({
+      onHandshake: (event) => {
+        if (event === "hello") {
+          inviteSecret = null;
+          return;
+        }
+        status.textContent = "等待桌面确认；请核对设备指纹并选择项目";
+        connectionPhase("pairing");
+      },
+      onReady: async () => {
+        if (
+          token.mode === "remembering" ||
+          (token.mode === "remembered" && token.relayRoom !== target.room)
+        )
+          token = await browserState.remember(token, target.host, target.room);
+        check();
+        await browserState.revalidate(token);
+        check();
+      },
+      onSession: sessionEvent,
     });
-    inviteSecret = null;
-    const messages = secure.messages();
-    let first = await messages.next();
-    check();
-    if (first.value?.event === "pairing") {
-      // 人工确认由 Host 的邀请期限约束，不沿用传输握手期限。
-      clearTimeout(deadline);
-      status.textContent = "等待桌面确认；请核对设备指纹并选择项目";
-      connectionPhase("pairing");
-      first = await messages.next();
-      check();
-    }
-    if (first.done || first.value?.error)
-      throw Object.assign(new Error(first.value?.error?.message ?? "连接失败"), first.value?.error);
-    if (first.value?.event !== "ready" || first.value.hostId !== target.host)
-      throw Object.assign(new Error("Host 身份不匹配"), { code: "HOST_MISMATCH" });
-    if (
-      token.mode === "remembering" ||
-      (token.mode === "remembered" && token.relayRoom !== target.room)
-    )
-      token = await browserState.remember(token, target.host, target.room);
-    check();
-    await browserState.revalidate(token);
-    check();
-    clearTimeout(deadline);
-    connectionIdentity = first.value;
     const connected = connectionIdentity;
     host.textContent = connected.hostId;
     status.textContent = `已连接电脑 · ${connected.capabilities.includes("submit") ? "可操作" : "仅查看"}`;
@@ -556,62 +533,13 @@ async function connectHost(automatic = false) {
     connecting = false;
     reconnectAttempt = 0;
     renderDeviceStorage();
-    let sequence = 0;
-    const call = (request = (envelope, onResult) =>
-      new Promise((resolve, reject) => {
-        if (!current() || activeSocket !== socket || connectionIdentity !== connected)
-          return reject(
-            Object.assign(new Error("连接已失效，请重新读取状态"), { code: "RESYNC_REQUIRED" }),
-          );
-        const id = String(++sequence);
-        const timer = setTimeout(() => {
-          pending.delete(id);
-          if (envelope.method === "session.open") socket.close();
-          reject(new Error("读取超时，请刷新或核对原命令"));
-        }, 15000);
-        pending.set(id, { resolve, reject, timer, onResult });
-        try {
-          secure.send({ id, ...envelope });
-        } catch (error) {
-          clearTimeout(timer);
-          pending.delete(id);
-          reject(error);
-        }
-      }));
-    void (async () => {
-      try {
-        for await (const message of messages) {
-          if (activeSocket !== socket || !current()) continue;
-          if (message.event?.startsWith("session.")) {
-            sessionEvent(message);
-            continue;
-          }
-          const handler = pending.get(message.id);
-          if (!handler) continue;
-          pending.delete(message.id);
-          clearTimeout(handler.timer);
-          if (message.error) {
-            handler.reject(Object.assign(new Error(message.error.message), message.error));
-            if (message.error.code === "GRANT_CHANGED") socket.close();
-          } else {
-            try {
-              handler.onResult?.(message.result);
-              handler.resolve(message.result);
-            } catch (error) {
-              handler.reject(error);
-            }
-          }
-        }
-      } finally {
-        rejectPending();
-      }
-    })().catch(() => socket.close());
+    const call = (request = (envelope, onResult) => connection.request(envelope, onResult));
     await loadProjects(call);
     check();
     if (attentionTarget?.projectId === selectedProject) void readAttention();
     void recoverCommands();
   } catch (error) {
-    rejectPending();
+    connection?.rejectPending();
     if (attempt !== connectionAttempt) {
       socket?.close();
       return;
@@ -633,8 +561,6 @@ async function connectHost(automatic = false) {
     if (token?.mode === "remembering")
       storageError.textContent =
         "设备尚未记住；请检查本站存储后重新连接，或清除此页面身份改用仅本次使用。";
-  } finally {
-    clearTimeout(deadline);
   }
 }
 connect.addEventListener("click", () => connectHost());

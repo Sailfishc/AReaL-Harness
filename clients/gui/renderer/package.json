@@ -52,7 +52,8 @@
     "tailwind-merge": "3.7.0",
     "zod": "4.6.6",
     "@areal/gen-ui": "workspace:*",
-    "@areal/ui": "workspace:*"
+    "@areal/ui": "workspace:*",
+    "@areal/remote-client": "workspace:*"
   },
   "devDependencies": {
     "@formatjs/icu-messageformat-parser": "3.5.22",

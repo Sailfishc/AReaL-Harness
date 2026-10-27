@@ -7,9 +7,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { createContext, runInContext } from "node:vm";
 import { BrowserState } from "../renderer/remote-web/browser-state.mjs";
-import { SessionBodyReader } from "../renderer/remote-web/session-bodies.mjs";
-import { CommandState } from "../renderer/remote-web/command-state.mjs";
-import { acceptSessionMessage } from "../renderer/remote-web/session-state.mjs";
+import { SessionBodyReader, CommandState, acceptSessionMessage } from "@areal/remote-client";
 import { CoreClient } from "../packages/runtime-client/core.js";
 import * as remoteWire from "../packages/remote/src/wire.mjs";
 import * as crypto from "../packages/remote/src/channel.mjs";
@@ -230,7 +228,17 @@ async function pauseReachability(ready, request, expected) {
     actualReady: ready,
     actualRequest: request,
   });
+  const connectionSource = await readFile(
+    new URL("../packages/remote-client/src/connection.mjs", import.meta.url),
+    "utf8",
+  );
   const source = await readFile(new URL("../renderer/remote-web/main.js", import.meta.url), "utf8");
+  runInContext(
+    connectionSource
+      .replace(/^import[\s\S]*?;\n/gm, "")
+      .replace("export class RemoteConnection", "class RemoteConnection"),
+    context,
+  );
   runInContext(source.replace(/^import[\s\S]*?;\n/gm, ""), context);
   await runInContext("browserLoading", context);
   await runInContext(

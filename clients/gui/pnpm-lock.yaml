@@ -41,6 +41,9 @@ importers:
 
   .:
     devDependencies:
+      '@areal/remote-client':
+        specifier: workspace:*
+        version: link:packages/remote-client
       '@axe-core/playwright':
         specifier: 4.14.0
         version: 4.14.0(playwright-core@1.59.1)
@@ -235,6 +238,12 @@ importers:
         specifier: 3.2.4
         version: 3.2.4
 
+  packages/remote-client:
+    dependencies:
+      '@areal/remote':
+        specifier: workspace:*
+        version: link:../remote
+
   packages/runtime-client: {}
 
   packages/ui:
@@ -303,6 +312,9 @@ importers:
 
   renderer:
     dependencies:
+      '@areal/remote-client':
+        specifier: workspace:*
+        version: link:../packages/remote-client
       '@areal/gen-ui':
         specifier: workspace:*
         version: link:../packages/gen-ui

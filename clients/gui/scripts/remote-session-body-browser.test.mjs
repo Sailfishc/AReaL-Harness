@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { SessionBodyReader } from "../renderer/remote-web/session-bodies.mjs";
+import { SessionBodyReader } from "@areal/remote-client";
 const detail = {
   projectId: "p",
   connectionId: "c",

@@ -1,13 +1,15 @@
-import { SessionBodyReader } from '../renderer/remote-web/session-bodies.mjs';
+import { SessionBodyReader, CommandState, acceptSessionMessage } from "@areal/remote-client";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { readFile } from "node:fs/promises";
 import { createContext, runInContext } from "node:vm";
 import { IDBFactory } from "fake-indexeddb";
 import { BrowserState } from "../renderer/remote-web/browser-state.mjs";
-import { CommandState } from "../renderer/remote-web/command-state.mjs";
-import { acceptSessionMessage } from "../renderer/remote-web/session-state.mjs";
 
+const connectionSource = await readFile(
+  new URL("../packages/remote-client/src/connection.mjs", import.meta.url),
+  "utf8",
+);
 const source = await readFile(new URL("../renderer/remote-web/main.js", import.meta.url), "utf8");
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 async function until(check) {
@@ -297,6 +299,12 @@ function page({
       intervals.delete(timer);
     },
   });
+  runInContext(
+    connectionSource
+      .replace(/^import[\s\S]*?;\n/gm, "")
+      .replace("export class RemoteConnection", "class RemoteConnection"),
+    context,
+  );
   runInContext(source.replace(/^import[\s\S]*?;\n/gm, ""), context);
   return {
     db,

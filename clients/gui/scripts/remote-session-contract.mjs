@@ -1,8 +1,6 @@
-import { SessionBodyReader } from '../renderer/remote-web/session-bodies.mjs';
+import { SessionBodyReader, CommandState, acceptSessionMessage } from "@areal/remote-client";
 import assert from "node:assert/strict";
 import { BrowserState } from "../renderer/remote-web/browser-state.mjs";
-import { CommandState } from "../renderer/remote-web/command-state.mjs";
-import { acceptSessionMessage } from "../renderer/remote-web/session-state.mjs";
 const baseline = {
   connectionId: "c",
   gatewayGeneration: "g",
@@ -241,7 +239,17 @@ const context = createContext({
     new URLSearchParams(Object.entries(locator).filter(([, value]) => value)).toString(),
   secureChannel: async () => transport(),
 });
+const connectionSource = await readFile(
+  new URL("../packages/remote-client/src/connection.mjs", import.meta.url),
+  "utf8",
+);
 const source = await readFile(new URL("../renderer/remote-web/main.js", import.meta.url), "utf8");
+runInContext(
+  connectionSource
+    .replace(/^import[\s\S]*?;\n/gm, "")
+    .replace("export class RemoteConnection", "class RemoteConnection"),
+  context,
+);
 runInContext(source.replace(/^import[\s\S]*?;\n/gm, ""), context);
 await element("connect").click();
 const flush = async () => {
