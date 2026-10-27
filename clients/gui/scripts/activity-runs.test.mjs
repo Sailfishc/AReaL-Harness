@@ -29,6 +29,26 @@ const tool = (id, name, extra = {}) => ({
 });
 const shape = (runs) => runs.map((run) => [run.key, run.items.map((item) => item.id)]);
 
+const { cases } = JSON.parse(
+  await readFile(new URL("../renderer/src/activity-runs.cases.json", import.meta.url), "utf8"),
+);
+
+for (const entry of cases)
+  test(`CONV-ACTIVITY-01 行为表：${entry.name}`, () => {
+    const rows = entry.tools.map(([id, name, args = {}, extra = {}]) =>
+      tool(id, name, { arguments: args, ...extra }),
+    );
+    const runs = activityRuns(rows);
+    assert.deepEqual(
+      runs.map((run) => run.items.map((item) => item.id)),
+      entry.runs.map((run) => run.items),
+    );
+    assert.deepEqual(
+      runs.map((run) => activityRunLabel(run)),
+      entry.runs.map((run) => run.label),
+    );
+  });
+
 test("contiguous same-stage tools merge; a different stage starts a new run", () => {
   const rows = [
     tool("c1", "run_command"),

@@ -862,10 +862,10 @@ try {
             (await readingGroup.innerText()).includes("运行命令"),
             "the execution disclosure describes its activities",
           );
-          assert.equal(
+          assert.match(
             await readingGroup.innerText(),
-            "正在运行命令",
-            "running run uses the progressive action label without tool detail or counts",
+            /^正在运行命令$/,
+            "running run uses the progressive stage label without tool detail or unfinished counts",
           );
         }
       }
@@ -1480,31 +1480,36 @@ try {
           sweep[0].position > sweep[2].position && sweep[2].position > sweep[3].position,
           "the oversized highlight background moves from a negative offset toward zero, sweeping left to right",
         );
-        const seamDifference = await page.evaluate(
-          async ({ first, last }) => {
-            const pixels = async (source) => {
-              const image = new Image();
-              image.src = `data:image/png;base64,${source}`;
-              await image.decode();
-              const canvas = document.createElement("canvas");
-              canvas.width = image.width;
-              canvas.height = image.height;
-              const context = canvas.getContext("2d");
-              context.drawImage(image, 0, 0);
-              return context.getImageData(0, 0, image.width, image.height).data;
-            };
-            const a = await pixels(first),
-              b = await pixels(last);
-            return a.reduce((sum, value, index) => sum + Math.abs(value - b[index]), 0) / a.length;
-          },
-          { first: frames[0], last: frames[6] },
-        );
-        // 背景定位的小数舍入可影响抗锯齿，允许每通道不足一个色阶的平均差异。
+        // 背景定位的小数舍入可影响抗锯齿，逐字节哈希不能稳定比较两帧；按平均像素差判断。
+        const frameDifference = (first, last) =>
+          page.evaluate(
+            async ({ first, last }) => {
+              const pixels = async (source) => {
+                const image = new Image();
+                image.src = `data:image/png;base64,${source}`;
+                await image.decode();
+                const canvas = document.createElement("canvas");
+                canvas.width = image.width;
+                canvas.height = image.height;
+                const context = canvas.getContext("2d");
+                context.drawImage(image, 0, 0);
+                return context.getImageData(0, 0, image.width, image.height).data;
+              };
+              const a = await pixels(first),
+                b = await pixels(last);
+              return (
+                a.reduce((sum, value, index) => sum + Math.abs(value - b[index]), 0) / a.length
+              );
+            },
+            { first, last },
+          );
+        // 允许每通道不足一个色阶的平均差异。
+        const seamDifference = await frameDifference(frames[0], frames[6]);
         assert.ok(seamDifference < 1, `waiting sweep has no visible seam: ${seamDifference}`);
-        assert.equal(
-          sweep[0].sha256,
-          sweep[7].sha256,
-          "waiting highlight repeats at the same phase",
+        const phaseDifference = await frameDifference(frames[0], frames[7]);
+        assert.ok(
+          phaseDifference < 1,
+          `waiting highlight repeats at the same phase: ${phaseDifference}`,
         );
         await motion.screenshot({
           path: join(scratch, `${theme}-chat-motion.png`),

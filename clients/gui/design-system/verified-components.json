@@ -1,0 +1,31 @@
+{
+  "$description": "已按“规则 + Token + 检查”迁移的组件。scripts/design-verified.mjs 对这里的每一项做确定性检查；迁移新组件时在这里登记，检查通过才算完成。enforces 列出由本检查保证的规则 ID（Token 与宿主不覆盖），规则正文的“检查：”指向本文件。",
+  "contractMaxLines": 80,
+  "components": [
+    {
+      "id": "activity-group",
+      "contract": "clients/gui/packages/ui/src/conversation/activity-group/activity-group.md",
+      "styles": ["clients/gui/packages/ui/src/conversation/activity-group/activity-group.css"],
+      "internalSelectors": [
+        ".areal-activity-group",
+        ".areal-activity-list",
+        ".areal-activity-status"
+      ],
+      "enforces": ["R-ACTIVITYGROUP-007"]
+    },
+    {
+      "id": "activity-row",
+      "contract": "clients/gui/packages/ui/src/conversation/activity-row/activity-row.md",
+      "styles": ["clients/gui/packages/ui/src/conversation/activity-row/activity-row.css"],
+      "internalSelectors": [".areal-activity-row"],
+      "enforces": ["R-ACTIVITYROW-003", "R-ACTIVITYROW-004"]
+    }
+  ],
+  "rules": [
+    {
+      "id": "CONV-ACTIVITY-01",
+      "behaviorTable": "clients/gui/renderer/src/activity-runs.cases.json"
+    }
+  ],
+  "hostStyles": ["clients/gui/renderer/src"]
+}

@@ -12,6 +12,7 @@ export async function runUiLibrary(page, scratch, checks) {
     [
       ["ActionButton", "stable", "index", "core"],
       ["ActivityGroup", "experimental", "experimental", "conversation"],
+      ["ActivityRow", "experimental", "experimental", "conversation"],
       ["AttachmentCard", "experimental", "experimental", "conversation"],
       ["Button", "stable", "index", "core"],
       ["Card", "experimental", "experimental", "core"],

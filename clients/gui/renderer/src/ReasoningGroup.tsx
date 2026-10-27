@@ -1,6 +1,5 @@
-import { Button } from "@areal/ui";
+import { ActivityRowButton, ActivityRowChevron } from "@areal/ui/experimental";
 import { useId, useState } from "react";
-import { ActivityIcon } from "./ActivityIcon.js";
 import type { Data } from "./services.js";
 
 /** Public reasoning stays available without repeating a row for every model step. */
@@ -9,10 +8,7 @@ export function ReasoningGroup({ items }: { items: Data[] }) {
   const id = useId();
   return (
     <div className="reasoning-group" data-testid="reasoning-group">
-      <Button
-        unstyled
-        data-slot={undefined}
-        type="button"
+      <ActivityRowButton
         className="tool-summary-row reasoning-summary"
         aria-label="思考过程"
         title={`思考过程 · ${items.length} 段`}
@@ -21,12 +17,8 @@ export function ReasoningGroup({ items }: { items: Data[] }) {
         onClick={() => setOpen(!open)}
       >
         <span>思考过程 · {items.length} 段</span>
-        <ActivityIcon
-          kind="chevron"
-          size={14}
-          className={open ? "tool-chevron open" : "tool-chevron"}
-        />
-      </Button>
+        <ActivityRowChevron open={open} />
+      </ActivityRowButton>
       <div id={id} className="reasoning-group-details reasoning-details" hidden={!open}>
         {items.map((item) => (
           <div

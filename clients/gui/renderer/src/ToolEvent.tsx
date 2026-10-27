@@ -2,7 +2,14 @@ import { useI18n } from "./i18n/IntlProvider.js";
 // Adapted from ZCode ToolSummaryRow / ToolLayout; Codex reference guides presentation.
 // Core owns all outcomes.
 import { useEffect, useId, useState } from "react";
-import { ImageDisclosure } from "@areal/ui/experimental";
+import {
+  ActivityRow,
+  ActivityRowButton,
+  ActivityRowChevron,
+  ActivityRowStatus,
+  ActivityRowText,
+  ImageDisclosure,
+} from "@areal/ui/experimental";
 import "@areal/ui/conversation.css";
 import { Collapsible } from "@base-ui/react/collapsible";
 import { AgentAvatar, agentName, agentTask, spawnedAgent } from "./AgentIdentity.js";
@@ -223,7 +230,7 @@ export function ToolEvent({
           ))}
         </div>
       ) : images.length && action && projectId && threadId ? (
-        <div className="tool-summary-row tool-image-row">
+        <ActivityRow className="tool-summary-row tool-image-row">
           <ImageDisclosure
             label={t("chat.tool.images", { count: images.length })}
             state="available"
@@ -251,16 +258,14 @@ export function ToolEvent({
             aria-controls={recordId}
             onClick={toggle}
           >
-            <ActivityIcon
-              kind="chevron"
-              size={14}
-              className={open ? "tool-chevron open" : "tool-chevron"}
-            />
+            <ActivityRowChevron open={open} />
           </Button>
-        </div>
+        </ActivityRow>
       ) : file ? (
-        <div className="tool-summary-row tool-file-row">
-          <ActivityIcon kind={readOnly ? "read" : "edit"} />
+        <ActivityRow
+          className="tool-summary-row tool-file-row"
+          icon={<ActivityIcon kind={readOnly ? "read" : "edit"} />}
+        >
           <span>{readOnly ? "已读取" : item.tool === "fs_create" ? "已创建" : "已编辑"}</span>
           <Button
             variant="ghost"
@@ -286,16 +291,12 @@ export function ToolEvent({
               >
                 +{current.file?.additions ?? 0} -{current.file?.deletions ?? 0}
               </span>
-              <ActivityIcon
-                kind="chevron"
-                size={14}
-                className={diffOpen ? "tool-chevron open" : "tool-chevron"}
-              />
+              <ActivityRowChevron open={diffOpen} />
             </Button>
           )}
           {current?.error && (
-            <span className="tool-result" title={current.error}>
-              本次改动无法验证
+            <span title={current.error}>
+              <ActivityRowStatus>本次改动无法验证</ActivityRowStatus>
             </span>
           )}
           <Button
@@ -307,48 +308,31 @@ export function ToolEvent({
             aria-controls={recordId}
             onClick={toggle}
           >
-            <ActivityIcon
-              kind="chevron"
-              size={14}
-              className={open ? "tool-chevron open" : "tool-chevron"}
-            />
+            <ActivityRowChevron open={open} />
           </Button>
-        </div>
+        </ActivityRow>
       ) : (
-        <Button
-          unstyled
-          data-slot={undefined}
+        <ActivityRowButton
           type="submit"
           className="tool-summary-row"
           aria-expanded={open}
           onClick={toggle}
           title={item.tool}
+          icon={<ActivityIcon kind={view.icon} />}
         >
-          <ActivityIcon kind={view.icon} />
-          <span className="tool-summary-text" data-running={view.running || undefined}>
-            <span>
-              {view.running ? "正在" : view.status === "已完成" || view.failed ? "已" : ""}
-              {view.label}
-            </span>
-            <span className="tool-summary-detail">{view.detail}</span>
-          </span>
-          <span
-            className={
-              view.failed
-                ? "tool-result tool-failed"
-                : view.status === "已完成" || view.running
-                  ? "sr-only"
-                  : "tool-result"
-            }
+          <ActivityRowText
+            action={`${view.running ? "正在" : view.status === "已完成" || view.failed ? "已" : ""}${view.label}`}
+            detail={view.detail}
+            running={view.running}
+          />
+          <ActivityRowStatus
+            tone={view.failed ? "failed" : undefined}
+            hidden={!view.failed && (view.status === "已完成" || view.running)}
           >
             {view.failed && view.exitCode != null ? `失败 · exit ${view.exitCode}` : view.status}
-          </span>
-          <ActivityIcon
-            kind="chevron"
-            size={14}
-            className={open ? "tool-chevron open" : "tool-chevron"}
-          />
-        </Button>
+          </ActivityRowStatus>
+          <ActivityRowChevron open={open} />
+        </ActivityRowButton>
       )}
       {eligibleResult && (
         <Button

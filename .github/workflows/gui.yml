@@ -225,6 +225,11 @@ jobs:
             gui-tasks-${{ runner.os }}-${{ runner.arch }}-${{ steps.tools.outputs.node }}-${{ hashFiles('clients/gui/pnpm-lock.yaml') }}-
       - name: Build desktop package entry points
         run: pnpm --dir clients/gui build:desktop
+      - name: Render design system previews and check them in Chrome
+        run: |
+          pnpm --dir clients/gui design:build
+          pnpm --dir clients/gui test:design 2>&1 | tee target/ci/gui/design-preview.log
+          pnpm --dir clients/gui test:design -- --conversation-system 2>&1 | tee -a target/ci/gui/design-preview.log
       - name: Record tool and cache fingerprints
         run: python3 scripts/ci-fingerprint.py > target/ci/gui/fingerprint.json
       - name: Verify native Core process lifecycle

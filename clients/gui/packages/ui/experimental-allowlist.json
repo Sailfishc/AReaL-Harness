@@ -66,6 +66,18 @@
     "exitCondition": "Evaluate FeedbackNotice against its component contract and Base admission before graduation, or remove this consumer."
   },
   {
+    "file": "renderer/src/ReasoningGroup.tsx",
+    "symbol": "ActivityRowButton",
+    "owner": "renderer/src/ReasoningGroup.tsx",
+    "exitCondition": "Evaluate ActivityRowButton against the ActivityRow contract and Base admission before graduation, or remove this consumer."
+  },
+  {
+    "file": "renderer/src/ReasoningGroup.tsx",
+    "symbol": "ActivityRowChevron",
+    "owner": "renderer/src/ReasoningGroup.tsx",
+    "exitCondition": "Evaluate ActivityRowChevron against the ActivityRow contract and Base admission before graduation, or remove this consumer."
+  },
+  {
     "file": "renderer/src/TaskCenter.tsx",
     "symbol": "ScheduledWorkspace",
     "owner": "renderer/src/TaskCenter.tsx",
@@ -82,6 +94,36 @@
     "symbol": "NotificationToast",
     "owner": "renderer/src/ToastHost.tsx",
     "exitCondition": "Evaluate NotificationToast against its component contract and Base admission before graduation, or remove this consumer."
+  },
+  {
+    "file": "renderer/src/ToolEvent.tsx",
+    "symbol": "ActivityRow",
+    "owner": "renderer/src/ToolEvent.tsx",
+    "exitCondition": "Evaluate ActivityRow against the ActivityRow contract and Base admission before graduation, or remove this consumer."
+  },
+  {
+    "file": "renderer/src/ToolEvent.tsx",
+    "symbol": "ActivityRowButton",
+    "owner": "renderer/src/ToolEvent.tsx",
+    "exitCondition": "Evaluate ActivityRowButton against the ActivityRow contract and Base admission before graduation, or remove this consumer."
+  },
+  {
+    "file": "renderer/src/ToolEvent.tsx",
+    "symbol": "ActivityRowChevron",
+    "owner": "renderer/src/ToolEvent.tsx",
+    "exitCondition": "Evaluate ActivityRowChevron against the ActivityRow contract and Base admission before graduation, or remove this consumer."
+  },
+  {
+    "file": "renderer/src/ToolEvent.tsx",
+    "symbol": "ActivityRowStatus",
+    "owner": "renderer/src/ToolEvent.tsx",
+    "exitCondition": "Evaluate ActivityRowStatus against the ActivityRow contract and Base admission before graduation, or remove this consumer."
+  },
+  {
+    "file": "renderer/src/ToolEvent.tsx",
+    "symbol": "ActivityRowText",
+    "owner": "renderer/src/ToolEvent.tsx",
+    "exitCondition": "Evaluate ActivityRowText against the ActivityRow contract and Base admission before graduation, or remove this consumer."
   },
   {
     "file": "renderer/src/ToolEvent.tsx",

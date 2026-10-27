@@ -1,0 +1,279 @@
+{
+  "$description": "CONV-ACTIVITY-01 的唯一行为表：scripts/activity-runs.test.mjs 逐条执行，Messages.md 的示例表由 scripts/design-generated.mjs 从这里生成。tools 每项为 [id, 工具名, 参数?, 额外字段?]；runs 为期望的分段与标题。",
+  "cases": [
+    {
+      "name": "连续读取、搜索、列目录按探索阶段分组，标题计已完成子项",
+      "tools": [
+        [
+          "r1",
+          "fs_read",
+          {
+            "path": "README.md"
+          }
+        ],
+        [
+          "r2",
+          "read_file",
+          {
+            "path": "src/app.ts"
+          }
+        ],
+        [
+          "r3",
+          "fs_read",
+          {
+            "path": "README.md"
+          }
+        ],
+        [
+          "l1",
+          "fs_list",
+          {
+            "path": "src"
+          }
+        ],
+        [
+          "s1",
+          "search_files",
+          {
+            "pattern": "ActivityGroup"
+          }
+        ]
+      ],
+      "runs": [
+        {
+          "items": ["r1", "r2", "r3", "l1", "s1"],
+          "label": "已探索 · 3 个文件，1 次搜索，1 个目录"
+        }
+      ]
+    },
+    {
+      "name": "探索计数按文件、搜索、目录的固定顺序排列",
+      "tools": [
+        [
+          "s1",
+          "search_files",
+          {
+            "pattern": "schedule"
+          }
+        ],
+        [
+          "l1",
+          "fs_list",
+          {
+            "path": "a"
+          }
+        ],
+        [
+          "l2",
+          "fs_list",
+          {
+            "path": "b"
+          }
+        ],
+        [
+          "l3",
+          "fs_list",
+          {
+            "path": "c"
+          }
+        ]
+      ],
+      "runs": [
+        {
+          "items": ["s1", "l1", "l2", "l3"],
+          "label": "已探索 · 1 次搜索，3 个目录"
+        }
+      ]
+    },
+    {
+      "name": "连续命令合成一段并带条数，不同动作另起一段",
+      "tools": [
+        [
+          "c1",
+          "run_command",
+          {
+            "command": "git status"
+          }
+        ],
+        [
+          "c2",
+          "run_command",
+          {
+            "command": "pnpm test"
+          }
+        ],
+        [
+          "r1",
+          "fs_read",
+          {
+            "path": "a.ts"
+          }
+        ],
+        [
+          "r2",
+          "fs_read",
+          {
+            "path": "b.ts"
+          }
+        ],
+        [
+          "c3",
+          "run_command",
+          {
+            "command": "git diff"
+          }
+        ]
+      ],
+      "runs": [
+        {
+          "items": ["c1", "c2"],
+          "label": "已运行 2 条命令"
+        },
+        {
+          "items": ["r1", "r2"],
+          "label": "已探索 · 2 个文件"
+        },
+        {
+          "items": ["c3"],
+          "label": "已运行 1 条命令"
+        }
+      ]
+    },
+    {
+      "name": "段内仍有运行中的命令时用进行时并省略完成计数",
+      "tools": [
+        [
+          "c1",
+          "run_command",
+          {
+            "command": "git status"
+          }
+        ],
+        [
+          "c2",
+          "run_command",
+          {
+            "command": "pnpm build"
+          },
+          {
+            "status": "inProgress",
+            "success": null
+          }
+        ]
+      ],
+      "runs": [
+        {
+          "items": ["c1", "c2"],
+          "label": "正在运行命令"
+        }
+      ]
+    },
+    {
+      "name": "编辑按文件去重计数",
+      "tools": [
+        [
+          "e1",
+          "fs_apply_patch",
+          {
+            "path": "a.ts"
+          }
+        ],
+        [
+          "e2",
+          "fs_write",
+          {
+            "path": "a.ts"
+          }
+        ],
+        [
+          "e3",
+          "fs_write",
+          {
+            "path": "b.ts"
+          }
+        ]
+      ],
+      "runs": [
+        {
+          "items": ["e1", "e2", "e3"],
+          "label": "已修改 2 个文件"
+        }
+      ]
+    },
+    {
+      "name": "未分类工具只与同名工具合并，标题保留真实工具名",
+      "tools": [
+        ["x1", "lookup_ticket"],
+        ["x2", "lookup_ticket"],
+        ["y1", "post_comment"]
+      ],
+      "runs": [
+        {
+          "items": ["x1", "x2"],
+          "label": "已调用 lookup_ticket · 2 次"
+        },
+        {
+          "items": ["y1"],
+          "label": "已调用 post_comment"
+        }
+      ]
+    },
+    {
+      "name": "技能读取与文件读取属于同一探索阶段",
+      "tools": [
+        [
+          "k1",
+          "skill_read",
+          {
+            "path": "SKILL.md"
+          }
+        ],
+        [
+          "r1",
+          "fs_read",
+          {
+            "path": "a.ts"
+          }
+        ]
+      ],
+      "runs": [
+        {
+          "items": ["k1", "r1"],
+          "label": "已探索 · 1 个文件，1 个技能"
+        }
+      ]
+    },
+    {
+      "name": "失败命令留在原阶段，标题只计成功项并写出失败数",
+      "tools": [
+        [
+          "c1",
+          "run_command",
+          {
+            "command": "git status"
+          }
+        ],
+        [
+          "c2",
+          "run_command",
+          {
+            "command": "pnpm test"
+          },
+          {
+            "success": false,
+            "execution": {
+              "exitCode": 1
+            }
+          }
+        ]
+      ],
+      "runs": [
+        {
+          "items": ["c1", "c2"],
+          "label": "已运行 1 条命令 · 1 个失败"
+        }
+      ]
+    }
+  ]
+}

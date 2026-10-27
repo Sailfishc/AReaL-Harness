@@ -1,0 +1,82 @@
+/* 一行对话文字高；所有尺寸来自 Token（activity-*、text-conversation、conversation-line），宿主不改内部样式。 */
+.areal-activity-row {
+  display: flex;
+  align-items: center;
+  gap: var(--activity-icon-gap);
+  max-width: 100%;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  font-size: var(--text-conversation);
+  line-height: var(--conversation-line);
+  color: var(--activity-foreground, var(--color-foreground-subtle));
+}
+.areal-activity-row:is(:hover, :focus-within) {
+  color: var(--color-foreground);
+}
+.areal-activity-row > svg[data-activity-icon] {
+  flex: none;
+  width: var(--activity-icon-size);
+  height: var(--activity-icon-size);
+}
+.areal-activity-row-text {
+  display: flex;
+  gap: var(--activity-icon-gap);
+  min-width: 0;
+  overflow: hidden;
+}
+.areal-activity-row-action {
+  flex: none;
+  white-space: nowrap;
+}
+.areal-activity-row-detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: inherit;
+}
+.areal-activity-row-status {
+  flex: none;
+  white-space: nowrap;
+  font-size: var(--text-ui-caption);
+  color: var(--color-foreground-subtle);
+}
+.areal-activity-row-status[data-tone="failed"] {
+  color: var(--color-status-error);
+}
+.areal-activity-row-status[data-visually-hidden] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.areal-activity-row-chevron {
+  display: inline-flex;
+  flex: none;
+  opacity: 0;
+  transition: transform var(--motion-slow) var(--ease-standard);
+}
+.areal-activity-row-chevron > svg {
+  width: var(--activity-chevron-size);
+  height: var(--activity-chevron-size);
+}
+.areal-activity-row:is(:hover, :focus-within) .areal-activity-row-chevron,
+:focus-visible > .areal-activity-row-chevron,
+.areal-activity-row-chevron[data-open] {
+  opacity: 1;
+}
+.areal-activity-row-chevron[data-open] {
+  transform: rotate(90deg);
+}
+.areal-activity-row > .areal-image-disclosure {
+  flex: 1;
+  min-width: 0;
+}
