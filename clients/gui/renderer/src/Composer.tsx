@@ -1,3 +1,4 @@
+import { setPendingMessage, usePendingMessage } from "./pendingMessage.js";
 import type { Attachment } from "@areal/workbench/desktop-contract/conversation";
 import { Input } from "@areal/ui";
 import { ComposerActionButton } from "@areal/ui/experimental";
@@ -194,6 +195,7 @@ export function Composer({
     api.current?.focus();
   };
   const busy = useSyncExternalStore(subscribeSending, () => sending.has(key));
+  const outgoing = usePendingMessage(key);
   const [configurationRequestId, setConfigurationRequestId] = useState<string | null>(null);
   const configuring = configurationRequestId !== null;
   const [files, setFiles] = useState<ComposerDraftAttachment[]>(
@@ -481,6 +483,16 @@ export function Composer({
         !matchMedia("(max-width: 640px)").matches,
       appEntries.map((entry) => entry.value),
     );
+    if (!sideCommand && !creatingGoal)
+      setPendingMessage(key, {
+        text: submittedInput.text,
+        files: submittedInput.files,
+        previousUserIds: (thread.turns ?? []).flatMap((turn: Data) =>
+          (turn.items ?? [])
+            .filter((item: Data) => item.type === "userMessage")
+            .map((item: Data) => item.id),
+        ),
+      });
     try {
       if (sideCommand && onSide) {
         await onSide(sideCommand.text);
@@ -549,6 +561,7 @@ export function Composer({
         composerDraftStorage.setItem(`${key}:pending`, error.requestId);
       }
     } finally {
+      setPendingMessage(key);
       markSending(key, false);
     }
   };
@@ -965,7 +978,8 @@ export function Composer({
           onFileDrop={(files) => setFiles((current) => [...current, ...files])}
           onWorkspaceReferencePendingChange={setWorkspaceReferencePending}
           taskId={thread.id}
-          initialValue={text}
+          key={outgoing ? "sending" : "editing"}
+          initialValue={outgoing ? "" : text}
           inputApiRef={api}
           inputTestId={inputTestId}
           submitTestId={submitTestId}
@@ -1034,6 +1048,7 @@ export function Composer({
             })),
           }}
           onChange={(value) => {
+            if (outgoing) return;
             setText(value);
             composerDraftStorage.setItem(key, value);
             composerDraftStorage.setItem(
@@ -1060,7 +1075,7 @@ export function Composer({
             composerPaste(event, (pasted) => setFiles((current) => [...current, ...pasted]))
           }
           topContent={
-            <>
+            <div hidden={!!outgoing}>
               {queueEditor.edit && (
                 <div className="composer-queue-edit-banner" aria-label="编辑排队消息">
                   <span>
@@ -1194,7 +1209,7 @@ export function Composer({
                   />
                 )}
               </div>
-            </>
+            </div>
           }
           promptHistory={(thread.turns ?? []).flatMap((t: Data) =>
             (t.items ?? [])

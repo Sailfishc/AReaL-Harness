@@ -1,3 +1,4 @@
+import { PendingMessageView, setPendingMessage, usePendingMessage } from "./pendingMessage.js";
 import { Input } from "@areal/ui";
 import { validateWorkspaceFileReference } from "./lib/workspaceFileComposer.js";
 import {
@@ -236,6 +237,7 @@ export function DraftComposer({
   const [cancellingCreation, setCancellingCreation] = useState(false);
   const [sourceRetry, setSourceRetry] = useState<string>();
   const busy = useSyncExternalStore(subscribeSending, () => sending.has(key));
+  const outgoing = usePendingMessage(key);
   const editLocked = busy || !!unknown || !!reviewDraft.error;
   const executionReady = backendReady && !!project.state?.connected;
   const modelReady = executionReady || (backendReady && !!prepareProject && modelCatalogReady);
@@ -430,6 +432,13 @@ export function DraftComposer({
     )
       return;
     markSending(key, true);
+    if (!goalMode && selection?.mode !== "worktree")
+      setPendingMessage(key, {
+        text: submittedInput.text,
+        files: submittedInput.files,
+        previousUserIds: [],
+        starting: true,
+      });
     setDraftError("");
     let targetKey: string | undefined;
     let creationAttempted = false;
@@ -523,6 +532,12 @@ export function DraftComposer({
       transferComposerPlugins(key, targetKey);
       if (goalMode) localStorage.setItem(`${targetKey}:goal`, "true");
       markSending(targetKey, true);
+      if (!goalMode)
+        setPendingMessage(targetKey, {
+          text: submittedInput.text,
+          files: submittedInput.files,
+          previousUserIds: [],
+        });
       clear();
       // Show the accepted task immediately, including while the first model request waits.
       if (mounted.current) void onOpen(owner.id, result.threadId);
@@ -587,7 +602,11 @@ export function DraftComposer({
         }
       }
     } finally {
-      if (targetKey) markSending(targetKey, false);
+      setPendingMessage(key);
+      if (targetKey) {
+        setPendingMessage(targetKey);
+        markSending(targetKey, false);
+      }
       markSending(key, false);
       if (targetKey)
         setActiveCreation((previous) =>
@@ -648,6 +667,11 @@ export function DraftComposer({
     );
   return (
     <div className="composer-dock" data-v4-composer-dock="true">
+      {outgoing && (
+        <div className="draft-message-preview">
+          <PendingMessageView message={outgoing} />
+        </div>
+      )}
       {activeCreation?.worktree && (busy || creationStatus) && (
         <div className="worktree-creation-preview" data-testid="worktree-creation-progress">
           <div className="user-message">
@@ -769,7 +793,7 @@ export function DraftComposer({
       <div className="composer-input-stack">
         <div ref={setMenuAnchor} className="composer-menu-anchor" />
         <ChatPromptEditor
-          key={activeCreation?.worktree && busy ? "worktree-waiting" : "draft"}
+          key={outgoing || (activeCreation?.worktree && busy) ? "waiting" : "draft"}
           surfaceLayout={surfaceLayout}
           triggerPanelContainer={menuAnchor}
           shellClassName="@container/composer"
@@ -782,7 +806,7 @@ export function DraftComposer({
           onFileDrop={(files) => setFiles((current) => [...current, ...files])}
           onWorkspaceReferencePendingChange={setWorkspaceReferencePending}
           taskId={null}
-          initialValue={activeCreation?.worktree && busy ? "" : text}
+          initialValue={outgoing || (activeCreation?.worktree && busy) ? "" : text}
           inputApiRef={api}
           inputTestId="chat-input"
           submitTestId="chat-send-button"
@@ -905,7 +929,7 @@ export function DraftComposer({
             ],
           }}
           onChange={(value) => {
-            if (activeCreation?.worktree && busy) return;
+            if (outgoing || (activeCreation?.worktree && busy)) return;
             setText(value);
             localStorage.setItem(key, value);
           }}
@@ -918,7 +942,7 @@ export function DraftComposer({
               composerPaste(event, (pasted) => setFiles((current) => [...current, ...pasted]));
           }}
           topContent={
-            <>
+            <div hidden={!!outgoing}>
               {skills.tags}
               <div className="composer-attachment-row">
                 {files.length ? (
@@ -963,7 +987,7 @@ export function DraftComposer({
                   onRemove={() => detachReviewComments(reviewKey)}
                 />
               </div>
-            </>
+            </div>
           }
           leadingActions={
             <>

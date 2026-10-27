@@ -1,3 +1,4 @@
+import { PendingMessageView, usePendingMessage } from "./pendingMessage.js";
 import type {
   ConversationSelectionReference,
   ConversationSelectionContentType,
@@ -281,6 +282,15 @@ export function Messages({
   readTurnReview: (turnId: string, itemId?: string) => Promise<Data>;
 }) {
   const { t } = useI18n();
+  const outgoing = usePendingMessage(`areal-gui:draft:${project.id}:${localThread.id}`);
+  const outgoingVisible =
+    !readOnly &&
+    outgoing &&
+    !(localThread.turns ?? []).some((turn: Data) =>
+      (turn.items ?? []).some(
+        (item: Data) => item.type === "userMessage" && !outgoing.previousUserIds.includes(item.id),
+      ),
+    );
   hydrateReadingViews();
   const inherited = useForkHistory(project.id, localThread, action);
   const history = useConversationHistory(project.id, localThread, action);
@@ -1660,6 +1670,7 @@ export function Messages({
               </section>
             );
           })}
+          {outgoingVisible && <PendingMessageView message={outgoing} />}
           {afterTurns}
         </div>
         {!embedded && (
