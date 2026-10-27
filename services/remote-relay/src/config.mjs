@@ -17,6 +17,26 @@ export function readConfig(file) {
   if (!Array.isArray(input.allowedClientOrigins) || !input.allowedClientOrigins.length || input.allowedClientOrigins.some(value => {
     try { const u = new URL(value); return u.origin !== value || u.protocol !== origin.protocol || (development && !['127.0.0.1', '[::1]', 'localhost'].includes(u.hostname)); } catch { return true; }
   })) throw new Error('CONFIG_CLIENT_ORIGIN');
+  const allowedAppOrigins = input.allowedAppOrigins === undefined ? [] : input.allowedAppOrigins;
+  if (!Array.isArray(allowedAppOrigins) || allowedAppOrigins.some(value => {
+    try {
+      const u = new URL(value);
+      return !u.hostname || ['http:', 'https:', 'ws:', 'wss:'].includes(u.protocol) ||
+        u.username || u.password || u.port || u.pathname || u.search || u.hash ||
+        value !== `${u.protocol}//${u.hostname}` || /[%\\\s]/.test(value);
+    } catch { return true; }
+  })) throw new Error('CONFIG_APP_ORIGIN');
+  let apns;
+  if (input.apns !== undefined) {
+    const value = input.apns;
+    if (!value || typeof value !== 'object' || Array.isArray(value) ||
+        Object.keys(value).some(key => !['teamId', 'keyId', 'keyFile', 'bundleId', 'maxPerHostPerMinute'].includes(key)) ||
+        typeof value.teamId !== 'string' || !/^[A-Z0-9]{10}$/.test(value.teamId) || typeof value.keyId !== 'string' || !/^[A-Z0-9]{10}$/.test(value.keyId) ||
+        typeof value.keyFile !== 'string' || !value.keyFile || value.keyFile.length > 4096 || value.keyFile.includes('\0') ||
+        typeof value.bundleId !== 'string' || value.bundleId.length > 255 || !/^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/.test(value.bundleId) ||
+        (value.maxPerHostPerMinute !== undefined && !Number.isSafeInteger(value.maxPerHostPerMinute)) || (value.maxPerHostPerMinute ?? 60) < 1 || (value.maxPerHostPerMinute ?? 60) > 600) throw new Error('CONFIG_APNS');
+    apns = { teamId: value.teamId, keyId: value.keyId, keyFile: resolve(value.keyFile), bundleId: value.bundleId, maxPerHostPerMinute: value.maxPerHostPerMinute ?? 60 };
+  }
   const limits = {};
   for (const [key, max] of Object.entries(ceilings)) {
     const value = input[key] ?? max;
@@ -27,6 +47,6 @@ export function readConfig(file) {
   if (typeof input.dataDir !== 'string' || !input.dataDir) throw new Error('CONFIG_DATA');
   return { ...limits, publicOrigin: origin.origin, publicHost: origin.host, development,
     listenHost: match[1].replace(/[\[\]]/g, ''), listenPort: +match[2],
-    allowedClientOrigins: input.allowedClientOrigins, dataDir: resolve(input.dataDir),
+    allowedClientOrigins: input.allowedClientOrigins, allowedAppOrigins, apns, dataDir: resolve(input.dataDir),
     assetsDir: input.assetsDir ? resolve(input.assetsDir) : undefined };
 }

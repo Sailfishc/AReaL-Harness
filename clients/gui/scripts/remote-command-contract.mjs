@@ -8,6 +8,7 @@ import { join } from "node:path";
 const require = createRequire(import.meta.url);
 const { CoreBackend } = require("../app/src/core/backend.cjs");
 const { sessionCommand } = require("../app/src/core/remote-session-commands.cjs");
+const { RemotePush } = require("../app/src/core/remote-push.cjs");
 const home = await makeTempDir("rc05-fixture-");
 const checks = [];
 const deferred = () => {
@@ -83,6 +84,7 @@ async function fixture(name) {
     crypto: { identityId: () => "h" },
     gatewayGeneration: "gw",
   };
+  remote.push = new RemotePush(remote);
   const connection = { peer: "a", grantRevision: 1, gatewayGeneration: "gw", alive: () => true };
   const request = (
     method = "session.create",
@@ -139,8 +141,13 @@ async function fixture(name) {
   };
 }
 async function check(name, test) {
-  await test(await fixture(name));
-  checks.push(name);
+  const f = await fixture(name);
+  try {
+    await test(f);
+    checks.push(name);
+  } finally {
+    f.remote.push.close();
+  }
 }
 await check("same-key-concurrent-scoped-and-conflict", async (f) => {
   const req = f.request();

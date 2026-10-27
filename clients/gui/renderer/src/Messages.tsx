@@ -243,6 +243,7 @@ export function Messages({
   onAddSelection,
   responseActions,
   embedded = false,
+  showTurnNavigation = true,
   readOnly = false,
   decisionShown = false,
   afterTurns,
@@ -255,6 +256,7 @@ export function Messages({
   onOpenResult?: (source: McpResultSource) => Promise<void>;
   resultStates?: Record<string, McpResultState>;
   embedded?: boolean;
+  showTurnNavigation?: boolean;
   readOnly?: boolean;
   /** The host renders this thread's pending decision cards (Composer); the transcript tail then does not repeat the wait. */
   decisionShown?: boolean;
@@ -970,7 +972,7 @@ export function Messages({
   });
   return (
     <div className={embedded ? "messages-embedded" : "messages-shell"}>
-      {!embedded && (
+      {!embedded && showTurnNavigation && (
         <TurnNavigation
           key={owner}
           turns={thread.turns ?? []}
@@ -1029,7 +1031,10 @@ export function Messages({
           embedded
             ? undefined
             : (event) => {
-                if (event.clientX >= event.currentTarget.getBoundingClientRect().right - 16)
+                if (
+                  event.pointerType === "touch" ||
+                  event.clientX >= event.currentTarget.getBoundingClientRect().right - 16
+                )
                   scrollbarReading.current = event.currentTarget.scrollTop;
               }
         }

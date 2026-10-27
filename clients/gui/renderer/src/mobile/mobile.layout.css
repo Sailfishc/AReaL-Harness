@@ -1,0 +1,143 @@
+@import "tailwindcss";
+@import "@areal/ui/styles.css";
+@import "@areal/ui/themes.css";
+@import "@areal/ui/settings.css";
+@source "../../../packages/ui/dist/**/*.{js,ts}";
+@source "./**/*.{ts,tsx}";
+
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100%;
+}
+.mobile-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-section);
+  padding: calc(env(safe-area-inset-top) + var(--spacing-panel)) var(--spacing-panel)
+    calc(env(safe-area-inset-bottom) + var(--spacing-panel));
+  min-height: 100dvh;
+  box-sizing: border-box;
+}
+.mobile-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-inline);
+}
+.mobile-header h1 {
+  margin: 0;
+}
+.mobile-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-field);
+}
+.mobile-stack p {
+  margin: 0;
+}
+.mobile-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-inline);
+}
+.mobile-touch {
+  min-height: var(--size-touch-target);
+  min-width: var(--size-touch-target);
+}
+.mobile-fingerprint {
+  overflow-wrap: anywhere;
+  padding: var(--spacing-field);
+}
+.mobile-workspace {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+}
+.mobile-card-copy {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--spacing-inline);
+  align-items: flex-start;
+}
+.mobile-project-card,
+.mobile-work-row {
+  height: auto;
+  white-space: normal;
+  text-align: start;
+  justify-content: flex-start;
+  gap: var(--spacing-field);
+  padding: var(--spacing-field);
+}
+.mobile-status {
+  display: inline-flex;
+  gap: var(--spacing-inline);
+  align-items: center;
+}
+.mobile-status-dot {
+  width: var(--size-status-dot);
+  height: var(--size-status-dot);
+}
+.mobile-refresh {
+  align-self: flex-end;
+}
+.mobile-session {
+  overflow: hidden;
+  min-height: 0;
+}
+.mobile-session .messages-shell {
+  min-height: 0;
+  flex: 1;
+}
+.mobile-page:has(.mobile-session) {
+  height: 100dvh;
+}
+.mobile-page:has(.mobile-session) > .mobile-stack {
+  min-height: 0;
+  flex: 1;
+}
+.mobile-composer {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+.mobile-new-session {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-field);
+  text-align: center;
+}
+.mobile-model-sheet {
+  top: auto;
+  bottom: 0;
+  left: 0;
+  transform: none;
+  translate: none;
+  width: 100%;
+  max-width: 100%;
+  max-height: 90dvh;
+  padding-bottom: calc(env(safe-area-inset-bottom) + var(--spacing-panel));
+}
+.mobile-sheet-scroll {
+  min-height: 0;
+  overflow-y: auto;
+}
+.mobile-model-choice {
+  justify-content: space-between;
+}
+.mobile-efforts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-inline);
+}
+.mobile-command-notice {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-inline);
+}

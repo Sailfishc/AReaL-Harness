@@ -4,6 +4,7 @@ const { randomBytes, randomUUID, timingSafeEqual } = require("node:crypto");
 const { readFile } = require("node:fs/promises");
 const { join } = require("node:path");
 const { parseRemoteConfig } = require("./remote-config.cjs");
+const { RemotePush } = require("./remote-push.cjs");
 const { RelayTransport } = require("./remote-relay.cjs");
 const { request: httpsRequest } = require("node:https");
 const { createHash } = require("node:crypto");
@@ -25,7 +26,7 @@ const {
 /** @typedef {import('./remote-config.cjs').DeviceGrant} DeviceGrant */
 /** @typedef {import('./remote-network.cjs').NetworkMapping} NetworkMapping */
 /** @typedef {Awaited<ReturnType<typeof startDirect>>} DirectServer */
-/** @typedef {{name:string,expiresAt:number,connected:()=>boolean,accept:(grant:DeviceGrant)=>void,reject:(error:Error)=>void,arm:()=>void,timer?:NodeJS.Timeout,approving?:boolean}} PendingPair */
+/** @typedef {{name:string,clientKind?:'web'|'ios',expiresAt:number,connected:()=>boolean,accept:(grant:DeviceGrant)=>void,reject:(error:Error)=>void,arm:()=>void,timer?:NodeJS.Timeout,approving?:boolean}} PendingPair */
 /** @typedef {{backend:InstanceType<typeof import('./backend.cjs').CoreBackend>,schedule:()=>void}} RemoteService */
 /** @typedef {Pick<typeof import('electron').safeStorage,'isEncryptionAvailable'|'encryptString'|'decryptString'> & {getSelectedStorageBackend?:()=>string}} RemoteEncryption */
 class RemoteControl {
@@ -69,6 +70,7 @@ class RemoteControl {
     this.pending = new Map();
     this.connected = false;
     this.sessions = new SessionAcceptor(this);
+    this.push = new RemotePush(this);
   }
   async init() {
     this.transportModule = await import("@areal/remote");
@@ -207,11 +209,16 @@ class RemoteControl {
           : "",
       directError: this.directError ?? "",
       migrationError: this.migrationError ?? "",
-      deviceGrants: this.config?.deviceGrants ?? [],
+      pushSupported: this.relayTransport?.pushSupported === true,
+      deviceGrants: (this.config?.deviceGrants ?? []).map(({ push, ...grant }) => ({
+        ...grant,
+        pushRegistered: !!push,
+      })),
       devices: [],
       pending: [...this.pending].map(([id, entry]) => ({
         id,
         name: entry.name,
+        ...(entry.clientKind ? { clientKind: entry.clientKind } : {}),
         fingerprint: id,
         expiresAt: entry.expiresAt,
       })),
@@ -362,14 +369,18 @@ class RemoteControl {
           throw new Error("请选择 Observer 或 Operator");
         const displayName = entry?.name ?? previous?.displayName;
         if (displayName === undefined) throw new Error("设备未获授权");
+        const clientKind =
+          request.operation === "approve" ? entry?.clientKind : previous?.clientKind;
         /** @type {DeviceGrant} */
         const grant = {
           devicePeerId: request.id,
           displayName,
+          ...(clientKind ? { clientKind } : {}),
           projectIds: [...new Set(request.projects)],
           capabilities: [...PRESETS[request.preset]],
           revision: (previous?.revision ?? 0) + 1,
           status: "active",
+          ...(request.operation === "updateGrant" && previous?.push ? { push: previous.push } : {}),
         };
         // 本地确认是期限内的决定；持久写入期间不返回 ready，失败后仍可重试确认。
         if (entry) {
@@ -407,7 +418,12 @@ class RemoteControl {
           deviceGrants: (this.config.deviceGrants ?? []).map((value) =>
             value !== previous
               ? value
-              : { ...previous, status: "revoked", revision: previous.revision + 1 },
+              : {
+                  ...previous,
+                  push: undefined,
+                  status: "revoked",
+                  revision: previous.revision + 1,
+                },
           ),
         });
         this.closePeer(request.id);
@@ -854,7 +870,7 @@ class RemoteControl {
     for (const entry of Array.from(this.pending.values()))
       entry.reject(pairingError("PAIRING_CANCELLED", "配对已取消"));
   }
-  /** @param {string} peer @param {{displayName:string,inviteSecret?:unknown}} hello @param {{readyState:number,once:(event:"close",listener:()=>void)=>unknown,removeListener:(event:"close",listener:()=>void)=>unknown}} socket @returns {Promise<DeviceGrant>} */
+  /** @param {string} peer @param {{displayName:string,clientKind?:'web'|'ios',inviteSecret?:unknown}} hello @param {{readyState:number,once:(event:"close",listener:()=>void)=>unknown,removeListener:(event:"close",listener:()=>void)=>unknown}} socket @returns {Promise<DeviceGrant>} */
   claim(peer, hello, socket) {
     const invite = this.invite;
     if (!invite) throw pairingError("PAIRING_USED", "邀请已使用或取消");
@@ -880,6 +896,7 @@ class RemoteControl {
       /** @type {PendingPair} */
       const entry = {
         name: hello.displayName.slice(0, 80),
+        ...(hello.clientKind ? { clientKind: hello.clientKind } : {}),
         expiresAt: invite.expiresAt,
         connected: () => socket.readyState === 1,
         accept: (grant) => {
@@ -916,7 +933,9 @@ class RemoteControl {
     this.relayTransport?.close();
     this.relayTransport = new RelayTransport(this);
   }
-  publish() {}
+  publish() {
+    this.push.start();
+  }
   clearChannels() {
     for (const endpoint of Array.from(this.channels.values())) endpoint.terminate();
   }
@@ -939,6 +958,7 @@ class RemoteControl {
     this.closed = true;
     this.disconnect();
     this.sessions.close();
+    this.push.close();
     this.direct?.close();
     this.direct = null;
   }

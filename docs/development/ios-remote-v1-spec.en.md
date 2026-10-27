@@ -14,7 +14,7 @@ This page is for implementing engineers and Codex. Every method, field, director
 
 | Area | In v1 | Not in v1 |
 | --- | --- | --- |
-| Platform and distribution | iPhone on iOS 16+, TestFlight beta | Android, iPad-specific layout, App Store release, PWA changes |
+| Platform and distribution | iPhone on iOS 17.4+, TestFlight beta | Android, iPad-specific layout, App Store release, PWA changes |
 | Network | Self-hosted Relay (the default and only entry) | Direct (Tailscale Serve/Funnel, organization HTTPS), LAN direct, P2P hole punching |
 | Pairing | In-app QR scan, pasted pairing link, fingerprint check and authorization on the computer | Opening the app from the system camera (Universal Link), remembering several computers in one app |
 | Projects and sessions | Authorized project list, recent sessions per project, new session, open session, paged history | Session search, archive, rename, Task schedule editing |
@@ -82,6 +82,10 @@ interface Lifecycle { onActive(fn: () => void): void; onBackground(fn: () => voi
 
 ## Repository layout and build
 
+The minimum OS version is iOS 17.4. The existing Remote dependencies use `Promise.withResolvers()`, available since Safari 17.4. The App keeps the existing encryption library and standard APIs without a compatibility layer.
+
+See the [iOS development workflow](ios-development.en.md) for the current shell build, simulator gate, and tool choices. That guide separates development evidence from full acceptance in this spec.
+
 | Path | Contents |
 | --- | --- |
 | `clients/gui/packages/remote-client/` (new) | Protocol client, command state and session state extracted from `renderer/remote-web/`; imports no DOM, IndexedDB or Capacitor; storage injected through `KeyStore` |
@@ -117,7 +121,7 @@ v1 always remembers the device and drops the "this session only" option: the app
 
 - App becomes active: read the Keychain → open the Relay connection → Noise check against the Host pin → hello (no invite) → `ready` → fetch `project.list` and what the current screen needs → for pending `commandId`s, call `command.read` only.
 - App goes to the background: close the WebSocket, release subscriptions, keep drafts in memory. Request no background keep-alive.
-- Reconnect with the existing rules: 0.5–30 second jittered backoff. Grant changes, protocol incompatibility and `AUTH_REVOKED` stop automatic retries and show the reason.
+- Reconnect with the existing rules: 0.5–30 second jittered backoff. Grant changes, protocol incompatibility and a `FORBIDDEN` reauthentication refusal stop automatic retries and show the reason.
 - Connection state appears at the top of the projects screen: "Connected · Can operate / View only", "Connecting…", "Computer offline", "Access revoked, pair again". "Computer offline" must never be shown as the task having stopped.
 - Settings offers "Clear this device": disconnect first, then clear the Keychain, and remind the user to revoke the device on the computer as well.
 
@@ -138,7 +142,7 @@ All methods are existing `areal.remote.v2` methods unless marked "new". Every wr
 | Projects | `host.describe`, `project.list` | Each card shows the name and a summary: running count, pending count, last update. The summary comes from the first `work.list` page (`filter: all`), requested only for online projects |
 | Sessions in a project | `work.list` (`filter: all`, 30 per page) | Each row: title, status, time. Status derives from `execution` and `attentionRefs` (table below). `kind: taskRun` rows are Task rows that open the Task detail |
 | Open session | `session.open`, `session.history`, `subscription.close` | One foreground session; `subscription.close` when leaving the screen or going to the background |
-| New session | `session.create` → optional `session.control(configure)` → `session.send` | See the order below |
+| New session | `project.models` (new, read-only) → `session.create` → `session.open` → optional `session.control(configure)` → `session.send` | See the order below |
 | Send | `session.send` | Sent directly when idle; while running, add `enqueue: true, expectedTurnId` to queue it |
 | Stop the current turn | `turn.stop` (`expectedTurnId`) | Task-owned sessions return `TASK_CONTROL_REQUIRED`; the UI then offers "Pause Task" |
 | Model, reasoning effort, permissions | `session.control` with `operation: configure` and `values` of `model`, `parameters`, `options` | Editable only while the session is idle; while running the sheet is read-only and says "Change this after the current turn ends" |
@@ -151,10 +155,13 @@ All methods are existing `areal.remote.v2` methods unless marked "new". Every wr
 
 When the user writes the first message on the "New session" screen and taps send:
 
-1. `session.create` (new `commandId`). Success returns a `threadId`.
-2. If the user changed the model, reasoning effort or permissions in the sheet, call `session.control(configure)` with `expectedRevision` set to the `configRevision` that `session.open` returns.
-3. `session.send` with the first message.
-4. Navigate to the session screen.
+On entering the new-session page, `project.models` reads at most 200 catalog entries for the current project without creating a thread or subscription. The initial badge says “Computer default”; the catalog does not establish configuration defaults. If an older Host omits the method, model selection asks for an upgrade.
+
+1. `session.create` with a new `commandId` returns `threadId`.
+2. `session.open` obtains the atomic baseline and configuration revision.
+3. If the user changed the model, reasoning effort or permissions, call `session.control(configure)` using the baseline’s `configRevision` as `expectedRevision`.
+4. `session.send` sends the first message.
+5. Navigate to the session page.
 
 If any step's result is unknown, stop at that step and show "Needs check" without continuing. If step 1 succeeded and a later step failed, the session exists: navigate to it and keep the draft so the user can tap send again. When the Host default profile binds a Workflow, `session.create` returns `UNSUPPORTED_PROFILE`; show "Choose an ordinary profile on your computer."
 
@@ -202,7 +209,8 @@ It sits next to `RemoteControl` in the desktop background, reuses the bounded qu
 - It works only for online projects that at least one push-registered device is authorized for.
 - It reads that project's attention summary every 5 seconds. The first read after the notifier starts or a project comes online only sets a baseline and sends nothing, so restarts do not repeat notifications.
 - It deduplicates by the attention reference's native identity; each reference notifies once.
-- Turn completion uses this device's `session.send` records in the existing submission journal. When the Turn is observed in a terminal state, it sends once and stops watching that Turn.
+- Turn completion follows this device’s existing `session.send` journal association, using the exact turnId or the turnId bound to its queueItemId, never a guessed latest turn. At most 16 watchers share existing native subscription budgets and release on terminal state, revocation or invalidation. Terminal startup baselines are not replayed. Old turns absent from bounded baselines, removed queue items or exhausted capacity can miss notifications.
+- Each project cycle allows at most eight attention reads, each with at most four native overview pages. Push waits for a complete initial baseline and retains at most 4096 native attentionRefs. The first notification sends immediately; events within 30 seconds reuse the collapse ID and update the count. Incomplete reads and capacity exhaustion make delivery best effort.
 - When the Relay does not advertise push, is disconnected or reports rate limiting, it drops that notification and records a redacted diagnostic. It does not queue retries and affects no business path.
 
 ### Protocol additions
@@ -216,7 +224,8 @@ It sits next to `RemoteControl` in the desktop background, reuses the bounded qu
 
 - `token` is 64–200 hex characters. `environment` accepts only `production` (TestFlight uses production APNs) or `development` (Xcode debugging).
 - Success returns `{registered:true}`. If the Relay does not support push, it returns `RESOURCE_UNAVAILABLE` and settings shows "Push is not enabled on this Relay."
-- `device.push.unregister` takes no parameters and deletes this device's token.
+- `device.push.unregister` uses empty `params:{}`, removes this device’s token and returns `{registered:false}`. Both registration and unregister omit project context.
+- Push writes and receipts commit in the same encrypted `remote.json` save. After a lost response, only context-free `command.read {params:{commandId}}` queries this device’s receipt. Known outcomes return `receipt:{registered}`; notFound remains unknown and cannot authorize replay. The Host retains at most 4096 receipts and refuses new writes at capacity without evicting unresolved records.
 
 hello gains an optional `clientKind: "web" | "ios"`, used only for the device list on the computer and never for authorization. When the Relay supports push, `capabilities` in `ready` and `host.describe` include `push`. Update the implemented boundary and the C4 method catalog of the [Remote API](../api/remote-control.en.md) together with these changes.
 
@@ -234,7 +243,7 @@ New optional setting (push is unsupported when absent):
 }
 ```
 
-- The Host's `ready` message gains `push: true|false` beside `limits`; the Host uses it to decide whether to advertise the `push` capability to the app.
+- Push-capable Hosts send `X-Areal-Relay-Capabilities: push` during WSS upgrade. Only these Hosts receive `push: true|false` beside `limits` in `ready`; legacy Hosts retain the original shape. Legacy Relays ignore the header and omit `push`, meaning unavailable. The Host uses this value to decide whether to advertise the `push` capability to the app.
 - New outer message sent by the Host: `{"type":"push","token":"…","environment":"production","collapseId":"…","kind":"attention|turnCompleted|turnFailed","count":1,"target":{…}}`. Accepted only from registered host-role connections. `target` allows only three opaque string fields: `projectId`, `threadId` and `attentionRef`.
 - The Relay maps `kind` to the fixed text above; the Host cannot send arbitrary notification text.
 - Re-sign the JWT every 50 minutes. When APNs returns `410 Unregistered`, send `{"type":"pushResult","token":"…","status":"unregistered"}` back to the Host, which deletes the token.
@@ -303,7 +312,7 @@ The session screen reuses the GUI message stream and Composer directly, so once 
 - Network reachability or a scanned QR code is never authorization; authorization comes only from the local confirmation on the computer. The app neither stores nor sends any Core or desktop credentials.
 - The invite secret exists only in memory during pairing and is never written to logs, the Keychain or crash reports. The app includes no third-party analytics or crash reporting SDKs.
 - Push payloads carry no business content. Notifications offer no approve button; approvals are completed inside the app after the arguments are shown.
-- After revocation the app receives `AUTH_REVOKED` on its next connection, clears local session projections and asks the user to pair again. The device identity stays in the Keychain until the user chooses "Clear this device".
+- After revocation the app receives the existing `FORBIDDEN` authentication refusal on its next connection, clears local session projections and asks the user to pair again. The device identity stays in the Keychain until the user chooses "Clear this device".
 - The pairing and authorization screens keep the warning that the phone can see session content in the selected projects and can use the current execution permissions through the Agent.
 
 ## Implementation order (PR slices)
@@ -312,9 +321,9 @@ Each PR merges on its own and updates the matching docs.
 
 | # | Contents | Done when |
 | --- | --- | --- |
-| 1 | Capacitor iOS shell + Noise handshake check inside WKWebView | The simulator completes one `hello`/`ready` against a local strict-TLS Relay fixture |
+| 1 | Capacitor iOS shell, Relay `allowedAppOrigins`, and Noise handshake check inside WKWebView | The simulator completes one `hello`/`ready` against a local strict-TLS Relay fixture; Relay tests cover accepted and rejected App origins |
 | 2 | Extract `@areal/remote-client`; the PWA imports from it | All existing `test:remote-*` pass and PWA behavior is unchanged |
-| 3 | Relay `allowedAppOrigins` | `services/remote-relay` tests cover accept and reject; deployment docs updated |
+| 3 | Relay deployment configuration | Enable the `allowedAppOrigins` support from slice 1 for the self-hosted deployment; verify the exact App origin |
 | 4 | Keychain plugin, scanning, pasted links, pairing and waiting screens | Pairing by scan works on a device; relaunching after a force quit needs no pairing; clearing the device requires pairing again |
 | 5 | Projects, session list, session screen (read only) | Authorized projects and sessions appear; an open session shows history and live updates |
 | 6 | New session, send, queue, stop, model sheet | Follows "New session order"; unknown results are queried, never resent |
@@ -342,4 +351,4 @@ Accept on a real iPhone (TestFlight build), a real self-hosted Relay (public HTT
 - The design system part adopts the layering, token and placeholder rules from the design system improvement proposal and the conversation flow and Composer redesign. Neither proposal is final; if the final versions differ, they win.
 - The organization has an Apple Developer team, can configure its own APNs key on the Relay and signs the TestFlight build with its own team.
 - One app installation remembers one computer. Switching computers means clearing the device and pairing again.
-- The model list comes from the model catalog in the computer's session snapshot; the app keeps no model list of its own.
+- Model lists come from the computer’s `project.models` or the same catalog projection in session snapshots. The App maintains no independent catalog.

@@ -108,3 +108,8 @@
     max-width: 120px;
   }
 }
+
+.composer-editor .lexical-chat-input[data-touch-input="true"] {
+  font-size: var(--text-ui-xl);
+  line-height: var(--line-height-ui);
+}

@@ -1,13 +1,15 @@
-import { SessionBodyReader } from '../renderer/remote-web/session-bodies.mjs';
+import { SessionBodyReader, CommandState, acceptSessionMessage } from "@areal/remote-client";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { readFile } from "node:fs/promises";
 import { createContext, runInContext } from "node:vm";
 import { IDBFactory } from "fake-indexeddb";
 import { BrowserState } from "../renderer/remote-web/browser-state.mjs";
-import { CommandState } from "../renderer/remote-web/command-state.mjs";
-import { acceptSessionMessage } from "../renderer/remote-web/session-state.mjs";
 
+const connectionSource = await readFile(
+  new URL("../packages/remote-client/src/connection.mjs", import.meta.url),
+  "utf8",
+);
 const source = await readFile(new URL("../renderer/remote-web/main.js", import.meta.url), "utf8");
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 async function until(check) {
@@ -85,7 +87,11 @@ function inbox() {
   return {
     push(value) {
       if (done) return;
-      waiting.length ? waiting.shift()({ value, done: false }) : incoming.push(value);
+      if (waiting.length) {
+        waiting.shift()({ value, done: false });
+        return;
+      }
+      incoming.push(value);
     },
     close() {
       done = true;
@@ -241,8 +247,15 @@ function page({
     crypto,
     structuredClone,
     CommandState,
-  SessionBodyReader,
-  createRemoteWorkbench: api => { guiAPI = api; return { render(view) { guiView = view; } }; },
+    SessionBodyReader,
+    createRemoteWorkbench: (api) => {
+      guiAPI = api;
+      return {
+        render(view) {
+          guiView = view;
+        },
+      };
+    },
     acceptSessionMessage,
     BrowserState: class extends BrowserState {
       constructor(options) {
@@ -297,12 +310,22 @@ function page({
       intervals.delete(timer);
     },
   });
+  runInContext(
+    connectionSource
+      .replace(/^import[\s\S]*?;\n/gm, "")
+      .replace("export class RemoteConnection", "class RemoteConnection"),
+    context,
+  );
   runInContext(source.replace(/^import[\s\S]*?;\n/gm, ""), context);
   return {
     db,
     drafts,
-    get guiAPI() { return guiAPI; },
-    get guiView() { return guiView; },
+    get guiAPI() {
+      return guiAPI;
+    },
+    get guiView() {
+      return guiView;
+    },
     element,
     calls,
     sockets,
@@ -492,13 +515,13 @@ async function connectedPage(options = {}) {
   return p;
 }
 async function openThread(p) {
-  await until(() => p.guiView?.groups.project?.rows.some(row => row.threadId));
-  const row = p.guiView.groups.project.rows.find(row => row.threadId);
+  await until(() => p.guiView?.groups.project?.rows.some((row) => row.threadId));
+  const row = p.guiView.groups.project.rows.find((row) => row.threadId);
   await p.guiAPI.open("project", row.threadId);
 }
 async function openPause(p) {
-  await until(() => p.guiView?.groups.project?.rows.some(row => row.kind === "taskRun"));
-  const row = p.guiView.groups.project.rows.find(row => row.kind === "taskRun");
+  await until(() => p.guiView?.groups.project?.rows.some((row) => row.kind === "taskRun"));
+  const row = p.guiView.groups.project.rows.find((row) => row.kind === "taskRun");
   await p.guiAPI.pause("project", row);
 }
 
@@ -877,12 +900,9 @@ function taskQuestionPage(call, reply) {
     return true;
   }
 }
-function descendants(element) {
-  return [element, ...element.children.flatMap(descendants)];
-}
 async function openTaskQuestion(p) {
-  await until(() => p.guiView?.groups.project?.rows.some(row => row.attentionRefs?.length));
-  const item = p.guiView.groups.project.rows.flatMap(row => row.attentionRefs ?? [])[0];
+  await until(() => p.guiView?.groups.project?.rows.some((row) => row.attentionRefs?.length));
+  const item = p.guiView.groups.project.rows.flatMap((row) => row.attentionRefs ?? [])[0];
   await p.guiAPI.attention("project", item);
   await until(() => p.element("attention-questions").children.length === 1);
   const input = p.element("attention-questions").children[0].children.at(-1);

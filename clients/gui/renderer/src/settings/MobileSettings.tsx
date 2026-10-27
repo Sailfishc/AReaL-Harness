@@ -85,11 +85,31 @@ function GrantReview({
       className="remote-grant"
     >
       <legend>
-        <Monitor size={20} />
+        {device.clientKind === "ios" ? <Smartphone size={20} /> : <Monitor size={20} />}
         {pending
-          ? t("settings.mobileSettings.allowThisBrowserToConnect")
+          ? t(
+              device.clientKind === "ios"
+                ? "settings.mobileSettings.allowThisIOSAppToConnect"
+                : "settings.mobileSettings.allowThisBrowserToConnect",
+            )
           : (device.displayName ?? device.name)}
       </legend>
+      <p className="remote-muted">
+        {t(
+          device.clientKind === "ios"
+            ? "settings.mobileSettings.clientKindIOS"
+            : "settings.mobileSettings.clientKindWeb",
+        )}
+      </p>
+      {!pending && device.clientKind === "ios" && (
+        <p className="remote-muted">
+          {t(
+            device.pushRegistered
+              ? "settings.mobileSettings.pushRegistered"
+              : "settings.mobileSettings.pushUnregistered",
+          )}
+        </p>
+      )}
       {pending && (
         <p className="remote-muted">
           {t("settings.mobileSettings.onceConfirmedItCanAccessTheProjects")}
@@ -565,12 +585,18 @@ export function MobileSettings({ action, projects }: { action: Action; projects:
               title={
                 <>
                   {" "}
-                  <Monitor size={18} />
+                  {device.clientKind === "ios" ? <Smartphone size={18} /> : <Monitor size={18} />}
                   <span>
                     {device.displayName ??
                       device.name ??
                       t("settings.mobileSettings.browserDevice")}
                     <small>
+                      {t(
+                        device.clientKind === "ios"
+                          ? "settings.mobileSettings.clientKindIOS"
+                          : "settings.mobileSettings.clientKindWeb",
+                      )}
+                      {" · "}
                       {device.status === "revoked"
                         ? t("settings.mobileSettings.revoked")
                         : device.status === "reviewRequired"
@@ -1144,6 +1170,15 @@ export function MobileSettings({ action, projects }: { action: Action; projects:
                         ? t("settings.mobileSettings.relayIsDisconnectedCheckTheServiceAnd")
                         : t("settings.mobileSettings.relayIsOff")}
                   </p>
+                  {state.connected && (
+                    <p className="remote-muted">
+                      {t(
+                        state.pushSupported
+                          ? "settings.mobileSettings.pushSupported"
+                          : "settings.mobileSettings.pushUnsupported",
+                      )}
+                    </p>
+                  )}
                   {state.relayError && <p role="alert">{state.relayError}</p>}
                 </fieldset>
               </SettingsGroupCard>

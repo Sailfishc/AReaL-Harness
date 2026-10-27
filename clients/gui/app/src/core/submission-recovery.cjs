@@ -353,6 +353,15 @@ class SubmissionRecovery {
       entry.method === "areal/channel/reply" && entry.remote.method === "task.question.reply";
     const taskPause = entry.method === "areal/task/pause" && entry.remote.method === "task.pause";
     let receipt;
+    if (entry.method === "areal/turn/enqueue" && !error) {
+      if (
+        typeof fields?.queueItemId !== "string" ||
+        !fields.queueItemId ||
+        Buffer.byteLength(fields.queueItemId) > 128
+      )
+        throw new Error("排队受理结果缺少原生关联");
+      receipt = { queueItemId: fields.queueItemId };
+    }
     if (entry.method === "areal/goal/create" && !error) {
       if (
         typeof goal?.id !== "string" ||

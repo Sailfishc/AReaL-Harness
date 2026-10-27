@@ -1,8 +1,6 @@
-import { SessionBodyReader } from '../renderer/remote-web/session-bodies.mjs';
+import { SessionBodyReader, CommandState, acceptSessionMessage } from "@areal/remote-client";
 import assert from "node:assert/strict";
 import { BrowserState } from "../renderer/remote-web/browser-state.mjs";
-import { CommandState } from "../renderer/remote-web/command-state.mjs";
-import { acceptSessionMessage } from "../renderer/remote-web/session-state.mjs";
 const baseline = {
   connectionId: "c",
   gatewayGeneration: "g",
@@ -55,10 +53,19 @@ assert.equal(media.mediaUnavailable, true);
 
 // Shared GUI Messages must distinguish Core-authored continuation from user text.
 const continuation = {
-  id: "goal-turn", status: "completed", durationMs: 3500,
+  id: "goal-turn",
+  status: "completed",
+  durationMs: 3500,
   goal: { goalId: "goal", origin: "continuation", sequence: 3, privateContext: "PRIVATE" },
-  instructionSnapshot: "PRIVATE", configuration: { credentialRef: "PRIVATE" },
-  items: [{ id: "goal-input", type: "userMessage", content: [{ type: "text", text: "Continue the active goal" }] }],
+  instructionSnapshot: "PRIVATE",
+  configuration: { credentialRef: "PRIVATE" },
+  items: [
+    {
+      id: "goal-input",
+      type: "userMessage",
+      content: [{ type: "text", text: "Continue the active goal" }],
+    },
+  ],
 };
 const continued = snapshot({ id: "t", turns: [continuation] }, scope, { kind: "ordinary" });
 assert.deepEqual(continued.turns[0].goal, { origin: "continuation", sequence: 3 });
@@ -125,7 +132,11 @@ function channel() {
     waiting = [];
   return {
     push(value) {
-      waiting.length ? waiting.shift()({ value, done: false }) : incoming.push(value);
+      if (waiting.length) {
+        waiting.shift()({ value, done: false });
+        return;
+      }
+      incoming.push(value);
     },
     next() {
       return incoming.length
@@ -203,7 +214,10 @@ const context = createContext({
   },
   CommandState,
   SessionBodyReader,
-  createRemoteWorkbench: (api) => { guiAPI = api; return {render() {}}; },
+  createRemoteWorkbench: (api) => {
+    guiAPI = api;
+    return { render() {} };
+  },
   location: { hash: "#host=host", pathname: "/remote", protocol: "http:", host: "localhost" },
   history: { replaceState() {} },
   TextEncoder,
@@ -241,13 +255,26 @@ const context = createContext({
     new URLSearchParams(Object.entries(locator).filter(([, value]) => value)).toString(),
   secureChannel: async () => transport(),
 });
+const connectionSource = await readFile(
+  new URL("../packages/remote-client/src/connection.mjs", import.meta.url),
+  "utf8",
+);
 const source = await readFile(new URL("../renderer/remote-web/main.js", import.meta.url), "utf8");
+runInContext(
+  connectionSource
+    .replace(/^import[\s\S]*?;\n/gm, "")
+    .replace("export class RemoteConnection", "class RemoteConnection"),
+  context,
+);
 runInContext(source.replace(/^import[\s\S]*?;\n/gm, ""), context);
 await element("connect").click();
 const flush = async () => {
   for (let n = 0; n < 12; n++) await Promise.resolve();
 };
-const open = async () => { void guiAPI.open("p", "t"); await flush(); };
+const open = async () => {
+  void guiAPI.open("p", "t");
+  await flush();
+};
 const lastOpen = () => calls.filter((call) => call.method === "session.open").at(-1);
 const closes = () => calls.filter((call) => call.method === "subscription.close");
 const response = (subscriptionId) => ({
@@ -518,7 +545,10 @@ function buttonDeep(node, label) {
   }
 }
 await open();
-const attentionBaseline=response("attention-baseline");attentionBaseline.snapshot.attentionRefs=row.attentionRefs;reply(lastOpen(),attentionBaseline);await flush();
+const attentionBaseline = response("attention-baseline");
+attentionBaseline.snapshot.attentionRefs = row.attentionRefs;
+reply(lastOpen(), attentionBaseline);
+await flush();
 const reviewButton = buttonDeep(element("session-attention"), "审阅待处理事项");
 assert.ok(reviewButton, "production Session must open authoritative attention detail");
 reviewButton.click();
@@ -626,7 +656,10 @@ row.attentionRefs = [
   },
 ];
 await open();
-const questionBaseline=response("question-baseline");questionBaseline.snapshot.attentionRefs=row.attentionRefs;reply(lastOpen(),questionBaseline);await flush();
+const questionBaseline = response("question-baseline");
+questionBaseline.snapshot.attentionRefs = row.attentionRefs;
+reply(lastOpen(), questionBaseline);
+await flush();
 buttonDeep(element("session-attention"), "审阅待处理事项").click();
 await flush();
 const delayedReview = lastAttention();

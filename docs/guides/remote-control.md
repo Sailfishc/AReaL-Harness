@@ -100,6 +100,8 @@ Serve 失败不会自动切换到 Funnel 或 Relay；公网切换只能在本地
 
 实际配置字段、限额与固定 Node 版本见 [Relay 服务说明](../../services/remote-relay/README.md)。资源限额不代表容量认证。先运行 `pnpm --dir clients/gui build`，再运行 `pnpm --dir clients/gui export:remote /absolute/new/remote-pwa`；导出命令只复制并校验 Remote manifest 的资源闭包，拒绝已存在目录。将此目录配置为 `assetsDir`，不要部署整个 Desktop dist。
 
+需要接入原生 App 时，管理员在 Relay JSON 配置中增加 `"allowedAppOrigins": ["capacitor://localhost"]`；配置样例中的空数组和省略此字段都拒绝 App 来源。只列出实际 App 使用的精确 `scheme://host`，不带端口、凭据、路径、查询、fragment、空白或百分号编码，且不能使用 HTTP(S)/WS(S) scheme。Web 来源继续放在 `allowedClientOrigins`。两份列表同时用于 WebSocket upgrade 和 client 注册；缺少 Origin 的 Client 仍被拒绝。原生 App 可伪造 Origin，最终 Host 身份与设备权限仍由 Noise pin 和 Host DeviceGrant 验证。
+
 容器内部非 root 运行，默认文件系统只读，仅指定数据卷可写；宿主无需挂载用户项目。固定镜像/依赖版本，提供 SBOM/第三方归属及可复现构建说明；源码、静态客户端、配置样例和运行所需脚本全部公开。
 
 ## G4. Relay 管理员与用户流程

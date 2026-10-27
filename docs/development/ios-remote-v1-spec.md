@@ -14,7 +14,7 @@ v1 交付一个只在 TestFlight 分发的 iOS App。手机只做控制层：通
 
 | 类别 | v1 包含 | v1 不包含 |
 | --- | --- | --- |
-| 平台与分发 | iOS 16+ iPhone，TestFlight 内测 | Android、iPad 专属布局、App Store 上架、PWA 改造 |
+| 平台与分发 | iOS 17.4+ iPhone，TestFlight 内测 | Android、iPad 专属布局、App Store 上架、PWA 改造 |
 | 网络 | 自建 Relay（默认且唯一入口） | Direct（Tailscale Serve/Funnel、组织 HTTPS 直连）、局域网直连、P2P 打洞 |
 | 配对 | App 内扫码、粘贴配对链接、电脑端核对指纹并授权 | 系统相机扫码直接唤起 App（Universal Link）、同一 App 记住多台电脑 |
 | 项目与会话 | 已授权项目列表、项目内最近会话、新建会话、打开会话、分页加载历史 | 会话搜索、归档、重命名、Task 排程编辑 |
@@ -82,6 +82,10 @@ interface Lifecycle { onActive(fn: () => void): void; onBackground(fn: () => voi
 
 ## 仓库结构与构建
 
+最低系统版本为 iOS 17.4。现有 Remote 依赖使用 `Promise.withResolvers()`，该 API 从 Safari 17.4 起提供。App 沿用现有加密库与标准 API，不添加兼容层。
+
+移动壳的当前构建、模拟器门禁和工具选择见 [iOS 开发流程](ios-development.md)。该文档区分开发证据与本规格的完整验收。
+
 | 路径 | 内容 |
 | --- | --- |
 | `clients/gui/packages/remote-client/`（新增） | 从 `renderer/remote-web/` 抽出的协议客户端、命令状态、会话状态；不导入 DOM、IndexedDB 或 Capacitor；存储通过 `KeyStore` 注入 |
@@ -117,7 +121,7 @@ v1 默认“记住此设备”，不再提供“仅本次使用”选项：App �
 
 - App 进入前台：读钥匙串 → 建 Relay 连接 → Noise 校验 Host pin → hello（不带邀请）→ `ready` → 拉 `project.list` 与当前页面需要的数据 → 若有待核对 `commandId`，只调 `command.read`。
 - App 进入后台：主动关闭 WebSocket、释放订阅、保留草稿在内存。不申请后台保活。
-- 断线重连沿用现有规则：0.5 到 30 秒带抖动退避；授权变更、协议不兼容、`AUTH_REVOKED` 停止自动重试并显示原因。
+- 断线重连沿用现有规则：0.5 到 30 秒带抖动退避；授权变更、协议不兼容或重新认证返回 `FORBIDDEN` 时停止自动重试并显示原因。
 - 连接状态显示在项目页顶部：“已连接 · 可操作 / 仅查看”“正在连接…”“电脑离线”“授权已撤销，请重新配对”。“电脑离线”不能显示成任务停止。
 - 设置页提供“清除此设备”：先断开连接，再清空钥匙串，并提示还需在电脑上撤销授权。
 
@@ -138,7 +142,7 @@ v1 默认“记住此设备”，不再提供“仅本次使用”选项：App �
 | 项目列表 | `host.describe`、`project.list` | 每个项目卡片显示名称和摘要：运行中数量、待处理数量、最近更新时间。摘要来自 `work.list` 第一页（`filter: all`），只对在线项目请求 |
 | 项目内会话列表 | `work.list`（`filter: all`，30 条/页） | 每行：标题、状态、时间。状态从 `execution` 与 `attentionRefs` 推出（见下表）；`kind: taskRun` 显示为 Task 行，点开进 Task 详情 |
 | 打开会话 | `session.open`、`session.history`、`subscription.close` | 一个前台会话；离开页面或进入后台时 `subscription.close` |
-| 新建会话 | `session.create` → 可选 `session.control(configure)` → `session.send` | 见下方顺序说明 |
+| 新建会话 | `project.models`（新增，只读）→ `session.create` → `session.open` → 可选 `session.control(configure)` → `session.send` | 见下方顺序说明 |
 | 发送消息 | `session.send` | 空闲时直接发送；运行中带 `enqueue: true, expectedTurnId` 追加到队列 |
 | 停止当前轮 | `turn.stop`（`expectedTurnId`） | Task 拥有的会话返回 `TASK_CONTROL_REQUIRED`，界面改为显示“暂停 Task”入口 |
 | 模型、推理强度、权限 | `session.control`，`operation: configure`，`values` 为 `model`、`parameters`、`options` | 只在会话空闲时可改；运行中面板只读，显示“本轮结束后再调整” |
@@ -151,10 +155,13 @@ v1 默认“记住此设备”，不再提供“仅本次使用”选项：App �
 
 用户在“新会话”页写好第一条消息并点发送时：
 
+进入新会话页时，用 `project.models` 读取当前项目最多 200 项模型目录。新会话的初始标记为“电脑默认”，不从目录猜配置；这一步不创建 Thread 或订阅。旧 Host 没有该方法时，选择模型提示升级。
+
 1. `session.create`（新 `commandId`）。成功得到 `threadId`。
-2. 如果用户在面板里改过模型、推理强度或权限，调用 `session.control(configure)`，`expectedRevision` 取 `session.open` 返回的 `configRevision`。
-3. `session.send` 发送第一条消息。
-4. 跳到会话页。
+2. `session.open` 读取原子基线和配置 revision。
+3. 如果用户在面板里改过模型、推理强度或权限，调用 `session.control(configure)`，`expectedRevision` 取基线的 `configRevision`。
+4. `session.send` 发送第一条消息。
+5. 跳到会话页。
 
 任何一步结果未知时停在该步，显示“待核对”，不继续下一步。第 1 步成功、后续失败时，会话已存在，界面跳到该会话并保留草稿，让用户再点一次发送。Host 默认 Profile 绑定 Workflow 时 `session.create` 返回 `UNSUPPORTED_PROFILE`，提示“请在电脑上选择一个普通配置”。
 
@@ -202,7 +209,8 @@ v1 默认“记住此设备”，不再提供“仅本次使用”选项：App �
 - 只为“至少有一台已注册推送的设备被授权”的在线项目工作。
 - 每 5 秒读一次该项目的 `attention` 摘要；发送器启动或项目上线后的第一次读取只建立基线，不发通知，避免重启后重复提醒。
 - 以 attention 引用的原生身份去重；同一引用只提醒一次。
-- 轮次完成事件以现有提交 journal 中本设备的 `session.send` 记录为准，观察到该 Turn 进入终态后发送一次，然后从待观察列表移除。
+- 轮次完成事件以现有提交 journal 中本设备的 `session.send` 记录为准，按精确 turnId 或 queueItemId 绑定的 turnId 观察；不按最新轮次推断。最多 16 个观察复用既有原生订阅预算，终态、撤销或失效时释放。启动基线已终态不补发，旧轮次缺失于有界基线、队列项移除或容量满时可能遗漏通知。
+- 每项目每轮最多 8 次 attention 读取，每次最多读取 4 页原生概览；完整基线建立前不推送，最多保留 4096 个原生 attentionRef。第一条通知立即发送，30 秒内复用 collapse ID 更新计数。读取不完整或达到容量时通知为尽力投递。
 - Relay 未声明支持推送、未连接或返回限流时，丢弃本次通知并记录脱敏诊断，不重试堆积，不影响任何业务路径。
 
 ### 协议新增
@@ -216,7 +224,8 @@ v1 默认“记住此设备”，不再提供“仅本次使用”选项：App �
 
 - `token` 为 64 到 200 位十六进制；`environment` 只接受 `production`（TestFlight 使用生产 APNs）或 `development`（Xcode 调试）。
 - 成功返回 `{registered:true}`。Relay 不支持推送时返回 `RESOURCE_UNAVAILABLE`，App 在设置页显示“这个 Relay 未开启推送”。
-- `device.push.unregister` 无参数，删除本设备 token。
+- `device.push.unregister` 使用空 `params:{}`，删除本设备 token，返回 `{registered:false}`。注册和注销均不带项目 context。
+- 推送写入和收据在同一次 `remote.json` 加密保存中提交。丢失响应后，仅用不带 context 的 `command.read {params:{commandId}}` 查询当前设备收据；已知结果返回 `receipt:{registered}`，notFound 仍是未知，不能重发。Host 最多保留 4096 条收据，满时拒绝新写入，不驱逐待核对记录。
 
 hello 新增可选字段 `clientKind: "web" | "ios"`，只用于电脑端设备列表的展示，不参与授权判断。`ready` 与 `host.describe` 的 `capabilities` 在 Relay 支持推送时增加 `push`。这些变更需同步更新 [Remote API](../api/remote-control.md) 的已实现边界与 C4 方法目录。
 
@@ -234,7 +243,7 @@ hello 新增可选字段 `clientKind: "web" | "ios"`，只用于电脑端设备�
 }
 ```
 
-- Host 的 `ready` 消息里 `limits` 旁新增 `push: true|false`，Host 据此决定是否向 App 公告 `push` 能力。
+- 支持推送的 Host 在 WSS upgrade 时发送 `X-Areal-Relay-Capabilities: push`，Relay 仅向这些 Host 的 `ready` 消息在 `limits` 旁新增 `push: true|false`；旧 Host 保持原结构。旧 Relay 忽略请求头且不含 `push`，Host 按不可用处理，再据此决定是否向 App 公告 `push` 能力。
 - 新增 Host 发出的外层消息 `{"type":"push","token":"…","environment":"production","collapseId":"…","kind":"attention|turnCompleted|turnFailed","count":1,"target":{…}}`。只接受已注册的 host 角色连接；`target` 只允许 `projectId`、`threadId`、`attentionRef` 三个不透明字符串字段。
 - Relay 把 `kind` 映射成上面的固定中文文字，Host 不能传任意通知文字。
 - JWT 每 50 分钟重签一次；APNs 返回 `410 Unregistered` 时，回给 Host `{"type":"pushResult","token":"…","status":"unregistered"}`，Host 删除该 token。
@@ -303,7 +312,7 @@ hello 新增可选字段 `clientKind: "web" | "ios"`，只用于电脑端设备�
 - 网络可达或扫到二维码都不等于授权；授权只来自电脑端本机确认。App 不保存也不发送任何 Core 或桌面凭据。
 - 邀请秘密只在本次配对的内存里存在，不写日志、钥匙串或崩溃报告。App 不接入第三方分析或崩溃收集 SDK。
 - 推送载荷不含业务内容；通知上不提供批准按钮，审批必须进入 App 查看参数后完成。
-- 撤销授权后，App 在下次连接收到 `AUTH_REVOKED`，清空本地会话投影，提示重新配对；钥匙串里的设备身份保留到用户选择“清除此设备”。
+- 撤销授权后，App 在下次连接收到现有 `FORBIDDEN` 认证拒绝，清空本地会话投影，提示重新配对；钥匙串里的设备身份保留到用户选择“清除此设备”。
 - 配对页和授权确认页继续提示“这台手机可以看到所选项目内的会话内容，并可以通过 Agent 使用当前执行权限”。
 
 ## 实施顺序（PR 切片）
@@ -312,9 +321,9 @@ hello 新增可选字段 `clientKind: "web" | "ios"`，只用于电脑端设备�
 
 | # | 内容 | 完成标准 |
 | --- | --- | --- |
-| 1 | Capacitor iOS 空壳 + WKWebView 内 Noise 握手验证 | 模拟器里对本机严格 TLS 的 Relay 夹具完成一次 `hello`/`ready` |
+| 1 | Capacitor iOS 空壳、Relay `allowedAppOrigins` 与 WKWebView 内 Noise 握手验证 | 模拟器里对本机严格 TLS 的 Relay 夹具完成一次 `hello`/`ready`；Relay 测试覆盖 App origin 接受与拒绝 |
 | 2 | 抽出 `@areal/remote-client`，PWA 改为从包导入 | 现有 `test:remote-*` 全部通过，PWA 行为不变 |
-| 3 | Relay `allowedAppOrigins` | `services/remote-relay` 测试覆盖接受与拒绝；部署文档更新 |
+| 3 | Relay 部署配置 | 在自建部署中启用切片 1 的 `allowedAppOrigins` 支持，验证精确 App origin |
 | 4 | 钥匙串插件、扫码、粘贴链接、配对与等待确认页 | 真机扫码配对成功；杀掉 App 重开无需重新配对；清除设备后需重新配对 |
 | 5 | 项目页、会话列表、会话页（只读） | 能看到授权项目与会话，打开会话能看到历史与实时更新 |
 | 6 | 新建会话、发送、排队、停止、模型面板 | 按“新建会话的顺序”完成；结果未知时只查不重发 |
@@ -342,4 +351,4 @@ hello 新增可选字段 `clientKind: "web" | "ios"`，只用于电脑端设备�
 - 设计系统部分采用了“设计系统优化方案”和“对话流与 Composer 重设计方案”中的分层、token 和占位文字规则；两份方案尚未定稿，若定稿内容不同，以定稿为准。
 - 组织有 Apple Developer 团队，能在 Relay 上配置自己的 APNs 密钥，并以自己的团队签名发布 TestFlight 包。
 - 一个 App 安装只记住一台电脑。需要切换电脑时先清除设备再重新配对。
-- 模型列表来自电脑端会话快照里的模型目录，App 不维护自己的模型列表。
+- 模型列表来自电脑端 `project.models` 或会话快照里的同一目录投影，App 不维护自己的模型列表。

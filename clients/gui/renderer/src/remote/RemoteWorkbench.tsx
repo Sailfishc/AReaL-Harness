@@ -1,3 +1,4 @@
+import { projectedTurns } from "./session-projection.js";
 import { ComposerActionButton } from "@areal/ui/experimental";
 import { ApplicationIntlProvider } from "../i18n/IntlProvider.js";
 import { createRoot } from "react-dom/client";
@@ -223,26 +224,6 @@ function Home({ view, api }: { view: View; api: API }) {
       </nav>
     </TooltipProvider>
   );
-}
-function projectedTurns(turns: Data[] = []) {
-  return turns.map((turn) => ({
-    ...turn,
-    items: turn.items.map((item: Data) => {
-      if (item.body) return { ...item, ...item.body };
-      const body = item.preview ?? "";
-      if (item.type === "userMessage") return { ...item, content: [{ type: "text", text: body }] };
-      if (item.type === "agentMessage") return { ...item, text: body };
-      if (item.type === "reasoning") return { ...item, summary: [body], content: [] };
-      if (item.type === "dynamicToolCall")
-        return {
-          ...item,
-          arguments: {},
-          contentItems: [{ type: "inputText", text: body }],
-          execution: { outcome: item.executionOutcome ?? "unknown" },
-        };
-      return { ...item, text: body };
-    }),
-  }));
 }
 function Session({ view, api }: { view: View; api: API }) {
   const dark = useRemoteTheme();

@@ -18,6 +18,7 @@ GUI Renderer reads the preload object only in `main.tsx`. `createDesktopServices
 |---|---|
 | `clients/cli`, `clients/tui`, `clients/web` | CLI, terminal and local Web; connection setup, projections and requests |
 | `clients/gui` | React/Electron desktop client; narrow IPC, native resources, public service discovery and rebuildable projections |
+| `clients/mobile` | Capacitor iOS Remote client; reuse the GUI mobile entry, shared Remote protocol and conversation components, with native Keychain, scanning and lifecycle adapters; see the [iOS development guide](../development/ios-development.en.md) for capabilities and acceptance boundaries |
 | `core/config` | User configuration, provenance, credential references, Skill directories and the tool-host proxy environment allowlist; no Engine/Runtime dependency |
 | `core/protocol` | Client protocol projections and shared types |
 | `core/engine` | Models, tools, history, persistence, child tasks and Workgroups |
@@ -175,7 +176,7 @@ Desktop worktrees use `clients/gui/app/src/core/worktrees.cjs` for creation and 
 
 ## Repository layout
 
-Desktop ownership follows the [migration decision](../adr/0001-desktop-client-module.en.md). The independent Electron adapter retains OS credentials and subscription forwarding and connects through the public shared-service API. GUI exit preserves Core work. On macOS, the packaged foreground and background adapter have separate application identities while sharing main-bundle resources and existing data directories, so Finder does not send GUI reopen requests to a windowless background process. See the [GUI guide](../../clients/gui/README.en.md) for builds, isolation and local packages. Mobile source migration is deferred.
+Desktop ownership follows the [migration decision](../adr/0001-desktop-client-module.en.md). The independent Electron adapter retains OS credentials and subscription forwarding and connects through the public shared-service API. GUI exit preserves Core work. On macOS, the packaged foreground and background adapter have separate application identities while sharing main-bundle resources and existing data directories, so Finder does not send GUI reopen requests to a windowless background process. See the [GUI guide](../../clients/gui/README.en.md) for builds, isolation and local packages. The iOS Remote client lives in `clients/mobile`. Web and iOS share protocol, command reconciliation and session state through `@areal/remote-client`, with platform IndexedDB and Keychain persistence adapters. Core/Runtime on the computer retain execution and history authority.
 
 GUI mixed messages use a rebuildable presentation projection: Streamdown renders Markdown, a shared UI catalog validates strictly versioned `areal-ui` data and renders read-only React components, and Gen UI/MCP retain their existing isolated hosts. Core remains authoritative for original messages and artifacts. Copy can use the same text projection; this does not migrate persistent history or introduce executable component protocols. Approval and Ask User share presentation surfaces while original request controllers retain legal actions, drafts, submission locks and UNKNOWN reconciliation.
 
