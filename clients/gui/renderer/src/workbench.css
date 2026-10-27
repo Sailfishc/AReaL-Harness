@@ -1504,29 +1504,6 @@ button.composer-project:hover > svg,
   margin: 0;
   min-width: 0;
 }
-.tool-summary-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  max-width: 100%;
-  min-height: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  text-align: left;
-  font-size: var(--text-conversation);
-  line-height: var(--conversation-line);
-  color: var(--activity-foreground);
-}
-.tool-summary-row > svg {
-  flex-shrink: 0;
-}
-.tool-summary-detail {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: inherit;
-}
 .tool-result {
   font-size: var(--text-ui-caption);
   white-space: nowrap;
@@ -1537,8 +1514,6 @@ button.composer-project:hover > svg,
   flex-shrink: 0;
   transition: transform 300ms cubic-bezier(0.4, 0, 0.2, 1);
 }
-.tool-summary-row:hover .tool-chevron,
-.tool-summary-row:focus-visible .tool-chevron,
 .tool-chevron.open {
   opacity: 1;
 }
@@ -2159,24 +2134,6 @@ button[aria-label="停止"] {
   font-weight: 400;
   min-width: 0;
 }
-/* 一个回合段内可有多个活动段（CONV-ACTIVITY-01）：段与段之间只隔一个块间距，与正文、子代理行同一节奏。 */
-.turn-execution > .areal-activity-group > .areal-disclosure {
-  margin-block: 0;
-}
-.turn-execution > .areal-activity-group + .areal-activity-group {
-  margin-top: var(--conversation-gap);
-}
-/* 展开的同类分组里，类型已由摘要图标说明；子项只保留动作与对象，不重复行首图标。 */
-.turn-execution
-  .areal-activity-group:not([data-presentation="inline"])
-  .areal-activity-list
-  :is(.tool-summary-row, .areal-image-disclosure .areal-disclosure-trigger)
-  > svg[data-activity-icon]:first-child {
-  display: none;
-}
-.tool-summary-row:hover {
-  color: var(--color-foreground);
-}
 .execution-failures {
   font-size: var(--text-content-caption);
   color: var(--color-destructive);
@@ -2275,29 +2232,6 @@ button[aria-label="停止"] {
 .reasoning-group-entry + .reasoning-group-entry {
   margin-top: 12px;
 }
-.tool-summary-row {
-  min-width: 0;
-}
-.tool-summary-row > span:not(.tool-summary-text) {
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-.tool-summary-detail {
-  min-width: 0;
-}
-.tool-summary-text {
-  display: flex;
-  gap: 6px;
-  min-width: 0;
-  overflow: hidden;
-}
-.tool-summary-text > span:first-child {
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-.tool-file-row {
-  gap: 6px;
-}
 .tool-file-row .tool-file-link {
   display: block;
   height: auto;
@@ -2327,10 +2261,6 @@ button[aria-label="停止"] {
   border: 0;
   background: transparent;
   color: inherit;
-}
-.tool-file-row:focus-within .tool-chevron,
-.tool-file-row:hover .tool-chevron {
-  opacity: 1;
 }
 .tool-file-row .tool-file-diff-toggle {
   height: auto;
@@ -4680,11 +4610,7 @@ button[aria-label="停止"] {
   line-height: var(--conversation-line);
   overflow-wrap: anywhere;
 }
-.tool-image-row > .areal-image-disclosure {
-  min-width: 0;
-  flex: 1;
-}
-.turn-execution .areal-activity-list .tool-file-diff {
+.turn-execution .tool-file-diff {
   max-width: 100%;
 }
 

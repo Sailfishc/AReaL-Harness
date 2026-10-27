@@ -55,8 +55,11 @@ function toolAction(item: Data): string {
   if (hasToolImage(item)) return "查看图片";
   if (Object.hasOwn(specificActions, item.tool)) return specificActions[item.tool];
   const { kind } = toolPresentation(item);
+  // 读取、搜索、列目录都是为了了解工作区，连续出现时合成一段“探索”。
+  if (exploreKinds.has(kind)) return "探索";
   return kind === "tool" && item.tool ? `调用 ${item.tool}` : categoryLabels[kind];
 }
+const exploreKinds = new Set<ToolKind>(["read", "search", "list"]);
 const categoryLabels: Record<ToolKind, string> = {
   read: "读取文件",
   edit: "修改文件",
@@ -68,7 +71,7 @@ const categoryLabels: Record<ToolKind, string> = {
 };
 
 /**
- * 把时间线行切成"连续同一动作"的段：连续多次运行命令合成一段，读取文件另起一段。
+ * 把时间线行切成"连续同一动作"的段：连续多次运行命令合成一段，连续的读取、搜索与列目录合成一段探索。
  * 只有普通工具调用参与合并；思考组、子代理创建等行各自成段，保持原有顺序。
  */
 export function activityRuns(
@@ -85,10 +88,31 @@ export function activityRuns(
   return runs;
 }
 
-/** 合并段的标题：过去时动词短语；仍有运行中的项时用进行时。不显示数量。 */
+/**
+ * 合并段的标题（CONV-ACTIVITY-01）：过去时动词短语带真实数量，仍有运行中的项时用进行时。
+ * 探索按首次出现顺序列出文件、目录与搜索；文件和目录按路径去重。期望输出见 activity-runs.cases.json。
+ */
 export function activityRunLabel(run: { key: string | null; items: Data[] }): string {
-  const action = run.key ?? "执行活动";
-  return run.items.some((item) => toolPresentation(item).running) ? `正在${action}` : `已${action}`;
+  const tense = run.items.some((item) => toolPresentation(item).running) ? "正在" : "已";
+  if (run.key === null) return `${tense}执行活动`;
+  const distinct = (items: Data[]) =>
+    new Set(items.map((item) => item.arguments?.path ?? item.arguments?.file_path ?? item.id)).size;
+  if (run.key === "探索") {
+    const parts = new Map<ToolKind, Data[]>();
+    for (const item of run.items) {
+      const { kind } = toolPresentation(item);
+      parts.set(kind, [...(parts.get(kind) ?? []), item]);
+    }
+    const text = [...parts].map(([kind, items]) =>
+      kind === "search"
+        ? `${items.length} 次搜索`
+        : `${distinct(items)} 个${kind === "list" ? "目录" : "文件"}`,
+    );
+    return `${tense}探索 · ${text.join("，")}`;
+  }
+  if (run.key === "运行命令") return `${tense}运行 ${run.items.length} 条命令`;
+  if (run.key === "修改文件") return `${tense}编辑 ${distinct(run.items)} 个文件`;
+  return `${tense}${run.key} · ${run.items.length} 次`;
 }
 
 /** Counts projected activities, not output polls or raw invocation records. */
