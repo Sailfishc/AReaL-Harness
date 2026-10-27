@@ -1,4 +1,9 @@
 export const commonMessages = {
+  "common.update.retryCheck": { "zh-CN": "重新检查更新", en: "Check for updates again" },
+  "common.update.networkChanged": {
+    "zh-CN": "网络发生变化，更新请求中断。请待网络稳定后点击重试。",
+    en: "The update request was interrupted by a network change. Retry once your connection is stable.",
+  },
   "common.contextProjection": {
     "zh-CN":
       "这里展示 Core 当前保留的消息与压缩摘要。工具定义、供应商私有上下文及下次请求配置不完整呈现在此。",

@@ -382,6 +382,8 @@ Incremental conversation copy uses the same gate. `test:context-usage` also chec
 
 ## Installation and updates
 
+If an update check fails, including after a network change, click the blue update button to check again. When a new version is found, click again to download it. If the app is already up to date, the error disappears. After a download or native validation failure, the same button retries the offered version.
+
 Formal macOS arm64 releases use a DMG for first installation and a ZIP for automatic updates, with Developer ID signing and Apple notarization. Verify the matching release's `SHA256SUMS`, drag the app from the DMG to your chosen installation directory, and open it while following macOS security and privacy prompts.
 
 Before upgrading, back up GUI data (normally `~/Library/Application Support/AReaL Harness GUI`), shared configuration in `~/.areal`, and custom project data. Downloading keeps tasks running. After native validation, installation waits for active tasks, queued input, and backend operations to settle safely before stopping the backend and handing replacement/relaunch to the system. If stop acceptance is unknown, inspect the original backend resources without submitting installation again. Retry download/validation failures; if the app does not reopen after system handoff, open its original installation location and check the version. Reverting the app does not downgrade data: restoring an older app may require its matching backup. Credentials keep their existing secure-storage identity; directory backups do not imply keychain portability between machines.
