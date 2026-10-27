@@ -35,6 +35,8 @@ Host ready 返回当前配置的帧/字节/最大帧限额，以及实际 heartb
 
 代理只接收选定的 HTTPS 主机名，保留精确 Host 头，将 `/remote/socket` 按 WebSocket 转发，并设置请求/连接限制。明文 HTTP 可重定向 HTTPS，但不能代理 enrollment 或 WebSocket 流量。禁止记录请求体、WebSocket 内容、登记 code、凭据、邀请或敏感 URL fragment。后端不信任 `Forwarded` 或 `X-Forwarded-*`；其他本地进程处于这一明确的信任边界内。没有通配 Origin 或自动公网回退。只有显式 `development: true` 且公开 origin 为 loopback 时才允许 HTTP/WS。
 
+Relay 的 `allowedClientOrigins` 继续只接受 Web origin。可选 `allowedAppOrigins` 默认为 `[]`；原生 App 部署可显式设为 `["capacitor://localhost"]`。每项必须是精确的 `scheme://host`，scheme 不能是 `http`、`https`、`ws`、`wss`；拒绝空 host、凭据、端口、路径（含结尾斜杠）、查询、fragment、空白与百分号编码。WebSocket upgrade 和 client 注册都要求 Origin 精确命中两份列表之一；无 Origin 只允许证明登记凭据的 Host，不能注册为 Client。自定义 scheme 的 `URL.origin` 可以是 `null`，因此按已验证的完整字符串比较。原生 App 可以伪造 Origin，Origin 不提供身份或执行授权；Host 身份仍由 Noise pin 验证，权限仍由 Host DeviceGrant 决定。
+
 ## 外层协议
 
 连接 `/remote/socket`；禁用压缩和二进制 WebSocket 消息。第一条 JSON 为登记消息：

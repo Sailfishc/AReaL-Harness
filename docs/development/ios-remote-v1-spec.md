@@ -312,9 +312,9 @@ hello 新增可选字段 `clientKind: "web" | "ios"`，只用于电脑端设备�
 
 | # | 内容 | 完成标准 |
 | --- | --- | --- |
-| 1 | Capacitor iOS 空壳 + WKWebView 内 Noise 握手验证 | 模拟器里对本机严格 TLS 的 Relay 夹具完成一次 `hello`/`ready` |
+| 1 | Capacitor iOS 空壳、Relay `allowedAppOrigins` 与 WKWebView 内 Noise 握手验证 | 模拟器里对本机严格 TLS 的 Relay 夹具完成一次 `hello`/`ready`；Relay 测试覆盖 App origin 接受与拒绝 |
 | 2 | 抽出 `@areal/remote-client`，PWA 改为从包导入 | 现有 `test:remote-*` 全部通过，PWA 行为不变 |
-| 3 | Relay `allowedAppOrigins` | `services/remote-relay` 测试覆盖接受与拒绝；部署文档更新 |
+| 3 | Relay 部署配置 | 在自建部署中启用切片 1 的 `allowedAppOrigins` 支持，验证精确 App origin |
 | 4 | 钥匙串插件、扫码、粘贴链接、配对与等待确认页 | 真机扫码配对成功；杀掉 App 重开无需重新配对；清除设备后需重新配对 |
 | 5 | 项目页、会话列表、会话页（只读） | 能看到授权项目与会话，打开会话能看到历史与实时更新 |
 | 6 | 新建会话、发送、排队、停止、模型面板 | 按“新建会话的顺序”完成；结果未知时只查不重发 |

@@ -35,6 +35,8 @@ Copy `config.example.json` and set the exact HTTPS `publicOrigin`, explicit `all
 
 Configure that proxy to accept only the chosen HTTPS hostname, preserve its exact Host header, forward `/remote/socket` as WebSocket, and impose request/connection limits. Plain HTTP may redirect to HTTPS but must not proxy enrollment or WebSocket traffic. Do not log request bodies, WebSocket data, enrollment codes, credentials, invites or sensitive URL fragments. Backend checks do not trust `Forwarded` or `X-Forwarded-*`; other local processes are inside this explicit trust boundary. There is no wildcard Origin or automatic public fallback. HTTP/WS are permitted only with explicit `development: true` and loopback public origin.
 
+Relay `allowedClientOrigins` continues to accept Web origins only. Optional `allowedAppOrigins` defaults to `[]`; native App deployments can explicitly set `["capacitor://localhost"]`. Each entry must be an exact `scheme://host` with a scheme other than `http`, `https`, `ws` or `wss`. Empty hosts, credentials, ports, paths (including a trailing slash), queries, fragments, whitespace and percent encoding are rejected. Both WebSocket upgrade and client registration require an Origin that exactly matches either list. Origin-less connections can only register as Hosts with valid enrollment credentials, never as Clients. A custom scheme can have `URL.origin` equal to `null`, so comparison uses the validated complete string. Native Apps can forge Origin; it grants no identity or execution authority. Noise pins still verify Host identity, and Host DeviceGrant still determines permissions.
+
 ## Outer wire
 
 Connect to `/remote/socket`; compression and binary WebSocket messages are disabled. Registration is the first JSON message:

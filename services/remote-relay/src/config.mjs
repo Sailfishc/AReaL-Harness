@@ -17,6 +17,15 @@ export function readConfig(file) {
   if (!Array.isArray(input.allowedClientOrigins) || !input.allowedClientOrigins.length || input.allowedClientOrigins.some(value => {
     try { const u = new URL(value); return u.origin !== value || u.protocol !== origin.protocol || (development && !['127.0.0.1', '[::1]', 'localhost'].includes(u.hostname)); } catch { return true; }
   })) throw new Error('CONFIG_CLIENT_ORIGIN');
+  const allowedAppOrigins = input.allowedAppOrigins === undefined ? [] : input.allowedAppOrigins;
+  if (!Array.isArray(allowedAppOrigins) || allowedAppOrigins.some(value => {
+    try {
+      const u = new URL(value);
+      return !u.hostname || ['http:', 'https:', 'ws:', 'wss:'].includes(u.protocol) ||
+        u.username || u.password || u.port || u.pathname || u.search || u.hash ||
+        value !== `${u.protocol}//${u.hostname}` || /[%\\\s]/.test(value);
+    } catch { return true; }
+  })) throw new Error('CONFIG_APP_ORIGIN');
   const limits = {};
   for (const [key, max] of Object.entries(ceilings)) {
     const value = input[key] ?? max;
@@ -27,6 +36,6 @@ export function readConfig(file) {
   if (typeof input.dataDir !== 'string' || !input.dataDir) throw new Error('CONFIG_DATA');
   return { ...limits, publicOrigin: origin.origin, publicHost: origin.host, development,
     listenHost: match[1].replace(/[\[\]]/g, ''), listenPort: +match[2],
-    allowedClientOrigins: input.allowedClientOrigins, dataDir: resolve(input.dataDir),
+    allowedClientOrigins: input.allowedClientOrigins, allowedAppOrigins, dataDir: resolve(input.dataDir),
     assetsDir: input.assetsDir ? resolve(input.assetsDir) : undefined };
 }

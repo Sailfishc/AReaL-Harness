@@ -312,9 +312,9 @@ Each PR merges on its own and updates the matching docs.
 
 | # | Contents | Done when |
 | --- | --- | --- |
-| 1 | Capacitor iOS shell + Noise handshake check inside WKWebView | The simulator completes one `hello`/`ready` against a local strict-TLS Relay fixture |
+| 1 | Capacitor iOS shell, Relay `allowedAppOrigins`, and Noise handshake check inside WKWebView | The simulator completes one `hello`/`ready` against a local strict-TLS Relay fixture; Relay tests cover accepted and rejected App origins |
 | 2 | Extract `@areal/remote-client`; the PWA imports from it | All existing `test:remote-*` pass and PWA behavior is unchanged |
-| 3 | Relay `allowedAppOrigins` | `services/remote-relay` tests cover accept and reject; deployment docs updated |
+| 3 | Relay deployment configuration | Enable the `allowedAppOrigins` support from slice 1 for the self-hosted deployment; verify the exact App origin |
 | 4 | Keychain plugin, scanning, pasted links, pairing and waiting screens | Pairing by scan works on a device; relaunching after a force quit needs no pairing; clearing the device requires pairing again |
 | 5 | Projects, session list, session screen (read only) | Authorized projects and sessions appear; an open session shows history and live updates |
 | 6 | New session, send, queue, stop, model sheet | Follows "New session order"; unknown results are queried, never resent |

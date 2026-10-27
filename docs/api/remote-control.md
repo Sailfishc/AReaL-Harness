@@ -332,6 +332,8 @@ Relay 或 Host 重连关闭旧通道，重新建立应用 connection 与读取�
 
 单实例 Relay 配置公开 origin、允许 Web origins、数据卷与本地管理入口。管理命令在服务器本地生成 256 位一次性 Host enrollment code，10 分钟过期，服务端只存 hash；不存在公开无认证的管理 HTTP 页面。Host 用 HTTPS 登记一次，获得/登记自己的 capability；长期凭据保留 Host 安全存储，不进入 QR。
 
+Relay 的 `allowedClientOrigins` 继续只接受 Web origin。可选 `allowedAppOrigins` 默认为 `[]`；原生 App 部署可显式设为 `["capacitor://localhost"]`。每项必须是精确的 `scheme://host`，scheme 不能是 `http`、`https`、`ws`、`wss`；拒绝空 host、凭据、端口、路径（含结尾斜杠）、查询、fragment、空白与百分号编码。WebSocket upgrade 和 client 注册都要求 Origin 精确命中两份列表之一；无 Origin 只允许证明登记凭据的 Host，不能注册为 Client。自定义 scheme 的 `URL.origin` 可以是 `null`，因此按已验证的完整字符串比较。原生 App 可以伪造 Origin，Origin 不提供身份或执行授权；Host 身份仍由 Noise pin 验证，权限仍由 Host DeviceGrant 决定。
+
 保留既有 room = SHA-256(capability) 方案。Relay 数据库存允许 room、登记状态与限额；Host 出站连接以 capability 证明可占有该 room，新连接必须替换同一合法 Host 的旧连接而非允许其他 room 劫持。Client 仅提供不可枚举的 room，Relay 不把它当执行授权。Noise pin 和 Host DeviceGrant 决定最终权限。
 
 Relay 外层只处理 host/client 注册、ready/open/data/close/error。Host 的 data 必须属于该 Host 的 room/channel；Client 只能收发自身 channel。Host 离线返回明确不可用，不排队保存业务命令。并发/字节/握手限流同样作用于尚未完成 Noise 的连接；错误不泄露其他 room 是否存在。

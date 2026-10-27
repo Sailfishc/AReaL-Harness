@@ -102,6 +102,8 @@ See the [Relay service guide](../../services/remote-relay/README.en.md) for actu
 
 Containers run non-root with a read-only root filesystem and one writable data volume, without mounting user projects. Pin images/dependencies, publish SBOM/notices and reproducible build instructions. All source, static assets, configuration examples and required scripts must be public.
 
+For native App access, add `"allowedAppOrigins": ["capacitor://localhost"]` to the Relay JSON configuration. The empty array in the examples, or omitting this field, denies App origins. List only the exact `scheme://host` used by the App, without ports, credentials, paths, queries, fragments, whitespace or percent encoding, and exclude HTTP(S)/WS(S) schemes. Keep Web origins in `allowedClientOrigins`. Both lists apply at WebSocket upgrade and client registration; Clients without Origin remain rejected. Native Apps can forge Origin; Noise pins and Host DeviceGrant still verify Host identity and device permissions.
+
 ## G4. Administrator and user flow
 
 The administrator provisions DNS/TLS/storage/proxy once and generates a ten-minute one-use Host enrollment code locally. Deliver endpoint and code using an existing secure organizational channel. Users should not configure databases or routers.

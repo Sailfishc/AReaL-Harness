@@ -46,7 +46,7 @@ export function attachRelay(server, config, store, log) {
   server.on('upgrade', (req, socket, head) => {
     const origin = req.headers.origin;
     if (req.url !== '/remote/socket' || req.headers.host !== config.publicHost ||
-        (origin !== undefined && !config.allowedClientOrigins.includes(origin)) ||
+        (origin !== undefined && !config.allowedClientOrigins.includes(origin) && !config.allowedAppOrigins.includes(origin)) ||
         peers.size >= config.maxConnections || pending >= config.maxPending || !upgrades(0)) {
       socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n', () => socket.destroy()); return;
     }
@@ -74,7 +74,7 @@ export function attachRelay(server, config, store, log) {
             pending--; clearTimeout(peer.timer); emit(peer, { type: 'ready', limits: { framesPerSecond: config.framesPerSecond, bytesPerSecond: config.bytesPerSecond, maxFrameBytes: config.maxFrameBytes, heartbeatIntervalMs: Math.min(15000, config.idleTimeoutMs / 3) } });
           } else if (message.role === 'client') {
             const host = hosts.get(message.room); const registration = store.room(message.room);
-            if (message.capability !== undefined || !config.allowedClientOrigins.includes(peer.origin) || !host?.alive || !registration) return drop(peer, 'UNAVAILABLE');
+            if (message.capability !== undefined || (!config.allowedClientOrigins.includes(peer.origin) && !config.allowedAppOrigins.includes(peer.origin)) || !host?.alive || !registration) return drop(peer, 'UNAVAILABLE');
             if (host.channels.size >= Math.min(registration.max_channels, config.maxChannelsPerHost)) return drop(peer, 'CAPACITY_EXCEEDED');
             peer.role = 'client'; peer.host = host; peer.room = message.room; peer.channel = randomUUID();
             host.channels.set(peer.channel, peer); pending--; clearTimeout(peer.timer);
