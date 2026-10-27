@@ -18,6 +18,7 @@ GUI Renderer reads the preload object only in `main.tsx`. `createDesktopServices
 |---|---|
 | `clients/cli`, `clients/tui`, `clients/web` | CLI, terminal and local Web; connection setup, projections and requests |
 | `clients/gui` | React/Electron desktop client; narrow IPC, native resources, public service discovery and rebuildable projections |
+| `clients/mobile` | Capacitor iOS development shell and WKWebView protocol probe; reuse the GUI mobile build and Remote encrypted channel, with feature acceptance staged by the [iOS spec](../development/ios-remote-v1-spec.en.md) |
 | `core/config` | User configuration, provenance, credential references, Skill directories and the tool-host proxy environment allowlist; no Engine/Runtime dependency |
 | `core/protocol` | Client protocol projections and shared types |
 | `core/engine` | Models, tools, history, persistence, child tasks and Workgroups |

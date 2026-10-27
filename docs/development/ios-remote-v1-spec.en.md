@@ -14,7 +14,7 @@ This page is for implementing engineers and Codex. Every method, field, director
 
 | Area | In v1 | Not in v1 |
 | --- | --- | --- |
-| Platform and distribution | iPhone on iOS 16+, TestFlight beta | Android, iPad-specific layout, App Store release, PWA changes |
+| Platform and distribution | iPhone on iOS 17.4+, TestFlight beta | Android, iPad-specific layout, App Store release, PWA changes |
 | Network | Self-hosted Relay (the default and only entry) | Direct (Tailscale Serve/Funnel, organization HTTPS), LAN direct, P2P hole punching |
 | Pairing | In-app QR scan, pasted pairing link, fingerprint check and authorization on the computer | Opening the app from the system camera (Universal Link), remembering several computers in one app |
 | Projects and sessions | Authorized project list, recent sessions per project, new session, open session, paged history | Session search, archive, rename, Task schedule editing |
@@ -81,6 +81,10 @@ interface Lifecycle { onActive(fn: () => void): void; onBackground(fn: () => voi
 ```
 
 ## Repository layout and build
+
+The minimum OS version is iOS 17.4. The existing Remote dependencies use `Promise.withResolvers()`, available since Safari 17.4. The App keeps the existing encryption library and standard APIs without a compatibility layer.
+
+See the [iOS development workflow](ios-development.en.md) for the current shell build, simulator gate, and tool choices. That guide separates development evidence from full acceptance in this spec.
 
 | Path | Contents |
 | --- | --- |

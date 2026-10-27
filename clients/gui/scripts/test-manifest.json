@@ -755,5 +755,13 @@
     "platforms": ["darwin", "linux", "win32"],
     "areas": ["design"],
     "requires": []
+  },
+  {
+    "script": "test:mobile-handshake",
+    "layer": "e2e",
+    "platforms": ["darwin"],
+    "platformReason": "Requires Xcode and the iOS Simulator WKWebView.",
+    "areas": ["remote", "mobile"],
+    "requires": ["ios-simulator"]
   }
 ]

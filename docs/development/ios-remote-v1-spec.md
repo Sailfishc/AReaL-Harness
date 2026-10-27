@@ -14,7 +14,7 @@ v1 交付一个只在 TestFlight 分发的 iOS App。手机只做控制层：通
 
 | 类别 | v1 包含 | v1 不包含 |
 | --- | --- | --- |
-| 平台与分发 | iOS 16+ iPhone，TestFlight 内测 | Android、iPad 专属布局、App Store 上架、PWA 改造 |
+| 平台与分发 | iOS 17.4+ iPhone，TestFlight 内测 | Android、iPad 专属布局、App Store 上架、PWA 改造 |
 | 网络 | 自建 Relay（默认且唯一入口） | Direct（Tailscale Serve/Funnel、组织 HTTPS 直连）、局域网直连、P2P 打洞 |
 | 配对 | App 内扫码、粘贴配对链接、电脑端核对指纹并授权 | 系统相机扫码直接唤起 App（Universal Link）、同一 App 记住多台电脑 |
 | 项目与会话 | 已授权项目列表、项目内最近会话、新建会话、打开会话、分页加载历史 | 会话搜索、归档、重命名、Task 排程编辑 |
@@ -81,6 +81,10 @@ interface Lifecycle { onActive(fn: () => void): void; onBackground(fn: () => voi
 ```
 
 ## 仓库结构与构建
+
+最低系统版本为 iOS 17.4。现有 Remote 依赖使用 `Promise.withResolvers()`，该 API 从 Safari 17.4 起提供。App 沿用现有加密库与标准 API，不添加兼容层。
+
+移动壳的当前构建、模拟器门禁和工具选择见 [iOS 开发流程](ios-development.md)。该文档区分开发证据与本规格的完整验收。
 
 | 路径 | 内容 |
 | --- | --- |

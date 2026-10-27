@@ -18,6 +18,7 @@ GUI Renderer 只在 `main.tsx` 读取 preload 对象，由 `createDesktopService
 |---|---|
 | `clients/cli`, `clients/tui`, `clients/web` | CLI、终端和本地 Web；初始化连接、显示投影与提交请求 |
 | `clients/gui` | React/Electron 桌面客户端；窄 IPC、原生资源、公开服务发现与可重建投影 |
+| `clients/mobile` | Capacitor iOS 开发壳与 WKWebView 协议探针；复用 GUI 的 mobile 构建和 Remote 加密通道，业务功能按 [iOS 规格](../development/ios-remote-v1-spec.md)分段验收 |
 | `core/config` | 解析用户配置、来源、凭据引用和 Skill 目录，定义工具宿主的代理环境白名单；不依赖 Engine 或 Runtime |
 | `core/protocol` | 客户端协议投影和共享类型 |
 | `core/engine` | 模型、工具、历史、持久化、父子任务和 Workgroup |

@@ -134,7 +134,11 @@
     "lint": "vp lint",
     "test:design-rules": "node --test scripts/design-rules.test.mjs",
     "measure:gui": "node scripts/gui-performance.mjs",
-    "contracts:check": "python3 scripts/generate-management-contracts.py --check"
+    "contracts:check": "python3 scripts/generate-management-contracts.py --check",
+    "mobile:build": "pnpm --filter @areal/gui-renderer exec vp build --config vite.mobile.config.ts",
+    "mobile:sync": "pnpm mobile:build && pnpm --filter @areal/mobile sync",
+    "test:mobile-handshake": "node scripts/mobile-handshake-smoke.mjs",
+    "mobile:typecheck": "pnpm --filter @areal/gui-renderer exec tsc --noEmit -p tsconfig.mobile.json"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.14.0",
