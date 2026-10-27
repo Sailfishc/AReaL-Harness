@@ -19,6 +19,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "../components/ui/dropdown-menu.js";
+import { HoverActions } from "../components/ui/hover-actions.js";
 import {
   ComposerPlusIcon,
   ProjectFolderIcon,
@@ -257,7 +258,7 @@ function SidebarProjectGroup({ owner }: { owner: Data }) {
           {collapsed ? <ProjectFolderIcon /> : <ProjectOpenFolderIcon />}
           <span>{library.projects?.[owner.id]?.title || owner.root.split("/").pop()}</span>
         </Button>
-        <div className="project-actions">
+        <HoverActions className="project-actions">
           <DropdownMenu>
             <DropdownMenuTrigger
               render={
@@ -376,7 +377,7 @@ function SidebarProjectGroup({ owner }: { owner: Data }) {
           >
             <ProjectNewChatIcon />
           </Button>
-        </div>
+        </HoverActions>
       </SidebarDragSurface>
       <div id={`project-threads-${owner.id}`} hidden={collapsed}>
         <ul>

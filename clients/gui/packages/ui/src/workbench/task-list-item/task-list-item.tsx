@@ -17,6 +17,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "../../components/dropdown-menu/dropdown-menu.js";
+import { HoverActions } from "../../components/hover-actions/hover-actions.js";
 export const MemoTaskItem = memo(function TaskListItem({
   id,
   title,
@@ -127,7 +128,7 @@ export const MemoTaskItem = memo(function TaskListItem({
           <GitFork className="size-3.5" aria-hidden="true" />
         </span>
       )}
-      <span
+      <HoverActions
         onClick={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
         className="task-row-actions"
@@ -175,7 +176,7 @@ export const MemoTaskItem = memo(function TaskListItem({
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-      </span>
+      </HoverActions>
     </li>
   );
   return renderSurface ? renderSurface(surface.props) : surface;

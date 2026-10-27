@@ -132,9 +132,10 @@ export default defineConfig({
       "design-suite": {
         command: [
           "pnpm --filter @areal/ui check",
-          "node --test scripts/design-system-catalog.test.mjs scripts/design-system-changes.test.mjs scripts/design-system-accessibility.test.mjs scripts/a11y-lint.test.mjs scripts/design-system-baseline.test.mjs",
+          "node --test scripts/design-system-catalog.test.mjs scripts/design-system-changes.test.mjs scripts/design-system-accessibility.test.mjs scripts/a11y-lint.test.mjs scripts/popup-anchor-lint.test.mjs scripts/design-system-baseline.test.mjs",
           "node scripts/design-system-audit.mjs",
           "node scripts/a11y-lint.mjs",
+          "node scripts/popup-anchor-lint.mjs",
           "node scripts/design-rules.mjs",
         ],
         dependsOn: ["ui-build"],

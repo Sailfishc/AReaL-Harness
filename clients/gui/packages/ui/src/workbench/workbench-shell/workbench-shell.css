@@ -615,6 +615,7 @@
   line-height: 1.42857;
 }
 .navigation-task-row:hover,
+.navigation-task-row:has([data-popup-open]),
 .navigation-task-row[aria-current="page"] {
   background: var(--color-sidebar-item, var(--color-hover));
 }
@@ -622,24 +623,15 @@
   background: var(--color-navigation-selected);
 }
 
+/* 显隐交给 HoverActions；这里只负责定位，标题在操作区可见时让出空间。 */
 .task-row-actions {
   position: absolute;
   right: 8px;
   top: 50%;
   transform: translateY(-50%);
-  display: flex;
-  align-items: center;
   gap: 8px;
-  opacity: 0;
-  pointer-events: none;
 }
-.navigation-task-row:is(:hover, :focus-within) .task-row-actions,
-.navigation-task-row:has([aria-expanded="true"]) .task-row-actions {
-  opacity: 1;
-  pointer-events: auto;
-}
-.navigation-task-row:is(:hover, :focus-within) .task-row-title,
-.navigation-task-row:has([aria-expanded="true"]) .task-row-title {
+.navigation-task-row:is(:hover, :has(:focus-visible), :has([data-popup-open])) .task-row-title {
   padding-right: 80px;
 }
 .navigation-task-title {
