@@ -4617,7 +4617,7 @@
       "title": "Messages.tsx 由 App.tsx 挂载，在主阅读区或嵌入上下文中展示传入的任务投影",
       "owner": "clients/gui/renderer/src/Messages.md#messages",
       "strength": "default",
-      "textSha256": "ad2027c0a26f5f71954740c39ddda5d1d663c4c8f53cf1fc9b3af97401f33ed6"
+      "textSha256": "4abc7a6e29e04ddcbae7f87f11a9ecd85f814f6f1980f657f5336265f9887c20"
     },
     {
       "id": "R-MESSAGES-003",

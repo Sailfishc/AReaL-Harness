@@ -121,7 +121,7 @@ v1 always remembers the device and drops the "this session only" option: the app
 
 - App becomes active: read the Keychain → open the Relay connection → Noise check against the Host pin → hello (no invite) → `ready` → fetch `project.list` and what the current screen needs → for pending `commandId`s, call `command.read` only.
 - App goes to the background: close the WebSocket, release subscriptions, keep drafts in memory. Request no background keep-alive.
-- Reconnect with the existing rules: 0.5–30 second jittered backoff. Grant changes, protocol incompatibility and `AUTH_REVOKED` stop automatic retries and show the reason.
+- Reconnect with the existing rules: 0.5–30 second jittered backoff. Grant changes, protocol incompatibility and a `FORBIDDEN` reauthentication refusal stop automatic retries and show the reason.
 - Connection state appears at the top of the projects screen: "Connected · Can operate / View only", "Connecting…", "Computer offline", "Access revoked, pair again". "Computer offline" must never be shown as the task having stopped.
 - Settings offers "Clear this device": disconnect first, then clear the Keychain, and remind the user to revoke the device on the computer as well.
 
@@ -312,7 +312,7 @@ The session screen reuses the GUI message stream and Composer directly, so once 
 - Network reachability or a scanned QR code is never authorization; authorization comes only from the local confirmation on the computer. The app neither stores nor sends any Core or desktop credentials.
 - The invite secret exists only in memory during pairing and is never written to logs, the Keychain or crash reports. The app includes no third-party analytics or crash reporting SDKs.
 - Push payloads carry no business content. Notifications offer no approve button; approvals are completed inside the app after the arguments are shown.
-- After revocation the app receives `AUTH_REVOKED` on its next connection, clears local session projections and asks the user to pair again. The device identity stays in the Keychain until the user chooses "Clear this device".
+- After revocation the app receives the existing `FORBIDDEN` authentication refusal on its next connection, clears local session projections and asks the user to pair again. The device identity stays in the Keychain until the user chooses "Clear this device".
 - The pairing and authorization screens keep the warning that the phone can see session content in the selected projects and can use the current execution permissions through the Agent.
 
 ## Implementation order (PR slices)
