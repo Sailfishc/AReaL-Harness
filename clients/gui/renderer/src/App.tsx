@@ -134,7 +134,6 @@ function AppContent({ services }: { services: PlatformServices }) {
   } = surfaces;
   const navigationWorkspace = useNavigationWorkspace();
   const navigation = navigationWorkspace.workspace;
-  const archived = navigationWorkspace.archived;
   useEffect(surfaces.restoreSettingsFocus, [settingsOpen]);
   const fork = useConversationFork(
     project,
@@ -423,16 +422,7 @@ function AppContent({ services }: { services: PlatformServices }) {
     !(thread && admitting) &&
     thread?.conversation?.kind !== "fork" &&
     !thread?.turns?.some((turn: Data) => turn.items?.length || turn.status === "inProgress");
-  const taskActions = (
-    <WorkspaceTaskActions
-      session={session}
-      workspacePanels={workspacePanels}
-      navigation={navigation}
-      archived={archived}
-      setSidebar={setSidebar}
-      showPanel={showPanel}
-    />
-  );
+  const taskActions = <WorkspaceTaskActions session={session} workspacePanels={workspacePanels} />;
   const pluginCenterActive = surfaces.pluginCenterActive;
   const applicationRail = (
     <WorkbenchRail
