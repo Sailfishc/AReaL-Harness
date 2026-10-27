@@ -80,20 +80,12 @@
 .areal-activity-status p {
   margin-block: var(--spacing-inline);
 }
-/* 展开后子项与摘要文字对齐（图标 + 间距），标题与子项、子项之间各隔一个行内间距。 */
+/* 展开后子项与摘要左缘对齐，各自保留行首图标（读取、搜索、命令各不相同）；标题与子项、子项之间各隔一个行内间距。 */
 .areal-activity-group:not([data-presentation="inline"]) .areal-activity-list {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-inline);
   margin-top: var(--spacing-inline);
-  padding-left: calc(var(--activity-icon-size) + var(--activity-icon-gap));
-}
-/* 展开的同类分组里，类型已由摘要图标说明；子项只保留动作与对象，不重复行首图标。 */
-.areal-activity-group:not([data-presentation="inline"])
-  .areal-activity-list
-  :is(.areal-activity-row, .areal-image-disclosure .areal-disclosure-trigger)
-  > svg[data-activity-icon]:first-child {
-  display: none;
 }
 .areal-activity-list:focus-visible {
   outline: var(--focus-width) solid var(--color-foreground);

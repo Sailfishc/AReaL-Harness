@@ -8,7 +8,7 @@ layer: conversation
 category: activity
 aliases: ["活动行", "工具调用行"]
 related: ["activity-group", "image-disclosure"]
-exports: ["ActivityRow", "ActivityRowButton", "ActivityRowText", "ActivityRowStatus", "ActivityRowChevron"]
+exports: ["ActivityRow", "ActivityRowButton", "ActivityRowText", "ActivityRowStatus", "ActivityRowChevron", "ActivityRowHint"]
 ---
 
 # ActivityRow 活动行
@@ -19,7 +19,7 @@ exports: ["ActivityRow", "ActivityRowButton", "ActivityRowText", "ActivityRowSta
 
 ## 组成
 
-以部件组合代替 `kind` 开关：`ActivityRow` / `ActivityRowButton` 是行本身，`icon` 放行首图标；`ActivityRowText` 放动作和对象；`ActivityRowStatus` 放完成以外的结果；`ActivityRowChevron` 放展开箭头。新增一种行就是新增一种组合。
+以部件组合代替 `kind` 开关：`ActivityRow` / `ActivityRowButton` 是行本身，`icon` 放行首图标；`ActivityRowText` 放动作和对象；`ActivityRowStatus` 放完成以外的结果；`ActivityRowChevron` 放展开箭头；`ActivityRowHint` 给被缩短的对象（含文件链接按钮）加完整值提示。新增一种行就是新增一种组合。
 
 ## 状态
 
@@ -34,6 +34,8 @@ exports: ["ActivityRow", "ActivityRowButton", "ActivityRowText", "ActivityRowSta
 动作和对象来自宿主的真实投影（`conversationPresentation.ts`）；组件只负责排版。
 
 `R-ACTIVITYROW-005` 读取和编辑行说明是哪个文件，打开文件、查看本次差异和查看原始记录是各自独立的按钮；文件当前内容与当时的读取回执来源不同，分开呈现。**为什么：**同一对象的不同动作合成一个按钮时，用户无法预期点击结果。**推广：**一行里出现第二个动作时改用 `ActivityRow`，每个动作一个按钮。**检查：**人工 review。
+
+`R-ACTIVITYROW-006` 文件和目录行只写末段名称，完整路径和完整命令放在 `detailHint` 悬停提示里；展开详情仍给出完整值。**为什么：**一列活动要能扫读，全路径挤占宽度；但用户需要随时确认动的是哪一个文件。**推广：**任何被缩短的对象都给出完整值提示。**检查：**`clients/gui/scripts/design-system-conversation-system.mjs`
 
 ## 可访问性
 

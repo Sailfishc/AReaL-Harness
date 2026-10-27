@@ -22,7 +22,7 @@ related: ["activity-row", "disclosure", "image-disclosure", "thinking-status"]
 
 `R-ACTIVITYGROUP-002` 具名摘要、可聚焦的有界滚动区、折叠外的 status 插槽。children 是 [ActivityRow](../activity-row/activity-row.md) 或图片入口，保留原顺序；实际分组与事件身份归宿主投影。
 
-`R-ACTIVITYGROUP-032` 摘要与活动行同为一行对话文字高（`--text-conversation` × `--conversation-line`），相邻活动组之间隔 `--conversation-gap`。摘要不加底色，展开与否只由箭头方向表达。展开后子项与摘要文字左对齐（缩进 `--activity-icon-size` + `--activity-icon-gap`），子项之间隔 `--spacing-inline`，子项不重复行首图标。
+`R-ACTIVITYGROUP-032` 摘要与活动行同为一行对话文字高（`--text-conversation` × `--conversation-line`），相邻活动组之间隔 `--conversation-gap`。摘要不加底色，展开与否只由箭头方向表达。展开后子项与摘要左缘对齐，子项之间隔 `--spacing-inline`；每个子项保留自己的行首图标，混合的读取、搜索与命令靠图标区分。
 
 `R-ACTIVITYGROUP-033` 行首图标使用 `ActivityIcon` 活动图形集，尺寸为 `--activity-icon-size`，箭头为 `--activity-chevron-size`。没有语义类别的插件或 MCP 工具使用通用工具图形，名称仍显示真实工具名。
 

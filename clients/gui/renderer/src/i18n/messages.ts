@@ -1,8 +1,9 @@
-import { automationMessages } from './messages/automation.js';
-import { desktopSettingsMessages } from './messages/desktopSettings.js';
+import { automationMessages } from "./messages/automation.js";
+import { desktopSettingsMessages } from "./messages/desktopSettings.js";
 import { operationMessages } from "./messages/operations.js";
 import { appMessages } from "./messages/apps.js";
 import { commonMessages } from "./messages/common.js";
+import { conversationMessages } from "./messages/conversation.js";
 import { generalMessages } from "./messages/general.js";
 import { pluginMessages } from "./messages/plugins.js";
 import { remoteMessages } from "./messages/remote.js";
@@ -15,6 +16,7 @@ export const messages = {
   ...automationMessages,
   ...operationMessages,
   ...commonMessages,
+  ...conversationMessages,
   ...appMessages,
   ...generalMessages,
   ...pluginMessages,

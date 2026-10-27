@@ -60,6 +60,21 @@ export async function runConversationSystem(page, scratch, checks) {
   assert.equal(await chevron(), "1", "activity chevron appears on keyboard focus");
   assert.ok(["true", "false"].includes(await row.getAttribute("aria-expanded")));
   await row.evaluate((element) => element.blur());
+  // R-ACTIVITYROW-006：展开的分组里每行保留行首图标；文件行只写文件名，悬停给出完整路径。
+  const read = list.locator('[data-tool-id="system-read-1"]');
+  assert.equal(
+    await read.locator("svg[data-activity-icon]").first().isVisible(),
+    true,
+    "rows inside an expanded group keep their own icon",
+  );
+  const readName = read.locator(".areal-activity-row-detail, .tool-file-link").first();
+  assert.equal(await readName.innerText(), "section-2.tsx");
+  await readName.hover();
+  await page
+    .locator(".areal-activity-row-hint")
+    .filter({ hasText: "src/conversation/section-2.tsx" })
+    .waitFor();
+  await page.mouse.move(0, 0);
   const command = list.locator('[data-tool-id="system-command"]').getByRole("button").first();
   await command.click();
   await list.getByText("工作目录：/preview/AReaL-Harness", { exact: true }).waitFor();

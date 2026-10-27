@@ -14,8 +14,33 @@ const source = await readFile(
 const compiled = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
 }).outputText;
-const { activityRuns, activityRunLabel } = await import(
+const { activityRuns, activityRunLabel, toolActionText, toolPresentation } = await import(
   `data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`
+);
+// 标题文字来自界面词条；两种语言都按 react-intl 的真实格式化规则逐条比对。
+const messagesSource = await readFile(
+  new URL("../renderer/src/i18n/messages/conversation.ts", import.meta.url),
+  "utf8",
+);
+const { conversationMessages } = await import(
+  `data:text/javascript;base64,${Buffer.from(
+    ts.transpileModule(messagesSource, {
+      compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+    }).outputText,
+  ).toString("base64")}`
+);
+const { createIntl } = await import(require.resolve("react-intl"));
+const locales = ["zh-CN", "en"];
+const translators = Object.fromEntries(
+  locales.map((locale) => {
+    const intl = createIntl({
+      locale,
+      messages: Object.fromEntries(
+        Object.entries(conversationMessages).map(([id, pair]) => [id, pair[locale]]),
+      ),
+    });
+    return [locale, (id, values) => intl.formatMessage({ id }, values)];
+  }),
 );
 const { cases } = JSON.parse(
   await readFile(new URL("../renderer/src/activity-runs.cases.json", import.meta.url), "utf8"),
@@ -41,11 +66,33 @@ for (const entry of cases)
       runs.map((run) => run.items.map((item) => item.id)),
       entry.runs.map((run) => run.items),
     );
-    assert.deepEqual(
-      runs.map(activityRunLabel),
-      entry.runs.map((run) => run.label),
-    );
+    for (const locale of locales)
+      assert.deepEqual(
+        runs.map((run) => activityRunLabel(run, translators[locale])),
+        entry.runs.map((run) => run.label[locale]),
+        locale,
+      );
   });
+
+test("CONV-ACTIVITY-01 行动作跟随界面语言，文件行只给出路径供悬停", () => {
+  const read = tool("r1", "fs_read", { path: "core/engine/src/sessions.rs" });
+  const command = tool(
+    "c1",
+    "run_command",
+    { command: "git status --short" },
+    { status: "inProgress", success: null },
+  );
+  assert.equal(toolActionText(read, "done", translators["zh-CN"]), "已读取");
+  assert.equal(toolActionText(read, "done", translators.en), "Read");
+  assert.equal(toolActionText(command, "running", translators.en), "Running");
+  assert.equal(
+    toolActionText(tool("x1", "lookup_ticket"), "done", translators.en),
+    "Called lookup_ticket",
+  );
+  assert.equal(toolPresentation(read).path, "core/engine/src/sessions.rs");
+  assert.equal(toolPresentation(command).path, undefined);
+  assert.equal(toolPresentation(command).state, "running");
+});
 
 test("reasoning groups and breaker rows stay on their own and split runs", () => {
   const spawn = tool("a1", "agent_spawn");
@@ -57,11 +104,11 @@ test("reasoning groups and breaker rows stay on their own and split runs", () =>
     tool("c3", "run_command"),
   ];
   assert.deepEqual(shape(activityRuns(rows, (item) => item === spawn)), [
-    ["运行命令", ["c1"]],
+    ["command", ["c1"]],
     [null, ["g1"]],
-    ["运行命令", ["c2"]],
+    ["command", ["c2"]],
     [null, ["a1"]],
-    ["运行命令", ["c3"]],
+    ["command", ["c3"]],
   ]);
 });
 

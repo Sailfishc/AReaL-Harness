@@ -1,5 +1,5 @@
 {
-  "$description": "CONV-ACTIVITY-01 的唯一行为表：scripts/activity-runs.test.mjs 逐条执行，Messages.md 的示例表由 scripts/design-generated.mjs 从这里生成。tools 每项为 [id, 工具名, 参数?, 额外字段?]；runs 为期望的分段与标题。",
+  "$description": "CONV-ACTIVITY-01 的唯一行为表：scripts/activity-runs.test.mjs 逐条执行，Messages.md 的示例表由 scripts/design-generated.mjs 从这里生成。tools 每项为 [id, 工具名, 参数?, 额外字段?]；runs 为期望的分段与中英文标题。",
   "cases": [
     {
       "name": "连续读取、搜索、列目录合成一段探索，文件与目录按路径去重并按首次出现排序",
@@ -13,7 +13,10 @@
       "runs": [
         {
           "items": ["r1", "r2", "r3", "l1", "s1"],
-          "label": "已探索 · 2 个文件，1 个目录，1 次搜索"
+          "label": {
+            "zh-CN": "已探索 · 2 个文件，1 个目录，1 次搜索",
+            "en": "Explored 2 files, 1 directory, 1 search"
+          }
         }
       ]
     },
@@ -25,7 +28,15 @@
         ["l2", "fs_list", { "path": "b" }],
         ["l3", "fs_list", { "path": "c" }]
       ],
-      "runs": [{ "items": ["s1", "l1", "l2", "l3"], "label": "已探索 · 1 次搜索，3 个目录" }]
+      "runs": [
+        {
+          "items": ["s1", "l1", "l2", "l3"],
+          "label": {
+            "zh-CN": "已探索 · 1 次搜索，3 个目录",
+            "en": "Explored 1 search, 3 directories"
+          }
+        }
+      ]
     },
     {
       "name": "连续命令合成一段并带条数，不同动作另起一段",
@@ -37,9 +48,12 @@
         ["c3", "run_command", { "command": "git diff" }]
       ],
       "runs": [
-        { "items": ["c1", "c2"], "label": "已运行 2 条命令" },
-        { "items": ["r1", "r2"], "label": "已探索 · 2 个文件" },
-        { "items": ["c3"], "label": "已运行 1 条命令" }
+        { "items": ["c1", "c2"], "label": { "zh-CN": "已运行 2 条命令", "en": "Ran 2 commands" } },
+        {
+          "items": ["r1", "r2"],
+          "label": { "zh-CN": "已探索 · 2 个文件", "en": "Explored 2 files" }
+        },
+        { "items": ["c3"], "label": { "zh-CN": "已运行 1 条命令", "en": "Ran 1 command" } }
       ]
     },
     {
@@ -53,7 +67,12 @@
           { "status": "inProgress", "success": null }
         ]
       ],
-      "runs": [{ "items": ["c1", "c2"], "label": "正在运行 2 条命令" }]
+      "runs": [
+        {
+          "items": ["c1", "c2"],
+          "label": { "zh-CN": "正在运行 2 条命令", "en": "Running 2 commands" }
+        }
+      ]
     },
     {
       "name": "编辑按文件去重计数",
@@ -62,7 +81,12 @@
         ["e2", "fs_write", { "path": "a.ts" }],
         ["e3", "fs_write", { "path": "b.ts" }]
       ],
-      "runs": [{ "items": ["e1", "e2", "e3"], "label": "已编辑 2 个文件" }]
+      "runs": [
+        {
+          "items": ["e1", "e2", "e3"],
+          "label": { "zh-CN": "已编辑 2 个文件", "en": "Edited 2 files" }
+        }
+      ]
     },
     {
       "name": "未分类工具只与同名工具合并，标题保留真实工具名",
@@ -72,8 +96,17 @@
         ["y1", "post_comment"]
       ],
       "runs": [
-        { "items": ["x1", "x2"], "label": "已调用 lookup_ticket · 2 次" },
-        { "items": ["y1"], "label": "已调用 post_comment · 1 次" }
+        {
+          "items": ["x1", "x2"],
+          "label": {
+            "zh-CN": "已调用 lookup_ticket · 2 次",
+            "en": "Called lookup_ticket · 2 times"
+          }
+        },
+        {
+          "items": ["y1"],
+          "label": { "zh-CN": "已调用 post_comment · 1 次", "en": "Called post_comment · 1 time" }
+        }
       ]
     },
     {
@@ -83,8 +116,8 @@
         ["r1", "fs_read", { "path": "a.ts" }]
       ],
       "runs": [
-        { "items": ["k1"], "label": "已读取技能 · 1 次" },
-        { "items": ["r1"], "label": "已探索 · 1 个文件" }
+        { "items": ["k1"], "label": { "zh-CN": "已读取技能 · 1 次", "en": "Read skill · 1 time" } },
+        { "items": ["r1"], "label": { "zh-CN": "已探索 · 1 个文件", "en": "Explored 1 file" } }
       ]
     }
   ]

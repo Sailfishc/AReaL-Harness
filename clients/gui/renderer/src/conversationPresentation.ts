@@ -1,3 +1,4 @@
+import type { Translate } from "./i18n/IntlProvider.js";
 import type { Data } from "./services.js";
 
 export function goalBudgetMessage(reason: string | null | undefined): string | undefined {
@@ -70,6 +71,36 @@ const categoryLabels: Record<ToolKind, string> = {
   tool: "调用工具",
 };
 
+// 行动作的语义标识；文字由 chat.activity.action 按界面语言给出。
+const specificVerbs: Readonly<Record<string, string>> = {
+  skill_read: "skillRead",
+  plan_read: "planRead",
+  read_process: "readProcess",
+  terminate_process: "terminateProcess",
+  browser_v1: "browser",
+  agent_spawn: "agentSpawn",
+  agent_spawn_configured: "agentSpawn",
+  agent_wait: "agentWait",
+  agent_wait_any: "agentWait",
+};
+export function toolVerb(item: Data): string {
+  if (hasToolImage(item)) return "image";
+  if (Object.hasOwn(specificVerbs, item.tool)) return specificVerbs[item.tool];
+  if (item.tool === "fs_create") return "create";
+  return toolPresentation(item).kind;
+}
+function runKey(item: Data): string {
+  const verb = toolVerb(item);
+  // 读取、搜索、列目录都是为了了解工作区，连续出现时合成一段“探索”。
+  if (exploreKinds.has(verb as ToolKind)) return "explore";
+  if (verb === "create") return "edit";
+  return verb === "tool" ? `tool:${item.tool}` : verb;
+}
+type Tense = "running" | "done" | "plain";
+export function toolActionText(item: Data, tense: Tense, t: Translate): string {
+  return t("chat.activity.action", { tense, verb: toolVerb(item), name: item.tool ?? "" });
+}
+
 /**
  * 把时间线行切成"连续同一动作"的段：连续多次运行命令合成一段，连续的读取、搜索与列目录合成一段探索。
  * 只有普通工具调用参与合并；思考组、子代理创建等行各自成段，保持原有顺序。
@@ -80,7 +111,7 @@ export function activityRuns(
 ): { key: string | null; items: Data[] }[] {
   const runs: { key: string | null; items: Data[] }[] = [];
   for (const item of rows) {
-    const key = item.type === "dynamicToolCall" && !isBreaker(item) ? toolAction(item) : null;
+    const key = item.type === "dynamicToolCall" && !isBreaker(item) ? runKey(item) : null;
     const last = runs.at(-1);
     if (key !== null && last?.key === key) last.items.push(item);
     else runs.push({ key, items: [item] });
@@ -92,12 +123,12 @@ export function activityRuns(
  * 合并段的标题（CONV-ACTIVITY-01）：过去时动词短语带真实数量，仍有运行中的项时用进行时。
  * 探索按首次出现顺序列出文件、目录与搜索；文件和目录按路径去重。期望输出见 activity-runs.cases.json。
  */
-export function activityRunLabel(run: { key: string | null; items: Data[] }): string {
-  const tense = run.items.some((item) => toolPresentation(item).running) ? "正在" : "已";
-  if (run.key === null) return `${tense}执行活动`;
+export function activityRunLabel(run: { key: string | null; items: Data[] }, t: Translate): string {
+  const tense = run.items.some((item) => toolPresentation(item).running) ? "running" : "done";
+  if (run.key === null) return t("chat.activity.run.generic", { tense });
   const distinct = (items: Data[]) =>
     new Set(items.map((item) => item.arguments?.path ?? item.arguments?.file_path ?? item.id)).size;
-  if (run.key === "探索") {
+  if (run.key === "explore") {
     const parts = new Map<ToolKind, Data[]>();
     for (const item of run.items) {
       const { kind } = toolPresentation(item);
@@ -105,14 +136,24 @@ export function activityRunLabel(run: { key: string | null; items: Data[] }): st
     }
     const text = [...parts].map(([kind, items]) =>
       kind === "search"
-        ? `${items.length} 次搜索`
-        : `${distinct(items)} 个${kind === "list" ? "目录" : "文件"}`,
+        ? t("chat.activity.part.searches", { count: items.length })
+        : kind === "list"
+          ? t("chat.activity.part.directories", { count: distinct(items) })
+          : t("chat.activity.part.files", { count: distinct(items) }),
     );
-    return `${tense}探索 · ${text.join("，")}`;
+    return t("chat.activity.run.explore", {
+      tense,
+      parts: text.join(t("chat.activity.part.separator")),
+    });
   }
-  if (run.key === "运行命令") return `${tense}运行 ${run.items.length} 条命令`;
-  if (run.key === "修改文件") return `${tense}编辑 ${distinct(run.items)} 个文件`;
-  return `${tense}${run.key} · ${run.items.length} 次`;
+  if (run.key === "command")
+    return t("chat.activity.run.commands", { tense, count: run.items.length });
+  if (run.key === "edit")
+    return t("chat.activity.run.edits", { tense, count: distinct(run.items) });
+  return t("chat.activity.run.repeated", {
+    action: toolActionText(run.items[0], tense, t),
+    count: run.items.length,
+  });
 }
 
 /** Counts projected activities, not output polls or raw invocation records. */
@@ -224,6 +265,21 @@ export function toolPresentation(item: Data) {
         : name.startsWith("agent_") && Object.hasOwn(specificActions, name)
           ? ""
           : String(target),
+    // 状态的语义值；文字由 chat.activity.status 按界面语言给出。status 保留中文供既有数据属性使用。
+    state: running
+      ? "running"
+      : failed
+        ? "failed"
+        : unsettled
+          ? "unsettled"
+          : stopped
+            ? "stopped"
+            : "completed",
+    // 文件与目录类行只显示末段名称，完整路径在悬停提示里。
+    path:
+      ["read", "edit", "list"].includes(kind) && typeof (args.path ?? args.file_path) === "string"
+        ? String(args.path ?? args.file_path)
+        : undefined,
     status: running
       ? "执行中"
       : failed
