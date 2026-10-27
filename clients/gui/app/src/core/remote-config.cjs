@@ -2,7 +2,7 @@
 "use strict";
 const { checkedRecord } = require("./remote-network.cjs");
 
-/** @typedef {{devicePeerId:string,displayName:string,projectIds:string[],capabilities:string[],revision:number,status:'active'|'revoked'|'reviewRequired'}} DeviceGrant */
+/** @typedef {{devicePeerId:string,displayName:string,clientKind?:'web'|'ios',projectIds:string[],capabilities:string[],revision:number,status:'active'|'revoked'|'reviewRequired'}} DeviceGrant */
 /** @typedef {{id:string,name:string,projects?:string[]}} LegacyDevice */
 /** @typedef {{kind:'tailscale',mapping?:import('./remote-network.cjs').NetworkMapping,visibility?:undefined,publicOrigin?:undefined}|{kind:'organization',publicOrigin:string,visibility:'private'|'public',mapping?:undefined}} RemoteNetwork */
 /** @typedef {{schemaVersion?:number,enabled?:boolean,directEnabled?:boolean,directPort?:number,identity?:string,relay?:string,relayProtocol?:string,room?:string,capability?:string,devices?:LegacyDevice[],deviceGrants?:DeviceGrant[],network?:RemoteNetwork|null,[key:string]:unknown}} RemoteConfig */
@@ -58,6 +58,7 @@ function deviceGrant(value) {
     record(value) &&
     typeof value.devicePeerId === "string" &&
     typeof value.displayName === "string" &&
+    (value.clientKind === undefined || value.clientKind === "web" || value.clientKind === "ios") &&
     strings(value.projectIds) &&
     strings(value.capabilities) &&
     typeof value.revision === "number" &&

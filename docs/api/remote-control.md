@@ -112,7 +112,7 @@ Task Inbox 直接打开问题与 Core 选项，不要求选择协调 Session；�
 
 ## C1. 传输、身份与版本
 
-业务协议运行在既有 libp2p Noise 安全通道内。握手库负责身份、随机数、nonce、AEAD 和重放防护，不自行实现加密。保留现有安全通道的 `areal.remote.v1` prologue 兼容标记；**它不是本文应用版本**。加密后的首条 hello 明确提出 `apiVersion: "areal.remote.v2"`，不支持时返回 PROTOCOL_UNSUPPORTED，不回退旧写协议。
+业务协议运行在既有 libp2p Noise 安全通道内。握手库负责身份、随机数、nonce、AEAD 和重放防护，不自行实现加密。保留现有安全通道的 `areal.remote.v1` prologue 兼容标记；**它不是本文应用版本**。加密后的首条 hello 明确提出 `apiVersion: "areal.remote.v2"`，不支持时返回 PROTOCOL_UNSUPPORTED，不回退旧写协议。hello 接受可选 `clientKind: "web" | "ios"`，其他值返回 `INVALID_PARAMS`。这是客户端声明的展示元数据，只在本地批准配对时保存，不提供授权。设置将缺省值显示为 Web 浏览器，重连不更新已保存的类型。
 
 Direct 使用专用 WebSocket `/remote/socket`；同一低权限监听器只提供 PWA 静态文件、非敏感健康信息和该加密入口。Relay 复用 room/channel 的字节承载语义，外层 `areal.relay.v1` 不解释业务方法。生产只允许 HTTPS/WSS，开发仅允许 loopback HTTP/WS。
 
@@ -126,7 +126,7 @@ ready 返回 `hostId, gatewayGeneration, connectionId, apiVersion, grantRevision
 
 配对状态为 created → claimed → awaitingLocalApproval → approved，或 expired/rejected/cancelled。claim 原子消费邀请，攻击者抢先 claim 最多造成拒绝服务，不能自动获得授权。桌面确认设备名、指纹、已有项目与能力后，先持久保存授权再返回 ready。名称是用户可伪造的描述，指纹才用于身份核对。
 
-DeviceGrant 包含 `devicePeerId, displayName, projectIds, capabilities, revision, status`。projectIds 是当前已保存项目的显式集合，不默认包含未来项目。状态 active/reviewRequired/revoked。两个预设：
+DeviceGrant 包含 `devicePeerId, displayName, projectIds, capabilities, revision, status` 和可选 `clientKind: "web" | "ios"`。projectIds 是当前已保存项目的显式集合，不默认包含未来项目。状态 active/reviewRequired/revoked。两个预设：
 
 | 预设 | 能力 |
 |---|---|

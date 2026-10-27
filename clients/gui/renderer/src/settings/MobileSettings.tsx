@@ -85,11 +85,22 @@ function GrantReview({
       className="remote-grant"
     >
       <legend>
-        <Monitor size={20} />
+        {device.clientKind === "ios" ? <Smartphone size={20} /> : <Monitor size={20} />}
         {pending
-          ? t("settings.mobileSettings.allowThisBrowserToConnect")
+          ? t(
+              device.clientKind === "ios"
+                ? "settings.mobileSettings.allowThisIOSAppToConnect"
+                : "settings.mobileSettings.allowThisBrowserToConnect",
+            )
           : (device.displayName ?? device.name)}
       </legend>
+      <p className="remote-muted">
+        {t(
+          device.clientKind === "ios"
+            ? "settings.mobileSettings.clientKindIOS"
+            : "settings.mobileSettings.clientKindWeb",
+        )}
+      </p>
       {pending && (
         <p className="remote-muted">
           {t("settings.mobileSettings.onceConfirmedItCanAccessTheProjects")}
@@ -565,12 +576,18 @@ export function MobileSettings({ action, projects }: { action: Action; projects:
               title={
                 <>
                   {" "}
-                  <Monitor size={18} />
+                  {device.clientKind === "ios" ? <Smartphone size={18} /> : <Monitor size={18} />}
                   <span>
                     {device.displayName ??
                       device.name ??
                       t("settings.mobileSettings.browserDevice")}
                     <small>
+                      {t(
+                        device.clientKind === "ios"
+                          ? "settings.mobileSettings.clientKindIOS"
+                          : "settings.mobileSettings.clientKindWeb",
+                      )}
+                      {" · "}
                       {device.status === "revoked"
                         ? t("settings.mobileSettings.revoked")
                         : device.status === "reviewRequired"

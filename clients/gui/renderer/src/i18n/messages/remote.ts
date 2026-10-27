@@ -1,4 +1,16 @@
 export const remoteMessages = {
+  "settings.mobileSettings.allowThisIOSAppToConnect": {
+    "zh-CN": "允许这个 iOS App 访问吗？",
+    "en": "Allow this iOS app to connect?"
+  },
+  "settings.mobileSettings.clientKindIOS": {
+    "zh-CN": "iOS App",
+    "en": "iOS app"
+  },
+  "settings.mobileSettings.clientKindWeb": {
+    "zh-CN": "Web 浏览器",
+    "en": "Web browser"
+  },
   "settings.mobileSettings.confirmDevice": {
     "zh-CN": "确认设备",
     "en": "Confirm device"
@@ -16,8 +28,8 @@ export const remoteMessages = {
     "en": "Check the full device fingerprint"
   },
   "settings.mobileSettings.compareEveryCharacterWithTheFingerprintShown": {
-    "zh-CN": "请与浏览器中显示的指纹逐字核对。",
-    "en": "Compare every character with the fingerprint shown in the browser."
+    "zh-CN": "请与设备上显示的指纹逐字核对。",
+    "en": "Compare every character with the fingerprint shown on the device."
   },
   "settings.mobileSettings.thisOlderDeviceNeedsReviewAndIs": {
     "zh-CN": "旧设备需要复核，尚未授权",

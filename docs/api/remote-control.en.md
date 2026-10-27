@@ -112,7 +112,7 @@ Checks: run `pnpm --dir clients/gui build`, then `pnpm --dir clients/gui run tes
 
 ## C1. Transport, identity and versions
 
-Application messages run inside the existing libp2p Noise channel. The library owns identity, randomness, nonces, AEAD and replay protection. Keep the existing `areal.remote.v1` Noise prologue as a transport compatibility marker; it is not this application's version. Encrypted hello explicitly requests `areal.remote.v2`. Unsupported versions fail without mutation downgrade.
+Application messages run inside the existing libp2p Noise channel. The library owns identity, randomness, nonces, AEAD and replay protection. Keep the existing `areal.remote.v1` Noise prologue as a transport compatibility marker; it is not this application's version. Encrypted hello explicitly requests `areal.remote.v2`. Hello accepts optional `clientKind: "web" | "ios"`; other values fail with `INVALID_PARAMS`. This client-provided display metadata is saved only after local pairing approval and grants no authority. Settings displays absent metadata as Web browser. Reconnects do not update saved metadata. Unsupported versions fail without mutation downgrade.
 
 Direct exposes a dedicated `/remote/socket` alongside static PWA assets and nonsensitive health on a separate low-privilege listener. Relay retains room/channel byte forwarding with outer `areal.relay.v1`; it never interprets business methods. Production requires HTTPS/WSS; only loopback development permits HTTP/WS.
 
@@ -126,7 +126,7 @@ Invitations contain a Host-generated 256-bit random secret, a 120-second lifetim
 
 States are created → claimed → awaitingLocalApproval → approved, or expired/rejected/cancelled. Atomic claiming consumes the invitation but grants no authority. Desktop confirmation shows name, identity fingerprint, existing projects and capabilities; persist the grant before ready. Names are untrusted descriptions, not identity proof.
 
-DeviceGrant contains devicePeerId, displayName, projectIds, capabilities, revision and status (active/reviewRequired/revoked). Projects are explicitly selected existing entries, never future-project inheritance. Observer grants observe/review; Operator adds submit/interrupt/answer/pauseTask. Neither grants remote administration, pairing approval, configuration, terminals or permission memory. This is project scope, not human identity management or an OS sandbox.
+DeviceGrant contains devicePeerId, displayName, projectIds, capabilities, revision and status (active/reviewRequired/revoked), with optional `clientKind: "web" | "ios"`. Projects are explicitly selected existing entries, never future-project inheritance. Observer grants observe/review; Operator adds submit/interrupt/answer/pauseTask. Neither grants remote administration, pairing approval, configuration, terminals or permission memory. This is project scope, not human identity management or an OS sandbox.
 
 Re-read the current grant on admission, result serialization, projection publication and every artifact chunk. Revision changes close affected channels and clear their projections/streams. Revocation prevents further admission/output and does not retract downloaded data. After persisting command correlation and before handing it to Core, the Host must recheck the current grant at its serialized authorization boundary; earlier revocation prevents dispatch. Requests already admitted and handed to Core may acknowledge after revocation, so do not promise to retract already transmitted operations. Failed persistence is a failed revocation, not success.
 

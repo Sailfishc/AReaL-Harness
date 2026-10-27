@@ -275,8 +275,16 @@ async function observe(remote, socket, owner) {
   if (first.done) return;
   const hello = first.value;
   if (
-    !exact(hello, ["method", "apiVersion", "clientVersion", "displayName", "inviteSecret"]) ||
+    !exact(hello, [
+      "method",
+      "apiVersion",
+      "clientVersion",
+      "displayName",
+      "inviteSecret",
+      "clientKind",
+    ]) ||
     hello.method !== "hello" ||
+    (hello.clientKind !== undefined && hello.clientKind !== "web" && hello.clientKind !== "ios") ||
     typeof hello.clientVersion !== "string" ||
     hello.clientVersion.length > 80 ||
     typeof hello.displayName !== "string" ||
@@ -297,7 +305,11 @@ async function observe(remote, socket, owner) {
     try {
       const approval = remote.claim(
         peer,
-        { displayName: hello.displayName, inviteSecret: hello.inviteSecret },
+        {
+          displayName: hello.displayName,
+          inviteSecret: hello.inviteSecret,
+          ...(hello.clientKind ? { clientKind: hello.clientKind } : {}),
+        },
         socket,
       );
       socket.awaitingApproval = true;
