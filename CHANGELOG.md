@@ -4,9 +4,70 @@
 
 ## 未发布
 
-- CLI 更新入口时保留完整旧包，运行中后台继续执行；并发安装被拒绝，下载、校验和切换失败保留安装与用户数据。
-- CLI 安装后核对版本并提示 PATH 冲突；预览 CLI 可升级到同版本正式版。
 - GUI 更新检查错误直接可见，原生校验超时后保留后台运行；后台停止结果未知时不重复安装。
 - 升级前备份配置与历史；预览 GUI 仅手动安装，旧版本不保证读取新数据格式。
+
+## CLI / TUI 0.1.7
+
+### 变化
+
+- 独立安装升级先更新命令入口，保留完整旧包与运行中的后台；空闲后可显式重启后台。Homebrew 稳定版与 beta 分别跟踪各自渠道。
+- 改善 TUI 断线后的会话恢复；CLI 与单次输入模式可用 `--no-session-name` 关闭自动命名，同时保留历史与恢复。
+- 修复网络恢复与子任务交接中的状态保留，以及命令退出码和文件工具结果的呈现。
+
+### macOS 下载与使用（Apple Silicon）
+
+需要 macOS 15+、Xcode Command Line Tools 和可用的 `/usr/bin/python3`。使用公开 Homebrew tap 安装完整 CLI/TUI 与 Runtime：
+
+```sh
+brew tap areal-project/tap
+brew install areal-project/tap/areal
+brew test areal-project/tap/areal
+areal --version
+```
+
+`areal --version` 应显示 `areal 0.1.7`。已有 Homebrew 安装先完成任务，运行 `areal service list`，逐工作区用 `areal service stop --workspace /absolute/workspace` 安全停服，再执行 `brew update` 和 `brew upgrade --formula areal-project/tap/areal`。macOS CLI 为 ad-hoc 签名，未经 Developer ID 签名或 Apple 公证。
+
+[macOS arm64 完整归档](https://github.com/areal-project/AReaL-Harness/releases/download/v0.1.7/areal-harness-v0.1.7-aarch64-apple-darwin.tar.gz)供离线分发，须按[安装指南](docs/guides/installation.md)核验并安装完整包。
+
+### Linux 下载与使用（x86_64）
+
+需要 glibc 2.35+（如 Ubuntu 22.04+）及 Python 3.9+；受限或只读运行另需系统 Bubblewrap 与可用 user namespace。下载同一 Release 的安装器与校验清单，校验后安装；安装器自动下载并验证 [Linux x86_64 完整归档](https://github.com/areal-project/AReaL-Harness/releases/download/v0.1.7/areal-harness-v0.1.7-x86_64-unknown-linux-gnu.tar.gz)：
+
+```sh
+(
+set -eu
+download_dir=$(mktemp -d)
+cd "$download_dir"
+base=https://github.com/areal-project/AReaL-Harness/releases/download/v0.1.7
+curl -fL "$base/install.py" -o install.py
+curl -fL "$base/SHA256SUMS" -o SHA256SUMS
+python3 - <<'VERIFY'
+import hashlib
+from pathlib import Path
+entries = [line.split() for line in Path('SHA256SUMS').read_text().splitlines()]
+expected = [digest for digest, name in entries if name == 'install.py']
+assert len(expected) == 1
+assert hashlib.sha256(Path('install.py').read_bytes()).hexdigest() == expected[0]
+VERIFY
+python3 install.py --version 0.1.7 --prefix "$HOME/.local"
+"$HOME/.local/bin/areal" --version
+)
+```
+
+成功后执行 `export PATH="$HOME/.local/bin:$PATH"`；新终端也需相同 PATH。已有独立安装使用相同 `--prefix`。从旧正式版首次升级可使用上面的已校验安装器；之后可用 `areal upgrade --check` 查询、`areal upgrade` 更新入口。后台空闲后，用新入口执行 `areal service restart --workspace /absolute/workspace` 显式激活，保留原配置参数。
+
+### 配置与启动（两平台通用）
+
+按[模型配置指南](docs/guides/configuration.md)在 `~/.areal/config.toml` 配置供应商、模型及认证，然后进入项目目录：
+
+```sh
+areal config validate
+areal             # 启动交互式 TUI
+# 或执行一次 CLI 任务
+areal exec "概述当前项目的结构"
+```
+
+升级前备份配置和历史（默认 `~/.areal`，以及自定义 data-dir）。本版写入状态格式 15，保留旧程序不等于保留兼容的数据备份。独立安装的入口版本与后台版本分别核对；Homebrew 升级前需安全停服。完整说明见[安装与升级指南](docs/guides/installation.md)。
 
 安装、升级与验证命令见[CLI 指南](docs/guides/installation.md)及[GUI 指南](clients/gui/README.md#安装与更新)。
