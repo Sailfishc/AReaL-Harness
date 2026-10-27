@@ -2341,8 +2341,9 @@ button[aria-label="停止"] {
 .turn-progress {
   margin: var(--conversation-gap) 0 0;
 }
-/* 过程之后的内容（最终回答、状态行）与过程只隔一个块间距。 */
-.turn-progress + * {
+/* 过程组或独立耗时标题之后的内容只隔一个块间距。 */
+.turn-progress + *,
+.turn-elapsed + * {
   margin-top: var(--conversation-gap);
 }
 .turn-elapsed {
