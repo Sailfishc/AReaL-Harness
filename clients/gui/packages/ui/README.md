@@ -21,6 +21,7 @@ import { ComposerActionButton } from "@areal/ui/experimental"; // 实验 API
 | 常用变量叫什么、用在哪 | [Token 入口](token-reference.md)（生成）；完整值按需查 [Token 速查](src/generated/tokens.md) |
 | 有哪些组件、该从哪个入口导入 | 构建产物 `dist/components.json`、`dist/llms.txt`，或设计站 `design-system.html?ui-library` |
 | 某个组件何时用、状态、键盘、规则 | 组件同目录的 MD 合同 |
+| Agent 怎么改、怎么审 | skill [areal-ui-guide](skills/areal-ui-guide/SKILL.md)、[areal-ui-critique](skills/areal-ui-critique/SKILL.md) |
 | 修改系统、准入、证据与规则所有权 | [维护者入口](../../design-system/README.md#开工顺序) |
 | 分层与成熟度规则 | [组件与组合](../../../../design/components/README.md#分层) |
 

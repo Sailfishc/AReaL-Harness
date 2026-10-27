@@ -21,6 +21,7 @@ The host uses React 19, Base UI and Tailwind 4. Import `@areal/ui/styles.css` (f
 | Common variable names and purposes | [Token entry](token-reference.md) (generated); use the [full reference](src/generated/tokens.md) for values |
 | Which components exist and which entry exports them | build output `dist/components.json`, `dist/llms.txt`, or the design site `design-system.html?ui-library` |
 | When to use a component, its states, keyboard and rules | the Markdown contract next to the component |
+| How agents change and review UI | skills [areal-ui-guide](skills/areal-ui-guide/SKILL.md), [areal-ui-critique](skills/areal-ui-critique/SKILL.md) |
 | System changes, admission, evidence and rule ownership | [Maintainer entry](../../design-system/README.md#开工顺序) |
 | Layer and maturity rules | [Components](../../../../design/components/README.md#分层) |
 

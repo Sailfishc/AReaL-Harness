@@ -6,6 +6,8 @@
 
 新增或修改 GUI 页面、组件、布局、样式、动效或 UI 文案时，编辑前先读 [设计系统开工顺序](clients/gui/design-system/README.md#开工顺序)，选择交互分类、既有组件和验收状态；交付按 [完成条件](clients/gui/design-system/governance.md#完成条件)说明例外与实际证据。静态审计使用 [增量检查](clients/gui/design-system/automation.md#增量设计检查)；只有目录检查通过不能代替真实交互和视觉审查。
 
+改组件、样式、Token 或设计规则时加载 skill [areal-ui-guide](clients/gui/packages/ui/skills/areal-ui-guide/SKILL.md)（阅读顺序、纠正先验表、组件迁移步骤）；审查界面时加载 [areal-ui-critique](clients/gui/packages/ui/skills/areal-ui-critique/SKILL.md)。两者也通过 `.claude/skills/` 与 `.agents/skills/` 链接提供。
+
 ## 开发规范
 
 - 开发前阅读相关实现与 [架构文档](docs/design/architecture.md)，遵循 Runtime、Core、Clients 的分层和依赖方向。
