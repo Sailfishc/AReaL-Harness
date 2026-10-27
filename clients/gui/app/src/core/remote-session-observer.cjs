@@ -374,18 +374,13 @@ class SessionObservers {
       );
     }
   }
-  /** @param {ObserverEntry} entry @param {ThreadObserver} thread @param {import("./remote-core-decoder.cjs").Observation} result */
-  baseline(entry, thread, result) {
-    this.check(entry);
-    if (result.thread?.id !== thread.id) throw failure("RESYNC_REQUIRED", "会话身份不匹配");
-    if (!["ordinary", "task"].includes(result.ownership?.kind))
-      throw failure("CORE_INCOMPATIBLE", "Core 未返回原子会话归属");
-    thread.state = snapshot(result.thread, this.scope(entry, thread.id), result.ownership);
-    const models = entry.project.models ?? [];
+  /** @param {CoreProject} project */
+  modelCatalog(project) {
+    const models = project.models ?? [];
     const catalog = decoder.modelCatalog(
-      this.remote.backend.providers?.catalog(models, entry.project) ?? models,
+      this.remote.backend.providers?.catalog(models, project) ?? models,
     );
-    thread.state.models = catalog
+    return catalog
       .slice(0, 200)
       .map((model) =>
         Object.fromEntries(
@@ -401,6 +396,37 @@ class SessionObservers {
             .map((key) => [key, model[key]]),
         ),
       );
+  }
+  /** @param {RemoteConnection} connection @param {string} projectId @param {(value:unknown)=>void} publish */
+  models(connection, projectId, publish) {
+    const project = this.authorize(connection, projectId);
+    const client = project.client;
+    const generation = project.service?.generation;
+    const result = {
+      projectId,
+      gatewayGeneration: connection.gatewayGeneration,
+      grantRevision: connection.grantRevision,
+      serviceGeneration: generation,
+      models: this.modelCatalog(project),
+    };
+    if (
+      this.authorize(connection, projectId) !== project ||
+      project.client !== client ||
+      project.service?.generation !== generation
+    )
+      throw failure("RESYNC_REQUIRED", "项目连接已变化，请重新读取");
+    if (Buffer.byteLength(JSON.stringify(result)) > 128 * 1024)
+      throw failure("LIMIT_EXCEEDED", "模型目录超过读取预算");
+    publish(result);
+  }
+  /** @param {ObserverEntry} entry @param {ThreadObserver} thread @param {import("./remote-core-decoder.cjs").Observation} result */
+  baseline(entry, thread, result) {
+    this.check(entry);
+    if (result.thread?.id !== thread.id) throw failure("RESYNC_REQUIRED", "会话身份不匹配");
+    if (!["ordinary", "task"].includes(result.ownership?.kind))
+      throw failure("CORE_INCOMPATIBLE", "Core 未返回原子会话归属");
+    thread.state = snapshot(result.thread, this.scope(entry, thread.id), result.ownership);
+    thread.state.models = this.modelCatalog(entry.project);
     constrain(thread.state, this.scope(entry, thread.id));
   }
   /** @param {ObserverEntry} entry @param {ThreadObserver} thread */

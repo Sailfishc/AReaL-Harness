@@ -808,5 +808,12 @@
     "platforms": ["darwin", "linux", "win32"],
     "areas": ["remote"],
     "requires": []
+  },
+  {
+    "script": "test:remote-project-models",
+    "layer": "contract",
+    "platforms": ["darwin", "linux", "win32"],
+    "areas": ["remote"],
+    "requires": []
   }
 ]

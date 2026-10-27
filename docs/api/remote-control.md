@@ -6,7 +6,7 @@
 
 ## 已实现边界：RC-01/RC-02/RC-03/RC-04/RC-05/RC-06/RC-07/RC-08/RC-10/RC-11/RC-13
 
-当前实现开发用的加密 Direct 与本地确认配对：默认关闭的独立 `127.0.0.1` 监听器、可选择记住的浏览器身份、Host pin 校验、v2 hello，以及 `host.describe` / `project.list` / `work.list` / `attention.list` / `session.open` / `session.history` / `subscription.close` / `session.create` / `session.send` / `turn.stop` / `attention.read` / `interaction.respond` / `task.question.read` / `task.question.reply` / `task.read` / `task.pause` / `review.read` / `artifact.read` / `command.read` / `device.push.register` / `device.push.unregister`。可信桌面已接入 Serve、可选 Funnel 范围切换和组织 HTTPS 来源配置（Funnel 公网能力未认证），具体见 C11；实际 Tailscale/组织代理、手机真机验收以及其余方法仍需后续证据；Relay 已接入同一 Host/PWA 协议，源码与本机严格 TLS 夹具覆盖见 C12。本页的完整 P0 契约不代表这些能力已经可用。
+当前实现开发用的加密 Direct 与本地确认配对：默认关闭的独立 `127.0.0.1` 监听器、可选择记住的浏览器身份、Host pin 校验、v2 hello，以及 `host.describe` / `project.list` / `project.models` / `work.list` / `attention.list` / `session.open` / `session.history` / `subscription.close` / `session.create` / `session.send` / `turn.stop` / `attention.read` / `interaction.respond` / `task.question.read` / `task.question.reply` / `task.read` / `task.pause` / `review.read` / `artifact.read` / `command.read` / `device.push.register` / `device.push.unregister`。可信桌面已接入 Serve、可选 Funnel 范围切换和组织 HTTPS 来源配置（Funnel 公网能力未认证），具体见 C11；实际 Tailscale/组织代理、手机真机验收以及其余方法仍需后续证据；Relay 已接入同一 Host/PWA 协议，源码与本机严格 TLS 夹具覆盖见 C12。本页的完整 P0 契约不代表这些能力已经可用。
 
 桌面生成 120 秒一次性链接（开发模式为 loopback HTTP），fragment 携带 `host` 和 `invite`。浏览器立即移除邀请，仅保留校验后的公开 `host` pin 和可选 Relay `room`，在 Noise 验证 Host 后才发送 `inviteSecret`，收到 `pairing` 后等待本地确认。可信本地 `remoteControl` 支持 `pair/cancelPair/approve/reject/updateGrant/revoke`；确认与更新提供设备 `id`、显式已有项目 `projects` 及 `preset: Observer|Operator`。桌面展示完整 Noise peer 指纹与项目选择，复制/粘贴链接可代替扫码。本地确认必须在截止前作出，确认后的持久写入成功才返回 ready；写入失败不授予新权限。传输建立的 15 秒期限在收到 pairing 后结束；人工确认继续由 Host 的 120 秒邀请期限及取消/拒绝结果约束。
 
@@ -176,6 +176,7 @@ Host 的远程管理、配对批准、配置、终端与权限记忆不属于这
 |---|---|---|---|
 | host.describe | observe | 无敏感 Host 信息与连接能力 | Gateway 元数据 |
 | project.list | observe | cursor?, limit?；仅授权已有项目 | 桌面 Project 登记投影 |
+| project.models | observe | 空 params；context.projectId | 已在线项目的模型目录投影，不创建会话或订阅 |
 | work.list | observe | filter: all/active/attention, cursor?, limit? | 新只读 areal/work/overview |
 | attention.list | observe | cursor?, limit?；不带完整工具参数 | overview attention 投影 |
 | attention.read | observe | threadId, turnId, interactionId, cursor?；原同步交互 | 有界 interaction/list 与审阅凭据 |
@@ -203,6 +204,8 @@ Host 的远程管理、配对批准、配置、终端与权限记忆不属于这
 Task-owned Thread 的普通 send 和 turn.stop 均拒绝，返回 TASK_CONTROL_REQUIRED，避免 Task 的下一轮自动续跑被当作停止失败。Task 暂停走明确的 task.pause。
 
 普通发送新增可选原生 `admissionGuard: {configRevision, ordinarySession: true}`；Core 在同一Thread准入锁内检查配置版本及当前执行所有权，再冻结本轮配置。ordinarySession按现有引擎所有权判断，不按“历史上是否出现过Task”判断；历史已结算Task本身不是新的执行所有者。旧本地调用可省略。新Remote使用该guard，Core声明 `features.turnStartAdmissionGuard`；缺失时禁止新Remote发送，不用Gateway预读冒充原子条件。既有busy、队列、权限、归档与UNKNOWN检查照常执行。
+
+`project.models` 为加法只读方法，由 `ready.methods` 与 `host.describe.methods` 声明。返回 `{projectId,gatewayGeneration,grantRevision,serviceGeneration,models}`，只使用现有在线项目与 provider 目录，复用 `session.open` 的模型裁剪。最多返回 200 项，仅包含 `providerId,modelId,displayName,reasoningEffortOptions,available,unavailableReason`，不含 provider 配置或凭据，响应超过 128 KiB 返回 `LIMIT_EXCEEDED`。离线返回 `CORE_UNAVAILABLE`，不启动 Core、不创建 Thread、不改变订阅。读取与发布时均检查当前项目授权和服务代际；该目录不代表新会话的默认配置，创建后仍须 `session.open` 获取配置 revision。旧 Host 不声明此方法，客户端不能自行推断模型目录。
 
 ### 设备推送注册与通知
 

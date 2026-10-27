@@ -142,7 +142,7 @@ All methods are existing `areal.remote.v2` methods unless marked "new". Every wr
 | Projects | `host.describe`, `project.list` | Each card shows the name and a summary: running count, pending count, last update. The summary comes from the first `work.list` page (`filter: all`), requested only for online projects |
 | Sessions in a project | `work.list` (`filter: all`, 30 per page) | Each row: title, status, time. Status derives from `execution` and `attentionRefs` (table below). `kind: taskRun` rows are Task rows that open the Task detail |
 | Open session | `session.open`, `session.history`, `subscription.close` | One foreground session; `subscription.close` when leaving the screen or going to the background |
-| New session | `session.create` → optional `session.control(configure)` → `session.send` | See the order below |
+| New session | `project.models` (new, read-only) → `session.create` → `session.open` → optional `session.control(configure)` → `session.send` | See the order below |
 | Send | `session.send` | Sent directly when idle; while running, add `enqueue: true, expectedTurnId` to queue it |
 | Stop the current turn | `turn.stop` (`expectedTurnId`) | Task-owned sessions return `TASK_CONTROL_REQUIRED`; the UI then offers "Pause Task" |
 | Model, reasoning effort, permissions | `session.control` with `operation: configure` and `values` of `model`, `parameters`, `options` | Editable only while the session is idle; while running the sheet is read-only and says "Change this after the current turn ends" |
@@ -155,10 +155,13 @@ All methods are existing `areal.remote.v2` methods unless marked "new". Every wr
 
 When the user writes the first message on the "New session" screen and taps send:
 
-1. `session.create` (new `commandId`). Success returns a `threadId`.
-2. If the user changed the model, reasoning effort or permissions in the sheet, call `session.control(configure)` with `expectedRevision` set to the `configRevision` that `session.open` returns.
-3. `session.send` with the first message.
-4. Navigate to the session screen.
+On entering the new-session page, `project.models` reads at most 200 catalog entries for the current project without creating a thread or subscription. The initial badge says “Computer default”; the catalog does not establish configuration defaults. If an older Host omits the method, model selection asks for an upgrade.
+
+1. `session.create` with a new `commandId` returns `threadId`.
+2. `session.open` obtains the atomic baseline and configuration revision.
+3. If the user changed the model, reasoning effort or permissions, call `session.control(configure)` using the baseline’s `configRevision` as `expectedRevision`.
+4. `session.send` sends the first message.
+5. Navigate to the session page.
 
 If any step's result is unknown, stop at that step and show "Needs check" without continuing. If step 1 succeeded and a later step failed, the session exists: navigate to it and keep the draft so the user can tap send again. When the Host default profile binds a Workflow, `session.create` returns `UNSUPPORTED_PROFILE`; show "Choose an ordinary profile on your computer."
 
@@ -348,4 +351,4 @@ Accept on a real iPhone (TestFlight build), a real self-hosted Relay (public HTT
 - The design system part adopts the layering, token and placeholder rules from the design system improvement proposal and the conversation flow and Composer redesign. Neither proposal is final; if the final versions differ, they win.
 - The organization has an Apple Developer team, can configure its own APNs key on the Relay and signs the TestFlight build with its own team.
 - One app installation remembers one computer. Switching computers means clearing the device and pairing again.
-- The model list comes from the model catalog in the computer's session snapshot; the app keeps no model list of its own.
+- Model lists come from the computer’s `project.models` or the same catalog projection in session snapshots. The App maintains no independent catalog.

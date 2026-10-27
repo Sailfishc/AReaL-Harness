@@ -142,7 +142,7 @@ v1 默认“记住此设备”，不再提供“仅本次使用”选项：App �
 | 项目列表 | `host.describe`、`project.list` | 每个项目卡片显示名称和摘要：运行中数量、待处理数量、最近更新时间。摘要来自 `work.list` 第一页（`filter: all`），只对在线项目请求 |
 | 项目内会话列表 | `work.list`（`filter: all`，30 条/页） | 每行：标题、状态、时间。状态从 `execution` 与 `attentionRefs` 推出（见下表）；`kind: taskRun` 显示为 Task 行，点开进 Task 详情 |
 | 打开会话 | `session.open`、`session.history`、`subscription.close` | 一个前台会话；离开页面或进入后台时 `subscription.close` |
-| 新建会话 | `session.create` → 可选 `session.control(configure)` → `session.send` | 见下方顺序说明 |
+| 新建会话 | `project.models`（新增，只读）→ `session.create` → `session.open` → 可选 `session.control(configure)` → `session.send` | 见下方顺序说明 |
 | 发送消息 | `session.send` | 空闲时直接发送；运行中带 `enqueue: true, expectedTurnId` 追加到队列 |
 | 停止当前轮 | `turn.stop`（`expectedTurnId`） | Task 拥有的会话返回 `TASK_CONTROL_REQUIRED`，界面改为显示“暂停 Task”入口 |
 | 模型、推理强度、权限 | `session.control`，`operation: configure`，`values` 为 `model`、`parameters`、`options` | 只在会话空闲时可改；运行中面板只读，显示“本轮结束后再调整” |
@@ -155,10 +155,13 @@ v1 默认“记住此设备”，不再提供“仅本次使用”选项：App �
 
 用户在“新会话”页写好第一条消息并点发送时：
 
+进入新会话页时，用 `project.models` 读取当前项目最多 200 项模型目录。新会话的初始标记为“电脑默认”，不从目录猜配置；这一步不创建 Thread 或订阅。旧 Host 没有该方法时，选择模型提示升级。
+
 1. `session.create`（新 `commandId`）。成功得到 `threadId`。
-2. 如果用户在面板里改过模型、推理强度或权限，调用 `session.control(configure)`，`expectedRevision` 取 `session.open` 返回的 `configRevision`。
-3. `session.send` 发送第一条消息。
-4. 跳到会话页。
+2. `session.open` 读取原子基线和配置 revision。
+3. 如果用户在面板里改过模型、推理强度或权限，调用 `session.control(configure)`，`expectedRevision` 取基线的 `configRevision`。
+4. `session.send` 发送第一条消息。
+5. 跳到会话页。
 
 任何一步结果未知时停在该步，显示“待核对”，不继续下一步。第 1 步成功、后续失败时，会话已存在，界面跳到该会话并保留草稿，让用户再点一次发送。Host 默认 Profile 绑定 Workflow 时 `session.create` 返回 `UNSUPPORTED_PROFILE`，提示“请在电脑上选择一个普通配置”。
 
@@ -348,4 +351,4 @@ hello 新增可选字段 `clientKind: "web" | "ios"`，只用于电脑端设备�
 - 设计系统部分采用了“设计系统优化方案”和“对话流与 Composer 重设计方案”中的分层、token 和占位文字规则；两份方案尚未定稿，若定稿内容不同，以定稿为准。
 - 组织有 Apple Developer 团队，能在 Relay 上配置自己的 APNs 密钥，并以自己的团队签名发布 TestFlight 包。
 - 一个 App 安装只记住一台电脑。需要切换电脑时先清除设备再重新配对。
-- 模型列表来自电脑端会话快照里的模型目录，App 不维护自己的模型列表。
+- 模型列表来自电脑端 `project.models` 或会话快照里的同一目录投影，App 不维护自己的模型列表。

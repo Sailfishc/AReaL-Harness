@@ -21,6 +21,7 @@ const { TaskQuestions, LIMITS: TASK_QUESTION_LIMITS } = require("./remote-task-q
 const { ResultReviews, LIMITS: REVIEW_LIMITS } = require("./remote-result-review.cjs");
 const { deviceCommand, METHODS: PUSH_METHODS } = require("./remote-push.cjs");
 const METHODS = [
+  "project.models",
   ...PUSH_METHODS,
   "review.read",
   "artifact.read",
@@ -455,27 +456,29 @@ async function observe(remote, socket, owner) {
         typeof request.method !== "string" ||
         !exact(
           request.params,
-          request.method === "review.read"
-            ? ["threadId", "turnId", "itemId", "cursor", "limit"]
-            : request.method === "artifact.read"
-              ? ["artifactRef", "offset", "length"]
-              : request.method === "task.read"
-                ? ["taskId", "runId"]
-                : request.method === "task.question.read"
-                  ? ["taskId", "runId", "questionId"]
-                  : request.method === "attention.read"
-                    ? ["threadId", "turnId", "interactionId", "cursor"]
-                    : request.method === "work.list"
-                      ? ["filter", "cursor", "limit"]
-                      : request.method === "session.open"
-                        ? ["threadId"]
-                        : request.method === "session.body"
-                          ? ["threadId", "turnId", "itemId", "cursor"]
-                          : request.method === "session.history"
-                            ? ["threadId", "cursor", "limit"]
-                            : request.method === "subscription.close"
-                              ? ["subscriptionId"]
-                              : ["cursor", "limit"],
+          request.method === "project.models"
+            ? []
+            : request.method === "review.read"
+              ? ["threadId", "turnId", "itemId", "cursor", "limit"]
+              : request.method === "artifact.read"
+                ? ["artifactRef", "offset", "length"]
+                : request.method === "task.read"
+                  ? ["taskId", "runId"]
+                  : request.method === "task.question.read"
+                    ? ["taskId", "runId", "questionId"]
+                    : request.method === "attention.read"
+                      ? ["threadId", "turnId", "interactionId", "cursor"]
+                      : request.method === "work.list"
+                        ? ["filter", "cursor", "limit"]
+                        : request.method === "session.open"
+                          ? ["threadId"]
+                          : request.method === "session.body"
+                            ? ["threadId", "turnId", "itemId", "cursor"]
+                            : request.method === "session.history"
+                              ? ["threadId", "cursor", "limit"]
+                              : request.method === "subscription.close"
+                                ? ["subscriptionId"]
+                                : ["cursor", "limit"],
         )
       ) {
         secure.send(fail(request?.id, "INVALID_PARAMS", "不支持的字段或方法"));
@@ -483,6 +486,7 @@ async function observe(remote, socket, owner) {
       }
       if (
         [
+          "project.models",
           "review.read",
           "artifact.read",
           "attention.read",
@@ -499,6 +503,12 @@ async function observe(remote, socket, owner) {
             throw Object.assign(new Error("无效的项目参数"), {
               code: "INVALID_PARAMS",
             });
+          if (request.method === "project.models") {
+            observers.models(connection, request.context.projectId, (result) =>
+              secure.send({ id: request.id, result }),
+            );
+            continue;
+          }
           await (
             request.method === "artifact.read"
               ? {
