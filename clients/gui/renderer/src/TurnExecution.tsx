@@ -3,15 +3,18 @@ import type { ReactNode } from "react";
 import { ActivityGroup, ThinkingStatus } from "@areal/ui/experimental";
 import "@areal/ui/conversation.css";
 import { spawnedAgent } from "./AgentIdentity.js";
+import { CircleAlert } from "lucide-react";
 import { ActivityIcon } from "./ActivityIcon.js";
 import { ReasoningGroup } from "./ReasoningGroup.js";
 import {
   activityLabel,
   activityRunLabel,
+  activityStageIcon,
   activityRuns,
   agentSettlements,
   executionOutcome,
   processItems,
+  statusTarget,
   timelineItems,
   toolPresentation,
 } from "./conversationPresentation.js";
@@ -55,7 +58,7 @@ export function TurnActivity({
   const currentTool =
     animate &&
     items.findLast((item) => item.type === "dynamicToolCall" && toolPresentation(item).running);
-  const detail = currentTool ? toolPresentation(currentTool).detail : undefined;
+  const detail = currentTool ? statusTarget(toolPresentation(currentTool).detail) : undefined;
   const unconfirmed = items.some(
     (item) => item.type === "dynamicToolCall" && toolPresentation(item).status === "结果待确认",
   );
@@ -67,17 +70,28 @@ export function TurnActivity({
           .at(-1)
       : undefined;
   const label = activityLabel(project, threadId, turn);
+  // 需要你注意的状态只在这一行表达：图标着色、文字加深，不再在过程标题或其他位置重复。
+  const tone =
+    !(project.state?.threads?.[threadId]?.executionConnected ?? project.state?.connected) ||
+    turn.modelRetry ||
+    project.state?.interactions?.[threadId]?.data?.some((item: Data) => item.status === "pending")
+      ? "attention"
+      : unconfirmed
+        ? "unknown"
+        : undefined;
   return (
     <div className="turn-activity" data-testid="turn-activity">
       {currentTool ? (
-        <ThinkingStatus label={detail ? `${label} ${detail}` : label} />
+        <ThinkingStatus lines="single" label={detail ? `${label} ${detail}` : label} />
       ) : animate && !unconfirmed ? (
         <ThinkingStatus
+          lines="single"
           label={summary || (/^(等待模型|正在思考)/.test(label) ? undefined : label)}
         />
       ) : (
-        <p className="execution-status" role="status">
-          {unconfirmed && animate ? t("chat.tool.unconfirmed") : label}
+        <p className="execution-status" role="status" data-tone={tone}>
+          {tone && <CircleAlert size={14} aria-hidden="true" />}
+          <span>{unconfirmed && animate ? t("chat.tool.unconfirmed") : label}</span>
         </p>
       )}
     </div>
@@ -91,21 +105,24 @@ export function TurnActivity({
  */
 export function TurnExecution({
   items,
+  live = false,
   turn,
   project,
   threadId,
   renderItem,
 }: {
   items: Data[];
+  /** 运行中回合的最新执行段：其最后一段在出现后续可见内容前保持进行中。 */
+  live?: boolean;
   turn: Data;
   project: Data;
   threadId: string;
   renderItem: (item: Data, disclosure: { animate: boolean }) => ReactNode;
 }) {
+  const { t } = useI18n();
   const { unfinished } = executionOutcome(items);
-  const visibleItems = items.filter(
-    (item) => item.type !== "dynamicToolCall" || !toolPresentation(item).failed,
-  );
+  // 失败的步骤留在原位，由所在活动行写明结果（CONV-ACTIVITY-01），过程标题不另作提示。
+  const visibleItems = items;
   const tools = visibleItems.filter((item) => item.type === "dynamicToolCall");
   const unconfirmed = tools.some((item) => toolPresentation(item).status === "结果待确认");
   const rows = timelineItems(visibleItems);
@@ -116,7 +133,7 @@ export function TurnExecution({
   ) : unfinished && turn.status !== "inProgress" ? (
     <p role="status">仍在运行</p>
   ) : turn.status === "failed" ? (
-    <p role="status">回合失败</p>
+    <p role="status">{t("common.turn.failed")}</p>
   ) : null;
   const runs = activityRuns(
     rows,
@@ -136,19 +153,17 @@ export function TurnExecution({
       {runs.map((run, index) => {
         const last = index === runs.length - 1;
         const grouped = run.key !== null && run.items.length > 1;
-        const icon = toolPresentation(
-          run.items.find((item) => toolPresentation(item).running) ?? run.items[0],
-        ).icon;
+        const icon = activityStageIcon(run.key);
         return (
           <ActivityGroup
             key={run.items[0].id}
             presentation={grouped ? "collapsible" : "inline"}
             label={
               run.key !== null
-                ? activityRunLabel(run)
+                ? activityRunLabel(run, live && last)
                 : run.items[0].type === "reasoningGroup"
-                  ? "思考过程"
-                  : "执行活动"
+                  ? t("common.turn.reasoning")
+                  : t("common.turn.activity")
             }
             icon={grouped ? <ActivityIcon kind={icon} /> : undefined}
             status={last ? status : undefined}

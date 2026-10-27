@@ -3,7 +3,7 @@
 const { startupTrace } = require("./startup-timing.cjs");
 const { readFile, appendFile } = require("node:fs/promises");
 const { join } = require("node:path");
-const { randomUUID, randomBytes } = require("node:crypto");
+const { randomUUID, randomBytes, createHash } = require("node:crypto");
 const { isDeepStrictEqual } = require("node:util");
 const { SubscriptionStore } = require("./subscription.cjs");
 const {
@@ -110,14 +110,37 @@ class AppProviders {
     /** @type {Promise<ReturnType<typeof import('@areal/chatgpt-provider/network').subscriptionNetwork>>|undefined} */ this.networkPromise =
       undefined;
     /** @type {Promise<unknown>|undefined} */ this.loginAttempt = undefined;
-    /** @type {Promise<import('./provider-contract.cjs').CoreProvider|null|undefined>|undefined} */ this.subscriptionSync =
+    /** @type {Map<string,Promise<import('./provider-contract.cjs').CoreProvider|null|undefined>>} */ this.subscriptionSync =
+      new Map();
+    /** @type {import('@areal/workbench/desktop-contract/provider').ChatGPTStatus} */ this.subscription =
+      {
+        authenticated: false,
+        availability: "unavailable",
+        refreshing: false,
+        state: "signed_out",
+        email: null,
+        planType: null,
+        modelError: null,
+        models: [],
+        diagnostic: null,
+        login: null,
+        error: null,
+        billing: "subscription",
+        catalog: null,
+      };
+    /** @type {string|null} */ this.subscriptionIdentity = null;
+    /** @type {{service:import('@areal/chatgpt-provider/core').CoreSubscription,revision:number,lifetime:AbortController}|undefined} */ this.subscriptionRefreshScope =
       undefined;
+    /** @type {Promise<void>|undefined} */ this.subscriptionRefresh = undefined;
+    /** @type {WeakMap<CoreProject,{models:import('./provider-contract.cjs').ModelCatalogEntry[],configuration:ModelSnapshot|undefined,subscription:import('@areal/workbench/desktop-contract/provider').ChatGPTStatus,accepted:import('./provider-contract.cjs').AcceptedModel|undefined,configured:string,result:import('./provider-contract.cjs').ModelCatalogEntry[]}>} */ this.catalogs =
+      new WeakMap();
     /** @type {PreparedStatus|null} */ this.preparedSubscriptionStatus = null;
     /** @type {NodeJS.Timeout|null} */ this.reconciliationTimer = null;
     /** @type {Promise<void>|null} */ this.reconciliation = null;
     /** @type {Promise<void>|undefined} */ this.modelSelectionUpdate = undefined;
     /** @type {InstanceType<typeof import('./subscription.cjs').SubscriptionStore>|undefined} */ this.openaiStore =
       undefined;
+    this.subscriptionInitialized = false;
     this.closed = false;
     this.saving = false;
   }
@@ -144,6 +167,7 @@ class AppProviders {
       await this.backend.save("subscription-transport.json", this.transport);
     }
     this.openaiToken = this.transport.token;
+    await this.readSubscription(await this.openai(), true);
   }
   get value() {
     return this.config.value ?? { data: [], defaultModel: null, revision: undefined };
@@ -275,30 +299,199 @@ class AppProviders {
     const trace = startupTrace("providers.prepare");
     trace.advance("subscription_config");
     try {
-      try {
-        const value = JSON.parse(
-          await readFile(join(this.backend.home, "openai-subscription.json"), "utf8"),
-        );
-        if (!providerContract.record(value)) throw new Error("订阅凭据记录无效");
-        if (!value.secret) {
-          trace.finish("skipped");
-          return;
-        }
-      } catch (error) {
-        if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-          trace.finish("skipped");
-          return;
-        }
-        throw error;
+      const service = await this.openai();
+      if (!this.subscriptionInitialized) await this.readSubscription(service);
+      if (!this.subscription.authenticated) {
+        trace.finish("skipped");
+        return;
       }
       trace.advance("local_ready");
-      const service = await this.openai();
       await service.ready();
-      this.prepareSubscriptionStatus(service);
+      void this.refreshSubscriptionStatus(service, { synchronize: false });
       trace.finish("ok");
     } catch (error) {
       trace.finish("error", error);
       throw error;
+    }
+  }
+  /** @param {import('@areal/chatgpt-provider/core').CoreSubscription} service @param {boolean} [restore] */
+  async readSubscription(service, restore = false) {
+    this.subscriptionInitialized = true;
+    const account = service.openaiAccount;
+    const revision = account.revision;
+    try {
+      const local = await account.read();
+      const directory = await account.directory.snapshot();
+      const selected = directory.records[directory.activeId]?.record;
+      const registration = selected?.payload;
+      const identity = local
+        ? createHash("sha256")
+            .update(
+              JSON.stringify([
+                directory.activeId,
+                registration?.hostId,
+                registration?.clientId,
+                registration?.accountId,
+                registration?.subject,
+                registration?.issuer,
+              ]),
+            )
+            .digest("hex")
+        : null;
+      const publicAccounts = await account.directory.public();
+      if (revision !== account.revision || this.closed) return;
+      const changed = identity !== this.subscriptionIdentity;
+      this.subscriptionIdentity = identity;
+      const models = changed ? [] : this.subscription.models;
+      this.subscription = {
+        ...this.subscription,
+        ...publicAccounts,
+        authenticated: !!local,
+        availability: local ? "checking" : "unavailable",
+        refreshing: false,
+        state: local
+          ? "ready"
+          : selected?.payload?.reauthRequired
+            ? "reauth_required"
+            : "signed_out",
+        email: local?.email ?? null,
+        planType: local?.planType ?? null,
+        models,
+        modelError: null,
+        diagnostic: null,
+        login: account.login,
+        error: account.error,
+        ...(changed ? { catalog: null } : {}),
+      };
+      if (restore && identity) {
+        try {
+          const saved = JSON.parse(
+            await readFile(join(this.backend.home, "subscription-catalog.json"), "utf8"),
+          );
+          if (saved.version === 1 && saved.identity === identity) {
+            const cached = publicSubscriptionModels(
+              providerContract.subscriptionModels(saved.models),
+            );
+            this.subscription = { ...this.subscription, models: cached };
+          }
+        } catch (error) {
+          if (!(error instanceof Error && "code" in error && error.code === "ENOENT"))
+            console.warn("ChatGPT 公开模型缓存无效，将重新刷新。");
+        }
+      }
+      if (changed && !restore)
+        await this.backend.save("subscription-catalog.json", { version: 1, identity, models: [] });
+    } catch (error) {
+      if (revision !== account.revision || this.closed) return;
+      this.subscription = {
+        ...this.subscription,
+        availability: "unavailable",
+        refreshing: false,
+        state: "storage_locked",
+        modelError: null,
+        error: this.redact(errorMessage(error)),
+      };
+    }
+  }
+  /** @param {import('@areal/chatgpt-provider/core').CoreSubscription} service */
+  refreshSubscriptionStatus(service, { synchronize = true, force = false } = {}) {
+    if (
+      this.subscriptionRefresh &&
+      this.subscriptionRefreshScope?.service === service &&
+      this.subscriptionRefreshScope.revision === service.account.revision &&
+      this.subscriptionRefreshScope.lifetime === service.account.lifetime
+    )
+      return this.subscriptionRefresh;
+    if (force) this.preparedSubscriptionStatus = null;
+    const revision = service.account.revision,
+      lifetime = service.account.lifetime;
+    this.subscriptionRefreshScope = { service, revision, lifetime };
+    const current = () =>
+      !this.closed &&
+      revision === service.account.revision &&
+      lifetime === service.account.lifetime &&
+      !lifetime.signal.aborted;
+    this.subscription = { ...this.subscription, refreshing: true };
+    this.backend.onChange();
+    const work = (async () => {
+      const status = await this.subscriptionStatus(
+        service,
+        startupTrace("providers.subscription_refresh"),
+      );
+      if (!status || !current()) return;
+      const success = status.authenticated && status.state === "ready" && !status.modelError;
+      const authenticated =
+        status.state === "storage_locked" ? this.subscription.authenticated : status.authenticated;
+      const models = success
+        ? publicSubscriptionModels(status.models)
+        : authenticated
+          ? this.subscription.models
+          : [];
+      this.subscription = {
+        ...this.subscription,
+        ...status,
+        authenticated,
+        models,
+        billing: "subscription",
+        catalog: service.catalog?.metadata() ?? null,
+        availability: success
+          ? "available"
+          : ["signed_out", "reauth_required", "storage_locked"].includes(status.state)
+            ? "unavailable"
+            : "checking",
+        refreshing: true,
+      };
+      if (success && this.subscriptionIdentity)
+        await this.backend.save("subscription-catalog.json", {
+          version: 1,
+          identity: this.subscriptionIdentity,
+          models,
+        });
+      this.backend.onChange();
+      if (!synchronize) return;
+      await Promise.all(
+        [...this.backend.projects.values()]
+          .filter((project) => project.client?.ready)
+          .map(async (project) => {
+            const scope = this.subscriptionScope(project, service);
+            const provider = await this.syncSubscription(project, service, undefined, scope);
+            await this.publishSubscription(scope, provider);
+          }),
+      );
+    })()
+      .catch((error) => {
+        if (!current()) return;
+        this.subscription = {
+          ...this.subscription,
+          modelError: this.redact(errorMessage(error)),
+        };
+        this.backend.onChange();
+      })
+      .finally(() => {
+        if (this.subscriptionRefresh !== work) return;
+        this.subscriptionRefresh = undefined;
+        if (!current()) return;
+        this.subscription = { ...this.subscription, refreshing: false };
+        this.backend.onChange();
+      });
+    this.subscriptionRefresh = service.account.track(work);
+    return work;
+  }
+  /** @param {CoreProject} project */
+  async ensureSubscription(project) {
+    const service = await this.openai();
+    const applied = this.subscriptionApplications.get(project);
+    if (applied && this.currentSubscription(applied.scope)) return;
+    try {
+      await service.ready();
+      const scope = this.subscriptionScope(project, service);
+      const provider = await this.syncSubscription(project, service, undefined, scope);
+      await this.publishSubscription(scope, provider);
+    } catch (error) {
+      throw Object.assign(new Error(this.redact(errorMessage(error))), {
+        submissionUnknown: false,
+        outcome: { kind: "noMutation" },
+      });
     }
   }
   /** @param {import('@areal/chatgpt-provider/core').CoreSubscription} service @returns {PreparedStatus|undefined} */
@@ -404,8 +597,15 @@ class AppProviders {
   async chatgpt(request) {
     if (!providerContract.isRequest("chatgpt", request)) throw new Error("ChatGPT 操作参数无效");
     if ((request.provider ?? "openai") !== "openai") throw new Error("不支持的账号类型");
-    const service = await this.openai();
     const op = request.operation;
+    if (op === "status") {
+      const snapshot = this.subscription;
+      void this.openai().then((service) =>
+        this.refreshSubscriptionStatus(service, { force: true }),
+      );
+      return snapshot;
+    }
+    const service = await this.openai();
     // 首次授权不重启 Core 或替换已有授权；无关任务、终端与待确认资源不阻塞它。
     if (op === "login") {
       /** @type {InstanceType<typeof import('./subscription.cjs').SubscriptionStore>|undefined} */
@@ -423,6 +623,12 @@ class AppProviders {
         newAccount: request.newAccount === true,
         accountId: request.accountId,
       });
+      this.subscription = {
+        ...this.subscription,
+        login: service.account.login,
+        error: service.account.error,
+      };
+      this.backend.onChange();
       const completion = service.account.attempt?.done;
       if (completion && this.loginAttempt !== completion) {
         this.loginAttempt = completion;
@@ -432,6 +638,7 @@ class AppProviders {
             .then(async () => {
               if (service.account.lifetime.signal.aborted || !(await service.account.read()))
                 return;
+              await this.readSubscription(service);
               await this.chatgpt({ operation: "status" });
             })
             .catch(() => {
@@ -479,17 +686,12 @@ class AppProviders {
     } else if (op === "cancel") await service.account.cancel();
     else if (op === "probe") return service.probe(request.model);
     else if (op !== "status") throw new Error("不支持的 ChatGPT 操作");
-    const status = await service.account.status();
-    await service.ready();
-    // OAuth 完成不重启 Core，也不改变已有任务的模型选择。
-    for (const project of this.backend.projects.values()) {
-      if (!project.client?.ready) continue;
-      const scope = this.subscriptionScope(project, service);
-      const provider = await this.syncSubscription(project, service, undefined, scope);
-      await this.publishSubscription(scope, provider);
-    }
-    return { ...status, billing: "subscription", catalog: service.catalog?.metadata() ?? null };
+    await this.readSubscription(service);
+    this.backend.onChange();
+    void this.refreshSubscriptionStatus(service);
+    return this.subscription;
   }
+
   /** @param {CoreProject} project @param {import('@areal/chatgpt-provider/core').CoreSubscription|null} service @returns {SubscriptionScope} */
   subscriptionScope(project, service) {
     return {
@@ -555,6 +757,26 @@ class AppProviders {
       });
     else if (provider === null) this.subscriptionApplications.delete(target.project);
     target.project.models = models;
+    const metadata = this.subscription.models.map((model) => {
+      const entry = models.find(
+        (item) => item.providerId === "areal_openai" && item.modelId === model.id,
+      );
+      return {
+        ...model,
+        ...(providerContract.strings(entry?.reasoningEffortOptions)
+          ? { reasoningEffortOptions: entry.reasoningEffortOptions }
+          : {}),
+      };
+    });
+    if (!isDeepStrictEqual(metadata, this.subscription.models)) {
+      this.subscription = { ...this.subscription, models: metadata };
+      if (this.subscriptionIdentity)
+        await this.backend.save("subscription-catalog.json", {
+          version: 1,
+          identity: this.subscriptionIdentity,
+          models: publicSubscriptionModels(metadata),
+        });
+    }
     this.backend.onChange();
   }
   /** @param {CoreProject} project @param {import('@areal/chatgpt-provider/core').CoreSubscription|null} service @param {Record<string,unknown>} [correlation] @param {SubscriptionScope} [scope] */
@@ -570,13 +792,19 @@ class AppProviders {
   ) {
     const queueTrace = startupTrace("providers.subscription_queue", correlation);
     queueTrace.advance("queue_wait");
-    const task = (this.subscriptionSync ?? Promise.resolve())
+    const task = (this.subscriptionSync.get(project.id) ?? Promise.resolve())
       .catch(() => {})
       .then(() => {
         queueTrace.finish("ok");
         return this.applySubscription(scope, correlation);
       });
-    this.subscriptionSync = task;
+    this.subscriptionSync.set(project.id, task);
+    void task
+      .finally(() => {
+        if (this.subscriptionSync.get(project.id) === task)
+          this.subscriptionSync.delete(project.id);
+      })
+      .catch(() => {});
     return task;
   }
   /** @param {SubscriptionScope} scope @param {Record<string,unknown>} [correlation] */
@@ -587,6 +815,16 @@ class AppProviders {
       service,
     } = scope;
     const current = () => this.currentSubscription(scope);
+    const pendingWrite = () => {
+      const pending = project.pending?.some(
+        (entry) =>
+          (entry.method === "areal/provider/upsert" &&
+            providerContract.record(entry.params.provider) &&
+            entry.params.provider.id === "areal_openai") ||
+          (entry.method === "areal/provider/remove" && entry.params.id === "areal_openai"),
+      );
+      if (pending) throw new Error("ChatGPT 配置提交结果未知，请先查询原提交结果");
+    };
     const prepared = this.preparedSubscriptionStatus;
     trace.advance(prepared?.service === service ? "consume_wait" : "account_status");
     try {
@@ -620,6 +858,7 @@ class AppProviders {
           return null;
         }
         trace.advance("provider_remove");
+        if (existing) pendingWrite();
         if (existing)
           await this.backend.submit(
             project,
@@ -671,6 +910,7 @@ class AppProviders {
           trace.finish("degraded");
           return null;
         }
+        pendingWrite();
         provider = providerContract.provider(
           await this.backend.submit(
             project,
@@ -729,7 +969,8 @@ class AppProviders {
     try {
       if (this.openaiPromise) await (await this.openaiPromise).close();
     } finally {
-      await this.subscriptionSync?.catch(() => {});
+      await Promise.allSettled(this.subscriptionSync.values());
+      await this.subscriptionRefresh;
       await this.reconciliation;
       if (this.networkPromise) (await this.networkPromise).close();
     }
@@ -874,13 +1115,124 @@ class AppProviders {
   }
   /** @param {import('./provider-contract.cjs').ModelCatalogEntry[]} models @param {CoreProject} project */
   catalog(models, project) {
-    return models.map((m) => ({
-      ...m,
-      ...(m.providerId === "areal_openai"
-        ? { available: m.available !== false && this.subscriptionAvailable(m, project) }
-        : {}),
-      displayName: this.model(m, project)?.displayName || m.displayName || m.modelId,
-    }));
+    const configuration = project.providerSnapshot ?? this.config.value;
+    const references = Object.values(project.configurations ?? {}).flatMap((value) =>
+      value?.model?.providerId === "areal_openai" ? [value.model.modelId] : [],
+    );
+    const configured = JSON.stringify(references);
+    const previous = this.catalogs.get(project);
+    if (
+      previous?.models === models &&
+      previous.configuration === configuration &&
+      previous.subscription === this.subscription &&
+      previous.accepted === this.lastAcceptedModel &&
+      previous.configured === configured
+    )
+      return previous.result;
+    const metadata = this.subscription.models;
+    const accepted = this.lastAcceptedModel?.model;
+    const rememberedIds = new Set([
+      ...references,
+      ...(accepted?.providerId === "areal_openai" ? [accepted.modelId] : []),
+    ]);
+    const remembered =
+      this.subscription.availability === "checking"
+        ? [...rememberedIds]
+            .filter((id) => !metadata.some((model) => model.id === id))
+            .map((id) => ({ id }))
+        : [];
+    /** @type {import('@areal/workbench/desktop-contract/provider').SubscriptionModel[]} */
+    const subscriptionModels = [...metadata, ...remembered];
+    const known = new Set(
+      models.filter((m) => m.providerId === "areal_openai").map((m) => m.modelId),
+    );
+    /** @type {import('./provider-contract.cjs').ModelCatalogEntry[]} */
+    const cached = this.subscription.authenticated
+      ? subscriptionModels
+          .filter((m) => !known.has(m.id))
+          .map((m) => ({
+            providerId: "areal_openai",
+            modelId: m.id,
+            providerRevision: null,
+            displayName: m.name ?? m.id,
+            parameters: m.parameters ?? {},
+            ...(m.parameters ? { contextWindowTokens: m.parameters.contextWindowTokens } : {}),
+            ...(m.reasoningEffortOptions
+              ? { reasoningEffortOptions: m.reasoningEffortOptions }
+              : {}),
+          }))
+      : [];
+    const result = [...models, ...cached].map(
+      /** @returns {import('./provider-contract.cjs').ModelCatalogEntry} */ (m) => ({
+        ...m,
+        ...(m.providerId === "areal_openai"
+          ? {
+              availability: m.invalidReason
+                ? "unavailable"
+                : this.subscription.availability === "checking"
+                  ? "checking"
+                  : this.subscription.authenticated &&
+                      metadata.some((item) => item.id === m.modelId)
+                    ? "available"
+                    : "unavailable",
+              available: m.invalidReason
+                ? false
+                : this.subscription.availability === "checking"
+                  ? undefined
+                  : this.subscription.authenticated &&
+                    metadata.some((item) => item.id === m.modelId),
+            }
+          : {}),
+        displayName:
+          m.providerId === "areal_openai"
+            ? (metadata.find((item) => item.id === m.modelId)?.name ?? m.displayName ?? m.modelId)
+            : this.model(m, project)?.displayName || m.displayName || m.modelId,
+      }),
+    );
+    this.catalogs.set(project, {
+      models,
+      configuration,
+      subscription: this.subscription,
+      accepted: this.lastAcceptedModel,
+      configured,
+      result,
+    });
+    return result;
+  }
+  /** @param {CoreProject} project @param {import('./provider-contract.cjs').ModelRef|null|undefined} model @param {unknown} error */
+  rejectModel(project, model, error) {
+    if (
+      !model ||
+      !providerContract.record(error) ||
+      error.code !== -32602 ||
+      !["unknown model", "MODEL_NOT_CONFIGURED"].includes(String(error.message))
+    )
+      return;
+    const entries = project.models ?? [];
+    const existing = entries.some(
+      (item) => item.providerId === model.providerId && item.modelId === model.modelId,
+    );
+    const rejected = entries.map(
+      /** @returns {import('./provider-contract.cjs').ModelCatalogEntry} */ (item) =>
+        item.providerId === model.providerId && item.modelId === model.modelId
+          ? {
+              ...item,
+              available: false,
+              availability: "unavailable",
+              invalidReason: String(error.message),
+            }
+          : item,
+    );
+    if (!existing)
+      rejected.push({
+        ...model,
+        providerRevision: null,
+        available: false,
+        availability: "unavailable",
+        invalidReason: String(error.message),
+      });
+    project.models = rejected;
+    this.backend.onChange();
   }
   /** @param {{apiKeyEnv?:string}} item */
   key(item) {
@@ -1734,3 +2086,18 @@ function errorMessage(value) {
       : String(value);
 }
 module.exports = { AppProviders, connection };
+
+/** @param {import('@areal/workbench/desktop-contract/provider').SubscriptionModel[]} models */
+function publicSubscriptionModels(models) {
+  return models.map((model) => ({
+    id: model.id,
+    ...(model.name ? { name: model.name } : {}),
+    ...(model.source ? { source: model.source } : {}),
+    ...(model.reasoningEffortOptions
+      ? { reasoningEffortOptions: model.reasoningEffortOptions }
+      : {}),
+    ...(validContextWindow(model.parameters?.contextWindowTokens)
+      ? { parameters: { contextWindowTokens: model.parameters.contextWindowTokens } }
+      : {}),
+  }));
+}

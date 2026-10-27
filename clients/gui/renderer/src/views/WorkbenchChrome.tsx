@@ -87,7 +87,7 @@ export function WorkbenchRail({
       items={[
         {
           id: "home",
-          label: "首页",
+          label: t("common.navigation.home"),
           icon: <Home active={!pluginsOpen && !settingsOpen && !taskCenterOpen} />,
           onSelect: () =>
             requestNavigation(() => {
@@ -102,7 +102,7 @@ export function WorkbenchRail({
         // { id: "inbox", label: "Inbox", icon: <InboxIcon />, onSelect: () => requestNavigation(() => { surfaces.leaveSettings(); setTaskSurface("inbox"); if (matchMedia("(max-width: 640px)").matches) setSidebar(false); }) },
         {
           id: "tasks",
-          label: "定时任务",
+          label: t("operations.schedules.title"),
           icon: <ScheduledIcon />,
           onSelect: () =>
             requestNavigation(() => {
@@ -114,7 +114,7 @@ export function WorkbenchRail({
         },
         {
           id: "plugins",
-          label: "插件",
+          label: t("settings.plugins.title"),
           icon: <SettingsPluginIcon />,
           onSelect: () =>
             requestNavigation(() => {
@@ -163,13 +163,14 @@ export function WorkspaceNavigation({
   setSidebar: (show: boolean) => void;
   traverseWorkspaceHistory: (delta: -1 | 1) => void;
 }) {
+  const { t } = useI18n();
   return (
     <div className="workspace-navigation">
       <Button
         unstyled
         className="icon-button"
-        aria-label="后退"
-        title="后退 (⌘[)"
+        aria-label={t("common.navigation.back")}
+        title={t("common.navigation.backShortcut")}
         disabled={taskCenterOpen || workspaceHistory.index <= 0}
         onClick={() => traverseWorkspaceHistory(-1)}
       >
@@ -178,8 +179,8 @@ export function WorkspaceNavigation({
       <Button
         unstyled
         className="icon-button"
-        aria-label="前进"
-        title="前进 (⌘])"
+        aria-label={t("common.navigation.forward")}
+        title={t("common.navigation.forwardShortcut")}
         disabled={taskCenterOpen || workspaceHistory.index >= workspaceHistory.entries.length - 1}
         onClick={() => traverseWorkspaceHistory(1)}
       >
@@ -188,7 +189,9 @@ export function WorkspaceNavigation({
       <Button
         unstyled
         className="icon-button"
-        aria-label={sidebar ? "收起侧栏" : "展开侧栏"}
+        aria-label={
+          sidebar ? t("common.navigation.collapseSidebar") : t("common.navigation.expandSidebar")
+        }
         aria-expanded={sidebar}
         aria-controls="areal-sidebar"
         onClick={() => setSidebar(!sidebar)}
@@ -219,7 +222,12 @@ export function WorkspaceTaskActions({
     <DropdownMenu>
       <DropdownMenuTrigger
         render={
-          <Button unstyled aria-label="任务操作" className="icon-button" disabled={!project}>
+          <Button
+            unstyled
+            aria-label={t("common.navigation.taskActions")}
+            className="icon-button"
+            disabled={!project}
+          >
             <MoreOptionsIcon size={16} />
           </Button>
         }
@@ -242,7 +250,7 @@ export function WorkspaceTaskActions({
           }}
         >
           <span aria-hidden="true" className="size-4 shrink-0" />
-          {archived ? "返回当前任务" : "查看归档"}
+          {archived ? t("common.navigation.currentTask") : t("common.navigation.viewArchive")}
         </DropdownMenuItem>
         {thread && project && (
           <DropdownMenuItem
@@ -252,7 +260,7 @@ export function WorkspaceTaskActions({
             }}
           >
             <span aria-hidden="true" className="size-4 shrink-0" />
-            查看调用轨迹
+            {t("common.navigation.viewTrajectory")}
           </DropdownMenuItem>
         )}
         {panelList
@@ -371,7 +379,7 @@ export function ConversationHeader({
             <Button
               unstyled
               className={`icon-button ${panel ? "active" : ""}`}
-              aria-label="展开侧边面板"
+              aria-label={t("common.navigation.expandPanel")}
               aria-pressed={Boolean(panel)}
               disabled={!project}
               onClick={() => {

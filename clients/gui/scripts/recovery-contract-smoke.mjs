@@ -282,6 +282,8 @@ async function readCase(project, evidence) {
     text: "Keep this original history",
   });
   await completed(project, threadId);
+  // 完成通知可能已有共享观察请求；先等其退出，再注入下一次独立读取。
+  await backend.openThread(project, threadId);
   const history = copy(project.model.state.threads[threadId].turns);
   assert.match(JSON.stringify(history), /RECOVERY_HISTORY_SENTINEL/);
   const original = connection(project),
@@ -383,7 +385,8 @@ async function domainCase(project, evidence) {
   const original = connection(project),
     count = workRequests();
   evidence.operations = [];
-  const lose = async (method, name, parameters) => {
+  const sourceProject = project;
+  const lose = async (method, name, parameters, project = sourceProject) => {
     const requestId = randomUUID(),
       request = project.client.request.bind(project.client);
     let writes = 0,
@@ -440,23 +443,40 @@ async function domainCase(project, evidence) {
     (await project.client.request("areal/thread/inspect", { threadId })).configuration.revision,
     before + 1,
   );
-  const task = await lose("areal/task/create", "manage", {
-    operation: "taskCreate",
-    mode: "scheduled",
-    objective: "RECOVERY_FUTURE_TASK",
-    interactionMode: "interactive",
-    schedule: { at: Math.floor(Date.now() / 1000) + 86400, timeZone: "UTC" },
+  const prepared = await backend.command("projectless", {
+    operation: "prepare",
+    requestId: randomUUID(),
   });
+  await backend.command("connect", { projectId: prepared.projectId });
+  const taskProject = backend.projects.get(prepared.projectId);
+  const taskConnection = connection(taskProject);
+  const task = await lose(
+    "areal/task/create",
+    "manage",
+    {
+      operation: "taskCreate",
+      mode: "scheduled",
+      objective: "RECOVERY_FUTURE_TASK",
+      interactionMode: "interactive",
+      schedule: { at: Math.floor(Date.now() / 1000) + 86400, timeZone: "UTC" },
+    },
+    taskProject,
+  );
   assert.ok(task.id);
   assert.equal(evidence.operations.at(-1).operation.target.taskId, task.id);
-  const paused = await lose("areal/task/pause", "manage", {
-    operation: "taskPause",
-    taskId: task.id,
-    expectedRevision: task.revision,
-  });
+  const paused = await lose(
+    "areal/task/pause",
+    "manage",
+    {
+      operation: "taskPause",
+      taskId: task.id,
+      expectedRevision: task.revision,
+    },
+    taskProject,
+  );
   assert.equal(paused.paused, true);
   assert.equal(
-    (await project.client.request("areal/task/read", { taskId: task.id })).revision,
+    (await taskProject.client.request("areal/task/read", { taskId: task.id })).revision,
     paused.revision,
   );
   assert.equal(
@@ -465,6 +485,7 @@ async function domainCase(project, evidence) {
     "configuration and future schedule recovery start no model work",
   );
   sameConnection(project, original);
+  sameConnection(taskProject, taskConnection);
 }
 
 const cases = {

@@ -6,8 +6,11 @@ import { ActivityIcon } from "./ActivityIcon.js";
 import { TurnElapsed } from "./TurnElapsed.js";
 import type { Data } from "./services.js";
 
-/** Local disclosure only. The parent supplies ordered content; hidden children stay
- * mounted so inspecting history never resets command details or replays work. */
+/** 过程组因回合完成而自动收起前派发的事件名；冒泡到消息列表。 */
+export const progressAutoCollapse = "areal:progress-auto-collapse";
+
+/** Local disclosure only. The parent supplies ordered content; children mount on
+ * first expansion and stay mounted so collapsing never resets command details. */
 export function TurnProgress({
   settled,
   summaryAvailable,
@@ -26,13 +29,22 @@ export function TurnProgress({
   const { t } = useI18n();
   const [open, setOpen] = useState(!settled);
   const manual = useRef(false);
+  const root = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (!manual.current) setOpen(!settled);
+    if (manual.current) return;
+    // 完成时自动收起前先通知阅读宿主，由它决定是否以本标题为锚保持阅读位置（S-4）。
+    if (settled)
+      root.current?.dispatchEvent(new CustomEvent(progressAutoCollapse, { bubbles: true }));
+    setOpen(!settled);
   }, [settled]);
   const id = useId();
   const expanded = !summaryAvailable || open;
+  const [hasExpanded, setHasExpanded] = useState(expanded);
+  useEffect(() => {
+    if (expanded) setHasExpanded(true);
+  }, [expanded]);
   return (
-    <Collapsible.Root open={expanded} className="turn-progress">
+    <Collapsible.Root ref={root} open={expanded} className="turn-progress">
       {summaryAvailable &&
         (turn ? (
           <TurnElapsed
@@ -73,7 +85,7 @@ export function TurnProgress({
           </div>
         ))}
       <Collapsible.Panel keepMounted id={id} className="turn-progress-body conversation-disclosure">
-        {children}
+        {expanded || hasExpanded ? children : null}
       </Collapsible.Panel>
     </Collapsible.Root>
   );

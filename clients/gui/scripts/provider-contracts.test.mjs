@@ -63,7 +63,13 @@ test("account catalog shares fetch, retains order, filters hidden models and tra
       await new Promise((resolve) => setImmediate(resolve));
       return Response.json({
         models: [
-          { slug: "b", visibility: "list", display_name: "B", context_window: 500000, max_context_window: 872000 },
+          {
+            slug: "b",
+            visibility: "list",
+            display_name: "B",
+            context_window: 500000,
+            max_context_window: 872000,
+          },
           { slug: "hidden", visibility: "hide" },
           { slug: "a", visibility: "list", context_window: -1 },
           { slug: "b", visibility: "list" },
@@ -445,4 +451,33 @@ test("fixture SIWC validates new identity before activation and keeps busy-host 
   } finally {
     await account.close();
   }
+});
+
+test("remembered model and effort survive checking or unavailable catalog entries", async () => {
+  const { resolveNewConversationModel, resolveModelEffort } =
+    await import("../packages/workbench/client/model-selection.js");
+  const last = {
+    model: { providerId: "areal_openai", modelId: "chosen" },
+    modelId: "chosen",
+    reasoningEffort: "high",
+  };
+  const fallback = { providerId: "local", modelId: "default", isDefault: true };
+  for (const models of [
+    [],
+    [
+      { providerId: "areal_openai", modelId: "chosen", available: false, availability: "checking" },
+      fallback,
+    ],
+  ]) {
+    const selected = resolveNewConversationModel(models, last);
+    assert.equal(selected.candidate.modelId, "chosen");
+    assert.equal(selected.rememberedEffort, "high");
+    assert.equal(resolveModelEffort(selected.candidate, selected.rememberedEffort), "high");
+    assert.equal(selected.notice, undefined);
+  }
+  assert.equal(resolveNewConversationModel([], last, true).candidate, undefined);
+  assert.equal(resolveNewConversationModel([fallback], last, false).candidate.modelId, "chosen");
+  const confirmed = resolveNewConversationModel([fallback], last);
+  assert.equal(confirmed.candidate.modelId, "default");
+  assert.equal(confirmed.notice, "model-unavailable");
 });

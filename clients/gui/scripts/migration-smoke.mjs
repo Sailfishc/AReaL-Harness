@@ -586,6 +586,19 @@ try {
     const doneChild = children.find((t) => t.preview === "子任务完成");
     const liveChild = children.find((t) => t.preview === "子任务等待停止");
     assert.ok(doneChild && liveChild);
+    await waitForSnapshot(async () => {
+      const results = await call("manage", {
+        projectId: pid,
+        parentThreadId: tid,
+        operation: "agentWait",
+        threadIds: children.map((child) => child.id),
+        timeoutMs: 0,
+      });
+      return (
+        results.data.filter((result) => result.status === "completed").length === 2 &&
+        results.data.find((result) => result.threadId === liveChild.id)?.status === "inProgress"
+      );
+    }, "two completed children and one live child");
     const backgroundProcess = await call("manage", {
       projectId: pid,
       threadId: tid,
@@ -616,13 +629,12 @@ try {
     await resources.getByRole("button", { name: /^查看全部子代理（3） / }).waitFor();
     await resources.getByRole("button").filter({ hasText: "Changes" }).waitFor();
     await resources.getByRole("heading", { name: "后台进程", exact: false }).waitFor();
-    assert.equal(
-      await resources
-        .getByRole("region", { name: "子智能体", exact: true })
-        .locator("[data-agent-avatar]")
-        .count(),
-      3,
-    );
+    const agentSummary = resources.getByRole("region", { name: "子智能体", exact: true });
+    await agentSummary.locator(`[data-agent-avatar="${liveChild.id}"]`).waitFor();
+    await agentSummary.getByText("2 个已完成", { exact: true }).waitFor();
+    // 摘要头像优先展示仍运行的子任务，总数由“查看全部”入口表达。
+    assert.equal(await agentSummary.locator("[data-agent-avatar]").count(), 1);
+    assert.equal(await agentSummary.locator(`[data-agent-avatar="${doneChild.id}"]`).count(), 0);
     assert.equal(
       await page
         .locator("[data-testid=chat-view]")
@@ -635,7 +647,7 @@ try {
       await page
         .locator(".task-resources-popup")
         .evaluate((el) => el.getBoundingClientRect().width),
-      332,
+      268, // Default 12px UI typography and the shared inline-spacing token.
     );
     await page.keyboard.press("Escape");
     await resources.waitFor({ state: "hidden" });
@@ -657,10 +669,10 @@ try {
       .waitFor({ state: "hidden" });
     await resources.waitFor();
     await resources.getByRole("button").filter({ hasText: "Changes" }).waitFor();
-    assert.match(
-      await resources.getByRole("button").filter({ hasText: "Changes" }).innerText(),
-      /1 个文件/,
-    );
+    const changes = resources.getByRole("button").filter({ hasText: "Changes" });
+    assert.match(await changes.getAttribute("aria-label"), /1\s*个文件/);
+    assert.match(await changes.innerText(), /\+1/);
+    assert.match(await changes.innerText(), /−1/);
     await resources.getByRole("heading", { name: "workspace", exact: true }).click();
     await waitForPopupMotion(".task-resources-popup");
     await writeFile(
@@ -766,8 +778,8 @@ try {
     assert.equal(await input().innerText(), "主对话草稿保持");
     const donePane = page.locator(`[data-agent-conversation="${doneChild.id}"]`);
     assert.equal(await donePane.locator(".user-message").count(), 1);
-    assert.ok((await donePane.locator(".tool-event").count()) > 0);
     await donePane.locator(".turn-progress-summary").click();
+    await donePane.locator(".tool-event").first().waitFor();
     await donePane.getByRole("button", { name: "查看工具原始记录", exact: true }).click();
     await donePane.getByLabel("工具结果", { exact: true }).waitFor();
     await shot("02b-agent-completed");
@@ -808,7 +820,7 @@ try {
       id: backgroundProcess.id,
     });
     checks.push(
-      "Core children: compact 332px four-group resources, Escape/focus, running/completed/interrupted side conversations, switching/closing preserve parent and composer draft",
+      "Core children: compact 268px four-group resources, Escape/focus, running/completed/interrupted side conversations, switching/closing preserve parent and composer draft",
     );
     const executionList = await call("manage", {
       projectId: pid,

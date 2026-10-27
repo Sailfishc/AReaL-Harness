@@ -179,7 +179,8 @@ export function WorkspacePanelContent({
         />
       </div>
     );
-  if (panel === "文件") return <div className="file-preview-empty">选择右侧文件以预览</div>;
+  if (panel === "文件")
+    return <div className="file-preview-empty">{t("common.files.selectPreview")}</div>;
   if (panel === "改动") {
     const reviewedId =
       (reviewRequest?.owner === panelOwner ? (reviewRequest.threadId ?? threadId) : threadId) ||
@@ -258,7 +259,7 @@ export function WorkspacePanelContent({
     );
   if (panel === "工作组")
     return <WorkgroupsPane key={project.id} project={project} action={resourceAction} />;
-  if (!thread) return <div className="utility-content">请先选择任务。</div>;
+  if (!thread) return <div className="utility-content">{t("common.tasks.select")}</div>;
   const threadProps = { project, thread, action };
   if (panel === "执行计划")
     return <PlanPane key={`${project.id}:${threadId}`} {...threadProps} action={resourceAction} />;

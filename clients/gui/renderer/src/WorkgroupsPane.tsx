@@ -1,3 +1,4 @@
+import { useI18n } from "./i18n/IntlProvider.js";
 import type { ManagementRequestMap } from "@areal/workbench/desktop-contract/management";
 import { Input } from "@areal/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -49,6 +50,7 @@ const keyOf = (value: Data) => JSON.stringify({ id: value.id, revision: value.re
 
 /** Workgroups are project-scoped Core executions, not Threads or scheduled Tasks. */
 export function WorkgroupsPane({ project, action }: { project: Data; action: Action }) {
+  const { t } = useI18n();
   const storageKey = `areal-gui:workgroup:${project.id}`;
   const [enabled, setEnabled] = useState<boolean | null>(null),
     [policy, setPolicy] = useState<Data | null>(null);
@@ -962,8 +964,7 @@ export function WorkgroupsPane({ project, action }: { project: Data; action: Act
                         <p role="alert">文件已变化，与工作组基线不一致；请先处理冲突。</p>
                       )}
                       <p className="text-foreground-subtle">
-                        兼容产物只提供查看和基线核对。新的修改任务在普通输入区提交，由 Core
-                        验证并交付整组改动。
+                        {t("common.workgroups.compatibilityHelp")}
                       </p>
                       <Button
                         size="sm"

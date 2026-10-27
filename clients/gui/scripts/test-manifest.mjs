@@ -85,8 +85,9 @@ export function areasForPaths(paths) {
 
 export function smokeMatrix(manifest, areas = []) {
   const entries = manifest.filter((entry) => entry.ciSmoke);
+  const covered = areas.every((area) => entries.some((entry) => entry.areas.includes(area)));
   const selected = entries.filter(
-    (entry) => !areas.length || entry.areas.some((area) => areas.includes(area)),
+    (entry) => !areas.length || !covered || entry.areas.some((area) => areas.includes(area)),
   );
   return {
     include: (selected.length ? selected : entries).map((entry) => ({

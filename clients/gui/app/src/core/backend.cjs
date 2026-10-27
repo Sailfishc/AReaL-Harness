@@ -10,6 +10,7 @@ const { startupTrace } = require("./startup-timing.cjs");
 
 const { connectService } = require("./local-service.cjs");
 const { LifecycleOperations } = require("./lifecycle-operations.cjs");
+const { ScheduledOwnerActivation } = require("./schedule-owner-activation.cjs");
 const { randomUUID, createHash } = require("node:crypto");
 const { isDeepStrictEqual } = require("node:util");
 const { mkdir, readFile, writeFile, rename, realpath } = require("node:fs/promises");
@@ -23,7 +24,7 @@ const { UsageAnalytics } = require("./analytics.cjs");
 const { CoreLibrary } = require("./library.cjs");
 const { CoreNotifications } = require("./notifications.cjs");
 const { manage } = require("./management.cjs");
-const { taskCatalog } = require("./task-catalog.cjs");
+const { taskCatalog, OwnerTasks } = require("./task-catalog.cjs");
 const {
   isTaskDraftConfiguration,
   manageTaskDraft,
@@ -136,6 +137,8 @@ class CoreBackend {
     /** @type {InstanceType<typeof SubmissionRecovery>|undefined} */
     this._submissions = undefined;
     this.closing = false;
+    this.ownerTasks = new OwnerTasks(this);
+    this.scheduleOwners = new ScheduledOwnerActivation(this);
     this.library = new CoreLibrary(this);
     this.worktrees = new CoreWorktrees(this);
     this.worktreeAdmission = new WorktreeAdmission(this);
@@ -264,6 +267,7 @@ class CoreBackend {
     if (!this._observations) {
       const backend = this;
       this._observations = new HistoryObservation({
+        ownerTasks: backend.ownerTasks,
         get analytics() {
           return backend.analytics;
         },
@@ -454,6 +458,7 @@ class CoreBackend {
     );
     return {
       library: this.library.value,
+      subscription: this.providers.subscription,
       projectless: this.projectless.snapshot(),
       power: this.power ?? null,
       projects: this.worktrees.aggregate(
@@ -486,6 +491,7 @@ class CoreBackend {
               ...projectCoreCapabilities(this.binary, live?.client?.capabilities),
               instanceId: live?.service?.serviceId ?? null,
               connectionGeneration: live?.connectionGeneration ?? 0,
+              taskDirectoryRevision: this.ownerTasks.revision,
             },
             state: state && live?.resourceInitializing ? { ...state, connected: false } : state,
             pending: (live?.pending ?? [])
@@ -551,8 +557,6 @@ class CoreBackend {
         if (!project.client?.ready) await this.launch(project);
         trace?.advance("connect");
         if (!project.client?.ready) await this.connect(project);
-        trace?.advance("history");
-        await this.listThreads(project);
         trace?.advance("reconcile");
         await this.reconcile(project);
         trace?.advance("worktree_apply");
@@ -753,8 +757,8 @@ class CoreBackend {
     }
   }
 
-  /** @param {Project} project */
-  async restartProject(project) {
+  /** @param {Project} project @param {{expectedRevision?:string}} [options] */
+  async restartProject(project, { expectedRevision } = {}) {
     this.lifecycleOperations.assertProject(project.id);
     if (project.service) {
       const receipt = await this.lifecycleOperations.request({
@@ -777,6 +781,11 @@ class CoreBackend {
           lifecycle: receipt,
         });
     }
+    if (
+      expectedRevision !== undefined &&
+      (await this.providers.config.current()).revision !== expectedRevision
+    )
+      throw new Error("配置已有其它变化，请在后台服务中安全应用当前配置。");
     await this.launch(project);
     await this.connect(project);
     await this.reconcile(project);
@@ -1362,8 +1371,22 @@ class CoreBackend {
   }
 
   /** @param {Parameters<InstanceType<typeof SubmissionRecovery>['submit']>} args */
-  submit(...args) {
-    return this.submissions.submit(...args);
+  async submit(...args) {
+    try {
+      return await this.submissions.submit(...args);
+    } catch (error) {
+      const [project, , parameters] = args;
+      const model =
+        modelRecord(parameters.model) &&
+        typeof parameters.model.providerId === "string" &&
+        typeof parameters.model.modelId === "string"
+          ? { providerId: parameters.model.providerId, modelId: parameters.model.modelId }
+          : typeof parameters.threadId === "string"
+            ? project.configurations?.[parameters.threadId]?.model
+            : undefined;
+      this.providers.rejectModel(project, model, error);
+      throw error;
+    }
   }
 
   /** @param {Parameters<InstanceType<typeof SubmissionRecovery>['processControlOutcome']>} args */
@@ -1544,6 +1567,10 @@ class CoreBackend {
     this.assertThreadCreationAvailable(project, request);
     try {
       await this.resources.beforeCreate(project);
+      const configured = request.model;
+      if (modelRecord(configured) && configured.providerId === "areal_openai") {
+        await this.providers.ensureSubscription(project);
+      }
     } catch (error) {
       throw Object.assign(error instanceof Error ? error : new Error(String(error)), {
         submissionUnknown: false,
@@ -1648,7 +1675,17 @@ class CoreBackend {
       return workspaceCommand(this, request);
     }
     if (typeof projectId !== "string") throw new Error("缺少项目标识");
-    const project = await this.start(projectId);
+    if (name === "connect" && request.resumeScheduling === true)
+      for (const owner of this.worktrees.owners(
+        "logicalProjectId" in request && typeof request.logicalProjectId === "string"
+          ? request.logicalProjectId
+          : projectId,
+      ))
+        await this.lifecycleOperations.resumeScheduling(owner.id);
+    const project = await this.start(
+      projectId,
+      name === "connect" || name === "open" ? { threadId: request.threadId } : undefined,
+    );
     if (this.closing) throw new Error("应用正在退出");
     await this.worktreeAdmission.admit(project, name, request);
     if (
@@ -1665,23 +1702,8 @@ class CoreBackend {
             : "threadId" in request && typeof request.threadId === "string"
               ? project.configurations[request.threadId]?.model
               : undefined;
-      const model =
-        configured?.providerId === "areal_openai"
-          ? project.models?.find(
-              (item) =>
-                item.providerId === configured.providerId && item.modelId === configured.modelId,
-            )
-          : null;
-      if (
-        configured?.providerId === "areal_openai" &&
-        (!model ||
-          model.available === false ||
-          !this.providers.subscriptionAvailable(model, project))
-      )
-        throw Object.assign(
-          new Error("当前 ChatGPT 模型不可用，请在模型设置中刷新登录状态或选择其他模型"),
-          { submissionUnknown: false },
-        );
+      if (configured?.providerId === "areal_openai")
+        await this.providers.ensureSubscription(project);
     }
     switch (name) {
       case "connect":
@@ -2227,6 +2249,8 @@ class CoreBackend {
 
   async disconnect() {
     this.closing = true;
+    this.ownerTasks.stop();
+    this.scheduleOwners?.stop();
     for (const project of new Set([
       ...this.projects.values(),
       ...[...this.ownedEngines.values()].map((entry) => entry.project),

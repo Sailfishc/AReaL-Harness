@@ -3000,7 +3000,7 @@
       "title": "Mixed / 混合摘要 该段实际发生的类型，如“读取文件、编辑文件、运行命令” 展开原顺序活动 沿现有展示投影归类，不解析 s",
       "owner": "clients/gui/packages/ui/src/conversation/activity-group/activity-group.md#活动行的有限变体",
       "strength": "default",
-      "textSha256": "d187042bf7e71d63dfff04c7a008f36e76ac29b1a35e582b40da7fb5b1c258cd"
+      "textSha256": "fd870afa3e451d1736103d51670d2726180af0378bfc1f5bfa66d19d7b08e909"
     },
     {
       "id": "R-ACTIVITYGROUP-020",
@@ -3672,7 +3672,7 @@
       "title": "文字变化时使用局部淡入与轻微位移，当前文字从左到右扫描亮度",
       "owner": "clients/gui/packages/ui/src/conversation/thinking-status/thinking-status.md#行为",
       "strength": "default",
-      "textSha256": "948156004081d0a9682cb062515973571fd5049af779a69c441dc7f11461f0a7"
+      "textSha256": "43f6ed5cf14e1c7eb27ae67606ef9442a5e548081525f5930b26ac5d7e728757"
     },
     {
       "id": "R-THINKINGSTATUS-003",
@@ -4211,7 +4211,7 @@
       "title": "读取选项中 / 失败 原值保留",
       "owner": "clients/gui/packages/ui/src/worktree/worktree-picker/worktree-picker.md#composer上下文条与配置菜单",
       "strength": "must",
-      "textSha256": "b142758f4538d0d066113d942a3447212df6968de291b0fee9a369fc2ac31785"
+      "textSha256": "c6eff3b9a45d0f5416536251eb030d201dc826550ff5939861102229a7c2794e"
     },
     {
       "id": "R-WORKTREEPICKER-011",
@@ -4603,7 +4603,7 @@
       "title": "TurnElapsed使用Core起始时间和终态durationMs，所有语言均为 Working for … ",
       "owner": "clients/gui/renderer/src/DecisionCard.md#ask-user与过程展示",
       "strength": "default",
-      "textSha256": "a1b6c0c014aa60f34540e802fec0984c264ec7118736ff35c6b6d11458feafe3"
+      "textSha256": "7057a31438a14042314af3fc9d1cba7433e2bc5a7b7156594f628b57f3c7fed2"
     },
     {
       "id": "R-MESSAGES-001",
@@ -4736,28 +4736,28 @@
       "title": "两条消息之间的工具活动按\"连续同一动作\"分段，不再把整段混合成一组",
       "owner": "clients/gui/renderer/src/Messages.md#对话信息流",
       "strength": "default",
-      "textSha256": "d50799fccd49155680606bb2a987e5a18037c0653a8ee2b57d4377eb5aa8c236"
+      "textSha256": "66bd075b26d72c60b2914121df51436c34086f51a157868d1cf8d0163592e8e5"
     },
     {
       "id": "CONV-PROCESS-01",
       "title": "对话时间线以 Core 的 commentary / final_answer 为边界，不按文字内容猜测思考或工具事件",
       "owner": "clients/gui/renderer/src/Messages.md#对话信息流",
       "strength": "default",
-      "textSha256": "85f11b0476a0ba41ac19022197c12930041da0bb35db8d16d0553b03eb4be8b5"
+      "textSha256": "222ec1145bc808d575fe9df9b423c96fd6be8c6025dda545a206e989febec7ed"
     },
     {
       "id": "CONV-STATUS-01",
       "title": "一个回合只有一处实时状态，位于回合末尾，是一句话加左向右亮色扫光（ThinkingStatus）",
       "owner": "clients/gui/renderer/src/Messages.md#对话信息流",
       "strength": "default",
-      "textSha256": "a4a53e0600f8a65488cd9818bd97d3e0745d088d30ae4a2afdba25722f282c27"
+      "textSha256": "f05baf7392eb96cfc8dd91ef2726d6feca469542729d8dca4b3a7e87427c0555"
     },
     {
       "id": "CONV-DISCLOSURE-01",
       "title": "默认展开状态和用户选择分别记录",
       "owner": "clients/gui/renderer/src/Messages.md#对话信息流",
       "strength": "must",
-      "textSha256": "64a05ec1a38cecb1e0d668a714cc1d752305d22eb431d8c6ee8161d3733a01b9"
+      "textSha256": "28fb3e4f6a3d079322ea8b3703ceaf58f741c3e80403162589b26b0a80697cb8"
     },
     {
       "id": "R-LAYOUT-009",
@@ -4771,7 +4771,7 @@
       "title": "跟随最新时，新内容可推进视口",
       "owner": "clients/gui/renderer/src/Messages.md#对话信息流",
       "strength": "default",
-      "textSha256": "a61a74981356500077169809cd57cc181c1ff90503d42f9f9e2357b927387aaf"
+      "textSha256": "6672abc1fa63a14a5b64ca803d8f2e1be22be823e474553f9a9f45a844083b89"
     },
     {
       "id": "CONV-RESOURCE-01",
@@ -4820,7 +4820,7 @@
       "title": "过程耗时跨语言统一显示 Working for 15m 29s ，作为可折叠的过程标题在运行中与完成后都显示",
       "owner": "clients/gui/renderer/src/Messages.md#混合内容与过程标题",
       "strength": "default",
-      "textSha256": "b7cf0aad58af5df90f5687a35be71c5ad90afaad6d4cc9005781970792ffb2c2"
+      "textSha256": "c1d59e08513f08327e164d47e2297ad2070191b0946e052413eb2ee457d2ad64"
     },
     {
       "id": "R-ACTIONBUTTON-005",

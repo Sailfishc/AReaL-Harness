@@ -18,6 +18,8 @@ Thread 快照和 Item 通知支持可选 `agentMessage.phase`，生命周期、�
 
 ## 桌面宿主 Worktree 契约
 
+桌面宿主 `connect` 接受可选 `threadId`，用于优先恢复当前会话的只读观察。服务快照的 `selectedThreadObservation=true` 公布支持；Main 连接未公布该能力的旧 v3 后端时移除此提示，沿用原恢复请求。它不改变项目执行就绪资格，导航摘要在后台更新。Desktop snapshot 可附带 `subscription` 公开状态，沿用 `chatgpt.status` 的账号与模型字段，并增加 `availability: "checking" | "available" | "unavailable"` 和 `refreshing`。模型目录也可携带 `availability`。确认中不表示已失效，缓存不代替 Core 提交校验。新增响应字段可由旧消费者忽略，旧后端继续接受原 v3 请求；不新增 Rust RPC。
+
 本节属于 `clients/gui` 的认证桌面宿主 `command` 合同，不新增 `areal.core.v1` Rust RPC。宿主继续通过现有 Core 方法管理每个执行目录，Core 仍持有线程和执行历史。共享桌面类型与校验位于 `clients/gui/packages/workbench/client/desktop-contract.cjs`。
 
 `create` 接受逻辑 `projectId`、稳定 `requestId`、原模型与配置，以及可选 `worktree: {sourceRoot?,ref?,worktreeRoot?,branch?,branchPrefix?,mode?,environmentId?,environmentRevision?}`。`mode` 为 `source` 或 `worktree`，`environmentRevision` 为非负整数，其余字段为字符串。普通创建使用当前项目目录、分支和 Core；只有 `mode: "worktree"` 才创建独立 checkout。省略 `worktree`、省略 `mode` 或明确 `source` 均不自动隔离，已有会话不会触发新目录。成功返回 `{threadId,requestId}`，逻辑项目 ID 不变。隔离创建固定来源 SHA，确认独立 Core/Runtime、空线程绑定及所选 setup 成功后才就绪。
@@ -180,8 +182,12 @@ thread/configure 使用 expectedRevision，仅空闲且不压缩时生效。rese
 
 options.readOnly 收窄 Scope 写根和网络；toolAllowlist 收窄 Profile；preapprovedTools 不能取消部署强制审批，且只匹配当前工具名；预批准读取工具不会豁免它触发的 hook。maxModelRounds 为 1–1024，最后一轮仅交接，不等于团队请求预算。Profile/Workflow 定义使用不可变 id/revision；Skill 引用不冻结资源内容，见下文。
 
+`features.automaticSessionName` 表示支持 `options.automaticSessionName: boolean`；`areal/thread/start` 与 `areal/thread/configure` 使用同一选项，省略或 true 保留自动命名，false 禁止后续命名请求。配置替换时客户端应保留已有选择；来源 Turn 的冻结配置、在途请求和恢复边界见 [Core 会话名称](core.md#会话名称)。
+
 <a id="skills"></a>
 ### 有界历史显示
+
+Desktop 在同步观察结果内一次安装会话内容、`thread.desktop.configuration`、队列与交互。显式模型不再重复读取三项元数据；历史隐式默认模型仍按其保存 revision 查询展示名称与有效参数。最新轮多页补全先累积页面，结束时合并到当时的实时模型，保留期间到达的增量，再发布内容。输入区加载占位沿用消息区和底部 Composer 的布局，提交与偏好提示不参与消息视口高度计算。
 
 GUI 协商 `boundedObservation` 与 `boundedHistory` 后，普通、Side 和归档聊天统一使用 `areal/thread/observe {mode:"bounded",maxBytes:262144}` 建立显示基线。Core 明确返回 `HISTORY_BUDGET_TOO_SMALL` 时，仅增大一次到 1 MiB；仍失败则保留当前聊天的读取错误。`CoreClient` 对该次完整响应独立执行同样的字节上限，安装基线仍在同步 `onResult` 中完成。浏览器宿主恢复另须 `boundedResume`；不以附加工具替代原有宿主绑定。缺少新能力的 Core 保留完整历史兼容路径，不能提供分页容量保证。
 

@@ -192,7 +192,11 @@ export function DraftComposer({
   };
   const [model, setModel] = useState<string | null>(() => localStorage.getItem(`${key}:model`));
   const modelValue = (item: Data) => `${item.providerId ?? ""}/${item.modelId}`;
-  const initialSelection = resolveNewConversationModel(project.models, project.lastAcceptedModel);
+  const initialSelection = resolveNewConversationModel(
+    project.models,
+    project.lastAcceptedModel,
+    project.state?.connected === true,
+  );
   const initialModel = chosenProfile?.model
     ? project.models.find(
         (item: Data) =>
@@ -207,17 +211,17 @@ export function DraftComposer({
       : initialModel
         ? modelValue(initialModel)
         : "");
-  const currentModel = project.models.find((item: Data) => modelValue(item) === effectiveModel);
+  const currentModel =
+    project.models.find((item: Data) => modelValue(item) === effectiveModel) ??
+    (initialModel && modelValue(initialModel) === effectiveModel ? initialModel : undefined);
   const rememberedEffort =
     !chosenProfile?.model && model === null ? initialSelection.rememberedEffort : undefined;
   const effort = resolveModelEffort(currentModel, efforts[effectiveModel] ?? rememberedEffort);
   const preferenceNotice =
     model === null && !chosenProfile?.model
-      ? initialSelection.notice === "model-unavailable"
-        ? t("chat.composer.previousModelUnavailable")
-        : initialSelection.notice === "effort-unsupported"
-          ? t("chat.composer.previousEffortUnsupported")
-          : ""
+      ? initialSelection.notice === "effort-unsupported"
+        ? t("chat.composer.previousEffortUnsupported")
+        : ""
       : "";
   const [unknown, setUnknown] = useState(() => localStorage.getItem(`${key}:pending-create`));
   const [checkingCreation, setCheckingCreation] = useState(false);
@@ -239,11 +243,7 @@ export function DraftComposer({
   const blockingPending = project.pending.filter(
     (entry: Data) => !isIndependentCreation(entry, [unknown, activeCreation?.requestId]),
   );
-  const submitDisabled =
-    modelSelectionDisabled ||
-    !!blockingPending.length ||
-    !currentModel ||
-    currentModel.available === false;
+  const submitDisabled = modelSelectionDisabled || !!blockingPending.length || !effectiveModel;
   const desktopUnsupported = project.desktopCapabilities?.currentCommands === false;
   const skills = useComposerSkills({
     project: executionReady
@@ -441,14 +441,12 @@ export function DraftComposer({
       const profile = resolveDraftProfile(owner, profileSelection);
       if ((profileSelection || owner.defaultProfile) && !profile)
         throw new Error("当前任务配置不可用，输入已保留。");
-      const chosenModel = owner.models.find((item: Data) => modelValue(item) === effectiveModel);
-      if (
-        !chosenModel ||
-        chosenModel.available === false ||
-        chosenModel.modelId !== currentModel?.modelId
-      ) {
-        throw new Error("所选模型已不可用，输入已保留，请重新选择模型。");
-      }
+      const separator = effectiveModel.indexOf("/");
+      const chosenModel = owner.models.find((item: Data) => modelValue(item) === effectiveModel) ??
+        currentModel ?? {
+          providerId: effectiveModel.slice(0, separator) || null,
+          modelId: effectiveModel.slice(separator + 1),
+        };
       await revalidateComposerPlugins(
         readAction,
         {
@@ -481,7 +479,11 @@ export function DraftComposer({
         )
           throw new Error("当前任务配置未提供所选 Skill 的确切版本，草稿已保留。");
       }
-      if (effort && !chosenModel.reasoningEffortOptions?.includes(effort))
+      if (
+        effort &&
+        chosenModel.reasoningEffortOptions &&
+        !chosenModel.reasoningEffortOptions.includes(effort)
+      )
         throw new Error("所选推理强度已不可用，输入与选择已保留，请重新选择强度。");
       const parameters = { ...chosenModel.parameters };
       if (chosenModel.capabilities?.reasoning === false) {
@@ -1066,7 +1068,7 @@ export function DraftComposer({
                         {
                           value: effectiveModel,
                           label: effectiveModel.slice(effectiveModel.indexOf("/") + 1),
-                          unavailableReason: "模型不可用",
+                          historical: true,
                         },
                       ]
                     : []),

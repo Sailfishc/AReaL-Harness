@@ -281,15 +281,6 @@ export function Composer({
     await queueEditor.save();
   };
   const config = project.configurations?.[thread.id];
-  const configuredModel =
-    config?.model &&
-    project.models.find(
-      (item: Data) =>
-        item.providerId === config.model.providerId && item.modelId === config.model.modelId,
-    );
-  const modelUnavailable =
-    configuredModel?.available === false ||
-    (config?.model?.providerId === "areal_openai" && !configuredModel);
   const [mcpOpen, setMcpOpen] = useState(false);
 
   const skills = useComposerSkills({
@@ -462,7 +453,6 @@ export function Composer({
       await saveQueueEdit();
       return;
     }
-    if (modelUnavailable && !creatingGoal) return;
     if (
       !submittedInput.text.trim() &&
       !submittedInput.files.length &&
@@ -563,8 +553,7 @@ export function Composer({
     }
   };
   const continueExecution = async () => {
-    if (desktopUnsupported || !canContinue || disabled || modelUnavailable || sending.has(key))
-      return;
+    if (desktopUnsupported || !canContinue || disabled || sending.has(key)) return;
     markSending(key, true);
     setDeliveryError("");
     try {
@@ -731,24 +720,40 @@ export function Composer({
     setReturning(true);
     setReturnError("");
     try {
-      const listed = await action("tasks", { operation: "list", limit: 1024 });
-      const task = (listed.data ?? []).find(
-        (row) =>
-          "runs" in row &&
-          row.projectId === project.id &&
-          row.runs?.some((run: Data) =>
-            run.workers?.some((worker: Data) => worker.threadId === thread.id),
+      const listed = await action("tasks", {
+        operation: "observe",
+        projectId: project.id,
+        limit: 1024,
+      });
+      if (listed.errors.length)
+        throw new Error(listed.errors.map((error) => error.message).join("\n"));
+      const candidates = [...listed.data].sort(
+        (a, b) =>
+          Number(
+            b.threadId === thread.goalOwner.threadId ||
+              b.latestRun?.threadId === thread.goalOwner.threadId ||
+              b.activeRun?.threadId === thread.goalOwner.threadId,
+          ) -
+          Number(
+            a.threadId === thread.goalOwner.threadId ||
+              a.latestRun?.threadId === thread.goalOwner.threadId ||
+              a.activeRun?.threadId === thread.goalOwner.threadId,
           ),
       );
-      const run =
-        task && "runs" in task
-          ? task.runs?.find((item: Data) =>
-              item.workers?.some((worker: Data) => worker.threadId === thread.id),
-            )
-          : undefined;
-      if (!task || !("id" in task) || !run || !onOpenTask)
-        throw new Error("找不到此 worker 所属的原运行。");
-      onOpenTask({ projectId: project.id, taskId: task.id, runId: run.id });
+      for (const summary of candidates) {
+        const task = await action("manage", {
+          projectId: project.id,
+          operation: "task",
+          taskId: summary.id,
+        });
+        const run = task.runs.find((run) =>
+          run.workers?.some((worker) => worker.threadId === thread.id),
+        );
+        if (!run || !onOpenTask) continue;
+        onOpenTask({ projectId: project.id, taskId: task.id, runId: run.id });
+        return;
+      }
+      throw new Error("找不到此 worker 所属的原运行。");
     } catch (cause) {
       setReturnError((cause as Error).message);
     } finally {
@@ -841,7 +846,6 @@ export function Composer({
             size="sm"
             disabled={
               disabled ||
-              modelUnavailable ||
               desktopUnsupported ||
               !!input.text.trim() ||
               !!input.files.length ||
@@ -978,7 +982,6 @@ export function Composer({
           submitDisabled={
             workspaceReferencePending ||
             disabled ||
-            (modelUnavailable && !queueEditor.edit && !creatingGoal) ||
             (desktopUnsupported && !queueEditor.edit && !creatingGoal) ||
             (taskManagement && !!running) ||
             annotationEditing ||
@@ -993,9 +996,7 @@ export function Composer({
           submitDisabledReason={
             desktopUnsupported && !queueEditor.edit && !creatingGoal
               ? t("backend.updateRequired")
-              : modelUnavailable && !queueEditor.edit && !creatingGoal
-                ? t("chat.composer.previousModelUnavailable")
-                : undefined
+              : undefined
           }
           submitting={busy && !configuring}
           submitLabel={
@@ -1345,7 +1346,6 @@ export function Composer({
                   title={desktopUnsupported ? t("backend.updateRequired") : undefined}
                   disabled={
                     disabled ||
-                    modelUnavailable ||
                     desktopUnsupported ||
                     taskManagement ||
                     (!input.text.trim() &&
@@ -1373,7 +1373,7 @@ export function Composer({
                   data-testid="chat-continue-button"
                   aria-describedby={desktopUnsupported ? compatibilityDescription : undefined}
                   title={desktopUnsupported ? t("backend.updateRequired") : undefined}
-                  disabled={disabled || modelUnavailable || desktopUnsupported}
+                  disabled={disabled || desktopUnsupported}
                   className="composer-primary-action"
                   onClick={() => void continueExecution()}
                 >

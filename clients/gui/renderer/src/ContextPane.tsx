@@ -1,3 +1,4 @@
+import { useI18n } from "./i18n/IntlProvider.js";
 import type { ManagementResponseMap } from "@areal/workbench/desktop-contract/management";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "./components/ui/button.js";
@@ -22,6 +23,7 @@ export function ContextPane({
   thread: Data;
   action: Action;
 }) {
+  const { t } = useI18n();
   const [context, setContext] = useState<Context | null>(null);
   const [busy, setBusy] = useState(false),
     [compacting, setCompacting] = useState(false),
@@ -138,10 +140,7 @@ export function ContextPane({
       >
         <div>
           <h3 className="font-medium">下一次请求的历史投影</h3>
-          <p className="mt-1 text-foreground-subtle">
-            这里展示 Core
-            当前保留的消息与压缩摘要。工具定义、供应商私有上下文及下次请求配置不完整呈现在此。
-          </p>
+          <p className="mt-1 text-foreground-subtle">{t("common.contextProjection")}</p>
         </div>
         {active && (
           <p className="text-foreground-subtle">

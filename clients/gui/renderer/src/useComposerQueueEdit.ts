@@ -1,4 +1,3 @@
-import { isQueue } from "@areal/workbench/desktop-contract/shared";
 import type { Attachment } from "@areal/workbench/desktop-contract/conversation";
 import type { QueueEditInput } from "./Queue.js";
 import { composerDraftStorage } from "./composerDraftStorage.js";
@@ -335,16 +334,21 @@ export function useComposerQueueEdit({
           setError(outcome.message ?? "队列操作执行失败，编辑内容已保留。");
         }
       } else if (edit.unknown.operation === "pause") {
-        if (!isQueue(outcome.result)) throw new Error("原队列回执不完整，请继续核对原请求。");
+        // 恢复日志只保留受理版本；完整队列始终从原 Thread 的权威读取获取。
+        const revision = outcome.result?.revision;
+        if (typeof revision !== "number" || !Number.isSafeInteger(revision) || revision < 0)
+          throw new Error("原队列回执不完整，请继续核对原请求。");
         const latest = await readAction("queue", { projectId: project.id, threadId });
         const item = latest.items.find((row) => row.id === record.id);
-        if (latest.revision !== outcome.result.revision || !item || item.status !== "pending") {
+        if (latest.revision !== revision || !item || item.status !== "pending") {
           saveRecord(record);
           setError("暂停已确认，但队列随后更新；原草稿已保留，请取消后核对。");
         } else enter(record, latest, item.input);
       } else if (edit.unknown.operation === "update") {
-        if (!isQueue(outcome.result)) throw new Error("原队列回执不完整，请继续核对原请求。");
-        await finish({ ...record, revision: outcome.result.revision });
+        const revision = outcome.result?.revision;
+        if (typeof revision !== "number" || !Number.isSafeInteger(revision) || revision < 0)
+          throw new Error("原队列回执不完整，请继续核对原请求。");
+        await finish({ ...record, revision });
       } else restoreLocal(record);
     } catch (cause) {
       setError((cause as Error).message);

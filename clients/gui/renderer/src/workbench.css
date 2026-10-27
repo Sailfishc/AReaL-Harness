@@ -1532,6 +1532,10 @@ button.composer-project:hover > svg,
   white-space: nowrap;
   color: var(--color-foreground-subtle);
 }
+/* 失败步骤在所在行尾写明结果（CONV-ACTIVITY-01），只给这段短语用错误色。 */
+.tool-result.tool-failed {
+  color: var(--color-status-error);
+}
 .tool-chevron {
   opacity: 0;
   flex-shrink: 0;
@@ -1716,13 +1720,40 @@ button.composer-project:hover > svg,
 .composer-input-stack > form {
   position: relative;
 }
+.composer-submit-feedback,
 .composer-preference-notice {
-  margin: 8px 12px 0;
+  position: absolute;
+  inset-inline: var(--spacing-field);
+  bottom: 100%;
+  z-index: 2;
+  margin: 0 0 var(--spacing-inline);
+  padding: var(--spacing-inline) var(--spacing-field);
+  max-height: 6em;
+  overflow-y: auto;
+  border-radius: var(--radius-md);
+  background: var(--color-background);
+  box-shadow: var(--shadow-menu-wide);
   color: var(--color-foreground-subtle);
   font-size: var(--text-ui-sm);
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
+.composer-dock {
+  position: relative;
+}
+.conversation-loading {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+.conversation-loading-body {
+  flex: 1;
+}
+.conversation-loading-editor {
+  min-height: 40px;
+}
+
 .composer-add-menu:focus-visible {
   outline: none;
 }
@@ -2124,7 +2155,7 @@ button[aria-label="停止"] {
 .user-bubble {
   font-family: var(--font-content, var(--font-sans));
   font-size: var(--content-font-size, var(--text-fixed-body));
-  --text-ui-base: var(--content-font-size, 14px);
+  --text-ui-base: var(--content-font-size, 12px);
   font-weight: var(--ui-font-weight);
   letter-spacing: normal;
 }
@@ -4663,6 +4694,8 @@ button[aria-label="停止"] {
 }
 .turn-progress-summary {
   gap: var(--spacing-inline);
+  /* 计时数字等宽，秒数变化不改变标题宽度。 */
+  font-variant-numeric: tabular-nums;
 }
 .turn-progress-summary:focus-visible {
   outline: var(--focus-width) solid var(--color-ring);
@@ -4679,6 +4712,30 @@ button[aria-label="停止"] {
   font-size: var(--text-conversation);
   line-height: var(--conversation-line);
   overflow-wrap: anywhere;
+}
+/* 回合末尾实时状态固定一行（CONV-STATUS-01）：状态变化只换文字，不改变高度。 */
+.turn-activity > .execution-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  white-space: nowrap;
+}
+.turn-activity > .execution-status > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 需要注意的状态：橙色只用于图标，文字改用正文色保证对比度。 */
+.turn-activity > .execution-status[data-tone] {
+  color: var(--color-foreground);
+}
+.turn-activity > .execution-status > svg {
+  flex: none;
+  color: var(--color-status-attention);
+}
+.turn-activity > .execution-status[data-tone="unknown"] > svg {
+  color: var(--color-status-unknown);
 }
 .tool-image-row > .areal-image-disclosure {
   min-width: 0;

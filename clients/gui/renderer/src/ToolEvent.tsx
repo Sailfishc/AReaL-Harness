@@ -176,7 +176,7 @@ export function ToolEvent({
           <Button
             variant="ghost"
             className="agent-spawn-record"
-            aria-label="查看工具原始记录"
+            aria-label={t("common.tools.rawRecord")}
             aria-expanded={open}
             aria-controls={recordId}
             onClick={toggle}
@@ -302,7 +302,7 @@ export function ToolEvent({
             variant="ghost"
             className="tool-file-record"
             aria-label="查看工具原始记录"
-            title="查看工具原始记录"
+            title={t("common.tools.rawRecord")}
             aria-expanded={open}
             aria-controls={recordId}
             onClick={toggle}
@@ -327,7 +327,7 @@ export function ToolEvent({
           <ActivityIcon kind={view.icon} />
           <span className="tool-summary-text" data-running={view.running || undefined}>
             <span>
-              {view.running ? "正在" : view.status === "已完成" ? "已" : ""}
+              {view.running ? "正在" : view.status === "已完成" || view.failed ? "已" : ""}
               {view.label}
             </span>
             <span className="tool-summary-detail">{view.detail}</span>
@@ -341,7 +341,7 @@ export function ToolEvent({
                   : "tool-result"
             }
           >
-            {view.status}
+            {view.failed && view.exitCode != null ? `失败 · exit ${view.exitCode}` : view.status}
           </span>
           <ActivityIcon
             kind="chevron"

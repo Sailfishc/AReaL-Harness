@@ -36,6 +36,7 @@ export type HostPrerequisite = {
 };
 export interface Snapshot {
   projects: Data[];
+  subscription?: import("@areal/workbench/desktop-contract/provider").ChatGPTStatus;
   desktopCapabilities?: { currentCommands: boolean };
   power?: { enabled: boolean; active: boolean; error: string | null } | null;
   menuBar?: { supported: boolean; active: boolean; error: string | null } | null;

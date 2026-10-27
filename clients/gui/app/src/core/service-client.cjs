@@ -88,7 +88,8 @@ const lifecycleMessage = (phase) =>
 function requiresCurrentCommands(name, request) {
   return (
     currentCommands.has(name) ||
-    (name === "tasks" && ["preview", "observe"].some((operation) => operation === request.operation)) ||
+    (name === "tasks" &&
+      ["preview", "observe"].some((operation) => operation === request.operation)) ||
     (name === "side" && ["create", "close"].some((operation) => operation === request.operation)) ||
     (["steer", "queueEdit"].includes(name) &&
       Array.isArray(request.mcpContent) &&
@@ -933,6 +934,8 @@ class SharedCoreBackend {
       name === "manage" && request.operation === "processSubmission" && request.guiOwned === true;
     const ownedScope = ownedStart || ownedRecovery ? readGuiThreadIdentity(request) : undefined;
     const { guiOwned: _guiOwned, ...params } = request;
+    if (name === "connect" && this.status.selectedThreadObservation !== true)
+      delete params.threadId;
     // 队列业务键跨 GUI/共享服务连接保留，外层丢失响应后也能只读核对。
     const semantics = commandSemantics(name, params);
     if (semantics.requestId) params[semantics.requestId] ??= randomUUID();

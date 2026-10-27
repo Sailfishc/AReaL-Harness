@@ -13,6 +13,8 @@ const { CoreBackend } = require("../app/src/core/backend.cjs");
 const { DesktopService, PROTOCOL } = require("../app/src/core/service-protocol.cjs");
 const { ServiceConnection } = require("../app/src/core/service-client.cjs");
 const scratch = await makeTempDir("areal-large-history-");
+// Focused paging acceptance excludes the independent >64MiB fragment workload.
+const pagesOnly = process.argv.includes("--pages-only");
 const workspace = join(scratch, "workspace"),
   home = join(scratch, "desktop");
 await mkdir(workspace);
@@ -228,88 +230,109 @@ try {
       turns.flatMap((turn) => turn.items.map((item) => item.id)),
       "all old page IDs are chronological without gaps or duplicates",
     );
+    const gap = live.model.state.threads[id].displayHistory.gaps.find((gap) => !gap.atTop);
+    assert.ok(gap, "eviction retains a reloadable gap beside the latest window");
+    const restored = await history(projectId, id, "loadOlder", { pageId: gap.id });
+    const shown = ids(live.model.state.threads[id]);
+    assert.ok(
+      restored.data.every((entry) => shown.includes(entry.sourceItemId)),
+      "real Core cursors can reload evicted bodies",
+    );
+    assert.deepEqual(
+      shown,
+      ordered.filter((itemId) => shown.includes(itemId)),
+      "reload preserves chronological order without duplicates",
+    );
+    assert.ok(
+      backend.historyWindow(live, id).pages.length <= 4,
+      "reloading uses the same four-page body budget",
+    );
     await history(projectId, id, "release");
   }
   checks.push(
-    "ordinary and archived multi-segment histories traverse in order through bounded Desktop reads with finite display retention",
+    "ordinary and archived multi-segment histories traverse in order and reload evicted bodies using real Core cursors within the four-page budget",
   );
-  progress("huge-baseline");
-  await backend.openThread(live, hugeId);
-  service = new DesktopService(backend, "large-history-fixture");
-  const metadata = await service.listen();
-  connection = new ServiceConnection(
-    (packet) => {
-      desktopPacket = packet;
-    },
-    () => {},
-  );
-  await connection.connect(metadata);
-  await connection.request("hello", { protocol: PROTOCOL, identity: metadata.identity });
-  const desktopHistory = (operation, extra = {}) =>
-    connection.request("command", {
-      name: "history",
-      request: { projectId, threadId: hugeId, viewId: "desktop-huge", operation, ...extra },
-    });
-  await desktopHistory("acquire");
-  assert.equal(
-    live.model.state.threads[hugeId].turns[0].items.find((item) => item.id === "huge-item").type,
-    "historyDeferred",
-  );
-  assert.ok(
-    Buffer.byteLength(JSON.stringify(live.model.state.threads[hugeId])) <= 1048576,
-    "huge item is not eagerly materialized",
-  );
-  progress("huge-fragments");
-  await desktopHistory("loadItem", { itemId: "huge-item" });
-  assert.equal(
-    digest(
-      live.model.state.threads[hugeId].turns[0].items.find((item) => item.id === "huge-item").text,
-    ),
-    hugeHash,
-  );
-  const received = desktopPacket.snapshot.projects.find((project) => project.id === projectId).state
-    .threads[hugeId];
-  assert.equal(
-    digest(received.turns[0].items.find((item) => item.id === "huge-item").text),
-    hugeHash,
-    "actual Desktop transport preserves the full explicit item",
-  );
-  await desktopHistory("release");
-  assert.equal(
-    desktopPacket.snapshot.projects
-      .find((project) => project.id === projectId)
-      .state.threads[hugeId].turns[0].items.find((item) => item.id === "huge-item").type,
-    "historyDeferred",
-  );
-  assert.ok(
-    Buffer.byteLength(JSON.stringify(live.model.state.threads[hugeId])) <= 1048576,
-    "last view release drops huge materialization",
-  );
-  checks.push(
-    "escaped Unicode item above 64MiB reassembles exactly only after explicit load and is released with its view",
-  );
-  progress("reconnect");
-  const before = live.client,
-    generation = live.service.generation;
-  before.socket.terminate();
-  await until(
-    () => live.client !== before && live.model.state.connected && !backend.starting.has(projectId),
-    "bounded reconnect",
-  );
-  capture(live);
-  assert.equal(live.service.generation, generation);
-  assert.equal(workRequests(), modelRequests, "reconnect starts no non-title model work");
-  assert.equal(
-    live.model.state.threads[hugeId].turns[0].items.find((item) => item.id === "huge-item").type,
-    "historyDeferred",
-  );
-  assert.ok(
-    wireBytes.length > 10 && Math.max(...wireBytes) <= 1048576,
-    "every observed history RPC envelope is <=1MiB",
-  );
-  checks.push(
-    "reconnect recovers the same bounded views without additional model work or Core restart",
-  );
+  if (!pagesOnly) {
+    progress("huge-baseline");
+    await backend.openThread(live, hugeId);
+    service = new DesktopService(backend, "large-history-fixture");
+    const metadata = await service.listen();
+    connection = new ServiceConnection(
+      (packet) => {
+        desktopPacket = packet;
+      },
+      () => {},
+    );
+    await connection.connect(metadata);
+    await connection.request("hello", { protocol: PROTOCOL, identity: metadata.identity });
+    const desktopHistory = (operation, extra = {}) =>
+      connection.request("command", {
+        name: "history",
+        request: { projectId, threadId: hugeId, viewId: "desktop-huge", operation, ...extra },
+      });
+    await desktopHistory("acquire");
+    assert.equal(
+      live.model.state.threads[hugeId].turns[0].items.find((item) => item.id === "huge-item").type,
+      "historyDeferred",
+    );
+    assert.ok(
+      Buffer.byteLength(JSON.stringify(live.model.state.threads[hugeId])) <= 1048576,
+      "huge item is not eagerly materialized",
+    );
+    progress("huge-fragments");
+    await desktopHistory("loadItem", { itemId: "huge-item" });
+    assert.equal(
+      digest(
+        live.model.state.threads[hugeId].turns[0].items.find((item) => item.id === "huge-item")
+          .text,
+      ),
+      hugeHash,
+    );
+    const received = desktopPacket.snapshot.projects.find((project) => project.id === projectId)
+      .state.threads[hugeId];
+    assert.equal(
+      digest(received.turns[0].items.find((item) => item.id === "huge-item").text),
+      hugeHash,
+      "actual Desktop transport preserves the full explicit item",
+    );
+    await desktopHistory("release");
+    assert.equal(
+      desktopPacket.snapshot.projects
+        .find((project) => project.id === projectId)
+        .state.threads[hugeId].turns[0].items.find((item) => item.id === "huge-item").type,
+      "historyDeferred",
+    );
+    assert.ok(
+      Buffer.byteLength(JSON.stringify(live.model.state.threads[hugeId])) <= 1048576,
+      "last view release drops huge materialization",
+    );
+    checks.push(
+      "escaped Unicode item above 64MiB reassembles exactly only after explicit load and is released with its view",
+    );
+    progress("reconnect");
+    const before = live.client,
+      generation = live.service.generation;
+    before.socket.terminate();
+    await until(
+      () =>
+        live.client !== before && live.model.state.connected && !backend.starting.has(projectId),
+      "bounded reconnect",
+    );
+    capture(live);
+    assert.equal(live.service.generation, generation);
+    assert.equal(workRequests(), modelRequests, "reconnect starts no non-title model work");
+    assert.equal(
+      live.model.state.threads[hugeId].turns[0].items.find((item) => item.id === "huge-item").type,
+      "historyDeferred",
+    );
+    assert.ok(
+      wireBytes.length > 10 && Math.max(...wireBytes) <= 1048576,
+      "every observed history RPC envelope is <=1MiB",
+    );
+    checks.push(
+      "reconnect recovers the same bounded views without additional model work or Core restart",
+    );
+  }
   progress("cache-views");
   for (const id of [...additionalIds, threadId]) {
     await backend.openThread(live, id);
@@ -383,8 +406,9 @@ try {
         rpcTimings,
         historyResponses: wireBytes.length,
         maxHistoryResponseBytes: Math.max(0, ...wireBytes),
+        pagesOnly,
         scope:
-          "production CoreBackend and real Core WebSocket plus DesktopService/ServiceConnection, isolated persisted multi-segment fixtures and local deterministic model; no Renderer acceptance",
+          "production CoreBackend and real Core WebSocket plus DesktopService/ServiceConnection, isolated persisted multi-segment fixtures and local deterministic model; pagesOnly skips huge fragments/reconnect, no Renderer acceptance",
       },
       null,
       2,

@@ -10,6 +10,7 @@ const { modelRecord } = require("@areal/workbench/core-model-contract");
 const {
   readTask,
   readTaskAdmission,
+  schedule,
 } = require("../../../packages/workbench/client/desktop-contract/management-tasks.cjs");
 const { readReceipts, receiptResult } = require("./receipt-contract.cjs");
 const { readObservationResult, readThreadMetadata } = require("./history-contract.cjs");
@@ -47,7 +48,7 @@ Use Core current civil context below. For onceLocal/intervalLocal, date may be {
 Only explicit user limits may add limits:{tokenBudget,maxTurns,maxActiveSeconds} and limitSources with exact user quotes. Never invent budgets. A complete proposal is saved automatically without another confirmation. ${editing ? 'EDIT MODE: Return only changed objective and/or scheduleV2. Preserve unchanged frequency, selectors and time zone. For pause/resume/cancel use {kind:"control",action,message}. Cancel preserves history. Immediate execution uses the saved Task button 立即运行. Budgets, permissions and project binding cannot be changed here.' : ""}`;
 
 const targetPrefix = "Current scheduled task: ";
-/** @param {Thread} thread @param {Project} [project] */
+/** @param {Thread} thread @param {Project} [project] @returns {Target|null} */
 function targetOf(thread, project) {
   const line = draftInstructions(thread, project)
     .split("\n")
@@ -55,8 +56,47 @@ function targetOf(thread, project) {
   if (!line) return null;
   /** @type {unknown} */
   const value = JSON.parse(line.slice(targetPrefix.length));
-  if (!modelRecord(value)) throw new Error("原安排身份无效");
-  return targetContext(readTask({ ...value, id: value.taskId, revision: value.expectedRevision }));
+  if (
+    !modelRecord(value) ||
+    typeof value.taskId !== "string" ||
+    typeof value.expectedRevision !== "number" ||
+    !Number.isSafeInteger(value.expectedRevision) ||
+    value.expectedRevision < 0 ||
+    typeof value.objective !== "string" ||
+    typeof value.paused !== "boolean" ||
+    (value.interactionMode !== "interactive" &&
+      value.interactionMode !== "asynchronous" &&
+      value.interactionMode !== "headless") ||
+    (value.nextRunAt != null &&
+      (typeof value.nextRunAt !== "number" || !Number.isSafeInteger(value.nextRunAt))) ||
+    (value.schedule != null && !isLegacySchedule(value.schedule)) ||
+    (value.scheduleV2 != null && !schedule(value.scheduleV2))
+  )
+    throw new Error("原安排身份无效");
+  return {
+    taskId: value.taskId,
+    expectedRevision: value.expectedRevision,
+    objective: value.objective,
+    schedule: value.schedule,
+    scheduleV2: value.scheduleV2,
+    nextRunAt: value.nextRunAt,
+    interactionMode: value.interactionMode,
+    paused: value.paused,
+  };
+}
+/** @param {unknown} value @returns {value is NonNullable<Target['schedule']>} */
+function isLegacySchedule(value) {
+  return (
+    modelRecord(value) &&
+    typeof value.at === "number" &&
+    Number.isSafeInteger(value.at) &&
+    (value.intervalSeconds == null ||
+      (typeof value.intervalSeconds === "number" &&
+        Number.isSafeInteger(value.intervalSeconds) &&
+        value.intervalSeconds >= 0)) &&
+    (value.timeZone == null || typeof value.timeZone === "string") &&
+    Object.keys(value).every((key) => ["at", "intervalSeconds", "timeZone"].includes(key))
+  );
 }
 /** @param {Thread} thread @param {Project} [project] */
 function draftInstructions(thread, project) {
@@ -544,11 +584,14 @@ async function manageTaskDraft(backend, project, request) {
           });
         await backend.resources.beforeCreate(project);
         const selection = resolveNewConversationModel(
-          project.models,
+          backend.providers.catalog(project.models ?? [], project),
           backend.providers.lastAcceptedModel,
+          true,
         );
         const model = selection.candidate;
         modelNotice = selection.notice;
+        if (model?.providerId === "areal_openai")
+          await backend.providers.ensureSubscription(project);
         const admitted = await backend.submit(
           project,
           "areal/thread/start",

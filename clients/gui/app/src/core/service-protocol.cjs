@@ -499,6 +499,7 @@ class DesktopService {
           : {}),
         connected: true,
         commandContract: COMMAND_CONTRACT,
+        selectedThreadObservation: true,
         clients: this.clients.size,
         busy: this.backend.hasWork({ includePausedQueues: false }),
         activeCommands: this.inflight,

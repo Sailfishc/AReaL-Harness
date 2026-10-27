@@ -2,6 +2,13 @@
 
 # 测试
 
+Side Chat 的 Esc 回退测试等待任务资源外层弹层完全退出布局后，再验证主任务停止。内部 `Activity` 隐藏会早于 `keepMounted` 弹层关闭动画完成；动画期间仍应保护主任务。测试显式拉长该动画并记录弹层状态，覆盖两种主/侧任务启动顺序，不用固定 sleep 或重复发送 Esc 掩盖竞态。
+
+模型计量观察器的非干扰测试在磁盘写入仍被阻塞时等待 `drained` 结算信号，再在观察器锁内检查内存账本。客户端收到 HTTP EOF 不代表服务端 `finally` 已完成；不能用延长 sleep 或提前释放磁盘阻塞替代这个先后关系。
+
+
+发行验收的本地模型将辅助会话标题与求解请求分开处理。主任务退出可取消尚未完成的命名请求，此时命名回包的 BrokenPipe/ConnectionReset 不应把成功的读写验收改判失败；求解回包中断、命名携带工具或其他协议错误仍失败。`scripts/fixture_session_title.py` 仅用于本地 fixture，不改变生产重试、超时或模型消费。
+
 依赖安装见[开发指南](README.md)。常规测试使用临时目录、动态 loopback 端口和确定性模型，无需真实模型凭据。
 
 | 入口 | 范围 |
@@ -29,6 +36,24 @@ macOS 原生 smoke 需要 Seatbelt，Linux 原生 smoke 需要 `/usr/bin/bwrap` 
 
 Linux 宿主常规检查使用 `make verify CARGO_TEST_ARGS='--exclude areal-runtime-exec-native'`。原生后端测试要求 `/usr/bin/bwrap` 和 user namespace；CI 的独立任务构建 Dockerfile 的 `runtime-tests` 目标，在带 Bubblewrap 的受控容器中实际运行包含 `outer-container-perf` 的全部后端测试，并启用 `areal-runtime/native-tests` 运行 daemon 的 `native_transport` 目标。该目标经私有 stdio 启动真实 daemon 和完整 Runtime bundle，使 Linux 在 daemon 旁找到 reaper；原生沙箱用例保留普通命令/Hook 并发进展和外部 writer 排他断言，四个 portable transport 用例仍属于默认测试。`make verify-native` 先构建 bundle，再在 macOS 显式运行同一原生目标。该 feature 仅选择测试目标，不改变生产行为；不能只排除 portable 宿主的原生测试就视为完成验收。
 
+## 本地验证产物与启动诊断
+
+`make build` / `make release` 在 Cargo 成功后写入 `target/<profile>/verification-build.json`，绑定现有 Core `inputHash`、构建提交和整套 Core/Runtime 的 SHA-256。GUI 构建沿用 bundle 分析插件，在 `renderer/dist/verification-build.json` 中记录 GUI 输入摘要与输出文件哈希；构建期间源码改变则失败。
+
+从仓库根将同批产物部署到独立固定槽，随后诊断：
+
+```sh
+python3 scripts/verification.py deploy --source-dir "$PWD/target/debug" --bin-dir "$PWD/.local/dev-bin/verification" --evidence "$PWD/.scratch/verification/deployment.json"
+make gui-build
+python3 scripts/verification.py doctor --core "$PWD/.local/dev-bin/verification/areal" --report "$PWD/.scratch/verification/startup-1.json"
+```
+
+部署复用现有进程/打开文件检查，拒绝占用中、缺组件或构建后被改写的产物。验证助手在整轮测试期间持有同槽 `.verification-lock`，部署也使用此锁；锁不自动过期。异常退出后先读取 `owner.json`、确认进程和本轮服务已停止，再处理残留锁。原本机固定路径部署与 doctor 入口调用这些受控实现，不能以测试目录隔离代替构建身份核验。直接 `cargo build` 不产生同批回执，应使用 `make build`。
+
+doctor 在启动 Electron 前检查 Core 内嵌输入身份、整套组件哈希、Renderer 源码和输出哈希。报告包含三个程序的路径、SHA、探测命令、退出码或信号，以及 macOS 签名检查；任一失败仍保留其余探测，返回非零。每次使用新的报告文件，已有报告拒绝覆盖。文件助手无请求探测只验证启动，不执行文件操作。退出 0 和签名有效均不证明人工授权；`authorization` 默认 `unknown`，人工实际观察后可用 `--authorization-observation areal=allowed` 等逐组件记录。SIGKILL 只记为信号，不能自动归因为防护拦截。报告不替代真实 Runtime、供应商或安装包验收。
+
+任务目录 smoke 的页面夹具位于 `clients/gui/renderer/test-fixtures/scheduled-workspace.tsx`，与 Renderer 一起类型检查，并由原浏览器 runner 直接加载。它验证新意图经 `onStartDraft` 打开草稿、项目默认值及旧请求的显式核对与被动回执；夹具仅替换 IPC 边界。
+
 ## GUI 测试清单与平台资格
 
 `clients/gui/scripts/test-manifest.json` 是根 `package.json` 中全部 `test:*` 命令的登记表。`layer` 区分纯逻辑单元、无 GUI 的契约和浏览器/Electron 端到端边界；`platforms` 声明脚本可运行的平台，`areas` 声明领域，`requires` 声明环境条件。仅支持一个平台的条目必须填写 `platformReason`。平台声明不等于该平台已经验收通过。需要 Core 的无界面测试仍属契约层。
@@ -40,6 +65,7 @@ pnpm verify:tests
 pnpm test:unit
 node scripts/test-manifest.mjs --list --platform=linux --layer=contract --available=git,python3,gui-build
 node scripts/run-portable-tests.mjs
+AREAL_CORE_BIN=/absolute/fixed/areal node scripts/run-portable-tests.mjs --core-contracts
 node scripts/test-manifest.mjs --ci-matrix --base=<commit>
 node scripts/repeat-tests.mjs --profile=linux-feasibility --plan
 AREAL_CORE_BIN=/absolute/fixed/areal xvfb-run -a node scripts/repeat-tests.mjs --profile=linux-feasibility
@@ -47,6 +73,8 @@ AREAL_CORE_BIN=/absolute/fixed/areal node scripts/repeat-tests.mjs --profile=mac
 ```
 
 先运行 `make gui-build` 准备 portable runner 所需的 Desktop/UI/Renderer 产物。该 runner 全量运行当前平台上满足前提的单元和契约测试，记录每个结果、耗时，以及因 Core、原生工具或精确 Node 版本缺失而未选择的命令。报告默认写入 `target/ci/gui/portable-tests.json`，`AREAL_PORTABLE_TEST_REPORT` 可指定路径。Relay 完整传输契约另外需要其锁定的 Node 24.2.0 和 `services/remote-relay` 依赖，CI 使用独立步骤执行。
+
+`--core-contracts` 要求可执行的 `AREAL_CORE_BIN`，运行登记的 Core 依赖契约。macOS 构建任务在匹配的 Core/Runtime bundle 构建完成后运行该集合，记录 `core-contracts.json`；Linux portable lane 保持不依赖 Core。必跑 smoke 矩阵还对匹配的设计构建执行 `test:design`，包含真实浏览器无障碍和键盘检查。活跃 `design/**` 改动会触发 GUI 检查。
 
 `ciSmoke` 绑定现有 macOS smoke 矩阵。领域映射只裁剪已知的局部 Renderer 改动；共享所有者、测试脚本、未知路径及没有对应 smoke 的领域保留完整矩阵。没有比较基准的运行也使用完整矩阵。Linux 单元与契约不按领域裁剪。
 
@@ -82,6 +110,8 @@ Composer 和队列 smoke 共用 `clients/gui/scripts/smoke-navigation.mjs` 的�
 
 derivation 的连续录屏需要 Playwright 固定版本的 FFmpeg，不能只安装 Electron/npm 包。GUI CI 使用 `pnpm --dir clients/gui --filter @areal/gui-desktop exec playwright-core install ffmpeg` 安装；本地首次运行此 smoke 前也执行该命令。
 
+录屏场景在等待 Playwright `close()` 前请求正常 `app.quit()`，让产品退出与录像收尾同时进行；仍等待 `close()` 结算完成。Playwright 自身先收尾录像再请求退出，串行耗时会挤占同一个 20 秒期限。回归通过受控录像等待验证先后关系，退出不完成仍在原期限失败；不跳过草稿确认、不强制成功，也不丢弃录像。
+
 满屏 Side 使用自己的 Composer，主聊天草稿保持挂载但隐藏，避免浮动操作遮挡 Side 的模型与发送入口；分栏模式仍显示两个 Composer。derivation smoke 经真实点击检查 Side 模型选择与首问提交，并核对主草稿保留。
 
 Linux 回收测试使用随 `cargo test -p areal-runtime-exec-native` 构建的 `areal-runtime-reaper`。若单独运行 `--lib`，先执行 `cargo build --locked -p areal-runtime-exec-native --bin areal-runtime-reaper`，且构建和测试须使用相同 profile。macOS 后代测试让祖先存活至跟踪窗口内再退出，验证已观察后代清理；不把该测试解释为快速孤儿化的完整保证。
@@ -106,6 +136,8 @@ python3 scripts/native-agents-smoke.py --bin-dir target/debug --sandbox-profile 
 ```
 
 原生工具/Agent smoke 使用本地固定响应 HTTP 模型、统一 launcher 与临时工作区，无需外部模型。覆盖文件 CAS、搜索、验证 receipt、图像，以及不委派、单 Worker、同步等待、预算失败、父取消和默认异步；异步用例要求三个 Worker 请求结束前父任务继续推进，并检查主/子采样参数。流测试覆盖 length 同帧/尾帧 usage、EOF/取消、不重放 UNKNOWN、压缩后句柄与跨 Turn 边界。
+
+本地 HTTP fixture 必须将 `127.0.0.1,localhost,::1` 加入测试进程的 `NO_PROXY` 与 `no_proxy`，并保留原有条目，避免代理改写断流或引入等待。真实 HTTP 用例检查参数、历史及终态；只有参数增量时，握手门闩要求先收到 Activity 才释放终态。150 ms 空闲边界在冻结时钟下分别检查 40 ms 活动续期、宿主停顿与 220 ms 真正静默；静默只重试未完成响应，已确认工具执行一次。只服务解题的 fixture 按 `RequestPurpose` 拒绝辅助请求，自动命名的额度与生命周期由独立用例验证。不得通过放宽生产时限、SSE 上限或预算消除测试失败。
 
 
 请求预算测试覆盖 Chat Completions 与 Responses 在最后一轮返回工具时的 `MAX_MODEL_ROUNDS` 分类，并检查零工具执行、无重试和原始预算审计；普通工具调用预算耗尽及非法 `index` 不应被误分类。桌面 CLI 验收同时检查对应的 `error_max_turns` 结果。Goal HTTP 回归同时验证输出 token 上限与工具数量/缓冲预算经过共享池后仍生效，失败请求的未知消费阻止后续重试和工具执行。
@@ -223,11 +255,26 @@ TUI 与共享服务 PTY 检查共用终端画面解析器，处理增量重绘�
 
 ## CI 门禁与冷启动
 
-推送 GUI/Core 集成分支前，先获取目标远程引用，通过 `make setup` 和 `make gui-install` 准备锁定依赖，再运行 `make ci-preflight CI_BASE=upstream-readonly/main`。`CI_BASE` 指向实际 PR 目标，其 merge-base 驱动与 CI 相同的增量设计和文案检查。该入口复用格式、Rust/Python 静态检查、文档、GUI 类型/公开检查、快速回归、浏览器契约及实时 GUI 依赖审计；不启动产品，不替代 Rust 集成、Linux 可移植性、Electron 用户路径或全锁文件审计。可移植 Node fixture 使用 `node:os` 临时目录；WebSocket 替身必须完成真实的 `send(data, callback)` 契约，避免背压静默阻塞后续消息。
+PR #111 在初始 G0 快照后整合历史恢复与定时任务所有权。以下六个存量文件上限按集成提交 `9297968c` 的实测值明确修订；指标方向、新文件 800 行上限和 CI 阻断继续生效。这些例外接受模块增长，不代表结构已经改善。
+
+| 所有者 | 原行数 → 当前行数 | 原因 |
+| --- | --- | --- |
+| `app/src/core/backend.cjs` | 2270 → 2284 | 连接任务目录与定时 owner 生命周期 |
+| `app/src/core/history-observation.cjs` | 1072 → 1175 | 协调有界历史读取、owner 任务与恢复 |
+| `app/src/core/lifecycle-operations.cjs` | 845 → 878 | 持久化调度抑制并支持显式恢复 |
+| `renderer/src/Composer.tsx` | 1564 → 1580 | 通过 owner 任务目录定位 worker 的原任务运行 |
+| `renderer/src/Messages.tsx` | 1561 → 1718 | 加载早期历史时保持阅读锚点 |
+| `renderer/src/TaskCenter.tsx` | 2356 → 2380 | 观察任务目录修订与共享 owner 激活 |
+
+推送 GUI/Core 集成分支前，先获取目标远程引用，通过 `make setup` 和 `make gui-install` 准备锁定依赖，再运行 `make ci-preflight CI_BASE=upstream-readonly/main`。`CI_BASE` 必须显式指向实际 PR 比较引用；入口先计算一次 merge-base，再将同一提交传给设计、文案和健康检查。若该提交尚无 `clients/gui/health-baseline.json`，健康检查按 CI 规则使用当前已审查基线，不传 `--base`。入口顺序运行格式、workflow/actionlint、Rust/Python 静态检查、文档、预检合同、GUI 健康与静态检查、浏览器契约、实时 GUI 依赖审计、portable 合同，最后构建匹配的 Core/Runtime 并运行登记的 10 项 Core 合同。任一步失败都会阻止后续步骤。保持原有全锁文件依赖审计和远端 CI 门禁。
+
+共享入口供本机与 CI 复用：`make ci-gui-static CI_BASE=<ref>` 构建 Desktop/UI 输入并运行 GUI `check`、设计检查、类型检查、公开边界和快速回归；`make ci-gui-health CI_BASE=<ref>` 无需安装 GUI 依赖，检查健康合同和基线并写入 `target/ci/gui/health.json`；`make ci-gui-portable` 独立构建 Desktop/UI/Renderer，校验 manifest 并运行 portable 集合，显式隔离环境中的 Core 路径。`make ci-core-contracts AREAL_CORE_BIN=/absolute/matching/areal` 只运行 Core 依赖集合，缺失或不可执行的显式路径必须失败，不允许静默跳过。`ci-preflight` 始终先构建，默认传入 `target/debug/areal`；本机可用 `make ci-preflight CI_BASE=<ref> AREAL_CORE_BIN=/absolute/fixed/areal` 选择已部署的固定槽。显式路径的 SHA-256 必须与刚构建的 `target/debug/areal` 一致，否则门禁失败并要求先部署新产物；入口不会自动复制或绕过系统防护。本机 macOS 原生执行应先按固定产物路径验证流程准备。
+
+运行 `make hooks-install CI_BASE=upstream-readonly/main` 才会激活仓库的本地 Git hooks；仅克隆仓库或运行预检不会安装 hooks。安装器保存实际远程目标引用，不覆盖已有的其他 `core.hooksPath`。提交钩子检查暂存快照，保留部分暂存和未暂存修改；推送钩子要求推送 SHA 等于当前 HEAD 且受控工作树干净，获取已保存的远程目标后执行完整预检。存在并发修改时，在独立的干净 worktree 验证和推送，不自动 stash 或覆盖修改。`make workflow-lint` 与钩子复用同一入口，首次将 actionlint 1.7.12 下载到本机 `.local/tools/` 并核对锁定的发行 SHA-256；只检查 Actions 语法、上下文和依赖，不依赖宿主是否安装可选 ShellCheck/pyflakes。独立 workflow lint 工作流也会检查其他无法解析的 workflow 文件。预检需要相应平台的构建工具与原生能力，并不是仅做静态检查；在 macOS 上通过不证明 Linux 可移植性通过，反之亦然。确定性本地模型和合同不覆盖真实供应商、完整 Electron E2E、跨平台重复资格或签名安装包验收，仍需执行对应 CI 与专项验收。可移植 Node fixture 使用 `node:os` 临时目录；WebSocket 替身必须完成真实的 `send(data, callback)` 契约，避免背压静默阻塞后续消息。
 
 `pnpm --dir clients/gui test:macos-dmg` 在 macOS 上独立通过真实 `codesign` 和 `hdiutil` 验证签名 framework 暂存。它需要允许磁盘映像设备访问的环境；受限 Agent 沙箱可能返回 `Device not configured`。应记录环境失败，并在允许的宿主环境重跑相同测试，不跳过断言，也不据此宣称安装包验收通过。macOS GUI job 显式执行该检查；可移植 `verify` 不创建磁盘映像。
 
-GUI CI 只构建一次 Core 和 Renderer，再将历史兼容、迁移、Composer、模型选择、队列、对话派生和 Side chat 按清单选择后拆成独立隔离的 matrix job（最多六个并发，`fail-fast: false`）。同轮 artifact 以 tar 保留可执行权限，并记录精确 checkout SHA；smoke 拒绝不匹配的源码。锁定的 pnpm/Electron/FFmpeg 下载使用缓存；构建成功即可保存构建缓存，不再因后续 smoke 失败丢失缓存。使用 `gh run rerun <run-id> --failed` 只重试失败的 smoke 和 gate，复用已通过的构建及场景。缺失产物、失败、取消或意外跳过仍使 gate 失败，不使用 `continue-on-error`。
+GUI CI 只构建一次 Core 和 Renderer。构建 job 完成后，10 项原生 Core 合同与 GUI smoke 并行消费同一份产物，分别校验源码 SHA 和可执行组件；`GUI gate` 同时等待两组结果，失败、取消或意外跳过都不能通过。Core 合同的日志、报告和隔离临时目录单独归档。历史兼容、迁移、Composer、模型选择、队列、对话派生和 Side chat 按清单选择后拆成独立隔离的 matrix job（最多六个并发，`fail-fast: false`）。同轮 artifact 以 tar 保留可执行权限，并记录精确 checkout SHA；smoke 拒绝不匹配的源码。锁定的 pnpm/Electron/FFmpeg 下载使用缓存；构建成功即可保存构建缓存，不再因后续 smoke 失败丢失缓存。使用 `gh run rerun <run-id> --failed` 只重试失败的 smoke 和 gate，复用已通过的构建及场景。缺失产物、失败、取消或意外跳过仍使 gate 失败，不使用 `continue-on-error`。
 
 恢复去重的归属包含项目、聊天和 Core 连接代际；适配器重建后不能复用旧代际的完成/失败尝试。`thread-restoration-ui-smoke.mjs` 使用真实构建的 Renderer 及受控 Desktop 投影复现此边界，同时保持未知提交不重发。
 

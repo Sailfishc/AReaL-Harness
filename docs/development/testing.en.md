@@ -2,6 +2,15 @@
 
 # Testing
 
+Recorded smoke journeys request normal `app.quit()` before awaiting Playwright `close()`, allowing product shutdown and recording settlement to proceed together while still awaiting completion of `close()`. Playwright otherwise drains recording before requesting quit, consuming the same 20-second deadline serially. A controlled recording gate verifies this ordering; incomplete shutdown still fails at the original deadline. Draft confirmation, failure reporting and recording evidence remain required.
+
+The Side Chat Escape fallback test waits for the outer task-resources popup to leave layout before checking that the main turn stops. Hiding its inner `Activity` precedes the closing animation of the `keepMounted` popup; that animation must continue protecting the main turn. The test explicitly slows this animation and records popup state for both main/Side start orders, without a fixed sleep or repeated Escape presses to hide the race.
+
+Model-usage observer non-interference tests await the `drained` settlement signal while disk writes remain blocked, then inspect the in-memory ledger under the observer lock. Receiving HTTP EOF does not establish that the server's `finally` block has completed; longer sleeps or releasing the blocked disk first cannot substitute for that ordering.
+
+
+The release smoke fixture handles auxiliary session titles separately from solve requests. Main-task exit may cancel an unfinished title request; BrokenPipe/ConnectionReset while replying to that title must not turn successful read/write acceptance into failure. Interrupted solve responses, tools on naming requests and other protocol errors still fail. `scripts/fixture_session_title.py` is a local fixture helper and does not change production retries, timeouts or model usage.
+
 Install dependencies using the [development guide](README.en.md). Regular tests use temporary directories, dynamic loopback ports and deterministic models without real model credentials.
 
 | Entry point | Coverage |
@@ -29,6 +38,24 @@ macOS native smoke tests require Seatbelt; Linux native smoke tests require `/us
 
 Linux host checks use `make verify CARGO_TEST_ARGS='--exclude areal-runtime-exec-native'`. Native backend tests require `/usr/bin/bwrap` and user namespaces; a separate CI job builds the Dockerfile's `runtime-tests` target and runs every backend test, including `outer-container-perf`, inside the controlled Bubblewrap container. It also enables `areal-runtime/native-tests` and runs the daemon's `native_transport` target. That target starts the real daemon over private stdio with the complete Runtime bundle, so Linux resolves the reaper beside the daemon. Its native sandbox test keeps the ordinary-command/hook progress and foreign-writer exclusion assertions; the four portable transport tests remain in the default suite. `make verify-native` builds the bundle before explicitly running the same native target on macOS. The feature selects this test target only and changes no production behavior. Excluding native tests from the portable host lane alone does not complete validation.
 
+## Local verification artifacts and startup diagnostics
+
+After Cargo succeeds, `make build` / `make release` writes `target/<profile>/verification-build.json`, binding the existing Core `inputHash`, build revision and SHA-256 of the complete Core/Runtime set. GUI builds extend the existing bundle analysis plugin with `renderer/dist/verification-build.json`, recording GUI inputs and output hashes; source changes during a build fail it.
+
+From the repository root, deploy matching artifacts into a separate fixed slot, then diagnose startup:
+
+```sh
+python3 scripts/verification.py deploy --source-dir "$PWD/target/debug" --bin-dir "$PWD/.local/dev-bin/verification" --evidence "$PWD/.scratch/verification/deployment.json"
+make gui-build
+python3 scripts/verification.py doctor --core "$PWD/.local/dev-bin/verification/areal" --report "$PWD/.scratch/verification/startup-1.json"
+```
+
+Deployment reuses existing process/open-file inspection and rejects occupied slots, missing components and artifacts changed since the build. Verification helpers hold the slot's `.verification-lock` for the entire run; deployment uses the same lock. Locks do not expire automatically. After interruption, inspect `owner.json` and confirm its processes and services have stopped before removing a leftover lock. Existing local fixed-path deployment and doctor entry points delegate to these versioned implementations. Isolating test directories does not establish build identity. Direct `cargo build` does not create the batch receipt; use `make build`.
+
+Before Electron starts, doctor checks Core's embedded input identity, all component hashes, Renderer inputs and output hashes. Reports include each of the three programs' path, SHA, probe command, exit code or signal, and macOS signature check. A failed probe does not discard remaining diagnostics and produces a nonzero exit. Use a new report filename for each attempt; existing reports cannot be overwritten. The file helper's no-request probe checks startup without performing a file operation. Neither exit zero nor a valid signature proves manual authorization. `authorization` defaults to `unknown`; after actual human observation, record each component separately with options such as `--authorization-observation areal=allowed`. SIGKILL is recorded as a signal without attributing it to endpoint protection. Reports do not replace real Runtime, provider or packaged-app acceptance.
+
+The task catalog smoke fixture lives in `clients/gui/renderer/test-fixtures/scheduled-workspace.tsx`, is typechecked with Renderer, and is loaded directly by the existing browser runner. It checks new intents routed through `onStartDraft`, project defaults, explicit reconciliation and observed receipts for legacy requests. Only the IPC boundary is replaced by the fixture.
+
 ## GUI test registry and platform qualification
 
 `clients/gui/scripts/test-manifest.json` registers every `test:*` command in the root GUI `package.json`. `layer` distinguishes pure unit tests, contracts without a GUI, and browser/Electron end-to-end boundaries. `platforms`, `areas`, and `requires` declare runnable platforms, covered areas, and prerequisites. Entries limited to one platform require `platformReason`. A platform declaration is not acceptance evidence. Headless tests that need Core remain contract tests.
@@ -40,6 +67,7 @@ pnpm verify:tests
 pnpm test:unit
 node scripts/test-manifest.mjs --list --platform=linux --layer=contract --available=git,python3,gui-build
 node scripts/run-portable-tests.mjs
+AREAL_CORE_BIN=/absolute/fixed/areal node scripts/run-portable-tests.mjs --core-contracts
 node scripts/test-manifest.mjs --ci-matrix --base=<commit>
 node scripts/repeat-tests.mjs --profile=linux-feasibility --plan
 AREAL_CORE_BIN=/absolute/fixed/areal xvfb-run -a node scripts/repeat-tests.mjs --profile=linux-feasibility
@@ -47,6 +75,8 @@ AREAL_CORE_BIN=/absolute/fixed/areal node scripts/repeat-tests.mjs --profile=mac
 ```
 
 Run `make gui-build` first to prepare Desktop/UI/Renderer inputs. The portable runner executes every unit and contract test whose prerequisites are available on the current platform. It records results, elapsed times, and commands excluded for missing Core, native tools, or an exact Node version. The report defaults to `target/ci/gui/portable-tests.json`; set `AREAL_PORTABLE_TEST_REPORT` to override it. Full Relay transport contracts also require their pinned Node 24.2.0 and `services/remote-relay` dependencies. CI runs them in a separate step.
+
+`--core-contracts` requires a working `AREAL_CORE_BIN` and runs the registered contracts that depend on Core. The macOS build job runs this set after building the matching Core/Runtime bundle and records `core-contracts.json`; the Linux portable lane remains independent of Core. The required smoke matrix also runs `test:design` against the matching design build, including actual browser accessibility and keyboard checks. Active `design/**` changes trigger GUI checks.
 
 `ciSmoke` binds the existing macOS smoke matrix. Area selection narrows only known local Renderer changes. Shared owners, test scripts, unmapped paths, and areas without matching smoke coverage retain the full matrix. Runs without a comparison base also use the full matrix. Linux units and contracts are not narrowed by area.
 
@@ -106,6 +136,8 @@ python3 scripts/native-agents-smoke.py --bin-dir target/debug --sandbox-profile 
 ```
 
 Native tools/agent smoke tests use a local fixed-response HTTP model, the standard launcher and temporary workspaces without external model services. They cover file CAS, search, verification receipts, images, no delegation, a single Worker, synchronous waits, budget failures, parent cancellation and default asynchronous dispatch. The asynchronous case requires parent progress before three Worker requests finish and checks parent/child sampling parameters. Stream tests cover same-frame/tail length usage, EOF/cancellation, no UNKNOWN replay, post-compaction handles and cross-Turn boundaries.
+
+Local HTTP fixtures must add `127.0.0.1,localhost,::1` to both `NO_PROXY` and `no_proxy` for the test process, preserving existing entries so a proxy cannot alter truncated responses or introduce waits. Real HTTP tests check parameters, history and terminal events; an argument-only stream uses a handshake gate that releases the terminal event only after Activity is observed. Frozen-clock tests retain the 150 ms idle boundary and separately cover 40 ms activity, host stalls and 220 ms of actual silence. Silence retries only the incomplete response, with confirmed tools executed once. Fixtures that serve solve requests reject auxiliary purposes through `RequestPurpose`; separate tests cover session naming limits and lifecycle. Do not resolve test failures by raising production timeouts, SSE limits or budgets.
 
 
 Request-budget tests cover `MAX_MODEL_ROUNDS` classification when Chat Completions or Responses returns tools in the final round, with no tool execution or retries and the original budget audit preserved. Ordinary tool-call budget exhaustion and invalid indices must retain their own classifications. Desktop CLI acceptance also checks the corresponding `error_max_turns` result. Goal HTTP regressions verify that output-token caps and tool count/buffer budgets survive shared pools, while unknown usage from failed requests prevents retries and tool execution.
@@ -223,11 +255,26 @@ After building Core and the GUI, run `pnpm -C clients/gui test:remote-gui-quit`.
 
 ## CI gates and cold starts
 
-Before pushing a GUI/Core integration branch, run `make ci-preflight CI_BASE=upstream-readonly/main` after fetching the target remote and preparing locked dependencies with `make setup` and `make gui-install`. Set `CI_BASE` to the actual PR target; its merge base drives the same incremental design and copy audits as CI. This entry reuses formatting, Rust/Python static checks, documentation, GUI types/public checks, fast regressions, browser contracts and the live GUI dependency audit. It does not launch the product and does not replace Rust integration, Linux portability, Electron user paths or full lockfile auditing. Portable Node fixtures must use `node:os` temporary directories; WebSocket substitutes must complete the real `send(data, callback)` contract so backpressure cannot silently stall later messages.
+PR #111 integrates history recovery and scheduled-task ownership after the initial G0 snapshot. The following six existing source caps are explicitly revised to the measured integration at `9297968c`; metric directions, the 800-line cap for new files, and CI enforcement remain active. These exceptions accept module growth; they do not establish a structural improvement.
+
+| Owner | Previous → current lines | Reason |
+| --- | --- | --- |
+| `app/src/core/backend.cjs` | 2270 → 2284 | Connect task catalog and scheduled-owner lifecycle |
+| `app/src/core/history-observation.cjs` | 1072 → 1175 | Coordinate bounded-history reads, owner tasks and restoration |
+| `app/src/core/lifecycle-operations.cjs` | 845 → 878 | Persist scheduling suppression and explicit resume |
+| `renderer/src/Composer.tsx` | 1564 → 1580 | Locate a worker's original TaskRun through the owner task catalog |
+| `renderer/src/Messages.tsx` | 1561 → 1718 | Preserve reading anchors while loading earlier history |
+| `renderer/src/TaskCenter.tsx` | 2356 → 2380 | Observe task-directory revisions and shared owner activation |
+
+Before pushing a GUI/Core integration branch, fetch the target remote and prepare locked dependencies with `make setup` and `make gui-install`, then run `make ci-preflight CI_BASE=upstream-readonly/main`. Set `CI_BASE` explicitly to the actual PR comparison ref. Preflight computes its merge base once and passes that same commit to design, copy, and health checks. If that commit has no `clients/gui/health-baseline.json`, health follows CI and checks the current reviewed baseline without `--base`. The entry runs formatting, workflow/actionlint, Rust/Python static checks, documentation, preflight contracts, GUI health and static checks, browser contracts, the live GUI dependency audit, and portable contracts, then builds the matching Core/Runtime bundle and runs the ten registered Core contracts. Any failure stops later steps. Full lockfile dependency auditing and remote CI gates remain required.
+
+Local execution and CI share these entries: `make ci-gui-static CI_BASE=<ref>` builds Desktop/UI inputs and runs GUI `check`, design checks, types, public boundaries, and fast regressions; `make ci-gui-health CI_BASE=<ref>` needs no GUI dependency installation, checks health contracts and the baseline, and writes `target/ci/gui/health.json`; `make ci-gui-portable` independently builds Desktop/UI/Renderer inputs, validates the manifest, and runs the portable set with the ambient Core path cleared. `make ci-core-contracts AREAL_CORE_BIN=/absolute/matching/areal` runs only the Core-dependent set. A missing or non-executable explicit path must fail rather than skip. Preflight always builds first and supplies `target/debug/areal` by default. Locally, `make ci-preflight CI_BASE=<ref> AREAL_CORE_BIN=/absolute/fixed/areal` selects an already deployed fixed slot. Its SHA-256 must match the freshly built `target/debug/areal`; otherwise the gate fails and asks you to deploy the new artifact first. The entry never copies it automatically or bypasses system protection. On local macOS, prepare native execution through the fixed artifact path validation procedure.
+
+Run `make hooks-install CI_BASE=upstream-readonly/main` to activate the repository's local Git hooks; cloning or running preflight does not install them. The installer saves the actual remote target and refuses to overwrite another `core.hooksPath`. The commit hook checks an index snapshot and preserves partially staged and unstaged changes. The push hook requires the pushed SHA to equal the current HEAD and the tracked worktree to be clean, then fetches the saved remote target and runs full preflight. Use a separate clean worktree when other work is in progress; the hooks do not stash or overwrite changes. `make workflow-lint` and the hooks use the same entry point, which downloads actionlint 1.7.12 into local `.local/tools/` on first use and verifies the pinned release SHA-256. It checks Actions syntax, contexts and dependencies independently of optional host ShellCheck/pyflakes installations. The standalone workflow-lint workflow also checks other workflow files that cannot be parsed. Preflight requires the relevant platform's build tools and native capabilities and includes executable contracts. A macOS pass does not establish Linux portability, or vice versa. Deterministic local models and contracts do not cover real providers, complete Electron E2E paths, repeated cross-platform qualification, or signed-package acceptance; run the corresponding CI and acceptance checks separately. Portable Node fixtures must use `node:os` temporary directories; WebSocket substitutes must complete the real `send(data, callback)` contract so backpressure cannot silently stall later messages.
 
 `pnpm --dir clients/gui test:macos-dmg` separately exercises signed framework staging with real `codesign` and `hdiutil` on macOS. Run it where disk-image device access is permitted; a restricted agent sandbox may return `Device not configured`. Record that as an environment failure and rerun the same test in the permitted host environment. Do not skip assertions or report package acceptance. The macOS GUI job runs this check explicitly; portable `verify` does not create disk images.
 
-GUI CI builds Core and the renderer once, then runs historical compatibility, migration, Composer, model selection, queue, conversation derivation, and Side chat through the manifest in separate isolated matrix jobs (up to six concurrently, `fail-fast: false`). The same-run artifact preserves executable modes in a tar archive and records the exact checkout SHA; smoke jobs reject a different checkout. Locked pnpm/Electron/FFmpeg downloads are cached. Build caches can now save after a successful build even if a later smoke fails. Retry only failed smoke jobs and their gate with `gh run rerun <run-id> --failed`; passing build and smoke jobs are reused. Missing artifacts, failed/canceled/unexpectedly skipped smoke jobs still fail the gate; no `continue-on-error` is used.
+GUI CI builds Core and the renderer once. After the build job completes, the ten native Core contracts and GUI smoke jobs consume the same artifact in parallel, each verifying its source SHA and executable components. The GUI gate waits for both groups; failures, cancellations and unexpected skips cannot pass. Core contract logs, reports and isolated temporary directories are archived separately. Historical compatibility, migration, Composer, model selection, queue, conversation derivation, and Side chat run through the manifest in separate isolated matrix jobs (up to six concurrently, `fail-fast: false`). The same-run artifact preserves executable modes in a tar archive and records the exact checkout SHA; smoke jobs reject a different checkout. Locked pnpm/Electron/FFmpeg downloads are cached. Build caches can now save after a successful build even if a later smoke fails. Retry only failed smoke jobs and their gate with `gh run rerun <run-id> --failed`; passing build and smoke jobs are reused. Missing artifacts, failed/canceled/unexpectedly skipped smoke jobs still fail the gate; no `continue-on-error` is used.
 
 Restoration deduplication belongs to the project, Thread, and Core connection generation; a rebuilt adapter cannot reuse an old generation's completed or failed attempt. `thread-restoration-ui-smoke.mjs` reproduces this boundary in the built renderer with controlled Desktop projections while preserving unknown submissions without replay.
 

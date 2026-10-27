@@ -41,14 +41,16 @@ export function useConversationHistory(projectId: string, thread: Data, action: 
     viewId,
   ]);
   const load = useCallback(
-    async (itemId?: string) => {
+    async (itemId?: string, pageId?: string) => {
       setFailure(undefined);
       try {
         await action("history", {
           projectId,
           threadId: thread.id,
           viewId,
-          ...(itemId ? { operation: "loadItem", itemId } : { operation: "loadOlder" }),
+          ...(itemId
+            ? { operation: "loadItem", itemId }
+            : { operation: "loadOlder", ...(pageId ? { pageId } : {}) }),
         });
       } catch (error) {
         if (current.current === owner)

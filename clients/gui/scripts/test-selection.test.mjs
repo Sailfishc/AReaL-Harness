@@ -27,3 +27,7 @@ test("shared and unknown source paths preserve the complete smoke matrix", () =>
 test("an unmatched registered area falls back to full smoke coverage", () => {
   assert.equal(smokeMatrix(manifest, ["design"]).include.length, 2);
 });
+
+test("partially covered areas retain every smoke instead of dropping the uncovered area", () => {
+  assert.equal(smokeMatrix(manifest, ["composer", "desktop"]).include.length, 2);
+});

@@ -5,7 +5,6 @@ const { startupTrace } = require("./startup-timing.cjs");
 const WebSocket = require("ws");
 const { failure: browserFailure } = require("./browser-tool.cjs");
 const { modelRecord, isCoreTask } = require("@areal/workbench/core-model-contract");
-const { isObservationSizeFailure } = require("./history-observation.cjs");
 
 /** @typedef {import('./project-state.cjs').CoreProject} Project */
 /** @typedef {import('@areal/runtime-client/core').CoreClient} Client */
@@ -38,13 +37,20 @@ class ProjectConnections {
     this.host = host;
     /** @type {WeakMap<Promise<Project>,Set<ReadWaiter>>} */
     this.readWaiters = new WeakMap();
+    /** @type {Map<string,string>} */
+    this.selectedThreads = new Map();
   }
 
-  /** @param {string} id @returns {Promise<Project>} */
-  start(id) {
+  /** @param {string} id @param {{threadId?:string}} [options] @returns {Promise<Project>} */
+  start(id, { threadId } = {}) {
+    if (threadId) this.selectedThreads.set(id, threadId);
     try {
       this.host.worktrees?.assertAvailable(id);
       this.host.lifecycleOperations.assertProject(id);
+      if (this.host.lifecycleOperations.schedulingSuppressed(id))
+        throw Object.assign(new Error("后台已由用户停止，请明确启动后继续"), {
+          code: "CORE_STOPPED",
+        });
     } catch (error) {
       return Promise.reject(error);
     }
@@ -532,6 +538,14 @@ class ProjectConnections {
       project.error = null;
       project.configurations ??= {};
       project.configurationChanges ??= new Map();
+      const selectedThread = this.selectedThreads.get(project.id);
+      if (selectedThread) {
+        trace.advance("selected_view");
+        await this.host.openThread(project, selectedThread).catch((error) => {
+          if (!this.currentConnection(project, client) || !client.ready) throw error;
+        });
+        this.requireConnection(project, client);
+      }
       trace.advance("provider_configuration");
       await this.host.providers.reconcileProject(project, { refreshModels: false });
       this.requireConnection(project, client);
@@ -579,23 +593,7 @@ class ProjectConnections {
       await this.host.providers.acceptModelSelection(models.lastAcceptedModel);
       project.models = models.data;
       project.profiles = profiles.data ?? profiles.profiles ?? [];
-      trace.advance("history");
-      await this.host.listThreads(project);
       if (!observeOnly) void this.host.analytics.syncProject(project);
-      // 重连恢复所有已打开的任务，快照在 socket 消息分派栈内替换。
-      trace.advance("restore_views");
-      for (const threadId of Object.keys(project.model.state.threads)) {
-        try {
-          await this.host.openThread(project, threadId);
-        } catch (error) {
-          if (
-            !isObservationSizeFailure(error) ||
-            !this.currentConnection(project, client) ||
-            !client.ready
-          )
-            throw error;
-        }
-      }
       trace.advance("task_subscriptions");
       for (const taskId of new Set(project.taskViews?.values() ?? [])) {
         await client.request(
@@ -613,16 +611,32 @@ class ProjectConnections {
       trace.advance("task_monitor");
       await this.host.startTaskMonitor(project, client);
       this.requireConnection(project, client);
+      this.host.lifecycleOperations.assertProject(project.id);
+      if (this.host.lifecycleOperations.schedulingSuppressed(project.id))
+        throw Object.assign(new Error("后台已由用户停止，请明确启动后继续"), {
+          code: "CORE_STOPPED",
+        });
       trace.advance("host_ready");
       if (client.capabilities?.methods?.includes("areal/task/host/ready")) {
         await client.request("areal/task/host/ready", {});
         this.requireConnection(project, client);
       }
+      project.taskNotificationMonitor?.ready();
+      this.requireConnection(project, client);
       trace.advance("connected");
       project.model.connection(true);
       this.host.scheduleReconciliation(project);
       this.host.onChange();
       trace.finish("ok");
+      void this.host.listThreads(project).catch((error) => {
+        if (!this.currentConnection(project, client)) return;
+        project.error = error instanceof Error ? error.message : String(error);
+        this.host.onChange();
+      });
+      for (const threadId of Object.keys(project.model.state.threads)) {
+        if (threadId !== selectedThread)
+          void this.host.openThread(project, threadId).catch(() => {});
+      }
       void this.host.providers.refreshSubscription(project, correlation, { observeOnly });
     } catch (error) {
       trace.finish("error", error);

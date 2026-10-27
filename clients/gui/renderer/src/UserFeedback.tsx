@@ -1,3 +1,4 @@
+import { useI18n } from "./i18n/IntlProvider.js";
 import { Textarea } from "@areal/ui";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -24,6 +25,7 @@ export function UserFeedback({
   action: Action;
   dark: boolean;
 }) {
+  const { t } = useI18n();
   const connected =
     !!project.state?.connected && project.desktopCapabilities?.currentCommands !== false;
   const availability = useFeedbackAvailability(action, connected);
@@ -328,10 +330,7 @@ export function UserFeedback({
               </Button>
             </header>
             <div className="user-feedback-body">
-              <p className="user-feedback-description">
-                评价提交时会附上截至这条回复的上下文，理由选填。使用 Agent
-                润色时，讨论也会按数据飞轮设置采集。
-              </p>
+              <p className="user-feedback-description">{t("common.feedback.contextHelp")}</p>
               <label>
                 你的理由
                 <Textarea

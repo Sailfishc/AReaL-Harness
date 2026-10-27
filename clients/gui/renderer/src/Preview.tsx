@@ -1090,8 +1090,8 @@ export function Preview({
               {state.browser.frameOriginGrant ? (
                 <>
                   <span role="status">
-                    嵌入站点 {state.browser.frameOriginGrant.origin} · 仅人工操作，iframe
-                    使用区域标注
+                    嵌入站点 {state.browser.frameOriginGrant.origin}{" "}
+                    {t("common.browser.manualFrame")}
                   </span>
                   {state.browser.frameOriginGrant.status === "pending" && (
                     <Button

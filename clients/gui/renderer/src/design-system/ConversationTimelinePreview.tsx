@@ -107,6 +107,16 @@ const items: Data[] = [
       text: "消息投影检查完成。",
     },
   ),
+  // 失败的步骤留在原位，行尾写明结果（CONV-ACTIVITY-01）。
+  {
+    ...tool(
+      "timeline-command-failed",
+      "run_command",
+      { command: "pnpm --dir clients/gui test:unit" },
+      { stdout: "", stderr: "1 failed", exitCode: 1, commandStatus: "exited" },
+    ),
+    success: false,
+  },
   tool("timeline-write", "fs_write", { path: "src/conversation.tsx" }, receipt),
   ...writtenPaths
     .slice(1)

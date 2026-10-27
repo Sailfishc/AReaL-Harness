@@ -446,6 +446,38 @@ class LifecycleOperations {
       });
   }
 
+  /** @param {string} projectId */
+  schedulingSuppressed(projectId) {
+    return [...this.records.values()].some((record) =>
+      record.targets.some(
+        (target) => target.projectId === projectId && target.scheduleActivationSuppressed === true,
+      ),
+    );
+  }
+
+  /** @param {string} projectId */
+  resumeScheduling(projectId) {
+    const write = this.tail
+      .catch(() => {})
+      .then(async () => {
+        this.assertProject(projectId);
+        for (const previous of this.records.values()) {
+          if (
+            !previous.targets.some(
+              (target) => target.projectId === projectId && target.scheduleActivationSuppressed,
+            )
+          )
+            continue;
+          const record = structuredClone(previous);
+          for (const target of record.targets)
+            if (target.projectId === projectId) delete target.scheduleActivationSuppressed;
+          await this.store(record);
+        }
+      });
+    this.tail = write.catch(() => {});
+    return write;
+  }
+
   /** @param {unknown} input @returns {LifecycleRequest} */
   normalize(input) {
     if (
@@ -592,6 +624,7 @@ class LifecycleOperations {
         ...target,
         requestId: randomUUID(),
         phase: "notAttempted",
+        ...(request.kind === "stopProject" ? { scheduleActivationSuppressed: true } : {}),
       })),
       phase: "acceptedPending",
       desktopExit: "notRequested",

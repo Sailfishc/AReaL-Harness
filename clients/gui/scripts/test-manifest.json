@@ -143,6 +143,20 @@
     "requires": ["electron", "core-binary", "git", "gui-build"]
   },
   {
+    "script": "test:schedule-reliability",
+    "layer": "e2e",
+    "platforms": ["darwin", "linux"],
+    "areas": ["tasks", "schedules"],
+    "requires": ["electron", "core-binary", "git", "gui-build"]
+  },
+  {
+    "script": "test:schedule-reliability-lifecycle",
+    "layer": "e2e",
+    "platforms": ["darwin", "linux"],
+    "areas": ["tasks", "schedules", "lifecycle"],
+    "requires": ["electron", "core-binary", "git", "gui-build"]
+  },
+  {
     "script": "test:stop-turn",
     "layer": "e2e",
     "platforms": ["darwin", "linux"],
@@ -250,7 +264,7 @@
     "script": "test:subscription-send",
     "layer": "e2e",
     "platforms": ["darwin", "linux"],
-    "areas": ["provider"],
+    "areas": ["provider", "worktree"],
     "requires": ["electron", "core-binary", "gui-build", "git"]
   },
   {
@@ -341,6 +355,14 @@
     "areas": ["conversation"],
     "requires": ["electron", "core-binary", "git", "gui-build"],
     "ciSmoke": "conversation-derivation"
+  },
+  {
+    "script": "test:conversation-flow",
+    "layer": "e2e",
+    "platforms": ["darwin", "linux"],
+    "areas": ["conversation", "design"],
+    "requires": ["browser", "gui-build"],
+    "notes": "Runs against dist/design-system; build it with design:build first."
   },
   {
     "script": "test:trajectory",
@@ -588,7 +610,8 @@
     "layer": "e2e",
     "platforms": ["darwin", "linux"],
     "areas": ["design"],
-    "requires": ["browser", "git", "gui-build"]
+    "requires": ["browser", "git", "gui-build"],
+    "ciSmoke": "design"
   },
   {
     "script": "test:regressions",

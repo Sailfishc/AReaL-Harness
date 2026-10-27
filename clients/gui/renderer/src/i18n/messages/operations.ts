@@ -405,6 +405,10 @@ export const operationMessages = {
   },
   "operations.schedules.newLabel": { "zh-CN": "新建定时任务", en: "New scheduled task" },
   "operations.schedules.newTitle": { "zh-CN": "新建任务", en: "New task" },
+  "operations.schedules.openLabel": {
+    "zh-CN": "打开自动化 {title}",
+    en: "Open automation {title}",
+  },
   "operations.schedules.retryCreation": {
     "zh-CN": "重试或核对原请求",
     en: "Retry or check the original request",

@@ -24,7 +24,6 @@ import {
 import {
   Plus,
   Search,
-  ListFilter,
   ArrowRight,
   CalendarClock,
   GitPullRequest,
@@ -34,12 +33,6 @@ import {
   BookOpen,
   Activity,
 } from "lucide-react";
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuCheckboxItem,
-} from "./components/ui/dropdown-menu.js";
 import { SidebarToggleIcon } from "./homeChromeIcons.js";
 import { TaskDraft, triggerExplanation, type TaskConversationRenderer } from "./TaskDraft.js";
 import { stageComposerDraft } from "./composerDraftStorage.js";
@@ -126,18 +119,19 @@ const terminal = (run?: Data) => !!run && ["completed", "failed", "cancelled"].i
 const missedOnce = (task: Data) =>
   task.lastTriggerDecision?.outcome?.kind === "missedWindow" &&
   task.nextRunAt == null &&
-  !task.runs?.some((run: Data) => !terminal(run));
+  !(task.hasUnsettledWork ?? task.runs?.some((run: Data) => !terminal(run)));
 const finished = (task: Data) =>
-  (terminal(task.runs?.at(-1)) || missedOnce(task)) && task.nextRunAt == null;
+  (terminal(task.latestRun ?? task.runs?.at(-1)) || missedOnce(task)) && task.nextRunAt == null;
 // Task flags acknowledge durable control intent. Run and worker facts describe
 // whether execution has actually stopped; a receipt alone cannot settle it.
 const stopping = (task: Data) =>
   task.cancelled &&
-  task.runs.some(
-    (run: Data) =>
-      run.workers?.some((worker: Data) => !worker.settled) ||
-      (!terminal(run) && (task.cancelled || run.status !== "paused")),
-  );
+  (task.hasUnsettledWork ??
+    (task.runs ?? []).some(
+      (run: Data) =>
+        run.workers?.some((worker: Data) => !worker.settled) ||
+        (!terminal(run) && (task.cancelled || run.status !== "paused")),
+    ));
 const date = (seconds: number | null, zone?: string) => {
   if (seconds == null) return "—";
   try {
@@ -161,10 +155,10 @@ const taskStatus = (task: Data) =>
       : missedOnce(task)
         ? "已错过"
         : finished(task)
-          ? statusLabels[task.runs.at(-1).status]
+          ? statusLabels[(task.latestRun ?? task.runs?.at(-1))?.status]
           : task.paused
             ? "已暂停"
-            : (statusLabels[task.runs?.at(-1)?.status] ?? "等待计划时间");
+            : (statusLabels[(task.latestRun ?? task.runs?.at(-1))?.status] ?? "等待计划时间");
 const runReasons: Record<string, string> = {
   "task token budget exhausted":
     "任务总 Token 预算已用完。本次运行不能增加额度；如需更多预算，请创建新任务。",
@@ -635,14 +629,7 @@ export function TaskCenter({
   };
 }) {
   const { t } = useI18n();
-  const [projectScope, setProjectScope] = useState(initialProjectId ?? defaultProjectId ?? "");
-  useEffect(
-    () => setProjectScope(initialProjectId ?? defaultProjectId ?? ""),
-    [initialProjectId, defaultProjectId],
-  );
-  const projects = projectScope
-    ? allProjects.filter((project) => project.id === projectScope)
-    : allProjects;
+  const projects = allProjects;
   const layout = useRef<HTMLElement>(null);
   const [narrow, setNarrow] = useState(false);
   useLayoutEffect(() => {
@@ -655,7 +642,6 @@ export function TaskCenter({
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [searching, setSearching] = useState(false),
     [search, setSearch] = useState("");
-  const [filters, setFilters] = useState(["已开启", "已暂停", "已完成"]);
   const [creationError, setCreationError] = useState("");
   const [creationTone, setCreationTone] = useState<"warning" | "error">("error");
   const [creationRequestId, setCreationRequestId] = useState<string>();
@@ -759,6 +745,7 @@ export function TaskCenter({
     for (const live of Object.values<Data>(owner.state?.tasks ?? {})) {
       if (live.mode !== "scheduled") continue;
       const previous = byId.get(live.id);
+      if (!previous && !ownerRows(catalog[owner.id])?.hasMore) continue;
       if (
         previous &&
         ownerRows(catalog[owner.id])?.source !== "published" &&
@@ -787,7 +774,21 @@ export function TaskCenter({
   // The control receipt is the Core response for this pause or cancel. Keep it
   // visible until the following read returns, including when a newer snapshot
   // has already settled the same workers.
-  const task = controlView && taskKey(controlView) === selected ? controlView : listedTask;
+  const watchedTask = projects.find((owner) => owner.id === listedTask?.projectId)?.state?.tasks?.[
+    listedTask?.id
+  ];
+  const task =
+    controlView && taskKey(controlView) === selected
+      ? controlView
+      : watchedTask && listedTask
+        ? {
+            ...watchedTask,
+            projectId: listedTask.projectId,
+            executionProjectId: listedTask.executionProjectId,
+            projectName: listedTask.projectName,
+            scope: listedTask.scope,
+          }
+        : listedTask;
   const project = projects.find((p) => p.id === task?.projectId);
   const ownerFailed = !!project && failedProjects.includes(project.id);
   const watchConfirmed =
@@ -1011,6 +1012,9 @@ export function TaskCenter({
     [],
   );
   const projectIds = projects.map((project) => project.id).join(":");
+  const directoryRevision = projects
+    .map((project) => project.core?.taskDirectoryRevision ?? 0)
+    .join(":");
   useEffect(() => {
     const viewEpoch = ++sequence.current;
     const batches = new Set<CatalogIdentity>();
@@ -1023,7 +1027,7 @@ export function TaskCenter({
         owners.flatMap((owner) => (previous[owner.id] ? [[owner.id, previous[owner.id]]] : [])),
       ),
     );
-    const read = async (more = false, retryProjectId?: string) => {
+    const read = async (more = false, retryProjectId?: string, explicitRefresh = false) => {
       if (!active || !connected || !catalogSupported) return;
       if (reading) {
         queued.add(retryProjectId ?? "");
@@ -1102,31 +1106,34 @@ export function TaskCenter({
               })
               .catch(() => {});
             try {
-              const result = retryProjectId
-                ? await action("tasks", {
-                    operation: "list",
-                    projectId: owner.id,
-                    limit: Math.min(1024, 30 * pages.current),
-                    ...identity,
-                  }).then((result) => ({
-                    ...result,
-                    owners: result.owners.map((observation): ObservedCatalogOwner =>
-                      observation.status === "ready"
-                        ? {
-                            ...observation,
-                            source: "live",
-                            coverage: { kind: "complete" },
-                            readAt: Date.now(),
-                          }
-                        : observation,
-                    ),
-                  }))
-                : await action("tasks", {
-                    operation: "observe",
-                    projectId: owner.id,
-                    limit: Math.min(1024, 30 * pages.current),
-                    ...identity,
-                  });
+              if (retryProjectId)
+                await action("connect", { projectId: owner.id, resumeScheduling: true });
+              const result =
+                retryProjectId || explicitRefresh
+                  ? await action("tasks", {
+                      operation: "list",
+                      projectId: owner.id,
+                      limit: Math.min(1024, 30 * pages.current),
+                      ...identity,
+                    }).then((result) => ({
+                      ...result,
+                      owners: result.owners.map((observation): ObservedCatalogOwner =>
+                        observation.status === "ready"
+                          ? {
+                              ...observation,
+                              source: "live",
+                              coverage: { kind: "complete" },
+                              readAt: Date.now(),
+                            }
+                          : observation,
+                      ),
+                    }))
+                  : await action("tasks", {
+                      operation: "observe",
+                      projectId: owner.id,
+                      limit: Math.min(1024, 30 * pages.current),
+                      ...identity,
+                    });
               observed = result.errors.length === 0;
               catalogTrace("response_received", identity, owner.id, result.data.length);
               if (!active) {
@@ -1188,10 +1195,10 @@ export function TaskCenter({
         else for (const id of pending) void read(false, id);
       }
     };
-    refreshRead.current = read;
+    refreshRead.current = (more, retryProjectId) => read(more, retryProjectId, true);
     void read();
     const listener = () => {
-      if (!mutation.current) void read();
+      if (!mutation.current) void read(false, undefined, true);
     };
     window.addEventListener("areal-scheduled-tasks-changed", listener);
     window.addEventListener("focus", listener);
@@ -1202,7 +1209,7 @@ export function TaskCenter({
       for (const identity of batches) catalogTrace("abandoned", identity);
       batches.clear();
     };
-  }, [action, connected, catalogSupported, projectIds]);
+  }, [action, connected, catalogSupported, projectIds, directoryRevision]);
   useEffect(() => {
     setConfirmedWatch(null);
     if (!task || !connected || !project?.state?.connected || ownerFailed) return;
@@ -1392,7 +1399,10 @@ export function TaskCenter({
     if (!saved) {
       creatingRequest.current = false;
       setCreating(false);
-      onStartDraft(projectScope || undefined, `${t("operations.schedules.creationIntent")}${text}`);
+      onStartDraft(
+        initialProjectId ?? defaultProjectId,
+        `${t("operations.schedules.creationIntent")}${text}`,
+      );
       return;
     }
     const draft = saved;
@@ -1552,10 +1562,7 @@ export function TaskCenter({
   const visibleRows = listed.filter(
     (row) =>
       row.mode === "scheduled" &&
-      row.objective.toLowerCase().includes(search.toLowerCase()) &&
-      filters.includes(
-        row.cancelled || finished(row) ? "已完成" : row.paused ? "已暂停" : "已开启",
-      ),
+      (row.objectivePreview ?? row.objective).toLowerCase().includes(search.toLowerCase()),
   );
   const runHistory = task && project && (
     <>
@@ -1603,7 +1610,7 @@ export function TaskCenter({
           {typeof task.runCount === "number" && (
             <p className="text-foreground-subtle">
               {t("operations.recentWindow")}
-              {task.runs.length} {t("operations.runsOf")}
+              {task.runs?.length ?? 0} {t("operations.runsOf")}
               {Math.max(task.runCount, history.owner === selected ? history.runCount : 0)}{" "}
               {t("operations.runsLoaded")}
               {displayedRuns.length} {t("operations.runs")}
@@ -1884,50 +1891,8 @@ export function TaskCenter({
             {t("operations.schedules.newTitle")}
           </Button>
 
-          <Select
-            value={projectScope || "all"}
-            onValueChange={(value) => setProjectScope(value === "all" ? "" : (value ?? ""))}
-          >
-            <SelectTrigger aria-label={t("operations.schedules.projectFilter")}>
-              <SelectValue>
-                {projectScope
-                  ? projectLabel(allProjects.find((project) => project.id === projectScope) ?? {})
-                  : t("operations.schedules.allProjects")}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t("operations.schedules.allProjects")}</SelectItem>
-              {allProjects
-                .filter((project) => !project.projectless)
-                .map((project) => (
-                  <SelectItem key={project.id} value={project.id}>
-                    {projectLabel(project)}
-                  </SelectItem>
-                ))}
-            </SelectContent>
-          </Select>
           <div className="task-list-subheading">
             <span>任务目录</span>
-            <DropdownMenu>
-              <DropdownMenuTrigger aria-label="筛选任务">
-                <ListFilter size={16} />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {["已开启", "已暂停", "已完成"].map((label) => (
-                  <DropdownMenuCheckboxItem
-                    key={label}
-                    checked={filters.includes(label)}
-                    onCheckedChange={(checked) =>
-                      setFilters((values) =>
-                        checked ? [...values, label] : values.filter((v) => v !== label),
-                      )
-                    }
-                  >
-                    {label}
-                  </DropdownMenuCheckboxItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
           </div>
           <div className="task-list-scroll">
             {pending.length > 0 && (
@@ -2039,10 +2004,12 @@ export function TaskCenter({
                       <ScheduledWorkspace.Item
                         key={taskKey(row)}
                         data-task-id={row.id}
-                        aria-label={`打开自动化 ${row.objective}`}
+                        aria-label={t("operations.schedules.openLabel", {
+                          title: row.objectivePreview ?? row.objective,
+                        })}
                         aria-pressed={taskKey(row) === selected}
                         disabled={!connected}
-                        title={row.objective}
+                        title={row.objectivePreview ?? row.objective}
                         description={
                           ownerRows(catalog[row.projectId])?.source === "published" ||
                           !connected ||
@@ -2071,7 +2038,7 @@ export function TaskCenter({
               <p>
                 {moreAvailable
                   ? "已加载任务中没有匹配项，可展开显示更多。"
-                  : listed.length || search || filters.length < 3
+                  : listed.length || search
                     ? "没有符合筛选条件的定时任务。"
                     : t("operations.schedules.catalogEmpty")}
               </p>
@@ -2171,7 +2138,7 @@ export function TaskCenter({
             data-task-id={task.id}
           >
             <header>
-              <h2>{task.objective}</h2>
+              <h2>{task.objectivePreview ?? task.objective}</h2>
               <Button size="sm" variant="ghost" onClick={closeDetails}>
                 {t("operations.schedules.closeDetails")}
               </Button>
@@ -2300,7 +2267,7 @@ function ScheduledTaskConversation({
       data-task-id={task.id}
     >
       <header>
-        <h2>{task.objective}</h2>
+        <h2>{task.objectivePreview ?? task.objective}</h2>
         {thread && renderResources(project, thread)}
         <Button size="sm" variant="ghost" onClick={onClose}>
           {t("operations.schedules.closeDetails")}

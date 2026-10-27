@@ -502,8 +502,7 @@ export function TaskDraft({
         <p role="alert" className="task-plan-note task-draft-error">
           {credentialUnavailable ? (
             <>
-              模型凭据不可用。请在模型设置中补充 API Key
-              并保存，或选择可用的新会话默认模型。完成后重试，或从“定时任务”重新打开“新建任务”。
+              {t("common.schedules.credentialsHelp")}
               <Button variant="ghost" onClick={onOpenModelSettings}>
                 打开模型设置
               </Button>
@@ -513,11 +512,9 @@ export function TaskDraft({
           )}
         </p>
       )}
-      {saved.modelNotice && (
+      {saved.modelNotice === "effort-unsupported" && (
         <p role="status" className="task-plan-note">
-          {saved.modelNotice === "model-unavailable"
-            ? t("chat.composer.previousModelUnavailable")
-            : t("chat.composer.previousEffortUnsupported")}
+          {t("chat.composer.previousEffortUnsupported")}
         </p>
       )}
       {saved.pending && (

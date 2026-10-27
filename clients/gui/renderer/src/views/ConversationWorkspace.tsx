@@ -1,4 +1,5 @@
 import React from "react";
+import { ComposerSurface } from "../prompt-editor/ComposerSurface.js";
 import { Button } from "../components/ui/button.js";
 import {
   DropdownMenu,
@@ -113,22 +114,30 @@ function ConversationContent() {
           {thread && project ? (
             <ActiveConversation />
           ) : threadId ? (
-            <div className="settings-empty" role="status">
-              <p>
-                {restorationFailed
-                  ? "暂时无法加载对话，请重试或切换对话。"
-                  : t("startup.loadingConversation")}
-              </p>
-              {restorationFailed && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="mt-3"
-                  onClick={() => void retryRestoration()}
-                >
-                  重试加载对话
-                </Button>
-              )}
+            <div className="conversation-loading" role="status" aria-busy={!restorationFailed}>
+              <div className="settings-empty conversation-loading-body">
+                <p>
+                  {restorationFailed
+                    ? t("common.conversation.unavailable")
+                    : t("startup.loadingConversation")}
+                </p>
+                {restorationFailed && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-3"
+                    onClick={() => void retryRestoration()}
+                  >
+                    {t("recovery.retryView")}
+                  </Button>
+                )}
+              </div>
+              <div className="composer-dock" aria-hidden="true">
+                <ComposerSurface
+                  editor={<div className="conversation-loading-editor" />}
+                  toolbar={<div className="composer-toolbar" />}
+                />
+              </div>
             </div>
           ) : (
             <DraftConversation />
@@ -137,11 +146,11 @@ function ConversationContent() {
         {terminalOpen && thread && project && (
           <section className="bottom-terminal">
             <div className="panel-header">
-              <strong>终端</strong>
+              <strong>{t("terminal.title")}</strong>
               <Button
                 unstyled
                 className="icon-button"
-                aria-label="关闭面板"
+                aria-label={t("common.navigation.closePanel")}
                 onClick={() => setTerminalOpen(false)}
               >
                 <DismissIcon size={16} />
@@ -392,7 +401,7 @@ function DraftConversation() {
                     aria-label={
                       project
                         ? `在 ${library.projects?.[project.id]?.title || (project.projectless ? thread?.title || t("operations.schedules.newTitle") : project.root.split("/").pop())} 中开始新聊天`
-                        : "不在项目中工作"
+                        : t("common.conversation.projectless")
                     }
                   >
                     {project ? <ProjectFolderIcon /> : <LeaveProjectIcon />}
@@ -402,7 +411,7 @@ function DraftConversation() {
                           (project.projectless
                             ? thread?.title || t("operations.schedules.newTitle")
                             : project.root.split("/").pop())
-                        : "不在项目中工作"}
+                        : t("common.conversation.projectless")}
                     </span>
                   </Button>
                 }
@@ -422,7 +431,7 @@ function DraftConversation() {
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => leaveProject()}>
                   <LeaveProjectIcon />
-                  不在项目中工作
+                  {t("common.conversation.projectless")}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

@@ -20,7 +20,12 @@ describe("TurnProgress heading", () => {
           settled: status === "completed",
           summaryAvailable: true,
           connected: true,
-          turn: { id: "turn", status, durationMs: 929000, startedAt: Math.floor(Date.now() / 1000) - 929 },
+          turn: {
+            id: "turn",
+            status,
+            durationMs: 929000,
+            startedAt: Math.floor(Date.now() / 1000) - 929,
+          },
           children: "Activity content",
         }),
       );

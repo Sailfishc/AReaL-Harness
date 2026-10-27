@@ -1847,3 +1847,20 @@ test("single-turn cancellation uses the healthy target snapshot when another Cor
     false,
   );
 });
+
+for (const supported of [false, true]) {
+  test(`selected thread hint is ${supported ? "forwarded to a supporting" : "omitted for a legacy"} Desktop`, async (t) => {
+    const f = await fixture(t, {
+      commandResult: { accepted: true },
+      service: supported ? { selectedThreadObservation: true } : {},
+    });
+    await f.publish();
+    await f.backend.attach();
+    await f.backend.command("connect", { projectId: "p", threadId: "t" });
+    const command = f.calls.find((call) => call.method === "command");
+    assert.deepEqual(
+      command.params.request,
+      supported ? { projectId: "p", threadId: "t" } : { projectId: "p" },
+    );
+  });
+}

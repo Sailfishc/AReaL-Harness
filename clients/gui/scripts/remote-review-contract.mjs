@@ -557,8 +557,7 @@ try {
     };
     await assert.rejects(artifact(), { code: "GRANT_CHANGED" });
     grant.revision = 1;
-    let reads = 0,
-      published = false;
+    let published = false;
     globalThis.fetch = async () => {
       turn.items = [];
       return new Response(png);
