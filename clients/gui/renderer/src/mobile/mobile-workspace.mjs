@@ -1,8 +1,8 @@
 import { acceptSessionMessage, SessionBodyReader } from "@areal/remote-client";
 
 /** @typedef {import('../services.js').Data} Data */
-/** @typedef {{kind:'projects'}|{kind:'work',projectId:string}|{kind:'session',projectId:string,threadId:string}|{kind:'task',projectId:string,taskId:string,runId:string}} MobilePage */
-/** @typedef {{page:MobilePage, projects:Data[], groups:Record<string,Data>, detail:Data|null, turns:Data[], task:Data|null, loading:boolean, error:boolean, loadingOlder:boolean, bodyError:boolean}} WorkspaceView */
+/** @typedef {{kind:'projects'}|{kind:'new',projectId:string}|{kind:'work',projectId:string}|{kind:'session',projectId:string,threadId:string}|{kind:'task',projectId:string,taskId:string,runId:string}} MobilePage */
+/** @typedef {{page:MobilePage, projects:Data[], groups:Record<string,Data>, detail:Data|null, turns:Data[], task:Data|null, catalog:Data|null, loading:boolean, error:boolean, loadingOlder:boolean, bodyError:boolean}} WorkspaceView */
 export class MobileWorkspace {
   constructor(client) {
     this.client = client;
@@ -19,6 +19,7 @@ export class MobileWorkspace {
       detail: null,
       turns: [],
       task: null,
+      catalog: null,
       loading: false,
       error: false,
       loadingOlder: false,
@@ -37,8 +38,14 @@ export class MobileWorkspace {
     this.listeners.forEach((listener) => listener());
   }
   connectionChanged() {
+    if (
+      this.client.snapshot().kind === "connected" &&
+      this.observedConnection === this.client.connection
+    )
+      return;
     clearInterval(this.poll);
     if (this.client.snapshot().kind !== "connected") {
+      this.observedConnection = null;
       this.epoch++;
       this.bodies.clear();
       this.history = [];
@@ -50,11 +57,13 @@ export class MobileWorkspace {
         detail: null,
         turns: [],
         task: null,
+        catalog: null,
         loading: false,
         loadingOlder: false,
       });
       return;
     }
+    this.observedConnection = this.client.connection;
     void this.refresh();
     this.poll = setInterval(() => {
       const page = this.state.page;
@@ -82,11 +91,12 @@ export class MobileWorkspace {
       detail: null,
       turns: [],
       task: null,
+      catalog: null,
       error: false,
       loading: false,
       loadingOlder: false,
     });
-    void this.refresh();
+    return this.refresh();
   }
   async refresh(polling = false) {
     if (this.client.snapshot().kind !== "connected" || this.state.loading) return;
@@ -120,7 +130,31 @@ export class MobileWorkspace {
           epoch,
         );
       else if (page.kind === "session") await this.open(page, epoch);
-      else {
+      else if (page.kind === "new") {
+        if (!this.client.snapshot().ready.methods.includes("project.models")) {
+          this.publish({
+            catalog: {
+              models: [],
+              unsupported: true,
+              serviceGeneration: this.state.groups[page.projectId]?.serviceGeneration,
+            },
+          });
+          return;
+        }
+        const catalog = await this.client.request({
+          method: "project.models",
+          context: { projectId: page.projectId },
+          params: {},
+        });
+        const ready = this.client.snapshot().ready;
+        if (
+          epoch === this.epoch &&
+          catalog.projectId === page.projectId &&
+          catalog.gatewayGeneration === ready.gatewayGeneration &&
+          catalog.grantRevision === ready.grantRevision
+        )
+          this.publish({ catalog });
+      } else {
         const task = await this.client.request({
           method: "task.read",
           context: { projectId: page.projectId },

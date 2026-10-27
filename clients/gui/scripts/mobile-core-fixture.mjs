@@ -9,23 +9,56 @@ const { CoreBackend } = require("../app/src/core/backend.cjs");
 const { DesktopService } = require("../app/src/core/service-protocol.cjs");
 const { RemoteControl } = require("../app/src/core/remote.cjs");
 
-export async function mobileCoreFixture(t) {
+export async function mobileCoreFixture(t, { commands = false } = {}) {
   const home = await mkdtemp(join(tmpdir(), "mobile-workspace-"));
   const user = join(home, "user");
   await mkdir(join(user, ".areal"), { recursive: true });
   let requests = 0;
+  const held = new Set();
+  const heldMarkers = new Set();
   const model = createServer(async (request, response) => {
-    for await (const chunk of request) void chunk;
+    let body = "";
+    for await (const chunk of request) body += chunk;
+    if (request.method !== "POST") {
+      response.writeHead(200, { "Content-Type": "application/json" });
+      response.end(
+        JSON.stringify({ object: "list", data: [{ id: "fixture" }, { id: "fixture-alt" }] }),
+      );
+      return;
+    }
     requests++;
+    const input = JSON.parse(body);
+    const latest = input.messages?.filter((value) => value.role === "user").at(-1)?.content;
     response.writeHead(200, { "Content-Type": "text/event-stream" });
-    response.end(
-      `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: `MOBILE_REPLY_${requests}` }, finish_reason: null }] })}\n\ndata: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n`,
+    response.write(
+      `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: `MOBILE_REPLY_${requests}` }, finish_reason: null }] })}\n\n`,
     );
+    const marker = ["MOBILE_HOLD_QUEUE", "MOBILE_HOLD_STOP"].find(
+      (value) => typeof latest === "string" && latest === value,
+    );
+    const hold = commands && marker && !heldMarkers.has(marker);
+    console.log(
+      JSON.stringify({
+        modelRequest: requests,
+        model: input.model,
+        hold: !!hold,
+        queued: String(JSON.stringify(latest)).includes("MOBILE_QUEUED_AFTER_CURRENT"),
+      }),
+    );
+    const finish = () =>
+      response.end(
+        'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
+      );
+    if (hold) {
+      heldMarkers.add(marker);
+      held.add(finish);
+      response.on("close", () => held.delete(finish));
+    } else finish();
   });
   await new Promise((resolve) => model.listen(0, "127.0.0.1", resolve));
   await writeFile(
     join(user, ".areal/config.toml"),
-    `schema_version=1\n[model]\nprovider="fixture"\nname="fixture"\n[model.providers.fixture]\nprotocol="chat-completions"\nendpoint="http://127.0.0.1:${model.address().port}/v1/chat/completions"\n`,
+    `schema_version=1\n[model]\nprovider="fixture"\nname="fixture"\n[model.providers.fixture]\nprotocol="chat-completions"\nendpoint="http://127.0.0.1:${model.address().port}/v1/chat/completions"\nmodels=[{id="fixture",display_name="Fixture default"},{id="fixture-alt",display_name="Fixture alternative",capabilities={tools=true,vision=false,reasoning=true,reasoning_effort_options=["low","high"]}}]\n`,
   );
   const desktopConfig = join(home, "desktop.json");
   await writeFile(
@@ -80,7 +113,7 @@ export async function mobileCoreFixture(t) {
       );
     }, 20000);
   };
-  for (let turn = 1; turn <= 52; turn++)
+  for (let turn = 1; turn <= (commands ? 0 : 52); turn++)
     await send(`MOBILE_HISTORY_${String(turn).padStart(3, "0")}`);
   const encryption = {
     isEncryptionAvailable: () => true,
@@ -90,5 +123,30 @@ export async function mobileCoreFixture(t) {
   };
   const remote = (service.remote = new RemoteControl(service, encryption));
   await remote.init();
-  return { remote, projectIds, threadId, send, backend, modelRequests: () => requests };
+  let lostMethod = null;
+  const project = backend.projects.get(projectId);
+  const native = project.client.request.bind(project.client);
+  project.client.request = async (method, params) => {
+    const result = await native(method, params);
+    if (method === lostMethod) {
+      lostMethod = null;
+      throw Object.assign(new Error("fixture lost native response"), { submissionUnknown: true });
+    }
+    return result;
+  };
+  return {
+    remote,
+    projectIds,
+    threadId,
+    send,
+    backend,
+    modelRequests: () => requests,
+    loseNext: (method) => {
+      lostMethod = method;
+    },
+    release: () => {
+      for (const finish of held) finish();
+      held.clear();
+    },
+  };
 }

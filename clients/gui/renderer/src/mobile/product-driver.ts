@@ -2,20 +2,24 @@ import { App } from "@capacitor/app";
 import type { ProbeBridge } from "../mobile.js";
 import { keychain } from "./platform.js";
 
-const wait = async <T>(read: () => T | null | undefined | false): Promise<T> => {
+const wait = async <T>(
+  read: () => T | null | undefined | false,
+  label = "ProductConditionTimeout",
+): Promise<T> => {
   const end = Date.now() + 30000;
   while (Date.now() < end) {
     const value = read();
     if (value) return value;
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  throw new Error("ProductConditionTimeout");
+  throw new Error(label);
 };
 const state = (value: string) => document.querySelector(`[data-state="${value}"]`);
 const click = async (action: string) => {
   const button = await wait(() =>
     document.querySelector<HTMLButtonElement>(`[data-action="${action}"]`),
   );
+  await wait(() => !button.disabled);
   button.click();
 };
 
@@ -29,6 +33,13 @@ export async function runProduct(
       history?: boolean;
       historyAutoload?: boolean;
       live?: boolean;
+      threadId?: string;
+      queued?: boolean;
+      queueItemId?: string;
+      inputFontSize?: string;
+      permissionSelection?: boolean;
+      viewport?: { width: number; height: number; scale: number };
+      touchTargets?: { name: string; width: number; height: number }[];
     } = {};
     if (config.mode === "pair") {
       await wait(() => state("unpaired"));
@@ -121,6 +132,161 @@ export async function runProduct(
         }
       }
     }
+    if (
+      ["new", "models", "send", "permissions", "queue", "stop", "unknown", "recover"].includes(
+        config.mode,
+      )
+    ) {
+      const project = await wait(() =>
+        document.querySelector<HTMLButtonElement>(`[data-project-id="${config.projectId}"]`),
+      );
+      project.click();
+      if (["new", "models", "send"].includes(config.mode)) {
+        await click("new-session");
+        await wait(() => document.querySelector('[data-action="model-sheet"]:not(:disabled)'));
+        if (config.mode !== "new") {
+          await click("model-sheet");
+          const alternative = await wait(() =>
+            document.querySelector<HTMLButtonElement>('[data-model-id="fixture-alt"]'),
+          );
+          if (config.mode === "send") {
+            alternative.click();
+            const effort = await wait(() =>
+              [...document.querySelectorAll<HTMLButtonElement>(".mobile-efforts button")].find(
+                (button) => button.textContent === "High" || button.textContent === "高",
+              ),
+            );
+            effort.click();
+            await click("model-done");
+          }
+        }
+      } else {
+        const thread = await wait(() =>
+          document.querySelector<HTMLButtonElement>(`[data-thread-id="${config.threadId}"]`),
+        );
+        thread.click();
+        await wait(() => document.querySelector('[data-field="composer"][data-config-revision]'));
+      }
+      const type = async (text: string) => {
+        const input = await wait(() =>
+          document.querySelector<HTMLElement>('[data-testid="mobile-chat-input"]'),
+        );
+        input.focus();
+        document.execCommand("selectAll", false);
+        if (!document.execCommand("insertText", false, text))
+          throw new Error("NativeInputRejected");
+        await wait(
+          () =>
+            document.querySelector<HTMLButtonElement>('[data-action="send"]')?.disabled === false,
+        );
+      };
+      const idle = () => document.querySelector('[data-field="composer"][data-active-turn=""]');
+      if (config.mode === "send") {
+        await type("MOBILE_FIRST_NON_DEFAULT");
+        await click("send");
+        await wait(
+          () =>
+            document
+              .querySelector(".messages")
+              ?.textContent?.includes("MOBILE_FIRST_NON_DEFAULT") && idle(),
+        );
+      }
+      if (config.mode === "permissions") {
+        await click("model-sheet");
+        const full = await wait(() =>
+          document.querySelector<HTMLButtonElement>(
+            '[data-permission-preset="fullAccess"]:not(:disabled)',
+          ),
+        );
+        full.click();
+        await wait(
+          () =>
+            full.getAttribute("aria-pressed") === "true" &&
+            full.getAttribute("data-variant") === "secondary",
+          "PermissionSelectionMismatch",
+        );
+        const ask = document.querySelector<HTMLButtonElement>('[data-permission-preset="ask"]')!;
+        ask.click();
+        await wait(
+          () =>
+            ask.getAttribute("aria-pressed") === "true" &&
+            full.getAttribute("aria-pressed") === "false",
+          "PermissionSelectionMismatch",
+        );
+        observations.permissionSelection = true;
+        await click("model-done");
+        await wait(() => !document.querySelector('[role="dialog"]'), "PermissionConfigureFailed");
+      }
+      if (config.mode === "queue" || config.mode === "stop") {
+        await type(`MOBILE_HOLD_${config.mode.toUpperCase()}`);
+        await click("send");
+        await wait(() => document.querySelector('[data-action="stop"]'));
+        if (config.mode === "queue") {
+          await type("MOBILE_QUEUED_AFTER_CURRENT");
+          await click("send");
+          await wait(
+            () => document.querySelector(".composer-queue")?.textContent?.includes("MOBILE_QUEUED"),
+            "QueuedRowMissing",
+          );
+          observations.queued = true;
+          observations.queueItemId =
+            document.querySelector("[data-queue-id]")?.getAttribute("data-queue-id") ?? undefined;
+          bridge.postMessage({ kind: "ready", queueItemId: observations.queueItemId });
+          await wait(
+            () =>
+              document
+                .querySelector(".messages")
+                ?.textContent?.includes("MOBILE_QUEUED_AFTER_CURRENT") && idle(),
+            "QueueExecutionIncomplete",
+          );
+        } else {
+          await click("stop");
+          await wait(idle);
+        }
+      }
+      if (config.mode === "unknown") {
+        await type("MOBILE_UNKNOWN_ONCE");
+        await click("send");
+        await wait(() => document.querySelector('[data-command-state="unknown"]'));
+      }
+      if (config.mode === "recover") {
+        await wait(
+          () =>
+            document.querySelector(".messages")?.textContent?.includes("MOBILE_UNKNOWN_ONCE") &&
+            !document.querySelector("[data-command-state]"),
+        );
+      }
+      document.querySelector<HTMLElement>('[data-testid="mobile-chat-input"]')?.blur();
+      await Promise.all(
+        document.getAnimations().map((animation) => animation.finished.catch(() => {})),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      const editor = document.querySelector<HTMLElement>('[data-testid="mobile-chat-input"]');
+      if (editor) observations.inputFontSize = getComputedStyle(editor).fontSize;
+      observations.viewport = {
+        width: visualViewport?.width ?? innerWidth,
+        height: visualViewport?.height ?? innerHeight,
+        scale: visualViewport?.scale ?? 1,
+      };
+      observations.threadId =
+        document.querySelector("[data-current-thread]")?.getAttribute("data-current-thread") ??
+        undefined;
+      observations.touchTargets = [...document.querySelectorAll("button")].flatMap((button) => {
+        const rect = button.getBoundingClientRect();
+        if (!rect.width || !rect.height || rect.bottom < 0 || rect.top > innerHeight) return [];
+        return [
+          {
+            name:
+              button.getAttribute("data-action") ??
+              button.getAttribute("aria-label") ??
+              button.getAttribute("data-testid") ??
+              "button",
+            width: Math.round(rect.width * 10) / 10,
+            height: Math.round(rect.height * 10) / 10,
+          },
+        ];
+      });
+    }
     if (config.mode === "lifecycle") {
       let background = false;
       let foreground = false;
@@ -157,6 +323,7 @@ export async function runProduct(
         state: document.querySelector("[data-state]")?.getAttribute("data-state"),
         remembered: document.querySelector("[data-state]")?.getAttribute("data-remembered"),
         keychainPresent: record !== null,
+        locators: record?.client?.locators?.length ?? 0,
         identityPresent: typeof record?.client?.credential?.identity === "string",
         grantRevision: record?.grantRevision ?? null,
         peer: record?.client?.credential?.peerId ?? null,
@@ -186,7 +353,10 @@ export async function runProduct(
         keychainDiagnostic,
         mode: config.mode,
         state: document.querySelector("[data-state]")?.getAttribute("data-state"),
-        error: error instanceof Error ? error.name : "UnknownError",
+        error:
+          error instanceof Error && /^[A-Za-z][A-Za-z0-9]{0,64}$/.test(error.message)
+            ? error.message
+            : "UnknownError",
       },
     });
   }

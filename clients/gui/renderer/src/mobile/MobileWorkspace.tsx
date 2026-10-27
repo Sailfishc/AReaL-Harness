@@ -6,6 +6,9 @@ import { projectedTurns } from "../remote/session-projection.js";
 import { ProjectFolderIcon } from "../homeChromeIcons.js";
 import { useI18n, type MessageId } from "../i18n/IntlProvider.js";
 import type { Action, CommandName, Data } from "../services.js";
+import { MobileComposer } from "./MobileComposer.js";
+import type { MobileClient } from "./mobile-client.mjs";
+import type { MobileCommands } from "./mobile-commands.mjs";
 import type { MobileWorkspace } from "./mobile-workspace.mjs";
 
 function rowStatus(row: Data) {
@@ -69,9 +72,18 @@ function Time({ value }: { value: string | number | null | undefined }) {
     </time>
   );
 }
-export function MobileWorkspaceView({ workspace }: { workspace: MobileWorkspace }) {
+export function MobileWorkspaceView({
+  workspace,
+  client,
+  commands,
+}: {
+  workspace: MobileWorkspace;
+  client: MobileClient;
+  commands: MobileCommands;
+}) {
   const { t } = useI18n();
   const view = useSyncExternalStore(workspace.subscribe, workspace.snapshot);
+  const connection = useSyncExternalStore(client.subscribe, client.snapshot);
   const pull = useRef<number | null>(null);
   const page = view.page;
   const task = view.task;
@@ -100,8 +112,9 @@ export function MobileWorkspaceView({ workspace }: { workspace: MobileWorkspace 
   return (
     <TooltipProvider>
       <section
-        className={`mobile-workspace mobile-stack ${page.kind === "session" ? "mobile-session" : ""}`}
+        className={`mobile-workspace mobile-stack ${["session", "new"].includes(page.kind) ? "mobile-session" : ""}`}
         data-page={page.kind}
+        data-current-thread={page.kind === "session" ? page.threadId : undefined}
         onTouchStart={(event) => {
           if (event.currentTarget.scrollTop === 0 && page.kind !== "session")
             pull.current = event.touches[0].clientY;
@@ -141,7 +154,7 @@ export function MobileWorkspaceView({ workspace }: { workspace: MobileWorkspace 
         {notice && <p role="status">{t("mobile.desktopOnly")}</p>}
         {view.error && <p role="alert">{t("mobile.readFailed")}</p>}
         {view.loading && <p role="status">{t("mobile.loading")}</p>}
-        {page.kind !== "session" && (
+        {!["session", "new"].includes(page.kind) && (
           <Button
             className="mobile-touch mobile-refresh"
             variant="ghost"
@@ -196,6 +209,16 @@ export function MobileWorkspaceView({ workspace }: { workspace: MobileWorkspace 
         )}
         {page.kind === "work" && (
           <>
+            <Button
+              className="mobile-touch"
+              data-action="new-session"
+              disabled={
+                connection.kind !== "connected" || !connection.ready.capabilities.includes("submit")
+              }
+              onClick={() => workspace.navigate({ kind: "new", projectId: page.projectId })}
+            >
+              {t("mobile.newSession")}
+            </Button>
             <h3 className="text-fixed-label text-foreground-subtle">{t("mobile.recent")}</h3>
             <div className="mobile-stack">
               {!group?.data.length && !view.loading && <p>{t("mobile.noSessions")}</p>}
@@ -285,6 +308,18 @@ export function MobileWorkspaceView({ workspace }: { workspace: MobileWorkspace 
               }}
             />
           </>
+        )}
+        {page.kind === "new" && (
+          <div className="mobile-new-session">
+            <ProjectFolderIcon />
+            <h2 className="text-fixed-section-title">
+              {t("mobile.newPrompt", { project: project?.name ?? "" })}
+            </h2>
+            <p className="text-fixed-body text-foreground-subtle">{t("mobile.newDescription")}</p>
+          </div>
+        )}
+        {["new", "session"].includes(page.kind) && (
+          <MobileComposer client={client} workspace={workspace} commands={commands} />
         )}
         {page.kind === "task" && task && (
           <div className="mobile-stack">

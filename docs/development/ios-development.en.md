@@ -2,7 +2,7 @@
 
 # Develop and verify the iOS app
 
-The mobile shell uses Capacitor 8.5.3 and Swift Package Manager. `clients/mobile/ios/` is the tracked Xcode project, with an iOS 17.4 deployment target. iOS 17.5 passes the real WKWebView gate. iOS 17.4 still requires verification on that runtime. The mobile entry provides QR scanning or pasted Relay pairing links, a desktop confirmation waiting page, connection status, and device clearing. A local Swift plugin persists the device identity in iOS Keychain. Project cards, 30-row conversation pages, and the shared Messages read-only session view use the Remote API. Creation, sending, configuration, and distribution remain later slices. The real iOS 17.0 WKWebView gate fails during Noise because a production dependency calls the unavailable `Promise.withResolvers`. The minimum version is iOS 17.4, which provides this standard API.
+The mobile shell uses Capacitor 8.5.3 and Swift Package Manager. `clients/mobile/ios/` is the tracked Xcode project, with an iOS 17.4 deployment target. iOS 17.5 passes the real WKWebView gate. iOS 17.4 still requires verification on that runtime. The mobile entry provides QR scanning or pasted Relay pairing links, a desktop confirmation waiting page, connection status, and device clearing. A local Swift plugin persists the device identity in iOS Keychain. Project cards, 30-row conversation pages, and the shared Messages read-only session view use the Remote API. Creation, sending, queueing during a turn, stopping, and model configuration use the shared command recovery state. Approvals, questions, and App push remain later slices. The real iOS 17.0 WKWebView gate fails during Noise because a production dependency calls the unavailable `Promise.withResolvers`. The minimum version is iOS 17.4, which provides this standard API.
 
 ## Prepare the environment
 
@@ -72,6 +72,24 @@ node clients/gui/scripts/mobile-workspace-smoke.mjs
 
 Run the real Core gate inside `slot_lock` from `scripts/verification.py`, holding the lock for the runner's entire lifetime. First deploy matching artifacts, including private shells, as described in the [testing guide](testing.en.md). The runner uses strict TLS Relay, real Core/Runtime, a deterministic local model, and native WKWebView. It creates two projects and history beyond the initial display budget, then checks the baseline, older history, a new desktop message, preservation of the old boundary, and subscription release on navigation. The DEBUG driver only clicks production DOM and scrolls the message view. Automatic older-history loading uses a synthetic `PointerEvent(pointerType: touch)` and actual scrolling; physical touch gestures still require device checks. Evidence in `.scratch/ios-remote-v1/mobile-workspace/` includes source revision, dirty paths, Core/Runtime hashes, and cleanup results. It does not qualify real providers.
 
+## Validate conversation commands
+
+New conversations read the desktop catalog through `project.models` and initially display “Computer default”. Model, reasoning, and permission selections remain an in-memory intent. The first send creates the session, reads its `session.open` baseline, applies the selection against its actual configuration revision, and sends the message. Unavailable or rejected configuration preserves the draft and the created session. Sending during a turn uses `enqueue` and the exact Turn ID; stopping targets the current Turn. Task sessions require their dedicated controls.
+
+Mobile reuses `ConversationComposer`, `ComposerQueue`, and the permission menu. Drafts stay in memory. Before a write, the same device identity must be saved successfully to Keychain, followed by the shared `ClientState` locator. Locators contain no message body or model selection. Lost replies, disconnection, and restart recover only through `command.read` for the original commandId. Recovering an accepted creation does not automatically send. An unknown stop retains its exact record while allowing a new message once Core confirms the session is idle.
+
+```sh
+node --test clients/gui/scripts/mobile-commands.test.mjs
+AREAL_CORE_BIN=/path/to/locked-slot/areal \
+AREAL_RUNTIME_BIN=/path/to/locked-slot/areal-runtime \
+AREAL_RELAY_NODE=/path/to/node-24.2.0/bin/node \
+node clients/gui/scripts/mobile-command-smoke.mjs
+```
+
+Hold `slot_lock` for the entire command gate. The runner uses real Core, two deterministic local models, DOM input, and native Keychain to check first send with a non-default model, queueing during a turn, stopping, loss of an admitted reply, and reconciliation after restart. Each attempt has a separate evidence directory under `.scratch/ios-remote-v1/mobile-commands/`, including measured CSS hit targets for visible buttons. `AREAL_MOBILE_DERIVED` can select a shared DerivedData cache; evidence does not overwrite previous attempts. DOM input checks do not replace physical keyboard or touch acceptance.
+
+The touch Composer uses the existing 16px font token to avoid iOS focus zoom. Message copy, statistics, and execution disclosure controls use a 44pt minimum target. This build does not include approvals, synchronous or Task question replies, Task pause, edge-swipe navigation, or push. Task details remain read-only.
+
 ## Choose later verification tools
 
 Start with native `xcodebuild`, `simctl`, and structured gate results. Evaluate community [MobileBuildMCP](https://github.com/getsentry/MobileBuildMCP) if agents need a common build, launch, and log interface. This project does not depend on it.
@@ -88,6 +106,8 @@ xcodebuild -project clients/mobile/ios/App/App.xcodeproj -scheme App \
   -archivePath .scratch/ios-remote-v1/AReaL.xcarchive archive
 ```
 
-In Archives organizer, select the archive and choose Distribute App → App Store Connect → Upload. Review the signing certificate, provisioning profile, and entitlements before uploading. Follow [Apple's upload instructions](https://help.apple.com/xcode/mac/current/en.lproj/dev442d7f2ca.html) for TestFlight distribution. Uploading requires explicit release authorization and credentials.
+For manual signing, pass `AREAL_MOBILE_BUNDLE_ID`, `DEVELOPMENT_TEAM`, `CODE_SIGN_STYLE=Manual`, `CODE_SIGN_IDENTITY`, and `AREAL_MOBILE_PROVISIONING_PROFILE` to this command. The provisioning profile setting applies only to the App target. Keep certificates, profiles, and private keys outside Git. The iOS App icon reuses the desktop artwork composited onto an opaque black background; the launch screen uses the system background.
+
+In Archives organizer, select the archive and choose Distribute App → App Store Connect → Upload. Review the signing certificate, provisioning profile, and entitlements before uploading. Follow [Apple's upload instructions](https://help.apple.com/xcode/mac/current/en.lproj/dev442d7f2ca.html) for TestFlight distribution. Uploading requires explicit release authorization and credentials. For an internal-only beta, export using `method=app-store-connect`, `testFlightInternalTestingOnly=true`, and the owned signing profile. Verify processing and assignment to the intended internal group in App Store Connect. The bundled Noise implementation uses standard cryptography outside Apple OS APIs; answer the export-compliance questions accordingly.
 
 For structural checks, add `CODE_SIGNING_ALLOWED=NO` to produce an unsigned archive. It is not an installable or uploadable release package. Release must exclude the DEBUG pairing diagnostics bridge. Local gates have not qualified physical QR scanning, lock-screen push, or TestFlight.

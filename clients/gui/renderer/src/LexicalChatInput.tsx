@@ -53,14 +53,12 @@ import type { ComposerCatalogData } from "./prompt-editor/ComposerCatalog.js";
 import { parsePluginStableId, parseSessionThreadId } from "./mentions/mentionMarkdown.js";
 import type { AppSlashCommand } from "./slashCommandHelpers.js";
 
-
 import {
   $createPromptMentionNode,
   $isPromptMentionNode,
   PromptMentionNode,
 } from "./mentions/nodes/PromptMentionNode.js";
 import { logger } from "./logger.js";
-import { useI18n } from "./i18n/IntlProvider.js";
 
 import { navigatePromptHistory } from "./lib/promptHistory.js";
 import type { MentionItemData } from "@/mentions/mentionTypes.js";
@@ -211,10 +209,7 @@ function replacePlainTextRoot(text: string) {
 }
 
 function replaceEditorText(editor: LexicalEditor, text: string) {
-  editor.update(
-    () => replacePlainTextRoot(text),
-    { tag: PROGRAMMATIC_UPDATE_TAG },
-  );
+  editor.update(() => replacePlainTextRoot(text), { tag: PROGRAMMATIC_UPDATE_TAG });
 }
 
 const INLINE_PROMPT_MENTION_PATTERN =
@@ -231,11 +226,16 @@ function inlineMentionNodes(text: string) {
     const start = match.index ?? 0;
     if (start > cursor) appendPlainTextLines(paragraph, text.slice(cursor, start));
     const label = (match[1]?.replace(/\\(.)/g, "$1") ?? "").replace(pluginId ? /^@/ : /^#/, "");
-    paragraph.append($createPromptMentionNode({
-      id: pluginId ? `plugin:${pluginId}` : `session:${threadId}`,
-      category: pluginId ? "plugins" : "sessions", label, value: pluginId ?? threadId!,
-      markdown: match[0], ...(pluginId ? { data: { pluginId } } : {}),
-    }));
+    paragraph.append(
+      $createPromptMentionNode({
+        id: pluginId ? `plugin:${pluginId}` : `session:${threadId}`,
+        category: pluginId ? "plugins" : "sessions",
+        label,
+        value: pluginId ?? threadId!,
+        markdown: match[0],
+        ...(pluginId ? { data: { pluginId } } : {}),
+      }),
+    );
     cursor = start + match[0].length;
   }
   if (cursor < text.length) appendPlainTextLines(paragraph, text.slice(cursor));
@@ -243,11 +243,14 @@ function inlineMentionNodes(text: string) {
 }
 
 function replaceEditorTextWithMentions(editor: LexicalEditor, text: string) {
-  editor.update(() => {
-    const paragraph = inlineMentionNodes(text);
-    $getRoot().clear().append(paragraph);
-    paragraph.selectEnd();
-  }, { tag: PROGRAMMATIC_UPDATE_TAG });
+  editor.update(
+    () => {
+      const paragraph = inlineMentionNodes(text);
+      $getRoot().clear().append(paragraph);
+      paragraph.selectEnd();
+    },
+    { tag: PROGRAMMATIC_UPDATE_TAG },
+  );
 }
 
 function replaceEditorWithMention(
@@ -857,7 +860,9 @@ function TextContentPlugin({ onChange }: { onChange?: (text: string) => void }) 
       disposed = true;
       unregisterUpdate();
       unregisterRoot();
-      editor.getRootElement()?.removeEventListener("compositionstart", handleCompositionStart, true);
+      editor
+        .getRootElement()
+        ?.removeEventListener("compositionstart", handleCompositionStart, true);
       editor.getRootElement()?.removeEventListener("compositionend", handleCompositionEnd);
     };
   }, [editor]);
@@ -869,13 +874,23 @@ function PluginMentionMetadataPlugin({ catalog }: { catalog?: ComposerCatalogDat
   const [editor] = useLexicalComposerContext();
   useEffect(() => {
     if (!catalog) return;
-    editor.update(() => {
-      for (const node of $getRoot().getAllTextNodes()) {
-        if (!$isPromptMentionNode(node) || node.getMention().category !== "plugins") continue;
-        const mention = catalog.entries.find(entry => entry.mention?.value === node.getMention().value)?.mention;
-        if (mention && (node.getMarkdown() !== mention.markdown || (node.getMention().description ?? "") !== (mention.description ?? ""))) node.replace($createPromptMentionNode(mention));
-      }
-    }, { tag: PROGRAMMATIC_UPDATE_TAG });
+    editor.update(
+      () => {
+        for (const node of $getRoot().getAllTextNodes()) {
+          if (!$isPromptMentionNode(node) || node.getMention().category !== "plugins") continue;
+          const mention = catalog.entries.find(
+            (entry) => entry.mention?.value === node.getMention().value,
+          )?.mention;
+          if (
+            mention &&
+            (node.getMarkdown() !== mention.markdown ||
+              (node.getMention().description ?? "") !== (mention.description ?? ""))
+          )
+            node.replace($createPromptMentionNode(mention));
+        }
+      },
+      { tag: PROGRAMMATIC_UPDATE_TAG },
+    );
   }, [editor, catalog?.entries]);
   return null;
 }
@@ -886,8 +901,7 @@ function EditablePlugin({ editable }: { editable: boolean }) {
 
   useEffect(() => {
     const restoreSelection =
-      editable && !editor.isEditable() &&
-      editor.getRootElement() === document.activeElement;
+      editable && !editor.isEditable() && editor.getRootElement() === document.activeElement;
     editor.setEditable(editable);
     // Clearing while read-only skips Lexical's DOM selection reconciliation.
     // Restore the text-line caret only when this editor still owns focus.
@@ -910,8 +924,7 @@ function E2ELexicalInputBridgePlugin({ inputTestId }: { inputTestId?: string }) 
       getEditorState: () => editor.getEditorState(),
       getText: () => getEditorMarkdown(editor.getEditorState()),
       setText: (text: string) => replaceEditorTextWithMentions(editor, text),
-      setTextWithPluginMentions: (text: string) =>
-        replaceEditorTextWithMentions(editor, text),
+      setTextWithPluginMentions: (text: string) => replaceEditorTextWithMentions(editor, text),
       setEditorStateJson: (editorStateJson: string) =>
         replaceEditorStateJson(editor, editorStateJson),
     };
@@ -1037,10 +1050,7 @@ function PromptHistoryPlugin({
       // 使用专用 HISTORY_NAVIGATION_UPDATE_TAG 而非通用 PROGRAMMATIC_UPDATE_TAG，
       // 使 SlashCommandPlugin 能区分"历史回填"与"用户正在输入 slash 查询"，
       // 防止回填含 / 的历史条目时面板重新打开并以 COMMAND_PRIORITY_CRITICAL 吞掉后续方向键。
-      editor.update(
-        () => replacePlainTextRoot(nextValue),
-        { tag: HISTORY_NAVIGATION_UPDATE_TAG },
-      );
+      editor.update(() => replacePlainTextRoot(nextValue), { tag: HISTORY_NAVIGATION_UPDATE_TAG });
     },
     [editor],
   );
@@ -1208,7 +1218,8 @@ function PasteCapturePlugin({
         event.stopImmediatePropagation();
         editor.update(() => {
           const selection = $getSelection();
-          if ($isRangeSelection(selection)) selection.insertNodes(inlineMentionNodes(text).getChildren());
+          if ($isRangeSelection(selection))
+            selection.insertNodes(inlineMentionNodes(text).getChildren());
         });
         return;
       }
@@ -1285,8 +1296,7 @@ function EditorApiPlugin({
       setMention: (mention, trailingText) =>
         replaceEditorWithMention(editor, mention, trailingText),
       setText: (text: string) => replaceEditorTextWithMentions(editor, text),
-      setTextWithPluginMentions: (text: string) =>
-        replaceEditorTextWithMentions(editor, text),
+      setTextWithPluginMentions: (text: string) => replaceEditorTextWithMentions(editor, text),
       setEditorStateJson: (editorStateJson: string) =>
         replaceEditorStateJson(editor, editorStateJson),
       setSkillMention: (skillName: string, markdown = `$${skillName}`, trailingText = " ") =>
@@ -1312,13 +1322,22 @@ function PromptPredictionPlugin({ text, disabled }: { text?: string; disabled: b
   const [composing, setComposing] = useState(false);
   const composition = useRef(false);
   useEffect(() => {
-    const readEmpty = () => editor.getEditorState().read(() => setEmpty($getRoot().getTextContent() === ""));
+    const readEmpty = () =>
+      editor.getEditorState().read(() => setEmpty($getRoot().getTextContent() === ""));
     readEmpty();
-    return editor.registerUpdateListener(({ editorState }) => editorState.read(() => setEmpty($getRoot().getTextContent() === "")));
+    return editor.registerUpdateListener(({ editorState }) =>
+      editorState.read(() => setEmpty($getRoot().getTextContent() === "")),
+    );
   }, [editor]);
   useEffect(() => {
-    const start = () => { composition.current = true; setComposing(true); };
-    const end = () => { composition.current = false; setComposing(false); };
+    const start = () => {
+      composition.current = true;
+      setComposing(true);
+    };
+    const end = () => {
+      composition.current = false;
+      setComposing(false);
+    };
     const cleanup = editor.registerRootListener((root, previous) => {
       previous?.removeEventListener("compositionstart", start, true);
       previous?.removeEventListener("compositionend", end);
@@ -1331,22 +1350,47 @@ function PromptPredictionPlugin({ text, disabled }: { text?: string; disabled: b
       editor.getRootElement()?.removeEventListener("compositionend", end);
     };
   }, [editor]);
-  useEffect(() => editor.registerCommand(KEY_TAB_COMMAND, event => {
-    if (!text || disabled || event.repeat || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey
-      || event.isComposing || composition.current || editor.isComposing()
-      || editor.getRootElement() !== document.activeElement || $getRoot().getTextContent() !== "") return false;
-    event.preventDefault();
-    event.stopPropagation();
-    const paragraph = $createParagraphNode().append($createTextNode(text));
-    $getRoot().clear().append(paragraph);
-    paragraph.selectEnd();
-    return true;
-  }, COMMAND_PRIORITY_HIGH), [editor, text, disabled]);
+  useEffect(
+    () =>
+      editor.registerCommand(
+        KEY_TAB_COMMAND,
+        (event) => {
+          if (
+            !text ||
+            disabled ||
+            event.repeat ||
+            event.shiftKey ||
+            event.ctrlKey ||
+            event.metaKey ||
+            event.altKey ||
+            event.isComposing ||
+            composition.current ||
+            editor.isComposing() ||
+            editor.getRootElement() !== document.activeElement ||
+            $getRoot().getTextContent() !== ""
+          )
+            return false;
+          event.preventDefault();
+          event.stopPropagation();
+          const paragraph = $createParagraphNode().append($createTextNode(text));
+          $getRoot().clear().append(paragraph);
+          paragraph.selectEnd();
+          return true;
+        },
+        COMMAND_PRIORITY_HIGH,
+      ),
+    [editor, text, disabled],
+  );
   if (!text || disabled || !empty || composing) return null;
-  return <div data-testid="composer-prediction" aria-hidden="true"
-    className="composer-prediction pointer-events-none col-start-1 row-start-1 min-w-0 self-start whitespace-pre-wrap break-words text-foreground-subtle">
-    {text}
-  </div>;
+  return (
+    <div
+      data-testid="composer-prediction"
+      aria-hidden="true"
+      className="composer-prediction pointer-events-none col-start-1 row-start-1 min-w-0 self-start whitespace-pre-wrap break-words text-foreground-subtle"
+    >
+      {text}
+    </div>
+  );
 }
 
 interface LexicalChatInputProps {
@@ -1370,6 +1414,7 @@ interface LexicalChatInputProps {
   editorApiRef?: React.MutableRefObject<LexicalChatInputHandle | null>;
   promptHistory?: readonly string[];
   compactPlaceholder?: boolean;
+  touchInput?: boolean;
   onWhiteboardMentionSelected?: (boardId: string) => void | Promise<void>;
   onPaste?: (event: ChatComposerPasteEvent) => void;
   excludedSlashCommandNames?: readonly string[];
@@ -1405,13 +1450,12 @@ export function LexicalChatInput({
   editorApiRef,
   promptHistory = [],
   compactPlaceholder = false,
-  onWhiteboardMentionSelected,
+  touchInput = false,
   onPaste,
   excludedSlashCommandNames,
   appSlashCommands,
   composerCatalog,
   pluginMentionCatalog,
-  enableMentionPanel = true,
 }: LexicalChatInputProps) {
   const activeTaskProvider = "areal";
   const handleSubmit = useCallback(
@@ -1430,13 +1474,14 @@ export function LexicalChatInput({
   const contentEditableProps: React.ComponentProps<typeof ContentEditable> = placeholder
     ? {
         "aria-placeholder": placeholder,
-        placeholder: () => nextPrompt ? null : (
-          <div
-            className={`pointer-events-none absolute left-0 top-0 ${compactPlaceholder ? "line-clamp-2" : ""} text-ui-base leading-5 text-foreground-subtle`}
-          >
-            {placeholder}
-          </div>
-        ),
+        placeholder: () =>
+          nextPrompt ? null : (
+            <div
+              className={`pointer-events-none absolute left-0 top-0 ${compactPlaceholder ? "line-clamp-2" : ""} ${touchInput ? "text-ui-xl" : "text-ui-base"} leading-5 text-foreground-subtle`}
+            >
+              {placeholder}
+            </div>
+          ),
       }
     : {
         placeholder: null,
@@ -1446,9 +1491,10 @@ export function LexicalChatInput({
     <ContentEditable
       // mention node 使用固定行高的 inline-flex chip，普通正文如果继承浏览器 normal line-height，
       // 在 token 后继续输入文字时会按不同 line box 计算基线；这里显式收口正文行高。
-      className="lexical-chat-input col-start-1 row-start-1 min-w-0 min-h-10 max-h-40 overflow-y-auto text-ui-base leading-5 text-foreground outline-none"
+      className={`lexical-chat-input col-start-1 row-start-1 min-w-0 min-h-10 max-h-40 overflow-y-auto ${touchInput ? "text-ui-xl" : "text-ui-base"} leading-5 text-foreground outline-none`}
       tabIndex={0}
       data-testid={inputTestId}
+      data-touch-input={touchInput || undefined}
       aria-label={placeholder || "消息输入"}
       onFocus={onFocus}
       {...contentEditableProps}
@@ -1506,7 +1552,6 @@ export function LexicalChatInput({
           catalog={composerCatalog}
           mentionCatalog={pluginMentionCatalog}
         />
-
       </LexicalComposer>
     </div>
   );

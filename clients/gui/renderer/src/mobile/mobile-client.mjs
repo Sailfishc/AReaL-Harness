@@ -118,6 +118,7 @@ export class MobileClient {
       onReady: async (ready) => {
         if (ready.apiVersion !== "areal.remote.v2")
           throw Object.assign(new Error("PROTOCOL_MISMATCH"), { code: "PROTOCOL_MISMATCH" });
+        this.identityTarget = { host: target.host, room: target.room };
         this.store.connection = {
           relayOrigin: target.relayOrigin,
           grantRevision: ready.grantRevision,
@@ -172,6 +173,23 @@ export class MobileClient {
     await this.store.clear();
     this.store.connection = null;
     this.publish({ kind: "unpaired", cleared: true });
+  }
+  async remember() {
+    const token = this.identities.current();
+    if (this.state.kind !== "connected" || !token)
+      throw Object.assign(new Error("LOCAL_NOT_SENT"), { code: "LOCAL_NOT_SENT" });
+    if (token.mode === "remembered") return token;
+    try {
+      const remembered = await this.identities.remember(
+        token,
+        this.identityTarget.host,
+        this.identityTarget.room,
+      );
+      if (this.state.kind === "connected") this.publish({ ...this.state, remembered: true });
+      return remembered;
+    } catch {
+      throw Object.assign(new Error("DEVICE_SAVE_FAILED"), { code: "DEVICE_SAVE_FAILED" });
+    }
   }
   async request(envelope, onResult) {
     if (this.state.kind !== "connected") throw new Error("OFFLINE");

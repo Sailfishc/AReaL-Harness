@@ -166,4 +166,93 @@ export const mobileMessages = {
   "mobile.taskCompleted": { "zh-CN": "已完成", en: "Completed" },
   "mobile.taskCancelled": { "zh-CN": "已取消", en: "Cancelled" },
   "mobile.taskUnavailable": { "zh-CN": "此轮执行不可用", en: "Run unavailable" },
+  "mobile.newSession": { "zh-CN": "新建会话", en: "New conversation" },
+  "mobile.newPrompt": {
+    "zh-CN": "要在 {project} 里做什么？",
+    en: "What would you like to do in {project}?",
+  },
+  "mobile.newDescription": {
+    "zh-CN": "发送第一条消息时，电脑会创建会话并开始工作。",
+    en: "Your computer creates the conversation and starts work when you send the first message.",
+  },
+  "mobile.computerDefault": { "zh-CN": "电脑默认", en: "Computer default" },
+  "mobile.applyOnSend": {
+    "zh-CN": "这些设置将在发送时应用。",
+    en: "These settings apply when you send.",
+  },
+  "mobile.resetIntent": { "zh-CN": "撤销本次设置", en: "Discard pending settings" },
+  "mobile.permissions": { "zh-CN": "权限", en: "Permissions" },
+  "mobile.newMessagePlaceholder": {
+    "zh-CN": "描述你要完成的事…",
+    en: "Describe what you want to accomplish…",
+  },
+  "mobile.queuePlaceholder": {
+    "zh-CN": "补充要求，会在当前步骤后处理",
+    en: "Add instructions to handle after the current step",
+  },
+  "mobile.messagePlaceholder": { "zh-CN": "发一条消息…", en: "Send a message\u2026" },
+  "mobile.send": { "zh-CN": "发送", en: "Send" },
+  "mobile.enqueue": { "zh-CN": "加入队列", en: "Add to queue" },
+  "mobile.stop": { "zh-CN": "停止", en: "Stop" },
+  "mobile.done": { "zh-CN": "完成", en: "Done" },
+  "mobile.modelsUpgrade": {
+    "zh-CN": "请升级电脑端以选择模型与权限。",
+    en: "Update the desktop app to choose a model and permissions.",
+  },
+  "mobile.modelSettings": { "zh-CN": "模型与权限", en: "Model and permissions" },
+  "mobile.models": { "zh-CN": "模型", en: "Models" },
+  "mobile.reasoning": { "zh-CN": "推理强度", en: "Reasoning effort" },
+  "mobile.modelUnavailable": { "zh-CN": "不可用", en: "Unavailable" },
+  "mobile.configureAfterTurn": {
+    "zh-CN": "本轮结束后再调整。",
+    en: "Adjust these settings after this turn finishes.",
+  },
+  "mobile.queueDesktop": {
+    "zh-CN": "队列编辑请在电脑上完成。",
+    en: "Edit the queue on your computer.",
+  },
+  "mobile.deviceSaveBeforeSend": {
+    "zh-CN": "设备信息保存失败，消息尚未发送。草稿已保留。",
+    en: "Device information could not be saved. Your message was not sent and your draft is retained.",
+  },
+  "mobile.notSent": {
+    "zh-CN": "连接或页面已变化，尚未发送。请核对后再试。",
+    en: "The connection or page changed. Nothing was sent. Check the target and try again.",
+  },
+  "mobile.configurationUnavailable": {
+    "zh-CN": "所选设置当前不可用。草稿已保留，请重新选择或撤销本次设置。",
+    en: "The selected settings are unavailable. Your draft is retained. Choose again or discard the pending settings.",
+  },
+  "mobile.unsupportedProfile": {
+    "zh-CN": "请在电脑上选择一个普通配置。",
+    en: "Select an ordinary profile on your computer.",
+  },
+  "mobile.taskControlRequired": {
+    "zh-CN": "此会话由 Task 管理，请在 Task 详情中暂停。",
+    en: "This conversation belongs to a Task. Pause it from Task details.",
+  },
+  "mobile.commandUnknown": {
+    "zh-CN": "请求结果待核对。请查询原请求，避免重复操作。",
+    en: "The result needs checking. Query the original request to avoid repeating it.",
+  },
+  "mobile.commandRecoveryFailed": {
+    "zh-CN": "未能读取待核对请求，请重新连接后核对。",
+    en: "Could not read unresolved requests. Reconnect and check them.",
+  },
+  "mobile.commandFailed": {
+    "zh-CN": "操作未完成，草稿已保留。",
+    en: "The operation did not complete. Your draft is retained.",
+  },
+  "mobile.commandPending": {
+    "zh-CN": "正在等待电脑确认…",
+    en: "Waiting for your computer to confirm\u2026",
+  },
+  "mobile.queryCommand": { "zh-CN": "核对原请求", en: "Check original request" },
+  "mobile.effort.none": { "zh-CN": "无", en: "None" },
+  "mobile.effort.minimal": { "zh-CN": "最少", en: "Minimal" },
+  "mobile.effort.low": { "zh-CN": "低", en: "Low" },
+  "mobile.effort.medium": { "zh-CN": "中", en: "Medium" },
+  "mobile.effort.high": { "zh-CN": "高", en: "High" },
+  "mobile.effort.xhigh": { "zh-CN": "极高", en: "Very high" },
+  "mobile.effort.max": { "zh-CN": "最高", en: "Maximum" },
 } as const;

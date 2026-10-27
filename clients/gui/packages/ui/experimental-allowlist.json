@@ -826,5 +826,23 @@
     "symbol": "SettingsToolbar",
     "owner": "renderer/src/settings/common.tsx",
     "exitCondition": "Evaluate SettingsToolbar against its component contract and Base admission before graduation, or remove this consumer."
+  },
+  {
+    "file": "renderer/src/mobile/MobileComposer.tsx",
+    "symbol": "Dialog",
+    "owner": "renderer/src/mobile/MobileComposer.tsx",
+    "exitCondition": "Review the mobile model sheet against Dialog accessibility and touch acceptance before Base admission, or remove this consumer."
+  },
+  {
+    "file": "renderer/src/mobile/MobileComposer.tsx",
+    "symbol": "DialogContent",
+    "owner": "renderer/src/mobile/MobileComposer.tsx",
+    "exitCondition": "Review the mobile model sheet against Dialog accessibility and touch acceptance before Base admission, or remove this consumer."
+  },
+  {
+    "file": "renderer/src/mobile/MobileComposer.tsx",
+    "symbol": "DialogTitle",
+    "owner": "renderer/src/mobile/MobileComposer.tsx",
+    "exitCondition": "Review the mobile model sheet against Dialog accessibility and touch acceptance before Base admission, or remove this consumer."
   }
 ]

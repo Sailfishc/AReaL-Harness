@@ -10,6 +10,7 @@ type ConversationComposerProps = Omit<
 > & {
   project: Data;
   contextControl?: ReactNode;
+  modelControl?: ReactNode;
   modelConfig?: Data;
   fallbackModelConfig?: Data;
   modelDisabled?: boolean;
@@ -26,6 +27,7 @@ export function ConversationComposer({
   modelPending,
   onConfigureModel,
   contextControl,
+  modelControl,
   ...editor
 }: ConversationComposerProps) {
   // 展示回退不改变草稿意图；显式点选当前展示模型仍可覆盖历史锚点模型。
@@ -76,35 +78,40 @@ export function ConversationComposer({
       betweenCancelAndSubmitAction={
         <>
           {contextControl}
-          <ComposerModelMenu
-            disabled={modelDisabled}
-            pending={modelPending}
-            effort={
-              config?.resolvedParameters?.reasoningEffort ?? config?.parameters?.reasoningEffort
-            }
-            value={value}
-            options={options}
-            onEffortChange={(value) =>
-              onConfigureModel({
-                parameters: { ...modelConfig?.parameters, reasoningEffort: value },
-              })
-            }
-            onChange={(nextValue) => {
-              if (nextValue === value && (!fallbackModelConfig || modelConfig?.model !== undefined))
-                return;
-              const model = project.models.find((item: Data) =>
-                nextValue ? `${item.providerId}/${item.modelId}` === nextValue : !item.providerId,
-              );
-              if (model)
+          {modelControl ?? (
+            <ComposerModelMenu
+              disabled={modelDisabled}
+              pending={modelPending}
+              effort={
+                config?.resolvedParameters?.reasoningEffort ?? config?.parameters?.reasoningEffort
+              }
+              value={value}
+              options={options}
+              onEffortChange={(value) =>
                 onConfigureModel({
-                  model: model.providerId
-                    ? { providerId: model.providerId, modelId: model.modelId }
-                    : null,
-                  parameters: { reasoningEffort: resolveModelEffort(model) ?? null },
-                });
-            }}
-            onClose={() => editor.inputApiRef?.current?.focus()}
-          />
+                  parameters: { ...modelConfig?.parameters, reasoningEffort: value },
+                })
+              }
+              onChange={(nextValue) => {
+                if (
+                  nextValue === value &&
+                  (!fallbackModelConfig || modelConfig?.model !== undefined)
+                )
+                  return;
+                const model = project.models.find((item: Data) =>
+                  nextValue ? `${item.providerId}/${item.modelId}` === nextValue : !item.providerId,
+                );
+                if (model)
+                  onConfigureModel({
+                    model: model.providerId
+                      ? { providerId: model.providerId, modelId: model.modelId }
+                      : null,
+                    parameters: { reasoningEffort: resolveModelEffort(model) ?? null },
+                  });
+              }}
+              onClose={() => editor.inputApiRef?.current?.focus()}
+            />
+          )}
         </>
       }
     />

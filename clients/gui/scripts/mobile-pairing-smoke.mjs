@@ -12,6 +12,7 @@ const root = fileURLToPath(new URL("../../../", import.meta.url));
 const output = resolve(
   process.env.AREAL_MOBILE_EVIDENCE ?? join(root, ".scratch/ios-remote-v1/mobile-pairing"),
 );
+const commandScenario = process.env.AREAL_MOBILE_SCENARIO === "commands";
 const workspaceScenario = process.env.AREAL_MOBILE_SCENARIO === "workspace";
 const runtime = process.env.AREAL_IOS_RUNTIME ?? "17.5";
 const bundleId = process.env.AREAL_MOBILE_BUNDLE_ID ?? "com.example.arealharness";
@@ -41,6 +42,7 @@ if (!process.env.AREAL_IOS_TLS_HOME) {
   const cleanup = [];
   const fixture = { after: (fn) => cleanup.push(fn) };
   let simulator;
+  let simulatorName;
   let stage = "sync";
   const records = [];
   const cleaned = [];
@@ -48,9 +50,10 @@ if (!process.env.AREAL_IOS_TLS_HOME) {
   try {
     await run("pnpm", ["--dir", "clients/gui", "mobile:sync"]);
     stage = "simulator";
+    simulatorName = `AReaL mobile gate ${runtime} ${Date.now()}`;
     simulator = await sim(
       "create",
-      `AReaL mobile gate ${runtime} ${Date.now()}`,
+      simulatorName,
       "com.apple.CoreSimulator.SimDeviceType.iPhone-15-Pro",
       `com.apple.CoreSimulator.SimRuntime.iOS-${runtime.replaceAll(".", "-")}`,
     );
@@ -63,7 +66,7 @@ if (!process.env.AREAL_IOS_TLS_HOME) {
       join(process.env.AREAL_IOS_TLS_HOME, "ca.pem"),
     );
     stage = "build";
-    const derived = join(output, `derived-${runtime}`);
+    const derived = process.env.AREAL_MOBILE_DERIVED ?? join(output, `derived-${runtime}`);
     try {
       const build = await run("xcodebuild", [
         "-project",
@@ -98,9 +101,12 @@ if (!process.env.AREAL_IOS_TLS_HOME) {
       tlsHome: process.env.AREAL_IOS_TLS_HOME,
       relayOptions: { allowedAppOrigins: ["capacitor://localhost"] },
     });
-    const host = workspaceScenario
-      ? await (await import("./mobile-core-fixture.mjs")).mobileCoreFixture(fixture)
-      : await hostFixture(fixture);
+    const host =
+      workspaceScenario || commandScenario
+        ? await (
+            await import("./mobile-core-fixture.mjs")
+          ).mobileCoreFixture(fixture, { commands: commandScenario })
+        : await hostFixture(fixture);
     await host.remote.control({
       operation: "enable",
       relay: relay.origin,
@@ -109,21 +115,24 @@ if (!process.env.AREAL_IOS_TLS_HOME) {
     });
     await waitFor(() => host.remote.state().connected);
     const invitation = await host.remote.control({ operation: "pair", transport: "relay" });
-    const cases = workspaceScenario
-      ? ["pair", "projects", "sessions", "baseline", "history", "live", "release"]
-      : ["pair", "restore", "lifecycle", "revoked", "clear", "unpaired", "unpaired-dark"];
+    const cases = commandScenario
+      ? ["pair", "new", "models", "send", "permissions", "queue", "stop", "unknown", "recover"]
+      : workspaceScenario
+        ? ["pair", "projects", "sessions", "baseline", "history", "live", "release"]
+        : ["pair", "restore", "lifecycle", "revoked", "clear", "unpaired", "unpaired-dark"];
     let pairedPeer;
     for (const name of cases) {
       const productConfig = {
         mode: name === "unpaired-dark" ? "unpaired" : name,
         ...(name === "pair" ? { link: invitation.payload } : {}),
-        ...(name !== "pair" && workspaceScenario
+        ...(name !== "pair" && (workspaceScenario || commandScenario)
           ? { projectId: host.projectIds[0], threadId: host.threadId }
           : {}),
       };
       for (const kind of ["pairing", "ready", "background", "result"])
         await rm(join(container, "Documents", `product-${kind}.json`), { force: true });
       stage = `probe-${name}`;
+      if (name === "unknown") host.loseNext("areal/turn/start");
       if (name === "unpaired-dark") await sim("ui", simulator, "appearance", "dark");
       await run(
         "xcrun",
@@ -152,7 +161,7 @@ if (!process.env.AREAL_IOS_TLS_HOME) {
             operation: "approve",
             id: event.peer,
             projects: host.projectIds ?? ["project"],
-            preset: "Observer",
+            preset: commandScenario ? "Operator" : "Observer",
           });
           approved = true;
         }
@@ -172,6 +181,15 @@ if (!process.env.AREAL_IOS_TLS_HOME) {
             );
             await waitFor(() => host.remote.sessions.sockets.size === 0, 10000);
             await sim("launch", simulator, bundleId);
+          }
+          if (name === "queue") {
+            const queue = await host.backend.projects
+              .get(host.projectIds[0])
+              .client.request("areal/queue/list", { threadId: host.threadId });
+            const item = queue.items.find((item) => item.id === ready.queueItemId);
+            assert.equal(item?.status, "pending");
+            assert.ok(item.input.some((part) => part.text === "MOBILE_QUEUED_AFTER_CURRENT"));
+            host.release();
           }
           if (name === "live") {
             await host.send("MOBILE_LIVE_UPDATE");
@@ -193,7 +211,7 @@ if (!process.env.AREAL_IOS_TLS_HOME) {
       console.log(JSON.stringify(record));
       assert.equal(record.origin, "capacitor://localhost");
       assert.equal(record.status, "success", `Mobile product failed in ${name}`);
-      if (workspaceScenario || ["pair", "restore", "lifecycle"].includes(name)) {
+      if (workspaceScenario || commandScenario || ["pair", "restore", "lifecycle"].includes(name)) {
         assert.equal(record.state, "connected");
         assert.equal(record.remembered, "true");
         assert.equal(record.keychainPresent, true);
@@ -213,6 +231,41 @@ if (!process.env.AREAL_IOS_TLS_HOME) {
         assert.equal(record.state, "unpaired");
         assert.equal(record.keychainPresent, false);
       }
+      if (commandScenario && name !== "pair") {
+        assert.ok(
+          Number.parseFloat(record.inputFontSize) >= 16,
+          "Mobile editor must avoid focus zoom",
+        );
+        assert.equal(record.viewport.scale, 1);
+        assert.ok(
+          record.touchTargets.every((target) => target.width >= 44 && target.height >= 44),
+          "Visible buttons must have 44pt targets",
+        );
+      }
+      if (
+        commandScenario &&
+        ["send", "permissions", "queue", "stop", "unknown", "recover"].includes(name)
+      ) {
+        if (name === "send") host.threadId = record.threadId;
+        assert.equal(record.threadId, host.threadId);
+        const { thread } = await host.backend.projects
+          .get(host.projectIds[0])
+          .client.request("thread/read", { threadId: host.threadId, includeTurns: true });
+        const expected = { send: 1, permissions: 1, queue: 3, stop: 4, unknown: 5, recover: 5 }[
+          name
+        ];
+        assert.equal(thread.turns.length, expected);
+        assert.equal(thread.desktop.configuration.model.modelId, "fixture-alt");
+        assert.equal(thread.desktop.configuration.parameters.reasoningEffort, "high");
+        if (name === "permissions") {
+          assert.equal(record.permissionSelection, true);
+          assert.equal(thread.desktop.configuration.options.permissionPreset, "ask");
+        }
+        if (name === "queue") assert.ok(thread.turns.every((turn) => turn.status === "completed"));
+        if (name === "stop") assert.equal(thread.turns.at(-1).status, "interrupted");
+        if (name === "unknown") assert.equal(record.locators, 1);
+        if (name === "recover") assert.equal(record.locators, 0);
+      }
       if (workspaceScenario && name !== "pair") assert.equal(record.projects, 2);
       if (["history", "live"].includes(name)) assert.equal(record.history, true);
       if (name === "history") assert.equal(record.historyAutoload, true);
@@ -228,6 +281,33 @@ if (!process.env.AREAL_IOS_TLS_HOME) {
       if (name === "release")
         await waitFor(() => host.remote.sessions.observers.viewers.size === 0);
       assert.equal(host.remote.state().pending.length, 0);
+    }
+    if (commandScenario && process.env.AREAL_MOBILE_HOLD === "1") {
+      const until = Date.now() + 600000;
+      await writeFile(
+        join(output, "hold.json"),
+        JSON.stringify(
+          {
+            simulator,
+            simulatorName,
+            bundleId,
+            evidence: output,
+            projectId: host.projectIds[0],
+            threadId: host.threadId,
+            expiresAt: new Date(until).toISOString(),
+          },
+          null,
+          2,
+        ),
+      );
+      console.log(JSON.stringify({ holding: true, evidence: output }));
+      while (
+        Date.now() < until &&
+        !(await readFile(join(output, "release"), "utf8")
+          .then(() => true)
+          .catch(() => false))
+      )
+        await new Promise((resolve) => setTimeout(resolve, 1000));
     }
   } catch (error) {
     console.error(`${stage}: ${error.message}`);
@@ -268,7 +348,7 @@ if (!process.env.AREAL_IOS_TLS_HOME) {
           },
           records: records.length,
           cleanup: cleaned,
-          ...(workspaceScenario
+          ...(workspaceScenario || commandScenario
             ? {
                 coreBinary: {
                   path: process.env.AREAL_CORE_BIN,

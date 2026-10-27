@@ -6,6 +6,7 @@ import { SettingsGroupCard, SettingsRow } from "@areal/ui/compositions";
 import { ApplicationIntlProvider, useI18n, type MessageId } from "../i18n/IntlProvider.js";
 import { MobileClient } from "./mobile-client.mjs";
 import { keychain, observeLifecycle, scanPairingLink } from "./platform.js";
+import { MobileCommands } from "./mobile-commands.mjs";
 import { MobileWorkspace } from "./mobile-workspace.mjs";
 import { MobileWorkspaceView } from "./MobileWorkspace.js";
 import "../styles.css";
@@ -14,6 +15,7 @@ import "./mobile.layout.css";
 
 const client = new MobileClient({ keychain });
 const workspace = new MobileWorkspace(client);
+const commands = new MobileCommands(client, workspace);
 
 function MobileApp() {
   const { t } = useI18n();
@@ -38,6 +40,7 @@ function MobileApp() {
     return () => {
       void lifecycle.then((remove) => remove());
       theme.removeEventListener("change", update);
+      commands.dispose();
       workspace.dispose();
       client.disconnect();
     };
@@ -259,7 +262,9 @@ function MobileApp() {
           {state.kind === "connected" && !state.remembered && (
             <FeedbackNotice tone="warning" message={t("mobile.storageFailed")} />
           )}
-          {state.kind === "connected" && <MobileWorkspaceView workspace={workspace} />}
+          {state.kind === "connected" && (
+            <MobileWorkspaceView workspace={workspace} client={client} commands={commands} />
+          )}
           {["offline", "blocked"].includes(state.kind) && (
             <Button className="mobile-touch" onClick={() => void client.setActive(true)}>
               {t("mobile.retry")}

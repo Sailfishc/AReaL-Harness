@@ -2558,6 +2558,11 @@ button[aria-label="停止"] {
   opacity: 1;
 }
 @media (hover: none) {
+  .message-actions > button,
+  button.turn-progress-summary {
+    min-width: var(--size-touch-target);
+    min-height: var(--size-touch-target);
+  }
   .message-actions,
   .user-message .message-actions {
     opacity: 1;

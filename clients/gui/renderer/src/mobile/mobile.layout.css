@@ -100,3 +100,44 @@ body,
   min-height: 0;
   flex: 1;
 }
+.mobile-composer {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+.mobile-new-session {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-field);
+  text-align: center;
+}
+.mobile-model-sheet {
+  top: auto;
+  bottom: 0;
+  left: 0;
+  transform: none;
+  translate: none;
+  width: 100%;
+  max-width: 100%;
+  max-height: 90dvh;
+  padding-bottom: calc(env(safe-area-inset-bottom) + var(--spacing-panel));
+}
+.mobile-sheet-scroll {
+  min-height: 0;
+  overflow-y: auto;
+}
+.mobile-model-choice {
+  justify-content: space-between;
+}
+.mobile-efforts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-inline);
+}
+.mobile-command-notice {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-inline);
+}

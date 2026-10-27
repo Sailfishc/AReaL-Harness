@@ -2,7 +2,7 @@
 
 # 开发和验证 iOS App
 
-移动壳使用 Capacitor 8.5.3 和 Swift Package Manager。`clients/mobile/ios/` 是受控 Xcode 工程，原生部署目标为 iOS 17.4。iOS 17.5 已通过真实 WKWebView 门禁，iOS 17.4 尚需在相应运行时复验。移动入口提供扫码或粘贴 Relay 链接、电脑确认等待页、连接状态与清除设备设置。设备身份由本地 Swift 插件保存到 iOS Keychain。项目页、30 条分页会话列表和共享 Messages 只读会话页已接入 Remote API。会话创建、发送、配置和发行渠道仍待后续切片。iOS 17.0 的真实 WKWebView 门禁因生产依赖缺少 `Promise.withResolvers` 而在 Noise 阶段失败。最低版本采用已提供该标准 API 的 iOS 17.4。
+移动壳使用 Capacitor 8.5.3 和 Swift Package Manager。`clients/mobile/ios/` 是受控 Xcode 工程，原生部署目标为 iOS 17.4。iOS 17.5 已通过真实 WKWebView 门禁，iOS 17.4 尚需在相应运行时复验。移动入口提供扫码或粘贴 Relay 链接、电脑确认等待页、连接状态与清除设备设置。设备身份由本地 Swift 插件保存到 iOS Keychain。项目页、30 条分页会话列表和共享 Messages 只读会话页已接入 Remote API。会话创建、发送、运行中排队、停止与模型配置使用同一命令恢复状态；审批、提问和 App 推送仍待后续切片。iOS 17.0 的真实 WKWebView 门禁因生产依赖缺少 `Promise.withResolvers` 而在 Noise 阶段失败。最低版本采用已提供该标准 API 的 iOS 17.4。
 
 ## 准备环境
 
@@ -72,6 +72,24 @@ node clients/gui/scripts/mobile-workspace-smoke.mjs
 
 真实 Core 门禁必须在 `scripts/verification.py` 的 `slot_lock` 上下文中运行，锁覆盖整个 runner 生命周期。先按[测试指南](testing.md)部署源码匹配的固定槽，包括私有 shell。runner 使用严格 TLS Relay、真实 Core/Runtime、确定性本地模型和原生 WKWebView。它创建两个项目和超过首屏预算的历史，检查首次读取、向上分页、桌面产生的新消息、旧边界消息保留及返回时订阅释放。DEBUG driver 只点击生产 DOM 和滚动消息视图。向上自动分页门禁使用合成 `PointerEvent(pointerType: touch)` 和实际 scroll；实体触摸手势仍需真机检查。证据写入 `.scratch/ios-remote-v1/mobile-workspace/`，包含源码版本、未提交路径、Core/Runtime 文件哈希与清理结果。它不证明真实供应商响应。
 
+## 验证会话命令
+
+新会话通过 `project.models` 读取电脑目录，初始显示“电脑默认”。模型、推理强度与权限选择先保留为内存意图。首发依次创建会话、读取 `session.open` 基线、按实际配置 revision 应用选择，再发送消息。配置不可用或被拒绝时保留草稿与已创建会话。运行中发送使用 `enqueue` 和精确 Turn ID；停止针对当前 Turn，Task 会话需要专属控制入口。
+
+移动页面复用 `ConversationComposer`、`ComposerQueue` 和权限菜单。草稿只保存在内存。每次写入前，同一设备身份必须成功保存到 Keychain，再保存共享 `ClientState` 定位信息。定位信息不含正文或模型选择。回包丢失、断线或重启后只通过 `command.read` 核对原 commandId；核对创建成功不会继续自动发送。未知停止保留原精确记录，但 Core 已确认空闲后可以发送新消息。
+
+```sh
+node --test clients/gui/scripts/mobile-commands.test.mjs
+AREAL_CORE_BIN=/path/to/locked-slot/areal \
+AREAL_RUNTIME_BIN=/path/to/locked-slot/areal-runtime \
+AREAL_RELAY_NODE=/path/to/node-24.2.0/bin/node \
+node clients/gui/scripts/mobile-command-smoke.mjs
+```
+
+命令门禁同样需要 `slot_lock` 覆盖全程。runner 使用真实 Core、两个确定性本地模型、真实 DOM 输入与原生 Keychain，检查非默认模型首发、运行中排队、停止、受理后丢回包与重启核对。结果按独立 attempt 目录保存在 `.scratch/ios-remote-v1/mobile-commands/`，包括可见按钮的实际 CSS 触控尺寸。`AREAL_MOBILE_DERIVED` 可指定共享 DerivedData 缓存；证据目录不复用旧尝试。DOM 输入检查不替代实体键盘或触摸验收。
+
+触摸形态的 Composer 输入使用现有 16px 字号 token，避免 iOS 聚焦时自动放大；消息复制、统计和执行过程折叠入口使用 44pt 最小触控区域。当前构建不包含审批、同步或 Task 提问回复、Task 暂停、边缘滑返和推送；Task 详情仍只读。
+
 ## 选择后续验证工具
 
 先使用原生 `xcodebuild`、`simctl` 和结构化结果重跑门禁。需要 Agent 统一构建、启动和日志工具时，可评估社区 [MobileBuildMCP](https://github.com/getsentry/MobileBuildMCP)。本工程不依赖它。
@@ -88,6 +106,8 @@ xcodebuild -project clients/mobile/ios/App/App.xcodeproj -scheme App \
   -archivePath .scratch/ios-remote-v1/AReaL.xcarchive archive
 ```
 
-在 Archives organizer 选择 archive，使用 Distribute App → App Store Connect → Upload，检查签名证书、描述文件和 entitlements 后上传，按 [Apple 上传说明](https://help.apple.com/xcode/mac/current/en.lproj/dev442d7f2ca.html)继续 TestFlight 分发。上传需要明确的发行授权和凭据。
+手动签名时，向命令传入 `AREAL_MOBILE_BUNDLE_ID`、`DEVELOPMENT_TEAM`、`CODE_SIGN_STYLE=Manual`、`CODE_SIGN_IDENTITY` 和 `AREAL_MOBILE_PROVISIONING_PROFILE`。描述文件设置只应用到 App target。证书、描述文件和私钥放在 Git 之外。iOS 图标沿用桌面原图并合成到不透明黑色背景；启动页使用系统背景。
+
+在 Archives organizer 选择 archive，使用 Distribute App → App Store Connect → Upload，检查签名证书、描述文件和 entitlements 后上传，按 [Apple 上传说明](https://help.apple.com/xcode/mac/current/en.lproj/dev442d7f2ca.html)继续 TestFlight 分发。上传需要明确的发行授权和凭据。内部测试包导出使用 `method=app-store-connect`、`testFlightInternalTestingOnly=true` 和拥有的签名描述文件，并在 App Store Connect 确认处理完成且已分配到目标内部组。包内 Noise 实现使用 Apple OS API 之外的标准加密算法，出口合规问题应据此如实填写。
 
 结构检查可以另加 `CODE_SIGNING_ALLOWED=NO` 生成未签名 archive。它不代表可安装或可上传的发行包。Release 必须排除 DEBUG 配对诊断桥。当前本地门禁未完成真机扫码、锁屏推送或 TestFlight 验收。
