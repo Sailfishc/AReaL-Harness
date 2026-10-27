@@ -88,6 +88,8 @@ Linux 必跑候选必须完成每条旅程至少 10 次首跑、无环境阻塞�
 
 Linux portable job 的 10 分钟 timeout 是上限，不是耗时达标证据。`portable-interval.json` 记录首个执行步骤到报告步骤的实际区间，不含 runner 准备和 artifact 上传。完整 job 耗时需结合 GitHub Actions 的 job 时间核对；未运行远端 CI 时不能声称低于 10 分钟。
 
+公开源码扫描允许随产品分发的内置 Skill 和 UI 包两份使用/审查 Skill 的确切路径；这些文件继续接受私有路径与凭据内容扫描。`test:regressions` 验证公开文件通过、其他 Skill 被拒绝，以及公开 Skill 中的私有内容仍会失败。
+
 ## GUI 与桌面路由门禁
 
 `cargo test --locked -p areal-app-server --lib desktop_registered_methods_have_dispatch_routes` 对每个已注册桌面 RPC 经真实连接分派发送非对象参数，要求返回参数错误而不是方法不存在；包含连接层单独接管的 `areal/thread/start`。该检查随 `make test-protocol`、`make test` 和 CI 执行，不启动模型请求或创建 Thread。

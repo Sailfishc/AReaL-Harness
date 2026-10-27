@@ -90,6 +90,8 @@ Select `qualification=linux-feasibility` in a manual [GUI workflow](../../.githu
 
 The portable Linux job's ten-minute timeout is a limit, not runtime evidence. `portable-interval.json` measures the interval from its first execution step through report creation, excluding runner provisioning and artifact upload. Check GitHub Actions job timestamps for complete job duration. Without a remote CI run, the under-ten-minute criterion remains unverified.
 
+The public-source scan admits exact paths for the bundled product Skill and the UI package’s usage and review Skills. Their contents remain subject to private-path and credential checks. `test:regressions` verifies admission of public files, rejection of other Skills, and rejection of private content inside a public Skill.
+
 ## GUI and desktop route gates
 
 `cargo test --locked -p areal-app-server --lib desktop_registered_methods_have_dispatch_routes` sends non-object parameters for every registered desktop RPC through the real connection dispatcher and requires an invalid-parameters error rather than method-not-found. It includes `areal/thread/start`, handled separately by the connection. The check runs with `make test-protocol`, `make test` and CI without starting model requests or creating Threads.
