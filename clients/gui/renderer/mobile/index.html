@@ -8,13 +8,9 @@
       content="default-src 'none'; script-src 'self'; connect-src wss:; style-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; object-src 'none'"
     />
     <title>AReaL Harness</title>
-    <link rel="stylesheet" href="./mobile.css" />
   </head>
   <body>
-    <main>
-      <h1>AReaL Harness</h1>
-      <p id="status" role="status">Mobile shell</p>
-    </main>
+    <div id="root"><p id="status" role="status"></p></div>
     <script type="module" src="../src/mobile.ts"></script>
   </body>
 </html>

@@ -1,6 +1,6 @@
 import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { execFileSync, spawn } from "node:child_process";
 import { createServer as tlsServer } from "node:tls";
 import { createServer as netServer, connect } from "node:net";
@@ -170,6 +170,7 @@ export async function relayFixture(
     }),
   );
   const cli = new URL("../../../services/remote-relay/src/cli.mjs", import.meta.url).pathname;
+  const relayNode = process.env.AREAL_RELAY_NODE || process.execPath;
   let child,
     logs = "";
   const resources = {
@@ -184,14 +185,14 @@ export async function relayFixture(
     logs: () => logs,
     admin: (...args) =>
       JSON.parse(
-        execFileSync(process.execPath, [cli, ...args, "--config", config], {
+        execFileSync(relayNode, [cli, ...args, "--config", config], {
           encoding: "utf8",
           stdio: ["ignore", "pipe", "pipe"],
         }),
       ),
     async start() {
       const logStart = logs.length;
-      child = spawn(process.execPath, [cli, "serve", "--config", config], {
+      child = spawn(relayNode, [cli, "serve", "--config", config], {
         stdio: ["ignore", "pipe", "pipe"],
       });
       const receipt = { pid: child.pid, exited: false };

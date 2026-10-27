@@ -1,0 +1,52 @@
+@import "tailwindcss";
+@import "@areal/ui/styles.css";
+@import "@areal/ui/themes.css";
+@import "@areal/ui/settings.css";
+@source "../../../packages/ui/dist/**/*.{js,ts}";
+@source "./**/*.{ts,tsx}";
+
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100%;
+}
+.mobile-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-section);
+  padding: calc(env(safe-area-inset-top) + var(--spacing-panel)) var(--spacing-panel)
+    calc(env(safe-area-inset-bottom) + var(--spacing-panel));
+  min-height: 100dvh;
+  box-sizing: border-box;
+}
+.mobile-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-inline);
+}
+.mobile-header h1 {
+  margin: 0;
+}
+.mobile-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-field);
+}
+.mobile-stack p {
+  margin: 0;
+}
+.mobile-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-inline);
+}
+.mobile-touch {
+  min-height: var(--size-touch-target);
+  min-width: var(--size-touch-target);
+}
+.mobile-fingerprint {
+  overflow-wrap: anywhere;
+  padding: var(--spacing-field);
+}

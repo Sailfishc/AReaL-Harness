@@ -720,6 +720,12 @@
     "exitCondition": "Evaluate Spinner against its component contract and Base admission before graduation, or remove this consumer."
   },
   {
+    "file": "renderer/src/mobile/MobileApp.tsx",
+    "symbol": "FeedbackNotice",
+    "owner": "renderer/src/mobile/MobileApp.tsx",
+    "exitCondition": "Evaluate FeedbackNotice against its component contract and Base admission before graduation, or remove this consumer."
+  },
+  {
     "file": "renderer/src/prompt-editor/ChatPromptEditor.tsx",
     "symbol": "ComposerActionButton",
     "owner": "renderer/src/prompt-editor/ChatPromptEditor.tsx",

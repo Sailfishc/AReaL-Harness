@@ -786,5 +786,20 @@
     "platformReason": "Requires Xcode and the iOS Simulator WKWebView.",
     "areas": ["remote", "mobile"],
     "requires": ["ios-simulator"]
+  },
+  {
+    "script": "test:mobile-pairing",
+    "layer": "e2e",
+    "platforms": ["darwin"],
+    "platformReason": "Requires Xcode and the iOS Simulator with native Keychain.",
+    "areas": ["remote", "mobile"],
+    "requires": ["ios-simulator"]
+  },
+  {
+    "script": "test:mobile-storage",
+    "layer": "contract",
+    "platforms": ["darwin", "linux", "win32"],
+    "areas": ["remote", "mobile"],
+    "requires": []
   }
 ]

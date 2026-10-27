@@ -9,5 +9,6 @@
   "ios": {
     "minVersion": "17.4",
     "preferredContentMode": "mobile"
-  }
+  },
+  "loggingBehavior": "none"
 }

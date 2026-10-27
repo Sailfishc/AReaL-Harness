@@ -3,10 +3,6 @@
   "version": "0.1.12-beta.3",
   "private": true,
   "license": "Apache-2.0",
-  "packageManager": "pnpm@11.7.0",
-  "engines": {
-    "node": "^22.19.0 || ^24.11.0 || >=26.0.0"
-  },
   "scripts": {
     "build:desktop": "vp run desktop-build",
     "build": "vp run build-suite",
@@ -141,12 +137,18 @@
     "mobile:build": "pnpm --filter @areal/gui-renderer exec vp build --config vite.mobile.config.ts",
     "mobile:sync": "pnpm mobile:build && pnpm --filter @areal/mobile sync",
     "test:mobile-handshake": "node scripts/mobile-handshake-smoke.mjs",
-    "mobile:typecheck": "pnpm --filter @areal/gui-renderer exec tsc --noEmit -p tsconfig.mobile.json"
+    "mobile:typecheck": "pnpm --filter @areal/gui-renderer exec tsc --noEmit -p tsconfig.mobile.json",
+    "test:mobile-pairing": "node scripts/mobile-pairing-smoke.mjs",
+    "test:mobile-storage": "node --test scripts/mobile-device-store.test.mjs"
   },
   "devDependencies": {
+    "@areal/remote-client": "workspace:*",
     "@axe-core/playwright": "4.14.0",
     "fake-indexeddb": "6.2.4",
-    "vite-plus": "1.4.0",
-    "@areal/remote-client": "workspace:*"
-  }
+    "vite-plus": "1.4.0"
+  },
+  "engines": {
+    "node": "^22.19.0 || ^24.11.0 || >=26.0.0"
+  },
+  "packageManager": "pnpm@11.7.0"
 }

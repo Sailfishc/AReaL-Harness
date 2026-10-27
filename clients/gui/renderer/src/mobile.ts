@@ -10,7 +10,11 @@ type ProbeBridge = { postMessage(value: unknown): void };
 declare global {
   interface Window {
     __AREAL_MOBILE_PROBE__?: ProbeConfig;
-    webkit?: { messageHandlers?: { arealProbe?: ProbeBridge } };
+    __AREAL_MOBILE_PRODUCT__?: {
+      mode: "pair" | "restore" | "lifecycle" | "revoked" | "clear" | "unpaired";
+      link?: string;
+    };
+    webkit?: { messageHandlers?: { arealProbe?: ProbeBridge; arealProduct?: ProbeBridge } };
   }
 }
 
@@ -41,6 +45,17 @@ if (config && bridge) {
         },
       }),
     );
+} else {
+  void import("./mobile/MobileApp").then(async ({ mountMobileApp }) => {
+    mountMobileApp();
+    const product = window.__AREAL_MOBILE_PRODUCT__;
+    delete window.__AREAL_MOBILE_PRODUCT__;
+    const output = window.webkit?.messageHandlers?.arealProduct;
+    if (product && output) {
+      const { runProduct } = await import("./mobile/product-driver");
+      await runProduct(product, output);
+    }
+  });
 }
 
 type ProbePhase =

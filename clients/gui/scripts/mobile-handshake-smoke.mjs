@@ -76,8 +76,9 @@ if (!process.env.AREAL_IOS_TLS_HOME) {
         `id=${simulator}`,
         "-derivedDataPath",
         derived,
-        "CODE_SIGNING_ALLOWED=NO",
-        `PRODUCT_BUNDLE_IDENTIFIER=${bundleId}`,
+        "CODE_SIGNING_ALLOWED=YES",
+        "CODE_SIGN_IDENTITY=-",
+        `AREAL_MOBILE_BUNDLE_ID=${bundleId}`,
         "build",
       ]);
       await writeFile(join(output, `build-${runtime}.log`), build);
@@ -233,6 +234,10 @@ if (!process.env.AREAL_IOS_TLS_HOME) {
           stage,
           xcode: await run("xcodebuild", ["-version"]),
           node: process.version,
+          relayNode: {
+            path: process.env.AREAL_RELAY_NODE ?? process.execPath,
+            version: await run(process.env.AREAL_RELAY_NODE ?? process.execPath, ["--version"]),
+          },
           records: records.length,
           processExitCode: process.exitCode ?? 0,
         },
