@@ -206,7 +206,8 @@ v1 默认“记住此设备”，不再提供“仅本次使用”选项：App �
 - 只为“至少有一台已注册推送的设备被授权”的在线项目工作。
 - 每 5 秒读一次该项目的 `attention` 摘要；发送器启动或项目上线后的第一次读取只建立基线，不发通知，避免重启后重复提醒。
 - 以 attention 引用的原生身份去重；同一引用只提醒一次。
-- 轮次完成事件以现有提交 journal 中本设备的 `session.send` 记录为准，观察到该 Turn 进入终态后发送一次，然后从待观察列表移除。
+- 轮次完成事件以现有提交 journal 中本设备的 `session.send` 记录为准，按精确 turnId 或 queueItemId 绑定的 turnId 观察；不按最新轮次推断。最多 16 个观察复用既有原生订阅预算，终态、撤销或失效时释放。启动基线已终态不补发，旧轮次缺失于有界基线、队列项移除或容量满时可能遗漏通知。
+- 每项目每轮最多 8 次 attention 读取，每次最多读取 4 页原生概览；完整基线建立前不推送，最多保留 4096 个原生 attentionRef。第一条通知立即发送，30 秒内复用 collapse ID 更新计数。读取不完整或达到容量时通知为尽力投递。
 - Relay 未声明支持推送、未连接或返回限流时，丢弃本次通知并记录脱敏诊断，不重试堆积，不影响任何业务路径。
 
 ### 协议新增
@@ -220,7 +221,8 @@ v1 默认“记住此设备”，不再提供“仅本次使用”选项：App �
 
 - `token` 为 64 到 200 位十六进制；`environment` 只接受 `production`（TestFlight 使用生产 APNs）或 `development`（Xcode 调试）。
 - 成功返回 `{registered:true}`。Relay 不支持推送时返回 `RESOURCE_UNAVAILABLE`，App 在设置页显示“这个 Relay 未开启推送”。
-- `device.push.unregister` 无参数，删除本设备 token。
+- `device.push.unregister` 使用空 `params:{}`，删除本设备 token，返回 `{registered:false}`。注册和注销均不带项目 context。
+- 推送写入和收据在同一次 `remote.json` 加密保存中提交。丢失响应后，仅用不带 context 的 `command.read {params:{commandId}}` 查询当前设备收据；已知结果返回 `receipt:{registered}`，notFound 仍是未知，不能重发。Host 最多保留 4096 条收据，满时拒绝新写入，不驱逐待核对记录。
 
 hello 新增可选字段 `clientKind: "web" | "ios"`，只用于电脑端设备列表的展示，不参与授权判断。`ready` 与 `host.describe` 的 `capabilities` 在 Relay 支持推送时增加 `push`。这些变更需同步更新 [Remote API](../api/remote-control.md) 的已实现边界与 C4 方法目录。
 

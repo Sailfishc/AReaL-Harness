@@ -280,6 +280,7 @@ async function sessionCommand(
       }),
     );
   let record = await readRecord();
+  const firstAdmission = request.method === "session.send" && !record;
   auth();
   const semantic = control
     ? { method: request.method, ...request.params }
@@ -653,6 +654,7 @@ async function sessionCommand(
           },
         }),
       );
+      if (record) remote.push.track(projectId, record, !firstAdmission);
     } catch (error) {
       // 异步预检查期间另一请求可能已持久受理；原关联优先于新命令的准入拒绝。
       auth();
@@ -726,6 +728,7 @@ async function sessionCommand(
     throw failure("RESYNC_REQUIRED", "交互观察期间项目连接已变化");
   checkIdentity();
   if (identity) current();
+  if (record) remote.push.track(projectId, record, !firstAdmission);
   return publish({
     ...view(backend, record, association.commandId),
     ...(observedState ? { observedState } : {}),

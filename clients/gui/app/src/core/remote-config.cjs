@@ -2,10 +2,12 @@
 "use strict";
 const { checkedRecord } = require("./remote-network.cjs");
 
-/** @typedef {{devicePeerId:string,displayName:string,clientKind?:'web'|'ios',projectIds:string[],capabilities:string[],revision:number,status:'active'|'revoked'|'reviewRequired'}} DeviceGrant */
+/** @typedef {{platform:'apns',token:string,environment:'production'|'development'}} PushRegistration */
+/** @typedef {{devicePeerId:string,commandId:string,method:string,semanticDigest:string,registered:boolean}} PushCommand */
+/** @typedef {{push?:PushRegistration,devicePeerId:string,displayName:string,clientKind?:'web'|'ios',projectIds:string[],capabilities:string[],revision:number,status:'active'|'revoked'|'reviewRequired'}} DeviceGrant */
 /** @typedef {{id:string,name:string,projects?:string[]}} LegacyDevice */
 /** @typedef {{kind:'tailscale',mapping?:import('./remote-network.cjs').NetworkMapping,visibility?:undefined,publicOrigin?:undefined}|{kind:'organization',publicOrigin:string,visibility:'private'|'public',mapping?:undefined}} RemoteNetwork */
-/** @typedef {{schemaVersion?:number,enabled?:boolean,directEnabled?:boolean,directPort?:number,identity?:string,relay?:string,relayProtocol?:string,room?:string,capability?:string,devices?:LegacyDevice[],deviceGrants?:DeviceGrant[],network?:RemoteNetwork|null,[key:string]:unknown}} RemoteConfig */
+/** @typedef {{schemaVersion?:number,enabled?:boolean,directEnabled?:boolean,directPort?:number,identity?:string,relay?:string,relayProtocol?:string,room?:string,capability?:string,devices?:LegacyDevice[],deviceGrants?:DeviceGrant[],pushCommands?:PushCommand[],network?:RemoteNetwork|null,[key:string]:unknown}} RemoteConfig */
 
 /** @param {unknown} value @returns {RemoteConfig} */
 function parseRemoteConfig(value) {
@@ -32,6 +34,10 @@ function assertRemoteConfig(value) {
         value.directPort > 65535)) ||
     (value.devices !== undefined &&
       (!Array.isArray(value.devices) || !value.devices.every(legacyDevice))) ||
+    (value.pushCommands !== undefined &&
+      (!Array.isArray(value.pushCommands) ||
+        value.pushCommands.length > 4096 ||
+        !value.pushCommands.every(pushCommand))) ||
     (value.deviceGrants !== undefined &&
       (!Array.isArray(value.deviceGrants) || !value.deviceGrants.every(deviceGrant)))
   )
@@ -59,6 +65,7 @@ function deviceGrant(value) {
     typeof value.devicePeerId === "string" &&
     typeof value.displayName === "string" &&
     (value.clientKind === undefined || value.clientKind === "web" || value.clientKind === "ios") &&
+    (value.push === undefined || pushRegistration(value.push)) &&
     strings(value.projectIds) &&
     strings(value.capabilities) &&
     typeof value.revision === "number" &&
@@ -84,4 +91,28 @@ function strings(value) {
 function record(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
-module.exports = { parseRemoteConfig };
+/** @param {unknown} value @returns {value is PushRegistration} */
+function pushRegistration(value) {
+  return (
+    record(value) &&
+    Object.keys(value).every((key) => ["platform", "token", "environment"].includes(key)) &&
+    value.platform === "apns" &&
+    typeof value.token === "string" &&
+    /^[0-9a-f]{64,200}$/i.test(value.token) &&
+    (value.environment === "production" || value.environment === "development")
+  );
+}
+/** @param {unknown} value @returns {value is PushCommand} */
+function pushCommand(value) {
+  return (
+    record(value) &&
+    typeof value.devicePeerId === "string" &&
+    typeof value.commandId === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.commandId) &&
+    ["device.push.register", "device.push.unregister"].includes(String(value.method)) &&
+    typeof value.semanticDigest === "string" &&
+    /^[0-9a-f]{64}$/.test(value.semanticDigest) &&
+    typeof value.registered === "boolean"
+  );
+}
+module.exports = { parseRemoteConfig, pushRegistration };

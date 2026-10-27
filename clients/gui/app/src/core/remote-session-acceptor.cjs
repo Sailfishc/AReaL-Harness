@@ -19,7 +19,9 @@ const {
 const { InteractionReviews, LIMITS: INTERACTION_LIMITS } = require("./remote-interactions.cjs");
 const { TaskQuestions, LIMITS: TASK_QUESTION_LIMITS } = require("./remote-task-questions.cjs");
 const { ResultReviews, LIMITS: REVIEW_LIMITS } = require("./remote-result-review.cjs");
+const { deviceCommand, METHODS: PUSH_METHODS } = require("./remote-push.cjs");
 const METHODS = [
+  ...PUSH_METHODS,
   "review.read",
   "artifact.read",
   ...OVERVIEW_METHODS,
@@ -356,7 +358,10 @@ async function observe(remote, socket, owner) {
     gatewayGeneration: remote.gatewayGeneration,
     connectionId,
     grantRevision: grant.revision,
-    capabilities: CAPABILITIES.filter((value) => grant.capabilities.includes(value)),
+    capabilities: [
+      ...CAPABILITIES.filter((value) => grant.capabilities.includes(value)),
+      ...(remote.relayTransport?.pushSupported ? ["push"] : []),
+    ],
     methods: METHODS,
     limits: LIMITS,
   });
@@ -381,7 +386,10 @@ async function observe(remote, socket, owner) {
         secure.send(fail(request?.id, "LIMIT_EXCEEDED", "请求过于频繁"));
         continue;
       }
-      if (typeof request.method === "string" && COMMAND_METHODS.includes(request.method)) {
+      if (
+        typeof request.method === "string" &&
+        (COMMAND_METHODS.includes(request.method) || PUSH_METHODS.includes(request.method))
+      ) {
         try {
           if (typeof request.id !== "string" || !request.id || request.id.length > 64)
             throw Object.assign(new Error("无效的请求标识"), {
@@ -401,6 +409,15 @@ async function observe(remote, socket, owner) {
                 code: "LIMIT_EXCEEDED",
               });
             writeTokens -= 1;
+          }
+          if (
+            PUSH_METHODS.includes(request.method) ||
+            (request.method === "command.read" && request.context === undefined)
+          ) {
+            await deviceCommand(remote, connection, request, (result) =>
+              secure.send({ id: request.id, result }),
+            );
+            continue;
           }
           await sessionCommand(
             remote,
@@ -554,7 +571,12 @@ async function observe(remote, socket, owner) {
             await observers.body(
               connection,
               request.context.projectId,
-              { threadId: id, turnId: params.turnId, itemId: params.itemId, cursor: params.cursor },
+              {
+                threadId: id,
+                turnId: params.turnId,
+                itemId: params.itemId,
+                cursor: params.cursor,
+              },
               publish,
             );
           } else if (request.method === "session.history")
@@ -600,7 +622,10 @@ async function observe(remote, socket, owner) {
           result: {
             hostId: remote.crypto.identityId(identity),
             apiVersion: "areal.remote.v2",
-            capabilities: CAPABILITIES.filter((value) => grant.capabilities.includes(value)),
+            capabilities: [
+              ...CAPABILITIES.filter((value) => grant.capabilities.includes(value)),
+              ...(remote.relayTransport?.pushSupported ? ["push"] : []),
+            ],
             methods: METHODS,
             limits: LIMITS,
           },

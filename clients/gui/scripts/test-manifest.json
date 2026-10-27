@@ -801,5 +801,12 @@
     "platforms": ["darwin", "linux", "win32"],
     "areas": ["remote", "mobile"],
     "requires": []
+  },
+  {
+    "script": "test:remote-push",
+    "layer": "contract",
+    "platforms": ["darwin", "linux", "win32"],
+    "areas": ["remote"],
+    "requires": []
   }
 ]

@@ -4,6 +4,7 @@ const { randomBytes, randomUUID, timingSafeEqual } = require("node:crypto");
 const { readFile } = require("node:fs/promises");
 const { join } = require("node:path");
 const { parseRemoteConfig } = require("./remote-config.cjs");
+const { RemotePush } = require("./remote-push.cjs");
 const { RelayTransport } = require("./remote-relay.cjs");
 const { request: httpsRequest } = require("node:https");
 const { createHash } = require("node:crypto");
@@ -69,6 +70,7 @@ class RemoteControl {
     this.pending = new Map();
     this.connected = false;
     this.sessions = new SessionAcceptor(this);
+    this.push = new RemotePush(this);
   }
   async init() {
     this.transportModule = await import("@areal/remote");
@@ -207,7 +209,11 @@ class RemoteControl {
           : "",
       directError: this.directError ?? "",
       migrationError: this.migrationError ?? "",
-      deviceGrants: this.config?.deviceGrants ?? [],
+      pushSupported: this.relayTransport?.pushSupported === true,
+      deviceGrants: (this.config?.deviceGrants ?? []).map(({ push, ...grant }) => ({
+        ...grant,
+        pushRegistered: !!push,
+      })),
       devices: [],
       pending: [...this.pending].map(([id, entry]) => ({
         id,
@@ -374,6 +380,7 @@ class RemoteControl {
           capabilities: [...PRESETS[request.preset]],
           revision: (previous?.revision ?? 0) + 1,
           status: "active",
+          ...(request.operation === "updateGrant" && previous?.push ? { push: previous.push } : {}),
         };
         // 本地确认是期限内的决定；持久写入期间不返回 ready，失败后仍可重试确认。
         if (entry) {
@@ -411,7 +418,12 @@ class RemoteControl {
           deviceGrants: (this.config.deviceGrants ?? []).map((value) =>
             value !== previous
               ? value
-              : { ...previous, status: "revoked", revision: previous.revision + 1 },
+              : {
+                  ...previous,
+                  push: undefined,
+                  status: "revoked",
+                  revision: previous.revision + 1,
+                },
           ),
         });
         this.closePeer(request.id);
@@ -921,7 +933,9 @@ class RemoteControl {
     this.relayTransport?.close();
     this.relayTransport = new RelayTransport(this);
   }
-  publish() {}
+  publish() {
+    this.push.start();
+  }
   clearChannels() {
     for (const endpoint of Array.from(this.channels.values())) endpoint.terminate();
   }
@@ -944,6 +958,7 @@ class RemoteControl {
     this.closed = true;
     this.disconnect();
     this.sessions.close();
+    this.push.close();
     this.direct?.close();
     this.direct = null;
   }

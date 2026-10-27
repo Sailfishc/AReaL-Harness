@@ -101,6 +101,15 @@ function GrantReview({
             : "settings.mobileSettings.clientKindWeb",
         )}
       </p>
+      {!pending && device.clientKind === "ios" && (
+        <p className="remote-muted">
+          {t(
+            device.pushRegistered
+              ? "settings.mobileSettings.pushRegistered"
+              : "settings.mobileSettings.pushUnregistered",
+          )}
+        </p>
+      )}
       {pending && (
         <p className="remote-muted">
           {t("settings.mobileSettings.onceConfirmedItCanAccessTheProjects")}
@@ -1161,6 +1170,15 @@ export function MobileSettings({ action, projects }: { action: Action; projects:
                         ? t("settings.mobileSettings.relayIsDisconnectedCheckTheServiceAnd")
                         : t("settings.mobileSettings.relayIsOff")}
                   </p>
+                  {state.connected && (
+                    <p className="remote-muted">
+                      {t(
+                        state.pushSupported
+                          ? "settings.mobileSettings.pushSupported"
+                          : "settings.mobileSettings.pushUnsupported",
+                      )}
+                    </p>
+                  )}
                   {state.relayError && <p role="alert">{state.relayError}</p>}
                 </fieldset>
               </SettingsGroupCard>

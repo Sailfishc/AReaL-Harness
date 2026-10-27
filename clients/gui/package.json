@@ -139,7 +139,8 @@
     "test:mobile-handshake": "node scripts/mobile-handshake-smoke.mjs",
     "mobile:typecheck": "pnpm --filter @areal/gui-renderer exec tsc --noEmit -p tsconfig.mobile.json",
     "test:mobile-pairing": "node scripts/mobile-pairing-smoke.mjs",
-    "test:mobile-storage": "node --test scripts/mobile-device-store.test.mjs"
+    "test:mobile-storage": "node --test scripts/mobile-device-store.test.mjs",
+    "test:remote-push": "node --test scripts/remote-push.test.mjs"
   },
   "devDependencies": {
     "@areal/remote-client": "workspace:*",

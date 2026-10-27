@@ -206,7 +206,8 @@ It sits next to `RemoteControl` in the desktop background, reuses the bounded qu
 - It works only for online projects that at least one push-registered device is authorized for.
 - It reads that project's attention summary every 5 seconds. The first read after the notifier starts or a project comes online only sets a baseline and sends nothing, so restarts do not repeat notifications.
 - It deduplicates by the attention reference's native identity; each reference notifies once.
-- Turn completion uses this device's `session.send` records in the existing submission journal. When the Turn is observed in a terminal state, it sends once and stops watching that Turn.
+- Turn completion follows this device’s existing `session.send` journal association, using the exact turnId or the turnId bound to its queueItemId, never a guessed latest turn. At most 16 watchers share existing native subscription budgets and release on terminal state, revocation or invalidation. Terminal startup baselines are not replayed. Old turns absent from bounded baselines, removed queue items or exhausted capacity can miss notifications.
+- Each project cycle allows at most eight attention reads, each with at most four native overview pages. Push waits for a complete initial baseline and retains at most 4096 native attentionRefs. The first notification sends immediately; events within 30 seconds reuse the collapse ID and update the count. Incomplete reads and capacity exhaustion make delivery best effort.
 - When the Relay does not advertise push, is disconnected or reports rate limiting, it drops that notification and records a redacted diagnostic. It does not queue retries and affects no business path.
 
 ### Protocol additions
@@ -220,7 +221,8 @@ It sits next to `RemoteControl` in the desktop background, reuses the bounded qu
 
 - `token` is 64–200 hex characters. `environment` accepts only `production` (TestFlight uses production APNs) or `development` (Xcode debugging).
 - Success returns `{registered:true}`. If the Relay does not support push, it returns `RESOURCE_UNAVAILABLE` and settings shows "Push is not enabled on this Relay."
-- `device.push.unregister` takes no parameters and deletes this device's token.
+- `device.push.unregister` uses empty `params:{}`, removes this device’s token and returns `{registered:false}`. Both registration and unregister omit project context.
+- Push writes and receipts commit in the same encrypted `remote.json` save. After a lost response, only context-free `command.read {params:{commandId}}` queries this device’s receipt. Known outcomes return `receipt:{registered}`; notFound remains unknown and cannot authorize replay. The Host retains at most 4096 receipts and refuses new writes at capacity without evicting unresolved records.
 
 hello gains an optional `clientKind: "web" | "ios"`, used only for the device list on the computer and never for authorization. When the Relay supports push, `capabilities` in `ready` and `host.describe` include `push`. Update the implemented boundary and the C4 method catalog of the [Remote API](../api/remote-control.en.md) together with these changes.
 

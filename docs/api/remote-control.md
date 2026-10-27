@@ -6,7 +6,7 @@
 
 ## 已实现边界：RC-01/RC-02/RC-03/RC-04/RC-05/RC-06/RC-07/RC-08/RC-10/RC-11/RC-13
 
-当前实现开发用的加密 Direct 与本地确认配对：默认关闭的独立 `127.0.0.1` 监听器、可选择记住的浏览器身份、Host pin 校验、v2 hello，以及 `host.describe` / `project.list` / `work.list` / `attention.list` / `session.open` / `session.history` / `subscription.close` / `session.create` / `session.send` / `turn.stop` / `attention.read` / `interaction.respond` / `task.question.read` / `task.question.reply` / `task.read` / `task.pause` / `review.read` / `artifact.read` / `command.read`。可信桌面已接入 Serve、可选 Funnel 范围切换和组织 HTTPS 来源配置（Funnel 公网能力未认证），具体见 C11；实际 Tailscale/组织代理、手机真机验收以及其余方法仍需后续证据；Relay 已接入同一 Host/PWA 协议，源码与本机严格 TLS 夹具覆盖见 C12。本页的完整 P0 契约不代表这些能力已经可用。
+当前实现开发用的加密 Direct 与本地确认配对：默认关闭的独立 `127.0.0.1` 监听器、可选择记住的浏览器身份、Host pin 校验、v2 hello，以及 `host.describe` / `project.list` / `work.list` / `attention.list` / `session.open` / `session.history` / `subscription.close` / `session.create` / `session.send` / `turn.stop` / `attention.read` / `interaction.respond` / `task.question.read` / `task.question.reply` / `task.read` / `task.pause` / `review.read` / `artifact.read` / `command.read` / `device.push.register` / `device.push.unregister`。可信桌面已接入 Serve、可选 Funnel 范围切换和组织 HTTPS 来源配置（Funnel 公网能力未认证），具体见 C11；实际 Tailscale/组织代理、手机真机验收以及其余方法仍需后续证据；Relay 已接入同一 Host/PWA 协议，源码与本机严格 TLS 夹具覆盖见 C12。本页的完整 P0 契约不代表这些能力已经可用。
 
 桌面生成 120 秒一次性链接（开发模式为 loopback HTTP），fragment 携带 `host` 和 `invite`。浏览器立即移除邀请，仅保留校验后的公开 `host` pin 和可选 Relay `room`，在 Noise 验证 Host 后才发送 `inviteSecret`，收到 `pairing` 后等待本地确认。可信本地 `remoteControl` 支持 `pair/cancelPair/approve/reject/updateGrant/revoke`；确认与更新提供设备 `id`、显式已有项目 `projects` 及 `preset: Observer|Operator`。桌面展示完整 Noise peer 指纹与项目选择，复制/粘贴链接可代替扫码。本地确认必须在截止前作出，确认后的持久写入成功才返回 ready；写入失败不授予新权限。传输建立的 15 秒期限在收到 pairing 后结束；人工确认继续由 Host 的 120 秒邀请期限及取消/拒绝结果约束。
 
@@ -191,7 +191,9 @@ Host 的远程管理、配对批准、配置、终端与权限记忆不属于这
 | task.pause | pauseTask | taskId, expectedRunId, expectedRevision | areal/task/pause，增加可选 expectedRunId 原子校验 |
 | review.read | review | threadId, turnId, itemId?, cursor?, limit? | 专用 thread/read + 既有历史 Runtime 写入重建 |
 | artifact.read | review | artifactRef, offset, length | 只读取已授权所属 Thread/Turn 的 blob |
-| command.read | 原命令能力 | commandId | 已有关联 + 原生收据；observeOnly |
+| device.push.register | observe | platform: apns, token, environment；无 context | Host 加密设备授权中的推送注册 |
+| device.push.unregister | observe | 空 params；无 context | 删除本设备推送注册 |
+| command.read | 原命令能力；设备推送为 observe | commandId；项目操作带 context，设备推送不带 | 已有关联 + 原生收据；设备推送读 Host 收据 |
 | subscription.close | observe | subscriptionId | 仅释放本客户端观察 |
 
 所有写方法必须 commandId。session.create 默认创建空闲普通会话；Host 默认 Profile 绑定 Workflow 时不自动启动该 Workflow，应返回 UNSUPPORTED_PROFILE 并提示本地选择可用普通 Profile。项目未在线/不兼容时不通过远程 create 隐式启动服务。
@@ -201,6 +203,16 @@ Host 的远程管理、配对批准、配置、终端与权限记忆不属于这
 Task-owned Thread 的普通 send 和 turn.stop 均拒绝，返回 TASK_CONTROL_REQUIRED，避免 Task 的下一轮自动续跑被当作停止失败。Task 暂停走明确的 task.pause。
 
 普通发送新增可选原生 `admissionGuard: {configRevision, ordinarySession: true}`；Core 在同一Thread准入锁内检查配置版本及当前执行所有权，再冻结本轮配置。ordinarySession按现有引擎所有权判断，不按“历史上是否出现过Task”判断；历史已结算Task本身不是新的执行所有者。旧本地调用可省略。新Remote使用该guard，Core声明 `features.turnStartAdmissionGuard`；缺失时禁止新Remote发送，不用Gateway预读冒充原子条件。既有busy、队列、权限、归档与UNKNOWN检查照常执行。
+
+### 设备推送注册与通知
+
+`device.push.register` 与 `device.push.unregister` 是 Host 范围写入，必须带 UUID `commandId`，不能带项目 context。注册参数为 `{platform:"apns",token,environment:"production"|"development"}`；token 为 64 至 200 位十六进制。注册要求当前 Relay 公告推送能力，否则返回 `RESOURCE_UNAVAILABLE`。注销使用空 `params:{}`。结果为 `{registered:true|false}`。注册不改变 grantRevision，更新授权保留 token，撤销设备删除 token。token 随既有 `remote.json` 加密保存，公开 Host 状态显示 `pushSupported`，设备投影只显示 `pushRegistered`。
+
+Host 将注册结果与设备授权在同一次加密保存中提交，并以设备身份、commandId 和语义摘要保存推送收据。同键同语义返回原结果，异语义返回 `COMMAND_CONFLICT`。无 context 的 `command.read {params:{commandId}}` 仅查询当前认证设备的推送收据，并重新检查当前 observe 授权。已知结果返回 `{commandId,method,admissionState:"accepted",submissionUnknown:false,receipt:{registered}}`，未找到返回 `{commandId,admissionState:"notFound",submissionUnknown:true}`。丢失响应或本地清理失败只核对原命令，不重发；notFound 不证明未执行。Host 最多保留 4096 条收据，容量满拒绝新的设备推送写入，包括注销，不驱逐待核对记录。项目操作继续使用带 context 的既有 Core journal。
+
+通知发送器复用 RemoteControl 与原生会话观察。只为已注册推送设备获授权的在线项目工作，每 5 秒扫描 attention，每项目每轮最多 8 次有界读取，每次最多读取 4 页原生概览。第一次完整扫描只建立基线，原生 attentionRef 去重上限 4096。仅审批、同步问题、Task 异步问题触发通知；不完整基线、容量耗尽或不可用读取可能遗漏通知。第一条立即投递，同项目 30 秒内继续使用相同 collapse ID 并更新计数。发送时重新核对项目、能力、token 和连接状态，设备有活动 Direct 或 Relay 连接时不推送。
+
+轮次通知只跟踪本设备既有 session.send journal 中精确的 threadId/turnId 或 queueItemId。最多 16 个推送观察占用既有原生订阅预算，UI 观察关闭后仍可等待原轮次终态，重开 UI 重新取得基线。队列只按同一 queueItemId 绑定的 turnId 跟踪，不推断最新轮次。已经终态的启动基线不补发，旧轮次不在有界基线、队列项已移除、观察容量满或服务代际改变时可能遗漏。撤销、离线或关闭会释放观察。Relay 不可用、限流或发送预算不足时丢弃本次通知，不排队重试。真实 APNs 与锁屏投递尚需设备验收，Relay 边界见 C12。
 
 ## C5. 概览的最小 Core 扩展
 
