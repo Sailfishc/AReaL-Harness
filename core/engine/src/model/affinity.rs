@@ -1,9 +1,11 @@
-//! 通用 Responses HTTP 的短期路由状态；不进入模型正文、历史或持久日志。
+//! 通用 Responses 请求身份；HTTP 短期路由状态不进入正文、历史或持久日志。
+//! 显式正文缓存键由可信请求所有者派生，不复用服务端响应状态。
 use super::RequestPurpose;
 use reqwest::{
     StatusCode,
     header::{HeaderMap, HeaderValue},
 };
+use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex, OnceLock},
@@ -44,6 +46,39 @@ pub(super) struct Lease {
     state: Arc<OnceLock<HeaderValue>>,
 }
 
+pub(super) fn prompt_cache_key(
+    model: &str,
+    credential: Option<&str>,
+    owner: Option<(String, String)>,
+    purpose: RequestPurpose,
+) -> Option<String> {
+    let (thread, turn) = owner?;
+    if !valid_identity(&thread) || !valid_identity(&turn) {
+        return None;
+    }
+    // 同线程跨 Turn/进程重建保持稳定；模型、凭据与辅助用途隔离。
+    // 不将凭据原文、工作区或业务内容作为传输键，也不改变历史前缀。
+    let mut digest = Sha256::new();
+    for part in [
+        "areal.responses.prompt-cache.v1",
+        model,
+        credential.unwrap_or_default(),
+        &thread,
+        &format!("{purpose:?}"),
+    ] {
+        digest.update((part.len() as u64).to_le_bytes());
+        digest.update(part.as_bytes());
+    }
+    Some(format!("{:x}", digest.finalize()))
+}
+
+fn valid_identity(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 128
+        && s.bytes()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-'))
+}
+
 impl Pool {
     pub(super) fn begin(
         &self,
@@ -62,13 +97,7 @@ impl Pool {
         now: Instant,
     ) -> Option<Lease> {
         let (thread, turn) = owner?;
-        let valid = |s: &str| {
-            !s.is_empty()
-                && s.len() <= 128
-                && s.bytes()
-                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-'))
-        };
-        if !valid(&thread) || !valid(&turn) {
+        if !valid_identity(&thread) || !valid_identity(&turn) {
             return None;
         }
         let header = HeaderValue::from_str(&thread).ok()?;
