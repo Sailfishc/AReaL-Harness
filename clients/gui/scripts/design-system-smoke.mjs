@@ -8,6 +8,7 @@ import { runSharedWorkspace } from "./design-system-shared-workspace.mjs";
 import { runConversationExercise } from "./design-system-conversation-exercise.mjs";
 import { runConversationDemo } from "./design-system-conversation-demo.mjs";
 import { runConversationSystem } from "./design-system-conversation-system.mjs";
+import { runPopupAnchors } from "./design-system-popup-anchors.mjs";
 import { runUiLibrary } from "./design-system-library.mjs";
 import { runDecisionExercise } from "./design-system-decision-exercise.mjs";
 import { runSettingsExercise, runSettingsContrast } from "./design-system-settings-exercise.mjs";
@@ -34,6 +35,7 @@ const conversationExercise = process.argv.includes("--conversation-exercise");
 const conversationDemo = process.argv.includes("--conversation-demo");
 const conversationSystem = process.argv.includes("--conversation-system");
 const contentSystem = process.argv.includes("--content-system");
+const popupAnchors = process.argv.includes("--popup-anchors");
 const uiLibrary = process.argv.includes("--ui-library");
 const decisionExercise = process.argv.includes("--decision-exercise");
 const settingsContrast = process.argv.includes("--settings-contrast");
@@ -54,6 +56,7 @@ const namedExercise =
   conversationDemo ||
   conversationSystem ||
   uiLibrary ||
+  popupAnchors ||
   decisionExercise ||
   settingsExercise;
 const exercise = { steps: [], checks: [] };
@@ -559,7 +562,7 @@ try {
     };
   });
   await page.goto(
-    `${origin}/design-system.html${contentSystem ? "?content-system" : uiLibrary ? "?ui-library" : conversationSystem ? "?conversation-system" : reuseExercise ? "?reuse-exercise" : productCandidate ? "?product-candidate" : sharedWorkspace ? "?shared-workspace" : conversationExercise ? "?conversation-exercise" : conversationDemo ? "?conversation" : decisionExercise ? "?decision-exercise" : settingsExercise ? "?settings-exercise" : settingsOnly ? "?settings" : ""}`,
+    `${origin}/design-system.html${contentSystem ? "?content-system" : uiLibrary || popupAnchors ? "?ui-library" : conversationSystem ? "?conversation-system" : reuseExercise ? "?reuse-exercise" : productCandidate ? "?product-candidate" : sharedWorkspace ? "?shared-workspace" : conversationExercise ? "?conversation-exercise" : conversationDemo ? "?conversation" : decisionExercise ? "?decision-exercise" : settingsExercise ? "?settings-exercise" : settingsOnly ? "?settings" : ""}`,
   );
   await page
     .getByRole("heading", {
@@ -596,6 +599,7 @@ try {
     else if (conversationExercise) await runConversationExercise(page, scratch, gui, exercise);
     else if (conversationDemo) await runConversationDemo(page, scratch, exercise.checks);
     else if (conversationSystem) await runConversationSystem(page, scratch, exercise.checks);
+    else if (popupAnchors) await runPopupAnchors(page, scratch, checks);
     else if (uiLibrary) await runUiLibrary(page, scratch, exercise.checks);
     else if (decisionExercise) await runDecisionExercise(page, scratch, gui, exercise);
     else if (settingsContrast) await runSettingsContrast(page, scratch, gui, exercise);

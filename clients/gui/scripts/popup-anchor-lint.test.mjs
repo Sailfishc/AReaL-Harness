@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  assertPopupCoverage,
+  findPopupTriggers,
+  verifyPopupCoverage,
   changesOtherElement,
   findDeadStateSelectors,
   findHoverLayout,
@@ -65,4 +68,43 @@ test("rules inside at-rules and comments are parsed", () => {
     findHoverLayout("a.css", css).map((f) => [f.line, f.snippet]),
     [[2, ".x:hover .y { display }"]],
   );
+});
+
+test("AST coverage finds aliased and namespaced triggers, ignoring comments and unrelated menus", () => {
+  const source = `
+    import { HoverActions as Actions, DropdownMenuTrigger as Trigger } from "@areal/ui/experimental";
+    import * as UI from "@areal/ui/experimental";
+    // <Actions><Trigger /></Actions>
+    const text = "<Actions><Trigger /></Actions>";
+    const standalone = <Trigger />;
+    const row = <Actions><div><Trigger /></div><UI.PopoverTrigger /></Actions>;
+    const other = <UI.HoverActions><UI.DropdownMenuTrigger /></UI.HoverActions>;
+  `;
+  const found = findPopupTriggers("new-row.tsx", source);
+  assert.deepEqual(
+    found.map(({ triggerName, triggerIndex }) => [triggerName, triggerIndex]),
+    [
+      ["DropdownMenuTrigger", 0],
+      ["PopoverTrigger", 0],
+      ["DropdownMenuTrigger", 1],
+    ],
+  );
+  const entries = found.map((item, index) => ({ ...item, id: `popup-${index}` }));
+  assertPopupCoverage(found, entries);
+  assert.throws(
+    () => assertPopupCoverage(found, entries.slice(1)),
+    /missing: new-row.tsx:.*DropdownMenuTrigger/,
+  );
+  assert.throws(
+    () =>
+      assertPopupCoverage(
+        found,
+        entries.map((item) => ({ ...item, file: "wrong.tsx" })),
+      ),
+    /missing: new-row.tsx/,
+  );
+});
+
+test("all production HoverActions popup triggers are registered", async () => {
+  assert.deepEqual(await verifyPopupCoverage(), { triggers: 2, entries: 2 });
 });

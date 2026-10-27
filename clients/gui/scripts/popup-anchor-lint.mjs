@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 import { relative, resolve } from "node:path";
@@ -10,6 +11,8 @@ import { fileURLToPath } from "node:url";
 // 2. hover-layout：“悬停/聚焦/打开某元素时，改另一元素的布局”会移动其中的弹出层锚点；
 //    显隐改用 HoverActions（只改 opacity）。
 const root = fileURLToPath(new URL("../", import.meta.url));
+const require = createRequire(new URL("../renderer/package.json", import.meta.url));
+const ts = require("typescript");
 const cssRoots = ["renderer/src", "renderer/remote-web", "packages/ui/src", "app/src"];
 const sourcePattern = /\.(?:[cm]?js|tsx?|html)$/;
 const layoutProperties = new Set([
@@ -171,6 +174,81 @@ export function writtenStateValues(source) {
   );
 }
 
+// R-HOVERACTIONS-001、R-HOVERACTIONS-002：用 AST 追踪组件别名和 HoverActions 内的弹出层入口。
+export function findPopupTriggers(file, source) {
+  const tree = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const bindings = new Map();
+  const namespaces = new Set();
+  for (const statement of tree.statements) {
+    if (!ts.isImportDeclaration(statement)) continue;
+    const named = statement.importClause?.namedBindings;
+    if (named && ts.isNamedImports(named))
+      for (const item of named.elements)
+        bindings.set(item.name.text, item.propertyName?.text ?? item.name.text);
+    if (named && ts.isNamespaceImport(named)) namespaces.add(named.name.text);
+  }
+  const component = (tag) => {
+    if (ts.isIdentifier(tag)) return bindings.get(tag.text);
+    if (ts.isPropertyAccessExpression(tag) && namespaces.has(tag.expression.getText(tree)))
+      return tag.name.text;
+  };
+  const found = [];
+  const visit = (node, insideActions = false) => {
+    const opening = ts.isJsxElement(node)
+      ? node.openingElement
+      : ts.isJsxSelfClosingElement(node)
+        ? node
+        : null;
+    const name = opening && component(opening.tagName);
+    if (insideActions && ["DropdownMenuTrigger", "PopoverTrigger"].includes(name))
+      found.push({
+        file,
+        triggerName: name,
+        triggerIndex: found.filter((item) => item.triggerName === name).length,
+        line: tree.getLineAndCharacterOfPosition(opening.getStart(tree)).line + 1,
+      });
+    ts.forEachChild(node, (child) => visit(child, insideActions || name === "HoverActions"));
+  };
+  visit(tree);
+  return found;
+}
+
+export function assertPopupCoverage(triggers, entries) {
+  const key = (item) => `${item.file ?? item.source}:${item.triggerName}:${item.triggerIndex ?? 0}`;
+  const registered = new Set(entries.map(key));
+  const discovered = new Set(triggers.map(key));
+  const missing = triggers.filter((item) => !registered.has(key(item)));
+  const stale = entries.filter((item) => !discovered.has(key(item)));
+  assert.ok(
+    triggers.length === entries.length &&
+      registered.size === entries.length &&
+      new Set(entries.map((item) => item.id)).size === entries.length &&
+      !missing.length &&
+      !stale.length,
+    `popup anchor coverage: ${triggers.length} triggers, ${entries.length} entries; missing: ${missing.map((item) => `${item.file}:${item.line} ${item.triggerName}`).join(", ")}; stale: ${stale.map((item) => item.id).join(", ")}`,
+  );
+  return { triggers: triggers.length, entries: entries.length };
+}
+
+export async function verifyPopupCoverage() {
+  const paths = (
+    await Promise.all(
+      ["renderer/src", "packages/ui/src"].map((dir) => files(resolve(root, dir), /\.[jt]sx$/)),
+    )
+  ).flat();
+  const triggers = (
+    await Promise.all(
+      paths.map(async (path) =>
+        findPopupTriggers(relative(root, path), await readFile(path, "utf8")),
+      ),
+    )
+  ).flat();
+  const entries = JSON.parse(
+    await readFile(resolve(root, "design-system/popup-anchors.json"), "utf8"),
+  );
+  return assertPopupCoverage(triggers, entries);
+}
+
 export async function runPopupAnchorLint() {
   const sources = (
     await Promise.all(cssRoots.map((path) => files(resolve(root, path), sourcePattern)))
@@ -223,7 +301,8 @@ export async function verifyPopupAnchorLint() {
   const current = new Set(findings.map((finding) => finding.fingerprint));
   const stale = baseline.filter((finding) => !current.has(finding.fingerprint));
   assert.deepEqual(stale, [], "resolved popup anchor findings must leave the baseline");
-  return { findings: findings.length, baseline: baseline.length };
+  const coverage = await verifyPopupCoverage();
+  return { findings: findings.length, baseline: baseline.length, coverage };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

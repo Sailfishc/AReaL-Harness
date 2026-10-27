@@ -19,6 +19,13 @@
       "styles": ["clients/gui/packages/ui/src/conversation/activity-row/activity-row.css"],
       "internalSelectors": [".areal-activity-row"],
       "enforces": ["R-ACTIVITYROW-003", "R-ACTIVITYROW-004"]
+    },
+    {
+      "id": "hover-actions",
+      "contract": "clients/gui/packages/ui/src/components/hover-actions/hover-actions.md",
+      "styles": ["clients/gui/packages/ui/src/components/hover-actions/hover-actions.css"],
+      "internalSelectors": [".areal-hover-actions"],
+      "enforces": ["R-HOVERACTIONS-002", "R-HOVERACTIONS-003"]
     }
   ],
   "rules": [

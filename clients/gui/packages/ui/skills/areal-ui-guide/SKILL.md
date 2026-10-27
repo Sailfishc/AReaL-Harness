@@ -29,6 +29,7 @@ description: 在 AReaL GUI 里新增或修改组件、页面、样式、Token �
 | 手改 `rule-registry.json` 的哈希、标题或 owner | 改合同正文后运行 `node scripts/design-rules.mjs --write` |
 | 在 md 里手写行为示例表 | 改行为表（如 `activity-runs.cases.json`），再运行 `node scripts/design-generated.mjs --write` |
 | 把外部画布或截图里的数值当来源 | 画布只用于讨论，定下的数值写进 `tokens.json` |
+| 行内按钮用宿主 CSS 随悬停显隐 | 一律用 [HoverActions](../../src/components/hover-actions/hover-actions.md)；打开态用 `[data-popup-open]`，不要写 `[data-state="open"]` |
 | 只跑 `verify:design` 就说界面没问题 | 再跑 `design:build` 和 `test:design`，视觉结论以浏览器检查为准 |
 
 ## 迁移一个组件

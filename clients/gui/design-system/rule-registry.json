@@ -750,24 +750,27 @@
     },
     {
       "id": "R-HOVERACTIONS-001",
-      "title": "悬停出现的行内按钮放进 HoverActions",
+      "title": "行内只在悬停或键盘聚焦时出现的按钮（“更多”、置顶、新建等）必须放在 HoverActions 里，不在宿主 CSS 里",
       "owner": "clients/gui/packages/ui/src/components/hover-actions/hover-actions.md#何时使用",
       "strength": "must",
-      "textSha256": "84e32c4e6c4c8c874b26b06527e14d2f1c15f73b883da282422393367610a759"
+      "textSha256": "e2fdadc724abe34a79ea9ebf28580d07da7610ca092ac9aa89d04af240633860",
+      "check": "clients/gui/scripts/popup-anchor-lint.mjs"
     },
     {
       "id": "R-HOVERACTIONS-002",
-      "title": "只用 opacity 隐藏，锚点位置不变",
+      "title": "隐藏只用 opacity 和 pointer-events，操作区始终占据同一位置",
       "owner": "clients/gui/packages/ui/src/components/hover-actions/hover-actions.md#状态",
       "strength": "must",
-      "textSha256": "2db770898aaadaac8d815363e0928d64d644a6ce39ad539380b0fc9b605cb820"
+      "textSha256": "e503e8b8018eeb388919d24b497358aecf30cbb4b95054f3b47c26b8b1d9d6ed",
+      "check": "clients/gui/scripts/popup-anchor-lint.mjs"
     },
     {
       "id": "R-HOVERACTIONS-003",
-      "title": "弹出层打开期间保持可见，认 data-popup-open",
+      "title": "行被悬停、行内有键盘焦点，或行内有触发器带 data-popup-open（Base UI 的打开态）时显示",
       "owner": "clients/gui/packages/ui/src/components/hover-actions/hover-actions.md#行为",
       "strength": "must",
-      "textSha256": "04ec72b5cd77459d767d3ebb5b8f8df72417b039e8a6cd5a7a3fb79fe1edf93b"
+      "textSha256": "63b9cfb06661faeb5f80b6b98462337c3880eadfd11a03c0cc9eedebf25d38a8",
+      "check": "clients/gui/scripts/design-system-popup-anchors.mjs"
     },
     {
       "id": "R-TOKEN-001",

@@ -15,7 +15,7 @@ exports: ["HoverActions"]
 
 ## 何时使用
 
-`R-HOVERACTIONS-001` 行内只在悬停或键盘聚焦时出现的按钮（“更多”、置顶、新建等）必须放在 HoverActions 里，不在宿主 CSS 里手写显隐。
+`R-HOVERACTIONS-001` 行内只在悬停或键盘聚焦时出现的按钮（“更多”、置顶、新建等）必须放在 HoverActions 里，不在宿主 CSS 里手写显隐。 **检查：**`clients/gui/scripts/popup-anchor-lint.mjs`。
 
 ## 组成
 
@@ -23,11 +23,11 @@ exports: ["HoverActions"]
 
 ## 状态
 
-`R-HOVERACTIONS-002` 隐藏只用 `opacity` 和 `pointer-events`，操作区始终占据同一位置；宿主若要让出标题空间，只改标题的 padding，不改操作区的 width、display 或 position。
+`R-HOVERACTIONS-002` 隐藏只用 `opacity` 和 `pointer-events`，操作区始终占据同一位置；宿主若要让出标题空间，只改标题的 padding，不改操作区的 width、display 或 position。 **检查：**`clients/gui/scripts/popup-anchor-lint.mjs`。
 
 ## 行为
 
-`R-HOVERACTIONS-003` 行被悬停、行内有键盘焦点，或行内有触发器带 `data-popup-open`（Base UI 的打开态）时显示。弹出层打开期间鼠标移出行，操作区保持可见，锚点不移位。不要用 Radix 的 `data-state="open"`，Base UI 不输出它。
+`R-HOVERACTIONS-003` 行被悬停、行内有键盘焦点，或行内有触发器带 `data-popup-open`（Base UI 的打开态）时显示。弹出层打开期间鼠标移出行，操作区保持可见，锚点不移位。不要用 Radix 的 `data-state="open"`，Base UI 不输出它。 **检查：**`clients/gui/scripts/design-system-popup-anchors.mjs`。
 
 ## 内容
 
