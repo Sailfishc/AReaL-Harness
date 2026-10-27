@@ -154,6 +154,12 @@
 | `--font-mono` | `ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", monospace` | 代码字体及CJK无衬线回退 |
 | `--conversation-line` | `1.43` | 对话时间线行高（无单位比例）：14px 时为 20px；标题与更大的内容字号按比例增长 |
 | `--conversation-gap` | `12px` | 对话时间线块间距：段落、活动行、子代理行、状态行之间的统一节奏 |
+| `--activity-icon-size` | `16px` | 活动行与活动组摘要的行首图标尺寸；ActivityIcon 按 16 单位网格绘制 |
+| `--activity-chevron-size` | `14px` | 活动行与活动组摘要的展开箭头尺寸 |
+| `--activity-icon-gap` | `6px` | 活动行行首图标与文字、动作与对象之间的间距；展开后子项缩进 = 图标尺寸 + 本间距 |
+| `--activity-list-max-height` | `240px` | 活动组展开后列表的最大高度，超过后在列表内纵向滚动 |
+| `--focus-width` | `2px` | 键盘焦点轮廓线宽 |
+| `--focus-offset` | `2px` | 键盘焦点轮廓与元素边缘的距离 |
 | `--browser-file-status-max-height` | `112px` | 浏览器文件交接状态列表的既有最大高度；来自renderer/src/BrowserFileHandoff.layout.css，D2保持原几何。 |
 | `--browser-file-status-inline-gap` | `6px` | 浏览器文件交接状态项的既有内容间距；来自renderer/src/BrowserFileHandoff.layout.css，D2保持原几何。 |
 | `--browser-file-status-block-padding` | `3px` | 浏览器文件交接状态项的既有纵向内边距；来自renderer/src/BrowserFileHandoff.layout.css，D2保持原几何。 |

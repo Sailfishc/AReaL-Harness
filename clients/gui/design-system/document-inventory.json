@@ -410,6 +410,11 @@
     }
   },
   {
+    "path": "clients/gui/packages/ui/src/conversation/activity-row/activity-row.md",
+    "role": "consumer",
+    "status": "active"
+  },
+  {
     "path": "clients/gui/packages/ui/src/conversation/attachment-card/attachment-card.md",
     "role": "consumer",
     "status": "active"

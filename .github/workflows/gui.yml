@@ -238,6 +238,11 @@ jobs:
         run: pnpm --dir clients/gui build:desktop
       - name: Verify design contracts and incremental audit
         run: pnpm --dir clients/gui verify:design 2>&1 | tee target/ci/gui/design.log
+      - name: Render design system previews and check them in Chrome
+        run: |
+          pnpm --dir clients/gui design:build
+          pnpm --dir clients/gui test:design 2>&1 | tee target/ci/gui/design-preview.log
+          pnpm --dir clients/gui test:design -- --conversation-system 2>&1 | tee -a target/ci/gui/design-preview.log
       - name: Verify fast GUI regressions
         run: pnpm --dir clients/gui run test:regressions
       - name: Record tool and cache fingerprints

@@ -102,21 +102,22 @@ export function TurnExecution({
   threadId: string;
   renderItem: (item: Data, disclosure: { animate: boolean }) => ReactNode;
 }) {
+  const { t } = useI18n();
   const { unfinished } = executionOutcome(items);
   const visibleItems = items.filter(
     (item) => item.type !== "dynamicToolCall" || !toolPresentation(item).failed,
   );
   const tools = visibleItems.filter((item) => item.type === "dynamicToolCall");
-  const unconfirmed = tools.some((item) => toolPresentation(item).status === "结果待确认");
+  const unconfirmed = tools.some((item) => toolPresentation(item).state === "unsettled");
   const rows = timelineItems(visibleItems);
   const canAnimate = canAnimateTurn(project, threadId, turn);
   if (!rows.length) return null;
   const status = unconfirmed ? (
-    <p role="status">结果待确认</p>
+    <p role="status">{t("chat.activity.status", { state: "unsettled" })}</p>
   ) : unfinished && turn.status !== "inProgress" ? (
-    <p role="status">仍在运行</p>
+    <p role="status">{t("chat.activity.stillRunning")}</p>
   ) : turn.status === "failed" ? (
-    <p role="status">回合失败</p>
+    <p role="status">{t("chat.activity.turnFailed")}</p>
   ) : null;
   const runs = activityRuns(
     rows,
@@ -145,10 +146,10 @@ export function TurnExecution({
             presentation={grouped ? "collapsible" : "inline"}
             label={
               run.key !== null
-                ? activityRunLabel(run)
+                ? activityRunLabel(run, t)
                 : run.items[0].type === "reasoningGroup"
-                  ? "思考过程"
-                  : "执行活动"
+                  ? t("chat.activity.reasoning")
+                  : t("chat.activity.run.generic", { tense: "done" })
             }
             icon={grouped ? <ActivityIcon kind={icon} /> : undefined}
             status={last ? status : undefined}

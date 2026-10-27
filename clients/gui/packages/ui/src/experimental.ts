@@ -1,5 +1,13 @@
 export { Disclosure } from "./components/disclosure/disclosure.js";
 export { ActivityGroup } from "./conversation/activity-group/activity-group.js";
+export {
+  ActivityRow,
+  ActivityRowButton,
+  ActivityRowText,
+  ActivityRowStatus,
+  ActivityRowChevron,
+  ActivityRowHint,
+} from "./conversation/activity-row/activity-row.js";
 export { ImageDisclosure } from "./conversation/image-disclosure/image-disclosure.js";
 export { TaskContext } from "./conversation/task-context/task-context.js";
 export { SubagentPanel } from "./conversation/subagent-panel/subagent-panel.js";

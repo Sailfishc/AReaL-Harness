@@ -49,7 +49,9 @@
   font-size: var(--text-conversation);
   line-height: var(--conversation-line);
 }
+/* 预测是未发送的建议，比占位提示更弱，避免被误读为已输入内容。 */
 .composer-editor .composer-prediction {
+  color: var(--color-foreground-subtlest);
   font-size: var(--text-ui-base);
   font-weight: 400;
   line-height: var(--line-height-ui);

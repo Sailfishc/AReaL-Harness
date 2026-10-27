@@ -1,12 +1,15 @@
-/* 摘要与活动行同为一行对话文字高；不加底色，展开态只靠箭头表达。 */
+/* 摘要与活动行同为一行对话文字高；不加底色，展开态只靠箭头表达。尺寸全部来自 activity-* Token。 */
 .areal-activity-group {
   min-width: 0;
+}
+.areal-activity-group + .areal-activity-group {
+  margin-top: var(--conversation-gap);
 }
 .areal-activity-group > .areal-disclosure {
   margin-block: 0;
 }
 .areal-activity-group > .areal-disclosure > .areal-disclosure-trigger {
-  gap: 6px;
+  gap: var(--activity-icon-gap);
   width: auto;
   max-width: 100%;
   min-height: 0;
@@ -24,19 +27,19 @@
 .areal-activity-group > .areal-disclosure > .areal-disclosure-trigger:hover {
   color: var(--color-foreground);
 }
-/* 通用按钮会把内部图标压到 14px；活动图标与行内图标同为 16px，箭头 14px，保证文字起点对齐。 */
+/* 通用按钮会把内部图标压小；活动图标与行内图标同尺寸，保证文字起点对齐。 */
 .areal-activity-group > .areal-disclosure > .areal-disclosure-trigger > svg {
   flex: none;
-  width: 16px;
-  height: 16px;
+  width: var(--activity-icon-size);
+  height: var(--activity-icon-size);
 }
 .areal-activity-group
   > .areal-disclosure
   > .areal-disclosure-trigger
   > .areal-disclosure-indicator
   > svg {
-  width: 14px;
-  height: 14px;
+  width: var(--activity-chevron-size);
+  height: var(--activity-chevron-size);
 }
 .areal-activity-group
   > .areal-disclosure
@@ -52,7 +55,7 @@
   opacity: 1;
 }
 .areal-activity-list {
-  max-height: 240px;
+  max-height: var(--activity-list-max-height);
   overflow-y: auto;
   overflow-x: hidden;
   min-width: 0;
@@ -77,17 +80,16 @@
 .areal-activity-status p {
   margin-block: var(--spacing-inline);
 }
-/* 展开后子项与摘要文字对齐（16px 图标 + 6px 间距），标题与子项、子项之间各隔一个行内间距。 */
+/* 展开后子项与摘要左缘对齐，各自保留行首图标（读取、搜索、命令各不相同）；标题与子项、子项之间各隔一个行内间距。 */
 .areal-activity-group:not([data-presentation="inline"]) .areal-activity-list {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-inline);
   margin-top: var(--spacing-inline);
-  padding-left: calc(16px + 6px);
 }
 .areal-activity-list:focus-visible {
-  outline: var(--focus-width, 2px) solid var(--color-foreground);
-  outline-offset: var(--focus-offset, 2px);
+  outline: var(--focus-width) solid var(--color-foreground);
+  outline-offset: var(--focus-offset);
 }
 
 .areal-activity-group[data-presentation="inline"] .areal-activity-list {
