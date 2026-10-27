@@ -323,7 +323,7 @@ HTTP 仅接受当前 loopback 或已配置 HTTPS 来源的精确 Host；WebSocke
 
 `pair` 可选 `transport: "direct" | "relay"`（默认 Direct）；Relay 需要已连接。链接只包含公开 origin、Host pin、room 和 120 秒邀请。生产 PWA 先通过统一 wire 工厂完成 Relay client 注册与 ready-channel，再进入相同 Noise、hello、授权和业务路径。Host 只拥有一个 session acceptor、观察器和设备/握手预算；撤销与缩小范围同时关闭两种传输。共享上限为 16 个连接、8 个未完成握手、每设备 2 个连接，以及各 8 MiB 的 Host 收发积压；Relay 每通道发送积压 1 MiB、每块原始字节最多 49152，含 base64 的外层 JSON 不超过 512 KiB。通道公平排出，慢设备只关闭自身通道。
 
-Host 的 Relay `ready` 必须携带精确 `limits: {framesPerSecond, bytesPerSecond, maxFrameBytes, heartbeatIntervalMs}`；Client 的 ready-channel 格式不变。旧服务缺少该声明、声明无效或额度不足以保留心跳并承载数据时，Host 停止自动重试并报告限额/协议不可用，不猜测默认上限；管理员调整服务后在桌面显式重新启用。服务仍接受原有低额度配置，不为 Host 自动放宽运营策略。
+Host 的 Relay `ready` 必须携带精确 `limits: {framesPerSecond, bytesPerSecond, maxFrameBytes, heartbeatIntervalMs}`，并可加 `push:boolean` 表示 APNs 能力。缺少 `push` 的旧服务按不支持处理；Client 的 ready-channel 格式不变。旧服务缺少 limits、限额声明无效或额度不足以保留心跳并承载数据时，Host 停止自动重试并报告限额/协议不可用，不猜测默认上限；管理员调整服务后在桌面显式重新启用。服务仍接受原有低额度配置，不为 Host 自动放宽运营策略。
 
 Host 在登记后跨过一秒窗口，再由同一有界队列按实际 JSON/base64 字节平滑排出 data 与 close；每块不超过服务字节额度的四分之一、总发送速率至多其四分之三，帧速率额外保留自动 pong 和窗口边界余量。通道轮转与 close 交替，缓冲计数包含关闭中的已接受字节和待发送 close。正常 close 只排出已接受的有界字节并在 15 秒内结束；撤销、授权缩小、网络来源/连接代际变化、积压超限和非法入站数据立即 terminate 丢弃，不能在失效后发送队列。
 
@@ -336,9 +336,23 @@ Relay 的 `allowedClientOrigins` 继续只接受 Web origin。可选 `allowedApp
 
 保留既有 room = SHA-256(capability) 方案。Relay 数据库存允许 room、登记状态与限额；Host 出站连接以 capability 证明可占有该 room，新连接必须替换同一合法 Host 的旧连接而非允许其他 room 劫持。Client 仅提供不可枚举的 room，Relay 不把它当执行授权。Noise pin 和 Host DeviceGrant 决定最终权限。
 
-Relay 外层只处理 host/client 注册、ready/open/data/close/error。Host 的 data 必须属于该 Host 的 room/channel；Client 只能收发自身 channel。Host 离线返回明确不可用，不排队保存业务命令。并发/字节/握手限流同样作用于尚未完成 Noise 的连接；错误不泄露其他 room 是否存在。
+Relay 外层处理 host/client 注册、ready/open/data/close/error，以及可选的 Host push/pushResult。Host 的 data 必须属于该 Host 的 room/channel；Client 只能收发自身 channel。Host 离线返回明确不可用，不排队保存业务命令。并发/字节/握手限流同样作用于尚未完成 Noise 的连接；错误不泄露其他 room 是否存在。
 
 SQLite 只保存登记元数据和消费过的 enrollment hash；连接映射在内存，正常重启由端点重连恢复。备份恢复流程则默认禁用所有恢复的Host登记，要求管理员重新登记/复核，不把过旧撤销记录当最新授权。TLS 反向代理、Relay 和静态 PWA均提供源码和可重建发布物；P0 不需要 Redis、集群、SSO 或计费服务。日志只留时间、随机 route ID、字节计数、错误类型，不记录 payload、token、邀请、项目名或 prompt。
+
+### Relay APNs 转发
+
+支持推送的 Host 在 WebSocket upgrade 中发送 `X-Areal-Relay-Capabilities: push`。只有这些 Host 收到可选 ready `push` 字段与 `pushResult`，旧 Host 保持原消息结构。旧 Relay 忽略请求头并省略 `push`，表示不可用。请求头仅声明解码能力，不替代已登记的 Host capability。
+
+可选 `apns` 配置包含 `teamId`、`keyId`、`keyFile`、`bundleId` 和 `maxPerHostPerMinute`。team/key ID 为 10 位大写字母或数字，Bundle ID 为最多 255 字符的点分标识。服务启动从配置路径读取 P-256 `.p8` 密钥；管理命令不读取密钥。省略 `apns` 时，已声明推送能力的 Host ready 返回 `push:false`，不发起 APNs 连接。配置示例和密钥只读挂载见 [Relay README](../../services/remote-relay/README.md)。
+
+已证明登记凭据并拥有当前 room 的 Host 可以发送 `{"type":"push","token":"…","environment":"production","collapseId":"…","kind":"attention","count":1,"target":{"projectId":"…","threadId":"…","attentionRef":"…"}}`。token 为 64 至 200 位十六进制，environment 只接受 `production` 或 `development`，collapseId 非空且最多 64 UTF-8 字节，count 为正安全整数。kind 只接受 `attention`、`turnCompleted`、`turnFailed`。可选 target 只含可选 projectId、threadId、attentionRef，各为非空且最多 256 UTF-8 字节的不透明字符串。未知字段、非法参数和 Client push 按 `INVALID_FRAME` 关闭连接。既有帧大小、字节与速率预算先于 push 路由执行。
+
+Relay 生成标题 `AReaL`，attention 正文为“电脑上有 N 项需要你确认”，完成为“你在手机上发起的会话已完成”，失败为“你在手机上发起的会话没有完成”。Host 不能提供通知文案。APNs JSON 只含固定 `aps.alert`、默认提示音和可选顶层 target，不含项目名、会话标题、提示词或工具参数。配置的 bundleId 成为 `apns-topic`，请求使用 `apns-push-type:alert`、优先级 10 和 collapse ID。生产端点为 `https://api.push.apple.com`，开发端点为 `https://api.sandbox.push.apple.com`；TestFlight 使用生产端点。ES256 JWT 缓存 50 分钟。
+
+每个已登记 room 每分钟默认最多 60 条推送，可配置 1 至 600，Host 重连不重置当前分钟计数。最多同时 32 个请求，每个请求有 10 秒绝对截止。Relay 不排队或重试。超额返回已有 `error LIMIT_EXCEEDED`，未配置返回 `error UNAVAILABLE`，均保留健康 Host 连接。APNs `410 Unregistered` 回给当前 Host `{"type":"pushResult","token":"…","status":"unregistered"}`；其余投递状态仅记脱敏日志。日志只含时间、随机 route ID、kind 与状态码，不含 token、target、原始请求或 APNs 错误正文。关闭服务会关闭所有 APNs 会话。
+
+`services/remote-relay` 的 `npm test` 使用临时生成密钥、本机 TLS HTTP/2、真实 WebSocket 和 CLI 登记验证转发边界。真实 APNs 投递与 iOS 锁屏行为需另外验收。
 
 ## C13. Web 信任与存储
 

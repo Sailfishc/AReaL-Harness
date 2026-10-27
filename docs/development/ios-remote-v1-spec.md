@@ -238,7 +238,7 @@ hello 新增可选字段 `clientKind: "web" | "ios"`，只用于电脑端设备�
 }
 ```
 
-- Host 的 `ready` 消息里 `limits` 旁新增 `push: true|false`，Host 据此决定是否向 App 公告 `push` 能力。
+- 支持推送的 Host 在 WSS upgrade 时发送 `X-Areal-Relay-Capabilities: push`，Relay 仅向这些 Host 的 `ready` 消息在 `limits` 旁新增 `push: true|false`；旧 Host 保持原结构。旧 Relay 忽略请求头且不含 `push`，Host 按不可用处理，再据此决定是否向 App 公告 `push` 能力。
 - 新增 Host 发出的外层消息 `{"type":"push","token":"…","environment":"production","collapseId":"…","kind":"attention|turnCompleted|turnFailed","count":1,"target":{…}}`。只接受已注册的 host 角色连接；`target` 只允许 `projectId`、`threadId`、`attentionRef` 三个不透明字符串字段。
 - Relay 把 `kind` 映射成上面的固定中文文字，Host 不能传任意通知文字。
 - JWT 每 50 分钟重签一次；APNs 返回 `410 Unregistered` 时，回给 Host `{"type":"pushResult","token":"…","status":"unregistered"}`，Host 删除该 token。

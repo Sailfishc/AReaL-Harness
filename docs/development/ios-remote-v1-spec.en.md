@@ -238,7 +238,7 @@ New optional setting (push is unsupported when absent):
 }
 ```
 
-- The Host's `ready` message gains `push: true|false` beside `limits`; the Host uses it to decide whether to advertise the `push` capability to the app.
+- Push-capable Hosts send `X-Areal-Relay-Capabilities: push` during WSS upgrade. Only these Hosts receive `push: true|false` beside `limits` in `ready`; legacy Hosts retain the original shape. Legacy Relays ignore the header and omit `push`, meaning unavailable. The Host uses this value to decide whether to advertise the `push` capability to the app.
 - New outer message sent by the Host: `{"type":"push","token":"…","environment":"production","collapseId":"…","kind":"attention|turnCompleted|turnFailed","count":1,"target":{…}}`. Accepted only from registered host-role connections. `target` allows only three opaque string fields: `projectId`, `threadId` and `attentionRef`.
 - The Relay maps `kind` to the fixed text above; the Host cannot send arbitrary notification text.
 - Re-sign the JWT every 50 minutes. When APNs returns `410 Unregistered`, send `{"type":"pushResult","token":"…","status":"unregistered"}` back to the Host, which deletes the token.

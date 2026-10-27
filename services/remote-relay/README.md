@@ -27,7 +27,7 @@ node src/cli.mjs serve --config config.development.json
 
 使用 `pnpm --dir clients/gui build` 与 `pnpm --dir clients/gui export:remote /absolute/new/remote-pwa` 构建并导出 Remote 资源闭包，将输出目录用作 `assetsDir`。不要指向 Desktop dist。CSP 的 `style-src` 与 Direct 一致允许内联样式，以支持同一 PWA 的现有样式；脚本策略仍为同源。
 
-Host ready 返回当前配置的帧/字节/最大帧限额，以及实际 heartbeat 间隔。新 Host 要求此声明，不兼容缺少声明的旧服务；Client 的 ready-channel 不变。Host 保留心跳额度并对 data/close 平滑限速，拒绝无法安全承载数据的低额度而不更改服务配置。服务仍逐帧执行其原有资源限制；该声明不是执行授权。
+Host ready 返回当前配置的帧/字节/最大帧限额、实际 heartbeat 间隔和 `push:boolean`。缺少 `push` 的旧服务按不支持推送处理。新 Host 要求该限额声明，不兼容缺少限额声明的旧服务；Client 的 ready-channel 不变。Host 保留心跳额度并对 data/close 平滑限速，拒绝无法安全承载数据的低额度而不更改服务配置。服务仍逐帧执行其原有资源限制；该声明不是执行授权。
 
 ## 生产边界
 
@@ -43,13 +43,25 @@ Relay 的 `allowedClientOrigins` 继续只接受 Web origin。可选 `allowedApp
 
 | 发送者 | 消息 / 响应 |
 |---|---|
-| Host，无 Origin | `{protocol:"areal.relay.v1",role:"host",room,capability}` → `{type:"ready",limits:{framesPerSecond,bytesPerSecond,maxFrameBytes,heartbeatIntervalMs}}` |
+| Host，无 Origin | `{protocol:"areal.relay.v1",role:"host",room,capability}` → `{type:"ready",push?:boolean,limits:{framesPerSecond,bytesPerSecond,maxFrameBytes,heartbeatIntervalMs}}` |
 | Client，允许的 Origin | `{protocol:"areal.relay.v1",role:"client",room}` → `{type:"ready",channel}`；Host 收到 `{type:"open",channel}` |
 | 任意端点 | `{type:"data",channel,data}` 仅向所属对端转发 opaque 标准带 padding base64 |
 | 任意端点 | `{type:"close",channel}` 释放该 channel |
 | Relay | `{type:"error",code}` 或 `{type:"close",channel}`；错误不回显输入 |
 
+支持推送的 Host 在 WebSocket upgrade 时发送 `X-Areal-Relay-Capabilities: push` 请求头。只有这些 Host 的 ready 包含可选 `push` 字段，并接收 `pushResult`。旧 Host 继续收到原有 ready 结构；旧 Relay 忽略该请求头，ready 缺少该字段时表示不支持推送。此请求头只声明解码能力，Host 身份仍由登记 capability 证明。
+
 Client 的 data/close **必须**携带 ready 返回的 channel。合法 Host 重连替换旧连接并关闭旧 channel；旧 Host socket 不能访问新 channel。Host 的未授权或已关闭 channel 帧统一返回 `UNAVAILABLE` 且不转发，允许在途帧与 Host close 回送不拖掉其他设备。Client 伪造 channel 则关闭该 Client。未知、禁用、离线 room 均返回相同 `UNAVAILABLE`。重启后由端点重连并获取应用新基线，不保留离线消息。
+
+## 配置 APNs
+
+默认配置省略 `apns`，Host `ready` 返回 `push:false`。`config.apns.example.json` 展示启用推送所需的配置。替换其中的团队 ID、密钥 ID 和 Bundle ID，并把 Apple 提供的 P-256 `.p8` 密钥放到 `keyFile` 指定的位置。服务启动时读取该文件，管理命令仅验证配置。服务进程必须有读取权限。容器部署时，把密钥单独只读挂载到配置的路径，UID 1000 必须可读。密钥不放进镜像、仓库或数据备份。
+
+`maxPerHostPerMinute` 默认 60，可设为 1 至 600 的整数。额度按已登记 room 计算，Host 重连不能重置当前分钟额度。最多同时处理 32 个 APNs 请求，每个请求最多等待 10 秒。限流返回 `LIMIT_EXCEEDED`，未开启返回 `UNAVAILABLE`，Host 连接继续可用。Relay 不保存 token，不排队或重试通知。通知失败不会改变任何会话或审批状态。
+
+`production` 使用 `https://api.push.apple.com`，包括 TestFlight；`development` 使用 `https://api.sandbox.push.apple.com`。系统 TLS 校验保持开启。ES256 JWT 缓存 50 分钟。APNs 请求带配置的 Bundle ID、`alert` 类型、优先级 10 和 Host 的 `collapseId`。只有固定中文标题和正文进入 `aps`，导航 IDs 放入顶层 `target`。APNs 返回 `410 Unregistered` 时，Relay 向当前 Host 发送 `pushResult`，供 Host 删除失效 token。日志只含时间、随机 route、kind 与状态码。
+
+参考 Apple 的[令牌认证说明](https://developer.apple.com/documentation/usernotifications/establishing-a-token-based-connection-to-apns)和[通知请求说明](https://developer.apple.com/documentation/usernotifications/sending-notification-requests-to-apns)。
 
 ## 预算与管理
 
@@ -78,3 +90,5 @@ npm audit --omit=dev
 ```
 
 测试启动隔离的真实服务进程，使用真实 WebSocket socket，覆盖 capability/room/channel 伪造、替换/close 竞态、重启/离线、匿名容量/超时、帧/字节/fragment 限额、实际停止读取的 TCP 客户端、HTTP/Origin/静态边界、过期、撤销、备份/禁用恢复以及日志/SQLite 秘密标记扫描。它们验证 opaque 路由接口，不验证 Noise 或 GUI；不运行云、手机、公共域名、原生 GUI 或生产容量测试。
+
+推送测试临时生成 P-256 密钥和 TLS 证书，经 CLI 登记、真实 WebSocket 与本机 HTTP/2 TLS 验证签名、缓存、固定载荷、限流、错误和关闭。测试通过内部构造器替换网络连接，仅连接本机服务。真实 APNs 投递、iPhone 锁屏与 TestFlight 签名需要配置真实 Apple 资源后单独验收。

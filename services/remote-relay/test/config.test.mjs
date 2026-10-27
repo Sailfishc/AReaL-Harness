@@ -28,3 +28,29 @@ test('App Origins default to empty and accept exact custom scheme hosts in produ
     assert.throws(() => readConfig(file), { message: 'CONFIG_APP_ORIGIN' }, JSON.stringify(allowedAppOrigins));
   }
 });
+
+test('APNs config is optional, exact, bounded and does not read the configured key during administration', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'areal-relay-apns-config-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const file = join(dir, 'config.json');
+  const base = { publicOrigin: 'https://relay.example', listen: '127.0.0.1:8080', trustedLocalTlsProxy: true,
+    allowedClientOrigins: ['https://relay.example'], dataDir: join(dir, 'data') };
+  const valid = { teamId: 'ABCDEFGHIJ', keyId: 'KLMNOPQRST', keyFile: join(dir, 'does-not-exist.p8'), bundleId: 'org.example.areal' };
+  await writeFile(file, JSON.stringify(base)); assert.equal(readConfig(file).apns, undefined);
+  await writeFile(file, JSON.stringify({ ...base, apns: valid })); assert.deepEqual(readConfig(file).apns, { ...valid, maxPerHostPerMinute: 60 });
+  for (const maxPerHostPerMinute of [1, 600]) {
+    await writeFile(file, JSON.stringify({ ...base, apns: { ...valid, maxPerHostPerMinute } }));
+    assert.equal(readConfig(file).apns.maxPerHostPerMinute, maxPerHostPerMinute);
+  }
+  const invalid = [null, [], true, 'apns', {}, ...[
+    { teamId: 1234567890 }, { teamId: 'short' }, { teamId: 'abcdefghij' }, { keyId: 'bad\nkey' }, { keyId: null },
+    { keyFile: '' }, { keyFile: 42 }, { keyFile: 'contains\0nul' }, { keyFile: 'a'.repeat(4097) },
+    { bundleId: '' }, { bundleId: 'single' }, { bundleId: 'org.example\nheader' }, { bundleId: 'a.'.repeat(128) },
+    { maxPerHostPerMinute: null }, { maxPerHostPerMinute: 0 }, { maxPerHostPerMinute: 601 }, { maxPerHostPerMinute: 1.5 }, { maxPerHostPerMinute: '60' },
+    { endpoint: 'https://attacker.example' },
+  ].map(change => ({ ...valid, ...change }))];
+  for (const apns of invalid) {
+    await writeFile(file, JSON.stringify({ ...base, apns }));
+    assert.throws(() => readConfig(file), { message: 'CONFIG_APNS' });
+  }
+});
