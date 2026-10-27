@@ -1037,6 +1037,7 @@ try {
     await selectConversation(page, sourceThreadId);
     for (const entry of [A, B]) await card(entry.id).waitFor();
     await resources();
+    await resourceRow(B.id).waitFor();
     assert.equal(await resourceRow(B.id).count(), 1);
     count = requests.length;
     await resourceRow(B.id).getByRole("button", { name: "立即运行", exact: true }).click();
@@ -1045,6 +1046,11 @@ try {
       return value.runs.some((run) => run.status === "running") && held.size && value;
     }, "second task is running at model response barrier");
     assert.ok(requests.length > count);
+    await until(async () => {
+      const view = (await snapshot()).projects.find((project) => project.id === projectId);
+      return view?.state?.tasks?.[B.id]?.revision >= busyB.revision;
+    }, "running task revision reaches the controls projection");
+    await resourceRow(B.id).getByRole("button", { name: "停止本次", exact: true }).waitFor();
     count = requests.length;
     await resourceRow(B.id).getByRole("button", { name: "删除", exact: true }).click();
     const deletedB = await until(async () => {
@@ -1073,6 +1079,7 @@ try {
     assert.equal(await page.getByTestId(`task-item-${sourceThreadId}`).count(), 1);
     await shot("04-deleted-card-history");
     await resources();
+    await resourceRow(A.id).waitFor();
     assert.equal(
       await resourceRow(B.id).count(),
       0,

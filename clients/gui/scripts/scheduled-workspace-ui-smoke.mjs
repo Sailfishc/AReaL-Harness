@@ -136,12 +136,36 @@ try {
   await page.getByRole("button", { name: "重新加载任务", exact: true }).click();
   await page.getByRole("button", { name: "打开自动化 每日进展" }).waitFor();
   await page.setViewportSize({ width: 1100, height: 800 });
+  await page.goto(url + "?empty");
+  await page.getByRole("button", { name: "整理每日计划", exact: false }).click();
+  assert.deepEqual(await page.evaluate(() => window.drafts), [
+    {
+      projectId: "00000000-0000-4000-a000-000000000001",
+      text: "帮我创建一个定时任务：回顾我提供的计划，整理当天待办和需要关注的事项。",
+    },
+  ]);
+  assert.equal(
+    (await page.evaluate(() => window.calls)).filter((call) =>
+      ["create", "projectless"].includes(call.name),
+    ).length,
+    0,
+    "new creation only stages a draft without allocating a Thread",
+  );
   for (const mode of ["unresolved", "completed", "observed-completed"]) {
     const result = { mode, passed: false };
     try {
       await page.evaluate(() => {
         localStorage.clear();
         sessionStorage.clear();
+        // Preserve a pre-draft-flow request to exercise legacy recovery, not new creation.
+        localStorage.setItem(
+          "areal-gui:ordinary-schedule-creation",
+          JSON.stringify({
+            prepareId: crypto.randomUUID(),
+            requestId: crypto.randomUUID(),
+            text: "帮我创建一个定时任务：回顾我提供的计划，整理当天待办和需要关注的事项。",
+          }),
+        );
       });
       await page.goto(url + "?empty&recovery=" + mode);
       await page.getByRole("button", { name: "整理每日计划", exact: false }).click();

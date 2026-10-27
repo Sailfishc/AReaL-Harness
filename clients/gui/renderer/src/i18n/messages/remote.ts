@@ -804,8 +804,29 @@ export const remoteMessages = {
     en: "Recent upload records",
   },
   "settings.trajectorySettings.showsUpToTheLatest100Records": {
-    "zh-CN": "最多展示最近 100 条；事件发生、记录创建与上传成功时间分别显示。",
-    en: "Shows up to the latest 100 records, with separate event, record creation, and successful upload times.",
+    "zh-CN":
+      "最近最多 100 条，每页 {pageSize, number} 条；事件发生、记录创建与上传成功时间分别显示。",
+    en: "Up to the latest 100 records, {pageSize, number} per page, with separate event, record creation, and successful upload times.",
+  },
+  "settings.trajectorySettings.uploadRecordsPagination": {
+    "zh-CN": "上传记录分页",
+    en: "Upload records pagination",
+  },
+  "settings.trajectorySettings.recordRange": {
+    "zh-CN": "第 {from, number}–{to, number} 条，共 {total, number} 条",
+    en: "{from, number}–{to, number} of {total, number} records",
+  },
+  "settings.trajectorySettings.recordPage": {
+    "zh-CN": "第 {page, number} / {total, number} 页",
+    en: "Page {page, number} / {total, number}",
+  },
+  "settings.trajectorySettings.previousPage": {
+    "zh-CN": "上一页",
+    en: "Previous",
+  },
+  "settings.trajectorySettings.nextPage": {
+    "zh-CN": "下一页",
+    en: "Next",
   },
   "settings.trajectorySettings.noTrajectoryUploadRecordsYet": {
     "zh-CN": "暂无轨迹上传记录。",
