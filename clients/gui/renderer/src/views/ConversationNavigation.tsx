@@ -78,7 +78,7 @@ function SidebarTaskRow({ row }: { row: Data }) {
     <MemoTaskItem
       key={`${row.owner.id}:${row.summary.id}`}
       id={row.summary.id}
-      nested={!row.owner.projectless && !row.pinned}
+      nested={!row.pinned}
       title={row.title}
       worktree={row.summary.worktree}
       active={projectId === row.owner.id && threadId === row.summary.id}
@@ -119,8 +119,8 @@ function SidebarTaskRow({ row }: { row: Data }) {
           </DropdownMenuItem>
           {(
             [
-              [-1, "上移"],
-              [1, "下移"],
+              [-1, "common.navigation.moveUp"],
+              [1, "common.navigation.moveDown"],
             ] as const
           ).map(([direction, label]) => {
             const siblings = sortRows(
@@ -152,7 +152,7 @@ function SidebarTaskRow({ row }: { row: Data }) {
                   })
                 }
               >
-                {label}
+                {t(label)}
               </DropdownMenuItem>
             );
           })}
@@ -203,7 +203,6 @@ function SidebarProjectGroup({ owner }: { owner: Data }) {
     collapsedProjects,
     setCollapsedProjects,
     search,
-    requestNavigation,
     newTask,
     sortMode,
     sortRows,
@@ -216,7 +215,6 @@ function SidebarProjectGroup({ owner }: { owner: Data }) {
     startRename,
     projectVisibleCounts,
     setProjectVisibleCounts,
-    onOpenProjectTasks,
   } = useSidebarContext();
   const rows = sortRows(
     visibleRows.filter((r) => r.owner.id === owner.id && !r.pinned),
@@ -279,15 +277,6 @@ function SidebarProjectGroup({ owner }: { owner: Data }) {
             <DropdownMenuContent>
               <DropdownMenuItem
                 onClick={() =>
-                  requestNavigation(() => {
-                    onOpenProjectTasks(owner.id);
-                  })
-                }
-              >
-                {t("operations.schedules.title")}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() =>
                   startRename(
                     { operation: "renameProject", projectId: owner.id },
                     library.projects?.[owner.id]?.title || owner.root.split("/").pop(),
@@ -339,8 +328,8 @@ function SidebarProjectGroup({ owner }: { owner: Data }) {
               </DropdownMenuItem>
               {(
                 [
-                  [-1, "上移"],
-                  [1, "下移"],
+                  [-1, "common.navigation.moveUp"],
+                  [1, "common.navigation.moveDown"],
                 ] as const
               ).map(([direction, label]) => {
                 const siblings = projects.filter(
@@ -368,7 +357,7 @@ function SidebarProjectGroup({ owner }: { owner: Data }) {
                       })
                     }
                   >
-                    {label}
+                    {t(label)}
                   </DropdownMenuItem>
                 );
               })}

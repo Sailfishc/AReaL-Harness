@@ -55,6 +55,8 @@ export const commonMessages = {
     "zh-CN": "项目操作 {project}",
     en: "Actions for project {project}",
   },
+  "common.navigation.moveUp": { "zh-CN": "上移", en: "Move up" },
+  "common.navigation.moveDown": { "zh-CN": "下移", en: "Move down" },
   "common.navigation.rename": { "zh-CN": "重命名", en: "Rename" },
   "common.navigation.openDefault": {
     "zh-CN": "在默认应用中打开",
