@@ -31,6 +31,7 @@ export function composerModelOption(model: {
   reasoningEffortOptions?: readonly string[];
   capabilities?: { reasoning: boolean };
   available?: boolean;
+  availability?: "checking" | "available" | "unavailable";
   credentialState?: string;
 }): ComposerModelOption {
   return {
@@ -39,7 +40,8 @@ export function composerModelOption(model: {
     efforts: model.reasoningEffortOptions,
     reasoning: model.capabilities?.reasoning,
     unavailableReason:
-      model.available === false
+      model.availability === "unavailable" ||
+      (model.available === false && model.availability !== "checking")
         ? model.credentialState === "unavailable"
           ? "缺少 API Key"
           : "模型不可用"
@@ -104,7 +106,7 @@ export function ComposerModelMenu({
     const fraction = Math.max(0, step) / Math.max(1, efforts.length - 1);
     return `calc(${fraction * 100}% + ${14 - fraction * 28}px)`;
   };
-  if (!availableOptions.length && (!model || model.unavailableReason))
+  if (!availableOptions.length && !model)
     return (
       <span
         className="composer-model-trigger composer-model-empty text-foreground-subtle text-ui-sm"
@@ -143,6 +145,15 @@ export function ComposerModelMenu({
         }
       >
         <span>{modelLabel}</span>
+        {model?.unavailableReason && (
+          <span
+            className="text-destructive"
+            title={model.unavailableReason}
+            aria-label={model.unavailableReason}
+          >
+            !
+          </span>
+        )}
         <MenuChevronIcon size={14} aria-hidden="true" />
       </PopoverTrigger>
       <PopoverContent

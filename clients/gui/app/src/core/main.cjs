@@ -548,16 +548,22 @@ function startDesktop() {
       })),
     };
   }
+  let publishPending = false;
   function publish() {
     preview?.releaseInvalidOwners();
     mcpApps?.revokeInvalid();
-    if (!window || window.isDestroyed()) return;
-    const owner = window.webContents,
-      projection = projections.get(owner);
-    if (projection?.frame === owner.mainFrame)
-      sendDesktopEvent(owner, "areal-core:projection", {
-        frame: projection.encoder.encode(desktopSnapshot()),
-      });
+    if (publishPending) return;
+    publishPending = true;
+    setImmediate(() => {
+      publishPending = false;
+      if (!window || window.isDestroyed()) return;
+      const owner = window.webContents,
+        projection = projections.get(owner);
+      if (projection?.frame === owner.mainFrame)
+        sendDesktopEvent(owner, "areal-core:projection", {
+          frame: projection.encoder.encode(desktopSnapshot()),
+        });
+    });
   }
   function desktopSnapshot() {
     if (!backend) throw new Error(nativeText("lifecycle.preparing"));

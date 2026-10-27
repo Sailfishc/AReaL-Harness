@@ -141,3 +141,150 @@ test("re-observation does not keep pages loaded through load-older", async () =>
   ]);
   assert.equal(model.state.threads.thread.displayHistory.complete, false);
 });
+
+test("selected conversation is visible before initialization and remains usable while navigation reads wait", async (t) => {
+  const { once } = await import("node:events");
+  const { WebSocketServer } = require("ws");
+  const { ProjectConnections } = require("../app/src/core/project-connections.cjs");
+  const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+  await once(server, "listening");
+  t.after(async () => {
+    for (const socket of server.clients) socket.terminate();
+    await new Promise((resolve) => server.close(resolve));
+  });
+  const calls = [],
+    held = [];
+  let listRequested;
+  const listing = new Promise((resolve) => {
+    listRequested = resolve;
+  });
+  const metadata = {
+    configuration: { revision: 1 },
+    queue: { revision: 1, items: [] },
+    interactions: [],
+    interactionRevision: 1,
+  };
+  const capabilities = {
+    methods: ["areal/thread/observe", "areal/task/host/ready"],
+    features: { boundedObservation: true, boundedHistory: true },
+  };
+  server.on("connection", (socket) =>
+    socket.on("message", (raw) => {
+      const message = JSON.parse(raw);
+      if (message.id === undefined) return;
+      calls.push(message.method);
+      let result = {};
+      if (message.method === "areal/capabilities") result = capabilities;
+      if (["areal/model/list", "areal/profile/list"].includes(message.method))
+        result = { data: [] };
+      if (message.method === "thread/list") {
+        held.push(() => socket.send(JSON.stringify({ id: message.id, result: { data: [] } })));
+        listRequested();
+        return;
+      }
+      if (message.method === "areal/thread/observe")
+        result = {
+          thread: {
+            id: message.params.threadId,
+            desktop: metadata,
+            turns: [
+              {
+                id: "turn",
+                status: "inProgress",
+                items: [{ id: "item", type: "agentMessage", text: "base" }],
+              },
+            ],
+          },
+          history: { snapshotId: "snapshot", complete: true, nextCursor: null },
+        };
+      const reply = { id: message.id, result };
+      socket.send(JSON.stringify(reply));
+      if (message.method === "areal/thread/observe")
+        socket.send(
+          JSON.stringify({
+            method: "item/agentMessage/delta",
+            params: {
+              threadId: message.params.threadId,
+              turnId: "turn",
+              itemId: "item",
+              delta: ":live",
+            },
+          }),
+        );
+    }),
+  );
+  const model = new CoreTaskModel();
+  const project = {
+    id: "project",
+    root: "/tmp",
+    model,
+    summaries: [],
+    configurations: {},
+    endpoint: `ws://127.0.0.1:${server.address().port}`,
+    token: "fixture",
+  };
+  const snapshots = [];
+  model.subscribe(() =>
+    snapshots.push({ ...model.state, configuration: project.configurations.selected }),
+  );
+  const host = Object.assign(Object.create(CoreBackend.prototype), {
+    projects: new Map([[project.id, project]]),
+    starting: new Map(),
+    saved: [project],
+    closing: false,
+    worktrees: { assertAvailable() {}, async observeProject() {} },
+    lifecycleOperations: {
+      assertProject() {},
+      schedulingSuppressed: () => false,
+      blocking: () => false,
+      activeTargets: new Set(),
+    },
+    providers: {
+      async reconcileProject() {
+        assert.equal(model.state.threads.selected.turns[0].items[0].text, "base:live");
+        assert.deepEqual(model.state.queues.selected, metadata.queue);
+        calls.push("provider");
+      },
+      async syncLocal() {
+        calls.push("syncLocal");
+      },
+      async acceptModelSelection() {},
+      async refreshSubscription() {},
+      redact: (value) => value,
+    },
+    resources: {
+      async syncMcp() {
+        calls.push("mcp");
+      },
+    },
+    analytics: { async syncProject() {} },
+    library: { async recordThreadActivity() {}, async recordThreadSummaries() {} },
+    onChange() {},
+    stopReconciliation() {},
+    scheduleReconciliation() {},
+    async startTaskMonitor() {},
+    observeNotification: (_project, _client, method, params) => model.event(method, params),
+  });
+  host._connections = new ProjectConnections(host);
+  host.startProject = async () => {
+    await host.connections.connect(project);
+    return project;
+  };
+  t.after(async () => {
+    host.closing = true;
+    project.client?.close();
+  });
+  await host.start(project.id, { threadId: "selected" });
+  await listing;
+  assert.equal(model.state.connected, true);
+  const first = snapshots.find((snapshot) => snapshot.threads.selected);
+  assert.deepEqual(first.configuration, metadata.configuration);
+  assert.deepEqual(first.queues.selected, metadata.queue);
+  assert.deepEqual(first.interactions.selected, { revision: 1, data: [] });
+  assert.equal(calls.filter((method) => method === "areal/thread/observe").length, 1);
+  assert.ok(calls.indexOf("areal/thread/observe") < calls.indexOf("provider"));
+  assert.ok(calls.indexOf("mcp") < calls.indexOf("areal/task/host/ready"));
+  assert.ok(calls.indexOf("areal/task/host/ready") < calls.indexOf("thread/list"));
+  for (const finish of held) finish();
+  await project.summaryReads;
+});

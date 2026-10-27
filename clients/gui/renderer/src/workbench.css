@@ -1720,13 +1720,40 @@ button.composer-project:hover > svg,
 .composer-input-stack > form {
   position: relative;
 }
+.composer-submit-feedback,
 .composer-preference-notice {
-  margin: 8px 12px 0;
+  position: absolute;
+  inset-inline: var(--spacing-field);
+  bottom: 100%;
+  z-index: 2;
+  margin: 0 0 var(--spacing-inline);
+  padding: var(--spacing-inline) var(--spacing-field);
+  max-height: 6em;
+  overflow-y: auto;
+  border-radius: var(--radius-md);
+  background: var(--color-background);
+  box-shadow: var(--shadow-menu-wide);
   color: var(--color-foreground-subtle);
   font-size: var(--text-ui-sm);
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
+.composer-dock {
+  position: relative;
+}
+.conversation-loading {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+.conversation-loading-body {
+  flex: 1;
+}
+.conversation-loading-editor {
+  min-height: 40px;
+}
+
 .composer-add-menu:focus-visible {
   outline: none;
 }

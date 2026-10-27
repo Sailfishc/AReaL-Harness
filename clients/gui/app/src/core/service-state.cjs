@@ -8,7 +8,7 @@ const { sameOwner } = require("./application-owner.cjs");
 /** @typedef {import('../../../packages/workbench/client/desktop-contract/shared.cjs').ServiceThread} ServiceThread */
 /** @typedef {import('../../../packages/workbench/client/desktop-contract/shared.cjs').ServiceProject} ServiceProject */
 /** @typedef {import('../../../packages/workbench/client/desktop-contract/shared.cjs').DesktopSnapshot} ServiceSnapshot */
-/** @typedef {{connected:true,busy:boolean,providerUpdating:boolean,clients:number,activeCommands:number,starting:number,pid:number,applicationOwner?:unknown,browserCore?:Record<string,string|null>,browserControlEndpoints?:string[],[key:string]:unknown}} ServiceState */
+/** @typedef {{connected:true,busy:boolean,providerUpdating:boolean,clients:number,activeCommands:number,starting:number,pid:number,applicationOwner?:unknown,selectedThreadObservation?:boolean,browserCore?:Record<string,string|null>,browserControlEndpoints?:string[],[key:string]:unknown}} ServiceState */
 /** @typedef {{sequence:number,snapshot:ServiceSnapshot,service:ServiceState,[key:string]:unknown}} ServicePacket */
 
 /** @type {(packet:unknown,metadata:unknown)=>asserts packet is ServicePacket} */
@@ -37,6 +37,8 @@ function servicePacket(packet, metadata) {
     (service.browserControlEndpoints === undefined ||
       (Array.isArray(service.browserControlEndpoints) &&
         service.browserControlEndpoints.every((value) => typeof value === "string"))) &&
+    (service.selectedThreadObservation === undefined ||
+      typeof service.selectedThreadObservation === "boolean") &&
     service.connected === true &&
     typeof service.busy === "boolean" &&
     typeof service.providerUpdating === "boolean" &&

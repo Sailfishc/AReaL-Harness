@@ -5,11 +5,7 @@ import { SettingsDisclosure } from "./SettingsDisclosure.js";
 import { useSettingsOperation } from "./useSettingsOperation.js";
 import { useDraftBlocker, useGuardedNavigation } from "./UnsavedChanges.js";
 import { ModelEditor } from "./ModelEditor.js";
-import {
-  ChatGPTSubscription,
-  subscriptionStatusLabel,
-  type SubscriptionAccountStatus,
-} from "./ChatGPTSubscription.js";
+import { ChatGPTSubscription, subscriptionStatusLabel } from "./ChatGPTSubscription.js";
 import { useEffect, useState } from "react";
 import {
   Pencil,
@@ -26,7 +22,7 @@ import { Switch } from "../components/ui/switch.js";
 import { SettingsSearchInput } from "./SettingsSearchInput.js";
 import { DialogFooter } from "../components/ui/dialog.js";
 import { EmptySettings, Feedback, SettingsDialog, useResource } from "./common.js";
-import { newConnectionDraft } from "./provider-ui-state.js";
+import { newConnectionDraft, subscriptionProjection } from "./provider-ui-state.js";
 import { ProviderTemplatePicker } from "./ProviderTemplatePicker.js";
 import {
   ProviderApiKeySection,
@@ -47,17 +43,23 @@ import type { Action, CommandParams, Data } from "../services.js";
 const CHATGPT = "chatgpt";
 export function ModelSettings({
   action,
+  subscription,
   onOpenSessionSettings,
 }: {
   action: Action;
+  subscription?: Data;
   onOpenSessionSettings: () => void;
 }) {
   const { t } = useI18n();
   const navigate = useGuardedNavigation();
   const api = <P extends CommandParams<"providers">>(request: P) => action("providers", request);
   const state = useResource(() => api({ operation: "list" }), "application");
-  const [accountModels, setAccountModels] = useState<Data[]>([]);
-  const [accountStatus, setAccountStatus] = useState<SubscriptionAccountStatus>();
+  const [loadedSubscription, setLoadedSubscription] = useState<Data>();
+  const account = subscription ?? loadedSubscription;
+  const accountModels: Data[] = account?.models ?? [];
+  const accountStatus = account;
+  const accountEnabled = account?.authenticated === true;
+  const accountReady = subscriptionProjection(account).canTest;
   const accountLabel = accountStatus
     ? t("settings.chatGPTSubscription.valueSubscriptionValue", {
         value0: accountStatus.email || "ChatGPT",
@@ -67,7 +69,6 @@ export function ModelSettings({
   const [selected, setSelected] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [modelQuery, setModelQuery] = useState("");
-  const [accountReady, setAccountReady] = useState(false);
   const [picker, setPicker] = useState(false);
   const [draft, setDraft] = useState<Data | null>(null);
   const [key, setKey] = useState<string | undefined>();
@@ -234,18 +235,16 @@ export function ModelSettings({
     });
   const current =
     selected ??
-    (accountModels.length
-      ? CHATGPT
-      : (items.find((item) => item.enabled)?.id ?? items[0]?.id ?? null));
+    (accountEnabled ? CHATGPT : (items.find((item) => item.enabled)?.id ?? items[0]?.id ?? null));
   useEffect(() => {
     // 初始选择只决定一次；账号临时状态变化不能把用户移到另一份连接配置。
     if (selected === null && !picker && state.value && accountStatus)
       setSelected(
-        accountModels.length
+        accountEnabled
           ? CHATGPT
           : (items.find((item) => item.enabled)?.id ?? items[0]?.id ?? CHATGPT),
       );
-  }, [selected, picker, state.value, accountStatus, accountModels.length]);
+  }, [selected, picker, state.value, accountStatus, accountEnabled]);
   const application = state.value?.application;
   const waitingForApplication = application?.kind === "deferred" || application?.kind === "unknown";
   useEffect(() => {
@@ -284,7 +283,7 @@ export function ModelSettings({
     });
   const matches = (name: string) => name.toLowerCase().includes(query.trim().toLowerCase());
   const catalog = [
-    { id: CHATGPT, name: "ChatGPT", enabled: accountModels.length > 0 },
+    { id: CHATGPT, name: "ChatGPT", enabled: accountEnabled },
     ...items.map((item) => ({
       id: item.id as string,
       name: item.name as string,
@@ -523,9 +522,8 @@ export function ModelSettings({
             <div hidden={current !== CHATGPT} className="chatgpt-subscription-panel">
               <ChatGPTSubscription
                 action={action}
-                onModelsChange={setAccountModels}
-                onAccountChange={setAccountStatus}
-                onReadyChange={setAccountReady}
+                status={subscription}
+                onStatusChange={setLoadedSubscription}
               />
             </div>
             {current === CHATGPT ? (
@@ -1086,7 +1084,7 @@ export function ModelSettings({
                   select({
                     id:
                       items.find((item) => item.id !== remove.id)?.id ??
-                      (accountModels.length ? CHATGPT : null),
+                      (accountEnabled ? CHATGPT : null),
                   });
                   await state.refresh();
                 })

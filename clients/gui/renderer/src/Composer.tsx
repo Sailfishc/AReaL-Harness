@@ -281,15 +281,6 @@ export function Composer({
     await queueEditor.save();
   };
   const config = project.configurations?.[thread.id];
-  const configuredModel =
-    config?.model &&
-    project.models.find(
-      (item: Data) =>
-        item.providerId === config.model.providerId && item.modelId === config.model.modelId,
-    );
-  const modelUnavailable =
-    configuredModel?.available === false ||
-    (config?.model?.providerId === "areal_openai" && !configuredModel);
   const [mcpOpen, setMcpOpen] = useState(false);
 
   const skills = useComposerSkills({
@@ -462,7 +453,6 @@ export function Composer({
       await saveQueueEdit();
       return;
     }
-    if (modelUnavailable && !creatingGoal) return;
     if (
       !submittedInput.text.trim() &&
       !submittedInput.files.length &&
@@ -563,8 +553,7 @@ export function Composer({
     }
   };
   const continueExecution = async () => {
-    if (desktopUnsupported || !canContinue || disabled || modelUnavailable || sending.has(key))
-      return;
+    if (desktopUnsupported || !canContinue || disabled || sending.has(key)) return;
     markSending(key, true);
     setDeliveryError("");
     try {
@@ -857,7 +846,6 @@ export function Composer({
             size="sm"
             disabled={
               disabled ||
-              modelUnavailable ||
               desktopUnsupported ||
               !!input.text.trim() ||
               !!input.files.length ||
@@ -994,7 +982,6 @@ export function Composer({
           submitDisabled={
             workspaceReferencePending ||
             disabled ||
-            (modelUnavailable && !queueEditor.edit && !creatingGoal) ||
             (desktopUnsupported && !queueEditor.edit && !creatingGoal) ||
             (taskManagement && !!running) ||
             annotationEditing ||
@@ -1009,9 +996,7 @@ export function Composer({
           submitDisabledReason={
             desktopUnsupported && !queueEditor.edit && !creatingGoal
               ? t("backend.updateRequired")
-              : modelUnavailable && !queueEditor.edit && !creatingGoal
-                ? t("chat.composer.previousModelUnavailable")
-                : undefined
+              : undefined
           }
           submitting={busy && !configuring}
           submitLabel={
@@ -1361,7 +1346,6 @@ export function Composer({
                   title={desktopUnsupported ? t("backend.updateRequired") : undefined}
                   disabled={
                     disabled ||
-                    modelUnavailable ||
                     desktopUnsupported ||
                     taskManagement ||
                     (!input.text.trim() &&
@@ -1389,7 +1373,7 @@ export function Composer({
                   data-testid="chat-continue-button"
                   aria-describedby={desktopUnsupported ? compatibilityDescription : undefined}
                   title={desktopUnsupported ? t("backend.updateRequired") : undefined}
-                  disabled={disabled || modelUnavailable || desktopUnsupported}
+                  disabled={disabled || desktopUnsupported}
                   className="composer-primary-action"
                   onClick={() => void continueExecution()}
                 >

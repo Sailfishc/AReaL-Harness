@@ -584,11 +584,14 @@ async function manageTaskDraft(backend, project, request) {
           });
         await backend.resources.beforeCreate(project);
         const selection = resolveNewConversationModel(
-          project.models,
+          backend.providers.catalog(project.models ?? [], project),
           backend.providers.lastAcceptedModel,
+          true,
         );
         const model = selection.candidate;
         modelNotice = selection.notice;
+        if (model?.providerId === "areal_openai")
+          await backend.providers.ensureSubscription(project);
         const admitted = await backend.submit(
           project,
           "areal/thread/start",

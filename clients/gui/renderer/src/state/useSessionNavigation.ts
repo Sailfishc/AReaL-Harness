@@ -203,6 +203,7 @@ export function useSessionNavigation(
           if (operation === "connect")
             await resourceAction("connect", {
               projectId: owner.projectId,
+              ...(owner.threadId ? { threadId: owner.threadId } : {}),
               ...(options.resumeScheduling ? { resumeScheduling: true } : {}),
             });
           else if (owner.threadId) {

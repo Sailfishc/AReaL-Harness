@@ -1,4 +1,5 @@
 import React from "react";
+import { ComposerSurface } from "../prompt-editor/ComposerSurface.js";
 import { Button } from "../components/ui/button.js";
 import {
   DropdownMenu,
@@ -113,22 +114,30 @@ function ConversationContent() {
           {thread && project ? (
             <ActiveConversation />
           ) : threadId ? (
-            <div className="settings-empty" role="status">
-              <p>
-                {restorationFailed
-                  ? t("common.conversation.unavailable")
-                  : t("startup.loadingConversation")}
-              </p>
-              {restorationFailed && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="mt-3"
-                  onClick={() => void retryRestoration()}
-                >
-                  {t("recovery.retryView")}
-                </Button>
-              )}
+            <div className="conversation-loading" role="status" aria-busy={!restorationFailed}>
+              <div className="settings-empty conversation-loading-body">
+                <p>
+                  {restorationFailed
+                    ? t("common.conversation.unavailable")
+                    : t("startup.loadingConversation")}
+                </p>
+                {restorationFailed && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-3"
+                    onClick={() => void retryRestoration()}
+                  >
+                    {t("recovery.retryView")}
+                  </Button>
+                )}
+              </div>
+              <div className="composer-dock" aria-hidden="true">
+                <ComposerSurface
+                  editor={<div className="conversation-loading-editor" />}
+                  toolbar={<div className="composer-toolbar" />}
+                />
+              </div>
             </div>
           ) : (
             <DraftConversation />

@@ -2,7 +2,7 @@ import { SettingsGroupCard, SettingsRow, SettingsSection } from "@areal/ui/compo
 import { useI18n, type MessageId, type Translate, type UiMessage } from "../i18n/IntlProvider.js";
 import { SettingsSelect } from "./SettingsPageParts.js";
 import { SettingsDisclosure } from "./SettingsDisclosure.js";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { Button } from "../components/ui/button.js";
 
@@ -32,21 +32,18 @@ const subscriptionStatusMessages: Record<string, MessageId> = {
   storage_locked: "settings.chatGPTSubscription.secureStorageNeedsUnlocking",
   signed_out: "settings.chatGPTSubscription.signedOut",
 };
-export type SubscriptionAccountStatus = { email: string; state: string };
 export function subscriptionStatusLabel(t: Translate, state: string) {
   return t(subscriptionStatusMessages[state] ?? "settings.chatGPTSubscription.statusNeedsChecking");
 }
 
 export function ChatGPTSubscription({
   action,
-  onModelsChange,
-  onAccountChange,
-  onReadyChange,
+  status,
+  onStatusChange,
 }: {
   action: Action;
-  onModelsChange?: (models: Data[]) => void;
-  onAccountChange?: (status: SubscriptionAccountStatus) => void;
-  onReadyChange?: (ready: boolean) => void;
+  status?: Data;
+  onStatusChange?: (status: Data) => void;
 }) {
   const { t } = useI18n();
   const api = <P extends CommandParams<"chatgpt">>(request: P) =>
@@ -55,23 +52,14 @@ export function ChatGPTSubscription({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState<UiMessage>();
-  const value = resource.value;
+  const value = status ?? resource.value;
   const projection = subscriptionProjection(value);
-  const retained = useRef<{ accountId?: string; models: Data[] }>({ models: [] });
   const models: Data[] = value?.models ?? [];
   const chosenModel = models[0]?.id ?? "";
   const accounts: Data[] = value?.accounts ?? [];
   useEffect(() => {
-    if (!value) return;
-    if (value.activeAccountId && retained.current.accountId !== value.activeAccountId)
-      retained.current = { accountId: value.activeAccountId, models: [] };
-    // 暂时不可读不删除已显示的同账号模型；其操作资格仍由真实状态决定。
-    if (!projection.temporary)
-      retained.current.models = value.authenticated ? (value.models ?? []) : [];
-    onModelsChange?.(retained.current.models);
-    onAccountChange?.({ email: value.email || "ChatGPT", state: projection.state });
-    onReadyChange?.(projection.canTest && !resource.error);
-  }, [value, resource.error, onModelsChange, onAccountChange, onReadyChange]);
+    if (resource.value) onStatusChange?.(resource.value);
+  }, [resource.value, onStatusChange]);
 
   useEffect(() => {
     if (!value?.login) return;
@@ -120,7 +108,10 @@ export function ChatGPTSubscription({
             disabled={disabled}
             onClick={() => void resource.refresh()}
           >
-            <RefreshCw size={14} className={resource.loading ? "animate-spin" : ""} />
+            <RefreshCw
+              size={14}
+              className={resource.loading || value?.refreshing ? "animate-spin" : ""}
+            />
           </Button>
         }
       >

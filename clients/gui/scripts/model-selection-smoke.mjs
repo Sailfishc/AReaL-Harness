@@ -902,6 +902,16 @@ async function verifyModelDefaults(projectId) {
         (tabs && [...tabs.querySelectorAll('[role="tab"]')].some((tab) => !tab.disabled))
       );
     });
+    await page.waitForFunction(async () => {
+      const reply = await window.arealDesktop.command("serviceStatus", {});
+      return (
+        reply.ok &&
+        !reply.value.busy &&
+        !reply.value.activeCommands &&
+        !reply.value.starting &&
+        !reply.value.providerUpdating
+      );
+    });
     const defaultMenu = page.getByRole("combobox", { name: "备用默认模型", exact: true });
     if (await defaultMenu.count()) {
       await defaultMenu.click();
@@ -912,7 +922,15 @@ async function verifyModelDefaults(projectId) {
         .getByRole("tab", { name, exact: true })
         .click();
     await button("返回应用").click({ trial: true, timeout: 180000 });
-    const configured = await call("providers", { operation: "list" });
+    let configured;
+    await until(async () => {
+      configured = await call("providers", { operation: "list" });
+      return (
+        configured.defaultModel?.providerId === reference.providerId &&
+        configured.defaultModel?.modelId === reference.modelId &&
+        !configured.pendingApply
+      );
+    }, "fallback default save reaches its authoritative configuration");
     assert.deepEqual(configured.defaultModel, reference);
     assert.equal(configured.pendingApply, false);
     if (await defaultMenu.count())
@@ -1399,13 +1417,24 @@ try {
       .models.filter((m) => m.providerId)
       .every((m) => m.credentialState === "unavailable"),
   );
+  assert.equal(await button("发送").isDisabled(), true, "an empty draft cannot enable sending");
   assert.equal(
-    await button("发送").isDisabled(),
-    true,
-    "a missing default credential cannot enable sending",
+    await button("模型").count(),
+    1,
+    "the selected model remains visible when credentials are missing",
   );
-  assert.equal(await button("模型").count(), 0, "an unavailable catalog has no meaningless picker");
-  await assertEmptyModelIndicator();
+  await page.getByTestId("chat-input").fill("REJECTED_MODEL_DRAFT");
+  assert.equal(await button("发送").isEnabled(), true, "Core owns submission validation");
+  await button("发送").click();
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('[data-testid="chat-input"]')
+        ?.textContent?.includes("REJECTED_MODEL_DRAFT") &&
+      !document.querySelector('button[aria-label="发送"]')?.disabled,
+  );
+  assert.match(await page.getByTestId("chat-input").innerText(), /REJECTED_MODEL_DRAFT/);
+  await page.getByTestId("chat-input").fill("");
   assert.equal(
     await page.getByRole("radio").count(),
     0,
@@ -2024,16 +2053,12 @@ try {
     "disabled model absent from executable Core catalog",
   );
   await button("返回应用").click();
+  assert.equal(await button("模型").count(), 1, "disabled historical identity remains visible");
+  assert.match(await button("模型").innerText(), /env-model/);
   assert.equal(
-    await button("模型").count(),
-    0,
-    "disabled models and historical entries do not open an empty picker",
-  );
-  await assertEmptyModelIndicator();
-  assert.match(
-    await page.getByText("暂无可用模型", { exact: true }).getAttribute("title"),
-    /env-model/,
-    "disabled historical identity remains available",
+    await button("模型").locator('[aria-label="模型不可用"]').count(),
+    1,
+    "confirmed invalidity is marked inside the model label",
   );
   await openModelSettings();
   checks.push(
@@ -2061,8 +2086,11 @@ try {
   await createProjectConversation(page, "workspace");
   await until((s) => fixtureProject(s).models.length === 0, "empty Core catalog");
   const fallbackNotice = page.getByRole("status").filter({ hasText: "上次使用的模型" });
-  await fallbackNotice.waitFor();
-  assert.doesNotMatch(await fallbackNotice.innerText(), /已显示备用默认模型/);
+  assert.equal(
+    await fallbackNotice.count(),
+    0,
+    "catalog loading does not produce a preference warning",
+  );
   assert.equal(await button("发送").isDisabled(), true);
   await app.evaluate(({ BrowserWindow }) =>
     BrowserWindow.getAllWindows()[0].setMinimumSize(640, 620),
@@ -2093,8 +2121,7 @@ try {
           ?.getBoundingClientRect();
         return bar && surface && surface.top <= bar.bottom + 1;
       });
-      const rect = await fallbackNotice.boundingBox();
-      assert.ok(rect && rect.x >= 0 && rect.width > 0 && rect.x + rect.width <= width);
+      assert.equal(await fallbackNotice.count(), 0, "missing preference does not add a layout row");
       await assertEmptyModelIndicator();
       await page.screenshot({
         path: join(scratch, `fallback-notice-${theme}-${width}.png`),

@@ -155,6 +155,8 @@ Client design rules and page patterns live in [`clients/gui/design-system/`](../
 
 ## Client recovery and user visibility
 
+Desktop `AppProviders` owns the shared subscription display projection. Settings groups read the active account's local authorization fact. The public model JSON cache supplies display metadata only. Discovery and confirmed invalidity are distinct states. Renderer catalog availability does not block submission. The submission path and Core decide execution eligibility. The selected conversation starts observation after connection, ahead of background navigation summaries. One model operation installs configuration, queue, interactions, and history from the atomic Core observation. Latest-turn pages merge into the current live model after reading finishes. Main coalesces projection notifications within an event-loop turn while native view ownership checks remain immediate.
+
 Connection health, display synchronization, request admission and execution outcome are four independent facts. A disconnect does not prove rejection; a refresh failure cannot reverse known success; an admission receipt does not establish successful execution. Core owns method effects, admission outcomes and original request receipts. Desktop owns composite command semantics, original request identity and rebuildable display caches. Renderer owns drafts and notice scope. Host owns service generations, and Runtime proves execution-resource cleanup. Recovery follows these owners without adding a universal workflow ledger or client execution loop.
 
 | Situation | System behavior | User visibility |

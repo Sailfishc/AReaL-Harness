@@ -1010,8 +1010,8 @@ export const generalMessages = {
   },
   "settings.newSessionModelSetting.newSessionsUseTheModelAndReasoning": {
     "zh-CN":
-      "新会话沿用主会话最后一次受理的模型与思考强度；已有会话保持不变。没有使用记录或模型不可用时使用备用默认模型。",
-    en: "New sessions use the model and reasoning effort last accepted in the main session. Existing sessions stay unchanged. The fallback default is used when there is no history or that model is unavailable.",
+      "新会话沿用主会话最后一次受理的模型与思考强度；已有会话保持不变。没有使用记录或目录已确认原模型不存在时使用备用默认模型。",
+    en: "New sessions use the model and reasoning effort last accepted in the main session. Existing sessions stay unchanged. The fallback default is used when there is no history or the catalog confirms that the previous model no longer exists.",
   },
   "settings.newSessionModelSetting.commandLineOrEnvironmentSettingsOverrideFile": {
     "zh-CN": "命令行或环境配置覆盖了文件值；保存不会修改这些覆盖。",

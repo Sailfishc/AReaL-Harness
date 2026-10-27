@@ -9,7 +9,7 @@
 /** @typedef {{id:string,name:string,endpoint:string,protocol:string,enabled:boolean,apiKeyEnv?:string,models:ModelConfig[],parameters:ModelParameters}} ProviderConfig */
 /** @typedef {Fields & {path:string,revision:string,data:ProviderConfig[],defaultModel:ModelRef|null,credentialStates:Record<string,string>,credentialSources:Record<string,string>,effective:Fields}} ModelSnapshot */
 /** @typedef {{expectedRevision:string,data:ProviderConfig[],defaultModel:ModelRef|null}} ModelUpdate */
-/** @typedef {Fields & {providerId:string|null,modelId:string,providerRevision:number|null,displayName?:string,available?:boolean}} ModelCatalogEntry */
+/** @typedef {Fields & {providerId:string|null,modelId:string,providerRevision:number|null,displayName?:string,available?:boolean,availability?:'checking'|'available'|'unavailable'}} ModelCatalogEntry */
 /** @typedef {Fields & {id:string,revision:number,endpoint:string,protocol:string,models:string[],modelParameters?:Record<string,ModelParameters>,parameters:ModelParameters}} CoreProvider */
 /** @typedef {{revision:string,sequence:number}} AppliedConfiguration */
 /** @typedef {{code:number,message:string,data?:Fields|null}} ConfigurationError */
@@ -143,7 +143,9 @@ function modelEntry(value) {
     typeof value.modelId === "string" &&
     (value.providerRevision === null || integer(value.providerRevision)) &&
     (value.displayName === undefined || typeof value.displayName === "string") &&
-    (value.available === undefined || typeof value.available === "boolean")
+    (value.available === undefined || typeof value.available === "boolean") &&
+    (value.availability === undefined ||
+      ["checking", "available", "unavailable"].includes(String(value.availability)))
   );
 }
 /** @param {unknown} value @returns {{data:ModelCatalogEntry[],lastAcceptedModel?:AcceptedModel|null}} */
@@ -330,11 +332,11 @@ function modelCapabilities(raw) {
 /** @typedef {{definitionId:string,connectionId:string,billing:string,authentication:string,credentialSource:string,region:string|null,discovery:Discovery,capabilityDefaults:CapabilityDefaults}} ConnectionMetadata */
 /** @typedef {{id:string,name:string,kind:string,icon:string|null,baseUrl:string,protocol:string,protocols:string[],authMethods:string[],billing:string,models:Array<{id:string,enabled:boolean}>,configurationSchema:Record<string,string>,discovery:Discovery,capabilityDefaults:CapabilityDefaults,regions:Array<{id:string,name:string,baseUrl:string}>}} ProviderDefinition */
 /** @typedef {Pick<ModelSnapshot,'path'|'revision'|'defaultModel'|'credentialStates'|'credentialSources'|'effective'> & {data:Array<ProviderConfig & {baseUrl:string,connection:ConnectionMetadata}>,projects:Array<{projectId:string,root:string,connected:boolean,applied:boolean,error:string|null,application:ApplicationState}>,pendingApply:boolean,application:ApplicationState,definitions:ProviderDefinition[]}} ProviderStatus */
-/** @typedef {{id:string,name?:string,source?:string,parameters?:{contextWindowTokens:number}}} SubscriptionModel */
+/** @typedef {{id:string,name?:string,source?:string,parameters?:{contextWindowTokens:number},reasoningEffortOptions?:string[]}} SubscriptionModel */
 /** @typedef {{loginId:string,authUrl:string}} Login */
 /** @typedef {{code:string,state:string,phase:string,httpStatus:number|null,requestId:string|null}} Diagnostic */
 /** @typedef {{authenticated:boolean,state:string,email:string|null,planType:string|null,modelError:string|null,models:SubscriptionModel[],diagnostic:Diagnostic|null,login:Login|null,error:string|null,activeAccountId?:string|null,accounts?:Array<{id:string,label:string,email:string|null,active:boolean,state:string,billing:string}>}} AccountStatus */
-/** @typedef {AccountStatus & {billing:string,catalog:{source:string,fetchedAt:number|null,fresh:boolean,sessionRevision:number|null,overrides:boolean}|null}} ChatGPTStatus */
+/** @typedef {AccountStatus & {availability?:'checking'|'available'|'unavailable',refreshing?:boolean,billing:string,catalog:{source:string,fetchedAt:number|null,fresh:boolean,sessionRevision:number|null,overrides:boolean}|null}} ChatGPTStatus */
 /** @template {string} N @typedef {N extends 'providers' ? ProviderRequest : N extends 'chatgpt' ? ChatGPTRequest : never} Request */
 /** @template {string} N @template P @typedef {N extends 'providers' ? P extends {operation:'revealKey'} ? {apiKey:string} : P extends {operation:'probe'} ? {state:'connected'} : P extends {operation:'discover'} ? {models:string[],modelParameters?:Record<string,ModelParameters>} : P extends {operation:'list'|'apply'|'save'|'saveAndApply'|'removeAndApply'|'defaultAndApply'|'remove'|'default'} ? ProviderStatus : never : N extends 'chatgpt' ? P extends {operation:'login'} ? Login : P extends {operation:'probe'} ? {state:'connected'} : P extends {operation:'status'|'forget'|'logout'|'selectAccount'|'cancel'} ? ChatGPTStatus : never : never} Response */
 /** @param {unknown} value @returns {value is string} */
@@ -543,6 +545,7 @@ function subscriptionModel(value) {
   return (
     record(value) &&
     text(value.id) &&
+    (value.reasoningEffortOptions === undefined || strings(value.reasoningEffortOptions)) &&
     (value.name === undefined || text(value.name)) &&
     (value.source === undefined || text(value.source)) &&
     (value.parameters === undefined ||
@@ -644,6 +647,9 @@ function isResponse(name, request, value) {
     ["status", "forget", "logout", "selectAccount", "cancel"].some(
       (entry) => entry === request.operation,
     ) &&
+    (value.availability === undefined ||
+      ["checking", "available", "unavailable"].includes(String(value.availability))) &&
+    (value.refreshing === undefined || typeof value.refreshing === "boolean") &&
     text(value.billing) &&
     (value.catalog === null ||
       (record(value.catalog) &&
