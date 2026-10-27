@@ -18,7 +18,7 @@ GUI Renderer 只在 `main.tsx` 读取 preload 对象，由 `createDesktopService
 |---|---|
 | `clients/cli`, `clients/tui`, `clients/web` | CLI、终端和本地 Web；初始化连接、显示投影与提交请求 |
 | `clients/gui` | React/Electron 桌面客户端；窄 IPC、原生资源、公开服务发现与可重建投影 |
-| `clients/mobile` | Capacitor iOS 开发壳与 WKWebView 协议探针；复用 GUI 的 mobile 构建和 Remote 加密通道，业务功能按 [iOS 规格](../development/ios-remote-v1-spec.md)分段验收 |
+| `clients/mobile` | Capacitor iOS Remote 客户端；复用 GUI mobile 入口、共享 Remote 协议与会话组件，原生适配负责钥匙串、扫码与生命周期；能力与验收边界见 [iOS 开发指南](../development/ios-development.md) |
 | `core/config` | 解析用户配置、来源、凭据引用和 Skill 目录，定义工具宿主的代理环境白名单；不依赖 Engine 或 Runtime |
 | `core/protocol` | 客户端协议投影和共享类型 |
 | `core/engine` | 模型、工具、历史、持久化、父子任务和 Workgroup |
@@ -172,7 +172,7 @@ GUI 订阅展示状态由 Desktop 的 `AppProviders` 统一投影，设置分组
 
 ## 仓库目录
 
-桌面客户端归属见[迁移决策](../adr/0001-desktop-client-module.md)。`clients/gui` 的独立 Electron 适配器保留系统凭据与订阅转发，通过共享服务公共入口连接 Core；退出 GUI 不终止 Core 任务。macOS 安装包中，前台与后台适配器使用不同的应用身份，后台共享主包资源与原有数据目录，避免 Finder 将重开前台的请求交给无窗口后台。GUI 构建、数据隔离与本地包见 [GUI 指南](../../clients/gui/README.md)。移动端源码后续迁移。
+桌面客户端归属见[迁移决策](../adr/0001-desktop-client-module.md)。`clients/gui` 的独立 Electron 适配器保留系统凭据与订阅转发，通过共享服务公共入口连接 Core；退出 GUI 不终止 Core 任务。macOS 安装包中，前台与后台适配器使用不同的应用身份，后台共享主包资源与原有数据目录，避免 Finder 将重开前台的请求交给无窗口后台。GUI 构建、数据隔离与本地包见 [GUI 指南](../../clients/gui/README.md)。iOS Remote 客户端位于 `clients/mobile`，Web 与 iOS 通过 `@areal/remote-client` 共享协议、命令核对与会话状态；平台分别提供 IndexedDB 与 Keychain 持久化适配。执行和历史权威仍在电脑端 Core/Runtime。
 
 GUI的混合消息采用可重建展示投影：Markdown沿Streamdown，严格版本化`areal-ui`数据由共享UI目录校验并以只读React组件展示，Gen UI/MCP仍由原隔离宿主处理。Core保留原始消息和制品权威，复制可使用同一文字投影；这不是持久历史迁移或可执行组件协议。审批和Ask User共享展示外壳，合法动作、草稿、提交锁与UNKNOWN核对仍归原请求控制器。
 

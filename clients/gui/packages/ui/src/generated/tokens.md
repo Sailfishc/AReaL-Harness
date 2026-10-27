@@ -157,6 +157,7 @@
 | `--browser-file-status-max-height` | `112px` | 浏览器文件交接状态列表的既有最大高度；来自renderer/src/BrowserFileHandoff.layout.css，D2保持原几何。 |
 | `--browser-file-status-inline-gap` | `6px` | 浏览器文件交接状态项的既有内容间距；来自renderer/src/BrowserFileHandoff.layout.css，D2保持原几何。 |
 | `--browser-file-status-block-padding` | `3px` | 浏览器文件交接状态项的既有纵向内边距；来自renderer/src/BrowserFileHandoff.layout.css，D2保持原几何。 |
+| `--size-status-dot` | `7px` | 移动端会话状态圆点尺寸 |
 | `--size-touch-target` | `44px` | 移动端按钮与输入框的最小触控目标 |
 
 ## 派生参数与来源

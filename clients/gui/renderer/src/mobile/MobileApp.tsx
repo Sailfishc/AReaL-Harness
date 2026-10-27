@@ -6,13 +6,19 @@ import { SettingsGroupCard, SettingsRow } from "@areal/ui/compositions";
 import { ApplicationIntlProvider, useI18n, type MessageId } from "../i18n/IntlProvider.js";
 import { MobileClient } from "./mobile-client.mjs";
 import { keychain, observeLifecycle, scanPairingLink } from "./platform.js";
+import { MobileWorkspace } from "./mobile-workspace.mjs";
+import { MobileWorkspaceView } from "./MobileWorkspace.js";
+import "../styles.css";
+import "../workbench.css";
 import "./mobile.layout.css";
 
 const client = new MobileClient({ keychain });
+const workspace = new MobileWorkspace(client);
 
 function MobileApp() {
   const { t } = useI18n();
   const state = useSyncExternalStore(client.subscribe, client.snapshot);
+  const view = useSyncExternalStore(workspace.subscribe, workspace.snapshot);
   const [name, setName] = useState(t("mobile.deviceFallback"));
   const [link, setLink] = useState("");
   const [paste, setPaste] = useState(false);
@@ -32,6 +38,7 @@ function MobileApp() {
     return () => {
       void lifecycle.then((remove) => remove());
       theme.removeEventListener("change", update);
+      workspace.dispose();
       client.disconnect();
     };
   }, []);
@@ -80,29 +87,39 @@ function MobileApp() {
       data-state={state.kind}
       data-remembered={state.kind === "connected" ? state.remembered : undefined}
     >
-      <header className="mobile-header">
-        <h1 className="text-fixed-page-title">
-          {t(
-            settings
-              ? "mobile.settings"
-              : state.kind === "unpaired"
-                ? "mobile.connect"
-                : state.kind === "pairing"
-                  ? "mobile.waiting"
-                  : "mobile.projects",
-          )}
-        </h1>
-        {state.kind !== "unpaired" && state.kind !== "pairing" && (
-          <Button
-            className="mobile-touch"
-            variant="ghost"
-            data-action="settings"
-            onClick={() => setSettings(!settings)}
+      {(state.kind !== "connected" || settings || view.page.kind === "projects") && (
+        <header className="mobile-header">
+          <h1
+            className={
+              state.kind === "connected" && !settings
+                ? "text-fixed-emphasis"
+                : "text-fixed-page-title"
+            }
           >
-            {t(settings ? "mobile.back" : "mobile.settings")}
-          </Button>
-        )}
-      </header>
+            {t(
+              settings
+                ? "mobile.settings"
+                : state.kind === "unpaired"
+                  ? "mobile.connect"
+                  : state.kind === "pairing"
+                    ? "mobile.waiting"
+                    : state.kind === "connected"
+                      ? "mobile.computer"
+                      : "mobile.projects",
+            )}
+          </h1>
+          {state.kind !== "unpaired" && state.kind !== "pairing" && (
+            <Button
+              className="mobile-touch"
+              variant="ghost"
+              data-action="settings"
+              onClick={() => setSettings(!settings)}
+            >
+              {t(settings ? "mobile.back" : "mobile.settings")}
+            </Button>
+          )}
+        </header>
+      )}
       {error && <FeedbackNotice tone="error" message={t(error)} />}
       {state.kind === "unpaired" && !settings ? (
         <section className="mobile-stack">
@@ -228,10 +245,21 @@ function MobileApp() {
         </section>
       ) : (
         <section className="mobile-stack">
-          <p role="status">{t(statusKey)}</p>
+          {(state.kind !== "connected" || view.page.kind === "projects") && (
+            <p role="status" className="mobile-status">
+              {state.kind === "connected" && (
+                <span
+                  aria-hidden="true"
+                  className="mobile-status-dot rounded-[var(--radius-status-dot)] bg-success"
+                />
+              )}
+              {t(statusKey)}
+            </p>
+          )}
           {state.kind === "connected" && !state.remembered && (
             <FeedbackNotice tone="warning" message={t("mobile.storageFailed")} />
           )}
+          {state.kind === "connected" && <MobileWorkspaceView workspace={workspace} />}
           {["offline", "blocked"].includes(state.kind) && (
             <Button className="mobile-touch" onClick={() => void client.setActive(true)}>
               {t("mobile.retry")}

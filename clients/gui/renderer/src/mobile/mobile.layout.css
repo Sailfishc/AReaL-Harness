@@ -50,3 +50,53 @@ body,
   overflow-wrap: anywhere;
   padding: var(--spacing-field);
 }
+.mobile-workspace {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+}
+.mobile-card-copy {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--spacing-inline);
+  align-items: flex-start;
+}
+.mobile-project-card,
+.mobile-work-row {
+  height: auto;
+  white-space: normal;
+  text-align: start;
+  justify-content: flex-start;
+  gap: var(--spacing-field);
+  padding: var(--spacing-field);
+}
+.mobile-status {
+  display: inline-flex;
+  gap: var(--spacing-inline);
+  align-items: center;
+}
+.mobile-status-dot {
+  width: var(--size-status-dot);
+  height: var(--size-status-dot);
+}
+.mobile-refresh {
+  align-self: flex-end;
+}
+.mobile-session {
+  overflow: hidden;
+  min-height: 0;
+}
+.mobile-session .messages-shell {
+  min-height: 0;
+  flex: 1;
+}
+.mobile-page:has(.mobile-session) {
+  height: 100dvh;
+}
+.mobile-page:has(.mobile-session) > .mobile-stack {
+  min-height: 0;
+  flex: 1;
+}

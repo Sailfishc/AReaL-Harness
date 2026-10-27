@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdir, readFile, writeFile, rm } from "node:fs/promises";
@@ -11,6 +12,7 @@ const root = fileURLToPath(new URL("../../../", import.meta.url));
 const output = resolve(
   process.env.AREAL_MOBILE_EVIDENCE ?? join(root, ".scratch/ios-remote-v1/mobile-pairing"),
 );
+const workspaceScenario = process.env.AREAL_MOBILE_SCENARIO === "workspace";
 const runtime = process.env.AREAL_IOS_RUNTIME ?? "17.5";
 const bundleId = process.env.AREAL_MOBILE_BUNDLE_ID ?? "com.example.arealharness";
 const run = async (command, args, options = {}) =>
@@ -41,6 +43,7 @@ if (!process.env.AREAL_IOS_TLS_HOME) {
   let simulator;
   let stage = "sync";
   const records = [];
+  const cleaned = [];
   const sim = (...args) => run("xcrun", ["simctl", ...args]);
   try {
     await run("pnpm", ["--dir", "clients/gui", "mobile:sync"]);
@@ -95,7 +98,9 @@ if (!process.env.AREAL_IOS_TLS_HOME) {
       tlsHome: process.env.AREAL_IOS_TLS_HOME,
       relayOptions: { allowedAppOrigins: ["capacitor://localhost"] },
     });
-    const host = await hostFixture(fixture);
+    const host = workspaceScenario
+      ? await (await import("./mobile-core-fixture.mjs")).mobileCoreFixture(fixture)
+      : await hostFixture(fixture);
     await host.remote.control({
       operation: "enable",
       relay: relay.origin,
@@ -104,12 +109,17 @@ if (!process.env.AREAL_IOS_TLS_HOME) {
     });
     await waitFor(() => host.remote.state().connected);
     const invitation = await host.remote.control({ operation: "pair", transport: "relay" });
-    const cases = ["pair", "restore", "lifecycle", "revoked", "clear", "unpaired", "unpaired-dark"];
+    const cases = workspaceScenario
+      ? ["pair", "projects", "sessions", "baseline", "history", "live", "release"]
+      : ["pair", "restore", "lifecycle", "revoked", "clear", "unpaired", "unpaired-dark"];
     let pairedPeer;
     for (const name of cases) {
       const productConfig = {
         mode: name === "unpaired-dark" ? "unpaired" : name,
         ...(name === "pair" ? { link: invitation.payload } : {}),
+        ...(name !== "pair" && workspaceScenario
+          ? { projectId: host.projectIds[0], threadId: host.threadId }
+          : {}),
       };
       for (const kind of ["pairing", "ready", "background", "result"])
         await rm(join(container, "Documents", `product-${kind}.json`), { force: true });
@@ -141,7 +151,7 @@ if (!process.env.AREAL_IOS_TLS_HOME) {
           await host.remote.control({
             operation: "approve",
             id: event.peer,
-            projects: ["project"],
+            projects: host.projectIds ?? ["project"],
             preset: "Observer",
           });
           approved = true;
@@ -163,13 +173,16 @@ if (!process.env.AREAL_IOS_TLS_HOME) {
             await waitFor(() => host.remote.sessions.sockets.size === 0, 10000);
             await sim("launch", simulator, bundleId);
           }
+          if (name === "live") {
+            await host.send("MOBILE_LIVE_UPDATE");
+          }
           if (name === "revoked")
             await host.remote.control({ operation: "revoke", id: pairedPeer });
         }
         return readFile(join(container, "Documents/product-result.json"), "utf8")
           .then(JSON.parse)
           .catch(() => null);
-      }, 40000);
+      }, 60000);
       const record = { runtime, case: name, ...result.result };
       records.push(record);
       await writeFile(
@@ -180,7 +193,7 @@ if (!process.env.AREAL_IOS_TLS_HOME) {
       console.log(JSON.stringify(record));
       assert.equal(record.origin, "capacitor://localhost");
       assert.equal(record.status, "success", `Mobile product failed in ${name}`);
-      if (["pair", "restore", "lifecycle"].includes(name)) {
+      if (workspaceScenario || ["pair", "restore", "lifecycle"].includes(name)) {
         assert.equal(record.state, "connected");
         assert.equal(record.remembered, "true");
         assert.equal(record.keychainPresent, true);
@@ -200,6 +213,20 @@ if (!process.env.AREAL_IOS_TLS_HOME) {
         assert.equal(record.state, "unpaired");
         assert.equal(record.keychainPresent, false);
       }
+      if (workspaceScenario && name !== "pair") assert.equal(record.projects, 2);
+      if (["history", "live"].includes(name)) assert.equal(record.history, true);
+      if (name === "history") assert.equal(record.historyAutoload, true);
+      if (name === "live") {
+        assert.equal(record.live, true);
+        const thread = await host.backend.projects
+          .get(host.projectIds[0])
+          .client.request("thread/read", { threadId: host.threadId, includeTurns: true });
+        assert.equal(thread.thread.turns.length, 53);
+        assert.ok(thread.thread.turns.every((turn) => turn.status === "completed"));
+        assert.ok(host.modelRequests() >= 53);
+      }
+      if (name === "release")
+        await waitFor(() => host.remote.sessions.observers.viewers.size === 0);
       assert.equal(host.remote.state().pending.length, 0);
     }
   } catch (error) {
@@ -210,7 +237,15 @@ if (!process.env.AREAL_IOS_TLS_HOME) {
       );
     process.exitCode = 1;
   } finally {
-    for (const fn of cleanup.reverse()) await fn();
+    for (const fn of cleanup.reverse()) {
+      try {
+        await fn();
+        cleaned.push(true);
+      } catch {
+        cleaned.push(false);
+        process.exitCode = 1;
+      }
+    }
     if (simulator) {
       await sim("terminate", simulator, bundleId).catch(() => {});
       await sim("shutdown", simulator).catch(() => {});
@@ -232,6 +267,23 @@ if (!process.env.AREAL_IOS_TLS_HOME) {
             version: await run(process.env.AREAL_RELAY_NODE ?? process.execPath, ["--version"]),
           },
           records: records.length,
+          cleanup: cleaned,
+          ...(workspaceScenario
+            ? {
+                coreBinary: {
+                  path: process.env.AREAL_CORE_BIN,
+                  sha256: createHash("sha256")
+                    .update(await readFile(process.env.AREAL_CORE_BIN))
+                    .digest("hex"),
+                },
+                runtimeBinary: {
+                  path: process.env.AREAL_RUNTIME_BIN,
+                  sha256: createHash("sha256")
+                    .update(await readFile(process.env.AREAL_RUNTIME_BIN))
+                    .digest("hex"),
+                },
+              }
+            : {}),
           processExitCode: process.exitCode ?? 0,
         },
         null,

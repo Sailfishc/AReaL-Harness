@@ -1,8 +1,8 @@
 **中文** | [English](ios-development.en.md)
 
-# 验证 iOS 移动壳
+# 开发和验证 iOS App
 
-移动壳使用 Capacitor 8.5.3 和 Swift Package Manager。`clients/mobile/ios/` 是受控 Xcode 工程，原生部署目标为 iOS 17.4。iOS 17.5 已通过真实 WKWebView 门禁，iOS 17.4 尚需在相应运行时复验。移动入口提供扫码或粘贴 Relay 链接、电脑确认等待页、连接状态与清除设备设置。设备身份由本地 Swift 插件保存到 iOS Keychain。项目和会话业务页面及发行渠道尚未实现。iOS 17.0 的真实 WKWebView 门禁因生产依赖缺少 `Promise.withResolvers` 而在 Noise 阶段失败。最低版本采用已提供该标准 API 的 iOS 17.4。
+移动壳使用 Capacitor 8.5.3 和 Swift Package Manager。`clients/mobile/ios/` 是受控 Xcode 工程，原生部署目标为 iOS 17.4。iOS 17.5 已通过真实 WKWebView 门禁，iOS 17.4 尚需在相应运行时复验。移动入口提供扫码或粘贴 Relay 链接、电脑确认等待页、连接状态与清除设备设置。设备身份由本地 Swift 插件保存到 iOS Keychain。项目页、30 条分页会话列表和共享 Messages 只读会话页已接入 Remote API。会话创建、发送、配置和发行渠道仍待后续切片。iOS 17.0 的真实 WKWebView 门禁因生产依赖缺少 `Promise.withResolvers` 而在 Noise 阶段失败。最低版本采用已提供该标准 API 的 iOS 17.4。
 
 ## 准备环境
 
@@ -54,7 +54,23 @@ AREAL_RELAY_NODE=/path/to/node-24.2.0/bin/node node clients/gui/scripts/mobile-p
 
 配对 runner 使用独立模拟器、严格 TLS 的本地 Relay 和生产 RemoteControl。DEBUG driver 只操作真实 DOM 输入与按钮，经过实际协议授权和原生 Keychain，依次检查配对、杀掉后重开恢复、进入系统设置再回到 App 的前后台切换、电脑撤销授权、清除确认、再次重开未配对和深色页面。观察结果只含状态、Keychain 是否存在、授权 revision 和公开设备指纹。证据保存在 `.scratch/ios-remote-v1/mobile-pairing/`，`AREAL_MOBILE_EVIDENCE` 可覆盖位置。该 driver 的原生入口只在 DEBUG 构建提供。
 
-这些门禁是开发检查。真机扫码、iOS 17.4、真实桌面人工确认、相机权限拒绝后的恢复、VoiceOver 与 TestFlight 仍需各自验收。设计稿原图不可访问时，截图只记录实际实现，不能声称已完成设计稿像素对齐。
+这些门禁是开发检查。真机扫码、iOS 17.4、真实桌面人工确认、相机权限拒绝后的恢复、VoiceOver 与 TestFlight 仍需各自验收。视觉检查应与五屏参考稿逐态对照；顶部使用本地化“电脑”，因为现有 Host 契约不返回电脑显示名。截图不能替代 VoiceOver、真机键盘和最小系统版本检查。
+
+## 验证项目和只读会话
+
+`MobileWorkspace` 管理项目、会话列表与单个前台会话。在线项目摘要读取 `work.list` 第一页，会话列表每页 30 条，支持刷新和读取更早会话。列表轮询更新第一页时保留用户已展开的范围。Task 行使用 `task.read` 显示实际执行详情。
+
+会话使用共享 `Messages`，通过 `session.open` 原子基线与 `acceptSessionMessage` 接收实时更新。新观察窗口清除旧分页状态。滚出实时窗口的消息进入有界历史页；最多保留三页历史正文，驱逐范围留下可再次读取的占位。历史游标只描述 Core 当前可访问范围，不能据此声称归档历史完整。`SessionBodyReader` 复用共享正文读取与身份校验，离开会话释放订阅。
+
+```sh
+node --test clients/gui/scripts/mobile-workspace.test.mjs
+AREAL_CORE_BIN=/path/to/locked-slot/areal \
+AREAL_RUNTIME_BIN=/path/to/locked-slot/areal-runtime \
+AREAL_RELAY_NODE=/path/to/node-24.2.0/bin/node \
+node clients/gui/scripts/mobile-workspace-smoke.mjs
+```
+
+真实 Core 门禁必须在 `scripts/verification.py` 的 `slot_lock` 上下文中运行，锁覆盖整个 runner 生命周期。先按[测试指南](testing.md)部署源码匹配的固定槽，包括私有 shell。runner 使用严格 TLS Relay、真实 Core/Runtime、确定性本地模型和原生 WKWebView。它创建两个项目和超过首屏预算的历史，检查首次读取、向上分页、桌面产生的新消息、旧边界消息保留及返回时订阅释放。DEBUG driver 只点击生产 DOM 和滚动消息视图。向上自动分页门禁使用合成 `PointerEvent(pointerType: touch)` 和实际 scroll；实体触摸手势仍需真机检查。证据写入 `.scratch/ios-remote-v1/mobile-workspace/`，包含源码版本、未提交路径、Core/Runtime 文件哈希与清理结果。它不证明真实供应商响应。
 
 ## 选择后续验证工具
 
@@ -62,4 +78,16 @@ AREAL_RELAY_NODE=/path/to/node-24.2.0/bin/node node clients/gui/scripts/mobile-p
 
 业务页面形成后，采用 [Appium XCUITest 的 hybrid contexts](https://appium.github.io/appium-xcuitest-driver/latest/guides/hybrid/) 验证原生壳与 Web DOM 的切换。Debug 壳开启 `WKWebView.isInspectable`。评估 Maestro 时，先确认其[已知问题](https://docs.maestro.dev/extra-materials/troubleshooting/known-issues)中的 WebView 可访问性限制。
 
-需要内部发行时，再按 [fastlane pilot](https://docs.fastlane.tools/actions/pilot/) 准备 TestFlight 上传。发行凭据和签名不属于本地握手门禁。
+## 准备 Release archive 和 TestFlight
+
+完成 Web 同步后，在 Xcode 配置拥有的 Bundle ID、版本号和开发团队，选择真实 iOS 设备目标并执行 Product → Archive。也可使用以下工程入口，签名配置由发行者提供。
+
+```sh
+xcodebuild -project clients/mobile/ios/App/App.xcodeproj -scheme App \
+  -configuration Release -destination 'generic/platform=iOS' \
+  -archivePath .scratch/ios-remote-v1/AReaL.xcarchive archive
+```
+
+在 Archives organizer 选择 archive，使用 Distribute App → App Store Connect → Upload，检查签名证书、描述文件和 entitlements 后上传，按 [Apple 上传说明](https://help.apple.com/xcode/mac/current/en.lproj/dev442d7f2ca.html)继续 TestFlight 分发。上传需要明确的发行授权和凭据。
+
+结构检查可以另加 `CODE_SIGNING_ALLOWED=NO` 生成未签名 archive。它不代表可安装或可上传的发行包。Release 必须排除 DEBUG 配对诊断桥。当前本地门禁未完成真机扫码、锁屏推送或 TestFlight 验收。

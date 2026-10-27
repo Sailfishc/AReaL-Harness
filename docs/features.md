@@ -19,6 +19,7 @@
 | 权限模式 | 本地默认 YOLO，可配置 ASK_PERMISSIONS；TUI/Web 审批、会话/项目精确授权与自动 Thread scratch。[配置](guides/configuration.md#permissions) |
 | 桌面接口 | 认证、Profile/Skill/Plan、`--agent id@revision` 选择、Profile 绑定 Workflow 自动启动、审批/追问、提交去重与队列、共享终端、配置 CAS、模型切换、媒体 Blob、归档与 GC。[桌面 API](api/desktop.md) |
 | 桌面 GUI | `clients/gui` 提供 React/Electron、原生文件/差异/终端/浏览器面板、模型与资源设置、手机配对和定时任务界面；普通会话支持暂停后在原会话手动继续，最后一条用户消息可编辑后作为新消息发送并保留原记录。启用 Browser 的聊天可在用户授权后让 Core 读取该聊天当前原生网页的可访问性文本。人工批注支持冻结原生截图、元素/区域选择、多条 Composer 附件与含裁图和说明的消息，不要求启用模型 Browser 工具包。公共服务连接使 GUI 退出不终止 Core 任务；启动恢复支持二次确认后取消活动轮次并重启后台。支持独立公开依赖构建与 macOS arm64 本地包。[GUI](../clients/gui/README.md) |
+| iOS Remote | `clients/mobile` 使用 Capacitor 与共享 Remote 协议，提供钥匙串身份、扫码/粘贴配对、前后台重连、授权项目、会话历史与实时只读消息。原生下限为 iOS 17.4，开发门禁在 iOS 17.5 模拟器运行；真机与 TestFlight 验收尚未完成。[iOS 开发指南](development/ios-development.md) |
 | 生成式交互回答 | 主会话和 Side 显示 Core 发布的不可变 HTML 制品，复用 MCP Apps 沙箱。状态在同一 Desktop 配置中有界保存，后续输入只附加模型可见参数，私有状态不进入模型请求。页面后续问题经宿主确认发送。[桌面 API](api/desktop.md#生成式交互回答) |
 | 桌面 Worktree | 普通新会话使用当前目录、分支与 Core，多个会话可共享目录；只有本次创建明确选择 Worktree 才创建独立 checkout 与 Core/Runtime，线程仍归原逻辑项目。创建和绑定可恢复，保留已有目录、未提交改动和旧请求身份。任务按实际宿主路由，定时任务家庭继续预约自动分配的项目外目录并核对执行锚点；共享目录与无预约的旧安排不能启用。直接 Core/CLI、原生自主任务及 full-access 外部写入的边界见[指南](guides/worktrees.md)。 |
 | 会话选区与轮次导航 | 主会话划词可添加到主 Composer 或当前辅助对话，保留正文与附件。引用可逐条移除、按来源去重，最多 8 条、单条 8,000 字符、合计 16,000 字符。辅助对话使用独立临时标签和完整 Composer，继承稳定来源历史，支持工具、附件与权限交互。`/side`、`/btw` 可创建空对话或发送文字首问。主、辅会话共用独立滚动的轮次导航；Esc 按焦点所属面板停止。旧版只读 Side 保留原权限。[GUI](../clients/gui/README.md) |

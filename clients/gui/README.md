@@ -2,7 +2,7 @@
 
 # AReaL Harness GUI
 
-完整桌面客户端：React renderer、Electron 原生适配器与公开依赖。与 CLI/TUI/Web 同属 Clients 层；Core 持有会话、历史、模型循环和定时任务，Runtime 执行工具。移动端源码后续迁移，桌面侧配对入口保留。
+完整桌面客户端：React renderer、Electron 原生适配器与公开依赖。与 CLI/TUI/Web 同属 Clients 层；Core 持有会话、历史、模型循环和定时任务，Runtime 执行工具。iOS Remote 客户端位于 `clients/mobile`，复用本 workspace 的协议与会话组件，见 [iOS 开发指南](../../docs/development/ios-development.md)。
 
 工程检查沿用现有 Vite+ 入口。`pnpm --dir clients/gui health` 检查生产源码尺寸、采用率及存量债务；`verify:tests` 校验根包测试清单，`test:unit` 运行 Renderer 与 UI 包的纯行为测试。`node clients/gui/scripts/run-portable-tests.mjs` 按清单选择当前平台上不需要 Core 或原生界面的测试。Linux CI 的配置不表示本机已经完成 Linux 验收。
 

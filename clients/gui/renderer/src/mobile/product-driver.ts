@@ -19,8 +19,17 @@ const click = async (action: string) => {
   button.click();
 };
 
-export async function runProduct(config: { mode: string; link?: string }, bridge: ProbeBridge) {
+export async function runProduct(
+  config: { mode: string; link?: string; projectId?: string; threadId?: string },
+  bridge: ProbeBridge,
+) {
   try {
+    const observations: {
+      projects?: number;
+      history?: boolean;
+      historyAutoload?: boolean;
+      live?: boolean;
+    } = {};
     if (config.mode === "pair") {
       await wait(() => state("unpaired"));
       await click("paste");
@@ -44,6 +53,74 @@ export async function runProduct(config: { mode: string; link?: string }, bridge
       });
     }
     if (!["unpaired", "clear"].includes(config.mode)) await wait(() => state("connected"));
+    if (["projects", "sessions", "baseline", "history", "live", "release"].includes(config.mode)) {
+      await wait(
+        () =>
+          document.querySelectorAll("[data-project-id]").length === 2 &&
+          !document.querySelector('[data-project-id][aria-busy="true"]'),
+      );
+      observations.projects = document.querySelectorAll("[data-project-id]").length;
+      if (config.mode !== "projects") {
+        document
+          .querySelector<HTMLButtonElement>(`[data-project-id="${config.projectId}"]`)!
+          .click();
+        const thread = await wait(() =>
+          document.querySelector<HTMLButtonElement>(`[data-thread-id="${config.threadId}"]`),
+        );
+        if (config.mode !== "sessions") {
+          thread.click();
+          await wait(() =>
+            document.querySelector(".messages")?.textContent?.includes("MOBILE_HISTORY_052"),
+          );
+          if (document.querySelector(".messages")?.textContent?.includes("MOBILE_HISTORY_001"))
+            throw new Error("HistoryFixtureTooSmall");
+          const messages = document.querySelector<HTMLElement>(".messages")!;
+          if (["history", "live"].includes(config.mode)) {
+            const older = await wait(() =>
+              [
+                ...document.querySelectorAll<HTMLButtonElement>(".message-history-controls button"),
+              ].find((button) => !button.disabled),
+            );
+            if (config.mode === "history") {
+              messages.scrollTop = messages.scrollHeight;
+              messages.dispatchEvent(new Event("scroll"));
+              const bounds = messages.getBoundingClientRect();
+              messages.dispatchEvent(
+                new PointerEvent("pointerdown", {
+                  bubbles: true,
+                  pointerType: "touch",
+                  clientX: bounds.left + bounds.width / 2,
+                }),
+              );
+              messages.scrollTop = 0;
+              messages.dispatchEvent(new Event("scroll"));
+            } else older.click();
+            await wait(() =>
+              document.querySelector(".messages")?.textContent?.includes("MOBILE_HISTORY_001"),
+            );
+            observations.history = true;
+            if (config.mode === "history") observations.historyAutoload = true;
+            messages.scrollTop = 0;
+            messages.dispatchEvent(new Event("scroll"));
+          }
+          if (config.mode === "live") {
+            bridge.postMessage({ kind: "ready" });
+            await wait(() =>
+              document.querySelector(".messages")?.textContent?.includes("MOBILE_LIVE_UPDATE"),
+            );
+            if (!document.querySelector(".messages")?.textContent?.includes("MOBILE_HISTORY_003"))
+              throw new Error("HistoryBoundaryLost");
+            observations.live = true;
+            messages.scrollTop = messages.scrollHeight;
+            messages.dispatchEvent(new Event("scroll"));
+          }
+          if (config.mode === "release") {
+            await click("workspace-back");
+            await wait(() => document.querySelector('[data-page="work"]'));
+          }
+        }
+      }
+    }
     if (config.mode === "lifecycle") {
       let background = false;
       let foreground = false;
@@ -74,6 +151,7 @@ export async function runProduct(config: { mode: string; link?: string }, bridge
       kind: "result",
       result: {
         status: "success",
+        ...observations,
         mode: config.mode,
         origin: location.origin,
         state: document.querySelector("[data-state]")?.getAttribute("data-state"),

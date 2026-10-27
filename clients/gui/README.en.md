@@ -2,7 +2,7 @@
 
 # AReaL Harness GUI
 
-The complete desktop client contains a React renderer, Electron native adapter, and public dependencies. It is a peer of CLI/TUI/Web in the Clients layer. Core owns sessions, history, model loops, and scheduled tasks; Runtime executes tools. Mobile source migration is deferred; desktop pairing remains available.
+The complete desktop client contains a React renderer, Electron native adapter, and public dependencies. It is a peer of CLI/TUI/Web in the Clients layer. Core owns sessions, history, model loops, and scheduled tasks; Runtime executes tools. The iOS Remote client lives in `clients/mobile` and reuses this workspace’s protocol and conversation components. See the [iOS development guide](../../docs/development/ios-development.en.md).
 
 Engineering checks use the existing Vite+ entry points. `pnpm --dir clients/gui health` checks production source sizes, UI adoption, and recorded debt. `verify:tests` validates the root package test manifest, and `test:unit` runs pure Renderer and UI package behavior tests. `node clients/gui/scripts/run-portable-tests.mjs` selects registered tests for the current platform without Core or native UI prerequisites. A configured Linux CI job does not establish a completed Linux acceptance run.
 

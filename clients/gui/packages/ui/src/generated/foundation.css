@@ -115,6 +115,7 @@
   --browser-file-status-max-height: 112px;
   --browser-file-status-inline-gap: 6px;
   --browser-file-status-block-padding: 3px;
+  --size-status-dot: 7px;
   --size-touch-target: 44px;
 }
 .dark {
